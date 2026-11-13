@@ -318,11 +318,11 @@ def k2_names_project() -> None:
 # deleted (a stale entry fails the key below), and a new walk is not added here - it calls `nearest_project`.
 OUTSIDE_WALKS = {
     ("contract.py", "_config_location"), ("gate_brief.py", "_project_root_of"),
-    ("host_probe.py", "_not_a_project"), ("launch_check.py", "_find_project_root"),
+    ("launch_check.py", "_find_project_root"),
     ("manual_capture.py", "load_config"), ("migrate_artifacts.py", "_find_project_root"), ("question_stop.py", "_find_config"),
     ("stand_gaps.py", "project_of"), ("story_progress.py", "_project_of"),
 }
-OUTSIDE_WALKS_MAX = 9
+OUTSIDE_WALKS_MAX = 8
 THE_LEAF = ("runtime_paths.py", "nearest_project")
 
 
@@ -495,6 +495,181 @@ def k4_known_artifacts_grounding() -> None:
           Path(items.get("grounding", "")) == base / "work" / "grounding.yaml", str(items.get("grounding")))
 
 
+def _package_copy(folder_name: str, with_script: bool = True) -> Path:
+    """A throwaway package root `<temp>/<folder_name>` that holds scripts/x.py (or an empty scripts/)."""
+    root = scratch() / folder_name
+    (root / "scripts").mkdir(parents=True)
+    if with_script:
+        (root / "scripts" / "x.py").write_text("print(1)\n", encoding="utf-8")
+    return root
+
+
+def k5_script_command() -> None:
+    """OH5-2 A: the one spelling of "run this package script" (E1-E4, E7, E8): the root is passed explicitly, the exact text is checked.
+    One table, rows named by edge id; the root is never read from the environment (E5)."""
+    posix = {
+        "E1 spaces": ("C:/Program Files/qa factory", 'python "C:/Program Files/qa factory/scripts/x.py"'),
+        "E3a dollar root": ("C:/pk$g", "python 'C:/pk$g/scripts/x.py'"),
+        "E3a backtick root": ("C:/pk`g", "python 'C:/pk`g/scripts/x.py'"),
+        "E3a double-quote root": ('C:/pk"g', "python 'C:/pk\"g/scripts/x.py'"),
+        "E3b quote and dollar root": ("C:/it's$", "x.py in C:/it's$/scripts/ (quote this path for your shell: "
+                                                  "it holds characters a shell expands)"),
+        "E3b quote and backtick root": ("C:/it's`", "x.py in C:/it's`/scripts/ (quote this path for your shell: "
+                                                    "it holds characters a shell expands)"),
+        # the non-ASCII name is spelled by escapes: the package carries no Cyrillic character (FR-30)
+        "E7 non-ASCII root": ("C:/Users/\u0410\u043d\u043d\u0430/qa-factory",
+                              'python "C:/Users/\u0410\u043d\u043d\u0430/qa-factory/scripts/x.py"'),
+        "plain quote root stays double-quoted": ("C:/it's", 'python "C:/it\'s/scripts/x.py"'),
+    }
+    for row, (root, want) in posix.items():
+        got = RP.script_command("x.py", root, must_exist=False)
+        check(f"K5 {row}", got == want, got)
+    if os.name == "nt":
+        for row, root, want in (("E2 backslash root", "C:\\Program Files\\qa factory", 'python "C:/Program Files/qa factory/scripts/x.py"'),
+                                ("E8 UNC root", "\\\\srv\\share\\qa-factory", 'python "//srv/share/qa-factory/scripts/x.py"')):
+            got = RP.script_command("x.py", root, must_exist=False)
+            check(f"K5 {row}", got == want, got)
+    else:
+        skipped("K5 E2/E8 backslash and UNC roots", "a backslash is a file-name character off Windows")
+    # existing root with spaces: the real file is named
+    real = _package_copy("qa factory")
+    check("K5 E1 a real root with spaces names the existing script",
+          RP.script_command("x.py", real) == f'python "{real.as_posix()}/scripts/x.py"', RP.script_command("x.py", real))
+    check("K5 script_path finds the file and returns None for a missing one",
+          RP.script_path("x.py", real) == real / "scripts" / "x.py" and RP.script_path("nope.py", real) is None)
+    # E4: the script is missing -> the gap text, never a path that does not exist
+    bare = _package_copy("qa-bare", with_script=False)
+    want = (f"`x.py` (missing from the plugin copy at {bare.as_posix()}; the conductor runs qa-doctor to repair the installation)")
+    check("K5 E4 a missing script gives the gap text", RP.script_command("x.py", bare) == want, RP.script_command("x.py", bare))
+    check("K5 E4 must_exist=False skips the gap",
+          RP.script_command("x.py", bare, must_exist=False) == f'python "{bare.as_posix()}/scripts/x.py"')
+    # E3c: the card head (`<script>` placeholder, must_exist=False) and a door (existing script) quote a `$` root alike
+    dollar = _package_copy("qa$root")
+    door = RP.script_command("x.py", dollar)
+    head = RP.script_command("<script>", dollar, must_exist=False)
+    check("K5 E3c the door on a `$` root is single-quoted", door == f"python '{dollar.as_posix()}/scripts/x.py'", door)
+    check("K5 E3c the card head quotes the same way as the door", head == f"python '{dollar.as_posix()}/scripts/<script>'", head)
+    # E5: the env never decides
+    saved = os.environ.get("CLAUDE_PLUGIN_ROOT")
+    os.environ["CLAUDE_PLUGIN_ROOT"] = "C:/elsewhere"
+    try:
+        got = RP.script_command("runtime_paths.py")
+        want = RP.script_command("runtime_paths.py", RP.package_root())
+    finally:
+        if saved is None:
+            os.environ.pop("CLAUDE_PLUGIN_ROOT", None)
+        else:
+            os.environ["CLAUDE_PLUGIN_ROOT"] = saved
+    check("K5 E5 a host root variable never decides the path", "elsewhere" not in got and got == want, f"{got} vs {want}")
+    check("K5 the default root is package_root()",
+          RP.script_command("runtime_paths.py") == RP.script_command("runtime_paths.py", RP.package_root()))
+
+
+def k5_expand_script_tokens() -> None:
+    """OH8-4 Part 2: `{script:<name>.py}` in a data text becomes `script_command(name, root)`; anything else comes back unchanged
+    (E13). One table, rows named by edge id, `root=` passed explicitly."""
+    real = _package_copy("qa factory")
+    dollar = _package_copy("qa$tok")
+    bare = _package_copy("qa-tok-bare", with_script=False)
+    rows = {
+        "T-ok an existing script": ("run {script:x.py} now", real, f"run {RP.script_command('x.py', real)} now"),
+        "T-$ a dollar root is single-quoted": ("{script:x.py} --probe", dollar, f"python '{dollar.as_posix()}/scripts/x.py' --probe"),
+        "T-missing the gap text": ("{script:x.py}", bare, RP.script_command("x.py", bare)),
+        "T-two both tokens": ("{script:x.py} and {script:x.py}", real, f"{RP.script_command('x.py', real)} and {RP.script_command('x.py', real)}"),
+        "T-none no token": ("plain text {user_key}", real, "plain text {user_key}"),
+        "T-bad empty": ("{script:}", real, "{script:}"),
+        "T-bad dot-dot": ("{script:../x.py}", real, "{script:../x.py}"),
+        "T-bad slash": ("{script:a/b.py}", real, "{script:a/b.py}"),
+        "T-bad extension": ("{script:x.txt}", real, "{script:x.txt}"),
+    }
+    for row, (text, root, want) in rows.items():
+        got = RP.expand_script_tokens(text, root)
+        check(f"K5b {row}", got == want, got)
+    check("K5b T-missing holds no python path", "python " not in RP.expand_script_tokens("{script:x.py}", bare))
+    for row, value in (("None", None), ("int", 5)):
+        check(f"K5b T-nonstr {row} comes back as is", RP.expand_script_tokens(value, real) is value)
+
+
+def _story_in(artifact_root_value, name: str = "QA-9") -> tuple:
+    """(project, story folder): a marked project whose config says `artifact_root` (None: the template's default), the story folder created
+    where `hooklib.artifact_root` says it lives (the expectation is read from the writer, never spelled here)."""
+    import json
+    project = mark(scratch() / "proj")
+    config = project / "qa-factory" / CONFIG
+    cfg = json.loads(config.read_text(encoding="utf-8"))
+    if artifact_root_value is not None:
+        cfg["artifact_root"] = artifact_root_value
+        config.write_text(json.dumps(cfg), encoding="utf-8")
+    story = hooklib.artifact_root(root=project) / name
+    story.mkdir(parents=True)
+    return project, story
+
+
+def k6_story_text() -> None:
+    """OF4-21: `story_text(task_root, rel)` is the story's folder relative to ITS project, then `rel` as text. One table, rows named by edge id;
+    each row checks the exact text. Allowed error: the absolute posix path of the folder; never a path relative to a project that does not hold it."""
+    default = "qa-factory/artifacts/QA-9"
+    project, story = _story_in(None)
+    check("K6 E1 default: the folder without rel", RP.story_text(story) == default, RP.story_text(story))
+    check("K6 E1 default: with rel", RP.story_text(story, "work/briefs/x.md") == f"{default}/work/briefs/x.md", RP.story_text(story, "work/briefs/x.md"))
+    check("K6 E1 default: a leading ./ and backslashes of rel are one spelling",
+          RP.story_text(story, ".\\work\\x.md") == f"{default}/work/x.md", RP.story_text(story, ".\\work\\x.md"))
+    check("K6 E7 a trailing slash of rel is kept", RP.story_text(story, "work/test-cases/") == f"{default}/work/test-cases/",
+          RP.story_text(story, "work/test-cases/"))
+    check("K6 E7 a glob in rel is text", RP.story_text(story, "work/impl-diff*.txt") == f"{default}/work/impl-diff*.txt", RP.story_text(story, "work/impl-diff*.txt"))
+    check("K6 E7 a placeholder in rel is text", RP.story_text(story, "work/<x>.md") == f"{default}/work/<x>.md", RP.story_text(story, "work/<x>.md"))
+    # E2 a configured relative root
+    project, story = _story_in("stories")
+    check("K6 E2 configured relative root", RP.story_text(story, "work/a.md") == "stories/QA-9/work/a.md", RP.story_text(story, "work/a.md"))
+    # E3 a root outside the project: the absolute posix path, never `../`
+    outside = scratch() / "elsewhere"
+    outside.mkdir()
+    project, story = _story_in(outside.as_posix())
+    got = RP.story_text(story, "work/a.md")
+    check("K6 E3 absolute root outside the project: the absolute posix path", got == f"{story.resolve().as_posix()}/work/a.md" and ".." not in got, got)
+    skipped("K6 E3 a root on another drive", "no second drive is written to by a test; the row above is the same branch (the folder is not under the project)")
+    # E4b no marker above the story, and a config that cannot be read: the absolute posix path of the folder
+    bare = scratch() / "bare" / "QA-9"
+    bare.mkdir(parents=True)
+    check("K6 E4b no marker above the story: the absolute posix path", RP.story_text(bare, "work/a.md") == f"{bare.resolve().as_posix()}/work/a.md",
+          RP.story_text(bare, "work/a.md"))
+    project, story = _story_in(None)
+    (project / "qa-factory" / CONFIG).write_text("{ not json", encoding="utf-8")
+    check("K6 E4b a config that cannot be read: the absolute posix path (never the default literal)",
+          RP.story_text(story) == story.resolve().as_posix(), RP.story_text(story))
+    # E5 a Windows spelling of the configured value
+    if os.name == "nt":
+        project, story = _story_in("stories\\qa")
+        check("K6 E5 backslash value", RP.story_text(story, "work/a.md") == "stories/qa/QA-9/work/a.md", RP.story_text(story, "work/a.md"))
+    else:
+        skipped("K6 E5 backslash value", "off Windows a backslash is a file-name character: the printed path is the name the writer made")
+    # E6 an unresolved spelling of the project (a link, or an 8.3 name): the same text as the resolved one
+    project, story = _story_in(None)
+    where = scratch() / "linked"
+    if link(project, where):
+        via = where / "qa-factory" / "artifacts" / "QA-9"
+        check("K6 E6 the story reached through a link prints the same text", RP.story_text(via, "work/a.md") == f"{default}/work/a.md", RP.story_text(via, "work/a.md"))
+    else:
+        skipped("K6 E6 a link", "the OS refused to make one")
+    short = short_name(story)
+    if short:
+        check("K6 E6 the 8.3 spelling prints the same text", RP.story_text(short, "work/a.md") == f"{default}/work/a.md", RP.story_text(short, "work/a.md"))
+    else:
+        skipped("K6 E6 an 8.3 name", "this platform or volume has none")
+    # non-ASCII root, kept verbatim (spelled by escapes: the package carries no Cyrillic character)
+    name = "stories/" + "".join(chr(code) for code in (0x410, 0x43d, 0x43d, 0x430))
+    project, story = _story_in(name)
+    check("K6 non-ASCII root is kept verbatim", RP.story_text(story, "work/a.md") == f"{name}/QA-9/work/a.md", RP.story_text(story, "work/a.md"))
+    # never raises: a value that is no path
+    for odd in (None, "", "\0"):
+        try:
+            RP.story_text(odd, "work/a.md")
+            ok = True
+        except Exception:
+            ok = False
+        check(f"K6 never raises on {odd!r}", ok)
+
+
 def main() -> None:
     if len(sys.argv) == 3 and sys.argv[1] == "--census":
         found = census(sys.argv[2])
@@ -514,6 +689,9 @@ def main() -> None:
         k3_controls()
         k3_census()
         k4_known_artifacts_grounding()
+        k5_script_command()
+        k5_expand_script_tokens()
+        k6_story_text()
     finally:
         os.chdir(CWD0)
         for base in CLEAN:

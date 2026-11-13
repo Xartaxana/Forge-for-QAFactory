@@ -116,18 +116,27 @@ one, which is what makes this rule a check rather than a hope.
    The answer becomes `config.cases_root`, relative to this repository's root (audit A20),
    and it may not point inside `protected_app_paths`: the factory does not write into
    application code, and a config key cannot grant what P-00 refuses.
-1c. **Tests inside the application code.** Asked whenever phase 1's `--suggest` found
-   candidates - including on a Single root, where topic 1 itself is skipped; it goes into
-   topic 1's batch when there is one, otherwise it is its own short batch. Show each
-   candidate with its counts from `test_locations.py --root . --app-root <cand> --protected
+1c. **Where this project's tests live.** Asked always when nothing is recorded for that area yet, including on a Single root, where
+   topic 1 itself is skipped; it goes into topic 1's batch when there is one, otherwise it is
+   its own short batch. With no candidate, ask where this project's tests live: a test
+   repository, a folder outside the application code, or inside it. Record the answer
+   in the carrier of THAT area: `test_locations` for the application code; `tests_root`, the
+   profile's `roots.test` or a `run.levels` pattern for a test repository. Where helpers
+   sit beside tests, record the test FILE shape (`tests/**/test_*.py`,
+   `src/**/*.spec.ts`) rather than the folder: a folder record makes every file there a test
+   for the commit guard but claims none for a write window; a file shape goes into `test_locations` or a
+   `run.levels` pattern; `tests_root` and `roots.test` name a folder. "We have no tests" records
+   nothing. A recorded answer is the project's word and is never re-asked. When phase 1
+   found candidates inside the application folders, show each candidate with its counts from `test_locations.py --root . --app-root <cand> --protected
    <cand>... --check --candidate "<p>" --json` (phase 1's own `--app-root`/`--protected`: no config
    exists yet, and an unreadable count says so in `unreadable`, it is not "0 files"): "<N> files, <M>
    without a usual test name" ("at least" when `truncated`), and ask
-   whether there are other places inside the application folders where tests live under
+   whether there are other places (inside the application folders or elsewhere) where tests live under
    other names. The project's answer is its own word: any name the team uses is accepted.
-   The answer becomes `config.test_locations` (entries relative to `app_root`, written like
+   The answer is recorded in the carrier of its area (above): a place inside the application code becomes
+   `config.test_locations` (entries relative to `app_root`, written like
    `protected_app_paths`; audit A20). An entry that covers a whole application folder is asked
-   once more, naming what it would unprotect. With no candidates, 1c is not asked.
+   once more, naming what it would unprotect.
 2. **Environments and credentials** — the `environment` block per `references/environments.md`:
    which stands exist (`local`, `QA`, `staging`, …), how each is brought up, credentials by
    role, what may safely be broken on each, and which preparation actions are authorized.
@@ -136,7 +145,18 @@ one, which is what makes this rule a check rather than a hope.
    never an unconditional rebuild. Confirm authority to change the selected stand.
    When discovery found no address for a stand, **ask for it outright** — a stand with no
    reachable address is not an environment entry, and `environments.md` forbids "a
-   placeholder URL substituted because nobody answered".
+   placeholder URL substituted because nobody answered". "No address found" means no
+   `env_file_addresses` row of a non-sample file (`sample: false`; these are the `--access --json`
+   fields, and the plain render shows the same as the line `http address origins in env files:`, a
+   sample's row prefixed `sample `, `(has a path, not shown)` for `has_path`, and `only a sample:`). The stand question proposes
+   the non-sample origin with its file ("`.env`: `BASE_URL` → http://localhost:3000") and, when
+   `has_path` is true, asks the person for the base path the file's value carries; when two
+   non-sample files disagree, both are shown with their files and the person picks, you do not
+   choose silently. A row with `sample: true` is never proposed, even when it is the only address
+   found: the question then asks outright. A value shown to the person always names the file it
+   came from; a sample's value is shown, if at all, as "the sample file `<path>` shows ...", apart
+   from the stand's facts, and is never the default answer. With `env_file_is_sample` true, say
+   "the repository holds only a sample env file (`<path>`): no file of this stand was found".
    **Which env file carries the address, the account and the secrets is no longer a
    question**: phase 1 read the files and the login call sites, so those names are *shown*
    in the summary for correction like any other found fact. What is asked instead — by name,

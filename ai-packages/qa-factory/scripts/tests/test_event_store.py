@@ -271,6 +271,143 @@ class EventStoreTests(unittest.TestCase):
         self.assertFalse(target.exists())
         self.assertEqual(list(target.parent.glob("*.tmp")), [])
 
+    def test_one_publisher_for_dashboard_migrate_backup_and_bytes(self):
+        """OH7-1: the dashboard page, the migration backup and `atomic_bytes` publish through `event_store._publish`:
+        the file holds exactly the expected bytes and no `.tmp` is left beside it."""
+        import factory_dashboard
+        import migrate_coverage
+        bytes_value = b"\xef\xbb\xbf{\"a\": 1}\r\n\xff\xfe\x00"        # a BOM, CRLF, and bytes that are not UTF-8
+
+        def dashboard(folder):
+            bare = folder / "bare-root"
+            bare.mkdir()
+            out = folder / "page.html"
+            factory_dashboard.main(["--root", str(bare), "--read-only", "--out", str(out)])
+            self.assertIn(b"<h1>Test Factory Metrics</h1>", out.read_bytes())
+            self.assertNotIn(b"\r\n", out.read_bytes(), "the page is published without newline translation")
+            return out.parent
+
+        def migrate_backup(folder):
+            root = folder / "active"
+            root.mkdir()
+            Controller(root).apply("initialize", {"scope": ["TC-1"], "source_revision": "src",
+                "known_paths": {"root": str(root)}, "coverage_contract_version": 1, "idempotency_key": "init"})
+            row = {"id": "TS-1", "impact": "low", "likelihood": "low", "confidence": "high",
+                   "risk_rationale": "legacy", "risk_source_refs": ["R-1"],
+                   "risk_policy_revision": "factory-starter-v1", "coverage_refs": ["R-1"],
+                   "unknowns": [], "verification_depth": "low", "required_scenarios": ["TC-1"],
+                   "test_level_rationale": "unit", "design_review_required": False, "bounded_reversible": True}
+            plan = root / "work" / "test-plan.json"
+            plan.parent.mkdir(parents=True)
+            original = b"\xef\xbb\xbf" + json.dumps([row], indent=1).replace("\n", "\r\n").encode("utf-8")
+            plan.write_bytes(original)
+            done = migrate_coverage.migrate(root)
+            backup = root / done["backup_ref"]
+            self.assertEqual(backup.read_bytes(), original, "the backup is the plan's exact bytes")
+            return backup.parent
+
+        def direct(folder):
+            target = folder / "deep" / "t.bin"
+            event_store.atomic_bytes(target, bytes_value)
+            self.assertEqual(target.read_bytes(), bytes_value)
+            return target.parent
+
+        for name, run, target_name in (("dashboard", dashboard, "page.html"),
+                                       ("migrate-backup", migrate_backup, "test-plan.v1.json"),
+                                       ("atomic_bytes", direct, "t.bin")):
+            with self.subTest(writer=name):
+                folder = self.root / ("oh7-1-" + name)
+                folder.mkdir()
+                published = []
+                real = event_store._publish
+
+                def spy(path, write, *args, **options):
+                    published.append(Path(path).name)
+                    return real(path, write, *args, **options)
+                with patch("event_store._publish", side_effect=spy):
+                    run(folder)
+                self.assertIn(target_name, published, name + " did not publish through the one publisher")
+                self.assertEqual(list(folder.rglob("*.tmp")), [], name + " left a temp file")
+
+    def test_publish_temp_name_table(self):
+        """OH6-3: the temp name is `.<8 hex>.tmp`, opened with "x"; a taken name is never written or unlinked."""
+        import re
+        import native_context
+        golden = json.loads((Path(__file__).resolve().parent / "fixtures" / "driver-golden-rules.json")
+                            .read_text(encoding="utf-8"))
+        n8a = next(r for r in golden["rows"] if r["id"] == "N8a")["pattern"]
+        names = []
+
+        def write(stream):
+            names.append(stream.name)
+            stream.write("value")
+
+        def run(row_id, taken, fresh):
+            """Pre-create one temp per token in `taken`, feed `taken + fresh` to the seam, publish."""
+            folder = self.root / row_id
+            folder.mkdir()
+            target = folder / "t.json"
+            for token in taken:
+                (folder / ("t.json." + token + ".tmp")).write_bytes(b"other")
+            tokens = iter(list(taken) + list(fresh))
+            with patch("event_store._temp_token", side_effect=lambda: next(tokens)):
+                try:
+                    event_store._publish(target, write)
+                    error = None
+                except FileExistsError as exc:
+                    error = exc
+            return folder, target, error
+
+        suffix = "." + "0" * event_store.TEMP_NAME_HEX + ".tmp"
+
+        with self.subTest(row="E-1"):
+            folder = self.root / "E-1"
+            folder.mkdir()
+            event_store._publish(folder / "t.json", write)
+            self.assertRegex(Path(names[-1]).name, r"^t\.json\.[0-9a-f]{8}\.tmp$", "E-1 shape")
+            self.assertEqual((folder / "t.json").read_text(encoding="utf-8"), "value")
+            self.assertEqual(list(folder.glob("*.tmp")), [])
+
+        with self.subTest(row="E-2a"):
+            folder, target, error = run("E-2a", ["aaaaaaaa"], ["bbbbbbbb"])
+            self.assertIsNone(error, "E-2a")
+            self.assertEqual(target.read_text(encoding="utf-8"), "value")
+            self.assertEqual((folder / "t.json.aaaaaaaa.tmp").read_bytes(), b"other", "E-2a")
+            self.assertFalse((folder / "t.json.bbbbbbbb.tmp").exists(), "E-2a")
+
+        with self.subTest(row="E-2b"):
+            taken = ["%08x" % i for i in range(7)]
+            folder, target, error = run("E-2b", taken, ["ffffffff"])
+            self.assertIsNone(error, "E-2b")
+            self.assertEqual(target.read_text(encoding="utf-8"), "value")
+            for token in taken:
+                self.assertEqual((folder / ("t.json." + token + ".tmp")).read_bytes(), b"other", "E-2b")
+            self.assertEqual(sorted(p.name for p in folder.glob("*.tmp")),
+                             sorted("t.json.%s.tmp" % t for t in taken))
+
+        with self.subTest(row="E-2c"):
+            taken = ["%08x" % i for i in range(8)]
+            folder, target, error = run("E-2c", taken, ["ffffffff"])
+            self.assertIsInstance(error, FileExistsError, "E-2c")
+            self.assertFalse(target.exists(), "E-2c")
+            for token in taken:
+                self.assertEqual((folder / ("t.json." + token + ".tmp")).read_bytes(), b"other", "E-2c")
+            self.assertEqual(len(list(folder.glob("*.tmp"))), 8, "E-2c")
+
+        with self.subTest(row="E-3"):
+            self.assertEqual(len(suffix), native_context.TEMP_NAME_EXTRA, "E-3")
+            self.assertEqual(native_context.TEMP_NAME_EXTRA, 13)
+            for length, total in ((143, 259), (144, 260)):
+                root = "C:\\" + "p" * (length - 3)
+                slot = native_context._slot(root, "s", "qa_scout__qa_1")
+                self.assertEqual(len(str(slot)) + len(suffix), total, "E-3 root %d" % length)
+
+        with self.subTest(row="E-4"):
+            self.assertTrue(re.search(n8a, "x/t.json" + suffix), "E-4 8 hex")
+            self.assertTrue(re.search(n8a, "x/t.json." + "a" * 32 + ".tmp"), "E-4 32 hex")
+            for bad in (7, 9):
+                self.assertFalse(re.search(n8a, "x/t.json." + "a" * bad + ".tmp"), "E-4 %d hex" % bad)
+
     def test_other_permission_errors_are_not_retried(self):
         target = self.root / "pipeline.json"
         attempts = []

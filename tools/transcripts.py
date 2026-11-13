@@ -586,3 +586,35 @@ def live_worker_files(session_id, now, window, root=None, writer=None) -> list:
             if not done and (writer is None or _writer_or_live(writer, f)):
                 found.append((mtime, f))
     return [f for _m, f in sorted(found, key=lambda t: t[0], reverse=True)]
+
+
+# The window of the PARALLEL SESSION note (rule 9e, F6-58): another main session of this project whose transcript
+# was written within this many seconds is a peer that may be issuing task ids into the same journal file.
+PEER_WINDOW_S = 600
+
+
+def peer_main_sessions(transcript_path, now, window_s=PEER_WINDOW_S) -> list:
+    """The OTHER main-session transcripts of this project written within `window_s` seconds of `now`:
+    [(stem, age_s)], youngest first.
+
+    Main-session transcripts are the `*.jsonl` files DIRECTLY inside the folder of `transcript_path`
+    (subagent files live in subfolders and are never counted); the own file is left out. The age of a
+    file whose mtime is in the future is 0. A `transcript_path` that is not a non-empty str, a missing
+    folder and any OSError give [] -- the note this feeds may err toward silence, never toward a raise."""
+    if not isinstance(transcript_path, str) or not transcript_path:
+        return []
+    try:
+        own = Path(transcript_path)
+        found = []
+        for f in own.parent.glob("*.jsonl"):
+            if f.name == own.name or not f.is_file():
+                continue
+            try:
+                age = max(0.0, now - f.stat().st_mtime)
+            except OSError:
+                continue
+            if age <= window_s:
+                found.append((int(age), f.stem))
+        return [(stem, age) for age, stem in sorted(found)]
+    except (OSError, ValueError, TypeError):
+        return []

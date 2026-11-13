@@ -251,7 +251,7 @@ MECHANISM_PREFIXES = (
     "tools/architecture_index.py",  # .githooks/pre-commit (architecture index, F6-29)
     "tools/compact_snapshot.py",    # PreCompact hook (0b20099)
     "tools/forge_metrics.py",       # .githooks/pre-merge-commit (Forge attribution, 6ba43b6)
-    "tools/piles.py",               # .githooks/pre-commit + commit-msg + pre-merge-commit (piles board/check, F0-2)
+    "tools/piles.py",               # .githooks/pre-commit + commit-msg + pre-merge-commit (piles check, F0-2)
     "tools/gitcmd.py",              # the one git runner imported by piles.py, compact_snapshot.py, forge_metrics.py (t-601)
     "tools/piles_split.py",         # the one-shot `split` that fills plans/piles from the backlog (F0-2b)
     # Transitive closure (point 6): reached by AST import from an

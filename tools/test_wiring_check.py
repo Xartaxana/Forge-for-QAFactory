@@ -15,12 +15,14 @@ import os
 import re
 import subprocess
 import sys
+import types
 from pathlib import Path
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import gitcmd  # noqa: E402
 import wiring_check  # noqa: E402
 
 
@@ -176,18 +178,25 @@ def test_rev_parse_failure_is_todays_behaviour_with_one_reason(worktree, monkeyp
     """K3: rev-parse unavailable (None) or failing (rc 128) -> only <root>/.githooks accepted, the reason printed."""
     main, wt = worktree
     _set_hooks_path(main, main / ".githooks")
-    real = wiring_check._run_git
+    real = gitcmd.git
 
     def failing(result):
-        def fake(args, root):
-            return result if args[0] == "rev-parse" else real(args, root)
+        def fake(root, *args, timeout=gitcmd.DEFAULT_TIMEOUT, stderr=False):
+            return result if args[0] == "rev-parse" else real(root, *args, timeout=timeout, stderr=stderr)
         return fake
 
-    for outcome, reason in ((None, "failed to run"),
-                            (subprocess.CompletedProcess([], 128, stdout="", stderr="fatal"), "exited 128")):
-        monkeypatch.setattr(wiring_check, "_run_git", failing(outcome))
+    for outcome, reason in (((-1, b"", b"no git"), "failed to run"), ((128, b"", b"fatal"), "exited 128")):
+        monkeypatch.setattr(gitcmd, "git", failing(outcome))
         issues = wiring_check.check_git_hooks_path(wt)
         assert len(issues) == 1 and "does not resolve to" in issues[0] and reason in issues[0]
+        _set_hooks_path(main, wt / ".githooks")
+        assert wiring_check.check_git_hooks_path(wt) == []
+        _set_hooks_path(main, main / ".githooks")
+    # gitcmd unavailable, or a module with no main_checkout (a host's own gitcmd.py): only <root>/.githooks, reason printed
+    for stand_in in (None, types.SimpleNamespace()):
+        monkeypatch.setattr(wiring_check, "gitcmd", stand_in)
+        issues = wiring_check.check_git_hooks_path(wt)
+        assert len(issues) == 1 and "does not resolve to" in issues[0] and "no main_checkout" in issues[0]
         _set_hooks_path(main, wt / ".githooks")
         assert wiring_check.check_git_hooks_path(wt) == []
         _set_hooks_path(main, main / ".githooks")
@@ -197,15 +206,19 @@ def test_main_githooks_relative_and_odd_common_dirs(repo, monkeypatch):
     (repo / ".githooks").mkdir()
     # the real main checkout: git prints the relative ".git"; it resolves against the tree root
     assert wiring_check._main_checkout_githooks(repo) == ((repo / ".githooks").resolve(), "")
-    real = wiring_check._run_git
+    real = gitcmd.git
 
     def fake(common):
-        return lambda args, root: (subprocess.CompletedProcess([], 0, stdout=common + "\n", stderr="")
-                                   if args[0] == "rev-parse" else real(args, root))
+        # main_checkout reads two lines (git dir, common dir): both are printed
+        def run(root, *args, timeout=gitcmd.DEFAULT_TIMEOUT, stderr=False):
+            if args[0] == "rev-parse":
+                return (0, (common + "\n" + common + "\n").encode(), b"")
+            return real(root, *args, timeout=timeout, stderr=stderr)
+        return run
 
-    monkeypatch.setattr(wiring_check, "_run_git", fake("../host_repo/.git"))
+    monkeypatch.setattr(gitcmd, "git", fake("../host_repo/.git"))
     assert wiring_check._main_checkout_githooks(repo)[0] == (repo / ".githooks").resolve()
-    monkeypatch.setattr(wiring_check, "_run_git", fake("bare.git"))
+    monkeypatch.setattr(gitcmd, "git", fake("bare.git"))
     path, why = wiring_check._main_checkout_githooks(repo)
     assert path is None and "not a .git directory" in why
 

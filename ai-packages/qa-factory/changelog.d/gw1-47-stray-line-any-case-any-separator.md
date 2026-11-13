@@ -1,0 +1,1 @@
+- A line of your answer that starts with the id of a question still open (`q3: x`, `Q3 - x`, `Q3 x`, `Q3. x`, `Q3) x`, a line after a BOM or a no-break space) is now read before the gate decision is recorded and shown as not recorded, instead of being lost; a real answer token is read as before.

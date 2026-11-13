@@ -20,6 +20,8 @@ WHAT A UNIT IS (any one of):
   u2  the body calls the fabric's LLM judge: an attribute of the module `judge` or `judge_form` named in JUDGE_CALLS
       (also through `import judge as X` / `from judge import ask_one`);
   u3  the body holds a refusal site that `refusal_registry.sites()` sees (`deny`/`block`, `raise StateConflict|ValueError`).
+      A raise through a package SUBCLASS of those (resolved per file, `raise_family`) or in the attribute form (`mod.Name(...)`)
+      is a refusal site like a literal raise since OH8-7h: every widened raise site creates its unit, and C1 demands its row.
 Plus: a row of `stages.json` `detectors`/`advice` for a script that has no function-units, and an entry of
 `refusal_registry.REGISTRY` whose (file, function) is not a unit already. Count by distinct (file, function): a stage row or a
 registry entry on a function that is a unit is a `ref` on that function's row, not a second unit.
@@ -31,10 +33,16 @@ a unit that both guards and judges content counts as a breach (the safe directio
 
 BLIND SPOTS (printed with the totals): `meaning` is a hand label, and a unit that judges meaning but is labelled `word-list`
 or `shape` is invisible to `MEANING_CEILING` - the critic's question 11 and calibration check 41 (d) catch it. A unit with a
-check's meaning under a neutral name, with no judge call and no refusal site, is not seen either. A subclass of `ValueError`
-or `StateConflict` raised by its own name is invisible to `refusal_registry.sites` (it matches the literal names); legitimate
-when the subclass is caught and never reaches a role, but a subclass chosen to keep a ratchet down is not seen - the critic's
-question 11 and calibration check 41 catch it.
+check's meaning under a neutral name, with no judge call and no refusal site, is not seen either. A raise through a package
+subclass of `ValueError` or `StateConflict` (resolved per file) or through the attribute form is a refusal site like a literal
+raise (OH8-7h): every WIDENED raise site creates a unit, and C1 demands its row. Still unseen: a stdlib subclass, a class defined
+only under `scripts/tests/`, a base that is neither a plain name nor `alias.Name` (a call, a subscript, or `mod.B` where `mod`
+comes from a from-import of a module), a raise through a variable or assignment alias (`E = MyErr; raise E(...)`), `raise A`
+with no call, `raise A()` with no argument, and a raise of a call to a module FACTORY function that returns the family exception
+(`raise _held_by(...)`) or of a call to a method or attribute that returns one (`raise self._reuse_refusal(...)`,
+event_store.py): the scanner does not see that form, and the Lead measured 52 module-function rowless functions that carry such a
+raise on 097f58d (spec t-346 §6b; an upper bound: the scan does not subtract functions that also raise directly; `exploration.py::acquire` is one) - the
+critic's question 11 and calibration check 41 catch them.
 
     python -B scripts/tests/test_judgment_census.py            # as a script (PASS/FAIL lines)
     python -B -m pytest scripts/tests/test_judgment_census.py -q -p no:cacheprovider
@@ -202,18 +210,21 @@ def blocking_detector_files(rows: dict) -> set:
 def units_of(root: Path, files: list, registry=(), entry_files=BLOCKING_ENTRY_FILES) -> dict:
     """{(file, function): {'via': set, 'spans': [(start, end)], 'blocks': bool, 'refs': set}} plus the problems found.
 
-    `blocks` (b1) a refusal site of `refusal_registry.sites(files=...)` sits in the unit (by the scanner's `function`, or by its
-    line inside the unit's span - a nested unit is then judged on its own lines, an error toward a lone EXTRA `true`);
+    `blocks` (b1) a refusal site of `refusal_registry.sites(files=...)`, widened by `raises=raise_family(...)`, sits in the unit
+    (by the scanner's `function`, or by its line inside the unit's span - a nested unit is then judged on its own lines, an error
+    toward a lone EXTRA `true`); units are CREATED (u3) from every widened site (OH8-7h: a raise through a package subclass or
+    the attribute form is a refusal site like a literal one);
     (b2) the file is on the blocking path: BLOCKING_ENTRY_FILES, or a `detectors` script that is not an adviser."""
     pkg = read_package(root, files)
     trees = pkg["trees"]
     srows = stage_rows(root)
     blocking_files = set(entry_files) | blocking_detector_files(srows)
-    seen = refusal_registry.sites(plugin_root=Path(root), files=sorted(trees))
-    sites_by_file = {}
-    for s in seen:
-        sites_by_file.setdefault(s["file"], []).append(s)
     units, problems = {}, list(pkg["errors"])
+    family = refusal_registry.raise_family(plugin_root=Path(root), files=sorted(trees))
+    wide = refusal_registry.sites(plugin_root=Path(root), files=sorted(trees), raises=family)
+    wide_by_file = {}
+    for s in wide:
+        wide_by_file.setdefault(s["file"], []).append(s)
 
     def add(file, function, via, span=None):
         u = units.setdefault((file, function), {"via": set(), "spans": [], "blocks": False, "refs": set()})
@@ -231,7 +242,7 @@ def units_of(root: Path, files: list, registry=(), entry_files=BLOCKING_ENTRY_FI
                 add(file, node.name, "u1", span)
             if any(span[0] <= line <= span[1] for line in judge_lines):
                 add(file, node.name, "u2", span)
-        for s in sites_by_file.get(file, []):
+        for s in wide_by_file.get(file, []):           # a widened site CREATES the unit (OH8-7h), like a literal one
             add(file, s["function"], "u3")
         # a refusal through a wrapper or an alias: invisible to sites(); the file must stand on the blocking path
         wrappers = _alias_refusals(imports)
@@ -259,11 +270,18 @@ def units_of(root: Path, files: list, registry=(), entry_files=BLOCKING_ENTRY_FI
     for (file, function), u in units.items():
         if file in blocking_files:
             u["blocks"] = True
-        for s in sites_by_file.get(file, []):
-            if s["function"] == function or any(a <= s["line"] <= b for a, b in u["spans"]):
-                u["blocks"] = True
-    return {"units": units, "problems": problems, "blocking_files": sorted(blocking_files), "sites": len(seen),
-            "files": sorted(trees)}
+    # Every widened site flips `blocks` on the unit it sits in: the unit of its own function (created above), or a nested unit
+    # whose span holds its line.
+    by_file = {}
+    for key in units:
+        by_file.setdefault(key[0], []).append(key)
+    for s in wide:
+        for key in by_file.get(s["file"], []):
+            if s["function"] == key[1] or any(a <= s["line"] <= b for a, b in units[key]["spans"]):
+                units[key]["blocks"] = True
+    names = {n for spec in family.values() for n in spec["names"]} - set(refusal_registry.REFUSAL_RAISES)
+    return {"units": units, "problems": problems, "blocking_files": sorted(blocking_files), "sites": len(wide),
+            "files": sorted(trees), "family": len(names)}
 
 
 # --- the census against the package --------------------------------------------------------------------------------
@@ -434,7 +452,7 @@ def analyse(root: Path, census: dict, roles=None, registry=None, entry_files=BLO
     totals = {"files": len(found["files"]), "units": len(units), "counts": got["counts"], "breach": len(got["breach"]),
               "breach_rows": sorted(got["breach"]), "blocks_overrides": got["overrides"], "blocking_per_role": got["per_role"],
               "blocking_units": sum(1 for k, u in units.items() if k in rows and effective_blocks(u, rows[k])),
-              "sites": found["sites"], "blocking_files": found["blocking_files"]}
+              "sites": found["sites"], "blocking_files": found["blocking_files"], "family": found["family"]}
     return {"problems": probs, "totals": totals}
 
 
@@ -443,14 +461,23 @@ def totals_line(t: dict) -> str:
     per_role = " ".join(f"{r}={n}" for r, n in sorted(t["blocking_per_role"].items()))
     return (f"census: {t['files']} files scanned, {t['units']} units; {counts}; breach={t['breach']}; "
             f"blocks_overrides={t['blocks_overrides']}; blocking_per_role: {per_role}; "
+            f"subclass_family={t['family']}; "
             f"SCAN_ROOT={SCAN_ROOT!r} SCAN_EXCLUDE={SCAN_EXCLUDE!r}")
 
 
 BLIND_SPOT = ("blind spot: class `meaning` is a hand label; a unit that judges meaning but is labelled `word-list` or `shape` "
               "is not seen by MEANING_CEILING - the critic's question 11 and calibration check 41 (d) catch it; "
-              "a subclass of `ValueError` or `StateConflict` raised by its own name is invisible to `refusal_registry.sites` "
-              "(it matches the literal names): legitimate when the subclass is caught and never reaches a role, but a subclass "
-              "chosen to keep a ratchet down is not seen - the critic's question 11 and calibration check 41 catch it")
+              "a raise through a package subclass of `ValueError` or `StateConflict` (resolved per file) or through the attribute "
+              "form is a refusal site like a literal raise (OH8-7h): every widened raise site creates a unit, and C1 demands its "
+              "row; still unseen: a stdlib subclass (`json.JSONDecodeError`), a class defined "
+              "only under `scripts/tests/`, a base that is neither a plain name nor `alias.Name` (a call such as `make()`, a "
+              "subscript, or `mod.B` where `mod` comes from a from-import of a module), a raise through a variable or assignment "
+              "alias (`E = MyErr; raise E(...)`), `raise A` with no call, `raise A()` "
+              "with no argument (the scanner's key needs one), and a raise of a call to a module factory function that returns "
+              "the family exception (`raise _held_by(...)`) or of a call to a method or attribute that returns one "
+              "(`raise self._reuse_refusal(...)`): the scanner does not see that form, and 52 rowless functions carry "
+              "such a raise on 097f58d (an upper bound; `exploration.py::acquire` is one) - the critic's question 11 and "
+              "calibration check 41 catch them")
 
 
 def load_census() -> dict:
@@ -518,6 +545,7 @@ def _package(files: dict, agents=("qa-x",), stages=None) -> Path:
     scripts = root / SCAN_ROOT
     scripts.mkdir(parents=True, exist_ok=True)
     for name, text in files.items():
+        (scripts / name).parent.mkdir(parents=True, exist_ok=True)
         (scripts / name).write_text(text, encoding="utf-8")
     (root / "agents").mkdir(exist_ok=True)
     for a in agents:
@@ -718,9 +746,94 @@ def test_neg_stage_row_counts_once() -> None:
     assert r2["totals"]["blocking_units"] == 1, "the adviser does not block, the detector does"
 
 
-def blind_spot_names_subclass_gap() -> None:
-    assert "subclass" in BLIND_SPOT, "BLIND_SPOT must name the subclass gap of refusal_registry.sites"
-    assert "subclass" in load_census()["about"], "the census `about` must name the subclass gap"
+_A = "class A(ValueError):\n    pass\n\n\n"
+_RAISE = "def check_f(x):\n    raise {}('no')\n"
+_NEUTRAL = "def f():\n    raise A('no')\n"          # a neutral name: the widened site alone makes `f` a unit
+# OH8-7h: (id, files, units that block). A positive row asserts that the widened site is a refusal site like a literal one: the
+# unit `check_f` is found by its raise (and by its u1 name) and BLOCKS; a miss asserts that it does not. `check_f` has a row, so
+# the count is `blocking_units`. `neutral_only` (a unit by its widened site alone) is the one row with its own body.
+SUBCLASS_ROWS = (
+    ("literal", {"helpers_x.py": _RAISE.format("ValueError")}, 1),
+    ("direct", {"helpers_x.py": _A + _RAISE.format("A")}, 1),
+    ("grandchild", {"helpers_x.py": _A + "class B(A):\n    pass\n\n\n" + _RAISE.format("B")}, 1),
+    ("attr_base", {"helpers_x.py": "import event_store as ES\n\n\nclass A(ES.StateConflict):\n    pass\n\n\n" + _RAISE.format("A")}, 1),
+    ("nested_class", {"helpers_x.py": "def mk():\n    class A(ValueError):\n        pass\n    return A\n\n\n" + _RAISE.format("A")}, 1),
+    ("multiple", {"helpers_x.py": "class Mixin:\n    pass\n\n\nclass A(Mixin, ValueError):\n    pass\n\n\n" + _RAISE.format("A")}, 1),
+    ("cross_module", {"mod_a.py": _A, "helpers_x.py": "from mod_a import A\n\n\n" + _RAISE.format("A")}, 1),
+    ("alias", {"mod_a.py": _A, "helpers_x.py": "from mod_a import A as B\n\n\n" + _RAISE.format("B")}, 1),
+    ("attr_subclass", {"mod_a.py": _A, "helpers_x.py": "import mod_a\n\n\n" + _RAISE.format("mod_a.A")}, 1),
+    ("attr_raise", {"helpers_x.py": "import event_store as ES\n\n\n" + _RAISE.format("ES.StateConflict")}, 1),
+    ("unrelated", {"helpers_x.py": "class A(Exception):\n    pass\n\n\n" + _RAISE.format("A")}, 0),
+    ("tests_only", {"tests/t_mod.py": _A, "helpers_x.py": "from tests.t_mod import A\n\n\n" + _RAISE.format("A")}, 0),
+    ("shadowed_local", {"mod_a.py": _A, "helpers_x.py": "class A(Exception):\n    pass\n\n\n" + _RAISE.format("A")}, 0),
+    ("shadowed_import", {"mod_a.py": "class A(Exception):\n    pass\n", "mod_b.py": _A,
+                         "helpers_x.py": "from mod_a import A\n\n\n" + _RAISE.format("A")}, 0),
+    ("no_binding", {"mod_a.py": "class ImportError(ValueError):\n    pass\n", "helpers_x.py": _RAISE.format("ImportError")}, 0),
+    ("no_arg", {"helpers_x.py": _A + "def check_f(x):\n    raise A()\n"}, 0),
+    ("cycle", {"helpers_x.py": "class A(B):\n    pass\n\n\nclass B(A):\n    pass\n\n\n" + _RAISE.format("A")}, 0),
+    ("neutral_only", {"helpers_x.py": _A + _NEUTRAL}, 1),
+)
+
+
+def test_neg_subclass_raises_flip_blocks_and_create_units() -> None:
+    for case, files, blocking in SUBCLASS_ROWS:
+        if case == "neutral_only":
+            bare = _run(files, _census())
+            assert _has(bare["problems"]["C1"], "helpers_x.py::f is a check unit (u3)"), (case, "no row", bare["problems"]["C1"])
+            assert bare["totals"]["blocking_units"] == 0, (case, "a unit with no row blocks nothing", bare["totals"])
+            rowed = _run(files, _census([_row("helpers_x.py", "f")]))
+            assert not rowed["problems"]["C1"], (case, "with its row", rowed["problems"]["C1"])
+            assert rowed["totals"]["blocking_units"] == blocking, (case, "the widened site flips the unit it creates", rowed["totals"])
+            continue
+        r = _run(files, _census([_row("helpers_x.py", "check_f")]))
+        assert r["totals"]["blocking_units"] == blocking, (case, "blocks flip", r["totals"]["blocking_units"], "want", blocking)
+        assert not r["problems"]["C1"], (case, r["problems"]["C1"])
+
+
+def test_neg_the_attribute_form_and_the_family_need_raises_and_the_default_scan_is_todays() -> None:
+    src = {"mod_a.py": _A, "helpers_x.py": "import event_store as ES\n\n\n" + _RAISE.format("ES.StateConflict")
+           + "\n\ndef check_g(x):\n    raise A('no')\n"}
+    root = _package(src)
+    try:
+        names = sorted(src)
+        assert refusal_registry.sites(plugin_root=root, files=names) == [], "A24's scan widened: it sees the attribute form"
+        fam = refusal_registry.raise_family(root, names)
+        assert [s["function"] for s in refusal_registry.sites(plugin_root=root, files=names, raises=fam)] == ["check_f"]
+        # E5: a file with no family class binds exactly the literals (its neighbour's `A` is not its own); E6: see `cycle`
+        assert set(fam["helpers_x.py"]["names"]) == set(refusal_registry.REFUSAL_RAISES), fam
+        assert set(fam["mod_a.py"]["names"]) == set(refusal_registry.REFUSAL_RAISES) | {"A"}, fam
+    finally:
+        harness.cleanup(root)
+    # the real package (E4): the default scan keeps its callee form, and the widened one only adds
+    plugin = harness.PLUGIN_ROOT
+    files = scan_files(plugin)
+    base = refusal_registry.sites(plugin_root=plugin, files=files)
+    wide = refusal_registry.sites(plugin_root=plugin, files=files, raises=refusal_registry.raise_family(plugin, files))
+    key = lambda s: (s["file"], s["line"], s["function"], s["call"])  # noqa: E731
+    assert {key(s) for s in base} <= {key(s) for s in wide} and len(wide) >= len(base)
+    assert refusal_registry.sites() == refusal_registry.sites(raises=None)
+    literal = set(refusal_registry.REFUSAL_CALLS) | set(refusal_registry.REFUSAL_RAISES)
+    for name in refusal_registry.SCANNED:
+        path = plugin / SCAN_ROOT / name
+        if not path.is_file():
+            continue
+        for call in refusal_registry._refusal_calls(ast.parse(path.read_text(encoding="utf-8", errors="replace"))):
+            assert isinstance(call.func, ast.Name) and call.func.id in literal, (name, call.lineno, "default path left the literals")
+
+
+def test_blind_spot_states_the_subclass_clause() -> None:
+    for label, text in (("BLIND_SPOT", BLIND_SPOT), ("census about", load_census()["about"]), ("docstring", __doc__ or "")):
+        low = text.lower()
+        # `factory function` names the form the scanner does not see: a raise of a call to a module function that returns the
+        # family exception (`raise _held_by(...)`)
+        for needle in ("subclass", "stdlib", "`raise a()`", "factory function"):
+            assert needle in low, f"{label} must say {needle!r} (the subclass clause of OH8-7h)"
+        for needle in ("pending", "oh8-7b", "subclass_unit_files"):
+            assert needle not in low, f"{label} still says {needle!r}: the temporary second road is gone"
+        assert "invisible to `refusal_registry.sites`" not in text, f"{label} still carries the old gap clause"
+    line = totals_line({"files": 0, "units": 0, "counts": {c: 0 for c in CLASSES}, "breach": 0, "blocks_overrides": 0,
+                        "blocking_per_role": {}, "family": 0})
+    assert "subclass_family=" in line and "pending" not in line, line
 
 
 TESTS = [
@@ -734,7 +847,10 @@ TESTS = [
     test_neg_nested_and_module_level_refusals_are_units, test_neg_unparsable_file_is_named_and_red,
     test_neg_stale_row_and_two_rows, test_neg_class_opinion_override_without_note_and_bad_form_are_c2,
     test_neg_raised_ceilings_roles_and_lowered_counts_are_c3, test_neg_vanished_top_level_ceiling_or_empty_ratchet_is_red,
-    test_neg_meaning_ceiling_is_not_data, test_neg_stage_row_counts_once, blind_spot_names_subclass_gap,
+    test_neg_meaning_ceiling_is_not_data, test_neg_stage_row_counts_once,
+    test_neg_subclass_raises_flip_blocks_and_create_units,
+    test_neg_the_attribute_form_and_the_family_need_raises_and_the_default_scan_is_todays,
+    test_blind_spot_states_the_subclass_clause,
 ]
 
 

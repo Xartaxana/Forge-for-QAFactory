@@ -1,12 +1,10 @@
-"""Tests for tools/piles.py: the parsers, `board`, the usage errors and the gate's own semantics (F0-2a).
+"""Tests for tools/piles.py: the parsers, `summary`, the refused `board`, the usage errors and the gate's own semantics (F0-2a).
 
 Part of the split of the old tools/test_piles.py (t-596, the 120 s cap per file): the helpers are in
 tools/piles_testkit.py, the fixtures `session_tree`, `tree`, `cli` in tools/conftest.py.
 Run from the repo root: python -m pytest tools/test_piles.py -q
 """
 import pathlib
-import os
-import re
 import shutil
 import subprocess
 import sys
@@ -17,7 +15,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 TOOLS = pathlib.Path(__file__).resolve().parent
 REAL = TOOLS.parent
 import piles  # noqa: E402
-from piles_testkit import GIT_VARS, clean_env, put, BACKLOG, card_text, batch_text, node, finding_text, ROW1, ROW2, needs_git, stage, edit, board_text  # noqa: E402
+from piles_testkit import (GIT_VARS, clean_env, put, BACKLOG, card_text, batch_text, node, finding_text, ROW1, ROW2,  # noqa: E402
+                           needs_git, stage, edit, CARD, B1, commit, freeze, git, msg, head_hash)
 
 
 @pytest.fixture(autouse=True)
@@ -168,161 +167,48 @@ def test_real_forge_card_and_batch_parse_clean():
     assert card.rows and batch.nodes and batch.status in piles.BATCH_STATUSES
 
 
-# ================================================================== board
+# ================================================================== the refused `board` alias, `summary`
 
-def test_board_writes_when_absent_and_check_reports_missing(tree, cli):
-    code, out = cli(tree, "board", "--check")
-    assert code == 2 and "is missing" in out and "run python tools/piles.py board" in out
-    code, out = cli(tree, "board")
-    assert code == 0 and "wrote plans/PILES.md: 2 piles, 2 batches, 12 ids" in out
-    assert cli(tree, "board", "--check")[0] == 0
-
-
-def test_board_check_stale_then_fresh(tree, cli):
-    cli(tree, "board")
-    edit(tree, "plans/piles/forge/README.md", "| 2 | потом | B-015 | M | ожидает", "| 2 | потом | B-015 | M | в работе")
-    code, out = cli(tree, "board", "--check")
-    assert code == 2 and "is stale" in out
-    cli(tree, "board")
-    assert cli(tree, "board", "--check")[0] == 0
-
-
-
-
-def test_board_toc_lists_every_id_form(tree, cli):
-    put(tree, "plans/piles/forge/README.md", card_text("forge", "Forge", [ROW1, ["2", "потом", "B-015, B-308 (хвост)", "M", "ожидает", "—", "—", "—"]]))
-    put(tree, "plans/piles/forge/findings/B-102-dyra.md", finding_text("B-102"))
-    put(tree, "plans/piles/forge/findings/B-230-opisanie.md", finding_text("B-230"))
-    toc = dict(re.findall(r"^\| (B-\d+) \| (.*) \|$", board_text(tree, cli), re.M))
-    assert toc["B-230"] == "`forge` → пачка 1, описание: findings/B-230-opisanie.md"
-    assert toc["B-308"] == "`forge` → пачка 2 (хвост)"
-    assert toc["B-015"] == "`forge` → пачка 2"
-    assert toc["B-102"] == "`forge` → findings/B-102-dyra.md"
-    assert toc["B-135"] == "не разложено"
-    assert toc["B-001"] == "закрыто (хэша нет)" and toc["B-399"] == "закрыто `06b835b`"
-
-
-def test_board_closed_hash_forms(tree, cli):
-    toc = dict(re.findall(r"^\| (B-\d+) \| (.*) \|$", board_text(tree, cli), re.M))
-    assert toc["B-417"] == "закрыто `7848917`"          # digits only, in backticks
-    assert toc["B-314"] == "закрыто `0275882`"
-    assert toc["B-462"] == "закрыто `bac83cb`"
-    assert toc["B-420"] == "закрыто (хэша нет)"         # pipeline numbers are never hashes
-
-
-def test_board_contradiction_open_and_closed(tree, cli):
-    edit(tree, "plans/BACKLOG.md", "| B-230 | **Кучки.**", "| B-001 | **Двойник.**")
-    toc = dict(re.findall(r"^\| (B-\d+) \| (.*) \|$", board_text(tree, cli), re.M))
-    assert toc["B-001"] == "закрыто (хэша нет) (и открыт — ошибка)"
-
-
-def test_board_unassigned_finding_counted_not_listed(tree, cli):
-    put(tree, "plans/piles/forge/findings/20261008-bez-id.md", finding_text("—"))
-    text = board_text(tree, cli)
-    assert "находок без id: 1" in text and "20261008-bez-id" not in text
-    assert "| 1 / 08.10.2026 |" in text.replace("0 / 08.10.2026", "1 / 08.10.2026") or "1 / 08.10.2026" in text
-
-
-def test_board_deterministic_no_clock(tree, cli):
-    a = board_text(tree, cli)
-    os.utime(tree / "plans/BACKLOG.md", (1, 1))
-    b = board_text(tree, cli)
-    assert a == b and "\r" not in a and not a.startswith("﻿") and a.endswith("\n") and "sha256" not in a
-
-
-def test_board_table_rows_order_and_pile_without_batches(tree, cli):
-    rows = [l for l in board_text(tree, cli).splitlines() if l.startswith("| [")]
-    assert [re.search(r"\(`([^`]+)`\) \| П1 \| не нужен \| (\S+)", r).groups() for r in rows] == [
-        ("forge", "1"), ("forge", "2"), ("report-delivery", "—")]
-    assert "| — | — | — | — | — | — | — |" in rows[-1]                  # a card with zero batches: one row of dashes
-
-
-def test_board_card_and_batch_disagreement_shown(tree, cli):
-    edit(tree, "plans/piles/forge/README.md", "| 1 | фундамент | B-230 | L | в работе | Ира | `main` (x)", "| 1 | фундамент | B-230 | L | ожидает | Катя | `pile/forge/batch-1`")
-    row = next(l for l in board_text(tree, cli).splitlines() if "| фундамент |" in l)
-    assert "в работе (в карточке: ожидает)" in row and "Ира (в карточке: Катя)" in row
-    assert "`main` (x) (в карточке: `pile/forge/batch-1`)" in row
-
-
-def test_board_branch_compared_by_first_token(tree, cli):
-    edit(tree, "plans/piles/forge/README.md", "`main` (x)", "`main` (другой текст)")
-    row = next(l for l in board_text(tree, cli).splitlines() if "| фундамент |" in l)
-    assert "в карточке" not in row
-
-
-def test_board_skips_template_and_hidden(tree, cli):
-    put(tree, "plans/piles/.hidden/README.md", "# H (`.hidden`)\n")
-    text = board_text(tree, cli)
-    assert "_template" not in text and ".hidden" not in text
-
-
-def test_board_empty_node_table_is_shown(tree, cli):
-    put(tree, "plans/piles/forge/batch-1-foundation.md", batch_text("forge", 1, nodes=[]))
-    code, out = cli(tree, "board")
-    assert code == 0 and "| фундамент |" in (tree / "plans/PILES.md").read_bytes().decode("utf-8")
-
-
-def test_board_duplicate_batch_numbers_both_shown(tree, cli):
-    put(tree, "plans/piles/forge/batch-1-copy.md", batch_text("forge", 1, nodes=[node("F0-9")]))
-    rows = [l for l in board_text(tree, cli).splitlines() if "| фундамент |" in l]
-    assert len(rows) == 2
-
-
-def test_board_crlf_piles_md_not_stale(tree, cli):
-    cli(tree, "board")
-    p = tree / "plans/PILES.md"
-    p.write_bytes(p.read_bytes().replace(b"\n", b"\r\n"))
-    assert cli(tree, "board", "--check")[0] == 0
-
-
-def test_board_same_for_crlf_and_bom_backlog(tree, cli):
-    a = board_text(tree, cli)
-    p = tree / "plans/BACKLOG.md"
-    p.write_bytes(b"\xef\xbb\xbf" + p.read_bytes().replace(b"\n", b"\r\n"))
-    assert board_text(tree, cli) == a
-
-
-@needs_git
-def test_board_if_staged_skips_unless_piles_path_staged(tree, cli):
-    code, out = cli(tree, "board", "--check", "--if-staged")
-    assert code == 0 and "not checked" in out                                # nothing staged
-    put(tree, "docs/x.md", "x\n")
-    stage(tree, "docs/x.md")
-    assert "not checked" in cli(tree, "board", "--check", "--if-staged")[1]  # staged, but not a plans path
-    put(tree, "plans/piles/forge/findings/B-102-x.md", finding_text("B-102"))
-    stage(tree, "plans/piles/forge/findings/B-102-x.md")
-    code, out = cli(tree, "board", "--check", "--if-staged")
-    assert code == 2 and "is missing" in out
-
-
-@needs_git
-def test_board_warns_on_untracked_pile_files(tree, cli):
-    put(tree, "plans/piles/forge/findings/B-102-x.md", finding_text("B-102"))
-    code, out = cli(tree, "board")
-    assert code == 0 and "WARNING: untracked" in out and "B-102-x.md" in out
-    stage(tree, "plans/piles")
-    assert "WARNING" not in cli(tree, "board")[1]
-
-
-def test_board_pile_folder_without_readme(tree, cli):
+def test_pile_folder_without_readme_is_red_in_check(tree, cli):
     (tree / "plans/piles/ghost").mkdir()
     put(tree, "plans/piles/ghost/findings/B-102-x.md", finding_text("B-102", "ghost"))
-    code, out = cli(tree, "board")
-    assert code == 0 and "ghost" in (tree / "plans/PILES.md").read_bytes().decode("utf-8")
     code, out = cli(tree, "check", "--all")
     assert code == 2 and "ghost/README.md" in out and "has no README.md card" in out
 
 
-def test_board_refusals_exit_1(tree, cli):
+@pytest.mark.parametrize("cmd", [("board",), ("board", "--check", "--if-staged"), ("board", "--help")])
+def test_board_is_a_refused_alias_naming_the_pane(tree, cli, cmd):
+    code, out = cli(tree, *cmd)
+    assert code == 1 and "backlog_tree.py" in out and "«Бэклог»" in out and "nothing was run" in out, out
+    assert not (tree / "plans/PILES.md").exists()
+
+
+def test_refusals_exit_1(tree, cli):
     edit(tree, "plans/BACKLOG.md", "## Закрыто", "## Закрытое")
-    code, out = cli(tree, "board")
-    assert code == 1 and '"## Закрыто"' in out
-    for cmd in (("check", "--all"), ("board", "--check")):
-        assert cli(tree, *cmd)[0] == 1
-    put(tree, "plans/BACKLOG.md", BACKLOG)
-    (tree / "plans/piles/forge/README.md").write_bytes(b"# F (`forge`)\n\xff\xfe\n")
-    code, out = cli(tree, "board")
-    assert code == 1 and "save it as UTF-8" in out and "README.md" in out and "forge" in out
+    for cmd in (("check", "--all"), ("summary",)):
+        code, out = cli(tree, *cmd)
+        assert code == 1 and '"## Закрыто"' in out, (cmd, out)
+    for cmd in (("board",), ("board", "--check", "--if-staged")):
+        code, out = cli(tree, *cmd)
+        assert code == 1 and "backlog_tree.py" in out, (cmd, out)
+
+
+def test_summary_prints_the_count_line_and_writes_nothing(tree, cli):
+    before = {p: p.read_bytes() for p in (tree / "plans").rglob("*") if p.is_file()}
+    code, out = cli(tree, "summary")
+    assert code == 0 and out.startswith("кучек: 2; пачек: ") and "следующий свободный B-id: B-" in out, out
+    assert "; остатков без исполнителя: " in out
+    assert {p: p.read_bytes() for p in (tree / "plans").rglob("*") if p.is_file()} == before
+    assert not (tree / "plans/PILES.md").exists()
+
+
+def test_summary_counts_a_finding_without_id_and_an_empty_tree(tree, cli, tmp_path):
+    put(tree, "plans/piles/forge/findings/20261008-bez-id.md", finding_text("—"))
+    assert "находок без id: 1" in cli(tree, "summary")[1]
+    (tmp_path / "plans").mkdir()
+    (tmp_path / "plans/BACKLOG.md").write_bytes(BACKLOG.encode("utf-8"))
+    code, out = cli(tmp_path, "summary")
+    assert code == 0 and out.startswith("кучек: 0; пачек: нет; открытых id: ") and "закрытых: " in out, out
 
 
 @needs_git
@@ -355,12 +241,235 @@ def test_check_mini_tree_is_green(tree, cli):
     assert "not frozen yet" in out
 
 
+# ------------------------------------------------------------------ SL-2 (t-406): a check judges only the piles the commit touches
+
+SCOPE_ROWS = {}
+NOT_BLOCKING = "red(s) in piles this commit does not touch (not blocking)"
+
+
+def scope_row(name):
+    def register(fn):
+        SCOPE_ROWS[name] = fn
+        return fn
+    return register
+
+
+def _bad_finding(tree, pile, name="20261009-bad.md"):
+    (tree / "plans/piles" / pile / "findings").mkdir(parents=True, exist_ok=True)
+    (tree / "plans/piles" / pile / "findings" / name).write_bytes(b"# t\n\n\xff\xfe not utf-8\n")
+
+
+def _touch_forge_card(tree):
+    edit(tree, CARD, "Текст.", "Текст!")
+    stage(tree, CARD)
+
+
+def _two_developers(tree, w2="`tools/a.py`", w1=None):
+    """Batch forge/1 (Ира) and a second pile's batch 1 (Катя), both «в работе», committed."""
+    if w1:
+        put(tree, B1, batch_text("forge", 1, "в работе", [node("F0-1", w1)]))
+    put(tree, "plans/piles/report-delivery/README.md", card_text("report-delivery", "Report", [
+        ["1", "x", "B-219", "M", "в работе", "Катя", "`main` (x)", "—"]], "F08"))
+    put(tree, "plans/piles/report-delivery/batch-1-x.md",
+        batch_text("report-delivery", 1, "в работе", [node("R1-1", w2)], who="Катя"))
+    commit(tree, "two developers")
+
+
+def _fn_world(tree):
+    put(tree, "tools/x.py", "def a1():\n    pass\n\n\ndef b1():\n    pass\n")
+    _two_developers(tree, "`tools/x.py (b1)`", "`tools/x.py (a1)`")
+    assert piles.run_check(tree, True)[0] == 0                 # the control: the world is green before the code commit
+    return head_hash(tree)
+
+
+@scope_row("foreign-untracked-pile")
+def _foreign_untracked(tree):
+    put(tree, "plans/piles/stranger-pile/README.md", card_text("stranger-pile", "S"))
+    put(tree, "plans/piles/stranger-pile/findings/20261014-orphan.md", finding_text("—", "stranger-pile"))
+    _bad_finding(tree, "stranger-pile")
+    _touch_forge_card(tree)
+    return [(("check",), 0, ["piles check: ok"], ["stranger-pile", "cannot read this finding", "RED"])]
+
+
+@scope_row("foreign-tracked-red")
+def _foreign_tracked(tree):
+    _bad_finding(tree, "report-delivery")
+    commit(tree, "a red in Y")
+    _touch_forge_card(tree)
+    return [(("check",), 0, ["(д) form: 1 %s: report-delivery" % NOT_BLOCKING, "piles check: ok"], ["RED"])]
+
+
+@scope_row("own-pile-red-elsewhere-in-pile")
+def _own_pile_red(tree):
+    _bad_finding(tree, "forge")
+    commit(tree, "a red in X")
+    edit(tree, B1, "Правило готовности.", "Правило готовности!")
+    stage(tree, B1)
+    return [(("check",), 2, ["(д) form: RED", "cannot read this finding"], [])]
+
+
+@scope_row("a9-removal")
+def _a9_removal(tree):
+    freeze(tree)
+    git(tree, "rm", "-q", "plans/piles/forge/findings/B-102-x.md")
+    return [(("check",), 2, ["(а) placement: RED", "B-102 is open but placed nowhere"], [])]
+
+
+@scope_row("a9-backlog-only")
+def _a9_backlog_only(tree):
+    freeze(tree)
+    edit(tree, "plans/BACKLOG.md", "| B-308 |", "| B-777 | **Новое.** | почему | источник | P1 |\n| B-308 |")
+    stage(tree, "plans/BACKLOG.md")
+    door = msg(tree, "s\n\npiles-skip: г -- the new row is the point of this test\n")        # (г) passed: (а) alone must block
+    return [(("check", "--msg-file", door), 2, ["(а) placement: RED", "B-777 is open but placed nowhere"], [])]
+
+
+@scope_row("cross-pile-dupe")
+def _cross_pile_dupe(tree):
+    freeze(tree)
+    put(tree, "plans/piles/report-delivery/findings/B-102-y.md", finding_text("B-102", "report-delivery"))
+    commit(tree, "the id has two homes")
+    _touch_forge_card(tree)                        # the commit touches the OTHER home
+    return [(("check",), 2, ["(а) placement: RED", "B-102 is in 2 finding files"], [])]
+
+
+@scope_row("xpile-unknown-id")
+def _xpile_unknown_id(tree):
+    """B.3: deleting a finding in pile B creates an unknown-id red in pile A's card (a partial member lives in another pile);
+    a commit staging only B's delete is judged, and the green control is the same world before the delete."""
+    freeze(tree)
+    put(tree, "plans/piles/report-delivery/findings/B-900-x.md", finding_text("B-900", "report-delivery"))
+    edit(tree, CARD, "| 2 | потом | B-015 |", "| 2 | потом | B-015, B-900 (часть) |")
+    commit(tree, "forge row 2 names B-900 (partial); its finding lives in report-delivery")
+    assert piles.run_check(tree, True)[0] == 0                 # the control: no unknown id while the finding exists
+    git(tree, "rm", "-q", "plans/piles/report-delivery/findings/B-900-x.md")
+    return [(("check",), 2, ["(а) placement: RED", "unknown id B-900 in the row of batch forge/2"], [])]
+
+
+@scope_row("overlap-pair-one-side")
+def _pair_one_side(tree):
+    _two_developers(tree)
+    edit(tree, "plans/piles/report-delivery/batch-1-x.md", "Правило готовности.", "Правило готовности!")
+    stage(tree, "plans/piles/report-delivery/batch-1-x.md")
+    return [(("check",), 2, ["(б) overlap: RED", "forge/1 and report-delivery/1 both write: tools/a.py"], [])]
+
+
+@scope_row("overlap-pair-neither-side")
+def _pair_neither_side(tree):
+    put(tree, "plans/piles/third-pile/README.md", card_text("third-pile", "T"))
+    _two_developers(tree)
+    edit(tree, "plans/piles/third-pile/README.md", "Текст.", "Текст!")
+    stage(tree, "plans/piles/third-pile/README.md")
+    return [(("check",), 0, ["(б) overlap: 1 %s: forge" % NOT_BLOCKING, "piles check: ok"], ["RED"])]
+
+
+@scope_row("fn-list-code-commit")
+def _fn_code_commit(tree):
+    _fn_world(tree)
+    put(tree, "tools/x.py", "def a1():\n    pass\n")              # b1 is removed: the red names tools/x.py, no pile path is staged
+    stage(tree, "tools/x.py")
+    return [(("check",), 2, ["(б) overlap: RED", "report-delivery/1 lists b1 for tools/x.py"], [])]
+
+
+@scope_row("fn-list-py-not-listed")
+def _fn_not_listed(tree):
+    _fn_world(tree)
+    put(tree, "tools/y.py", "def other():\n    pass\n")
+    stage(tree, "tools/y.py")
+    return [(("check",), 0, ["piles check: no plans/piles or BACKLOG path staged -- nothing to check"], [])]
+
+
+@scope_row("fn-list-py-waiting-batch")
+def _fn_waiting(tree):
+    _fn_world(tree)
+    put(tree, "tools/w.py", "def only_waiting():\n    pass\n")
+    put(tree, "plans/piles/report-delivery/batch-2-w.md",
+        batch_text("report-delivery", 2, "ожидает", [node("R2-1", "`tools/w.py (only_waiting)`", "ожидает")], who="—", branch="—"))
+    commit(tree, "a waiting batch lists tools/w.py")
+    put(tree, "tools/w.py", "def renamed():\n    pass\n")                  # only an active batch's list makes a `.py` relevant
+    stage(tree, "tools/w.py")
+    return [(("check",), 0, ["nothing to check"], [])]
+
+
+@scope_row("partly-untracked-pile")
+def _partly_untracked(tree):
+    _bad_finding(tree, "forge")                               # a new finding not yet added: the commit does not contain it
+    edit(tree, B1, "Правило готовности.", "Правило готовности!")
+    stage(tree, B1)
+    return [(("check",), 0, ["piles check: ok"], ["cannot read this finding", "RED"])]
+
+
+@scope_row("fn-list-range")
+def _fn_range(tree):
+    base = _fn_world(tree)
+    put(tree, "tools/x.py", "def a1():\n    pass\n")
+    commit(tree, "remove b1")
+    return [(("check", "--base", base), 2, ["(б) overlap: RED", "report-delivery/1 lists b1 for tools/x.py"], []),
+            (("check", "--base", head_hash(tree)), 0, ["nothing to check"], [])]
+
+
+@scope_row("renamed-batch")
+def _renamed(tree):
+    _bad_finding(tree, "forge")
+    commit(tree, "a red in X")
+    git(tree, "mv", B1, "plans/piles/forge/batch-1-renamed.md")
+    assert {B1, "plans/piles/forge/batch-1-renamed.md"} <= set(piles.staged_paths(tree))       # both paths are touched
+    return [(("check",), 2, ["(д) form: RED"], [])]
+
+
+@scope_row("deleted-pile-move-line")
+def _deleted_pile(tree):
+    put(tree, "plans/piles/zed/README.md", card_text("zed", "Z"))
+    put(tree, "plans/piles/zed/batch-1-x.md", batch_text("zed", 1, "ожидает", [
+        ["Z1-1", "П1", "`20261014-moved.md` -- узел", "builder", "`tools/z.py`", "—", "ожидает"]], who="—", branch="—"))
+    put(tree, "plans/piles/forge/findings/20261014-moved.md",
+        finding_text("—", "forge") + "\nперенос: zed/findings/20261014-moved.md\n")
+    commit(tree, "a finding moved to zed")
+    git(tree, "rm", "-r", "-q", "plans/piles/zed")
+    return [(("check",), 2, ["(е) findings: RED", "20261014-moved.md"], [])]
+
+
+@scope_row("range-mode")
+def _range_mode(tree):
+    first = head_hash(tree)
+    _bad_finding(tree, "report-delivery")
+    commit(tree, "A: a red in Y")
+    second = head_hash(tree)
+    _touch_forge_card(tree)
+    commit(tree, "B: the card of X")
+    return [(("check", "--base", second), 0, ["(д) form: 1 %s: report-delivery" % NOT_BLOCKING], ["RED"]),
+            (("check", "--base", first), 2, ["(д) form: RED", "cannot read this finding"], [])]
+
+
+@scope_row("range-empty")
+def _range_empty(tree):
+    return [(("check", "--base", "HEAD"), 0, ["nothing to check"], [])]
+
+
+@scope_row("range-bad-rev")
+def _range_bad_rev(tree):
+    return [(("check", "--base", "no-such-rev"), 1, ["does not resolve to a commit"], [])]
+
+
+@scope_row("all-mode-untracked-note")
+def _all_mode(tree):
+    put(tree, "plans/piles/stranger-pile/README.md", card_text("stranger-pile", "S"))
+    _bad_finding(tree, "stranger-pile")
+    return [(("check", "--all"), 2, ["(д) form: RED", "cannot read this finding", "untracked pile(s) stranger-pile"], [])]
+
+
+@needs_git
+@pytest.mark.parametrize("row", sorted(SCOPE_ROWS))
+def test_check_scope_touched_piles(tree, cli, row):
+    """B.1-B.6: a red blocks a commit only when a carrier is a touched path or lies in a touched pile (`--all` blocks on every one);
+    a red elsewhere is one summary line per item; the untracked files of other piles are not read in a commit."""
+    for args, code, needles, absent in SCOPE_ROWS[row](tree):
+        got, out = cli(tree, *args)
+        assert got == code and all(n in out for n in needles) and not any(a in out for a in absent), (args, out)
+
 
 def test_cli_end_to_end_subprocess(tree):
-    p = subprocess.run([sys.executable, "-B", str(TOOLS / "piles.py"), "--repo", str(tree), "board"],
-                       capture_output=True, env=clean_env())
-    assert p.returncode == 0 and "wrote plans/PILES.md" in p.stdout.decode("utf-8")
-    p = subprocess.run([sys.executable, "-B", str(TOOLS / "piles.py"), "--repo", str(tree), "check", "--all"],
+    p =subprocess.run([sys.executable, "-B", str(TOOLS / "piles.py"), "--repo", str(tree), "check", "--all"],
                        capture_output=True, env=clean_env())
     assert p.returncode == 0 and "piles check: ok" in p.stdout.decode("utf-8")
 

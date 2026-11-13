@@ -18,16 +18,16 @@ matcher), not hook records: a silent PreToolUse hook leaves NO
 attachment record at all between tool_use and tool_result, so the call
 count cannot be read off hook records.
 
-SIDECHAIN EXCLUSION: `hook_success`/`hook_additional_context` are
-structurally never recorded for subagent (sidechain) tool_use -- a
-sidechain hook fires (a live Bash call inside a subagent gets warned or
-denied) but leaves no attachment trace anywhere in the transcript. That
-is a property of the CARRIER (the sidechain stream is structurally
-invisible), not a bug this tool can fix. Fix: Z1 and the "rate per 100
-calls" only count MAIN-stream files (`is_sidechain_file()` -- a
-`subagents/` directory); sidechain volume is printed every run as its
-own line ("subagent stream invisible: N of M window calls"), never
-silently dropped.
+SIDECHAIN STREAM: `hook_success`/`hook_additional_context` records ARE
+written into subagent (sidechain) transcripts (measured 2026-11-13: a
+subagent file carries them like a main file; an earlier text here claimed
+the opposite and excluded the stream from the denominator, which
+overstated the rate). Subagent files are counted by default: their
+tool_use calls are part of Z1 and of the "rate per 100 calls", and their
+hook records are part of the numerator. The report still prints the
+subagent share as its own line ("of which from the subagent stream: N of
+M window calls", `is_sidechain_file()` -- a `subagents/` directory), so
+the split stays visible.
 
 PER-LAYER REACHABLE POPULATION (ported from the source deployment's
 node B, docs/tasks/2026-08-25_warn-population-class.md): the naive
@@ -555,10 +555,11 @@ def enumerate_corpus_files(transcripts_dir: Path) -> List[Path]:
 
 def is_sidechain_file(path: Path) -> bool:
     """A subagent (sidechain) file lives under `<session>/subagents/`.
-    hook_success/hook_additional_context are NEVER recorded on subagent
-    calls (a property of the carrier, not a bug), so tool_use from these
-    files cannot physically supply a numerator -- an honest denominator
-    counts main-stream files only."""
+    hook_success/hook_additional_context ARE recorded in these files
+    (measured 2026-11-13 on this machine's transcripts: 1832 hook_additional_context
+    records in 375 of 409 subagent files), so they are counted like any
+    other file; this predicate only labels which window calls came from
+    the subagent stream, for the "of which" line of the report."""
     return path.parent.name == "subagents"
 
 
@@ -690,21 +691,20 @@ def process_corpus(
                                     if isinstance(name, str):
                                         if is_side:
                                             sidechain_tool_use_in_window += 1
-                                        else:
-                                            item_id = item.get("id")
-                                            if isinstance(item_id, str) and item_id:
-                                                if item_id in tool_use_ids_seen:
-                                                    duplicate_tool_use_id_count += 1
-                                                else:
-                                                    tool_use_ids_seen.add(item_id)
-                                            tool_input = item.get("input")
-                                            if not isinstance(tool_input, dict):
-                                                tool_input = {}
-                                            for kind, pred in POPULATION_PREDICATES.items():
-                                                if pred(name, tool_input):
-                                                    population_achievable_counts[kind] += 1
-                                            tool_use_counts[name] = tool_use_counts.get(name, 0) + 1
-                                            total_tool_use_in_window += 1
+                                        item_id = item.get("id")
+                                        if isinstance(item_id, str) and item_id:
+                                            if item_id in tool_use_ids_seen:
+                                                duplicate_tool_use_id_count += 1
+                                            else:
+                                                tool_use_ids_seen.add(item_id)
+                                        tool_input = item.get("input")
+                                        if not isinstance(tool_input, dict):
+                                            tool_input = {}
+                                        for kind, pred in POPULATION_PREDICATES.items():
+                                            if pred(name, tool_input):
+                                                population_achievable_counts[kind] += 1
+                                        tool_use_counts[name] = tool_use_counts.get(name, 0) + 1
+                                        total_tool_use_in_window += 1
 
                 att = rec.get("attachment")
                 if not isinstance(att, dict):
@@ -1081,10 +1081,9 @@ def render_text(
     out.append(f"  second traces (hook_additional_context): {report.total_hook_additional_context} "
                f"(hook_success: {report.total_hook_success}, "
                f"orphaned with no hook_success pair: {report.orphan_hac_count})")
-    _sidechain_total = report.total_tool_use_in_window + report.sidechain_tool_use_in_window
     out.append(
-        f"  subagent stream invisible: {report.sidechain_tool_use_in_window} "
-        f"of {_sidechain_total} window calls (the denominator counts main-stream only)"
+        f"  of which from the subagent stream: {report.sidechain_tool_use_in_window} "
+        f"of {report.total_tool_use_in_window} window calls (counted in the denominator)"
     )
     out.append(
         f"  dedup is asymmetric: the numerator is deduplicated, the tool_use denominator is not; "

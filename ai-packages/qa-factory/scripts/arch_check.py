@@ -31,6 +31,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import assertion_detectors as AD  # noqa: E402
 import test_files as TF  # noqa: E402
+import test_locations  # noqa: E402
 from hooklib import sorted_paths  # noqa: E402
 try:
     import hooklib  # type: ignore
@@ -121,7 +122,10 @@ def check_files(files: list[Path], root: Path, cfg: dict, project_cfg: dict | No
                     # A test BODY, not a helper that sits in a test folder (E-C9): by its own name, or named by
                     # the project. Unknown (the usual names cannot be read) is "not a test body"; test_files
                     # says why on stderr.
-                    test_body = TF.is_test_for("test_body", rel, project_cfg or {}, base=root, root=root) is True
+                    # B-355: where the project recorded its tests for this area, a test body is a file the record names
+                    # (a folder record names every file in it: the noise side), asked as `test_place`; elsewhere `test_body`
+                    recorded = bool(project_cfg) and test_locations.recorded(project_cfg, root=root, path=rel, base=root)[0]
+                    test_body = TF.is_test_for("test_place" if recorded else "test_body", rel, project_cfg or {}, base=root, root=root) is True
                 if test_body:
                     findings.append({"file": rel, "line": n, "rule": "locator-outside-page-object", "message": "UI locator in a test body; move it to the page-object layer"})
         if layers:

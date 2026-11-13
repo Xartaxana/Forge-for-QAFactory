@@ -175,23 +175,59 @@ def state_dir(event: dict | None = None) -> Path:
 EXIT_NO_PROJECT = 3
 
 
-def require_project_at(root, purpose: str) -> Path:
+def not_a_project_text(root, given: bool = True, purpose: str = "", extra_door: str = "", detail: str = "",
+                       root_option: bool = False, dead_end_detail: str = "") -> str:
+    """The ONE builder of the words "this root is not a factory project" (OF4-17, AR-9, AR-15, AR-16).
+
+    `require_project_at` prints it and `host_probe._not_a_project` returns it, so a person reads the same refusal
+    from every caller. It says what is wrong (no `qa-factory/config.json` under `root`), what is expected (the
+    folder that contains it) and the doors: with an ancestor that carries the marker (found by the one walk,
+    `_nearest_project`) `Re-run with --root <above>` when the caller HAS a root option (`root_option`, default
+    False: a door that may not exist is never named), else run from inside <above> or set CLAUDE_PROJECT_DIR;
+    onboarding when none does. `given` is True when the root was named (`--root`), False when the ambient
+    project was taken: with nothing above, the ambient root may be a project that is not onboarded yet, or the
+    wrong root, and the text says both. `purpose` is the caller's name, `extra_door` a door only that caller has
+    (the dashboard's `--read-only --out <file outside the root>`), `detail` one sentence of the caller's own,
+    `dead_end_detail` one more only for the branch with no door but onboarding (ambient, nothing above). Nothing
+    is read beyond the marker and nothing is written; a root that carries the marker gets '' (no refusal)."""
+    resolved = Path(root).resolve()
+    if _carries_project(resolved):
+        return ""
+    above = _nearest_project(resolved.parent)
+    lead = f"{purpose}: " if purpose else ""
+    more = f" {detail.strip()}" if detail.strip() else ""
+    door = f" A door that needs no project: {extra_door.strip()}." if extra_door.strip() else ""
+    if not given and not above:
+        end = f" {dead_end_detail.strip()}" if dead_end_detail.strip() else ""
+        elsewhere = ("run the command from inside the project, set CLAUDE_PROJECT_DIR to it, or pass --root <the project root>"
+                     if root_option else "run the command from inside it or set CLAUDE_PROJECT_DIR to it")
+        return (f"{lead}this project is not onboarded yet (no qa-factory/config.json in {resolved} or above it). "
+                f"Nothing was written.{more}{end} The next step is /qa-factory:qa-onboarding; if the project is "
+                f"elsewhere, {elsewhere}.{door}")
+    if above:
+        fix = (f"Re-run with --root {above}, or run the command from inside it." if root_option else
+               f"Run the command from inside {above}, or set CLAUDE_PROJECT_DIR to it.")
+    else:
+        fix = ("Re-run with --root set to the project root where the command has that option, or run it from inside "
+               "the project (or set CLAUDE_PROJECT_DIR to it); for a project that is not onboarded yet run "
+               "/qa-factory:qa-onboarding first.")
+    return (f"{lead}no qa-factory/config.json under {resolved} - refusing to create one.{more}\n"
+            "The project root is the directory that contains qa-factory/config.json "
+            f"(not a story folder, and not the qa-factory folder itself). {fix}{door}")
+
+
+def require_project_at(root, purpose: str, extra_door: str = "", root_option: bool = False) -> Path:
     """The `qa-factory/` directory of `root`, or a refusal on stderr and exit EXIT_NO_PROJECT.
 
     The ONE refusal every writer that must not bring a `qa-factory/` tree into existence uses
-    (OH3-37, AR-15); `require_project` is the same rule for the ambient root. The marker is
+    (OH3-37, AR-15): its words are `not_a_project_text`, the same ones `host_probe` returns;
+    `require_project` is the same rule for the ambient root. The marker is
     `qa-factory/config.json` (`_carries_project`): a `qa-factory/` folder without it is not a
     project. Nothing is read or written here."""
     root = Path(root)
     if _carries_project(root):
         return root / "qa-factory"
-    print(f"{purpose}: no qa-factory/config.json under {root} - refusing to create one.\n"
-          f"This is either a project that was never onboarded (run "
-          f"/qa-factory:qa-onboarding), or a wrong project root: the factory looks for "
-          f"qa-factory/config.json in the current directory and its ancestors. Run the "
-          f"command from inside the project, point --root at it where the command has that "
-          f"option, or set CLAUDE_PROJECT_DIR to it.",
-          file=sys.stderr)
+    print(not_a_project_text(root, True, purpose=purpose, extra_door=extra_door, root_option=root_option), file=sys.stderr)
     sys.exit(EXIT_NO_PROJECT)
 
 
@@ -231,21 +267,94 @@ def config_path(event: dict | None = None) -> Path:
 
 
 def is_one_component(name) -> bool:
-    """True for a name that is one path component: a non-empty string, not `.` or `..`, with no `/`, `\\` or `:`.
+    """True for a name that is one path component: a non-empty string, not `.` or `..`, with no `/`, `\\`, `:` or NUL.
     THE one filter of a story's name (AR-15): `artifacts_dir`, the story-key check below it and the controller's receipt names read it."""
-    return isinstance(name, str) and bool(name) and name not in (".", "..") and not any(c in name for c in "/\\:")
+    return isinstance(name, str) and bool(name) and name not in (".", "..") and not any(c in name for c in "/\\:\0")
 
 
-def artifacts_dir(ticket: str, event: dict | None = None) -> Path:
-    """<project>/qa-factory/artifacts/<TICKET>/ — the one home of a story's artifacts."""
+def clean_key(name) -> bool:
+    """THE shape of a story key (AR-15, OH8-2): one path component with no blank at either end and no trailing dot.
+    NTFS drops a trailing dot or blank from a folder name, so `T.` would open the folder `T`; a key of that shape is
+    refused on every file system (AR-4), and `...` (which strips to nothing) with it. Pure; never raises."""
+    return is_one_component(name) and name == name.strip() and name == name.rstrip(" .")
+
+
+def artifacts_dir(ticket: str, event: dict | None = None, root: Path | None = None) -> Path:
+    """<project>/qa-factory/artifacts/<TICKET>/ — the one home of a story's artifacts.
+
+    `root`, when given, is the project the story lives under (a reader that walked receipts under a root of its
+    own); else the event's project.
+
+    A key that is another spelling of an existing story folder (`t`, `T.`, the 8.3 short name, a junction alias) is
+    a `StoryRootError`: the OS would open that folder, and the key is matched exactly (I4). An exact name, and a new
+    clean name that is no other spelling of anything (the create world), give the path. One listing, shared by the
+    exact check and the other-spelling check."""
     if not ticket or not is_one_component(str(ticket)):
         raise ValueError("task id must be a single path component")
-    return artifact_root(event) / str(ticket)
+    key = str(ticket)
+    if not clean_key(key):
+        raise StoryRootError(f"task id {key!r} starts or ends with a blank, or ends with a dot, which some file "
+                             f"systems drop from a folder name; pass the key without them.")
+    base = artifact_root(event, root=root)
+    names = _listing(base)
+    if key in names:
+        return base / key
+    other = other_spelling(base, key, names)
+    if other:
+        raise StoryRootError(f"task id {key!r} is not the exact name of a story folder: folder {other!r} exists, and "
+                             f"the key is matched exactly. Pass {other!r}, or a new key that is no other spelling of "
+                             f"an existing folder.")
+    return base / key
 
 
 def _name_alias(name: str) -> str:
     """The spelling a case-blind, trailing-dot-and-space-blind file system (NTFS) would read as `name`."""
     return name.rstrip(" .").casefold()
+
+
+def alias_twins(parent, name, names=None) -> list[str]:
+    """The names under `parent` (sorted) that a case-blind, dot-and-blank-blind file system would read as `name` but
+    that are not `name`. `names` is a listing already taken. Never raises: an unreadable input is no twin."""
+    try:
+        listing = _listing(parent) if names is None else names
+        alias = _name_alias(name)
+        return sorted(n for n in listing if alias and n != name and _name_alias(n) == alias)
+    except (AttributeError, TypeError, ValueError):
+        return []
+
+
+def landing_name(parent, name, names=None) -> str:
+    """The listed folder a write to `parent/name` lands in, or "". The exact name when it is listed; else, when the OS
+    opens `parent/name` at all, the first listed name (sorted) that is the SAME file (`os.path.samefile`:
+    case, trailing dot, 8.3 name, junction and symlink alike, with no OS branch). Any error is "" (the raw key then
+    stands, which is today's answer)."""
+    try:
+        listing = _listing(parent) if names is None else names
+        if name in listing:
+            return name
+        target = Path(parent) / name
+        if not os.path.lexists(target):
+            return ""
+        for n in sorted(listing):
+            try:
+                if os.path.samefile(Path(parent) / n, target):
+                    return n
+            except (OSError, ValueError):
+                continue
+        return ""
+    except (OSError, ValueError, TypeError):
+        return ""
+
+
+def other_spelling(parent, key, names=None) -> str:
+    """THE one predicate "`key` is another spelling of an existing folder under `parent`" (AR-15): the landing folder
+    when it differs from `key`, else the first case/dot/blank twin, else "". "" on any failure: the caller passes as
+    before (a listing that cannot be read cannot be compared)."""
+    land = landing_name(parent, key, names)
+    if land and land != key:
+        return land
+    twins = alias_twins(parent, key, names)
+    return twins[0] if twins else ""
 
 
 def is_dir_or_no(path) -> bool:
@@ -275,10 +384,18 @@ def is_story_folder(parent, name) -> bool:
     The error direction is "no": a failed listing (rights, a bad byte) is False, never an exception, because a hook
     must get an answer and not a door (E-8). It may call a real story "no" (the consumer then refuses, skips or asks);
     it never calls a file, an alias or a missing folder "yes". Nothing is created, ever."""
-    if (not isinstance(name, str) or not name.strip() or name != name.strip() or name in (".", "..")
-            or any(c in name for c in "/\\:\0") or parent is None or not str(parent).strip()):
+    if not clean_key(name) or parent is None or not str(parent).strip():
         return False
     return name in _listing(parent) and is_dir_or_no(Path(parent) / name)
+
+
+def is_story_with_pipeline(parent, name) -> bool:
+    """`is_story_folder` plus a `pipeline.json` file in it: the probe of a story KEY the resolver and the gates ask
+    (OH8-2). An alias is no story, so it never reaches the folder it spells. False on an error of the stat."""
+    try:
+        return is_story_folder(parent, name) and (Path(parent) / name / "pipeline.json").is_file()
+    except OSError:
+        return False
 
 
 def _listing(parent) -> list[str]:
@@ -299,9 +416,7 @@ def _no_story(program: str, shown: str, why: str, asked: str, parent, name: str,
 
     `parent` is listed once more here, to name the folder an alias-blind file system would have read as `name`
     (FR-1): a near miss is named, never guessed (FR-59)."""
-    names = sorted(_listing(parent))
-    alias = _name_alias(name)
-    near = [n for n in names if alias and n != name and _name_alias(n) == alias]
+    near = alias_twins(parent, name)
     hint = f" A folder {near[0]!r} exists: the {'key' if asked == 'key' else 'name'} is matched exactly." if near else ""
     return StoryRootError(f"{program} {shown} names no story: {why}, and a story folder is never created here "
                           f"(S0 creates it). Pass the {asked} of a story that exists.{hint}{tail}")
@@ -334,13 +449,18 @@ def story_root(key: str, program: str, door: str = "", event: dict | None = None
                              f"artifact root, e.g. TP2-2406 (got {text!r}).{tail}")
     if project is None:
         require_project(program, event)
-        path = artifacts_dir(text, event)
+        path = artifact_root(event) / text
     elif str(project).strip() and _carries_project(project):
         path = artifact_root(root=Path(project)) / text
+    elif not str(project).strip():
+        # an empty value is not a root to describe: it would be the current folder, so it is refused as itself
+        raise StoryRootError(f"{program} was given an empty project, which would be the current folder, so nothing was "
+                             f"read or written. Pass the root of the project that holds the story.{tail}")
     else:
-        raise StoryRootError(f"{program} was given the project {str(project)!r}, which is not an onboarded project "
-                             f"(no qa-factory/config.json under it; an empty value would be the current folder), so "
-                             f"nothing was read or written. Pass the root of the project that holds the story.{tail}")
+        # a named root that is not a project: the words of the one builder (OF4-17 C2), the caller's own door in `tail`
+        text_ = not_a_project_text(Path(project), True, purpose=program,
+                                   detail="Nothing was read or written. Pass the root of the project that holds the story.")
+        raise StoryRootError(f"{text_}{tail}")
     if is_story_folder(path.parent, text):
         return path
     raise _no_story(program, repr(text), f"{path} is not a folder of this project", "key", path.parent, text, tail)
@@ -644,20 +764,68 @@ def story_closed(pipeline: dict | None) -> str:
     return closure["closed_at"] if closure["state"] == "closed" else ""
 
 
+class ConfigUnreadable(ValueError):
+    """qa-factory/config.json exists but is empty, not JSON, or not an object. The message
+    names the door (FR-1, FR-57): the factory does not guess what the file should have said."""
+
+
+def read_config_file(root: Path) -> dict | None:
+    """The project's config as a dict, None when there is no qa-factory/config.json (the empty
+    input of the migration), ConfigUnreadable when the file is there and cannot be read as one
+    JSON object. A byte-order mark is tolerated: an editor put it there, nobody meant it."""
+    path = Path(root) / "qa-factory" / "config.json"
+    if not path.exists():
+        return None
+    door = ("The factory does not guess what it should say: fix the file by hand, or move it "
+            "aside (rename it, for example to config.broken.json) and run onboarding again to "
+            "write a new one.")
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ConfigUnreadable(f"qa-factory/config.json cannot be read ({type(exc).__name__}: {exc}). "
+                               + door) from exc
+    if not text.strip():
+        raise ConfigUnreadable("qa-factory/config.json is empty; it must hold one JSON object. " + door)
+    try:
+        data = json.loads(text)
+    except RecursionError as exc:
+        raise ConfigUnreadable("qa-factory/config.json is nested too deeply to read; it must hold one "
+                               "JSON object. " + door) from exc
+    except ValueError as exc:
+        raise ConfigUnreadable(f"qa-factory/config.json is not valid JSON ({exc}); it must hold one "
+                               "JSON object. " + door) from exc
+    if not isinstance(data, dict):
+        kind = {list: "list", str: "string", type(None): "null", bool: "boolean"}.get(type(data), "number")
+        raise ConfigUnreadable(f"qa-factory/config.json holds a JSON {kind}, not a JSON object. " + door)
+    return data
+
+
 def artifact_root(event: dict | None = None, root: Path | None = None) -> Path:
     """Resolve the configurable artifact root once for writers and consumers alike."""
     project = Path(root).resolve() if root is not None else project_root(event).resolve()
-    config = project / "qa-factory" / CONFIG_PATH_NAME
-    # `utf-8-sig`, but the exception stays: a broken config must raise here, not become `{}` (through `read_json`) and
-    # silently put the artifacts into the default root (AR-28, AR-4).
-    cfg = json.loads(config.read_text(encoding="utf-8-sig")) if config.exists() else {}
+    # A broken config raises here (ConfigUnreadable), never becomes `{}` and silently puts the artifacts into the
+    # default root (AR-28, AR-4); no file at all is the default world.
+    cfg = read_config_file(project) or {}
     value = cfg.get("artifact_root")
     if value is None:
         return project / "qa-factory" / "artifacts"
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError("artifact_root must be a non-empty path")
+    if not isinstance(value, str) or not value.strip() or "\x00" in value:
+        if not isinstance(value, str):
+            shown = type(value).__name__
+        elif value.strip():
+            shown = "a path with a NUL character"
+        else:
+            shown = "a blank string"
+        raise ValueError("qa-factory/config.json: `artifact_root` must be a non-empty folder path "
+                         f"(got {shown}). Remove the key to keep the story folders in qa-factory/artifacts, "
+                         "or set it to a folder path.")
     path = Path(value)
-    return (path if path.is_absolute() else project / path).resolve()
+    try:
+        return (path if path.is_absolute() else project / path).resolve()
+    except (OSError, ValueError):
+        raise ValueError("qa-factory/config.json: `artifact_root` must be a non-empty folder path "
+                         "(got an unresolvable path). Remove the key to keep the story folders in qa-factory/artifacts, "
+                         "or set it to a folder path.")
 
 
 def load_ref_json(name: str) -> dict:

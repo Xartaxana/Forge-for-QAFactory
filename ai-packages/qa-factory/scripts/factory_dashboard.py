@@ -9,7 +9,6 @@ import json
 import os
 import shutil
 import tempfile
-import uuid
 import re
 import sys
 from collections import Counter, defaultdict
@@ -20,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from hooklib import artifact_root, project_root, parse_frontmatter, require_project_at
 from activity_capture import is_factory_activity
+import event_store  # noqa: E402  — the ONE temp-then-replace publisher (OH7-1)
 import adapter_forms as AF  # noqa: E402  — the project's ticket key form (B-405): which task name is a story
 import contract as C  # noqa: E402  — C.artifact resolves work/ or flat artifact paths
 import runtime_paths as RP  # noqa: E402  — where the carried records and the readiness report live (t-232)
@@ -1438,7 +1438,7 @@ def test_runs_line(task) -> str:
 
 def tab_automation(_board, taskruns, cases, ob_counts=None, archived_hidden=0, ob_list=None,
                    testing_html="", obligations_html="", bugs=None):
-    # Open task obligations (state/obligations.md) — the first section of the "Testing" tab:
+    # Open task obligations (qa-factory/obligations.md) — the first section of the "Testing" tab:
     # task obligations live here, not in the shared banner above the tabs (only signals stay there).
     out = [obligations_html] if obligations_html else []
     delivery_html = delivery_summary_html(taskruns)
@@ -3771,7 +3771,8 @@ def main(argv=None) -> None:
     # of them, exit 3, nothing written. A --read-only render writes nothing under the root (its scratch
     # copy is in the temp folder, its page is the explicit --out), so it is the one run a bare root may have.
     if not args.read_only:
-        require_project_at(root, "factory_dashboard")
+        require_project_at(root, "factory_dashboard", extra_door="--read-only --out <file outside the root>",
+                           root_option=True)
     global _LEVEL_GLOBS
     _LEVEL_GLOBS = level_globs(root)
 
@@ -3821,7 +3822,7 @@ def main(argv=None) -> None:
     # banner was ALSO computed here out of state/metrics-board.md — a file no role writes
     # any more — and then silently overwritten by the newer one before the page was assembled.
 
-    # Open obligations from state/obligations.md (written by S8/S9): count + oldest age.
+    # Open obligations from qa-factory/obligations.md (written by S8/S9): count + oldest age.
     # The full section lives on the "Testing" tab (first in its content) — the banner above
     # the tabs keeps only signals, no tables.
     ob_path = ledger_path(root, "obligations.md")
@@ -3867,7 +3868,7 @@ def main(argv=None) -> None:
             obligations_html = (f"<section class='alert'><h2>Remaining checks: {len(open_obs)}{age_note}"
                                 + (f" &middot; ready to perform {len(ripe)}" if ripe else "") + "</h2>"
                                 f"<table class='tight1'><tr><th>id</th><th>essence</th><th>trigger</th><th>status</th></tr>{obs_rows}</table>"
-                                "<p class='nd'>Ledger: qa-factory/state/obligations.md; written by S8/S9, reviewed at the next applicable story preflight.</p></section>")
+                                "<p class='nd'>Ledger: qa-factory/obligations.md; written by S8/S9, reviewed at the next applicable story preflight.</p></section>")
 
     # The factory's deferred decisions (onboarding/gates) from factory-backlog.md: a debt of
     # the factory's own setup, not a task obligation. No file/section — the list is empty; closed
@@ -4166,10 +4167,7 @@ def main(argv=None) -> None:
             "Render: factory_dashboard.py — deterministic, no LLM; refresh follows accepted artifacts, registry changes and usage capture; doctor can refresh on demand.</footer>"
             "</body></html>")
     page = re.sub(r"<svg width='([\d.]+)' height='([\d.]+)'", lambda m: f"<svg viewBox='0 0 {m[1]} {m[2]}' width='{m[1]}' height='{m[2]}' role='img'", page)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    temporary = out.with_name(out.name + "." + uuid.uuid4().hex + ".tmp")
-    temporary.write_text(page, encoding="utf-8")
-    os.replace(temporary, out)
+    event_store.atomic_text(out, page)
     print(f"factory_dashboard: {out} (stories {len(taskruns)}, bugs {len(bugs)}, cost sessions {len(sessions)})")
 
 

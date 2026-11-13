@@ -767,8 +767,9 @@ def _config_door(path_raw: str, event) -> str:
         return ""
     text = ("This is the project config: it is read by key, not whole. `Grep -n \"<the key>\" "
             f"{path_raw.replace(chr(92), '/')}` gives the line, and `Read` with `offset`/`limit` takes that part.")
-    if _has_bash(event) and (PLUGIN_ROOT / "scripts" / "config_view.py").is_file():
-        text += (" `python \"${CLAUDE_PLUGIN_ROOT}/scripts/config_view.py\" --keys` lists its keys and "
+    import runtime_paths as RP
+    if _has_bash(event) and RP.script_path("config_view.py") is not None:
+        text += (f" `{RP.script_command('config_view.py')} --keys` lists its keys and "
                  "`config_view.py --get <key>` prints one.")
     return text
 
@@ -816,11 +817,10 @@ def _section_door(path_raw: str, event) -> str:
                     "`offset=<first line>` `limit=<last line - first line + 1>`; after your own Edit the lines below it move - "
                     "a whole Read of the file gives the map again.")
             if _has_bash(event):
-                story = _STORY_RE.search(raw)
-                task = story.group(1) if story else "<TICKET>"
+                task = _path_story(raw, event) or "<TICKET>"
                 script = "plan_row.py" if kind == "plan_rows" else "grounding_section.py"
                 shape = "--show --row <TS-n> [--row ...]" if kind == "plan_rows" else "--show <id> [--show ...] | --requirement <R-n>"
-                door += f"\nWith a shell: python \"${{CLAUDE_PLUGIN_ROOT}}/scripts/{script}\" --task {task} {shape}"
+                door += f"\nWith a shell: {_door_command(script)} --task {task} {shape}"
             return door
     except Exception:  # noqa: BLE001 - see the docstring
         return ""
@@ -872,7 +872,7 @@ def big_read_check(ti: dict, cfg: dict, event: dict | None = None) -> None:
         door = ("This is a picture: it cannot be read in parts. If it is a ticket attachment, record it as unread with cause "
                 "`too_large` so the person sees it with its size; do not try `offset`/`limit`.")
         if _has_bash(event):
-            door += ("\nWith a shell: python \"${CLAUDE_PLUGIN_ROOT}/scripts/ticket_adapter.py\" inspect --output <work/source-inventory.json> "
+            door += (f"\nWith a shell: {_door_command('ticket_adapter.py')} inspect --output <work/source-inventory.json> "
                      "--source-id <source id> --attachment-id <attachment id> --evidence-ref <path of the evidence you wrote> "
                      "--inspection-status unavailable --reason \"too_large: <what you saw: the size and the limit>\"")
         else:
@@ -929,8 +929,7 @@ def case_store_check(event: dict, cfg: dict) -> None:
         return  # a path the guard cannot resolve is not the guard's business
     if target == allowed or allowed in target.parents:
         return
-    ticket = _STORY_RE.search(raw)
-    sample = case_forms.example(ticket.group(1) if ticket else "", cfg or load_config())
+    sample = case_forms.example(_path_story(raw, event), cfg or load_config())
     block(f"PRE-TOOL GUARD: this project keeps its test cases in `{store}` "
           f"(config.json, cases_root), and this write goes to {raw}. Write it as "
           f"`{store}/<area>/{sample}.md` instead — the coverage map, the traceability check "
@@ -958,6 +957,24 @@ OWNED_ARTIFACTS = {
 # file; the role is who is dispatched to produce it, which is what this guard asks about.
 REGISTRY_ROLE_BY_SCRIPT = {"manifest_put.py": "qa-automator", "finalize_task.py": "qa-runner"}
 _STORY_RE = re.compile(r"/artifacts/([^/]+)/")
+
+
+def _path_story(raw: str, event: dict | None = None) -> str:
+    """The story key a path under `/artifacts/` names, as the folder a write LANDS in (OH8-2, F4): the key the path
+    spells, replaced by the listed folder the OS opens for it (`hooklib.landing_name`: case, trailing dot, 8.3 name,
+    junction alias), so the owner rule judges the story whose files change, never the absent-story pass. "" when the
+    path names no story. NEVER raises: any failure (a broken project config among them) leaves the raw key, which is
+    today's answer. The match is on a literal `/artifacts/` (a custom artifact root is not matched, as before)."""
+    key = ""
+    try:
+        match = _STORY_RE.search(str(raw))
+        key = match.group(1) if match else ""
+        if key:
+            from hooklib import artifact_root, landing_name
+            key = landing_name(artifact_root(event), key) or key
+    except Exception:  # noqa: BLE001 - a guard helper never raises (P1)
+        pass
+    return key
 
 
 def owned_artifacts() -> dict:
@@ -1083,7 +1100,7 @@ def handoff_write_check(event: dict, cfg: dict) -> None:
         block(f"PRE-TOOL GUARD: {waiting} is waiting to be applied to this form, and it is applied over it at the "
               f"next check - an Edit here would be lost. Put the field into {waiting} (rewrite it whole, with the "
               f"field added): {values}"
-              + (f"\nor apply it first: python \"${{CLAUDE_PLUGIN_ROOT}}/scripts/handoff_check.py\" --file {raw} --fix,"
+              + (f"\nor apply it first: {_door_command('handoff_check.py')} --file {raw} --fix,"
                  " then Edit" if "Bash" in role_ways(event) else ""))
         return
     if kind == ".values" and ext == "yaml":
@@ -1104,11 +1121,18 @@ def handoff_write_check(event: dict, cfg: dict) -> None:
           f"  Write {values}\n"
           "      (every field you own as `path: value` lines, in one Write; a row of a list by its index, "
           "\"<list>[0].<field>\": value; the next check applies them)\n"
-          + ((f"  or, in one call:\npython \"${{CLAUDE_PLUGIN_ROOT}}/scripts/handoff_check.py\" --file {raw} --fix --values - <<'EOF'\n"
+          + ((f"  or, in one call:\n{_door_command('handoff_check.py')} --file {raw} --fix --values - <<'EOF'\n"
               "<path>: <value>\nEOF\n"
               "      (the same lines; --fix also derives everything code can, then names what is left)\n")
              if "Bash" in ways else "")
           + (f"  Edit   (one field's own lines; refused while {waiting} waits for this form)" if "Edit" in ways else ""))
+
+
+def _door_command(name: str) -> str:
+    """The door command of a package script, spelled for the copy that runs this guard (`runtime_paths.script_command`).
+    Built only on the way to a block: a call that passes pays no stat and no import (E10)."""
+    import runtime_paths as RP
+    return RP.script_command(name)
 
 
 def handoff_values_check(event: dict) -> None:
@@ -1153,13 +1177,13 @@ def dispatched_role(event: dict) -> str:
     windows); a session that carries its dispatch's name (`dispatch_identity.named`) gets that dispatch's role. None open, or no
     controller, means the caller decides what to assume."""
     raw = str(((event or {}).get("tool_input") or {}).get("file_path") or "").replace("\\", "/")
-    story = _STORY_RE.search(raw)
-    if not story:
+    key = _path_story(raw, event)
+    if not key:
         return ""
     import json
     from hooklib import artifacts_dir
     try:
-        controller = json.loads((artifacts_dir(story.group(1), event) / "state" / "controller.json")
+        controller = json.loads((artifacts_dir(key, event) / "state" / "controller.json")
                                 .read_text(encoding="utf-8"))
     except Exception:
         return ""
@@ -1226,10 +1250,9 @@ def artifact_rewrite_check(event: dict, cfg: dict) -> None:
         cost = str(entry.get("rewrite_cost") or "").strip()
         # The door of a ban (FR-57): a run that was cut off may leave a file nothing can be continued
         # from, and the guard must not be a dead end then. Named only to a role that can run it.
-        story = _STORY_RE.search(raw)
         door = ("\nIf a run of yours was cut off and left this file with nothing in it to continue from, set it "
-                "aside and write it again:\n  python \"${CLAUDE_PLUGIN_ROOT}/scripts/artifact_supersede.py\" "
-                f"--task {story.group(1) if story else '<TICKET>'} --path {str(key).lstrip('/')} "
+                f"aside and write it again:\n  {_door_command('artifact_supersede.py')} "
+                f"--task {_path_story(raw, event) or '<TICKET>'} --path {str(key).lstrip('/')} "
                 "--role <your role> --reason \"<one line>\"\n(it moves the file to `.superseded`; your next "
                 "Write of it is its first.)") if "Bash" in role_ways(event) else ""
         block(f"PRE-TOOL GUARD: {name} already exists, and a Write replaces it whole"
@@ -1270,9 +1293,9 @@ def plan_write_check(event: dict, cfg: dict) -> None:
         if not ids:
             return  # no rows yet: this Write is still the plan's first shape
         ways = role_ways(event)
-        shell = ("  python \"${CLAUDE_PLUGIN_ROOT}/scripts/plan_row.py\" --task <TICKET> "
+        shell = (f"  {_door_command('plan_row.py')} --task <TICKET> "
                  "--row <TS-n> --set <field>=<value>   (one field; repeatable)\n"
-                 "  python \"${CLAUDE_PLUGIN_ROOT}/scripts/plan_row.py\" --task <TICKET> "
+                 f"  {_door_command('plan_row.py')} --task <TICKET> "
                  "--add-row <json|file>                (one new row you wrote)\n") if "Bash" in ways else ""
         editor = ("  Edit                                                                  "
                   "        (one row's own lines; several Edit calls in one turn)") if "Edit" in ways else ""
@@ -1283,8 +1306,8 @@ def plan_write_check(event: dict, cfg: dict) -> None:
         door = ("\nA run of yours that was cut off may have left this plan half written: continue it - keep the "
                 "rows that parse and pass their check, repair a stale row with `plan_row.py --set`, add the "
                 "rest with `--add-row`. Only when nothing in it is usable, set it aside and write the plan "
-                "again:\n  python \"${CLAUDE_PLUGIN_ROOT}/scripts/artifact_supersede.py\" --task "
-                f"{story.group(1) if story else '<TICKET>'} --path {raw.split(story.group(0), 1)[1] if story else 'work/test-plan.json'} "
+                f"again:\n  {_door_command('artifact_supersede.py')} --task "
+                f"{_path_story(raw, event) or '<TICKET>'} --path {raw.split(story.group(0), 1)[1] if story else 'work/test-plan.json'} "
                 "--role <your role> --reason \"<one line>\"\n(it moves the file to `.superseded`; your next "
                 "Write of it is its first.)") if "Bash" in ways else ""
         block(f"PRE-TOOL GUARD: this plan already holds {len(ids)} rows ({', '.join(ids[:6])}"
@@ -1296,8 +1319,8 @@ def plan_write_check(event: dict, cfg: dict) -> None:
         story = _STORY_RE.search(raw)
         ways = role_ways(event)
         door = ("\nIf a run of yours was cut off and left this file with nothing in it to continue from, set it "
-                "aside and write it again:\n  python \"${CLAUDE_PLUGIN_ROOT}/scripts/artifact_supersede.py\" "
-                f"--task {story.group(1) if story else '<TICKET>'} --path "
+                f"aside and write it again:\n  {_door_command('artifact_supersede.py')} "
+                f"--task {_path_story(raw, event) or '<TICKET>'} --path "
                 f"{raw.split(story.group(0), 1)[1] if story else 'work/test-plan.md'} "
                 "--role <your role> --reason \"<one line>\"\n(it moves the file to `.superseded`; your next "
                 "Write of it is its first.)") if "Bash" in ways else ""
@@ -1444,7 +1467,7 @@ def owner_check(event: dict, cfg: dict) -> None:
     story = _STORY_RE.search(raw)
     if not story and not outside_story:
         return
-    ticket = story.group(1) if story else ""
+    ticket = _path_story(raw, event) if story else ""
     if role_name(subagent_type(event)) == owner:
         return  # the host's own event says this IS the owning role writing
     if not ticket:
@@ -1613,7 +1636,7 @@ def _window_refusal(WF, task_root, rel: str, owner: str, count: int) -> str:
     text = (f"PRE-TOOL GUARD: this test file belongs to window {WF.cases_of(owner) if owner else 'another window'} until that "
             f"window closes. Put your test in a new file in the same directory: {directory}. Where a test lives stays your "
             "choice (P17); a test in a new file is judged the same.")
-    free = (f'python "${{CLAUDE_PLUGIN_ROOT}}/scripts/window_files.py" --task "{Path(task_root).as_posix()}" '
+    free = (f'{_door_command("window_files.py")} --task "{Path(task_root).as_posix()}" '
             "--release ")
     if owner:
         text += f" If the file must change hands, the conductor frees the claim with: {free}\"{owner}\""
@@ -1720,6 +1743,8 @@ HUMAN_WORD_MSG = ("PRE-TOOL GUARD: a person's word is recorded by the orchestrat
                   "`project_knowledge.py side` stores what the person said about the product's sides (which are real on a stand, "
                   "whose they are, which stand runs the old version); a role running it would declare its own substitute real or "
                   "its own gap someone else's (`show` is open to you). "
+                  "`project_knowledge.py lesson` stores what the person taught about the stand (what takes long, how to narrow it); "
+                  "a role running it would make its own guess a project fact (`lessons` and `show` are open to you). "
                   "`report_adapt.py kind` changes how a test command's report is read in the project's configuration; that is the "
                   "driver's or the conductor's move, and a role that cannot read a report hands the kept report over in its digest "
                   "(`understood` and `show` are open to you). "
@@ -1761,7 +1786,7 @@ def human_word_check(event: dict, cfg: dict) -> None:
                or re.search(r"environment_record\.py[\"']?(?:\s*,\s*|\s+)[\"']?(?:record|revoke)(?![\w-])", low)
                # What the person said about the product's roles and the stand's accounts, and taking it back (PK0-8): the same door shape;
                # `show` stays open
-               or re.search(r"project_knowledge\.py[\"']?(?:\s*,\s*|\s+)[\"']?(?:account|role|revoke|side)(?![\w-])", low)
+               or re.search(r"project_knowledge\.py[\"']?(?:\s*,\s*|\s+)[\"']?(?:account|role|revoke|side|lesson)(?![\w-])", low)
                # B-416 M10: `report_adapt.py kind` writes the config's report kind and `forget` takes the helper's row back (it would
                # reset the one-turn bound); `config_write_check` reacts only to a `config.json` path word, and this script names none,
                # so the role door is closed here for both. `understood` and `show` stay open.

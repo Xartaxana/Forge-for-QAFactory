@@ -260,6 +260,7 @@ TOLD = {
     "manual_evidence.py prepare": ("open", "sweep row 23: the record fields are printed by `prepare`, not pinned"),
     "manual_evidence.py write-block": ("open", "sweep row 23: the record fields are printed by `prepare`, not pinned"),
     "manual_evidence.py export": ("open", "sweep row 23: the record fields are printed by `prepare`, not pinned"),
+    "manual_evidence.py validate": ("file", "references/manual-evidence.md"),
     "manual_evidence.py build": ("flags", "the record is built by code from the files manual_capture.py saved; the role passes flags"),
     "manual_evidence.py rejudge": ("flags", "the record is a copy of a written attempt's, changed by code; the role passes flags"),
     "manual_capture.py ui": ("file", "references/manual-capture-steps.json"),
@@ -272,6 +273,7 @@ TOLD = {
     "external_writes.py --record": ("open", "not established by t-1349 (sweep row 30 covers the bug side only)"),
     "case_versions.py --pin": ("flags", "two values, a case id and an existing version; no role-written record"),
     "plan_row.py": ("file", "references/risk-policy.md"),
+    "grounding_section.py": ("flags", "a task, a story folder and ids to read (--show, --requirement, --map); read-only, no role-written record"),
     "execution_fingerprint.py": ("vocab", "fingerprint spec keys"),
     "context_bundle.py": ("vocab", "scout coverage_search fields"),
     "red_sandbox.py --diagnostic": ("file", "references/role-commands.json"),     # `input` spells the five request keys
@@ -324,6 +326,7 @@ ENTRY_KINDS = ("vocab", "skeleton", "file", "flags", "open")
 GUARDED = {
     "manual_evidence.py prepare": ("none", "prints a skeleton; takes no role-written record"),
     "manual_evidence.py write-block": ("battery", "B7"),
+    "manual_evidence.py validate": ("battery", "B13"),
     "manual_evidence.py export": ("open", "not established by t-1349 (sweep row 23 covers write_block and validate only)"),
     "manual_evidence.py build": ("none", "the record is built by code from saved files; the role passes flags"),
     "manual_evidence.py rejudge": ("none", "the record is copied by code from a written attempt; the role passes flags"),
@@ -337,6 +340,7 @@ GUARDED = {
     "external_writes.py --record": ("open", "not established by t-1349 (sweep row 30 covers the bug side only)"),
     "case_versions.py --pin": ("none", "two values, a case id and a version; no role-written record"),
     "plan_row.py": ("battery", "B10"),
+    "grounding_section.py": ("none", "read-only: prints parts of work/grounding.yaml by id and writes nothing; no role-written record"),
     "execution_fingerprint.py": ("battery", "B4"),
     "context_bundle.py": ("battery", "B1"),
     "red_sandbox.py --diagnostic": ("open", "run_diagnostic refuses the request key by key (first error) and prints the whole form "

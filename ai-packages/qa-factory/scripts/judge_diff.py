@@ -65,7 +65,9 @@ def _diff_files(manifest: dict, task_root: Path) -> list:
     impls = manifest.get("implementations") or []
     if not impls and isinstance(manifest.get("implementation"), dict):
         impls = [manifest["implementation"]]
-    project_root = task_root.parent.parent
+    import runtime_paths
+    project = runtime_paths.nearest_project(task_root)      # <project>/qa-factory is the base; no project: two levels up, as before
+    project_root = project / "qa-factory" if project else task_root.parent.parent
     paths = []
     for impl in impls:
         raw = impl.get("diff_path") if isinstance(impl, dict) else None

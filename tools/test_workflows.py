@@ -8,7 +8,8 @@ folder present is RED. `yaml.safe_load` reads the key `on` as `True`.
 Every pin names the `.gitlab-ci.yml` line it mirrors (the file as of GM1-1, without `board-check`). GitHub itself is
 NOT run here: "not run on GitHub" stays true until the step D3 of docs/migration/MIGRATION_PLAN.md.
 There is no scrub step in any workflow (owner's word, decision FK-5) and nothing here pins one.
-The test diet (t-2566) added to the GitLab file: the step `test_quarantine.py check` of forge-check, the jobs quarantine-watch,
+The test diet (t-2566) added to the GitLab file: the step `test_quarantine.py check` (here, since 13.11.2026, the nightly.yml job
+quarantine-check, schedule only: it walks the whole history and outlived forge-check), the jobs quarantine-watch,
 quarantine-watch-report (here: quarantine-watch.yml, a fourth file, so neither schedule starts the other's jobs) and
 test-redundancy (here: a job of nightly.yml started by the inputs TEST_REDUNDANCY / REDUNDANCY_SCOPE); runner-facts, absent
 from the first port, is a job of forge-check.yml.
@@ -151,11 +152,9 @@ FORGE_CHECK_RUNS = [
     "python tools/factory_rules_index.py --check",                                  # :90
     "python tools/architecture_index.py --check",                                   # :91
     "python tools/agents_md.py --check",                                            # :92
-    "python tools/piles.py board --check",                                          # :93
-    'python tools/piles.py check --all --base "$BASE"',                             # :96-103
+    'python tools/piles.py check --base "$BASE"',                                   # :96-103; SL-2 (F-2 (a)): the range's piles, not --all
     'python tools/install_parity.py --check --skip-from-commit-message "$(git log -1 --format=%B $HEAD_SHA)"',   # :107, pull request
     "python tools/install_parity.py --check",                                       # :107, push and canon
-    "python tools/test_quarantine.py check",                                        # the test diet (td-15 K5), before the suite
     "python -m pytest tools/ -q",                                                   # :109
 ]
 
@@ -238,6 +237,20 @@ def test_crap_measure_is_schedule_only_and_never_blocking():
     assert text.count("--require-coverage") == 2
     for name in ("package-full", "install-smoke", "package-full-report"):
         assert "coverage" not in "\n".join(runs(jobs[name])).lower(), name
+
+
+def test_quarantine_check_is_a_schedule_only_guard_of_nightly_and_forge_check_no_longer_runs_it():
+    """Owner's word 13.11.2026: the history walk of `test_quarantine.py check` moved from forge-check to a nightly job: schedule only
+    (a called run carries the caller's event), the whole history (fetch-depth 0), a guard (no continue-on-error)."""
+    job = load("nightly.yml")["jobs"]["quarantine-check"]
+    assert job["if"] == "github.event_name == 'schedule' && needs.skip-if-unchanged.outputs.run == 'true'"
+    assert job["needs"] == "skip-if-unchanged" and "continue-on-error" not in job
+    checkout = next(s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/checkout"))
+    assert checkout["with"]["fetch-depth"] == 0 and checkout["with"]["ref"] == "main"
+    assert runs(job) == ["python tools/test_quarantine.py check"]
+    for name in ("forge-check.yml", "canon.yml"):
+        assert "test_quarantine.py check" not in "\n".join(
+            "\n".join(runs(j)) for j in load(name)["jobs"].values() if "steps" in j), name
 
 
 def test_package_full_is_two_shards_at_once_and_install_smoke_and_the_drift_report_are_jobs_of_their_own():

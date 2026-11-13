@@ -54,6 +54,7 @@ NO_CONFIG = "no qa-factory/config.json above the task root (the project is not o
 DASH = "—"
 NOT_PROVEN = f"Sign-in: not proven at gate A {DASH} sign in with fill-account"
 
+LESSON_LINE_CHARS = 400   # a stand-lesson line (words cut at 200 by `project_knowledge.lessons`) is shown whole
 LINE_CHARS = 300          # one line of a free text keeps this many characters
 PROFILE_LINES = 10        # lines of a profile section the card keeps; the rest is counted
 NOTE_LINES = 12           # the newest walker notes the card keeps; the rest is counted
@@ -161,6 +162,7 @@ def _stand_lines(task_root, project, cfg, cfg_why):
     import brief_pack as BP
     got = BP.manual_stand_lines(task_root, project, cfg, [], "", None)
     stand = [_clip(x, tokens=False) for x in got if x.startswith(("- Stand:", "- API:", "- Frontend:"))]
+    stand += [_clip(x, LESSON_LINE_CHARS, tokens=False) for x in got if x.startswith("- Stand lessons:")]    # what a person taught (the walk road)
     accounts = [_clip(x, tokens=False) for x in got if x.startswith(("- Accounts:", "- Env keys:"))]
     return stand, accounts, ""
 
@@ -236,6 +238,7 @@ def _test_data(project_text, profile_why, cfg, cfg_why):
     """(lines, [why]): the profile's `Test data` section and the config's `test_data` keys (names; a scalar's text only when
     the key does not look like a secret)."""
     import env_probe as EP
+    from config_contract import test_data_states
     lines, whys = [], []
     if project_text is None:
         whys.append(profile_why)
@@ -244,16 +247,23 @@ def _test_data(project_text, profile_why, cfg, cfg_why):
         lines += _bounded(section, PROFILE_REL) if section else []
         if not section:
             whys.append(f"{PROFILE_REL} has no Test data section")
-    data = cfg.get("test_data") if isinstance(cfg, dict) else None
+    states = test_data_states(cfg)          # the ONE reader of the block (AR-13): absent / malformed / read, a status per key
+    data = cfg.get("test_data") if states["state"] == "read" else None
+    status_of = dict(states["keys"])
     if cfg_why:
         whys.append(cfg_why)
     elif not isinstance(data, dict) or not data:
         whys.append("config.json has no test_data")
     else:
         for key, value in list(data.items())[:PROFILE_LINES]:
+            status = status_of.get(str(key))
             key = _clip(key, 60, tokens=False)
             if EP.SECRET_NAME.search(key):
                 lines.append(f"- config test_data.{key}: (value not printed)")
+            elif status == "unknown":      # a recorded "I do not know" is not a value (AR-13): named, not printed
+                lines.append(f"- config test_data.{key}: not set (recorded as unknown)")
+            elif status == "not_recorded":  # blank or null: no value to print (AR-13)
+                lines.append(f"- config test_data.{key}: not set")
             elif isinstance(value, dict):
                 names = ", ".join(_clip(k, 40, tokens=False) for k in list(value)[:TEST_DATA_NAMES])
                 lines.append(f"- config test_data.{key}: {len(value)} entries" + (f" (names: {names})" if names else ""))
@@ -437,7 +447,8 @@ def inputs_hash(task_root, project, map_file) -> str:
     except Exception:  # noqa: BLE001 - the hash must always be made; an unreadable reader changes nothing here
         h.update(b"\0first-look-stale\0-")
     if project is not None:
-        paths += [Path(project) / PROFILE_REL, Path(project) / CONFIG_REL]
+        import project_knowledge as PK
+        paths += [Path(project) / PROFILE_REL, Path(project) / CONFIG_REL, PK.record_path(project)]    # a lesson taught later rebuilds the card
     if map_file is not None:
         paths.append(map_file)
     for path in paths:

@@ -66,6 +66,9 @@ BROKEN = {
     "first_look.py show": ["show"],
     # t-2181 PC-9b: the runner's `reference_snapshot.py put`; the broken call is the missing --reference/--items-file (a refusal through RefusingParser, with the card)
     "reference_snapshot.py put": ["put", "--task-root", "{task}"],
+    # OF5-10: the broken call is the missing --input (a refusal through role_cli.refuse, with the card); a record with a missing
+    # field is a validator RESULT (valid: false), held in manual_examples
+    "manual_evidence.py validate": ["validate", "--task-root", "{task}"],
     "manual_evidence.py export": ["export", "--task-root", "{task}", "--input", "{bad}",
                                   "--output", "{root}/exported.json"],
     "artifact_producer.py publish": ["publish", "--kind", "triage", "--task-root", "{task}",
@@ -79,6 +82,8 @@ BROKEN = {
     "case_versions.py --pin": ["--task-root", "{task}", "--pin", "--case-file", "{bad}"],
     "plan_row.py": ["--task", "QA-1", "--task-root", "{task}", "--row", "TS-404",
                     "--set", "source_conflict=true"],
+    # the table has no work/grounding.yaml: the id is refused whole (a refusal through role_cli.refuse, with the card)
+    "grounding_section.py": ["--task", "QA-1", "--task-root", "{task}", "--show", "G-404"],
     # Both of these used to end in a traceback, which is why they are here: an empty object is a
     # specification with every field missing, and a bundle with nothing in it.
     "execution_fingerprint.py": ["{bad}"],
@@ -683,6 +688,23 @@ def manual_examples() -> None:
         card_names("manual_capture.py ui", "--session", "session close", "calls of one --profile join one open attempt")
         card_names("manual_capture.py http", "--session", "only in the same --profile's open attempt", "signs in again")
 
+        # --- manual_evidence.py validate: ONE record, as `build` wrote it (OF5-10) ----------------------------------------------
+        command = "manual_evidence.py validate"
+
+        def validate_one(record):
+            path = t.task / "one-record.json"
+            path.write_text(json.dumps(record), encoding="utf-8")
+            with t.patched():
+                return S.run(["validate", "--task-root", str(t.task), "--input", str(path)], main=M.main, command=command)
+
+        code, out, err = validate_one(good)
+        accepted_example(command, code, out + err)
+        check_in("manual_evidence validate: the printed JSON says valid, as the card says", '"valid": true', out)
+        code, out, err = validate_one({k: v for k, v in good.items() if k != "case"})
+        check("manual_evidence validate: a record with a field missing is exit 1 and `valid: false`, as the card says",
+              code == 1 and '"valid": false' in out, f"exit {code}: {(out + err)[-300:]}")
+        card_names(command, "--task-root", "--input", "build")
+
         command = "manual_evidence.py export"
         code, out, err = block([good], "export")
         accepted_example(command, code, out + err)
@@ -811,6 +833,192 @@ def walk_examples() -> None:
         rig.done()
 
 
+def argument_refusal_table(root: Path) -> None:
+    """RC1-10: ONE table, a row per case. A call with a bad argument is refused (the script's own exit code, no traceback) and the
+    refusal quotes that script's command card (role_cli); a call whose card is missing says so and still prints the usage;
+    `critic_rollcall.py --help` is help (exit 0, nothing read), alone and next to a real file; the `runtime_provenance` card
+    names exactly what `execution_fingerprint.build()` asks for (FR-14: the card is the contract)."""
+    import os
+    import shutil
+    art = root / "qa-factory" / "artifacts" / "QA-RC"
+    (art / "proposals").mkdir(parents=True)
+    (art / "work").mkdir()
+    (art / "pipeline.json").write_text(json.dumps({"ticket": "QA-RC", "gates": {"B": {"decision": "approve"}}}), encoding="utf-8")
+    proposal = art / "proposals" / "bug-1.json"
+    proposal.write_text(json.dumps({"kind": "bug", "bug_file": "bugs/BUG-9.md", "action": "create", "fields": {}, "witness": {}}),
+                        encoding="utf-8")
+    keyed = art / "proposals" / "case-1.json"
+    keyed.write_text(json.dumps({"kind": "bug", "bug_file": "bugs/BUG-8.md", "action": "create", "fields": {}, "witness": {},
+                                 "publication_key": "k"}), encoding="utf-8")
+    records = root / "records.json"
+    records.write_text("[]", encoding="utf-8")
+    findings = root / "findings.md"
+    findings.write_text("# findings\n", encoding="utf-8")
+    env = dict(os.environ, CLAUDE_PROJECT_DIR=str(root))
+    # (label, script, args, card key or None = the card is missing, what the refusal names, the script's own exit code)
+    rows = [
+        ("manual_evidence export without --output", "manual_evidence.py", ["export", "--task-root", art, "--input", records],
+         "manual_evidence.py export", "export requires --output", 2),
+        ("artifact_producer publish without --kind", "artifact_producer.py",
+         ["publish", "--task-root", art, "--path", "work/triage.json", "--input", records],
+         "artifact_producer.py publish", "--kind is required", 2),
+        ("plan_row without --task", "plan_row.py", ["--row", "TS-1"], "plan_row.py", "--task", 2),
+        ("external_writes --record without --external-id", "external_writes.py", ["--record", proposal],
+         "external_writes.py --record", "--external-id is required", 1),
+        ("external_writes --record, keyed proposal without --remote-revision", "external_writes.py",
+         ["--record", keyed, "--external-id", "X-1"], "external_writes.py --record", "--remote-revision", 1),
+        # R2: the main parser of external_writes refuses with the card too (an argparse error on a --record call)
+        ("external_writes --record with a bad --phase", "external_writes.py", ["--record", proposal, "--phase", "bogus"],
+         "external_writes.py --record", "invalid choice", 2),
+        # R1: the two argument refusals of critic_rollcall main(), through role_cli.refuse
+        ("critic_rollcall --apply-fixes without --task-root", "critic_rollcall.py", ["--apply-fixes"],
+         "critic_rollcall.py --store", "--apply-fixes requires --task-root", 2),
+    ]
+    for label, script, args, key, needle, code_expected in rows:
+        result = run_script(script, *args, cwd=root, env=env)
+        code, text = seen(result)
+        check_eq(f"{label}: exit code is the script's own", code, code_expected)
+        check_not_in(f"{label}: not a traceback", "Traceback", text)
+        check_in(f"{label}: the refusal names {needle!r}", needle, text)
+        check_in(f"{label}: the refusal ends with the way out", "if you cannot", text)
+        check_in(f"{label}: quotes the card of {key}", card(key), text)
+        check_in(f"{label}: and how to prove it", COMMANDS[key]["verify"], text)
+
+    # R1: --task-root with no value is a refusal, not OUR defect (was an IndexError reported as a factory defect)
+    code, text = seen(run_script("critic_rollcall.py", "--task-root", cwd=root, env=env))
+    check_eq("critic_rollcall --task-root without a value: exit 2", code, 2)
+    check_not_in("critic_rollcall --task-root without a value: not reported as our defect", "this is a defect in", text)
+    check_not_in("critic_rollcall --task-root without a value: not a traceback", "Traceback", text)
+    check_in("critic_rollcall --task-root without a value: names the missing value", "--task-root has no value", text)
+    check_in("critic_rollcall --task-root without a value: ends with the way out", "if you cannot", text)
+
+    # R2: external_writes with no ticket is refused through role_cli.refuse (exit 2 as before)
+    code, text = seen(run_script("external_writes.py", cwd=root, env=env))
+    check_eq("external_writes without a ticket: exit 2", code, 2)
+    check_in("external_writes without a ticket: says what is missing", "a ticket id is required", text)
+    check_in("external_writes without a ticket: ends with the way out", "if you cannot", text)
+
+    # R3: a command that is unregistered BY DESIGN (a synthetic name): the usage error says the card is missing, prints the
+    # usage and does not crash. A real command whose card is missing would pass this for the wrong reason.
+    import contextlib
+    import io
+    from role_cli import RefusingParser
+    synthetic = RefusingParser(command="no_such_command.py", prog="no_such_command.py")
+    synthetic.add_argument("--need", required=True)
+    err = io.StringIO()
+    try:
+        with contextlib.redirect_stderr(err):
+            synthetic.parse_args([])
+        raised = None
+    except SystemExit as exc:
+        raised = exc.code
+    text = err.getvalue()
+    check_eq("an unregistered command: refused with exit 2", raised, 2)
+    check_in("an unregistered command: the usage is printed", "usage:", text)
+    check_in("an unregistered command: says the card is missing", "no command card is registered", text)
+    check_in("an unregistered command: names the problem", "arguments are required: --need", text)
+    check_not_in("an unregistered command: quotes no card", "what to write:", text)
+
+    # critic_rollcall.py --help: help, exit 0, no attempt to read a file named --help; --help beside a real file is the same help
+    alone = run_script("critic_rollcall.py", "--help", cwd=root)
+    beside = run_script("critic_rollcall.py", "--help", findings, cwd=root)
+    short = run_script("critic_rollcall.py", "-h", cwd=root)
+    for label, result in (("--help", alone), ("--help <real file>", beside), ("-h", short)):
+        code, text = seen(result)
+        check_eq(f"critic_rollcall {label}: exit 0", code, 0)
+        check_not_in(f"critic_rollcall {label}: the flag is not read as a findings file", "no such findings file", text)
+        check_in(f"critic_rollcall {label}: it is help", "usage: critic_rollcall.py", text)
+        check_in(f"critic_rollcall {label}: it repeats the card of --store word for word",
+                 card("critic_rollcall.py --store"), result.stdout or "")
+    check_eq("critic_rollcall: --help beside a real file is the help of --help alone (the flag wins, as in argparse)",
+             beside.stdout, alone.stdout)
+
+    # runtime_provenance: the card names every key `build()` demands, and every field of the record that `build()` reads whole
+    import execution_fingerprint as EF
+    import profile_contract as PC
+    command = "execution_fingerprint.py"
+    try:
+        EF.build({})
+        asked = []
+    except ValueError as exc:
+        asked = re.findall(r"missing (\w+)", str(exc))
+    check("execution_fingerprint: build() names its required keys when refusing an empty spec", len(asked) == 6, str(asked))
+    for key in asked:
+        check(f"execution_fingerprint: the card names the key build() requires: {key}", names(command, key), card(command))
+    check(f"execution_fingerprint: the card says how many keys the spec carries ({len(asked)})",
+          f"all {['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven'][len(asked)]}" in card(command), card(command))
+    fields = [re.match(r"(\w+)", error).group(1) for error in PC.validate_runtime_provenance({})["errors"]]
+    for field in dict.fromkeys(fields):
+        check(f"execution_fingerprint: the card names the field of runtime_provenance that build() requires: {field}",
+              names(command, field), card(command))
+    for word in sorted(PC.ACCEPTS[:2]) + ["unknown", "mismatched", "not_applicable"]:
+        check(f"execution_fingerprint: the card names the result `{word}`", names(command, word), card(command))
+    shutil.rmtree(art, ignore_errors=True)
+
+
+def bare_parser_table(root: Path) -> None:
+    """OF5-11: ONE table, script x (a call with a missing argument / a call with one unknown extra argument): a usage error of a
+    script that has a card refuses with the card (exit 2, no traceback), as RC1-10 did for its scripts (grounding_section.py included:
+    it has a card since the OF5-11 fix round). Then the usage line of red_sandbox.py: the standard one, short, not its docstring."""
+    import os
+    env = dict(os.environ, CLAUDE_PROJECT_DIR=str(root))
+    stray = "--no-such-flag-of5-11"
+    # (label, script, args, card key, what the refusal names)
+    rows = [
+        ("case_versions --pin, no --task-root", "case_versions.py", ["--pin"], "case_versions.py --pin", "--task-root"),
+        ("case_versions --pin, an unknown extra argument", "case_versions.py", ["--pin", "TC-1", "v1", "--task-root", str(root), stray],
+         "case_versions.py --pin", stray),
+        ("execution_fingerprint, no arguments", "execution_fingerprint.py", [], "execution_fingerprint.py", "spec"),
+        ("execution_fingerprint, an unknown extra argument", "execution_fingerprint.py", ["spec.json", stray],
+         "execution_fingerprint.py", stray),
+        ("manifest_put --fragment without a value", "manifest_put.py", ["--fragment"], "manifest_put.py --fragment", "--fragment"),
+        ("manifest_put --fragment, an unknown extra argument", "manifest_put.py", ["--task", "QA-1", "--fragment", "{}", stray],
+         "manifest_put.py --fragment", stray),
+        ("red_sandbox --diagnostic, no --request", "red_sandbox.py", ["--diagnostic"], "red_sandbox.py --diagnostic", "--request"),
+        ("red_sandbox --diagnostic, an unknown extra argument", "red_sandbox.py",
+         ["--diagnostic", "--request", "r.json", stray], "red_sandbox.py --diagnostic", stray),
+        ("grounding_section, no arguments", "grounding_section.py", [], "grounding_section.py", "--task"),
+        ("grounding_section, an unknown extra argument", "grounding_section.py", ["--task", "QA-1", "--show", "X", stray],
+         "grounding_section.py", stray),
+        # external_writes: its main parser has no sub-commands, the card is the one of --record
+        ("external_writes --record, an unknown extra argument", "external_writes.py", ["--record", "p.json", stray],
+         "external_writes.py --record", stray),
+    ]
+    for label, script, args, key, needle in rows:
+        code, text = seen(run_script(script, *args, cwd=root, env=env))
+        check_eq(f"{label}: exit 2", code, 2)
+        check_not_in(f"{label}: not a traceback", "Traceback", text)
+        check_in(f"{label}: the usage is printed", "usage:", text)
+        check_in(f"{label}: the refusal names {needle!r}", needle, text)
+        check_in(f"{label}: quotes the card of {key}", card(key), text)
+        check_in(f"{label}: and how to prove it", COMMANDS[key]["verify"], text)
+
+    # S2: the usage line of red_sandbox.py is the standard one (prog = the script's name, not its docstring) and the refusal is short
+    code, text = seen(run_script("red_sandbox.py", "--diagnostic", cwd=root, env=env))
+    check_eq("red_sandbox --diagnostic: exit 2", code, 2)
+    check_in("red_sandbox --diagnostic: the usage line starts `usage: red_sandbox.py`", "usage: red_sandbox.py", text)
+    check("red_sandbox --diagnostic: the refusal is at most 20 lines", len(text.splitlines()) <= 20, f"{len(text.splitlines())} lines")
+
+
+def grounding_example(root: Path) -> None:
+    """OF5-11 fix round: the card of grounding_section.py - its own example, written as the card says, is ACCEPTED, and the part
+    that comes back is headed as the card's `verify` says (`<id> (<path>, lines <first>-<last>)`)."""
+    import os
+    story = root / "qa-factory" / "artifacts" / "QA-GS"
+    (story / "work").mkdir(parents=True)
+    (story / "pipeline.json").write_text(json.dumps({"ticket": "QA-GS"}), encoding="utf-8")
+    (story / "work" / "grounding.yaml").write_bytes(
+        b"schema_version: 1\nrows:\n  - {id: G-1, hunks: [], label: implements, requirements: [R-1], risks: [], question: \"\", reason: \"\"}\n"
+        b"requirements:\n  - {r: R-1, state: implemented, hunks: [], where: \"\", question: \"\"}\n")
+    env = dict(os.environ, CLAUDE_PROJECT_DIR=str(root))
+    code, text = seen(run_script("grounding_section.py", "--task", "QA-GS", "--task-root", story, "--show", "G-1", cwd=root, env=env))
+    accepted_example("grounding_section.py", code, text)
+    check_in("grounding_section: the part is headed `<id> (<path>, lines <first>-<last>)`", "G-1 (rows[0], lines 3-3)", text)
+    code, text = seen(run_script("grounding_section.py", "--task", "QA-GS", "--task-root", story, "--show", "G-404", cwd=root, env=env))
+    check_eq("grounding_section: an id the table does not have is refused whole (exit 2)", code, 2)
+    check_in("grounding_section: and the refusal lists the ids there", "ids there:", text)
+
+
 def main() -> int:
     root = temp_project()
     try:
@@ -825,6 +1033,14 @@ def main() -> int:
               set(COMMANDS) == set(BROKEN),
               f"registry only: {sorted(set(COMMANDS) - set(BROKEN))}; "
               f"test only: {sorted(set(BROKEN) - set(COMMANDS))}")
+
+        # OF5-10: every `manual_evidence.py <subcommand>` the manual-evidence reference page hands a role has a card
+        page = (PLUGIN_ROOT / "references" / "manual-evidence.md").read_text(encoding="utf-8")
+        handed = sorted(set(re.findall(r"manual_evidence\.py ([a-z][a-z-]*)", page)))
+        check("the manual-evidence reference page hands at least one manual_evidence.py subcommand", bool(handed), str(handed))
+        for sub in handed:
+            check(f"manual-evidence.md hands `manual_evidence.py {sub}`: it has a card", f"manual_evidence.py {sub}" in COMMANDS,
+                  f"cards of manual_evidence.py: {sorted(c for c in COMMANDS if c.startswith('manual_evidence.py'))}")
 
         for command, row in sorted(COMMANDS.items()):
             script = command.split()[0]
@@ -866,6 +1082,9 @@ def main() -> int:
 
         # --- HF1-12: every card's own example, fed to its command, is ACCEPTED -----------------------------------
         subprocess_examples(root)
+        argument_refusal_table(root)
+        bare_parser_table(root)
+        grounding_example(root)
     finally:
         cleanup(root)
     manual_examples()

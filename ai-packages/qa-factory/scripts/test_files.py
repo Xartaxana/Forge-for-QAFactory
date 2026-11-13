@@ -22,6 +22,21 @@ the question the consumers actually ask, answered per consumer, because the unsa
   "name"       judge_run.wanted_names                    noise                    a segment names a test or is a
                                                                                   test folder name
 
+In a RECORDED area (B-355: `test_locations.recorded` - the project said where its tests are for the area the path lies in)
+the usual names mean nothing to the commit guard, the write window and `test_code`; the column that was left out above:
+
+  consumer     in a recorded area
+  "commit"     v.test only
+  "test_code"  a code file and v.test and v.source not in {tests_root, roots.test}
+  "production" unchanged: v.test can come only from the record, and inside a run.levels / roots.test / tests_root place
+               the names still only KEEP a helper counted (an extra row, never a lost one)
+  "test_body"  a config FILE entry only (a folder record names no body by itself)
+  "test_place" v.test (unchanged)
+  "name"       with every existing area recorded: only the literal last folder segment of a live folder carrier, as
+               written (a wildcard segment is never taken, the resolved prefix is never used); with one unrecorded:
+               that set plus the usual names. A FILE-shape carrier (`src/**/*.test.ts`) adds nothing, so a project
+               recorded only by file shapes has an empty set (the caller greps every quoted name: noise, never a skip)
+
 `markers` here means `names_a_test(p) or in_test_folder(p)`, evaluated directly on the path as written, past
 step 3 of the verdict (which hides the usual names inside application code when the project has named its
 test locations). Every answer is True, False, or None: None is "the usual test names could not be read"
@@ -236,22 +251,30 @@ def _production_names(parts: list, folder: bool, table: dict, source: str = "") 
 def _decide(consumer: str, path, cfg, base, root):
     table = _table()
     parts, folder = _parts(path)
+    cfg = cfg if isinstance(cfg, dict) else {}
     if consumer == "name":
         if table is None:
             return None
-        return _name_hit(parts, folder, table) or bool(parts and parts[-1].lower() in table["dir_names"])
-    v = verdict(str(path if path is not None else "").replace("\\", "/"), cfg if isinstance(cfg, dict) else {},
-                base=base, root=root)
+        every, folders = _tl().recorded_names(cfg, root=root) if cfg else (False, set())
+        if every:   # every area the project has is recorded: only a folder it names is a test name (B-355)
+            return bool(parts) and parts[-1].lower() in folders
+        return (_name_hit(parts, folder, table) or bool(parts and parts[-1].lower() in table["dir_names"])
+                or bool(parts and parts[-1].lower() in folders))
+    text = str(path if path is not None else "").replace("\\", "/")
+    v = verdict(text, cfg, base=base, root=root)
+    # where the project recorded its tests for the area this path lies in, the usual names decide nothing (B-355, owner F-3 (b));
+    # an empty config records nothing, so the question is not asked of it
+    rec = bool(cfg) and _tl().recorded(cfg, root=root, path=text, base=base)[0]
     if consumer == "test_place":
         return True if v["test"] else (None if table is None else False)
     if consumer == "test_body":
         if _is_config_file(v):
             return True
-        return None if table is None else _name_hit(parts, folder, table)
+        return False if rec else (None if table is None else _name_hit(parts, folder, table))
     if consumer == "commit":
         if v["test"]:
             return True
-        return None if table is None else _by_names(parts, folder, table)
+        return False if rec else (None if table is None else _by_names(parts, folder, table))
     if consumer == "production":
         if not v["test"]:
             return None if table is None else False
@@ -264,7 +287,8 @@ def _decide(consumer: str, path, cfg, base, root):
         return None
     if _extension_of(parts, folder) not in table["code_extensions"]:
         return False
-    return _by_names(parts, folder, table) or (v["test"] and v["source"] not in ("tests_root", "roots.test"))
+    word_only = bool(v["test"] and v["source"] not in ("tests_root", "roots.test"))
+    return word_only if rec else (_by_names(parts, folder, table) or word_only)
 
 
 def _is_config_file(v: dict) -> bool:
@@ -273,19 +297,49 @@ def _is_config_file(v: dict) -> bool:
     return v["by"] == "config" and v["kind"] == "file"
 
 
-def is_test_for(consumer: str, path, cfg=None, *, base=None, root=None):
+def _bind(path, cfg, base, root, word, checkout):
+    """(cfg, base, unknown) a call judges with when `word` (the project's config) is given for a path relative to
+    `checkout`. `checkout` a folder: the word is used, with that folder as the base, only when it records the area
+    `checkout/path` lies in; otherwise the caller's own `cfg` / `base` stay (today's call, byte for byte, also for a
+    checkout outside both bases: its area is ""). `checkout` None (unbound): when the word records anything, in any
+    area, the answer is unknown, else today's call."""
+    tl = _tl()
+    if checkout is None:
+        return cfg, base, tl.recorded(word, root=root)[0]
+    text = str(path if path is not None else "").replace("\\", "/")
+    if tl.recorded(word, root=root, path=str(Path(checkout) / text))[0]:
+        return word, checkout, False
+    return cfg, base, False
+
+
+def is_test_for(consumer: str, path, cfg=None, *, base=None, root=None, word=None, checkout=None):
     """True / False / None for one consumer (see the module's table). `base` is the folder a relative `path` is
     taken from (a commit's cwd, the implementation checkout), `root` the project root. An unknown consumer is a
-    programming error (ValueError); any other failure is None."""
+    programming error (ValueError); any other failure is None.
+
+    `word` / `checkout` (B-355), for a path of a diff, which is relative to a checkout the caller may not know:
+    `word` is the project's config, used only to judge through `checkout` (the folder the path is relative to).
+    `word=None` is exactly the call with `cfg` / `base` / `root`. With `word`: a `checkout` whose area is recorded by
+    the word judges with `(word, base=checkout)`, any other checkout keeps the caller's own `cfg` / `base`; no
+    `checkout` and a word that records something in any area is None (the consumer's declared unknown: a commit is
+    checked, a production file stays counted, nothing is skipped). The usual names read the path as written, never
+    the checkout's own folder name. The `name` consumer has no path to bind: with a `word` it judges by the word over any
+    area, with or without a `checkout` (never None for want of one)."""
     if consumer not in CONSUMERS:
         raise ValueError(f"unknown consumer {consumer!r}: one of {', '.join(CONSUMERS)}")
     try:
+        if word is not None and consumer == "name":
+            cfg = word      # `name` has no path to bind: it judges by the word over any area and ignores `checkout`
+        elif word is not None:
+            cfg, base, unknown = _bind(path, cfg, base, root, word, checkout)
+            if unknown:
+                return None
         return _decide(consumer, path, cfg, base, root)
     except Exception:
         return None
 
 
-def file_kind(path, cfg=None, *, base=None, root=None) -> str:
+def file_kind(path, cfg=None, *, base=None, root=None, word=None, checkout=None) -> str:
     """One of KINDS for a path as a diff writes it: the one answer to "is this a production file" (G1-1, axis 9).
 
     `test` first (the "production" consumer: under a test place, `is True`), then `docs` (`.md`; or a file under a `docs`
@@ -294,9 +348,10 @@ def file_kind(path, cfg=None, *, base=None, root=None) -> str:
     counted too many times over, never one counted too few): `None` from the markers, an extension nobody listed, a test-looking name outside a test
     place. `cfg` / `base` / `root`
     are `is_test_for`'s: pass `cfg` only with the checkout the path is relative to (`base`); without them the usual names
-    decide. Nothing here raises."""
+    decide. `word` / `checkout` are `is_test_for`'s too (a diff path whose checkout the caller may not know). Nothing
+    here raises."""
     text = str(path if path is not None else "").replace("\\", "/")
-    if is_test_for("production", text, cfg, base=base, root=root) is True:
+    if is_test_for("production", text, cfg, base=base, root=root, word=word, checkout=checkout) is True:
         return "test"
     parts, _folder = _parts(text)
     name = parts[-1] if parts else ""
@@ -311,7 +366,7 @@ def file_kind(path, cfg=None, *, base=None, root=None) -> str:
     return "production"
 
 
-def production_files(paths, kinds, cfg=None, *, base=None, root=None) -> list:
+def production_files(paths, kinds, cfg=None, *, base=None, root=None, word=None, checkout=None) -> list:
     """The paths of `kinds` (a collection of KINDS), in the order given, each once. The consumers' common filter: handoff_check
     takes {"production", "config"}, exit_gate and runtime_probe {"production"}."""
     wanted = set(kinds)
@@ -321,6 +376,6 @@ def production_files(paths, kinds, cfg=None, *, base=None, root=None) -> list:
         if path in seen:
             continue
         seen.add(path)
-        if file_kind(path, cfg, base=base, root=root) in wanted:
+        if file_kind(path, cfg, base=base, root=root, word=word, checkout=checkout) in wanted:
             out.append(path)
     return out

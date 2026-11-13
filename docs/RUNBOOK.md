@@ -590,12 +590,28 @@ PostgreSQL на том же `localhost:5433` и по отдельной базе
    `git worktree remove -f -f` + `branch -D` + `prune`.
 7. A builder's hand-off written to BOTH the worktree and the main path leaves an untracked copy on main that blocks the
    merge («untracked working tree files would be overwritten») — move the copy aside, then merge; if the branch did NOT
-   track it, move it back after the merge (t-856).
-8. The Agent tool often gives a builder NO worktree («launched in the primary checkout») — the dispatch text must carry the
-   `git worktree add <path> -b <branch> <sha>` fallback, and the branch then lives in the main repo.
+   track it, move it back after the merge (t-856) — the template of item 11 prevents this.
+8. The Agent tool often gives a builder NO worktree, and when it does, the worktree is cut from the PUSHED
+   refs/remotes/origin/main, never from a pile, wip or conv branch the dispatch names (F6-35; plans/builder-rules.md item
+   20). A builder that must start from another base gets a worktree the coordinator creates — git -C <repo> worktree add
+   <path> -b <branch> <base> — and is dispatched without isolation, its owns inside that path; the dispatch gate WARNs
+   (WORKTREE BASE) on an isolation dispatch naming a branch origin/main lacks.
 9. `git merge` refuses while the INDEX holds staged changes — even to files the merge does not touch: commit the staged part
    first, or `git stash push --staged`, merge, `stash pop`, re-`add`. The parallel cap counts a worker whose transcript was
    written in the last 10 minutes; a resume by `SendMessage` is not gated. A scout has NO Bash: a dispatch that needs a run or
    a bisect goes to a builder (t-878). Docker from Git Bash needs `MSYS_NO_PATHCONV=1` before `docker run … -v X:/repo -w /repo`.
 10. The dispatch gate's path check reads prose too: a branch-only path named anywhere in the text needs
     `manifest-skip: given, owns -- <reason>` (both words when the path appears in both roles).
+11. The `handoff:` line by role (F6-37). Critic and designer: one absolute `.md` path directly inside the role's folder
+    (`dispatch_manifest.HANDOFF_DIRS`: critic `docs/tasks/specs/reviews`, designer `docs/tasks/specs`); the dispatch
+    gate refuses another folder, no path, or two paths before launch (door `manifest-skip: handoff -- <reason>`), and
+    `tools/handoff_gate.py` refuses any other write once the worker runs. Builder in a worktree (made by the host or by
+    the coordinator): the report goes into ITS OWN tree at `docs/tasks/handoffs/<t-id>-<slug>.md` and is committed with
+    its branch; the dispatch names the absolute path inside the coordinator-made worktree, or the main-clone path when
+    the host makes the worktree (its path is unknown at launch; `tools/dod_gate.py` matches the trailing segments);
+    the Lead never writes a second copy on main (item 7). Scout: it has no Write; its `handoff:` line says
+    final message; the Lead saves it with tools/handback_extract.py to `docs/tasks/specs/reports/<t-id>-<slug>.md` --
+    fill the id and the slug before sending, and write the path in backticks (a path that still holds `<...>` is not
+    read as a path, and a bare relative path is not read either); the path RELATIVE, never absolute (an absolute path
+    makes `dod_gate` block the scout's stop once for a file it cannot write), and with the real task id in it (the
+    id-race detector reads it).

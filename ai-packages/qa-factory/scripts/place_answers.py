@@ -172,10 +172,11 @@ def _draft_json(path: Path):
 def place_of_draft(task, name, draft, rows=None, targets=None) -> str:
     """The id of the place a draft belongs to. Pure; the ONE reading of "which place a draft belongs to" (U2 reads it too).
     (1) a code-reading draft -> `req-<R>` of its first `violates` R; (2) a triage-road draft whose `case` is the `case` of an
-    investigation target (ALL targets, so a resolution never moves a draft) -> that target's id; (3) a triage-road draft whose
+    investigation target (ALL targets, so a resolution never moves a draft) -> that target's id; (2b) else a draft whose optional
+    `observation` (a non-empty string) is the id of a target -> that target's id (anything else there reads as absent); (3) a triage-road draft whose
     `violates` names an R whose register row `code_says` contradicts -> `req-<R>` of the first such R; (4) `draft-<file stem>`.
     `rows` (the register rows) and `targets` (all investigation targets) are read when None; what cannot be read is empty.
-    A target with no pinned `case` is joined to no draft: the contract gives a draft no field for it yet."""
+    A target with no pinned `case` is joined by the draft's `observation` field only."""
     import bug_records as BR
     task = Path(task)
     draft = draft if isinstance(draft, dict) else {}
@@ -192,6 +193,11 @@ def place_of_draft(task, name, draft, rows=None, targets=None) -> str:
     if case:
         for target in targets:
             if _s(target.get("case")).strip() == case:        # `case` is a case id by the draft contract; it is never read as a target id
+                return _s(target.get("id"))
+    observation = draft.get("observation")                 # optional: the id of the place the draft names (no pinned case); after `case`, so a case place never moves
+    if isinstance(observation, str) and observation.strip():
+        for target in targets:
+            if _s(target.get("id")) == observation.strip():
                 return _s(target.get("id"))
     if rows is None:
         rows = _register(task)[0]

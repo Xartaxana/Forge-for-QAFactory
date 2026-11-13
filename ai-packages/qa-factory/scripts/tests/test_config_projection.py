@@ -16,6 +16,7 @@ K-G1 is a regression guard, NOT a proof: it sees the access patterns `<recv>.get
 of receiver variables per launch-path file. It does not see indirect reads: helpers that take the config under
 another name, derived variables, files the launch writes, environment variables.
 """
+import codecs
 import copy
 import json
 import re
@@ -25,7 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from harness import check, check_eq, cleanup, finish, temp_dir  # noqa: E402
+from harness import check, check_eq, check_in, cleanup, finish, temp_dir  # noqa: E402
 
 import config_contract  # noqa: E402
 import execution_fingerprint as F  # noqa: E402
@@ -237,6 +238,228 @@ def mine_through_the_delivery_site(work):
           shas[0] == shas[1], shas)
     check("K-B1 build_mine_request: and that config_sha is the projection's, not the whole-file one",
           shas[1] != whole, (shas, whole))
+
+
+UNKNOWN_NOTE = ("cleanup_owner is not recorded — onboarding asks it (topic 3); until it is, "
+                "assume the data you create stays")
+# OF3-1 item 6: `env_probe.data_cleanup` reads `test_data` through `config_contract.test_data_states`; ids = the mapping's left column.
+CLEANUP_ROWS = [
+    ("absent: no config", None, ("unknown", UNKNOWN_NOTE)),
+    ("absent: a config that is not an object", [], ("unknown", UNKNOWN_NOTE)),
+    ("absent: no test_data", {"environment": {}}, ("unknown", UNKNOWN_NOTE)),
+    ("malformed: a string", {"test_data": "x"}, ("unknown", UNKNOWN_NOTE)),
+    ("malformed: a list", {"test_data": []}, ("unknown", UNKNOWN_NOTE)),
+    ("malformed: null", {"test_data": None}, ("unknown", UNKNOWN_NOTE)),
+    ("not_recorded: key missing", {"test_data": {"seeds": ["a"]}}, ("unknown", UNKNOWN_NOTE)),
+    ("not_recorded: null", {"test_data": {"cleanup_owner": None}}, ("unknown", UNKNOWN_NOTE)),
+    ("not_recorded: blank", {"test_data": {"cleanup_owner": "  "}}, ("unknown", UNKNOWN_NOTE)),
+    ("unknown: unknown", {"test_data": {"cleanup_owner": "unknown"}}, ("unknown", UNKNOWN_NOTE)),
+    ("unknown: TBD any case", {"test_data": {"cleanup_owner": "TBD"}}, ("unknown", UNKNOWN_NOTE)),
+    ("unknown: ?", {"test_data": {"cleanup_owner": "?"}}, ("unknown", UNKNOWN_NOTE)),
+    ("none: an empty list", {"test_data": {"cleanup_owner": []}}, ("unknown", UNKNOWN_NOTE)),
+    ("recorded falsy non-list: False", {"test_data": {"cleanup_owner": False}}, ("unknown", UNKNOWN_NOTE)),
+    ("recorded falsy non-list: 0", {"test_data": {"cleanup_owner": 0}}, ("unknown", UNKNOWN_NOTE)),
+    ("recorded none word: None", {"test_data": {"cleanup_owner": "None"}},
+     ("absent", "nobody resets this data (cleanup_owner: None)")),
+    ("recorded none word: padded N/A", {"test_data": {"cleanup_owner": " N/A "}},
+     ("absent", "nobody resets this data (cleanup_owner: N/A)")),
+    ("recorded other: a name", {"test_data": {"cleanup_owner": " ops team "}},
+     ("available", "cleanup_owner: ops team")),
+    ("recorded other: a non-empty list", {"test_data": {"cleanup_owner": ["a"]}},
+     ("available", "cleanup_owner: ['a']")),
+]
+
+
+def data_cleanup_rows() -> None:
+    import env_probe
+    for name, cfg, expected in CLEANUP_ROWS:
+        check_eq("OF3-1 item 6 data_cleanup %s" % name, env_probe.data_cleanup(cfg, ""), expected)
+    check_eq("OF3-1 item 6 the stand part is unchanged: a named stand with safe_to_break",
+             env_probe.data_cleanup({"test_data": {"cleanup_owner": "ops"},
+                                     "environments": [{"name": "dev", "safe_to_break": "yes"}]}, "dev"),
+             ("available", "cleanup_owner: ops; safe_to_break on dev: yes"))
+    check_eq("OF3-1 item 6 the stand part is unchanged: no stand of that name",
+             env_probe.data_cleanup({"test_data": {"cleanup_owner": "ops"}}, "dev"),
+             ("available", "cleanup_owner: ops; no environments[] entry named `dev`"))
+
+
+def artifact_root_rows(root: Path) -> None:
+    """OF3-1 item 7 (node c): `env_probe._case_needs` (a reader) and the scheduler's two job-store sites (writers)."""
+    import env_probe
+    import execution_scheduler as es
+    case = ('---\nid: TC-1\npreconditions: [{"id": "PC-1", "kind": "env", "what": "the key", '
+            '"check": {"env": "THE_KEY"}}]\n---\nbody\n')
+
+    def project(name, cfg_text):
+        proj = root / name
+        (proj / "qa-factory").mkdir(parents=True)
+        if cfg_text is not None:
+            (proj / "qa-factory" / "config.json").write_bytes(cfg_text)
+        return proj
+
+    def put_case(folder):
+        cases = folder / "S-1" / "work" / "test-cases"
+        cases.mkdir(parents=True)
+        (cases / "TC-1.md").write_text(case, encoding="utf-8")
+
+    # reader: a configured root
+    proj = project("needs-configured", b'{"artifact_root": "stories"}')
+    put_case(proj / "stories")
+    check_eq("OF3-1 item 7 configured root: case needs found there", env_probe._case_needs("S-1", proj),
+             {"THE_KEY": ["TC-1"]})
+    # reader: a broken config falls back to today's folder
+    proj = project("needs-broken", b"{broken")
+    put_case(proj / "qa-factory" / "artifacts")
+    check_eq("OF3-1 item 7 broken config: case needs from today's folder", env_probe._case_needs("S-1", proj),
+             {"THE_KEY": ["TC-1"]})
+    # reader: no config keeps the default folder
+    proj = project("needs-default", None)
+    put_case(proj / "qa-factory" / "artifacts")
+    check_eq("OF3-1 item 7 no config: case needs from the default folder", env_probe._case_needs("S-1", proj),
+             {"THE_KEY": ["TC-1"]})
+
+    # writers: the job store of a configured root. A completed passed job under it answers `reused`; a launch would be
+    # the split-store defect (the same job twice), so a launch is made loud.
+    request = {"task": "S-1", "revision": "r1", "idempotency_key": "key-1", "profile_id": "p",
+               "selected_instance_ids": ["t1"], "execution": {}, "command": {}}
+    plan = {"requests": [{"request": request, "job_id": "job1", "workers": 1, "resources": {}, "capacities": {},
+                          "reason": "serial"}], "worker_budget": 1, "parallel": False, "source_revision": "r1",
+            "selected_ids": ["t1"]}
+    launched = []
+    saved = (es.prepare_schedule, es.subprocess.Popen)
+    es.prepare_schedule = lambda document, project_root: plan
+    es.subprocess.Popen = lambda *a, **k: launched.append(a) or (_ for _ in ()).throw(AssertionError("launched"))
+    try:
+        proj = project("sched-configured", b'{"artifact_root": "stories"}')
+        er.JobStore(proj / "stories" / "S-1" / "state" / "execution-jobs").write(
+            {"idempotency_key": "key-1", "job_id": "job0", "status": "completed", "execution_status": "passed"})
+        receipt = es.execute_schedule({"requests": [{}]}, proj, proj / "run_suite.py")
+        check_eq("OF3-1 item 7 configured root: job store found there (reused, nothing launched)",
+                 ([g["status"] for g in receipt["groups"]], [g.get("job_id") for g in receipt["groups"]], launched),
+                 (["reused"], ["job0"], []))
+        proj = project("sched-broken", b"{broken")
+        try:
+            es.execute_schedule({"requests": [{}]}, proj, proj / "run_suite.py")
+            got = "no raise"
+        except ValueError:
+            got = "ValueError"
+        made = sorted(p.relative_to(proj).as_posix() for p in proj.rglob("*") if p != proj / "qa-factory" / "config.json"
+                      and p != proj / "qa-factory")
+        check_eq("OF3-1 item 7 broken config: the scheduler raises ValueError, nothing created, nothing launched",
+                 (got, made, launched), ("ValueError", [], []))
+        saved_budget = er.load_run_budget
+        er.load_run_budget = lambda path=None: ({"stub": 1}, "")
+        try:
+            try:
+                es._apply_budget(list(plan["requests"]), proj)
+                got = "no raise"
+            except ValueError:
+                got = "ValueError"
+        finally:
+            er.load_run_budget = saved_budget
+        check_eq("OF3-1 item 7 broken config: the budget's job-store path raises ValueError", got, "ValueError")
+        # the budget's store path under a configured root: a job completed there is found (kept), not charged or launched again
+        proj = project("budget-configured", b'{"artifact_root": "stories"}')
+        er.JobStore(proj / "stories" / "S-1" / "state" / "execution-jobs").write(
+            {"idempotency_key": "key-1", "job_id": "job0", "status": "completed", "execution_status": "passed"})
+        er.load_run_budget = lambda path=None: ({"stub": 1}, "")
+        saved_verdict, charged = er.request_verdict, []
+        er.request_verdict = lambda *a, **k: charged.append(a) or {"action": "refuse", "message": "charged again"}
+        try:
+            kept, budget_rows = es._apply_budget(list(plan["requests"]), proj)
+        finally:
+            er.load_run_budget, er.request_verdict = saved_budget, saved_verdict
+        check_eq("OF3-1 item 7 configured root: the budget finds the completed job in the configured store (kept)",
+                 (kept, budget_rows, charged), (plan["requests"], [], []))
+    finally:
+        es.prepare_schedule, es.subprocess.Popen = saved
+
+
+def artifact_path_rows(root: Path) -> None:
+    """OH5-12 (AR-13, AR-4, AR-28): the four literal artifact-path sites read the root through `hooklib.artifact_root`:
+    the lease registry's job store, `source_exclusions.task_dir_hint` / `_door`, `ticket_adapter.snapshot_hint`."""
+    import os
+    import execution_scheduler as es
+    import source_exclusions as SE
+    import ticket_adapter as TA
+    import subprocess
+
+    def outcome(call) -> str:
+        try:
+            call()
+            return "no raise"
+        except ValueError:
+            return "ValueError"
+
+    def lease(registry) -> None:
+        registry.acquire({"job_id": "lease1", "workers": 1, "resources": {}, "pid": 0, "process_started_at": "",
+                          "task": "S-1", "idempotency_key": "key-1"}, 1, {})
+
+    cases = (("default", None, "qa-factory/artifacts"), ("configured", b'{"artifact_root": "stories"}', "stories"),
+             ("outside the project", b'{"artifact_root": "%s"}' % (root / "far away").as_posix().encode("utf-8"),
+              (root / "far away").resolve().as_posix()), ("broken", b"{broken", None), ("list", b"[1]", None),
+             ("null", b"null", None), ("empty root", b'{"artifact_root": ""}', None))
+    entry = {"target": {"kind": "ticket", "key": "QA-9"}}
+    for name, raw, want in cases:
+        proj = root / ("paths-" + name.replace(" ", "-"))
+        (proj / "qa-factory").mkdir(parents=True)
+        if raw is not None:
+            (proj / "qa-factory" / "config.json").write_bytes(raw)
+        label = "OH5-12 " + name + ": "
+        if want is None:
+            for site, call in (("task_dir_hint", lambda: SE.task_dir_hint("S-1", proj)),
+                               ("snapshot_hint", lambda: TA.snapshot_hint("S-1", proj)),
+                               ("_door", lambda: SE._door(entry, [], "S-1", proj))):
+                check_eq(label + site + " raises ValueError (the reader refuses, no silent default root)",
+                         outcome(call), "ValueError")
+            registry = es.LeaseRegistry(proj)
+            lease(registry)
+            check_eq(label + "recover raises ValueError (a lease is never freed on a guessed root)",
+                     outcome(registry.recover), "ValueError")
+            run = subprocess.run([sys.executable, "-B", str(SCRIPTS / "execution_scheduler.py"), "--project-root", str(proj),
+                                  "--recover-leases"], capture_output=True, text=True)
+            try:
+                said = json.loads(run.stderr)
+            except ValueError:
+                said = {}
+            check_eq(label + "--recover-leases exits 2 with config_unreadable naming the file and a door",
+                     (run.returncode, said.get("status"), str(said.get("error", "")).startswith("qa-factory/config.json: "),
+                      "move it aside" in said.get("door", "")), (2, "config_unreadable", True, True))
+            continue
+        folder = want + "/S-1"
+        check_eq(label + "task_dir_hint", SE.task_dir_hint("S-1", proj), folder)
+        check_eq(label + "snapshot_hint", TA.snapshot_hint("S-1", proj), folder + "/work/ticket-snapshot.json")
+        check_in(label + "_door quotes the inventory under the root", '--output "%s/work/' % folder,
+                 SE._door(entry, [], "S-1", proj))
+        # the lease registry: a job running under the root is found there (adopted child), not under qa-factory/artifacts
+        home = proj / "qa-factory" / "artifacts" if want == "qa-factory/artifacts" else Path(want) if os.path.isabs(want) else proj / want
+        er.JobStore(home / "S-1" / "state" / "execution-jobs").write(
+            {"idempotency_key": "key-1", "job_id": "job1", "status": "running", "runner_pid": os.getpid(),
+             "runner_started_at": es._started(os.getpid())})
+        registry = es.LeaseRegistry(proj)
+        lease(registry)
+        check_eq(label + "recover finds the job store under the root",
+                 [row["recovery_status"] for row in registry.recover()["leases"]], ["recovered_child"])
+
+
+def scheduler_config_rows(root: Path) -> None:
+    """OF4-20 (AR-13, AR-28): the scheduler reads the project's parallel defaults through `read_config_file`."""
+    import execution_scheduler as es
+    default = {"mode": "auto", "min_selected_instances": 8, "max_workers": None}
+    own = {"mode": "serial", "min_selected_instances": 3, "max_workers": 2}
+    body = json.dumps({"execution": {"parallel": own}}).encode("utf-8")
+    for index, (name, raw, want) in enumerate((("a BOM config is read (not silently the defaults)", codecs.BOM_UTF8 + body, own),
+                            ("a plain config is read", body, own),
+                            ("no config: the effective defaults", None, default),
+                            ("a config holding a list: the declared default, no traceback", b"[1, 2]", default),
+                            ("an unparseable config: the declared default", b"{broken", default),
+                            ("a config with no execution block: the effective defaults", b"{}", default),
+                            ("an execution block that is a list: the fixed defaults", b'{"execution": []}', default))):
+        proj = root / ("parallel-" + str(index))
+        (proj / "qa-factory").mkdir(parents=True)
+        if raw is not None:
+            (proj / "qa-factory" / "config.json").write_bytes(raw)
+        check_eq("OF4-20 " + name, es._project_parallel_defaults(proj), want)
 
 
 def main() -> None:
@@ -582,6 +805,12 @@ def main() -> None:
         check("K-W3 a project_config in another spelling of the same path projects (E11b)",
               posix["fingerprint_components"]["config_sha"] == base["fingerprint_components"]["config_sha"]
               and posix["fingerprint_components"]["config_sha"] != whole["fingerprint_components"]["config_sha"])
+
+        # --- OF3-1 node c: the test_data class and the artifact_root sites ----------------------------------------------
+        data_cleanup_rows()
+        artifact_root_rows(root)
+        artifact_path_rows(root)
+        scheduler_config_rows(root)
 
         # --- K-P1 / K-M2 -----------------------------------------------------------------------------------------------
         # --- K-G1 the regression guard -----------------------------------------------------------------------------

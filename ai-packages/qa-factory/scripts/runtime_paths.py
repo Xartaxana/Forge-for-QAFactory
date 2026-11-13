@@ -32,6 +32,7 @@ import argparse
 import copy
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -229,6 +230,56 @@ ENTRYPOINT_NAMES = ('controller', 'run_suite', 'manual_evidence', 'artifact_pack
 def package_root() -> Path:
     """The package this process runs: never a stored value (a plugin update, a copied story)."""
     return Path(__file__).resolve().parent.parent
+
+
+def script_path(name, root=None):
+    """`<root>/scripts/<name>` when that file exists in the copy this process runs, else None.
+
+    `root` defaults to `package_root()`; never read from an environment variable (t-024 R6b)."""
+    path = Path(root if root is not None else package_root()) / "scripts" / name
+    try:
+        return path if path.is_file() else None
+    except (OSError, ValueError):
+        return None
+
+
+_SHELL_ACTIVE = ("$", "`", '"')
+
+
+def script_command(name, root=None, *, must_exist: bool = True) -> str:
+    """The one spelling of "run this package script": `python "<root posix>/scripts/<name>"`.
+
+    A path holding a shell-active character is single-quoted; one holding both kinds of quote has no command
+    form (plain text, never a command that resolves elsewhere). A script missing from the copy gives the gap
+    text, never a path that does not exist (FR-59); `must_exist=False` skips that check (a card head's
+    `<script>` placeholder). A site appending arguments keeps its tail after the returned text."""
+    base = Path(root if root is not None else package_root())
+    folder = (base / "scripts").as_posix()
+    if must_exist and script_path(name, base) is None:
+        return (f"`{name}` (missing from the plugin copy at {base.as_posix()}; "
+                f"the conductor runs qa-doctor to repair the installation)")
+    full = f"{folder}/{name}"
+    if any(ch in full for ch in _SHELL_ACTIVE):
+        if "'" in full:
+            return (f"{name} in {folder}/ (quote this path for your shell: "
+                    f"it holds characters a shell expands)")
+        return f"python '{full}'"
+    return f'python "{full}"'
+
+
+# `{script:<name>}`: a data file's way to name a package script it cannot spell itself (the stand-answers table). One path
+# component, `.py` only - never a slash or a dot-dot, so a token cannot resolve outside `<root>/scripts/`. It is a COMMAND
+# spelling resolved through `script_command`; `PLUGIN_TOKEN` below is a different action (a stored-path hint resolved in
+# leading position to a bare path). Two actions, each with one road.
+SCRIPT_TOKEN_RE = re.compile(r"\{script:([A-Za-z0-9_]+\.py)\}")
+
+
+def expand_script_tokens(text, root=None):
+    """`text` with every `{script:<name>.py}` replaced by `script_command(name, root)` (a missing script gives the gap text,
+    FR-59). A non-string, a text with no token and a malformed token come back unchanged. Never reads the environment."""
+    if not isinstance(text, str) or "{script:" not in text:
+        return text
+    return SCRIPT_TOKEN_RE.sub(lambda m: script_command(m.group(1), root), text)
 
 
 def _repository_roots(project, cfg) -> dict:
@@ -797,6 +848,37 @@ def project_for_task(task_root, hint=None) -> Path:
                      f"{HOME}/config.json; the story must sit under that config's artifact root (default {HOME}/artifacts). "
                      "Run from the project root, or pass `--project <dir>` to the driver (a script or a hook takes the "
                      "same folder from CLAUDE_PROJECT_DIR).")
+
+
+def story_text(task_root, rel: str = "") -> str:
+    """A story file as a text a person or a role reads (FR-37): the story's folder relative to ITS project, then `rel`.
+
+    The ONE spelling of "where this story lives" for printed text (t-290, OF4-21): the folder is read through
+    `project_for_task` (so a configured `artifact_root` is honoured) and `rel` is appended as text, never resolved
+    (a glob or a `<placeholder>` stays as it is; backslashes become `/`, a leading `./` is dropped, a trailing `/` is kept).
+    A story outside its project, or one whose project cannot be established, gives the absolute posix path of the
+    folder: longer, still true. The allowed error is a valid project rejected; the forbidden one is a path relative to a
+    project that does not contain the story (`_admits` forbids it). Never raises; no cache, no env, no write."""
+    try:
+        root = Path(task_root).resolve()
+    except Exception:                      # an unresolvable value (a NUL, a loop, not a path): printed as given
+        root = Path(str(task_root))
+    try:
+        project = project_for_task(root)
+    except Exception:
+        project = None
+    head = root.as_posix()
+    if project is not None:
+        try:
+            head = root.relative_to(project).as_posix()
+        except ValueError:
+            head = root.as_posix()
+    text = str(rel or "").replace(chr(92), "/")
+    while text.startswith("./"):
+        text = text[2:].lstrip("/")
+    if not text:
+        return head
+    return f"{head.rstrip('/')}/{text}" if head else text
 
 
 # --- the map a story_run driver writes, and the READ policy over a stored one -------------------------------------

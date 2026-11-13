@@ -6,28 +6,15 @@ semantic proof, and records one controller event that invalidates old Gate A.
 """
 import argparse
 import json
-import os
 from pathlib import Path
-import uuid
 
 from controller import Controller
 from coverage_contract import validate_obligations
-from event_store import atomic_json, content_hash
+from event_store import atomic_bytes, atomic_json, content_hash
 
 
 def _plan_path(root):
     return Path(root).resolve() / "work" / "test-plan.json"
-
-
-def _atomic_bytes(path, value):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
-    try:
-        temporary.write_bytes(value)
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 def _read_plan(root):
@@ -124,7 +111,7 @@ def migrate(task_root, wait_seconds=0.0):
         if content_hash(json.loads(backup.read_text(encoding="utf-8-sig"))) != report["source_plan_hash"]:
             raise ValueError("coverage migration backup conflict")
     else:
-        _atomic_bytes(backup, path.read_bytes())
+        atomic_bytes(backup, path.read_bytes())
     atomic_json(path, report["document"])
     Controller(root, wait_seconds=wait_seconds).apply("coverage_migration", {
         "migration_id": report["migration_id"], "from_version": 1, "to_version": 2,

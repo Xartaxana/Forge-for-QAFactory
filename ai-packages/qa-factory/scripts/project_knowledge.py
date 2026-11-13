@@ -21,9 +21,18 @@ Before the first `record` the file does not exist; every reader treats an absent
   project_knowledge.py revoke --task T --id PK-n --words-file F
   project_knowledge.py side --task T --name S [--stand N] (--reality real|substituted|absent | --deliverable yes|no
                           [--settles-by-file F] | --reference) --words-file F
+  project_knowledge.py lesson --task T --subject S [--stand N] [--wait-s SECONDS] --words-file F
+  project_knowledge.py lessons [--stand N] [--task T]
+
+A LESSON is what a person taught about how a stand behaves (what takes long, how to narrow it): the subject is free words compared
+exactly, the person's words are stored whole and are the payload, `wait_s` is an optional number kept for display. Code never
+interprets the words. A lesson leaves with `revoke`; revoking the newest row of a subject shows the previous live row again, so
+removing a lesson means revoking every live row of the subject (`show` lists them). KNOWN RESIDUAL: a lesson belongs to the stand's
+exact name, so a stand renamed in the config orphans its lessons; `show` still lists them.
 """
 import copy
 import json
+import re
 import sys
 from contextlib import contextmanager
 from pathlib import Path
@@ -46,6 +55,13 @@ SIDES_KEY = "product.sides"                     # project scope: {"deliverable":
 STAND_SIDES_KEY = "environments.sides"          # stand scope: {"reality": a word of references/side-realities.json}
 REFERENCE_KEY = "environments.reference_for"    # stand scope: {"reference": True} - this stand runs the OLD version of the side
 SIDE_KEYS = (SIDES_KEY, STAND_SIDES_KEY, REFERENCE_KEY)
+# SS1-11: what a person taught about how a stand behaves. Stand scope; the element is the lesson's SUBJECT (free words, exact);
+# `value` is `{"wait_s": None | whole seconds}`; the person's words (`provenance.words`) are the payload.
+LESSONS_KEY = "environments.stand_lessons"
+LESSON_SUBJECT_MAX = 80
+LESSON_WAIT_MAX_S = 86400
+LESSON_LINES_MAX = 10
+LESSON_WORDS_SHOWN = 200
 
 # S15 / phase 1: the catalogue (references/config-keys.json, section `knowledge`) is the ONE table of project facts, read through
 # `config_contract.config_keys()` (AR-13). `KEYS` is DERIVED from its registry rows, once, at import: the comparator a row names compares
@@ -408,6 +424,69 @@ def subjects(root, key, environment=None) -> dict:
     return out
 
 
+def _untrimmed_or_control(text) -> bool:
+    """True when `text` carries a space at an end or a C0 control character or DEL (names are compared exactly)."""
+    return text != text.strip() or any(ord(ch) < 32 or ord(ch) == 127 for ch in text)
+
+
+def _plain(text) -> str:
+    """Display form: C0 control characters and DEL removed (the store keeps them)."""
+    return "".join(ch for ch in str(text) if ord(ch) >= 32 and ord(ch) != 127)
+
+
+def _lesson_line(row) -> str:
+    """One display line of a lesson row. Never raises; a row of a shape it does not know is shown with its words and no wait."""
+    provenance = row.get("provenance") if isinstance(row.get("provenance"), dict) else {}
+    words = _plain(" ".join(str(provenance.get("words") or "").split()))
+    if len(words) > LESSON_WORDS_SHOWN:
+        words = words[:LESSON_WORDS_SHOWN] + " ..."
+    line = f"{_plain(row['element'])}: \"{words}\""
+    value = row.get("value")
+    if _lesson_value_ok(value) and value["wait_s"] is not None:
+        line += f" (at least {value['wait_s']} s)"
+    given = " ".join(x for x in ((f"in {_plain(provenance['story'])}" if provenance.get("story") else ""),
+                                 (f"on {_plain(str(row['at'])[:10])}" if row.get("at") else "")) if x)
+    return line + (f" (given {given})" if given else "")
+
+
+def lessons(root, stand) -> dict:
+    """`{"lines": [...], "rows": [...], "problem": str, "no_stand": bool}`: what a person taught about the stand `stand` (exact name),
+    one live subject each, the newest usable row, sorted by subject. PURE: writes nothing, never raises. The registry is loaded ONCE.
+
+    A line is `<subject>: "<their words, cut at 200 characters>"`, plus the wait and who gave it when; at most 10 lines, then one
+    `(+k more: ...)` line (the stand quoted; `more` is `k`, 0 when none); the store keeps the words whole. No stand chosen (empty or the placeholder) is `no_stand` True with no
+    problem: it is not a read problem. An unreadable registry or catalogue is `problem`, never "no lessons" (FR-59)."""
+    out = {"lines": [], "rows": [], "problem": "", "no_stand": False, "more": 0}
+    try:
+        stand = str(stand or "")
+        if not stand.strip() or stand == PLACEHOLDER_STAND:
+            out["no_stand"] = True
+            return out
+        if LESSONS_KEY not in KEYS:
+            out["problem"] = CATALOGUE_PROBLEM or _cut(f"the catalogue has no row for {LESSONS_KEY}")
+            return out
+        rows, problem = load(root)
+        if problem:
+            out["problem"] = problem
+            return out
+        elements = {}
+        for row in rows:
+            if _usable(row) and row["key"] == LESSONS_KEY and row["environment"] == stand:
+                elements.setdefault(_form(LESSONS_KEY, row["element"]), row["element"])
+        picked = [_latest(rows, LESSONS_KEY, stand, element) for element in elements.values()]
+        picked = sorted((row for row in picked if row is not None), key=lambda row: row["element"])
+        out["rows"] = copy.deepcopy(picked)
+        lines = [_lesson_line(row) for row in picked]
+        if len(lines) > LESSON_LINES_MAX:
+            extra = len(lines) - LESSON_LINES_MAX
+            lines = lines[:LESSON_LINES_MAX] + [f'(+{extra} more: project_knowledge.py lessons --stand "{stand}")']
+            out["more"] = extra
+        out["lines"] = lines
+    except Exception as exc:    # a reader never stops a gate: what it could not read is a problem, not an empty list
+        out.update(lines=[], rows=[], more=0, problem=f"the record of project knowledge could not be read ({type(exc).__name__})")
+    return out
+
+
 def roster(root, cfg, stand) -> dict:
     """`{"elements": [...], "removed": [...], "problem"}`: the product's roles. PURE: writes nothing, never raises.
 
@@ -421,7 +500,16 @@ def roster(root, cfg, stand) -> dict:
         import config_contract as CC
         import gate_preflight as GP
         rows, out["problem"] = load(root)
-        cfg = _config(root, cfg)
+        data, _, unreadable = _read(root, cfg)
+        config_unknown = bool(unreadable)
+        if config_unknown:    # the file is there and cannot be read: the CONFIG part (stand roles, accounts) is UNKNOWN, not "none"
+            # (AR-28, FR-59); the registry rows do not depend on the config and are kept whole (AR-24); both facts are said
+            door = (f"qa-factory/config.json is there but cannot be read ({unreadable}); the roles of the stand accounts and which role "
+                    "has an account are not known; repair that file (or move it aside and run onboarding again) and ask again")
+            out["problem"] = f"{out['problem']}; {door}" if out["problem"] else door
+            cfg = {}
+        else:
+            cfg = data if isinstance(data, dict) else {}
         stand = str(stand or "").strip()
         seen = set()
         newest = {}
@@ -451,7 +539,8 @@ def roster(root, cfg, stand) -> dict:
                 out["elements"].append({"role": name, "state": KNOWN, "source": "legacy_config", "sign_in": "account",
                                         "story": "", "at": "", "id": None})
         for element in out["elements"]:
-            element["account"] = (state(root, ACCOUNTS_KEY, stand, element["role"], cfg)["state"] == KNOWN) if stand else None
+            element["account"] = None if config_unknown else \
+                ((state(root, ACCOUNTS_KEY, stand, element["role"], cfg)["state"] == KNOWN) if stand else None)
     except Exception as exc:
         out["problem"] = out["problem"] or f"the record of project knowledge could not be read ({type(exc).__name__})"
     return out
@@ -499,6 +588,34 @@ def _side_value_faults(key, value) -> list:
     return []
 
 
+def _wait_ok(number) -> bool:
+    """A lesson's wait: a whole number of seconds from 1 to LESSON_WAIT_MAX_S (a `bool` is not a number here)."""
+    return isinstance(number, int) and not isinstance(number, bool) and 1 <= number <= LESSON_WAIT_MAX_S
+
+
+def _lesson_value_ok(value) -> bool:
+    return isinstance(value, dict) and set(value) == {"wait_s"} and (value["wait_s"] is None or _wait_ok(value["wait_s"]))
+
+
+# part of the record_problems unit (shape of a lesson row); not a unit of its own
+def _lesson_value_faults(element, value) -> list:
+    """The shape of a stand lesson: its subject (the element) and its `value`. Form only (AR-29): the words are never read."""
+    text = str(element or "")
+    out = []
+    if not text.strip():
+        out.append("the lesson's subject is empty; name what the stand does (a few words, e.g. what takes long); nothing was recorded")
+    elif _untrimmed_or_control(text):
+        out.append(f"the lesson subject {text.strip()[:60]!r} carries a space at an end or a control character; subjects are compared "
+                   "exactly, so give the subject in a few plain words; nothing was recorded")
+    elif len(text) > LESSON_SUBJECT_MAX:
+        out.append(f"the subject is {len(text)} characters, at most {LESSON_SUBJECT_MAX}; keep the subject short, the words file "
+                   "carries the detail; nothing was recorded")
+    if not _lesson_value_ok(value):
+        out.append(f"{LESSONS_KEY} carries {{\"wait_s\": whole seconds from 1 to {LESSON_WAIT_MAX_S}, or null}}, not {value!r}; "
+                   f"give `--wait-s <seconds from 1 to {LESSON_WAIT_MAX_S}>` or leave it out; nothing was recorded")
+    return out
+
+
 def record_problems(key, environment, element, state, scope, words, source, by, load_problem="", value=None) -> list:
     """The reasons a row may not be written, as sentences with their door; `[]` when it may. Form and presence only (AR-29): a bad
     key, a state or a scope the key does not take, an empty stand or element, an element the decision registry cannot carry, empty
@@ -526,12 +643,14 @@ def record_problems(key, environment, element, state, scope, words, source, by, 
         out += _side_value_faults(key, value)
         if not text.strip():
             out.append("the side's name is empty; name it; nothing was recorded")
-        elif text != text.strip() or any(ord(ch) < 32 or ord(ch) == 127 for ch in text):
+        elif _untrimmed_or_control(text):
             out.append(f"the side name {text.strip()[:60]!r} carries a space at an end or a control character; side names are compared "
                        "exactly, so give the name as it is written in the tests; nothing was recorded")
         elif "." in text or "=" in text:
             out.append(f"the side name {text[:60]!r} holds a dot or an equals sign; name the side without them, because the name is a key "
                        "of the story's record (`sides.<name>.<attribute>=<value>`); nothing was recorded")
+    elif key == LESSONS_KEY:     # BEFORE the role rules: a lesson subject never meets them, and a role key never skips them
+        out += _lesson_value_faults(element, value)
     elif not text.strip():
         out.append("the element (the role) is empty; name it; nothing was recorded")
     elif _unsafe_role(text):
@@ -549,8 +668,9 @@ def record_problems(key, environment, element, state, scope, words, source, by, 
         out.append(f"`by` {by!r} is not one of {', '.join(BY)}; nothing was recorded")
     if source == "person" and not str(words or "").strip():
         import person_words
-        out.append("the person's words are empty; record the answer with their own words in a file: "
-                   + person_words.door("project_knowledge.py role --task <T> --role <role> --state <state>"))
+        door = ("project_knowledge.py lesson --task <T> --subject <words> [--wait-s N]" if key == LESSONS_KEY
+                else "project_knowledge.py role --task <T> --role <role> --state <state>")
+        out.append("the person's words are empty; record the answer with their own words in a file: " + person_words.door(door))
     if load_problem:
         out.append(load_problem + "; nothing was written over it; `project_knowledge.py show` says what it holds")
     return out
@@ -573,7 +693,13 @@ def record(root, *, key, environment, element, state, scope, value, words, sourc
             return None, reason, False
         held = _latest(rows, key, environment, element)
         if held is not None and held.get("state") == state and held.get("value") == value:     # a changed value is the person's new word
-            return held, "", False
+            if key == LESSONS_KEY:       # a lesson's words ARE its payload: a corrected lesson is never "already recorded"
+                held_prov = held.get("provenance") if isinstance(held.get("provenance"), dict) else {}
+                same = str(held_prov.get("words") or "").strip() == str(words or "").strip()
+            else:
+                same = True
+            if same:
+                return held, "", False
         row = {"id": ER.next_id(rows, ID_PREFIX), "key": key, "environment": str(environment or ""), "element": str(element).strip(),
                "state": state, "scope": scope, "value": value,
                "provenance": {"source": source, "words": str(words or "").strip(), "story": str(story or ""), "by": by,
@@ -688,13 +814,16 @@ def _words(ns, command: str) -> tuple:
     return ER._words(ns, command, "project_knowledge.py")
 
 
-def _context(task: str) -> tuple:
+def _context(task: str, read: bool = False) -> tuple:
     """`(project root, story folder, config, the story's id, problem)` from `--task`; a story that is not there is a problem, not a raise."""
     try:
         import hooklib
         import runtime_paths
         task_root = hooklib.artifacts_dir(task)
         if not task_root.is_dir():
+            if read:
+                return None, None, {}, "", (f"there is no story `{task}` in this project; pass the running story's id as --task, "
+                                            "or name the stand with --stand <name>")
             return None, None, {}, "", (f"there is no story `{task}` in this project, so nothing was recorded; pass the id of the "
                                         "story that is running as --task")
         root = runtime_paths.project_for_task(task_root)
@@ -797,8 +926,79 @@ def cmd_revoke(ns) -> int:
     row, problem = revoke(root, ns.id, words)
     if row is None:
         return _fail(problem)
-    print(f"{row['id']} is taken back ({row.get('key')} {row.get('element')}): it is asked again where it is needed; an account "
-          "value in the project's settings stays until it is changed with `account --replace` or by hand.")
+    if row.get("key") in (ROLES_KEY, ACCOUNTS_KEY):
+        print(f"{row['id']} is taken back ({row.get('key')} {row.get('element')}): it is asked again where it is needed; an account "
+              "value in the project's settings stays until it is changed with `account --replace` or by hand.")
+    else:
+        print(f"{row['id']} is taken back ({row.get('key')} {row.get('element')}): it is no longer read; an older live row of the same "
+              "subject, if any, is read again (`project_knowledge.py show` lists them).")
+    return 0
+
+
+def _story_stand(ns, task_root, cfg) -> tuple:
+    """`(stand, refusal)`: `--stand`, else the story's chosen stand; the placeholder (none chosen) is a refusal with the stands."""
+    stand = ns.stand or ""
+    if not stand:
+        import stand_gaps
+        stand = stand_gaps.stand_name(task_root)
+        if stand == PLACEHOLDER_STAND:
+            names = ", ".join(f"`{e.get('name')}`" for e in _stands(cfg))
+            return "", ("no stand is named and the story has none chosen; pass --stand <name>"
+                        + (f" (the stands: {names})" if names else "") + "; nothing was recorded")
+    return stand, ""
+
+
+def cmd_lesson(ns) -> int:
+    """What the person taught about the stand: a subject (free words) and their words, with an optional wait in seconds. The stand is
+    `--stand`, else the story's chosen stand. A story that leaves no trace refuses it with the door."""
+    wait = None
+    if ns.wait_s is not None:
+        try:
+            wait = int(ns.wait_s) if re.fullmatch(r"[0-9]+", ns.wait_s) else None
+        except ValueError:       # more digits than int() reads
+            wait = None
+        if not _wait_ok(wait):
+            return _fail(f"--wait-s takes whole seconds from 1 to {LESSON_WAIT_MAX_S}, not {_cut(ns.wait_s)[:40]!r}; "
+                         "leave it out when the person gave no time; nothing was recorded")
+    got, refusal = _write_prologue(ns, "lesson --task <T> --subject <words> [--wait-s N]")
+    if refusal:
+        return _fail(refusal)
+    words, root, task_root, cfg, story = got
+    stand, refusal = _story_stand(ns, task_root, cfg)
+    if refusal:
+        return _fail(refusal)
+    row, problem, created = record(root, key=LESSONS_KEY, environment=stand, element=ns.subject, state=KNOWN, scope="stand",
+                                   value={"wait_s": wait}, words=words, source="person", story=story, by="conductor",
+                                   task_root=task_root)
+    if row is None:
+        return _fail(problem)
+    print(f"{ns.subject} on {stand}: {LESSONS_KEY} " + _verb(row, created))
+    return 0
+
+
+def cmd_lessons(ns) -> int:
+    """Read-only: what was taught about a stand. The stand is `--stand`, else the chosen stand of the story of `--task`."""
+    if ns.task:
+        root, task_root, _cfg, _story, problem = _context(ns.task, read=True)
+        if problem:
+            return _fail(problem)
+        stand = ns.stand or ""
+        if not stand:
+            import stand_gaps
+            stand = stand_gaps.stand_name(task_root)
+    else:
+        import hooklib
+        root, stand = hooklib.project_root(), ns.stand or ""
+    got = lessons(root, stand)
+    if got["problem"]:
+        print(got["problem"])
+        return 1
+    if got["no_stand"]:
+        print("no stand is chosen; pass --stand <name>")
+    elif not got["lines"]:
+        print(f"no lesson is recorded for {stand}")
+    else:
+        print("\n".join(got["lines"]))
     return 0
 
 
@@ -819,14 +1019,9 @@ def cmd_side(ns) -> int:
                 return _fail(f"the file of who makes the side real, {ns.settles_by_file}, cannot be read ({type(exc).__name__}); nothing was recorded")
         key, environment, scope, value = SIDES_KEY, "", "project", {"deliverable": ns.deliverable == "yes", "settles_by": settles}
     else:
-        environment = ns.stand or ""
-        if not environment:
-            import stand_gaps
-            environment = stand_gaps.stand_name(task_root)
-            if environment == PLACEHOLDER_STAND:
-                names = ", ".join(f"`{e.get('name')}`" for e in _stands(cfg))
-                return _fail("no stand is named and the story has none chosen; pass --stand <name>"
-                             + (f" (the stands: {names})" if names else "") + "; nothing was recorded")
+        environment, refusal = _story_stand(ns, task_root, cfg)
+        if refusal:
+            return _fail(refusal)
         key, scope = (STAND_SIDES_KEY, "stand") if ns.reality else (REFERENCE_KEY, "stand")
         value = {"reality": ns.reality} if ns.reality else {"reference": True}
     row, problem, created = record(root, key=key, environment=environment, element=ns.name, state=KNOWN, scope=scope, value=value,
@@ -900,6 +1095,17 @@ def main(argv=None) -> int:
     side.add_argument("--settles-by-file", dest="settles_by_file", default=None)
     side.add_argument("--words-file", dest="words_file", default=None)
     side.set_defaults(fn=cmd_side)
+    lesson = sub.add_parser("lesson")
+    lesson.add_argument("--task", required=True)
+    lesson.add_argument("--subject", required=True)
+    lesson.add_argument("--stand", default=None)
+    lesson.add_argument("--wait-s", dest="wait_s", default=None)      # parsed by the verb: whole seconds only, refused with its door
+    lesson.add_argument("--words-file", dest="words_file", default=None)
+    lesson.set_defaults(fn=cmd_lesson)
+    seen = sub.add_parser("lessons")
+    seen.add_argument("--stand", default=None)
+    seen.add_argument("--task", default=None)
+    seen.set_defaults(fn=cmd_lessons)
     ns = ap.parse_args(argv)
     if getattr(ns, "settles_by_file", None) and getattr(ns, "deliverable", None) is None:
         ap.error("--settles-by-file goes with --deliverable only")

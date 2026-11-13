@@ -65,7 +65,7 @@ A Then another check stops is its own row, never an `unresolved[]` row: `{case, 
 reason: blocked_by_check, blocking_check, detail}` (no `owner`; `blocking_check` is the red case's key or test's id).
 A `contradicts_requirement` row may carry `thens: [n]` and, when the response lacks a field the Then reads, `field_absent`;
 a re-sent `contradicts_requirement` row replaces its slice, and its `thens` separately;
-`retracted_unresolved` drops a row. A commented-out Then: rubric dimension 8.
+`retracted_unresolved` drops a row. A check that does not pass is legitimate only on a sanctioned path: `Known defect: BUG-n` + `red_lock`; an honest failure; a `legitimate_correction` (an `expectation_changes[]` row); or a commented-out Then with its reason, its `then_bindings` row with reason `handed_to_person` or `blocked_by_check`, and its Left with you line.
 
 A fragment adds, it does not replace: a Then of a unit you name that the fragment does not send stays. To replace a list
 whole, or to take a Then out of a unit, send `"retract": ["then_bindings"]` (or the list key) with the full rows; a

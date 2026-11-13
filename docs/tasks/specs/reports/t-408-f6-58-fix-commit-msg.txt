@@ -1,0 +1,55 @@
+journal rule 9e: a band's next id is issuable only by a line that carries the band; PARALLEL SESSION note after /clear (F6-58 fix round, t-402 F1 F2 F4)
+
+What: (F1) a closed band's next id may now be taken only by a journal line that carries that same band in its own `id_band` field (every line issued from a band declares it; repeating an already declared band is a reference, never BELOW). A new id that equals a band's next id but carries no such field is judged as a main-sequence id, so a session that took max+1 and landed on a band's id gets the novelty refusal with the main next id and one door clause: `t-451 lies in the id band t-450..t-499 of another writer; a line issued from a band carries "id_band":"t-450..t-499"`. The main next id already skips over a band that covers it. The one predicate is journal_keys.BandState.may_issue (the gate calls it; _is_issuable is gone); `where`, Journal.next_free_id and compact_snapshot keep reading BandState.issuable for the ids they print. A journal with no band behaves exactly as before; repeats (rules 9b/9d) on an existing id need no field. (F2) the 3-digit lower bound of the band form is pinned (`t-50..` is a form error). (F4) the PARALLEL SESSION note gains the suffix " (possibly this session before /clear)" when the SessionStart source is "clear" (the pre-clear transcript of the same person is then among the peers; no peer is dropped); the note's band clause now says "on every journal line you issue from it". journal_echo's repeat of the note is unchanged: its PostToolUse payload carries no `source`, so it cannot know a clear.
+
+Why: critic t-402 found that after a band exists, a session taking max+1 lands on the band's next id and the gate passed it, so the band's owner and the main writer collided on the band's own id (13.11 race one level up); the band had to declare itself on every line it issues. A note that fires after every /clear teaches people to ignore it, so it says what it may be.
+
+Package impact: none (forge tools). architecture: none -- forge tools only.
+
+Lead, 13.11.2026: F1 closed by scoping (decision above); F2/F4 as written in the review; F3 and F5 queued.
+
+tier: claude-fable-5-2
+
+Four questions (rule 10), mechanism: the band scoping of rule 9e and the clear suffix of the PARALLEL SESSION note.
+(a) Cost: a writer that issues ids from a band writes the same `id_band` on each such line (CLAUDE.md Routing-log text, the Lead's edit in the integration commit, says so); a writer with no band pays nothing; the note adds one suffix on a clear.
+(b) Axes:
+axis 1 (policy <-> role): queued the CLAUDE.md Routing-log text of spec t-366 C.3 step 9 now also says a line issued from a band carries it; the Lead lands it with the node
+axis 2 (per-tier exam instruments): n/a not touched by the id band
+axis 3 (factory package <->): n/a not touched by the id band
+axis 4 (factory rules <->): n/a not touched by the id band
+axis 5 (stage twins inside): n/a not touched by the id band
+axis 6 (measurement tools <->): n/a not touched by the id band
+axis 7 (per-test identity <->): n/a not touched by the id band
+axis 8 (where the story): n/a not touched by the id band
+axis 9 (is this a): n/a not touched by the id band
+axis 10 (git-top readers): n/a not touched by the id band
+axis 11 (shell-command recognizers): n/a not touched by the id band
+axis 12 (carriers of the): n/a not touched by the id band
+axis 13 (the dispatch text): n/a not touched by the id band
+axis 14 (readers of agent): covered session_context passes source "clear" to the note; journal_echo has no source in its payload and stays unchanged, both read transcripts.peer_main_sessions as before
+axis 15 (console stream setup): n/a not touched by the id band
+axis 16 (one json reader): n/a not touched by the id band
+axis 17 (detector verdict shape): n/a not touched by the id band
+axis 18 (in-tree shrink-only ratchets): n/a not touched by the id band
+axis 19 (one reader of): n/a not touched by the id band
+axis 20 (host receipt names): n/a not touched by the id band
+axis 21 (readers of the): n/a not touched by the id band
+axis 22 (a host's return): n/a not touched by the id band
+axis 23 (fields of a): n/a not touched by the id band
+axis 24 (the record of): n/a not touched by the id band
+axis 25 (freshness of a): n/a not touched by the id band
+axis 26 (the word stand): n/a not touched by the id band
+axis 27 (the profile of): n/a not touched by the id band
+axis 28 (the render site): n/a not touched by the id band
+axis 29 (append-only jsonl writers): covered the journal stays append-only: a band is a new line, no line is rewritten
+axis 30 (the commands of): n/a not touched by the id band
+axis 31 (role carriers): n/a not touched by the id band
+axis 32 (where judgment lives): n/a not touched by the id band
+axis 33 (which dispatch am): n/a not touched by the id band
+axis 34 (one road for): covered one predicate for who may take which id: BandState.may_issue called by the validator; next_ids/where/compact_snapshot read BandState.issuable for the ids they print
+axis 35 (sides of a): n/a not touched by the id band
+axis 36 (the row written): n/a not touched by the id band
+(c) Detector: tools/test_journal_validator.py rows S1, P10 and the band rows j1/j2/j10/j11/j18, test_journal_validator_merge.py m2, test_journal_keys.py may_issue, test_session_context.py q1 on the path of CI; calibration check 46 (id collisions between sessions), to be registered by the commit that takes the node to main (spec t-366 D.2).
+(d) What stops a skip: code on the path -- the pre-commit journal gate and the journal_echo hook run the same decide(); a band id without its band is refused with the door clause.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>

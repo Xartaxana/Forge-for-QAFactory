@@ -320,7 +320,7 @@ def _env_file_values(rel, root, gaps: list) -> dict:
         gaps.append({"kind": "env_file_unreadable", "what": "the project's env_file could not be read",
                      "why": "its values are not searched for in the archive"})
         return {}
-    return {(k[len("export "):] if k.startswith("export ") else k).strip(): v for k, v in parsed.items()}
+    return parsed
 
 
 def _candidates(*values) -> list:

@@ -6,6 +6,7 @@ sources (a refusal nobody registered is caught; a registered refusal that was de
 caught) and then runs it against the real package, which is the regression that matters: a
 refusal added to a hook without an entry fails here before it fails a live story.
 """
+import re
 import sys
 import textwrap
 from pathlib import Path
@@ -64,6 +65,91 @@ def part_scanner() -> None:
               "nothing reported stale")
     finally:
         cleanup(root)
+
+    # OH5-2 A (F2): a refusal source naming the host root variable is a finding, in any spelling (E13, E15); the
+    # concatenation split is the named, accepted miss (E14). One variant row per spelling.
+    for row, literal, flagged in (
+            ("braced", "${CLAUDE_PLUGIN_ROOT}/scripts/x.py", True),
+            ("bare", "$CLAUDE_PLUGIN_ROOT/scripts/x.py", True),
+            ("cmd", "%CLAUDE_PLUGIN_ROOT%/scripts/x.py", True),
+            ("powershell", "$env:CLAUDE_PLUGIN_ROOT/scripts/x.py", True),
+            ("lowercase", "${claude_plugin_root}/scripts/x.py", True),
+            ("split by concatenation (accepted miss)", "CLAUDE_PLUGIN_\" + \"ROOT/x.py", False),
+            ("no variable", "scripts/x.py", False)):
+        root = _fake_package(f'''
+            def deny(message):
+                return 2
+
+            def check_dispatch(event):
+                return deny("{literal}")
+        ''')
+        try:
+            hit = [e for e in RR.findings(root) if "unexpanded host root variable" in e]
+            check(f"a refusal source with `{row}` literal: flagged={flagged}", bool(hit) == flagged, str(hit))
+            if flagged:
+                check_in(f"{row}: the finding names file and line", "stage_guard.py:", hit[0])
+        finally:
+            cleanup(root)
+
+
+def part_door_texts() -> None:
+    """OH5-2 A (AR-8, FR-15): the doors the guard builds name existing scripts of the copy that runs it (E4, E10); the card head
+    and the brief's SCRIPTS are spelled by the same survivor."""
+    import json
+    import re
+    import guard_pre_tool as G
+    import runtime_paths as RP
+
+    class WF:
+        @staticmethod
+        def cases_of(owner):
+            return "the window"
+
+    root_posix = RP.package_root().as_posix()
+    texts = {"_window_refusal": G._window_refusal(WF, "C:/tmp/story/task", "tests/a.py", "S5|x", 1)}
+    project = temp_dir("qa-factory-doors-")
+    try:
+        plan = project / "qa-factory" / "artifacts" / "T-1" / "work" / "test-plan.json"
+        plan.parent.mkdir(parents=True)
+        plan.write_text(json.dumps([{"id": "TS-1"}]), encoding="utf-8")
+        event = {"tool_name": "Write", "tool_input": {"file_path": plan.as_posix()}}
+        texts["plan_write_check"] = G._blocked(G.plan_write_check, event, {}) or ""
+        for name, text in texts.items():
+            check(f"the {name} refusal was built", "PRE-TOOL GUARD" in text, text[:200])
+            found = [a or b for a, b in re.findall(r"python (?:\"([^\"]+)\"|'([^']+)')", text)]
+            check(f"{name} names at least one script door", bool(found), text[:300])
+            for path in found:
+                check(f"{name}: {Path(path).name} exists", Path(path).is_file(), path)
+                check(f"{name}: {Path(path).name} is under this copy's scripts", path.startswith(root_posix + "/scripts/"), path)
+        # E4 pinned: the script is missing from the copy -> the gap text, then the site's own argument tail
+        bare = project / "bare-copy"
+        (bare / "scripts").mkdir(parents=True)
+        saved = RP.package_root
+        RP.package_root = lambda: bare
+        try:
+            gap = G._blocked(G.plan_write_check, event, {}) or ""
+        finally:
+            RP.package_root = saved
+        check_in("E4: the missing script is named with the gap and qa-doctor",
+                 f"`plan_row.py` (missing from the plugin copy at {bare.as_posix()}; the conductor runs qa-doctor to repair "
+                 "the installation) --task <TICKET> --row <TS-n> --set <field>=<value>", gap)
+        check("E4: no path of the missing script is printed", "python \"" not in gap.split("plan_row.py")[0].split("\n")[-1], gap)
+    finally:
+        cleanup(project)
+    # F8 / N4: the brief's SCRIPTS is the survivor's folder, and both card heads are built through the survivor
+    import brief_pack
+    check_eq("brief_pack.SCRIPTS is the package scripts folder", brief_pack.SCRIPTS, (RP.package_root() / "scripts").as_posix())
+    # the card head follows the running copy, and a `$` root gets the single-quoted form (E3c) through the card itself
+    saved = RP.package_root
+    RP.package_root = lambda: Path("C:/qa$root/copy")
+    try:
+        card = brief_pack.command_card_lines(project / "qa-factory" / "artifacts" / "T-1", "walk-1", (), "")
+        want = RP.script_command("<script>", must_exist=False)
+    finally:
+        RP.package_root = saved
+    check_eq("the card head is the survivor's single-quoted form on a `$` root", want,
+             "python 'C:/qa$root/copy/scripts/<script>'")
+    check_in("the card head carries that command", f"Every command is `{want}`", card[0])
 
 
 def part_live_package() -> None:
@@ -193,10 +279,47 @@ def part_fail_closed() -> None:
     check_in("carried by waiver.py", "waiver.py", entry["override"])
 
 
+_SCOPE_START, _SCOPE_END = "Scanned refusal by refusal", "A refusal there is"
+
+
+def _scope_gap(doc: str, scanned) -> tuple:
+    """(missing, extra): the `SCANNED` modules the SCOPE span of `doc` does not name, and the `x.py` names it carries that
+    `SCANNED` does not hold. The span runs from `Scanned refusal by refusal` to `A refusal there is`; a marker that is not
+    there is reported as a missing item (never a silent pass)."""
+    start = doc.find(_SCOPE_START)
+    end = doc.find(_SCOPE_END, start + 1) if start >= 0 else -1
+    if start < 0 or end < 0:
+        absent = [m for m, at in ((_SCOPE_START, start), (_SCOPE_END, end)) if at < 0]
+        return ["marker: " + m for m in absent], []
+    named = set(re.findall(r"`([\w]+\.py)`", doc[start:end]))
+    return sorted(set(scanned) - named), sorted(named - set(scanned))
+
+
+def part_scope_docstring() -> None:
+    """the SCOPE paragraph of the module docstring names every `SCANNED` module and no other `x.py` (AR-22: a docstring
+    followed 4 of 6 names for a release; the carrier is `SCANNED`, the prose follows it)."""
+    doc, scanned = RR.__doc__, RR.SCANNED
+    check_eq("all six scanned modules are in SCANNED", len(scanned), 6)
+    check_eq("the SCOPE span names every scanned module and nothing else", _scope_gap(doc, scanned), ([], []))
+    for name in ("stage_guard.py", "inject_context.py", "guard_pre_tool.py", "native_context.py",
+                 "codex_roles.py", "host_adapter.py"):
+        check_in(f"{name} is scanned", name, scanned)
+        check_eq(f"removing {name} from the span turns the gap on",
+                 _scope_gap(doc.replace(f"`{name}`", "", 1), scanned), ([name], []))
+    check_eq("a module added to SCANNED and not to the prose is missing",
+             _scope_gap(doc, scanned + ("x.py",)), (["x.py"], []))
+    check_eq("a `foo.py` added in the span is extra",
+             _scope_gap(doc.replace(_SCOPE_START, _SCOPE_START + " `foo.py`", 1), scanned), ([], ["foo.py"]))
+    check("a missing start marker is reported", _scope_gap(doc.replace(_SCOPE_START, "X", 1), scanned)[0])
+    check("a missing end marker is reported", _scope_gap(doc.replace(_SCOPE_END, "X", 1), scanned)[0])
+
+
 def main() -> None:
     part_scanner()
+    part_door_texts()
     part_live_package()
     part_fail_closed()
+    part_scope_docstring()
     finish("test_refusal_registry")
 
 

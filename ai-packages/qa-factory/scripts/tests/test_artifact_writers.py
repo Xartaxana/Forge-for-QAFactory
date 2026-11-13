@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from harness import PLUGIN_ROOT, check, check_eq, check_in, finish  # noqa: E402
 
 OWNERS = json.loads((PLUGIN_ROOT / "references" / "artifact-writers.json").read_text(encoding="utf-8"))
@@ -93,7 +94,43 @@ def the_triage_register_names_every_field_code_writes_on_a_reorder_row() -> None
     check_in("F8: ...and what it means", "the critic approved the reorder", contract)
 
 
+def the_old_paths_of_readiness_and_obligations_are_named_once() -> None:
+    """DC1-10 (FR-37, AR-13): a text a person reads names the place code writes, and a data row's
+    `project:readiness.json` is a name the layout resolves, never a literal path."""
+    import tempfile
+    import runtime_paths as RP
+    # The dashboard's own text about the ledger: the canonical place, not the pre-0.3.0 one.
+    from dashboard_fixture import build
+    import factory_dashboard as D
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        build(root)
+        D.main(["--root", str(root)])
+        page = (root / "qa-factory" / "state" / "factory-dashboard.html").read_text(encoding="utf-8")
+        check_in("DC1-10: the dashboard names the ledger at qa-factory/obligations.md",
+                 "Ledger: qa-factory/obligations.md;", page)
+        check("DC1-10: ... and never at the old state/ place", "state/obligations.md" not in page)
+    # The S0 output row and the writer row are the same data spelling, and it resolves through readiness().
+    for where, rows in (("stages.json S0 outputs", next(s for s in STAGES if s["id"] == "S0")["outputs"]),
+                        ("artifact-writers.json", list(OWNERS["artifacts"]))):
+        check_in(f"DC1-10: {where} spell the readiness file as the resolved name", "project:readiness.json", rows)
+    for layout, make_state in (("old layout (beside the config)", False), ("new layout (state/)", True)):
+        with tempfile.TemporaryDirectory() as tmp:
+            proj = Path(tmp)
+            (proj / "qa-factory" / "state").mkdir(parents=True)
+            target = (proj / "qa-factory" / "state" / "readiness.json") if make_state else (proj / "qa-factory" / "readiness.json")
+            target.write_text("{}", encoding="utf-8")
+            resolved = RP.project_alias(proj, "readiness.json")
+            check_eq(f"DC1-10: {layout}: project:readiness.json resolves to where readiness() finds it",
+                     resolved, RP.readiness(proj).relative_to(proj / "qa-factory").as_posix())
+    check_eq("DC1-10: ... and in a project with no report yet, to the place readiness_write() writes",
+             RP.project_alias(Path(tempfile.gettempdir()) / "dc1-10-no-such-project", "readiness.json"),
+             RP.readiness_write(Path(tempfile.gettempdir()) / "dc1-10-no-such-project").relative_to(
+                 Path(tempfile.gettempdir()) / "dc1-10-no-such-project" / "qa-factory").as_posix())
+
+
 def main() -> None:
+    the_old_paths_of_readiness_and_obligations_are_named_once()
     the_triage_register_names_every_field_code_writes_on_a_reorder_row()
     the_claim_projector_is_machinery_of_the_register_not_a_second_author()
     every_declared_artifact_has_an_owner()

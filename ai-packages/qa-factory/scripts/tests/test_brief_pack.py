@@ -1669,12 +1669,13 @@ def p4_lines(base: Path) -> None:
         f'- Q4 answered {STOP_WORDS}: reading a - "reading 0"; {SAME_AS_Q1}',
         f'- Q5 answered {STOP_WORDS}: reading a - "reading 0"; {SAME_AS_Q1}',
     ]
-    want_minimal = ["- Q1 answered: reading b", "- Q2 answered: reading a", "- Q3 kept open until the report; do not ask it again",
-                    "- Q4 answered: reading a", "- Q5 answered: reading a"]
+    want_minimal = [f"- Q1 answered: reading b; the person's words: {WORDS_1_ONE_LINE}",
+                    f"- Q2 answered: reading a; {SAME_AS_Q1}", "- Q3 kept open until the report; do not ask it again",
+                    f"- Q4 answered: reading a; {SAME_AS_Q1}", f"- Q5 answered: reading a; {SAME_AS_Q1}"]
     for stage, role in (("S3", "qa-test-strategist"), ("S4", "qa-case-designer")):
         shown, minimal, full = p4_decisions(root, stage, role)
         check_eq(f"K1 hf2-7 P4: {stage} - the brief names every decided question, in register order (T8), the open Q6 not", shown, want_shown)
-        check_eq(f"K1 hf2-7 P4: {stage} - the minimal list is the id and the letter, no words", minimal, want_minimal)
+        check_eq(f"K1 hf2-7 P4: {stage} - the minimal list is the id, the letter and the words (once; the kept-open line has none)", minimal, want_minimal)
         check_eq(f"K1 hf2-7 P4: {stage} - the same words are in the full file ONCE, whole (the other lines point at them)",
                  ("\n".join(full).count("Q3: until the report"), full[0].endswith("the person's words: " + TQR.WORDS_1.strip())),
                  (1, True))
@@ -1707,6 +1708,40 @@ def p4_lines(base: Path) -> None:
     check_in("K1 hf2-7 P4: without task_root the journal copy stays (today's output)", "- answer: S3 question stop:", journal_only)
 
 
+def p4_min_words(base: Path) -> None:
+    """RC2-1: the minimal line of a free-text answer carries the words cut at DECISION_CHARS_MIN by `_short`."""
+    root = TQR.write_story(base / "minwords", [TQR.q("Q1"), TQR.q("Q2")])
+    limit, pointer = brief_pack.DECISION_CHARS_MIN, "the whole text is in <decisions>"
+
+    def minimal_of(*words) -> list:
+        (root / "work" / "question-answers.jsonl").unlink(missing_ok=True)
+        for qid, text in zip(("Q1", "Q2"), words):
+            QR.record(root, qid, "answered", text, "S2 stop", "person", TQR.row_hash_of(root, qid), reading="a")
+        return [m for _f, _s, m in brief_pack.question_answer_lines(root)[0]]
+
+    lead = "- Q1 answered: reading a; the person's words: "
+    check_eq("RC2-1: words shorter than the limit are whole, no pointer", minimal_of("w" * (limit - 1)), [lead + "w" * (limit - 1)])
+    check_eq("RC2-1: words of exactly the limit are whole, no pointer", minimal_of("w" * limit), [lead + "w" * limit])
+    check_eq("RC2-1: one character more is cut by `_short` and points at the side file", minimal_of("w" * (limit + 1)),
+             [lead + "w" * (limit - 3) + "...; " + pointer])
+    check_eq("RC2-1: the same words under two questions are carried once", minimal_of("same words", "same words"),
+             [lead + "same words", "- Q2 answered: reading a; the person's words: the same text as under Q1"])
+    check_eq("RC2-1: a two-line answer is folded by `_short` as the sisters fold it", minimal_of("first line\nsecond\tline\xa0end"),
+             [lead + "first line second line end"])
+
+    # words the register cannot hold (empty, blanks, not a string): the line is as it was, and nothing raises
+    real = QR.answers_for_brief
+    try:
+        for label, words in (("empty", ""), ("only blanks", " \n\t\xa0 "), ("None", None), ("a zero", 0)):
+            QR.answers_for_brief = lambda _root, w=words: {"unreadable": False, "answers": [
+                {"id": "Q1", "status": "answered", "reading": "a", "reading_text": "", "where": "S2 stop", "words": w}]}
+            lines = brief_pack.question_answer_lines(root)[0]
+            check_eq(f"RC2-1: {label} words - the minimal line is as before (id and letter)", [m for _f, _s, m in lines], ["- Q1 answered: reading a"])
+            check_in(f"RC2-1: {label} words - the full line says not recorded", "the person's words: not recorded", lines[0][0])
+    finally:
+        QR.answers_for_brief = real
+
+
 def p4_long_words(base: Path) -> None:
     root = TQR.write_story(base / "long", [TQR.q("Q1")])
     limit = brief_pack.DECISION_CHARS
@@ -1724,7 +1759,10 @@ def p4_long_words(base: Path) -> None:
     check_eq("K3 hf2-7 P4: one character beyond it points at the side file - no half of the words in the brief",
              shown, [f'- Q1 answered {STOP_WORDS}: reading a - "reading 0"; the person\'s words: the whole text is in <decisions>'])
     check_eq("K3 hf2-7 P4: ...the full file has them whole", full, [head + at + "w"])
-    check_eq("K3 hf2-7 P4: ...and the minimal line is the id and the letter, no words", minimal, ["- Q1 answered: reading a"])
+    folded = "w" * (limit - len(head) + 1)      # one line of `w`: what the minimal line cuts (RC2-1)
+    cut_words = folded[:brief_pack.DECISION_CHARS_MIN - 3] + "..."
+    check_eq("K3 hf2-7 P4: ...and the minimal line carries the words cut at DECISION_CHARS_MIN, with the pointer (RC2-1)", minimal,
+             [f"- Q1 answered: reading a; the person's words: {cut_words}; the whole text is in <decisions>"])
     result = brief_pack.decisions({}, "S3", "qa-test-strategist", "T-1", None, root)
     check("K3 hf2-7 P4: the pointer is what makes `build` write the side file (truncated is read from `<decisions>`)",
           any("<decisions>" in x for x in result[0]))
@@ -1732,8 +1770,9 @@ def p4_long_words(base: Path) -> None:
     biggest = "x" * brief_pack.PERSON_WORDS_MAX
     check_eq("H24 hf2-7 P4: words of exactly PERSON_WORDS_MAX are whole", listed(biggest)[2], [head + biggest])
     cut = listed(biggest + "y")[2][0]
+    # the story folder `long` sits in no project (a bare folder): the cut names the answers file by the folder's absolute posix path (OF4-21 E4b)
     check_in("H24 hf2-7 P4: one more is cut and the cut names the answers file", "[cut: 1 more characters, the whole text is in "
-             "qa-factory/artifacts/long/work/question-answers.jsonl]", cut)
+             f"{root.resolve().as_posix()}/work/question-answers.jsonl]", cut)
     check_not_in("H24 hf2-7 P4: ...and does not point at the journal, which holds the same cut", "journal.jsonl", cut)
 
 
@@ -1816,9 +1855,20 @@ def p4_build(root: Path, task: Path) -> None:
         check_not_in("H10 hf2-7 P4 (build): the lifted halt is not in the brief", "open halt", brief)
         # t-1765 X1 fix-3: the SD head is form, outside the budget (own cap SD_HEAD_MAX_BYTES), so the 6 KB pin is on the body.
         check("K1 hf2-7 P4 (build): the brief body is under 6 KB", built["budget_bytes"] <= 6 * 1024, str(built["budget_bytes"]))
+        # RC2-1 fix round (t-448 F3): at level 1 the cut minimal line names the side file by its path, never the literal placeholder
+        QR.record(task, "Q1", "answered", "w" * 300, "S2 stop", "person", TQR.row_hash_of(task, "Q1"), reading="b")
+        real_ceiling = brief_pack.BRIEF_MAX_BYTES
+        brief_pack.BRIEF_MAX_BYTES = 1       # the ladder runs to its last rung: level 1
+        try:
+            tight = brief_pack.build("QA-9", "S4", "qa-case-designer", "S4-qa-case-designer-1", write=False)["markdown"]
+        finally:
+            brief_pack.BRIEF_MAX_BYTES = real_ceiling
+        check_in("RC2-1 (build, level 1): the Q1 line is cut and says where the whole text is",
+                 "the whole text is in qa-factory/artifacts/QA-9/work/briefs/S4-qa-case-designer-1-decisions.md", tight)
+        check_not_in("RC2-1 (build, level 1): no literal `<decisions>` placeholder is left in the brief", "<decisions>", tight)
         pipeline["halts"][0]["resolved"] = False
         pipeline_file.write_text(json.dumps(pipeline), encoding="utf-8")
-        again = brief_pack.build("QA-9", "S4", "qa-case-designer", "S4-qa-case-designer-1", write=False)["markdown"]
+        again =brief_pack.build("QA-9", "S4", "qa-case-designer", "S4-qa-case-designer-1", write=False)["markdown"]
         check_in("H11 hf2-7 P4 (build): the same halt not resolved is in the brief", "open halt S2: 2 blocking question(s)", again)
         # the brief of a story with no register is the brief it always was
         readiness.unlink()
@@ -2172,13 +2222,16 @@ def approach_scenario(task: Path, root: Path) -> None:
     def build(ceiling=None, write=False, scripts=None):
         # t-1765 X1 fix-4 (K6): the S5 card prints `python "<scripts folder>/<script>"`; the pins below sit a few bytes under 6 KB, so the
         # folder is a FIXED string (the length of a CI checkout path) - the scenario tests the cut order, not the machine it runs on.
-        real, real_scripts = brief_pack.BRIEF_MAX_BYTES, brief_pack.SCRIPTS
+        real, real_scripts, real_root = brief_pack.BRIEF_MAX_BYTES, brief_pack.SCRIPTS, brief_pack.RP.package_root
         brief_pack.BRIEF_MAX_BYTES = ceiling or real      # N4: the REAL ceiling; the digest template is outside the budget (F-4)
         brief_pack.SCRIPTS = scripts or FIXED_SCRIPTS
+        # OH5-2 A: the card head is spelled by `runtime_paths.script_command`, which reads `package_root` at the call: the pinned
+        # scripts folder is `<package root>/scripts`, so the root is its parent.
+        brief_pack.RP.package_root = lambda: Path(brief_pack.SCRIPTS).parent
         try:
             return brief_pack.build("QA-9", "S5", "qa-automator", "S5-qa-automator-1", write=write)
         finally:
-            brief_pack.BRIEF_MAX_BYTES, brief_pack.SCRIPTS = real, real_scripts
+            brief_pack.BRIEF_MAX_BYTES, brief_pack.SCRIPTS, brief_pack.RP.package_root = real, real_scripts, real_root
 
     def words(text: str, label: str) -> None:
         check_in(f"{label}: the gate A word is inline", "gate A (approved): Gate A: approved.", text)
@@ -2206,7 +2259,7 @@ def approach_scenario(task: Path, root: Path) -> None:
         check_in("K6 ... the S5 waiver", 'S5 block "vcs-1: uncommitted changes" -> go on', nothing["markdown"])
         # K6 fix-4: the card is checkout-path independent. The scenario's own build pins the folder; a build that does NOT pin it
         # (the negative control) prints the running copy's path and differs.
-        for running in ("/s", "/" + "x" * 150):               # the running copy at a short and at a long checkout path
+        for running in ("/s/scripts", "/" + "x" * 150 + "/scripts"):     # the running copy at a short and at a long checkout path
             was = brief_pack.SCRIPTS
             brief_pack.SCRIPTS = running
             try:
@@ -2214,13 +2267,14 @@ def approach_scenario(task: Path, root: Path) -> None:
             finally:
                 brief_pack.SCRIPTS = was
             check_eq(f"K6 path independence: the scenario build at a {len(running)}-char running path is the same brief", at_path, nothing["markdown"])
-        real_scripts = brief_pack.SCRIPTS
-        brief_pack.SCRIPTS = "/" + "x" * 150
+        real_scripts, real_root = brief_pack.SCRIPTS, brief_pack.RP.package_root
+        brief_pack.SCRIPTS = "/" + "x" * 150 + "/scripts"
+        brief_pack.RP.package_root = lambda: Path(brief_pack.SCRIPTS).parent
         try:
             unpinned = brief_pack.build("QA-9", "S5", "qa-automator", "S5-qa-automator-1", write=True)["markdown"]
         finally:
-            brief_pack.SCRIPTS = real_scripts
-        check("K6 negative control: an unpinned build at a 150-char folder prints that folder in its card, the pinned brief does not", f'python "/{"x" * 150}/<script>"' in unpinned and "x" * 150 not in nothing["markdown"])
+            brief_pack.SCRIPTS, brief_pack.RP.package_root = real_scripts, real_root
+        check("K6 negative control: an unpinned build at a 150-char folder prints that folder in its card, the pinned brief does not", f'python "/{"x" * 150}/scripts/<script>"' in unpinned and "x" * 150 not in nothing["markdown"])
         # a project that recorded its approach
         cfg = json.loads(original.decode("utf-8"))
         cfg["test_data"] = {"accounts_by_role": "created per test through the admin API", "seeds": "factories in tests/factories.py",
@@ -2774,7 +2828,343 @@ def pc8_scenarios() -> None:
     sides_lines_marked_and_given_to_code_critic()
 
 
+def teach(root: Path, stand: str, subject: str, words: str, wait_s=None) -> None:
+    import project_knowledge as PK
+    row, problem, _created = PK.record(root, key=PK.LESSONS_KEY, environment=stand, element=subject, state=PK.KNOWN, scope="stand",
+                                       value={"wait_s": wait_s}, words=words, source="person", story="S-1", by="conductor")
+    check_eq("the lesson fixture is recorded", problem, "")
+
+
+def ss1_11_stand_lessons() -> None:
+    """SS1-11 B2: ONE function (`stand_lesson_lines`) feeds the manual runner's stand section and the S5 head of the automator and the
+    code critic; E45 (no lesson: byte-identical), E46, E47, E48, E49, E50, E54 (the head is never cut), E55 (S4 roles get none)."""
+    import project_knowledge as PK
+    root = harness.temp_project("qa-brief-ss1-11-")
+    try:
+        harness.use_project(root)
+        pc8_story(root, pipeline_extra={"environment": "localhost"})
+        cfg = {"environments": [{"name": "localhost", "base_url": "http://stand.invalid:8080"}]}
+        task = root / "qa-factory/artifacts/QA-9"
+        plain = {role: brief_of(role=role, dispatch=d) for role, d in (("qa-automator", PC8_AUTHOR), ("qa-code-critic", PC8_CRITIC))}
+        manual_plain = brief_pack.manual_stand_lines(task, root, cfg, [], "localhost")
+        check_eq("E45: no registry, no lesson line in the manual runner's stand", [l for l in manual_plain if "Stand lessons" in l], [])
+        check_eq("E45: no registry, no lesson line in either head",
+                 ["Stand lessons" in text for text in plain.values()], [False, False])
+        check_eq("E45: the formatter gives []", brief_pack.stand_lesson_lines(root, "localhost"), [])
+        check_eq("E49: no stand named, the formatter gives []", brief_pack.stand_lesson_lines(root, ""), [])
+        teach(root, "elsewhere", "other", "words for another stand")
+        check_eq("E50: a lesson on another stand is not shown", brief_pack.stand_lesson_lines(root, "localhost"), [])
+        teach(root, "localhost", "indexing", "x" * 1000, 300)
+        got = brief_pack.stand_lesson_lines(root, "localhost")
+        check_eq("E48: one line, the words cut at 200 with ' ...' and the wait shown",
+                 (len(got), got[0].startswith('- Stand lessons: indexing: "' + "x" * 200 + ' ..."'), "(at least 300 s)" in got[0]),
+                 (1, True, True))
+        check_eq("E48: stored whole", PK.lessons(root, "localhost")["rows"][0]["provenance"]["words"], "x" * 1000)
+        check_eq("the manual runner's stand carries the same lines",
+                 [l for l in brief_pack.manual_stand_lines(task, root, cfg, [], "localhost") if "Stand lessons" in l], got)
+        heads = {role: pc8_head(brief_of(role=role, dispatch=d))
+                 for role, d in (("qa-automator", PC8_AUTHOR), ("qa-code-critic", PC8_CRITIC))}
+        for role, head in heads.items():
+            check_in(f"{role}: the lesson line is in the S5 head, whole", "\n".join(got), head)
+        # F1 (t-405): the story's stand is found by ONE function (`_stand_pick`) for the manual section and the S5 head, in three states
+        pipeline_path, config_path = task / "pipeline.json", root / "qa-factory/config.json"
+        saved_pipeline = pipeline_path.read_text(encoding="utf-8")
+        saved_config = config_path.read_text(encoding="utf-8") if config_path.exists() else None
+        base = json.loads(saved_pipeline)
+
+        def stand_state(environment, rows):
+            base["environment"] = environment
+            pipeline_path.write_text(json.dumps(base), encoding="utf-8")
+            config_path.write_text(json.dumps({"environments": rows}), encoding="utf-8")
+            return {role: pc8_head(brief_of(role=role, dispatch=d))
+                    for role, d in (("qa-automator", PC8_AUTHOR), ("qa-code-critic", PC8_CRITIC))}
+        try:
+            one = [{"name": "localhost", "base_url": "http://stand.invalid:8080"}]
+            manual_one = [l for l in brief_pack.manual_stand_lines(task, root, {"environments": one}, [], "") if "Stand lessons" in l]
+            check_eq("F1: the manual section finds the ONE configured stand with no name in the pipeline", manual_one, got)
+            for role, head in stand_state(None, one).items():
+                check_in(f"F1: {role} head carries the manual section's lines (pipeline names none, ONE stand)", "\n".join(manual_one), head)
+            for label, rows in (("several stands", one + [{"name": "second", "base_url": "http://other.invalid"}]), ("no stand", [])):
+                for role, head in stand_state(None, rows).items():
+                    check_not_in(f"F1: {role} head, pipeline names none and the config has {label}: no lesson line, never a guess",
+                                 "Stand lessons", head)
+            for role, head in stand_state("localhost", one).items():
+                check_in(f"F1: {role} head, pipeline names the stand", "\n".join(got), head)
+        finally:
+            pipeline_path.write_text(saved_pipeline, encoding="utf-8")
+            if saved_config is None:
+                config_path.unlink()
+            else:
+                config_path.write_text(saved_config, encoding="utf-8")
+        s4 = brief_pack.build("QA-9", "S4", "qa-case-designer", "S4-qa-case-designer-1", write=False)["markdown"]
+        check_not_in("E55: an S4 role's head carries no lesson line", "Stand lessons", s4)
+        check_eq("E55: a stage that is not S5 or a role outside SIDES_ROLES is handed nothing",
+                 [r for r in ("qa-case-designer", "qa-case-critic") if r in brief_pack.SIDES_ROLES], [])
+        for n in range(2, 11):
+            teach(root, "localhost", f"op{n:02d}", f"words {n}")
+        ten = brief_pack.stand_lesson_lines(root, "localhost")
+        check_eq("E47 AT: exactly 10 lessons are 10 lines and no pointer", (len(ten), any("more:" in l for l in ten)), (10, False))
+        teach(root, "localhost", "op11", "words 11")
+        many = brief_pack.stand_lesson_lines(root, "localhost")
+        check_eq("E47: 11 lessons are 10 lines and the pointer", (len(many), many[-1].startswith("- Stand lessons: (+1 more: ")), (11, True))
+        check_in("E47: the pointer quotes the stand", '--stand "localhost")', many[-1])
+        text = brief_of()
+        check_in("E54: the head holds every lesson line whole, whatever the ceiling cut", "\n".join(many), pc8_head(text))
+        # E54 (F4): ten lessons with words of 200 characters (BEYOND the cut), the brief forced over its ceiling: the lines stay whole in the head
+        for n in range(1, 12):
+            teach(root, "localhost", f"op{n:02d}", f"{n % 10}" * 200 + " tail", 60)         # a newer row per subject
+        wide = brief_pack.stand_lesson_lines(root, "localhost")
+        check_eq("E54: ten lines and the pointer, each lesson cut at 200", (len(wide), all(' ..."' in l for l in wide[:10])), (11, True))
+        real_ceiling = brief_pack.BRIEF_MAX_BYTES
+        try:
+            brief_pack.BRIEF_MAX_BYTES = 1
+            squeezed = brief_pack.build("QA-9", "S5", "qa-automator", "S5-qa-automator-1", write=False)
+            check("E54: the brief is over the ceiling", squeezed["bytes"] > brief_pack.BRIEF_MAX_BYTES, str(squeezed["bytes"]))
+            check_in("E54: the head holds every lesson line whole over the ceiling", "\n".join(wide), pc8_head(squeezed["markdown"]))
+            check_in("E54: the over-budget line stands in `Not in the brief`", "stays over its", squeezed["markdown"].split("## Not in the brief")[-1])
+        finally:
+            brief_pack.BRIEF_MAX_BYTES = real_ceiling
+        (root / PK.RECORD_REL).write_text("{not json", encoding="utf-8")
+        bad = brief_pack.stand_lesson_lines(root, "localhost")
+        check_eq("E46: an unreadable registry is one line that says so",
+                 (len(bad), bad[0].startswith("- Stand lessons: could not be read (")), (1, True))
+        check_in("E46: the manual runner's stand says so", bad[0], "\n".join(brief_pack.manual_stand_lines(task, root, cfg, [], "localhost")))
+    finally:
+        harness.cleanup(root)
+
+
+def of3_1c_home_strategy() -> None:
+    """OF3-1 item 6: the strategy names of the brief come from `<home>/strategy`, the home folder `runtime_paths` names."""
+    import runtime_paths as RP
+    base = harness.temp_dir("qa-brief-home-strategy-")
+    saved = RP.HOME
+    try:
+        for home in ("qa-factory", "elsewhere-home"):
+            RP.HOME = home
+            (base / home / "strategy").mkdir(parents=True, exist_ok=True)
+            (base / home / "strategy" / f"{home}-profile.md").write_text("x", encoding="utf-8")
+        for home in ("qa-factory", "elsewhere-home"):
+            RP.HOME = home
+            line, recorded = brief_pack._approach_documents(base, {})
+            check_eq(f"OF3-1 item 6 a configured home folder ({home}): the strategy names come from <home>/strategy",
+                     (line.endswith(f" {home}-profile.md"), recorded), (True, True))
+            # OF4-21 T4: the folder in the line is the folder the names were listed from (one Path), never the literal
+            check_in(f"OF4-21 T4 ({home}): the line names that home's strategy folder, then the names",
+                     f"- strategy documents: {home}/strategy/ {home}-profile.md", line)
+            if home != "qa-factory":
+                check_not_in(f"OF4-21 T4 ({home}): and not the literal home", "qa-factory/strategy/", line)
+                forms = brief_pack.approach_forms("qa-automator", base, base / "task")
+                check_in(f"OF4-21 T4 ({home}): the one-line form names the configured home", f"documents {home}/strategy/;", forms[1][0])
+                check_in(f"OF4-21 T4 ({home}): the pointer line names the configured home", f"see {home}/config.json `test_data` and {home}/strategy/",
+                         forms[0][0])
+                check_not_in(f"OF4-21 T4 ({home}): and neither carries the literal", "qa-factory/", forms[1][0] + forms[0][0])
+    finally:
+        RP.HOME = saved
+        harness.cleanup(base)
+
+
+OF4_21_KINDS = {"s5": ("S5", "qa-automator", "S5-qa-automator-1"), "s6": ("S6", "qa-runner", "S6-qa-runner-1"),
+                "s3": ("S3", "qa-test-strategist", "S3-qa-test-strategist-1")}
+
+
+def of4_21_world(tag: str, artifact_root=None) -> tuple:
+    """(project, story folder QA-9): a project whose config says `artifact_root` (None: the default), with the story seeded for an S5 automator,
+    an S6 walk and an S3 strategist brief. The story's place is read from the project (`hooklib.artifact_root`), not spelled here."""
+    root = harness.temp_project(f"qa-of421-{tag}-")
+    if artifact_root is not None:
+        set_config(root, artifact_root=artifact_root)
+    harness.use_project(root)
+    task = hooklib.artifact_root(root=root) / "QA-9"
+    (task / "work").mkdir(parents=True)
+    (task / "pipeline.json").write_text(json.dumps(
+        {"ticket": "QA-9", "size": "S", "environment": "local", "implementation_source": "diff",
+         "stages": {"S0": {"status": "pending"}}, "gates": {}, "halts": []}), encoding="utf-8")
+    seed_story_for_s5(task, root, "Gate A: approved. Proceed to S5")
+    state = json.loads((task / "state/controller.json").read_text(encoding="utf-8"))
+    state["dispatches"]["S6-qa-runner-1"] = {"id": "S6-qa-runner-1", "stage": "S6", "role": "qa-runner", "status": "running",
+                                             "scope": ["TC-001"], "execution_kind": "manual", "manual_case_ids": ["TC-001"]}
+    state["dispatches"]["S3-qa-test-strategist-1"] = {"id": "S3-qa-test-strategist-1", "stage": "S3", "role": "qa-test-strategist",
+                                                      "status": "running", "scope": []}
+    (task / "state/controller.json").write_text(json.dumps(state), encoding="utf-8")
+    (task / "state/walks").mkdir(exist_ok=True)
+    (task / "state/walks/S6-qa-runner-1.json").write_text(json.dumps(
+        {"walk": "S6-qa-runner-1", "state": "ready", "actors": ["reader"], "items": ["TC-001"], "signed_in": True, "landed_on": "/books"}),
+        encoding="utf-8")
+    return root, task
+
+
+def of4_21_briefs() -> dict:
+    return {key: brief_pack.build("QA-9", stage, role, dispatch, write=False)["markdown"]
+            for key, (stage, role, dispatch) in OF4_21_KINDS.items()}
+
+
+def of4_21_blast(task: Path, root: Path) -> str:
+    """The S3 blast line of the story: the implementation diff and its manifest are written, the index is built by `blast_radius.ensure`."""
+    shown = task.relative_to(root.resolve()).as_posix() if task.is_relative_to(root.resolve()) else task.as_posix()
+    (task / "work/impl-diff.txt").write_bytes(
+        b"diff --git a/src/a.py b/src/a.py\n--- a/src/a.py\n+++ b/src/a.py\n@@ -1,2 +1,2 @@\n def f():\n-    return 1\n+    return 2\n")
+    (task / "work/context-manifest.json").write_text(json.dumps({"implementations": [
+        {"repo_id": "backend", "diff_path": f"{shown}/work/impl-diff.txt", "source_sha": "a" * 40}]}), encoding="utf-8")
+    return brief_pack.blast_radius_line("QA-9", task, True)
+
+
+def of4_21_paths_follow_the_reader() -> None:
+    """OF4-21 rows T1-T9 (spec t-290 section 5): every story path the brief prints is the story folder read through `hooklib.artifact_root`,
+    relative to the story's project; the expectation is "the printed path, joined to the project, is the folder the writer resolves" (FR-58)."""
+    import runtime_paths as RP
+    import source_exclusions as SE
+    cleanups = []
+
+    def inside(root: Path, task: Path, text: str, head: str) -> list:
+        """The paths of `text` that start with `head` and do NOT lie inside the story folder once joined to the project."""
+        out = []
+        for found in re.findall(re.escape(head) + r"[\w./*<>\\-]*", text):
+            joined = Path(os.path.normpath(root.resolve() / found.rstrip(".,")))
+            if not joined.is_relative_to(task.resolve()):
+                out.append(found)
+        return out
+
+    try:
+        # T1 default: today's text, byte for byte
+        root, task = of4_21_world("default")
+        cleanups.append(root)
+        texts = of4_21_briefs()
+        check_in("OF4-21 T1 default: the card head of the S5 brief", "`<task root>` = qa-factory/artifacts/QA-9. `--help` of a script is allowed", texts["s5"])
+        check_in("OF4-21 T1 default: a case line of the S5 brief", "- qa-factory/artifacts/QA-9/work/test-cases/coupon/TC-001.md (", texts["s5"])
+        check_in("OF4-21 T1 default: the repo map link of the S5 brief", "full map: qa-factory/artifacts/QA-9/work/briefs/repo-map-", texts["s5"])
+        check_in("OF4-21 T1 default: the walk brief's app card", "App card: qa-factory/artifacts/QA-9/work/app-card.md", texts["s6"])
+        check_in("OF4-21 T1 default: the walk brief's case file", "Case file: qa-factory/artifacts/QA-9/work/test-cases/coupon/TC-001.md", texts["s6"])
+        check_in("OF4-21 T1 default: the walk card head", "`<task root>` = qa-factory/artifacts/QA-9; `<WALK>` = S6-qa-runner-1", texts["s6"])
+        check_in("OF4-21 T1 default: an input line of the S3 brief", "- qa-factory/artifacts/QA-9/understanding.md: not written yet", texts["s3"])
+        blast = of4_21_blast(task, root)
+        check("OF4-21 T1 default: the blast line", blast.startswith("Blast radius index (code; built): qa-factory/artifacts/QA-9/work/blast-radius.json - ")
+              and blast.endswith("Read it before labelling."), blast)
+        side = brief_pack.build("QA-9", "S5", "qa-automator", "S5-qa-automator-1", write=False)
+        check_eq("OF4-21 T1 default: the brief's `path`", side["path"], "qa-factory/artifacts/QA-9/work/briefs/S5-qa-automator-1.md")
+
+        # T2 configured relative root
+        root, task = of4_21_world("configured", "stories")
+        cleanups.append(root)
+        texts = of4_21_briefs()
+        for key, text in texts.items():
+            check_not_in(f"OF4-21 T2 configured: no literal default root in the {key} brief", "qa-factory/artifacts", text)
+            check_eq(f"OF4-21 T2 configured: every stories/QA-9 path of the {key} brief lies inside the story folder",
+                     inside(root, task, text, "stories/QA-9"), [])
+            check(f"OF4-21 T2 configured: the {key} brief names the story's folder", "stories/QA-9/" in text or "stories/QA-9." in text, key)
+        check_in("OF4-21 T2 configured: the card head names stories/QA-9", "`<task root>` = stories/QA-9. `--help`", texts["s5"])
+        check_in("OF4-21 T2 configured: a case line", "- stories/QA-9/work/test-cases/coupon/TC-001.md (", texts["s5"])
+        blast = of4_21_blast(task, root)
+        check_in("OF4-21 T2 configured: the blast line", "Blast radius index (code; built): stories/QA-9/work/blast-radius.json - ", blast)
+
+        # T3 root outside the project: the absolute posix path, never `../`
+        outside = harness.temp_dir("qa-of421-outside-")
+        cleanups.append(outside)
+        root, task = of4_21_world("outside", outside.resolve().as_posix())
+        cleanups.append(root)
+        texts = of4_21_briefs()
+        shown = task.resolve().as_posix()
+        check_in("OF4-21 T3 outside: the card head names that absolute folder", f"`<task root>` = {shown}. `--help`", texts["s5"])
+        for key, text in texts.items():
+            check_not_in(f"OF4-21 T3 outside: no literal default root in the {key} brief", "qa-factory/artifacts", text)
+            check_not_in(f"OF4-21 T3 outside: no `../` in the {key} brief", "../", text)
+        check_in("OF4-21 T3 outside: a case line is the absolute path", f"- {shown}/work/test-cases/coupon/TC-001.md (", texts["s5"])
+
+        # T5 Windows separators in the configured value
+        root, task = of4_21_world("windows", "stories\\qa")
+        cleanups.append(root)
+        texts = of4_21_briefs()
+        shown = RP.story_text(task)
+        if os.name == "nt":
+            check_eq("OF4-21 T5 windows: the head reads stories/qa/QA-9", shown, "stories/qa/QA-9")
+            check_not_in("OF4-21 T5 windows: no backslash on a line that names the story", "\\", "\n".join(
+                ln for ln in texts["s5"].splitlines() if "stories/qa/QA-9" in ln))
+        else:
+            check_eq("OF4-21 T5 windows (POSIX: the backslash is part of the name): the printed path is the folder the writer made",
+                     Path(root, shown).resolve(), task.resolve())
+
+        # T6 / T6b excluded files: the person's exclusion reaches the parser whatever the root says
+        entries, problems = SE.parse_bytes(b"testproject1-ui!1924 - a draft MR\n", "QA-9")
+        check_eq("OF4-21 T6 the fixture list parses clean", problems, [])
+        for label, ref, configured in (("T6 configured root", "stories/QA-9/work/sources/S1/mr-1.json", "stories"),
+                                       ("T6b fallback, configured root, a ref written under the default root",
+                                        "qa-factory/artifacts/QA-9/work/sources/S1/mr-1.json", "stories"),
+                                       ("T6b fallback, no project above the story", "qa-factory/artifacts/QA-9/work/sources/S1/mr-1.json", None)):
+            if configured:
+                root, task = of4_21_world("excluded", configured)
+                cleanups.append(root)
+            else:
+                bare = harness.temp_dir("qa-of421-bare-")
+                cleanups.append(bare)
+                task = bare / "QA-9"
+                (task / "work").mkdir(parents=True)
+            folder = task / "work/sources/S1"
+            folder.mkdir(parents=True, exist_ok=True)
+            SE.write_record(task, entries, "list.txt", b"testproject1-ui!1924 - a draft MR\n")
+            (folder / "mr-1.json").write_text("{}", encoding="utf-8")
+            (folder / "mr-2.md").write_text("a real digest", encoding="utf-8")
+            (task / "work/source-inventory.json").write_text(json.dumps({"schema_version": 1, "sources": [{
+                "source_id": "S1", "materials": {"external_media": {"status": "read", "items": [
+                    {"url": "https://git.example/g/p/-/merge_requests/1924", "status": "excluded", "local_ref": ref}]}}}]}), encoding="utf-8")
+            lines = brief_pack.source_material("QA-9", task, "qa-requirements-tester")
+            check(f"OF4-21 {label}: the excluded file is not listed", not any("mr-1." in ln for ln in lines), str(lines))
+            check(f"OF4-21 {label} (control): the real digest beside it is", any("mr-2.md" in ln for ln in lines), str(lines))
+
+        # T7 a case link whose source_path was written under the configured root
+        root, task = of4_21_world("link", "stories")
+        cleanups.append(root)
+        (task / "work/test-cases/a").mkdir(parents=True)
+        (task / "work/test-cases/a/TC-001.md").write_text(CASE.format(cid="TC-001", title="a", row="TS-1"), encoding="utf-8")
+        (task / "work/elsewhere").mkdir()
+        (task / "work/elsewhere/TC-001.md").write_text(CASE.format(cid="TC-001", title="b", row="TS-1"), encoding="utf-8")
+        (task / "state/story-case-links.json").write_text(json.dumps({"schema_version": 2, "links": [
+            {"case_id": "TC-001", "path": "work/elsewhere/TC-001.md",
+             "store_provenance": {"source_path": "stories/QA-9/work/test-cases/a/TC-001.md"}}]}), encoding="utf-8")
+        check_eq("OF4-21 T7 case link: the source_path under the configured root wins over the link's own path",
+                 brief_pack.case_paths(task, ["TC-001"]), ["work/test-cases/a/TC-001.md"])
+        (task / "state/story-case-links.json").write_text(json.dumps({"schema_version": 2, "links": [
+            {"case_id": "TC-001", "path": "work/elsewhere/TC-001.md",
+             "store_provenance": {"source_path": "qa-factory/artifacts/QA-9/work/test-cases/a/TC-001.md"}}]}), encoding="utf-8")
+        check_eq("OF4-21 T7 case link (E13): a source_path written under the default root misses, and the link's path finds the file",
+                 brief_pack.case_paths(task, ["TC-001"]), ["work/elsewhere/TC-001.md"])
+
+        # T8 a bare folder: the absolute posix folder, no literal
+        bare = harness.temp_dir("qa-of421-nopro-")
+        cleanups.append(bare)
+        folder = bare / "QA-9"
+        (folder / "work").mkdir(parents=True)
+        got = "\n".join(brief_pack.exploration_lines(folder, "QA-9", "S6-1"))
+        check_in("OF4-21 T8 no project: the cells pointer names the absolute folder", f"{folder.resolve().as_posix()}/work/briefs/S6-1-cells.md", got)
+        check_not_in("OF4-21 T8 no project: no literal", "qa-factory/artifacts", got)
+
+        # T9 a long absolute root: the blast line keeps both paths whole, only the reason is bounded
+        long_root = harness.temp_dir("qa-of421-long-")
+        cleanups.append(long_root)
+        # the line's length must not depend on the temp prefix (a Windows temp dir is long, a Linux `/tmp/x` is short): measure a first
+        # line with a short pad, then lengthen the pad by the shortfall plus a margin, so it holds for a prefix of any length
+        pad = 120       # the old fixed pad: already enough on a long (Windows) temp prefix, which cannot take much more (MAX_PATH)
+        for attempt in range(3):
+            deep = long_root / f"p{attempt}" / ("d" * (pad // 2)) / ("e" * (pad - pad // 2))
+            deep.mkdir(parents=True)
+            root, task = of4_21_world(f"long{attempt}", deep.resolve().as_posix())
+            cleanups.append(root)
+            blast = of4_21_blast(task, root)
+            if len(blast) > brief_pack.BLAST_LINE_MAX:
+                break
+            # the reason (<= BLAST_REASON_MAX) absorbs part of each added character until its room is gone: add that much extra
+            pad += brief_pack.BLAST_LINE_MAX + 20 - len(blast) + 2 * brief_pack.BLAST_REASON_MAX
+        folder = task.resolve().as_posix()
+        check_in("OF4-21 T9 blast limit: the head path is whole", f"{folder}/work/blast-radius.json", blast)
+        check("OF4-21 T9 blast limit: the line is longer than the old cut, with nothing cut off its end",
+              len(blast) > brief_pack.BLAST_LINE_MAX and blast.endswith("Read it before labelling."), str(len(blast)))
+        check_not_in("OF4-21 T9 blast limit: the cap took the REASON (no room left for it), never a path", "(no checkout of backend", blast)
+    finally:
+        for folder in cleanups:
+            harness.cleanup(folder)
+
+
 def main() -> None:
+    of3_1c_home_strategy()
+    of4_21_paths_follow_the_reader()
     not_established_label()
     root = harness.temp_project("qa-brief-pack-")
     env = dict(os.environ, CLAUDE_PROJECT_DIR=str(root))
@@ -2849,6 +3239,35 @@ def main() -> None:
         check_in("and the note names the failure", "brief_pack: no brief for S1-qa-scout-9 (brief_pack: boom)", note)
         prompt = story_step._prompt("QA-9", story_step._stages()["S1"], "qa-scout", "S1-qa-scout-9", [], "")
         check_not_in("the prompt then carries no brief line", "Read qa-factory/artifacts/QA-9/work/briefs", prompt)
+
+        # RC2-2: the note is the helper's own `brief: ` line, not the last line of stdout + stderr
+        brief_file = task / story_step.BRIEF_REL.format(dispatch_id="S1-qa-scout-10")
+        brief_file.parent.mkdir(parents=True, exist_ok=True)
+        brief_file.write_text("# brief\n", encoding="utf-8")
+
+        def note_for(code: int, out: str) -> tuple:
+            story_step._run = lambda script, *a: (code, out) if script == "brief_pack.py" else real_run(script, *a)
+            try:
+                return story_step._brief("QA-9", "S1", "qa-scout", "S1-qa-scout-10", task)
+            finally:
+                story_step._run = real_run
+
+        try:
+            check_eq("RC2-2: a stderr-like line after the brief line does not replace it",
+                     note_for(0, "brief: wrote 3 KB\nwarning: something on stderr")[1], "brief: wrote 3 KB")
+            check_eq("RC2-2: two brief lines - the last one", note_for(0, "brief: first\nbrief: second\nnoise")[1], "brief: second")
+            check_eq("RC2-2: control - no prefix at code 0: the last line, as before", note_for(0, "one\ntwo")[1], "two")
+            check_eq("RC2-2: empty output at code 0: an empty note, as before", note_for(0, "")[1], "")
+            check_eq("RC2-2: leading blanks before the prefix still count", note_for(0, "  brief: padded\nnoise")[1], "brief: padded")
+            check_eq("RC2-2: another case is no prefix: the last line", note_for(0, "Brief: x\nnoise")[1], "noise")
+            refused = note_for(3, "brief: wrote 3 KB\nboom")
+            check_eq("RC2-2: a non-zero code stays a refusal even with a brief line (no path, the last line as before)",
+                     (refused[0], refused[1]),
+                     ("", "brief_pack: no brief for S1-qa-scout-10 (boom) - the role works from the inputs above"))
+            check_eq("RC2-2: a non-zero code and no output: `exit <code>`, as before", note_for(3, "")[1],
+                     "brief_pack: no brief for S1-qa-scout-10 (exit 3) - the role works from the inputs above")
+        finally:
+            brief_file.unlink(missing_ok=True)
 
         # --- the S5 automator brief ---------------------------------------------------------
         seed_story_for_s5(task, root, "Gate A: approved. Proceed to S5 as it stands; no split.")
@@ -3217,11 +3636,13 @@ def main() -> None:
     sc1_10_lines()
     oh3_34_p1_areas_section()
     pc8_scenarios()
+    ss1_11_stand_lessons()
 
     base =Path(tempfile.mkdtemp(prefix="qa-factory-brief-p4-"))
     try:
         p4_lines(base)
         p4_long_words(base)
+        p4_min_words(base)
         p4_breakage(base)
         p4_halts(base)
     finally:

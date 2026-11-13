@@ -20,7 +20,7 @@ def _word(command, who=ROLE):
 
 
 def test_role_running_account_role_revoke_is_blocked():
-    for sub in ("account", "role", "revoke"):
+    for sub in ("account", "role", "revoke", "lesson"):
         for command in (f"python project_knowledge.py {sub} --task T",
                         f"python -B scripts/project_knowledge.py {sub} --id PK-1",
                         f"python -c \"import subprocess; subprocess.run(['python', 'project_knowledge.py', '{sub}', '--task', 'T'])\"",
@@ -37,7 +37,12 @@ def test_role_running_side_is_blocked():
         assert _word(command) is not None, command
         assert _word(command, who={}) is None, command          # the conductor is never blocked
     assert _word("python project_knowledge.py sides") is None
+    assert _word("python project_knowledge.py lessons --stand dev") is None      # E42: the read verb stays open; `lesson` does not match it
+    assert _word("python project_knowledge.py lessons", who={}) is None
     assert _word("python project_knowledge.py show") is None     # `show` stays open beside it
+    lesson = _word("python project_knowledge.py lesson --task T --subject x") or ""
+    assert "`project_knowledge.py lesson` stores what the person taught" in lesson and "(`lessons` and `show` are open to you)" in lesson
+    assert _word("python project_knowledge.py lesson --task T --subject x", who={}) is None
     message = _word("python project_knowledge.py side --name ui") or ""
     assert "`project_knowledge.py side`" in message and "(`show` is open to you)" in message.split("project_knowledge.py side", 1)[1]
 

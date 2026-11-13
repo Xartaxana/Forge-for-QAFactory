@@ -84,8 +84,9 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from hooklib import project_root, load_config  # noqa: E402
+from hooklib import project_root, load_config, read_json  # noqa: E402
 import stand_access  # noqa: E402
+import config_contract  # noqa: E402  the one reader of the `test_data` block (AR-13)
 
 # A guard against a configuration mistake: a key with such a name is masked even if it was
 # put into extra_keys. Being over-careful is cheaper than printing a password once.
@@ -118,6 +119,55 @@ def parse_env_file(path: Path) -> dict:
             value = value[1:-1]
         data[key] = value
     return data
+
+
+ENV_FILE_NAMES_PATH = Path(__file__).resolve().parents[1] / "references" / "env-file-names.json"
+_NAME_LIST_KEYS = ("exact", "prefixes", "suffixes", "sample_markers", "marker_separators")
+_names_cache: dict = {}
+
+
+def _env_file_names() -> dict:
+    """`references/env-file-names.json`, the table of what a file NAME says about an env file (AR-1, axis 37): the lists
+    `exact`, `prefixes`, `suffixes`, `sample_markers` and the string `bare_stem`. The ONE loader. A table that is absent,
+    not JSON or of another shape is a damaged package copy: `ValueError` naming the file and the keys (FR-1) - never a
+    built-in list instead (that list in code is what the table replaces). Read again when the file changes."""
+    try:
+        stamp = (ENV_FILE_NAMES_PATH.stat().st_mtime_ns, ENV_FILE_NAMES_PATH.stat().st_size)
+    except OSError:
+        stamp = None
+    cached = _names_cache.get(str(ENV_FILE_NAMES_PATH))
+    if stamp is not None and cached and cached[0] == stamp:
+        return cached[1]
+    table = read_json(ENV_FILE_NAMES_PATH, None, kind=dict)
+    ok = isinstance(table, dict) and isinstance(table.get("bare_stem"), str) and all(
+        isinstance(table.get(k), list) and all(isinstance(v, str) and v for v in table[k]) for k in _NAME_LIST_KEYS)
+    # an empty `sample_markers` would classify every sample "env", and a table with no env-name rule names nothing: both damaged
+    ok = ok and bool(table["sample_markers"]) and bool(table["marker_separators"]) and any(table[k] for k in ("exact", "prefixes", "suffixes"))
+    if not ok:
+        raise ValueError(f"references/env-file-names.json is absent or malformed ({ENV_FILE_NAMES_PATH}): expected an object with the "
+                         f"lists {', '.join(_NAME_LIST_KEYS)} of non-empty strings (sample_markers and marker_separators not empty, "
+                         "exact/prefixes/suffixes not all empty) and a string bare_stem; the package copy is "
+                         "damaged - reinstall the plugin")
+    _names_cache[str(ENV_FILE_NAMES_PATH)] = (stamp, table)
+    return table
+
+
+def env_file_kind(name) -> str:
+    """"env", "sample" or "" for a file NAME, by `references/env-file-names.json` (the ONE judge of a name, AR-1).
+    "env": the name matches the table's env-file rule (today's: `.env`, `.env.*`, `*.env`). "sample": an env file with a
+    token (lower-cased, split on the table's `marker_separators`) in `sample_markers`, or the bare `env.<marker>`. The marker errs
+    toward "sample": a sample is never "env". Anything else, an empty name included, is ""."""
+    table = _env_file_names()
+    text = str(name or "")
+    parts = [p for p in text.lower().split(".") if p]
+    markers = set(table["sample_markers"])
+    if len(parts) == 2 and parts[0] == table["bare_stem"].lower() and parts[1] in markers:
+        return "sample"
+    if not (text in table["exact"] or any(text.startswith(p) for p in table["prefixes"])
+            or any(text.endswith(s) for s in table["suffixes"])):
+        return ""
+    tokens = [t for t in re.split("[" + re.escape("".join(table["marker_separators"])) + "]+", text.lower()) if t]
+    return "sample" if markers.intersection(tokens) else "env"
 
 
 def load_env(cfg: dict, root=None) -> tuple:
@@ -180,6 +230,19 @@ def _empty_stand_answers() -> dict:
             "texts": {}, "table": "unreadable"}
 
 
+def _expand_tokens(value):
+    """Every string of the loaded table (nested in lists and dicts) through `runtime_paths.expand_script_tokens`: the one
+    reader resolves `{script:<name>.py}` here, so no consumer sees a token (AR-13)."""
+    import runtime_paths
+    if isinstance(value, str):
+        return runtime_paths.expand_script_tokens(value)
+    if isinstance(value, list):
+        return [_expand_tokens(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _expand_tokens(v) for k, v in value.items()}
+    return value
+
+
 def stand_answers() -> dict:
     """`references/stand-answers.json`, read once per path - the ONE reader of that table (mirrors
     `http_client.tables()`). Absent, unreadable, not an object, or without `codes`/`order`: empty tables with `table:
@@ -190,6 +253,7 @@ def stand_answers() -> dict:
         try:
             data = json.loads(Path(STAND_ANSWERS_PATH).read_text(encoding="utf-8"))
             if isinstance(data, dict):
+                data = _expand_tokens(data)
                 for name in ("codes", "no_answer", "order", "login_remedies"):
                     if isinstance(data.get(name), list):
                         loaded[name] = [row for row in data[name] if isinstance(row, dict)]
@@ -592,7 +656,6 @@ def health(url: str, expect: list) -> tuple:
 
 
 CLEANUP_NONE = ("none", "nobody", "no one", "no-one", "n/a", "na", "-")
-CLEANUP_UNKNOWN = ("", "unknown", "tbd", "?")
 
 
 def data_cleanup(full_cfg: dict, env_name: str) -> tuple:
@@ -608,19 +671,23 @@ def data_cleanup(full_cfg: dict, env_name: str) -> tuple:
 
     This never changes the exit code: a stand without cleanup is usable, it just has to be
     tested differently (own data under a run-unique tag, no assertion on a global count)."""
-    td = (full_cfg or {}).get("test_data") or {}
-    owner = str(td.get("cleanup_owner") or "").strip()
-    stands = [e for e in (full_cfg or {}).get("environments") or [] if isinstance(e, dict)]
+    # `test_data` is read by `config_contract.test_data_states` (AR-13): what it does not call `recorded` (absent, malformed,
+    # not recorded, unknown, an empty list) is `unknown` here, so this and the brief's block and the audit agree on "recorded".
+    got = config_contract.test_data_states(full_cfg)
+    value = got["values"].get("cleanup_owner")
+    owner = str(value).strip() if value else ""      # a falsy non-list (False, 0, {}) is not an owner: unknown
+    full_cfg = full_cfg if isinstance(full_cfg, dict) else {}
+    stands = [e for e in full_cfg.get("environments") or [] if isinstance(e, dict)]
     stand = next((e for e in stands if str(e.get("name") or "") == env_name), None) if env_name else None
     safe = str((stand or {}).get("safe_to_break") or "").strip()
 
-    if owner.lower() in CLEANUP_NONE:
-        state = "absent"
-        note = f"nobody resets this data (cleanup_owner: {owner or 'none'})"
-    elif owner.lower() in CLEANUP_UNKNOWN:
+    if not owner:
         state = "unknown"
         note = ("cleanup_owner is not recorded — onboarding asks it (topic 3); until it is, "
                 "assume the data you create stays")
+    elif owner.lower() in CLEANUP_NONE:
+        state = "absent"
+        note = f"nobody resets this data (cleanup_owner: {owner})"
     else:
         state = "available"
         note = f"cleanup_owner: {owner}"
@@ -683,8 +750,14 @@ def _case_needs(task: str, root=None) -> dict:
         from contract import case_files, case_glob
     except Exception:
         return out
-    task_root = Path(root or project_root()) / "qa-factory" / "artifacts" / task
-    if not task_root.exists():
+    import hooklib
+    project = Path(root or project_root())
+    try:
+        artifacts = hooklib.artifact_root(root=project)     # the configured story folders (OH1-6, AR-4)
+    except (OSError, ValueError, AttributeError):           # a broken config: today's folder, a reader never invents (AR-28)
+        artifacts = project / "qa-factory" / "artifacts"
+    task_root = artifacts / task
+    if not hooklib.is_story_folder(artifacts, task):
         return out
     try:
         files = case_files(task_root)

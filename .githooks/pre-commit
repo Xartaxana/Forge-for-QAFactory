@@ -35,7 +35,4 @@ python tools/agents_md.py --check
 # Forge attribution (WARN only): new backlog rows / package files / journal events without a
 # feature are printed so the developer sees them at commit time; --warn never blocks, and
 # `|| true` keeps even a crash of the check from blocking a commit (the traceback still prints).
-# The piles board (plans/PILES.md) is generated: a commit that stages plans/piles/** or plans/BACKLOG.md
-# must carry a regenerated board (D-0036, F0-2; the same pattern as agents_md --check).
-python tools/piles.py board --check --if-staged
 python tools/forge_metrics.py --check --base HEAD --warn || true

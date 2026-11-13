@@ -244,6 +244,27 @@ def implementation_checkout(entry, cfg: dict, project: Path, diff_name: str) -> 
     return found, ""
 
 
+def diff_checkout(task_root, diff_name: str, cfg: dict, project: Path) -> tuple:
+    """`(checkout folder, "")` or `(None, reason)`: the checkout the paths of the diff `work/<diff_name>` are relative to (B-355, axis
+    10: the one «diff -> checkout» survivor). The entry is the one `grounding_table.manifest_entry_for` names for the diff (by the
+    basename of its `diff_path`, else `impl-diff-<x>.txt` -> repo id x); else, when the manifest holds EXACTLY ONE entry (whatever
+    the number of diffs), that entry; then `implementation_checkout`. No manifest, an unreadable one, two entries naming one diff,
+    an entry with no id, a configured path that is not a folder: `(None, reason)`. A diff is never bound to another repository's
+    checkout."""
+    import grounding_table                     # lazy: grounding_table imports this module at its top
+    try:
+        manifest = handoff.load_json(Path(task_root) / "work" / "context-manifest.json")
+    except Exception:  # noqa: BLE001 - an unreadable manifest binds nothing
+        manifest = None
+    entries = implementation_entries(manifest)
+    entry, why = grounding_table.manifest_entry_for(diff_name, entries)
+    if entry is None and len(entries) == 1 and isinstance(entries[0], dict):
+        entry = entries[0]
+    if entry is None:
+        return None, why
+    return implementation_checkout(entry, cfg or {}, Path(project), diff_name)
+
+
 def _impl_checkout(art):
     """The folder the diff's paths are relative to: the checkout of the one implementation repository the manifest
     names, through the PROJECT's config (the manifest's own `local_path` is a hint from some machine and is never
@@ -252,9 +273,7 @@ def _impl_checkout(art):
     entries = implementation_entries(art.json("work/context-manifest.json"))
     if len(entries) != 1 or not isinstance(entries[0], dict):
         return None
-    repo_id = str(entries[0].get("repo_id") or entries[0].get("repo") or "").strip()   # `repo` as source_exclusions reads it
-    found = _checkout_path(repo_id, art.config, art.project) if repo_id else None
-    return found if found is not None and found.is_dir() else None
+    return diff_checkout(art.root, "", art.config, art.project)[0]
 
 
 # The production rule behind the S1 count `implementation.diff.production_files` and its edges (B-407 A, G1-1; the question is
@@ -272,10 +291,31 @@ def _impl_checkout(art):
 #   that is not wholly tests: a file under it leaves the count only with a usual name of its own; a classic folder or an
 #   agreeing name-and-folder pair (`test_files._production_names`) is what excludes without the config.
 def _production_files(files: list, cfg: dict, art) -> list:
+    """The paths among `files` of kind production or config, each once (first wins). An item is a path (str: bound by the
+    single-entry `_impl_checkout`, today's call) or a diff record `{path, diff}` (bound by `diff_checkout` for ITS diff; a record
+    with no `diff` (or an empty one) is the main impl diff, diff ""). The today call (`cfg`/`base` only when `_impl_checkout`
+    binds, else `{}`/None) is the whole call of a path item and the fallback of a record: a record also passes the project's word
+    (`word=cfg`), so a recorded area is judged through the record's own checkout, an unbound record under a recorded word is
+    counted (World R), nothing recorded -> today's figure (World N)."""
     import test_files
     base = _impl_checkout(art)
-    return test_files.production_files(files, {"production", "config"}, cfg if base is not None else {},
-                                       base=base, root=art.project)
+    today = cfg if base is not None else {}
+    bound: dict = {}
+    out: list = []
+    for item in files:
+        extra: dict = {}
+        if isinstance(item, dict):
+            path, diff = item.get("path"), str(item.get("diff") or "")
+            if diff not in bound:
+                bound[diff] = diff_checkout(art.root, diff, art.config, art.project)[0]
+            extra = {"word": cfg or None, "checkout": bound[diff]}
+        else:
+            path = item                      # a bare path: exactly today's call, bound by the single-entry checkout
+        if not isinstance(path, str) or path in out:     # a path counted once; judged again per diff when an earlier diff excluded it
+            continue
+        if test_files.file_kind(path, today, base=base, root=art.project, **extra) in ("production", "config"):
+            out.append(path)
+    return out
 
 
 def _diff_counts(kind):
@@ -294,7 +334,7 @@ def _diff_counts(kind):
             return None, source               # a diff nobody could read has files nobody counted
         if kind == "files":
             return len(records), source
-        return len(_production_files([record["path"] for record in records], art.config, art)), source
+        return len(_production_files(records, art.config, art)), source
     return derive
 
 
@@ -875,7 +915,7 @@ def _claim_grounding_share(art):
     policy, why = PC.grounding_policy()
     if policy is None:
         return (None, f"the policy cannot be read: {why}")
-    computed = GT.share(doc.data, policy, GT.check(art.root))
+    computed = GT.share(doc.data, policy, GT.check(art.root), root=art.root)
     if computed != stored:
         off = sorted(str(k) for k in set(computed) | set(stored) if computed.get(k) != stored.get(k))
         return (False, f"`refactoring_share` differs from grounding_table.share in {', '.join(off[:4])}: "
@@ -2792,8 +2832,9 @@ def refusal_text(form_path, contract: str, problems: list, role: str, *, kept=()
     out = [f"handoff_check: {contract} is not ready - {len(problems)} field(s) below.", f"  form: {form_path}"]
     out += ["  " + problem.line() for problem in problems]
     if shell:
+        import runtime_paths as RP      # lazy: only a refusal on its way out builds this text (OH8-4 E9)
         out += ["  Fill every field with this one command (replace each <...>; a line left as <...> writes nothing):",
-                f'python "{HERE.as_posix()}/handoff_check.py" --file {_arg(form_path)} --fix --values - <<\'EOF\'',
+                f'{RP.script_command("handoff_check.py")} --file {_arg(form_path)} --fix --values - <<\'EOF\'',
                 skeleton, "EOF"]
         if kept:
             out.append(f"or, in any shell or none: Rewrite {sibling} WHOLE with the same lines - yours that passed "
@@ -2932,6 +2973,41 @@ def _answer_text(path: Path, out: _Outcome) -> int:
     return 1
 
 
+TWO_CONTRACTS_NOTE = ("If this stage has two contracts, add --to <contract> "
+                      "(the contracts are listed in handoffs/index.yaml).")
+
+
+def _door_to(path: Path) -> tuple:
+    """`(flag, note)` for the door of the not-UTF-8 refusal: the form's own `contract:` line is read from its bytes
+    (read-only, never written back), mapped through the index to the row's `to`; the flag is ` --to <to>` only when
+    `handoff_init.py` without it would resolve another contract (a secondary row, a stage with two); a row that carries a
+    `purpose` and is found only by it also prints ` --purpose <purpose>` after `--to`. A single-contract
+    stage gives `("", "")`: the door is as it always was. A line that cannot be found or mapped (FR-59: no guess) gives
+    `("", <sentence naming the option>)`."""
+    unknown = ("", TWO_CONTRACTS_NOTE + " ")
+    try:
+        text = path.read_bytes().decode("utf-8", errors="replace")
+        found = re.search(r"^contract:\s*['\"]?([A-Za-z0-9_.-]+)", text, re.M)
+        if not found:
+            return unknown
+        rows = [row for row in handoff.index().get("handoffs", []) if str(row.get("contract") or "") == found.group(1)]
+        tos = {str(row.get("to") or "") for row in rows}
+        if len(rows) != 1 or "" in tos:
+            return unknown
+        row = rows[0]
+        stage, role, to = str(row.get("stage") or row.get("gate") or ""), str(row.get("from") or ""), tos.pop()
+        if handoff.contract_of(stage, role) == found.group(1):
+            return "", ""
+        if handoff.contract_of(stage, role, to) == found.group(1):
+            return f" --to {to}", ""
+        purpose = str(row.get("purpose") or "")
+        if purpose and handoff.contract_of(stage, role, to, purpose) == found.group(1):
+            return f" --to {to} --purpose {purpose}", ""      # a row found only by its purpose (S5's plan): both flags
+    except Exception:                       # noqa: BLE001 - an unreadable index is an unknown, never a guess
+        pass
+    return unknown
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--file", required=True)
@@ -2964,14 +3040,16 @@ def main() -> int:
         # The form is named by its file name, not its path: the driver keeps the first 200 characters of this line
         # (story_run.py), and the door is its tail. `--dispatch` is part of the door: without it `handoff_init.py` writes
         # the default `-1` form and leaves this one broken.
-        print(f"handoff_check: {path.name} is not UTF-8, left untouched. Start it again: "
-              f"handoff_init.py --task <T> --stage <S> --role <role> --dispatch {path.stem} --force")
+        to_flag, unsure = _door_to(path)
+        print(f"handoff_check: {path.name} is not UTF-8, left untouched. {unsure}Start it again: "
+              f"handoff_init.py --task <T> --stage <S> --role <role>{to_flag} --dispatch {path.stem} --force")
         return 2
     doc = handoff.parse(form_text)
     contract = str(doc.get("contract") or "")
     if not contract:
         print("handoff_check: the form does not name its `contract:` - it was not written by "
-              "handoff_init.py. Start it with: handoff_init.py --task <T> --stage <S> --role <role>")
+              "handoff_init.py. Start it with: handoff_init.py --task <T> --stage <S> --role <role>. "
+              + TWO_CONTRACTS_NOTE)
         return 2
     try:
         handoff.spec(contract)

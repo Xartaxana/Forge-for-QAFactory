@@ -1097,11 +1097,36 @@ def _detector_body(root) -> int:
     return 1
 
 
+def print_help() -> int:
+    """`--help` answers with help: the usage of the docstring and the registered card (what `--store` needs), word for word
+    as every other role script's epilog repeats it (RC1-10, FR-14). Nothing is read; exit 0."""
+    import argparse
+    from role_cli import epilog
+    usage = ("critic_rollcall.py [<critic-findings.md> ...] [--task-root <TASK_ROOT>]\n"
+             "       critic_rollcall.py --apply-fixes --task-root <TASK_ROOT> [<file> ...] [--store <S>]")
+    parser = argparse.ArgumentParser(prog="critic_rollcall.py", usage=usage, description=__doc__,
+                                     epilog=epilog("critic_rollcall.py"),
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.print_help()
+    return 0
+
+
 def main() -> int:
+    if any(a in ("--help", "-h") for a in sys.argv[1:]):
+        # argparse's precedence, stated: the help flag anywhere in the call wins over every other argument - the call is
+        # not run, and no file (a findings file, `--store`'s value) is looked at. A findings file really named `-h` or
+        # `--help` is read as `./-h`.
+        return print_help()
     args = [a for a in sys.argv[1:] if a != "--json"]
     task_root = None
     if "--task-root" in args:
         index = args.index("--task-root")
+        if index + 1 >= len(args):
+            # the same unguarded read as `--store` below: IndexError was reported as OUR defect; it is a missing value.
+            from role_cli import refuse
+            return refuse("critic_rollcall.py",
+                          "--task-root has no value after it: it takes the path of the task root, "
+                          "qa-factory/artifacts/<TICKET>")
         task_root = Path(args[index + 1])
         del args[index:index + 2]
     store = None
@@ -1124,8 +1149,9 @@ def main() -> int:
     if "--apply-fixes" in args:
         args = [a for a in args if a != "--apply-fixes"]
         if task_root is None:
-            print(json.dumps({"error": "--apply-fixes requires --task-root"}))
-            return 1
+            from role_cli import refuse
+            return refuse("critic_rollcall.py --store",
+                          "--apply-fixes requires --task-root <TASK_ROOT>: it needs the task root to find the case files")
         paths = [Path(a) for a in args] if args else findings_files(task_root)
         result = {"applied": [], "skipped": []}
         for path in paths:

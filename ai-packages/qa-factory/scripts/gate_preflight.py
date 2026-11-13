@@ -904,8 +904,48 @@ def _spelled_as_a_test(name: str) -> bool:
     return code if code is not None else Path(name).suffix.lower() in CODE_EXTENSION_FLOOR
 
 
-def first_test_file(root) -> str:
-    """The first file under `root` whose NAME is a usual test name (`test_files`, the one leaf), or ''.
+def _recorded_test_place(path: Path, cfg, project) -> bool:
+    """World R for ONE file (B-355 item 12): the project recorded where its tests are for the area `path` lies in, and the
+    record names this file (`test_files.is_test_for("test_place", <path relative to the project>)` is True) and it is a code
+    file (`CODE_EXTENSION_FLOOR` when the extensions are unknown). Any failure is False: an unreadable record never makes a
+    file more of a candidate than today."""
+    try:
+        import os
+        from test_files import CODE_EXTENSION_FLOOR, is_code_file, is_test_for
+        # relpath, not relative_to: a recorded `app_root` may lie outside the project root ("../app"); the record
+        # names such a file through the `../` spelling. Different drives raise ValueError -> False (never a pick).
+        rel = os.path.relpath(Path(path).resolve(), Path(project).resolve()).replace("\\", "/")
+        code = is_code_file(path.name)
+        if not (code if code is not None else path.suffix.lower() in CODE_EXTENSION_FLOOR):
+            return False
+        return is_test_for("test_place", rel, cfg, root=project) is True
+    except Exception:
+        return False
+
+
+def _area_recorded(path, cfg, project) -> bool:
+    """Did the project record its tests for the area `path` lies in? Never raises; no config or no project is False (World N)."""
+    if not isinstance(cfg, dict) or project is None:
+        return False
+    try:
+        from test_locations import recorded
+        return bool(recorded(cfg, root=project, path=str(path))[0])
+    except Exception:
+        return False
+
+
+def first_test_file(root, cfg=None, project=None) -> str:
+    """The first file under `root` the rehearsal may run as the one test, or ''.
+
+    World N (no `cfg`/`project`, or the file's area unrecorded): the first file whose NAME is a usual test name
+    (`test_files`, the one leaf), exactly as before. World R (the project recorded its tests for the file's area): only a
+    code file the record names is a candidate (`test_place`); among candidates one whose name is also a usual test name is
+    preferred (an order hint, never a verdict), else the first in walk order. Nothing found in a recorded area is '' - never
+    a fall back to the usual names there.
+
+    A walk that crosses areas: a recorded candidate met in walk order counts the same as a World N hit - it is not
+    displaced by a World N usual-name file met LATER (the held recorded candidate is returned instead). The usual-name
+    preference applies inside a recorded area only.
 
     Sorted at every level, so the same machine picks the same test twice and a card written
     about it means the same thing tomorrow. The trees in `REPORTER_SKIP_DIRS` are not entered."""
@@ -913,12 +953,20 @@ def first_test_file(root) -> str:
     root = Path(root)
     if not root.is_dir():
         return ""
+    fallback = ""
     for base, dirs, files in os.walk(root):
         dirs[:] = sorted(d for d in dirs if d not in REPORTER_SKIP_DIRS and not d.startswith("."))
+        recorded_here = _area_recorded(Path(base), cfg, project)
         for name in sorted(files):
-            if _spelled_as_a_test(name):
-                return str(Path(base) / name)
-    return ""
+            spelled = _spelled_as_a_test(name)
+            if not recorded_here:
+                if spelled:
+                    return fallback or str(Path(base) / name)
+            elif _recorded_test_place(Path(base) / name, cfg, project):
+                if spelled:
+                    return str(Path(base) / name)
+                fallback = fallback or str(Path(base) / name)
+    return fallback
 
 
 def first_collected_node(stdout: str, under: str = "") -> str:
@@ -3159,6 +3207,31 @@ class Rehearsal:
             elif state == "over":
                 self._stand_limit_card(check, profile_id, limit)
 
+    def check_stand_lessons(self) -> None:
+        """ONE note with what a person taught about the chosen stand (`project_knowledge.py lesson`), so the approval sees it.
+
+        Data only (P27, AR-29): the person's words are carried as they are stored, cut for display by `PK.lessons` (the one reader,
+        AR-13); code never decides that a lesson applies to a test or a timeout, and never adds a finding - a note never blocks.
+        No project, no stand chosen (a fact other checks own) or no lesson: nothing. A registry that cannot be read is a note
+        in plain words (the problem travels in the machine field), never "no lessons" (FR-59)."""
+        if self.project_root is None:
+            return
+        stand = str(self._selected_environment().get("name") or "")
+        if not stand:
+            return
+        import project_knowledge as PK
+        got = PK.lessons(self.project_root, stand)
+        if got["no_stand"]:
+            return
+        if got["problem"]:
+            self.note("stand_lessons", f"What you taught about {stand} could not be read this time, so the roles may not have it; "
+                                       "it is not lost.", problem=got["problem"])
+        elif got["lines"]:
+            shown = got["lines"][:len(got["lines"]) - 1] if got["more"] else got["lines"]     # the last line is the roles' pointer
+            more = f" and {got['more']} more (the roles are told how to read them all)" if got["more"] else ""
+            self.note("stand_lessons", "What you taught about " + stand + " (the roles read it): " + "; ".join(shown) + more
+                      + ". To change it, say so.")
+
     def _stand_limit_card(self, check: str, profile_id: str, limit: dict) -> None:
         cases = limit["cases"]
         stand, wait = limit["stand"], limit["wait"]
@@ -3653,13 +3726,16 @@ class Rehearsal:
             chosen = first_collected_node(self.collect_stdout, prefix)
             how ="the first test of the profile's own tests the gate's collect found"
         if not chosen:
-            found = first_test_file(tests_dir if tests_dir is not None else cwd)
+            scan = tests_dir if tests_dir is not None else cwd
+            found = first_test_file(scan, self.config, root)
             if found:
                 try:
                     chosen = os.path.relpath(found, cwd).replace("\\", "/")
                 except ValueError:
                     chosen = found
                 how = "the first test file under " + str(spec.get("cwd") or ".")
+            elif _area_recorded(scan, self.config, root):
+                how = (f"none of the files under {spec.get('cwd') or '.'} lies in the project's recorded test places")
         counts = self._collect_counts(tests_dir, root, pytest_shaped)
         if chosen:
             return chosen, how, "", counts
@@ -5994,6 +6070,7 @@ def run(task_root, gate: str = "A") -> dict:
                  r.check_role_permissions, r.check_cases, r.check_planning_contract,
                  r.check_vcs, r.check_stand, r.check_case_environment_gaps, r.check_role_accounts, r.check_actor_sign_in,
                  r.check_s5_executor, r.check_s5_dependencies, r.check_s5_toolchain, r.check_s5_stand_limits,
+                 r.check_stand_lessons,
                  r.check_s5_reporter, r.check_s5_runtime_probe,
                  r.check_s5_credentials,
                  r.check_case_preconditions, r.check_open_questions, r.check_unraised_questions,

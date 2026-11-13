@@ -378,8 +378,6 @@ def k1_the_pair_must_name_the_word():
 
 def k1_the_reader_and_its_twin():
     """`names_contradicts` is read like its twins: `unresolved` and `reason` together, whatever shape they take."""
-    check_eq("K1: the word the controller spells is the one the window gap carries", CTRL.CONTRADICTS_WORD,
-             AC.CONTRADICTS_REQUIREMENT)
     for label, payload, want in (
             ("a string and a reason", {"unresolved": RED_WORD, "reason": "x"}, True),
             ("the word in the reason only", {"unresolved": "pending", "reason": f"{RED_WORD}: {A}"}, True),

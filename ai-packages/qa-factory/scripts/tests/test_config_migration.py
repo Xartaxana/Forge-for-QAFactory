@@ -525,6 +525,19 @@ def notes() -> None:
           any(c["path"] == "/answers_legacy" for c in broken["conflicts"]))
 
 
+def test_locations_note_says_where_the_fallback_ends() -> None:
+    """OF4-5 (AR-10): a non-empty `test_locations` ends the usual-names fallback for the application area, and a test
+    repository is named by `tests_root` / `roots.test`, not by this key. The old text stays in the history, the new one
+    is appended and is the template's (the C8 pair, both sides updated together)."""
+    key = "test_locations_note"
+    history = KEYS["notes"][key]["note_history"]
+    check_eq("OF4-5: the table's last text IS the template's", history[-1], TEMPLATE[key])
+    check("OF4-5: the earlier text stays in the history", len(history) >= 2 and "Empty means the person has not named any" in history[0])
+    for phrase in ("non-empty list", "the usual test names no longer apply", "tests_root", "roots.test"):
+        check_in(f"OF4-5: the template note says `{phrase}`", phrase, TEMPLATE[key])
+    check("OF4-5: the earlier text did not say it", "no longer apply" not in history[0])
+
+
 def turns_note_history() -> None:
     """SC1-6 fix round (F2, t-1318): the turn-budget note lost its sentence "the same call again proceeds". The
     old text stays in `note_history` (APPENDED to, never edited), which is the only way `settle_note` knows a text as
@@ -1104,9 +1117,11 @@ def project_with(config: dict) -> Path:
     return root
 
 
-ACCESS = {"kind": "oidc_password", "command": "", "url": "https://sso.example.test/login", "client_id_key": "OIDC_CLIENT",
-          "realm_key": "OIDC_REALM", "user_key": "STAND_USER", "secret_key": "STAND_SECRET", "user_field": "", "secret_field": "", "token_key": "",
-          "unauth_status": [302], "login_probe": {}}
+# OH3-17: built from the template's own access block, so a new template key never reddens this fixture; only the
+# values a person would record (the kind and the names) are written here
+ACCESS = {**copy.deepcopy(TEMPLATE["environment"]["access"]), "kind": "oidc_password", "url": "https://sso.example.test/login",
+          "client_id_key": "OIDC_CLIENT", "realm_key": "OIDC_REALM", "user_key": "STAND_USER", "secret_key": "STAND_SECRET",
+          "unauth_status": [302]}
 
 
 def with_access(config: dict, access=None) -> dict:
@@ -1812,7 +1827,28 @@ def seed_none_leaves_key_out() -> None:
     check_eq("the reader then gives the default", C.parallel_windows({"dispatch": block}), (3, None))
 
 
+def login_body_fields_one_reader() -> None:
+    """OH3-17: the stand's login body field names have ONE reader, `config_contract.body_fields`; the ACCESS fixture
+    is the template's block with only the person's values written over it."""
+    default = C.default_body_fields()
+    rows = (("default names (template block)", TEMPLATE["environment"]["access"], default),
+            ("absent block", None, default),
+            ("custom names", {"user_field": "login", "secret_field": "pass"}, ("login", "pass")),
+            ("one custom name", {"user_field": "email"}, ("email", default[1])),
+            ("empty-string names read as the default", {"user_field": "", "secret_field": ""}, default),
+            ("blank names read as the default", {"user_field": "  ", "secret_field": "   "}, default))
+    for label, access, want in rows:
+        check_eq(f"OH3-17 body_fields: {label}", C.body_fields(access), want)
+    check_eq("OH3-17 the template's own names are the default", C.body_fields(ACCESS), default)
+    check_eq("OH3-17 the ACCESS fixture has exactly the template's keys",
+             sorted(ACCESS), sorted(TEMPLATE["environment"]["access"]))
+    check_eq("OH3-17 the ACCESS fixture overrides only person-recorded values",
+             {k: v for k, v in ACCESS.items() if TEMPLATE["environment"]["access"][k] == v},
+             {k: v for k, v in TEMPLATE["environment"]["access"].items() if k in ("command", "user_field", "secret_field", "token_key", "login_probe")})
+
+
 def main() -> None:
+    login_body_fields_one_reader()
     interview_asks_the_compile_question()
     seed_pins_one()
     seed_none_leaves_key_out()
@@ -1830,6 +1866,7 @@ def main() -> None:
     removed_dead_keys()
     reinstall_equals_fresh()
     notes()
+    test_locations_note_says_where_the_fallback_ends()
     turns_note_history()
     nested_notes()
     deep_fill()

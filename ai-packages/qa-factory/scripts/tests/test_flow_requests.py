@@ -178,19 +178,21 @@ def req(n, method="GET", url=None):
 def b_brief() -> None:
     cap = BP.MAX_REQUEST_LINES
     for n, more in ((cap, False), (cap + 1, True)):
-        base = harness.temp_dir("qa-flow-b-")
+        base = harness.mark_project(harness.temp_dir("qa-flow-b-"))      # the story sits in a project: its printed path is read from there
         try:
             task = base / "qa-factory" / "artifacts" / "QA-9"
             found = {"requests": [req(i) for i in range(1, n + 1)], "unmeasured": [], "checked": ["App/src/a.ts"]}
             UPF.write_requests(task, found)
-            out = BP.request_lines(found, "QA-9")
+            out = BP.request_lines(found, task)
             check_eq(f"B1 {n} requests: {cap} request lines", sum(x.startswith("Flow requests: GET /api/r") for x in out), cap)
             more_lines = [x for x in out if " more, the list is in " in x]
             check_eq(f"B1 {n} requests: the 'more' line", more_lines, [f"Flow requests: 1 more, the list is in {LIST}"] if more else [])
             check_eq(f"B1 {n} requests: the file is whole", len(json.loads((task / "work" / "flow-requests.json").read_text(encoding="utf-8"))["requests"]), n)
         finally:
             harness.cleanup(base)
-    out = BP.request_lines({"requests": [dict(req(1), also_at=["a:1", "b:2"])], "unmeasured": ["no request pattern for .java"]}, "QA-9")
+    story_base = harness.mark_project(harness.temp_dir("qa-flow-b2-"))
+    story = story_base / "qa-factory" / "artifacts" / "QA-9"
+    out = BP.request_lines({"requests": [dict(req(1), also_at=["a:1", "b:2"])], "unmeasured": ["no request pattern for .java"]}, story)
     check_in("B2 one request: the line carries its place and the other files that make it (B5 below)", "Flow requests: GET /api/r1 - App/src/a.ts:1 (also in a, b)", out)
     check_in("B2 ... a reason is a `not measured` line", "Flow requests: not measured: no request pattern for .java", out)
     closing = out[-1]
@@ -198,20 +200,24 @@ def b_brief() -> None:
         LIST, "500 and timeout", UPF.failure_axis()[1], "`requirements`", "`requests`", "`request_homes`")), closing)
     clause = "A row closes the request only for the pages it names: another page that makes the same request needs its own row or a stated reason."
     check_in("B2 (t-1692 F2) the closing line says a row closes the request only for the pages it names", clause, closing)
-    check_eq("B2 no request: no closing line", [x for x in BP.request_lines({"requests": [], "unmeasured": ["no code"]}, "QA-9") if "each one gets" in x], [])
+    check_eq("B2 no request: no closing line", [x for x in BP.request_lines({"requests": [], "unmeasured": ["no code"]}, story) if "each one gets" in x], [])
     with patch.object(UPF, "flow_requests", side_effect=RuntimeError("boom")):
         check_eq("B4 a script that raises: exactly one line, the brief is built", BP.flow_request_lines(Path("nowhere"), "QA-9", write=False),
                  ["Flow requests: not measured: user_path_failures.py, a defect of the factory"])
     big = {"requests": [req(i, url="/api/a/very/long/path/of/a/request/" + "x" * 60 + str(i)) for i in range(1, cap + 6)], "unmeasured": ["no code"] * 3}
-    size = len("\n".join(BP.request_lines(big, "QA-9")).encode("utf-8"))
+    size = len("\n".join(BP.request_lines(big, story)).encode("utf-8"))
     check("B5 the lines added to the S3 head stay under half of the brief ceiling (the head is never shrunk)", size <= BP.BRIEF_MAX_BYTES // 2,
           f"{size} bytes")
+    harness.cleanup(story_base)
 
 
 def b5_site_names() -> None:
     """RN1-6 N2-2: a request's other callers are named by file, not counted."""
+    story_base = harness.mark_project(harness.temp_dir("qa-flow-b5-"))
+    story = story_base / "qa-factory" / "artifacts" / "QA-9"
+
     def line(also):
-        out = BP.request_lines({"requests": [dict(req(1), also_at=also)], "unmeasured": []}, "QA-9")
+        out = BP.request_lines({"requests": [dict(req(1), also_at=also)], "unmeasured": []}, story)
         return out[0].split(" - App/src/a.ts:1", 1)[1]
     other = [f"App/src/pages/p{i}.tsx:{i}" for i in range(1, 5)]
     check_eq("B5 one other file: its basename", line(other[:1]), " (also in p1.tsx)")
@@ -223,11 +229,12 @@ def b5_site_names() -> None:
     check_eq("B5 no other site: nothing added", line([]), "")
     many = {"requests": [dict(req(i, url="/api/a/very/long/path/of/a/request/" + "x" * 200 + str(i)), also_at=other) for i in range(1, BP.MAX_REQUEST_LINES + 1)],
             "unmeasured": ["no code"] * 3}
-    out = BP.request_lines(many, "QA-9")
+    out = BP.request_lines(many, story)
     check("B5 over the room (half of the brief ceiling) the names are cut first: the old `(+N more sites)` returns, every request line stays",
           sum("(+4 more sites)" in x for x in out) == BP.MAX_REQUEST_LINES and not any("also in" in x for x in out)
           and sum(x.startswith("Flow requests: GET /api/a/") for x in out) == BP.MAX_REQUEST_LINES, str(out[:2]))
-    check("B5 ... and under the room the names stay", all("also in" in x for x in BP.request_lines({"requests": [dict(req(1), also_at=other)], "unmeasured": []}, "QA-9")[:1]))
+    check("B5 ... and under the room the names stay", all("also in" in x for x in BP.request_lines({"requests": [dict(req(1), also_at=other)], "unmeasured": []}, story)[:1]))
+    harness.cleanup(story_base)
 
 
 def n1_neighbours() -> None:
@@ -354,6 +361,70 @@ def c_unreadable() -> None:
         harness.cleanup(base)
 
 
-for step in (r1_local_shape, r2_to_r5_call_sites, r6_table, r9_pins, b_brief, b5_site_names, n1_neighbours, c_closure, c_unreadable):
+def b355_word() -> None:
+    """B-355 item 9: the code files of a story are production by the project's word where it recorded where its tests are, judged through the
+    checkout each path is relative to (`handoff_check.diff_checkout`); with nothing recorded the usual names decide, as before. ONE table, ids
+    `<route>-<world>-<case>` (R: `test_locations ["src/legacy/"]` in the application checkout `../app`; N: nothing recorded; unbound: no manifest
+    entry binds the diff; unreadable: a config that cannot be read)."""
+    plain = ["const a = 1;"]
+    app_files = {p: plain for p in ("src/legacy/a.ts", "src/legacy/d.ts", "tests/b.ts", "tests/e.ts", "src/new/c.ts")}
+    facts = [("App/src/legacy/a.ts", None), ("App/tests/b.ts", None), ("src/legacy/d.ts", None), ("tests/e.ts", None), ("src/new/c.ts", None)]
+    diff = "".join(f"diff --git a/{p} b/{p}\nnew file mode 100644\n--- /dev/null\n+++ b/{p}\n@@ -0,0 +1 @@\n+const a = 1;\n"
+                   for p in ("src/legacy/a.ts", "tests/b.ts", "src/new/c.ts"))
+    worlds = {"R": {"app_root": "../app", "test_locations": ["src/legacy/"]}, "N": {"app_root": "../app"}}
+
+    def built(world_name, bound=True, git=False, app=None, facts_=None):
+        base, proj, task = world(app or app_files, facts_ or facts, git=git)
+        path = proj / "qa-factory" / "config.json"
+        if world_name == "unreadable":
+            path.write_text("{ not json", encoding="utf-8")
+        else:
+            cfg = json.loads(path.read_text(encoding="utf-8"))
+            cfg.update(worlds[world_name])
+            path.write_text(json.dumps(cfg), encoding="utf-8")
+        (task / "work" / "impl-diff.txt").write_text(diff, encoding="utf-8")
+        if bound:
+            (task / "work" / "context-manifest.json").write_text(
+                json.dumps({"implementations": [{"repo_id": "App", "diff_path": "work/impl-diff.txt"}]}), encoding="utf-8")
+        return base, proj, task
+
+    today_diff, today_bundle = ["src/legacy/a.ts", "src/new/c.ts"], ["App/src/legacy/a.ts", "src/legacy/d.ts", "src/new/c.ts"]
+    rows = [("diff-R-the-record-names-a-test", "R", True, ["src/new/c.ts", "tests/b.ts"], ["App/tests/b.ts", "src/new/c.ts", "tests/e.ts"]),
+            ("diff-N-nothing-recorded-is-today", "N", True, today_diff, today_bundle),
+            ("diff-R-unbound-counts-as-production", "R", False, ["src/legacy/a.ts", "src/new/c.ts", "tests/b.ts"], None),
+            ("diff-unreadable-config-is-today", "unreadable", True, today_diff, None)]   # no config, no checkout: no bundle file is reachable
+    for row_id, world_name, bound, want_diff, want_bundle in rows:
+        base, proj, task = built(world_name, bound)
+        try:
+            got = UPF._diff_files(task, proj)
+            check_eq(f"B-355 {row_id}", sorted(got), want_diff)
+            if want_bundle is not None:
+                check_eq(f"B-355 bundle{row_id[4:]}", [label for label, _p in UPF._bundle_files(task, proj)["files"]], want_bundle)
+        finally:
+            harness.cleanup(base)
+    for world_name, want in (("R", ["App/tests/b.ts"]), ("N", ["App/src/legacy/a.ts"])):
+        base, proj, task = built(world_name)
+        try:
+            out = {"unmeasured": [], "files": {}}
+            UPF._places(["current-code:App/src/legacy/a.ts:1", "current-code:App/tests/b.ts:1"], proj, 1, out)
+            check_eq(f"B-355 places-{world_name}: a register place is kept when it is production by the word of its own checkout",
+                     sorted(out["files"]), want)
+        finally:
+            harness.cleanup(base)
+    pages = {**APP, "src/pages/AddToCart.tsx": ["const add = () => fetch('/api/cart', { method: 'POST' })"]}
+    for world_name, record, want_in in (("N", None, True), ("R", ["src/pages/CartPage.tsx", "src/pages/LoginPage.tsx"], False)):
+        worlds["P"] = {"app_root": "../app", **({"test_locations": record} if record else {})}
+        base, proj, task = built("P", app=pages, git=True, facts_=[("App/src/pages/AddToCart.tsx", "called from LoginPage.tsx:8")])
+        try:
+            files = UPF.code_files(task, proj, True)["files"]
+            check_eq(f"B-355 neighbour-{world_name}: the cart page joins as a neighbour only while no record names it a test",
+                     CART in files, want_in)
+            check_eq(f"B-355 fact-note-{world_name}: a file a note names joins only while no record names it a test",
+                     LOGIN in files, want_in)
+        finally:
+            harness.cleanup(base)
+
+
+for step in (r1_local_shape, r2_to_r5_call_sites, r6_table, r9_pins, b_brief, b5_site_names, n1_neighbours, b355_word, c_closure, c_unreadable):
     step()
 finish("flow requests")

@@ -220,7 +220,7 @@ def test_runner_phrases_kept_in_the_charter():
             "Record FAIL only when the product does not do what the case demands",
             "fails twice with nothing in its way on the screen is `inconclusive`, with the limitation named",
             "--as default", "the forms of `--as`", "never a global admin", "{generated_username}",
-            'python "${CLAUDE_PLUGIN_ROOT}/scripts/manual_evidence.py" validate',
+            '`manual_evidence.py` (`build`, `rejudge`, `validate`; on your card)',
             "`work/evidence/manual/<case>/seed-steps.md`",
             "Capture the state before the action under test", "record an `unresolved_question` at once and go on"]
     assert key_problems(read("qa-runner"), keys) == []

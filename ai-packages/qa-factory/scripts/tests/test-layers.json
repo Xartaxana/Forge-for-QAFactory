@@ -70,7 +70,17 @@
     "references/code-review-rubric.md",
     "references/role-commands.json",
     "references/stages.json",
-    "tests/harness.py"
+    "tests/harness.py",
+    "tests/story_run_common.py"
+   ]
+  },
+  "test_app_card_stand_lessons.py": {
+   "layer": "table",
+   "why": "SS1-11 F5 stand lessons reach the app card and rebuild it",
+   "covers": [
+    "app_card.py",
+    "project_knowledge.py",
+    "tests/test_app_card.py"
    ]
   },
   "test_arch_check.py": {
@@ -128,6 +138,7 @@
     "references/artifact-contract-run.md",
     "references/artifact-writers.json",
     "references/stages.json",
+    "tests/dashboard_fixture.py",
     "tests/harness.py"
    ]
   },
@@ -1458,6 +1469,14 @@
     "event_store.py"
    ]
   },
+  "test_import_test_receipt_refusal.py": {
+   "layer": "table",
+   "why": "table (B.2 criterion 5): import_test_receipt refusal cases",
+   "covers": [
+    "import_test_receipt.py",
+    "role_cli.py"
+   ]
+  },
   "test_environment_record.py": {
    "layer": "gate_named",
    "why": "named by gate-registry.json",
@@ -2236,6 +2255,15 @@
     "s5_precheck.py",
     "waiver.py",
     "README.md",
+    "tests/harness.py"
+   ]
+  },
+  "test_handoff_init.py": {
+   "layer": "table",
+   "why": "AR-22 handoff_init.py --purpose: the row of a purpose has a producer; one table of calls, input from the CLI included",
+   "covers": [
+    "handoff.py",
+    "handoff_init.py",
     "tests/harness.py"
    ]
   },
@@ -3528,6 +3556,15 @@
     "tests/story_run_common.py"
    ]
   },
+  "test_place_of_draft_observation.py": {
+   "layer": "table",
+   "why": "table (B.2 criterion 5): the draft's observation field joins its place",
+   "covers": [
+    "place_answers.py",
+    "references/artifact-contract-run.md",
+    "tests/test_place_answers.py"
+   ]
+  },
   "test_pinned_lifecycle.py": {
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",
@@ -3947,6 +3984,16 @@
     "tests/harness.py"
    ]
   },
+  "test_project_for_task_readers.py": {
+   "layer": "table",
+   "why": "table (B.2 criterion 5): walk_timing and gate_brief take the story's project through runtime_paths.project_for_task, default and configured artifact root (OF4-19)",
+   "covers": [
+    "walk_timing.py",
+    "gate_brief.py",
+    "runtime_paths.py",
+    "tests/harness.py"
+   ]
+  },
   "test_project_knowledge.py": {
    "layer": "register",
    "why": "PK0-1: the project's answer registry keys, error direction toward asking (AR-13, AR-14, AR-25, AR-28)",
@@ -4344,7 +4391,26 @@
     "driver_stage_s7.py",
     "driver_stage_s8s9.py",
     "tests/harness.py",
-    "tests/state_census.py"
+    "tests/state_census.py",
+    "worker_lifecycle.py",
+    "activity_capture.py",
+    "cost_capture.py",
+    "estimate_record.py",
+    "exit_gate.py",
+    "host_dispatch.py",
+    "recover_codex_usage.py",
+    "red_sandbox.py",
+    "role_digest.py",
+    "stage_guard.py",
+    "event_store.py",
+    "selftest.py",
+    "dependency_drift.py",
+    "bug_records.py",
+    "guard_pre_tool.py",
+    "role_load.py",
+    "archive_task.py",
+    "audit_factory.py",
+    "env_probe.py"
    ]
   },
   "test_resume_doors.py": {
@@ -6236,12 +6302,29 @@
     "tests/harness.py"
    ]
   },
+  "test_task_root_project_door.py": {
+   "layer": "table",
+   "why": "table (B.2 criterion 5): the project of a --task-root story is found by the one walk",
+   "covers": [
+    "branch_accounting.py",
+    "judge_diff.py",
+    "judge_results.py",
+    "walk_timing.py",
+    "tests/harness.py"
+   ]
+  },
   "test_test_files.py": {
    "layer": "table",
    "why": "table (B.2 criterion 5): test file identification",
    "covers": [
     "hooklib.py",
     "test_files.py",
+    "judge_run.py",
+    "project_inventory.py",
+    "blast_radius.py",
+    "base_slice.py",
+    "repo_map.py",
+    "test_locations.py",
     "README.md",
     "tests/harness.py"
    ]
@@ -6700,7 +6783,7 @@
   },
   "test_walk_plan_fields.py": {
    "layer": "data_join",
-   "why": "process ratchet of every other role is at or below its frozen ceiling",
+   "why": "the plan row's walk_data / walk_global: shape check, carried whole into request.json, named to the strategist, release note names the raise",
    "covers": [
     "brief_pack.py",
     "judge.py",
@@ -6708,7 +6791,6 @@
     "planning_contract.py",
     "user_path_failures.py",
     "agents/qa-test-strategist.md",
-    "references/role-load.json",
     "tests/harness.py"
    ]
   },

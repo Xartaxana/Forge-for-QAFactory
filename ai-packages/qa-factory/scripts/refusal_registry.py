@@ -30,9 +30,10 @@ defect inside the guard freezes the story where the person's word cannot reach i
 Those entries carry `fail_closed: True`, `escalates_after: <n>` and `escalation`, and
 `--check` fails an entry that has neither a pass nor an escalation.
 
-SCOPE, and its limits. Scanned refusal by refusal: the three hook scripts that can end a
-dispatch before the role does any work (`stage_guard.py`, `inject_context.py`,
-`guard_pre_tool.py`). A refusal there is `deny(...)`, `block(...)`, or a raised
+SCOPE, and its limits. Scanned refusal by refusal: the hook scripts in `SCANNED` that can
+end a dispatch before the role does any work: `stage_guard.py`, `inject_context.py`,
+`guard_pre_tool.py`, `native_context.py` (SubagentStart, and the packet `inject_context`
+stages), `codex_roles.py`, `host_adapter.py`. A refusal there is `deny(...)`, `block(...)`, or a raised
 `StateConflict`/`ValueError` that reaches the CLI. `controller.py` and `stage_done.py` are
 registered as `operation` entries instead of line by line: the controller's validator raises
 in 160+ places across every operation, and a census of those is not a registry anyone would
@@ -53,7 +54,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from hooklib import PLUGIN_ROOT  # noqa: E402
 
-SCANNED = ("stage_guard.py", "inject_context.py", "guard_pre_tool.py")
+SCANNED = ("stage_guard.py", "inject_context.py", "guard_pre_tool.py", "native_context.py",
+           "codex_roles.py", "host_adapter.py")
 REFUSAL_CALLS = ("deny", "block")
 REFUSAL_RAISES = ("StateConflict", "ValueError")
 KEY_CHARS = 90
@@ -323,6 +325,239 @@ REGISTRY: list[dict] = [
      "TRUNCATED and silently, which is why it is loud now. Its producer splits the file; "
      "nothing is wanted from the person.",
      "test": "scripts/tests/test_stages.py"},
+    {"id": "IC-native-packet-unwritten", "file": "inject_context.py", "function": "refuse_native_packet",
+     "call": "NATIVE_PACKET_UNWRITTEN",
+     "refuses": "a native (Codex) role launch whose context packet could not be written: native_context.stage raised OSError "
+               "(a path over the Windows limit for a project folder longer than native_context.PACKET_ROOT_LIMIT, an "
+               "unwritable folder, a lock that cannot be opened); until t-203 the launch went ahead with no context and "
+               "left only a hook_signal",
+     "override": WAIVER + " with `--block \"could not be written\"`: the word does not write the file, it says 'start the "
+     "role without its factory context' - informed. `refuse_native_packet` filters the line through "
+     "`waiver.split_overridden` like the stage_guard rules and journals the pass as `gate_override` (P13), writes no "
+     "denial row, and the launch goes ahead. A ticketless launch (the doctor's probe) or one with no pipeline.json or no "
+     "dispatch stage has no carrier for a word and stays refused; its ways out are in the message (a shorter project "
+     "folder or Windows long paths for the length cause, one relaunch then a factory blocker otherwise). Decided by "
+     "recommendation pending the owner's word (t-203 F-1).",
+     "unpassable_because": "",
+     "test": "scripts/tests/test_doctor_context.py (PacketNameLength: refusal and pass rows)"},
+
+    # --- native_context.py — the native packet staged by the Agent hook ------
+    {"id": "NC-context-too-large", "file": "native_context.py", "function": "stage",
+     "call": "Native context exceeds",
+     "refuses": "a native launch whose assembled context is over 100000 characters; the denial row names the dispatch",
+     "override": "",
+     "unpassable_because": "the factory's own defect, like IC-oversized-slice: the producer bounds the slices; "
+     "nothing is wanted from the person (owner: factory)",
+     "test": "scripts/tests/test_doctor_context.py (NativeStageRefusal: row and recover rows)"},
+    {"id": "NC-launch-identity-missing", "file": "native_context.py", "function": "stage",
+     "call": "Native context requires host session",
+     "refuses": "a native launch whose host event carries no session id or tool call id; the packet cannot be keyed",
+     "override": "",
+     "unpassable_because": "no word can supply an identity the host did not send; the host is the owner "
+     "(owner: environment); relaunch once, then report a host blocker",
+     "test": "scripts/tests/test_doctor_context.py (NativeStageRefusal: row and recover rows)"},
+    {"id": "NC-launch-pending", "file": "native_context.py", "function": "stage",
+     "call": "A factory launch is awaiting SubagentStart",
+     "refuses": "a second staging under the key of a launch still pending; the same branch carries a busy native-context "
+     "lock (`task has an active state writer`, raised by `event_store`, not a site here); the row written is inert (no "
+     "dispatch id, no stage), so `recover` never closes the pending launch on it",
+     "override": "",
+     "unpassable_because": "a word would replace a live launch's context (the hazard `stage`'s comment names); the way "
+     "out is the first launch starting; a launch that never starts (a failed spawn) leaves its packet pending, and a "
+     "relaunch under a unique task name is the door, and the message names it",
+     "test": "scripts/tests/test_doctor_context.py (NativeStageRefusal: row and recover rows)"},
+    {"id": "NC-launch-packet-not-object", "file": "native_context.py", "function": "stage",
+     "call": "launch packet ' + path.name + ' cannot be read",
+     "refuses": "a staging whose key already holds a file that is empty, broken JSON, or JSON that is not an object "
+     "(list, string, number, null); nothing is overwritten",
+     "override": "",
+     "unpassable_because": "the file cannot be read as a launch, so nothing can be passed over it; the row written is "
+     "inert (launch_pending is True for it); the door is a relaunch under a unique task name, named in the text "
+     "(owner: environment)",
+     "test": "scripts/tests/test_doctor_context.py (NativeStageRefusal: stage over an existing packet file table)"},
+
+    # --- codex_roles.py and host_adapter.py — raises registered where they stand (OH7-2, t-263 F-6 form D) ----
+    # `inject_context.dispatch` turns the first two into a refusal (`note_denial`, exit 2); the others are caught
+    # by their callers or reach the guard as a block. Each is keyed by its literal raise/block text; nothing wraps.
+    {"id": "CR-role-missing", "file": "codex_roles.py", "function": "check_override",
+     "call": "Native Codex role missing",
+     "refuses": "a Codex dispatch whose controller resolved an explicit model or effort while the project has no native "
+               "`.codex/agents/<role>.toml` profile; `inject_context.dispatch` catches the ValueError, writes the denial row "
+               "and exits 2 (OH6-4, B-8)",
+     "override": "",
+     "unpassable_because": "the profile is a file the host reads at start: no word creates it. The text names the door: "
+     "`codex_roles.py --root <project> --write`, then reload the host (owner: environment).",
+     "test": "scripts/tests/test_doctor_context.py (NativeStageRefusal: dispatch refusals leave a named row; "
+     "A24 rows for the two dispatch ValueErrors)"},
+    {"id": "CR-role-mismatch", "file": "codex_roles.py", "function": "check_override",
+     "call": "Native {role} {key} mismatch",
+     "refuses": "a Codex dispatch whose controller-resolved model or effort differs from the native profile's value "
+               "(an unset profile value reads as `inherit`); caught and denied by `inject_context.dispatch` like "
+               "CR-role-missing (OH6-4, B-8)",
+     "override": "",
+     "unpassable_because": "the CLI spawn uses the profile, not spawn arguments: a word would only move the failure into "
+     "the host. The text names the door: update the explicit role policy, export the roles again and reload the host.",
+     "test": "scripts/tests/test_doctor_context.py (NativeStageRefusal: dispatch refusals leave a named row); "
+     "scripts/tests/test_codex_host.py (check_override mismatch)"},
+    {"id": "CR-export-user-owned", "file": "codex_roles.py", "function": "export",
+     "call": "Refusing to overwrite a user-owned agent",
+     "refuses": "`codex_roles.py` export over a `.codex/agents/<role>.toml` that does not carry the factory's marker, "
+               "preview and write alike; not on the dispatch path: it ends the CLI command the person ran",
+     "override": "",
+     "unpassable_because": "the file is the person's own agent; overwriting it is never wanted. Not a dispatch refusal: "
+     "the person renames or moves their file and runs the export again (owner: person).",
+     "test": "scripts/tests/test_codex_host.py (export refuses a user-owned agent)"},
+    {"id": "HA-rewritten-input", "file": "host_adapter.py", "function": "rewritten_input",
+     "call": "Explicit desktop model/effort overrides require fork_turns",
+     "refuses": "a desktop spawn whose rewritten input carries an explicit model or effort while `fork_turns` is unset or "
+               "`all`; caught and denied by `inject_context.dispatch` (all hosts; OH6-4, B-9)",
+     "override": "",
+     "unpassable_because": "the desktop host rejects the combination: a word would not make the spawn valid. The "
+     "text names the way: `fork_turns=none` or a bounded history (owner: factory, the call's shape).",
+     "test": "scripts/tests/test_doctor_context.py (NativeStageRefusal: dispatch refusals leave a named row)"},
+    {"id": "HA-command-field-type", "file": "host_adapter.py", "function": "_command_texts",
+     "call": "tool_input.{key} must be text or an argv list",
+     "refuses": "a shell-family call whose command field is neither text nor an argv list; `_texts_or_refusal` turns it "
+               "into a call-shape refusal that `role_policy` blocks with (HA-call-shape), never an exception",
+     "override": "",
+     "unpassable_because": "not a dispatch refusal on its own: the call is malformed (FR-46) and the block it becomes names "
+     "the door - send the command as text or as an argv list.",
+     "test": "scripts/tests/test_codex_hooks_matchers.py (command fields: a non-text value is refused with the door)"},
+    {"id": "HA-event-not-object", "file": "host_adapter.py", "function": "normalize",
+     "call": "hook event must be an object",
+     "refuses": "a hook event that is not a JSON object; the ValueError reaches the guard as an unreadable event",
+     "override": "",
+     "unpassable_because": "the host sent no event to judge, so nothing can be passed; the guard blocks it as an unparsed "
+     "event and counts it toward PT-unparsed-event's escalation (owner: host).",
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: normalize)"},
+    {"id": "HA-tool-input-not-object", "file": "host_adapter.py", "function": "normalize",
+     "call": "tool_input must be an object",
+     "refuses": "a tool call whose `tool_input` is neither an object nor one of the text forms a custom tool sends "
+               "(apply_patch, a shell or cell tool); reaches the guard as an unreadable event",
+     "override": "",
+     "unpassable_because": "the call carries no arguments the guard can read; same road as HA-event-not-object, escalating "
+     "through PT-unparsed-event (owner: host).",
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: normalize)"},
+    {"id": "HA-patch-not-text", "file": "host_adapter.py", "function": "patch_operations",
+     "call": "apply_patch.command must be text",
+     "refuses": "an apply_patch call whose command is not text; `guard_pre_tool` catches the ValueError and blocks the "
+               "patch unchecked (PT-patch-unchecked)",
+     "override": "",
+     "unpassable_because": "a patch the guard cannot read is blocked, not passed (FR-59); the block carries its own "
+     "escalation (PT-patch-unchecked), and the door is a patch in Codex's grammar.",
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: patch_operations)"},
+    {"id": "HA-patch-envelope", "file": "host_adapter.py", "function": "patch_operations",
+     "call": "unsupported patch envelope",
+     "refuses": "an apply_patch command without the `*** Begin Patch` / `*** End Patch` lines; blocked unchecked by "
+               "`guard_pre_tool` (PT-patch-unchecked)",
+     "override": "",
+     "unpassable_because": "same as HA-patch-not-text: an unread patch is never passed; send the patch in Codex's grammar.",
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: patch_operations)"},
+    {"id": "HA-patch-path", "file": "host_adapter.py", "function": "patch_operations",
+     "call": "patch path missing or invalid",
+     "refuses": "a patch file section with no path or a NUL byte in it; blocked unchecked (PT-patch-unchecked)",
+     "override": "",
+     "unpassable_because": "same as HA-patch-not-text: a path the guard cannot read cannot be judged against the test-path "
+     "and app-boundary rules.",
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: patch_operations)"},
+    {"id": "HA-patch-orphan-content", "file": "host_adapter.py", "function": "patch_operations",
+     "call": "patch content before path",
+     "refuses": "a patch line that comes before any `*** Add/Update/Delete File` line; blocked unchecked (PT-patch-unchecked)",
+     "override": "",
+     "unpassable_because": "same as HA-patch-not-text: content with no file is not readable as an operation.",
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: patch_operations)"},
+    {"id": "HA-patch-move", "file": "host_adapter.py", "function": "patch_operations",
+     "call": "invalid patch move",
+     "refuses": "a `*** Move to:` line on a section that is not an update, or a second move on one section; blocked "
+               "unchecked (PT-patch-unchecked)",
+     "override": "",
+     "unpassable_because": "same as HA-patch-not-text: a move the guard cannot place is not judged by guess.",
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: patch_operations)"},
+    {"id": "HA-patch-move-empty", "file": "host_adapter.py", "function": "patch_operations",
+     "call": "empty move destination",
+     "refuses": "a `*** Move to:` line with no destination; blocked unchecked (PT-patch-unchecked)",
+     "override": "",
+     "unpassable_because": "same as HA-patch-not-text: a move with no destination has nothing to check.",
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: patch_operations)"},
+    {"id": "HA-patch-line", "file": "host_adapter.py", "function": "patch_operations",
+     "call": "unsupported patch operation",
+     "refuses": "a patch line that is none of the grammar's forms (marker, `+`, ` `, `-`, `@@`, end-of-file, blank); "
+               "blocked unchecked (PT-patch-unchecked)",
+     "override": "",
+     "unpassable_because": "same as HA-patch-not-text: unknown grammar fails toward the block, not toward a pass.",
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: patch_operations)"},
+    {"id": "HA-patch-empty", "file": "host_adapter.py", "function": "patch_operations",
+     "call": "patch contains no operations",
+     "refuses": "a patch envelope that holds no file section; blocked unchecked (PT-patch-unchecked)",
+     "override": "",
+     "unpassable_because": "same as HA-patch-not-text: an empty patch is not read as 'nothing to refuse'.",
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: patch_operations)"},
+    {"id": "HA-call-shape", "file": "host_adapter.py", "function": "role_policy",
+     "call": "FACTORY HOST POLICY: {what}. Expected: {expected}. Door: {door}.",
+     "refuses": "a call whose shape `normalize` could not read (a command field of the wrong type, a code cell with more "
+                "than one call or a tty option): the refusal rides on `_qa_host.refusal` and is blocked first, also in a "
+                "project with no config",
+     "override": "",
+     "unpassable_because": "the fault is the call's (FR-46), and the text carries what was expected and the door; no "
+     "word makes an unread call judged.",
+     "test": "scripts/tests/test_codex_hooks_matchers.py"},
+    {"id": "HA-doctor-no-tools", "file": "host_adapter.py", "function": "role_policy",
+     "call": "FACTORY DOCTOR: the context diagnostic must return its challenge without tools",
+     "refuses": "a tool call made by the doctor's context diagnostic, which must answer with its challenge alone",
+     "override": "",
+     "unpassable_because": "qa-doctor's own probe, with no person waiting on it; a tool call there would make the probe "
+     "report something it did not observe.",
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: role_policy); "
+     "scripts/tests/test_codex_hooks_matchers.py (factory_diagnostic)"},
+    {"id": "HA-no-command-text", "file": "host_adapter.py", "function": "role_policy",
+     "call": "FACTORY HOST POLICY: ' + str((event.get",
+     "refuses": "a shell-family call that carries no command text the guard can read; refused unchecked",
+     "override": "",
+     "unpassable_because": "the text names the fields to send the command in and the one-literal-call form for a code "
+     "cell; an unread command is never passed (FR-59).",
+     "test": "scripts/tests/test_codex_hooks_matchers.py (E3: a call with no command text is refused with what was expected)"},
+    {"id": "HA-role-nested-delegation", "file": "host_adapter.py", "function": "role_policy",
+     "call": "FACTORY ROLE: nested delegation is not permitted for ",
+     "refuses": "a factory role (a role with an agent file) calling Agent or Task on Codex",
+     "override": "",
+     "unpassable_because": "flat delegation: a role does not launch roles; the orchestrator dispatches. No word of a person "
+     "changes a role's tool set (FR-56).",
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: role_policy)"},
+    {"id": "HA-role-read-only", "file": "host_adapter.py", "function": "role_policy",
+     "call": "FACTORY ROLE: ' + role + ' may read using rg/Get-Content",
+     "refuses": "a shell call of a Codex role that has no Bash and whose command is not one plain read; the text says why "
+                "and names CODEX_DESKTOP_TOOLS, the tools that role does have",
+     "override": "",
+     "unpassable_because": "the role's tool set is its profile (FR-56); the door is in the message: the read in one plain "
+     "command, or the desktop tools it names.",
+     "test": "scripts/tests/test_role_policy_reads.py"},
+    {"id": "HA-stdin-chars", "file": "host_adapter.py", "function": "role_policy",
+     "call": "FACTORY HOST POLICY: interactive shell input cannot be checked",
+     "refuses": "a `write_stdin` call that sends characters: they would reach a running process unseen by the command guard",
+     "override": "",
+     "unpassable_because": "the input is not a command the guard can judge; the text names the door: a guarded "
+     "exec_command call.",
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: role_policy)"},
+    {"id": "HA-exec-tty", "file": "host_adapter.py", "function": "role_policy",
+     "call": "FACTORY HOST POLICY: use non-interactive shell calls",
+     "refuses": "an `exec_command` call with a tty, which takes input the guard cannot check",
+     "override": "",
+     "unpassable_because": "a terminal session reads input the guard never sees; the text names the door: a "
+     "non-interactive call.",
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: role_policy)"},
+    {"id": "HA-connector-unclassified", "file": "host_adapter.py", "function": "role_policy",
+     "call": "lead + ' ' + CODEX_DESKTOP_TOOLS",
+     "refuses": "an unclassified or mutating connector tool (`mcp__...`) called by a role with no shell; the text names "
+                "the desktop tools that role has instead (FR-2)",
+     "override": "the proposal file plus gate B, as PT-external-writes: a write to a tracker goes through the gated executor.",
+     "test": "scripts/tests/test_codex_tool_guidance.py"},
+    {"id": "HA-connector-orchestrator", "file": "host_adapter.py", "function": "role_policy",
+     "call": "lead + ' The orchestrator registers verified read-only tools",
+     "refuses": "the same connector call from a caller that has a shell or no agent file; the text names "
+                "`host_tools.read_only` and `host_tools.read_only_calls`, the orchestrator's door",
+     "override": "the orchestrator registers the tool in `host_tools.read_only` (or the exact call form in "
+     "`host_tools.read_only_calls`) after verifying it reads only; a write goes through the proposal and gate B.",
+     "test": "scripts/tests/test_codex_tool_guidance.py"},
 
     # --- guard_pre_tool.py — registered here by reading it ------
     {"id": "PT-direct-test-run", "file": "guard_pre_tool.py", "function": "runs_check",
@@ -495,6 +730,7 @@ REGISTRY: list[dict] = [
      "call": "HUMAN_WORD_MSG",
      "refuses": "a ROLE running waiver.py --stage / accept-gap / review --record / "
                 "stand_identity.py record|confirm|forget|unconfirm / environment_record.py record|revoke / report_adapt.py kind / "
+                "project_knowledge.py account|role|revoke|side|lesson / "
                 "waiver.py --carry-from (the copy of a person's words from another key, GW1-40)",
      "override": "",
      "unpassable_because": "this is the refusal that protects every other override. A role "
@@ -828,24 +1064,136 @@ def _key_text(node: ast.AST) -> str | None:
     return text[:KEY_CHARS]
 
 
-def _refusal_calls(tree: ast.AST) -> list:
+def _raised_here(func: ast.AST, raises) -> bool:
+    """Is the callee of `raise <callee>(...)` a refusal exception for this scan?
+
+    `raises` None is audit A24's scan: ONLY a bare name in REFUSAL_RAISES (read at call time).
+    A per-file spec of `raise_family` adds this file's own family names and the attribute form
+    (`mod.Name(...)`): the attribute is accepted only when a spec is given, so A24 never widens."""
+    if isinstance(func, ast.Name):
+        return func.id in REFUSAL_RAISES or (raises is not None and func.id in raises["names"])
+    if raises is None or not isinstance(func, ast.Attribute):
+        return False
+    if func.attr in REFUSAL_RAISES:
+        return True
+    return isinstance(func.value, ast.Name) and func.attr in raises["mods"].get(func.value.id, ())
+
+
+def _refusal_calls(tree: ast.AST, raises=None) -> list:
     out = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
                 and node.func.id in REFUSAL_CALLS:
             out.append(node)
         elif isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call) \
-                and isinstance(node.exc.func, ast.Name) and node.exc.func.id in REFUSAL_RAISES:
+                and _raised_here(node.exc.func, raises):
             out.append(node.exc)
     return out
 
 
-def sites(plugin_root: Path | None = None, files=None) -> list:
+def _module_file(known, module: str):
+    """The scanned file a dotted module name stands for (by path, else by a unique file name), or None."""
+    rel = module.replace(".", "/") + ".py"
+    if rel in known:
+        return rel
+    tail = module.rsplit(".", 1)[-1] + ".py"
+    hits = [f for f in known if f == tail or f.endswith("/" + tail)]
+    return hits[0] if len(hits) == 1 else None
+
+
+def _file_bindings(tree: ast.AST) -> dict:
+    """What one file binds: {classes: {name: [base ref]}, imports: {local: (module, name)}, mods: {alias: module}}.
+
+    A base ref is ("n", name) for `Name` and ("a", alias-or-None, attr) for `alias.attr`; a base of any other form
+    (`make()`, a subscript) is not read."""
+    classes, imports, mods = {}, {}, {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            refs = classes.setdefault(node.name, [])
+            for base in node.bases:
+                if isinstance(base, ast.Name):
+                    refs.append(("n", base.id))
+                elif isinstance(base, ast.Attribute):
+                    refs.append(("a", base.value.id if isinstance(base.value, ast.Name) else None, base.attr))
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                mods[alias.asname or alias.name.split(".")[0]] = alias.name if alias.asname else alias.name.split(".")[0]
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                imports[alias.asname or alias.name] = (node.module, alias.name)
+    return {"classes": classes, "imports": imports, "mods": mods}
+
+
+def raise_family(plugin_root: Path | None = None, files=None) -> dict:
+    """{file: {"names": frozenset, "mods": {alias: frozenset}}}: the exception names that are refusals IN THAT FILE.
+
+    Resolved per file (critic t-326 B3). A name is in file F's family when it is a literal of REFUSAL_RAISES, or F's OWN
+    binding of it is in the family: a class defined in F with a family base (a bare name, `alias.Name`, closed
+    transitively), or `from M import N [as A]` where M is a scanned module whose `N` is in M's family. A class defined in F
+    that is not a family class shadows a family class of the same name defined elsewhere; a name F does not bind
+    resolves only to the literals. `mods` maps an `import M [as X]` alias of a scanned module to that module's family, for
+    the attribute form `X.Name(...)`. The family only grows over a finite set, so the loop ends on a cycle.
+    A file that does not parse is left out (the scan that reads it reports it)."""
+    root = Path(plugin_root or PLUGIN_ROOT) / "scripts"
+    known = list(SCANNED if files is None else files)
+    literals = frozenset(REFUSAL_RAISES)
+    facts = {}
+    for name in known:
+        path = root / name
+        if not path.is_file():
+            continue
+        try:
+            facts[name] = _file_bindings(ast.parse(path.read_text(encoding="utf-8", errors="replace"), filename=str(path)))
+        except SyntaxError:
+            continue
+    fam = {f: set(literals) for f in facts}
+    grew = True
+    while grew:
+        grew = False
+        for f, fx in facts.items():
+            for cname, refs in fx["classes"].items():
+                if cname in fam[f]:
+                    continue
+                for ref in refs:
+                    if ref[0] == "n":
+                        hit = ref[1] in fam[f]
+                    else:
+                        target = _module_file(known, fx["mods"].get(ref[1], "")) if ref[1] else None
+                        hit = ref[2] in literals or (target in fam and ref[2] in fam[target])
+                    if hit:
+                        fam[f].add(cname)
+                        grew = True
+                        break
+            for local, (module, orig) in fx["imports"].items():
+                target = _module_file(known, module)
+                if local not in fam[f] and local not in fx["classes"] and target in fam and orig in fam[target]:
+                    fam[f].add(local)
+                    grew = True
+    out = {}
+    for f, fx in facts.items():
+        mods = {}
+        for alias, module in fx["mods"].items():
+            target = _module_file(known, module)
+            if target in fam:
+                mods[alias] = frozenset(fam[target])
+        for local, (module, orig) in fx["imports"].items():      # `from pkg import mod` where pkg.mod is a scanned file
+            target = _module_file(known, f"{module}.{orig}")
+            if target in fam:
+                mods[local] = frozenset(fam[target])
+        out[f] = {"names": frozenset(fam[f]), "mods": mods}
+    return out
+
+
+def sites(plugin_root: Path | None = None, files=None, raises=None) -> list:
     """Every refusal the scanner sees in SCANNED, as {file, function, call, line}.
 
     `files` (names relative to scripts/) widens or narrows the scan for a caller that needs
     the same scanner over another file set (the judgment census, t-1765); without it the
-    scan is SCANNED, exactly as audit A24 reads it."""
+    scan is SCANNED, exactly as audit A24 reads it.
+
+    `raises` (the answer of `raise_family` over the same files) widens only the RAISE sites: a package subclass
+    of a refusal exception, resolved per file, and the attribute form. Without it the scan is today's, byte for
+    byte; audit A24 (`findings`, `--check`, `--sites`) never passes it."""
     root = Path(plugin_root or PLUGIN_ROOT) / "scripts"
     found = []
     for name in (SCANNED if files is None else files):
@@ -858,7 +1206,8 @@ def sites(plugin_root: Path | None = None, files=None) -> list:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 for child in ast.walk(node):
                     owner.setdefault(id(child), node.name)
-        for call in _refusal_calls(tree):
+        spec = None if raises is None else raises.get(name, {"names": frozenset(REFUSAL_RAISES), "mods": {}})
+        for call in _refusal_calls(tree, spec):
             key = _key_text(call)
             if key is None:
                 continue
@@ -885,6 +1234,28 @@ def escalations() -> list:
     return [e for e in REGISTRY if is_fail_closed(e)]
 
 
+HOST_ROOT_VARIABLE = "claude_plugin_root"
+
+
+def _host_root_lines(root: Path) -> list:
+    """`<file>:<line>` of every string constant of a SCANNED file naming the host root variable, in any case and spelling.
+
+    A refusal source never ships the unexpanded variable (FR-15, FR-37): nothing expands it in text a role reads.
+    Error direction: a docstring that mentions the name is flagged too (the safe side). Accepted miss: a token split
+    across a concatenation; comments are not constants and never reach a role."""
+    out = []
+    for name in SCANNED:
+        path = Path(root) / "scripts" / name
+        if not path.is_file():
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) \
+                    and HOST_ROOT_VARIABLE in node.value.lower():
+                out.append(f"{name}:{getattr(node, 'lineno', 0)}")
+    return sorted(set(out))
+
+
 def findings(plugin_root: Path | None = None) -> list:
     """A24's violations: a refusal with no entry, an entry pointing at a refusal that is gone,
     an entry with no test named, and a fail-closed refusal with neither a pass nor an
@@ -892,7 +1263,8 @@ def findings(plugin_root: Path | None = None) -> list:
     root = Path(plugin_root or PLUGIN_ROOT)
     scanned = sites(root)
     line_entries = [e for e in REGISTRY if e.get("kind") != "operation"]
-    errors = []
+    errors = [f"{where}: a refusal source names the unexpanded host root variable; build the path "
+              "with runtime_paths.script_command" for where in _host_root_lines(root)]
     for site in scanned:
         if not any(_covers(e, site) for e in line_entries):
             errors.append(f"{site['file']}:{site['line']} ({site['function']}): the refusal "

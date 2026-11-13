@@ -1315,9 +1315,919 @@ def k11_dashboard_fallback() -> None:
         restore_process()
 
 
+BAD_TICKETS = ("..", "a/b", "a\\b", "C:x")
+
+
+def _story_state(project: Path, dispatch_record: dict | None) -> None:
+    folder = project / "qa-factory" / "artifacts" / "T" / "state"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "controller.json").write_text(json.dumps({"dispatches": {"D": dispatch_record or {}}}), encoding="utf-8")
+
+
+def b1_artifacts_dir_root() -> None:
+    """OH5-11 B1: `artifacts_dir(..., root=)` resolves under the root given, the component check unchanged."""
+    base = scratch()
+    plain, custom, broken = (base / "plain"), (base / "custom"), (base / "broken")
+    for project, cfg in ((plain, None), (custom, '{"artifact_root": "custom"}'), (broken, "{not json")):
+        (project / "qa-factory").mkdir(parents=True)
+        if cfg is not None:
+            (project / "qa-factory" / "config.json").write_text(cfg, encoding="utf-8")
+    rows = [
+        ("no config", plain, plain.resolve() / "qa-factory" / "artifacts" / "T"),
+        ("artifact_root: custom", custom, custom.resolve() / "custom" / "T"),
+    ]
+    for label, project, expected in rows:
+        check(f"B1 artifacts_dir(root=): {label} -> {expected.parent.name}/T", hooklib.artifacts_dir("T", root=project) == expected)
+    check("B1 artifacts_dir(root=): a broken config is a ValueError", _refused(lambda: hooklib.artifacts_dir("T", root=broken)))
+    for ticket in BAD_TICKETS + ("",):
+        check(f"B1 artifacts_dir(root=): ticket {ticket!r} is a ValueError", _refused(lambda: hooklib.artifacts_dir(ticket, root=plain)))
+    check("B1 artifacts_dir(root=None) equals artifact_root(None) / T (the cwd project)",
+          hooklib.artifacts_dir("T") == hooklib.artifact_root(None) / "T")
+
+
+def b2_binding_is_active() -> None:
+    """OH5-11 B2: `binding_is_active(root, binding)` - a doubtful receipt stays ACTIVE (True)."""
+    import worker_lifecycle as WL
+    base = scratch()
+    for ticket in BAD_TICKETS:
+        check(f"B2 binding_is_active: ticket {ticket!r} -> True", WL.binding_is_active(base, {"task_id": ticket, "dispatch_id": "D"}) is True)
+    rows = [("accepted", {"status": "accepted"}, False), ("running", {"status": "running"}, True), ("no status", {}, True)]
+    for label, record, expected in rows:
+        project = base / f"p-{label.replace(' ', '-')}"
+        _story_state(project, record)
+        check(f"B2 binding_is_active: controller.json under root, dispatch {label} -> {expected}",
+              WL.binding_is_active(project, {"task_id": "T", "dispatch_id": "D"}) is expected)
+
+
+def b3_blocking_text() -> None:
+    """OH5-11 B3: the door names the story folder under the ROOT the receipts were read from."""
+    import worker_lifecycle as WL
+    base = scratch()
+    text = WL._blocking_text([{"dispatch_id": "D"}], base, "T", None)
+    check("B3 _blocking_text names <root>/qa-factory/artifacts/T", str(base.resolve() / "qa-factory" / "artifacts" / "T") in text)
+
+
+def b4_survivor_is_used() -> None:
+    """OH5-11 B4 (spy): `binding_is_active` reads the story through `hooklib.artifacts_dir(root=)`."""
+    import worker_lifecycle as WL
+    base = scratch()
+    calls, real = [], hooklib.artifacts_dir
+
+    def spy(*args, **kwargs):
+        calls.append(kwargs.get("root"))
+        return real(*args, **kwargs)
+
+    hooklib.artifacts_dir = spy
+    try:
+        WL.binding_is_active(base, {"task_id": "T", "dispatch_id": "D"})
+    finally:
+        hooklib.artifacts_dir = real
+    check("B4 binding_is_active: exactly one hooklib.artifacts_dir call, with root=<the root>", calls == [base])
+
+
+def b5_stop_branch() -> None:
+    """OH5-11 B5 (t-212 E7): the stop branch of `guard` reads the story under the root, a refused ticket is a refused stop."""
+    import worker_lifecycle as WL
+    base = scratch()
+
+    def receipts(project: Path, task: str) -> None:
+        folder = project / "qa-factory" / "state" / "host-dispatches"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "r.json").write_text(json.dumps({"task_name": "X", "task_path": "X", "task_id": task, "dispatch_id": "D",
+                                                   "status": "running"}), encoding="utf-8")
+
+    def stop(project: Path) -> tuple:
+        real_root, real_dir, calls = hooklib.project_root, hooklib.artifacts_dir, []
+
+        def spy(*args, **kwargs):
+            calls.append(kwargs.get("root"))
+            return real_dir(*args, **kwargs)
+
+        hooklib.project_root, hooklib.artifacts_dir = (lambda event=None: project), spy
+        code = 0
+        try:
+            with contextlib.redirect_stderr(io.StringIO()) as err, contextlib.redirect_stdout(io.StringIO()) as out:
+                try:
+                    WL.guard({"tool_name": "interrupt_agent", "tool_input": {"target": "X"}})
+                except SystemExit as exc:
+                    code = exc.code or 0
+        finally:
+            hooklib.project_root, hooklib.artifacts_dir = real_root, real_dir
+        return code, err.getvalue() + out.getvalue(), calls
+
+    rows = [("cancellation recorded", "T", {"status": "running", "cancellation": {"cause": "user_stop"}}, False),
+            ("no cancellation", "T", {"status": "running"}, True),
+            ("ticket ..", "..", {"status": "running", "cancellation": {"cause": "user_stop"}}, True)]
+    for label, task, record, blocks in rows:
+        project = (base / f"s-{label.replace(' ', '-').replace('..', 'dots')}").resolve()
+        _story_state(project, record)
+        receipts(project, task)
+        code, text, calls = stop(project)
+        check(f"B5 guard stop branch: {label} -> {'blocked' if blocks else 'not blocked'}", (code == 2) is blocks)
+        if blocks:
+            check(f"B5 guard stop branch: {label} -> the text says stop denied", "stop denied" in text)
+        if task == "T":
+            check(f"B5 guard stop branch: {label} -> artifacts_dir called with root=<project>", calls == [project])
+
+
+# --- OH6-1: every copy of "a name is one path component" calls `hooklib.is_one_component` ---------------------------
+
+OH61_NAMES = (("dotdot", ".."), ("dot", "."), ("slash", "a/b"), ("backslash", "a\\b"), ("colon", "a:b"),
+              ("nul", "a\0b"), ("good", "T"))
+OH61_FORM = ["qa-case-designer S4 window 1 · ok", "TC-005 · created · written to the plan row", "work/test-cases/cart/"]
+OH61_TAIL = "Notes for the conductor:\r\n- Q1 versus Q2: the register has only Q1.\r\n\r\n```\nbasis `consistency:` is outside the list\n```\n"
+
+
+@contextlib.contextmanager
+def _oh61_patched(target, **attrs):
+    """Replace attributes of `target`, put them back in `finally` (the B4 pattern)."""
+    saved = {key: getattr(target, key) for key in attrs}
+    for key, value in attrs.items():
+        setattr(target, key, value)
+    try:
+        yield
+    finally:
+        for key, value in saved.items():
+            setattr(target, key, value)
+
+
+def _oh61_outcome(call) -> tuple:
+    try:
+        return ("value", call())
+    except SystemExit as exc:
+        return ("exit", exc.code)
+    except Exception as exc:  # noqa: BLE001 - the cell judges the kind
+        return ("raised", type(exc).__name__, str(exc))
+
+
+def _oh61_project(where: Path, stories=()) -> tuple:
+    """A project under `where` with config.json and `stories` (each with a pipeline.json); the process is pinned to it."""
+    project = where.resolve()
+    art = project / "qa-factory" / "artifacts"
+    art.mkdir(parents=True)
+    (project / "qa-factory" / "config.json").write_text("{}", encoding="utf-8")
+    for story in stories:
+        (art / story).mkdir()
+        (art / story / "pipeline.json").write_text("{}", encoding="utf-8")
+    os.environ["CLAUDE_PROJECT_DIR"] = str(project)
+    hooklib._PROJECT_ROOT_CACHE = None
+    return project, art
+
+
+def _oh61_plant(folder: Path, name: str, files: dict) -> None:
+    """Create, where the OS lets it, the files a site would read if it joined `name` UNCHECKED, so only the guard can
+    make the site refuse (rule 1 of the table). Where the name cannot exist (NUL; `a:b` on Windows) the spy carries it."""
+    if os.name == "nt" and ":" in name:
+        return
+    for rel, text in files.items():
+        try:
+            target = folder / name / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8")
+        except (OSError, ValueError):
+            pass
+
+
+def _oh61_transcript(where: Path) -> Path:
+    where.mkdir(parents=True, exist_ok=True)
+    path = where / "t.jsonl"
+    path.write_text("", encoding="utf-8")
+    return path
+
+
+def _oh61_row_is_one(name, where):
+    return hooklib.is_one_component(name)
+
+
+def _oh61_row_story_folder(name, where):
+    _project, art = _oh61_project(where, ("T",))
+    return hooklib.is_story_folder(art, name)
+
+
+def _oh61_row_controller_record(name, where):
+    import host_dispatch
+    project, art = _oh61_project(where)
+    _oh61_plant(art, name, {"state/controller.json": json.dumps({"dispatches": {"D": {"status": "running"}}})})
+    return host_dispatch.controller_record(project, name, "D")
+
+
+def _oh61_row_named_ticket(name, where):
+    import exit_gate
+    import stage_guard
+    _project, art = _oh61_project(where)
+    _oh61_plant(art, name, {"pipeline.json": "{}"})
+    with _oh61_patched(stage_guard, resolve_ticket=lambda event: (name, {"named": [name]})):
+        return exit_gate._named_ticket({})
+
+
+def _oh61_row_story_named_by_text(name, where):
+    import stage_guard
+    _project, art = _oh61_project(where)
+    _oh61_plant(art, name, {"pipeline.json": "{}"})
+    with _oh61_patched(stage_guard.AF, keys_in=lambda *a, **k: [name], labelled_keys=lambda *a, **k: [name]):
+        return stage_guard.story_named_by_text("t", {}, art, {})
+
+
+def _oh61_row_resolve_env(name, where):
+    import stage_guard
+    _project, art = _oh61_project(where, ("T", "U"))
+    _oh61_plant(art, name, {"pipeline.json": "{}"})
+    # a plain dict: `os.environ` itself refuses a NUL value
+    with _oh61_patched(os, environ=dict(os.environ, QA_FACTORY_TASK=name)):
+        return stage_guard.resolve_ticket({"tool_name": "Agent", "tool_input": {"description": "do it"}})
+
+
+def _oh61_row_resolve_explicit(name, where):
+    import stage_guard
+    _project, art = _oh61_project(where, ("T",))
+    _oh61_plant(art, name, {"pipeline.json": "{}"})
+    return stage_guard.resolve_ticket({"task_id": name})
+
+
+def _oh61_row_receipts(name, where):
+    import stage_guard
+    project, art = _oh61_project(where, ("T",))
+    _oh61_plant(art, name, {"pipeline.json": "{}"})
+    folder = project / "qa-factory" / "state" / "host-dispatches"
+    folder.mkdir(parents=True)
+    (folder / "r.json").write_text(json.dumps({"task_name": "X", "task_id": name, "dispatch_id": "D"}), encoding="utf-8")
+    return stage_guard._recipient_receipts({}, art, "X")
+
+
+def _oh61_row_activity_path(name, where):
+    import activity_capture
+    project, _art = _oh61_project(where)
+    return activity_capture.activity_path({"cwd": str(project)}, name)
+
+
+def _oh61_row_cost_capture(name, where):
+    import cost_capture
+    _oh61_project(where)
+    transcript, reached = _oh61_transcript(where / "tr"), []
+    event = {"session_id": name, "transcript_path": str(transcript)}
+    with _oh61_patched(cost_capture, _session_scope_ok=lambda ev, tpath: reached.append(1) or False):
+        return _oh61_outcome(lambda: cost_capture._capture(event)), bool(reached)
+
+
+def _oh61_row_cost_main(name, where):
+    import codex_usage
+    import cost_capture
+    _oh61_project(where)
+    transcript, reached = _oh61_transcript(where / "tr"), []
+    event = {"session_id": name, "transcript_path": str(transcript)}
+    with _oh61_patched(cost_capture, read_event=lambda: event, _choose_subagent_transcript=lambda ev: None,
+                       _debounce_window_open=lambda *a: reached.append(1) or True, _ends_dispatch=lambda ev: False), \
+            _oh61_patched(codex_usage, metadata=lambda path: {}), _oh61_patched(sys, argv=["cost_capture.py", "--debounced"]):
+        return _oh61_outcome(cost_capture.main), bool(reached)
+
+
+def _oh61_row_recover(name, where):
+    import recover_codex_usage
+    transcript = _oh61_transcript(where)
+    with _oh61_patched(recover_codex_usage, metadata=lambda path: {"id": name}, scan=lambda path: ([], "x")):
+        return recover_codex_usage.recover(where, transcript, [], write=False)
+
+
+def _oh61_row_estimate(name, where):
+    import estimate_record
+    project, art = _oh61_project(where)
+    _oh61_plant(art, name, {"retro.md": "r", "state/controller.json": json.dumps({"source_revision": "rev"})})
+    return estimate_record.task_binding(project, name)
+
+
+def _oh61_row_red_sandbox(name, where):
+    import red_sandbox
+    kind = json.loads((harness.PLUGIN_ROOT / "references" / "sandbox-setup.json").read_text(encoding="utf-8"))["kinds"]["npm_ci"]
+    pins, absent = copy.deepcopy(kind), copy.deepcopy(kind)
+    pins["pins"] = {name: "field"}
+    absent["must_not_preexist"] = [name]
+    return red_sandbox._row_problem(pins), red_sandbox._row_problem(absent)
+
+
+def _oh61_row_role_digest(name, where):
+    import role_digest
+    task = where / "task"
+    task.mkdir(parents=True)
+    rel = role_digest.file_notes(task, name, "\n".join(OH61_FORM) + "\n" + OH61_TAIL)
+    return rel, sorted(p for _dir, _sub, names in os.walk(where) for p in names)
+
+
+def _oh61_row_event_store(name, where):
+    import event_store
+    return event_store.EventStore(where, stale_marker=name)
+
+
+def _oh61_row_selftest_slow_tests(name, where):
+    import selftest
+    return selftest._slow_tests_problem({"thresholds": {"slow_over_s": 1, "fast_under_s": 0}, "files": {name: None}})
+
+
+def _oh61_row_dependency_drift(name, where):
+    import dependency_drift
+    where.mkdir(parents=True)
+    table = {"locks": [{"file": name, "format": "toml_packages", "manager": "poetry"}],
+             "install_commands": {"poetry": ["poetry", "install"]}}
+    (where / "t.json").write_text(json.dumps(table), encoding="utf-8")
+    return dependency_drift.load_table(where / "t.json")
+
+
+def _oh61_value(outcome):
+    return outcome[1] if outcome[0] == "value" else None
+
+
+# (id, run, refused(outcome, name), accepted(outcome, name), spied): the outcome is ("value", x) / ("exit", code) / ("raised", kind, text)
+OH61_ROWS = (
+    ("is_one_component", _oh61_row_is_one, lambda o, n: o == ("value", False), lambda o, n: o == ("value", True), False),
+    ("is_story_folder", _oh61_row_story_folder, lambda o, n: o == ("value", False), lambda o, n: o == ("value", True), True),
+    ("controller_record", _oh61_row_controller_record, lambda o, n: o == ("value", None),
+     lambda o, n: o == ("value", {"status": "running"}), True),
+    ("named_ticket", _oh61_row_named_ticket, lambda o, n: o[0] == "value" and o[1][0] == "",
+     lambda o, n: o[0] == "value" and o[1][0] == "T", True),
+    ("story_named_by_text", _oh61_row_story_named_by_text, lambda o, n: o == ("value", ""), lambda o, n: o == ("value", "T"), True),
+    ("resolve_ticket_env", _oh61_row_resolve_env, lambda o, n: o[0] == "value" and o[1][0] == "",
+     lambda o, n: o[0] == "value" and o[1][0] == "T", True),
+    ("resolve_ticket_explicit", _oh61_row_resolve_explicit,
+     lambda o, n: o[0] == "value" and o[1][0] == "" and o[1][1].get("explicit") == n,
+     lambda o, n: o[0] == "value" and o[1][0] == "T", True),
+    ("recipient_receipts", _oh61_row_receipts, lambda o, n: o == ("value", []), lambda o, n: o == ("value", [("T", "D")]), True),
+    ("activity_path", _oh61_row_activity_path, lambda o, n: o[:2] == ("raised", "ValueError"),
+     lambda o, n: o[0] == "value" and Path(o[1]).name == "T.json", True),
+    ("cost_capture_capture", _oh61_row_cost_capture, lambda o, n: o[0] == "value" and o[1] == (("exit", 0), False),
+     lambda o, n: o[0] == "value" and o[1][1] is True, True),
+    ("cost_capture_main", _oh61_row_cost_main, lambda o, n: o[0] == "value" and o[1] == (("value", None), False),
+     lambda o, n: o[0] == "value" and o[1][1] is True, True),
+    ("recover_codex_usage", _oh61_row_recover, lambda o, n: o[:2] == ("raised", "ValueError"),
+     lambda o, n: o[0] == "value" and o[1].get("session_id") == "T", True),
+    ("estimate_record", _oh61_row_estimate,
+     lambda o, n: o[:2] == ("raised", "ValueError") and o[2] == "task must be a single task identifier",
+     lambda o, n: o[0] == "value" and o[1].get("task_revision") == "rev", True),
+    ("red_sandbox", _oh61_row_red_sandbox,
+     lambda o, n: o[0] == "value" and o[1][0].startswith("pins (") and o[1][1].startswith("must_not_preexist ("),
+     lambda o, n: o == ("value", ("", "")), True),
+    ("role_digest", _oh61_row_role_digest, lambda o, n: o == ("value", ("", [])),
+     lambda o, n: o == ("value", ("state/findings/T-digest-notes.md", ["T-digest-notes.md"])), True),
+    ("event_store", _oh61_row_event_store,
+     lambda o, n: o[:2] == ("raised", "ValueError") and o[2].startswith("stale_marker must be a plain file name"),
+     lambda o, n: o[0] == "value" and o[1].stale_marker == "T", True),
+    ("selftest_slow_tests", _oh61_row_selftest_slow_tests,
+     lambda o, n: o == ("value", f'"files" key {n!r} is not a test file name'), lambda o, n: o == ("value", None), False),
+    ("dependency_drift", _oh61_row_dependency_drift,
+     lambda o, n: o == ("value", (None, "t.json locks[0] needs a plain file name, a `format` and a `manager`")),
+     lambda o, n: o[0] == "value" and o[1][0]["locks"][0]["file"] == "T" and o[1][1] == "", True),
+)
+
+
+def oh6_1_one_component_table() -> None:
+    """OH6-1 Part A: 18 callers x 7 names. One check per cell, and (16 rows) one spy check per cell: the caller asked
+    `hooklib.is_one_component` about the exact name, so a copy that kept its own test cannot pass. The `selftest` row is
+    not spied: the runner does not import hooklib, it keeps the named mirror `selftest._is_one_component`, and the
+    agreement row below pins the mirror to the survivor."""
+    base = scratch()
+    for row_id, run, refused, accepted, spied in OH61_ROWS:
+        for label, name in OH61_NAMES:
+            seen, real = [], hooklib.is_one_component
+
+            def spy(value, seen=seen, real=real):
+                seen.append(value)
+                return real(value)
+
+            try:
+                with _oh61_patched(hooklib, **({"is_one_component": spy} if spied else {})):
+                    outcome = _oh61_outcome(lambda: run(name, base / f"{row_id}-{label}"))
+            finally:
+                restore_process()
+            judge = accepted if label == "good" else refused
+            check(f"OH6-1 {row_id}-{label}", judge(outcome, name), repr(outcome)[:300])
+            if spied:
+                check(f"OH6-1 {row_id}-{label} asked the survivor", name in seen, repr(seen))
+
+
+# --- OH8-3: a refused session id leaves ONE stderr line, the exit stays (FR-4, AR-28) ---------------------------------
+# (id, session id, reason fragment the line must carry; "" = a good id: reaches the scope check, no line)
+OH83_IDS = (("int", 5, "not a string (int)"), ("list", ["a"], "not a string (list)"),
+            ("nul", "a\0b", "contains a NUL character"), ("dotdot", "..", "is not one path component"),
+            ("slash", "a/b", "is not one path component"),
+            ("at80", "x" * 76 + "/b", "is not one path component"), ("beyond80", "x" * 10000 + "/b", "is not one path component"),
+            ("surrogate", "a\ud800/b", "is not one path component"), ("good", "T", ""))
+OH83_SITES = (("capture", _oh61_row_cost_capture), ("main", _oh61_row_cost_main))
+
+
+def oh8_3_session_id_refusal_line() -> None:
+    """Every id x both sites. Positive control: the good id reaches the check behind the guard and writes no line.
+    Mutation note: deleting the `print` in `cost_capture._session_id_ok` makes every refused row red (no line)."""
+    base = scratch()
+    for site, run in OH83_SITES:
+        for label, session_id, reason in OH83_IDS:
+            err = io.StringIO()
+            try:
+                with contextlib.redirect_stderr(err):
+                    outcome = _oh61_outcome(lambda: run(session_id, base / f"oh83-{site}-{label}"))
+            finally:
+                restore_process()
+            lines = [ln for ln in err.getvalue().splitlines() if ln]
+            name = f"OH8-3 {site}-{label}"
+            if not reason:
+                check(f"{name} reaches the check behind the guard", outcome[0] == "value" and outcome[1][1] is True, repr(outcome)[:300])
+                check(f"{name} writes no line", lines == [], repr(lines))
+                continue
+            want = ("exit", 0) if site == "capture" else ("value", None)
+            check(f"{name} keeps its exit and reaches nothing", outcome[0] == "value" and outcome[1] == (want, False), repr(outcome)[:300])
+            check(f"{name} writes exactly one line naming the reason",
+                  len(lines) == 1 and lines[0].startswith("session id refused: ") and reason in lines[0], repr(lines)[:300])
+            check(f"{name} shows the value in at most 80 characters, no raw NUL",
+                  len(lines) == 1 and len(lines[0]) - len("session id refused: ") - len(reason) - 2 <= 80 and "\0" not in lines[0],
+                  repr(lines)[:300])
+    # an empty id never reaches a site (`event.get("session_id") or tpath.stem`); the helper itself still refuses it with a reason
+    import cost_capture
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        empty_ok = cost_capture._session_id_ok("")
+    check("OH8-3 helper-empty is refused with a reason line", not empty_ok and err.getvalue() == "session id refused: is empty\n", repr(err.getvalue()))
+
+    class ClosedStream:
+        def write(self, text):
+            raise ValueError("I/O operation on closed file")
+
+        def flush(self):
+            raise ValueError("I/O operation on closed file")
+    saved_stderr, sys.stderr = sys.stderr, ClosedStream()
+    try:
+        closed_ok = cost_capture._session_id_ok("a/b")
+    finally:
+        sys.stderr = saved_stderr
+    check("OH8-3 helper-closed-stream: a stderr write that raises is swallowed, the id is still refused", closed_ok is False)
+
+
+# the three copy shapes of "a name is one path component" (the batch row and critic t-286 fix 3)
+OH61_COPY = re.compile(r"""for \w+ in ['"]/\\\\:""")
+OH61_TUPLE = re.compile(r"""for \w+ in \(\s*['"]/['"],\s*['"]\\\\['"]""")
+OH61_PATH_NAME = re.compile(r"!= Path\(\w+\)\.name")
+def oh6_1_mirror_agreement() -> None:
+    """OH6-1 / OH8-1: the one named mirror (`selftest._is_one_component`) answers like the survivor for every name of the
+    battery and for non-str inputs; its drift from `hooklib.is_one_component` goes red here."""
+    import selftest
+    inputs = [name for _, name in OH61_NAMES] + ["", 5, None, ["a"], b"a", "a b", "a.b", "..."]
+    for value in inputs:
+        check(f"OH6-1 mirror agreement: selftest._is_one_component({value!r})",
+              selftest._is_one_component(value) == hooklib.is_one_component(value))
+
+
+# shrink-only (AR-20): event_store.py 1 -> 0 by OH8-1; selftest.py keeps ONE named mirror (`selftest._is_one_component`,
+# the runner does not import hooklib), pinned to the survivor by `oh6_1_mirror_agreement`; a raise is named in the verdict
+OH61_ALLOWED = {"selftest.py": 1}
+
+
+def oh6_1_hits(text: str, patterns=(OH61_COPY, OH61_TUPLE, OH61_PATH_NAME)) -> list:
+    return [(number + 1, line.strip()) for number, line in enumerate(text.splitlines()) if any(p.search(line) for p in patterns)]
+
+
+def oh6_1_sentinel() -> None:
+    """OH6-1 Part B: no script but `hooklib.py` carries a hand copy of the one-component test. Stated blind spots: the
+    `'/' in x or '\\\\' in x` form (it also hits 8 path-vs-name checks that are not copies), `os.path.basename(x) != x`
+    (it also hits reporters.py), and a reordered literal such as `"\\\\/:"`; the Part A spy table (its
+    `dependency_drift`, `event_store` and `selftest_slow_tests` rows included) is the detector for those."""
+    counts = {}
+    for path in sorted(harness.SCRIPTS.glob("*.py")):
+        if path.name != "hooklib.py":
+            hits = oh6_1_hits(path.read_text(encoding="utf-8"))
+            if hits:
+                counts[path.name] = len(hits)
+    over = {n: c for n, c in counts.items() if c > OH61_ALLOWED.get(n, 0)}
+    stale = {n: c for n, c in OH61_ALLOWED.items() if counts.get(n, 0) < c}
+    check("OH6-1 sentinel: no script outside the allowance carries a copy", over == {}, str(over))
+    check("OH6-1 sentinel: the allowance is not stale (shrink the allowance)", stale == {}, str(stale))
+    check("OH6-1 sentinel: the allowance is the one named mirror", OH61_ALLOWED == {"selftest.py": 1})
+    text = (harness.SCRIPTS / "hooklib.py").read_text(encoding="utf-8")
+    start = text.index("def is_one_component")
+    body = text[start:text.index("\ndef ", start + 1)]
+    check("OH6-1 sentinel: hooklib.py has exactly one COPY hit, inside is_one_component, and no TUPLE or PATH_NAME hit",
+          len(oh6_1_hits(text, (OH61_COPY,))) == 1 and len(oh6_1_hits(body, (OH61_COPY,))) == 1
+          and oh6_1_hits(text, (OH61_TUPLE, OH61_PATH_NAME)) == [])
+    positives = [("COPY", OH61_COPY, r'for c in "/\\:"'), ("COPY", OH61_COPY, r"for char in '/\\:'"),
+                 ("COPY", OH61_COPY, r'for sep in "/\\:\0"'), ("TUPLE", OH61_TUPLE, r'for sep in ("/", "\\")'),
+                 ("PATH_NAME", OH61_PATH_NAME, "name != Path(name).name")]
+    for label, pattern, fixture in positives:
+        check(f"OH6-1 sentinel (positive control): {label} flags {fixture}", oh6_1_hits(fixture, (pattern,)) != [])
+    check("OH6-1 sentinel (negative control): `for c in \"/@ \\t\"` (vcs_evidence) is not flagged", oh6_1_hits(r'for c in "/@ \t"') == [])
+    check("OH6-1 sentinel (differential): recover_codex_usage.py line 16 as it stood on main is flagged by COPY",
+          oh6_1_hits(r"""if not session or any(c in session for c in '/\\:'):raise ValueError('Unsupported session identity')""",
+                     (OH61_COPY,)) != [])
+    check("OH6-1 sentinel (differential): red_sandbox.py line 315 as it stood on main is flagged by TUPLE",
+          oh6_1_hits(r'''            and not any(sep in name for sep in ("/", "\\")))''', (OH61_TUPLE,)) != [])
+
+
+# --- OH8-2a: no other spelling of story key T reaches T's folder through a site that turns a key into a story folder ---
+# kinds: good (an exact story) / twin (another spelling of `target`, named in the refusal) / alias8 (the 8.3 name: refused,
+# no twin to name) / shape (refused by `clean_key`, one component) / bad (not one component) / own (its own key, no folder).
+# Spies: a site must have ASKED the leaf about the exact name, so the table is red on the old code on a case-sensitive disk too.
+
+_OH82_SKIPPED: set = set()
+
+
+def _oh82_skip(why: str) -> None:
+    if why not in _OH82_SKIPPED:
+        _OH82_SKIPPED.add(why)
+        print(f"SKIP OH8-2 cell: {why}")
+
+
+OH82_CASE = '---\nid: TC-1\npreconditions: [{"id": "PC-1", "kind": "env", "what": "the key", "check": {"env": "THE_KEY"}}]\n---\nbody\n'
+
+
+def _oh82_fill(folder: Path) -> None:
+    """What the 2b readers look for in a story folder: retro.md, a sealed file, a case needing `THE_KEY`."""
+    (folder / "retro.md").write_text("retro\n", encoding="utf-8")
+    (folder / "note.md").write_text("note\n", encoding="utf-8")
+    (folder / "work" / "test-cases").mkdir(parents=True)
+    (folder / "work" / "test-cases" / "TC-1.md").write_text(OH82_CASE, encoding="utf-8")
+
+
+def _oh82_world(where: Path) -> tuple:
+    """`(project, art, cells)`: story T (pipeline.json, retro, a case, a controller with a running qa-failure-analyst dispatch D),
+    the long story `LongStoryName-1` (for its 8.3 name), a link `TJ` to T, a 255-character story; cells are built only where the OS can."""
+    project, art = _oh61_project(where, ("T",))
+    (art / "T" / "state").mkdir()
+    (art / "T" / "state" / "controller.json").write_text(
+        json.dumps({"source_revision": "r1", "dispatches": {"D": {"id": "D", "role": "qa-failure-analyst", "status": "running"}}}),
+        encoding="utf-8")
+    _oh82_fill(art / "T")
+    cells = [("good", "T", "T", "T"), ("twin", "dot", "T.", "T"), ("twin", "blank-end", "T ", "T"),
+             ("shape", "blank-start", " T", ""), ("twin", "dots", "T..", "T"), ("twin", "dot-blank-dot", "T. .", "T"),
+             ("twin", "case", "t", "T"), ("shape", "three-dots", "...", ""), ("bad", "empty", "", ""),
+             ("bad", "nul", "T\0", ""), ("own", "full-width", chr(0xFF34), ""), ("own", "beyond-256", "k" * 256, "")]
+    (art / "LongStoryName-1").mkdir()
+    (art / "LongStoryName-1" / "pipeline.json").write_text("{}", encoding="utf-8")
+    short = short_name(art / "LongStoryName-1")
+    if short:
+        cells.append(("alias8", "8.3", Path(short).name, "LongStoryName-1"))
+    else:
+        _oh82_skip("no 8.3 name on this platform or volume")
+    try:
+        if os.name == "nt":
+            import _winapi
+            _winapi.CreateJunction(str(art / "T"), str(art / "TJ"))
+        else:
+            os.symlink(art / "T", art / "TJ", target_is_directory=True)
+        cells += [("good", "link", "TJ", "TJ"), ("twin", "link-case", "tj", "TJ"), ("twin", "link-dot", "TJ.", "TJ")]
+    except (OSError, ImportError, AttributeError) as exc:
+        _oh82_skip(f"no junction or symlink here ({type(exc).__name__})")
+    try:
+        (art / ("k" * 255)).mkdir()
+        (art / ("k" * 255) / "pipeline.json").write_text("{}", encoding="utf-8")
+        _oh82_fill(art / ("k" * 255))
+        (art / ("k" * 255) / "state").mkdir()
+        (art / ("k" * 255) / "state" / "controller.json").write_text('{"source_revision": "r1"}', encoding="utf-8")
+        cells.append(("good", "at-255", "k" * 255, "k" * 255))
+    except OSError as exc:
+        _oh82_skip(f"a 255-character folder cannot be made here ({type(exc).__name__})")
+    return project, art, cells
+
+
+def _oh82_gate(run):
+    return run, lambda kind, name, target, got: got == ("value", kind == "good")
+
+
+def _oh82_texts(name):
+    return {"keys_in": lambda *a, **k: [name], "labelled_keys": lambda *a, **k: [name]}
+
+
+def _oh82_run_is_story(project, art, name, i):
+    return hooklib.is_story_with_pipeline(art, name)
+
+
+def _oh82_run_by_text(project, art, name, i):
+    import stage_guard
+    with _oh61_patched(stage_guard.AF, **_oh82_texts(name)):
+        return bool(stage_guard.story_named_by_text("t", {}, art, {}))
+
+
+def _oh82_run_names_story(project, art, name, i):
+    import stage_guard
+    with _oh61_patched(stage_guard.AF, **_oh82_texts(name)):
+        return stage_guard._names_story({}, "", ["Ticket: x"], "explore:")
+
+
+def _oh82_run_explicit(project, art, name, i):
+    import stage_guard
+    return bool(stage_guard.resolve_ticket({"task_id": name})[0])
+
+
+def _oh82_run_env(project, art, name, i):
+    import stage_guard
+    with _oh61_patched(os, environ=dict(os.environ, QA_FACTORY_TASK=name)):
+        return bool(stage_guard.resolve_ticket({"tool_name": "Agent", "tool_input": {"description": "do it"}})[0])
+
+
+def _oh82_run_receipts(project, art, name, i):
+    import stage_guard
+    folder = project / "qa-factory" / "state" / "host-dispatches"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"r{i}.json").write_text(json.dumps({"task_name": f"X{i}", "task_id": name, "dispatch_id": "D"}), encoding="utf-8")
+    return bool(stage_guard._recipient_receipts({}, art, f"X{i}"))
+
+
+def _oh82_run_named_ticket(project, art, name, i):
+    import exit_gate
+    import stage_guard
+    with _oh61_patched(stage_guard, resolve_ticket=lambda event: (name, {"named": [name]})):
+        return bool(exit_gate._named_ticket({})[0])
+
+
+def _oh82_run_bug_exists(project, art, name, i):
+    import bug_records
+    return bug_records._story_exists(art, name)
+
+
+def _oh82_run_controller_record(project, art, name, i):
+    import host_dispatch
+    return host_dispatch.controller_record(project, name, "D")
+
+
+def _oh82_run_spawn(project, art, name, i):
+    import host_dispatch
+    import stage_guard
+    event = {"tool_name": "Agent", "tool_input": {"subagent_type": "qa-failure-analyst"}, "session_id": "parent",
+             "tool_use_id": f"u{i}", "cwd": str(project), "tool_response": {"task_path": f"/root/spawn-{i}"}}
+    with _oh61_patched(stage_guard, resolve_ticket=lambda ev: (name, {})):
+        host_dispatch.record(event)
+    receipt = json.loads(host_dispatch.binding_path(project, f"/root/spawn-{i}").read_text(encoding="utf-8"))
+    return receipt["task_id"], receipt["dispatch_id"]
+
+
+def _oh82_run_identity(project, art, name, i):
+    import exit_gate
+    scope = exit_gate._identity({"task_id": name}, "qa-scout")[1]
+    return scope["task"], scope.get("identity_facts", "")
+
+
+def _oh82_path(art: Path, name: str) -> str:
+    """A path under `/artifacts/` whose story part is `name` verbatim (a `Path` join would drop a trailing dot or blank)."""
+    return art.as_posix() + "/" + name + "/test-plan.md"
+
+
+def _oh82_run_guard(project, art, name, i):
+    import guard_pre_tool
+    with quiet():
+        guard_pre_tool.owner_check({"tool_name": "Write", "cwd": str(project), "tool_input": {"file_path": _oh82_path(art, name)}}, {})
+
+
+def _oh82_raises(exc):
+    def fail(*args, **kwargs):
+        raise exc
+    return fail
+
+
+def _oh82_run_artifacts_dir(project, art, name, i):
+    return hooklib.artifacts_dir(name)
+
+
+def _oh82_run_story_root(project, art, name, i):
+    return hooklib.story_root(name, "prog")
+
+
+def _oh82_judge_dir(kind, name, target, got):
+    if kind in ("good", "own"):
+        return got == ("value", hooklib.artifact_root() / name)
+    return got[:2] == ("raised", "ValueError" if kind == "bad" else "StoryRootError")
+
+
+def _oh82_judge_root(kind, name, target, got):
+    if kind == "good":
+        return got == ("value", hooklib.artifact_root() / name)
+    if kind == "bad":
+        return got[:2] == ("raised", "StoryRootError") and "requires a story's ticket key" in got[2]
+    near = f"A folder {target!r} exists: the key is matched exactly" if kind == "twin" else "names no story"
+    return got[:2] == ("raised", "StoryRootError") and near in got[2] and "names no story" in got[2]
+
+
+def _oh82_judge_identity(kind, name, target, got):
+    if kind in ("twin", "alias8"):
+        return got[0] == "unknown-task" and f"explicit id {name!r} is another spelling of folder" in got[1]
+    return got[0] == name
+
+
+def _oh82_run_estimate(project, art, name, i):
+    import estimate_record
+    return estimate_record.task_binding(project, name)["task_revision"]
+
+
+def _oh82_run_role_load(project, art, name, i):
+    import role_load
+    return role_load._task_root(project, name) == art / name
+
+
+def _oh82_archiver(call_name):
+    """(code, T's pipeline.json untouched) of `archive_task.<call_name>` on `name`: an alias reaches no story's bytes."""
+    def run(project, art, name, i):
+        import archive_task
+        before = (art / "T" / "pipeline.json").read_bytes()
+        with quiet(), contextlib.redirect_stdout(io.StringIO()):
+            code = archive_task.cmd_archive(name, "", True) if call_name == "cmd_archive" else archive_task.cmd_undo(name)
+        return code, (art / "T" / "pipeline.json").read_bytes() == before
+    return run
+
+
+def _oh82_run_a5(project, art, name, i):
+    import audit_factory as AF
+    journal = AF.RP.configured(AF.project_root(), AF.load_config().get("journal_path"), "journal.jsonl")
+    journal.parent.mkdir(parents=True, exist_ok=True)
+    journal.write_text(json.dumps({"event": "accepted", "task": name, "ts": "2000-01-01T00:00:00+00:00"}) + "\n", encoding="utf-8")
+    found: list = []
+    with _oh61_patched(AF, FINDINGS=found), contextlib.redirect_stdout(io.StringIO()):
+        AF.a5_seal()
+    return found
+
+
+def _oh82_run_env_needs(project, art, name, i):
+    import env_probe
+    return env_probe._case_needs(name, project)
+
+
+def _oh82_judge_archive(kind, name, target, got):
+    return got[0] == "value" and (got[1][0] == 0 if kind == "good" else got[1] == (1, True))   # a story is archived, an alias is not found
+
+
+# (id, run, judge(kind, name, target, outcome), spy: the hooklib leaf the site must ask about the exact name, asked-for(kind, name))
+OH82_ROWS = (
+    ("artifacts_dir_read", _oh82_run_artifacts_dir, _oh82_judge_dir, None, None),
+    ("story_root_text", _oh82_run_story_root, _oh82_judge_root, None, None),
+    ("is_story_with_pipeline", *_oh82_gate(_oh82_run_is_story), "is_story_folder", lambda k, n: True),
+    ("story_named_by_text", *_oh82_gate(_oh82_run_by_text), "is_story_folder", lambda k, n: bool(n)),
+    ("names_story", *_oh82_gate(_oh82_run_names_story), "is_story_folder", lambda k, n: bool(n)),
+    ("resolve_ticket_explicit", *_oh82_gate(_oh82_run_explicit), "is_story_folder", lambda k, n: bool(n)),
+    # `$QA_FACTORY_TASK` is stripped by `resolve_ticket` itself (a padded variable is still the person's word): `T ` is `T` here
+    ("resolve_ticket_env", _oh82_run_env,
+     lambda k, n, t, got: got == ("value", k == "good" or (k in ("twin", "shape") and n != n.strip() and n.strip() == "T")),
+     "is_story_folder", lambda k, n: bool(n) and n == n.strip()),
+    ("recipient_receipts", *_oh82_gate(_oh82_run_receipts), "is_story_folder", lambda k, n: True),
+    ("named_ticket", *_oh82_gate(_oh82_run_named_ticket), "is_story_folder", lambda k, n: bool(n)),
+    ("bug_records_story_exists", *_oh82_gate(_oh82_run_bug_exists), "is_story_folder", lambda k, n: True),
+    ("controller_record", _oh82_run_controller_record,
+     lambda k, n, t, got: got == ("value", {"id": "D", "role": "qa-failure-analyst", "status": "running"} if n in ("T", "TJ") else None),
+     "is_story_folder", lambda k, n: True),
+    ("record_spawn", _oh82_run_spawn,
+     lambda k, n, t, got: got == ("value", (n, "D" if n in ("T", "TJ") else None)), "is_story_folder", lambda k, n: bool(n)),
+    ("identity_explicit", _oh82_run_identity, lambda k, n, t, got: _oh82_judge_identity(k, n, t, got[1]),
+     "other_spelling", lambda k, n: k in ("twin", "alias8", "shape", "own")),
+    ("guard_owner_check", _oh82_run_guard,
+     # a write lands in T for an alias only where the file system reads the alias as T (nt); elsewhere it is a new folder
+     lambda k, n, t, got: got == (("exit", 2) if k == "good" or (os.name == "nt" and k in ("twin", "alias8")) else ("value", None)),
+     "landing_name", lambda k, n: bool(n)),
+    # 2b: the readers that joined the key unchecked. An alias is "no story" with the site's own text and exit code.
+    ("estimate_record", _oh82_run_estimate,
+     lambda k, n, t, got: got == ("value", "r1") if k == "good" else got[:2] == ("raised", "ValueError"),
+     "is_story_folder", lambda k, n: k != "bad"),
+    ("role_load_task_root", _oh82_run_role_load,
+     lambda k, n, t, got: got == ("value", True) if k == "good" else got[:2] == ("raised", "RoleLoadError"),
+     "is_story_folder", lambda k, n: True),
+    ("archive_task_archive", _oh82_archiver("cmd_archive"), _oh82_judge_archive, "is_story_folder", lambda k, n: True),
+    ("archive_task_undo", _oh82_archiver("cmd_undo"), _oh82_judge_archive, "is_story_folder", lambda k, n: True),
+    ("audit_a5_seal", _oh82_run_a5,
+     lambda k, n, t, got: got[0] == "value" and (any(f"[A5 seal] {n}/note.md:" in line for line in got[1]) if k == "good" else got[1] == []),
+     "is_story_folder", lambda k, n: bool(n)),
+    ("env_probe_preconditions", _oh82_run_env_needs,
+     lambda k, n, t, got: got == ("value", {"THE_KEY": ["TC-1"]} if k == "good" else {}), "is_story_folder", lambda k, n: bool(n)),
+)
+
+
+def oh8_2_alias_table() -> None:
+    """OH8-2a: 14 sites x the name cells, one check per cell and one spy check per spied cell (rule: the site asked the leaf
+    about the exact name). `T` and `TJ` are stories; every other spelling reaches no story's data and no story's guard
+    verdict is lost to it."""
+    base = scratch()
+    for row_id, run, judge, spy, asked in OH82_ROWS:
+        seen, real = [], getattr(hooklib, spy) if spy else None
+
+        def recorder(parent, name, *rest, seen=seen, real=real, **kw):
+            seen.append(name)
+            return real(parent, name, *rest, **kw)
+
+        try:
+            with _oh61_patched(hooklib, **({spy: recorder} if spy else {})):
+                project, art, cells = _oh82_world(base / row_id)
+                for i, (kind, label, name, target) in enumerate(cells):
+                    if row_id == "identity_explicit" and not name:
+                        continue
+                    del seen[:]
+                    got = _oh61_outcome(lambda: run(project, art, name, i))
+                    check(f"OH8-2 {row_id}-{kind}-{label}", judge(kind, name, target, got), repr(got)[:300])
+                    if spy and asked(kind, name):
+                        check(f"OH8-2 {row_id}-{kind}-{label} asked {spy}", name in seen, repr(seen)[:200])
+        finally:
+            restore_process()
+
+
+def oh8_2_create_and_guard_edges() -> None:
+    """OH8-2a: the create world of `artifacts_dir`, the near-miss text, the old-gate control, and `_path_story` never raising."""
+    import guard_pre_tool
+    base = scratch()
+    try:
+        project, art = _oh61_project(base / "create", ("T",))
+        check("OH8-2 artifacts_dir_create: a new clean key gives its path", hooklib.artifacts_dir("NEW") == art / "NEW")
+        for key, folder in (("NEW.", ""), ("new", "NEW"), ("T", "")):
+            if folder:
+                (art / folder).mkdir()
+            got = _oh61_outcome(lambda: hooklib.artifacts_dir(key))
+            if key == "T":
+                check("OH8-2 artifacts_dir_create: an exact existing key passes", got == ("value", art / "T"), repr(got))
+            else:
+                check(f"OH8-2 artifacts_dir_create: {key!r} is refused", got[:2] == ("raised", "StoryRootError"), repr(got))
+                if folder:
+                    check("OH8-2 artifacts_dir_create: the refusal names the folder", f"folder {folder!r} exists" in got[2] and f"Pass {folder!r}" in got[2], got[2])
+        check("OH8-2 artifacts_dir_create: the shape refusal says what to do",
+              "pass the key without them" in _oh61_outcome(lambda: hooklib.artifacts_dir("NEW."))[2])
+        if os.name == "nt":
+            old = lambda parent, name: hooklib.is_one_component(name) and (Path(parent) / name).exists()   # the gate before OH8-2
+            aliases = ("T.", "t")
+            with _oh61_patched(hooklib, is_story_folder=old):
+                said_yes = [n for n in aliases if hooklib.is_story_with_pipeline(art, n)]
+            check("OH8-2 negative control (nt): the old gate says yes to an alias, the leaf says no",
+                  said_yes == list(aliases) and not any(hooklib.is_story_with_pipeline(art, n) for n in aliases), str(said_yes))
+        raw = _oh82_path(art, "t")
+        check("OH8-2 _path_story: an alias path names the folder it lands in",
+              guard_pre_tool._path_story(raw, {"cwd": str(project)}) == ("T" if os.name == "nt" else "t"))
+        for label, patch in (("a broken config", {"artifact_root": _oh82_raises(ValueError("broken"))}),
+                             ("a failing landing_name", {"landing_name": _oh82_raises(OSError("x"))})):
+            with _oh61_patched(hooklib, **patch):
+                check(f"OH8-2 _path_story: {label} leaves the raw key, never raises", guard_pre_tool._path_story(raw, None) == "t")
+        check("OH8-2 _path_story: no story in the path is an empty key", guard_pre_tool._path_story("a/b.md", None) == "")
+    finally:
+        restore_process()
+
+
+def _oh82_v1_refused() -> tuple:
+    """The three leaves asked about the key `v1.`: (is_story_folder is False, story_root says no story, artifacts_dir refuses on shape)."""
+    root = _oh61_outcome(lambda: hooklib.story_root("v1.", "prog"))
+    adir = _oh61_outcome(lambda: hooklib.artifacts_dir("v1."))
+    return (not hooklib.is_story_folder(hooklib.artifact_root(), "v1."),
+            root[:2] == ("raised", "StoryRootError") and "names no story" in root[2],
+            adir[:2] == ("raised", "StoryRootError") and "pass the key without them" in adir[2])
+
+
+def oh8_2_posix_names() -> None:
+    """OH8-2a, POSIX only (a folder `v1.` and the pair `T`/`t` cannot exist on NTFS): the exact folder `v1.` is refused by all
+    three leaves, and with `T` and `t` both real, `t` is accepted as exact and `T.` is refused on shape. The in-test negative
+    control runs on every OS: with `clean_key` forced to True for `v1.` over a listing that holds it, the cell would go red."""
+    base = scratch()
+    try:
+        project, art = _oh61_project(base / "posix", ("T",))
+        listing = ["T", "v1."]
+        with _oh61_patched(hooklib, clean_key=lambda name: name == "v1." or hooklib.is_one_component(name) and name == name.strip() and name == name.rstrip(" ."),
+                           _listing=lambda parent: listing, is_dir_or_no=lambda path: True):
+            loose = _oh82_v1_refused()
+        with _oh61_patched(hooklib, _listing=lambda parent: listing, is_dir_or_no=lambda path: True):
+            strict = _oh82_v1_refused()
+        check("OH8-2 negative control (v1.): a clean_key that passes `v1.` turns the cell red", loose != (True, True, True), str(loose))
+        check("OH8-2 control (v1.): the real clean_key keeps all three leaves refusing the listed `v1.`", strict == (True, True, True), str(strict))
+        if os.name == "nt":
+            _oh82_skip("exact folders `v1.`, and `T` with `t`, cannot exist on this file system (posix cells)")
+            return
+        (art / "v1.").mkdir()
+        (art / "t").mkdir()
+        (art / "t" / "pipeline.json").write_text("{}", encoding="utf-8")
+        check("OH8-2 posix v1.: the three leaves refuse an exact folder `v1.`", _oh82_v1_refused() == (True, True, True), str(_oh82_v1_refused()))
+        check("OH8-2 posix T+t: `t` is accepted as exact", hooklib.is_story_folder(art, "t") and hooklib.artifacts_dir("t") == art / "t")
+        got = _oh61_outcome(lambda: hooklib.artifacts_dir("T."))
+        check("OH8-2 posix T+t: `T.` is refused on shape", got[:2] == ("raised", "StoryRootError") and "pass the key without them" in got[2], repr(got))
+    finally:
+        restore_process()
+
+
+# shrink-only (AR-15, AR-20): lines calling `hooklib.is_one_component` per script, in the world after OH8-1 and OH8-2a. OH8-2b
+# lowers role_load.py 2 -> 1; `selftest.py` keeps a named mirror pinned by `oh6_1_mirror_agreement`, not counted here.
+OH82_CALLS = re.compile(r"(?<![\w])(?:hooklib\.)?is_one_component\(")
+OH82_ALLOWED = {"activity_capture.py": 1, "cost_capture.py": 1, "controller.py": 1, "dependency_drift.py": 1, "event_store.py": 1,
+                "estimate_record.py": 1, "exploration.py": 3, "exit_gate.py": 1, "hooklib.py": 3, "recover_codex_usage.py": 1,
+                "red_sandbox.py": 2, "role_digest.py": 1, "role_load.py": 1, "subagent_journal.py": 1, "waiver.py": 2}
+
+
+def oh8_2_sentinel() -> None:
+    counts = {}
+    for path in sorted(harness.SCRIPTS.glob("*.py")):
+        hits = [line for line in path.read_text(encoding="utf-8").splitlines()
+                if OH82_CALLS.search(line) and not line.lstrip().startswith(("def ", "#"))]
+        if hits:
+            counts[path.name] = len(hits)
+    check("OH8-2 sentinel (positive control): controller.py is counted", "controller.py" in counts)
+    check("OH8-2 sentinel: no script grew a call of is_one_component", {n: c for n, c in counts.items() if c > OH82_ALLOWED.get(n, 0)} == {}, str(counts))
+    check("OH8-2 sentinel: the allowance is not stale (shrink it)", {n: c for n, c in OH82_ALLOWED.items() if counts.get(n, 0) < c} == {}, str(counts))
+
+
 def main() -> None:
     os.environ[SKIP] = "1"
     try:
+        oh6_1_one_component_table()
+        oh6_1_mirror_agreement()
+        oh6_1_sentinel()
+        oh8_2_alias_table()
+        oh8_2_create_and_guard_edges()
+        oh8_2_posix_names()
+        oh8_2_sentinel()
+        oh8_3_session_id_refusal_line()
+        b1_artifacts_dir_root()
+        b2_binding_is_active()
+        b3_blocking_text()
+        b4_survivor_is_used()
+        b5_stop_branch()
         k1_containment()
         k1_alias_and_links()
         project_battery()

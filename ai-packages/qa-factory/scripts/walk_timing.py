@@ -168,8 +168,7 @@ def walk_report(task_root, walk, timed, config, problems) -> dict:
         out["cost_usd"] = round(sum(totals.values()), 4)
     windows = {i: (_when(r.get("started_at")), _when(r.get("ended_at"))) for i, r in enumerate(items)}
     price = friction.package_price(config)
-    state_dir = Path(task_root).parents[1]
-    project_root = Path(task_root).parents[2]
+    state_dir, project_root = _home_and_project(task_root)
     per = {i: {"cost": 0.0, "unpriced": 0, "calls": 0, "tokens": dict.fromkeys(PARTS, 0)} for i in windows}
     outside, finals, why = 0, [], ""
     for sid in facts["sessions"]:
@@ -208,10 +207,20 @@ def walk_report(task_root, walk, timed, config, problems) -> dict:
     return out
 
 
+def _home_and_project(task_root) -> tuple:
+    """(`<project>/qa-factory`, project) of the story: the project by the one walk (`runtime_paths.nearest_project`), so a story
+    under a custom `artifact_root` reads the same folders; a story under no project keeps the old arithmetic (parents 1 and 2)."""
+    import runtime_paths
+    project = runtime_paths.nearest_project(task_root)
+    if project is None:
+        return Path(task_root).parents[1], Path(task_root).parents[2]
+    return project / "qa-factory", project
+
+
 def conductor_spend(task_root) -> object:
     """The conductor's spend of this story: the cost files of `state/cost/` that name the ticket and are no session of a walk dispatch."""
     ticket = Path(task_root).name
-    cost_dir = Path(task_root).parents[1] / "state" / "cost"
+    cost_dir = _home_and_project(task_root)[0] / "state" / "cost"
     own = set()
     for path in Path(task_root).glob("state/driver-runs.jsonl"):
         own |= {str(r.get("session_id")) for r in _rows(path, "driver-runs.jsonl", []) if r.get("kind") == "role"}
@@ -238,7 +247,11 @@ def report(task_root) -> dict:
     if not walks:
         return {"task": task_root.name, "timed": False, "text": f"no walk timed for {task_root.name}", "old_road": old_road,
                 "problems": problems}
-    config = hooklib.read_json(task_root.parents[2] / "qa-factory" / "config.json", {}, kind=dict)
+    import runtime_paths
+    try:
+        config = hooklib.read_json(runtime_paths.project_for_task(task_root) / "qa-factory" / "config.json", {}, kind=dict)
+    except ValueError:  # no project proves this story: the same "config absent" as a missing file
+        config = {}
     reports = [walk_report(task_root, walk, timed, config, problems) for walk, timed in sorted(walks.items())]
     places = {}
     for rep in reports:

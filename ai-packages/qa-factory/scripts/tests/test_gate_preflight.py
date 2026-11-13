@@ -2934,6 +2934,70 @@ def test_the_stand_limit_step_can_be_switched_off() -> None:
         cleanup(root)
 
 
+def teach_stand(root: Path, stand: str, subject: str, words: str, wait_s=None) -> None:
+    import project_knowledge as PK
+    row, problem, _created = PK.record(root, key=PK.LESSONS_KEY, environment=stand, element=subject, state=PK.KNOWN, scope="stand",
+                                       value={"wait_s": wait_s}, words=words, source="person", story="S-1", by="conductor")
+    check_eq("the lesson fixture is recorded", problem, "")
+
+
+def test_stand_lessons_are_one_note_never_a_card() -> None:
+    """B2-1, E45, E46, E49, E50, E51: the person's words about the chosen stand are ONE note; nothing else changes."""
+    import project_knowledge as PK
+    for label, prepare, want in (
+            ("no registry: no note", lambda root: None, None),
+            ("a lesson on another stand: no note", lambda root: teach_stand(root, "elsewhere", "indexing", "wait for it"), None),
+            ("one lesson: the note names the stand and carries the words whole",
+             lambda root: teach_stand(root, "localhost", "indexing", "Indexing takes minutes", 300),
+             'What you taught about localhost (the roles read it): indexing: "Indexing takes minutes" (at least 300 s) '
+             '(given in S-1 on '),
+            ("an unreadable registry: the note says so, never 'no lessons'",
+             lambda root: ((root / PK.RECORD_REL).parent.mkdir(parents=True, exist_ok=True),
+                           (root / PK.RECORD_REL).write_text("{not json", encoding="utf-8")),
+             "What you taught about localhost could not be read this time")):
+        root = cmp2_story("qa-gate-lessons-")
+        try:
+            prepare(root)
+            result = cmp2_run(root, steps=("stand_lessons",))
+            notes = info_of(result, "stand_lessons")
+            check_eq(f"{label}: never a finding", result["findings"], [])
+            if want is None:
+                check_eq(f"{label}: no note", notes, [])
+            else:
+                check_eq(f"{label}: exactly one note", len(notes), 1)
+                check(f"{label}: the wording", notes[0].startswith(want), notes[0])
+            if label.startswith("one lesson"):
+                check(f"{label}: ends with the way to change it", notes[0].endswith(". To change it, say so."), notes[0])
+            if label.startswith("an unreadable"):       # F2: plain words for the person; the problem travels in the machine field
+                row = [r for r in result["info"] if r["check"] == "stand_lessons"][0]
+                check(f"{label}: no file name, no raw text in the sentence", ".json" not in notes[0] and "Expecting" not in notes[0], notes[0])
+                check(f"{label}: the problem is in the `problem` field", bool(row.get("problem")) and "project-knowledge" in row["problem"], str(row))
+        finally:
+            cleanup(root)
+    root = cmp2_story("qa-gate-lessons-many-")       # F2: 11 lessons - the person reads words, no script name, no flag
+    try:
+        for n in range(1, 12):
+            teach_stand(root, "localhost", f"op{n:02d}", f"words {n}")
+        result = cmp2_run(root, steps=("stand_lessons",))
+        notes = info_of(result, "stand_lessons")
+        check_eq("11 lessons: one note, never a finding", (len(notes), result["findings"]), (1, []))
+        check("11 lessons: no script name and no flag in the person's note", "project_knowledge" not in notes[0] and "--stand" not in notes[0], notes[0])
+        check("11 lessons: 'and 1 more (the roles are told how to read them all)'", " and 1 more (the roles are told how to read them all)" in notes[0], notes[0])
+        check("11 lessons: ten lessons shown", notes[0].count(': "words ') == 10 and "op11" not in notes[0], notes[0])
+        check("11 lessons: the pointer line is not in the note", "(+" not in notes[0], notes[0])
+    finally:
+        cleanup(root)
+    root = cmp2_story("qa-gate-lessons-nostand-", config=lambda cfg: cfg["environments"].append({"name": "second"}),
+                      pipeline={"environment": ""})
+    try:
+        teach_stand(root, "localhost", "indexing", "words")
+        result = cmp2_run(root, steps=("stand_lessons",))
+        check_eq("no stand chosen (two stands, none named): no note", info_of(result, "stand_lessons"), [])
+        check_eq("... and no finding", result["findings"], [])
+    finally:
+        cleanup(root)
+
+
 # --- C5: the reporter step and the e2e limit ---------------------------------------------------------
 
 # A stand-in for the project's pytest: a script NAMED `pytest` (so the profile's command is
@@ -5230,6 +5294,69 @@ def test_t357_every_text_of_every_run_of_this_file_obeys_the_owners_rule() -> No
              [("planted:1", "script_name"), ("planted:1", "flag"), ("planted:2", "exit_code"), ("planted:3", "flag")])
 
 
+def test_b355_f_first_test_file_follows_the_project_record_where_it_is_recorded() -> None:
+    """B-355 item 12 (gate_preflight): World N (no config / area unrecorded) is today's rule; World R (the project recorded its tests
+    for the file's area) lets only the record decide: a code file the record names, a usual name preferred among them (an order
+    hint), nothing found -> '' with the recorded-places how-text, never a fall back to the usual names."""
+    import types
+    seen = []
+    # the stand's shape: the application in app/, a folder carrier for the tests outside it, no file entry
+    folder = {"app_root": "app", "tests_root": "tests"}
+    try:
+        # World R, folder carrier: a code file under tests/ is picked though its name is no usual test name (G3 closed)
+        root = _tests_folder("tests/checkout.py", "tests/notes.md", "src/test_app.py")
+        seen.append(root)
+        found = gate_preflight.first_test_file(root, folder, root)
+        check_eq("R folder: a code file the record names is picked, not the usual name outside it", Path(found).relative_to(root).as_posix() if found else "", "tests/checkout.py")
+        found = gate_preflight.first_test_file(root / "tests", folder, root)
+        check_eq("R folder: under tests/ the code file, not the note", Path(found).name if found else "", "checkout.py")
+        # a usual name is preferred among candidates
+        root = _tests_folder("tests/a_helper.py", "tests/test_z.py")
+        seen.append(root)
+        check_eq("R: a usual name is preferred among candidates", Path(gate_preflight.first_test_file(root / "tests", folder, root)).name, "test_z.py")
+        # a record naming no file under the folder -> '' (a usual name outside the record is never a fall back)
+        root = _tests_folder("src/test_app.py", "tests/readme.md")
+        seen.append(root)
+        check_eq("R: the record names no code file under tests/", gate_preflight.first_test_file(root / "tests", folder, root), "")
+        root = _tests_folder("app/test_app.py", "tests/readme.md")
+        seen.append(root)
+        check_eq("N: the word is about the other area (app/ is unrecorded), today's rule", Path(gate_preflight.first_test_file(root / "app", folder, root)).name, "test_app.py")
+        check_eq("N: no config, today's rule", Path(gate_preflight.first_test_file(root / "app")).name, "test_app.py")
+        check_eq("N: a config that is not a dict, today's rule", Path(gate_preflight.first_test_file(root / "app", ["x"], root)).name, "test_app.py")
+        # F-F-1: a recorded app_root OUTSIDE the project root is still found (the record names it through `../`)
+        outer = _tests_folder("proj/keep.txt", "app/src/cart.test.ts", "app/src/util.ts")
+        seen.append(outer)
+        outside = {"app_root": "../app", "test_locations": ["src/**/*.test.ts"]}
+        found = gate_preflight.first_test_file(outer / "app", outside, outer / "proj")
+        check_eq("R outside root: app_root ../app, the scan of app picks the recorded file",
+                 Path(found).relative_to(outer / "app").as_posix() if found else "", "src/cart.test.ts")
+        # F-F-2: a walk across areas: the held recorded candidate is not displaced by a LATER World N usual-name hit
+        # (walk order is sorted: a1tests < app, so the recorded area is met first)
+        root = _tests_folder("a1tests/checkout.py", "app/test_x.py")
+        seen.append(root)
+        mixed = {"app_root": "app", "tests_root": "a1tests"}
+        check_eq("R then N: the earlier recorded candidate beats a later World N usual name",
+                 Path(gate_preflight.first_test_file(root, mixed, root)).relative_to(root).as_posix(), "a1tests/checkout.py")
+        # the caller: the how-text of an empty pick in a recorded area
+        root = _tests_folder("tests/readme.md")
+        seen.append(root)
+        stub = types.SimpleNamespace(
+            config=folder, SHARED_ROOT_PICKS_NOTHING=False, collect_stdout="",
+            _probe_test_of=lambda *a: "", _profile_tests_dir=lambda *a: root / "tests",
+            _profiles_sharing_root=lambda *a: [], _node_prefix=lambda *a: None,
+            _collect_counts=lambda *a: {"collected": 0, "under_prefix": 0, "prefix": "tests"})
+        ctx = types.SimpleNamespace(root=root, cwd=root, profile_id="p", check="c")
+        chosen, how, why, _ = gate_preflight.Rehearsal._choose_test(stub, ctx, None, {}, {"cwd": "."}, False)
+        check_eq("R caller: nothing chosen, the closed code is kept", (chosen, why), ("", "no_test_files"))
+        check("R caller: the how-text names the recorded test places", "recorded test places" in how, how)
+        stub.config = {}
+        _, how, _, _ = gate_preflight.Rehearsal._choose_test(stub, ctx, None, {}, {"cwd": "."}, False)
+        check("N caller: no recorded-places text", "recorded test places" not in how, how)
+    finally:
+        for root in seen:
+            cleanup(root)
+
+
 def test_b414_a_stand_gap_override_passes_only_the_finding_of_exactly_its_gap() -> None:
     """R15: `waiver.split_overridden` matches by substring, so `stand gap: PC-1` also passed the finding of `PC-10`, and `stand gap: RP-web`
     that of `RP-webapp`: a person's word about one gap passed another. `add` now shows it a view in which a `stand gap:` override is kept
@@ -5960,6 +6087,7 @@ if __name__ == "__main__":
     test_gw1_27_r2_s4_hands_the_conductor_commands_the_tools_accept()
     test_gw1_27_k11_a_flag_read_without_a_login_is_never_a_pass_on_the_unknown()
     test_b_deps_first_test_file_recognises_a_test_through_the_one_leaf()
+    test_b355_f_first_test_file_follows_the_project_record_where_it_is_recorded()
     test_b414_a_stand_gap_override_passes_only_the_finding_of_exactly_its_gap()
     test_b414_a_shared_precondition_id_is_qualified_in_the_rehearsal_and_its_door()
     test_b426_d4_the_findings_of_two_cases_keep_their_order_and_the_gap_ids()

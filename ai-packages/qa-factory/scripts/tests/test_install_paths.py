@@ -77,7 +77,7 @@ def section_table_rows() -> None:
                 "qa-factory/state/host-probe.json", "qa-factory/state/metrics.json", "qa-factory/state/stand-lease.json",
                 "qa-factory/state/scheduler-requests/r1.json", "qa-factory/state/.exit_gate_blocks.json",
                 "qa-factory/state/native-context/state/events.lock", "qa-factory/state/.dashboard-writer/state/events.lock",
-                "qa-factory/state/.journal-writer/state/events.lock", "qa-factory/state/coverage-map.receipt.json",
+                "qa-factory/state/.journal-writer/state/events.lock",
                 "qa-factory/state/integrations/jira-direct-probe.json"):
         c = cls_of(rel)
         check(f"{rel}: regenerated and machine-local", (c["class"], c["machine_local"]) == ("regenerated", True))
@@ -213,27 +213,30 @@ def codes(result: dict) -> list:
 def section_validate() -> None:
     def table(*rules):
         return {"home": "qa-factory", "rules": list(rules)}
+
+    def regen(glob, reader="reader.py", **kw):
+        return rule(glob, "regenerated", reader, hook_written=True, **kw)
     pkg = tmp_package({"scripts/reader.py": "x = 'alpha.json'\n", "scripts/other.py": "pass\n"})
     try:
-        ok = I.validate_table(pkg, table(rule("qa-factory/state/alpha.json", "regenerated"), rule("qa-factory/state/beta.json", "discarded", "none")))
+        ok = I.validate_table(pkg, table(regen("qa-factory/state/alpha.json"), rule("qa-factory/state/beta.json", "discarded", "none")))
         check_eq("a reader that has the key and a `none` that nothing contradicts -> ok", (ok["ok"], codes(ok)), (True, []))
         check_eq("G4: the positive control ran and found its key", (ok["grep"]["control_key"], ok["grep"]["control_found"]), ("alpha.json", True))
 
         # K11
         over = I.validate_table(pkg, table(rule("qa-factory/x/**", "carried"), rule("qa-factory/x/**", "discarded", "none"),
-                                           rule("qa-factory/state/alpha.json", "regenerated")))
+                                           regen("qa-factory/state/alpha.json")))
         check_eq("K11: the same glob in carried and discarded -> refused", (over["ok"], "class_overlap" in codes(over)), (False, True))
         msg = next((e["message"] for e in over["errors"] if e["code"] == "class_overlap"), "")
         check("K11: ...naming both classes and the glob", all(w in msg for w in ("carried", "discarded", "qa-factory/x/**")))
-        over = I.validate_table(pkg, table(rule("QA-Factory/X/**", "carried"), rule("qa-factory/x/**", "regenerated"), rule("qa-factory/state/alpha.json", "regenerated")))
+        over = I.validate_table(pkg, table(rule("QA-Factory/X/**", "carried"), regen("qa-factory/x/**"), regen("qa-factory/state/alpha.json")))
         check("K11: glob text that differs only by case is the same glob", "class_overlap" in codes(over))
         for a, b in (("carried", "regenerated"), ("regenerated", "discarded"), ("discarded", "not_ours")):
-            r = I.validate_table(pkg, table(rule("qa-factory/y", a), rule("qa-factory/y", b), rule("qa-factory/state/alpha.json", "regenerated")))
+            r = I.validate_table(pkg, table(rule("qa-factory/y", a), rule("qa-factory/y", b), regen("qa-factory/state/alpha.json")))
             check(f"two classes ({a}, {b}) on one glob are refused", "class_overlap" in codes(r))
-        dup = I.validate_table(pkg, table(rule("qa-factory/y", "carried"), rule("qa-factory/y", "carried"), rule("qa-factory/state/alpha.json", "regenerated")))
+        dup = I.validate_table(pkg, table(rule("qa-factory/y", "carried"), rule("qa-factory/y", "carried"), regen("qa-factory/state/alpha.json")))
         check_eq("the same glob twice in ONE class is a duplicate, not an overlap", ("duplicate_glob" in codes(dup), "class_overlap" in codes(dup)), (True, False))
         sibling = I.validate_table(pkg, table(rule("qa-factory/x/**", "carried"), rule("qa-factory/x/y.txt", "discarded", "reader.py", key="alpha.json"),
-                                              rule("qa-factory/state/alpha.json", "regenerated")))
+                                              regen("qa-factory/state/alpha.json")))
         check_eq("overlapping but DIFFERENT glob texts are legal (precedence resolves them)", sibling["ok"], True)
 
         # G4 reader grep
@@ -241,7 +244,7 @@ def section_validate() -> None:
                             "scripts/tests/test_x.py": "gamma.json\n", "references/install-paths.json": "{\"delta.json\": 1}\n",
                             "scripts/install_paths.py": "epsilon.json\n"})
         try:
-            alpha = rule("qa-factory/state/alpha.json", "regenerated")
+            alpha = regen("qa-factory/state/alpha.json")
             r = I.validate_table(pkg2, table(alpha, rule("qa-factory/state/beta.json", "discarded", "none")))
             check_eq("G4: a `none` whose key appears in package text (other letter case) is refused", (r["ok"], codes(r)), (False, ["reader_contradicted"]))
             check_in("G4: ...naming the file that contradicts it", "skills/s/SKILL.md", r["errors"][0]["message"])
@@ -265,14 +268,14 @@ def section_validate() -> None:
             check("O1-2: ...and a table with no control at all is still refused, carried rows or not", "grep_control_failed" in codes(r))
             r = I.validate_table(pkg2, table(alpha, rule("qa-factory/state/*.zzz", "discarded", "none", key=".json")))
             check("G4: an explicit `key` is what is grepped", "reader_contradicted" in codes(r))
-            r = I.validate_table(pkg2, table(rule("qa-factory/state/zeta.json", "regenerated", "reader.py")))
+            r = I.validate_table(pkg2, table(regen("qa-factory/state/zeta.json")))
             check_eq("a declared reader that lacks the key is refused", codes(r), ["reader_key_absent"])
-            r = I.validate_table(pkg2, table(alpha, rule("qa-factory/state/alpha.json2", "regenerated", "no_such.py")))
+            r = I.validate_table(pkg2, table(alpha, regen("qa-factory/state/alpha.json2", "no_such.py")))
             check("a reader script that is not in the package is refused", "reader_missing" in codes(r))
-            r = I.validate_table(pkg2, table(rule("qa-factory/state/s.json", "regenerated", "skills/s/SKILL.md", key="beta.json")))
+            r = I.validate_table(pkg2, table(regen("qa-factory/state/s.json", "skills/s/SKILL.md", key="beta.json")))
             check_eq("a reader may be a package-relative path (a role's phase text)", r["ok"], True)
             # the control: a grep that cannot see what exists proves nothing about `none`
-            r = I.validate_table(pkg2, table(rule("qa-factory/state/epsilon.json", "regenerated", "install_paths.py"),
+            r = I.validate_table(pkg2, table(regen("qa-factory/state/epsilon.json", "install_paths.py"),
                                              rule("qa-factory/state/beta.json", "discarded", "none")))
             check("G4 control: the only reader sits where the grep does not look -> control fails, every `none` is unverifiable",
                   "grep_control_failed" in codes(r) and r["ok"] is False and r["grep"]["control_found"] is False)
@@ -460,11 +463,14 @@ def section_layout() -> None:
 REGENERATED_UNBUILT = [
     "qa-factory/state/host-probe.json", "qa-factory/state/integrations/jira-direct-probe.json", "qa-factory/state/stand-lease.json",
     "qa-factory/state/execution-leases.json",
-    "qa-factory/state/.exit_gate_blocks.json", "qa-factory/state/coverage-map.receipt.json",
+    "qa-factory/state/.exit_gate_blocks.json",
     "qa-factory/state/scheduler-requests/r.json", "qa-factory/state/native-context/n.json",
     "qa-factory/state/bug-snapshot.json", "qa-factory/state/project-decisions-refresh-stale.json",
-    "qa-factory/state/reporter-rehearsals.json", "qa-factory/state/benefit-inputs.json", "qa-factory/state/budget/TP3-1.json",
+    "qa-factory/state/budget/TP3-1.json",
 ]
+# OH3-9: machine-local evidence a later story or gate reads: carried, so never in a retire list
+CARRIED_EVIDENCE = ["qa-factory/state/reporter-rehearsals.json", "qa-factory/state/benefit-inputs.json",
+                    "qa-factory/state/coverage-map.receipt.json", "qa-factory/state/reporter-unread/web/manifest.json"]
 REBUILT = ["qa-factory/state/readiness.json", "qa-factory/state/factory-dashboard.html", "qa-factory/state/metrics.json",
            "qa-factory/state/integrations/tracker-write.json"]
 CARRIED_UNDER_REGENERATED_GLOBS = ["qa-factory/state/stand-health.json", "qa-factory/state/metrics-history.json", "qa-factory/state/metric-signals.json"]
@@ -477,7 +483,7 @@ def section_regenerated_not_rebuilt() -> None:
     delete), a rebuilt one and a carried one never are, and a smoke with no fingerprint is foreign."""
     root = temp_dir("qa-scan-regen-")
     try:
-        for rel in REGENERATED_UNBUILT + REBUILT + CARRIED_UNDER_REGENERATED_GLOBS + HOOK_WRITTEN:
+        for rel in REGENERATED_UNBUILT + REBUILT + CARRIED_UNDER_REGENERATED_GLOBS + HOOK_WRITTEN + CARRIED_EVIDENCE:
             put(root, rel, f"data of {rel}\n")
         put(root, "qa-factory/state/doctor-install-smoke-nofp.json", json.dumps({"status": "passed"}))
         put(root, "qa-factory/state/doctor-install-smoke-new.json", json.dumps({"package_fingerprint": "NEW"}))
@@ -501,6 +507,8 @@ def section_regenerated_not_rebuilt() -> None:
         check_eq("item 1: a doctor smoke WITHOUT package_fingerprint is foreign (not unknown), an unreadable one is still unknown (kept), the current one is kept",
                  ([i["condition"] for i in scan["retire"] if "nofp" in i["rel_path"]], [u["rel_path"] for u in scan["unknown"]]),
                  (["foreign"], ["qa-factory/state/doctor-install-smoke-bad.json"]))
+        check_eq("OH3-9: carried machine-local evidence is never in retire",
+                 [p for p in CARRIED_EVIDENCE if p in {i["rel_path"] for i in scan["retire"]}], [])
         check_eq("item 1: every REBUILT output stays (it is in `written`)", [p for p in REBUILT if p in {i["rel_path"] for i in scan["retire"]}], [])
         check_eq("item 1 INVARIANT (precedence carried > regenerated): a carried file under a regenerated glob (stand-health.json under `stand-*.json`, "
                  "metrics-history.json under `metrics*.json`) is never in retire", [p for p in CARRIED_UNDER_REGENERATED_GLOBS if p in {i["rel_path"] for i in scan["retire"]}], [])
@@ -558,11 +566,13 @@ def section_undetermined_and_locks() -> None:
              ("carried", False))
     check_eq("class rows (Q7): regenerated machine-local, retire_safe",
              [(cls_of(f"qa-factory/state/{n}")["class"], cls_of(f"qa-factory/state/{n}")["machine_local"], cls_of(f"qa-factory/state/{n}")["retire_safe"])
-              for n in ("bug-snapshot.json", "project-decisions-refresh-stale.json", "reporter-rehearsals.json", "benefit-inputs.json", "budget/TP3-1.json")],
-             [("regenerated", True, True)] * 5)
-    check_eq("class rows (Q7): carried machine-local evidence (transactions of a decision write, the denied dispatches)",
-             [(cls_of(f"qa-factory/state/{n}")["class"], cls_of(f"qa-factory/state/{n}")["machine_local"]) for n in ("decision-transactions/t1.json", "dispatch-denials.jsonl")],
-             [("carried", True)] * 2)
+              for n in ("bug-snapshot.json", "project-decisions-refresh-stale.json", "budget/TP3-1.json")],
+             [("regenerated", True, True)] * 3)
+    check_eq("class rows (Q7): carried machine-local evidence (transactions of a decision write, the denied dispatches, the rehearsal proofs, "
+             "the benefit inputs, the coverage receipt)",
+             [(cls_of(f"qa-factory/state/{n}")["class"], cls_of(f"qa-factory/state/{n}")["machine_local"]) for n in
+              ("decision-transactions/t1.json", "dispatch-denials.jsonl", "reporter-rehearsals.json", "benefit-inputs.json", "coverage-map.receipt.json")],
+             [("carried", True)] * 5)
 
 
 def section_new_table_shapes() -> None:
@@ -758,7 +768,8 @@ def section_environment_record() -> None:
 
 def section_report_adaptations() -> None:
     """B-416 N5/N2: the helper's record is CARRIED (a conductor's words about a command are in it; a reinstall never retires it), and the
-    kept unread report is REGENERATED machine-local state (the next unread run replaces it). Each has a negative control."""
+    kept unread report is CARRIED machine-local evidence (its absence costs a rehearsal run; owner 22.10.2026, OH3-9).
+    Each has a negative control."""
     record = "qa-factory/records/report-adaptations.json"
     kept = ["qa-factory/state/reporter-unread/web/manifest.json", "qa-factory/state/reporter-unread/web/files/report.trx"]
     c = cls_of(record)
@@ -766,8 +777,8 @@ def section_report_adaptations() -> None:
              (c["class"], c["machine_local"], c["reader"]), ("carried", False, "report_adapt.py"))
     for rel in kept:
         c = cls_of(rel)
-        check_eq(f"B-416: {rel} is regenerated and machine-local, its reader is report_adapt.py", (c["class"], c["machine_local"], c["reader"]),
-                 ("regenerated", True, "report_adapt.py"))
+        check_eq(f"B-416: {rel} is carried and machine-local, its reader is report_adapt.py", (c["class"], c["machine_local"], c["reader"]),
+                 ("carried", True, "report_adapt.py"))
     root = temp_dir("qa-scan-adapt-")
     try:
         put(root, record, "{}\n")
@@ -821,7 +832,134 @@ def section_stand_identity() -> None:
         cleanup(root)
 
 
+BASIS_ALPHA = "qa-factory/state/alpha.json"
+BASIS_STEP = [{"script": "reader.py", "outputs": [BASIS_ALPHA]}]
+# (id, keys to drop from the base row, keys to add or replace, extra table keys, expected codes). The base row is a
+# regenerated row whose only basis is `rebuilt_by: reader.py` with a `note`.
+BASIS_ROWS = [
+    ("basis-rebuilt-by", (), {}, {}, []),
+    ("basis-step-output", ("rebuilt_by", "note"), {}, {"regenerate_step": BASIS_STEP}, []),
+    ("basis-hook-written", ("rebuilt_by", "note"), {"hook_written": True}, {}, []),
+    ("basis-lock-kind", ("rebuilt_by", "note"), {"lock_kind": "os", "retire_safe": False}, {}, []),
+    ("basis-discard-when", ("rebuilt_by", "note"), {"discard_when": {"json_field": "f", "differs_from": "package_fingerprint"}, "retire_mode": "delete"}, {}, []),
+    ("no-basis", ("rebuilt_by", "note"), {}, {}, ["regenerated_without_basis"]),
+    ("rebuilt-by-missing-script", (), {"rebuilt_by": "no_such.py"}, {}, ["regenerated_without_basis"]),
+    ("rebuilt-by-key-absent", (), {"rebuilt_by": "other.py"}, {}, ["regenerated_without_basis"]),
+    *[(f"rebuilt-by-bad-shape-{v!r}", (), {"rebuilt_by": v}, {}, ["shape"]) for v in ("", 7, "none", "../x.py", "scripts/x.py", "a\\b.py")],
+    ("rebuilt-by-note-absent", ("note",), {}, {}, ["shape"]),
+    *[(f"rebuilt-by-note-{v!r}", (), {"note": v}, {}, ["shape"]) for v in ("", "   ", 7)],
+    *[(f"rebuilt-by-on-{c}", (), {"class": c}, {}, ["shape"]) for c in ("carried", "discarded", "not_ours")],
+    ("hook-written-not-bool-only", ("rebuilt_by", "note"), {"hook_written": "yes"}, {}, ["shape"]),
+    ("lock-kind-unknown-only", ("rebuilt_by", "note"), {"lock_kind": "nope", "retire_safe": False}, {}, ["shape"]),
+    ("discard-when-malformed-only", ("rebuilt_by", "note"), {"discard_when": {"json_field": 1}}, {}, ["shape"]),
+]
+
+
+def section_regenerated_basis() -> None:
+    """OH3-9: every regenerated row states a basis (a step output, hook_written, a lock_kind, a discard_when, or `rebuilt_by` with a
+    note); a row with none is refused, because a reinstall would delete it as a leftover nothing rebuilds. May err only toward refusing."""
+    import copy
+    pkg = tmp_package({"scripts/reader.py": "x = 'alpha.json'\n", "scripts/other.py": "pass\n"})
+    try:
+        for ident, drop, change, extra, want in BASIS_ROWS:
+            row = rule(BASIS_ALPHA, "regenerated", rebuilt_by="reader.py", note="reader.py writes it again; its absence costs nothing")
+            for key in drop:
+                row.pop(key)
+            row.update(change)
+            r = I.validate_table(pkg, dict({"home": "qa-factory", "rules": [row]}, **extra))
+            check_eq(f"OH3-9 basis {ident}", codes(r), want)
+            if ident == "no-basis":
+                msg = r["errors"][0]["message"]
+                check("OH3-9 basis no-basis: the message names the glob and every way out (FR-1)",
+                      all(w in msg for w in (BASIS_ALPHA, "regenerate_step", "hook_written", "lock_kind", "discard_when", "rebuilt_by", "carried")), msg)
+        old_row = {"glob": "qa-factory/state/reporter-rehearsals.json", "class": "regenerated", "machine_local": True, "reader": "gate_preflight.py"}
+        t = copy.deepcopy(TABLE)
+        t["rules"] = [old_row if r["glob"] == old_row["glob"] else r for r in t["rules"]]
+        check_eq("OH3-9 basis shipped-instance-before: the old reporter-rehearsals row is refused", codes(I.validate_table(table=t)), ["regenerated_without_basis"])
+        check_eq("OH3-9 basis: every regenerated row of the shipped table carries a basis", [e for e in I.validate_table()["errors"] if e["code"] == "regenerated_without_basis"], [])
+    finally:
+        cleanup(pkg)
+
+
+HOME_ROWS = [
+    ("home-file", "qa-factory/state/x.json", None, True), ("home-itself", "qa-factory", None, True),
+    ("sibling-prefix", "qa-factory-old/x", None, False), ("sibling-bak", "qa-factory.bak/x", None, False),
+    ("trailing-dot", "qa-factory./x", None, False), ("trailing-space", "qa-factory /x", None, False),
+    ("other-case-fold", "QA-Factory/state/x.json", True, True), ("other-case-nofold", "QA-Factory/state/x.json", False, False),
+    ("dot-prefix", "./qa-factory/x", None, True), ("backslash", "qa-factory\\state\\x", None, True),
+    ("dotdot", "qa-factory/../src/x", None, False), ("empty", "", None, False), ("drive", "C:/x", None, False), ("not-text", 7, None, False),
+]
+
+
+def section_in_home() -> None:
+    """OH3-9: the home membership of a path, read from the table's `home`; a path that does not normalise is outside (the refuse side)."""
+    for ident, path, fold, want in HOME_ROWS:
+        check_eq(f"OH3-9 in_home {ident}: {path!r}", I.in_home(path, TABLE, fold=fold), want)
+
+
+EVAL_TEXT = "the stale file state/probe-z.json is deleted by its class"
+CORPUS_ROWS = [
+    # ident, files of the tmp package, readers expected for the key `state/probe-z.json`
+    ("eval-text-only", {"skills/x/evals/evals.json": EVAL_TEXT}, []),
+    ("eval-and-real-reader", {"skills/x/evals/evals.json": EVAL_TEXT, "scripts/x.py": "P = 'state/probe-z.json'\n"}, ["scripts/x.py"]),
+    ("neither", {"scripts/x.py": "pass\n", "skills/x/evals/evals.json": "{}"}, []),
+    ("evals-dir-empty", {"skills/x/evals/.keep": "", "scripts/x.py": "pass\n"}, []),
+    ("evals-dir-absent", {"skills/x/SKILL.md": "pass\n"}, []),
+    ("skill-md-beside-evals-is-a-reader", {"skills/x/evals/evals.json": EVAL_TEXT, "skills/x/SKILL.md": "reads state/probe-z.json\n"},
+     ["skills/x/SKILL.md"]),
+    ("deeper-evals-folder-also-prose", {"skills/x/evals/files/case.md": EVAL_TEXT}, []),
+]
+
+
+def section_corpus_evals() -> None:
+    """OF4-1: text under skills/*/evals/ is prose about the factory, not a reader of a path."""
+    for ident, files, want in CORPUS_ROWS:
+        pkg = tmp_package(files)
+        try:
+            check_eq(f"OF4-1 corpus {ident}: readers of the key", I._grep(I._corpus(pkg), "state/probe-z.json"), want)
+        finally:
+            cleanup(pkg)
+
+
+SCAN_HOME_ROWS = [
+    # ident, tree entry (rel, is_dir), fold, listed as unrecognised inside the home
+    ("home-child", "qa-factory/own.txt", False, True), ("home-itself-as-file", "qa-factory", False, True),
+    ("sibling-common-prefix", "qa-factory-x/own.txt", False, False), ("outside-top-file", "own.txt", False, False),
+    ("other-case-fold", "QA-Factory/own.txt", True, True), ("other-case-nofold", "QA-Factory/own.txt", False, False),
+]
+
+
+def section_scan_home() -> None:
+    """OF4-4: scan_tree takes the home-folder judgment from in_home - the verdicts below are from the table of cases, and a
+    stub in_home that says yes to everything must change scan_tree's answer (one judgment, not two)."""
+    table = {"home": "qa-factory", "rules": []}
+    for ident, rel, fold, want in SCAN_HOME_ROWS:
+        root = temp_dir("qa-home-")
+        try:
+            put(root, rel)
+            scan = I.scan_tree(root, manifest=None, table=table, casefold=fold)
+            got = [i["rel_path"] for i in scan["not_ours_kept"]]
+            check_eq(f"OF4-4 scan_tree home {ident}: {rel!r}", (got == [rel], I.in_home(rel, table, fold=fold)), (want, want))
+        finally:
+            cleanup(root)
+    real = I.in_home
+    root = temp_dir("qa-home-")
+    try:
+        put(root, "own.txt")
+        I.in_home = lambda *a, **k: True
+        scan = I.scan_tree(root, manifest=None, table=table, casefold=False)
+        check_eq("OF4-4 scan_tree follows in_home: a stub that says yes lists a file outside the home",
+                 [i["rel_path"] for i in scan["not_ours_kept"]], ["own.txt"])
+    finally:
+        I.in_home = real
+        cleanup(root)
+
+
 def main() -> None:
+    section_corpus_evals()
+    section_scan_home()
+    section_regenerated_basis()
+    section_in_home()
     section_stand_identity()
     section_environment_record()
     section_report_adaptations()

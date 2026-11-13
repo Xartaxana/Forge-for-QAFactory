@@ -9,7 +9,7 @@ import re
 import subprocess
 import sys
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_files  # noqa: E402
@@ -211,26 +211,20 @@ def key_role(name: str) -> str:
 
 
 def env_file_keys(path: Path) -> list[str]:
-    """The NAMES an env file declares, in file order. Values are never read."""
-    keys: list[str] = []
+    """The NAMES an env file declares, in file order (each name once, at its first place). Values are never read here: the
+    one reader (`env_probe.parse_env_file`) parses the file and the values are thrown away."""
+    import env_probe
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return keys
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        name = line.split("=", 1)[0].strip()
-        if name.lower().startswith("export "):
-            name = name[7:].strip()
-        if KEY_NAME_RE.match(name) and name not in keys:
-            keys.append(name)
-    return keys
+        parsed = env_probe.parse_env_file(path)
+    except (OSError, ValueError):
+        return []
+    return [name for name in parsed if KEY_NAME_RE.match(name)]
 
 
 def _is_env_file(name: str) -> bool:
-    return name == ".env" or name.startswith(".env.") or name.endswith(".env")
+    """An env file or a sample of one (`env.example` too): the judge of a name is `env_probe.env_file_kind` (AR-1, axis 37)."""
+    import env_probe
+    return bool(env_probe.env_file_kind(name))
 
 
 def _is_swept_source(name: str, known: dict) -> bool:
@@ -260,6 +254,7 @@ def _walk(root: Path):
 
 def scan_sources(root: Path) -> dict:
     """Read-only sweep: env files with their key names, env reads by key, login call sites."""
+    import env_probe
     env_files: list[dict] = []
     reads: dict[str, list[str]] = {}
     per_file: dict[str, list[str]] = {}
@@ -270,10 +265,9 @@ def scan_sources(root: Path) -> dict:
             rel = path.relative_to(root).as_posix()
         except ValueError:
             continue
-        if _is_env_file(path.name):
-            env_files.append({"path": rel, "keys": env_file_keys(path),
-                              "example": bool(re.search(r"(?i)(example|sample|template|dist)$",
-                                                        path.name))})
+        kind = env_probe.env_file_kind(path.name)
+        if kind:
+            env_files.append({"path": rel, "keys": env_file_keys(path), "example": kind == "sample"})
             continue
         try:
             if path.stat().st_size > MAX_FILE_BYTES:
@@ -427,11 +421,53 @@ def same_origin_keys(root: Path, env_file: dict | None, base_url_key: str = "") 
     return {"base_url_key": base_key, "keys": [n for n in names if env_probe.origin(values[n]) == env_probe.origin(base)]}
 
 
+ENV_FILE_ADDRESSES_MAX = 10      # rows `env_file_addresses` carries; the rest is counted in `env_file_addresses_more`
+ENV_FILE_ADDRESS_CHARS = 300     # an origin longer than this is not listed (counted as left out)
+
+
+def env_file_address_rows(root: Path, env_files: list) -> tuple:
+    """`(rows, more)`: for each scanned env file (`env_files` order, real files first) and each of its keys whose value is an
+    http(s) address (`env_probe.http_address_keys`, so a secret-looking NAME never appears), one row
+    `{key, address, has_path, path, sample}`. `address` is the ORIGIN only (`env_probe.origin`: scheme://host[:port], the port
+    omitted when it is the scheme's default, an IPv6 host in brackets); `has_path` says the value carries a path the row does
+    not show. Userinfo, path, query and fragment never leave this function: the row errs toward showing LESS (a webhook or bot
+    token in a path, a DSN's userinfo; a secret placed in a hostname is the named residual). A value with no origin gives no
+    row; an origin over `ENV_FILE_ADDRESS_CHARS` is left out and counted; past `ENV_FILE_ADDRESSES_MAX` rows the cut takes the
+    LAST rows, so a real file's row is never cut while a sample's is kept. An unreadable file gives no rows. Nothing found is
+    `([], 0)`. No other value of any key is read out."""
+    import env_probe
+    from urllib.parse import urlsplit
+    rows, left_out = [], 0
+    for entry in env_files:
+        try:
+            values = env_probe.parse_env_file(Path(root) / entry["path"])
+        except (OSError, ValueError):
+            continue
+        for key in env_probe.http_address_keys(values, set()):
+            value = values[key]
+            parts = env_probe.origin(value)
+            if not parts:
+                continue
+            scheme, host, port = parts
+            if not re.fullmatch(r"[a-z0-9.-]+|[0-9a-f:.]+", host):
+                continue    # path material the parser left in the host (`\`, `%2F`, `;`): no row, no count
+            default = 443 if scheme == "https" else 80
+            address = f"{scheme}://{'[' + host + ']' if ':' in host else host}" + (f":{port}" if port != default else "")
+            if len(address) > ENV_FILE_ADDRESS_CHARS:
+                left_out += 1
+                continue
+            rows.append({"key": key, "address": address, "path": entry["path"], "sample": bool(entry["example"]),
+                         "has_path": bool(urlsplit(value.strip()).path.strip("/"))})
+    return rows[:ENV_FILE_ADDRESSES_MAX], left_out + max(0, len(rows) - ENV_FILE_ADDRESSES_MAX)
+
+
 def access_discovery(root: Path, config: dict | None = None) -> dict:
     """What phase 1 hands the environment batch: the env files with their key names, the
     proposed access scheme, and the keys the code reads that no env file holds."""
     scan = scan_sources(root)
     declared = str(((config or {}).get("environment") or {}).get("env_file") or "").strip()
+    if declared:    # relative posix form, so `./.env` and `.\.env` meet the row `.env`; absolute or `..` entries match no row (AR-4)
+        declared = PurePosixPath(declared.replace("\\", "/")).as_posix()
     env_files = scan["env_files"]
     chosen_file = next((e for e in env_files if e["path"] == declared), None) or \
         next((e for e in env_files if not e["example"]), None) or \
@@ -463,7 +499,7 @@ def access_discovery(root: Path, config: dict | None = None) -> dict:
     # set - and dropping it left that set invisible with no move for the role.
     from config_contract import ACCESS_KEY_FIELDS
     login_named = {str(proposal["access"].get(field) or "") for field in ACCESS_KEY_FIELDS} - {""}
-    proposals = integration_proposals(in_code, absent, login_named, env_keys)
+    proposals = integration_proposals(in_code, absent, login_named, env_keys, config, root)
     # HF8-9: the accounts the file's names suggest. Only a file the project really uses (`.env.example` holds names nobody set).
     pair_keys = env_keys if chosen_file and not chosen_file["example"] else []
     pairs = account_pairs(pair_keys, str(proposal["access"].get("user_key") or ""))
@@ -482,9 +518,12 @@ def access_discovery(root: Path, config: dict | None = None) -> dict:
     found_pairs["frontend_candidates"] = candidates[:HINT_MAX_NAMES]
     if len(candidates) > HINT_MAX_NAMES:
         found_pairs["frontend_candidates_more"] = len(candidates) - HINT_MAX_NAMES
+    addresses, addresses_more = env_file_address_rows(root, env_files)
     return {"schema_version": 1, "generated_at": datetime.now(timezone.utc).isoformat(),
             "env_file": chosen_file["path"] if chosen_file else "",
             "env_file_found": bool(chosen_file),
+            "env_file_is_sample": bool(chosen_file and chosen_file["example"]),
+            "env_file_addresses": addresses, "env_file_addresses_more": addresses_more,
             "env_files": env_files, "env_keys": env_keys,
             "proposed_access": proposal["access"], "proposal_note": proposal["note"],
             "access_evidence": proposal["evidence"],
@@ -523,18 +562,28 @@ def _cut(items: list, name: str, record: dict) -> None:
         record[f"{name}_more"] = len(items) - PROPOSAL_LIST_LIMIT
 
 
-def _test_area(place: str) -> str:
+def _test_area(place: str, cfg=None, project=None) -> str:
     """The folder of a call site that is a TEST (`names_a_test` says so), else "". A helper under `tests/` is not an area
     (`in_test_folder` is not asked), and a marker file that cannot be read (None) makes it no test: an unknown is never an
-    area (AR-28). A test at the root of the project is its file name."""
+    area (AR-28). A test at the root of the project is its file name.
+    B-355: where the project's config records where its tests are for the area the place lies in, only the record decides: a
+    code file that is a test place by the record is an area (a helper in a recorded folder counts as one now), anything else
+    is not. With no config (phase 1 runs before the config exists) or an area it does not record, the rule above."""
     path = place.rsplit(":", 1)[0]
+    if cfg and project is not None:
+        import test_locations
+        if test_locations.recorded(cfg, root=Path(project), path=path)[0]:
+            if (test_files.is_test_for("test_place", path, cfg, root=Path(project)) is not True
+                    or test_files.is_code_file(path) is not True):
+                return ""
+            return path.rpartition("/")[0] or path
     if test_files.names_a_test(path) is not True:
         return ""
     folder = path.rpartition("/")[0]
     return folder or path
 
 
-def integration_proposals(in_code: list, absent: list, at_login_keys: set, env_keys: list) -> list:
+def integration_proposals(in_code: list, absent: list, at_login_keys: set, env_keys: list, cfg=None, project=None) -> list:
     """One record per prefix with at least one key the code reads and the env file does not hold - the facts phase 1 judges
     when it writes `integrations[]` (OH3-8). `keys` are ALL the keys of the prefix the code reads (except the ones the
     proposed login itself uses, `at_login_keys`), the held ones too, and
@@ -551,7 +600,7 @@ def integration_proposals(in_code: list, absent: list, at_login_keys: set, env_k
     for prefix in prefixes:
         rows = [row for row in in_code if _prefix_of(row["key"]) == prefix and counted(row)]
         places = sorted({place for row in rows for place in row["read_at"]})
-        areas = sorted({area for area in map(_test_area, places) if area})
+        areas = sorted({area for area in (_test_area(place, cfg, project) for place in places) if area})
         record = {"name": f"{prefix.lower()}-integration", "keys": sorted(row["key"] for row in rows),
                   "set_in_env_file": sorted(row["key"] for row in rows if row["key"] in held)}
         if areas:
@@ -564,8 +613,13 @@ def integration_proposals(in_code: list, absent: list, at_login_keys: set, env_k
 def render_access(discovery: dict) -> str:
     """The proposal as the interview shows it. Names, paths and line numbers only."""
     access = discovery["proposed_access"]
-    lines = [f"env file: {discovery['env_file'] or 'none found - values come from the process environment'}"
-             f" ({len(discovery['env_keys'])} keys)"]
+    sample = bool(discovery.get("env_file_is_sample"))
+    if sample:      # FR-37: a sample is never named as the stand's file
+        lines = [f"env file: none of this stand found - only a sample: {discovery['env_file']}"
+                 f" ({len(discovery['env_keys'])} key names)"]
+    else:
+        lines = [f"env file: {discovery['env_file'] or 'none found - values come from the process environment'}"
+                 f" ({len(discovery['env_keys'])} keys)"]
     lines.append(f"access.kind: {access['kind'] or 'UNKNOWN'}"
                  + (f" - {discovery['proposal_note']}" if discovery["proposal_note"] else ""))
     for field in ("command", "url", "user_key", "secret_key", "client_id_key", "realm_key",
@@ -585,7 +639,7 @@ def render_access(discovery: dict) -> str:
     if other:
         lines.append("  other schemes seen (the question is a choice, not a confirmation): "
                      + "; ".join(f"{row['kind']} at {row['where']}" for row in other[:5]))
-    where = discovery["env_file"] or "any env file"
+    where = (f"the sample {discovery['env_file']}" if sample else discovery["env_file"]) or "any env file"
     at_login = discovery["login_keys_absent_from_env_file"]
     lines.append(f"keys read at a login call site but absent from {where}: "
                  + (", ".join(r["key"] for r in at_login) if at_login else "none"))
@@ -610,6 +664,13 @@ def render_access(discovery: dict) -> str:
         more = discovery.get("frontend_candidates_more") or 0
         lines.append("http addresses in the env file: " + ", ".join(candidates) + (f"; and {more} more, they are in the file" if more else "")
                      + " - names only; which one (if any) is the stand's UI is for the interview to ask")
+    origins = discovery.get("env_file_addresses") or []
+    if origins:
+        more = discovery.get("env_file_addresses_more") or 0
+        lines.append("http address origins in env files: "
+                     + "; ".join(f"{'sample ' if r['sample'] else ''}{r['path']} {r['key']} {r['address']}"
+                                 + (" (has a path, not shown)" if r["has_path"] else "") for r in origins)
+                     + (f"; and {more} more" if more else ""))
     same = discovery.get("frontend_same_origin") or {}
     if same.get("base_url_key"):
         lines.append(f"the API's own address {same['base_url_key']}"

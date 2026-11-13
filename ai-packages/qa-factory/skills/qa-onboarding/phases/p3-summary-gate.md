@@ -64,12 +64,12 @@ Present exactly once per round, in this order:
    read: no local checkout**, or **not read: nothing found** — the summary never flattens
    the first two into "none", because a hole in the reading and an empty project look
    identical once flattened and mean opposite things. One more line: each place the team
-   named as holding its tests inside the application folders, with its
-   `test_locations.py --root . --app-root <cand> --protected <cand>... --check --json` counts (phase
+   named as holding the project's tests (application folders, a test repository or
+   another folder), with its `test_locations.py --root . --app-root <cand> --protected <cand>... --check --json` counts (phase
    1's overrides: the config is written only at phase 4; "<N> files, <M> without a usual test name";
-   "at least" when `truncated`), or "none found inside the application folders: name them if
-   your tests live there". One more line: `found requirement sources: <source_id (kind, status)>, ... - correct?` from
-   phase 1's section `requirements_sources`; a question (in the form of `human-questions.md`) only when the probe found none.
+   "at least" when `truncated`), or "no test places named: name them if
+   your tests live somewhere" (counts apply to candidates inside the application folders only). One more line: `found requirement sources: <source_id (kind, status)>, ... - correct?` from
+   phase 1's section `requirements_sources`; a question (in the form of `human-questions.md`) only when the probe found none. Rule for env values in this section: an env value in the summary names the file it came from, and a sample's value is never shown as the stand's (it may appear only labelled as the sample's).
 2. **What was answered** (phase 2) — the batch answers: the chosen external-writes
    channels, whether the factory may edit the strategy documents, the ticket/TMS adapter
    status, and the DoD sentence; and, when topic 4 was asked, the risk areas as they will be written

@@ -433,8 +433,7 @@ def story_named_by_text(text: str, cfg: dict, root: Path, facts: dict) -> str:
     facts["key_form"] = AF.describe_key_form(cfg)
     facts["named"] = AF.keys_in(text, cfg) if form.prefixed else labelled
     existing = [name for name in facts["named"]
-                if name not in (".", "..") and not any(c in name for c in "/\\:")
-                and (root / name / "pipeline.json").exists()]
+                if hooklib.is_story_with_pipeline(root, name)]
     by_line = [name for name in labelled if name in existing]
     if len(by_line) == 1:
         return by_line[0]
@@ -461,7 +460,7 @@ def _names_story(event: dict, explicit: str, texts: list, prefix: str) -> bool:
     if explicit and not explicit.startswith(prefix):
         return True
     root, cfg = artifact_root(event), load_config(event)
-    return any(hooklib.is_one_component(key) and (root / key / "pipeline.json").is_file()
+    return any(hooklib.is_story_with_pipeline(root, key)
                for text in texts for key in AF.labelled_keys(text, cfg))
 
 
@@ -618,7 +617,7 @@ def resolve_ticket(event: dict) -> tuple:
                                     if event.get("host_binding")
                                     and (event.get("task_id") or event.get("task"))
                                     else "the dispatch event")
-        if (root / explicit / "pipeline.json").is_file():
+        if hooklib.is_story_with_pipeline(root, explicit):
             return explicit, facts
         cfg = load_config(event)
         facts["key_form"] = AF.describe_key_form(cfg)
@@ -640,8 +639,7 @@ def resolve_ticket(event: dict) -> tuple:
     # single-story guess below (a person's word beats a guess) and after everything the
     # event itself named (it never overrules a named story).
     env_task = facts["env_task"]
-    if env_task and not any(c in env_task for c in "/\\:") and env_task not in (".", "..") \
-            and (root / env_task / "pipeline.json").is_file():
+    if hooklib.is_story_with_pipeline(root, env_task):
         return env_task, facts
     env_slug, env_problem = _env_exploration(event, env_task, facts)
     if env_slug or env_problem:
@@ -714,8 +712,7 @@ def _recipient_receipts(event: dict, root: Path, target: str) -> list:
         story = binding.get("task_id")
         dispatch = binding.get("dispatch_id")
         if (target in binding_names(binding) and isinstance(dispatch, str) and dispatch
-                and isinstance(story, str) and story and not any(c in story for c in "/\\:")
-                and story not in (".", "..") and (root / story / "pipeline.json").is_file()):
+                and hooklib.is_story_with_pipeline(root, story)):
             found.append((story, dispatch))
     return found
 
@@ -776,7 +773,8 @@ def deny(message: str) -> int:
 # Kept next to the message that carries it: the guard prints the command, so the two can only
 # drift if someone edits one of them alone.
 BLOCK_MATCHES = ("required stages are not done", "gate A is not approved", "tracker route",
-                 "unresolved cases without a reason", "could not be read", "is absent", "is held for code")
+                 "unresolved cases without a reason", "could not be read", "is absent", "is held for code",
+                 "could not be written")
 
 
 def block_match(message: str) -> str:

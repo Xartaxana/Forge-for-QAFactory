@@ -115,6 +115,11 @@ def _is_windows():
 
 
 REPLACE_ATTEMPTS = 8
+# Hex characters of the token in a publish temp name `.<token>.tmp` (a collision is about 2^-32 per concurrent pair;
+# the "x" open turns it into a retry, never into mixed bytes).
+TEMP_NAME_HEX = 8
+# How many fresh temp names one publish tries before the FileExistsError is raised.
+TEMP_NAME_ATTEMPTS = 8
 LOCK_POLL_SECONDS = 0.05
 # The wait of every short read-modify-write lock of the package's state files (lease registry, claims, stand lease,
 # stand health, estimation ledger): the same 10 s on both platforms, never infinite. A lock held longer is a refusal
@@ -159,13 +164,40 @@ def atomic_text(path, text):
     _publish(path, write, errors="replace", newline="")
 
 
-def _publish(path, write, **open_options):
-    """The one temp-file-then-replace publisher behind `atomic_json` and `atomic_text`."""
+def atomic_bytes(path, data):
+    """Publish a binary file through the same publisher as `atomic_json` and `atomic_text`: the bytes on disk are
+    exactly `data` (no decoding, no BOM handling). Any failure is raised for the caller."""
+    def write(stream):
+        stream.write(data)
+    _publish(path, write, binary=True)
+
+
+def _temp_token():
+    # A seam so a test can force a collision without patching the global uuid module (event ids share it).
+    return uuid.uuid4().hex[:TEMP_NAME_HEX]
+
+
+def _publish(path, write, binary=False, **open_options):
+    """The one temp-file-then-replace publisher behind `atomic_json`, `atomic_text` and `atomic_bytes`.
+
+    `open_options` are for the text stream only; with `binary=True` they would be ignored, so they are refused."""
+    if binary and open_options:
+        raise ValueError("event_store._publish: binary=True ignores open options, got " + ", ".join(sorted(open_options)))
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
+    for attempt in range(1, TEMP_NAME_ATTEMPTS + 1):
+        tmp = path.with_name(path.name + "." + _temp_token() + ".tmp")
+        try:
+            stream = tmp.open("xb") if binary else tmp.open("x", encoding="utf-8", **open_options)
+        except FileExistsError:
+            # Another writer's temp: never written, never unlinked here; take a fresh name.
+            if attempt == TEMP_NAME_ATTEMPTS:
+                raise
+            continue
+        break
+    # The unlink starts only AFTER the successful "x" open: a name this writer did not create is never touched.
     try:
-        with tmp.open("w", encoding="utf-8", **open_options) as stream:
+        with stream:
             write(stream)
             stream.flush()
             os.fsync(stream.fileno())
@@ -458,8 +490,9 @@ class EventStore:
         `projection-stale.json` with the controller's, so `controller --operation recover` removed
         the manifest's only trace without rebuilding the manifest (TP2-2406 S5-4, 19.10.2026,
         journal seq 115: the live state had no marker and a manifest stuck at revision 5)."""
+        import hooklib      # the ONE "a name is one path component" test (OH8-1); a module attribute, so the spy sees it
         marker = stale_marker
-        if not isinstance(marker, str) or not marker or marker != Path(marker).name or marker in (".", ".."):
+        if not hooklib.is_one_component(marker):
             raise ValueError("stale_marker must be a plain file name under state/ (default %r), got %r"
                              % (STALE_MARKER, marker))
         self.stale_marker = marker
@@ -479,8 +512,9 @@ class EventStore:
         folder, a write to its journal never does. The guard sits in `commit` and `recover`, the two entries of a
         story's journal, and NOT in `lock`: five project-level mutexes (the dashboard, the journal, the stand identity,
         the cost capture, the native context) take `lock()` on a folder this very call brings into being. The refusal
-        is the one typed `StoryRootError` (the call's fault), imported here only on this path, so the store stays a
-        leaf of the standard library while nothing is refused."""
+        is the one typed `StoryRootError` (the call's fault), imported here only on this path. The store is no longer a
+        leaf of the standard library: `__init__` imports `hooklib` for the one-component test of `stale_marker`
+        (OH8-1), and `hooklib` itself imports only the standard library at module level, so there is no cycle."""
         try:
             if self.root.is_dir():
                 return

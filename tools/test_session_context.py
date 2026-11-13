@@ -3169,3 +3169,57 @@ def test_a1_old_unheaded_hook_snapshots_read_as_narratives(tmp_path):
 
 def test_a1_no_caller_of_the_old_function_name_is_left():
     assert not hasattr(_scm, "compact_snapshot_line")
+
+
+# ---- F6-58 (rule 9e) q1: the PARALLEL SESSION note at SessionStart ----
+
+def _q1_transcripts(tmp_path, peer_age=None):
+    folder = tmp_path / "transcripts"
+    folder.mkdir(exist_ok=True)
+    own = folder / "own.jsonl"
+    own.write_text("{}\n", encoding="utf-8")
+    if peer_age is not None:
+        peer = folder / "peer-session-1234.jsonl"
+        peer.write_text("{}\n", encoding="utf-8")
+        t = time.time() - peer_age
+        os.utime(peer, (t, t))
+    return str(own)
+
+
+def test_q1_session_start_adds_one_parallel_session_line_when_a_peer_wrote_two_minutes_ago(tmp_path, monkeypatch, capsys):
+    import session_context as _sc
+    root = _seed_repo(tmp_path / "r", events=[_event("delegated", task_id="t-001")])
+    payload = {"transcript_path": _q1_transcripts(tmp_path, peer_age=125), "source": "startup"}
+    lines = _sc.peer_note_lines(root, payload)
+    assert len(lines) == 1 and lines[0].startswith("PARALLEL SESSION (a note, nothing is blocked)")
+    assert "2 min ago (peer-ses)" in lines[0] and 'id_band: "t-100..t-149"' in lines[0]
+    monkeypatch.setattr(_sc, "read_stdin_payload", lambda: payload)
+    assert _sc.main(root) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert sum(1 for l in out if l.startswith("PARALLEL SESSION")) == 1 and out[-1].startswith("PARALLEL SESSION")
+
+
+def test_q1_after_a_clear_the_note_keeps_the_peer_and_gains_the_suffix_only_for_source_clear(tmp_path):
+    import session_context as _sc
+    root = _seed_repo(tmp_path / "r", events=[_event("delegated", task_id="t-001")])
+    own = _q1_transcripts(tmp_path, peer_age=125)
+    suffix = " (possibly this session before /clear)"
+    (note,) = _sc.peer_note_lines(root, {"transcript_path": own, "source": "clear"})
+    assert note.endswith(suffix) and "2 min ago (peer-ses)" in note          # the peer is not dropped
+    for source in ("startup", "resume", "compact", "", None, 5):
+        (plain,) = _sc.peer_note_lines(root, {"transcript_path": own, "source": source})
+        assert not plain.endswith(suffix) and plain == note[:-len(suffix)]
+    (tmp_path / "alone").mkdir()
+    alone = _q1_transcripts(tmp_path / "alone")                     # a folder with only the own file
+    assert _sc.peer_note_lines(root, {"transcript_path": alone, "source": "clear"}) == []
+
+
+def test_q1_with_no_peer_or_no_transcript_path_the_boot_text_is_unchanged(tmp_path, monkeypatch, capsys):
+    import session_context as _sc
+    root = _seed_repo(tmp_path / "r", events=[_event("delegated", task_id="t-001")])
+    for payload in ({"transcript_path": _q1_transcripts(tmp_path)}, {"transcript_path": _q1_transcripts(tmp_path, 601)},
+                    {}, {"transcript_path": 5}, None):
+        assert _sc.peer_note_lines(root, payload) == []
+    monkeypatch.setattr(_sc, "read_stdin_payload", lambda: {"transcript_path": _q1_transcripts(tmp_path)})
+    assert _sc.main(root) == 0
+    assert "PARALLEL SESSION" not in capsys.readouterr().out

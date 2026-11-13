@@ -39,11 +39,14 @@ def active_records(rows: list[dict], task: str) -> list[dict]:
 
 def task_binding(project_root: Path, task: str) -> dict:
     from hooklib import artifact_root
-    if not task or task in {'.','..'} or '/' in task or '\\' in task:
+    import hooklib
+    if not hooklib.is_one_component(task):
         raise ValueError('task must be a single task identifier')
-    task_root = artifact_root(root=project_root) / task
+    artifacts = artifact_root(root=project_root)
+    task_root = artifacts / task
     retro = task_root / "retro.md"
-    if not retro.is_file():
+    # an alias spelling of a story folder (`T.`, `t`, the 8.3 name) is no story: its retro.md is not T's (OH8-2)
+    if not hooklib.is_story_folder(artifacts, task) or not retro.is_file():
         raise ValueError("retro.md must exist before recording the final estimate")
     controller_path = task_root / "state" / "controller.json"
     try:

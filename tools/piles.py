@@ -1,23 +1,27 @@
-"""Piles and batches: the parsers, the generated board (plans/PILES.md) and the commit gate `check`.
+"""Piles and batches: the parsers, the count line (`summary`) and the commit gate `check`.
 
 A pile (plans/piles/<slug>/) is a topic with a card (README.md), batch files (batch-<N>[-name].md) and
-findings (findings/*.md). plans/PILES.md is GENERATED from them plus plans/BACKLOG.md: a board of the
-piles and ONE table of contents of every B-id. `check` is the gate of a commit.
+findings (findings/*.md). `check` is the gate of a commit; the open batches are shown by the «Бэклог» pane
+(tools/backlog_tree.py).
 
-    python tools/piles.py board [--check] [--if-staged]
+    python tools/piles.py summary
     python tools/piles.py check [--msg-file PATH] [--all] [--base REV]
     python tools/piles.py take <slug> <N> --who <name>
     python tools/piles.py close <slug> <N> --hash <h> [--url <https://...>]
     python tools/piles.py close --id B-nnn --word "<who, date>" [--hash <h>]
+    python tools/piles.py status <slug> <N> --set <сдано|принято>
+    python tools/piles.py status <slug> <N> <node-id> --set <в работе|сдано|принято|отклонено> [--hash <h>] [--task t-NNN]
     python tools/piles.py [--repo DIR] ...        point at another tree (tests); default: the parent of tools/
 
 `release` was renamed `close` (the command closes a batch or a row; it is not a factory release): the old name is a
-REFUSED alias -- exit 1, the FR-1 text names `close`, nothing runs, whatever the other arguments are.
+REFUSED alias -- exit 1, the FR-1 text names `close`, nothing runs, whatever the other arguments are. `board` (the
+generated board, retired 13.11.2026) is the second refused alias, built the same way: its text names the «Бэклог» pane
+and `tools/backlog_tree.py`. `summary` is read-only: it prints the count line (piles, batches per status, open ids, the
+next free B-id, leftovers without an executor) and writes nothing.
 
 Exit codes: 0 done / nothing to do / a deliberate pass; 1 cannot run or cannot judge (no "## Закрыто" in
 the backlog, a file that is not UTF-8, git cannot list the staged paths or verify a hash, a usage error, the `release`
-alias, a write that failed and was rolled back); 2 RED or REFUSED (a check item is red, plans/PILES.md is missing or
-stale, take/close refuse).
+and `board` aliases, a write that failed and was rolled back); 2 RED or REFUSED (a check item is red, take/close refuse).
 
 `take` (the integrator, on main) fixes a waiting batch to its taker in the card row and the batch header; `close`
 (after the merge) moves the whole members of an accepted batch into the Закрыто table with the merge hash, or --id
@@ -30,13 +34,14 @@ section is found on the raw `## ` line, the way (в) finds it. The «## Живы
 FR-33): `close` refuses while the «Статус» cell of ANY row of ANY table there is neither `сделано: <7-40 hex | t-nnn | a
 log/notebook path>` nor `перенос:` + `обоснование:` + `подтвердил:` (the pairs of a table cell are joined with an escaped
 pipe; case is free) -- one reader of the forms, `leftover_problem` with the rule `PROOF_RULE`; a section without a table, or with a header-only
-table, passes, unless the readiness rule above the first `## ` names «живые доказательства» and no table exists. The readers (board, check, forge_metrics, compact_snapshot)
-load the tree tolerantly: a finding file that is not UTF-8 is named (board WARNING, check (д) red with its door), the
+table, passes, unless the readiness rule above the first `## ` names «живые доказательства» and no table exists. The readers (check, summary, forge_metrics, compact_snapshot, backlog_tree)
+load the tree tolerantly: a finding file that is not UTF-8 is named (check (д) red with its door), the
 others are still read; take, close and split stay strict. They are the only code writers of a batch's status and of
-Закрыто, and they write a file in the form it has (CRLF, BOM) and rebuild plans/PILES.md; a write that fails midway
-puts every file back (all or nothing, m-8). The status of a batch lives in TWO places -- the batch header (with the card
-row) and plans/PILES.md -- and `take` / `close` are the one code writer, in both, of the two statuses they set (`в работе`,
-`закрыта`); `сдано` / `принято` are written by hand and reach no board (queued: a command that writes them). There is no
+Закрыто, and they write a file in the form it has (CRLF, BOM); a write that fails midway
+puts every file back (all or nothing, m-8). The status of a batch lives in the batch header (with the card row); `take` /
+`close` are its one code writer for the two statuses they set (`в работе`, `закрыта`); `status` is the one writer of `сдано` /
+`принято` (the header and the card row of a batch) and of one node row's Статус cell (`принято: <hash> (t-NNN)` with the
+evidence); it goes forward only, refuses before any write and writes exactly those cells, which (в) masks. There is no
 external board: take / close touch files only, make no network call and read no token. On `git commit --amend` the (г) base is HEAD,
 the commit being amended, so a row that commit added is grandfathered (m14).
 
@@ -55,7 +60,7 @@ coverage of a batch file's nodes (every id of the card row in the «Что» of 
 `batch_heading_problems`); and, since F6-30, the executor of a «Остатки» item at WRITE time (`_leftover_write_reds`): an item that is
 NEW or CHANGED against the file at the base carries `сделано: <hash | t-nnn>`, `узел: <id | slug/N/id>` (a node row of a batch that is
 not closed, with an Исполнитель) or `перенос: … | обоснование: … | подтвердил: <кто, дата | —>` (the placeholder passes here, `close`
-still refuses it). Old bare items stay legal; `leftovers_unowned` counts them (the board count line, the compact snapshot).
+still refuses it). Old bare items stay legal; `leftovers_unowned` counts them (`piles.py summary`, the compact snapshot).
 (е) is the D-0044 detector: every readable finding is named in a batch file of its own pile, or carries «перенос: <slug>/…»
 and is named in that pile's batch; a finding dated 2026-10-13 or later must be named in a ROW (a table row of «Узлы» /
 «Остатки» / «Живые доказательства», or a «перенос:» line of «Остатки» -- not the prose of «Ход»), and is red when it is not;
@@ -91,6 +96,7 @@ if str(_TOOLS) not in sys.path:
     sys.path.insert(0, str(_TOOLS))
 
 import gitcmd  # noqa: E402
+import journal_keys  # noqa: E402
 import md_regions  # noqa: E402
 # The table reader and the two line filters live in the leaf tools/md_table.py (t-797 F5-2 N3: digest_form reads tables through
 # the same objects); every name below stays an attribute of `piles` (the readers and the tests call `piles.split_cells` etc.).
@@ -101,11 +107,10 @@ from forge_metrics import BaseError, compile_glob, parse_backlog_text, resolve_b
 REPO = _TOOLS.parent
 PILES_REL = "plans/piles"
 BACKLOG_REL = "plans/BACKLOG.md"
-BOARD_REL = "plans/PILES.md"
 
 BATCH_STATUSES = ("ожидает", "в работе", "сдано", "принято", "закрыта")
 NODE_STATUSES = BATCH_STATUSES + ("отклонено",)
-STATUS_ORDER = {w: i for i, w in enumerate(BATCH_STATUSES)}
+STATUS_ORDER = {w: i for i, w in enumerate(NODE_STATUSES)}   # the one order table; `отклонено` is last (a batch never holds it)
 ACTIVE = ("в работе", "сдано")
 NOT_WRITING = ("принято", "отклонено")     # a node in these statuses writes nothing any more (P5)
 
@@ -597,22 +602,39 @@ class BatchFile:
     has_nodes_table: bool
     errors: list
     hod_lists: dict = dataclasses.field(default_factory=dict)   # {path: [function names]} the «## Ход» lines declare (D-0048)
+    node_cols_missing: tuple = ()      # the required node-table column labels the table lacks (empty: none, or no table at all)
 
 
 NODE_COLS = {"id": "узел", "executor": "исполнитель", "writes": "пишет в", "status": "статус", "what": "что"}
 NODE_REQUIRED = (("id", "Узел"), ("executor", "Исполнитель"), ("writes", "Пишет в"), ("status", "Статус"))   # «Что» is optional here
 
 
+def _node_table_error(has_table: bool, missing) -> str:
+    """The one text of an unreadable node table (no table, or a required column absent), or '' when it is readable."""
+    if not has_table:
+        return "no node table under '## Узлы' -- expected a table with the columns Узел / Исполнитель / Пишет в / Статус"
+    if missing:
+        return "the node table has no %s column -- expected Узел / Исполнитель / Пишет в / Статус" % ", ".join(missing)
+    return ""
+
+
+def _node_table_problem(f: BatchFile) -> str:
+    """'' when the batch's node table can be read, else its error text, judged from the structured facts the parser set
+    (`has_nodes_table`, `node_cols_missing`), never from the wording of `f.errors`."""
+    return _node_table_error(f.has_nodes_table, f.node_cols_missing)
+
+
 def _parse_nodes(lines, errors):
+    """-> (nodes, has_table, missing required column labels)."""
     table = table_after(lines, "Узлы")
     if table is None:
-        errors.append("no node table under '## Узлы' -- expected a table with the columns Узел / Исполнитель / Пишет в / Статус")
-        return [], False
+        errors.append(_node_table_error(False, ()))
+        return [], False, ()
     cols = column_map(table[0], NODE_COLS)
-    missing = [lbl for k, lbl in NODE_REQUIRED if k not in cols]
+    missing = tuple(lbl for k, lbl in NODE_REQUIRED if k not in cols)
     if missing:
-        errors.append("the node table has no %s column -- expected Узел / Исполнитель / Пишет в / Статус" % ", ".join(missing))
-        return [], True
+        errors.append(_node_table_error(True, missing))
+        return [], True, missing
     nodes = []
     for cells, ln in table[1]:
         w = _cell(cells, cols["writes"])
@@ -620,7 +642,7 @@ def _parse_nodes(lines, errors):
         paths, lists = parse_writers(w)
         nodes.append(Node(_cell(cells, cols["id"]), ln, _cell(cells, cols["executor"]), w, paths, st,
                           status_word(st, NODE_STATUSES), _cell(cells, cols.get("what")), lists))
-    return nodes, True
+    return nodes, True, ()
 
 
 def _hod_lists(lines) -> dict:
@@ -661,9 +683,9 @@ def parse_batch(text: str, rel: str, n=None) -> BatchFile:
                       % (st, ", ".join(BATCH_STATUSES)))
     cut = next((i for i, l in enumerate(lines) if l.startswith("## Узлы")), len(lines))
     queue = [(a, int(b), c, int(d)) for a, b, c, d in QUEUE_RE.findall("\n".join(lines[:cut]))]
-    nodes, has_table = _parse_nodes(lines, errors)
+    nodes, has_table, missing = _parse_nodes(lines, errors)
     return BatchFile(rel, n, title, header, st or "—", status, header.get("взял", "—"), header.get("ветка", "—"),
-                     header.get("mr", "—"), queue, nodes, has_table, errors, _hod_lists(lines))
+                     header.get("mr", "—"), queue, nodes, has_table, errors, _hod_lists(lines), missing)
 
 
 @dataclasses.dataclass
@@ -743,7 +765,7 @@ def parse_finding(text: str, rel: str) -> Finding:
 
 @dataclasses.dataclass
 class View:
-    """One batch as the board and the checks see it: the card row (if any) and the file(s) (if any)."""
+    """One batch as the checks see it: the card row (if any) and the file(s) (if any)."""
     slug: str
     n: int
     row: object
@@ -788,7 +810,6 @@ class Tree:
     root: Path
     backlog: Backlog
     piles: dict
-    untracked: list
 
     def all_views(self):
         return [v for p in self.piles.values() for v in p.views()]
@@ -810,15 +831,19 @@ def _is_pile_dir(p: Path) -> bool:
     return p.is_dir() and not p.name.startswith(("_", "."))
 
 
-def load_pile(root: Path, folder: Path, tolerant=False) -> Pile:
+def load_pile(root: Path, folder: Path, tolerant=False, skip=frozenset()):
     """One pile. `tolerant`: a finding file that cannot be read becomes an `unreadable` Finding and the others are still read
-    (the readers: board, check, forge_metrics, compact_snapshot); strict (take, close, split): CannotRun,
-    because a writer must not act on a tree it could not read whole."""
+    (the readers: check, summary, forge_metrics, compact_snapshot, backlog_tree); strict (take, close, split): CannotRun,
+    because a writer must not act on a tree it could not read whole. `skip`: repo-relative paths that are not read (the
+    untracked files of another session, B.2); a pile all of whose files are skipped is no pile: None."""
     slug = folder.name
     rel = "%s/%s" % (PILES_REL, slug)
-    errors, card, batches, findings = [], None, [], []
+    errors, card, batches, findings, skipped, read = [], None, [], [], 0, 0
     readme = folder / "README.md"
-    if readme.is_file():
+    if rel + "/README.md" in skip:
+        skipped += 1
+    elif readme.is_file():
+        read += 1
         card = parse_card(read_text(readme), rel + "/README.md")
         errors += [(card.path, e) for e in card.errors]
         if card.title_slug is not None and card.title_slug != slug:
@@ -828,6 +853,10 @@ def load_pile(root: Path, folder: Path, tolerant=False) -> Pile:
         errors.append((rel + "/README.md", "the pile has no README.md card -- expected plans/piles/%s/README.md "
                        "written from plans/piles/_template/README.md" % slug))
     for f in sorted(folder.glob("batch-*.md")):
+        if "%s/%s" % (rel, f.name) in skip:
+            skipped += 1
+            continue
+        read += 1
         m = BATCH_NAME_RE.match(f.name)
         if not m:
             errors.append(("%s/%s" % (rel, f.name), "batch file name does not fit batch-<N>[-name].md (N 1-999, lower case)"))
@@ -838,6 +867,10 @@ def load_pile(root: Path, folder: Path, tolerant=False) -> Pile:
     fdir = folder / "findings"
     for f in sorted(fdir.glob("*.md")) if fdir.is_dir() else []:
         frel = "%s/findings/%s" % (rel, f.name)
+        if frel in skip:
+            skipped += 1
+            continue
+        read += 1
         try:
             fi = parse_finding(read_text(f), frel)
         except Unreadable as exc:
@@ -847,21 +880,25 @@ def load_pile(root: Path, folder: Path, tolerant=False) -> Pile:
         findings.append(fi)
         if not fi.unreadable:                  # an unreadable finding is judged by check (д) in one line of its own, not here
             errors += [(fi.path, e) for e in fi.errors]
+    if skipped and not read:
+        return None
     return Pile(slug, card, rel + "/README.md", batches, findings, errors)
 
 
-def load_tree(root, with_untracked=False, tolerant=False) -> Tree:
-    """Everything the board and the checks read, from the working tree. CannotRun on an unreadable file or no boundary --
-    except, with `tolerant`, a finding file (see load_pile). The untracked-file scan costs a git call and only the board warns
-    about it, hence the flag."""
+def load_tree(root, tolerant=False, skip=frozenset()) -> Tree:
+    """Everything the checks and `summary` read, from the working tree. CannotRun on an unreadable file or no boundary --
+    except, with `tolerant`, a finding file (see load_pile). `skip`: the repo-relative paths not read (check in a commit and `take` pass the
+    untracked files of other piles, B.2/B.9); the default reads everything, as every other caller does."""
     root = Path(root)
     backlog = parse_backlog_rows(read_text(root / BACKLOG_REL))
     base = root / PILES_REL
     piles = {}
     for folder in sorted(base.iterdir()) if base.is_dir() else []:
         if _is_pile_dir(folder):
-            piles[folder.name] = load_pile(root, folder, tolerant)
-    return Tree(root, backlog, piles, untracked_piles(root) if with_untracked else [])
+            pile = load_pile(root, folder, tolerant, skip)
+            if pile is not None:
+                piles[folder.name] = pile
+    return Tree(root, backlog, piles)
 
 
 # ============================================================================================
@@ -880,6 +917,25 @@ def staged_paths(root) -> list:
         raise CannotRun("cannot list the staged paths (%s) -- run inside the repository, or with --all to check "
                         "the whole tree" % (out.decode("utf-8", "replace").strip() or "git exited %d" % rc))
     return [p for p in out.decode("utf-8", "replace").split("\0") if p]
+
+
+def range_paths(root, rev) -> list:
+    """The paths a pushed range changed (`--base REV`: REV..HEAD as one diff; adds, changes, deletions; renames split). CannotRun
+    when git cannot list them: an unknown range is never "nothing touched"."""
+    rc, out = git(root, "diff", "--name-only", "--no-renames", "-z", rev, "HEAD")
+    if rc != 0:
+        raise CannotRun("cannot list the paths changed since %s (%s) -- run inside the repository, or with --all to check "
+                        "the whole tree" % (rev[:12], out.decode("utf-8", "replace").strip() or "git exited %d" % rc))
+    return [p for p in out.decode("utf-8", "replace").split("\0") if p]
+
+
+PILE_PATH_RE = re.compile(r"^%s/([^/_.][^/]*)/" % re.escape(PILES_REL))
+
+
+def pile_of(path):
+    """The slug of the pile a repo-relative path lies in (`plans/piles/<slug>/...`), else None; `_` and `.` folders are no pile."""
+    m = PILE_PATH_RE.match(path)
+    return m.group(1) if m else None
 
 
 def untracked_piles(root) -> list:
@@ -906,81 +962,8 @@ def is_merging(root) -> bool:
 
 
 # ============================================================================================
-# board
+# the count line (`summary`)
 # ============================================================================================
-
-def _esc(s) -> str:
-    return str(s).replace("|", "\\|").replace("\n", " ")
-
-
-def _shown(file_val, card_val, same) -> str:
-    """The file's value; when the card row says something else both are shown (E34, P7: the file is ahead)."""
-    if not card_val or same(file_val, card_val):
-        return file_val
-    return "%s (в карточке: %s)" % (file_val, card_val)
-
-
-def _same_status(a, b):
-    wa, wb = status_word(a), status_word(b)
-    return wa == wb if wa and wb else a.strip() == b.strip()
-
-
-def _same_branch(a, b):
-    return first_tick(a) == first_tick(b)
-
-
-def _incoming(pile: Pile, prose: dict):
-    """The «Входящие» cell: the findings of the pile that are NOT placed -- by `finding_placed`, the one predicate (е) judges by."""
-    mine = [f for f in pile.findings if not finding_placed(f, pile.slug, prose)]
-    dates = [re.match(r"(\d{4})(\d{2})(\d{2})-", f.name) for f in mine]
-    dates = sorted(m.groups() for m in dates if m)
-    last = "%s.%s.%s" % (dates[-1][2], dates[-1][1], dates[-1][0]) if dates else "—"
-    return "%d / %s" % (len(mine), last)
-
-
-def _board_cells(pile: Pile, v: View):
-    row, f = v.row, v.file
-    what = row.what if row else (f.title if f else "—")
-    if f is not None:
-        status = _shown(f.status_raw, row.status_raw if row else "", _same_status)
-        who = _shown(f.who, row.who if row else "", lambda a, b: a.strip() == b.strip())
-        branch = _shown(f.branch, row.branch if row else "", _same_branch)
-        mr = _shown(f.mr, row.mr if row else "", lambda a, b: a.strip() == b.strip())
-    else:
-        status, who, branch, mr = row.status_raw, row.who, row.branch, row.mr
-    return [str(v.n), what, row.size if row else "—", status, who, branch, mr]
-
-
-def _prio_rank(card):
-    m = re.fullmatch(r"П(\d)", card.priority) if card else None
-    return int(m.group(1)) if m else 9
-
-
-def board_table(tree: Tree) -> list:
-    out = ["| Кучка | Приоритет | Стенд | № | Что изменится | Размер | Статус | Взял | Ветка | MR | Входящие |",
-           "|---|---|---|---|---|---|---|---|---|---|---|"]
-    keyed = []
-    prose = pile_prose(tree)
-    for pile in tree.piles.values():
-        card = pile.card
-        name = card.name if card else pile.slug
-        link = "[%s](piles/%s/README.md) (`%s`)" % (name, pile.slug, pile.slug)
-        head = [link, card.priority if card else "—", card.stand if card else "—"]
-        inc = _incoming(pile, prose)
-        views = pile.views()
-        if not views:
-            keyed.append(((_prio_rank(card), pile.slug, 0), head + ["—"] * 7 + [inc]))
-        for v in views:
-            if v.files and len(v.files) > 1:
-                parts = [(_board_cells(pile, View(v.slug, v.n, v.row, [f]))) for f in v.files]
-            else:
-                parts = [_board_cells(pile, v)]
-            for cells in parts:
-                keyed.append(((_prio_rank(card), pile.slug, v.n), head + cells + [inc]))
-    for _, cells in sorted(keyed, key=lambda t: t[0]):
-        out.append("| " + " | ".join(_esc(c) for c in cells) + " |")
-    return out
-
 
 def _open_sets(tree: Tree):
     """-> (open_ids, live_members {id: [(slug, n, qualifier)]}). open = open rows | findings not closed | live rows."""
@@ -994,36 +977,6 @@ def _open_sets(tree: Tree):
     in_batch = {i for i, ms in live.items() if i not in closed or any(not qual for _, _, qual in ms)}
     open_ids = tree.backlog.open_ids | {i for i in finds if i not in closed} | in_batch
     return open_ids, live
-
-
-def _toc_text(ident, tree, misplaced, live, finds) -> str:
-    bl = tree.backlog
-    if ident in bl.closed_ids:
-        h = closed_hash(bl.first(ident, True).text)
-        text = "закрыто `%s`" % h if h else "закрыто (хэша нет)"
-        return text + (" (и открыт — ошибка)" if ident in bl.open_ids or ident in misplaced else "")
-    parts, covered = [], set()
-    for slug, n, qual in live.get(ident, []):
-        s = "`%s` → пачка %d" % (slug, n) + (" " + qual if qual else "")
-        fnd = next((f for f in finds.get(ident, []) if f.path.split("/")[2] == slug), None)
-        if fnd:
-            s += ", описание: findings/" + fnd.name
-            covered.add(fnd.path)
-        parts.append(s)
-    for f in finds.get(ident, []):
-        if f.path not in covered:
-            parts.append("`%s` → findings/%s" % (f.path.split("/")[2], f.name))
-    return "; ".join(parts) if parts else "не разложено"
-
-
-def toc_lines(tree: Tree):
-    open_ids, live = _open_sets(tree)
-    finds = tree.findings_by_id()
-    misplaced = closed_but_placed(tree, finds)
-    ids = sorted(open_ids | tree.backlog.closed_ids, key=lambda s: int(s[2:]))
-    lines = ["| id | где |", "|---|---|"]
-    lines += ["| %s | %s |" % (i, _esc(_toc_text(i, tree, misplaced, live, finds))) for i in ids]
-    return lines, ids, open_ids, live
 
 
 def _count_line(tree: Tree, ids, open_ids, live) -> list:
@@ -1047,21 +1000,6 @@ def _count_line(tree: Tree, ids, open_ids, live) -> list:
     return [line] + (["не-id в строках: " + "; ".join(nonid)] if nonid else [])
 
 
-BOARD_HEAD = ("# Кучки и пачки\n\nГенерирует `python tools/piles.py board` из карточек `plans/piles/*/README.md`, "
-              "файлов пачек `plans/piles/*/batch-*.md`, папок `findings/` и раздела «Закрыто» `plans/BACKLOG.md` "
-              "— руками не править.")
-
-
-def render_board(tree: Tree):
-    """-> (text, counts). Deterministic: no clock, no mtime, no stamp (P4); LF, ends with one newline."""
-    toc, ids, open_ids, live = toc_lines(tree)
-    out = [BOARD_HEAD, "", "## 1. Доска", ""] + board_table(tree)
-    out += ["", "## 2. Оглавление B-id", ""] + toc
-    out += ["", "## 3. Счёт", ""] + _count_line(tree, ids, open_ids, live)
-    counts = (len(tree.piles), len(tree.all_views()), len(ids))
-    return "\n".join(out) + "\n", counts
-
-
 def write_atomic(path: Path, text: str) -> None:
     write_bytes_atomic(path, text.encode("utf-8"))
 
@@ -1078,52 +1016,6 @@ def write_bytes_atomic(path: Path, raw: bytes) -> None:
         if os.path.exists(tmp):
             os.unlink(tmp)
         raise
-
-
-def untracked_warning(tree: Tree) -> list:
-    if not tree.untracked:
-        return []
-    return ["piles board: WARNING: untracked file(s) under plans/piles feed plans/PILES.md: %s -- `git add` them, or "
-            "the next committer's `board --check` goes stale" % ", ".join(tree.untracked)]
-
-
-def unreadable_warning(tree: Tree) -> list:
-    """One line per finding file the board could not read: the rest of the board is still built, so the way out is named."""
-    return ["piles board: WARNING: unreadable finding %s (%s) -- left out of the table of contents; save it as UTF-8 and run "
-            "board again" % (f.path, f.unreadable) for p in tree.piles.values() for f in p.findings if f.unreadable]
-
-
-def board_triggers(staged) -> bool:
-    return any(p.startswith(PILES_REL + "/") or p in (BACKLOG_REL, BOARD_REL) for p in staged)
-
-
-def cmd_board(args, root) -> int:
-    if args.if_staged and not board_triggers(staged_paths(root)):
-        print("piles board: no plans/piles or BACKLOG path staged -- not checked")
-        return 0
-    tree = load_tree(root, with_untracked=True, tolerant=True)
-    text, (n_piles, n_batches, n_ids) = render_board(tree)
-    target = root / BOARD_REL
-    warnings = untracked_warning(tree) + unreadable_warning(tree)
-    if not args.check:
-        write_atomic(target, text)
-        print("piles board: wrote %s: %d piles, %d batches, %d ids" % (BOARD_REL, n_piles, n_batches, n_ids))
-        return _print_all(warnings, 0)
-    fix = "run python tools/piles.py board and stage plans/PILES.md"
-    if not target.is_file():
-        print("piles board: %s is missing -- %s" % (BOARD_REL, fix))
-        return _print_all(warnings, 2)
-    if read_text(target) != text:
-        print("piles board: %s is stale -- %s" % (BOARD_REL, fix))
-        return _print_all(warnings, 2)
-    print("piles board: up to date (%d piles, %d batches, %d ids)" % (n_piles, n_batches, n_ids))
-    return _print_all(warnings, 0)
-
-
-def _print_all(lines, code) -> int:
-    for line in lines:
-        print(line)
-    return code
 
 
 # ============================================================================================
@@ -1166,12 +1058,6 @@ def door_lines(msg: str):
 # check: items
 # ============================================================================================
 
-CARDS_AND_FINDINGS = "*cards-and-findings*"       # a carrier: any staged card, finding, batch file or BACKLOG.md (a9, P6, V1)
-# V1 (t-593): a freeze commit staging only plans/BACKLOG.md, or a batch file hand-set to "закрыта", creates a9 reds
-# as surely as a deleted finding does -- they are carriers too, or the commit passes as "carried (not blocking)".
-CARD_OR_FINDING_RE = re.compile(r"^plans/piles/[^/_.][^/]*/(?:README\.md|findings/.+|batch-[^/]+\.md)$")
-
-
 @dataclasses.dataclass
 class Red:
     msg: str
@@ -1190,18 +1076,21 @@ class ItemResult:
 class Ctx:
     tree: Tree
     root: Path
-    staged: object            # set of staged paths, or None for --all
+    staged: object            # the set of touched paths (staged, or the range's with --base), or None for --all
     base: str                 # the rev (g) compares with
     frozen_ref: str = "origin/main"   # the rev (v) compares with: ORIGIN, or the --base sha when the flag is given
+    touched: object = dataclasses.field(init=False, default=None)   # {slug of a touched pile}; None under --all (everything blocks)
+
+    def __post_init__(self):
+        if self.staged is not None:
+            self.touched = {s for s in map(pile_of, self.staged) if s}
 
     def touches(self, carriers) -> bool:
-        """True when the red is carried by this commit: --all, or a staged path is one of its carriers."""
+        """B.3: a red blocks when --all, or a carrier is a touched path, or lies in a touched pile (BACKLOG.md and a `.py` are
+        carried by their own path)."""
         if self.staged is None:
             return True
-        if CARDS_AND_FINDINGS in carriers and (BACKLOG_REL in self.staged
-                                               or any(CARD_OR_FINDING_RE.match(p) for p in self.staged)):
-            return True
-        return any(c in self.staged for c in carriers)
+        return any(c in self.staged or pile_of(c) in self.touched for c in carriers)
 
 
 def _pile_paths(tree, slug, n=None):
@@ -1241,7 +1130,7 @@ def _placement_dupes(tree, finds):
 
 def closed_but_placed(tree: Tree, finds) -> dict:
     """{closed id: the files that still place it}: a finding, or a WHOLE member of a live batch. The one verdict of check
-    (а)5 and of the board's «(и открыт — ошибка)» (m-5, t-593). A PARTIAL member of a live batch does not place a closed
+    (а)5 (m-5, t-593). A PARTIAL member of a live batch does not place a closed
     id: `close --id` may close a partial member's id (the owner's word), and the Строки cell of a taken batch is frozen
     by (в), so a red here could not be cleared but by a door."""
     out = {}
@@ -1254,14 +1143,17 @@ def closed_but_placed(tree: Tree, finds) -> dict:
     return out
 
 
-def _placement_known(tree, finds):
+def _placement_known(ctx, finds):
     reds = []
+    tree = ctx.tree
     bl = tree.backlog
     known = bl.open_ids | bl.closed_ids | set(finds)
     for v, m in tree.member_rows():
         if m.id not in known:
+            # the card names it, but deleting the id's finding in ANOTHER pile creates the red too: that pile's paths carry it (B.3)
             reds.append(Red("unknown id %s in the row of batch %s/%d (the card) -- it is in no BACKLOG row, no closed row "
-                            "and no finding; fix the id or write its finding" % (m.id, v.slug, v.n), (tree.piles[v.slug].card_rel,)))
+                            "and no finding; fix the id or write its finding" % (m.id, v.slug, v.n),
+                            (tree.piles[v.slug].card_rel,) + _a9_homes(ctx, m.id)))
     for ident in sorted(bl.open_ids & bl.closed_ids):
         reds.append(Red("%s is both open and closed in plans/BACKLOG.md -- delete the stale row" % ident, (BACKLOG_REL,)))
     for ident, homes in sorted(closed_but_placed(tree, finds).items()):
@@ -1303,14 +1195,28 @@ def _placement_all_placed(tree, finds):
     return reds
 
 
+def _a9_homes(ctx: Ctx, ident) -> tuple:
+    """The paths of the piles that named `ident` at the base rev (`git grep -l`, run only for an a9 red; F-3 (a)): removing the
+    id's last placement from such a pile is what creates the red. Under --all every red blocks, so nothing is looked up. When git
+    cannot answer, every pile's card carries the red (the safe side: a commit touching any pile sees it)."""
+    if ctx.staged is None:
+        return ()
+    rc, out = git(ctx.root, "grep", "-l", "-z", "-w", "-F", "-e", ident, ctx.base, "--", PILES_REL)
+    if rc == 1:
+        return ()
+    if rc != 0:
+        return tuple(p.card_rel for p in ctx.tree.piles.values())
+    return tuple(sorted({s.split(":", 1)[1] for s in out.decode("utf-8", "replace").split("\0") if ":" in s}))
+
+
 def check_placement(ctx: Ctx) -> ItemResult:
     tree, res = ctx.tree, ItemResult()
     finds = tree.findings_by_id()
-    res.reds += _placement_dupes(tree, finds) + _placement_known(tree, finds) + _placement_form(tree)
+    res.reds += _placement_dupes(tree, finds) + _placement_known(ctx, finds) + _placement_form(tree)
     if tree.backlog.locks:
         for r in _placement_all_placed(tree, finds):
-            # a9 is carried by a card, a finding, a batch file or BACKLOG.md, changed or deleted (P6, V1)
-            res.reds.append(Red(r.msg, (CARDS_AND_FINDINGS,)))
+            # a9 is carried by BACKLOG.md and by the piles that named the id at the base rev (F-3 (a))
+            res.reds.append(Red(r.msg, (BACKLOG_REL,) + _a9_homes(ctx, ID_RE.match(r.msg).group(0))))
     else:
         res.notes.append('BACKLOG.md is not frozen yet (no piles-freeze line) -- duplicates and unknown ids checked; '
                          '"every open id placed" starts with the freeze (node F0-3)')
@@ -1319,9 +1225,31 @@ def check_placement(ctx: Ctx) -> ItemResult:
     return res
 
 
+PACKAGE_ROOT = "ai-packages/qa-factory/"          # the whole package: the one token `_norm_token` keeps with its prefix (D.6)
+
+
 def _norm_token(tok: str) -> str:
+    """The token in the space (б) compares in: slashes forward, the package prefix dropped. The package root itself
+    (`ai-packages/qa-factory` with or without `/`) is NOT dropped to "" -- an empty token matched folders by accident --
+    it becomes PACKAGE_ROOT."""
     t = tok.strip().replace("\\", "/")
-    return t[len("ai-packages/qa-factory/"):] if t.startswith("ai-packages/qa-factory/") else t
+    if t.rstrip("/") == PACKAGE_ROOT.rstrip("/"):
+        return PACKAGE_ROOT
+    return t[len(PACKAGE_ROOT):] if t.startswith(PACKAGE_ROOT) else t
+
+
+def package_tops(root):
+    """The entries of root/ai-packages/qa-factory/ on disk (the first path segments a package path can start with), read once
+    per run; None when the folder cannot be read (then `tokens_overlap` takes the safe side)."""
+    try:
+        return tuple(sorted(e.name for e in os.scandir(Path(root) / PACKAGE_ROOT)))
+    except OSError:
+        return None
+
+
+def shown_token(tok: str) -> str:
+    """A token as a refusal prints it: never an empty name for the whole package."""
+    return "%s (the whole package)" % PACKAGE_ROOT if tok == PACKAGE_ROOT else tok
 
 
 def _is_glob(t):
@@ -1368,11 +1296,12 @@ def parse_zone(zone: str):
     patterns, errors = [], []
     for tok in tokens:
         t = _norm_token(tok)
+        whole = t == PACKAGE_ROOT                     # the bare package root is never a pattern of this space (D.6 (v))
         if t.endswith("…"):
             t = t[:-1].rstrip("/") + "/**"
         elif t.endswith("/"):
             t += "**"
-        expanded = None if (not t.strip("/*") or any(c.isspace() for c in t)) else _expand_braces(t)
+        expanded = None if (whole or not t.strip("/*") or any(c.isspace() for c in t)) else _expand_braces(t)
         if expanded is None:
             errors.append("zone part `%s` cannot be read -- expected a path, one level of {a,b}, no spaces; it matches nothing" % tok)
         else:
@@ -1380,12 +1309,21 @@ def parse_zone(zone: str):
     return patterns, errors
 
 
-def tokens_overlap(a: str, b: str) -> bool:
+def tokens_overlap(a: str, b: str, *, tops=None) -> bool:
     """Two writer tokens may touch the same file. Errs towards TRUE (a false red has doors; a false green on equal
-    literals has none)."""
+    literals has none). An empty token overlaps nothing. PACKAGE_ROOT (the whole package) overlaps y when y starts with it, or
+    y's first path segment is one of `tops` (the entries of the package folder on disk), or y has no resolvable place (a bare
+    basename, a glob first segment); with no `tops` it overlaps every y."""
+    if not a.strip() or not b.strip():
+        return False
     if a == b:
         return True
     for x, y in ((a, b), (b, a)):
+        if x == PACKAGE_ROOT:
+            first = y.split("/", 1)[0]
+            if y.startswith(PACKAGE_ROOT) or tops is None or first in tops or "/" not in y or _is_glob(first):
+                return True               # a bare basename or a glob first segment has no resolvable place: the safe side
+            continue
         if _is_glob(x) and compile_glob(x)[0].match(y):
             return True
         if _is_glob(x) and "/" not in x and compile_glob(x)[0].match(y.rsplit("/", 1)[-1]):
@@ -1406,7 +1344,7 @@ def writers_of(b: BatchFile) -> list:
     for n in b.nodes:
         if n.status in NOT_WRITING:
             continue
-        out += [_norm_token(t) for t in n.writers]
+        out += [_norm_token(t) for t in n.writers if t.strip()]          # a span of spaces writes nothing (D.6 (ii))
     return sorted(set(out))
 
 
@@ -1426,10 +1364,12 @@ def fn_lists_of(b: BatchFile) -> dict:
         if n.status in NOT_WRITING:
             continue
         for t in n.writers:
-            per.setdefault(_norm_token(t), []).append(n.lists.get(t))
+            if t.strip():
+                per.setdefault(_norm_token(t), []).append(n.lists.get(t))
     hod = {}
     for t, names in b.hod_lists.items():
-        hod.setdefault(_norm_token(t), set()).update(names)
+        if t.strip():
+            hod.setdefault(_norm_token(t), set()).update(names)
     out = {}
     for tok, entries in per.items():
         own = set().union(*[set(e) for e in entries if e])
@@ -1502,10 +1442,10 @@ def _queue_door(k1, k2):
 
 def _list_verdicts(k1, k2, l1, l2, pairs, root):
     """For the overlapping pairs that are ONE literal Python file with a function list on BOTH sides: -> (handled pairs, red
-    messages). Every named name must be defined in the file (FR-59: a misspelt name is red, not a quiet 'disjoint'); the two
-    sets must not meet. A pair whose file cannot be read is red too -- the lists cannot be judged. Any other pair is not handled
-    here (the file lock stays)."""
-    handled, msgs = set(), []
+    [(message, file x)]). Every named name must be defined in the file (FR-59: a misspelt name is red, not a quiet 'disjoint'); the
+    two sets must not meet. A pair whose file cannot be read is red too -- the lists cannot be judged. Any other pair is not handled
+    here (the file lock stays). `x` is the red's third carrier: a commit that changes the `.py` creates these reds."""
+    handled, msgs = set(), []        # msgs: [(red message, the file x it is about)]: x is the red's third carrier (B.3)
     both = "%s/%d and %s/%d both write" % (k1[0], k1[1], k2[0], k2[1])
     door = "%s, or piles-skip: б" % _queue_door(k1, k2)
     for x, y in pairs:
@@ -1514,18 +1454,18 @@ def _list_verdicts(k1, k2, l1, l2, pairs, root):
         handled.add((x, y))
         names, why = defined_names(root, x)
         if names is None:
-            msgs.append("%s %s with function lists, but %s -- the lists cannot be checked; write the path from the repo root "
-                        "(e.g. scripts/story_run.py), or %s" % (both, x, why, door))
+            msgs.append(("%s %s with function lists, but %s -- the lists cannot be checked; write the path from the repo root "
+                         "(e.g. scripts/story_run.py), or %s" % (both, x, why, door), x))
             continue
         for k, lst in ((k1, l1[x]), (k2, l2[x])):
-            msgs += _item_reds(k, x, lst, names, door)
+            msgs += [(m, x) for m in _item_reds(k, x, lst, names, door)]
         b1, b2 = {fn_bare(i) for i in l1[x]}, {fn_bare(i) for i in l2[x]}
         common = sorted(b1 & b2)
         if common:
             new_in_both = sorted({fn_bare(i) for i in l1[x] if i[0] == "+"} & {fn_bare(i) for i in l2[x] if i[0] == "+"})
-            msgs.append("%s %s and both name %s%s -- the function lists must be disjoint: leave each name to ONE batch, or %s" % (
+            msgs.append(("%s %s and both name %s%s -- the function lists must be disjoint: leave each name to ONE batch, or %s" % (
                 both, x, ", ".join(common),
-                " (%s: both claim to ADD it)" % ", ".join(new_in_both) if new_in_both else "", door))
+                " (%s: both claim to ADD it)" % ", ".join(new_in_both) if new_in_both else "", door), x))
     return handled, msgs
 
 
@@ -1551,11 +1491,45 @@ def _item_reds(k, x, items, names, door):
     return msgs
 
 
-def _pair_overlap(b1, b2, k1, k2, root):
+def developer_vocabulary(root) -> frozenset:
+    """The developer slugs: the names of logs/journal/<slug>.jsonl in the git INDEX (the staged tree in a commit, the checkout in CI),
+    through journal_keys.journal_names. An untracked journal file is no slug yet. Empty when git cannot list the index. Built
+    once per run by the callers (t-367 B4, F-D2)."""
+    rc, out = git(root, "ls-files", "-z", "--", "logs/journal")
+    if rc != 0:
+        return frozenset()
+    files, _problems = journal_keys.journal_names([p for p in out.decode("utf-8", "replace").split("\0") if p])
+    return frozenset(f.slug.casefold() for f in files)
+
+
+def dev_of(who, vocab):
+    """The developer slug a `взял:` / --who text names, or None. The trailing date goes; the text is cut into tokens
+    [a-z0-9][a-z0-9-]* after casefold; the tokens that are slugs of `vocab` stay; EXACTLY one distinct slug is the answer.
+    May err only toward None ("different developers", today's rule), never to a wrong slug."""
+    if not who or not vocab:
+        return None
+    runs = re.findall(r"[\w-]+", TAKEN_DATE_RE.sub("", who).casefold())     # a slug is a WHOLE run: `dev1ира`, `dev12`, `xdev1`, `dev1_x` are not dev1
+    found = {t for t in runs if SLUG_RE.fullmatch(t) and t in vocab}
+    return next(iter(found)) if len(found) == 1 else None
+
+
+def same_developer(b1, b2, vocab) -> bool:
+    """Two batches whose takers read as ONE developer; an unreadable taker on either side is 'different'."""
+    d1 = dev_of(b1.who, vocab)
+    return d1 is not None and d1 == dev_of(b2.who, vocab)
+
+
+def _pair_overlap(b1, b2, k1, k2, root, tops=None):
     """-> the red messages of one pair of active batches ([] = green): the file lock of (б) with its two doors, the `очередь:` line
     in both preambles or (D-0048) a disjoint function list of each batch for the shared file."""
+    return [msg for msg, _x in _pair_reds(b1, b2, k1, k2, root, tops)]
+
+
+def _pair_reds(b1, b2, k1, k2, root, tops=None):
+    """-> [(red message, the `.py` it is about or None)] of one pair: `_pair_overlap` with the carrier a function-list verdict adds
+    (B.3: the commit that removes a listed name stages that file and no batch)."""
     w1, w2 = writers_of(b1), writers_of(b2)
-    pairs = sorted({(x, y) for x in w1 for y in w2 if tokens_overlap(x, y)})
+    pairs = sorted({(x, y) for x in w1 for y in w2 if tokens_overlap(x, y, tops=tops)})
     if not pairs:
         return []
     d1, d2 = _queue_dirs(b1, k1, k2), _queue_dirs(b2, k1, k2)
@@ -1566,12 +1540,12 @@ def _pair_overlap(b1, b2, k1, k2, root):
     left = [(x, y) for x, y in pairs if (x, y) not in handled]
     if not left:
         return msgs
-    hits = sorted({x if x == y else "%s ~ %s" % (x, y) for x, y in left})
+    hits = sorted({shown_token(x) if x == y else "%s ~ %s" % (shown_token(x), shown_token(y)) for x, y in left})
     names = "%s/%d and %s/%d both write: %s" % (k1[0], k1[1], k2[0], k2[1], ", ".join(hits[:3]) + (" ..." if len(hits) > 3 else ""))
     if d1 and d2:
-        msgs.append("%s -- the two batches disagree on the order (%s vs %s); make both preambles say the same direction" % (
+        msgs.append(("%s -- the two batches disagree on the order (%s vs %s); make both preambles say the same direction" % (
             names, "; ".join(sorted("%s/%d -> %s/%d" % (a[0], a[1], b[0], b[1]) for a, b in d1)),
-            "; ".join(sorted("%s/%d -> %s/%d" % (a[0], a[1], b[0], b[1]) for a, b in d2))))
+            "; ".join(sorted("%s/%d -> %s/%d" % (a[0], a[1], b[0], b[1]) for a, b in d2))), None))
         return msgs
     lacking = [(x, [k for k, lst in ((k1, l1), (k2, l2)) if x not in lst]) for x, y in left
                if x == y and x.endswith(".py") and not _is_glob(x)]
@@ -1579,7 +1553,7 @@ def _pair_overlap(b1, b2, k1, k2, root):
              "`%s (f1, f2)` in its «Пишет в» cell (a batch not yet taken); both batches need a list on the file, disjoint "
              "(`+name` for a function the batch adds)" % ("; and ".join("%s a function list for %s" % (
                  " and ".join("%s/%d" % k for k in ks), x) for x, ks in lacking), lacking[0][0], lacking[0][0])) if lacking else ""
-    msgs.append("%s -- %s%s, or piles-skip: б" % (names, _queue_door(k1, k2), other))
+    msgs.append(("%s -- %s%s, or piles-skip: б" % (names, _queue_door(k1, k2), other), None))
     return msgs
 
 
@@ -1592,12 +1566,22 @@ def check_overlap(ctx: Ctx) -> ItemResult:
             res.notes.append("WARN: %s/%d: a `функции:` line of its «Ход» lists functions for %s, which no node of the batch that still "
                              "writes names in its «Пишет в» -- ignored (the list narrows nothing; write the file in the cell as the "
                              "node does, or drop the line)" % (k[0], k[1], ", ".join(hod_ignored(b))))
+    vocab, tops, skipped = developer_vocabulary(ctx.root), package_tops(ctx.root), []
     for i in range(len(active)):
         for j in range(i + 1, len(active)):
             (b1, k1), (b2, k2) = active[i], active[j]
-            for msg in _pair_overlap(b1, b2, k1, k2, ctx.root):
-                res.reds.append(Red(msg, (b1.path, b2.path)))
+            if same_developer(b1, b2, vocab):             # D.2: inside one developer (б) does not compare
+                skipped.append("%s: %s/%d + %s/%d" % (dev_of(b1.who, vocab), k1[0], k1[1], k2[0], k2[1]))
+                continue
+            for msg, x in _pair_reds(b1, b2, k1, k2, ctx.root, tops):
+                # a function-list verdict names its `.py` as the third carrier (the file written without or with the package prefix)
+                extra = () if x is None else (x,) if x.startswith(PACKAGE_ROOT) else (x, PACKAGE_ROOT + x)
+                res.reds.append(Red(msg, (b1.path, b2.path) + extra))
     res.ok = "%d active batches" % len(active)
+    if skipped:
+        res.ok += ("; %d pair(s) of one developer not compared (%s; inside one developer the only guard is `owns_gate`'s WARN over "
+                   "live dispatches of one machine; two parallel sessions of one developer are no longer blocked by (б))"
+                   % (len(skipped), ", ".join(skipped[:3]) + (", ..." if len(skipped) > 3 else "")))
     return res
 
 
@@ -1775,6 +1759,8 @@ def check_frozen(ctx: Ctx) -> ItemResult:
         return res
     frozen = 0
     for (slug, n), paths in sorted(pairs.items()):
+        if ctx.touched is not None and slug not in ctx.touched:
+            continue                                     # B.4: only the taken batches of the piles this commit touches are compared
         reds, is_frozen = _judge_pair(ctx, sha, slug, n, paths)
         res.reds += reds
         frozen += is_frozen
@@ -1937,7 +1923,7 @@ def _view_reds(tree: Tree, v: View):
             reds.append(Red('%s/%d: the card says "%s", the batch file says "%s" -- the card is ahead of the file; the file is the '
                             "truth while work runs, so bring the file up (or the card back)" % (v.slug, v.n, v.row.status_raw, v.file.status_raw),
                             (v.file.path, card)))
-    if v.file is not None and v.file.has_nodes_table and not v.file.nodes and v.status in ("в работе", "сдано", "принято"):
+    if v.file is not None and v.file.has_nodes_table and not v.file.nodes and v.status in FROZEN:
         reds.append(Red("%s: a %s batch has an empty node table -- nobody works a batch without nodes; fill ## Узлы" % (v.file.path, v.status),
                         (v.file.path,)))
     for f in v.files:
@@ -2035,10 +2021,10 @@ def check_form(ctx: Ctx) -> ItemResult:
         res.reds += _contents_reds(tree, pile)
         for b in pile.batches:
             res.reds += _heading_reds(tree, b)
-        # a finding the tolerant load could not read: ONE red. Its id is unknown, so it has no home in (а); the commit that
-        # carries any card, finding, batch or BACKLOG is the one that must see it (the same carrier (а)5 uses)
+        # a finding the tolerant load could not read: ONE red. Its id is unknown, so it has no home in (а); its own path is its
+        # carrier, so a commit touching its pile sees it (B.3)
         res.reds += [Red("%s: cannot read this finding (%s) -- its id is unknown, so (а) placement did not see it; expected a "
-                         "UTF-8 text file; save it as UTF-8 or delete it" % (f.path, f.unreadable), (f.path, CARDS_AND_FINDINGS))
+                         "UTF-8 text file; save it as UTF-8 or delete it" % (f.path, f.unreadable), (f.path,))
                      for f in pile.findings if f.unreadable]
         for v in pile.views():
             res.reds += _view_reds(tree, v)
@@ -2114,6 +2100,15 @@ def _finding_moves(f: Finding) -> list:
     return list(dict.fromkeys(FINDING_MOVE_RE.findall(prose)))
 
 
+def refuse_unreadable_prose(tree: Tree) -> None:
+    """The writers' guard (take, close): read every batch file and every finding the way (е) reads them, BEFORE any write.
+    A fenced block nothing closes is CannotRun naming `<path>:<line>` (t-870 F-5): such a tree is not acted on, nothing is written."""
+    pile_prose(tree)
+    for p in tree.piles.values():
+        for f in p.findings:
+            _finding_moves(f)
+
+
 def pile_prose(tree: Tree) -> dict:
     """{pile slug: [BatchText of each of its batch files]} -- what a finding may be named in (see `_batch_prose`, `_batch_rows`)."""
     out = {}
@@ -2138,7 +2133,7 @@ def _reads(f: Finding, bt: BatchText) -> str:
 
 
 def finding_placed(f: Finding, slug: str, prose: dict) -> bool:
-    """THE predicate «this finding is in a batch» -- (е) and the board's «Входящие» both call it (one reader of where a finding is
+    """THE predicate «this finding is in a batch» -- (е) calls it (one reader of where a finding is
     named). Placed = `_named_in` the rows (a finding dated FINDINGS_FROM or later) or the prose (an older one) of a batch file of
     its own pile or of a pile its own `перенос: <slug>/…` line names. A name or id only inside a fence or a comment places nothing;
     for a dated finding the prose of «Ход» places nothing either."""
@@ -2205,9 +2200,9 @@ def check_findings(ctx: Ctx) -> ItemResult:
                 continue
             if _rows_only(f):
                 n_red += 1
-                homes = {slug} | {m for m in _finding_moves(f) if m in tree.piles}
+                homes = {slug} | set(_finding_moves(f))          # no `in tree.piles` filter: a `git rm` of a named pile carries the red it causes
                 res.reds.append(Red("%s: pile %s, finding dated %s: %s" % (f.path, slug, f.date.isoformat(), why),
-                                    (f.path,) + tuple(b.path for h in sorted(homes) for b in tree.piles[h].batches)
+                                    (f.path,) + tuple(b.path for h in sorted(homes) if h in tree.piles for b in tree.piles[h].batches)
                                     + _staged_batches(ctx, homes)))
             else:
                 baseline.append("%s/%s" % (slug, f.name))
@@ -2222,23 +2217,34 @@ def check_findings(ctx: Ctx) -> ItemResult:
     return res
 
 
-# (letter, key, function, scope): scope "tree" -- red blocks only a commit that carries it (P6); "files" -- judged
-# only for the staged files; "backlog" -- runs when plans/BACKLOG.md is staged; "findings" -- runs when a finding or a batch
-# file is staged, and a red blocks like a "tree" one (a commit that carries none of its files only sees it as "carried").
+# (letter, key, function, scope): every red blocks only a commit that carries it (B.3: a carrier is a touched path or lies in a
+# touched pile; the rest is summarised, B.5). Scope "backlog" -- runs when plans/BACKLOG.md is touched; "findings" -- runs when a
+# finding or a batch file is touched; "tree"/"files" -- always run (the difference is in what the check itself reads).
 CHECKS = (("а", "placement", check_placement, "tree"), ("б", "overlap", check_overlap, "tree"),
           ("в", "frozen", check_frozen, "files"), ("г", "backlog", check_backlog, "backlog"),
           ("д", "form", check_form, "files"), ("е", "findings", check_findings, "findings"))
 
 
-def _relevant(staged) -> bool:
-    return any(p.startswith(PILES_REL + "/") or p == BACKLOG_REL for p in staged)
+def _relevant(staged, tree=None) -> bool:
+    """True when the touched paths hold a pile or BACKLOG path -- or, with the tree (loaded by the caller), a `.py` that an active
+    batch names in a function list (B.3: a code commit can create an (б) function-list red with no pile path)."""
+    if any(p.startswith(PILES_REL + "/") or p == BACKLOG_REL for p in staged):
+        return True
+    if tree is None:
+        return False
+    listed = {tok for v in tree.all_views() if v.file is not None and v.status in ACTIVE for tok in fn_lists_of(v.file)}
+    return any(p.endswith(".py") and _norm_token(p) in listed for p in staged)
 
 
 def _split_reds(ctx: Ctx, res: ItemResult, scope: str):
-    if scope in ("tree", "findings"):
-        mine =[r for r in res.reds if ctx.touches(r.carriers)]
-        return mine, [r for r in res.reds if r not in mine]
-    return [r for r in res.reds if ctx.touches(r.carriers)], []
+    """-> (reds this commit carries, reds it does not): the first block, the second is summarised (B.5). One rule for every scope."""
+    mine = [r for r in res.reds if ctx.touches(r.carriers)]
+    return mine, [r for r in res.reds if not any(r is m for m in mine)]
+
+
+def _red_home(r: Red) -> str:
+    """Where a red lives, for the one-line summary: the slug of the pile of its first pile carrier, else its first carrier."""
+    return next((s for s in map(pile_of, r.carriers) if s), r.carriers[0] if r.carriers else "(tree)")
 
 
 def _item_lines(letter, key, res: ItemResult, mine, carried, door):
@@ -2248,7 +2254,10 @@ def _item_lines(letter, key, res: ItemResult, mine, carried, door):
         lines.append("%s RED -- %s" % (tag, r.msg))
     if mine and door:
         lines.append("%s RED, passed by the commit message: %s" % (tag, door[2]))
-    lines += ["%s carried from earlier commits (not blocking): %s" % (tag, r.msg) for r in carried]
+    if carried:
+        homes = sorted({_red_home(r) for r in carried})
+        lines.append("%s %d red(s) in piles this commit does not touch (not blocking): %s" % (
+            tag, len(carried), ", ".join(homes[:5]) + (", +%d more" % (len(homes) - 5) if len(homes) > 5 else "")))
     if res.not_checked:
         lines.append("(%s) NOT CHECKED %s -- %s" % (letter, key, res.not_checked))
     elif not mine and not carried:
@@ -2257,14 +2266,30 @@ def _item_lines(letter, key, res: ItemResult, mine, carried, door):
     return lines
 
 
-def run_check(root, all_=False, msg_text="", base="HEAD", frozen_ref=None):
+def run_check(root, all_=False, msg_text="", base="HEAD", frozen_ref=None, range_rev=None):
     """-> (exit code, output lines). All the judgement lives here; cmd_check only reads the arguments.
     `base` is the rev (г) compares plans/BACKLOG.md with; `frozen_ref` the rev (в) compares the taken batches with
-    (None -> origin/main). `--base <rev>` sets both: CI has no origin/main behind the pushed commit, it has the pushed range."""
-    staged = None if all_ else set(staged_paths(root))
-    if staged is not None and not _relevant(staged):
-        return 0, ["piles check: no plans/piles or BACKLOG path staged -- nothing to check"]
-    tree = load_tree(root, tolerant=True)
+    (None -> origin/main). `--base <rev>` sets both: CI has no origin/main behind the pushed commit, it has the pushed range.
+    `range_rev` (`--base` without `--all`): the touched paths are the range's (B.1), not the staged ones, and the tree is read as
+    is; in a commit the untracked files of other piles are not read (B.2). `all_`: every red blocks and every file is read."""
+    nothing = ["piles check: no plans/piles or BACKLOG path staged -- nothing to check"]
+    staged = None if all_ else set(range_paths(root, range_rev) if range_rev else staged_paths(root))
+    commit = staged is not None and not range_rev
+    tree = None
+    relevant = staged is None or _relevant(staged)
+    if not relevant and not any(p.endswith(".py") for p in staged):
+        return 0, nothing
+    untracked = untracked_piles(root) if commit or (all_ and not range_rev) else []      # one git call per run
+    skip = frozenset(untracked) if commit else frozenset()
+    if not relevant:
+        try:                                          # a code commit: relevant only when an active batch lists that file's functions
+            tree = load_tree(root, tolerant=True, skip=skip)
+        except CannotRun:
+            tree = None                                # safe side: the check runs, and its own load names the failure
+        else:
+            if not _relevant(staged, tree):
+                return 0, nothing
+    tree = tree or load_tree(root, tolerant=True, skip=skip)
     ctx = Ctx(tree, Path(root), staged, base, frozen_ref or ORIGIN)
     doors, notes = [], []
     for msg in ([msg_text] if isinstance(msg_text, str) else msg_text):     # one scan per message: a broken fence in one never closes another's door
@@ -2287,6 +2312,11 @@ def run_check(root, all_=False, msg_text="", base="HEAD", frozen_ref=None):
         if mine and not door:
             red_items.append(letter)
     lines += notes
+    if all_ and not range_rev:
+        hidden = sorted({s for s in map(pile_of, untracked) if s})
+        if hidden:
+            lines.append("piles check: note: the untracked pile(s) %s are judged here, a commit does not judge them (B.2)"
+                         % ", ".join(hidden))
     if red_items:
         lines.append("piles check: refused -- red: %s. Fix what is named above, or -- when the commit is deliberate -- %s"
                      % (", ".join("(%s)" % i for i in red_items), DOOR_HELP))
@@ -2328,7 +2358,7 @@ def cmd_check(args, root) -> int:
         found, line = range_messages(root, base)
         msgs += found
         print(line)
-    code, lines = run_check(root, args.all, msgs, base, frozen_ref)
+    code, lines = run_check(root, args.all, msgs, base, frozen_ref, base if args.base else None)
     for line in lines:
         print(line)
     return code
@@ -2398,6 +2428,14 @@ def edit_header(text: str, edits: dict) -> str:
     return "\n".join(lines)
 
 
+def set_node_cell(text: str, node: Node, cell: str) -> str:
+    """The batch text with the Статус cell of the node's row replaced by `cell`; every other byte of the file stays."""
+    lines = text.split("\n")
+    cols = column_map(table_after(lines, "Узлы")[0], NODE_COLS)
+    lines[node.line - 1] = replace_cells(lines[node.line - 1], {cols["status"]: cell})
+    return "\n".join(lines)
+
+
 def _today(args) -> str:
     raw = getattr(args, "today", None)
     try:
@@ -2446,27 +2484,33 @@ def _current_branch(root):
     return out.decode("utf-8", "replace").strip() if rc == 0 and out.strip() else None
 
 
-def rebuild_board(root) -> tuple:
-    text, counts = render_board(load_tree(root))
-    write_atomic(Path(root) / BOARD_REL, text)
-    return counts
-
-
 def printable(text: str) -> str:
     """Text with every non-printable character replaced by '?': the sanitizer for lines this tool prints or collects.
     Its sibling is ci_read_common.sanitize_own (the same rule for CI output); the two are kept alike on purpose."""
     return "".join(ch if ch.isprintable() else "?" for ch in text)
 
 
-def _overlap_refusal(tree: Tree, f: BatchFile, key, root) -> None:
+def _overlap_refusal(tree: Tree, f: BatchFile, key, root, who=None, vocab=None) -> None:
     """take runs (б) for the batch it takes against every active batch first, and names the queue door (P5); the function-list
-    door (D-0048) is judged the same way as in `check`."""
+    door (D-0048) is judged the same way as in `check`. A partner batch whose taker reads as the same developer as `who` is not
+    compared (D.3); an unreadable `who` or taker keeps today's rule."""
+    vocab = developer_vocabulary(root) if vocab is None else vocab
+    tops, mine = package_tops(root), dev_of(who, vocab)
     for v in tree.all_views():
         if v.file is not None and v.status in ACTIVE and (v.slug, v.n) != key:
+            if mine is not None and dev_of(v.file.who, vocab) == mine:
+                continue
             (b1, k1), (b2, k2) = sorted([(f, key), (v.file, (v.slug, v.n))], key=lambda t: (t[1][1], t[1][0]))
-            msgs = _pair_overlap(b1, b2, k1, k2, root)
+            msgs = _pair_overlap(b1, b2, k1, k2, root, tops)
             if msgs:
                 raise Refused("%s; the queue line is an append that (в) allows in a taken batch -- then run take again" % "; ".join(msgs))
+
+
+def _writer_tree(root, slug: str) -> Tree:
+    """The tree `take` and `status` act on (B.9): read like `check` in a commit -- the untracked files of OTHER piles are another
+    session's and not read; everything read stays strict, and the pile written is read whole, untracked files included."""
+    own = "%s/%s/" % (PILES_REL, slug)
+    return load_tree(Path(root), skip=frozenset(p for p in untracked_piles(root) if not p.startswith(own)))
 
 
 def cmd_take(args, root) -> int:
@@ -2475,8 +2519,9 @@ def cmd_take(args, root) -> int:
     if not _text_arg_ok(who, WHO_MAX):
         raise Refused('--who: expected 1-%d characters without "|", a backtick (`) or a line break, got %r' % (WHO_MAX, args.who))
     n = _parse_n(args.n)
-    tree = load_tree(root)
     slug = args.slug
+    tree = _writer_tree(root, slug)
+    refuse_unreadable_prose(tree)                # before any write: a fence nothing closes halts the writer
     pile, view = _find_view(tree, slug, n)
     where, branch = "%s/%d" % (slug, n), "pile/%s/batch-%d" % (slug, n)
     f = _batch_file(view, where, "write it (the integrator fixes the batch's content at take), then run take again")
@@ -2493,21 +2538,27 @@ def cmd_take(args, root) -> int:
     if view.row.status != f.status:
         raise Refused('the card and the batch file disagree on %s: card status "%s", batch status "%s" -- make them say the '
                       "same thing, then take" % (where, view.row.status_raw, f.status_raw))
-    _overlap_refusal(tree, f, (slug, n), root)
+    vocab = developer_vocabulary(root)
+    _overlap_refusal(tree, f, (slug, n), root, who, vocab)
     today = _today(args)
     taken, ticks = "%s, %s" % (who, today), "`%s`" % branch
     card_path, batch_path = root / pile.card_rel, root / f.path
     card = edit_card(read_text(card_path), view.row, {"status": "в работе", "who": taken, "branch": ticks})
     batch = edit_header(read_text(batch_path), {"статус": "в работе", "взял": taken, "ветка": ticks})
-    apply_changes(root, [(card_path, card), (batch_path, batch)], [])          # all or nothing: card, batch and the board (t-604 F-3)
+    apply_changes(root, [(card_path, card), (batch_path, batch)], [])          # all or nothing: card and batch (t-604 F-3)
     print("piles take: %s taken by %s (%s). Next:" % (where, who, today))
-    print("  1. on main: git add %s %s %s; git commit -m \"piles: take %s for %s\"; git push origin main"
-          % (pile.card_rel, f.path, BOARD_REL, where, who))
+    print("  1. on main: git add %s %s; git commit -m \"piles: take %s for %s\"; git push origin main"
+          % (pile.card_rel, f.path, where, who))
     print("  2. the taker: git fetch origin; git switch -c %s origin/main" % branch)
     here = _current_branch(root)
     if here != "main":
         print("piles take: WARNING: the current branch is %s, not main -- the claim is visible to others only once it reaches main"
               % (here or "unknown (git failed)"))
+    mine, _why = journal_keys.developer_slug(root)
+    if mine is not None and dev_of(who, vocab) != mine:     # D.3: a writer-side guard, never a refusal; nothing when the clone's slug is unreadable
+        print('piles take: WARNING: --who reads as developer %s, but this clone\'s tools/dev.config.yaml names %s -- batches of one '
+              'developer do not block each other, so --who decides whose batches this one may share files with; take it again with '
+              'your own slug if this is not intended' % (dev_of(who, vocab) or "none", mine))
     return 0
 
 
@@ -2810,6 +2861,8 @@ def _leftover_write_reds(ctx: Ctx, notes=None) -> list:
     never judged here (its `close` already did)."""
     tree, reds, base_ok = ctx.tree, [], None
     for pile in sorted(tree.piles.values(), key=lambda p: p.slug):
+        if ctx.touched is not None and pile.slug not in ctx.touched:
+            continue                      # B.4: only the batches of the piles this commit touches are compared with the base
         for b in pile.batches:
             if b.status == "закрыта":
                 continue
@@ -2838,7 +2891,7 @@ def _leftover_write_reds(ctx: Ctx, notes=None) -> list:
 
 def leftovers_unowned(tree: Tree) -> list:
     """[(batch path, line number, item)]: the «Остатки» items of every batch file that is not «закрыта» that carry no valid executor
-    form (`_item_why`) -- no base diff, every item counts (the board's count line and the compact snapshot read it)."""
+    form (`_item_why`) -- no base diff, every item counts (`summary` and the compact snapshot read it)."""
     out = []
     for pile in sorted(tree.piles.values(), key=lambda p: p.slug):
         for b in pile.batches:
@@ -3025,17 +3078,15 @@ def check_proofs(text: str, rel: str) -> None:
 
 def apply_changes(root: Path, writes, deletions) -> None:
     """All or nothing (m-8, t-593). `writes` = [(path, new text)], each written in the form of the file it replaces;
-    `deletions` = [path]; then plans/PILES.md is rebuilt. When any step fails, every file touched is put back from the
+    `deletions` = [path]. When any step fails, every file touched is put back from the
     bytes read before the first write and CannotRun (exit 1) says so: the tree is as it was."""
-    board = Path(root) / BOARD_REL
     forms = {p: read_form(p) for p, _ in writes}
-    before = {p: (p.read_bytes() if p.exists() else None) for p in [p for p, _ in writes] + list(deletions) + [board]}
+    before = {p: (p.read_bytes() if p.exists() else None) for p in [p for p, _ in writes] + list(deletions)}
     try:
         for path, text in writes:
             write_like(path, text, forms[path])
         for path in deletions:
             path.unlink()
-        rebuild_board(root)
     except BaseException as exc:
         stuck = []
         for path, raw in before.items():
@@ -3103,6 +3154,7 @@ def _close_batch(args, root: Path, today: str) -> int:
     text = read_text(batch_path)
     check_leftovers(text, f.path, root=root, pile=pile, view=view, deleted=closing_finding_paths(tree, view))
     check_proofs(text, f.path)
+    refuse_unreadable_prose(tree)                 # after the batch's own gates, before any write: a fence nothing closes halts the writer
     items, done, partial = _plan_batch_close(tree, view, where)
     suffix = "; закрыто %s пачкой `%s`: влито `%s`%s" % (today, where, args.hash, " (MR %s)" % args.url if args.url else "")
     backlog = backlog_with_closed(root, items, suffix)
@@ -3120,8 +3172,8 @@ def _close_batch(args, root: Path, today: str) -> int:
     for line in debt_warnings(root, ids):
         print(line)
     print(worktrees_sweep_line(root))
-    print("  Next: git add %s %s %s; git commit -m \"piles: close %s (%s)\"" % (BACKLOG_REL, "plans/piles/" + args.slug, BOARD_REL,
-                                                                           where, args.hash))
+    print("  Next: git add %s %s; git commit -m \"piles: close %s (%s)\"" % (BACKLOG_REL, "plans/piles/" + args.slug,
+                                                                         where, args.hash))
     return 0
 
 
@@ -3138,6 +3190,7 @@ def _close_word(args, root: Path, today: str) -> int:
     if args.hash:
         check_hash(root, args.hash)
     tree = load_tree(root)
+    refuse_unreadable_prose(tree)                 # before any write: a fence nothing closes halts the writer
     if args.id in tree.backlog.closed_ids:
         print("piles close: %s is already closed; nothing changed" % args.id)
         return 0
@@ -3152,7 +3205,7 @@ def _close_word(args, root: Path, today: str) -> int:
     print("piles close: %s closed by the owner's word (%s) on %s" % (args.id, word, today))
     for line in debt_warnings(root, [args.id]):
         print(line)
-    print("  Next: git add %s plans/piles %s; git commit -m \"piles: close %s by the owner's word\"" % (BACKLOG_REL, BOARD_REL, args.id))
+    print("  Next: git add %s plans/piles; git commit -m \"piles: close %s by the owner's word\"" % (BACKLOG_REL, args.id))
     return 0
 
 
@@ -3163,6 +3216,166 @@ def cmd_close(args, root) -> int:
     if not args.slug or not args.n:
         raise CannotRun("usage: expected %s" % CLOSE_FORMS)
     return _close_batch(args, root, today)
+
+
+STATUS_NODE_WORDS = ("в работе", "сдано", "принято", "отклонено")     # what `status` writes into a node's Статус cell
+STATUS_BATCH_WORDS = ("сдано", "принято")                              # `в работе` is `take`'s, `закрыта` is `close`'s
+TASK_RE = re.compile(r"t-\d{1,6}")
+NODE_ID_MAX = 40
+HAND_EDIT = "edit the cell by hand (a taken batch allows it: (в) masks every Статус cell)"
+
+
+def _ids_text(f: BatchFile) -> str:
+    ids = [printable(_shorten(nd.id, 30)) for nd in f.nodes]
+    return (", ".join(ids[:10]) + (", +%d more" % (len(ids) - 10) if len(ids) > 10 else "")) or "none (the table has no rows)"
+
+
+def _node_ids_of(cell: str) -> list:
+    """The ids a «Узел» cell names: split on `,` `+` `/` and white space, backticks and `*` stripped."""
+    return [t for t in (p.strip("`*") for p in re.split(r"[,+/\s]+", cell.strip())) if t]
+
+
+def _status_word_arg(raw, node_level: bool) -> str:
+    word = " ".join((raw or "").split()).lower()                  # another case or extra spaces: the same word, written canonical
+    if word in (STATUS_NODE_WORDS if node_level else STATUS_BATCH_WORDS):
+        return word
+    shown = printable(_shorten(raw or "", 40))
+    if node_level:
+        raise Refused('--set "%s": expected one of %s for a node' % (shown, ", ".join(STATUS_NODE_WORDS)))
+    why = {"в работе": " (`в работе` is written by `take`)", "закрыта": " (`закрыта` is written by `close`)"}.get(word, "")
+    raise Refused('--set "%s": expected %s for a batch%s; to set one node give its id: status <slug> <N> <node-id> --set <word>'
+                  % (shown, " or ".join(STATUS_BATCH_WORDS), why))
+
+
+def _status_evidence(root, args, word: str, node_level: bool) -> str:
+    """The cell text to write (one rule for shape and evidence), refused before anything is read from the tree."""
+    has_h, has_t = args.hash is not None, args.task is not None
+    if (has_h or has_t) and not (node_level and word == "принято"):
+        raise Refused('--hash and --task go with a node set to принято (`принято: <hash> (t-NNN)`); "%s" is written as the bare word'
+                      % word)
+    if has_t and not TASK_RE.fullmatch(args.task):
+        raise Refused('--task "%s": expected a task id t-NNN (1-6 digits)' % printable(_shorten(args.task, 40)))
+    if has_h:
+        check_hash(root, args.hash)
+    if node_level and word == "принято":
+        if not (has_h or has_t):
+            raise Refused("a node is accepted with its evidence: expected --hash <merge commit> and/or --task t-NNN")
+        return "принято" + (": " + args.hash if has_h else "") + (" (%s)" % args.task if has_t else "")
+    return word
+
+
+def _status_node_row(f: BatchFile, where: str, node_id: str) -> Node:
+    problem = _node_table_problem(f)
+    if problem:
+        raise Refused("%s: %s" % (where, problem))
+    rows = [nd for nd in f.nodes if node_id in _node_ids_of(nd.id)]
+    if not rows:
+        raise Refused('no node "%s" in %s -- expected one of its node ids: %s' % (printable(_shorten(node_id, 40)), where, _ids_text(f)))
+    one_id = "one row, one id; split the row in an untaken batch, or write the cell by hand (the cell is masked by (в))"
+    if len(rows) > 1:
+        raise Refused("the id %s heads %d rows of %s (lines %s) -- %s" % (node_id, len(rows), where, ", ".join(str(r.line) for r in rows), one_id))
+    if len(_node_ids_of(rows[0].id)) > 1:
+        raise Refused('the row "%s" of %s names more than one id -- %s' % (printable(_shorten(rows[0].id, 40)), where, one_id))
+    return rows[0]
+
+
+def _status_node_cell(nd: Node, where: str, word: str, cell: str):
+    """The cell to write, or None when the row already says it. Refuses a move back, a final row and a row it cannot read."""
+    now, shown = nd.status, printable(_shorten(nd.status_raw, 60))
+    if now is None:
+        raise Refused('the Статус cell of %s %s is "%s", which starts with no known status word -- %s' % (where, nd.id, shown, HAND_EDIT))
+    if now in NOT_WRITING:
+        if word == now and (now == "отклонено" or " ".join(nd.status_raw.split()) == cell):
+            return None
+        why = ('already accepted with "%s"' % shown) if word == now else 'is "%s" and final' % shown
+        raise Refused("%s %s %s -- a node in %s writes nothing any more; to change it, %s" % (where, nd.id, why, " or ".join(NOT_WRITING), HAND_EDIT))
+    if STATUS_ORDER[word] < STATUS_ORDER[now]:
+        raise Refused('the Статус cell of %s %s is "%s" -- a status only goes forward (в работе → сдано → принято), so it cannot be set '
+                      'back to "%s"; to correct a mistake, %s' % (where, nd.id, shown, word, HAND_EDIT))
+    return None if word == now else cell
+
+
+def _status_batch_plan(root, tree, pile, view, f: BatchFile, where: str, word: str):
+    """[(path, text)] for the header and the card row, or None when the batch already says it."""
+    if f.status not in FROZEN:
+        raise Refused('%s is "%s" -- take it first (`take %s %d --who <name>`); a waiting batch has no status to set'
+                      % (where, printable(f.status_raw), where.split("/")[0], view.n))
+    if view.row.status != f.status:
+        raise Refused('the card and the batch file disagree on %s: card status "%s", batch status "%s" -- make them say the '
+                      "same thing, then set the status" % (where, view.row.status_raw, f.status_raw))
+    if STATUS_ORDER[word] < STATUS_ORDER[f.status]:
+        raise Refused('%s is "%s" -- a status only goes forward (в работе → сдано → принято → закрыта), so it cannot be set back to "%s"; '
+                      'to correct a mistake edit the header and the card row by hand and put "piles-skip: в -- <reason>" in the '
+                      "commit message ((в) refuses a status that moved back)" % (where, f.status, word))
+    if word == f.status:
+        return None
+    if word == "принято":
+        problem = _node_table_problem(f)
+        if problem:
+            raise Refused("%s: %s -- its nodes are read to judge the acceptance" % (where, problem))
+        if not f.nodes:
+            raise Refused('%s has no nodes to accept (its node table has no rows) -- expected at least one node row to judge; set the '
+                          'batch to сдано, or edit the header and the card row by hand and put "piles-skip: в -- <reason>" in the '
+                          "commit message ((в) masks the Статус cells)" % where)
+        open_ids = [printable(_shorten(nd.id, 30)) for nd in f.nodes if nd.status not in NOT_WRITING]
+        if open_ids:
+            raise Refused("%s cannot be accepted while its node(s) %s are neither принято nor отклонено -- set them first "
+                          "(`status %s <node-id> --set принято --hash <h>`), or set the batch to сдано"
+                          % (where, ", ".join(open_ids[:10]) + (", +%d more" % (len(open_ids) - 10) if len(open_ids) > 10 else ""),
+                             where.replace("/", " ")))
+    card_path, batch_path = root / pile.card_rel, root / f.path
+    return [(card_path, edit_card(read_text(card_path), view.row, {"status": word})),
+            (batch_path, edit_header(read_text(batch_path), {"статус": word}))]
+
+
+def cmd_status(args, root) -> int:
+    """The one writer of `сдано` / `принято`: a batch's header and card row, or one node row's Статус cell. Refuses before any write."""
+    root, node_id = Path(root), args.node
+    n = _parse_n(args.n)
+    if node_id is not None and (not _text_arg_ok(node_id, NODE_ID_MAX) or re.search(r"\s", node_id)):
+        raise Refused('node id "%s": expected 1-%d characters without spaces, "|", a backtick (`) or a line break, e.g. F6-13'
+                      % (printable(_shorten(node_id, 40)), NODE_ID_MAX))
+    word = _status_word_arg(args.set, node_id is not None)
+    cell = _status_evidence(root, args, word, node_id is not None)
+    tree = _writer_tree(root, args.slug)
+    refuse_unreadable_prose(tree)                 # before any write: a fence nothing closes halts the writer
+    pile, view = _find_view(tree, args.slug, n)
+    where = "%s/%d" % (args.slug, n)
+    f = _batch_file(view, where, "nothing to set")
+    if f.status == "закрыта":
+        raise Refused('%s is "закрыта" -- a closed batch keeps its statuses; nothing was changed' % where)
+    label = where + (" " + node_id if node_id else "")
+    if node_id is None:
+        writes = _status_batch_plan(root, tree, pile, view, f, where, word)
+    else:
+        nd = _status_node_row(f, where, node_id)
+        new = _status_node_cell(nd, where, word, cell)
+        batch_path = root / f.path
+        writes = None if new is None else [(batch_path, set_node_cell(read_text(batch_path), nd, new))]
+    if writes is None:
+        print("piles status: %s is already %s; nothing changed" % (label, word))
+        return 0
+    apply_changes(root, writes, [])               # all or nothing
+    print("piles status: %s set to %s. Next:" % (label, cell))
+    print('  git add %s; git commit -m "piles: status %s %s"' % (" ".join(str(p.relative_to(root)).replace("\\", "/") for p, _ in writes),
+                                                                  label, word))
+    return 0
+
+
+def cmd_board(args, root) -> int:
+    """The refused alias: the generated board was retired (13.11.2026). Nothing runs, whatever the other arguments are."""
+    raise CannotRun("`board` was retired (the owner, 13.11.2026: there is no board) -- the open batches are shown by the "
+                    "«Бэклог» pane, or run `python -B tools/backlog_tree.py`; nothing was run")
+
+
+def cmd_summary(args, root) -> int:
+    """Read-only: prints the count line (and the non-id line), writes nothing. CannotRun when the tree cannot be read."""
+    tree = load_tree(Path(root), tolerant=True)
+    open_ids, live = _open_sets(tree)
+    ids = sorted(open_ids | tree.backlog.closed_ids, key=lambda s: int(s[2:]))
+    for line in _count_line(tree, ids, open_ids, live):
+        print(line)
+    return 0
 
 
 def cmd_release(args, root) -> int:
@@ -3181,8 +3394,11 @@ class _Parser(argparse.ArgumentParser):
 
 
 def _board_args(p):
-    p.add_argument("--check", action="store_true", help="exit 2 when plans/PILES.md is missing or stale; write nothing")
-    p.add_argument("--if-staged", action="store_true", help="do nothing unless plans/piles, BACKLOG or PILES.md is staged")
+    """The alias takes no arguments of its own: whatever follows `board` is left over and the refusal does not read it."""
+
+
+def _summary_args(p):
+    """`summary` takes no arguments: it reads the tree and prints the count line."""
 
 
 def _check_args(p):
@@ -3196,6 +3412,16 @@ def _take_args(p):
     p.add_argument("slug", help="the pile (plans/piles/<slug>/)")
     p.add_argument("n", metavar="N", help="the batch number, 1-999")
     p.add_argument("--who", required=True, help="who takes the batch (1-40 characters, no '|', backtick or line break)")
+    p.add_argument("--today", help=argparse.SUPPRESS)
+
+
+def _status_args(p):
+    p.add_argument("slug", help="the pile (plans/piles/<slug>/)")
+    p.add_argument("n", metavar="N", help="the batch number, 1-999")
+    p.add_argument("node", nargs="?", help="a node id of the batch; without it the batch header and card row are set")
+    p.add_argument("--set", required=True, help="a batch: сдано | принято; a node: в работе | сдано | принято | отклонено")
+    p.add_argument("--hash", help="a node set to принято: the merge commit (7-40 hex characters, a commit of this repository)")
+    p.add_argument("--task", help="a node set to принято: the task id t-NNN")
     p.add_argument("--today", help=argparse.SUPPRESS)
 
 
@@ -3215,8 +3441,10 @@ def _close_args(p):
 
 # command -> (adds its arguments, runs).
 COMMANDS = {"board": (_board_args, cmd_board), "check": (_check_args, cmd_check),
-            "take": (_take_args, cmd_take), "close": (_close_args, cmd_close),
-            "release": (_release_args, cmd_release)}          # release: the refused alias of close
+            "take": (_take_args, cmd_take), "close": (_close_args, cmd_close), "status": (_status_args, cmd_status),
+            "summary": (_summary_args, cmd_summary),
+            "release": (_release_args, cmd_release)}          # release, board: the refused aliases
+REFUSED_ALIASES = ("release", "board")                        # one road: no --help, extra arguments left unread
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -3224,7 +3452,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--repo", help="the repository root (default: the parent of tools/)")
     sub = ap.add_subparsers(dest="cmd", required=True, parser_class=_Parser)
     for name, (add, _) in COMMANDS.items():
-        add(sub.add_parser(name, add_help=name != "release"))
+        add(sub.add_parser(name, add_help=name not in REFUSED_ALIASES))
     return ap
 
 
@@ -3237,8 +3465,8 @@ def main(argv=None) -> int:
     cmd = ""
     try:
         parser = build_parser()
-        args, extra = parser.parse_known_args(argv)         # `release` takes nothing, so its arguments arrive as `extra`
-        if extra and args.cmd != "release":
+        args, extra = parser.parse_known_args(argv)         # a refused alias takes nothing, so its arguments arrive as `extra`
+        if extra and args.cmd not in REFUSED_ALIASES:
             parser.error("unrecognized arguments: %s" % " ".join(extra))
         cmd = args.cmd
         return COMMANDS[cmd][1](args, Path(args.repo) if args.repo else REPO)

@@ -1315,6 +1315,7 @@ def runs_table_tests(root: Path) -> None:
     rt_require_args()
     rt_empty_prefix(root)
     rt_prepare_copy_and_run_headless(root)
+    rt_run_headless_child(root)
     rt_key_prefix_strip(root)
 
 
@@ -1537,6 +1538,58 @@ def rt_prepare_copy_and_run_headless(root: Path) -> None:
               code == 2 and "no copy at" in err.getvalue() and not (root / "rt-out.json").exists(), err.getvalue()[:300])
     finally:
         paths.TABLE, paths.BASE, prepare_copy.LIVE_REPO, run_headless.ROOT, sys.argv = saved
+
+
+def rt_run_headless_child(root: Path) -> None:
+    """run_headless gives its child the desktop road: E16 a parent env with a run mode, a stale plugin root, a host
+    session marker and an ordinary key; E17 a plugin path with spaces is one argv element and no env value."""
+    import contextlib
+    import io
+    import os
+    import paths
+    import run_headless
+    base = {"QA_FACTORY_RUN_MODE": "driver", "CLAUDE_PLUGIN_ROOT": "/other/copy", "CLAUDE_CODE_CHILD_SESSION": "1",
+            "X": "1"}
+    before = dict(base)
+    got = run_headless.child_env(base)
+    rows = [("E16 env: no run mode, no stale root, no host session marker",
+             not {"QA_FACTORY_RUN_MODE", "CLAUDE_PLUGIN_ROOT", "CLAUDE_CODE_CHILD_SESSION"} & set(got)),
+            ("E16 env: other keys kept, ceiling is '0'",
+             got.get("X") == "1" and got.get("CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS") == "0"),
+            ("E16 env: the base dict is not mutated", base == before)]
+    spaced = "C:/my plugins/qa-factory"
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen["cmd"], seen["env"] = cmd, kw.get("env") or {}
+        return type("R", (), {"stdout": "", "stderr": "", "returncode": 0})()
+
+    saved = (paths.TABLE, paths.BASE, run_headless.ROOT, run_headless.PLUGIN, run_headless.subprocess.run, sys.argv,
+             os.environ.get("CLAUDE_PLUGIN_ROOT"))
+    paths.TABLE, paths.BASE, run_headless.ROOT, run_headless.PLUGIN = {}, root / "rt-base", root / "rt-base", spaced
+    (root / "rt-base" / paths.copy_folder("sp1", {}) / "test-harness").mkdir(parents=True, exist_ok=True)
+    run_headless.subprocess.run = fake_run
+    os.environ["CLAUDE_PLUGIN_ROOT"] = "/stale"
+    sys.argv = ["run_headless.py", "--name", "sp1", "--message", "hi", "--out", str(root / "rt-sp.json")]
+    try:
+        with contextlib.redirect_stdout(io.TextIOWrapper(io.BytesIO())):   # main() reconfigures stdout
+            run_headless.main()
+    finally:
+        (paths.TABLE, paths.BASE, run_headless.ROOT, run_headless.PLUGIN, run_headless.subprocess.run, sys.argv,
+         stale) = saved
+        if stale is None:
+            os.environ.pop("CLAUDE_PLUGIN_ROOT", None)
+        else:
+            os.environ["CLAUDE_PLUGIN_ROOT"] = stale
+    cmd = seen.get("cmd") or []
+    at = cmd.index("--plugin-dir") if "--plugin-dir" in cmd else -1
+    rows += [("E17 argv: the spaced path is the one element after --plugin-dir, verbatim",
+              at >= 0 and cmd[at + 1] == spaced and cmd.count(spaced) == 1),
+             ("E17 env: the child env carries no plugin root and no run mode",
+              "CLAUDE_PLUGIN_ROOT" not in seen.get("env", {"CLAUDE_PLUGIN_ROOT": 1})
+              and "QA_FACTORY_RUN_MODE" not in seen.get("env", {"QA_FACTORY_RUN_MODE": 1}))]
+    for label, ok in rows:
+        check(f"run_headless child: {label}", ok, str(seen)[:300])
 
 
 def rt_key_prefix_strip(root: Path) -> None:

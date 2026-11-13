@@ -1,16 +1,43 @@
 """Deliver Codex context at SubagentStart without modifying opaque spawn messages."""
+import errno
 import hashlib
 import json
-from pathlib import Path
-from event_store import EventStore, StateConflict, atomic_json
+import os
+import sys
+from pathlib import Path, PureWindowsPath
+from event_store import EventStore, StateConflict, atomic_json, TEMP_NAME_HEX
+import hooklib
 from hooklib import sorted_paths
 
 PROBE_TASK = 'qa_factory_context_probe'
 NAME_HEX = 32
 # Longest project root (characters) for which the packet, written through event_store's temp
-# name (`.json.<32 hex>.tmp`), stays within the Windows 259-character path limit:
-# root + len('\qa-factory\state\native-context\') 33 + 32 + 1 + 32 + len('.json') 5 + len('.<32 hex>.tmp') 37 <= 259.
-PACKET_ROOT_LIMIT = 119
+# name (`.json.<8 hex>.tmp`), stays within the Windows 259-character path limit:
+# root + len('\qa-factory\state\native-context\') 33 + 32 + 1 + 32 + len('.json') 5 + len('.<8 hex>.tmp') 13 <= 259.
+# The binding receipt `host_dispatch.binding_path` (64 hex) has the same limit, root + 116 (34 + 64 + 5 + 13).
+# The literal is pinned against `write_path_length` by test_doctor_context.PacketNameLength.
+PACKET_ROOT_LIMIT = 143
+# Length of `.<8 hex>.tmp`, the temp name `event_store._publish` adds (derived: event_store owns the length).
+TEMP_NAME_EXTRA = len('.') + TEMP_NAME_HEX + len('.tmp')
+# The longest path an ordinary Windows open accepts when long paths are off; a platform not in the table has no
+# limit the factory knows.
+PATH_LIMITS = {'nt': 259}
+# The longest project root the factory's bounded-suffix writers fit under the Windows limit (the native packet and the
+# host-dispatch binding, root + 116; measured across the package by t-216); not this file's packet alone. Writers with
+# uncapped components are not covered by it.
+SUPPORTED_ROOT = 143
+
+DELIVER_WRITE_FAILED = 'FACTORY CONTEXT: the context of {role} ({task}) was delivered, but {what} ({error_type}: {error}).{tail}'
+BINDING_UNWRITTEN = ('its launch receipt could not be written; the duplicate-spawn guard and recovery cannot see this '
+                     'worker until it stops')
+PACKET_UNMARKED = ('its packet could not be marked delivered; it stays pending, so a later launch of this role in this '
+                   'session may find two launches waiting and get no context (said when it happens)')
+# The closing advice follows the write that failed: the receipt (F-7) can fail on path length, the packet rewrite
+# (F-9, same path as the packet already written) never does. A `what` not in the table gets NO tail - never the
+# long-path one.
+LONG_PATH_TAIL = ' If the project folder is long, a shorter folder or Windows long paths fix it.'
+REWRITE_TAIL = ' Check that the project folder is writable and the file is not locked by another process.'
+WRITE_FAILURE_TAILS = {BINDING_UNWRITTEN: LONG_PATH_TAIL, PACKET_UNMARKED: REWRITE_TAIL}
 
 
 def _folder(root):
@@ -66,6 +93,23 @@ def pending_path(root, session, task_name=None):
     return found[0] if len(found) == 1 else plain
 
 
+def launch_pending(root, session, task_name=None) -> bool:
+    """True when the packet of EXACTLY this launch key (`_slot`) is pending, or exists but cannot be read, parsed or is
+    not an object. False for an empty session, an absent file, or another status. Reads only: no lock, no write, never
+    raises (any exception is True). Error direction: toward "pending" - the answer decides whether a refused dispatch's
+    denial may close it, and a launch that may still be live must never be closed on a guess."""
+    try:
+        if not session:
+            return False
+        path = _slot(root, session, task_name)
+        if not path.is_file():
+            return False
+        data = json.loads(path.read_text(encoding='utf-8'))
+        return not isinstance(data, dict) or data.get('status') == 'pending'
+    except Exception:
+        return True
+
+
 def is_probe_task(name):
     """True for PROBE_TASK itself or PROBE_TASK + '__' + a non-empty suffix.
 
@@ -81,6 +125,49 @@ def diagnostic(event):
     ti = event.get('tool_input') or {}
     raw = (event.get('_qa_host') or {}).get('input') or ti
     return ti.get('prompt') == 'QA_FACTORY_CONTEXT_PROBE' or is_probe_task(raw.get('task_name'))
+
+
+def write_path_length(root, session, task_name=None) -> int:
+    """Characters of the packet's path plus the temp name the atomic write adds. Pure, touches no disk."""
+    return len(str(_slot(root, session, task_name))) + TEMP_NAME_EXTRA
+
+
+def unwritten_facts(root, session, task_name, exc, platform=None) -> dict:
+    """Facts for the text of a refusal when the packet could not be written; decides nothing about passing.
+    `cause` is `path_limit` only when the machine has a known path limit, the path (with its temp name) is over it,
+    the path is not an extended-length one and the error is the kind a too-long path raises; else `write_error`."""
+    platform = os.name if platform is None else platform
+    limit = PATH_LIMITS.get(platform)
+    slot = str(_slot(root, session, task_name))
+    if platform == 'nt':
+        slot = str(PureWindowsPath(slot))   # `//?/C:/...` becomes `\\?\C:\...` on every OS
+    extended = slot.startswith('\\\\?\\')
+    length = write_path_length(root, session, task_name)
+    too_long = bool(limit) and not extended and length > limit and (
+        isinstance(exc, FileNotFoundError) or getattr(exc, 'winerror', None) == 206
+        or getattr(exc, 'errno', None) == errno.ENAMETOOLONG)
+    return {'cause': 'path_limit' if too_long else 'write_error', 'length': length, 'limit': limit,
+            'root_length': len(str(root)), 'packet_limit': PACKET_ROOT_LIMIT, 'supported': SUPPORTED_ROOT,
+            'error_type': type(exc).__name__, 'error': str(exc)}
+
+
+def ambiguous_once_key(role, names) -> str:
+    """One key per role AND per set of waiting names: the same ambiguity is said once, a different one again."""
+    joined = '\n'.join(sorted(str(n or '') for n in names))
+    return 'native-ambiguous:' + str(role) + ':' + hashlib.sha256(joined.encode()).hexdigest()[:16]
+
+
+def _said_write_failure(event, data, what, exc) -> None:
+    """A side write of `deliver` failed: say it on stderr and in the journal; the context is still delivered.
+    No once key: every failed launch is its own fact. Never raises."""
+    text = DELIVER_WRITE_FAILED.format(role=data.get('role'), task=data.get('task_name') or '(no task name)',
+                                       what=what, error_type=type(exc).__name__, error=exc,
+                                       tail=WRITE_FAILURE_TAILS.get(what, ''))
+    try:
+        print(text, file=sys.stderr)
+    except Exception:
+        pass
+    hooklib.person_signal(event, 'inject', text, task=data.get('task_id'))
 
 
 def stage(root, event, role, context, ticket):
@@ -99,8 +186,20 @@ def stage(root, event, role, context, ticket):
     # inside the lock and ahead of the write, so two concurrent stagings cannot both pass it.
     path = _slot(root, session, raw.get('task_name'))
     with EventStore(path.parent).lock():
-        if path.is_file() and json.loads(path.read_text(encoding='utf-8')).get('status') == 'pending':
-            raise StateConflict('A factory launch is awaiting SubagentStart; retry after it starts, do not replace it')
+        held = None
+        if path.is_file():
+            try:
+                held = json.loads(path.read_text(encoding='utf-8'))
+            except ValueError:  # empty or broken JSON (JSONDecodeError and a bad encoding are both ValueError)
+                held = None
+            if not isinstance(held, dict):
+                # An unreadable packet (empty, broken, or JSON that is not an object): one named refusal with its door.
+                # A plain ValueError, which `refuse_native_stage` already takes and the A24 scanner sees.
+                raise ValueError('launch packet ' + path.name + ' cannot be read or is not a JSON object; '
+                                 'relaunch the role under a unique task name')
+        if held and held.get('status') == 'pending':
+            raise StateConflict('A factory launch is awaiting SubagentStart; retry after it starts, do not replace it; '
+                                'if the launch never starts, relaunch the role under a unique task name')
         atomic_json(path, {'status':'pending', 'role':role, 'context':context,
                           'session_id':session, 'tool_use_id':event['tool_use_id'],
                           'transcript_path':event.get('transcript_path'), 'task_id':ticket,
@@ -134,23 +233,33 @@ def deliver(root, event):
             # Never silent: a stale packet of a failed launch would otherwise starve every
             # later launch of this role with no trace. stderr only (stdout is the context
             # channel), names only (never the context), and the child's start is not blocked.
-            import sys
             names = ', '.join(str(x[1].get('task_name') or '(no task name)') for x in chosen)
-            print('FACTORY CONTEXT: several factory launches of ' + str(role) + ' are waiting in this host '
-                  'session (' + names + ') and the host did not say which one this child belongs to, so no '
-                  'context was delivered; relaunch the role under a unique task name.', file=sys.stderr)
+            ambiguity = ('FACTORY CONTEXT: several factory launches of ' + str(role) + ' are waiting in this host '
+                         'session (' + names + ') and the host did not say which one this child belongs to, so no '
+                         'context was delivered; relaunch the role under a unique task name.')
+            print(ambiguity, file=sys.stderr)
+            hooklib.person_signal(event, 'inject', ambiguity, task=None,
+                                  once_key=ambiguous_once_key(role, [x[1].get('task_name') for x in chosen]))
         if len(chosen) != 1:
             return
         path, data = chosen[0]
-        record({'hook_event_name':'PostToolUse', 'tool_name':'Agent',
-                'session_id':data['session_id'], 'tool_use_id':data['tool_use_id'],
-                'task_id':data.get('task_id'), 'transcript_path':data.get('transcript_path'),
-                'tool_input':{'subagent_type':data['role']},
-                '_qa_host':{'input':{'task_name':data.get('task_name')}},
-                'tool_response':{'agent_id':event['agent_id'], 'task_name':data.get('task_name')}})
+        # Both writes below are side records of the delivery; the context is the delivery. A failure of either is
+        # said (stderr + one signal) and never costs the child its context: `context_output` runs in every case.
+        try:
+            record({'hook_event_name':'PostToolUse', 'tool_name':'Agent',
+                    'session_id':data['session_id'], 'tool_use_id':data['tool_use_id'],
+                    'task_id':data.get('task_id'), 'transcript_path':data.get('transcript_path'),
+                    'tool_input':{'subagent_type':data['role']},
+                    '_qa_host':{'input':{'task_name':data.get('task_name')}},
+                    'tool_response':{'agent_id':event['agent_id'], 'task_name':data.get('task_name')}})
+        except Exception as exc:
+            _said_write_failure(event, data, BINDING_UNWRITTEN, exc)
         text = data.pop('context', '')
         data.update(status='delivered', agent_id=event['agent_id'])
-        atomic_json(path,data)  # the record keeps identities, not up to 100 KB of context
+        try:
+            atomic_json(path,data)  # the record keeps identities, not up to 100 KB of context
+        except Exception as exc:
+            _said_write_failure(event, data, PACKET_UNMARKED, exc)
         context_output(event,text)
 
 

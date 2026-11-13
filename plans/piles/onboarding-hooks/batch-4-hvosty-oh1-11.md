@@ -10,6 +10,8 @@
 очередь: onboarding-hooks/4 → onboarding-forge/1
 очередь: onboarding-hooks/4 → onboarding-forge/2
 очередь: onboarding-hooks/4 → onboarding-hooks/5
+очередь: onboarding-hooks/4 → onboarding-forge/4
+очередь: onboarding-hooks/4 → onboarding-hooks/8
 Скоуп свидетеля: тестовый файл изменённого модуля и ключи DoD узла; BATCH CANON — интегратор.
 Общий бриф дизайнерам: карточка кучки («Дороги», «Содержание»); находка узла; `design/factory-rules.md` FR-13; вернуть спеку в `docs/tasks/specs/t-nnn-oh4-n.md`.
 
@@ -24,7 +26,7 @@
 
 | Узел | Приоритет | Что | Исполнитель | Пишет в | Зависит от | Статус |
 |---|---|---|---|---|---|---|
-| OH4-1 | П3 | Имена возможностей (`vcs_api`, `host_hooks`, `base_slice`) и префикс строки — одно определение для `_CAPABILITY_LINE` и `_NOT_ESTABLISHED_LINE` (`findings/20261102-oh1-11-imena-vozmozhnostej-v-dvuh-regulyarkah.md`; критик t-746 m-3; FR-13; AR-1) | builder → critic | `scripts/gate_brief.py`, `scripts/tests/test_gate_brief*.py` | OH1-11 (`release-next/1`, влит) | ожидает |
+| OH4-1 | П3 | Имена возможностей (`vcs_api`, `host_hooks`, `base_slice`) и префикс строки — одно определение для `_CAPABILITY_LINE` и `_NOT_ESTABLISHED_LINE` (`findings/20261102-oh1-11-imena-vozmozhnostej-v-dvuh-regulyarkah.md`; критик t-746 m-3; FR-13; AR-1) | builder → critic | `scripts/gate_brief.py`, `scripts/tests/test_gate_brief*.py` | OH1-11 (`release-next/1`, влит) |принято: c5d08e9 (t-131) |
 
 ## Ход
 

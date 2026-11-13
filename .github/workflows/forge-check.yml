@@ -78,11 +78,10 @@ jobs:
       - run: python tools/factory_rules_index.py --check
       - run: python tools/architecture_index.py --check
       - run: python tools/agents_md.py --check
-      - run: python tools/piles.py board --check
       - name: piles frozen batches and backlog
         env:
           BASE: ${{ steps.base.outputs.base }}
-        run: python tools/piles.py check --all --base "$BASE"
+        run: python tools/piles.py check --base "$BASE"
       # install parity (.gitlab-ci.yml: the step before the whole-suite run). On a pull request the checkout is the merge
       # commit, so the door `parity-skip:` is read from the message of the PR head; otherwise the tool reads HEAD itself.
       - name: install parity (pull request)
@@ -93,9 +92,7 @@ jobs:
       - name: install parity (push, canon)
         if: github.event_name != 'pull_request'
         run: python tools/install_parity.py --check
-      # the test quarantine (.gitlab-ci.yml forge-check, spec td-15 K5): no file of a quarantine cohort changes without the door;
-      # no layers file = exit 0
-      - run: python tools/test_quarantine.py check
+      # the quarantine history check moved to nightly.yml job quarantine-check (owner's word 13.11.2026: it walks the whole history and outlived this job)
       - run: python -m pytest tools/ -q
       - uses: actions/upload-artifact@v7
         if: always()

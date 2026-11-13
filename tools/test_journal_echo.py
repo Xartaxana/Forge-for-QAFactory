@@ -34,6 +34,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -1321,3 +1322,55 @@ def test_without_transcripts_the_find_helpers_answer_none(monkeypatch):
     monkeypatch.setattr(journal_echo, "transcripts", None)
     assert journal_echo._find_agent_transcript("abc") is None
     assert journal_echo._collect_tier_events([_delegated_obj(worker_ref="agent:abc", model="sonnet")], []) == []
+
+
+# ---------------------------------------------------------------------
+# F6-58 (rule 9e) q2/q3: the PEER NOTE at the write moment
+# ---------------------------------------------------------------------
+
+
+def _peer_payload(journal_path, tmp_path, peer_age=120):
+    folder = tmp_path / "transcripts"
+    folder.mkdir(exist_ok=True)
+    own = folder / "own.jsonl"
+    own.write_text("{}\n", encoding="utf-8")
+    peer = folder / "peer-session-9999.jsonl"
+    peer.write_text("{}\n", encoding="utf-8")
+    t = time.time() - peer_age
+    os.utime(peer, (t, t))
+    payload = _post_tool_use_payload(journal_path)
+    payload["transcript_path"] = str(own)
+    return payload
+
+
+def test_q2_a_delegated_with_a_live_peer_and_no_band_gets_the_peer_note_and_the_verdict_is_unchanged(tmp_path):
+    journal_path = _seed_committed_journal(tmp_path)
+    new_line = _line(event="delegated", ts=_fresh_ts(), task_id="t-002", model="sonnet", notes="second task")
+    journal_path.write_text(HEAD_TEXT + new_line + "\n", encoding="utf-8")
+    result = _run_hook(_peer_payload(journal_path, tmp_path))
+    assert result.returncode == 0
+    ctx = _parse_stdout_json(result.stdout)["additionalContext"]
+    assert ctx.startswith("PARALLEL SESSION (a note, nothing is blocked)") and "JOURNAL ECHO" not in ctx
+    assert "PARALLEL SESSION" in result.stderr and "2 min ago (peer-ses)" in ctx
+    # a peer outside the window: silent, as before
+    (tmp_path / "late").mkdir()
+    result = _run_hook(_peer_payload(journal_path, tmp_path / "late", peer_age=601))
+    assert result.stdout == "" and result.stderr == ""
+
+
+def test_q3_no_peer_note_once_the_file_holds_a_closed_band_with_a_free_id_or_for_a_line_that_is_not_delegated(tmp_path):
+    banded = HEAD_TEXT + _line(event="delegated", ts="2026-07-10T08:05:00", task_id="t-450", model="sonnet",
+                               notes="band", id_band="t-450..t-499") + "\n"
+    journal_path = _seed_committed_journal(tmp_path, banded)
+    new_line = _line(event="delegated", ts=_fresh_ts(), task_id="t-002", model="sonnet", notes="second task")
+    journal_path.write_text(banded + new_line + "\n", encoding="utf-8")
+    result = _run_hook(_peer_payload(journal_path, tmp_path))
+    assert result.returncode == 0 and "PARALLEL SESSION" not in result.stdout + result.stderr
+    # not a delegated: no note even with a peer and no band
+    other = tmp_path / "other"
+    other.mkdir()
+    journal_path = _seed_committed_journal(other)
+    journal_path.write_text(HEAD_TEXT + _line(event="decomposable", ts=_fresh_ts(), agent="lead", category="process",
+                                              notes="split") + "\n", encoding="utf-8")
+    result = _run_hook(_peer_payload(journal_path, other))
+    assert result.returncode == 0 and "PARALLEL SESSION" not in result.stdout + result.stderr

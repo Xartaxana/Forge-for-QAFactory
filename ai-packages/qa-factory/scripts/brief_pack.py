@@ -8,7 +8,7 @@ code does before the role starts:
 
     brief_pack.py --task T --stage S --role R --dispatch ID [--json] [--output PATH] [--dry-run]
 
-    -> qa-factory/artifacts/<T>/work/briefs/<ID>.md   (<= 6 KB)
+    -> <artifact root>/<T>/work/briefs/<ID>.md   (<= 6 KB)
 
 The brief carries, in this order:
   1. the scope of the dispatch and what earlier roles produced (pipeline.json digests,
@@ -65,11 +65,11 @@ PERSON_WORDS_MAX = 20000
 MAP_INLINE_LINES = 14
 PLAN_ROW_RE = re.compile(r"^\s*plan_row:\s*(\S+)", re.M)
 STAGE_ORDER = [f"S{i}" for i in range(10)]
-# The brief is a runtime packet under work/, written by the copy that is running: its own absolute
-# path is what the role's Bash must use. `${CLAUDE_PLUGIN_ROOT}` in a brief was text nobody expanded
-# (B-014, step 0: agent and brief text are not expanded, and a Bash tool's env carries whatever the
-# host session had), so a role could run the scripts of another copy than the driver's.
-SCRIPTS = HERE.as_posix()
+# The brief is a runtime packet under work/, written by the copy that is running. The card's script paths are spelled
+# by the survivor (`runtime_paths.script_command`) as absolute paths of that copy: `${CLAUDE_PLUGIN_ROOT}` in a brief
+# was text nobody expanded (B-014, step 0), so a role could run the scripts of another copy than the driver's.
+# SCRIPTS is kept as the folder value, for readers in tests; no product code reads it.
+SCRIPTS = (RP.package_root() / "scripts").as_posix()
 # SC1-14 C2 / SC1-15: the S5 plan (`s5_plan.PLAN_REL`, spelled here because ROLE_FILES is data read at import). It is named to the
 # two dispatches of the plan only; a window reads its slice of it, and an S5 history of the earlier form (`legacy`) reads neither.
 PLAN_FILE = "work/s5-plan.json"
@@ -191,7 +191,7 @@ TOOLING = {
         "ticket_adapter.py query --path <API path with its query> --output <task root>/work/source-inventory.json [--save <file>] - a GET of the configured tracker API you choose (a filter's search, a project's issues); the answer goes to a file, one summary line on stdout",
         "ticket_adapter.py record-source --output <task root>/work/source-inventory.json --ref <url|path> --file <file> --relation subject|parent|normative|referenced --summary - a text you read by another route becomes a source",
         "diff_pass.py --diff <work/impl-diff*.txt> [--files-only | --file <path>] - the changed files and hunks in one call, never the diff whole",
-        "vcs_evidence.py --url <MR URL> --output qa-factory/artifacts/<T>/work/sources/<source id>/mr-<iid>.json - the merge request whole into the file, a summary on stdout; "
+        "vcs_evidence.py --url <MR URL> --output <task root>/work/sources/<source id>/mr-<iid>.json - the merge request whole into the file, a summary on stdout; "
         "a file already at that path is the driver's receipt: Grep it, never collect again; its `status` says whether it was read; "
         "`mr-<iid>-git.md` next to it is the driver's partial route; record a new one with ticket_adapter.py inspect --output <inventory> "
         "--source-id <source id> --media-url <MR URL> --inspection-status read --local-ref sources/<source id>/mr-<iid>.json; never `glab mr view` into your context",
@@ -300,7 +300,7 @@ TOOLING = {
     "qa-retro-analyst": [
         "retro_numbers.py --task <T> - already run; every number is in work/retro-numbers.md and .json",
         "estimate_record.py --task <T> --facts <file> - the idempotent S9 estimate record",
-        "project_decisions.py --root <project> add-finding - a finding for qa-factory/factory-backlog.md",
+        "project_decisions.py --root <project> add-finding - a finding for <home>/factory-backlog.md",
     ],
 }
 
@@ -1113,6 +1113,15 @@ def _dir_note(path: Path) -> str:
     return f"{len(files)} files"
 
 
+def _home_text(project) -> str:
+    """The project's `qa-factory/` home as text a role reads: the folder `RP.home_dir` names, relative to `project` (FR-37).
+    A project that is not a path gives the survivor's own constant, never a second spelling."""
+    try:
+        return RP.home_dir(project).relative_to(Path(project)).as_posix()
+    except (TypeError, ValueError):
+        return RP.HOME
+
+
 def _resolve(name: str, task_root: Path, project: Path) -> tuple:
     """(display path, absolute path) for a task-relative, `project:` or `plugin:` name."""
     if name.startswith("plugin:"):
@@ -1131,8 +1140,8 @@ def _resolve(name: str, task_root: Path, project: Path) -> tuple:
             own = config_contract.strategy_document(hooklib.load_config() or {}, Path(rel).name)
             if own:
                 return own, project / own
-        return "qa-factory/" + rel, project / "qa-factory" / rel
-    return f"qa-factory/artifacts/{task_root.name}/" + name, task_root / name
+        return f"{_home_text(project)}/{rel}", RP.home_dir(project) / rel
+    return RP.story_text(task_root, name), task_root / name
 
 
 def _bundle_view(task_root: Path):
@@ -1244,8 +1253,9 @@ def case_paths(task_root: Path, scope: list) -> list:
         link = links.get(cid) or links.get(bare)
         chosen = None
         if link:
-            source = str((link.get("store_provenance") or {}).get("source_path") or "")
-            prefix = f"qa-factory/artifacts/{task_root.name}/"
+            import case_versions
+            source = case_versions.read_source_path(link)
+            prefix = RP.story_text(task_root) + "/"      # E13: a stale prefix misses, and the two fallbacks below find the file
             if source.startswith(prefix) and (task_root / source[len(prefix):]).is_file():
                 chosen = source[len(prefix):]
             elif link.get("path") and (task_root / str(link["path"])).is_file():
@@ -1440,14 +1450,24 @@ def _excluded_files(task_root: Path) -> set:
     for ref in refs:
         # A local_ref is written relative to `work/` (`sources/<SRC>/mr-1924.json`); the forms that start at the
         # story or at the project are read too.
-        story = f"qa-factory/artifacts/{task_root.name}/"
+        story = RP.story_text(task_root) + "/"
+        # E17 (B-231, AR-24): the print prefix is absolute when the project is unknown, and a ref written under another root
+        # (the default one, before the root was switched) never starts with it. A ref that holds `<head>/<story>/work/...` is the
+        # story's own file under any head: it is skipped too. The error direction is "skip more", never "hand an excluded file on".
+        under = re.match(r"^(?:.*/)?" + re.escape(task_root.name) + r"/(work/.*)$", ref)
+        rels = []
         if ref.startswith(story):
-            ref = ref[len(story):]                  # now relative to the story: `work/sources/...`
+            rels.append(ref[len(story):])           # now relative to the story: `work/sources/...`
         elif not ref.startswith("work/"):
-            ref = "work/" + ref
-        base = task_root / ref
-        for path in (base, base.with_suffix(".md"), base.with_suffix(".json")):
-            skipped.add(path.resolve())
+            rels.append("work/" + ref)
+        else:
+            rels.append(ref)
+        if under and under.group(1) not in rels:
+            rels.append(under.group(1))
+        for rel in rels:
+            base = task_root / rel
+            for path in (base, base.with_suffix(".md"), base.with_suffix(".json")):
+                skipped.add(path.resolve())
     return skipped
 
 
@@ -1491,7 +1511,7 @@ def source_material(task: str, task_root: Path, role: str) -> list:
             continue
         kind = ("merge request" if path.name.startswith("mr-") else
                 "material the person supplied" if path.name.startswith("pasted-") else "material")
-        out.append(f"- qa-factory/artifacts/{task}/{rel} ({_size(path)}) - collected {kind}: {why}")
+        out.append(f"- {RP.story_text(task_root, rel)} ({_size(path)}) - collected {kind}: {why}")
     return told + out[:8]
 
 
@@ -1600,11 +1620,13 @@ def question_answer_lines(task_root, project: Path | None = None) -> tuple:
     open until the report - read ONLY through `QR.answers_for_brief` (AR-13: the answers file is the carrier, not the
     journal). A decision that no longer holds (the row changed since, `with_designer`, open) has no line: the
     question is asked again. `shown` keeps the words when the line fits DECISION_CHARS and points at the side file
-    when it does not; `minimal` is the id and the letter, no words; the same words under several questions are
+    when it does not; `minimal` is the id, the letter and the words cut at DECISION_CHARS_MIN (when cut, the line ends
+    "; the whole text is in <decisions>", and `build` replaces `<decisions>` by the side file's path at level 1; none for
+    a kept-open or not-needed line); the same words under several questions are
     carried once (`said` is those texts, for `decisions` to drop the journal copies of them). One line, first, says
     the answers could not be read when the store reports it (a broken line, a non-object line, an unreadable file)."""
     view = QR.answers_for_brief(task_root)
-    holder = f"qa-factory/artifacts/{Path(task_root).name}/" + "/".join(QR.ANSWERS_REL)
+    holder = RP.story_text(task_root, "/".join(QR.ANSWERS_REL))
     entries, said, first = [], [], {}
     if view["unreadable"]:
         entries.append((UNREAD_ANSWERS_LINE, UNREAD_ANSWERS_LINE, UNREAD_ANSWERS_LINE))
@@ -1620,18 +1642,27 @@ def question_answer_lines(task_root, project: Path | None = None) -> tuple:
         else:
             head, short = f"{qid} answered {where}, in the person's own words", f"{qid} answered in the person's own words"
         key = _plain_words(item["words"])
+        # the words ride on the minimal line too (FR-8): cut at DECISION_CHARS_MIN by the sisters' helper, with the
+        # pointer when cut; a line with no words, and the kept-open / not-needed lines, stay as they were
+        minimal_clause = ""
         if not key:
             clause = "the person's words: not recorded"
         elif key in first:
             clause = f"the person's words: the same text as under {first[key]}"
+            minimal_clause = clause
         else:
             first[key] = qid
             said.append(key)
             clause = "the person's words: " + person_words_whole(key, project, holder)
+            minimal_clause = "the person's words: " + _short(key, DECISION_CHARS_MIN)
+            if len(re.sub(r"\s+", " ", key).strip()) > DECISION_CHARS_MIN:
+                minimal_clause += "; the whole text is in <decisions>"      # one prefix per line; `build` puts the side file's path in
+        if item["status"] == QR.DEFERRED or item["status"] == "not_needed":
+            minimal_clause = ""
         full = f"- {head}; {clause}"
         fits = len(" ".join(full.split())) <= DECISION_CHARS
         shown = " ".join(full.split()) if fits else f"- {head}; {WORDS_BY_REFERENCE}"
-        entries.append((full, shown, f"- {short}"))
+        entries.append((full, shown, f"- {short}; {minimal_clause}" if minimal_clause else f"- {short}"))
     return entries, said
 
 
@@ -1755,7 +1786,7 @@ def repo_map_for(task: str, task_root: Path, project: Path, scope: list, write: 
         import repo_map
         doc = repo_map.build(task_root, project, hooklib.load_config() or {}, list(scope))
         path = repo_map.write_map(task_root, doc) if write else None
-        rel = f"qa-factory/artifacts/{task}/work/briefs/repo-map-{doc['hash']}.md"
+        rel = RP.story_text(task_root, f"work/briefs/repo-map-{doc['hash']}.md")
         return {"doc": doc, "path": rel, "written": bool(path), "markdown": repo_map.render(doc)}
     except Exception as exc:  # the map is a courtesy; the brief still names the files
         return {"error": f"{type(exc).__name__}: {exc}"}
@@ -1780,13 +1811,14 @@ def blast_radius_line(task: str, task_root: Path, write: bool) -> str:
         if doc is None:
             return f"Blast radius index: {how} - not built in this run."
         s = BR.summary(doc)
-        rel = f"qa-factory/artifacts/{task}/work"
+        rel = RP.story_text(task_root, "work")
         labelled = BR.GT.table_path(task_root).exists()
         tail = (f" Label the areas in {rel}/grounding.yaml (blast_radius.areas)." if labelled else " Read it before labelling.")
         head = f"Blast radius index (code; {how}): {rel}/{BR.BLAST_FILE} - {s.areas} areas in {s.repos} repositories; unmeasured: {s.unmeasured}"
         room = max(0, min(BLAST_REASON_MAX, BLAST_LINE_MAX - len(head) - len(tail) - 4))
         reason = f" ({s.first[:room]})" if s.unmeasured and s.first and room else ""
-        return (head + reason + "." + tail)[:BLAST_LINE_MAX]
+        # E9 / F6 (a): the cap bounds the REASON (`room` above), never the paths: a long story root is printed whole
+        return head + reason + "." + tail
     except Exception as exc:
         what = getattr(exc, "text", "") or str(exc)
         return BLAST_FAILED.format(f"{type(exc).__name__}: {' '.join(str(what).split())[:120]}")[:BLAST_LINE_MAX]
@@ -1848,8 +1880,8 @@ def _plan_cap() -> tuple:
         return None, f"{type(exc).__name__}: {_short(exc, 80)}"
 
 
-def _rel(task: str, name: str) -> str:
-    return f"qa-factory/artifacts/{task}/{name}"
+def _rel(task_root, name: str) -> str:
+    return RP.story_text(task_root, name)
 
 
 def plan_dispatch_lines(task_root: Path, task: str, dispatch_id: str, role: str, state, write: bool, project: Path) -> dict:
@@ -1880,11 +1912,11 @@ def plan_dispatch_lines(task_root: Path, task: str, dispatch_id: str, role: str,
     size = plan_path.stat().st_size if plan_path.is_file() else None
     cap, cap_why = _plan_cap()
     if size is None:
-        files.append(f"- {_rel(task, PLAN_FILE)}: not written yet - that is the path it will have, and nothing else is it")
+        files.append(f"- {_rel(task_root,PLAN_FILE)}: not written yet - that is the path it will have, and nothing else is it")
     elif cap is None or cap <= 0 or size <= cap:
         note = "" if cap is not None else (f" - not checked against the guard's read cap (it could not be read: {cap_why}); "
                                            "if it is large, read it by ranges: `Grep -n` first, then Read with offset/limit")
-        files.append(f"- {_rel(task, PLAN_FILE)} ({size} B) - {what}{note}")
+        files.append(f"- {_rel(task_root,PLAN_FILE)} ({size} B) - {what}{note}")
     else:
         sp = _sp()
         try:
@@ -1893,7 +1925,7 @@ def plan_dispatch_lines(task_root: Path, task: str, dispatch_id: str, role: str,
             if not parts:
                 raise ValueError("the plan has no window")
         except Exception as exc:  # noqa: BLE001 - slices that cannot be cut are named; the plan is then named whole
-            files.append(f"- {_rel(task, PLAN_FILE)} ({size} B) - {what}; it is over the guard's whole-read cap of {cap} B and its "
+            files.append(f"- {_rel(task_root,PLAN_FILE)} ({size} B) - {what}; it is over the guard's whole-read cap of {cap} B and its "
                          f"slices by window could not be cut ({_short(exc, 100)}): read it by ranges, `Grep -n` first, then Read "
                          "with offset/limit")
         else:
@@ -1903,11 +1935,11 @@ def plan_dispatch_lines(task_root: Path, task: str, dispatch_id: str, role: str,
                 name = f"{dispatch_id}-plan-w{n}.md"
                 sides[name] = text
                 big = len(text.encode("utf-8"))
-                files.append(f"  - {_rel(task, 'work/briefs/' + name)} ({big} B) - window {n}"
+                files.append(f"  - {_rel(task_root,'work/briefs/' + name)} ({big} B) - window {n}"
                              + ("" if write else " (not written in this run)")
                              + (" - still over the cap: read it by ranges" if big > cap else ""))
     if not author:
-        files.append(f"- {_rel(task, 'work/handoffs/' + dispatch_id + '.yaml')} - your review form (`start` writes it right after this "
+        files.append(f"- {_rel(task_root,'work/handoffs/' + dispatch_id + '.yaml')} - your review form (`start` writes it right after this "
                      "brief; `finish` stamps the plan you read)")
         rubric = file_lines([RUBRIC], task_root, project, True)
         files += [line + " - read its section «On the plan» (`Grep -n` it)" for line in rubric]
@@ -1943,7 +1975,7 @@ def plan_lines(task_root: Path, task: str, dispatch_id: str, scope: list, state,
     grew (the sentences are `s5_plan.render_slice`'s own, read from its text: one wording). A slice that cannot be cut is named in
     the head and the plan is named whole (AR-28)."""
     sp = _sp()
-    rel = _rel(task, f"work/briefs/{dispatch_id}-plan.md")
+    rel = _rel(task_root,f"work/briefs/{dispatch_id}-plan.md")
     try:
         plan = sp.load(task_root)
         piece = sp.window_slice(task_root, cases=list(scope), state=state)
@@ -1951,7 +1983,7 @@ def plan_lines(task_root: Path, task: str, dispatch_id: str, scope: list, state,
     except Exception as exc:  # noqa: BLE001
         return {"head": [f"Plan slice: could not be cut ({_short(exc, 160)}); the plan is {PLAN_FILE} - read the rows of your cases "
                          "by ranges"],
-                "files": [f"- {_rel(task, PLAN_FILE)} ({_size(task_root / PLAN_FILE)}) - the plan; slice it: `Grep -n` your case ids, then "
+                "files": [f"- {_rel(task_root,PLAN_FILE)} ({_size(task_root / PLAN_FILE)}) - the plan; slice it: `Grep -n` your case ids, then "
                           "Read with offset/limit"], "sides": {}, "piece": None, "plan": None}
     tests, remarks = len(piece["tests"]), len(piece["remarks"])
     counts = (f"{tests} tests planned, {remarks} remarks for this window" if tests
@@ -2432,7 +2464,7 @@ def delta_lines(task_root: Path, task: str, dispatch_id: str, dispatch: dict, st
             form = record
     if form:
         out.append(f"- the {'critic' if other == 'qa-code-critic' else 'author'}'s form on these cases: "
-                   f"{_rel(task, 'work/handoffs/' + str(form['id']) + '.yaml')} (dispatch {form['id']})")
+                   f"{_rel(task_root,'work/handoffs/' + str(form['id']) + '.yaml')} (dispatch {form['id']})")
     else:
         rerun = (f"`s5_plan.py --task {task} --check`" if kind == "plan"
                  else f"`s5_precheck.py --task-root <task root> --dispatch {dispatch_id} --json`")
@@ -2531,10 +2563,12 @@ def _stand_pick(cfg: dict, env_name: str) -> tuple:
 
 def _env_file_key_names(block: dict, project: Path) -> tuple:
     """(names | None, rel): the key NAMES of the stand's env file that look like an account or a secret
-    (`env_probe.SECRET_NAME`) - never a value, and not the process environment. None: the file is configured and cannot be read."""
+    (`env_probe.SECRET_NAME`) and have the shape of a key name (`project_inventory.KEY_NAME_RE`, the one shape both names-only
+    readers share) - never a value, and not the process environment. None: the file is configured and cannot be read."""
     import env_probe as EP
     import gate_preflight as GP
     import manual_capture as MC
+    from project_inventory import KEY_NAME_RE
     files = GP.configured_env_files(block, project)[0]      # the files the login reads: `env_file` and `env_files`
     if not files:
         return [], ""
@@ -2543,7 +2577,8 @@ def _env_file_key_names(block: dict, project: Path) -> tuple:
     if not there:
         return None, rel
     try:
-        return list(dict.fromkeys(k for p in there for k in EP.parse_env_file(p) if EP.SECRET_NAME.search(k))), rel
+        return list(dict.fromkeys(k for p in there for k in EP.parse_env_file(p)
+                                if EP.SECRET_NAME.search(k) and KEY_NAME_RE.match(k))), rel
     except OSError:
         return None, rel
 
@@ -2658,6 +2693,21 @@ def _repo_helper_lines(repo: dict) -> list:
         return []
 
 
+def stand_lesson_lines(project, stand) -> list:
+    """What a person taught about the stand `stand` (`project_knowledge.py lesson`), one `- Stand lessons: ` line each: the ONE
+    formatter for the manual runner's `## The stand` and the S5 automator / code-critic head (axis 5). The cap and the display cut
+    live in `PK.lessons` (the one reader). An unreadable registry is one line that says so (FR-59); no lesson, or no stand
+    chosen, is []. Never raises, never blocks the brief; the words are data, never interpreted (P27)."""
+    try:
+        import project_knowledge as PK
+        got = PK.lessons(project, str(stand or ""))
+        if got["problem"]:
+            return [f"- Stand lessons: could not be read ({got['problem']})"]
+        return ["- Stand lessons: " + line for line in got["lines"]]
+    except Exception as exc:
+        return [f"- Stand lessons: could not be read ({type(exc).__name__})"]
+
+
 def manual_stand_lines(task_root: Path, project: Path, cfg: dict, scope: list, env_name: str = "", repo: dict | None = None) -> list:
     """The lines of `## The stand` in the brief of a MANUAL runner block: where the stand is, which accounts the role may sign in
     as (roles, and the NAMES of the env file's secret-looking keys: a role gives the pair to `--as env:USER/SECRET`), which cases
@@ -2682,6 +2732,7 @@ def manual_stand_lines(task_root: Path, project: Path, cfg: dict, scope: list, e
         shown = [f'--as "{r}"' for r in roles]
         out.append("- Accounts: --as default; " + (_stand_names(shown) + " (names only)" if shown else "the stand lists no other"))
         keys = [k for note in roles.values() for k in GP.account_keys(note)]
+        out += stand_lesson_lines(project, name)
     cases, case_keys = _case_actor_lines(task_root, scope, None if (said or why) else entry)
     if not (said or why):
         file_keys, rel = _env_file_key_names(block, project)
@@ -2736,7 +2787,7 @@ def s4_stand_lines(cfg: dict | None, role: str, env_name: str = "") -> list:
             for name, words in list(listed.items())[:S4_INTEGRATIONS_MAX]:
                 out.append(f"- {name}: {_clip(words, S4_REQUIRED_BY_CHARS)}" if words else f"- {name}")
             if len(listed) > S4_INTEGRATIONS_MAX:
-                out.append(f"- and {len(listed) - S4_INTEGRATIONS_MAX} more in qa-factory/config.json, environment.integrations")
+                out.append(f"- and {len(listed) - S4_INTEGRATIONS_MAX} more in {RP.HOME}/config.json, environment.integrations")
         roles = entry.get("credentials_by_role") if isinstance(entry, dict) else None
         if isinstance(roles, dict) and roles:
             out.append('Stand accounts (for check {"stand_account": ...}): ' + _stand_names([str(r) for r in roles]))
@@ -2748,7 +2799,7 @@ def s4_stand_lines(cfg: dict | None, role: str, env_name: str = "") -> list:
 S3_ROSTER_MAX = 15            # roster lines of the S3 brief; the rest is counted and the registry named
 S3_ROSTER_WHY_CHARS = 120     # how much of an unreadable registry's reason the first line keeps
 S3_ROSTER_MARK = "[knowledge:product.roles]"      # a DATA token on every roster line, for counting later; not prose for the role
-S3_ROSTER_FILE = "qa-factory/records/project-knowledge.json"
+S3_ROSTER_NAME_OF_FILE = "project-knowledge.json"      # the registry's file name; where it is comes from `RP.rel_text` (both worlds, FR-37)
 S3_ROSTER_NAME = ("Name every role this story's plan checks in the optional handoff section product_roles (role, sign_in, where in the "
                   "requirements) - also one not listed here; leave it out or write [] when the checks need no particular role.")
 S3_ROSTER_NONE = ("Product roles: none recorded yet (a project learns them story by story). Name every role this story's plan checks in "
@@ -2794,6 +2845,7 @@ def s3_roster_lines(task_root, cfg, env_name, audience: str = "strategist") -> l
     try:
         import project_knowledge as PK
         root = RP.project_for_task(task_root)
+        roster_file = RP.rel_text(S3_ROSTER_NAME_OF_FILE, root)      # where THIS project's registry is: `records/`, or the old `state/`
         cfg = hooklib.load_config() if cfg is None else cfg
         cfg = cfg if isinstance(cfg, dict) else {}
         _entry, stand, _said = _stand_pick(cfg, str(env_name or ""))
@@ -2804,18 +2856,18 @@ def s3_roster_lines(task_root, cfg, env_name, audience: str = "strategist") -> l
             out.append(f"Product roles: the record of earlier answers cannot be read ({_clip(problem, S3_ROSTER_WHY_CHARS)}); "
                        "listed from the stand's accounts only.")
         elif elements:
-            out.append(f"Product roles ({S3_ROSTER_FILE} and the stand's accounts)"
+            out.append(f"Product roles ({roster_file} and the stand's accounts)"
                        + (":" if critic else ". Which roles this story's checks need is your judgment:"))
         else:
             out.append(S3_ROSTER_NONE_CRITIC if critic else S3_ROSTER_NONE)
         if elements:
             out += [_s3_roster_line(e, stand) for e in elements[:S3_ROSTER_MAX]]
             if len(elements) > S3_ROSTER_MAX:
-                out.append(f"+{len(elements) - S3_ROSTER_MAX} more: {S3_ROSTER_FILE}")
+                out.append(f"+{len(elements) - S3_ROSTER_MAX} more: {roster_file}")
         if not stand:
             out.append("Stand: not chosen yet - which roles have an account is not shown.")
         if removed:
-            more = f"; +{len(removed) - S3_ROSTER_MAX} more: {S3_ROSTER_FILE}" if len(removed) > S3_ROSTER_MAX else ""
+            more = f"; +{len(removed) - S3_ROSTER_MAX} more: {roster_file}" if len(removed) > S3_ROSTER_MAX else ""
             out.append("Removed by the person: " + ", ".join(
                 _clip(r.get("role") or "?", 60) + (f" ({_clip(r['story'], 40)})" if r.get("story") else "")
                 for r in removed[:S3_ROSTER_MAX]) + (more or "."))
@@ -2852,11 +2904,12 @@ APPROACH_KEY_WORDS = (("recorded", "recorded"), ("unknown", "unknown"), ("none",
 APPROACH_SHORT_BYTES = 200   # the one-line forms below never exceed this (pinned AT and BEYOND by test_brief_pack)
 APPROACH_NOTHING = ("- Project approach: nothing recorded at onboarding (no strategy/framework-rules.md, no config.json test_data, "
                     "no strategy documents); onboarding topic 3 records it; follow the existing tests' fixtures")
-APPROACH_ONE_LINE = ("- Project approach (cut for room): code rules strategy/framework-rules.md, data qa-factory/config.json `test_data`, "
-                     "documents qa-factory/strategy/; read them, name a deviation with its reason")
+# The two short forms are TEMPLATES: `{home}` is the project's home folder as text (`_home_text`), filled where the lines are emitted (C4).
+APPROACH_ONE_LINE = ("- Project approach (cut for room): code rules strategy/framework-rules.md, data {home}/config.json `test_data`, "
+                     "documents {home}/strategy/; read them, name a deviation with its reason")
 NO_FORM_LINE = ("Your final message: the three-part digest shape in your rules (`## Your handover`); the exit gate refuses any "
                 "other shape.")      # N4 (R5, E17): a brief with no template still points at the shape, so a role never has none
-APPROACH_POINTER = "- Project approach: not shown, the brief is full; see qa-factory/config.json `test_data` and qa-factory/strategy/"
+APPROACH_POINTER = "- Project approach: not shown, the brief is full; see {home}/config.json `test_data` and {home}/strategy/"
 
 
 def _approach_injected(role: str) -> bool:
@@ -2877,9 +2930,10 @@ def _approach_code_rules(role: str, task_root: Path, project: Path) -> tuple:
     return f"- code rules: {display} ({_size(path)})" + (", already in your prompt" if _approach_injected(role) else ""), True
 
 
-def _approach_test_data(config) -> tuple:
-    """-> (line, recorded): `recorded` is False only when the block is absent or no key of it holds a value."""
-    head = "- test data: qa-factory/config.json "
+def _approach_test_data(config, home: str = RP.HOME) -> tuple:
+    """-> (line, recorded): `recorded` is False only when the block is absent or no key of it holds a value. `home` is the
+    project's home folder as text (`_home_text`)."""
+    head = f"- test data: {home}/config.json "
     got = config_contract.test_data_states(config)
     if got["state"] == "absent":
         return head + "has no test_data block - not recorded (onboarding topic 3)", False
@@ -2900,14 +2954,19 @@ def _approach_test_data(config) -> tuple:
 
 def _approach_documents(project: Path, config) -> tuple:
     """-> (line, recorded)"""
+    folder = RP.home_dir(project) / "strategy"       # ONE Path: the folder named in the line is the folder the names are listed from (E15)
     try:
-        names = sorted(p.name for p in (project / "qa-factory" / "strategy").glob("*.md") if p.is_file())
+        names = sorted(p.name for p in folder.glob("*.md") if p.is_file())
     except OSError:
         names = []
+    try:
+        folder_text = folder.relative_to(Path(project)).as_posix() + "/"
+    except ValueError:
+        folder_text = folder.as_posix() + "/"
     shown = ", ".join(names[:APPROACH_DOCS_MAX]) + (f" (+{len(names) - APPROACH_DOCS_MAX} more)" if len(names) > APPROACH_DOCS_MAX else "")
     own = [str(d.get("path")) for d in (config.get("strategy_documents") if isinstance(config, dict) else None) or []
            if isinstance(d, dict) and d.get("path")]
-    return ("- strategy documents: qa-factory/strategy/ " + (shown if names else "holds none")
+    return (f"- strategy documents: {folder_text} " + (shown if names else "holds none")
             + (f"; the project's own: {', '.join(own)}" if own else "")), bool(names or own)
 
 
@@ -2930,24 +2989,26 @@ def approach_forms(role: str, project: Path, task_root: Path) -> dict:
     lines for nothing."""
     if role not in APPROACH_ROLES:
         return {2: [], 1: [], 0: [], -1: []}
+    home = _home_text(project)
+    one_line, pointer = APPROACH_ONE_LINE.replace("{home}", home), APPROACH_POINTER.replace("{home}", home)
     try:
         try:
             config = config_contract.read_config_file(project)
             unreadable = ""
         except config_contract.ConfigUnreadable:
-            config, unreadable = None, "- test data: qa-factory/config.json could not be read; no approach to data is on record for this run"
+            config, unreadable = None, f"- test data: {home}/config.json could not be read; no approach to data is on record for this run"
         rules, rules_on = _approach_code_rules(role, task_root, project)
-        data, data_on = (unreadable, True) if unreadable else _approach_test_data(config)
+        data, data_on = (unreadable, True) if unreadable else _approach_test_data(config, home)
         docs, docs_on = _approach_documents(project, config)
         if not (rules_on or data_on or docs_on):
-            return {2: [APPROACH_NOTHING], 1: [APPROACH_NOTHING], 0: [APPROACH_POINTER], -1: []}
+            return {2: [APPROACH_NOTHING], 1: [APPROACH_NOTHING], 0: [pointer], -1: []}
         lines = ["Project approach (recorded at onboarding; read it, it is not copied here; a deviation is named with its reason):",
                  rules, data, docs]
         return {2: [line if len(line) <= APPROACH_LINE_CHARS else line[:APPROACH_LINE_CHARS - 4] + " ..." for line in lines],
-                1: [APPROACH_ONE_LINE], 0: [APPROACH_POINTER], -1: []}
+                1: [one_line], 0: [pointer], -1: []}
     except Exception as exc:
         said = f"- Project approach: not read ({type(exc).__name__}), a defect of the factory"
-        return {2: [said], 1: [said], 0: [APPROACH_POINTER], -1: []}
+        return {2: [said], 1: [said], 0: [pointer], -1: []}
 
 
 def s4_p1_area_lines(task_root: Path, stage: str, role: str) -> list:
@@ -3078,7 +3139,7 @@ def fit_target_lines(task: str, task_root: Path, stage: str, role: str, dispatch
         if len(entries) > FIT_LINES_MAX:
             rest = [rid for rid, _line in entries[FIT_LINES_MAX:]]
             shown.append(f"- and {len(rest)} more: {', '.join(rest)} - "
-                         + _rel(task, f"work/briefs/{dispatch_id or str(dispatch.get('id') or '<dispatch>')}-targets.md"))
+                         + _rel(task_root,f"work/briefs/{dispatch_id or str(dispatch.get('id') or '<dispatch>')}-targets.md"))
             side = "\n".join([FIT_HEAD, ""] + [line for _rid, line in entries]) + "\n"
         return [FIT_HEAD] + shown, side
     except Exception as exc:  # noqa: BLE001  (a courtesy of the brief, FR-59: said, never silent and never a guess)
@@ -3195,7 +3256,7 @@ def _site_note(entry: dict, names: bool) -> str:
     return f" (also in {shown}" + (f", +{len(other) - SITE_FILES_SHOWN} more" if len(other) > SITE_FILES_SHOWN else "") + ")"
 
 
-def request_lines(found: dict, task: str) -> list:
+def request_lines(found: dict, task_root) -> list:
     """The S3 brief lines of a `user_path_failures.flow_requests` result: one per request up to MAX_REQUEST_LINES, `N more, the list is
     in <file>` beyond them (the cut is named, the file is whole), one `not measured: <reason>` per reason, and - only when there is at
     least one request - ONE closing line: each request gets a plan row that fails it with every kind of the perturbation table, the
@@ -3203,7 +3264,7 @@ def request_lines(found: dict, task: str) -> list:
     A request line names the other files that make it; when the request lines would pass half of BRIEF_MAX_BYTES the names are
     cut first and the counts return - the lines themselves are never shrunk (the head is never shrunk)."""
     import user_path_failures as UPF
-    path = f"qa-factory/artifacts/{task}/{UPF.REQ_LIST_FILE}"
+    path = RP.story_text(task_root, UPF.REQ_LIST_FILE)
     requests = found.get("requests") or []
     out: list = []
     for names in (True, False):
@@ -3266,7 +3327,7 @@ def flow_request_lines(task_root: Path, task: str, write: bool = True) -> list:
         found = UPF.flow_requests(task_root)
         if write:
             UPF.write_requests(task_root, found)
-        return request_lines(found, task)
+        return request_lines(found, task_root)
     except Exception as exc:  # noqa: BLE001
         print(f"brief_pack: flow_requests failed ({type(exc).__name__}: {exc})", file=sys.stderr)
         return ["Flow requests: not measured: user_path_failures.py, a defect of the factory"]
@@ -3329,8 +3390,8 @@ def exploration_lines(task_root: Path, task: str, dispatch_id: str = "", briefs_
         if not usable:
             return out + body
         name = f"{dispatch_id}-cells.md"
-        rel = f"qa-factory/artifacts/{task}/work/briefs/{name}"
-        what = f"{sum(1 for x in body if x.startswith('- '))} line(s) of cells, then the axis oracles"
+        rel = RP.story_text(task_root, f"work/briefs/{name}")
+        what =f"{sum(1 for x in body if x.startswith('- '))} line(s) of cells, then the axis oracles"
         if write and briefs_dir is not None:
             try:
                 Path(briefs_dir).mkdir(parents=True, exist_ok=True)
@@ -3668,11 +3729,12 @@ WALK_COMMANDS = (
 MANUAL_EVIDENCE_REL = "manual-evidence.md"
 
 
-def command_card_lines(task: str, walk: str, commands, tail: str) -> list:
+def command_card_lines(task_root, walk: str, commands, tail: str) -> list:
     """The one command card of a walk (F7): `Every command is ...` with `<task root>` and `<WALK>` named, then one bullet per command with
-    both placeholders substituted. The walk brief's card and the first look's head are both this."""
-    base = f"qa-factory/artifacts/{task}"
-    return [f"Every command is `python \"{SCRIPTS}/<script>\"`, run from the project root; `<task root>` = {base}; `<WALK>` = {walk}{tail}"] + [
+    both placeholders substituted. The walk brief's card and the first look's head are both this. `<task root>` is the story's folder
+    as `runtime_paths.story_text` spells it (the configured artifact root, never a literal)."""
+    base = RP.story_text(task_root)
+    return [f"Every command is `{RP.script_command('<script>', must_exist=False)}`, run from the project root; `<task root>` = {base}; `<WALK>` = {walk}{tail}"] + [
         "- " + line.replace("<task root>", base).replace("<WALK>", walk) for line in commands]
 
 
@@ -3730,7 +3792,7 @@ def walk_brief_lines(task_root: Path, task: str, dispatch_id: str, record: dict)
             signed = "no: sign in with fill-account"
         items = [str(i) for i in record.get("items") or []]
         out = [f"Walk: {dispatch_id}, account(s) {handles}, signed in: {signed}",
-               f"App card: qa-factory/artifacts/{task}/work/app-card.md",
+               f"App card: {RP.story_text(task_root, 'work/app-card.md')}",
                f"Items ({len(items)}): " + ", ".join(items)]
         for item in items:
             rel = _case_file_of(task_root, item)
@@ -3744,7 +3806,7 @@ def walk_brief_lines(task_root: Path, task: str, dispatch_id: str, record: dict)
             except OSError as exc:
                 out += [f"Case file: {rel} could not be read ({type(exc).__name__})"]
                 continue
-            out.append(f"Case file: qa-factory/artifacts/{task}/{rel}")
+            out.append(f"Case file: {RP.story_text(task_root, rel)}")
             given = _section_text(sections.get("given") or [])
             steps = _section_text(sections.get("when") or sections.get("steps") or [])
             out += ["Given:", given or "- none written", "Steps:", steps or "- none written"]
@@ -3847,8 +3909,7 @@ def first_look_runner_lines(task_root) -> list:
         import grounding_table as GT
         import walk_session as WS
         task_root = Path(task_root)
-        task = task_root.name
-        base = f"qa-factory/artifacts/{task}"
+        base = RP.story_text(task_root)
         attempt = FL.read_attempt(task_root)
         walk, stand = str(attempt.get("walk") or ""), str(attempt.get("env") or "")
         if not walk:
@@ -3876,7 +3937,7 @@ def first_look_runner_lines(task_root) -> list:
         else:
             out.append("Requirements: the register holds none or cannot be read"
                        + (f" ({_clip(why, 120)})" if why else "") + "; record that as a gap and halt")
-        out += command_card_lines(task, walk, FIRST_LOOK_COMMANDS, ". `--help` of a script is allowed:")
+        out += command_card_lines(task_root, walk, FIRST_LOOK_COMMANDS, ". `--help` of a script is allowed:")
         words = FL.data()
         out.append(f"Form and words: {(HERE.parent / 'references' / FIRST_LOOK_CONTRACT).as_posix()}. status: "
                    f"{', '.join(map(str, words.get('statuses') or []))}; blocked_by: {', '.join(map(str, words.get('blocked_by') or []))}.")
@@ -3978,7 +4039,7 @@ def _fl_red_rows(rows: list, kind: str) -> list:
 
 def _fl_body(kind: str, task_root, got: dict) -> list:
     import app_card as AC
-    rows, path = got["rows"], f"qa-factory/artifacts/{Path(task_root).name}/{FIRST_LOOK_FILE}"
+    rows, path = got["rows"], RP.story_text(task_root, FIRST_LOOK_FILE)
     if kind == "s6":
         return [f"First look: the width was walked on the stand ({len(rows)} requirement(s): {_fl_counts(rows)}); do not repeat the survey - "
                 f"go deep, starting from its observations in {path}. Your cases are still walked step by step: a first-look row is an "
@@ -4065,7 +4126,7 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
     # this word leaves the brief of any other dispatch exactly as it was.
     first_look = role == "qa-runner" and str(dispatch.get("purpose") or "") == FIRST_LOOK_PURPOSE
     briefs_dir = task_root / "work" / "briefs"
-    brief_rel = f"qa-factory/artifacts/{task}/work/briefs/{dispatch_id}.md"
+    brief_rel = RP.story_text(task_root, f"work/briefs/{dispatch_id}.md")
 
     # 1. the header and the digests
     head = [f"# Brief - {dispatch_id} - {role} at {stage}, {task}", ""]
@@ -4149,6 +4210,7 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         # t-2181 PC-8: the sides of the story (the code critic gets the SAME lines from the same call), then the automator's fields and, on
         # a bind round, its open rows. [] on an all-real story: that brief is as it was. The head is never shrunk; every part is capped.
         head += side_lines(pipeline)
+        head += stand_lesson_lines(project, _stand_pick(hooklib.load_config() or {}, str(pipeline.get("environment") or ""))[1])    # the twin of manual_stand_lines
         head += provisional_lines(task_root, pipeline, dispatch, role, dispatch_id)
     if not first_look:
         # t-2277 FL-4 (after PC-8: the build order of §4.4 row h): the case critic's roles, then what the first look saw for the role that
@@ -4232,7 +4294,7 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         files = [line.split(" - slice it:")[0] + only if "test-plan.md" in line and "slice it" in line else line
                  for line in files]
     for rel in cases[:8]:
-        files.append(f"- qa-factory/artifacts/{task}/{rel} ({_size(task_root / rel)})")
+        files.append(f"- {RP.story_text(task_root, rel)} ({_size(task_root / rel)})")
         kind_of[files[-1]] = "case"
     if len(cases) > 8:
         files.append(f"- ... and {len(cases) - 8} more case files of the scope, same folder")
@@ -4247,7 +4309,7 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
     if s5_kind == "window" and role == "qa-automator" and piece is not None:
         code_text, _left = window_code_file(project, plan_doc, piece["tests"], dispatch_id, task_root)
         side_files[f"{dispatch_id}-code.md"] = code_text
-        plan_files = plan_files + [f"- {_rel(task, f'work/briefs/{dispatch_id}-code.md')}"
+        plan_files = plan_files + [f"- {_rel(task_root, f'work/briefs/{dispatch_id}-code.md')}"
                                    f"{'' if write and output is None else ' (not written in this run)'} - the code you will touch: the "
                                    "tests you extend, the fixtures, a neighbouring test per file, the fields of a manifest row"]
     if s5_kind in ("plan", "window") and _resumed(dispatch, stage, role, s5_state):
@@ -4257,8 +4319,8 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
 
     # 3. the card
     if shell:
-        card = [f"Every command is `python \"{SCRIPTS}/<script>\"`, run from the project root; `<task root>` = "
-                f"qa-factory/artifacts/{task}. `--help` of a script is allowed and answers what this card does not; "
+        card = [f"Every command is `{RP.script_command('<script>', must_exist=False)}`, run from the project root; `<task root>` = "
+                f"{RP.story_text(task_root)}. `--help` of a script is allowed and answers what this card does not; "
                 f"the plugin's scripts are not read."]
         lines = TOOLING.get(role, [])
     else:
@@ -4272,10 +4334,10 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         if TOOLING_MANUAL_APP.get(role) and _has_device_stand(hooklib.load_config() or {}):
             doc = (HERE.parent / "references" / "manual-evidence-app.md").as_posix()
             lines += [line.replace("<APP_DOC>", doc) for line in TOOLING_MANUAL_APP[role]]
-    card += ["- " + line.replace("<T>", task).replace("<ID>", dispatch_id) for line in lines]
+    card += ["- " + line.replace("<T>", task).replace("<ID>", dispatch_id).replace("<home>", _home_text(project)) for line in lines]
     card += judge_lines(role, shell, dispatch_id)
     if walking:     # t-1957 N3: only the walk commands - no manifest line, no env_probe, no finalize_task (code does those)
-        card = command_card_lines(task, dispatch_id, WALK_COMMANDS, ". `--help` of a script is allowed.")
+        card = command_card_lines(task_root, dispatch_id, WALK_COMMANDS, ". `--help` of a script is allowed.")
     if first_look:      # t-2277 FL-3: the commands are in the head (`first_look_runner_lines`), with the walk and the stand they are about
         card = ["The commands of this dispatch are the lines under `Every command is` in the head above; `--help` of a script is allowed."]
     # The first look hands in ONE record, `first_look.py put` - its handoff is not a run report (FR-10, AR-10): its own ahead card and path.
@@ -4324,13 +4386,14 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         if repo and inline_map == 0 and map_body:
             omitted.append(f"- the repository map head - read {repo['path']}")
         if ap_level < 2 and approach[2] and approach[2] != [APPROACH_NOTHING] and approach[ap_level] != approach[2]:
-            omitted.append("- the project approach in full - read qa-factory/config.json (`test_data`) and qa-factory/strategy/")
+            omitted.append(f"- the project approach in full - read {_home_text(project)}/config.json (`test_data`) and "
+                           f"{_home_text(project)}/strategy/")
         if not inline_digests and digest_full:
             omitted.append(f"- the digests of earlier roles - read {side['digests']}")
         if full and dec_level < 2:
             omitted.append(f"- every decision in full - read {side['decisions']}")
         if trimmed_files:
-            omitted.append(f"- {len(trimmed_files)} input file(s) - read qa-factory/artifacts/{task}/work/briefs/{dispatch_id}-files.md")
+            omitted.append(f"- {len(trimmed_files)} input file(s) - read {RP.story_text(task_root, f'work/briefs/{dispatch_id}-files.md')}")
         parts = list(head[:2]) + ([note, ""] if note else []) + list(head[2:])
         parts += ["", "## The person's words that concern you", ""]
         if not full:
@@ -4338,7 +4401,9 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         elif dec_level == 2:
             parts += [line.replace("<decisions>", side["decisions"]) for line in shown]
         elif dec_level == 1:
-            parts += minimal       # PC2-6 O-c: the pointer to the side file is `Not in the brief`'s line, once
+            # a cut line names the side file by its path (never the literal placeholder, FR-37); the `Not in the brief` line stays the one
+            # pointer for the rest (PC2-6 O-c)
+            parts += [line.replace("<decisions>", side["decisions"]) for line in minimal]
         else:       # only the probe of `over_ceiling` asks for it: no brief is built at this level (N4, F-3)
             parts.append(f"- {len(full)} recorded decision(s): {side['decisions']}")
         if omitted or over_line:
@@ -4376,8 +4441,8 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         parts += digest_form if digest_form else ["", NO_FORM_LINE]
         return "\n".join(parts + [""]), omitted
 
-    side = {"digests": f"qa-factory/artifacts/{task}/work/briefs/{dispatch_id}-digests.md",
-            "decisions": f"qa-factory/artifacts/{task}/work/briefs/{dispatch_id}-decisions.md"}
+    side = {"digests": RP.story_text(task_root, f"work/briefs/{dispatch_id}-digests.md"),
+            "decisions": RP.story_text(task_root, f"work/briefs/{dispatch_id}-decisions.md")}
     sides_needed = {}
     # From the fullest brief down: the map's head goes first, then the digests move to
     # their side file, then the person's words shrink to the gate and the warnings, then

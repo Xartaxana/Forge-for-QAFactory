@@ -1,0 +1,1 @@
+- The failure analyst's shrink-only role-load ratchets are raised to the measured values (start 18361 -> 18426, process 16322 -> 16401): its contract slice now tells the optional `observation` field of a bug draft and where the analyst reads the id (TR4-15).

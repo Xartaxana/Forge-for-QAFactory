@@ -127,10 +127,10 @@ def part_admitted(root: Path) -> None:
     check_eq("and a wildcard folder in front of a test folder", errors("src/*/tests/**", root), [])
     check_eq("a dot segment and a doubled slash are dropped, not refused", errors("src/./tests//", root), [])
     # each marker list is hit once (the lists are in references/test-path-markers.json, D-0030: advice)
-    for name in ("test", "tests", "__tests__", "spec", "specs", "e2e"):
+    for name in ("test", "tests", "__tests__", "spec", "specs", "e2e", "__test__", "testing", "integration", "fixtures"):
         check_eq(f"dir_names `{name}`: a folder of that name is a test folder",
                  (errors(f"src/{name}/", root), notes(f"src/{name}/", root)), ([], []))
-    for suffix in (".tests", ".test"):
+    for suffix in (".tests", ".test", "_tests"):
         check_eq(f"dir_suffixes `{suffix}`: `myapp{suffix}/` is a test project folder",
                  (errors(f"src/myapp{suffix}/", root), notes(f"src/myapp{suffix}/", root)), ([], []))
     check_eq("stem_prefixes `test_`: `test_*.py`",
@@ -308,8 +308,9 @@ def part_data_file(root: Path) -> None:
              "historical exclusion, B-407 A3)",
              {k: json.loads((SCRIPTS.parent / "references" / FILE).read_text(encoding="utf-8")).get(k)
               for k in ("dir_names", "dir_suffixes", "stem_prefixes", "stem_suffixes")},
-             {"dir_names": ["test", "tests", "__tests__", "spec", "specs", "e2e", "test-harness"],
-              "dir_suffixes": [".tests", ".test"], "stem_prefixes": ["test_"],
+             {"dir_names": ["test", "tests", "__tests__", "spec", "specs", "e2e", "__test__", "testing", "integration",
+                            "fixtures", "test-harness"],
+              "dir_suffixes": [".tests", ".test", "_tests"], "stem_prefixes": ["test_"],
               "stem_suffixes": [".spec", ".test", "_test", "_spec"]})
     check_eq("and the two B-407 A lists beside them, exactly (the camel list keeps its case)",
              {k: json.loads((SCRIPTS.parent / "references" / FILE).read_text(encoding="utf-8")).get(k)
@@ -598,8 +599,9 @@ def call(tool: str, root: Path, rel: str, role="qa-automator", ticket=TICKET, **
     return event
 
 
-HOW = ("If this file is a test that has to live inside the application tree, do not write it another way: "
-       "name the path in your handover and halt. The person can open test files there for the automator; "
+HOW = ("If this file is a test that has to live in a place no recorded carrier of its area covers "
+       "(inside the application tree, or in the test repository), do not write it another way: "
+       "name the path in your handover and halt. Inside the application tree, the person can open test files for the automator; "
        "only when they agreed to that, the orchestrator records their words as they were given: waiver.py "
        "--task <TICKET> --stage S5 --block \"protected test path: <folder/ or pattern>\" --words-file <file> "
        "(when they did not agree, nothing is recorded under this block).")
@@ -1080,6 +1082,16 @@ def part_patch_move_key() -> None:
                      ("gone.txt", False, "delete"), ("added.txt", False, "add")])
 
 
+def part_refusal_matches_rule() -> None:
+    # The case the refusal describes is the case the S5 rule describes (FR-37): the clause is read from s5.md.
+    rule = " ".join((SCRIPTS.parent / "skills" / "qa-story" / "phases" / "s5.md").read_text(encoding="utf-8").split())
+    clause = "that has to live in a place no recorded carrier of its area covers (inside the application tree, or in the test repository)"
+    check_in("s5.md still states the case with this clause", clause, rule)
+    check_in("the refusal text (test copy) states the case as s5.md does", clause, HOW)
+    import guard_app_under_test as guard
+    check_in("the refusal text the guard emits states the case as s5.md does", clause, guard.TEST_PATH_HOW)
+
+
 def main() -> None:
     os.environ.pop("QA_FACTORY_TASK", None)  # a person's word for the story would name one: not here
     root = temp_dir("qa-tpg-grammar-")
@@ -1109,6 +1121,7 @@ def main() -> None:
     part_legacy_port()
     part_notices_to_journal()
     part_patch_move_key()
+    part_refusal_matches_rule()
     finish("test_protected_test_path")
 
 

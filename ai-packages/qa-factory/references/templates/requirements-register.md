@@ -110,7 +110,7 @@ confidence: high                       # low — a register built from ac alone 
 
 <!-- Every unit of the story's own text (its description, criteria and comments, and the same of each
      linked ticket the person's review kept) has a home. List them with
-     `python "${CLAUDE_PLUGIN_ROOT}/scripts/branch_accounting.py" --units --task <TICKET>`
+     `branch_accounting.py --units --task <TICKET>` (on your card)
      (`--page N` for the next 200; `--unhomed` lists what still has none). A home — closed list:
      `R-n` · `BN-n` · `not_obligation: <why>` · `excluded: Q<n>(<letter>): <why>` (an open_questions row with
      severity blocker; <letter> the reading that leaves the part out) or `excluded: "<their words>" (<file>.txt): <why>`
@@ -177,7 +177,7 @@ confidence: high                       # low — a register built from ac alone 
 | mockup.png | <KEY> | contradicts | R-4 | Q7 | <what the file shows against what R-4 requires> |
 | screenshot-1.png | <KEY> | not_an_expectation | - | - | <why: the scout's own line says it shows a symptom> |
 
-<!-- One row per file `python "${CLAUDE_PLUGIN_ROOT}/scripts/branch_accounting.py" --attachments --task <TICKET>` lists
+<!-- One row per file `branch_accounting.py --attachments --task <TICKET>` (on your card) lists
      with a call. Open each AFTER the contradiction matrix, as printed (the call the listing prints for its form).
      reading — closed list: agrees · contradicts (R and the question id are required, and four records
      go together: this row; a matrix cell `contradicts:"<quote>" (<file name>)` in the `attachments` column; one

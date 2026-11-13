@@ -273,7 +273,7 @@ def _prompt(task: str, stage: dict, role: str, dispatch_id: str, extras: list, b
             lines += [
                 # This copy's own scripts, by absolute path: the prompt is text no host expands, and
                 # the copy that composed it is the one whose checker the role must run (B-014).
-                f"  when it is filled: python \"{HERE.as_posix()}/handoff_check.py\" "
+                f"  when it is filled: {RP.script_command('handoff_check.py')} "
                 f"--file {form} --task {task} --fix",
                 "  it refuses with the field, the problem and the values YOUR role may write; "
                 "nothing it says is about the quality of your work",
@@ -450,7 +450,12 @@ def _brief(task: str, stage_id: str, role: str, dispatch_id: str, task_root: Pat
                      "--dispatch", dispatch_id)
     rel = _project_rel(task, BRIEF_REL, dispatch_id)
     if code == 0 and (task_root / BRIEF_REL.format(dispatch_id=dispatch_id)).is_file():
-        return rel, (out.splitlines()[-1] if out else "")
+        # the note is the helper's own line (`brief: ...`, the last one), not whatever came last on stderr (AR-22);
+        # no such line: the last line, as before. The exit code and the file decided the refusal above - a prefixed
+        # line never turns the refusal path below into a success.
+        lines = out.splitlines()
+        own = [line.strip() for line in lines if line.lstrip().startswith("brief: ")]
+        return rel, (own[-1] if own else (lines[-1] if lines else ""))
     tail = out.splitlines()[-1] if out else f"exit {code}"
     return "", f"brief_pack: no brief for {dispatch_id} ({tail}) - the role works from the inputs above"
 
@@ -615,7 +620,7 @@ def _s5_plan_init(task: str, task_root: Path, controller: Controller, dispatch_i
     try:
         plan = SP.refresh(task_root, controller) if record.get("rework_of") else SP.init(task_root, controller)
     except (SP.PlanUnreadable, OSError) as exc:
-        return [f"plan skeleton not written: {exc}; fix that, then run: python \"{HERE.as_posix()}/s5_plan.py\" --task {task} --init"]
+        return [f"plan skeleton not written: {exc}; fix that, then run: {RP.script_command('s5_plan.py')} --task {task} --init"]
     rows = len(plan.get("cases") or []) if isinstance(plan, dict) else 0
     return [f"plan skeleton: {SP.PLAN_REL} ({rows} case row(s))" if rows else
             "plan skeleton: S5 has no case in scope, so no plan is owed"]
@@ -731,7 +736,7 @@ def run_mode_refusal(task: str, switch: dict) -> str:
             + (f" (package {version}, {stamped.get('plugin_root') or 'root unknown'})" if version or stamped.get("plugin_root") else "")
             + f" and this call runs in `{switch['current']}` mode; the stages of one story are run by "
             f"one mode. Run it the way it was started, or record the person's word for the switch: "
-            f"python \"{HERE.as_posix()}/waiver.py\" --task {task} --stage {switch['stage']} "
+            f"{RP.script_command('waiver.py')} --task {task} --stage {switch['stage']} "
             f"--block \"{MODE_SWITCH}\" --decision \"<their words>\"")
 
 

@@ -926,4 +926,46 @@ roles.done()
 off_claim = Story(diff=None, source=off, register=None, blast=None)
 check_eq("G1-5 claim_view: off a diff there is no verdict (None)", GT.claim_view(off_claim.task, ("R1",))[0], None)
 off_claim.done()
+
+# --- B-355 item 10: a hunk's file is judged through the checkout of ITS diff, with the project's word -----------------------------
+LEG = section("legacy_checks/a.py", hunk(1, ["-a", "+b"]))
+two = Story(diff=diff_text(LEG), manifest={"implementations": [{"repo_id": "be", "diff_path": "work/impl-diff-be.txt"},
+                                                               {"repo_id": "fe", "diff_path": "work/impl-diff-fe.txt"}]})
+(two.task / "work" / "impl-diff.txt").unlink()
+two.diff(diff_text(LEG), "impl-diff-be.txt")
+two.diff(diff_text(LEG), "impl-diff-fe.txt")
+for folder in ("be", "fe"):
+    (two.root / folder).mkdir()
+_config = two.root / "qa-factory" / "config.json"
+_cfg = json.loads(_config.read_text(encoding="utf-8"))
+_world_r = dict(_cfg, app_root=".", test_locations=["be/legacy_checks/"],
+                code_repos=[{"name": "be", "path": "be"}, {"name": "fe", "path": "fe"}])
+_config.write_text(json.dumps(_world_r), encoding="utf-8")
+import hooklib  # noqa: E402
+
+with hooklib.selftest_root_restored():            # the project root is cached per process: pin THIS story's project
+    hooklib.pin_project_root(two.root)
+    found_hunks = GT.index_hunks(two.task)[0]
+    check_eq("B-355 item 10: the same path in two diffs with two checkouts gets two verdicts (be: the project's test_locations names it; "
+             "fe: it does not) - the cache key is (diff, path)", sorted((h.diff, h.rec["kind"]) for h in found_hunks),
+             [("impl-diff-be.txt", "test"), ("impl-diff-fe.txt", "production")])
+    policy, _why = PC.grounding_policy()
+    fe_id = next(h.rec["id"] for h in found_hunks if h.diff == "impl-diff-fe.txt")
+    table = {"hunks": [dict(h.rec) for h in found_hunks], "rows": [{"id": "G-1", "label": policy["numerator_labels"][0], "hunks": [fe_id]}]}
+    with_root = GT.share(table, policy, [], root=two.task)
+    check_eq("B-355 item 10: share with `root` judges per diff: the be hunk is outside (a test), the fe hunk is the only production line",
+             (with_root["outside_files"], with_root["total"]), (["legacy_checks/a.py"], 2))
+    bare = GT.share(table, policy, [])
+    check_eq("B-355 item 10: share without `root` is the pure call (no word): the path is production in both diffs, so the be hunk has no label",
+             (bare["road"], bare["total"]), ("unknown", None))
+    _config.write_text(json.dumps(dict(_cfg, app_root=".")), encoding="utf-8")                       # World N: nothing recorded
+    check_eq("B-355 item 10, World N: nothing recorded in the project -> today's verdict for both diffs",
+             sorted((h.diff, h.rec["kind"]) for h in GT.index_hunks(two.task)[0]),
+             [("impl-diff-be.txt", "production"), ("impl-diff-fe.txt", "production")])
+    _config.write_text(json.dumps(_world_r), encoding="utf-8")
+    (two.task / "work" / "context-manifest.json").unlink()                                           # recorded word, no findable checkout
+    check_eq("B-355 item 10, unbound under a recorded word: the declared unknown, both hunks stay production",
+             sorted((h.diff, h.rec["kind"]) for h in GT.index_hunks(two.task)[0]),
+             [("impl-diff-be.txt", "production"), ("impl-diff-fe.txt", "production")])
+two.done()
 finish("test_grounding_table")

@@ -1156,7 +1156,7 @@ def check_test_report(path: Path, errors: list, notes: list | None = None) -> No
 
 
 LEGACY_REPORT_SECTIONS = ("## Verdict", "## Run this yourself", "## Product problems",
-                          "## Check coverage", "## Readiness within what was verified",
+                          PTR_COVERAGE_HEADING, PTR_READINESS_HEADING,
                           "## Our tests and the factory")
 
 
@@ -1167,7 +1167,7 @@ def is_legacy_report(path: Path) -> bool:
     traceability appendix to paste, and refusing it now would make the factory's own version
     bump the person's problem."""
     text = path.read_text(encoding="utf-8", errors="replace")
-    return "## Check coverage" in text and "## Appendix" not in text
+    return PTR_COVERAGE_HEADING in text and G.APPENDIX_HEADING not in text
 
 
 def check_legacy_report_sections(path: Path, errors: list) -> None:
@@ -1252,7 +1252,8 @@ def check_report_traceability(path: Path, errors: list) -> None:
     what was verified" table carried; what changed is that the table is generated, so the
     check is against a machine artifact instead of against prose."""
     text = path.read_text(encoding="utf-8", errors="replace")
-    appendix = text.partition("## Appendix")[2]
+    import report_facts as RF  # lazy: report_facts imports this module lazily too, so there is no load cycle
+    _span, appendix = RF.appendix_body(text)
     if not appendix.strip():
         return  # the missing-section error above already names it
     task = path.parent
@@ -1311,7 +1312,7 @@ def _left_with_you_items(text: str) -> list:
             cut.append((begin, len(text) if stop < 0 else stop + 1))
     for begin, stop in sorted(cut, reverse=True):
         text = text[:begin] + text[stop:]
-    body = _report_section_body(text, "## Left with you")
+    body = _report_section_body(text, G.LEFT_WITH_YOU_HEADING)
     items, current = [], ""
     for line in body:
         if re.match(r"^\s*(?:[-*]|\d+\.)\s+\S", line):
@@ -1353,7 +1354,7 @@ def check_report_test_marks(path: Path, errors: list) -> None:
         return
     import ledger as L
     text = path.read_text(encoding="utf-8", errors="replace")
-    for line in _report_section_body(text, "## Proven"):
+    for line in _report_section_body(text, G.PROVEN_HEADING):
         if line.startswith("- ") and not any(mark in line for mark in L.REAL_OR_MOCK_MARKS):
             errors.append(f"{path.name}: a test line under \"Proven\" says neither `{L.REAL_CODE}` nor `{L.MOCK_LEAD}` ({line[:60].strip()}) - "
                           f"whether a result came from real code or from a mock must always be visible; "
@@ -1405,8 +1406,9 @@ def report_id_shape_hit(text: str) -> str:
 def check_report_forbidden(path: Path, errors: list) -> None:
     """Identifiers and markers of ours that mean nothing to a person reading their own report: a shape, never a phrase."""
     text = path.read_text(encoding="utf-8", errors="replace")
-    appendix_at = text.find("## Appendix")
-    body = text[:appendix_at] if appendix_at >= 0 else text
+    import report_facts as RF  # lazy: no load cycle (see check_report_traceability)
+    span = RF.appendix_span(text)
+    body = text[:span[0]] if span else text
     body = without_quoted_words(body)
     for shape, key in REPORT_ID_SHAPES:
         if shape.search(body):
@@ -1415,9 +1417,6 @@ def check_report_forbidden(path: Path, errors: list) -> None:
         errors.append(f"{path.name}: `{match.group(0)}` stands with no decision text beside it "
                       "- quote the words the person said, the id alone says nothing")
         break
-
-
-REPORT_HUMAN_HEADING = "## Factory defects"
 
 
 def report_wording_rows() -> set:
@@ -1445,7 +1444,7 @@ def check_report_human_text(path: Path, errors: list) -> None:
         return  # an unreadable report is the other checks' finding, not this one's
     import human_text  # a missing rules file gives no rows: nothing to enforce, never a crash
     wording = report_wording_rows()
-    for item in human_text.section_problems(text, REPORT_HUMAN_HEADING):
+    for item in human_text.section_problems(text, G.FACTORY_DEFECTS_HEADING):
         if item.get("rule") in wording:
             continue   # a phrase about a tool run: the scribe's wording, not a factory id (X7-5, AR-29)
         errors.append(f"{path.name}, Factory defects: `{str(item['found']).strip('`')[:80]}` — {item['why']}. "
@@ -1458,10 +1457,10 @@ def check_report_gate_b(path: Path, errors: list) -> None:
     The 15045 report was written before the gate and still said the bugs "await your word"
     after the person had already said where they go."""
     text = path.read_text(encoding="utf-8", errors="replace")
-    if "## Decided at gate B" not in text:
+    if G.GATE_B_HEADING not in text:
         return
     pipeline = C.load_json(path.parent / "pipeline.json")
-    section = " ".join(text.partition("## Decided at gate B")[2].split("\n## ")[0].split())
+    section = " ".join(text.partition(G.GATE_B_HEADING)[2].split("\n## ")[0].split())
     words = " ".join(str((((pipeline.get("gates") or {}).get("B") or {})
                           .get("authorization_source") or "")).split())
     if words and words not in section:
@@ -1545,8 +1544,8 @@ def check_report_blocks(path: Path, errors: list, notes: list | None = None) -> 
         record = gates.get(gate)
         return " ".join(str(record.get("authorization_source") or "").split()) if isinstance(record, dict) else ""
 
-    if any(h.startswith("## Decided at gate B") for h in G.heading_lines(text)):
-        section = " ".join("\n".join(_report_section_body(text, "## Decided at gate B")).split())
+    if any(h.startswith(G.GATE_B_HEADING) for h in G.heading_lines(text)):
+        section = " ".join("\n".join(_report_section_body(text, G.GATE_B_HEADING)).split())
         if not gate_b_has_words(pipeline):
             errors.append(f"{name}: \"Decided at gate B\" stands in a report whose gate B has no recorded words - "
                           "the section exists only after the gate, and never holds another gate's content; "
@@ -1969,8 +1968,9 @@ def _authored_text(text: str) -> str:
         counted = counted[:start] + counted[end:]
     authored = re.sub(r"<!-- factory-summary:start -->.*?<!-- factory-summary:end -->", "",
                       counted, flags=re.DOTALL)
-    appendix_at = authored.find("## Appendix")
-    return authored[:appendix_at] if appendix_at >= 0 else authored
+    import report_facts as RF  # lazy: no load cycle (see check_report_traceability)
+    span = RF.appendix_span(authored)
+    return authored[:span[0]] if span else authored
 
 
 def check_report_ledger_and_readiness(path: Path, errors: list) -> None:

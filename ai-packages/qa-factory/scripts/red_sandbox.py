@@ -310,11 +310,6 @@ class SetupFailed(ValueError):
         self.output_tail = output_tail
 
 
-def _component(name) -> bool:
-    return (isinstance(name, str) and bool(name) and name not in (".", "..")
-            and not any(sep in name for sep in ("/", "\\")))
-
-
 def _argv_ok(argv) -> bool:
     return isinstance(argv, list) and bool(argv) and all(isinstance(a, str) and a for a in argv)
 
@@ -332,11 +327,11 @@ def _row_problem(row) -> str:
     if not isinstance(env, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in env.items()):
         return "env ({str: str})"
     pins = row.get("pins")
-    if not isinstance(pins, dict) or not pins or not all(_component(k) and isinstance(v, str) and v
+    if not isinstance(pins, dict) or not pins or not all(hooklib.is_one_component(k) and isinstance(v, str) and v
                                                          for k, v in pins.items()):
         return "pins (a non-empty {file name: request field})"
     absent = row.get("must_not_preexist")
-    if not isinstance(absent, list) or not absent or not all(_component(n) for n in absent):
+    if not isinstance(absent, list) or not absent or not all(hooklib.is_one_component(n) for n in absent):
         return "must_not_preexist (a non-empty list of names)"
     limit = row.get("timeout_s")
     if isinstance(limit, bool) or not isinstance(limit, int) or not 0 < limit <= SETUP_MAX_TIMEOUT_S:
@@ -2233,7 +2228,8 @@ def main():
     except ImportError:
         pass
     import role_cli
-    parser = argparse.ArgumentParser(__doc__, epilog=role_cli.epilog("red_sandbox.py"),
+    parser = role_cli.RefusingParser(description=__doc__, command=role_cli.command_from_argv("red_sandbox.py"),
+                                     epilog=role_cli.epilog("red_sandbox.py"),
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--repo")
     parser.add_argument("--destination")

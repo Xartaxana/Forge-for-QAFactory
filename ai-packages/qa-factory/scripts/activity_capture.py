@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from event_store import atomic_json
 from hooklib import project_root, read_event, state_dir
+import hooklib
 import session_identity
 
 # The ONE set of activity types (COLLECT, CL1-4: `collect` is the packing skill's own type, else its spend reads `unclassified`, P18).
@@ -41,7 +42,7 @@ def _segment_id(activity_id, event_id):
     return hashlib.sha256(f"{activity_id}:{event_id}".encode()).hexdigest()[:24]
 
 def activity_path(event, session):
-    if not session or session in {".", ".."} or any(c in session for c in "/\\:"):
+    if not hooklib.is_one_component(session):
         raise ValueError("session identity must be a single safe component")
     root = project_root(event)
     identity = hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:16]
@@ -53,16 +54,22 @@ def activity_path(event, session):
         legacy = Path(tempfile.gettempdir()) / "qa-factory-activities" / identity / f"{session}.json"
         source = spool if spool.is_file() else legacy
         if source.is_file() and not target.exists():
-            atomic_json(target, json.loads(source.read_text(encoding="utf-8")))
-            source.unlink()
+            # A spool that is no JSON object (broken, empty, a list) is not migrated: it is left where it is and the
+            # target is returned, so the hook that asked never raises (axis 16: the ONE reader, `read_json`).
+            carried = hooklib.read_json(source, None, kind=dict, errors=Exception)
+            if carried is not None:
+                atomic_json(target, carried)
+                source.unlink()
         return target
     return spool
 
 def load(path, session):
-    try: return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {"schema_version":1,"session_id":session,"activities":[],"active_stack":[],"processed_events":{},
-                "usage_completeness":"unknown","telemetry_note":"explicit boundaries only"}
+    # A spool that is no JSON object (broken, empty, a list) reads as the default doc: the ONE reader, `read_json`.
+    doc = hooklib.read_json(path, None, kind=dict, errors=Exception)
+    if doc is not None:
+        return doc
+    return {"schema_version":1,"session_id":session,"activities":[],"active_stack":[],"processed_events":{},
+            "usage_completeness":"unknown","telemetry_note":"explicit boundaries only"}
 
 
 def close_pending(event, session):

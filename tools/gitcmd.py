@@ -1,22 +1,13 @@
-"""The one git runner of the tools that READ, LIST, CLONE or CHECK OUT with git: `git(root, *args)` (B-class "git-top readers",
-docs/SIBLING_MAP.md Axis 10, row "the one git runner"). exam_runner clones and checks out, and passes `timeout=None`:
+"""The one git runner of the tools, and the two readers built on it: `git(root, *args)` runs git for tools that read, list, clone,
+check out OR CHANGE a repository (worktree_sweep removes worktrees, writes and deletes refs); `main_checkout(root)` is the one
+resolver of the main checkout; `parse_status_z(raw)` is the one reader of `status --porcelain=v1 -z`
+(docs/SIBLING_MAP.md Axis 10, row "the one git runner"). exam_runner clones and checks out, and passes `timeout=None`:
 a clone of a network URL has no fixed duration, and one killed at the default leaves a half-made folder behind.
 
-Callers (each keeps its own decoding, error mapping and return shape):
-    tools/piles.py                 git, git_show
-    tools/compact_snapshot.py      run_git
-    tools/forge_metrics.py         _run_git
-    tools/r3_integration_check.py  _run_git
-    tools/owns_verify.py           _git_repo_root, _run_git_name_only
-    tools/exam_runner.py           _git, _git_rev_parse
-    tools/install_parity.py        the eighth caller
-    tools/ci_read.py               backend_for (origin URL; github-move GM1-4)
-    tools/hygiene_gate.py          the rollback measurement (`git status`, timeout 5; imported when present)
-
-NOT callers yet: the wrappers of the enforcement chain (tools/dispatch_gate.py, journal_validator.py, mechanism_gate.py,
-journal_echo.py, session_context.py, hook_liveness_probe.py) and two more with their own git code
-(tools/wiring_check.py `_run_git`, tools/dup_ratchet.py). They wait for forge batch 2, node F2-11, which decides
-whether they move to this runner; gitcmd.py itself is already in MECHANISM_PREFIXES (tools/mechanism_gate.py).
+Callers: `grep -l "import gitcmd" tools/*.py`; the enumeration with each caller's function lives in docs/SIBLING_MAP.md axis 10.
+Each caller keeps its own decoding, error mapping and return shape.
+Git wrappers left on their own code are named on axis 10 (the decision of forge node F2-11, accepted 6fe68a64).
+gitcmd.py itself is in MECHANISM_PREFIXES (tools/mechanism_gate.py).
 
 Contract:
     root     the repository (`git -C root`), or None for the current directory (no -C).
@@ -29,10 +20,17 @@ Contract:
 read by git); no shell. Output is BYTES: decoding is the caller's -- a caller that wants TEXT the way `text=True` gave it
 (UTF-8 with replacement, CRLF and CR read as LF) calls `as_text(raw)`, the one such chain (F-11); a caller with another
 reading (utf-8-sig, NUL-split) keeps its own.
+    main_checkout(root, *, runner=None, timeout=DEFAULT_TIMEOUT) -> (Checkout | None, code, why); never raises (a runner that
+    raises included). code is "" on success, else "git" (failed to run, rc != 0, fewer than two lines), "resolve" (a git dir
+    does not resolve) or "not-a-checkout" (the common dir is not named `.git`: no guessed main worktree).
+    parse_status_z(raw) -> [(xy, path)]; raw is bytes or str; never raises; errs only toward MORE entries.
 """
 from __future__ import annotations
 
+import os
 import subprocess
+from pathlib import Path
+from typing import NamedTuple
 
 DEFAULT_TIMEOUT = 120
 
@@ -53,3 +51,65 @@ def git(root, *args, timeout=DEFAULT_TIMEOUT, stderr=False):
 def as_text(raw: bytes) -> str:
     """`raw` as text the way subprocess `text=True` read it: UTF-8 with U+FFFD for bad bytes, CRLF and lone CR as LF."""
     return raw.decode("utf-8", "replace").replace("\r\n", "\n").replace("\r", "\n")
+
+
+class Checkout(NamedTuple):
+    git_dir: Path
+    common: Path
+    path: Path
+    linked: bool
+
+
+def _first_line(text: str) -> str:
+    lines = [l.strip() for l in (text or "").strip().splitlines() if l.strip()]
+    return lines[0] if lines else "no message"
+
+
+def main_checkout(root, *, runner=None, timeout=DEFAULT_TIMEOUT):
+    """The main checkout of the repository `root` belongs to: (Checkout | None, code, why). Never raises. A relative answer of
+    git is relative to root; a common dir not named `.git` has no checkout beside it (not guessed). `linked` is True when
+    `root` is a linked worktree (git dir differs from the common dir)."""
+    run = runner or git
+    try:
+        rc, out, err = run(root, "rev-parse", "--git-dir", "--git-common-dir", timeout=timeout, stderr=True)
+        text = as_text(out)
+        err_text = as_text(err)
+    except Exception as exc:
+        return None, "git", "git rev-parse raised %s" % type(exc).__name__
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    if rc != 0 or len(lines) < 2:
+        if rc == -1:
+            return None, "git", "git rev-parse failed to run (%s)" % _first_line(err_text)
+        return None, "git", "git rev-parse exited %s (%s)" % (rc, _first_line(err_text or text))
+    base = Path(str(root)) if root is not None else Path(".")
+    resolved = []
+    for line in lines[:2]:
+        p = Path(line)
+        p = p if p.is_absolute() else base / p
+        try:
+            resolved.append(p.resolve())
+        except (OSError, ValueError):     # ValueError: a NUL in the path
+            return None, "resolve", "git dir %s does not resolve" % line
+    git_dir, common = resolved
+    if common.name != ".git":
+        return None, "not-a-checkout", "git common dir %s is not a .git directory of a checkout" % common
+    linked = os.path.normcase(os.path.realpath(str(git_dir))) != os.path.normcase(os.path.realpath(str(common)))
+    return Checkout(git_dir, common, common.parent, linked), "", ""
+
+
+def parse_status_z(raw):
+    """`git status --porcelain=v1 -z` output -> [(xy, path)]; bytes or str. A rename or copy carries its origin as the next NUL
+    field (consumed). Plain UTF-8 replace, not `as_text`: a CR inside a path survives. Never raises."""
+    text = raw.decode("utf-8", "replace") if isinstance(raw, (bytes, bytearray)) else str(raw)
+    parts = text.split("\0")
+    out, i = [], 0
+    while i < len(parts):
+        rec = parts[i]
+        i += 1
+        if len(rec) < 4:
+            continue
+        xy, path = rec[:2], rec[3:]
+        out.append((xy, path))
+        if "R" in xy or "C" in xy:
+            i += 1
+    return out

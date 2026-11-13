@@ -3108,7 +3108,64 @@ def second_hop_name_in_two_files_is_refused() -> None:
         cleanup(root)
 
 
+B355_I_ROWS = [
+    # (label, cfg, project-relative path, expected) - `_in_test_root` reads `roots.test` / `tests_root` through `is_test_path`
+    ("World N: tests_root, a file under it", {"tests_root": "tests"}, "tests/x.py", True),
+    ("World N: roots.test of a profile", {"profiles": [{"profile_id": "api", "roots": {"test": "backend/tests"}}]}, "backend/tests/a.py", True),
+    ("World N: a path beside the root", {"tests_root": "tests"}, "src/x.py", False),
+    ("World N: a usual test name alone (markers) never passes", {}, "src/test_x.py", False),
+    ("World N: protected path wins over the root", {"tests_root": "tests", "protected_app_paths": ["tests"]}, "tests/x.py", False),
+    ("World N: tests_root `.` is ignored (names the whole project)", {"tests_root": "."}, "src/x.py", False),
+    ("World N: tests_root above the root is ignored", {"tests_root": ".."}, "src/x.py", False),
+    ("World R: a test_locations entry alone does not pass", {"test_locations": ["src/legacy/checks"]}, "src/legacy/checks/a.py", False),
+    ("World R: both carriers name the path -> True",
+     {"test_locations": ["tests"], "tests_root": "tests"}, "tests/x.py", True),
+    ("World R: protected wins over both carriers",
+     {"test_locations": ["tests"], "tests_root": "tests", "protected_app_paths": ["tests"]}, "tests/x.py", False),
+    ("World R: the record is kept, tests_root still recognises its place",
+     {"test_locations": ["src/legacy/checks"], "tests_root": "tests"}, "tests/x.py", True),
+    ("World R: the record is kept, a usual name outside it is not a test root",
+     {"test_locations": ["src/legacy/checks"], "tests_root": "tests"}, "src/test_x.py", False),
+    ("World R: an absolute path is refused first", {"tests_root": "tests"}, "/tests/x.py", False),
+    ("World R: a path that climbs out is refused first", {"tests_root": "tests"}, "../tests/x.py", False),
+]
+
+
+def b355_i_in_test_root_reads_the_one_reader() -> None:
+    """B-355 node I: `_in_test_root` answers through `test_locations.is_test_path` (`by == "config"`, source `roots.test` /
+    `tests_root`); one table, the label names the row."""
+    for label, cfg, rel, expected in B355_I_ROWS:
+        check_eq(f"B355-I {label}", PBC._in_test_root(cfg, rel), expected)
+
+
+OF4_6_ROOTS = ["tests", "./tests/", ".", "..", "../x", "", "/srv/tests", "/tests"]
+OF4_6_PATHS = ["tests/a.py", "a.py", "x/tests/a.py"]
+
+
+def of4_6_expected(root: str, rel: str) -> bool:
+    """The requirement, not the code: a root names a folder INSIDE the project; `.` (the whole project), a root above it,
+    an empty one and an absolute one own nothing (refusal only toward False). Under a real root a path is owned if it is
+    that folder or lies in it, and only then."""
+    if root in ("tests", "./tests/"):
+        return rel.startswith("tests/")
+    return False
+
+
+def of4_6_profiles_owning_and_in_test_root_agree() -> None:
+    """OF4-6: `execution_request.profiles_owning` (reads `roots.test` itself) and `probe_by_code._in_test_root` (through
+    `test_locations`) give ONE answer for every root x path of the table; the expectation is the requirement above."""
+    import execution_request as ER
+    for root in OF4_6_ROOTS:
+        cfg = {"profiles": [{"profile_id": "api", "roots": {"test": root}}]}
+        for rel in OF4_6_PATHS:
+            want = of4_6_expected(root, rel)
+            check_eq(f"OF4-6 root {root!r} path {rel!r}: _in_test_root", PBC._in_test_root(cfg, rel), want)
+            check_eq(f"OF4-6 root {root!r} path {rel!r}: profiles_owning", bool(ER.profiles_owning(cfg, rel)), want)
+
+
 def main() -> None:
+    of4_6_profiles_owning_and_in_test_root_agree()
+    b355_i_in_test_root_reads_the_one_reader()
     second_hop_name_in_two_files_is_refused()
     n2_k7_the_red_probe_reads_the_stand_as_the_run_does()
     the_author_binding_is_the_latest_block_by_the_clock()

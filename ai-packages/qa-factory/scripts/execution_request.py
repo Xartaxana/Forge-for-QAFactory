@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 import node_ids as _node_ids  # bound at import: the one predicate, the bounded launcher
+from event_store import replace_file  # the one retrying replace (B-333): a brief Windows reader-handle race is ridden out
 from hooklib import read_json as _read_json  # the package's one JSON reader: a file that cannot be read is None here
 from profile_contract import (ACCEPTS, acceptable_provenance, command_env, no_changed_file, one_test_argv, probe_failed_text,
                               probe_not_json_text, profile_command, refusal_text, rehearsal_view, say_refusal,
@@ -408,7 +409,7 @@ class JobStore:
         self._ensure()
         tmp = path.with_suffix(f".{os.getpid()}.tmp")
         tmp.write_text(json.dumps(job, indent=2) + "\n", encoding="utf-8")
-        os.replace(tmp, path)
+        replace_file(tmp, path)
 
     def begin(self, request: dict) -> tuple[str, dict]:
         existing = self.read(request["idempotency_key"])
@@ -1605,7 +1606,9 @@ def _path_key(path) -> str:
     """One spelling of a project-relative path, for comparing it with a profile's `roots.test`: backslashes become
     slashes, `./`, `a//b` and `a/../b` are folded, the outer slashes are cut, and on Windows the case is folded
     (that file system does not tell `Tests` from `tests`). '' for none. Invariant: `tests`, `./tests/` and, on
-    Windows, `Tests` are one key, so no reader sees one root as two (AR-13)."""
+    Windows, `Tests` are one key, so no reader sees one root as two (AR-13). Readers: `profiles_owning` (the
+    profile roots) and, for the protected paths only, `probe_by_code._in_test_root`; the test roots there are read
+    through `test_locations.is_test_path`, not through this spelling."""
     text = str(path or "").replace("\\", "/").strip()
     text = posixpath.normpath(text) if text else ""
     text = "" if text == "." else text.strip("/")
@@ -1614,8 +1617,8 @@ def _path_key(path) -> str:
 
 def path_under(path_key: str, root_key: str) -> bool:
     """Whether the `_path_key` spelling `path_key` is the root `root_key` or lies below it. False when either is empty
-    (no path, or no root: nothing is under nothing). The one comparison of "under a root" (`profiles_owning`,
-    `probe_by_code._in_test_root`); both keys must come from `_path_key` (AR-13)."""
+    (no path, or no root: nothing is under nothing). The comparison of "under a root" for `profiles_owning` and, for
+    the protected paths only, `probe_by_code._in_test_root`; both keys must come from `_path_key` (AR-13)."""
     if not path_key or not root_key:
         return False
     return path_key == root_key or path_key.startswith(root_key + "/")
@@ -1626,11 +1629,18 @@ def profiles_owning(cfg: dict, rel_path) -> list:
     the DEEPEST such root. [] when no root holds it; one id when one profile owns it; MORE THAN ONE when several
     profiles share that deepest root - a tie the path cannot break and no caller may break by taking the first.
     The one predicate of "which profiles own this path" (`_profile_for`, `probe_by_code._profile_cwd`,
-    `gate_preflight.Rehearsal._profiles_sharing_root`), with one normalisation (`_path_key`)."""
+    `gate_preflight.Rehearsal._profiles_sharing_root`), with one normalisation (`_path_key`). A root the one reader of
+    test places ignores - empty or absolute (`test_locations._grammar_problem`), or folded by `_path_key` to a place
+    above the project (`..`, `../x`); `.` is already no key - owns nothing, like `probe_by_code._in_test_root`
+    (OF4-6: a root `/tests` is not the project's `tests`)."""
+    import test_locations as TL
     key = _path_key(rel_path)
     deepest, owners = -1, []
     for profile in selected_profiles(cfg):
-        root = _path_key((profile.get("roots") or {}).get("test"))
+        raw = str((profile.get("roots") or {}).get("test") or "").replace("\\", "/").strip()
+        root = _path_key(raw)
+        if TL._grammar_problem(raw) in ("empty", "an absolute path") or root == ".." or root.startswith("../"):
+            continue    # `tests/ui/..` is folded by `_path_key` to `tests` and stays a root; only a root that ends above the project goes
         if not path_under(key, root):
             continue
         pid = str(profile["profile_id"])
@@ -2738,7 +2748,8 @@ def _probe_door(cfg: dict, profile: str, task_root=None, project_root=None) -> s
     gets none either - gate A refuses to derive a probe there, and the entry would compare the wrong tree."""
     if registered_probe(cfg, profile) is not None or _probe_gap(cfg, profile)[0] or not _has_checkout(cfg, profile):
         return ""
-    command = f'python "${{CLAUDE_PLUGIN_ROOT}}/scripts/runtime_probe.py" --suggest --write --profile {_word(profile)}'
+    import runtime_paths as RP      # lazy: only a refusal on its way out builds this text (OH8-4 E9)
+    command = f'{RP.script_command("runtime_probe.py")} --suggest --write --profile {_word(profile)}'
     try:
         import runtime_probe
         running = _narrowed_names(cfg, profile, list(runtime_probe.containers()), task_root, project_root)
@@ -2783,6 +2794,54 @@ def _probe_refusal(cfg: dict, profile: str, spec, evidence_only: bool, task_root
             + " this one request from `run_suite.py --template request`; every later `--mine` copies its probe and provenance.")
 
 
+def _probe_cwd(spec_or_probe: dict, project_root: Path) -> str:
+    """The directory a stand probe runs in: its `cwd` (`.` when absent), made absolute under the project root."""
+    probe_cwd = Path(str(spec_or_probe.get("cwd") or "."))
+    return str(probe_cwd if probe_cwd.is_absolute() else project_root / probe_cwd)
+
+
+def _observe_precedent(runtime_precedent: dict, policy, purpose: str, probe, probe_extra: dict, project_root: Path,
+                       evidence_only: bool, notes: list, now: str) -> dict:
+    """The stand block copied from an earlier request, with the stand looked at NOW (B-150): the branch of
+    `_observe_stand` that has a precedent. Same refusals and notes as before the split."""
+    runtime = {k: runtime_precedent[k] for k in ("runtime_required", "target_kind", "runtime_probe")
+               if k in runtime_precedent}
+    runtime["runtime_provenance"] = dict(runtime_precedent.get("runtime_provenance") or {},
+                                         timestamp=now)
+    # B-150: an earlier result is worth what the stand ran when it was recorded. The stand
+    # is looked at NOW, and the request carries what was seen - so a redeploy makes a new
+    # run (its `runtime_sha` moves) instead of an `invalid_request` at the launch check, and a
+    # stand nobody could look at is never reported as unchanged (FR-41). A red probe runs in
+    # a sandbox by definition and keeps copying (its own gate is the launch check).
+    if policy is not None and purpose != "red_probe" and runtime.get("runtime_required", True) is not False:
+        old_probe = runtime.get("runtime_probe")
+        if probe is None or not isinstance(old_probe, dict) or not old_probe.get("argv"):
+            runtime["runtime_observed"] = False
+        else:
+            old_view = runtime["runtime_provenance"]
+            try:
+                seen = probe({**old_probe, "cwd": _probe_cwd(old_probe, project_root), **probe_extra})
+            except Exception as exc:  # a stand that cannot be looked at: the stand's gap, not the test's
+                unseen = _stand_refusal(policy, exc, str(old_view.get("environment_id") or "<environment>"))
+                if not evidence_only:
+                    raise MineRefusal(unseen) from exc
+                notes.append(unseen)  # a question about evidence, not a run: unknown, said as such
+                runtime["runtime_observed"] = False
+                seen = None
+            if seen is not None:
+                moved = (seen.get("observed_runtime_identity") != old_view.get("observed_runtime_identity")
+                         or seen.get("expected_source_revision") != old_view.get("expected_source_revision")
+                         or (seen.get("provenance") or {}).get("deployed_source_revision")
+                         != (old_view.get("provenance") or {}).get("deployed_source_revision"))
+                if moved:
+                    notes.append(say(policy, "redeploy_note",
+                                     identity=str(seen.get("observed_runtime_identity") or "")[:24],
+                                     source=str(seen.get("expected_source_revision") or "")[:12],
+                                     old=str(old_view.get("observed_runtime_identity") or "")[:24]))
+                runtime["runtime_provenance"] = dict(seen, timestamp=now)
+    return runtime
+
+
 def _observe_stand(cfg: dict, profile: str, policy, purpose: str, probe, probe_extra: dict, project_root: Path,
                    runtime_precedent, evidence_only: bool, notes: list, task_root=None) -> dict:
     """The stand block of a request: `{runtime_required, runtime_probe, runtime_provenance, ...}`, looked at NOW.
@@ -2795,51 +2854,13 @@ def _observe_stand(cfg: dict, profile: str, policy, purpose: str, probe, probe_e
     `task_root` is the story's folder: with it the refusal's door can narrow the containers by the story's files."""
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     if runtime_precedent:
-        runtime = {k: runtime_precedent[k] for k in ("runtime_required", "target_kind", "runtime_probe")
-                   if k in runtime_precedent}
-        runtime["runtime_provenance"] = dict(runtime_precedent.get("runtime_provenance") or {},
-                                             timestamp=now)
-        # B-150: an earlier result is worth what the stand ran when it was recorded. The stand
-        # is looked at NOW, and the request carries what was seen - so a redeploy makes a new
-        # run (its `runtime_sha` moves) instead of an `invalid_request` at the launch check, and a
-        # stand nobody could look at is never reported as unchanged (FR-41). A red probe runs in
-        # a sandbox by definition and keeps copying (its own gate is the launch check).
-        if policy is not None and purpose != "red_probe" and runtime.get("runtime_required", True) is not False:
-            old_probe = runtime.get("runtime_probe")
-            if probe is None or not isinstance(old_probe, dict) or not old_probe.get("argv"):
-                runtime["runtime_observed"] = False
-            else:
-                old_view = runtime["runtime_provenance"]
-                probe_cwd = Path(str(old_probe.get("cwd") or "."))
-                try:
-                    seen = probe({**old_probe, "cwd": str(probe_cwd if probe_cwd.is_absolute()
-                                                          else project_root / probe_cwd), **probe_extra})
-                except Exception as exc:  # a stand that cannot be looked at: the stand's gap, not the test's
-                    unseen = _stand_refusal(policy, exc, str(old_view.get("environment_id") or "<environment>"))
-                    if not evidence_only:
-                        raise MineRefusal(unseen) from exc
-                    notes.append(unseen)  # a question about evidence, not a run: unknown, said as such
-                    runtime["runtime_observed"] = False
-                    seen = None
-                if seen is not None:
-                    moved = (seen.get("observed_runtime_identity") != old_view.get("observed_runtime_identity")
-                             or seen.get("expected_source_revision") != old_view.get("expected_source_revision")
-                             or (seen.get("provenance") or {}).get("deployed_source_revision")
-                             != (old_view.get("provenance") or {}).get("deployed_source_revision"))
-                    if moved:
-                        notes.append(say(policy, "redeploy_note",
-                                         identity=str(seen.get("observed_runtime_identity") or "")[:24],
-                                         source=str(seen.get("expected_source_revision") or "")[:12],
-                                         old=str(old_view.get("observed_runtime_identity") or "")[:24]))
-                    runtime["runtime_provenance"] = dict(seen, timestamp=now)
-        return runtime
+        return _observe_precedent(runtime_precedent, policy, purpose, probe, probe_extra, project_root,
+                                  evidence_only, notes, now)
     spec = registered_probe(cfg, profile)
     if not (spec is not None and probe is not None):
         raise MineRefusal(_probe_refusal(cfg, profile, spec, evidence_only, task_root, project_root))
-    probe_cwd = Path(spec["cwd"])
     try:
-        observed = probe({**spec, "cwd": str(probe_cwd if probe_cwd.is_absolute()
-                                             else project_root / probe_cwd), **probe_extra})
+        observed = probe({**spec, "cwd": _probe_cwd(spec, project_root), **probe_extra})
     except ProvenanceRefused as exc:
         # t-300 N2: the probe ANSWERED and the answer is refused (a build that is not the story's, `unknown`, a word
         # that does not hold): the stand's refusal said as that, never `mine_unavailable` with a `--template request`
@@ -3866,5 +3887,5 @@ def write_mine_request(project_root: Path, request: dict) -> Path:
     path = directory / f"{stem}-{suffix}.json"
     tmp = path.with_suffix(f".{os.getpid()}.tmp")
     tmp.write_text(json.dumps(request, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    replace_file(tmp, path)
     return path

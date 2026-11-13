@@ -2030,6 +2030,48 @@ def of3_1e_one_env_file_parse():
         names, _rel = brief_pack._env_file_key_names({"env_files": ["harness/one.env", "harness/two.env"]}, t.project)
         check_eq("brief_pack names the keys of BOTH files, `export` and BOM read as the names", sorted(names or []),
                  ["ONE_TOKEN_A", "ONE_TOKEN_B", "ONE_TOKEN_C"])
+        # project_inventory.env_file_keys: names only, the same table; a name must also match KEY_NAME_RE
+        # (2-64 chars, so the one-letter names above give none)
+        import project_inventory
+        for label, text, want in rows:
+            env.write_bytes(text.encode("utf-8"))
+            check_eq(f"project_inventory.env_file_keys: {label}", project_inventory.env_file_keys(env),
+                     [k for k in want if project_inventory.KEY_NAME_RE.match(k)])
+        name_rows = [
+            ("a BOM before the first key", "﻿AB=1\nCD=2", ["AB", "CD"]),
+            ("export lower case dropped", "export AB=1", ["AB"]),
+            ("EXPORT upper case is part of the name, so no key name", "EXPORT AB=1", []),
+            ("a name starting with a digit is not a key name", "1AB=x\nCD=2", ["CD"]),
+            ("a name with a dash is not a key name", "A-B=x\nCD=2", ["CD"]),
+            ("a repeated name is listed once, at its first place", "AB=1\nCD=2\nAB=3", ["AB", "CD"]),
+            ("an empty file", "", []),
+        ]
+        for label, text, want in name_rows:
+            env.write_bytes(text.encode("utf-8"))
+            check_eq(f"project_inventory.env_file_keys: {label}", project_inventory.env_file_keys(env), want)
+        check_eq("project_inventory.env_file_keys: an absent file", project_inventory.env_file_keys(env.parent / "nowhere.env"), [])
+        # OF5-3: names only through brief_pack._env_file_key_names; its filter is env_probe.SECRET_NAME (a secret marker in the
+        # name, so the one-letter names above give none) - names carry `_KEY`; expectations are the OH3-42 rules
+        brief_names_rows = [
+            ("a BOM before the first key", "﻿A_KEY=1\nB_KEY=2", ["A_KEY", "B_KEY"]),
+            ("export lower case dropped", "export A_KEY=1", ["A_KEY"]),
+            ("a name without a secret marker is not named", "AB=1", []),
+            # one shape of a key name for both names-only readers (project_inventory.KEY_NAME_RE): P31, AR-13
+            ("EXPORT upper case is part of the name, so no key name", "EXPORT A_KEY=1", []),
+            ("a space inside the name is not a key name", "A B_KEY=1", []),
+            ("a name starting with a digit is not a key name", "1A_KEY=1", []),
+            ("a repeated name is named once, at its first place", "A_KEY=1\nB_KEY=2\nA_KEY=3", ["A_KEY", "B_KEY"]),
+            ("an empty file", "", []),
+        ]
+        for label, text, want in brief_names_rows:
+            env.write_bytes(text.encode("utf-8"))
+            got_names, _rel = brief_pack._env_file_key_names({"env_file": "harness/.env"}, t.project)
+            check_eq(f"brief_pack._env_file_key_names: {label}", got_names, want)
+        first.write_bytes("A_KEY=1\nB_KEY=old\n".encode("utf-8"))
+        second.write_bytes("B_KEY=new\nC_KEY=3\n".encode("utf-8"))
+        got_names, _rel = brief_pack._env_file_key_names({"env_files": ["harness/one.env", "harness/two.env"]}, t.project)
+        check_eq("brief_pack._env_file_key_names: two files in `env_files`, the names are the union without repeats",
+                 got_names, ["A_KEY", "B_KEY", "C_KEY"])
     finally:
         S.cleanup(t)
 
@@ -3133,6 +3175,164 @@ def tr1_3_end_session():
     check_eq("TR1-3 role-commands.json names the step on the walker's card and on the `ui` card", commands.count("end-session"), 2)
 
 
+def of1_1_env_file_names_samples_and_addresses():
+    """OF1-1 (AR-1, AR-2, AR-22): which names are env files / samples is the table `references/env-file-names.json` read through
+    `env_probe.env_file_kind`; `access_discovery` scans `env.example` and marks it, says whether the chosen file is only a sample,
+    and gives the ORIGIN of every http address an env file holds (nothing of a path, query or userinfo), through `render_access`
+    too. Expected values are the item's rules (spec t-231 part A, edges A-1..A-8), not what the code printed."""
+    import shutil
+    import tempfile
+    import env_probe
+    import project_inventory as PI
+
+    name_rows = [
+        (".env.dev-example", "sample"), (".env.qa_sample", "sample"), (".env.local-template", "sample"), (".env.docker-dist", "sample"),
+        (".env.example", "sample"), (".env.EXAMPLE", "sample"), (".env.example.local", "sample"),
+        (".env.local.example", "sample"), ("example.env", "sample"), ("env.example", "sample"), ("env.sample", "sample"),
+        ("env.template", "sample"), ("env.dist", "sample"), (".env.dist", "sample"), (".env.template.bak", "sample"),
+        (".env", "env"), (".env.local", "env"), (".env.test", "env"), (".env.production", "env"), ("my.env", "env"),
+        ("env.example.py", ""), ("env.py", ""), (".envrc", ""), ("environment.ts", ""), ("", ""),
+        (".env." + chr(0x43f) + chr(0x440) + chr(0x438) + chr(0x43c) + chr(0x435) + chr(0x440), "env"),      # a non-ASCII word: no marker matches, listed and not a sample
+    ]
+    for name, want in name_rows:
+        check_eq(f"env_file_kind: {name!r}", env_probe.env_file_kind(name), want)
+
+    def project(files):
+        root = Path(tempfile.mkdtemp(prefix="qa-env-names-")).resolve()
+        for rel, text in files.items():
+            (root / rel).write_text(text, encoding="utf-8")
+        return root
+
+    def discover(files, env_file=None):
+        root = project(files)
+        try:
+            config = {"environment": {"env_file": env_file}} if env_file is not None else None
+            return PI.access_discovery(root, config)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+    both = discover({".env": "BASE_URL=http://localhost:3000\n", "env.example": "BASE_URL=http://localhost:3002\n"})
+    check_eq("A-4: both files listed, the real one first", [(e["path"], e["example"]) for e in both["env_files"]],
+             [(".env", False), ("env.example", True)])
+    check_eq("A-5: the chosen file is the real one, not a sample", (both["env_file"], both["env_file_is_sample"]), (".env", False))
+    check_eq("A-6: address rows, the real file's before the sample's",
+             [(r["path"], r["key"], r["address"], r["sample"], r["has_path"]) for r in both["env_file_addresses"]],
+             [(".env", "BASE_URL", "http://localhost:3000", False, False),
+              ("env.example", "BASE_URL", "http://localhost:3002", True, False)])
+    check_eq("A-6: nothing cut", both["env_file_addresses_more"], 0)
+    check_in("A-8: the render prints the address origins and marks the sample row", "http address origins in env files: "
+             ".env BASE_URL http://localhost:3000; sample env.example BASE_URL http://localhost:3002", PI.render_access(both))
+    check_not_in("A-8: a real file's first line is today's", "only a sample", PI.render_access(both))
+
+    only = discover({"env.example": "BASE_URL=http://localhost:3002\nAUTH_USERNAME=u\nAUTH_PASSWORD=p\n"})
+    check_eq("A-5: only a sample: chosen, flagged, no pairs, no candidates",
+             (only["env_file"], only["env_file_is_sample"], only["account_pairs"], only["frontend_candidates"]),
+             ("env.example", True, [], []))
+    check_in("A-8: only a sample: the first line says so", "env file: none of this stand found - only a sample: env.example (3 key names)",
+             PI.render_access(only))
+    check_in("A-8: only a sample: `where` says the sample", "absent from the sample env.example", PI.render_access(only))
+
+    plain = {".env": "BASE_URL=http://localhost:3000\nAUTH_USERNAME=u\nAUTH_PASSWORD=p\n"}
+    for declared in ("./.env", ".\\.env", " .env "):
+        check_eq(f"A-5: declared {declared!r} chooses `.env`", discover(plain, declared)["env_file"], ".env")
+    for declared in ("/abs/.env", "../.env", "sub/../.env"):
+        none = discover({".env.example": "A_URL=http://x\n", **plain}, declared)
+        check_eq(f"A-5: declared {declared!r} matches no row: the first real file", none["env_file"], ".env")
+    declared_sample = discover({".env.example": "BASE_URL=http://localhost:3002\nAUTH_USERNAME=u\nAUTH_PASSWORD=p\n", **plain}, ".env.example")
+    check_eq("A-5: a declared sample is chosen as declared, and the flag says so",
+             (declared_sample["env_file"], declared_sample["env_file_is_sample"], declared_sample["account_pairs"],
+              declared_sample["frontend_candidates"], declared_sample["frontend_same_origin"]), (".env.example", True, [], [], {}))
+
+    empty = discover({})
+    check_eq("A-7: no env file: today's shape plus the new fields",
+             (empty["env_files"], empty["env_file"], empty["env_file_found"], empty["env_file_is_sample"],
+              empty["env_file_addresses"], empty["env_file_addresses_more"]), ([], "", False, False, [], 0))
+    check_eq("A-7: a config with no `environment`", discover({}, None)["env_file_is_sample"], False)
+    check_eq("A-6: an empty env file and one with no http value give no rows",
+             discover({".env": "", ".env.test": "A_NAME=plain\n"})["env_file_addresses"], [])
+
+    url_rows = [
+        ("webhook path", "SLACK_WEBHOOK_URL=https://hooks.slack.com/services/T0/B0/abcdefSECRET", "https://hooks.slack.com", True, "abcdefSECRET"),
+        ("bot token in the path", "TELEGRAM_BOT_URL=https://api.telegram.org/bot123456:AAH-xyz/", "https://api.telegram.org", True, "AAH-xyz"),
+        ("DSN userinfo", "SENTRY_DSN=https://k3y@o1.ingest.sentry.io/42", "https://o1.ingest.sentry.io", True, "k3y"),
+        ("userinfo, path and query", "SVC_URL=http://u:p@host/x?q=1", "http://host", True, "u:p"),
+        ("a bare slash is no path", "SVC_URL=http://localhost:3000/", "http://localhost:3000", False, ""),
+        ("IPv6 host bracketed", "SVC_URL=http://[::1]:3000", "http://[::1]:3000", False, ""),
+        ("default port dropped", "SVC_URL=https://example.org:443", "https://example.org", False, ""),
+        ("fragment and query only", "SVC_URL=http://host:8080?token=Q9#frag", "http://host:8080", False, "Q9"),
+    ]
+    for label, line, address, has_path, secret in url_rows:
+        found = discover({".env": line + "\n"})
+        rows = found["env_file_addresses"]
+        check_eq(f"A-6: {label}", [(r["address"], r["has_path"]) for r in rows], [(address, has_path)])
+        everything = json.dumps(found) + PI.render_access(found)
+        check(f"A-6: {label}: nothing beyond the origin leaves", not secret or secret not in everything, everything[:300])
+    check_eq("A-6: a bad port gives no row and is not counted",
+             (discover({".env": "SVC_URL=http://host:99999\n"})["env_file_addresses"],
+              discover({".env": "SVC_URL=http://host:99999\n"})["env_file_addresses_more"]), ([], 0))
+    check_eq("A-6: a secret-looking NAME with a URL gives no row", discover({".env": "API_KEY_URL=http://host:1\n"})["env_file_addresses"], [])
+
+    lines = lambda prefix, n: "".join(f"{prefix}_{i}_URL=http://h{i}.test\n" for i in range(n))
+    at = discover({".env": lines("R", 10)})
+    check_eq("A-6: the cap AT 10: all listed, none left", (len(at["env_file_addresses"]), at["env_file_addresses_more"]), (10, 0))
+    beyond = discover({".env": lines("R", 10), "env.example": lines("S", 1)})
+    check_eq("A-6: the cap BEYOND (11): the cut row is the sample's",
+             (len(beyond["env_file_addresses"]), beyond["env_file_addresses_more"], [r["sample"] for r in beyond["env_file_addresses"]].count(True)),
+             (10, 1, 0))
+    mixed = discover({".env": lines("R", 5), "env.example": lines("S", 6)})
+    check_eq("A-6: a real file's rows are never cut while a sample's are kept",
+             ([r["sample"] for r in mixed["env_file_addresses"]], mixed["env_file_addresses_more"]), ([False] * 5 + [True] * 5, 1))
+    check_in("A-8: the render says how many more", "; and 1 more", PI.render_access(mixed))
+    for chars, listed in ((300, True), (301, False)):
+        host = "h" * (chars - len("http://"))
+        found = discover({".env": f"SVC_URL=http://{host}\n"})
+        check_eq(f"A-6: an address of {chars} characters", (len(found["env_file_addresses"]) == 1, found["env_file_addresses_more"]),
+                 (listed, 0 if listed else 1))
+
+    # a file that cannot be read gives no rows and no exception
+    root = project({".env": "SVC_URL=http://host\n"})
+    try:
+        (root / ".env.local").mkdir()      # named like an env file, but a directory: never a row, never an exception
+        check_eq("A-6: an unreadable env file is no row and no exception",
+                 PI.env_file_address_rows(root, [{"path": ".env.local", "example": False}, {"path": "nowhere/.env", "example": False}]), ([], 0))
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+    for label, line in (("a backslash", "SVC_URL=http://hooks.slack.com\\services\\t0\\b0\\secretback"),
+                        ("an encoded slash", "SVC_URL=http://host%2fservices%2fsecretpct"),
+                        ("a semicolon", "SVC_URL=http://host;secretsemi")):
+        found = discover({".env": line + "\n"})
+        check_eq(f"A-6: {label} in the host gives no row and no count", (found["env_file_addresses"], found["env_file_addresses_more"]), ([], 0))
+        token = line.rsplit("secret", 1)[1]
+        everything = json.dumps(found) + PI.render_access(found)
+        check(f"A-6: {label} in the host: the path material never leaves", "secret" + token not in everything.lower(), everything[:300])
+
+    # A-2 / F7: a damaged table is a ValueError. Proven on tmp copies via the module's path attribute; the live table is never touched
+    live = env_probe.ENV_FILE_NAMES_PATH
+    good = json.loads(live.read_text(encoding="utf-8"))
+    tmpdir = Path(tempfile.mkdtemp(prefix="qa-env-table-"))
+    try:
+        damaged = [("absent", None), ("malformed", b'{"exact": 1}'),
+                   ("empty sample_markers", json.dumps({**good, "sample_markers": []}).encode()),
+                   ("no marker_separators", json.dumps({k: v for k, v in good.items() if k != "marker_separators"}).encode()),
+                   ("exact, prefixes, suffixes all empty", json.dumps({**good, "exact": [], "prefixes": [], "suffixes": []}).encode())]
+        for label, content in damaged:
+            path = tmpdir / (label.replace(" ", "_").replace(",", "") + ".json")
+            if content is not None:
+                path.write_bytes(content)
+            env_probe.ENV_FILE_NAMES_PATH = path
+            try:
+                env_probe.env_file_kind(".env")
+                check(f"A-2: a table {label} is a ValueError", False, "no exception")
+            except ValueError as exc:
+                check_in(f"A-2: a table {label}: the error names the file and the keys", "references/env-file-names.json", str(exc))
+                check_in(f"A-2: a table {label}: the error names the keys", "sample_markers", str(exc))
+    finally:
+        env_probe.ENV_FILE_NAMES_PATH = live
+        shutil.rmtree(tmpdir, ignore_errors=True)
+    check_eq("A-2: the live table answers again", env_probe.env_file_kind(".env"), "env")
+
+
 def main():
     tr1_3_end_session()
     tr1_1_type_goes_on_without_a_new_focus()
@@ -3177,6 +3377,7 @@ def main():
     landing_before_submit()
     read_login_adversarial()
     of3_1e_one_env_file_parse()
+    of1_1_env_file_names_samples_and_addresses()
     t308_f1_a_login_declared_null_is_never_read()
     t308_f2_an_explicit_attempt_of_a_login_that_did_not_land()
     t308_f3_a_recipe_that_is_not_an_object_is_refused()

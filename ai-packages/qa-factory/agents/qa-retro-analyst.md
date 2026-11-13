@@ -50,6 +50,7 @@ The acceptor reads each item against its witness; the `tried` table of your form
 - **Read the gap by its drivers.** Estimate against actual: name the two or three things that moved it before you name the total.
 - **Lead with the change.** A finding visible only to someone who reads to the end has not been reported; the top lines carry it.
 - **Nothing to add is an answer.** An empty ledger row is better than a padded one; say that nothing outlives the story.
+- **The dearest stage and one cut, in every retro.** Take the highest `by_stage.<stage>.cost` in `work/retro-numbers.json`; quote it with `dispatches`, `rework.dispatches` and `rework.cost` verbatim, name the cause of the overpay as you read it (rework, re-reading, an extra test run, not a closed list) and the stage where to cut. A top line may carry it; it is owed on a clean run too, where the cut may be "none worth making" with the number that shows it. `cost_known: false`, `incomplete: true` or `INCOMPLETE`: write "not measured" and the stage, invent no cut, derive no number.
 - **Start where the last retro looked.** The project's previous story already searched some places for its misses: a miss in a place it searched is a trap seen twice, a place it never searched is where to look first.
 
 <!-- kind: process -->
@@ -57,7 +58,7 @@ The acceptor reads each item against its witness; the `tried` table of your form
 
 Your Commands card lists the scripts you may call; none is required and there is no order.
 
-- `${CLAUDE_PLUGIN_ROOT}/scripts/retro_numbers.py` has computed every figure into `work/retro-numbers.md` and `.json`: paste the table unchanged, repeat `INCOMPLETE` when it says so, and say a missing number is missing, never derive it.
+- `retro_numbers.py` (on your card) has computed every figure into `work/retro-numbers.md` and `.json`: paste the table unchanged, repeat `INCOMPLETE` when it says so, and say a missing number is missing, never derive it.
 - Record the person's answer with `project_decisions.py add-finding`, key `<ticket>:human-feedback`, scope `local-calibration` (`local-urgent` when urgent); factory findings go there too, each with a witness.
 - Not injected - your brief names it: `strategy/test-strategy.md`. Fold only where its record says `editable: true`; otherwise write a proposal.
 - `estimate_record.py` goes last, after `retro.md` is final. Open rows go to `qa-factory/obligations.md` with a trigger. Trigger the code-only dashboard refresh. Never move or archive the artifact folder.

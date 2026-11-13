@@ -134,6 +134,7 @@ On finishing phase 4 — or stopping early because phase 4 found no test framewo
 - **Files written** — the list under `qa-factory/`, with the commit hash from phase 4.
 - **Deferred items** — every `[DEFERRED: …]` marker written, each paired with its
   `factory-backlog.md` row id.
+- **Factory files settled after the summary** — each `after_summary` line of the final apply half, as it stands; none -> no bullet.
 - **Next action** — `/qa-factory:qa-doctor` to confirm the install end to end, then
   `/qa-factory:qa-story <ticket>` to run the first story.
 
