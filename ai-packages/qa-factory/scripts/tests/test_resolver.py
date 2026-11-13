@@ -2154,6 +2154,44 @@ def oh8_2_create_and_guard_edges() -> None:
         restore_process()
 
 
+def _oh82_v1_refused() -> tuple:
+    """The three leaves asked about the key `v1.`: (is_story_folder is False, story_root says no story, artifacts_dir refuses on shape)."""
+    root = _oh61_outcome(lambda: hooklib.story_root("v1.", "prog"))
+    adir = _oh61_outcome(lambda: hooklib.artifacts_dir("v1."))
+    return (not hooklib.is_story_folder(hooklib.artifact_root(), "v1."),
+            root[:2] == ("raised", "StoryRootError") and "names no story" in root[2],
+            adir[:2] == ("raised", "StoryRootError") and "pass the key without them" in adir[2])
+
+
+def oh8_2_posix_names() -> None:
+    """OH8-2a, POSIX only (a folder `v1.` and the pair `T`/`t` cannot exist on NTFS): the exact folder `v1.` is refused by all
+    three leaves, and with `T` and `t` both real, `t` is accepted as exact and `T.` is refused on shape. The in-test negative
+    control runs on every OS: with `clean_key` forced to True for `v1.` over a listing that holds it, the cell would go red."""
+    base = scratch()
+    try:
+        project, art = _oh61_project(base / "posix", ("T",))
+        listing = ["T", "v1."]
+        with _oh61_patched(hooklib, clean_key=lambda name: name == "v1." or hooklib.is_one_component(name) and name == name.strip() and name == name.rstrip(" ."),
+                           _listing=lambda parent: listing, is_dir_or_no=lambda path: True):
+            loose = _oh82_v1_refused()
+        with _oh61_patched(hooklib, _listing=lambda parent: listing, is_dir_or_no=lambda path: True):
+            strict = _oh82_v1_refused()
+        check("OH8-2 negative control (v1.): a clean_key that passes `v1.` turns the cell red", loose != (True, True, True), str(loose))
+        check("OH8-2 control (v1.): the real clean_key keeps all three leaves refusing the listed `v1.`", strict == (True, True, True), str(strict))
+        if os.name == "nt":
+            _oh82_skip("exact folders `v1.`, and `T` with `t`, cannot exist on this file system (posix cells)")
+            return
+        (art / "v1.").mkdir()
+        (art / "t").mkdir()
+        (art / "t" / "pipeline.json").write_text("{}", encoding="utf-8")
+        check("OH8-2 posix v1.: the three leaves refuse an exact folder `v1.`", _oh82_v1_refused() == (True, True, True), str(_oh82_v1_refused()))
+        check("OH8-2 posix T+t: `t` is accepted as exact", hooklib.is_story_folder(art, "t") and hooklib.artifacts_dir("t") == art / "t")
+        got = _oh61_outcome(lambda: hooklib.artifacts_dir("T."))
+        check("OH8-2 posix T+t: `T.` is refused on shape", got[:2] == ("raised", "StoryRootError") and "pass the key without them" in got[2], repr(got))
+    finally:
+        restore_process()
+
+
 # shrink-only (AR-15, AR-20): lines calling `hooklib.is_one_component` per script, in the world after OH8-1 and OH8-2a. OH8-2b
 # lowers role_load.py 2 -> 1; `selftest.py` keeps a named mirror pinned by `oh6_1_mirror_agreement`, not counted here.
 OH82_CALLS = re.compile(r"(?<![\w])(?:hooklib\.)?is_one_component\(")
@@ -2182,6 +2220,7 @@ def main() -> None:
         oh6_1_sentinel()
         oh8_2_alias_table()
         oh8_2_create_and_guard_edges()
+        oh8_2_posix_names()
         oh8_2_sentinel()
         oh8_3_session_id_refusal_line()
         b1_artifacts_dir_root()
