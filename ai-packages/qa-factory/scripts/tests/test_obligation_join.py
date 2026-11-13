@@ -306,7 +306,7 @@ def main() -> None:
                 reason = rows[0]["reason"] if rows else ""
                 check(f"{name}: the reason opens with the field list and names the rename and the door",
                       reason.startswith(f"not current, re-judge: {want_stale} (") and "renamed from OB-1" in reason
-                      and "manifest_put.py --fragment" in reason, f"reason: {reason!r}")
+                      and f"manifest_put.py --task {task.name} --fragment" in reason,f"reason: {reason!r}")
                 check(f"{name}: the journal's 80-character cut keeps the field list", f"re-judge: {want_stale}" in reason[:80],
                       f"reason[:80]: {reason[:80]!r}")
         finally:
