@@ -1089,9 +1089,11 @@ def _not_a_project(root, given=True):
     got a store the real hooks, which resolve the project by its config.json, never read."""
     from hooklib import not_a_project_text
     detail = ("The real hooks read the store of a factory project only, so a probe store there would never be seen "
-              "and the live guard cannot be probed here. Report the host hooks as unknown, owner factory, with "
-              "this fact.")
-    text = not_a_project_text(root, given, purpose="host_probe", detail=detail)
+              "and the live guard cannot be probed here.")
+    # only where no door but onboarding exists (ambient, nothing above): with a door, a re-run would probe (F2)
+    dead_end = "Report the host hooks as unknown, owner factory, with this fact."
+    text = not_a_project_text(root, given, purpose="host_probe", detail=detail, root_option=True,
+                              dead_end_detail=dead_end)
     return text + _hook_fact() if text else ""
 
 

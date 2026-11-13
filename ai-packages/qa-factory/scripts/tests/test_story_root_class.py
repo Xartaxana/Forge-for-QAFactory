@@ -493,10 +493,13 @@ def a_given_project_is_where_the_key_resolves():
             # a project that is not one, or none at all, is a refusal - never the current folder, never the exit of
             # require_project (the caller's own word named it)
             os.chdir(project)
-            for what, bad in (("empty", ""), ("blank", "  "), ("a folder without the marker", artifacts),
-                              ("an absent folder", other / "nowhere")):
+            for what, bad in (("empty", ""), ("blank", "  ")):
                 refused(f"project {what}", hooklib.story_root, "TP3-1", "t", "Pass --root.", project=bad,
-                        needles=("is not an onboarded project", "nothing was read or written"))
+                        needles=("an empty project", "nothing was read or written"))
+            # C2: a project that is not one gets the words of the one builder (hooklib.not_a_project_text)
+            for what, bad in (("a folder without the marker", artifacts), ("an absent folder", other / "nowhere")):
+                refused(f"project {what}", hooklib.story_root, "TP3-1", "t", "Pass --root.", project=bad,
+                        needles=("t: no qa-factory/config.json under", "refusing to create one", "Nothing was read or written"))
             check_eq("the door of the caller closes it", refused("door", hooklib.story_root, "TP3-1", "t", "Pass --root.",
                                                                  project="")[-len("Pass --root."):], "Pass --root.")
             check_eq("a bad key is R1 before the project is looked at", refused("bad key", hooklib.story_root, "", "t",
@@ -1023,19 +1026,26 @@ def _not_a_project_rows():
     """(row id, setup, given, extra_door, must say, must not say). The ids of the rows that carry a pin moved from the
     quarantined test_host_probe_shapes.py name that pin (path:line) in the report of OF4-17."""
     return (
-        ("bare-root-given: --root on a folder with no marker above (hs.py:971-973)", BARE_ROOT, True, "",
+        ("bare-root-given: --root on a folder with no marker above (hs.py:971-973)", BARE_ROOT, True, "", True,
          ("--root", "project root", "/qa-factory:qa-onboarding", "refusing to create one"), ("or run the command from inside it",)),
-        ("bare-root-ambient: the ambient folder, nothing above (hs.py:944-948)", BARE_ROOT, False, "",
+        ("bare-root-ambient: the ambient folder, nothing above (hs.py:944-948)", BARE_ROOT, False, "", True,
          ("not onboarded", "/qa-factory:qa-onboarding", "or above it"),
          ("inactive", "broken", "not firing")),
-        ("ancestor-ambient: a marker above the ambient folder (hs.py:982-984)", UNDER_MARKER, False, "",
+        ("bare-root-ambient keeps the wrong-root clause beside 'not onboarded yet' (F3)", BARE_ROOT, False, "", False,
+         ("not onboarded yet", "if the project is elsewhere", "CLAUDE_PROJECT_DIR"), ()),
+        ("ancestor-ambient: a marker above the ambient folder (hs.py:982-984)", UNDER_MARKER, False, "", True,
          ("Re-run with --root {above}",), ("or above it", "qa-onboarding", "not onboarded yet")),
-        ("ancestor-given: a marker above the --root folder", UNDER_MARKER, True, "",
+        ("ancestor-given: a marker above the --root folder", UNDER_MARKER, True, "", True,
          ("Re-run with --root {above}", "refusing to create one"), ("qa-onboarding", "not onboarded yet")),
-        ("extra-door-bare: the door of the caller is added, bare root", BARE_ROOT, True, DOOR, (DOOR,), ()),
-        ("extra-door-ancestor: the door of the caller is added, marker above", UNDER_MARKER, True, DOOR, (DOOR, "Re-run with --root {above}"), ()),
-        ("extra-door-ambient: the door of the caller is added, ambient bare", BARE_ROOT, False, DOOR, (DOOR, "not onboarded"), ()),
-        ("no-door: without extra_door the text names none", BARE_ROOT, True, "", (), ("--read-only",)),
+        ("ancestor without root option never says --root (ambient)", UNDER_MARKER, False, "", False,
+         ("Run the command from inside {above}", "CLAUDE_PROJECT_DIR"), ("--root", "qa-onboarding", "not onboarded yet")),
+        ("ancestor without root option never says --root (given)", UNDER_MARKER, True, "", False,
+         ("Run the command from inside {above}", "CLAUDE_PROJECT_DIR"), ("--root", "qa-onboarding")),
+        ("extra-door-bare: the door of the caller is added, bare root", BARE_ROOT, True, DOOR, True, (DOOR,), ()),
+        ("extra-door-ancestor: the door of the caller is added, marker above", UNDER_MARKER, True, DOOR, True,
+         (DOOR, "Re-run with --root {above}"), ()),
+        ("extra-door-ambient: the door of the caller is added, ambient bare", BARE_ROOT, False, DOOR, True, (DOOR, "not onboarded"), ()),
+        ("no-door: without extra_door the text names none", BARE_ROOT, True, "", True, (), ("--read-only",)),
     )
 
 
@@ -1048,9 +1058,9 @@ def one_text_says_a_root_is_not_a_project_in_every_caller():
     below.mkdir()
     above = marked.resolve()
     try:
-        for name, setup, given, door, needles, absent in _not_a_project_rows():
+        for name, setup, given, door, root_option, needles, absent in _not_a_project_rows():
             root = below if setup == UNDER_MARKER else bare
-            text = hooklib.not_a_project_text(root, given, purpose="tool", extra_door=door)
+            text = hooklib.not_a_project_text(root, given, purpose="tool", extra_door=door, root_option=root_option)
             check_in(f"{name}: names the caller", "tool: ", text)
             for needle in needles:
                 check_in(f"{name}: says {needle!r}", needle.replace("{above}", str(above)), text)
@@ -1094,6 +1104,14 @@ def one_text_says_a_root_is_not_a_project_in_every_caller():
             plain = host_probe._not_a_project(bare, given=False)
         finally:
             session_identity.resolve = real
+        # F2: the "report unknown" instruction only where no door exists (ambient, nothing above)
+        for given, where, dead_end in ((True, bare, False), (True, below, False), (False, below, False), (False, bare, True)):
+            text = host_probe._not_a_project(where, given=given)
+            check_eq(f"host_probe F2 (given={given}, {where.name}): 'Report the host hooks as unknown' only with no door",
+                     "Report the host hooks as unknown" in text, dead_end)
+            if where == below:
+                check_in(f"host_probe (given={given}, {where.name}): its own --root door names the project above",
+                         f"Re-run with --root {above}", text)
         check_in("bare-root-ambient via host_probe (hs.py:945): hooks unknown, owner factory", "unknown, owner factory", silent)
         check("bare-root-ambient via host_probe (hs.py:947-948): not called inactive or broken",
               not any(w in silent for w in ("inactive", "broken", "not firing")), silent[-200:])
@@ -1106,9 +1124,6 @@ def one_text_says_a_root_is_not_a_project_in_every_caller():
         import dashboard_refresh
         check_eq("dashboard_refresh.refresh_project on a bare root: not_configured", dashboard_refresh.refresh_project(bare),
                  {"status": "not_configured"})
-        src = (SCRIPTS / "dashboard_refresh.py").read_text(encoding="utf-8")
-        check_in("dashboard_refresh asks _carries_project", "_carries_project(project)", src)
-        check_not_in("dashboard_refresh has no marker path of its own", 'project / "qa-factory/config.json").is_file()', src)
         # the dashboard and config_view CLIs on a bare root print the shared text (OF4-17 fix round)
         before = sorted(p.name for p in bare.rglob("*"))
         dash = run_script("factory_dashboard.py", "--root", bare)
@@ -1124,7 +1139,7 @@ def one_text_says_a_root_is_not_a_project_in_every_caller():
         check_in("config_view on a bare root: under the caller's name", "config_view: ", cv.stderr)
         import config_view
         check_eq("config_view.EXIT_NO_CONFIG is the code the subprocess row expects", config_view.EXIT_NO_CONFIG, hooklib.EXIT_NO_PROJECT)
-        # the one fallback: the marker exists yet the loader raised NoConfig -> the builder gives "" and the old sentence stays
+        # the one fallback: the marker exists yet the loader raised NoConfig -> the builder gives "" and ONE true sentence says so
         def _gone():
             raise config_view.NoConfig()
         err = io.StringIO()
@@ -1133,7 +1148,27 @@ def one_text_says_a_root_is_not_a_project_in_every_caller():
                 contextlib.redirect_stderr(err):
             code = config_view.main(["--keys"])
         check_eq("config_view fallback (marker present, loader raised NoConfig): exit EXIT_NO_CONFIG", code, config_view.EXIT_NO_CONFIG)
-        check_in("config_view fallback keeps its one sentence", "this project was never onboarded", err.getvalue())
+        check_in("config_view fallback names the file that is there and the loader that found no config",
+                 "qa-factory/config.json under", err.getvalue())
+        check_in("config_view fallback says the loader found no config", "found no config", err.getvalue())
+        check_not_in("config_view fallback does not claim the project was never onboarded", "never onboarded", err.getvalue())
+        # C1: check_coverage.marked_root builds its refusal through the one builder (it has --root)
+        import check_coverage
+        check_eq("check_coverage.marked_root: a project root is no refusal", check_coverage.marked_root(marked),
+                 (marked.resolve(), ""))
+        for what, raw, needles in (("bare --root", bare, ("check_coverage: ", "refusing to create one", "nothing was checked")),
+                                   ("below a project, --root", below, (f"Re-run with --root {above}", "nothing was checked")),
+                                   ("below a project, default root", None, ())):
+            if raw is None:
+                with mock.patch.object(check_coverage, "_project_root", lambda: below):
+                    got, text = check_coverage.marked_root(None)
+                needles = ("check_coverage: ", f"Re-run with --root {above}", "nothing was checked")
+            else:
+                got, text = check_coverage.marked_root(raw)
+            check_eq(f"check_coverage.marked_root ({what}): no root", got, None)
+            for needle in needles:
+                check_in(f"check_coverage.marked_root ({what}): says {needle!r}", needle, text)
+            check_not_in(f"check_coverage.marked_root ({what}): the old sentence is gone", "is not a factory project", text)
         # the docstring is true: no other function builds the sentence "no qa-factory/config.json under"
         builders = [p.name for p in sorted(SCRIPTS.glob("*.py"))
                     if "no qa-factory/config.json under" in p.read_text(encoding="utf-8")]

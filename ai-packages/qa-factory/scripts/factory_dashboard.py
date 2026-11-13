@@ -3771,7 +3771,8 @@ def main(argv=None) -> None:
     # of them, exit 3, nothing written. A --read-only render writes nothing under the root (its scratch
     # copy is in the temp folder, its page is the explicit --out), so it is the one run a bare root may have.
     if not args.read_only:
-        require_project_at(root, "factory_dashboard", extra_door="--read-only --out <file outside the root>")
+        require_project_at(root, "factory_dashboard", extra_door="--read-only --out <file outside the root>",
+                           root_option=True)
     global _LEVEL_GLOBS
     _LEVEL_GLOBS = level_globs(root)
 
