@@ -587,9 +587,12 @@ def call_time_rows():
         for what, got, want in rows:
             check_eq(what, got, want)
         shipped = F.load_markers()
-        check_eq("the shipped list is the Lead's four scripts",
+        check_eq("the shipped list is the Lead's six scripts",
                  sorted(shipped["bookkeeping_scripts"]),
-                 ["handoff_check.py", "manifest_from_tests.py", "manifest_put.py", "s5_precheck.py"])
+                 ["handoff_check.py", "handoff_init.py", "manifest_from_tests.py", "manifest_put.py",
+                  "manifest_view.py", "s5_precheck.py"])
+        check_eq("the shipped fragment pattern list is the Lead's one pattern", shipped["fragment_patterns"],
+                 ["*.values.yaml"])
         real_path = F.MARKERS_PATH
         F.MARKERS_PATH = root / "no-such-markers.json"
         try:
@@ -599,6 +602,187 @@ def call_time_rows():
         check_eq("an unreadable markers file: bookkeeping unknown, refused counted, kind not named",
                  (lost["bookkeeping"]["state"], lost["refused"]["calls"], sorted(lost["refused"]["by_kind"])),
                  ("unknown", 3, ["failed, cause not recorded"]))
+    finally:
+        cleanup(root)
+
+
+OLD_SCRIPT = re.compile(r"([a-z_]+\.py)")             # the shape before round 2: no digit in a name
+
+# (what, command, scripts it invokes in command order, the listed script the call is attributed to)
+INVOCATION_SHAPES = (
+    ("invoked with flags", "python -B scripts/manifest_put.py --fragment x",
+     ["manifest_put.py"], "manifest_put.py"),
+    ("invoked by an absolute Windows path with a digit in the name",
+     r'python3 "C:\pkg dir\scripts\s5_precheck.py" --task T', ["s5_precheck.py"], "s5_precheck.py"),
+    ("invoked by an absolute interpreter and script path", "/usr/bin/python3.12 -u /abs/scripts/handoff_check.py",
+     ["handoff_check.py"], "handoff_check.py"),
+    ("invoked through the py launcher with its flag", "py -3 scripts/manifest_view.py",
+     ["manifest_view.py"], "manifest_view.py"),
+    ("invoked as the command itself", "scripts/handoff_init.py --task T", ["handoff_init.py"],
+     "handoff_init.py"),
+    ("interpreter flag with its own argument", "python -W ignore scripts/manifest_put.py",
+     ["manifest_put.py"], "manifest_put.py"),
+    ("after cd, in a subshell, with an env prefix", "( cd d && FOO=1 python -B x/handoff_check.py )",
+     ["handoff_check.py"], "handoff_check.py"),
+    ("with a pipe and a redirect after it", "python scripts/s5_precheck.py --task T 2>&1 | tail -5",
+     ["s5_precheck.py"], "s5_precheck.py"),
+    ("named only as an argument of another program (not counted)",
+     "python scripts/other.py manifest_put.py", ["other.py"], None),
+    ("named as the argument of grep (not counted)", "grep manifest_put.py scripts/x.txt", [], None),
+    ("named as the argument of cat (not counted)", "cat scripts/s5_precheck.py", [], None),
+    ("named as the argument of an editor (not counted)", "vim scripts/manifest_put.py", [], None),
+    ("named inside quoted text (not counted)", 'echo "python scripts/manifest_put.py"', [], None),
+    ("named in code after -c (not counted)", 'python -c "import manifest_put.py"', [], None),
+    ("two invoked scripts joined by && are ONE call, attributed to the first in the command",
+     "python scripts/manifest_put.py && python scripts/handoff_check.py",
+     ["manifest_put.py", "handoff_check.py"], "manifest_put.py"),
+    ("an unlisted script first and a listed one second: the call is the listed one's",
+     "python scripts/other.py && python scripts/s5_precheck.py", ["other.py", "s5_precheck.py"],
+     "s5_precheck.py"),
+    ("an empty command", "", [], None),
+)
+
+
+def round2_rows():
+    """The Lead's six answers to round 1, one table per answer; a red line names the row."""
+    root = temp_dir("qa-friction-round2-")
+    try:
+        book_doc = json.loads((SCRIPTS.parent / "references" / "friction-markers.json").read_text(encoding="utf-8"))
+        # answer 1: the name shape allows digits; older readers only gain the correctly named script
+        no_digit = [x["input"].get("command") or x["input"].get("file_path") or ""
+                    for rec in scout_transcript() if rec["type"] == "assistant"
+                    for x in rec["message"]["content"] if x.get("type") == "tool_use"] + [
+            "python -B scripts/manifest_put.py --fragment x", "cat scripts/other_tool.py", "py -3 a_b.py c.py", ""]
+        recover = [assistant("r1", calls=[("a", "Bash", "python scripts/s5_precheck.py")]),
+                   result("a", "PRE-TOOL GUARD refused the call"),
+                   assistant("r2", calls=[("b", "Bash", "python scripts/s6_precheck.py")]), result("b", "ok"),
+                   assistant("r3", calls=[("c", "Bash", "python scripts/s5_precheck.py --fix")])]
+        rpath = root / "recover.jsonl"
+        write_jsonl(rpath, recover)
+        after = dict(F.friction(rpath, priced())["tally"])
+        F.SCRIPT = OLD_SCRIPT
+        try:
+            before = dict(F.friction(rpath, priced())["tally"])
+            scout = root / "scout.jsonl"
+            write_jsonl(scout, scout_transcript())
+            before_scout = F.friction(scout, priced())
+        finally:
+            F.SCRIPT = re.compile(r"([a-z0-9_]+\.py)")
+        after_scout = F.friction(scout, priced())
+        for what, got, want in (
+                ("a digit is part of a script name now: s5_precheck.py is one name",
+                 F.SCRIPT.findall("python scripts/s5_precheck.py --x"), ["s5_precheck.py"]),
+                ("it was read as _precheck.py before", OLD_SCRIPT.findall("python scripts/s5_precheck.py"),
+                 ["_precheck.py"]),
+                ("commands with no digit in a name read the same under both shapes (the fixture's own calls)",
+                 [F.SCRIPT.findall(a.lower()) for a in no_digit], [OLD_SCRIPT.findall(a.lower()) for a in no_digit]),
+                ("friction() on the existing fixture: output unchanged",
+                 (after_scout["tally"], after_scout["fric_turns"], after_scout["helpers"]),
+                 (before_scout["tally"], before_scout["fric_turns"], before_scout["helpers"])),
+                ("friction(), a refused digit-named script retried later: before (name read as _precheck.py, a "
+                 "different digit-named script closed the repair) -> after (its own name is tracked: recovery)",
+                 (before, after), ({"guard": 1}, {"guard": 1, "recovery": 1}))):
+            check_eq(what, got, want)
+        # answer 2: invocation, one row per shape (the commands and the call-level attribution)
+        lines = [{"type": "user", "timestamp": stamp(0), "message": {"content": "go"}}]
+        for i, (_, cmd, _, _) in enumerate(INVOCATION_SHAPES):
+            lines += [assistant(f"s{i}", calls=[(f"s{i}", "Bash", cmd)], ts=stamp(10 * i + 1)),
+                      result(f"s{i}", "ok", ts=stamp(10 * i + 3))]
+        spath = root / "shapes.jsonl"
+        write_jsonl(spath, lines)
+        by_id = {c["id"]: c for c in F.call_spans(spath)["calls"]}
+        for i, (what, cmd, invoked, attributed) in enumerate(INVOCATION_SHAPES):
+            check_eq(f"invocation [{what}]: scripts invoked", F.invoked_scripts(cmd), invoked)
+            check_eq(f"invocation [{what}]: bookkeeping attribution", by_id[f"s{i}"]["script"], attributed)
+        check_eq("a joined command is counted once, not twice", F.call_spans(spath)["bookkeeping"]["calls"],
+                 sum(1 for s in INVOCATION_SHAPES if s[3]))
+        # answer 3: fragment writes, their own row; the pattern list in every shape it can be missing
+        frag = [{"type": "user", "timestamp": stamp(0), "message": {"content": "go"}}]
+        for i, (name, target) in enumerate((
+                ("Write", "work/handoffs/S5-qa-automator.values.yaml"), ("Edit", r"C:\w\HANDOFFS\S5.Values.YAML"),
+                ("Write", "work/handoffs/S5.yaml"), ("Write", "work/notes.values.yaml.bak"), ("Read", "a.values.yaml"),
+                ("Bash", "cat a.values.yaml"), ("Bash", "python scripts/manifest_put.py"))):
+            frag += [assistant(f"f{i}", calls=[(f"f{i}", name, target)], ts=stamp(10 * i + 1)),
+                     result(f"f{i}", "ok", ts=stamp(10 * i + 4))]
+        fpath = root / "frag.jsonl"
+        write_jsonl(fpath, frag)
+        got = F.call_spans(fpath)
+        no_frag = {}
+        for why, value in (("absent", None), ("a string", "*.values.yaml"), ("empty", []), ("no usable pattern", [3, ""])):
+            doc = dict(book_doc)
+            doc.pop("bookkeeping_fragment_patterns")
+            if why != "absent":
+                doc["bookkeeping_fragment_patterns"] = value
+            marker_file = root / ("frag-" + why.replace(" ", "-") + ".json")
+            marker_file.write_text(json.dumps(doc), encoding="utf-8")
+            no_frag[why] = F.call_spans(fpath, F.load_markers(marker_file))
+        for what, got_, want in (
+                ("fragment writes: a Write and an Edit matching the pattern, case-insensitive, 2 calls, 3 s each",
+                 row_of(got["fragment_writes"], "calls", "exec_s", "state"), dict(calls=2, exec_s=6.0, state="measured")),
+                ("a Write of another file, a name that merely contains the pattern, a Read, a cat: not fragment writes",
+                 [c["fragment_write"] for c in got["calls"]], [True, True, False, False, False, False, False]),
+                ("the script row holds only the script run, never a fragment write",
+                 (got["bookkeeping"]["calls"], got["bookkeeping"]["state"]), (1, "measured")),
+                *[(f"fragment pattern list {why}: `unknown: no fragment pattern list`, the script row unaffected",
+                   (s["fragment_writes"]["state"], s["fragment_writes"]["reason"], s["fragment_writes"]["calls"],
+                    s["bookkeeping"]["state"], s["bookkeeping"]["calls"]),
+                   ("unknown", "unknown: no fragment pattern list", 0, "measured", 1))
+                  for why, s in no_frag.items()]):
+            check_eq(what, got_, want)
+        # answer 4: two refused rows and a total, a call never in both (timed_transcript: 3 flagged, 1 named)
+        tpath = root / "role.jsonl"
+        write_jsonl(tpath, timed_transcript())
+        spans = F.call_spans(tpath)
+        named, flagged, total = spans["named_by_marker"], spans["refused"], spans["refused_total"]
+        by_t = {c["id"]: c for c in spans["calls"]}
+        real_path = F.MARKERS_PATH
+        F.MARKERS_PATH = root / "no-such-markers.json"
+        try:
+            lost = F.call_spans(tpath)
+        finally:
+            F.MARKERS_PATH = real_path
+        for what, got_, want in (
+                ("row 1 (host flag is_error) is as built: 3 calls", row_of(flagged, "calls"), dict(calls=3)),
+                ("row 2 (named by marker, not flagged): the validator result k6, its own seconds",
+                 (row_of(named, "calls", "exec_s", "turn_s", "state"), sorted(named["by_kind"])),
+                 (dict(calls=1, exec_s=2.0, turn_s=4.0, state="measured"), ["validator"])),
+                ("the total line is the two rows: 4 calls, seconds summed",
+                 row_of(total, "calls", "exec_s", "turn_s", "state"),
+                 dict(calls=4, exec_s=13.0, turn_s=18.0, state="measured")),
+                ("a call is never in both rows: a flagged guard refusal has no `named_kind`",
+                 (by_t["k2"]["is_error"], by_t["k2"]["named_kind"], by_t["k6"]["is_error"], by_t["k6"]["named_kind"]),
+                 (True, None, False, "validator")),
+                ("an unreadable markers file: row 2 unknown, the total partial and says why",
+                 (lost["named_by_marker"]["state"], lost["named_by_marker"]["calls"], lost["refused_total"]["state"],
+                  lost["refused_total"]["calls"], lost["refused_total"]["reason"][:8]),
+                 ("unknown", 0, "partial", 3, "unknown:"))):
+            check_eq(what, got_, want)
+        # answer 5: an empty bookkeeping list stays unknown (the rows of call_time_rows cover the other shapes)
+        doc = dict(book_doc, bookkeeping_scripts=[])
+        empty_file = root / "empty-book.json"
+        empty_file.write_text(json.dumps(doc), encoding="utf-8")
+        empty = F.call_spans(tpath, F.load_markers(empty_file))["bookkeeping"]
+        check_eq("an empty bookkeeping list is not a statement that there is no bookkeeping",
+                 (empty["state"], empty["reason"], empty["calls"]), ("unknown", "unknown: no bookkeeping list", 0))
+        # answer 6: a message of 3 calls, 1 cut: its window split evenly among ALL three
+        cut = [{"type": "user", "timestamp": stamp(0), "message": {"content": "go"}},
+               assistant("w1", calls=[("w1", "Bash", "python scripts/manifest_put.py")], ts=stamp(2)),
+               assistant("w1", calls=[("w2", "Bash", "python scripts/handoff_check.py")], ts=stamp(3)),
+               assistant("w1", calls=[("w3", "Bash", "python scripts/s5_precheck.py")], ts=stamp(4)),
+               result("w1", "ok", ts=stamp(6)), result("w2", "ok", ts=stamp(12))]       # w3: the session was cut
+        cpath = root / "cut.jsonl"
+        write_jsonl(cpath, cut)
+        got = F.call_spans(cpath)
+        cut_book = got["bookkeeping"]
+        for what, got_, want in (
+                ("3 calls, 1 cut: window 0 -> 12 s split among all 3, 4 s each, the cut call unknown",
+                 [c["turn_s"] for c in got["calls"]], [4.0, 4.0, None]),
+                ("the sum is `at least`: 8 s over 2 of 3 calls",
+                 (row_of(cut_book, *T_KEYS), F.seconds_text(cut_book["turn_s"], cut_book["turn_unmeasured"],
+                                                           cut_book["calls"])),
+                 (dict(calls=3, exec_s=13.0, exec_unmeasured=1, turn_s=8.0, turn_unmeasured=1),
+                  "at least 8.0 s (1 calls unmeasured)"))):
+            check_eq(what, got_, want)
     finally:
         cleanup(root)
 
@@ -646,6 +830,12 @@ def story_call_time_rows():
                   data["roles"]["qa-scout"]["bookkeeping"]["state"]), (0, 0, "unknown")),
                 ("the total is over the reachable session", (data["total"]["calls"],
                                                              data["total"]["bookkeeping"]["calls"]), (11, 5)),
+                ("the role's second refused row and total line: 1 named by marker, 3 + 1 in the total",
+                 (auto["named_by_marker"]["calls"], auto["refused_total"]["calls"], auto["fragment_writes"]["state"]),
+                 (1, 4, "measured")),
+                ("the unreachable role has no total line figure: unknown",
+                 (data["roles"]["qa-scout"]["refused_total"]["state"],
+                  data["roles"]["qa-scout"]["named_by_marker"]["state"]), ("unknown", "unknown")),
                 ("stub roles with no transcript: n/a, never 0", (stub["status"], stub["reason"][:15]),
                  ("n/a", "n/a: stub roles")),
                 ("a lost real session next to a stub one is unknown, not n/a", mixed["status"], "unknown"),
@@ -689,6 +879,7 @@ def old_keys_of_turns_of_are_unchanged():
 
 def main():
     call_time_rows()
+    round2_rows()
     story_call_time_rows()
     old_keys_of_turns_of_are_unchanged()
     classification_of_every_kind_and_its_boundaries()

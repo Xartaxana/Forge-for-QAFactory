@@ -1,5 +1,5 @@
 {
-  "about": "How scripts/friction.py recognises a turn spent fighting the factory's own code (FR-55). Closed variety: the spellings OUR scripts, hooks and validators use when they refuse a call (FR-13). Read by code, judged by nobody: a spelling this file does not hold is not counted, so the retro says 'friction' only for what it can name. traceback, guard_markers and validator_head_phrases are matched against the lower-cased result text; stand_markers and usage_regex against the original text. bookkeeping_scripts (optional, signed by the Lead) lists the factory scripts whose calls are bookkeeping rather than the role's own work, by file name as friction.SCRIPT reads it from a Bash command.",
+  "about": "How scripts/friction.py recognises a turn spent fighting the factory's own code (FR-55). Closed variety: the spellings OUR scripts, hooks and validators use when they refuse a call (FR-13). Read by code, judged by nobody: a spelling this file does not hold is not counted, so the retro says 'friction' only for what it can name. traceback, guard_markers and validator_head_phrases are matched against the lower-cased result text; stand_markers and usage_regex against the original text. bookkeeping_scripts (optional, signed by the Lead) lists the factory scripts whose calls are bookkeeping rather than the role's own work, by file name, counted only when a Bash command INVOKES the script (the program an interpreter runs, or the command itself), not when the name is an argument of another program. bookkeeping_fragment_patterns (optional, signed by the Lead) lists file-name patterns of the fragments a role writes with Write or Edit for the factory's own forms; such a write is its own row (fragment writes).",
   "traceback": "traceback (most recent call last)",
   "stand_markers": ["\"execution_status\": \"broken_run\"", "\"error_head\""],
   "guard_markers": ["pre-tool guard", "hook error"],
@@ -15,10 +15,13 @@
     "\\b_(patch|try|tmp|fix)[a-z0-9_]*\\.py"
   ],
   "project_test_regex": "(?i)^(test_[a-z0-9_]+|[a-z0-9_]+_test)\\.py$",
+  "bookkeeping_fragment_patterns": ["*.values.yaml"],
   "bookkeeping_scripts": [
     {"script": "manifest_put.py", "why": "manifest class: merges a window's fragment into automation-manifest.json"},
     {"script": "manifest_from_tests.py", "why": "manifest class: builds a window's manifest fragment from the tests' markers and merges it once"},
     {"script": "s5_precheck.py", "why": "S5 precheck class: the deterministic check run before the code critic, a refusal list for the author"},
-    {"script": "handoff_check.py", "why": "handoff class: checks (and with --fix repairs) a filled handoff form"}
+    {"script": "handoff_check.py", "why": "handoff class: checks (and with --fix repairs) a filled handoff form"},
+    {"script": "handoff_init.py", "why": "handoff class: puts the empty handoff form beside the brief for the role to fill, it exists only to serve the factory's own form"},
+    {"script": "manifest_view.py", "why": "manifest class: shows the slice of the automation manifest a role needs, it exists only to serve the factory's own form"}
   ]
 }
