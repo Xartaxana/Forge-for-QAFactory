@@ -100,6 +100,26 @@ class DoctorContext(Base):
                     self.assertEqual(path.read_bytes(), content)
                 self.assertEqual(inspect(self.root)['injection'], 'unverified')
 
+    def test_an_unwritable_packet_refuses_the_launch_and_the_door_opens_when_the_obstacle_goes(self):
+        """A6 + A7: a directory sits on the packet's path (the write raises OSError on every OS, whatever the path length)."""
+        for script in ('guard_pre_tool.py', 'inject_context.py'):
+            self.assertEqual(self.hook(script).returncode, 0)
+        packet = pending_path(self.root, 'parent')
+        packet.unlink()
+        packet.mkdir()
+        result = self.hook('inject_context.py')
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn('could not be written', result.stderr)
+        self.assertTrue(any(name in result.stderr for name in ('IsADirectoryError', 'PermissionError', 'FileExistsError')),
+                        result.stderr)
+        self.assertTrue(packet.is_dir())
+        rows = [json.loads(x) for x in (self.factory / 'state/dispatch-denials.jsonl').read_text(encoding='utf-8').splitlines()]
+        self.assertTrue(any(r['reason'].startswith('INJECT: the factory context of qa-scout') for r in rows), rows)
+        packet.rmdir()                                                   # A7: the door the refusal names
+        result = self.hook('inject_context.py')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(pending_path(self.root, 'parent').read_text(encoding='utf-8'))['status'], 'pending')
+
     def test_probe_requires_current_same_session_guard_evidence(self):
         original = self.probe_path.read_text()
         for variant in ('missing', 'unverified', 'stale', 'foreign', 'malformed'):
@@ -177,6 +197,139 @@ class PacketNameLength(unittest.TestCase):
         self.assertEqual([p for p, _ in N._session_packets(root, 's')], [old])
         self.assertEqual(list(N._session_packets(root, 'other')), [])
         self.assertNotEqual(N.pending_path(root, 's', 'qa_scout__qa_1'), old)   # a rebuilt packet gets the new name
+
+    def test_length_arithmetic_is_pure_and_pins_the_limits(self):
+        """A1: string roots only, no disk, no TEMP."""
+        import native_context as N
+        self.assertEqual((N.NAME_HEX, N.PACKET_ROOT_LIMIT, N.SUPPORTED_ROOT), (32, 119, 119))
+        root = lambda length: 'C:\\' + 'p' * (length - 3)
+        for length, total in ((119, 259), (120, 260)):
+            with self.subTest(root=length):
+                self.assertEqual(N.write_path_length(root(length), 's', 'qa_scout__qa_1'), length + 140)
+                self.assertEqual(N.write_path_length(root(length), 's', 'qa_scout__qa_1'), total)
+        self.assertEqual(N.write_path_length(root(152), 's'), 259)
+
+    def test_unwritten_facts_table(self):
+        """A4: which cause text applies; string roots, explicit platform."""
+        import errno
+        import native_context as N
+
+        class Winerror206(OSError):
+            winerror = 206
+
+        def padded(prefix, length):
+            return prefix + 'p' * (length - len(prefix))
+
+        fnf, drive = FileNotFoundError('x'), 'C:\\'
+        rows = {
+            'at_limit_nt': (padded(drive, 119), fnf, 'nt', 'q', 'write_error'),
+            'over_nt': (padded(drive, 120), fnf, 'nt', 'q', 'path_limit'),
+            'over_permission': (padded(drive, 120), PermissionError('x'), 'nt', 'q', 'write_error'),
+            'over_enametoolong': (padded(drive, 120), OSError(errno.ENAMETOOLONG, 'x'), 'nt', 'q', 'path_limit'),
+            'over_winerror206': (padded(drive, 120), Winerror206('x'), 'nt', 'q', 'path_limit'),
+            'unc_over': (padded('\\\\srv\\share\\', 120), fnf, 'nt', 'q', 'path_limit'),
+            'extended': (padded('\\\\?\\C:\\', 200), fnf, 'nt', 'q', 'write_error'),
+            'extended_unc': (padded('\\\\?\\UNC\\srv\\share\\', 200), fnf, 'nt', 'q', 'write_error'),
+            'extended_forward_slash': (padded('//?/C:/', 200), fnf, 'nt', 'q', 'write_error'),
+            'posix_long': (padded('/', 300), fnf, 'posix', 'q', 'write_error'),
+            'unnamed_153': (padded(drive, 153), fnf, 'nt', None, 'path_limit'),
+            'empty_message': (padded(drive, 120), FileNotFoundError(), 'nt', 'q', 'path_limit'),
+        }
+        for name, (root, exc, platform, task, cause) in rows.items():
+            with self.subTest(row=name):
+                facts = N.unwritten_facts(root, 's', task, exc, platform)
+                self.assertEqual(facts['cause'], cause, facts)
+                if name == 'over_nt':
+                    self.assertEqual((facts['length'], facts['root_length'], facts['packet_limit'], facts['supported']),
+                                     (260, 120, 119, 119))
+                if name == 'posix_long':
+                    self.assertIsNone(facts['limit'])
+                if name == 'empty_message':
+                    self.assertEqual(facts['error'], '')
+
+    def refuse(self, root, exc, ticket='', stage=None, platform_limits=None):
+        """Call refuse_native_packet in process; returns (SystemExit code or None, stderr, denial spy calls)."""
+        import contextlib
+        import io
+        import native_context as N
+        import inject_context as IC
+        event = self.event()
+        spy = mock.Mock()
+        err, code = io.StringIO(), None
+        with contextlib.redirect_stderr(err), mock.patch.object(IC, 'note_denial', spy), \
+                mock.patch.object(N, 'PATH_LIMITS', platform_limits or {os.name: 259}):
+            try:
+                IC.refuse_native_packet(event, ticket, 'qa-scout', root, exc, stage)
+            except SystemExit as stop:
+                code = stop.code
+        return code, err.getvalue(), spy
+
+    def test_refusal_text_names_cause_door_and_never_151(self):
+        """A5: no pass road (ticket empty); the text is a machine line to the orchestrator."""
+        from hooklib import TRAPPED
+        cases = {
+            'path': ('C:\\' + 'p' * 117, FileNotFoundError('gone'),
+                     ('qa-scout', 'refused', '120', '260', '259', 'at most 119 characters', 'shorter is safer', 'long paths',
+                      'if they can and want to', '(owner: environment)')),
+            'write': ('C:\\' + 'p' * 20, PermissionError('locked'), ('qa-scout', 'refused', 'PermissionError', 'again once')),
+        }
+        for name, (root, exc, facts) in cases.items():
+            with self.subTest(case=name):
+                code, text, spy = self.refuse(root, exc)
+                self.assertEqual(code, 2)
+                for fact in facts:
+                    self.assertIn(fact, text)
+                self.assertNotIn('151', text)
+                self.assertNotIn('waiver.py', text)
+                spy.assert_called_once()
+                self.assertEqual(spy.call_args[0][4], text.split(TRAPPED)[0].rstrip())
+
+    def test_the_recorded_word_passes_only_the_line_it_names(self):
+        """A5b (F-1): one scratch project; the pass is journaled, a refusal says the door."""
+        import inject_context as IC
+        rows = {
+            'live_named': ({'stage': 'S1', 'match': 'could not be written', 'decision': 'go on'}, 'S1', None),
+            'live_star': ({'stage': 'S1', 'match': '*', 'decision': 'go on'}, 'S1', None),
+            'revoked': ({'stage': 'S1', 'match': 'could not be written', 'decision': 'go on', 'revoked_at': 'now'}, 'S1', 2),
+            'other_stage': ({'stage': 'S2', 'match': 'could not be written', 'decision': 'go on'}, 'S1', 2),
+            'no_pipeline': (None, 'S1', 2),
+            'no_stage': ({'stage': 'S1', 'match': 'could not be written', 'decision': 'go on'}, None, 2),
+        }
+        for name, (override, stage, expected) in rows.items():
+            with self.subTest(row=name), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / 'qa-factory').mkdir()
+                (root / 'qa-factory/config.json').write_text('{"schema_version": 1}', encoding='utf-8')
+                if override is not None:
+                    story = root / 'qa-factory/artifacts/T'
+                    story.mkdir(parents=True)
+                    (story / 'pipeline.json').write_text(json.dumps(
+                        {'ticket': 'T', 'stages': {'S1': {'status': 'running'}}, 'stage_overrides': [override]}), encoding='utf-8')
+                import hooklib
+                with mock.patch.dict(os.environ, {'CLAUDE_PROJECT_DIR': str(root)}), \
+                        mock.patch.object(hooklib, '_PROJECT_ROOT_CACHE', None):
+                    event = dict(self.event(), cwd=str(root))
+                    import contextlib
+                    import io
+                    spy, err, code = mock.Mock(), io.StringIO(), None
+                    with contextlib.redirect_stderr(err), mock.patch.object(IC, 'note_denial', spy):
+                        try:
+                            IC.refuse_native_packet(event, 'T', 'qa-scout', root, PermissionError('x'), stage)
+                        except SystemExit as stop:
+                            code = stop.code
+                    import runtime_paths as RP
+                    journal = RP.configured(root, None, 'journal.jsonl')
+                    rows_logged = [json.loads(x) for x in journal.read_text(encoding='utf-8').splitlines()] if journal.is_file() else []
+                self.assertEqual(code, expected, err.getvalue())
+                if expected is None:
+                    spy.assert_not_called()
+                    self.assertEqual([r['event'] for r in rows_logged], ['gate_override'])
+                else:
+                    spy.assert_called_once()
+                    self.assertEqual(rows_logged, [])
+                    self.assertEqual('waiver.py --task T --stage S1' in err.getvalue(), stage is not None)
+                    if name in ('revoked', 'other_stage', 'no_pipeline'):
+                        self.assertIn('--block "could not be written"', err.getvalue())
 
 
 DOOR = ('context diagnostic requires current allow/deny evidence in this host session; '

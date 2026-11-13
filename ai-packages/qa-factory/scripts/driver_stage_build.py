@@ -99,8 +99,7 @@ class DriverStageBuild:
             self.save_state()                           # so a stale one can never claim another question's answer
         if environment and not pipeline.get("environment_pending"):
             return
-        block = (f"{waiver.STAND_NOT_CONFIRMED_BLOCK}: " + (f"stand `{environment}` is not confirmed as usable"
-                                                            if environment else "no stand is confirmed for this story"))
+        block = waiver.stand_block(environment)
         for owner in self.STAND_STAGES:
             _blocking, passed = waiver.split_overridden([block], pipeline, owner)
             if passed:

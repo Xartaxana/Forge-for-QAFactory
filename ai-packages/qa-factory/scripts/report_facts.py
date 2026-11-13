@@ -74,15 +74,14 @@ GATE_A_STAGES = ("S0", "S1", "S2", "S3", "S4")
 GATE_B_STAGES = ("S8", "S9")
 # The order the report's parts stand in (the template's): where a block that is missing is inserted.
 SLOTS = (("block", "verdict"), ("line", "Notation:"), ("block", "proven"), ("block", "manual-checks"), ("block", "bugs"),
-         ("block", "exploratory"), ("block", "review-gaps"), ("heading", "## Left with you"), ("block", "left-branches"),
+         ("block", "exploratory"), ("block", "review-gaps"), ("heading", G.LEFT_WITH_YOU_HEADING), ("block", "left-branches"),
          ("block", "left-gate-b"), ("block", "regression"),
          ("block", "open-questions"), ("block", "skipped-by-plan"), ("block", "not-proven"), ("block", "branches-not-proven"),
-         ("block", "gate-a"), ("block", "gate-b"), ("heading", "## Factory defects"),
-         ("block", "size"), ("block", "where-to-look"), ("heading", "## Appendix"))
+         ("block", "gate-a"), ("block", "gate-b"), ("heading", G.FACTORY_DEFECTS_HEADING),
+         ("block", "size"), ("block", "where-to-look"), ("heading", G.APPENDIX_HEADING))
 # Code-owned sections of a report written before the blocks, by heading prefix (conversion, R-212.1).
-LEGACY_SECTIONS = (("## Proven", "proven"), ("## Product bugs", "bugs"), ("## Open questions", "open-questions"),
-                   ("## Not proven", "not-proven"), ("## Decided at gate A", "gate-a"),
-                   ("## Decided at gate B", "gate-b"), ("## Size", "size"), ("## Where to look", "where-to-look"))
+LEGACY_SECTIONS = tuple((G.REPORT_BLOCK_HEADINGS[name], name) for name in (
+    "proven", "bugs", "open-questions", "not-proven", "gate-a", "gate-b", "size", "where-to-look"))
 ITEM_RE = re.compile(r"^\s*(?:[-*]|\d+\.)\s+\S")
 CHANGED_NOTICE_RE = re.compile(r'^Changed since gate B: the verdict read "(.*)"; it now reads "(.*)"\.$')
 
@@ -1280,6 +1279,7 @@ def _manual_line(c: dict) -> str:
             + (f" — {c['rejudged']}" if c.get("rejudged") else "") + f" — {_shots_words(shots)}")
 
 
+SHOTS_HEADING = "## Screenshots of the manual checks"
 SHOTS_HEAD = ("Screenshots of the manual checks, for you to confirm the cases (they stay on this machine, not in the repository "
               "or the merge request):")
 
@@ -1318,10 +1318,10 @@ def screenshot_section(task_root) -> list:
     try:
         groups = screenshot_groups(task_root)
     except Exception as exc:
-        return ["## Screenshots of the manual checks", "", f"The screenshots of the manual checks could not be listed ({_why(exc)})."]
+        return [SHOTS_HEADING, "", f"The screenshots of the manual checks could not be listed ({_why(exc)})."]
     if not groups:
         return []
-    return ["## Screenshots of the manual checks", "", SHOTS_HEAD] + [f"- {label}: {', '.join(paths)}" for label, paths in groups]
+    return [SHOTS_HEADING, "", SHOTS_HEAD] + [f"- {label}: {', '.join(paths)}" for label, paths in groups]
 
 
 def screenshots_chat_text(task_root) -> str:
@@ -1410,8 +1410,8 @@ def _reason_vs_table(art, rows) -> list:
 def _r_manual_checks(facts: dict) -> str:
     m = facts.get("manual")
     if m is None:
-        return "## Checked by hand — unknown\n\n" + _unknown_line(facts, "manual", "which cases were checked by hand") + "\n"
-    out = [f"## Checked by hand — {m['checked']} of {m['total']}", ""]
+        return G.REPORT_BLOCK_HEADINGS["manual-checks"] + " — unknown\n\n" + _unknown_line(facts, "manual", "which cases were checked by hand") + "\n"
+    out = [f"{G.REPORT_BLOCK_HEADINGS['manual-checks']} — {m['checked']} of {m['total']}", ""]
     if not m["cases"]:
         out.append("Nothing to show: " + (m["note"] or "no case was planned for a manual check") + ".")
     out += [_manual_line(c) for c in m["cases"]]
@@ -1435,7 +1435,7 @@ def manual_checks_text(task_root) -> str:
         manual = _manual_of(art, unknown)
         return _r_manual_checks({"manual": manual, "unknown": unknown})
     except Exception as exc:
-        return "## Checked by hand — unknown\n\nUnknown which cases were checked by hand — " + _why(exc) + ".\n"
+        return G.REPORT_BLOCK_HEADINGS["manual-checks"] + " — unknown\n\nUnknown which cases were checked by hand — " + _why(exc) + ".\n"
 
 
 def _ledger_has_marks(ledger) -> bool:
@@ -3208,7 +3208,7 @@ def _r_left_gate_b(facts: dict) -> str:
     """`### Added after gate B (from your answers)`: one line per item their gate B answers left with them - the case, its
     requirements, THEIR words and how, verbatim from the typed row. Code renders typed data and composes nothing (FR-47,
     FR-49): the same footing as the regression block below it."""
-    out = ["### Added after gate B (from your answers)", ""]
+    out = [G.REPORT_BLOCK_HEADINGS["left-gate-b"] + " (from your answers)", ""]
     for item in _gate_b_items(facts):
         reqs = f" ({', '.join(item['requirements'])})" if item.get("requirements") else ""
         line = f"- **{item.get('ref')}**{reqs}"
@@ -3265,7 +3265,7 @@ def _r_left_branches(facts: dict) -> str:
     """`### Branches left with you`: one line per counted `source: branches` row of the ledger (a branch nobody proved, a part of
     the ticket nobody placed, a file that disagrees with a requirement or that nobody looked at), in the ledger's order; code renders typed rows and
     composes nothing (FR-47, FR-49). A branch record that cannot be read at all is said `Unknown` (FR-41, AR-28), never "all accounted"."""
-    out = ["### Branches left with you", ""]
+    out = [G.REPORT_BLOCK_HEADINGS["left-branches"], ""]
     if facts.get("branches") is None and "branches" in facts["unknown"]:
         out.append(_unknown_line(facts, "branches"))
     for item in _branch_lines_of(facts):
@@ -3276,7 +3276,7 @@ def _r_left_branches(facts: dict) -> str:
 def _r_branches_not_proven(facts: dict) -> str:
     """`## Branches not proven`: only the branches a recorded answer of the person's left out (`branch_excluded_by_word`):
     `BN-n (R-m) <text>: excluded by your answer to <Q>`. They are in no other block (FR-10): the ledger carries no row for them."""
-    out = ["## Branches not proven", ""]
+    out = [G.REPORT_BLOCK_HEADINGS["branches-not-proven"], ""]
     for rec in _excluded_by_word(facts):
         text = _shown(rec.get("to_check"))[0] or "the wording is in the ticket"
         reqs = [r for r in rec.get("requirements") or [] if r]
@@ -3297,7 +3297,7 @@ def _r_regression(facts: dict) -> str:
     (Q13 a-2, FR-57)."""
     import delivery_verdict as DV
     lines = facts["regression"]["lines"]
-    out = ["### Regression to run (from the plan approved at gate A)", ""]
+    out = [G.REPORT_BLOCK_HEADINGS["regression"] + " (from the plan approved at gate A)", ""]
     out += lines if lines else [DV.GAP_LINE]
     story_tests, notes = facts["regression"].get("story_tests") or [], facts["regression"].get("notes") or []
     if story_tests:       # RG1-4: this story's own tests are listed on their own line, never as regression
@@ -3468,9 +3468,9 @@ def _r_proven(facts: dict) -> str:
     tests = facts["tests"]
     built = _person_build_lines(facts)
     if tests is None:
-        return ("## Proven — unknown\n\n" + "".join(line + "\n" for line in built) + ("\n" if built else "")
+        return (G.REPORT_BLOCK_HEADINGS["proven"] + " — unknown\n\n" + "".join(line + "\n" for line in built) + ("\n" if built else "")
                 + _unknown_line(facts, "ledger", "which tests are proven") + "\n")
-    out = [f"## Proven — {_n(tests['count'], 'green test', 'green tests')}", ""]
+    out = [f"{G.REPORT_BLOCK_HEADINGS['proven']} — {_n(tests['count'], 'green test', 'green tests')}", ""]
     if built:
         out += built + [""]
     groups: dict = {}
@@ -3559,8 +3559,8 @@ def _bug_cause_lines(r: dict, number_of: dict, own: int, named_by=()) -> list:
 def _r_bugs(facts: dict) -> str:
     bugs = facts["bugs"]
     if bugs is None:
-        return "## Product bugs — unknown\n\n" + _unknown_line(facts, "bugs") + "\n"
-    head = (f"## Product bugs — {bugs['confirmed']} confirmed"
+        return G.REPORT_BLOCK_HEADINGS["bugs"] + " — unknown\n\n" + _unknown_line(facts, "bugs") + "\n"
+    head = (f"{G.REPORT_BLOCK_HEADINGS['bugs']} — {bugs['confirmed']} confirmed"
             + (f" · {bugs['reproduced']} reproduced by the factory" if bugs["reproduced"] else "")
             + f" · {bugs['unconfirmed']} unconfirmed")
     if bugs["unreadable"]:
@@ -3931,13 +3931,13 @@ def _r_review_gaps(facts: dict) -> str:
     over = _over_cap_lines(facts)       # the cut's fact, not the ledger's: it stands whether or not the ledger is read
     tail = ["", f"### Windows over the cap — {len(over)}", ""] + over if over else []
     if ledger is None:
-        return "## Review gaps — unknown\n\n" + _unknown_line(facts, "ledger", "which tests the code critic rejected") + "\n" + (
+        return G.REPORT_BLOCK_HEADINGS["review-gaps"] + " — unknown\n\n" + _unknown_line(facts, "ledger", "which tests the code critic rejected") + "\n" + (
             "\n".join(tail) + "\n" if tail else "")
     gaps = ledger["gaps"]
     body, runs = review_gap_lines(gaps), run_gap_lines(gaps)
     if gaps["problem"]:
         body.append(f"Unknown — {gaps['problem']}.")
-    out = [f"## Review gaps — {_n(len(gaps['tests']), 'test', 'tests')} the code critic rejected", ""]
+    out = [f"{G.REPORT_BLOCK_HEADINGS['review-gaps']} — {_n(len(gaps['tests']), 'test', 'tests')} the code critic rejected", ""]
     out += body or ([] if runs else ["None: the code critic left no test rejected."])
     if runs:
         out += ["", f"### Runs left failing — {len(gaps['runs'])}", ""] + runs
@@ -3955,11 +3955,11 @@ def _over_cap_lines(facts: dict) -> list:
 def _r_questions(facts: dict) -> str:
     q = facts["questions"]
     if q is None:
-        return "## Open questions — unknown\n\n" + _unknown_line(facts, "questions") + "\n"
+        return G.REPORT_BLOCK_HEADINGS["open-questions"] + " — unknown\n\n" + _unknown_line(facts, "questions") + "\n"
     # what "Left with you" asks beside the register is counted too, in its own segment, only when there is one (HF8-17, M-B):
     # "Open questions - 0" over a section that holds four asks read as "nothing is asked of you" (run 12586)
     asks = q.get("left_asks") or 0
-    out = [f"## Open questions — {len(q['listed'])}" + (f" · {asks} asked under \"Left with you\"" if asks else ""), ""]
+    out = [f"{G.REPORT_BLOCK_HEADINGS['open-questions']} — {len(q['listed'])}" + (f" · {asks} asked under \"Left with you\"" if asks else ""), ""]
     if not q["listed"]:
         return "\n".join(out) + "\nnone\n"
     cards = []
@@ -3999,7 +3999,7 @@ def _r_not_proven(facts: dict) -> str:
     """`## Not proven, and what it costs`: the checks that COULD NOT execute - a manual check that did not answer, a test
     nothing could run, a stand gap, a deferral nobody worded - each with what stopped it. What the approved plan itself
     decided not to check stands in the section above (`_r_skipped_by_plan`)."""
-    return _r_requirement_items(facts, "not_proven", "## Not proven, and what it costs", "what is not proven",
+    return _r_requirement_items(facts, "not_proven", G.REPORT_BLOCK_HEADINGS["not-proven"] + ", and what it costs", "what is not proven",
                                 "Nothing: every requirement has a proving result, a product bug, or was skipped by the "
                                 "plan.\n")
 
@@ -4008,13 +4008,13 @@ def _r_skipped_by_plan(facts: dict) -> str:
     """`## Skipped by the plan (approved at gate A)`: the requirements whose null outcome is the plan's own decision, which
     the person approved at gate A - a plan row `skip` with its reason, or a gate A waiver with their words - each with that
     reason verbatim (owner amendment 03.10). Not proof, and not a failure to execute: a different thing from "Not proven"."""
-    return _r_requirement_items(facts, "skipped", "## Skipped by the plan (approved at gate A)", "what the plan skipped",
+    return _r_requirement_items(facts, "skipped", G.REPORT_BLOCK_HEADINGS["skipped-by-plan"], "what the plan skipped",
                                 "Nothing: the approved plan skipped no requirement.\n")
 
 
 def _r_gate_a(facts: dict) -> str:
     g = facts["gate_a"]
-    out = ["## Decided at gate A", ""]
+    out = [G.REPORT_BLOCK_HEADINGS["gate-a"], ""]
     if not g["pipeline_known"]:
         return "\n".join(out) + "\n" + _unknown_line(facts, "pipeline", "what was decided at gate A") + "\n"
     if g["words"]:
@@ -4052,7 +4052,7 @@ def _r_gate_a(facts: dict) -> str:
 
 def _r_gate_b(facts: dict) -> str:
     g = facts["gate_b"]
-    out = ["## Decided at gate B", ""]
+    out = [G.REPORT_BLOCK_HEADINGS["gate-b"], ""]
     if g["words"]:
         out += [_quoted(g["words"])]
     for o in g["overrides"]:
@@ -4137,7 +4137,7 @@ def _r_size(facts: dict) -> str:
     s = facts["size"]
     counts = s["counts"]
     shown = lambda v: "unknown" if v is None else str(v)  # noqa: E731
-    out = ["## Size", ""]
+    out = [G.REPORT_BLOCK_HEADINGS["size"], ""]
     if s["initial"]:
         # t-342 (B-271): the same words as the gate B packet's size line (`gate_brief.sizing_line`) - what the
         # requirements weigh and the cap of the size - not "computed budget ... (a weighted count of expected cases)"
@@ -4268,7 +4268,7 @@ def _r_grounding(facts: dict) -> str:
 
 def _r_where(facts: dict) -> str:
     w = facts["where"]
-    out = ["## Where to look", ""]
+    out = [G.REPORT_BLOCK_HEADINGS["where-to-look"], ""]
     for name, about in (("understanding.md", "what we verify and why"), ("test-plan.md", "the plan rows and the case texts")):
         if name in w["files"]:
             out.append(f"- {name} — sections: " + ("; ".join(w["files"][name]) or "none written"))
@@ -4347,7 +4347,7 @@ def left_with_you_text(task_root):
     text = _read_report(path)[2]
     heads = _headings(text)
     for index, (begin, heading) in enumerate(heads):
-        if heading.startswith("## Left with you"):
+        if heading.startswith(G.LEFT_WITH_YOU_HEADING):
             end = heads[index + 1][0] if index + 1 < len(heads) else len(text)
             return text[begin:end].rstrip("\n") + "\n"
     return None
@@ -4482,7 +4482,7 @@ def _prune_left(text: str, art: Path, pipeline: dict, gate_b_decided: bool) -> t
     """(text, [what was taken out]): the items gate B's words answered by naming their case (`close_gate_b`'s
     rule, kept), and the items all of whose refs are the factory's own (FR-3). `--write` does this; `--check`
     only names it."""
-    span = _section_span(text, "## Left with you")
+    span = _section_span(text, G.LEFT_WITH_YOU_HEADING)
     if span is None:
         return text, []
     body = text[span[0]:span[1]]
@@ -4601,7 +4601,7 @@ def write(task_root, project_root=None) -> dict:
         lost.append("converted")
         notes.append(f"{REPORT_NAME} carried no code-owned block: its code-owned sections became blocks and the prose "
                      "outside them was kept")
-        if _section_span(text, "## Decided at gate B") and not decided:
+        if _section_span(text, G.GATE_B_HEADING) and not decided:
             notes.append("the section \"Decided at gate B\" of the old report was removed: gate B has no recorded "
                          "words yet, and the section held another gate's content")
     blocks = G.find_blocks(working)
@@ -4717,7 +4717,7 @@ def check(task_root, notes=None, project_root=None) -> list:
             if not C.REQ_ID_RE.search(left) or not sep or not left.partition("—")[2].strip() or not right.strip():
                 problems.append(f"{REPORT_NAME}: a \"{label}\" item lacks its requirement, its cause or its risk "
                                 f"(`{_words(line)[:60]}`) - expected `**R-n** — <cause> : <risk>`; run `{door}`")
-    span = _section_span(text, "## Left with you")
+    span = _section_span(text, G.LEFT_WITH_YOU_HEADING)
     if span:
         CD, lift = _ownership(art)
         cfg = C.case_config(art)
@@ -4748,13 +4748,17 @@ def check(task_root, notes=None, project_root=None) -> list:
     return problems
 
 
-APPENDIX_HEADING = "## Appendix"
+def appendix_span(text: str):
+    """`(start, end)` of the `## Appendix` section of a report text, or None. THE reader of the appendix (AR-14: this module
+    writes it): the section from its heading line to the next `## ` heading or block marker, outside code fences; a
+    mid-line or fenced mention of the heading is not the section."""
+    return _section_span(text, G.APPENDIX_HEADING)
 
 
-def _appendix_body(text: str):
+def appendix_body(text: str):
     """`(span, have)` of the `## Appendix` section of a report text: its (start, end) and its BODY (after the heading line,
     newlines trimmed both sides, CRLF read as LF); `(None, "")` when there is no such section."""
-    span = _section_span(text, APPENDIX_HEADING)
+    span = appendix_span(text)
     if span is None:
         return None, ""
     return span, text[span[0]:span[1]].partition("\n")[2].replace("\r\n", "\n").strip("\n")
@@ -4772,7 +4776,7 @@ def _refresh_appendix(working: str, art: Path, qa: Path) -> tuple:
     around the body, every other section and every block keep their bytes; a body already equal is no change (`note` ""). No
     section: nothing. A trace that cannot be built leaves the appendix untouched and says so in `note` (FR-41: not a refresh
     that did not happen, and not a write over a table nobody could compare); `check` still refuses it."""
-    span, have = _appendix_body(working)
+    span, have = appendix_body(working)
     if span is None:
         return working, ""
     try:
@@ -4800,7 +4804,7 @@ def _appendix_problems(text: str, art: Path, qa: Path) -> list:
     (`_refresh_appendix` renders it again) - never the scribe: the S9 exit rebuilds it itself and S8 is not reopened for a block
     of code. No section: no check (the slots refuse it). Reads only (FR-45); a trace that cannot be built is one line, not a
     pass (FR-59)."""
-    span, have = _appendix_body(text)
+    span, have = appendix_body(text)
     if span is None:
         return []
     door = f"report_facts.py --task {art.name} --write"
