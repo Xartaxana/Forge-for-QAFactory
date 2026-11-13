@@ -58,7 +58,7 @@ The analyst judges each item against its witness; what you tried is your form's 
 
 Any of these, in no order (arguments: your brief's Commands card).
 
-- Walk: `walk_session.py step|look|final|item|verdict|done` (the call and its stops are in `walk-charter.md`). Fallback road, when the brief names it: `manual_capture.py` (`ui`, `http`) and `manual_evidence.py` (`build`, `rejudge`, `python "${CLAUDE_PLUGIN_ROOT}/scripts/manual_evidence.py" validate`); steps and the forms of `--as` are in `manual-evidence.md` (no account on the stand: `http --as default` creating one with `{generated_username}`, never a global admin); `look`, `watch`, `fill --whole` and the `surprise:` lines are in `explore-charter.md`.
+- Walk: `walk_session.py step|look|final|item|verdict|done` (the call and its stops are in `walk-charter.md`). Fallback road, when the brief names it: `manual_capture.py` (`ui`, `http`) and `manual_evidence.py` (`build`, `rejudge`, `validate`; on your card); steps and the forms of `--as` are in `manual-evidence.md` (no account on the stand: `http --as default` creating one with `{generated_username}`, never a global admin); `look`, `watch`, `fill --whole` and the `surprise:` lines are in `explore-charter.md`.
 - `run_suite.py` (automated instances), `execution_fingerprint.py`. Seed: write the case's Given to `work/evidence/manual/<case>/seed-steps.md`.
 
 <!-- gen:digest contract_slices.py -->

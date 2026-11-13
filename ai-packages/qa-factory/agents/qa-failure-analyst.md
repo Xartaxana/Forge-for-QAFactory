@@ -73,9 +73,9 @@ Optional (arguments: your brief's Commands card).
 - `run_suite.py --request` - a typed request for a flaky diagnostic or a repair check; `red_sandbox.py --diagnostic` - one run without the red assert, in a copy.
 - `place_answers.py list|write` - the places and your answers; your brief's walk commands (`walk_session.py step|look|final`, or `manual_capture.py ui|http --case settle-<place>`).
 - The keys of your triage, drafts, handoff form and `control` block are on your key page.
-- `${CLAUDE_PLUGIN_ROOT}/scripts/bug_records.py open-bugs --task-root <r> --draft <file>` shows a possible duplicate; when its `match` is the same defect, write `extends_open_bug`; drafts at one `defect_location` merge, or carry `distinct_defect`. A `detail` (optional: a row without it is not refused) says why in one sentence.
+- `bug_records.py open-bugs --task-root <r> --draft <file>` (on your card) shows a possible duplicate; when its `match` is the same defect, write `extends_open_bug`; drafts at one `defect_location` merge, or carry `distinct_defect`. A `detail` (optional: a row without it is not refused) says why in one sentence.
 - `bug_neighbours.py --task-root <task root>` - the failures, observations, rows and drafts that share a requirement, case, test file, code line or seen value; a hint, never a verdict.
-- `python "${CLAUDE_PLUGIN_ROOT}/scripts/bug_snapshot.py"` persists bug evidence you hold; never fetch or infer history just for metrics.
+- `bug_snapshot.py` (on your card) persists bug evidence you hold; never fetch or infer history just for metrics.
 - Control experiment: test data weaker than the case's Given is a `TEST_BUG` of the data, when the weakness alone explains the red; output in `evidence/`.
 - A red with no field: a field_absent row is judged by its shape_ref, not by the control experiment.
 - A code-reading draft: with an oracle (a SETTLED answer, or a register `code_says: contradicts`) and a contradicting code place you read (`{path, line, quote}`) the draft is `evidence: "code-reading"`. No oracle, no draft.

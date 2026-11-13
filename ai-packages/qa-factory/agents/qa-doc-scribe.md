@@ -60,7 +60,7 @@ The person at gate B reads each item against its witness; your `tried` table set
 
 Your Commands card lists the scripts you may call; none is required.
 
-- `report_facts.py --task <TICKET> --write` (`python`, from `${CLAUDE_PLUGIN_ROOT}/scripts/`) renders the code-owned blocks between its `facts:` marker lines; `--check` must exit 0 before the hand-off. Begin from `references/templates/test-report.md`; never type a number the blocks carry.
+- `report_facts.py --task <TICKET> --write` (`python`, on your card) renders the code-owned blocks between its `facts:` marker lines; `--check` must exit 0 before the hand-off. Begin from `references/templates/test-report.md`; never type a number the blocks carry.
 - Yours, outside the blocks: the title and one paragraph on the change, `## Left with you`, `## Factory defects - nothing is wanted from you` (each `not established:` line of your brief, one sentence) and the appendix (`traceability.py --render` verbatim).
 - Each open check is a row of `qa-factory/obligations.md` with its trigger.
 <!-- gen:digest contract_slices.py -->
