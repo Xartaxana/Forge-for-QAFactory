@@ -29,6 +29,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from hooklib import ConfigUnreadable, read_config_file  # re-export (OF4-10)
+
 SCHEMA_VERSION = 1
 # The keys no script reads any more used to be a tuple here (INACTIVE_KEYS); they are the
 # `removed` table of references/config-keys.json now, one reason each (FR-13).
@@ -1318,11 +1320,6 @@ PLUGIN_JSON_PATH = Path(__file__).resolve().parents[1] / ".claude-plugin" / "plu
 PROPOSAL_COVERS = ("proposed_config", "removed", "renamed", "answers_legacy", "conflicts", "reasked", "added")
 
 
-class ConfigUnreadable(ValueError):
-    """qa-factory/config.json exists but is empty, not JSON, or not an object. The message
-    names the door (FR-1, FR-57): the factory does not guess what the file should have said."""
-
-
 def config_keys() -> dict:
     """The parsed references/config-keys.json. A damaged table is a plugin install problem,
     named as one - never an empty table that would pass every key."""
@@ -1344,34 +1341,6 @@ def package_version() -> str:
         return str(json.loads(PLUGIN_JSON_PATH.read_text(encoding="utf-8")).get("version") or "unknown")
     except (OSError, ValueError, AttributeError):
         return "unknown"
-
-
-def read_config_file(root: Path) -> dict | None:
-    """The project's config as a dict, None when there is no qa-factory/config.json (the empty
-    input of the migration), ConfigUnreadable when the file is there and cannot be read as one
-    JSON object. A byte-order mark is tolerated: an editor put it there, nobody meant it."""
-    path = Path(root) / "qa-factory" / "config.json"
-    if not path.exists():
-        return None
-    door = ("The factory does not guess what it should say: fix the file by hand, or move it "
-            "aside (rename it, for example to config.broken.json) and run onboarding again to "
-            "write a new one.")
-    try:
-        text = path.read_text(encoding="utf-8-sig")
-    except (OSError, UnicodeDecodeError) as exc:
-        raise ConfigUnreadable(f"qa-factory/config.json cannot be read ({type(exc).__name__}: {exc}). "
-                               + door) from exc
-    if not text.strip():
-        raise ConfigUnreadable("qa-factory/config.json is empty; it must hold one JSON object. " + door)
-    try:
-        data = json.loads(text)
-    except ValueError as exc:
-        raise ConfigUnreadable(f"qa-factory/config.json is not valid JSON ({exc}); it must hold one "
-                               "JSON object. " + door) from exc
-    if not isinstance(data, dict):
-        kind = {list: "list", str: "string", type(None): "null", bool: "boolean"}.get(type(data), "number")
-        raise ConfigUnreadable(f"qa-factory/config.json holds a JSON {kind}, not a JSON object. " + door)
-    return data
 
 
 def proposal_hash(proposal: dict, extra: dict | None = None) -> str:

@@ -1898,6 +1898,41 @@ def _session_scope_ok(event, tpath: Path) -> bool:
         {"transcript": str(tpath)}, project_slug(project_root(event))) != "parent"
 
 
+def _session_id_refusal(session_id) -> str:
+    """Why `session_id` is not one path component, as a short phrase; "" when it is one. The reason never carries a raw NUL."""
+    if hooklib.is_one_component(session_id):
+        return ""
+    if not isinstance(session_id, str):
+        return f"not a string ({type(session_id).__name__}): {_session_id_shown(session_id)}"
+    if not session_id:
+        return "is empty"
+    if "\0" in session_id:
+        return f"contains a NUL character: {_session_id_shown(session_id)}"
+    return f"is not one path component: {_session_id_shown(session_id)}"
+
+
+def _session_id_shown(session_id) -> str:
+    try:
+        text = repr(session_id)
+    except Exception:  # noqa: BLE001 - a value whose repr raises is still shown by its type
+        text = f"<{type(session_id).__name__}>"
+    return text if len(text) <= 80 else text[:77] + "..."
+
+
+def _session_id_ok(session_id) -> bool:
+    """True for a session id that is one path component. A refused id is not silent: ONE stderr line
+    `session id refused: <reason>` (FR-4, AR-28); the caller's exit and the hook's stream are unchanged. The one
+    helper of both refusal sites (`_capture`, `main`), so they cannot drift apart (AR-15)."""
+    reason = _session_id_refusal(session_id)
+    if not reason:
+        return True
+    try:
+        print(f"session id refused: {reason}", file=sys.stderr)
+    except Exception:  # noqa: BLE001 - a closed stream must not fail the hook
+        pass
+    return False
+
+
 def _capture(event) -> bool:
     """Capture one session's cost. True when it ran to the end (the caller then runs
     `_after_capture` outside its lock); a session that is not this project's, or a project that
@@ -1905,7 +1940,7 @@ def _capture(event) -> bool:
     capture_started = time.time()
     tpath = Path(event.get("transcript_path", "") or "")
     session_id = event.get("session_id", "") or tpath.stem
-    if not tpath.is_file() or not hooklib.is_one_component(session_id):
+    if not tpath.is_file() or not _session_id_ok(session_id):
         sys.exit(0)
     if not _session_scope_ok(event, tpath):
         sys.exit(0)
@@ -3798,7 +3833,7 @@ def main() -> None:
         if meta.get("id"):
             event["session_id"] = meta["id"]
     session_id = event.get("session_id", "") or tpath.stem
-    if not tpath.is_file() or not hooklib.is_one_component(session_id):
+    if not tpath.is_file() or not _session_id_ok(session_id):
         return
     debounced = "--debounced" in sys.argv
     cost_dir = state_dir(event) / "state" / "cost"
