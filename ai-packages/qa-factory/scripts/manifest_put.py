@@ -1940,7 +1940,20 @@ def _merge(current: dict, fragment: dict, trail: dict) -> tuple:
             raise ValueError("duplicate obligation binding in one fragment")
         by_id = {b["obligation_id"]: b for b in merged.get("obligation_bindings", [])}
         for binding in incoming:
-            by_id[binding["obligation_id"]] = dict(by_id.get(binding["obligation_id"], {}), **binding)
+            old = by_id.get(binding["obligation_id"], {})
+            new = dict(old, **binding)
+            if isinstance(binding.get("judged_on"), dict):
+                # the per-key fold of the stamps (FV1-19e): an incoming `judged_on` never replaces the whole map, and a
+                # binding written before it (no `judged_on` key) first has its legacy currency materialized from the
+                # STORED hash - read here, before `dict(old, **binding)` refreshes it.
+                if isinstance(old.get("judged_on"), dict):
+                    base = dict(old["judged_on"])
+                elif "judged_on" in old or not (isinstance(old.get("obligation_hash"), str) and old["obligation_hash"]):
+                    base = {}
+                else:
+                    base = {f: old["obligation_hash"] for f in C.JUDGED_FIELDS if old.get(f) is not None}
+                new["judged_on"] = dict(base, **binding["judged_on"])
+            by_id[binding["obligation_id"]] = new
         merged["obligation_bindings"] = list(by_id.values())
     _retract_obligations(merged, fragment, summary)
     held_before = _worn(current)
