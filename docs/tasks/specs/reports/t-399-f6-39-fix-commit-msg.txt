@@ -1,0 +1,56 @@
+tools: F6-39 A1+A2 fix round -- full remote refname, --no-deref delete, pinned prune row, NUL-safe main_checkout (t-399)
+
+worktree_sweep: (F1) the git calls that judge by the remote main name its FULL refname refs/remotes/origin/main
+(git_ref(): expiry rev-parse and is-ancestor, resolve_ref, merged_verdict, the prunable archive check, count_estimate);
+a local branch or tag `origin/main` no longer shadows it. Display text keeps `origin/main`. (F2) archive ref delete is
+`update-ref --no-deref -d <ref> <sha>`: a symref under the prefix deletes only itself, never its target.
+test_worktree_sweep: (F3) the prune-rc1 row also asserts no `KEEP branch pb` line, so it pins the skipped branch loop
+itself; new rows test_r1_a_local_branch_named_origin_main_*, test_r1_a_symref_under_the_archive_prefix_*.
+gitcmd.main_checkout: (F4) a NUL in git's answer returns ("resolve") with a reason, never ValueError; row f4_nul_in_the_answer.
+
+Four questions: (a) compliance cost: none at run time (same git calls, a longer refname, one extra flag); paid by nobody.
+(c) detector: the three new rows and the tightened prune-rc1 row in tools/test_worktree_sweep.py, tools/test_gitcmd.py.
+(d) skip: the full name sits in the one expiry function and the one helper every ref-judging call goes through.
+
+axis 1 (Policy <-> role files <-> journal (this deployment)): n/a no policy or role file touched
+axis 2 (Per-tier exam instruments): n/a
+axis 3 (Factory package <-> its release copy <-> the installed plugin): n/a tools only, nothing under ai-packages/qa-factory
+axis 4 (Factory rules <-> their debt <-> the backlog <-> the principles): n/a
+axis 5 (Stage twins inside the package): n/a
+axis 6 (Measurement tools <-> the package they measure): n/a
+axis 7 (Per-test identity <-> every scope a test's behaviour depends on): n/a
+axis 8 (Where the story is on disk): n/a
+axis 9 ("is this a test file"): n/a
+axis 10 ("git-top readers"): n/a the module keeps its one runner; no new git entry point
+axis 11 ("shell-command recognizers"): n/a
+axis 12 (carriers of the work plan): n/a
+axis 13 (the dispatch text): n/a
+axis 14 (readers of agent transcripts): n/a
+axis 15 (console stream setup): n/a
+axis 16 (one JSON reader of the package): n/a
+axis 17 (detector verdict shape): n/a
+axis 18 (in-tree shrink-only ratchets): covered lint_ratchet --check 36 in the baseline, 0 new
+axis 19 (one reader of a role file's): n/a
+axis 20 (host receipt names): n/a
+axis 21 (readers of the package's markdown tables): n/a
+axis 22 (a host's return form): n/a
+axis 23 (fields of a): n/a
+axis 24 (the record of an execution): n/a
+axis 25 (freshness of a run): n/a
+axis 26 (the word `stand not confirmed`): n/a
+axis 27 (the profile of a test row): n/a
+axis 28 (the render site of the row form): n/a
+axis 29 (append-only jsonl writers): n/a
+axis 30 (the commands of a profile): n/a
+axis 31 (Role carriers): n/a
+axis 32 (Where judgment lives): n/a the checks judge data (reachability, a path); no role judgment moves
+axis 33 ("which dispatch am I"): n/a
+axis 34 (One road for one action): covered one helper (git_ref) for the remote main name inside worktree_sweep
+axis 35 (Sides of a story): n/a
+axis 36 (The row written against a substitute): n/a
+
+architecture: none -- forge tools outside the package
+judgment: none -- no check added
+tier: <TIER-PLACEHOLDER: Lead binding>
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>

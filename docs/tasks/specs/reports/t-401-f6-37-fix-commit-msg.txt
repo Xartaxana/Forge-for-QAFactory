@@ -1,0 +1,56 @@
+F6-37/F6-35 fix round after the critic t-392: an unknown cut is a note and a pass, liveness case 10 moves under the reviews folder, polish of the worktree base WARN.
+
+What and why:
+- B1: handoff_folder_check read "cut is None" as "no handoff: line". A cut that raised (a failed owns_gate/md_regions import in dispatch_manifest._import_siblings) left None too, so every critic/designer dispatch was refused with a false text. Now dispatch_manifest.has_handoff_word (the cheap exit's own test, one reader beside cut_payload) decides: word present and no cut = NOTE_UNCHECKED and a pass; word absent = the refusal with its door. Row e25 pins both.
+- B2: hook_liveness_probe case 10 sent a critic dispatch with its handoff outside docs/tasks/specs/reviews, so the gate now refused it and test_hook_liveness_probe live_run went red. The handoff path moved under <tmp>/docs/tasks/specs/reviews/; the case still proves a critic dispatch passes the gate and leaves the snapshot.
+- N1: HANDOFF_NO_PATH door says "write it as an absolute path inside <folder>" (row e6 pins it).
+- N3: one _sibling_module prelude in dispatch_gate for handoff_folder_check, _load_manifest_module and the claim readers (three copies became one).
+- NB1: worktree_base_warn reads refs with one for-each-ref (%(refname)) and derives local/remote from the prefixes.
+- NB2: dead alias dropped. NB3: one WORKTREE_ADD_DOOR constant for both WARNs.
+- Left: N2 (write gate MANY rendering unbounded), N4 (RUNBOOK item 11 clause, spec text), NB4, NB5, NB6: outside the owned paths or not marked for this round.
+
+tier: <model>
+
+Four questions (rule 10), mechanism: the launch check's reading of an unknown cut, and the one door text of the worktree WARNs.
+(a) Cost: nothing on a correct dispatch; an unreadable dispatch text now costs one NOTE instead of a false refusal; the dispatcher pays one read of the note.
+(b) Axes: as listed below.
+axis 1 (policy <-> role): n/a not touched by this fix round
+axis 2 (per-tier exam instruments): n/a not touched by this fix round
+axis 3 (factory package <->): n/a not touched by this fix round
+axis 4 (factory rules <->): n/a not touched by this fix round
+axis 5 (stage twins inside): n/a not touched by this fix round
+axis 6 (measurement tools <->): n/a not touched by this fix round
+axis 7 (per-test identity <->): n/a not touched by this fix round
+axis 8 (where the story): n/a not touched by this fix round
+axis 9 (is this a): n/a not touched by this fix round
+axis 10 (git-top readers): n/a not touched by this fix round
+axis 11 (shell-command recognizers): n/a not touched by this fix round
+axis 12 (carriers of the): n/a not touched by this fix round
+axis 13 (the dispatch text): covered has_handoff_word is the one reader of the handoff word beside cut_payload; the cut-None reading of every caller walked (decide_full, check, handoff_folder_check)
+axis 14 (readers of agent): n/a not touched by this fix round
+axis 15 (console stream setup): n/a not touched by this fix round
+axis 16 (one json reader): n/a not touched by this fix round
+axis 17 (detector verdict shape): n/a not touched by this fix round
+axis 18 (in-tree shrink-only ratchets): n/a lint ratchet unchanged, 0 new findings
+axis 19 (one reader of): n/a not touched by this fix round
+axis 20 (host receipt names): n/a not touched by this fix round
+axis 21 (readers of the): n/a not touched by this fix round
+axis 22 (a host's return): n/a not touched by this fix round
+axis 23 (fields of a): n/a not touched by this fix round
+axis 24 (the record of): n/a not touched by this fix round
+axis 25 (freshness of a): n/a not touched by this fix round
+axis 26 (the word stand): n/a not touched by this fix round
+axis 27 (the profile of): n/a not touched by this fix round
+axis 28 (the render site): n/a not touched by this fix round
+axis 29 (append-only jsonl writers): n/a not touched by this fix round
+axis 30 (the commands of): n/a not touched by this fix round
+axis 31 (role carriers): n/a the door text of both WARNs is unchanged in meaning; RUNBOOK item 8 and builder-rules item 20 name the same command
+axis 32 (where judgment lives): n/a not touched by this fix round
+axis 33 (which dispatch am): n/a not touched by this fix round
+axis 34 (one road for): covered one WORKTREE_ADD_DOOR for both WARNs; one _sibling_module prelude in dispatch_gate
+axis 35 (sides of a): n/a not touched by this fix round
+axis 36 (the row written): n/a not touched by this fix round
+(c) Detector: tools/test_dispatch_gate.py row e25 and the NB1/NB3 asserts; test_hook_liveness_probe live_run on the CI canon for the case-10 path; calibration check 45 as registered by the node's merge commit.
+(d) What stops a skip: code on the path -- the PreToolUse dispatch gate runs handoff_folder_check on every critic/designer dispatch; an unknown is a NOTE by design, the leak is counted by the calibration checks named in the node spec.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
