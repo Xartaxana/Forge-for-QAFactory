@@ -258,7 +258,7 @@ def main() -> None:
     finally:
         cleanup(root)
 
-    # --- 4b. FV1-19 (D4, row p): the two retraction sites forward the covering rows without the hashes the stamp writes ------
+    # --- 4b. FV1-19 (row p, re-pinned by F1): the two retraction sites resend the covering rows by identity only ------------
     import migrate_artifacts as MA
     stale_cover = {"case": "TC-005", "file": "tests/t.py", "instance_id": "test_five", "covers": ["TC-005"], "status": "green",
                    "obligation_refs": [{"obligation_id": "TS-1-O1", "obligation_hash": "stale"}], "obligation_ids": ["TS-1-O1"],
@@ -268,7 +268,7 @@ def main() -> None:
     for site, run_site, extra, said in (
             ("_retract_case_ghosts", MA._retract_case_ghosts, ghost, "ghost retracted"),
             ("_retract_legacy_selector_rows", MA._retract_legacy_selector_rows, legacy, "legacy selector row retracted")):
-        for cites, outcome in (("TS-1-O1", "commits"), ("TS-9-O9", "lands in `left`")):
+        for cites in ("TS-1-O1", "TS-9-O9"):   # an id the plan names, and one it no longer names
             root, task = make_story()
             try:
                 cover = dict(stale_cover, obligation_refs=[{"obligation_id": cites, "obligation_hash": "stale"}], obligation_ids=[cites])
@@ -278,20 +278,13 @@ def main() -> None:
                 result = run_site(task, TICKET, root, json.loads((task / "work" / "automation-manifest.json").read_text(encoding="utf-8")))
                 after = json.loads((task / "work" / "automation-manifest.json").read_text(encoding="utf-8"))
                 five = next(t for t in after["tests"] if t.get("instance_id") == "test_five")
-                if cites == "TS-1-O1":
-                    plan_hash = content_hash(PLAN_ROWS[0]["coverage_obligations"][0])
-                    check_eq(f"(p) {site}: a covering row with a stale stored hash is forwarded without it: the retraction commits",
-                             (len(result["left"]), any(said in c for c in result["changed"]), len(after["tests"])), (0, True, 1))
-                    check_eq(f"(p) {site}: ... and the covering row's refs carry the current plan hash, ids and row hash derived",
-                             (five["obligation_refs"], five["obligation_ids"], five["obligation_hash"]),
-                             ([{"obligation_id": "TS-1-O1", "obligation_hash": plan_hash}], ["TS-1-O1"],
-                              content_hash([{"obligation_id": "TS-1-O1", "obligation_hash": plan_hash}])))
-                else:
-                    check_eq(f"(p) {site}: a covering row citing an id the plan no longer names: nothing committed, the row stays as stored",
-                             (result["changed"], len(after["tests"]), after["tests"][1]["obligation_refs"]),
-                             ([], 2, [{"obligation_id": "TS-9-O9", "obligation_hash": "stale"}]))
-                    check_in(f"(p) {site}: ... and the retraction is reported under `left` with the stamp's text",
-                             "TS-9-O9 is not an obligation of the plan (the plan names TS-1-O1, TS-1-O2, TS-2-O1)", json.dumps(result["left"]))
+                # FV1-19 F1 (Lead, t-515): a retraction resends the covering row by identity only - no refs, ids or row hash -
+                # so the stored references stay exactly as stored (stale stays stale) and the retraction never depends on the plan.
+                check_eq(f"(p) {site}: a covering row citing {cites} (stale stored hash): the retraction commits, nothing left",
+                         (len(result["left"]), any(said in c for c in result["changed"]), len(after["tests"])), (0, True, 1))
+                check_eq(f"(p) {site}: ... and the covering row's refs, ids and row hash stay exactly as stored (never restamped)",
+                         (five["obligation_refs"], five["obligation_ids"], five["obligation_hash"]),
+                         ([{"obligation_id": cites, "obligation_hash": "stale"}], [cites], "stale-row"))
             finally:
                 cleanup(root)
 

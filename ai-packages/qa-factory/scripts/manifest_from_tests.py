@@ -1540,7 +1540,7 @@ def build(story: Story, files: list, dispatch_id: str, project=None, prior_probl
     # The marker writes obligation IDS; the hashes and the row's derived ids and hash come from the one stamp `manifest_put`
     # runs too (AR-15), here so `--dry-run` and the row form see the rows as they will be stored. A refusal is impossible
     # for ids `Story.obligation` accepted (both read one map), and still ends the call before anything is written.
-    fragment, stamp_problems = C.stamp_obligation_refs(fragment, C.plan_obligation_map(story.root))
+    fragment, stamp_problems = C.stamp_obligation_refs(fragment, getattr(story, "_obligation_map", None) or C.plan_obligation_map(story.root))
     if stamp_problems:
         raise Refusal("obligation_refs: " + "; ".join(stamp_problems))
     return {"fragment": fragment, "notes": notes, "scope": scope,

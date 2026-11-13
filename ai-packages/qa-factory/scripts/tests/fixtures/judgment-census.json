@@ -139,6 +139,7 @@
   {"file": "context_bundle.py", "function": "validate_lookup", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "contract.py", "function": "_claim_link_errors", "class": "xref", "roles": ["conductor"], "owner": "data"},
   {"file": "contract.py", "function": "_contradiction_problems", "class": "shape", "roles": ["conductor"], "owner": "data"},
+  {"file": "contract.py", "function": "_ref_shape_problems", "class": "shape", "roles": ["conductor", "qa-automator"], "owner": "data"},
   {"file": "contract.py", "function": "alternatives_errors", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "contract.py", "function": "artifact", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "contract.py", "function": "before_now_errors", "class": "shape", "roles": ["conductor"], "owner": "data"},

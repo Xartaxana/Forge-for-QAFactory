@@ -2430,7 +2430,9 @@ def run(task: str, fragment_path: str, wait_seconds: float = 0.0) -> int:
     plan_map = C.plan_obligation_map(task_root, plan_notes)
     for plan_note in plan_notes:
         print(f"manifest_put: note: {plan_note}", file=sys.stderr)
-    fragment, ref_problems = C.stamp_obligation_refs(fragment, plan_map)
+    # The stored bindings go to the stamp so a hash-less binding patch (a receipt, a sensitivity) never refreshes a STALE
+    # stored binding hash by itself: only a re-sent `design_assessment` re-judges it (FV1-19 B1, AR-28).
+    fragment, ref_problems = C.stamp_obligation_refs(fragment, plan_map, _current_rows(task_root, "obligation_bindings"))
     if ref_problems:
         print("manifest_put: " + _problems_text(task_root, "obligation-refs", ref_problems)
               + ". " + REPAIR_MARKER + ".", file=sys.stderr)

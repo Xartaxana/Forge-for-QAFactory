@@ -163,11 +163,18 @@ def _is_case_shaped_id(value: str, cfg: dict | None = None) -> bool:
     return C.is_case_id(text.rsplit("/", 1)[-1], cfg=C.case_config() if cfg is None else cfg)
 
 
-def _forwardable(row: dict) -> dict:
+def _forwardable(row: dict, refs: bool = True) -> dict:
     """`row` as a code writer may send it back through `manifest_put` (FV1-19, AR-14): without what the one stamp
     (`contract.stamp_obligation_refs`) writes from the CURRENT plan — each ref's `obligation_hash`, the row's or the
     binding's `obligation_hash`, and, on a row that carries `obligation_refs`, `obligation_ids`. A hash read from a stored
-    row is never forwarded: it may be stale, and the stamp refuses a hash that differs from the plan's."""
+    row is never forwarded: it may be stale, and the stamp refuses a hash that differs from the plan's.
+
+    `refs=False` (the two RETRACTION sites, which resend a covering row only to match its identity) also leaves out
+    `obligation_refs` and `obligation_ids`: the stored references stay exactly as they are (a stale one stays stale, for
+    the precheck to name), and a retraction never depends on the plan. The RENAME sites keep `refs=True`: their ids
+    change and must be resent, to be stamped from the plan."""
+    if not refs:
+        return {k: v for k, v in row.items() if k not in ("obligation_refs", "obligation_ids", "obligation_hash")}
     out = {k: v for k, v in row.items() if k != "obligation_hash"}
     refs = out.get("obligation_refs")
     if isinstance(refs, list):
@@ -226,7 +233,7 @@ def _retract_case_ghosts(root: Path, task_id: str, project_root: Path, manifest:
     for _, covering in retract:
         for row in covering:
             protect.setdefault(C.test_instance_id(row), row)
-    resend = [_forwardable(row) for row in protect.values()]
+    resend = [_forwardable(row, refs=False) for row in protect.values()]
     unresolved = [{"case": case_key} for case_key, _ in retract]
 
     ok, reason = _run_manifest_put(root, task_id, project_root,
@@ -310,7 +317,7 @@ def _retract_legacy_selector_rows(root: Path, task_id: str, project_root: Path,
     for _, _, covering in retract:
         for row in covering:
             protect.setdefault(C.test_instance_id(row), row)
-    resend = [_forwardable(row) for row in protect.values()]
+    resend = [_forwardable(row, refs=False) for row in protect.values()]
     unresolved = [{"case": case_key} for case_key, _, _ in retract]
 
     ok, reason = _run_manifest_put(root, task_id, project_root,

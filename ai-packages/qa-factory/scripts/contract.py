@@ -5175,7 +5175,9 @@ DELIVERY_VOLATILE_PATHS = (
 )
 
 
-def _plan_rows_of(task_root) -> list:
+def _plan_rows_of(task_root, errors=None) -> list:
+    """The plan's dict rows, `[]` when there is no plan or it cannot be read. A plan file that exists and cannot be read
+    appends `(path, exception)` to `errors` when a list is given (the one reading `plan_obligation_map` reports from)."""
     path = Path(task_root) / WORK_DIR / "test-plan.json"
     if not path.is_file():
         path = Path(task_root) / "test-plan.json"
@@ -5183,7 +5185,9 @@ def _plan_rows_of(task_root) -> list:
         return []
     try:
         value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError):
+    except (OSError, ValueError) as exc:
+        if isinstance(errors, list):
+            errors.append((path, exc))
         return []
     rows = value.get("rows", []) if isinstance(value, dict) else value
     return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
@@ -5246,25 +5250,47 @@ def obligation_map(rows) -> dict:
 
 def plan_obligation_map(task_root, notes=None) -> dict:
     """`obligation_map` of the story's plan. A plan file that exists and cannot be read adds ONE sentence to `notes`
-    (when a list is given) and gives `{}`; an absent plan adds nothing."""
-    path = Path(task_root) / WORK_DIR / "test-plan.json"
-    if not path.is_file():
-        path = Path(task_root) / "test-plan.json"
-    if not path.is_file():
-        return {}
-    try:
-        json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError) as exc:
+    (when a list is given) and gives `{}`; an absent plan adds nothing. The plan is found and parsed ONCE, by
+    `_plan_rows_of`."""
+    errors = []
+    rows = _plan_rows_of(task_root, errors)
+    for path, exc in errors:
         if isinstance(notes, list):
             notes.append(f"the plan {path.as_posix()} could not be read ({type(exc).__name__}: "
                          f"{' '.join(str(exc).split())}): obligation_refs are stored as sent, without hashes, "
                          "and the window finish refuses them until the plan reads")
-        return {}
-    return obligation_map(_plan_rows_of(task_root))
+    return obligation_map(rows)
 
 
 def _plan_names(plan_map) -> str:
     return ", ".join(sorted(plan_map)) or "none"
+
+
+def _ref_shape_problems(refs, where: str, hash_required: bool) -> list:
+    """The shape texts of one `obligation_refs` list, ONE wording for the reader (`obligation_ref_problems`,
+    `hash_required=True`) and the stamp (`_stamp_row_refs`, `hash_required=False`: a missing hash is what the stamp
+    writes). At most one problem per ref: not an object / an id that is not a non-empty string / an id twice / (when
+    required) no hash / a hash that is not a string."""
+    if not isinstance(refs, list):
+        return [f"{where} is {type(refs).__name__}, not a list; send {REF_SHAPE}"]
+    out, seen = [], set()
+    for j, ref in enumerate(refs):
+        oid = ref.get("obligation_id") if isinstance(ref, dict) else None
+        sent = ref.get("obligation_hash") if isinstance(ref, dict) else None
+        if not isinstance(ref, dict):
+            out.append(f"{where}[{j}] is not an object; send {REF_SHAPE}")
+        elif not isinstance(oid, str) or not oid:
+            out.append(f"{where}[{j}].obligation_id is not a non-empty string; send {REF_SHAPE}")
+        elif oid in seen:
+            out.append(f"{where}[{j}]: {oid} appears twice; send {REF_SHAPE}")
+        elif sent in (None, ""):
+            if hash_required:
+                out.append(f"{where}[{j}]: {oid} has no obligation_hash (missing hash)")
+        elif not isinstance(sent, str):
+            out.append(f"{where}[{j}]: the obligation_hash of {oid} is not a string; leave it out, the code writes it")
+        if isinstance(oid, str) and oid:
+            seen.add(oid)
+    return out
 
 
 def obligation_ref_problems(refs, plan_map=None, strict=False) -> list:
@@ -5273,26 +5299,9 @@ def obligation_ref_problems(refs, plan_map=None, strict=False) -> list:
     the hash comparison. `unknown`: an id the non-empty `plan_map` does not name; with `strict` and no map every ref is
     unknown. `stale`: a hash that is not `content_hash` of the plan's obligation. With `strict=False` and no map only
     shape is judged."""
-    if not isinstance(refs, list):
-        return [("shape", f"obligation_refs is {type(refs).__name__}, not a list of {REF_SHAPE}")]
-    shape, seen = [], set()
-    for at, ref in enumerate(refs):
-        if not isinstance(ref, dict):
-            shape.append(("shape", f"obligation_refs[{at}] is not an object"))
-            continue
-        oid, sent = ref.get("obligation_id"), ref.get("obligation_hash")
-        if not isinstance(oid, str) or not oid:
-            shape.append(("shape", f"obligation_refs[{at}].obligation_id is not a non-empty string"))
-            continue
-        if oid in seen:
-            shape.append(("shape", f"obligation_refs[{at}]: {oid} appears twice"))
-        seen.add(oid)
-        if sent is None or sent == "":
-            shape.append(("shape", f"obligation_refs[{at}]: {oid} has no obligation_hash (missing hash)"))
-        elif not isinstance(sent, str):
-            shape.append(("shape", f"obligation_refs[{at}]: the obligation_hash of {oid} is not a string"))
+    shape = _ref_shape_problems(refs, "obligation_refs", hash_required=True)
     if shape:
-        return shape
+        return [("shape", text) for text in shape]
     if not plan_map:
         return [("unknown", f"obligation_refs[{at}]: {ref['obligation_id']} is not an obligation of the plan "
                             "(the plan names none)") for at, ref in enumerate(refs)] if strict else []
@@ -5318,22 +5327,7 @@ def _stamp_row_refs(row: dict, at: int, plan_map: dict, problems: list) -> None:
     """Steps 3-5 of `stamp_obligation_refs` on ONE row (already a copy) that sends `obligation_refs`."""
     from event_store import content_hash
     where, refs = f"tests[{at}].obligation_refs", row["obligation_refs"]
-    if not isinstance(refs, list):
-        problems.append(f"{where} is {type(refs).__name__}, not a list; send {REF_SHAPE}")
-        return
-    broken, seen = [], set()
-    for j, ref in enumerate(refs):
-        oid = ref.get("obligation_id") if isinstance(ref, dict) else None
-        if not isinstance(ref, dict):
-            broken.append(f"{where}[{j}] is not an object; send {REF_SHAPE}")
-        elif not isinstance(oid, str) or not oid:
-            broken.append(f"{where}[{j}].obligation_id is not a non-empty string; send {REF_SHAPE}")
-        elif oid in seen:
-            broken.append(f"{where}[{j}]: {oid} appears twice in one row; send {REF_SHAPE}")
-        elif ref.get("obligation_hash") not in (None, "") and not isinstance(ref["obligation_hash"], str):
-            broken.append(f"{where}[{j}]: the obligation_hash of {oid} is not a string; leave it out, the code writes it")
-        if isinstance(oid, str):
-            seen.add(oid)
+    broken = _ref_shape_problems(refs, where, hash_required=False)
     if broken:
         problems.extend(broken)
         return
@@ -5362,7 +5356,17 @@ def _stamp_row_refs(row: dict, at: int, plan_map: dict, problems: list) -> None:
         row["obligation_hash"] = content_hash(stamped) if stamped else ""
 
 
-def stamp_obligation_refs(fragment, plan_map) -> tuple:
+def _binding_stamp_allowed(binding: dict, stored, want: str) -> bool:
+    """May the stamp write the plan's hash `want` onto an incoming hash-less `binding`? Only when that cannot revive a
+    STALE stored judgment (FV1-19 B1): no stored binding of the id, the stored one has no hash, the stored hash already
+    equals the plan's, or the incoming binding re-sends the judgment the hash certifies (a non-null `design_assessment`).
+    `stored` is the stored binding of the id or None."""
+    if not isinstance(stored, dict) or stored.get("obligation_hash") in (None, ""):
+        return True
+    return stored.get("obligation_hash") == want or binding.get("design_assessment") is not None
+
+
+def stamp_obligation_refs(fragment, plan_map, stored_bindings=None) -> tuple:
     """`(fragment', problems)`: the ONE writer of every hash an obligation reference carries. Pure: the input is never
     edited. A role sends obligation IDS; per `tests[]` row, in this order:
     1. a key `obligation_refs`, `obligation_ids` or `obligation_hash` sent as `None` is DROPPED (null = not sent: the
@@ -5373,11 +5377,18 @@ def stamp_obligation_refs(fragment, plan_map) -> tuple:
        with a different hash is a problem; with an empty map the refs stay as sent;
     5. `obligation_ids` = the refs' ids in refs order (a sent list that differs as a SET is a problem), and the row's
        `obligation_hash` = `content_hash(<stamped refs>)` (`""` for `[]`) unless the row sent one.
-    An `obligation_bindings[]` row drops a `None` hash, gets the plan's hash when it names a plan obligation and carries
-    none, and is a problem when it carries a different one; a binding naming an id the plan does not is left alone."""
+    An `obligation_bindings[]` row drops a `None` hash (null = not sent); one that names a plan obligation and carries
+    a different hash is a problem; one that carries none gets the plan's hash unless `stored_bindings` (the manifest's
+    stored `obligation_bindings[]`, as `merge` reads them: the LAST row of an id) hold a binding of that id whose hash
+    differs from the plan's and the incoming binding re-sends no `design_assessment` - then it goes on WITHOUT a hash,
+    the merge keeps the stored (stale) one, and the binding stays not current (a receipt never re-validates a judgment
+    made on other plan text). Absent, None, non-list `stored_bindings` and non-dict items are "no stored binding". A
+    binding naming an id the plan does not is left alone (its refusal is `manifest_put`'s)."""
     import copy
     from event_store import content_hash
     problems = []
+    stored_by_id = {b["obligation_id"]: b for b in (stored_bindings if isinstance(stored_bindings, list) else [])
+                    if isinstance(b, dict) and isinstance(b.get("obligation_id"), str)}
     if not isinstance(fragment, dict):
         return fragment, problems
     out = dict(fragment)
@@ -5405,7 +5416,9 @@ def stamp_obligation_refs(fragment, plan_map) -> tuple:
             if plan_map and isinstance(oid, str) and oid in plan_map:
                 want, sent = content_hash(plan_map[oid]), binding.get("obligation_hash")
                 if sent in (None, ""):
-                    binding["obligation_hash"] = want
+                    binding.pop("obligation_hash", None)
+                    if _binding_stamp_allowed(binding, stored_by_id.get(oid), want):
+                        binding["obligation_hash"] = want
                 elif sent != want:
                     problems.append(_hash_problem(f"obligation_bindings[{at}]", oid, sent, want))
             rows.append(binding)
