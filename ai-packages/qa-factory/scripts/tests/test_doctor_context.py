@@ -328,6 +328,8 @@ class PacketNameLength(unittest.TestCase):
                     spy.assert_called_once()
                     self.assertEqual(rows_logged, [])
                     self.assertEqual('waiver.py --task T --stage S1' in err.getvalue(), stage is not None)
+                    if name in ('revoked', 'other_stage', 'no_pipeline'):
+                        self.assertIn('--block "could not be written"', err.getvalue())
 
 
 DOOR = ('context diagnostic requires current allow/deny evidence in this host session; '
