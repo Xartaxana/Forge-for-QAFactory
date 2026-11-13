@@ -1743,6 +1743,8 @@ HUMAN_WORD_MSG = ("PRE-TOOL GUARD: a person's word is recorded by the orchestrat
                   "`project_knowledge.py side` stores what the person said about the product's sides (which are real on a stand, "
                   "whose they are, which stand runs the old version); a role running it would declare its own substitute real or "
                   "its own gap someone else's (`show` is open to you). "
+                  "`project_knowledge.py lesson` stores what the person taught about the stand (what takes long, how to narrow it); "
+                  "a role running it would make its own guess a project fact (`lessons` and `show` are open to you). "
                   "`report_adapt.py kind` changes how a test command's report is read in the project's configuration; that is the "
                   "driver's or the conductor's move, and a role that cannot read a report hands the kept report over in its digest "
                   "(`understood` and `show` are open to you). "
@@ -1784,7 +1786,7 @@ def human_word_check(event: dict, cfg: dict) -> None:
                or re.search(r"environment_record\.py[\"']?(?:\s*,\s*|\s+)[\"']?(?:record|revoke)(?![\w-])", low)
                # What the person said about the product's roles and the stand's accounts, and taking it back (PK0-8): the same door shape;
                # `show` stays open
-               or re.search(r"project_knowledge\.py[\"']?(?:\s*,\s*|\s+)[\"']?(?:account|role|revoke|side)(?![\w-])", low)
+               or re.search(r"project_knowledge\.py[\"']?(?:\s*,\s*|\s+)[\"']?(?:account|role|revoke|side|lesson)(?![\w-])", low)
                # B-416 M10: `report_adapt.py kind` writes the config's report kind and `forget` takes the helper's row back (it would
                # reset the one-turn bound); `config_write_check` reacts only to a `config.json` path word, and this script names none,
                # so the role door is closed here for both. `understood` and `show` stay open.
