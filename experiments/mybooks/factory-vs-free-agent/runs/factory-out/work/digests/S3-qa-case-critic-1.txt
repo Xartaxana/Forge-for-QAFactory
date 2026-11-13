@@ -1,0 +1,12 @@
+qa-case-critic S3 S3-qa-case-critic-1 · concerns
+P-1 · approve_with_concerns · Q6 rounding open but OB-1 oracle resolved; tried table lacks R-3/R-4
+P-2 · approve_with_concerns · stock-0 refusal with no item need not wait on Q1; only wording does
+P-3 · approve · unverifiable on Q2, rung 4 reasoned
+P-4 · reject · api level needs sign-in; stand login refused, plan says UI only
+P-5 · reject · api user-vs-guest needs login the plan says is UI only
+P-6 · approve · e2e-ui justified, API covered by P-1
+P-7 · approve · badge only in browser
+P-8 · approve · walk covers add function
+P-9 · approve · walk covers price display
+P-10 · approve_with_concerns · needs UI sign-in; inconclusive_when covers failure
+qa-factory/artifacts/LOCAL-1/work/handoffs/S3-qa-case-critic-1.yaml

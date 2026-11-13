@@ -1,0 +1,38 @@
+---
+id: TC-005
+title: An add never touches another owner's cart
+area: cart
+priority: P0
+status: Draft
+channel: auto
+reuse_decision: new
+updated: 2026-11-12
+task: LOCAL-1
+covers: [R-12]
+defect_class: permission
+basis: external:owner-isolation norm (no access beyond the owner)
+then_oracles: [{"then": 1, "source": "unknown", "ref": "Q13"}, {"then": 2, "source": "unknown", "ref": "Q14"}, {"then": 3, "source": "unknown", "ref": "Q15"}]
+question_thens: [{"question": "Q13", "then": 1, "readings": {"now": "each owner's cart read-back holds only its own books", "before": "unknown"}, "not_needed": ""}, {"question": "Q14", "then": 2, "readings": {"now": "other owners' carts are unchanged after an add", "before": "unknown"}, "not_needed": ""}, {"question": "Q15", "then": 3, "readings": {"now": "the user's cart holds only the user's own add", "before": "unknown"}, "not_needed": ""}]
+preconditions: [{"id": "PC-1", "kind": "account", "what": "a user account that can sign in", "check": {"stand_account": "user"}}]
+---
+
+Requirements: R-12
+Plan row: P-5
+
+## Obligation coverage
+
+| Obligation | Oracle | Boundary | Then / evidence | Residual gap |
+|---|---|---|---|---|
+| OB-5 | R-12 (derived from the no-access-beyond-owner norm; no independent oracle) | guest vs user, guest vs guest | Thens 1-3, each owner's cart read back by its own session | Oracle is a norm, not a ticket statement |
+
+## Steps
+
+1. Guest G1 (own cookie) adds book A (1); guest G2 (separate cookie) adds book B (1).
+2. Read G1's and G2's carts, each by its own session.
+3. The signed-in user adds book C (1); read the guest carts again and the user's cart.
+
+## Then
+
+1. G1's cart holds only A and G2's cart holds only B (two guests stay apart).
+2. After the user's add, the guests' carts are unchanged.
+3. The user's cart holds C and none of the guests' books; an allowed add by the same user account succeeded, proving the account works.

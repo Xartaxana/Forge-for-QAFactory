@@ -1,0 +1,12 @@
+qa-case-critic S4 S4-qa-case-critic-2 · ok
+TC-001 · approve_with_concerns · response field names unverified (7e)
+TC-002 · approve_with_concerns · could-not-check if no stock-0 book; wording open
+TC-003 · approve_with_concerns · second guest never seeded in steps
+TC-004 · approve_with_concerns · above-stock partition not shown reachable
+TC-005 · approve_with_concerns · oracle_unknown, owner question at Gate A
+TC-006 · approve_with_concerns · step 4 vs Then 2 mismatch
+TC-007 · approve_with_concerns · badge Then 2 has no expected value
+TC-008 · approve_with_concerns · Then 4 message vs disabled button
+TC-009 · approve_with_concerns · header count measure unnamed
+TC-010 · approve_with_concerns · Then 3 rests on raised Q18
+state/story-case-links.json

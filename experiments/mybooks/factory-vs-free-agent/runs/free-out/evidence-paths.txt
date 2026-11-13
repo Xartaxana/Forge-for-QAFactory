@@ -1,0 +1,16 @@
+out/evidence/automated-run.txt
+out/evidence/bug1-test-failure.png
+out/evidence/bug2-cart-qty-typing.png
+out/evidence/bug2-test-failure.png
+out/evidence/ui-after-order.png
+out/evidence/ui-cart-after-merge.png
+out/evidence/ui-cart-guest.png
+out/evidence/ui-cart-over-stock.png
+out/evidence/ui-cart-typing.png
+out/evidence/ui-checkout-over-stock.png
+out/evidence/ui-detail.png
+out/evidence/ui-guest-checkout-login.png
+out/evidence/ui-home-add.png
+out/evidence/ui-login-callback.png
+out/evidence/ui-login-stuck.png
+out/evidence/ui-mobile-home.png

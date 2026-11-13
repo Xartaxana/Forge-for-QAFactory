@@ -1,0 +1,3 @@
+qa-runner S6 S6-qa-runner-2 · concerns
+TC-009 · passed · Thens 1-3 hold; cart quantity field and silent over-stock refusal recorded
+work/run-report.json

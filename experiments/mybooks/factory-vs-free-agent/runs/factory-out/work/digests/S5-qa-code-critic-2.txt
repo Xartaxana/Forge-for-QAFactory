@@ -1,0 +1,6 @@
+qa-code-critic S5 S5-qa-code-critic-2 · concerns
+TC-001 · unverified · no probe run; red assert shares body with green Then 4
+TC-002 · unverified · read clean; no probe run, sensitivity owed
+TC-004 · unverified · changes legitimate_correction; no probe run
+TC-005 · unverified · Thens 2-3 sit behind red Then 1; no probe run
+work/automation-manifest.json

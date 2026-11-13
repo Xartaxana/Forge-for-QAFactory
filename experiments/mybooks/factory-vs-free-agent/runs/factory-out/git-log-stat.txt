@@ -1,0 +1,79 @@
+d33d619 Merge pull request #4 from e-semenyuk/CI_CD
+6308bd8 Updated e2e.yml to include environment variables
+ .github/workflows/e2e.yml | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+06c5f9e Merge pull request #1 from e-semenyuk/E2-TEST-CASE
+4344604 Updated the code as per the feedback from the PR comments
+ core/pages/BookManagementPage.ts            | 77 ++++++++++++++++++++++++-----
+ tests/e2e/admin/admin_books_catalog.spec.ts | 11 +++++
+ 2 files changed, 77 insertions(+), 11 deletions(-)
+a91cd18 added e2e test for admin_books_catalog
+ core/fixtures/admin.fixture.ts              |  39 ++++++
+ core/pages/AdminDashboardPage.ts            |   9 ++
+ core/pages/BookManagementPage.ts            | 188 ++++++++++++++++++++++++++++
+ core/pages/HomePage.ts                      |  27 ++++
+ playwright.config.ts                        |   8 +-
+ tests/e2e/admin/admin_books_catalog.spec.ts |  75 +++++++++++
+ 6 files changed, 343 insertions(+), 3 deletions(-)
+026b061 chore: add best practices for test atuoamtion
+ TEST_AUTOMATION_BEST_PRACTICES.md | 540 ++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 540 insertions(+)
+a093e6c fix: locators and basic tests
+ core/pages/HomePage.ts          | 21 ++++++++++++++++++++-
+ core/pages/LoginPage.ts         | 35 ++++++++++++++++++++++++++++++-----
+ core/pages/ProfilePage.ts       | 17 +++++++++++++++++
+ tests/e2e/auth/login.spec.ts    |  9 ++++++---
+ tests/e2e/users/profile.spec.ts | 16 +++++++++++-----
+ 5 files changed, 84 insertions(+), 14 deletions(-)
+4eb3c0a feat: improve solution
+ core/clients/restClient.ts               |   6 +-
+ core/config/env/local.ts                 |   2 +-
+ core/config/index.ts                     |  18 +-
+ core/contracts/validators/user.get.v1.ts |   2 +-
+ core/fixtures/accountPool.fixture.ts     |   5 +-
+ core/fixtures/apiClient.fixture.ts       |   4 +-
+ core/fixtures/auth.fixture.ts            |   2 +-
+ core/fixtures/db.fixture.ts              |   2 +-
+ core/pages/LoginPage.ts                  |   8 +-
+ eslint.config.js                         |  25 ++
+ global-setup.ts                          |  17 +-
+ mock-server.mjs                          |  66 ++++
+ mock-server.ts                           |  63 ++++
+ package-lock.json                        | 518 ++++++++++++++++++++++++++++++-
+ package.json                             |  10 +-
+ playwright.config.ts                     |  23 +-
+ tests/e2e/auth/login.spec.ts             |   4 +-
+ tests/e2e/users/profile.spec.ts          |   8 +-
+ 18 files changed, 753 insertions(+), 30 deletions(-)
+e5bda57 initial commit
+ .github/workflows/e2e.yml                      |   32 +
+ .gitignore                                     |    8 +
+ core/clients/restClient.ts                     |   20 +
+ core/config/env/dev.ts                         |    5 +
+ core/config/env/local.ts                       |    4 +
+ core/config/env/prod.ts                        |    5 +
+ core/config/env/qa.ts                          |    5 +
+ core/config/index.ts                           |   28 +
+ core/contracts/schemas/user.get.v1.schema.json |   13 +
+ core/contracts/validators/user.get.v1.ts       |    9 +
+ core/fixtures/accountPool.fixture.ts           |   30 +
+ core/fixtures/apiClient.fixture.ts             |   11 +
+ core/fixtures/auth.fixture.ts                  |   14 +
+ core/fixtures/db.fixture.ts                    |   22 +
+ core/pages/BasePage.ts                         |    8 +
+ core/pages/HomePage.ts                         |    4 +
+ core/pages/LoginPage.ts                        |   11 +
+ core/utils/routes.ts                           |    7 +
+ core/utils/selectors.ts                        |    3 +
+ core/utils/tags.ts                             |   10 +
+ env.example                                    |   10 +
+ global-setup.ts                                |   17 +
+ global-teardown.ts                             |    5 +
+ package-lock.json                              | 1192 ++++++++++++++++++++++++
+ package.json                                   |   27 +
+ playwright.config.ts                           |   27 +
+ tests/api/users/get-user.spec.ts               |    8 +
+ tests/e2e/auth/login.spec.ts                   |   14 +
+ tests/e2e/users/profile.spec.ts                |   11 +
+ tsconfig.json                                  |   16 +
+ 30 files changed, 1576 insertions(+)

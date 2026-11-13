@@ -1,0 +1,21 @@
+qa-case-designer S4 S4-qa-case-designer-2 · concerns
+TC-001 · unresolved · Q8/Q9 answers not in register; Then 5/6 stay unknown
+TC-002 · updated · Q1/Q10 disabled-button answer noted; Then 3 stays unknown
+TC-003 · unresolved · Q2/Q11 open for product owner; Then 2 stays unknown
+TC-004 · updated · Q12 "higher quantity wins" noted; Then 2 stays unknown
+TC-005 · unresolved · Q13-15 answered but not in register; Thens stay unknown
+TC-006 · updated · repeated Then folded in; no new answer applies
+TC-007 · unresolved · badge lines/units still open; the person's answers don't cover it
+TC-008 · unresolved · Q17 not in register; Q16 open for product owner
+TC-009 · updated · evidence_policy ui named; no new answer applies
+TC-010 · unresolved · Q18 answered but not in register; Then 3 stays unknown
+work/test-cases/
+Neither the person's answers nor the case-version pins are in the register yet. The validator refuses person oracles for questions it counts as unanswered. So I kept the unknown form with question_thens where it applied.
+I didn't edit TC-001, TC-003, TC-008 or TC-010 for the new answers. Once the register records them, the Thens can move to person oracles with literal values:
+Q3/Q12: the higher quantity wins on merge.
+Q8/Q17: quantity 0, -1, 1.5 or "abc" is refused with a clear message, and nothing is added.
+Q9: a failed add leaves the cart unchanged.
+Q18: a second guest sees an empty cart.
+Q2, Q4 (repeat add), Q5 (R-10), Q6, Q7, Q11 and Q16 stay open for the product owner.
+I haven't submitted the handoff form for this round. work/handoffs/S4-qa-case-designer-2.values.yaml still holds the earlier content, and its case_version pins are missing.
+notes: state/findings/S4-qa-case-designer-2-digest-notes.md

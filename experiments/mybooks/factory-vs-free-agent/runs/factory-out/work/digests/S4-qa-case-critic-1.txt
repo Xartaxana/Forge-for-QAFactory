@@ -1,0 +1,12 @@
+qa-case-critic S4 S4-qa-case-critic-1 · concerns
+TC-001 · approve_with_concerns · response fields of Thens 2 and 5 unnamed, unverified
+TC-002 · approve_with_concerns · stock-0 precondition is none where a GET would do
+TC-003 · approve_with_concerns · Then 3 cannot fail; lower level api possible
+TC-004 · approve_with_concerns · zero-stock partition not reachable by the case
+TC-005 · approve_with_concerns · oracle_unknown, norm only; goes to Gate A
+TC-006 · approve_with_concerns · Then 3 repeats Then 1 and 2 of R-6
+TC-007 · reject · refused-add unreachable in UI, no working base, no measure
+TC-008 · approve_with_concerns · no evidence_policy for manual walk
+TC-009 · approve_with_concerns · no evidence_policy for manual walk
+TC-010 · approve_with_concerns · no evidence_policy; overlaps TC-003/004/005
+state/story-case-links.json

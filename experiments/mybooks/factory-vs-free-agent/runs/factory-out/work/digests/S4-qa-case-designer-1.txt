@@ -1,0 +1,12 @@
+qa-case-designer S4 S4-qa-case-designer-1 · concerns
+TC-001 · created · API partitions; R-8, R-10, R-11 Thens raised
+TC-002 · created · out-of-stock refused; wording Then raised
+TC-003 · created · guest persistence; cookie vs storage raised
+TC-004 · created · sign-in merge; merge rule raised
+TC-005 · created · owner isolation; R-12 has no independent oracle
+TC-006 · created · three entry paths give the same line
+TC-007 · created · badge and cart page agree after add and refused add
+TC-008 · created · manual walk of add paths and refusals
+TC-009 · created · manual walk of price format
+TC-010 · created · manual walk of guest return, sign-in, second guest
+work/test-cases/
