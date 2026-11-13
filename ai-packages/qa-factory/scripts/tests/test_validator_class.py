@@ -273,6 +273,7 @@ TOLD = {
     "external_writes.py --record": ("open", "not established by t-1349 (sweep row 30 covers the bug side only)"),
     "case_versions.py --pin": ("flags", "two values, a case id and an existing version; no role-written record"),
     "plan_row.py": ("file", "references/risk-policy.md"),
+    "grounding_section.py": ("flags", "a task, a story folder and ids to read (--show, --requirement, --map); read-only, no role-written record"),
     "execution_fingerprint.py": ("vocab", "fingerprint spec keys"),
     "context_bundle.py": ("vocab", "scout coverage_search fields"),
     "red_sandbox.py --diagnostic": ("file", "references/role-commands.json"),     # `input` spells the five request keys
@@ -339,6 +340,7 @@ GUARDED = {
     "external_writes.py --record": ("open", "not established by t-1349 (sweep row 30 covers the bug side only)"),
     "case_versions.py --pin": ("none", "two values, a case id and a version; no role-written record"),
     "plan_row.py": ("battery", "B10"),
+    "grounding_section.py": ("none", "read-only: prints parts of work/grounding.yaml by id and writes nothing; no role-written record"),
     "execution_fingerprint.py": ("battery", "B4"),
     "context_bundle.py": ("battery", "B1"),
     "red_sandbox.py --diagnostic": ("open", "run_diagnostic refuses the request key by key (first error) and prints the whole form "

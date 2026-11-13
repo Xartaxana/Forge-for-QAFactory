@@ -82,6 +82,8 @@ BROKEN = {
     "case_versions.py --pin": ["--task-root", "{task}", "--pin", "--case-file", "{bad}"],
     "plan_row.py": ["--task", "QA-1", "--task-root", "{task}", "--row", "TS-404",
                     "--set", "source_conflict=true"],
+    # the table has no work/grounding.yaml: the id is refused whole (a refusal through role_cli.refuse, with the card)
+    "grounding_section.py": ["--task", "QA-1", "--task-root", "{task}", "--show", "G-404"],
     # Both of these used to end in a traceback, which is why they are here: an empty object is a
     # specification with every field missing, and a bundle with nothing in it.
     "execution_fingerprint.py": ["{bad}"],
@@ -956,13 +958,12 @@ def argument_refusal_table(root: Path) -> None:
 
 def bare_parser_table(root: Path) -> None:
     """OF5-11: ONE table, script x (a call with a missing argument / a call with one unknown extra argument): a usage error of a
-    script that has a card refuses with the card (exit 2, no traceback), as RC1-10 did for its scripts. A script whose command has
-    no card (grounding_section.py) says so and prints the usage. Then the guard: a script whose command has a card builds no
-    bare `argparse.ArgumentParser` (a closed token read from the source; it judges no meaning), with an allow-list that only shrinks."""
+    script that has a card refuses with the card (exit 2, no traceback), as RC1-10 did for its scripts (grounding_section.py included:
+    it has a card since the OF5-11 fix round). Then the usage line of red_sandbox.py: the standard one, short, not its docstring."""
     import os
     env = dict(os.environ, CLAUDE_PROJECT_DIR=str(root))
     stray = "--no-such-flag-of5-11"
-    # (label, script, args, card key or None = no card is registered, what the refusal names)
+    # (label, script, args, card key, what the refusal names)
     rows = [
         ("case_versions --pin, no --task-root", "case_versions.py", ["--pin"], "case_versions.py --pin", "--task-root"),
         ("case_versions --pin, an unknown extra argument", "case_versions.py", ["--pin", "TC-1", "v1", "--task-root", str(root), stray],
@@ -976,9 +977,9 @@ def bare_parser_table(root: Path) -> None:
         ("red_sandbox --diagnostic, no --request", "red_sandbox.py", ["--diagnostic"], "red_sandbox.py --diagnostic", "--request"),
         ("red_sandbox --diagnostic, an unknown extra argument", "red_sandbox.py",
          ["--diagnostic", "--request", "r.json", stray], "red_sandbox.py --diagnostic", stray),
-        # no card is registered for grounding_section.py: the refusal says so and keeps the usage (the registry test names the gap)
-        ("grounding_section, no arguments", "grounding_section.py", [], None, "--task"),
-        ("grounding_section, an unknown extra argument", "grounding_section.py", ["--task", "QA-1", "--show", "X", stray], None, stray),
+        ("grounding_section, no arguments", "grounding_section.py", [], "grounding_section.py", "--task"),
+        ("grounding_section, an unknown extra argument", "grounding_section.py", ["--task", "QA-1", "--show", "X", stray],
+         "grounding_section.py", stray),
         # external_writes: its main parser has no sub-commands, the card is the one of --record
         ("external_writes --record, an unknown extra argument", "external_writes.py", ["--record", "p.json", stray],
          "external_writes.py --record", stray),
@@ -989,32 +990,33 @@ def bare_parser_table(root: Path) -> None:
         check_not_in(f"{label}: not a traceback", "Traceback", text)
         check_in(f"{label}: the usage is printed", "usage:", text)
         check_in(f"{label}: the refusal names {needle!r}", needle, text)
-        if key:
-            check_in(f"{label}: quotes the card of {key}", card(key), text)
-            check_in(f"{label}: and how to prove it", COMMANDS[key]["verify"], text)
-        else:
-            check_in(f"{label}: says the card is missing", "no command card is registered", text)
-            check_not_in(f"{label}: quotes no card", "what to write:", text)
+        check_in(f"{label}: quotes the card of {key}", card(key), text)
+        check_in(f"{label}: and how to prove it", COMMANDS[key]["verify"], text)
 
-    # the guard (shrink-only): the scripts of the registry build no bare ArgumentParser, but those named here, each with its reason
-    allowed = {"critic_rollcall.py": "its bare parser lives only in print_help, which builds the usage text and parses nothing"}
-    bare = {}
-    for script in sorted({c.split()[0] for c in COMMANDS}):
-        source = (PLUGIN_ROOT / "scripts" / script).read_text(encoding="utf-8")
-        lines = [n for n, line in enumerate(source.splitlines(), 1) if "ArgumentParser(" in line and "RefusingParser(" not in line
-                 and not line.lstrip().startswith("#")]
-        if lines:
-            bare[script] = lines
-    check("a script whose command has a card builds no bare argparse.ArgumentParser, but the allow-list",
-          sorted(set(bare) - set(allowed)) == [], f"bare parsers: {sorted(set(bare) - set(allowed))} at {bare}")
-    check("the allow-list holds only what is still true (an entry whose script converted is deleted: the list only shrinks)",
-          sorted(set(allowed) - set(bare)) == [], f"stale entries: {sorted(set(allowed) - set(bare))}")
-    check("the allow-list has at most one entry (a raise is a named decision, not an edit)", len(allowed) <= 1, str(sorted(allowed)))
-    # negative control: the guard's own reading finds a bare parser in a source that has one
-    sample = "p = argparse.ArgumentParser(description='x')\nq = RefusingParser(command='c')\n# ArgumentParser(__doc__) was the old call\n"
-    check("the guard's reading: a bare parser line is found; a RefusingParser line and a comment are not",
-          [n for n, line in enumerate(sample.splitlines(), 1) if "ArgumentParser(" in line and "RefusingParser(" not in line
-           and not line.lstrip().startswith("#")] == [1])
+    # S2: the usage line of red_sandbox.py is the standard one (prog = the script's name, not its docstring) and the refusal is short
+    code, text = seen(run_script("red_sandbox.py", "--diagnostic", cwd=root, env=env))
+    check_eq("red_sandbox --diagnostic: exit 2", code, 2)
+    check_in("red_sandbox --diagnostic: the usage line starts `usage: red_sandbox.py`", "usage: red_sandbox.py", text)
+    check("red_sandbox --diagnostic: the refusal is at most 20 lines", len(text.splitlines()) <= 20, f"{len(text.splitlines())} lines")
+
+
+def grounding_example(root: Path) -> None:
+    """OF5-11 fix round: the card of grounding_section.py - its own example, written as the card says, is ACCEPTED, and the part
+    that comes back is headed as the card's `verify` says (`<id> (<path>, lines <first>-<last>)`)."""
+    import os
+    story = root / "qa-factory" / "artifacts" / "QA-GS"
+    (story / "work").mkdir(parents=True)
+    (story / "pipeline.json").write_text(json.dumps({"ticket": "QA-GS"}), encoding="utf-8")
+    (story / "work" / "grounding.yaml").write_bytes(
+        b"schema_version: 1\nrows:\n  - {id: G-1, hunks: [], label: implements, requirements: [R-1], risks: [], question: \"\", reason: \"\"}\n"
+        b"requirements:\n  - {r: R-1, state: implemented, hunks: [], where: \"\", question: \"\"}\n")
+    env = dict(os.environ, CLAUDE_PROJECT_DIR=str(root))
+    code, text = seen(run_script("grounding_section.py", "--task", "QA-GS", "--task-root", story, "--show", "G-1", cwd=root, env=env))
+    accepted_example("grounding_section.py", code, text)
+    check_in("grounding_section: the part is headed `<id> (<path>, lines <first>-<last>)`", "G-1 (rows[0], lines 3-3)", text)
+    code, text = seen(run_script("grounding_section.py", "--task", "QA-GS", "--task-root", story, "--show", "G-404", cwd=root, env=env))
+    check_eq("grounding_section: an id the table does not have is refused whole (exit 2)", code, 2)
+    check_in("grounding_section: and the refusal lists the ids there", "ids there:", text)
 
 
 def main() -> int:
@@ -1082,6 +1084,7 @@ def main() -> int:
         subprocess_examples(root)
         argument_refusal_table(root)
         bare_parser_table(root)
+        grounding_example(root)
     finally:
         cleanup(root)
     manual_examples()

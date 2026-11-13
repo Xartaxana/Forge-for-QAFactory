@@ -2228,7 +2228,7 @@ def main():
     except ImportError:
         pass
     import role_cli
-    parser = role_cli.RefusingParser(__doc__, command=role_cli.command_from_argv("red_sandbox.py"),
+    parser = role_cli.RefusingParser(description=__doc__, command=role_cli.command_from_argv("red_sandbox.py"),
                                      epilog=role_cli.epilog("red_sandbox.py"),
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--repo")
