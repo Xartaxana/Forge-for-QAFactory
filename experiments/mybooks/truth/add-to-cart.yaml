@@ -1,0 +1,83 @@
+# Truth table of the MyBooks story "Add to Cart": 24 disputed places (cards).
+# Transcription of experiments/mybooks/disputed-check-plain-agent/SUMMARY.md, no new judgment.
+# Class vocabulary: bug | gap | owner_decides | not_bug | unknown (unknown always carries `why`).
+# Card 23 is the second-lane twin of card 3 (SUMMARY.md:12 row "3, 23"; :86 "3/23"): one root cause, two card ids.
+# Card 20 and cards 11, 13 in the owner version: see `why` (owner removed them, SUMMARY.md:70, :82, :83, :86).
+schema: truth/1
+stand: mybooks
+story: add-to-cart
+cards_total: 24
+versions:
+  - id: v2026-11-05-lead
+    judged: false
+    history: true
+    carrier: 'experiments/mybooks/disputed-check-plain-agent/SUMMARY.md:9-35'
+    stated_count: 'SUMMARY.md:35: 8 bugs (cards 1, 3/23, 9, 11, 13, 14, 15, 18), 1 gap (12), 9 owner decides (20, 6, 8, 7, 5, 2, 4, 19, 22), 4 not bugs (10, 16, 17, 21), card 24 three as expected one not checked'
+    cards:
+      - {id: 1, title: 'Страница книги: количество 0, 1.5, «abc»', class: bug, source: 'SUMMARY.md:11'}
+      - {id: 2, title: 'Страница книги: стирание и набор в поле количества', class: owner_decides, source: 'SUMMARY.md:25'}
+      - {id: 3, title: 'Корзина: набор «12»', class: bug, source: 'SUMMARY.md:12', root_of: 3}
+      - {id: 4, title: 'Корзина: очистка поля количества', class: owner_decides, source: 'SUMMARY.md:26'}
+      - {id: 5, title: 'Корзина: чтение книги вернуло 500', class: owner_decides, source: 'SUMMARY.md:24'}
+      - {id: 6, title: 'Корзина: сбой чтения / правки / удаления', class: owner_decides, source: 'SUMMARY.md:21'}
+      - {id: 7, title: 'Из вишлиста: удаление упало', class: owner_decides, source: 'SUMMARY.md:23'}
+      - {id: 8, title: 'Вишлист: обрыв сети', class: owner_decides, source: 'SUMMARY.md:22'}
+      - {id: 9, title: 'Вход: слияние гостевой корзины упало', class: bug, source: 'SUMMARY.md:13', root_of: 9}
+      - {id: 10, title: 'Слияние: большее или сумма', class: not_bug, source: 'SUMMARY.md:29'}
+      - {id: 11, title: 'Слияние урезает строку аккаунта до остатка', class: bug, source: 'SUMMARY.md:14', root_of: 11}
+      - {id: 12, title: 'Быстрый просмотр', class: gap, source: 'SUMMARY.md:19'}
+      - {id: 13, title: 'Цена в корзине после смены цены', class: bug, source: 'SUMMARY.md:15', root_of: 13}
+      - {id: 14, title: 'Сессия истекла при добавлении', class: bug, source: 'SUMMARY.md:16', root_of: 14}
+      - {id: 15, title: 'Обрыв сети при добавлении', class: bug, source: 'SUMMARY.md:17', root_of: 15}
+      - {id: 16, title: 'Остаток 0 на карточке каталога', class: not_bug, source: 'SUMMARY.md:30'}
+      - {id: 17, title: 'Количество выше остатка', class: not_bug, source: 'SUMMARY.md:31'}
+      - {id: 18, title: 'Устаревшая вкладка', class: bug, source: 'SUMMARY.md:18', root_of: 18}
+      - {id: 19, title: 'Бейдж после удаления строки извне', class: owner_decides, source: 'SUMMARY.md:27'}
+      - {id: 20, title: '5 параллельных добавлений одной книги', class: owner_decides, source: 'SUMMARY.md:20'}
+      - {id: 21, title: 'Гостевая корзина после регистрации и входа', class: not_bug, source: 'SUMMARY.md:32'}
+      - {id: 22, title: 'Перенос из вишлиста, книга уже в корзине', class: owner_decides, source: 'SUMMARY.md:28'}
+      - {id: 23, title: 'Корзина: набор «12» (карточка второй дорожки)', class: bug, source: 'SUMMARY.md:12', root_of: 3}
+      - id: 24
+        title: 'Ни разу не запускавшееся (AC-09, 11, 12, 13)'
+        class: unknown
+        source: 'SUMMARY.md:33'
+        why: 'SUMMARY.md:33 and :35: AC-09, AC-11, AC-12 «как ожидалось»; AC-13 «не проверено (нужно удаление книги)»; no single class is given for the card'
+  - id: v2026-11-05-owner
+    judged: true
+    carrier: 'experiments/mybooks/disputed-check-plain-agent/SUMMARY.md:61-86'
+    stated_count: 'SUMMARY.md:86: 6 bugs (cards 1, 3/23, 9, 14, 15, 18), 1 implementation gap (12), removed by owner 3 (11, 13, 20), owner decides 8 (6, 8, 7, 5, 2, 4, 19, 22), not bugs 4 (10, 16, 17, 21)'
+    bugs_by_root: 6
+    cards:
+      - {id: 1, title: 'Страница книги: количество 0, 1.5, «abc»', class: bug, source: 'SUMMARY.md:86, :63'}
+      - {id: 2, title: 'Страница книги: стирание и набор в поле количества', class: owner_decides, source: 'SUMMARY.md:86'}
+      - {id: 3, title: 'Корзина: набор «12»', class: bug, source: 'SUMMARY.md:86, :64', root_of: 3}
+      - {id: 4, title: 'Корзина: очистка поля количества', class: owner_decides, source: 'SUMMARY.md:86'}
+      - {id: 5, title: 'Корзина: чтение книги вернуло 500', class: owner_decides, source: 'SUMMARY.md:86'}
+      - {id: 6, title: 'Корзина: сбой чтения / правки / удаления', class: owner_decides, source: 'SUMMARY.md:86'}
+      - {id: 7, title: 'Из вишлиста: удаление упало', class: owner_decides, source: 'SUMMARY.md:86'}
+      - {id: 8, title: 'Вишлист: обрыв сети', class: owner_decides, source: 'SUMMARY.md:86'}
+      - {id: 9, title: 'Вход: слияние гостевой корзины упало', class: bug, source: 'SUMMARY.md:86', root_of: 9}
+      - {id: 10, title: 'Слияние: большее или сумма', class: not_bug, source: 'SUMMARY.md:86'}
+      - {id: 11, title: 'Слияние урезает строку аккаунта до остатка', class: not_bug, withdrawn_by_owner: true, source: 'SUMMARY.md:82, :86', why: 'owner word 05.11.2026 ≈21:10: «невозможно оформить заказ на несуществующие книги, так что тут всё верно» → НЕ БАГ'}
+      - {id: 12, title: 'Быстрый просмотр', class: gap, source: 'SUMMARY.md:86, :71', why: 'owner: «пробел реализации. Зафиксировать»'}
+      - {id: 13, title: 'Цена в корзине после смены цены', class: not_bug, withdrawn_by_owner: true, source: 'SUMMARY.md:83, :86', why: 'owner word 05.11.2026 ≈21:10: «получается требование говорит что цена должна измениться» → НЕ БАГ по слову владельца'}
+      - {id: 14, title: 'Сессия истекла при добавлении', class: bug, source: 'SUMMARY.md:86', root_of: 14}
+      - {id: 15, title: 'Обрыв сети при добавлении', class: bug, source: 'SUMMARY.md:86', root_of: 15}
+      - {id: 16, title: 'Остаток 0 на карточке каталога', class: not_bug, source: 'SUMMARY.md:86'}
+      - {id: 17, title: 'Количество выше остатка', class: not_bug, source: 'SUMMARY.md:86'}
+      - {id: 18, title: 'Устаревшая вкладка', class: bug, source: 'SUMMARY.md:86', root_of: 18}
+      - {id: 19, title: 'Бейдж после удаления строки извне', class: owner_decides, source: 'SUMMARY.md:86'}
+      - id: 20
+        title: '5 параллельных добавлений одной книги'
+        class: not_bug
+        withdrawn_by_owner: true
+        source: 'SUMMARY.md:70, :86'
+        why: 'owner: «как человек может параллельно добавить 5 книг в одну корзину? Невозможный на практике кейс» → «снята, не кейс» (SUMMARY.md:70); SUMMARY.md:86 «снято владельцем 3 (11, 13, 20)»; same class token as cards 11 and 13'
+      - {id: 21, title: 'Гостевая корзина после регистрации и входа', class: not_bug, source: 'SUMMARY.md:86'}
+      - {id: 22, title: 'Перенос из вишлиста, книга уже в корзине', class: owner_decides, source: 'SUMMARY.md:86'}
+      - {id: 23, title: 'Корзина: набор «12» (карточка второй дорожки)', class: bug, source: 'SUMMARY.md:86, :64', root_of: 3}
+      - id: 24
+        title: 'Ни разу не запускавшееся (AC-09, 11, 12, 13)'
+        class: unknown
+        source: 'SUMMARY.md:33'
+        why: 'card 24 is not named in SUMMARY.md:86 (the owner count); the only statement is :33 «AC-09, AC-11, AC-12 — как ожидалось; AC-13 не проверено»'

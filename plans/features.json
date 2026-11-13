@@ -366,6 +366,8 @@
         "scripts/story_progress.py",
         "scripts/tests/test_story_progress.py",
         "scripts/driver_journal.py",
+        "references/run-record.json",
+        "scripts/run_counters.py",
         "scripts/infra_failure.py",
         "scripts/run_history.py",
         "scripts/tests/test_run_history_identity.py",

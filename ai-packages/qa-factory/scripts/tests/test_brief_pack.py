@@ -2142,6 +2142,112 @@ def sc1_10_lines() -> None:
         harness.cleanup(root)
 
 
+def p1v_n3_brief_size_record() -> None:
+    """P1-v N3 (W3): `build` appends one line per dispatched brief to state/brief-sizes.jsonl, for the forge's scoreboard."""
+    import contextlib
+    import io
+    from unittest.mock import patch
+    stage_of = {role: st["id"] for st in hooklib.load_ref_json("stages.json")["stages"] for role in st.get("roles") or []}
+    role = "qa-scout"
+    stage = stage_of[role]
+    root = harness.temp_project("qa-brief-n3-")
+    real_ceiling = brief_pack.BRIEF_MAX_BYTES
+    try:
+        harness.use_project(root)
+        task = seed(root, "QA-9")
+        sizes = task / "state" / "brief-sizes.jsonl"
+
+        def make(name: str, **kw) -> dict:
+            return brief_pack.build("QA-9", stage, role, f"{stage}-{role}-{name}", **kw)
+
+        def lines() -> list:
+            return [json.loads(x) for x in sizes.read_text(encoding="utf-8").splitlines()] if sizes.exists() else []
+
+        (task / "state").mkdir(exist_ok=True)
+        # (b) a dry run and a brief written elsewhere leave no line
+        dry = make("1", write=False)
+        check_eq("N3 (b) dry run: no record line", lines(), [])
+        elsewhere = make("1", output=root / "elsewhere.md")
+        check_eq("N3 (b) --output: no record line", lines(), [])
+        # (a) one line, the shape of W3, the numbers of the result
+        made = make("1")
+        got = lines()
+        check_eq("N3 (a) a written brief: one line", len(got), 1)
+        rec = got[0] if got else {}
+        check_eq("N3 (a) the keys of the line, exactly",
+                 sorted(rec), sorted(["ts", "stage", "role", "dispatch", "bytes", "budget_bytes", "ceiling", "over"]))
+        check_eq("N3 (a) the values come from the build's result",
+                 (rec.get("stage"), rec.get("role"), rec.get("dispatch"), rec.get("bytes"), rec.get("budget_bytes"),
+                  rec.get("ceiling"), rec.get("over")),
+                 (stage, role, f"{stage}-{role}-1", made["bytes"], made["budget_bytes"], real_ceiling, made["over_ceiling"]))
+        check("N3 (a) ts is an ISO time with an offset", bool(re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\+00:00", str(rec.get("ts")))),
+              str(rec.get("ts")))
+        # (f) the text the role reads is the same with or without the record
+        check_eq("N3 (f) the brief text is byte-identical to the dry build of the same dispatch",
+                 made["markdown"].encode("utf-8"), dry["markdown"].encode("utf-8"))
+        check_eq("N3 (f) ... and to the one written elsewhere", elsewhere["markdown"].encode("utf-8"), dry["markdown"].encode("utf-8"))
+        # the same brief built twice: two lines (append-only)
+        make("1")
+        check_eq("N3 the same brief built twice: two lines", len(lines()), 2)
+        # (d) AT the ceiling: over is empty; ONE byte below it: the budget reasons are named
+        try:
+            brief_pack.BRIEF_MAX_BYTES = made["budget_bytes"]
+            make("2")
+            brief_pack.BRIEF_MAX_BYTES = made["budget_bytes"] - 1
+            make("3")
+        finally:
+            brief_pack.BRIEF_MAX_BYTES = real_ceiling
+        at, beyond = lines()[-2:]
+        check_eq("N3 (d) AT the ceiling: over is []", (at["dispatch"], at["over"], at["ceiling"]),
+                 (f"{stage}-{role}-2", [], made["budget_bytes"]))
+        check("N3 (d) one byte BEYOND: over names the reason", beyond["over"] != [] and set(beyond["over"]) <= {
+            "words at level 1", "doors only", "sd head", "over SLICE_BYTES"}, str(beyond))
+        # (e) the world without budget_bytes / over_ceiling: bytes only, nothing invented
+        before = len(lines())
+        brief_pack._record_brief_size(task, {"stage": stage, "role": role, "dispatch": "D-x", "bytes": 77})
+        last = lines()[-1]
+        check_eq("N3 (e) no budget_bytes / over_ceiling: the line holds bytes only",
+                 (len(lines()) - before, sorted(last)), (1, ["bytes", "dispatch", "role", "stage", "ts"]))
+        check_eq("N3 (e) ... with the bytes as given", last["bytes"], 77)
+        # (c) a record that cannot be written: one note on stderr, the brief is still written and returned
+        for label, spoil in (("the state folder is a file", "file"), ("the state folder is absent", "absent"),
+                             ("the append raises OSError", "oserror")):
+            state = task / "state"
+            saved = {p: p.read_bytes() for p in state.glob("*") if p.is_file()}
+            if spoil == "file":
+                for p in saved:
+                    p.unlink()
+                state.rmdir()
+                state.write_text("not a folder", encoding="utf-8")
+            elif spoil == "absent":
+                for p in saved:
+                    p.unlink()
+                state.rmdir()
+            err = io.StringIO()
+            try:
+                with contextlib.redirect_stderr(err):
+                    if spoil == "oserror":
+                        with patch.object(hooklib, "append_jsonl_line", side_effect=OSError("locked")):
+                            out = make("c-" + spoil)
+                    else:
+                        out = make("c-" + spoil)
+            finally:
+                if spoil == "file":
+                    state.unlink()
+                if spoil != "oserror":
+                    state.mkdir()
+                for p, data in saved.items():
+                    p.write_bytes(data)
+            check(f"N3 (c) {label}: one note on stderr", err.getvalue().count("was not recorded") == 1, err.getvalue())
+            written = task / "work" / "briefs" / f"{stage}-{role}-c-{spoil}.md"
+            check(f"N3 (c) {label}: the brief is still written, with the text of a dry build",
+                  written.is_file() and written.read_text(encoding="utf-8") == out["markdown"]
+                  and out["markdown"] == make("c-" + spoil, write=False)["markdown"])
+    finally:
+        brief_pack.BRIEF_MAX_BYTES = real_ceiling
+        harness.cleanup(root)
+
+
 def oh3_34_p1_areas_section() -> None:
     """OH3-34 (K4, K5): the S4 brief of the case designer and the case critic has `## P1 areas`: one line per area with the ids of the
     requirements sizing matched to it; ONE line when none matched; "sizing not recorded" when work/sizing.json is absent. Other stages
@@ -3635,6 +3741,7 @@ def main() -> None:
     labelling_vocabulary_lines()
     sc1_10_lines()
     oh3_34_p1_areas_section()
+    p1v_n3_brief_size_record()
     pc8_scenarios()
     ss1_11_stand_lessons()
 
