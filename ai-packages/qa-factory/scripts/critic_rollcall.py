@@ -95,6 +95,8 @@ def parse_rollcall(text: str, artifacts=None) -> list:
     over cases nobody reviewed, and that is what happened while the column was read out of the
     row's prose.
 
+    `note` is None when the table has no `note` column (no note was written, which is not an empty note), the cell text otherwise.
+
     `ids` is EVERY case id of the row's `case` cell (CX1-12: `case` stays the first id of the whole row, as
     its readers have it; `[]` when the table has no `case` column - a row then names no case), `verdict` the
     word of the column headed exactly `verdict` (lower case, backticks off), or None when there is no such
@@ -114,7 +116,7 @@ def parse_rollcall(text: str, artifacts=None) -> list:
     bare = [name.strip("`") for name in header]
     case_at = next((i for i, name in enumerate(bare) if name.startswith("case")), None)
     verdict_at = next((i for i, name in enumerate(bare) if name == "verdict"), None)
-    note_at = next((i for i, name in enumerate(bare) if name == "note"), None)
+    note_at = C.md_column(raw[0], "note")
     fix_at = next((i for i, name in enumerate(bare) if name == "fix"), None)
     rows = []
     for cells in raw[1:]:
@@ -133,7 +135,7 @@ def parse_rollcall(text: str, artifacts=None) -> list:
         else:
             reviewed = None
             cell = cells[-1].strip()
-        note = cells[note_at].strip() if note_at is not None and note_at < len(cells) else ""
+        note = None if note_at is None else cells[note_at].strip() if note_at < len(cells) else ""
         fix = cells[fix_at].strip() if fix_at is not None and fix_at < len(cells) else ""
         rows.append({"plan_row": plan_row, "case": case, "reviewed": reviewed, "cell": cell,
                      "ids": ids, "verdict": verdict, "note": note, "fix": fix})
@@ -801,11 +803,10 @@ def parse_merge_candidates(text: str, artifacts=None) -> tuple:
     if not raw:
         return [], ""
     cfg = C.case_config(artifacts)
-    header = [cell.strip().strip("`").lower() for cell in raw[0]]
-    missing = next((name for name in MERGE_COLUMNS if name not in header), "")
+    at = {name: C.md_column(raw[0], name) for name in MERGE_COLUMNS}
+    missing = next((name for name in MERGE_COLUMNS if at[name] is None), "")
     if missing:
         return [], f"the table has no `{missing}` column"
-    at = {name: header.index(name) for name in MERGE_COLUMNS}
     rows = []
     for cells in raw[1:]:
         if not cells or not any(cells):
@@ -819,6 +820,7 @@ def parse_merge_candidates(text: str, artifacts=None) -> tuple:
 def _read_rounds(files, artifacts, notes: list) -> list:
     """Every round of every findings file, parsed once, newest first: `{"index", "name", "rows", "bad", "roll", "note_col", "word", "text"}`. A file
     that cannot be read is a note naming it, never a pass of a pair (its pairs stay unanswered)."""
+    import contract as C
     out = []
     for path in files:
         try:
@@ -828,15 +830,13 @@ def _read_rounds(files, artifacts, notes: list) -> list:
             continue
         for index, part in rounds(text):
             rows, bad = parse_merge_candidates(part, artifacts)
+            roll = parse_rollcall(part, artifacts)
+            # a row's `note` is None when the table has no `note` column; a table with no row has no row to say, so the header does
+            note_col = (any(row["note"] is not None for row in roll) if roll
+                        else C.md_column((C.md_table(part, ROLLCALL_HEADING) or [[]])[0], "note") is not None)
             out.append({"index": index, "name": Path(path).name, "rows": rows, "bad": bad,
-                        "roll": parse_rollcall(part, artifacts), "note_col": _has_note_column(part), "word": (declared_verdict(part) or "").lower(), "text": part})
+                        "roll": roll, "note_col": note_col, "word": (declared_verdict(part) or "").lower(), "text": part})
     return sorted(out, key=lambda r: r["index"])
-
-
-def _has_note_column(text: str) -> bool:
-    import contract as C
-    raw = C.md_table(text, ROLLCALL_HEADING)
-    return bool(raw) and any(cell.strip().strip("`").lower() == "note" for cell in raw[0])
 
 
 def _pairs(ids) -> list:
