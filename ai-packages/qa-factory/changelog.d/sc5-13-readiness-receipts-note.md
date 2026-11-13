@@ -1,0 +1,1 @@
+- `readiness.py` now counts the hook receipts so far instead of listing the missing ones until the live probe passes, and names an unknown capability that a story did not ask for as a NOTE, not a warning.
