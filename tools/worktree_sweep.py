@@ -168,22 +168,6 @@ def is_junk_path(rel, junk):
     return any(rel.startswith(d) for d in junk.dirs) or rel.rsplit("/", 1)[-1] in junk.names
 
 
-def parse_status(raw):
-    """`status --porcelain=v1 -z` -> [(xy, path)]; a rename or copy carries its source as the next NUL field (skipped)."""
-    parts = raw.split(b"\0")
-    out, i = [], 0
-    while i < len(parts):
-        entry = parts[i]
-        i += 1
-        if len(entry) < 4:
-            continue
-        xy = entry[:2].decode("ascii", "replace")
-        out.append((xy, entry[3:].decode("utf-8", "replace")))
-        if "R" in xy or "C" in xy:
-            i += 1
-    return out
-
-
 def real_changes(entries, junk):
     """(real paths, junk paths). ONLY an untracked (`??`) path of the list is a trace; a modified, deleted or staged tracked
     file is a real change under any path (E14)."""
@@ -254,27 +238,18 @@ class Repo:
 
 
 def repo_context(git, root):
-    """Where this run stands. The common dir is resolved like wiring_check._main_checkout_githooks (a relative answer is
-    relative to root; a common dir not named `.git` has no checkout beside it: cannot tell the main worktree, E29)."""
+    """Where this run stands, through `gitcmd.main_checkout` (the one resolver, axis 10): a relative answer is relative to root;
+    a common dir not named `.git` has no checkout beside it: cannot tell the main worktree, E29."""
     root = Path(root)
-    rc, out, err = git(root, "rev-parse", "--git-dir", "--git-common-dir")
-    lines = gitcmd.as_text(out).split("\n")
-    if rc != 0 or len([l for l in lines if l.strip()]) < 2:
+    c, code, why = gitcmd.main_checkout(root, runner=git.runner, timeout=git.timeout)
+    if code == "git":
         raise Refuse("worktree_sweep: %s is not a git repository or git failed (%s) -- run it inside the repository, or pass "
-                     "--repo <path>; nothing removed" % (root, first_line(err or gitcmd.as_text(out))))
-    resolved = []
-    for line in lines[:2]:
-        p = Path(line.strip())
-        p = p if p.is_absolute() else root / p
-        try:
-            resolved.append(p.resolve())
-        except OSError:
-            raise Refuse("worktree_sweep: git dir %s does not resolve; nothing removed" % line.strip())
-    git_dir, common = resolved
-    if common.name != ".git":
-        raise Refuse("worktree_sweep: cannot tell the main worktree: the git common dir %s is not the .git of a checkout "
-                     "-- run it in a normal clone; nothing removed" % common)
-    return Repo(root, git_dir, common, common.parent, _key(git_dir) != _key(common))
+                     "--repo <path>; nothing removed" % (root, why))
+    if code == "resolve":
+        raise Refuse("worktree_sweep: %s; nothing removed" % why)
+    if code == "not-a-checkout":
+        raise Refuse("worktree_sweep: cannot tell the main worktree: %s -- run it in a normal clone; nothing removed" % why)
+    return Repo(root, c.git_dir, c.common, c.path, c.linked)
 
 
 def list_worktrees(git, repo):
@@ -442,7 +417,7 @@ def evaluate(ctx, wt):
     rc, out, err = ctx.git(wt.path, "--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=all")
     if rc != 0:
         return Eval("keep", "unknown (status: %s)" % first_line(err or gitcmd.as_text(out)))
-    real, traces = real_changes(parse_status(out), ctx.junk)
+    real, traces = real_changes(gitcmd.parse_status_z(out), ctx.junk)
     if real:
         shown = ", ".join(real[:SHOW_PATHS]) + (" (+%d more)" % (len(real) - SHOW_PATHS) if len(real) > SHOW_PATHS else "")
         return Eval("keep", "real changes: %s -- to let it go: save them (git -C \"%s\" diff; copy the untracked files), then "
@@ -600,7 +575,7 @@ def apply_one(ctx, wt, ev, rep):
             rep.add("FAILED %s: timeout (%s)" % (_q(wt.path), msg))
         else:
             rc2, out2, err2 = git(wt.path, "--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=all")
-            real = rc2 == 0 and real_changes(parse_status(out2), ctx.junk)[0]
+            real = rc2 == 0 and real_changes(gitcmd.parse_status_z(out2), ctx.junk)[0]
             if real:
                 rep.kept += 1
                 rep.add("KEEP %s: changed during sweep (%s)" % (_q(wt.path), msg))

@@ -1451,22 +1451,6 @@ def _tree_display(target: str, cwd: str):
     return rel
 
 
-def _parse_status(raw: bytes) -> list:
-    """`git status --porcelain=v1 -z` -> [(XY, path)]; a rename/copy carries one extra field."""
-    fields = raw.decode("utf-8", "replace").split("\0")
-    out, i = [], 0
-    while i < len(fields):
-        f = fields[i]
-        i += 1
-        if len(f) < 4:
-            continue
-        xy = f[:2]
-        if "R" in xy or "C" in xy:
-            i += 1
-        out.append((xy, f[3:]))
-    return out
-
-
 def _measure_rollback(form: dict, cwd: str):
     """("refuse", n, dir) | ("pass",) | ("marker", reason). Never raises."""
     try:
@@ -1497,7 +1481,7 @@ def _measure_rollback(form: dict, cwd: str):
         rc, out = run(directory, *args, timeout=5)
         if rc != 0:
             return ("marker", f"git status did not run (rc {rc})")
-        entries = _parse_status(out)
+        entries = gitcmd.parse_status_z(out)
         if view == "clean":
             want_untracked = not form.get("clean_X")
             want_ignored = form.get("clean_x") or form.get("clean_X")

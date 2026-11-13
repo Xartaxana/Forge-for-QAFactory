@@ -132,3 +132,74 @@ def test_as_text_reads_utf8_with_replacement_and_crlf_and_cr_as_lf():
     assert gitcmd.as_text("папка".encode("utf-8")) == "папка"
     assert gitcmd.as_text(b"x\xffy") == "x�y"                            # a bad byte becomes U+FFFD, never an exception
     assert gitcmd.as_text(b"") == ""
+
+
+def _runner(rc=0, out=b"", err=b"", raises=None):
+    def run(root, *args, timeout=gitcmd.DEFAULT_TIMEOUT, stderr=False):
+        if raises is not None:
+            raise raises
+        return rc, out, err
+    return run
+
+
+@pytest.mark.parametrize("name, runner, code, fragment", [
+    ("e1_git_missing_rc_minus_one", _runner(-1, b"", b"no git"), "git", "failed to run (no git)"),
+    ("rc_128", _runner(128, b"", b"fatal: not a repo\nmore"), "git", "exited 128 (fatal: not a repo)"),
+    ("e1a_runner_raises", _runner(raises=OSError("boom")), "git", "raised OSError"),
+    ("e2_one_line_only", _runner(0, b".git\n"), "git", "exited 0"),
+    ("e2_empty_stdout", _runner(0, b""), "git", "exited 0"),
+    ("e3_main_checkout_relative", _runner(0, b".git\n.git\n"), "", ""),
+    ("e5_bare_common_dir", _runner(0, b"bare.git\nbare.git\n"), "not-a-checkout", "not a .git directory"),
+    ("e5_three_lines_only_two_read", _runner(0, b".git\nbare.git\n.git\n"), "not-a-checkout", "not a .git directory"),
+])
+def test_main_checkout_rows(tmp_path, name, runner, code, fragment):
+    c, got_code, why = gitcmd.main_checkout(tmp_path, runner=runner)
+    assert got_code == code and fragment in why, name
+    if code == "":
+        assert c.path == tmp_path.resolve() and c.linked is False and why == ""
+    else:
+        assert c is None
+
+
+def test_main_checkout_resolve_oserror_row(tmp_path, monkeypatch):
+    def boom(self, *a, **k):
+        raise OSError("no")
+
+    monkeypatch.setattr(gitcmd.Path, "resolve", boom)
+    c, code, why = gitcmd.main_checkout(tmp_path, runner=_runner(0, b".git\n.git\n"))
+    assert c is None and code == "resolve" and "does not resolve" in why
+
+
+def test_main_checkout_real_linked_worktree_row(repo, tmp_path):
+    wt = tmp_path / "wt"
+    kit.git(repo, "worktree", "add", "-q", str(wt), "-b", "side")
+    c, code, why = gitcmd.main_checkout(wt)
+    assert code == "" and c.linked is True and c.path == repo.resolve()
+    c, code, why = gitcmd.main_checkout(repo)
+    assert code == "" and c.linked is False and c.path == repo.resolve()
+
+
+@pytest.mark.parametrize("raw, expected", [
+    (b"", []),
+    ("", []),
+    (b" M a.txt\0", [(" M", "a.txt")]),
+    (b"?? new.txt\0", [("??", "new.txt")]),
+    (b"R  new.txt\0old.txt\0 M b.txt\0", [("R ", "new.txt"), (" M", "b.txt")]),
+    (b"C  copy.txt\0orig.txt\0?? c.txt\0", [("C ", "copy.txt"), ("??", "c.txt")]),
+    (b" M a.txt\0\0", [(" M", "a.txt")]),                                 # E9 trailing NUL
+    (b"R  new.txt\0", [("R ", "new.txt")]),                               # E10 rename without origin
+    (b" M a\xffb.txt\0 M c.txt\0", [(" M", "a�b.txt"), (" M", "c.txt")]),   # E11
+    (b" M a\rb.txt\0", [(" M", "a\rb.txt")]),                             # E12 CR kept
+    (b" Mx\0 M ab.txt\0", [(" M", "ab.txt")]),                           # 3-char record skipped
+    (b"\0", []),                                                          # a lone NUL
+    (b"?? ab\0", [("??", "ab")]),                                         # 4-char record kept
+    (b"nonulblob", [("no", "ulblob")]),                                   # NUL-free blob: one record
+    ("\udcff M a.txt\0", None),                                           # str with a surrogate escape: never raises
+])
+def test_parse_status_z_rows(raw, expected):
+    got = gitcmd.parse_status_z(raw)
+    if expected is not None:
+        assert got == expected
+    assert isinstance(got, list)
+    if isinstance(raw, bytes):
+        assert gitcmd.parse_status_z(raw.decode("utf-8", "replace")) == got      # bytes and str give equal lists
