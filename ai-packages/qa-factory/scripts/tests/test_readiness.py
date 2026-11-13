@@ -737,23 +737,12 @@ def main() -> None:
     finally:
         cleanup(root)
 
-    # 11. t-264 (FR-37): the pointer a cut answer carries names the journal where THIS project keeps it.
+    # 11. FV1-4 (t-264, FR-37): a person's answer is whole at any size, so there is no pointer to a journal to name.
     import brief_pack
-    long_text = "x" * 20001
     root = temp_project("qa-factory-readiness-journal-")
     try:
-        check_in("a fresh project: the layout's own place", "the whole text is in qa-factory/records/journal.jsonl]",
-                 brief_pack.person_words_whole(long_text, root))
-        (root / "qa-factory" / "state" / "journal.jsonl").write_text("{}\n", encoding="utf-8")
-        check_in("an older project (the journal still in state/): the real path, not the layout's",
-                 "the whole text is in qa-factory/state/journal.jsonl]", brief_pack.person_words_whole(long_text, root))
-        (root / "qa-factory" / "records").mkdir()
-        (root / "qa-factory" / "records" / "journal.jsonl").write_text("{}\n", encoding="utf-8")
-        os.utime(root / "qa-factory" / "state" / "journal.jsonl", (1, 1))
-        check_in("a move done (the newer copy is in records/): that one", "qa-factory/records/journal.jsonl]",
-                 brief_pack.person_words_whole(long_text, root))
-        check_in("no project given: the layout's own spelling", "the whole text is in qa-factory/records/journal.jsonl]",
-                 brief_pack.person_words_whole(long_text))
+        check_eq("an answer of 20 001 characters is whole whatever the project (no `[cut:` pointer)",
+                 brief_pack.person_words_whole("x" * 20001, root), "x" * 20001)
     finally:
         cleanup(root)
 

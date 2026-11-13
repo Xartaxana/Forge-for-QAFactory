@@ -18,6 +18,8 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "fixtures" / "manual-evidence"))
 import scaffold as S  # noqa: E402
@@ -303,11 +305,51 @@ def test_unconfirmed_line_at_5_and_6_names():
                     for i in range(count)]
             (t.task / "state" / "created-accounts.json").write_text(json.dumps({"accounts": rows}), encoding="utf-8")
             line = RF.unconfirmed_accounts_line(t.task)
-            assert line.count("qa-factory-u") == 5 and ("+1 more" in line) == (count == 6), line
+            assert line.count("qa-factory-u") == 5 and ("+1 more: state/created-accounts.json (1)." in line) == (count == 6), line
+            assert ("+" in line.split("qa-factory-u4")[-1]) == (count == 6), line
         (t.task / "state" / "created-accounts.json").unlink()
         MC.AccountDoubts(t.task).add("env:A/B", "the page said wrong password", "C")
         line = RF.unconfirmed_accounts_line(t.task)
         assert "the stand's account env:A/B (given: the page said wrong password)" in line and line.startswith("Accounts the checks could not")
+    finally:
+        S.cleanup(t)
+
+
+def test_unconfirmed_line_tail_names_only_the_files_cut():
+    t = make()
+    try:
+        rows = [{"name": f"qa-factory-u{i}", "case": "C", "at": "t", "endpoint": "/x", "status": "unconfirmed", "reason": "r"} for i in range(3)]
+        (t.task / "state" / "created-accounts.json").write_text(json.dumps({"accounts": rows}), encoding="utf-8")
+        doubts = MC.AccountDoubts(t.task)
+        for i in range(10):
+            doubts.add(f"env:H{i}", "why", "C")
+        line = RF.unconfirmed_accounts_line(t.task)
+        assert "+8 more: state/account-doubts.json (8)." in line and "created-accounts.json" not in line, line
+        rows += [{"name": f"qa-factory-v{i}", "case": "C", "at": "t", "endpoint": "/x", "status": "unconfirmed", "reason": "r"} for i in range(4)]
+        (t.task / "state" / "created-accounts.json").write_text(json.dumps({"accounts": rows}), encoding="utf-8")
+        line = RF.unconfirmed_accounts_line(t.task)
+        assert "+12 more: state/created-accounts.json (2), state/account-doubts.json (10)." in line, line
+    finally:
+        S.cleanup(t)
+
+
+@pytest.mark.parametrize("count,tail", [
+    pytest.param(5, "; they are left in place.", id="AT-5"),
+    pytest.param(6, ", +1 more: state/created-accounts.json; they are left in place.", id="AT-6"),
+    pytest.param(100, ", +95 more: state/created-accounts.json; they are left in place.", id="AT-100"),
+    pytest.param(0, None, id="EMPTY"),
+])
+def test_created_line_names_the_file_of_the_rest(count, tail):
+    t = make()
+    try:
+        rows = [{"name": f"qa-factory-u{i}", "case": "C", "at": "t", "endpoint": "/x"} for i in range(count)]
+        (t.task / "state" / "created-accounts.json").write_text(json.dumps({"accounts": rows}), encoding="utf-8")
+        line = RF.created_accounts_line(t.task)
+        if tail is None:
+            assert line == ""
+        else:
+            shown = ", ".join(f"qa-factory-u{i}" for i in range(5))
+            assert line == f"Users this story created on the stand: {shown}{tail}", line
     finally:
         S.cleanup(t)
 

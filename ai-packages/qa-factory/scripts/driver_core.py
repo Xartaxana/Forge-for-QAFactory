@@ -293,10 +293,11 @@ def _now() -> str:
 def _answer_note(prefix: str, words: str) -> str:
     """A journal note that carries a person's words: the prefix, then the words WHOLE (FR-8).
     Every later brief reads `human_answer` notes as the person's standing instructions, so a
-    silent cut here loses them for every role after it. Only `brief_pack.PERSON_WORDS_MAX` cuts,
-    and that cut says so (the one helper, `brief_pack.person_words_whole`)."""
-    import brief_pack
-    return prefix + brief_pack.person_words_whole(words)
+    silent cut here loses them for every role after it. Nothing cuts, at any size: CRLF becomes LF
+    (`person_words.lf`, the one place of that rule) and that is all. The note travels to the journal
+    by a file (`log_append.py --notes-file`), never on the command line that cuts it."""
+    import person_words
+    return prefix + person_words.lf(words)
 
 
 def _sha(path: Path) -> str:

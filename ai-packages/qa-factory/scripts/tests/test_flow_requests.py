@@ -205,9 +205,6 @@ def b_brief() -> None:
         check_eq("B4 a script that raises: exactly one line, the brief is built", BP.flow_request_lines(Path("nowhere"), "QA-9", write=False),
                  ["Flow requests: not measured: user_path_failures.py, a defect of the factory"])
     big = {"requests": [req(i, url="/api/a/very/long/path/of/a/request/" + "x" * 60 + str(i)) for i in range(1, cap + 6)], "unmeasured": ["no code"] * 3}
-    size = len("\n".join(BP.request_lines(big, story)).encode("utf-8"))
-    check("B5 the lines added to the S3 head stay under half of the brief ceiling (the head is never shrunk)", size <= BP.BRIEF_MAX_BYTES // 2,
-          f"{size} bytes")
     harness.cleanup(story_base)
 
 
@@ -230,8 +227,8 @@ def b5_site_names() -> None:
     many = {"requests": [dict(req(i, url="/api/a/very/long/path/of/a/request/" + "x" * 200 + str(i)), also_at=other) for i in range(1, BP.MAX_REQUEST_LINES + 1)],
             "unmeasured": ["no code"] * 3}
     out = BP.request_lines(many, story)
-    check("B5 over the room (half of the brief ceiling) the names are cut first: the old `(+N more sites)` returns, every request line stays",
-          sum("(+4 more sites)" in x for x in out) == BP.MAX_REQUEST_LINES and not any("also in" in x for x in out)
+    check("B5 12 requests of 200+ character URLs (FV1-4: no size cut): every line keeps its names, no `(+N more sites)`, every request line stays",
+          sum("(also in p1.tsx, p2.tsx, p3.tsx, +1 more)" in x for x in out) == BP.MAX_REQUEST_LINES and not any("more sites)" in x for x in out)
           and sum(x.startswith("Flow requests: GET /api/a/") for x in out) == BP.MAX_REQUEST_LINES, str(out[:2]))
     check("B5 ... and under the room the names stay", all("also in" in x for x in BP.request_lines({"requests": [dict(req(1), also_at=other)], "unmeasured": []}, story)[:1]))
     harness.cleanup(story_base)

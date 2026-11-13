@@ -156,6 +156,12 @@ def read(inline, path, flag, file_flag=OPTION):
     return inline
 
 
+def lf(text) -> str:
+    """A person's words with CRLF and a lone CR turned into LF, nothing else: the ONE place of that rule (AR-13).
+    Pure: no strip, no fold, no cut."""
+    return str(text if text is not None else "").replace("\r\n", "\n").replace("\r", "\n")
+
+
 def words_file_path(task_root, dispatch_id, kind) -> Path:
     """The base of a words file's path, `<task root>/state/words/driver-<kind>[-<dispatch id>]`, no extension.
 
@@ -201,3 +207,12 @@ def write_words(task_root, dispatch_id, kind, text):
             except OSError:
                 pass
         raise
+
+
+def notes_args(task_root, dispatch_id, kind, text) -> tuple:
+    """The argv pair that hands a person's words to a script taking `--notes` / `--notes-file`: the ONE road of
+    write-then-pass (AR-13, AR-15). `("--notes-file", <absolute path>)` when `write_words` kept a file; else
+    (blank or None words: nothing written) `("--notes", text)` with the text as given. `write_words` may raise
+    `OSError`: the words are never put on the command line instead."""
+    kept = write_words(task_root, dispatch_id, kind, text)
+    return ("--notes-file", str(kept.absolute())) if kept is not None else ("--notes", text)

@@ -281,9 +281,14 @@ class DriverRunner:
 
     def answer_row(self, prefix: str, words: str, *, what: str, extra=()) -> None:
         """The `human_answer` row of a person's words, owed when the journal refuses it (FR-8: every later brief reads these rows).
-        `extra`: arguments between `--task` and `--notes` (the one caller that names its `--by`)."""
-        self.owe_row("log_append.py", "--event", "human_answer", "--task", self.task, *extra, "--notes", _answer_note(prefix, words),
-                     what=what)
+        `extra`: arguments between `--task` and `--notes` (the one caller that names its `--by`).
+        The note goes to the journal BY A FILE (`--notes-file`, kept in `state/words`, never deleted): a command line cuts a long or
+        multi-line text, and an owed row replays the same path whole. A blank note writes no file and passes `--notes` as before; a
+        write that fails raises `OSError` (the words are never put on the command line instead)."""
+        import person_words
+        note = _answer_note(prefix, words)
+        notes = person_words.notes_args(self.state_dir.parent, "", "journalnote", note)
+        self.owe_row("log_append.py", "--event", "human_answer", "--task", self.task, *extra, *notes, what=what)
 
     def py_trace(self, script: str, *args, why: str) -> None:
         """A script nothing decides on (kind T, a `# remains:` door with its reason in the call): `why` is the invariant that makes its failure safe, and it is MANDATORY (an

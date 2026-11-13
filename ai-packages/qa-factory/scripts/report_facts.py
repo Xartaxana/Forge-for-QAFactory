@@ -934,8 +934,8 @@ CREATED_SHOWN = 5      # how many created user names the report line names; the 
 
 def created_accounts_line(art: Path) -> str:
     """The line about the users this story's checks made on the stand (`<T>/state/created-accounts.json`, written by
-    `manual_capture.py http` - NAMES only): `Users this story created on the stand: a, b, ..., +K more; they are left in
-    place.` ("" when none was made). The file is there but cannot be read: said as unknown, never as none (FR-41). The
+    `manual_capture.py http` - NAMES only): `Users this story created on the stand: a, b, ..., +K more: state/created-accounts.json; they are left
+    in place.` ("" when none was made). The file is there but cannot be read: said as unknown, never as none (FR-41). The
     users are test data of the stand, owned by the factory (FR-53); cleaning them up is not done here."""
     from manual_capture import UNCONFIRMED, created_names_path      # the ONE path of the file (the store that writes it owns it)
     path = created_names_path(art)
@@ -958,30 +958,35 @@ def created_accounts_line(art: Path) -> str:
         if not k:
             return ""
         return f"Users this story tried to create on the stand: none was confirmed ({k} sign-up(s) not confirmed)."
-    more = f", +{len(names) - CREATED_SHOWN} more" if len(names) > CREATED_SHOWN else ""
+    where = path.relative_to(art).as_posix()       # the file that holds the whole list, as the task root spells it (FR-37)
+    more = f", +{len(names) - CREATED_SHOWN} more: {where}" if len(names) > CREATED_SHOWN else ""
     return f"Users this story created on the stand: {', '.join(names[:CREATED_SHOWN])}{more}; they are left in place{left}."
 
 
 def unconfirmed_accounts_line(art: Path) -> str:
     """The line about accounts the checks could not confirm (TR3-10 A): the users the story made whose sign-up stayed `unconfirmed` (with
     their reason) and the given accounts a walker doubted (`manual_capture.account_doubt_rows`, with its why): `Accounts the checks could not
-    confirm (not used to sign in): <name> (created: <why>), the stand's account <handle> (given: <why>), ..., +K more`. "" when there is
+    confirm (not used to sign in): <name> (created: <why>), the stand's account <handle> (given: <why>), ..., +K more: <file> (i), <file> (j)`
+    - the tail names, per source, only the files whose items were cut and how many of each (task-root-relative, FR-37). "" when there is
     none; a record that cannot be read is said as unknown (FR-41)."""
-    from manual_capture import UNCONFIRMED, account_doubt_rows, created_names_path
+    from manual_capture import UNCONFIRMED, account_doubt_rows, account_doubts_path, created_names_path
     data, problem = _read_object(created_names_path(art))
     doubts, doubt_problem = account_doubt_rows(art)
     if problem not in ("", "missing") or doubt_problem:
         return "Accounts the checks could not confirm: unknown - the record of them cannot be read."
-    items = []
+    items = []                                  # (text, the file that holds the item)
+    created_file = created_names_path(art).relative_to(art).as_posix()
+    doubts_file = account_doubts_path(art).relative_to(art).as_posix()
     for row in (data.get("accounts") or []) if data else []:
         if isinstance(row, dict) and row.get("name") and row.get("status") == UNCONFIRMED:
-            items.append(f"{row['name']} (created: {' '.join(str(row.get('reason') or 'no reason recorded').split())})")
+            items.append((f"{row['name']} (created: {' '.join(str(row.get('reason') or 'no reason recorded').split())})", created_file))
     for row in doubts:
-        items.append(f"the stand's account {row['handle']} (given: {' '.join(str(row.get('why') or 'no reason recorded').split())})")
+        items.append((f"the stand's account {row['handle']} (given: {' '.join(str(row.get('why') or 'no reason recorded').split())})", doubts_file))
     if not items:
         return ""
-    more = f", +{len(items) - CREATED_SHOWN} more" if len(items) > CREATED_SHOWN else ""
-    return f"Accounts the checks could not confirm (not used to sign in): {', '.join(items[:CREATED_SHOWN])}{more}."
+    cut = [source for _, source in items[CREATED_SHOWN:]]
+    more = ", +%d more: %s" % (len(cut), ", ".join(f"{f} ({cut.count(f)})" for f in dict.fromkeys(cut))) if cut else ""
+    return f"Accounts the checks could not confirm (not used to sign in): {', '.join(text for text, _ in items[:CREATED_SHOWN])}{more}."
 
 
 def _export_path(ref: dict) -> str:
