@@ -781,13 +781,10 @@ class DriverRunner:
         table = mine.get("_resume_kind_table")
         if table is None:
             import driver_journal
-            data, why = driver_journal.run_record()
-            names = data.get("resume_kinds")
-            if not why and not (isinstance(names, list) and names and all(isinstance(n, str) and n for n in names)):
-                why = "note: the run record has no `resume_kinds` list of names; every resume kind is `unclassified` until it is repaired"
+            names, why = driver_journal.run_record_names("resume_kinds")
             if why:
                 print(why, flush=True)
-            table = mine["_resume_kind_table"] = () if why else tuple(names)
+            table = mine["_resume_kind_table"] = names
         if isinstance(token, str) and token in table:
             return token
         said = mine.setdefault("_resume_kind_said", set())
@@ -994,7 +991,7 @@ class DriverRunner:
                                                                 known=bool(prior))
                         why = (f"the model service broke the response (retry {retries_used} of 2); the session "
                                "that did the work goes on")
-                        how = ""        # a road outside the nine of the spec (asked of the Lead): `unclassified` until it is named
+                        how = "service_cut"     # the same road as R-9: the driver's own resume after the service broke the call
                     elif base_driver_resumed:
                         # The retry falls back to what step (a) chose: the recorded session that did work,
                         # with the note alone - not to a fresh session that would lose it.
