@@ -504,7 +504,9 @@ def resolve(root: Path, decision_id: str, decision: str, resolution_ref: str,
                 else datetime.now(timezone.utc).isoformat(timespec="seconds")
             receipt["before"] = earlier["before"] if recovering and earlier.get("before") is not None else before
         _atomic(receipt_path, json.dumps(receipt, indent=2, ensure_ascii=False) + "\n")
-        if pointers and config_path.exists():
+        # OF4-8: written only on a change (`before` is what this call just read, so a recovery compares with the file as it is now);
+        # an unchanged value leaves the file's bytes (CRLF, BOM, key order) alone. `before` None (not a dict) keeps today's write.
+        if pointers and config_path.exists() and (before is None or config != before):
             _atomic(config_path, json.dumps(config, indent=2, ensure_ascii=False) + "\n")
         for path in marker_paths:
             content = path.read_text(encoding="utf-8")
