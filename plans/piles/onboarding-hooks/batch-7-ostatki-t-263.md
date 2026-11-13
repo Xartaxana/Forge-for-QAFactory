@@ -1,6 +1,6 @@
 # Онбординг, установка, хуки и гард — пачка 7: остатки спеки t-263 (второй писатель публикации, A24 для двух отказов, хвосты native_context, текст гарда тестовых путей)
 
-кучка: `onboarding-hooks` | статус: ожидает | взята: — | ветка: — | MR: — | стенд: не нужен (CI) | приоритет: П3
+кучка: `onboarding-hooks` | статус: в работе | взята: — | ветка: `pile/onboarding-hooks/batch-7` | MR: — | стенд: не нужен (CI) | приоритет: П3 | взял: Lead dev1 (Opus), 13.11.2026
 
 Открыта 13.11.2026 (задача t-267, D-0044): находки спеки t-263 (F-C, F-6, N-1, N-2) и тексты отказа гарда тестовых путей легли в следующую пачку, потому что пачка 6 взята.
 
@@ -8,6 +8,11 @@
 
 Решения владельца: нет (направления выбраны в находках, «по рекомендации, до слова владельца»).
 Порядок по общим файлам: `native_context.py`, `inject_context.py`, `refusal_registry.py`: после слияния OH6-3/OH6-4/OH6-5 (`onboarding-hooks/6`).
+очередь: onboarding-forge/1 → onboarding-hooks/7
+очередь: onboarding-hooks/6 → onboarding-hooks/7
+очередь: onboarding-forge/2 → onboarding-hooks/7
+очередь: onboarding-hooks/5 → onboarding-hooks/7
+очередь: onboarding-forge/4 → onboarding-hooks/7
 Скоуп свидетеля: `python -B ai-packages/qa-factory/scripts/tests/scenario_walk.py --witness-for <пути узла>`; BATCH CANON — CI интегратора.
 
 ## Бриф

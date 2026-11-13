@@ -14,6 +14,7 @@
 очередь: onboarding-hooks/5 → onboarding-forge/4
 очередь: github-move/3 → onboarding-forge/4
 очередь: onboarding-forge/4 → onboarding-hooks/6
+очередь: onboarding-forge/4 → onboarding-hooks/7
 
 ## Бриф
 
