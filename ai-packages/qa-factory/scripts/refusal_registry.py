@@ -404,8 +404,7 @@ REGISTRY: list[dict] = [
      "override": "",
      "unpassable_because": "the desktop host rejects the combination: a word would not make the spawn valid. The "
      "text names the way: `fork_turns=none` or a bounded history (owner: factory, the call's shape).",
-     "test": "scripts/tests/test_doctor_context.py (NativeStageRefusal: dispatch refusals leave a named row); "
-     "scripts/tests/test_codex_host.py"},
+     "test": "scripts/tests/test_doctor_context.py (NativeStageRefusal: dispatch refusals leave a named row)"},
     {"id": "HA-command-field-type", "file": "host_adapter.py", "function": "_command_texts",
      "call": "tool_input.{key} must be text or an argv list",
      "refuses": "a shell-family call whose command field is neither text nor an argv list; `_texts_or_refusal` turns it "
@@ -420,7 +419,7 @@ REGISTRY: list[dict] = [
      "override": "",
      "unpassable_because": "the host sent no event to judge, so nothing can be passed; the guard blocks it as an unparsed "
      "event and counts it toward PT-unparsed-event's escalation (owner: host).",
-     "test": "scripts/tests/test_hook_lifecycle.py (guard_pre_tool.py --selftest, unparsed event)"},
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: normalize)"},
     {"id": "HA-tool-input-not-object", "file": "host_adapter.py", "function": "normalize",
      "call": "tool_input must be an object",
      "refuses": "a tool call whose `tool_input` is neither an object nor one of the text forms a custom tool sends "
@@ -428,7 +427,7 @@ REGISTRY: list[dict] = [
      "override": "",
      "unpassable_because": "the call carries no arguments the guard can read; same road as HA-event-not-object, escalating "
      "through PT-unparsed-event (owner: host).",
-     "test": "scripts/tests/test_codex_hooks_matchers.py (tool_input shapes)"},
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: normalize)"},
     {"id": "HA-patch-not-text", "file": "host_adapter.py", "function": "patch_operations",
      "call": "apply_patch.command must be text",
      "refuses": "an apply_patch call whose command is not text; `guard_pre_tool` catches the ValueError and blocks the "
@@ -436,53 +435,53 @@ REGISTRY: list[dict] = [
      "override": "",
      "unpassable_because": "a patch the guard cannot read is blocked, not passed (FR-59); the block carries its own "
      "escalation (PT-patch-unchecked), and the door is a patch in Codex's grammar.",
-     "test": "scripts/tests/test_codex_host.py (mutation_events on apply_patch)"},
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: patch_operations)"},
     {"id": "HA-patch-envelope", "file": "host_adapter.py", "function": "patch_operations",
      "call": "unsupported patch envelope",
      "refuses": "an apply_patch command without the `*** Begin Patch` / `*** End Patch` lines; blocked unchecked by "
                "`guard_pre_tool` (PT-patch-unchecked)",
      "override": "",
      "unpassable_because": "same as HA-patch-not-text: an unread patch is never passed; send the patch in Codex's grammar.",
-     "test": "scripts/tests/test_codex_host.py (mutation_events on apply_patch)"},
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: patch_operations)"},
     {"id": "HA-patch-path", "file": "host_adapter.py", "function": "patch_operations",
      "call": "patch path missing or invalid",
      "refuses": "a patch file section with no path or a NUL byte in it; blocked unchecked (PT-patch-unchecked)",
      "override": "",
      "unpassable_because": "same as HA-patch-not-text: a path the guard cannot read cannot be judged against the test-path "
      "and app-boundary rules.",
-     "test": "scripts/tests/test_codex_host.py (mutation_events on apply_patch)"},
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: patch_operations)"},
     {"id": "HA-patch-orphan-content", "file": "host_adapter.py", "function": "patch_operations",
      "call": "patch content before path",
      "refuses": "a patch line that comes before any `*** Add/Update/Delete File` line; blocked unchecked (PT-patch-unchecked)",
      "override": "",
      "unpassable_because": "same as HA-patch-not-text: content with no file is not readable as an operation.",
-     "test": "scripts/tests/test_codex_host.py (mutation_events on apply_patch)"},
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: patch_operations)"},
     {"id": "HA-patch-move", "file": "host_adapter.py", "function": "patch_operations",
      "call": "invalid patch move",
      "refuses": "a `*** Move to:` line on a section that is not an update, or a second move on one section; blocked "
                "unchecked (PT-patch-unchecked)",
      "override": "",
      "unpassable_because": "same as HA-patch-not-text: a move the guard cannot place is not judged by guess.",
-     "test": "scripts/tests/test_codex_host.py (mutation_events on apply_patch)"},
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: patch_operations)"},
     {"id": "HA-patch-move-empty", "file": "host_adapter.py", "function": "patch_operations",
      "call": "empty move destination",
      "refuses": "a `*** Move to:` line with no destination; blocked unchecked (PT-patch-unchecked)",
      "override": "",
      "unpassable_because": "same as HA-patch-not-text: a move with no destination has nothing to check.",
-     "test": "scripts/tests/test_codex_host.py (mutation_events on apply_patch)"},
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: patch_operations)"},
     {"id": "HA-patch-line", "file": "host_adapter.py", "function": "patch_operations",
      "call": "unsupported patch operation",
      "refuses": "a patch line that is none of the grammar's forms (marker, `+`, ` `, `-`, `@@`, end-of-file, blank); "
                "blocked unchecked (PT-patch-unchecked)",
      "override": "",
      "unpassable_because": "same as HA-patch-not-text: unknown grammar fails toward the block, not toward a pass.",
-     "test": "scripts/tests/test_codex_host.py (mutation_events on apply_patch)"},
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: patch_operations)"},
     {"id": "HA-patch-empty", "file": "host_adapter.py", "function": "patch_operations",
      "call": "patch contains no operations",
      "refuses": "a patch envelope that holds no file section; blocked unchecked (PT-patch-unchecked)",
      "override": "",
      "unpassable_because": "same as HA-patch-not-text: an empty patch is not read as 'nothing to refuse'.",
-     "test": "scripts/tests/test_codex_host.py (mutation_events on apply_patch)"},
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: patch_operations)"},
     {"id": "HA-call-shape", "file": "host_adapter.py", "function": "role_policy",
      "call": "FACTORY HOST POLICY: {what}. Expected: {expected}. Door: {door}.",
      "refuses": "a call whose shape `normalize` could not read (a command field of the wrong type, a code cell with more "
@@ -498,7 +497,8 @@ REGISTRY: list[dict] = [
      "override": "",
      "unpassable_because": "qa-doctor's own probe, with no person waiting on it; a tool call there would make the probe "
      "report something it did not observe.",
-     "test": "scripts/tests/test_doctor_access.py"},
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: role_policy); "
+     "scripts/tests/test_codex_hooks_matchers.py (factory_diagnostic)"},
     {"id": "HA-no-command-text", "file": "host_adapter.py", "function": "role_policy",
      "call": "FACTORY HOST POLICY: ' + str((event.get",
      "refuses": "a shell-family call that carries no command text the guard can read; refused unchecked",
@@ -512,7 +512,7 @@ REGISTRY: list[dict] = [
      "override": "",
      "unpassable_because": "flat delegation: a role does not launch roles; the orchestrator dispatches. No word of a person "
      "changes a role's tool set (FR-56).",
-     "test": "scripts/tests/test_role_policy_reads.py"},
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: role_policy)"},
     {"id": "HA-role-read-only", "file": "host_adapter.py", "function": "role_policy",
      "call": "FACTORY ROLE: ' + role + ' may read using rg/Get-Content",
      "refuses": "a shell call of a Codex role that has no Bash and whose command is not one plain read; the text says why "
@@ -527,14 +527,14 @@ REGISTRY: list[dict] = [
      "override": "",
      "unpassable_because": "the input is not a command the guard can judge; the text names the door: a guarded "
      "exec_command call.",
-     "test": "scripts/tests/test_codex_hooks_matchers.py"},
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: role_policy)"},
     {"id": "HA-exec-tty", "file": "host_adapter.py", "function": "role_policy",
      "call": "FACTORY HOST POLICY: use non-interactive shell calls",
      "refuses": "an `exec_command` call with a tty, which takes input the guard cannot check",
      "override": "",
      "unpassable_because": "a terminal session reads input the guard never sees; the text names the door: a "
      "non-interactive call.",
-     "test": "scripts/tests/test_codex_hooks_matchers.py"},
+     "test": "scripts/tests/test_doctor_context.py (test_every_host_adapter_refusal_speaks_its_registry_text: role_policy)"},
     {"id": "HA-connector-unclassified", "file": "host_adapter.py", "function": "role_policy",
      "call": "lead + ' ' + CODEX_DESKTOP_TOOLS",
      "refuses": "an unclassified or mutating connector tool (`mcp__...`) called by a role with no shell; the text names "
