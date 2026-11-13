@@ -323,6 +323,21 @@ REGISTRY: list[dict] = [
      "TRUNCATED and silently, which is why it is loud now. Its producer splits the file; "
      "nothing is wanted from the person.",
      "test": "scripts/tests/test_stages.py"},
+    {"id": "IC-native-packet-unwritten", "file": "inject_context.py", "function": "refuse_native_packet",
+     "call": "NATIVE_PACKET_UNWRITTEN",
+     "refuses": "a native (Codex) role launch whose context packet could not be written: native_context.stage raised OSError "
+               "(a path over the Windows limit for a project folder longer than native_context.PACKET_ROOT_LIMIT, an "
+               "unwritable folder, a lock that cannot be opened); until t-203 the launch went ahead with no context and "
+               "left only a hook_signal",
+     "override": WAIVER + " with `--block \"could not be written\"`: the word does not write the file, it says 'start the "
+     "role without its factory context' - informed. `refuse_native_packet` filters the line through "
+     "`waiver.split_overridden` like the stage_guard rules and journals the pass as `gate_override` (P13), writes no "
+     "denial row, and the launch goes ahead. A ticketless launch (the doctor's probe) or one with no pipeline.json or no "
+     "dispatch stage has no carrier for a word and stays refused; its ways out are in the message (a shorter project "
+     "folder or Windows long paths for the length cause, one relaunch then a factory blocker otherwise). Decided by "
+     "recommendation pending the owner's word (t-203 F-1).",
+     "unpassable_because": "",
+     "test": "scripts/tests/test_doctor_context.py (PacketNameLength: refusal and pass rows)"},
 
     # --- guard_pre_tool.py — registered here by reading it ------
     {"id": "PT-direct-test-run", "file": "guard_pre_tool.py", "function": "runs_check",

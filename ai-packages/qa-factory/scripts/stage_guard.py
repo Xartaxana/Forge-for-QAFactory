@@ -776,7 +776,8 @@ def deny(message: str) -> int:
 # Kept next to the message that carries it: the guard prints the command, so the two can only
 # drift if someone edits one of them alone.
 BLOCK_MATCHES = ("required stages are not done", "gate A is not approved", "tracker route",
-                 "unresolved cases without a reason", "could not be read", "is absent", "is held for code")
+                 "unresolved cases without a reason", "could not be read", "is absent", "is held for code",
+                 "could not be written")
 
 
 def block_match(message: str) -> str:

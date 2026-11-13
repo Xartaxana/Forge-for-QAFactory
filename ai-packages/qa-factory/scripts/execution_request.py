@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 import node_ids as _node_ids  # bound at import: the one predicate, the bounded launcher
+from event_store import replace_file  # the one retrying replace (B-333): a brief Windows reader-handle race is ridden out
 from hooklib import read_json as _read_json  # the package's one JSON reader: a file that cannot be read is None here
 from profile_contract import (ACCEPTS, acceptable_provenance, command_env, no_changed_file, one_test_argv, probe_failed_text,
                               probe_not_json_text, profile_command, refusal_text, rehearsal_view, say_refusal,
@@ -408,7 +409,7 @@ class JobStore:
         self._ensure()
         tmp = path.with_suffix(f".{os.getpid()}.tmp")
         tmp.write_text(json.dumps(job, indent=2) + "\n", encoding="utf-8")
-        os.replace(tmp, path)
+        replace_file(tmp, path)
 
     def begin(self, request: dict) -> tuple[str, dict]:
         existing = self.read(request["idempotency_key"])
@@ -2792,6 +2793,54 @@ def _probe_refusal(cfg: dict, profile: str, spec, evidence_only: bool, task_root
             + " this one request from `run_suite.py --template request`; every later `--mine` copies its probe and provenance.")
 
 
+def _probe_cwd(spec_or_probe: dict, project_root: Path) -> str:
+    """The directory a stand probe runs in: its `cwd` (`.` when absent), made absolute under the project root."""
+    probe_cwd = Path(str(spec_or_probe.get("cwd") or "."))
+    return str(probe_cwd if probe_cwd.is_absolute() else project_root / probe_cwd)
+
+
+def _observe_precedent(runtime_precedent: dict, policy, purpose: str, probe, probe_extra: dict, project_root: Path,
+                       evidence_only: bool, notes: list, now: str) -> dict:
+    """The stand block copied from an earlier request, with the stand looked at NOW (B-150): the branch of
+    `_observe_stand` that has a precedent. Same refusals and notes as before the split."""
+    runtime = {k: runtime_precedent[k] for k in ("runtime_required", "target_kind", "runtime_probe")
+               if k in runtime_precedent}
+    runtime["runtime_provenance"] = dict(runtime_precedent.get("runtime_provenance") or {},
+                                         timestamp=now)
+    # B-150: an earlier result is worth what the stand ran when it was recorded. The stand
+    # is looked at NOW, and the request carries what was seen - so a redeploy makes a new
+    # run (its `runtime_sha` moves) instead of an `invalid_request` at the launch check, and a
+    # stand nobody could look at is never reported as unchanged (FR-41). A red probe runs in
+    # a sandbox by definition and keeps copying (its own gate is the launch check).
+    if policy is not None and purpose != "red_probe" and runtime.get("runtime_required", True) is not False:
+        old_probe = runtime.get("runtime_probe")
+        if probe is None or not isinstance(old_probe, dict) or not old_probe.get("argv"):
+            runtime["runtime_observed"] = False
+        else:
+            old_view = runtime["runtime_provenance"]
+            try:
+                seen = probe({**old_probe, "cwd": _probe_cwd(old_probe, project_root), **probe_extra})
+            except Exception as exc:  # a stand that cannot be looked at: the stand's gap, not the test's
+                unseen = _stand_refusal(policy, exc, str(old_view.get("environment_id") or "<environment>"))
+                if not evidence_only:
+                    raise MineRefusal(unseen) from exc
+                notes.append(unseen)  # a question about evidence, not a run: unknown, said as such
+                runtime["runtime_observed"] = False
+                seen = None
+            if seen is not None:
+                moved = (seen.get("observed_runtime_identity") != old_view.get("observed_runtime_identity")
+                         or seen.get("expected_source_revision") != old_view.get("expected_source_revision")
+                         or (seen.get("provenance") or {}).get("deployed_source_revision")
+                         != (old_view.get("provenance") or {}).get("deployed_source_revision"))
+                if moved:
+                    notes.append(say(policy, "redeploy_note",
+                                     identity=str(seen.get("observed_runtime_identity") or "")[:24],
+                                     source=str(seen.get("expected_source_revision") or "")[:12],
+                                     old=str(old_view.get("observed_runtime_identity") or "")[:24]))
+                runtime["runtime_provenance"] = dict(seen, timestamp=now)
+    return runtime
+
+
 def _observe_stand(cfg: dict, profile: str, policy, purpose: str, probe, probe_extra: dict, project_root: Path,
                    runtime_precedent, evidence_only: bool, notes: list, task_root=None) -> dict:
     """The stand block of a request: `{runtime_required, runtime_probe, runtime_provenance, ...}`, looked at NOW.
@@ -2804,51 +2853,13 @@ def _observe_stand(cfg: dict, profile: str, policy, purpose: str, probe, probe_e
     `task_root` is the story's folder: with it the refusal's door can narrow the containers by the story's files."""
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     if runtime_precedent:
-        runtime = {k: runtime_precedent[k] for k in ("runtime_required", "target_kind", "runtime_probe")
-                   if k in runtime_precedent}
-        runtime["runtime_provenance"] = dict(runtime_precedent.get("runtime_provenance") or {},
-                                             timestamp=now)
-        # B-150: an earlier result is worth what the stand ran when it was recorded. The stand
-        # is looked at NOW, and the request carries what was seen - so a redeploy makes a new
-        # run (its `runtime_sha` moves) instead of an `invalid_request` at the launch check, and a
-        # stand nobody could look at is never reported as unchanged (FR-41). A red probe runs in
-        # a sandbox by definition and keeps copying (its own gate is the launch check).
-        if policy is not None and purpose != "red_probe" and runtime.get("runtime_required", True) is not False:
-            old_probe = runtime.get("runtime_probe")
-            if probe is None or not isinstance(old_probe, dict) or not old_probe.get("argv"):
-                runtime["runtime_observed"] = False
-            else:
-                old_view = runtime["runtime_provenance"]
-                probe_cwd = Path(str(old_probe.get("cwd") or "."))
-                try:
-                    seen = probe({**old_probe, "cwd": str(probe_cwd if probe_cwd.is_absolute()
-                                                          else project_root / probe_cwd), **probe_extra})
-                except Exception as exc:  # a stand that cannot be looked at: the stand's gap, not the test's
-                    unseen = _stand_refusal(policy, exc, str(old_view.get("environment_id") or "<environment>"))
-                    if not evidence_only:
-                        raise MineRefusal(unseen) from exc
-                    notes.append(unseen)  # a question about evidence, not a run: unknown, said as such
-                    runtime["runtime_observed"] = False
-                    seen = None
-                if seen is not None:
-                    moved = (seen.get("observed_runtime_identity") != old_view.get("observed_runtime_identity")
-                             or seen.get("expected_source_revision") != old_view.get("expected_source_revision")
-                             or (seen.get("provenance") or {}).get("deployed_source_revision")
-                             != (old_view.get("provenance") or {}).get("deployed_source_revision"))
-                    if moved:
-                        notes.append(say(policy, "redeploy_note",
-                                         identity=str(seen.get("observed_runtime_identity") or "")[:24],
-                                         source=str(seen.get("expected_source_revision") or "")[:12],
-                                         old=str(old_view.get("observed_runtime_identity") or "")[:24]))
-                    runtime["runtime_provenance"] = dict(seen, timestamp=now)
-        return runtime
+        return _observe_precedent(runtime_precedent, policy, purpose, probe, probe_extra, project_root,
+                                  evidence_only, notes, now)
     spec = registered_probe(cfg, profile)
     if not (spec is not None and probe is not None):
         raise MineRefusal(_probe_refusal(cfg, profile, spec, evidence_only, task_root, project_root))
-    probe_cwd = Path(spec["cwd"])
     try:
-        observed = probe({**spec, "cwd": str(probe_cwd if probe_cwd.is_absolute()
-                                             else project_root / probe_cwd), **probe_extra})
+        observed = probe({**spec, "cwd": _probe_cwd(spec, project_root), **probe_extra})
     except ProvenanceRefused as exc:
         # t-300 N2: the probe ANSWERED and the answer is refused (a build that is not the story's, `unknown`, a word
         # that does not hold): the stand's refusal said as that, never `mine_unavailable` with a `--template request`
@@ -3875,5 +3886,5 @@ def write_mine_request(project_root: Path, request: dict) -> Path:
     path = directory / f"{stem}-{suffix}.json"
     tmp = path.with_suffix(f".{os.getpid()}.tmp")
     tmp.write_text(json.dumps(request, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    replace_file(tmp, path)
     return path

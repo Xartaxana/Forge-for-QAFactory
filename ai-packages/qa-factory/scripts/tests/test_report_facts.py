@@ -4274,6 +4274,7 @@ def main() -> None:
     review_gaps_block()
     review_gaps_every_open_row_and_one_filter()
     review_gaps_null_unknown_and_head()
+    appendix_is_the_section_not_the_first_substring()
     over_cap_windows_line()
     register_less_story_is_byte_identical()
     exploratory_block_and_formal_line()
@@ -4964,6 +4965,30 @@ def review_gaps_null_unknown_and_head() -> None:
              RF._verdict(facts)["first_reason"])
     facts["ledger"] = RF._ledger_facts(base)
     check_not_in("... and does not when the ledger names none", "repair limit exhausted", RF._verdict(facts)["first_reason"])
+
+
+def appendix_is_the_section_not_the_first_substring() -> None:
+    """HF8-4 P9: the forbidden-id check cuts the body at the appendix SECTION (outside fences, a heading line), not at the
+    first substring `## Appendix`. A fenced or mid-line mention above a forbidden id no longer hides it (the check only
+    sees more text); an id standing only inside the real appendix is still not the body's."""
+    forbidden = "see ti_abcd1234 for the instance"
+    real = "## Appendix\n\n| R-1 | verified |\n"
+    cases = (
+        ("a fenced mention of the heading above the id", "x\n\n```\n## Appendix\n```\n\n" + forbidden + "\n\n" + real, 1),
+        ("a mid-line mention of the heading above the id", "x\n\nsee ## Appendix below\n\n" + forbidden + "\n\n" + real, 1),
+        ("control: the id stands only inside the real appendix", "x\n\n" + real + "\n" + forbidden + "\n", 0),
+        ("control: no appendix, the whole body counts", "x\n\n" + forbidden + "\n", 1),
+    )
+    task = story(with_bug=False)
+    try:
+        for name, text, want in cases:
+            path = task / "appendix-case.md"
+            write(path, "<!-- facts:verdict -->\nv\n<!-- /facts:verdict -->\n\n" + text)
+            errors: list = []
+            V.check_report_forbidden(path, errors)
+            check_eq("P9 " + name + " -> errors named", len(errors), want)
+    finally:
+        cleanup(task.parents[2])
 
 
 if __name__ == "__main__":

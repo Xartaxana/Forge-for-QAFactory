@@ -100,16 +100,27 @@ PTR_REQ_STATUSES = {"verified", "not verified", "deferred by design", "deferred 
 # Two sections joined the list with the code-owned blocks (B-211, t-189): "Open questions" stands
 # right after "Left with you" (the person reads what is still asked of them next to what is
 # handed to them), and "Decided at gate A" stands after "Not proven", before gate B's section.
-REPORT_SECTIONS = ("## Proven", "## Product bugs", "## Left with you", "## Open questions",
-                   "## Not proven", "## Decided at gate A", "## Decided at gate B",
-                   "## Factory defects", "## Size", "## Where to look", "## Appendix")
+PROVEN_HEADING = "## Proven"
+BUGS_HEADING = "## Product bugs"
+LEFT_WITH_YOU_HEADING = "## Left with you"
+OPEN_QUESTIONS_HEADING = "## Open questions"
+NOT_PROVEN_HEADING = "## Not proven"
+GATE_A_HEADING = "## Decided at gate A"
+GATE_B_HEADING = "## Decided at gate B"
+FACTORY_DEFECTS_HEADING = "## Factory defects"
+SIZE_HEADING = "## Size"
+WHERE_TO_LOOK_HEADING = "## Where to look"
+APPENDIX_HEADING = "## Appendix"
+REPORT_SECTIONS = (PROVEN_HEADING, BUGS_HEADING, LEFT_WITH_YOU_HEADING, OPEN_QUESTIONS_HEADING,
+                   NOT_PROVEN_HEADING, GATE_A_HEADING, GATE_B_HEADING,
+                   FACTORY_DEFECTS_HEADING, SIZE_HEADING, WHERE_TO_LOOK_HEADING, APPENDIX_HEADING)
 # "Decided at gate B" does not exist until the gate happened; every other section is owed.
-REPORT_SECTIONS_AFTER_GATE_B = ("## Decided at gate B",)
+REPORT_SECTIONS_AFTER_GATE_B = (GATE_B_HEADING,)
 # The two new sections are owed only by a report that carries code-owned blocks. A report written
 # before the blocks existed (no marker at all, `validate_artifacts.report_is_unmarked`) keeps the
 # nine-section contract it was written against: refusing it would make the factory's own release
 # the person's problem (builder-rules item 9). The first `report_facts.py --write` converts it.
-REPORT_SECTIONS_WITH_BLOCKS = ("## Open questions", "## Decided at gate A")
+REPORT_SECTIONS_WITH_BLOCKS = (OPEN_QUESTIONS_HEADING, GATE_A_HEADING)
 
 # --- code-owned blocks of the report (t-109 F1: code-owned blocks between markers, prose outside) ---
 # Code owns every count and status the person reads; the scribe owns "The change", the `How:` /
@@ -158,22 +169,22 @@ REPORT_BLOCKS = ("verdict", "proven", "manual-checks", "bugs", "exploratory", "r
                  "open-questions", "skipped-by-plan", "not-proven", "branches-not-proven", "gate-a", "gate-b", "size", "where-to-look")
 REPORT_BLOCK_HEADINGS = {
     "verdict": "",
-    "proven": "## Proven",
+    "proven": PROVEN_HEADING,
     "manual-checks": "## Checked by hand",
-    "bugs": "## Product bugs",
+    "bugs": BUGS_HEADING,
     "exploratory": "## Exploratory findings and unresolved questions",
     "review-gaps": "## Review gaps",
     "left-branches": "### Branches left with you",
     "left-gate-b": "### Added after gate B",
     "regression": "### Regression to run",
-    "open-questions": "## Open questions",
+    "open-questions": OPEN_QUESTIONS_HEADING,
     "skipped-by-plan": "## Skipped by the plan (approved at gate A)",
-    "not-proven": "## Not proven",
+    "not-proven": NOT_PROVEN_HEADING,
     "branches-not-proven": "## Branches not proven",
-    "gate-a": "## Decided at gate A",
-    "gate-b": "## Decided at gate B",
-    "size": "## Size",
-    "where-to-look": "## Where to look",
+    "gate-a": GATE_A_HEADING,
+    "gate-b": GATE_B_HEADING,
+    "size": SIZE_HEADING,
+    "where-to-look": WHERE_TO_LOOK_HEADING,
 }
 # The gate B block does not exist until the gate happened (same rule as its heading).
 REPORT_BLOCKS_AFTER_GATE_B = ("gate-b", "left-gate-b")

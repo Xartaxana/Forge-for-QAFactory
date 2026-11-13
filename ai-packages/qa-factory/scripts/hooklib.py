@@ -272,11 +272,14 @@ def is_one_component(name) -> bool:
     return isinstance(name, str) and bool(name) and name not in (".", "..") and not any(c in name for c in "/\\:")
 
 
-def artifacts_dir(ticket: str, event: dict | None = None) -> Path:
-    """<project>/qa-factory/artifacts/<TICKET>/ — the one home of a story's artifacts."""
+def artifacts_dir(ticket: str, event: dict | None = None, root: Path | None = None) -> Path:
+    """<project>/qa-factory/artifacts/<TICKET>/ — the one home of a story's artifacts.
+
+    `root`, when given, is the project the story lives under (a reader that walked receipts under a root of its
+    own); else the event's project."""
     if not ticket or not is_one_component(str(ticket)):
         raise ValueError("task id must be a single path component")
-    return artifact_root(event) / str(ticket)
+    return artifact_root(event, root=root) / str(ticket)
 
 
 def _name_alias(name: str) -> str:

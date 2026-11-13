@@ -600,8 +600,7 @@ class DriverStageS6:
         environment = str(pipeline.get("environment") or "")
         if environment and not pipeline.get("environment_pending"):
             return False
-        block = (f"{waiver.STAND_NOT_CONFIRMED_BLOCK}: " + (f"stand `{environment}` is not confirmed as usable"
-                                                            if environment else "no stand is confirmed for this story"))
+        block = waiver.stand_block(environment)
         return any(waiver.split_overridden([block], pipeline, owner)[1] for owner in self.STAND_STAGES)
 
     def s6_changed(self, cases, ids=None, *, strict: bool = False) -> dict:
