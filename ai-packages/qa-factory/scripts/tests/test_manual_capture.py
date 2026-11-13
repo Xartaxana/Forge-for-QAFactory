@@ -2050,6 +2050,24 @@ def of3_1e_one_env_file_parse():
             env.write_bytes(text.encode("utf-8"))
             check_eq(f"project_inventory.env_file_keys: {label}", project_inventory.env_file_keys(env), want)
         check_eq("project_inventory.env_file_keys: an absent file", project_inventory.env_file_keys(env.parent / "nowhere.env"), [])
+        # OF5-3: names only through brief_pack._env_file_key_names; its filter is env_probe.SECRET_NAME (a secret marker in the
+        # name, so the one-letter names above give none) - names carry `_KEY`; expectations are the OH3-42 rules
+        brief_names_rows = [
+            ("a BOM before the first key", "﻿A_KEY=1\nB_KEY=2", ["A_KEY", "B_KEY"]),
+            ("export lower case dropped", "export A_KEY=1", ["A_KEY"]),
+            ("a name without a secret marker is not named", "AB=1", []),
+            ("a repeated name is named once, at its first place", "A_KEY=1\nB_KEY=2\nA_KEY=3", ["A_KEY", "B_KEY"]),
+            ("an empty file", "", []),
+        ]
+        for label, text, want in brief_names_rows:
+            env.write_bytes(text.encode("utf-8"))
+            got_names, _rel = brief_pack._env_file_key_names({"env_file": "harness/.env"}, t.project)
+            check_eq(f"brief_pack._env_file_key_names: {label}", got_names, want)
+        first.write_bytes("A_KEY=1\nB_KEY=old\n".encode("utf-8"))
+        second.write_bytes("B_KEY=new\nC_KEY=3\n".encode("utf-8"))
+        got_names, _rel = brief_pack._env_file_key_names({"env_files": ["harness/one.env", "harness/two.env"]}, t.project)
+        check_eq("brief_pack._env_file_key_names: two files in `env_files`, the names are the union without repeats",
+                 got_names, ["A_KEY", "B_KEY", "C_KEY"])
     finally:
         S.cleanup(t)
 
