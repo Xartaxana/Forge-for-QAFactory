@@ -258,10 +258,8 @@ a rule.
    the remainder goes to a fresh worker whole); ONE critic pass per topic (R13-g); critic on a plan: rule 3; a
    re-review carries only the fix diff and the verdict; the Lead compacts at ~300K at a stage boundary, a stage
    commit per 2–3 merges, journal notes ≤ 300 chars, CI through `tools/ci_read.py`; at most 6 parallel WRITING
-   workers and a push before a worktree launch (`tools/dispatch_gate.py`). The cap counts ONLY builders writing code;
-   designers, critics and scouts are never counted and never wait for a slot. The queue is kept FULL: whatever can
-   run in parallel is launched at once — a session running 2–3 workers while independent work waits is the failure
-   this line names. Detector: check 17.
+   workers and a push before a worktree launch (`tools/dispatch_gate.py`). The cap, the FULL queue, the per-topic
+   critic and merge waves: PROJECT.md «Командная работа» п. 12. Detector: check 17.
 13. Leaf routing (leaf-routing rule) — not used in this deployment: no judge is bound (`delegation.config.yaml`,
    role `judge`), so every task, leaf or graph, goes through the acceptance of rules 1-12 and Role ≠ tier; an
    acceptance with `basis: "judge"` is not legal here.
