@@ -26,6 +26,15 @@ def sent(controller, dispatch_id):
                 if event["type"] == "dispatch" and event["payload"]["id"] == dispatch_id)
 
 
+def refusal_detail(call):
+    """Like `refusal`, plus a failure-only line: the repr of what was raised, or that nothing was."""
+    try:
+        call()
+    except (ValueError, StateConflict) as exc:
+        return str(exc), f"raised: {exc!r}"
+    return "", "no exception was raised"
+
+
 def never_started_action(root):
     """What `next` answers when nothing proves an agent ever started: the liveness repair closes
     the dispatch and hands over the relaunch packet."""
@@ -245,8 +254,10 @@ def a_never_started_repair_relaunches_with_its_original_request():
             fresh = dict(action["dispatch_request"], idempotency_key=str(action["dispatch_request"].get("idempotency_key")) + "-fresh")
             fresh.pop("expected_revision", None)
             dispatched_before = [e for e in controller.store.read() if e["type"] == "dispatch"]
-            check_in("a recorded id under a fresh key is refused: resume, do not replace",
-                     "resume existing dispatch", refusal(lambda: controller.apply("dispatch", dict(fresh))))
+            refused_text, refused_detail = refusal_detail(lambda: controller.apply("dispatch", dict(fresh)))
+            check("a recorded id under a fresh key is refused: resume, do not replace",
+                  "resume existing dispatch" in refused_text,
+                  f"{'resume existing dispatch'!r} not found in:\n{refused_text[:600]}\n{refused_detail}")
             check_eq("and no dispatch event was committed for it",
                      ([e for e in controller.store.read() if e["type"] == "dispatch"] == dispatched_before,
                       any(e["idempotency_key"] == fresh["idempotency_key"] for e in controller.store.read())),
