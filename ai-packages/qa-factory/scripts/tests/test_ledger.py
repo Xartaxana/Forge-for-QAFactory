@@ -218,6 +218,7 @@ def main() -> None:
     the_words_follow_the_reason()
     the_summary_line_counts_by_reason()
     an_unconfirmed_then_is_never_green()
+    a_green_on_an_open_oracle_reads_the_then_through_the_one_reader()
     a_deferred_then_beside_a_green_is_deferred()
     the_manual_evidence_line_speaks_the_phase_words()
     the_dashboard_prints_the_same_phase_words()
@@ -1047,6 +1048,34 @@ def an_unconfirmed_then_is_never_green() -> None:
     check_in("the rendered ledger shows it under the person's own heading", "Left with you (nothing blocks on it)", text)
     check_in("with the question wanted", "Needed: your answer to Q7", text)
     check_eq("a ledger with no such row prints no such heading", "Left with you" in L.render(dict(doc, rows=doc["rows"][1:])), False)
+
+
+def a_green_on_an_open_oracle_reads_the_then_through_the_one_reader() -> None:
+    """HF8-4 P6 (AR-13, AR-28): `plan_row_state` read a binding's `then` with `isinstance(..., int)`, so a digit string never
+    matched an open oracle and the green stayed `passed_green`. It reads through `contract.then_number` now. A bool reads 0
+    there (F9, recommendation a): the ledger flags nothing for it; the S5 precheck refuses such a row as unbound upstream."""
+    case = "TC-080"
+    green = {"case": case, "instance_id": "test_g", "file": "tests/t.py", "covers": [case], "status": "green"}
+    ran = {"current_results": [{"instance_id": "test_g", "case": case, "status": "passed"}]}
+    oracle = {"state": "open", "ref": "Q9", "then": 2}
+    table = [
+        ("int 2 (control)", 2, 2, "not_verified:expectation_unconfirmed"),
+        ("digit string '2'", "2", 2, "not_verified:expectation_unconfirmed"),
+        ("padded string ' 2 '", " 2 ", 2, "not_verified:expectation_unconfirmed"),
+        ("zero-padded string '02'", "02", 2, "not_verified:expectation_unconfirmed"),
+        ("non-ASCII digit", "²", 2, "passed_green"),
+        ("float 2.0", 2.0, 2, "passed_green"),
+        ("list [2]", [2], 2, "passed_green"),
+        ("word 'x'", "x", 2, "passed_green"),
+        ("bool True with Then 1 open (F9)", True, 1, "passed_green"),
+    ]
+    for label, then, open_then, want in table:
+        binding = {"case": case, "then": then, "instance_id": "test_g", "assertion_ref": "tests/t.py:9", "status": "covered"}
+        got, detail = L.plan_row_state({"ts": "TS-80", "disposition": "automate"}, {"tests": [green], "then_bindings": [binding]},
+                                       ran, {}, {"TS-80": [case]}, {case: {open_then: dict(oracle, then=open_then)}})
+        check_eq(f"{label}: the state", got, want)
+        if want != "passed_green":
+            check_in(f"{label}: the words name Then {open_then}", f"{case} Then {open_then}", detail)
 
 
 def a_deferred_then_beside_a_green_is_deferred() -> None:
