@@ -1,0 +1,66 @@
+OH8-7g (t-417): the judgment census classifies the 29 subclass-only refusers of s5_plan.py, question_register.py, question_stop.py, person_words.py, grammar.py, assertion_detectors.py, machine_facts.py and driver_dispatch.py (the eight files join SUBCLASS_UNIT_FILES as whole-file entries)
+
+Eight whole-file entries are added to SUBCLASS_UNIT_FILES; no mechanism code changes.
+SUBCLASS_PENDING_CEILING 50 -> 21 (C7 is dense at the pending count, 21, whatever the number of rows written).
+
+29 rows: 22 shape, 4 xref, 3 safety. Safety by Lead rule 1: question_register.py::answers_lock (the writer lock of the answers file: another writer holding it, or a lock that cannot be taken, refuses and nothing is written). Safety by the Lead's answer: question_register.py::record and person_words.py::read, both owner intent. E3 rows (refuse nothing, the exception is caught inside its own module): machine_facts.py::_check_scalar, ::_json_line, ::_parse (NotJson, TooDeep, JsonAsText become a skipped result, the text algorithm or None) and question_stop.py::_as_count, ::_as_share, ::defaults (_Invalid becomes a warning and the default for a project's value, or a RuntimeError of a package defect); each written without blocks_override and with the E3 note. The note's findings file plans/piles/onboarding-hooks/findings/20261113-gate-form-for-blocks-override-on-non-refusing-units.md exists on read-main and does NOT exist in the worktree oh8-7b (it joins when the worktree takes main).
+by Lead rule: question_register.py::answers_lock -> safety, [conductor], data (rule 1: a lock that protects a file from a second writer); every row's roles follow rule 5 (the existing rows of the same file are [conductor]; driver_dispatch.py::exit_errors, form_errors, rework; assertion_detectors.py::assertion_heads; grammar.py rows; question_register.py::_common_problems, raise_from_handoff; person_words.py::door; s5_plan.py rows; machine_facts.py::_check, run) and rule 3 (question_register.py::record_case: the decision and where/by are tokens of the closed vocabulary, shape).
+answered by the Lead (OH8-7g questions 1-2): 1) question_register.py::record -> safety, [conductor], intent (the refusal on a settled row with another (status, reading) guards a person's recorded answer from a second, different one; the higher class wins over the shape/xref raises of the same function; the chain's standing answer for that guard shape, spec 6b); 2) person_words.py::read -> safety, [conductor], intent (precedent person_words.py::door; the run-py.cmd refusal turns a silent truncation of a person's words into a refusal, the both-sources refusal is shape and loses to it).
+open for the pair critic: (0) record and read are safety/intent by the Lead's answer; question_stop.py::defaults is E3 but re-raises RuntimeError (a package defect), critic may drop its E3 note. (1) person_words.py::_from_file is shape: the dispatch line "readability, encoding, length of a file" applies, although its NUL and invalid-UTF-8 refusals also keep a person's words from being stored as another text; critic to read it against question (2). (2) question_register.py::_raise and ::raise_role_question are xref: the refusal of a second raise for one key with another text compares two records by whitespace-normalized equality (_shown, _same_question) and never reads what the words say; the other raises test the register file (present, JSON, object with an open_questions list); critic to read that equality as a join, not as wording. (3) the s5_plan.py functions are shape: _words reads the factory's own vocabulary file for presence of three lists (not a person's or a role's words); remarks_of refuses only a review chain with an unreadable element (unreadable is set by reviews() from files and receipts), it never reads a remark's text. (4) assertion_detectors.py: every raise is the form of the pattern table (readable, key present, non-empty object or list, strings that compile) -> shape; _claims_once and assertion_detectors join suffixes across entries (a suffix claimed twice) -> xref; nothing reads a test's code. (5) question_stop.py::defaults and the E3 reading of the three question_stop.py rows: defaults re-raises as RuntimeError (a package defect), so it leaves the module as a refusal of another type; critic may prefer to drop the E3 note on defaults. (6) driver_dispatch.py::s5_open_windows is shape: presence and type of windows, dispatches and the case lists of a window and of a running or returned S5 dispatch; every WindowsUnreadable leaves the module to callers that treat it as open; roles follow driver_dispatch.py::exit_errors, form_errors, rework ([conductor]). (7) grammar.py: find_blocks, replace_block, render_block refuse damaged markers, an absent block or a name outside the closed list REPORT_BLOCKS -> shape.
+noticed, not fixed: question_register.py::_raise and ::raise_role_question carry the same register-read block (FileNotFoundError, ValueError, the open_questions list) twice with the same texts, and raise_from_handoff has a third copy of the guard path
+noticed, not fixed: person_words.py::via_cmd treats ImportError of run_py_entry as "not via cmd", so the cmd guard of read is silently off when that module is missing
+noticed, not fixed: question_stop.py::defaults raises _Invalid and catches it in the same function to re-raise RuntimeError (a goto by exception)
+noticed, not fixed: question_register.py::record states the settled-answer refusal text once (_different_answer_text) while record_case has no such guard for a case decision recorded twice with another word
+
+Raise list (AR-20), reconciled by script (delta per key == new rows naming it):
+blocking_per_role.conductor: 630 -> 659 -- census classifies subclass refusers of s5_plan.py, question_register.py, question_stop.py, person_words.py, grammar.py, assertion_detectors.py, machine_facts.py, driver_dispatch.py (OH8-7g)
+safety: 76 -> 79 -- census classifies subclass refusers of question_register.py, person_words.py (OH8-7g): answers_lock, record, read
+no other ratchet key and no existing row changed.
+
+architecture: AR-29 -- every row is a judged class per unit (29 rows: 22 shape, 4 xref, 3 safety; the 2 non-plain readings were answered by the Lead); AR-20 -- the raised keys are named above with their reconciliation; AR-13 -- no second AST walk over refusals: units_of reads the sites refusal_registry.sites(raises=raise_family(...)) already returned, refusal_registry.py untouched; AR-22 -- SUBCLASS_UNIT_FILES (producer) and units_of (its one reader) change together, both die in OH8-7h; AR-28 -- the pending set (an unknown) shrinks by an exact count (29), C7 stays dense
+judgment: adds data check test_judgment_census.SUBCLASS_UNIT_FILES -- census rows for refusals through package subclasses in s5_plan.py, question_register.py, question_stop.py, person_words.py, grammar.py, assertion_detectors.py, machine_facts.py, driver_dispatch.py, each a data check or a guard classified per unit
+tier: claude-fable-5-2
+
+Four questions (rule 10) for the SUBCLASS_UNIT_FILES entries:
+(a) Cost and who pays: one tuple edit (eight entries) and 29 rows; the census run gets no new walk. The builder pays the classification; the critic pays one reading of every new row (pair 3: OH8-7f + OH8-7g); the Lead pays the commit and the answers to the questions.
+(b) Axes (36 on docs/SIBLING_MAP.md):
+axis 1 (policy <-> role): n/a the critic brief lists were edited by OH8-7b; CLAUDE.md rule 10 and designer rule 1 name no constant.
+axis 2 (per-tier exam instruments): n/a no exam.
+axis 3 (factory package <->): n/a test files ship as usual; no release-side step changes.
+axis 4 (factory rules <->): n/a no FR change; the temporary second road stays bounded by SUBCLASS_PENDING_CEILING and these nodes.
+axis 5 (stage twins inside): n/a the census is not a stage.
+axis 6 (measurement tools <->): n/a no measurer reads the census.
+axis 7 (per-test identity <->): n/a no per-test identity changed
+axis 8 (where the story): n/a no story path resolver touched
+axis 9 (is this a): n/a SCAN_EXCLUDE unchanged.
+axis 10 (git-top readers): n/a no git-top reader touched
+axis 11 (shell-command recognizers): n/a no shell-command recognizer touched
+axis 12 (carriers of the): covered the node is a row of batch onboarding-hooks/9 (the coordinator's move, D-0044).
+axis 13 (the dispatch text): n/a no dispatch text touched
+axis 14 (readers of agent): n/a no transcript reader touched
+axis 15 (console stream setup): n/a the test prints as before.
+axis 16 (one json reader): n/a the test reads its fixture as before.
+axis 17 (detector verdict shape): n/a the census is a test, not a detector producer.
+axis 18 (in-tree shrink-only ratchets): covered SUBCLASS_UNIT_FILES stays grow-only (eight whole-file entries added); every raise named row by row; OH8-7h rewrites the clause.
+axis 19 (one reader of): n/a no role tools line reader touched
+axis 20 (host receipt names): n/a no host receipt name touched
+axis 21 (readers of the): n/a no markdown table reader touched
+axis 22 (a host's return): n/a no host report form touched
+axis 23 (fields of a): n/a no tests[] row field touched
+axis 24 (the record of): n/a no execution record join touched
+axis 25 (freshness of a): n/a no freshness predicate touched
+axis 26 (the word stand): n/a no stand-not-confirmed word touched
+axis 27 (the profile of): n/a no profile of a test row touched
+axis 28 (the render site): n/a no row form render site touched
+axis 29 (append-only jsonl writers): n/a no jsonl appender touched
+axis 30 (the commands of): n/a no profile commands reader touched
+axis 31 (role carriers): n/a no role carrier touched
+axis 32 (where judgment lives): covered census rows in the same commit as the units (C1); one scanner (sites()); rows read by critic question 11.
+axis 33 (which dispatch am): n/a no dispatch identity reader touched
+axis 34 (one road for): covered the temporary second road shrinks by 29 functions of eight files; OH8-7h removes the line.
+axis 35 (sides of a): n/a no story sides reader touched
+axis 36 (the row written): n/a no placeholder row predicate touched
+(c) Detector: test_judgment_census.py -- C1 (a created unit with no row, a row whose unit vanished), C7 (pending count dense; the list-form checks on SUBCLASS_UNIT_FILES), C3 (raises); calibration checks 41 (judgment census) and 35 (b) (every raise named) in PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md.
+(d) What stops a skip: code on the path. The census test is a `keep` row (layer register) printed by scenario_walk.py --witness-for for the fixture and runs in the CI canon. A node that lists without rows gets C1 "... is a check unit (u3) with no row"; one that does not lower the ceiling gets C7 "below SUBCLASS_PENDING_CEILING"; one that lowers it too far gets C7 "above". The MEANING of each class is judged by a tier above (critic question 11), not by code.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>

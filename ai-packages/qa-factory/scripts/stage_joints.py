@@ -858,9 +858,9 @@ def _row_requirement(check: str, row: dict, env: Env, kinds) -> list:
                 out.append(f"`requirement_from` {carrier!r} is not one of {', '.join(REQUIREMENT_CARRIERS)}")
             else:
                 try:
-                    _text, why = _carrier_expected(row)
+                    why = _carrier_expected(row)[1]
                 except Exception as exc:  # noqa: BLE001 - a carrier that cannot be read is a finding, not a crash
-                    _text, why = "", f"{type(exc).__name__} while reading it"
+                    why = f"{type(exc).__name__} while reading it"
                 if why:
                     out.append(f"`requirement_from` {carrier}: {why}")
         if not isinstance(row.get("door"), str) or not row["door"].strip():

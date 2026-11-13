@@ -1,0 +1,47 @@
+OH8-7b (t-369): the judgment census creates units from widened raise sites in listed files (SUBCLASS_UNIT_FILES) + 23 probe_by_code.py functions
+
+SUBCLASS_UNIT_FILES (test constant, grow-only) lists `probe_by_code.py::<function>` for the first 23 functions of the chain; a widened raise
+site in a listed file or function creates a unit exactly like a literal raise (u3). units_of / analyse take `unit_files`; the
+list-form checks (duplicate entry, entry the scan does not hold) report under C7; the C7 "above" refusal names the new door.
+SUBCLASS_PENDING_CEILING 190 -> 167.
+
+Raise list (AR-20), reconciled by script (delta per key == new rows naming it):
+blocking_per_role.conductor: 491 -> 514 -- census classifies subclass refusers of probe_by_code.py (OH8-7b)
+safety: 55 -> 56 -- census classifies subclass refusers of probe_by_code.py (OH8-7b): _target_file guards the product tree
+no other ratchet key and no existing row changed.
+
+architecture: AR-29 -- every row is a judged class per unit (23 rows: 1 safety, 15 shape, 7 xref; the 3 non-plain readings were answered by the Lead); AR-20 -- each raised key is named row by row above with its reconciliation; AR-13 -- no second AST walk over refusals: units_of reads the sites refusal_registry.sites(raises=raise_family(...)) already returned, refusal_registry.py untouched; AR-22 -- SUBCLASS_UNIT_FILES (producer) and units_of (its one reader) are born in one commit, both die in OH8-7h; AR-28 -- the pending set (an unknown) shrinks by an exact count (23), C7 stays dense
+judgment: adds data check test_judgment_census.SUBCLASS_UNIT_FILES -- census rows for refusals through package subclasses in probe_by_code.py, each a data check or a guard classified per unit
+tier: <the Lead's model, filled in by the Lead>
+
+Four questions (rule 10) for SUBCLASS_UNIT_FILES:
+(a) Cost and who pays: a node edits one tuple and adds 21-38 rows; the census run gets no new walk (the widened site list was already computed, OH8-7b only moves its computation earlier inside units_of). The builder pays the classification (about 190 judgments over the chain); the critic pays one reading of every new row per pair; the Lead pays the mechanism commit and the answers to the questions.
+(b) Axes (36 on docs/SIBLING_MAP.md):
+- axis 1: covered -- critic brief q9/q11 lists edited (constants added here, removed by OH8-7h); CLAUDE.md rule 10 and designer rule 1 name no constant.
+- axis 2: n/a -- no exam.
+- axis 3: n/a -- test files ship as usual; no release-side step changes.
+- axis 4: n/a -- no FR change; the temporary second road is bounded by SUBCLASS_PENDING_CEILING and these nodes, not by a debt row.
+- axis 5: n/a -- the census is not a stage.
+- axis 6: n/a -- no measurer reads the census.
+- axis 7: n/a.
+- axis 8: n/a.
+- axis 9: n/a -- SCAN_EXCLUDE unchanged.
+- axis 10: n/a.
+- axis 11: n/a.
+- axis 12: covered -- the nodes are rows of batch onboarding-hooks/9 (the coordinator's move, D-0044).
+- axis 13: n/a.
+- axis 14: n/a.
+- axis 15: n/a -- the test prints as before.
+- axis 16: n/a -- the test reads its fixture as before.
+- axis 17: n/a -- the census is a test, not a detector producer.
+- axis 18: covered -- SUBCLASS_UNIT_FILES joins the axis-18 member text (grow-only like BLOCKING_ENTRY_FILES); every raise named row by row; OH8-7h rewrites the clause.
+- axes 19-31: n/a each -- none of these carriers is edited (role tools: line; host receipt names; markdown tables; host return form; tests[] row fields; execution record; freshness; stand not confirmed; test-row profile; row-form render site; jsonl appenders; profile commands; role carriers).
+- axis 32: covered -- census rows in the same commit as the units (C1); one scanner (sites()); rows read by critic question 11.
+- axis 33: n/a.
+- axis 34: covered -- the temporary second road is recorded on the axis's "known roads off it" row; OH8-7b..h shrink it file by file and OH8-7h removes the line.
+- axis 35: n/a.
+- axis 36: n/a.
+(c) Detector: test_judgment_census.py -- C1 (a created unit with no row, a row whose unit vanished), C7 (pending count dense; the list-form checks on SUBCLASS_UNIT_FILES), C3 (raises); calibration checks 41 (judgment census) and 35 (b) (every raise named) in PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md.
+(d) What stops a skip: code on the path. The census test is a `keep` row (layer register) printed by scenario_walk.py --witness-for for the fixture and runs in the CI canon. A node that writes rows without listing the file gets C1 "stale row"; a node that lists without rows gets C1 "... is a check unit (u3) with no row"; a node that does not lower the ceiling gets C7 "below SUBCLASS_PENDING_CEILING"; one that lowers it too far gets C7 "above". The MEANING of each class is judged by a tier above (critic question 11), not by code.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>

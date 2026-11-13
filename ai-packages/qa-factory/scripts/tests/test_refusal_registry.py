@@ -658,7 +658,7 @@ def part_passthrough() -> None:
     check_eq("pass/E8: a listed def with no call that gives a literal is a walk error naming the list",
              (ids, [w["why"] for w in rep["check_arg_errors"]]),
              ([], ["`own` is listed in CHECK_PASSTHROUGH and has no call with a literal check"]))
-    ids, rep = scan(f"def own(records, check):\n    return [DV.with_check(r, check) for r in records]\n\n\ndef run():\n    return own(f(), 'x:m')\n")
+    ids, rep = scan("def own(records, check):\n    return [DV.with_check(r, check) for r in records]\n\n\ndef run():\n    return own(f(), 'x:m')\n")
     check_eq("pass/module-level: a module-level listed def is read at the calls of the module", (ids, rep["check_arg_errors"]), (["x:m"], []))
     ids, rep = scan(f"def all_errors():\n{inner}    return own(f(), 'x:a')\n", name="other.py")
     check_eq("pass/file-listed: the list names (file, def): the same def in another file is not passed through",

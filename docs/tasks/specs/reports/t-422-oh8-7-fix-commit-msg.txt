@@ -1,0 +1,60 @@
+OH8-7 fix round (t-422): the judgment census re-judges two rows upward and restores the byte form of 13 probe_by_code.py rows
+
+Fixture only (ai-packages/qa-factory/scripts/tests/fixtures/judgment-census.json); no mechanism code changes, no test file edit.
+F1 (verdict t-411): 13 row lines of probe_by_code.py carried `","class"` with no space; the space is back (`", "class"`). Bytes only, the parsed JSON is unchanged. Functions: _first_check, _inverted, _located, _longer_title, _profile_cwd, _repeat_check, _statement_span, body_span, find_oracle, manifest_entry, parse_detector_node, plan_mutation, run_shape_checks. grep -c '","class"': 13 on HEAD, 0 after; '", "class"': 1120 after.
+F2 (verdict t-411): red_sandbox.py::_check_row_in_clone shape -> safety (roles [conductor] and owner data unchanged). Symlink/link guards on the folder the install writes (red_sandbox.py:469, :479); Lead rule 2, a guard on a WRITTEN path.
+Lead decision 6b: exploration.py::record_answer xref -> safety, owner data -> intent (roles [conductor] unchanged). It refuses to let a conductor token or --not-asked override the person's recorded word (exploration.py:635, :638, :647).
+No class lowered, no blocks_override added, no row added or removed.
+
+Raise list (AR-20):
+safety: 79 -> 81 -- exploration.py::record_answer (xref -> safety), red_sandbox.py::_check_row_in_clone (shape -> safety)
+no other ratchet key moves (blocking_per_role included); the census test reports 26 passed.
+Reconcile note: reconcile.py (written for add-only nodes) prints "existing rows unchanged: False" and a safety MISMATCH (0 new rows); a read-only comparison with HEAD names exactly the two rows above.
+
+architecture: AR-29 -- two existing rows re-judged upward by the verdict t-411 and the Lead's decision 6b (a guard on a written path, a guard on a person's recorded word), each one a judged class per unit; AR-20 -- the raised key (safety 79 -> 81) is named above with its two causes; AR-13 -- no second AST walk, no code touched
+judgment: adds data check test_judgment_census.fixture -- two existing rows are re-classified upward to safety (guards on a written path and on a person's recorded word), no class lowered and no blocks_override added; each stays a data check or a guard classified per unit
+tier: <model>
+
+Four questions (rule 10) for the fixture re-judgment:
+(a) Cost and who pays: three small fixture edits; the census run gets no new walk. The builder pays the edits, the Lead pays the commit.
+(b) Axes (36 on docs/SIBLING_MAP.md):
+axis 1 (policy <-> role): n/a the critic brief lists were edited by OH8-7b; CLAUDE.md rule 10 and designer rule 1 name no constant.
+axis 2 (per-tier exam instruments): n/a no exam.
+axis 3 (factory package <->): n/a test files ship as usual; no release-side step changes.
+axis 4 (factory rules <->): n/a no FR change.
+axis 5 (stage twins inside): n/a the census is not a stage.
+axis 6 (measurement tools <->): n/a no measurer reads the census.
+axis 7 (per-test identity <->): n/a no per-test identity changed
+axis 8 (where the story): n/a no story path resolver touched
+axis 9 (is this a): n/a SCAN_EXCLUDE unchanged.
+axis 10 (git-top readers): n/a no git-top reader touched
+axis 11 (shell-command recognizers): n/a no shell-command recognizer touched
+axis 12 (carriers of the): covered the node is a row of batch onboarding-hooks/9 (the coordinator's move, D-0044).
+axis 13 (the dispatch text): n/a no dispatch text touched
+axis 14 (readers of agent): n/a no transcript reader touched
+axis 15 (console stream setup): n/a the test prints as before.
+axis 16 (one json reader): n/a the test reads its fixture as before.
+axis 17 (detector verdict shape): n/a the census is a test, not a detector producer.
+axis 18 (in-tree shrink-only ratchets): covered safety rises by exactly 2 (79 -> 81), each cause named row by row; no other key moves.
+axis 19 (one reader of): n/a no role tools line reader touched
+axis 20 (host receipt names): n/a no host receipt name touched
+axis 21 (readers of the): n/a no markdown table reader touched
+axis 22 (a host's return): n/a no host report form touched
+axis 23 (fields of a): n/a no tests[] row field touched
+axis 24 (the record of): n/a no execution record join touched
+axis 25 (freshness of a): n/a no freshness predicate touched
+axis 26 (the word stand): n/a no stand-not-confirmed word touched
+axis 27 (the profile of): n/a no profile of a test row touched
+axis 28 (the render site): n/a no row form render site touched
+axis 29 (append-only jsonl writers): n/a no jsonl appender touched
+axis 30 (the commands of): n/a no profile commands reader touched
+axis 31 (role carriers): n/a no role carrier touched
+axis 32 (where judgment lives): covered two rows re-judged by the critic's verdict and the Lead's decision; rows read by critic question 11.
+axis 33 (which dispatch am): n/a no dispatch identity reader touched
+axis 34 (one road for): n/a the temporary second road is untouched by this round.
+axis 35 (sides of a): n/a no story sides reader touched
+axis 36 (the row written): n/a no placeholder row predicate touched
+(c) Detector: test_judgment_census.py -- C1 (a created unit with no row, a row whose unit vanished), the ratchet checks; calibration checks 41 (judgment census) and 35 (b) in PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md.
+(d) What stops a skip: code on the path. The census test is a `keep` row printed by scenario_walk.py --witness-for for the fixture and runs in the CI canon; a raised ceiling with `judgment: none` is refused by tools/architecture_gate.py. The MEANING of each class is judged by a tier above (critic question 11), not by code.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
