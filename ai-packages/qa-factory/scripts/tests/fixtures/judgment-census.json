@@ -1143,7 +1143,7 @@
   {"file": "walk_session.py", "function": "verdict_problems", "class": "xref", "roles": ["conductor"], "owner": "data"},
   {"file": "window_record.py", "function": "_quality_data", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "window_record.py", "function": "build", "class": "shape", "roles": ["conductor"], "owner": "data"},
-  {"file": "window_record.py", "function": "run", "class": "shape", "roles": ["conductor"], "owner": "data"},
+  {"file": "window_record.py", "function": "run", "class": "xref", "roles": ["conductor"], "owner": "intent"},
   {"file": "window_record.py", "function": "write_review_receipt", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "worker_lifecycle.py", "function": "cancellation", "class": "shape", "roles": ["qa-automator", "qa-bug-reporter", "qa-case-critic", "qa-case-designer", "qa-code-critic", "qa-doc-scribe", "qa-failure-analyst", "qa-requirements-tester", "qa-retro-analyst", "qa-runner", "qa-scout", "qa-test-strategist", "conductor"], "owner": "data"},
   {"file": "worker_lifecycle.py", "function": "guard", "class": "safety", "roles": ["qa-automator", "qa-bug-reporter", "qa-case-critic", "qa-case-designer", "qa-code-critic", "qa-doc-scribe", "qa-failure-analyst", "qa-requirements-tester", "qa-retro-analyst", "qa-runner", "qa-scout", "qa-test-strategist", "conductor"], "owner": "intent"}

@@ -2132,6 +2132,20 @@ def run(task: str, dispatch_id: str, out: str = "", review_receipt: bool = False
     info.extend(_two_case_red_notes(window))
     for line in info:  # not problems: what a proof of this window rests on, said whether or not it is acceptable
         print("note: " + line)
+    # FV1-30b N6 (F14, E33): the gaps a person's recorded word lets go are judged by the ONE predicate `word_let_go` over the LIVE
+    # index (`s5_precheck.live_word_index`, asked once here, only when there is a gap), BEFORE every "is the gap derivable" test
+    # below. INVARIANT: only the kept gaps are judged; a let-go line is PRINTED, never dropped silently; an index that cannot be
+    # built (None) or any exception lets nothing go, and a kept gap gives today's listing and exit code.
+    if problems:
+        try:
+            import s5_precheck
+            index = s5_precheck.live_word_index(task_root, list(window.get("scope_instances") or {}) or None, dispatch_id)
+            kept_problems, let_go = word_let_go(problems, window, index)
+        except Exception:
+            kept_problems, let_go = problems, []
+        problems = kept_problems
+        for line in let_go:
+            print("note: passed by the person's word: " + line)
     # t-219 (B4, Q7): when EVERY gap is an instance the stand blocked, the critic's work is finished - the window
     # is acceptable AS UNRESOLVED. Exit 0, not 1: with 1 the driver prints the marker note that sent the cmp2
     # critic round the loop eight times. Any other gap, the blocked lines among them, keeps today's exit 1.

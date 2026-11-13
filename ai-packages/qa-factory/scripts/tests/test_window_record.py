@@ -2322,7 +2322,166 @@ def the_item_carries_the_identity_the_run_recorded():
         cleanup(project)
 
 
+def fv1_30b_n6_the_three_judges_read_the_one_survivor():
+    """FV1-30b N6 (F14; E12, E29, E30, E32, E33): `story_step.finish`, `window_record.run` and `Driver.window_gap` judge only the gaps
+    `word_let_go` keeps, over `s5_precheck.live_word_index`. The gap lists, the build and the index are the stand-ins; the window, the
+    words and the predicate are real. Rows n1 (finish), n2 (run), n3 (window_gap), n4 (the index raising or None, per site)."""
+    import argparse
+    import contextlib
+    import io
+    import story_run
+    import story_step
+    import waiver
+    import acceptance
+    run_word = {"finding_id": "run_mapping:TC-1:no-row-b", "check": "run_mapping", "case": "TC-1", "tag": "no-row-b", "at": "t",
+                "subjects": [{"instance_id": "B"}]}
+    refs_word = {"finding_id": "manifest:-:row-fields-missing", "check": "manifest", "case": "", "tag": "row-fields-missing", "at": "t",
+                 "subjects": [{"instance_id": "A", "fields": ["obligation_refs"]}]}
+    ran = lambda iid: {"instance_id": iid, "outcome": "passed", "evidence_refs": [{"path": "p", "sha256": "s"}]}  # noqa: E731
+    no_run = lambda iid: {"instance_id": iid, "evidence_refs": []}  # noqa: E731
+    asked: list = []
+
+    def index_of(rows):
+        def live(task_root, scope=None, dispatch_id=None):
+            asked.append((scope, dispatch_id))
+            return waiver.word_passed_index(rows)
+        return live
+
+    def raising(*_a, **_k):
+        raise RuntimeError("boom")
+    real_live, real_gaps, real_valid = s5_precheck.live_word_index, story_step._window_gaps, acceptance.validate_window
+    tmp = temp_dir("qa-n6-")
+    try:
+        # n1: finish over [obligation_binding:A, probe_gap:B], A refs-passed -> the probe_gap pair; the line is printed
+        window = {"scope_instances": {"TC-1": ["A", "B"]}, "instances": [ran("A"), ran("B")]}
+        wpath = tmp / "work" / "windows" / "d1.json"
+        write(wpath, window)
+
+        class Stop(Exception):
+            pass
+
+        def finish_options(live, gaps):
+            seen: list = []
+
+            class Recorder:
+                def __init__(self, _root, wait_seconds=0.0):
+                    pass
+
+                def state(self):
+                    return {"dispatches": {"d1": {"stage": "S5", "role": "qa-code-critic"}}}
+
+                def prepare(self, options):
+                    seen.append(dict(options))
+                    raise Stop()
+            saved = {n: getattr(story_step, n) for n in ("Controller", "_task_root", "_stages", "_handoff_check", "_evidence", "_role_receipts")}
+            story_step.Controller, story_step._task_root = Recorder, lambda _t: tmp
+            story_step._stages = lambda: {"S5": {"roles": ["qa-automator", "qa-code-critic"]}}
+            story_step._handoff_check = lambda *_a: ("green", "", "")
+            story_step._evidence, story_step._role_receipts = lambda *_a: ["work/x.json"], lambda *_a: []
+            story_step._window_gaps = lambda _w, _r: list(gaps)
+            s5_precheck.live_word_index = live
+            printed = io.StringIO()
+            try:
+                ns = argparse.Namespace(task=TICKET, dispatch_id="d1", digest="d", output=None, not_complete=False, complete=True,
+                                        ignore_handoff=False, window=None, unresolved=None, reason=None)
+                try:
+                    with contextlib.redirect_stdout(printed):
+                        story_step.finish(ns)
+                except Stop:
+                    pass
+            finally:
+                for name, value in saved.items():
+                    setattr(story_step, name, value)
+                s5_precheck.live_word_index = real_live
+            return (seen[0] if seen else {}), printed.getvalue()
+        mixed = ["obligation_binding:A", "probe_gap:B"]
+        asked.clear()
+        options, _ = finish_options(index_of([refs_word]), mixed)
+        check_eq("n1: finish, A refs-passed: the probe_gap pair is derived over the kept gap", options.get("unresolved"), "probe_gap")
+        check_in("n1: ... and the reason names the kept gap", "probe_gap:B", options.get("reason") or "")
+        check_not_in("n1: ... and not the let-go one", "obligation_binding:A", options.get("reason") or "")
+        check_eq("n1: the index is asked once, for the window's cases and the dispatch", asked, [(["TC-1"], "d1")])
+        options, _ = finish_options(index_of([]), mixed)
+        check_not_in("n1: no word: no pair (today)", "unresolved", options)
+        options, _ = finish_options(index_of([refs_word]), ["obligation_binding:A", "product:C"])
+        check_not_in("n1 (E32 invariant): a kept gap that is not derivable: no pair, the let-go gap does not make it so", "unresolved", options)
+        options, _ = finish_options(index_of([refs_word]), ["obligation_binding:A"])
+        check_not_in("n1: every gap let go: no pair, nothing left to derive", "unresolved", options)
+        for label, live in (("raising", raising), ("None", lambda *_a, **_k: None)):
+            options, _ = finish_options(live, mixed)
+            check_not_in(f"n4 (finish): an index that is {label}: nothing is let go, no pair (today)", "unresolved", options)
+        options, _ = finish_options(index_of([refs_word]), [])
+        check_not_in("a window with no gap: no pair (today)", "unresolved", options)
+
+        # n2: window_record.run
+        def run_with(live, gaps):
+            win = {"scope_instances": {"TC-1": ["A", "B"]}, "instances": [ran("A"), no_run("B")]}
+            saved = {n: getattr(WR, n) for n in ("require_project", "artifacts_dir", "build", "verdict", "_handed_empty_cases")}
+            WR.require_project, WR.artifacts_dir = lambda *_a: None, lambda _t: tmp
+            WR.build, WR.verdict = lambda _r, _d: (win, []), lambda _r, _w, _n, _i=None: list(gaps)
+            WR._handed_empty_cases = lambda *_a: set()
+            s5_precheck.live_word_index = live
+            out = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(out):
+                    code = WR.run(TICKET, "d1")
+            finally:
+                for name, value in saved.items():
+                    setattr(WR, name, value)
+                s5_precheck.live_word_index = real_live
+            return code, out.getvalue()
+        word_note = "note: passed by the person's word: obligation_binding:A"
+        asked.clear()
+        code, out = run_with(index_of([refs_word]), ["obligation_binding:A", "obligation_hash:A"])
+        check_eq("n2: a window whose only gaps are word-passed: exit 0", code, 0)
+        check_in("n2: ... one note per let-go line", word_note, out)
+        check_in("n2: ... the second line too", "note: passed by the person's word: obligation_hash:A", out)
+        check_in("n2: ... and the window is acceptable", "the window is acceptable", out)
+        check_not_in("n2: ... not 'NOT acceptable'", "NOT acceptable", out)
+        check_eq("n2: the index is asked once, for the window's cases and the dispatch", asked, [(["TC-1"], "d1")])
+        code, out = run_with(index_of([refs_word]), ["obligation_binding:A", "review:A"])
+        check_eq("n2: one more unpassed gap: today's exit 1", code, 1)
+        check_in("n2: ... today's listing, with the kept gap only", "  - review:A", out)
+        check_not_in("n2: ... the let-go line is not listed as a gap", "  - obligation_binding:A", out)
+        check_in("n2: ... and still printed as a note", word_note, out)
+        code, out = run_with(index_of([run_word]), ["probe_gap:B"])
+        check_eq("n2: a derivable kept gap stays derivable: exit 0 and the finish derives the pair", (code, "it derives the `unresolved` pair" in out), (0, True))
+        for label, live in (("raising", raising), ("None", lambda *_a, **_k: None)):
+            code, out = run_with(live, ["obligation_binding:A"])
+            check_eq(f"n4 (run): an index that is {label}: today's exit 1", code, 1)
+            check_in(f"n4 (run): {label}: today's listing", "  - obligation_binding:A", out)
+            check_not_in(f"n4 (run): {label}: nothing is let go", "passed by the person's word", out)
+        code, out = run_with(index_of([refs_word]), [])
+        check_eq("a window with no gap: exit 0 and no let-go note (today)", (code, "passed by the person's word" in out), (0, False))
+
+        # n3: Driver.window_gap
+        record = {"scope_instances": {"TC-1": ["A", "B"]}, "instances": [dict(ran("A"), outcome="handed_to_person"), no_run("B")]}
+        rpath = write(tmp / "work" / "windows" / "d1.json", record)
+        gaps_now = ["handed_to_person:A", "product:B"]
+
+        def gap_with(live, gaps=None):
+            asked.clear()
+            acceptance.validate_window = lambda _w, _r: list(gaps or gaps_now)
+            s5_precheck.live_word_index = live
+            try:
+                return story_run.Driver.window_gap(rpath, tmp)
+            finally:
+                acceptance.validate_window = real_valid
+                s5_precheck.live_word_index = real_live
+        check_eq("n3 (today): [handed:A, product:B], no word: no pair", gap_with(index_of([])), ())
+        pair = gap_with(index_of([run_word]))
+        check_eq("n3: B `not_run`-passed: the handed pair is derived", pair, ("handed_to_person", "handed_to_person: handed_to_person:A"))
+        check_eq("n3: the index is asked once, the dispatch is the record's file stem", asked, [(["TC-1"], "d1")])
+        check_eq("n3 (invariant): a kept gap that is not handed: no pair", gap_with(index_of([run_word]), ["handed_to_person:A", "product:B", "review:B"]), ())
+        for label, live in (("raising", raising), ("None", lambda *_a, **_k: None)):
+            check_eq(f"n4 (window_gap): an index that is {label}: today's `()`", gap_with(live), ())
+    finally:
+        s5_precheck.live_word_index, story_step._window_gaps, acceptance.validate_window = real_live, real_gaps, real_valid
+        cleanup(tmp)
+
+
 def pure_group():
+    fv1_30b_n6_the_three_judges_read_the_one_survivor()
     fv1_30b_word_let_go_is_the_one_predicate()
     fv1_30b_the_window_carries_the_word_it_was_given()
     the_item_carries_the_identity_the_run_recorded()

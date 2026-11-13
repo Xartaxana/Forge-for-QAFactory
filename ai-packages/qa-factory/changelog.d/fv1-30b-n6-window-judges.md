@@ -1,0 +1,1 @@
+- The other three judges of the S5 window (`story_step.py finish`, `window_record.py`, the driver's `window_gap`) now judge only the gaps the one let-go predicate keeps, so a gap a person's recorded word passed no longer blocks the window or hides a derivable pair; the let-go lines are printed as "passed by the person's word".
