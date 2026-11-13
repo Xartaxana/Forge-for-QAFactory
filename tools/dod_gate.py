@@ -374,13 +374,7 @@ def named_handoffs(payload: dict, base: str) -> list:
         if cut is None or cut.degraded:
             sys.stderr.write("dod_gate: handoff check skipped -- dispatch cut degraded\n")
             return []
-        named = {}
-        for p in dm.handoff_paths(cut):
-            for folder in dm.HANDOFF_DIRS.values():
-                if hg._in_folder(p, folder):
-                    named.setdefault(hg._real(p, base), (p, folder))
-                    break
-        cands = list(named.values())
+        cands = hg.handoff_candidates(cut, list(dm.HANDOFF_DIRS.values()), base)
         if len(cands) != 1:
             return []
         start = _start_time(worker_file)

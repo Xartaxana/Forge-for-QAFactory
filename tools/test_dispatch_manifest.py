@@ -883,6 +883,48 @@ def test_handoff_paths_of_a_degraded_cut_and_of_no_section():
     assert dm.handoff_paths(dm.section_cut(None)) == []
 
 
+def _hm(prompt):
+    return dm.handoff_mentions(dm.section_cut(prompt))
+
+
+# F6-37 rows m1-m5 (Lead, 13.11.2026: one token rule; a relative scout path is read only in backticks).
+_SCOUT_TEMPLATE = ("handoff: final message; the Lead saves it with tools/handback_extract.py to "
+                   "`docs/tasks/specs/reports/t-354-%s.md`\n")
+
+
+@pytest.mark.parametrize("name,prompt,expected", [
+    ("m1", "handoff: `docs/tasks/specs/reports/t-354-x.md`\n", ["docs/tasks/specs/reports/t-354-x.md"]),
+    ("m1a-bare-relative-not-read", "handoff: docs/tasks/specs/reports/t-354-x.md\n", []),
+    ("m5-filled-template", _SCOUT_TEMPLATE % "x", ["docs/tasks/specs/reports/t-354-x.md"]),
+    ("m5a-unfilled-template", _SCOUT_TEMPLATE % "<slug>", []),
+    ("m2-abs-and-relative-in-order",
+     "handoff: /w/docs/a.md and `docs/tasks/specs/reports/t-354-x.md`\n",
+     ["/w/docs/a.md", "docs/tasks/specs/reports/t-354-x.md"]),
+    ("m2-dedup", "handoff: `docs/x.md` `docs/x.md`\n", ["docs/x.md"]),
+    ("m3-fenced", "```\nhandoff: `docs/x.md` /w/docs/a.md\n```\n", []),
+    ("m3-blockquote", "> handoff: `docs/x.md`\n", []),
+    ("m4-empty-prompt", "", []),
+    ("m4-no-handoff-section", "owns: /w/a.py\n", []),
+])
+def test_handoff_mentions(name, prompt, expected):
+    assert _hm(prompt) == expected
+
+
+def test_handoff_mentions_of_none_and_of_a_degraded_cut():
+    assert dm.handoff_mentions(None) == []
+    big = "handoff: /w/docs/a.md\n" + "x" * (md_regions.MAX_TEXT_CHARS + 1)
+    cut = dm.section_cut(big)
+    assert cut.degraded and dm.handoff_mentions(cut) == []
+
+
+def test_dispatch_kind_is_the_one_reader_of_the_kind():
+    assert dm.dispatch_kind({"tool_input": {"subagent_type": " Critic "}}) == "critic"
+    for bad in ({}, {"tool_input": {}}, {"tool_input": {"subagent_type": ""}},
+                {"tool_input": {"subagent_type": "  "}}, {"tool_input": {"subagent_type": 5}},
+                {"tool_input": None}, None):
+        assert dm.dispatch_kind(bad) is None
+
+
 def test_handoff_dirs_is_data_with_the_four_roles():
     assert dm.HANDOFF_DIRS == {"critic": "docs/tasks/specs/reviews", "designer": "docs/tasks/specs",
                                "builder": "docs/tasks/handoffs", "scout": "docs/tasks/specs/reports"}

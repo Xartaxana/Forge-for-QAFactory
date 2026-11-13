@@ -101,6 +101,19 @@ def _real(path: str, base: str) -> str:
     return os.path.normcase(os.path.realpath(os.path.join(base, path)))
 
 
+def handoff_candidates(cut, folders, base) -> list:
+    """[(path, folder)] of the distinct handoff paths of `cut` that lie in one of `folders` (the FIRST folder
+    that matches is kept). One path in two spellings (case, slashes, `..`) is one path: the first spelling is
+    kept. The ONE candidate loop of the write gate, dod_gate.named_handoffs and the launch check."""
+    named = {}
+    for p in dispatch_manifest.handoff_paths(cut):
+        for f in folders:
+            if _in_folder(p, f):
+                named.setdefault(_real(p, base), (p, f))
+                break
+    return list(named.values())
+
+
 def _worker_file(transcript_path, agent_id):
     """The worker's transcript path (not checked to exist); None when it cannot be composed."""
     name = transcripts.agent_file_name(agent_id)
@@ -159,11 +172,7 @@ def _gate(kind, folders, text, path, base):
         return 2, _refusal(kind, dirs, shown, REASON_UNREADABLE, "a dispatch whose text can be read", door)
     if kind is None and dispatch_manifest.owned_paths(cut):
         return 0, ""
-    named = {}  # one path in two spellings (case, slashes, `..`) is one path: the first spelling is kept
-    for p in dispatch_manifest.handoff_paths(cut):
-        if any(_in_folder(p, f) for f in folders):
-            named.setdefault(_real(p, base), p)
-    cands = list(named.values())
+    cands = [p for p, _ in handoff_candidates(cut, folders, base)]
     if not cands:
         return 2, _refusal(kind, dirs, shown, REASON_NO_PATH.format(dirs=dirs),
                            "one absolute .md path on the handoff: line of the dispatch, inside " + dirs, door)

@@ -17,6 +17,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import dispatch_gate  # noqa: E402
+import md_regions as _md_regions  # noqa: E402
 
 SCRIPT = Path(__file__).resolve().parent / "dispatch_gate.py"
 # FLIPPED (B-204/B-245): a relative path is a candidate by the ONE predicate (first segment = a
@@ -76,6 +77,98 @@ def _manifest(given="the whole repo", owns=_OWNED_PATH, non_goals="none", handof
         lines.append(f"designer: {designer}")
     text = "\n".join(lines)
     return (prefix + "\n" if prefix else "") + text + ("\n" + suffix if suffix else "")
+
+
+# F6-37: a critic/designer dispatch names one .md path directly inside its role folder (or carries a skip line).
+_CRITIC_HANDOFF = "handoff: Z:/factory-x/docs/tasks/specs/reviews/t-1.md"
+_DESIGNER_HANDOFF = "handoff: Z:/factory-x/docs/tasks/specs/t-1.md"
+_HANDOFF_BY_KIND = {"critic": _CRITIC_HANDOFF, "designer": _DESIGNER_HANDOFF}
+
+_R = "Z:/r"  # an absolute repo root outside any real drive
+_REV = _R + "/docs/tasks/specs/reviews"
+_SPEC = _R + "/docs/tasks/specs"
+
+
+def _kind_payload(kind, prompt):
+    return {"tool_name": "Task", "tool_input": {"subagent_type": kind, "prompt": prompt, "description": "opus: x"}}
+
+
+def _many_paths():
+    return "handoff: " + " ".join("%s/t-%d.md" % (_REV, i) for i in range(1000))
+
+
+# (id, kind, prompt, code, text that the message must hold, text that the note must hold)
+_NO_LINE = "no handoff: line"
+_FOLDER_ROWS = [
+    ("e1", "critic", "handoff: Z:\\r\\docs\\tasks\\handoffs\\t-1.md", 2, ["docs/tasks/specs/reviews", "none of them"], ""),
+    ("e2", "critic", "handoff: Z:\\r\\docs\\tasks\\specs\\reviews\\t-1.md", 0, [], ""),
+    ("e3", "designer", "handoff: %s/t-1.md" % _REV, 2, ["docs/tasks/specs, the designer's"], ""),
+    ("e4", "designer", "handoff: %s/t-1.md" % _SPEC, 0, [], ""),
+    ("e5", "critic", "Review the diff.", 2, [_NO_LINE], ""),
+    ("e6", "critic", "handoff: docs/tasks/specs/reviews/t-1.md", 2, ["no absolute path"], ""),
+    ("e7", "critic", "handoff: %s/<t>.md" % _REV, 2, ["no absolute path"], ""),
+    ("e8", "critic", "handoff: %s/t-1.txt" % _REV, 2, ["none of them"], ""),
+    ("e9", "critic", "handoff: %s/t-1.md %s/t-2.md" % (_REV, _REV), 2, ["2 distinct", "t-1.md", "t-2.md"], ""),
+    ("e10", "critic", "handoff: %s/t-1.md %s/T-1.md" % (_REV, _REV.replace("/", "\\")), 0, [], ""),
+    ("e11", "critic", "Review.\n```\nhandoff: %s/t-1.md\n```" % _REV, 2, [_NO_LINE], ""),
+    ("e12", "critic", "Review.\n> handoff: %s/t-1.md" % _REV, 2, [_NO_LINE], ""),
+    ("e13", "critic", "Review.\nmanifest-skip: handoff -- text report", 0, [], "sent without a report path on purpose"),
+    ("e14", "critic", "Review.\nmanifest-skip: handoff", 2, [_NO_LINE], ""),
+    ("e15", " Critic ", "handoff: Z:\\r\\docs\\tasks\\handoffs\\t-1.md", 2, ["none of them"], ""),
+    ("e16-builder", "builder", "handoff: Z:/r/docs/other/t-1.md", 0, [], ""),
+    ("e16-scout", "scout", "handoff: Z:/r/docs/other/t-1.md", 0, [], ""),
+    ("e16-gp", "general-purpose", "handoff: Z:/r/docs/other/t-1.md", 0, [], ""),
+    ("e16-namespaced", "foo:critic", "handoff: Z:/r/docs/other/t-1.md", 0, [], ""),
+    ("e17", "critic", "handoff: %s/t-1.md\n%s" % (_REV, "x" * (_md_regions.MAX_TEXT_CHARS + 1)), 0, [], "not checked"),
+    ("e18-empty", "critic", "", 2, [_NO_LINE], ""),
+    ("e18-none", "critic", None, 2, [_NO_LINE], ""),
+    ("e19", "critic", _many_paths(), 2, ["1000 distinct", "and 995 more"], ""),
+    ("e20", "critic", "handoff: %s/\u043e\u0442\u0447\u0451\u0442.md" % _REV, 0, [], ""),
+    ("e21", "critic", "```\nan unterminated fence\nhandoff: %s/t-1.md" % _REV, 0, [], ""),
+]
+
+
+@pytest.mark.parametrize("name,kind,prompt,code,message_has,note_has", _FOLDER_ROWS, ids=[r[0] for r in _FOLDER_ROWS])
+def test_handoff_folder_check(name, kind, prompt, code, message_has, note_has):
+    payload = _kind_payload(kind, prompt)
+    dm = dispatch_gate._load_manifest_module()
+    _is_builder, cut = dm.cut_payload(payload)
+    got_code, message, note = dispatch_gate.handoff_folder_check(payload, cut, dm)
+    assert got_code == code, (message, note)
+    for part in message_has:
+        assert part in message, (part, message)
+    assert (note_has in note) if note_has else (note == ""), note
+    if code == 2:
+        assert message.startswith("HANDOFF PATH (CLAUDE.md rule 11, R11-h)")
+        assert "Door:" in message or "add a line:" in message  # every refusal names a door
+
+
+def test_handoff_folder_check_e19_shows_five_paths_only():
+    payload = _kind_payload("critic", _many_paths())
+    message = dispatch_gate.decide(payload)[1]
+    assert message.count("/t-") == 5 and "t-4.md" in message and "t-5.md" not in message
+
+
+def test_handoff_folder_check_e22_the_completeness_refusal_comes_first():
+    prompt = "owns: Z:/r/x.py\nhandoff: Z:/r/docs/tasks/handoffs/t-1.md"
+    code, message = dispatch_gate.decide(_kind_payload("critic", prompt))
+    assert code == 2 and message.startswith("DISPATCH INCOMPLETE") and "HANDOFF PATH" not in message
+
+
+def test_handoff_folder_check_e23_an_import_failure_is_a_note_and_a_pass(monkeypatch):
+    monkeypatch.setitem(sys.modules, "handoff_gate", None)  # `import handoff_gate` now raises ImportError
+    payload = _kind_payload("critic", "Review the diff.")
+    decision = dispatch_gate.decide_full(payload)
+    assert decision.code == 0
+    assert any("HANDOFF CHECK: not checked (tools/handoff_gate.py did not import)" in n for n in decision.notes)
+
+
+def test_decide_full_handoff_refusal_keeps_the_label_check_behind_it():
+    payload = _kind_payload("critic", "Review.")
+    payload["tool_input"]["description"] = "nolabel"
+    assert "HANDOFF PATH" in dispatch_gate.decide(payload)[1]  # the handoff refusal is first
+    payload["tool_input"]["prompt"] = "Review.\n" + _CRITIC_HANDOFF
+    assert "worker's tier" in dispatch_gate.decide(payload)[1]  # a valid handoff reaches the label check as before
 
 
 # ---------------------------------------------------------------------
@@ -356,7 +449,8 @@ def test_description_with_leading_token_and_separator_passes():
 def test_description_check_applies_to_critic():
     payload = {
         "tool_name": "Task",
-        "tool_input": {"subagent_type": "critic", "prompt": "Review the diff.", "description": "reviewthediff"},
+        "tool_input": {"subagent_type": "critic", "prompt": "Review the diff.\n" + _CRITIC_HANDOFF,
+                       "description": "reviewthediff"},
     }
     exit_code, message = dispatch_gate.decide(payload)
     assert exit_code == 2
@@ -378,7 +472,7 @@ def test_description_check_passes_for_critic_with_leading_token():
         "tool_name": "Task",
         "tool_input": {
             "subagent_type": "critic",
-            "prompt": "Review the diff.",
+            "prompt": "Review the diff.\n" + _CRITIC_HANDOFF,
             "description": "opus: review diff",
         },
     }
@@ -396,7 +490,7 @@ def test_critic_without_dod_markers_not_blocked_by_check1():
         "tool_name": "Task",
         "tool_input": {
             "subagent_type": "critic",
-            "prompt": "Review the diff, not a single DoD word here.",
+            "prompt": "Review the diff, not a single DoD word here.\n" + _CRITIC_HANDOFF,
             "description": "opus: review",
         },
     }
@@ -912,7 +1006,7 @@ def test_echo_json_passing_dispatch_emits_given_path_warn_additional_context(tmp
         "tool_name": "Task",
         "tool_input": {
             "subagent_type": "critic",
-            "prompt": "Review Given: tools/does_not_exist_anywhere_xyz.py for reference.",
+            "prompt": "Review Given: tools/does_not_exist_anywhere_xyz.py for reference.\n\n" + _CRITIC_HANDOFF,
             "description": "opus: review",
         },
         "cwd": str(tmp_path),  # FLIPPED: the root is the payload cwd now (t-796: a tmp root, the gate writes traces under it)
@@ -939,7 +1033,7 @@ def test_echo_json_no_missing_given_paths_emits_no_stdout():
         "tool_name": "Task",
         "tool_input": {
             "subagent_type": "critic",
-            "prompt": "Review tools/dispatch_gate.py for reference.",
+            "prompt": "Review tools/dispatch_gate.py for reference.\n\n" + _CRITIC_HANDOFF,
             "description": "opus: review",
         },
     }
@@ -999,7 +1093,7 @@ def test_owns_bare_word_no_longer_a_write_indicator():
     # old: a BUILDER prompt discussing "owns" with a DoD word -> 0 (no write signal);
     # new: a builder is always checked, so the premise ("the bare word does not make
     # a dispatch a writing one") is pinned on a non-builder type: not checked -> 0
-    prompt = "DoD: witness present. This dispatch discusses how owns works, read-only."
+    prompt = "DoD: witness present. This dispatch discusses how owns works, read-only.\n\n" + _CRITIC_HANDOFF
     payload = {
         "tool_name": "Task",
         "tool_input": {"subagent_type": "critic", "prompt": prompt, "description": "opus: x"},
@@ -1839,7 +1933,7 @@ def test_decide_can_still_raise_on_a_non_string_description():
     # a never-raises function; its callers guard it (main(), owns_gate, critic_snapshot)
     payload = {
         "tool_name": "Agent",
-        "tool_input": {"subagent_type": "critic", "prompt": "x", "description": 5},
+        "tool_input": {"subagent_type": "critic", "prompt": "x\n" + _CRITIC_HANDOFF, "description": 5},
     }
     import pytest
 
@@ -1851,7 +1945,7 @@ def test_main_exception_out_of_decide_exit_0_unchecked_note_on_both_channels():
     # the repro of the review: exit 1 with a traceback before this guard
     payload = {
         "tool_name": "Agent",
-        "tool_input": {"subagent_type": "critic", "prompt": "x", "description": 5},
+        "tool_input": {"subagent_type": "critic", "prompt": "x\n" + _CRITIC_HANDOFF, "description": 5},
     }
     result = _run_hook(payload)
     code, out, err = _hook_out(result)
@@ -2074,6 +2168,9 @@ def _writers(n):
 def _reading_dispatch(**tool_input):
     ti = {"subagent_type": "critic", "prompt": _READER_PROMPT}
     ti.update(tool_input)
+    if (ti["subagent_type"] in _HANDOFF_BY_KIND and isinstance(ti["prompt"], str)
+            and "handoff" not in ti["prompt"].lower()):
+        ti["prompt"] += "\n" + _HANDOFF_BY_KIND[ti["subagent_type"]]  # F6-37: a gated kind names its report path
     return {"tool_name": "Task", "session_id": "sess-1", "tool_input": ti}
 
 
@@ -2754,6 +2851,10 @@ def _with_cwd(root, payload=None, tool_use_id=None):
 
 
 def _critic_payload(root, tool_use_id=None, prompt="Review the diff."):
+    # F6-37: a critic dispatch names its report path (the manifest's placeholder handoff line is replaced)
+    prompt = prompt.replace("handoff: a short report", _CRITIC_HANDOFF)
+    if "handoff" not in prompt.lower():
+        prompt += "\n" + _CRITIC_HANDOFF
     payload = _agent_payload("critic", "opus: review the diff", prompt, cwd=str(root))
     if tool_use_id is not None:
         payload["tool_use_id"] = tool_use_id
@@ -2982,8 +3083,9 @@ def _race_sandbox(tmp_path, n_workers):
 
 
 def _race_payload(root, kind, tool_use_id):
-    prompt = "given: none\nowns: %s (new)\nnon-goals: none\nhandoff: report\nedges: none\nDoD: `python -m pytest x -q`\nsiblings: none -- a test fixture\nWrite." % (
-        root / "x.py")
+    handoff = "report" if kind != "critic" else str(root / "docs" / "tasks" / "specs" / "reviews" / "t-1.md")  # F6-37
+    prompt = "given: none\nowns: %s (new)\nnon-goals: none\nhandoff: %s\nedges: none\nDoD: `python -m pytest x -q`\nsiblings: none -- a test fixture\nWrite." % (
+        root / "x.py", handoff)
     payload = {"tool_name": "Agent", "cwd": str(root), "session_id": "sid1",
                "transcript_path": str(root / "home" / "x.jsonl"),
                "tool_input": {"subagent_type": kind, "description": "sonnet: probe", "prompt": prompt}}

@@ -22,7 +22,9 @@ PATH CHECK on the same cut: every given path must exist under the root
 `(new)`; a refusal (exit 2) names the missing paths, the root and the doors
 (`(new)` for an owns path the worker creates, a merge of the file an earlier
 node made, `manifest-skip: given|owns -- <reason>`). Order: completeness ->
-paths -> label (3). The path check refuses only from a complete read, a
+paths -> label (3); F6-37 puts the handoff folder check (a critic/designer names one .md in its role folder,
+or carries manifest-skip: handoff) right after completeness: completeness -> handoff folder -> paths -> label.
+The path check refuses only from a complete read, a
 bare-declaration header, a line outside an unterminated fence and a certain
 path; everything else (no cwd, a degraded read, a cap of 200 paths, a header
 with prose between key and colon, an exception inside the check) is a NOTE
@@ -700,10 +702,79 @@ def _path_check(payload, cut, is_builder, dm):
     return 0, "", notes, reports
 
 
+HANDOFF_PREFIX = "HANDOFF PATH (CLAUDE.md rule 11, R11-h): this {kind} dispatch does not go out. "
+HANDOFF_EXPECTED = "Expected: handoff: <repo root>/{folder}/t-<id>-<slug>.md. "
+HANDOFF_SKIP_DOOR = "manifest-skip: handoff -- <reason>"
+HANDOFF_NO_LINE = (HANDOFF_PREFIX + "It has no handoff: line. A {kind} may write only one .md file directly inside "
+                   "{folder} (tools/handoff_gate.py refuses every other write once the worker runs). "
+                   + HANDOFF_EXPECTED + "To send it on purpose with the report coming back as the final message, "
+                   "add a line: " + HANDOFF_SKIP_DOOR)
+HANDOFF_WRONG_FOLDER = (HANDOFF_PREFIX + "Its handoff: names {paths}, and none of them is a .md file directly inside "
+                        "{folder}, the {kind}'s report folder (tools/handoff_gate.py would refuse the worker's Write "
+                        "there). " + HANDOFF_EXPECTED + "Door: move the path into {folder}, or add: "
+                        + HANDOFF_SKIP_DOOR)
+HANDOFF_NO_PATH = (HANDOFF_PREFIX + "Its handoff: line holds no absolute path (a relative path, a placeholder and a "
+                   "quoted line are not read). " + HANDOFF_EXPECTED + "Door: move the path into {folder}, or add: "
+                   + HANDOFF_SKIP_DOOR)
+HANDOFF_MANY = (HANDOFF_PREFIX + "Its handoff: names {n} distinct .md files inside {folder}: {shown}; the worker may "
+                "write exactly one. Door: keep one path on the handoff: line.")
+HANDOFF_NOTE_UNCHECKED = ("HANDOFF CHECK: not checked ({what}) -- the dispatch went out; tools/handoff_gate.py still "
+                          "limits the worker's writes.")
+HANDOFF_SKIP_NOTE = ("HANDOFF CHECK: sent without a report path on purpose: \"{reason}\" -- the worker returns its "
+                     "report as its final message (tools/handback_extract.py saves it).")
+HANDOFF_SHOWN_MAX = 5
+
+
+def _handoff_shown(items) -> str:
+    items = list(items)
+    shown = ", ".join(items[:HANDOFF_SHOWN_MAX])
+    if len(items) > HANDOFF_SHOWN_MAX:
+        shown += " and %d more" % (len(items) - HANDOFF_SHOWN_MAX)
+    return shown
+
+
+def handoff_folder_check(payload, cut, dm):
+    """(code, message, note): a critic/designer dispatch names exactly one .md path directly inside its role
+    folder (dispatch_manifest.HANDOFF_DIRS), or carries `manifest-skip: handoff -- <reason>`. Error direction:
+    never refuses what the write gate (tools/handoff_gate.py) would accept; an unknown (import failure, degraded
+    cut) is a NOTE and a pass. No handoff line / no absolute path is a refusal (R11-h promoted to code)."""
+    kind = dm.dispatch_kind(payload)
+    try:
+        tools_dir = str(Path(__file__).resolve().parent)
+        if tools_dir not in sys.path:
+            sys.path.insert(0, tools_dir)
+        import handoff_gate
+    except Exception:
+        return 0, "", HANDOFF_NOTE_UNCHECKED.format(what="tools/handoff_gate.py did not import")
+    if kind not in handoff_gate.GATED_KINDS:
+        return 0, "", ""
+    folder = dm.HANDOFF_DIRS[kind]
+    if cut is None:
+        return 2, HANDOFF_NO_LINE.format(kind=kind, folder=folder), ""
+    if cut.degraded:
+        return 0, "", HANDOFF_NOTE_UNCHECKED.format(what="the dispatch text could not be read reliably")
+    reason = dm.waivers(cut).get("handoff")
+    if reason is not None:
+        return 0, "", HANDOFF_SKIP_NOTE.format(reason=reason)
+    cands = handoff_gate.handoff_candidates(cut, [folder], "/")
+    if len(cands) == 1:
+        return 0, "", ""
+    if len(cands) > 1:
+        return 2, HANDOFF_MANY.format(kind=kind, n=len(cands), folder=folder,
+                                      shown=_handoff_shown(p for p, _ in cands)), ""
+    if not cut.sections["handoff"]:
+        return 2, HANDOFF_NO_LINE.format(kind=kind, folder=folder), ""
+    named = dm.handoff_paths(cut)
+    if named:
+        return 2, HANDOFF_WRONG_FOLDER.format(kind=kind, folder=folder, paths=_handoff_shown(named)), ""
+    return 2, HANDOFF_NO_PATH.format(kind=kind, folder=folder), ""
+
+
 def decide_full(payload: dict) -> Decision:
     """The decision with its notes and path reports (main() prints them; owns_gate and
     critic_snapshot keep decide()). Order: completeness check -> path check (branch A,
-    B-245) -> label check. The cut is built ONCE (dispatch_manifest.section_cut) and
+    B-245) -> label check; in between sits the handoff folder check (F6-37, handoff_folder_check): completeness ->
+    handoff folder -> path -> label. The cut is built ONCE (dispatch_manifest.section_cut) and
     shared by the completeness check and the path check. An exception out of the
     completeness check means "not checked"; one out of the path check yields the note
     "paths not checked" and the label check still runs. This function stats files
@@ -730,6 +801,15 @@ def decide_full(payload: dict) -> Decision:
     if check_exit == 2:
         # The completeness refusal comes first (as old checks 1-2 were).
         return Decision(2, check_message, [], [], stderr_note, cut)
+
+    try:  # the handoff folder check: after completeness, before the path check and the label check
+        handoff_exit, handoff_message, handoff_note = handoff_folder_check(payload, cut, dm)
+        if handoff_note:
+            notes.append(handoff_note)
+        if handoff_exit == 2:
+            return Decision(2, handoff_message, notes, [], stderr_note, cut)
+    except Exception as exc:
+        notes.append("HANDOFF CHECK: not checked: %s" % type(exc).__name__)
 
     paths, covered = [], None
     if checked:
