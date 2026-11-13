@@ -4462,6 +4462,7 @@
     "factory_dashboard.py",
     "retro_numbers.py",
     "role_load.py",
+    "run_counters.py",
     "stage_joints.py",
     "tests/harness.py"
    ]

@@ -355,26 +355,52 @@ def _journal_paths(root) -> list:
     return [(d.name, d / "state" / JOURNAL_NAME) for d in folders if (d / "state" / JOURNAL_NAME).is_file()]
 
 
-def read_rows(path) -> list:
-    """The object rows of one journal, in file order. Read as utf-8-sig (a BOM would make the
-    first line unparseable and drop row 1); split on "\\n" only, because str.splitlines also
-    breaks on U+2028 and other separators a JSON string may legally hold. A broken line, a line
-    that is not an object, an unreadable file: skipped, never an exception."""
+def read_rows_counted(path) -> tuple:
+    """(rows, bad_lines) of one jsonl carrier: the object rows in file order, and how many non-blank lines were left out
+    (a broken line, a line that is not an object). Read as utf-8-sig (a BOM would make the first line unparseable and drop
+    row 1); split on "\\n" only, because str.splitlines also breaks on U+2028 and other separators a JSON string may legally
+    hold. An unreadable or absent file is ([], 0): a caller that must tell "absent" from "empty" asks the path itself
+    (FR-41). Never an exception. `read_rows` is this loop without the count."""
     try:
         text = Path(path).read_text(encoding="utf-8-sig", errors="replace")
     except Exception:
-        return []
-    rows = []
+        return [], 0
+    rows, bad = [], 0
     for line in text.split("\n"):
         if not line.strip():
             continue
         try:
             row = json.loads(line)
         except Exception:
+            bad += 1
             continue
         if isinstance(row, dict):
             rows.append(row)
-    return rows
+        else:
+            bad += 1
+    return rows, bad
+
+
+def read_rows(path) -> list:
+    """The object rows of one journal, in file order (`read_rows_counted` without the count): a broken line, a line that is
+    not an object, an unreadable file are skipped, never an exception."""
+    return read_rows_counted(path)[0]
+
+
+QUESTIONS_NAME = "driver-questions.jsonl"
+ANSWERS_NAME = "driver-answers.jsonl"
+
+
+def question_rows(task_root) -> tuple:
+    """(rows, bad_lines) of `state/driver-questions.jsonl` of a story folder: the ONE reader of the driver's question record
+    (one writer, `driver_dialog`). Absent file: ([], 0); the caller asks `<task_root>/state/QUESTIONS_NAME` for presence."""
+    return read_rows_counted(Path(task_root) / "state" / QUESTIONS_NAME)
+
+
+def answer_rows(task_root) -> tuple:
+    """(rows, bad_lines) of `state/driver-answers.jsonl` of a story folder: the ONE reader of the driver's answer record
+    (two writers, `driver_conductor` and `driver_s0`; each row carries `question_sha`). Absent file: ([], 0)."""
+    return read_rows_counted(Path(task_root) / "state" / ANSWERS_NAME)
 
 
 def parse_driver_runs(root) -> tuple:
