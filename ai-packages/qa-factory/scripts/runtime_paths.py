@@ -834,6 +834,37 @@ def project_for_task(task_root, hint=None) -> Path:
                      "same folder from CLAUDE_PROJECT_DIR).")
 
 
+def story_text(task_root, rel: str = "") -> str:
+    """A story file as a text a person or a role reads (FR-37): the story's folder relative to ITS project, then `rel`.
+
+    The ONE spelling of "where this story lives" for printed text (t-290, OF4-21): the folder is read through
+    `project_for_task` (so a configured `artifact_root` is honoured) and `rel` is appended as text, never resolved
+    (a glob or a `<placeholder>` stays as it is; backslashes become `/`, a leading `./` is dropped, a trailing `/` is kept).
+    A story outside its project, or one whose project cannot be established, gives the absolute posix path of the
+    folder: longer, still true. The allowed error is a valid project rejected; the forbidden one is a path relative to a
+    project that does not contain the story (`_admits` forbids it). Never raises; no cache, no env, no write."""
+    try:
+        root = Path(task_root).resolve()
+    except Exception:                      # an unresolvable value (a NUL, a loop, not a path): printed as given
+        root = Path(str(task_root))
+    try:
+        project = project_for_task(root)
+    except Exception:
+        project = None
+    head = root.as_posix()
+    if project is not None:
+        try:
+            head = root.relative_to(project).as_posix()
+        except ValueError:
+            head = root.as_posix()
+    text = str(rel or "").replace(chr(92), "/")
+    while text.startswith("./"):
+        text = text[2:].lstrip("/")
+    if not text:
+        return head
+    return f"{head.rstrip('/')}/{text}" if head else text
+
+
 # --- the map a story_run driver writes, and the READ policy over a stored one -------------------------------------
 
 def _artifact_items(task_root):

@@ -688,22 +688,68 @@ def story_closed(pipeline: dict | None) -> str:
     return closure["closed_at"] if closure["state"] == "closed" else ""
 
 
+class ConfigUnreadable(ValueError):
+    """qa-factory/config.json exists but is empty, not JSON, or not an object. The message
+    names the door (FR-1, FR-57): the factory does not guess what the file should have said."""
+
+
+def read_config_file(root: Path) -> dict | None:
+    """The project's config as a dict, None when there is no qa-factory/config.json (the empty
+    input of the migration), ConfigUnreadable when the file is there and cannot be read as one
+    JSON object. A byte-order mark is tolerated: an editor put it there, nobody meant it."""
+    path = Path(root) / "qa-factory" / "config.json"
+    if not path.exists():
+        return None
+    door = ("The factory does not guess what it should say: fix the file by hand, or move it "
+            "aside (rename it, for example to config.broken.json) and run onboarding again to "
+            "write a new one.")
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ConfigUnreadable(f"qa-factory/config.json cannot be read ({type(exc).__name__}: {exc}). "
+                               + door) from exc
+    if not text.strip():
+        raise ConfigUnreadable("qa-factory/config.json is empty; it must hold one JSON object. " + door)
+    try:
+        data = json.loads(text)
+    except RecursionError as exc:
+        raise ConfigUnreadable("qa-factory/config.json is nested too deeply to read; it must hold one "
+                               "JSON object. " + door) from exc
+    except ValueError as exc:
+        raise ConfigUnreadable(f"qa-factory/config.json is not valid JSON ({exc}); it must hold one "
+                               "JSON object. " + door) from exc
+    if not isinstance(data, dict):
+        kind = {list: "list", str: "string", type(None): "null", bool: "boolean"}.get(type(data), "number")
+        raise ConfigUnreadable(f"qa-factory/config.json holds a JSON {kind}, not a JSON object. " + door)
+    return data
+
+
 def artifact_root(event: dict | None = None, root: Path | None = None) -> Path:
     """Resolve the configurable artifact root once for writers and consumers alike."""
     project = Path(root).resolve() if root is not None else project_root(event).resolve()
-    config = project / "qa-factory" / CONFIG_PATH_NAME
-    # `utf-8-sig`, but the exception stays: a broken config must raise here, not become `{}` (through `read_json`) and
-    # silently put the artifacts into the default root (AR-28, AR-4).
-    cfg = json.loads(config.read_text(encoding="utf-8-sig")) if config.exists() else {}
-    if not isinstance(cfg, dict):
-        raise ValueError("qa-factory/config.json is not a JSON object; fix it by hand or move it aside and run onboarding again")
+    # A broken config raises here (ConfigUnreadable), never becomes `{}` and silently puts the artifacts into the
+    # default root (AR-28, AR-4); no file at all is the default world.
+    cfg = read_config_file(project) or {}
     value = cfg.get("artifact_root")
     if value is None:
         return project / "qa-factory" / "artifacts"
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError("artifact_root must be a non-empty path")
+    if not isinstance(value, str) or not value.strip() or "\x00" in value:
+        if not isinstance(value, str):
+            shown = type(value).__name__
+        elif value.strip():
+            shown = "a path with a NUL character"
+        else:
+            shown = "a blank string"
+        raise ValueError("qa-factory/config.json: `artifact_root` must be a non-empty folder path "
+                         f"(got {shown}). Remove the key to keep the story folders in qa-factory/artifacts, "
+                         "or set it to a folder path.")
     path = Path(value)
-    return (path if path.is_absolute() else project / path).resolve()
+    try:
+        return (path if path.is_absolute() else project / path).resolve()
+    except (OSError, ValueError):
+        raise ValueError("qa-factory/config.json: `artifact_root` must be a non-empty folder path "
+                         "(got an unresolvable path). Remove the key to keep the story folders in qa-factory/artifacts, "
+                         "or set it to a folder path.")
 
 
 def load_ref_json(name: str) -> dict:

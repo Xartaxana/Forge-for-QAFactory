@@ -7,6 +7,7 @@ bytes that are not UTF-8, a nesting the parser gives up on, a path that is not a
 
 Runnable on its own: `python -B scripts/tests/test_read_json.py`."""
 import ast
+import io
 import json
 import sys
 from pathlib import Path
@@ -42,6 +43,7 @@ import grammar  # noqa: E402
 import import_test_receipt  # noqa: E402
 import probe_by_code  # noqa: E402
 import report_adapt  # noqa: E402
+import role_cli  # noqa: E402
 import runtime_paths  # noqa: E402
 import test_locations  # noqa: E402
 import test_novelty  # noqa: E402
@@ -693,6 +695,119 @@ def test_the_config_readers(scratch: Path) -> None:
           hasattr(config_contract, "read_config_file") and hasattr(config_contract, "ConfigUnreadable"))
 
 
+# --- OF4-10: a broken project config is a refusal with a door at `artifact_root` and its callers, never a traceback or a pass ---
+ROOT_STATES = {
+    "absent": None,
+    "no_key": b'{"schema_version": 1}',
+    "key": b'{"artifact_root": "stories"}',
+    "bom_key": BOM + b'{"artifact_root": "stories"}',
+    "null_key": b'{"artifact_root": null}',
+    "outside": b'{"artifact_root": "../outside"}',
+    "empty_file": b"",
+    "blank_file": b"   ",
+    "invalid": b"{not json",
+    "list": b"[1, 2]",
+    "latin1": b'{"artifact_root": "\xe9"}',
+    "deep": DEEP.encode("utf-8"),
+    "dir": "DIR",
+    "key_empty": b'{"artifact_root": ""}',
+    "key_blank": b'{"artifact_root": "   "}',
+    "key_number": b'{"artifact_root": 5}',
+    "key_list": b'{"artifact_root": ["a"]}',
+    "key_nul": b'{"artifact_root": "a\u0000b"}',
+}
+
+
+def _locator_exc(root: Path):
+    """(path, exception): what `hooklib.artifact_root(root=root)` gave."""
+    try:
+        return hooklib.artifact_root(root=root), None
+    except ValueError as exc:
+        return None, exc
+
+
+def _root_locator(root: Path):
+    got, exc = _locator_exc(root)
+    if exc is not None:
+        return "refused" if "config.json" in str(exc) else f"bad-text:{exc}"
+    try:
+        return got.relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return f"outside:{got.name}"
+
+
+def _root_writer(root: Path):
+    buf = io.StringIO()
+    saved = hooklib.project_root
+    hooklib.project_root = lambda event=None: root
+    try:
+        code = role_cli.run_guarded("of4-10 writer", lambda: (hooklib.artifacts_dir("S-1"), 0)[1], stream=buf)
+    finally:
+        hooklib.project_root = saved
+    if code == 0:
+        return "ok"
+    text = buf.getvalue()
+    return "refused" if code == role_cli.EXIT_REFUSED and "config.json" in text and "Traceback" not in text else f"bad:{code}"
+
+
+def _root_grounding(root: Path):
+    for base in (root / "qa-factory" / "artifacts", root / "stories"):
+        (base / "S-1" / "work").mkdir(parents=True, exist_ok=True)
+        (base / "S-1" / "work" / "requirements-register.md").write_text("# register\n", encoding="utf-8")
+    saved = hooklib.project_root
+    hooklib.project_root = lambda event=None: root
+    try:
+        got = exit_gate.grounding_errors("qa-requirements-tester", "S-1")
+    finally:
+        hooklib.project_root = saved
+    if got == []:
+        return []
+    one = len(got) == 1 and getattr(got[0], "kind", "") == "unreadable"
+    return "unreadable" if one and "grounding_errors: unreadable" in str(getattr(got[0], "text", got[0])) else f"bad:{got!r}"[:200]
+
+
+def _crash(driver, root: Path):
+    try:
+        return driver(root)
+    except Exception as exc:  # noqa: BLE001 - any exception that is not a refusal is the row's failure
+        return f"crash:{type(exc).__name__}"
+
+
+ROOT_SITES = {"locator": _root_locator, "writer": _root_writer, "grounding": _root_grounding}
+_BROKEN = ("empty_file", "blank_file", "invalid", "list", "latin1", "deep", "dir", "key_empty", "key_blank", "key_number",
+           "key_list", "key_nul")
+ROOT_EXPECT = {
+    **{s_: ("qa-factory/artifacts", "ok", []) for s_ in ("absent", "no_key", "null_key")},
+    **{s_: ("stories", "ok", []) for s_ in ("key", "bom_key")},
+    "outside": ("outside:outside", "ok", []),
+    **{s_: ("refused", "refused", "unreadable") for s_ in _BROKEN},
+}
+
+
+def test_the_artifact_root(scratch: Path) -> None:
+    check_eq("OF4-10 every site has a cell per state", sorted(ROOT_EXPECT), sorted(ROOT_STATES))
+    for site, (name, driver) in enumerate(ROOT_SITES.items()):
+        for state, content in ROOT_STATES.items():
+            root = scratch / f"{name}-{state}" / "project"
+            (root / "qa-factory").mkdir(parents=True)
+            if content == "DIR":
+                (root / "qa-factory" / "config.json").mkdir()
+            elif content is not None:
+                (root / "qa-factory" / "config.json").write_bytes(content)
+            check_eq(f"OF4-10 {name} x {state}", _crash(driver, root), ROOT_EXPECT[state][site])
+    check("OF4-10 config_contract.ConfigUnreadable is hooklib.ConfigUnreadable",
+          config_contract.ConfigUnreadable is hooklib.ConfigUnreadable)
+    check("OF4-10 config_contract.read_config_file is hooklib.read_config_file",
+          config_contract.read_config_file is hooklib.read_config_file)
+    for state, is_read_failure in (("invalid", True), ("key_number", False)):
+        root = scratch / f"locator-{state}" / "project"
+        exc = _locator_exc(root)[1]
+        check(f"OF4-10 class split: {state}", exc is not None and (isinstance(exc, hooklib.ConfigUnreadable)
+              if is_read_failure else type(exc) is ValueError))
+    nul_text = str(_locator_exc(scratch / "locator-key_nul" / "project")[1])
+    check("OF4-10 key_nul text names NUL, not blank", "blank" not in nul_text and "NUL" in nul_text)
+
+
 if __name__ == "__main__":
     root = temp_dir("qa-read-json-")
     try:
@@ -703,6 +818,7 @@ if __name__ == "__main__":
         test_c5_characterisation(files, root / "c5")
         test_the_census(Path(__file__).resolve().parents[1], root / "g5")
         test_the_config_readers(root / "gw138")
+        test_the_artifact_root(root / "of4-10")
     finally:
         cleanup(root)
     finish("read_json")
