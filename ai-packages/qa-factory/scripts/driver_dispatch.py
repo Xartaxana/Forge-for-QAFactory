@@ -852,7 +852,7 @@ class DriverDispatch:
             # (t-217 §4/C2), and the one-resume record keys on them.
             raise Refusal(f"story_step finish {dispatch} (exit {code}):\n{out}", retry=retry, dispatch=dispatch,
                           window_findings=window_gaps, checks=checks)
-        if complete is True and WINDOW_ROUND_STAGES.get(stage) == role:
+        if complete is True and (WINDOW_ROUND_STAGES.get(stage) == role or stage not in WINDOW_ROUND_STAGES):
             # F-cmp2-28c / C1: ONLY the accepted completion of the stage's closing role ends the window's series.
             # An author's finish (`--not-complete`) between two reviews of the same window never does: that is
             # exactly where cmp2-27 (automator-10, accepted) sat between critic-2 and critic-3.

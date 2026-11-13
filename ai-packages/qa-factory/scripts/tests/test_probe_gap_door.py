@@ -357,4 +357,100 @@ def test_no_text_record_still_offered(tmp_path):
         assert seen[0]["probe_gap_cases"] == ["CASE-A"], (status, seen[0])
 
 
+# --- FV1-22 N2: the conductor-round stop on every stage ----------------------------------------------------------------------------
+
+def fv122_gate_stub(boundary_dispatch=""):
+    """`window_round_gate` on a stub `self` with an EMPTY series: the key is `<stage>|<dispatch>` (`""` with no dispatch), the real
+    `refusal_dispatch` reads the refusal's field then the boundary's, and `no_move` raises so the stop is observable."""
+    d = SimpleNamespace(state={}, journal_rows=[], seen=[])
+    d.boundary_dispatch = lambda: boundary_dispatch
+    d.refusal_dispatch = types.MethodType(SR.Driver.refusal_dispatch, d)
+    d.window_key = lambda stage, dispatch: f"{stage}|{dispatch}" if dispatch else ""
+    d.save_state = lambda: None
+    d.journal_run = lambda record: d.journal_rows.append(record)
+    d.refusal_lines = lambda refusal, items=None: list(items or [])
+    d.question_from_refusal = lambda refusal, stage: "THE QUESTION"
+
+    def no_move(state, moves=None):
+        d.seen.append(state)
+        raise RuntimeError("seam")
+
+    d.no_move = no_move
+    return d
+
+
+def fv122_rounds(d):
+    return [r for series in (d.state.get("window_rounds") or {}).values() for r in series]
+
+
+def test_fv122_s4_acceptance_refusal_through_the_real_raise(tmp_path):
+    import driver_core
+
+    def py(*args, **kw):
+        raise driver_core.gate_refusal("stage_done.py", 2, "the acceptance record has no class", "the acceptance recorded")
+
+    writer = SimpleNamespace(task_root=tmp_path, task="T", py=py, stage_acceptor=lambda stage: "qa-case-designer")
+    raised = []
+    for _ in range(2):
+        with pytest.raises(SR.Refusal) as caught:
+            SR.Driver.stage_acceptance_write(writer, "S4", "S4-qa-case-critic-1")
+        assert caught.value.dispatch == "S4-qa-case-critic-1"                        # the raiser knows the identity (FR-16)
+        raised.append(caught.value)
+    d = fv122_gate_stub()
+    SR.Driver.window_round_gate(d, raised[0], "S4")                                   # first: the conductor has it
+    assert [r["outcome"] for r in fv122_rounds(d)] == ["to_conductor"] and d.seen == []
+    with pytest.raises(RuntimeError, match="seam"):
+        SR.Driver.window_round_gate(d, raised[1], "S4")                               # second, the same set: the person's
+    assert d.seen[0]["call"] is False and d.seen[0]["kind"] == "refusal"
+    assert d.seen[0]["lead"].startswith("The factory's own checks refused this step again with the same reasons as round 1;")
+    assert "window" not in d.seen[0]["lead"].split("\n")[0]
+
+
+def test_fv122_two_different_sets_reach_the_conductor_then_the_person():
+    d = fv122_gate_stub()
+    for n, text in enumerate(("head\nset A one", "head\nset B one"), 1):             # AT the cap: both are different from every earlier round
+        SR.Driver.window_round_gate(d, SR.Refusal(text, dispatch="S8-qa-doc-scribe-1"), "S8")
+        assert len(fv122_rounds(d)) == n and d.seen == []
+    with pytest.raises(RuntimeError, match="seam"):                                    # BEYOND it: a third, different set is the person's
+        SR.Driver.window_round_gate(d, SR.Refusal("head\nset C one", dispatch="S8-qa-doc-scribe-1"), "S8")
+    assert d.seen[0]["call"] is False and d.seen[0]["lead"].startswith("The factory's own checks refused this step 2 times, and the driver does not hand it on again.")
+
+
+def test_fv122_no_identity_passes():
+    d = fv122_gate_stub(boundary_dispatch="")
+    SR.Driver.window_round_gate(d, SR.Refusal("head\nthe same lines", findings=["the same lines"]), "S7")      # bare boundary, no dispatch: no key
+    SR.Driver.window_round_gate(d, SR.Refusal("head\nthe same lines", findings=["the same lines"]), "S7")
+    assert d.state == {} and d.journal_rows == [] and d.seen == []
+    for text in ("", "   \n  "):                                                       # an empty text with a dispatch: an empty set is never recorded
+        SR.Driver.window_round_gate(d, SR.Refusal(text, dispatch="S7-qa-test-automator-1"), "S7")
+        SR.Driver.window_round_gate(d, SR.Refusal(text, dispatch="S7-qa-test-automator-1"), "S7")
+    assert fv122_rounds(d) == [] and d.journal_rows == [] and d.seen == []
+
+
+def test_fv122_another_field_named_is_another_set():
+    d = fv122_gate_stub()
+    for text in ("the step did not complete: failure_class is missing", "the step did not complete: inputs_read is missing"):
+        SR.Driver.window_round_gate(d, SR.Refusal(text, dispatch="S8-qa-doc-scribe-1"), "S8")
+    assert [r["outcome"] for r in fv122_rounds(d)] == ["to_conductor", "to_conductor"] and d.seen == []
+
+
+def test_fv122_stage_outside_the_table_is_gated():
+    d = fv122_gate_stub()
+    one_line = "the factory step stage_done.py did not complete (exit 2): expected X. The door: retry"
+    SR.Driver.window_round_gate(d, SR.Refusal(one_line, dispatch="S8-qa-doc-scribe-1"), "S8")
+    with pytest.raises(RuntimeError, match="seam"):
+        SR.Driver.window_round_gate(d, SR.Refusal(one_line, dispatch="S8-qa-doc-scribe-1"), "S8")
+    assert d.seen[0]["lead"].startswith("The factory's own checks refused this step again with the same reasons as round 1;")
+    assert d.seen[0]["call"] is False
+    assert [r["outcome"] for r in fv122_rounds(d)] == ["to_conductor", "same_set"]
+    gap = SR.Refusal("head\nwindow gap", dispatch="S8-qa-doc-scribe-1", window_findings=["window gap"])     # a window's own gaps stay S5's
+    SR.Driver.window_round_gate(fv122_gate_stub(), gap, "S8")
+
+
+def test_fv122_go_on_goes_to_the_conductor():
+    rig = Rig()
+    rig.choose("go_on_as_is", "go on", block="")
+    assert rig.passes == [] and len(rig.moves) == 1                                    # no pass is recorded; the words go to the conductor
+
+
 if __name__ == "__main__": raise SystemExit(pytest.main([__file__, "-q", "-p", "no:cacheprovider"]))

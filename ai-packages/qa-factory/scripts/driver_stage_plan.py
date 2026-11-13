@@ -643,12 +643,17 @@ class DriverStagePlan:
         `Refusal` on the standard road. Called inside `complete(digest)`, BEFORE `story_step finish` accepts the critic (E-X2-7d).
         First the critic's own `questions[]` are raised into the register (t-1815 F2; `check=True`: a refused form is a `Refusal` whose text
         names the entries, so no question is lost in silence; a form with no questions raises nothing; idempotent by `raised_from`)."""
-        if (self.task_root / "work" / "handoffs" / f"{dispatch}.yaml").is_file():
-            self.py("question_register.py", "--task", self.task, "--raise", "--stage", stage, "--asked-by", self.stage_acceptor(stage),
-                    "--from-handoff", f"work/handoffs/{dispatch}.yaml", check=True,
-                    expect=f"the questions[] of work/handoffs/{dispatch}.yaml raised into the register (none when the form has none)")
-        self.py("stage_done.py", "--task", self.task, "--stage", stage, "--acceptance", f"work/handoffs/{dispatch}.yaml", check=True,
-                expect=f"the stage acceptance of {stage} recorded in pipeline.json from work/handoffs/{dispatch}.yaml")
+        try:
+            if (self.task_root / "work" / "handoffs" / f"{dispatch}.yaml").is_file():
+                self.py("question_register.py", "--task", self.task, "--raise", "--stage", stage, "--asked-by", self.stage_acceptor(stage),
+                        "--from-handoff", f"work/handoffs/{dispatch}.yaml", check=True,
+                        expect=f"the questions[] of work/handoffs/{dispatch}.yaml raised into the register (none when the form has none)")
+            self.py("stage_done.py", "--task", self.task, "--stage", stage, "--acceptance", f"work/handoffs/{dispatch}.yaml", check=True,
+                    expect=f"the stage acceptance of {stage} recorded in pipeline.json from work/handoffs/{dispatch}.yaml")
+        except Refusal as exc:
+            # FV1-22 N2: the raiser knows the identity (FR-16): the refusal carries the dispatch, so the conductor-round gate has a key.
+            exc.dispatch = exc.dispatch or dispatch
+            raise
 
     def stage_critic_completion(self, stage: str, author: str, scope, counted, cap, dispatch_id=None):
         """The `complete` callable of the stage critic's finish (S2, S3): write the record, then (a) `accept` closes the stage (None), (b)

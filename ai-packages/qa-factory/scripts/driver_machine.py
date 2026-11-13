@@ -328,7 +328,8 @@ class DriverMachine:
         POSITION INVARIANT: after every known row of `handle_refusal` (they act first and are never counted);
         `gate_repair`'s `hand_to_conductor` calls `conductor_round` directly and never meets this. A set that
         differs from every earlier round and is within the cap always reaches the conductor. EDGES: no findings
-        (an empty set) is never recorded and never "equal" (FR-41); a stage not in WINDOW_ROUND_STAGES passes; the
+        (an empty set) is never recorded and never "equal" (FR-41); a stage not in WINDOW_ROUND_STAGES is gated for the
+        `refusal` cause only (a window's own gaps are S5's), a one-line refusal's set is its text (FV1-22); the
         person's answer clears nothing - the same set afterwards asks again, with `ask()`'s FR-7 block.
         DC1-21: the round's kind (`cause`) is `window` when the set is the window record's gap lines
         (`window_findings`), else `refusal` (the factory's own refusal of the call); each kind has its own cap of
@@ -337,12 +338,12 @@ class DriverMachine:
         Every series record is mirrored by a `window_round` row of the driver journal (`journal_run`), which
         outlives the pop at acceptance; `collect_stall` reads it through `references/collect-loops.json` (L2), and
         `task_price` passes it by (`references/driver-journal-kinds.json`)."""
-        if stage not in WINDOW_ROUND_STAGES:
+        if stage not in WINDOW_ROUND_STAGES and refusal.window_findings:
             return
         dispatch = self.refusal_dispatch(refusal)
         key = self.window_key(stage, dispatch)
         source = (refusal.window_findings or refusal.findings
-                  or [line for line in refusal.text.splitlines()[1:] if line.strip()])
+                  or [line for line in refusal.text.splitlines()[1:] if line.strip()] or [refusal.text])
         found = finding_lines(source)               # the COMPARISON form (`<dispatch>` for ids): never what the record is built from
         if not key or not found:
             return
@@ -371,7 +372,10 @@ class DriverMachine:
             if reason == "same_set":
                 print(f"{stage} window {scope}: round {len(rounds) + 1} came back with the same {len(found)} "
                       f"finding(s) as round {same} — no further rework; the person is asked")
-                if cause == "refusal":
+                if cause == "refusal" and stage not in WINDOW_ROUND_STAGES:
+                    lead = (f"The factory's own checks refused this step again with the same reasons as round {same}; "
+                            "asking again brings the same refusal. Tell me how to go on.\n\n")
+                elif cause == "refusal":
                     lead = (f"The factory's own checks refused this window again with the same reasons as round {same}. "
                             "Nothing was reworked: the reasons are not about its tests. Tell me how to go on.\n\n")
                 else:
@@ -380,8 +384,12 @@ class DriverMachine:
             elif cause == "refusal":
                 print(f"{stage} window {scope}: {WINDOW_ROUND_CAP} rounds over refusals that are not about the "
                       "window's tests are spent - the person is asked")
-                lead = (f"The factory's own checks refused this window {len(mine)} times for reasons that are not "
-                        "about its tests, and the driver does not hand it on again.\n\n")
+                if stage not in WINDOW_ROUND_STAGES:
+                    lead = (f"The factory's own checks refused this step {len(mine)} times, "
+                            "and the driver does not hand it on again.\n\n")
+                else:
+                    lead = (f"The factory's own checks refused this window {len(mine)} times for reasons that are not "
+                            "about its tests, and the driver does not hand it on again.\n\n")
             else:
                 print(f"{stage} window {scope}: the cap of {WINDOW_ROUND_CAP} rounds is spent — the person is asked")
                 lead = (f"The driver has sent this window back for rework {len(mine)} times already and does "
