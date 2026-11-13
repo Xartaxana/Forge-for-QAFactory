@@ -3545,7 +3545,7 @@ def _apply_recorded(root: Path, where: str, by: str, out: dict) -> None:
             # reworks - the error goes toward carrying the person's words out (FR-8), never toward dropping them (HF3-10, F7)
             again_in_words = prior is not None and answer == "" and prior.get("answer") == ""
             if prior is not None and (prior.get("answer") != answer or again_in_words):
-                reworked, record = _reopened(q, intents, cases, key, answer, at, lines)
+                reworked, record = _reopened(q, intents, prior, again_in_words, cases, key, answer, at, lines)
                 rework += reworked
                 records.append(record)
             elif prior is not None:
@@ -3563,11 +3563,12 @@ def _apply_recorded(root: Path, where: str, by: str, out: dict) -> None:
     out["rework"].extend(rework)
 
 
-def _reopened(q: dict, intents: list, cases: dict, key: str, answer: str, at: str, lines: list) -> tuple:
+def _reopened(q: dict, intents: list, prior: dict, again_in_words: bool, cases: dict, key: str, answer: str, at: str,
+              lines: list) -> tuple:
     """A settled question answered differently from the last answer the plan followed (or again in the person's own
-    words): the line it adds to `lines`, and `(rework_items, record)` - nothing is applied to a row here."""
-    qid, prior = q["id"], intents[-1]
-    again_in_words = answer == "" and prior.get("answer") == ""
+    words): the line it adds to `lines`, and `(rework_items, record)` - nothing is applied to a row here. `prior` and
+    `again_in_words` are the caller's: the branch it took and the line a person reads come from one decision."""
+    qid = q["id"]
     was = str(prior.get("answer") or "")
     old = _answer_words(was)
     if again_in_words:
