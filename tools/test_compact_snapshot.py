@@ -745,3 +745,28 @@ def test_k13_the_last_events_are_the_writers_own_logical_journal(tmp_path):
     assert "t-003" in tail and "DEV2-LATE" not in tail
     dev2, _ = _k13(tmp_path / "n", "dev2", dev2_extra=[_dl13("t-003", "2026-10-02T12:00:00", notes="DEV2-LATE")])
     assert "DEV2-LATE" in dev2.split("journal events", 1)[1]
+
+
+# ---- F6-58 (rule 9e): the bands in the snapshot ----
+
+def test_s1_the_fallback_next_free_id_skips_a_band_and_the_band_lines_follow(tmp_path):
+    events = [_ev("delegated", "t-399"), _ev("decomposable", None, id_band="t-400..t-449")]
+    assert cs.next_free_id(events) == "t-450"                       # main reached the band: B+1
+    assert cs.band_lines_of(events) == ["band t-400..t-449: next t-400"]
+    assert cs.next_free_id([_ev("delegated", "t-399")]) == "t-400" and cs.band_lines_of([_ev("delegated", "t-399")]) == []
+
+
+def test_s2_the_main_path_prints_the_band_lines_after_next_free_id_and_nothing_without_a_band(tmp_path):
+    _init_repo(tmp_path)
+    _journal(tmp_path, [_ev("delegated", "t-310", worker_ref="agent:aaa"),
+                        _ev("delegated", "t-450", worker_ref="agent:bbb", ts="2026-10-02T10:01:00", id_band="t-450..t-499")])
+    text, facts = cs.build_snapshot(tmp_path, "manual", NOW)
+    lines = text.splitlines()
+    i = lines.index("NEXT FREE ID: t-311")
+    assert lines[i + 1] == "band t-450..t-499: next t-451" and facts["next"] == "t-311"
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    _init_repo(plain)
+    _journal(plain, [_ev("delegated", "t-310", worker_ref="agent:aaa")])
+    lines = cs.build_snapshot(plain, "manual", NOW)[0].splitlines()
+    assert lines[lines.index("NEXT FREE ID: t-311") + 1] == "" and not any(l.startswith("band t-") for l in lines)

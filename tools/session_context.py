@@ -125,6 +125,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from stat import S_ISDIR
 
@@ -171,6 +172,13 @@ try:
 except Exception as _e:  # noqa: BLE001 -- deliberately broad, same reason as the N4 block above
     _jk = None
     _JK_IMPORT_ERROR = _e
+
+# F6-58 (rule 9e): the PARALLEL SESSION note reads the transcripts folder through the one transcripts reader
+# (SIBLING_MAP axis 14). Fail-open like the imports above: no import, no note.
+try:
+    import transcripts as _transcripts
+except Exception:  # noqa: BLE001
+    _transcripts = None
 
 MAX_LINES = 25
 QUOTA_WINDOW_SECONDS = 86400
@@ -2215,6 +2223,29 @@ def build_context_lines(
     return lines[:MAX_LINES]
 
 
+def peer_note_lines(root: Path, stdin_payload, now_epoch: float = None) -> list:
+    """The PARALLEL SESSION note (rule 9e, F6-58) as a list of 0 or 1 line: another main session of this project
+    wrote its transcript within PEER_WINDOW_S, so two sessions may be issuing task ids into one journal file. From
+    the payload's `transcript_path` and the band state of the journal file `journal_keys.py where` names. A note,
+    never a refusal; it errs toward SILENCE -- any exception, an absent `transcript_path`, no peer -> []."""
+    try:
+        if _jk is None or _transcripts is None or not isinstance(stdin_payload, dict):
+            return []
+        peers = _transcripts.peer_main_sessions(
+            stdin_payload.get("transcript_path"), time.time() if now_epoch is None else now_epoch)
+        if not peers:
+            return []
+        root = Path(root)
+        rel, _why = _jk.current_path(root)
+        label = "" if rel in (None, _jk.HISTORY_REL) else Path(rel).stem
+        # source "clear": the pre-/clear transcript of THIS person is among the peers (a new file starts at a clear)
+        note = _jk.peer_note(peers, _jk.load_all(root).band_state(label),
+                             cleared=extract_source(stdin_payload) == "clear")
+        return [note] if note else []
+    except Exception:  # noqa: BLE001
+        return []
+
+
 _COMPACT_SNAPSHOT_DIR = Path("docs") / "tasks" / "compact-snapshots"
 
 
@@ -2474,6 +2505,8 @@ def main(root: Path = None) -> int:
             # MAX_LINES truncation (it is the pointer to the PreCompact snapshot, or MISSING with the door).
             sid = stdin_payload.get("session_id") if isinstance(stdin_payload, dict) else None
             lines = lines + compact_snapshot_lines(resolved_root, session_id=sid if isinstance(sid, str) else None)
+
+        lines = lines + peer_note_lines(resolved_root, stdin_payload)
 
         output = "\n".join(lines)
         if lines:
