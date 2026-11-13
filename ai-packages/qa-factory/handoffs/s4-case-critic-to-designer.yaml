@@ -24,6 +24,25 @@ inputs:
   - path: work/test-plan.json
     what: the rows and obligations the roll-call is taken against
     required: true
+  # Read when the brief names them; a file the brief names that is absent gets a dash and its reason in `advice_read` / `not_looked`.
+  - path: work/requirements-register.md
+    what: the S2 register the cases stand on (the register bullet of the charter)
+    required: false
+  - path: work/requirements-readiness.json
+    what: the S2 readiness record of the register
+    required: false
+  - path: understanding.md
+    what: the S2 understanding brief
+    required: false
+  - path: work/advice-S2.json
+    what: the S2 adviser's remarks (sizing)
+    required: false
+  - path: work/advice-S3.json
+    what: the S3 adviser's remarks
+    required: false
+  - path: work/handoffs/<the S2 tester's and the S3 strategist's last accepted forms, named in the brief>.yaml
+    what: the tester's and the strategist's forms, with their `tried` tables
+    required: false
 
 # The author row only; add a row per further input you read, with the version read (a re-pinned case is not this window).
 inputs_read:
@@ -102,7 +121,7 @@ not_looked:
   - where: <path or area>
     why: "<one sentence>"
 
-advice_read: "<work/advice-S4.json, or a dash and the reason it was absent>"
+advice_read: "<each advice file the brief names - work/advice-S4.json, work/advice-S2.json, work/advice-S3.json - read, or a dash and the reason it was absent>"
 advice_rejected:
   - script: <the adviser>
     why: "<one sentence: why its remark is not a defect>"
