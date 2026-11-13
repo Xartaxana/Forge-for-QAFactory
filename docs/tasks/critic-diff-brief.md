@@ -61,7 +61,7 @@ and the critic role file's rule 18 point here (B-419).
    reason), and an unnamed raise is a finding. The ratchets: `audit_factory.NO_MOVE_BASELINE` /
    `NO_MOVE_BASELINE_MAX` (A27), `OUTSIDE_WALKS` / `OUTSIDE_WALKS_MAX`, `fixtures/env-facts-baseline.json`,
    the driver-layers upward edges and L8 rows, `tools/dup-baseline.json`, the lint ratchet baseline,
-   A24 / A26 `ANCHOR_FLOOR`, `SUBCLASS_PENDING_CEILING` of the census test. A diff that DOORS a site (`# remains: <reason>`) gets its reason read.
+   A24 / A26 `ANCHOR_FLOOR`. A diff that DOORS a site (`# remains: <reason>`) gets its reason read.
 
 10. **ARCHITECTURE** (D-0055; `design/architecture.md`): which AR-n invariants does the diff touch by its files and functions (grep the map), and does the commit/report name them? For each named one: is its change check done (the producer–reader walk BOTH ways with a positive control; the twins; the one-way rule — no second reader, writer, form or seam)? An AR-n touched but not named, a producer removed while a reader stays, or a second way of an existing thing is a finding with a severity (blocks when a reader is starved).
 11. **JUDGMENT** (P27, AR-29): does the diff move judgment into code — a check that classifies a role's judgment, closes a role's
@@ -69,7 +69,7 @@ and the critic role file's rule 18 point here (B-419).
     testing craft (a procedure of keys, scripts and refusals)? Read every census row the diff adds or reclassifies (a class lowered —
     `word-list` → `shape` — is the cheap way past the ratchet), every `blocks_override: false` it adds (a computed refusal relabelled
     as non-blocking is the other cheap way), every edit of the census test's scan constants (`SCAN_ROOT`, `SCAN_EXCLUDE`,
-    `BLOCKING_ENTRY_FILES`, `UNIT_NAME_RE`, `JUDGE_CALLS`, `MEANING_CEILING`, `SUBCLASS_PENDING_CEILING`, `SUBCLASS_UNIT_FILES`), and every `<!-- kind: craft -->` marker it adds (a process
+    `BLOCKING_ENTRY_FILES`, `UNIT_NAME_RE`, `JUDGE_CALLS`, `MEANING_CEILING`), and every `<!-- kind: craft -->` marker it adds (a process
     section marked craft escapes the process ratchet). Each is a finding with a severity; a `judgment: none` or `adds data check` on a diff
     that does move judgment blocks. The census (`scripts/tests/fixtures/judgment-census.json`) and `role-load.json` `process_ratchet_tokens`
     are shrink-only ratchets of axis 18 — question 9 applies to them.
