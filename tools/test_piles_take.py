@@ -11,7 +11,8 @@ import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import piles  # noqa: E402
-from piles_testkit import _no_network, GIT_VARS, git, put, batch_text, B1, B2, CARD, needs_git, edit, rd, batch2, tree_state  # noqa: E402
+from piles_testkit import (_no_network, GIT_VARS, git, put, batch_text, B1, B2, CARD, needs_git, edit, rd, batch2, tree_state,  # noqa: E402
+                           PROOF_DONE, commit, fetch_origin, head_hash, node as mk_node)
 
 
 @pytest.fixture(autouse=True)
@@ -275,3 +276,200 @@ def test_take_that_fails_and_is_rolled_back_prints_no_board_word(tree, cli, monk
     monkeypatch.setattr(piles, "write_like", failing_write)
     code, out = cli(tree, "take", "forge", "2", "--who", "dev1")
     assert code == 1 and "доска" not in out
+
+
+# ---------------------------------------------------------------- status (SL-3, t-356): the one writer of сдано / принято
+
+def status_world(tree, cli, kind):
+    """Batch 2 of the mini tree in the state `kind`; the hash used is HEAD's short hash (nothing here moves HEAD)."""
+    h = head_hash(tree, short=True)
+    rows = {"taken": ["ожидает"], "submitted-node": ["сдано"], "accepted-node": ["принято: %s (t-1)" % h],
+            "open-nodes": ["принято", "сдано"], "all-done": ["принято", "отклонено"], "dup": ["ожидает", "ожидает"],
+            "batch-accepted-fully": ["принято", "отклонено"]}.get(kind, ["ожидает"])
+    ids = ["F0-3 + F0-4"] if kind == "two-ids" else ["F0-3", "F0-3"] if kind == "dup" else ["F0-3", "F0-4"]
+    nodes = [mk_node(i, "`tools/%s.py`" % "bc"[k], s) for k, (i, s) in enumerate(zip(ids, rows * 2))]
+    put(tree, B2, batch_text("forge", 2, "ожидает", nodes, who="—", branch="—", proof=PROOF_DONE))
+    git(tree, "branch", "-M", "main")
+    if kind == "closed":
+        edit(tree, CARD, "| M | ожидает", "| M | закрыта")
+        edit(tree, B2, "статус: ожидает", "статус: закрыта")
+    if kind != "untaken" and kind != "closed":
+        assert cli(tree, "take", "forge", "2", "--who", "dev1", "--today", "2026-10-08")[0] == 0
+    if kind == "card-disagrees":
+        edit(tree, CARD, "| M | в работе", "| M | сдано")
+    if kind in ("batch-submitted", "batch-accepted", "batch-accepted-fully"):
+        assert cli(tree, "status", "forge", "2", "--set", "сдано")[0] == 0
+    if kind == "batch-accepted-fully":
+        assert cli(tree, "status", "forge", "2", "--set", "принято")[0] == 0
+    return h
+
+
+def changed_lines(tree, before):
+    """{path: how many lines differ} of the card and batch 2 against `before`; -1 when the line count moved."""
+    out = {}
+    for rel in (CARD, B2):
+        a, b = before[rel].split("\n"), rd(tree, rel).split("\n")
+        out[rel] = sum(x != y for x, y in zip(a, b)) if len(a) == len(b) else -1
+    return out
+
+
+NODE_SET = ("F0-3", "--set")
+STATUS_ROWS = [
+    # id, world, args ("{h}" = the world's hash), exit code, needles of the output, writes (none / node / batch), the cell written
+    ("unknown-node", "taken", ("F9-9", "--set", "сдано"), 2, ('no node "F9-9" in forge/2', "expected one of its node ids: F0-3, F0-4"), "none", ""),
+    ("two-ids-row", "two-ids", (*NODE_SET, "сдано"), 2, ("names more than one id", "one row, one id", "masked by (в)"), "none", ""),
+    ("duplicate-id-rows", "dup", (*NODE_SET, "сдано"), 2, ("the id F0-3 heads 2 rows of forge/2", "one row, one id"), "none", ""),
+    ("backwards", "submitted-node", (*NODE_SET, "в работе"), 2, ('is "сдано" -- a status only goes forward', "edit the cell by hand"), "none", ""),
+    ("accepted-then-rejected", "accepted-node", (*NODE_SET, "отклонено"), 2, ("and final", "writes nothing any more", "edit the cell by hand"), "none", ""),
+    ("same-again", "submitted-node", (*NODE_SET, "сдано"), 0, ("forge/2 F0-3 is already сдано; nothing changed",), "none", ""),
+    ("accepted-other-hash", "accepted-node", (*NODE_SET, "принято", "--hash", "{h}", "--task", "t-2"), 2, ('already accepted with "принято: {h} (t-1)"',), "none", ""),
+    ("accepted-same-again", "accepted-node", (*NODE_SET, "принято", "--hash", "{h}", "--task", "t-1"), 0, ("is already принято; nothing changed",), "none", ""),
+    ("accepted-no-evidence", "taken", (*NODE_SET, "принято"), 2, ("expected --hash <merge commit> and/or --task t-NNN",), "none", ""),
+    ("accepted-hash", "taken", (*NODE_SET, "принято", "--hash", "{h}"), 0, ("set to принято: {h}. Next:",), "node", "принято: {h}"),
+    ("accepted-task", "taken", (*NODE_SET, "принято", "--task", "t-415"), 0, ("set to принято (t-415)",), "node", "принято (t-415)"),
+    ("accepted-both", "taken", (*NODE_SET, "принято", "--hash", "{h}", "--task", "t-415"), 0, ("set to принято: {h} (t-415)",), "node", "принято: {h} (t-415)"),
+    ("node-in-work", "untaken", (*NODE_SET, "в работе"), 0, ('git commit -m "piles: status forge/2 F0-3 в работе"',), "node", "в работе"),
+    ("node-rejected", "taken", (*NODE_SET, "отклонено"), 0, ("set to отклонено",), "node", "отклонено"),
+    ("batch-accepted-open-node", "open-nodes", ("--set", "принято"), 2, ("cannot be accepted while its node(s) F0-4 are neither принято nor отклонено", "status forge 2 <node-id>"), "none", ""),
+    ("batch-accepted-all-done", "all-done", ("--set", "принято"), 0, ("forge/2 set to принято",), "batch", "принято"),
+    ("batch-submitted", "taken", ("--set", "сдано"), 0, ("git add plans/piles/forge/README.md plans/piles/forge/batch-2-next.md",
+                                                         'git commit -m "piles: status forge/2 сдано"'), "batch", "сдано"),
+    ("batch-submitted-again", "batch-submitted", ("--set", "сдано"), 0, ("forge/2 is already сдано; nothing changed",), "none", ""),
+    ("batch-accepted-open-after-submit", "batch-accepted", ("--set", "принято"), 2, ("cannot be accepted while its node(s)",), "none", ""),
+    ("batch-backwards", "batch-accepted-fully", ("--set", "сдано"), 2, ('is "принято" -- a status only goes forward', 'piles-skip: в -- <reason>'), "none", ""),
+    ("batch-accepted-again", "batch-accepted-fully", ("--set", "принято"), 0, ("forge/2 is already принято; nothing changed",), "none", ""),
+    ("batch-untaken", "untaken", ("--set", "сдано"), 2, ('forge/2 is "ожидает" -- take it first', "take forge 2 --who"), "none", ""),
+    ("node-in-untaken-batch", "untaken", (*NODE_SET, "сдано"), 0, ("forge/2 F0-3 set to сдано",), "node", "сдано"),
+    ("closed-batch", "closed", ("--set", "принято"), 2, ('forge/2 is "закрыта"',), "none", ""),
+    ("closed-batch-node", "closed", (*NODE_SET, "сдано"), 2, ('forge/2 is "закрыта"',), "none", ""),
+    ("card-disagrees", "card-disagrees", ("--set", "сдано"), 2, ('the card and the batch file disagree on forge/2: card status "сдано", batch status "в работе"',), "none", ""),
+    ("bad-hash", "taken", (*NODE_SET, "принято", "--hash", "xyz1234"), 2, ('--hash "xyz1234": expected a commit hash (7-40 hex characters)',), "none", ""),
+    ("bad-hash-empty", "taken", (*NODE_SET, "принято", "--hash", ""), 2, ("expected a commit hash",), "none", ""),
+    ("bad-hash-not-a-commit", "taken", (*NODE_SET, "принято", "--hash", "deadbee"), 2, ("deadbee is not a commit in this repository",), "none", ""),
+    ("bad-task-magnitude", "taken", (*NODE_SET, "принято", "--task", "t-1234567"), 2, ("expected a task id t-NNN (1-6 digits)",), "none", ""),
+    ("bad-task-empty", "taken", (*NODE_SET, "принято", "--task", ""), 2, ("expected a task id t-NNN",), "none", ""),
+    ("bad-task-pipe", "taken", (*NODE_SET, "принято", "--task", "t-1|x"), 2, ("expected a task id t-NNN",), "none", ""),
+    ("bad-task-case", "taken", (*NODE_SET, "принято", "--task", "T-1"), 2, ("expected a task id t-NNN",), "none", ""),
+    ("evidence-with-other-word", "taken", (*NODE_SET, "сдано", "--task", "t-1"), 2, ("--hash and --task go with a node set to принято",), "none", ""),
+    ("evidence-at-batch-level", "taken", ("--set", "сдано", "--hash", "{h}"), 2, ("--hash and --task go with a node set to принято",), "none", ""),
+    ("word-in-another-case", "taken", (*NODE_SET, "ПРИНЯТО", "--task", "t-9"), 0, ("set to принято (t-9)",), "node", "принято (t-9)"),
+    ("word-with-extra-spaces", "taken", (*NODE_SET, "  В   работе "), 0, ("set to в работе",), "node", "в работе"),
+    ("word-unknown", "taken", (*NODE_SET, "готово"), 2, ('--set "готово": expected one of в работе, сдано, принято, отклонено for a node',), "none", ""),
+    ("word-waiting-on-a-node", "taken", (*NODE_SET, "ожидает"), 2, ("expected one of в работе, сдано, принято, отклонено for a node",), "none", ""),
+    ("word-empty", "taken", (*NODE_SET, ""), 2, ('--set "": expected one of',), "none", ""),
+    ("batch-word-v-rabote", "taken", ("--set", "в работе"), 2, ("expected сдано or принято for a batch", "`в работе` is written by `take`"), "none", ""),
+    ("batch-word-closed", "taken", ("--set", "закрыта"), 2, ("`закрыта` is written by `close`",), "none", ""),
+    ("batch-word-rejected", "taken", ("--set", "отклонено"), 2, ("expected сдано or принято for a batch", "give its id"), "none", ""),
+    ("node-id-pipe", "taken", ("F0|3", "--set", "сдано"), 2, ('node id "F0|3": expected 1-40 characters without spaces',), "none", ""),
+    ("node-id-newline", "taken", ("F0-3\nx", "--set", "сдано"), 2, ("node id", "without spaces"), "none", ""),
+    ("node-id-empty", "taken", ("", "--set", "сдано"), 2, ('node id "": expected 1-40 characters',), "none", ""),
+    ("node-id-spaced", "taken", ("F0 3", "--set", "сдано"), 2, ("node id", "without spaces"), "none", ""),
+    ("node-id-too-long", "taken", ("F" * 41, "--set", "сдано"), 2, ("node id", "expected 1-40 characters"), "none", ""),
+]
+
+
+@needs_git
+@pytest.mark.parametrize("world,args,code,needles,writes,cell", [r[1:] for r in STATUS_ROWS], ids=[r[0] for r in STATUS_ROWS])
+def test_status_edges(tree, cli, world, args, code, needles, writes, cell):
+    """Spec SL-3 edges 1-11 and the adversarial rows: a refusal writes nothing; a write changes ONE line per target and no other byte."""
+    h = status_world(tree, cli, world)
+    before = {rel: rd(tree, rel) for rel in (CARD, B2)}
+    state = tree_state(tree)
+    got, out = cli(tree, "status", "forge", "2", *[a.replace("{h}", h) for a in args])
+    assert got == code, out
+    for needle in needles:
+        assert needle.replace("{h}", h) in out, (needle, out)
+    changed = changed_lines(tree, before)
+    assert changed == {"none": {CARD: 0, B2: 0}, "node": {CARD: 0, B2: 1}, "batch": {CARD: 1, B2: 1}}[writes], (changed, out)
+    if writes == "none":
+        assert tree_state(tree) == state
+        return
+    cell = cell.replace("{h}", h)
+    row = next(l for l, o in zip(rd(tree, B2).split("\n"), before[B2].split("\n")) if l != o)
+    if writes == "node":
+        assert row.endswith("| %s |" % cell) and row.startswith("| F0-3 |"), row
+    else:
+        card_row = next(l for l, o in zip(rd(tree, CARD).split("\n"), before[CARD].split("\n")) if l != o)
+        assert "статус: %s |" % cell in row and row.startswith("кучка:") and "| %s |" % cell in card_row, (row, card_row)
+    assert cli(tree, "check", "--all")[0] == 0                                  # the written tree still passes the whole gate
+
+
+@needs_git
+@pytest.mark.parametrize("slug,n,needle", [("../x", "2", 'no pile "../x"'), ("", "2", 'no pile ""'), ("forge/x", "2", 'no pile "forge/x"'),
+                                            ("Forge", "2", 'no pile "Forge"'), ("nope", "2", 'no pile "nope"'),
+                                            ("forge", "0", "N must be a whole number 1-999"), ("forge", "x", 'got "x"'),
+                                            ("forge", "1000", "N must be a whole number 1-999"), ("forge", "-1", "N must be"),
+                                            ("forge", "99", "no batch row 99")])
+def test_status_slug_and_n_battery(tree, cli, slug, n, needle):
+    status_world(tree, cli, "taken")
+    state = tree_state(tree)
+    code, out = cli(tree, "status", slug, n, "--set", "сдано")
+    assert code == 2 and needle in out and tree_state(tree) == state, out
+
+
+@needs_git
+@pytest.mark.parametrize("kind,code,needle", [("unclosed-fence", 1, "never closed"), ("two-files-one-n", 2, "has 2 batch files"),
+                                               ("missing-card", 2, "no pile")])
+def test_status_refuses_unreadable_before_any_write(tree, cli, kind, code, needle):
+    """Unreadable input (a fence nothing closes, two files with one N, a missing card): nothing is written, at either level."""
+    status_world(tree, cli, "taken")
+    if kind == "unclosed-fence":
+        (tree / B2).write_bytes((tree / B2).read_bytes() + b"\n```\nnever closed\n")
+    elif kind == "two-files-one-n":
+        put(tree, "plans/piles/forge/batch-2-other.md", rd(tree, B2))
+    else:
+        (tree / CARD).unlink()
+    state = tree_state(tree)
+    for args in (("--set", "сдано"), ("F0-3", "--set", "сдано")):
+        got, out = cli(tree, "status", "forge", "2", *args)
+        assert got == code and needle in out and tree_state(tree) == state, out
+
+
+@needs_git
+def test_status_keeps_crlf_bom_and_passes_frozen(tree, cli):
+    """Each write into a TAKEN batch (committed and on origin/main) keeps CRLF and BOM and leaves (в) green: it writes only what (в) masks."""
+    status_world(tree, cli, "taken")
+    for rel, bom in ((CARD, False), (B2, True)):
+        raw = (tree / rel).read_bytes().replace(b"\n", b"\r\n")
+        (tree / rel).write_bytes((b"\xef\xbb\xbf" if bom else b"") + raw)
+    commit(tree, "taken")
+    fetch_origin(tree)
+    h = head_hash(tree, short=True)
+    for args in (("F0-3", "--set", "в работе"), ("F0-3", "--set", "сдано"), ("F0-3", "--set", "принято", "--hash", h, "--task", "t-415"),
+                 ("F0-4", "--set", "отклонено"), ("--set", "сдано"), ("--set", "принято")):
+        code, out = cli(tree, "status", "forge", "2", *args)
+        assert code == 0, (args, out)
+        code, out = cli(tree, "check", "--all", "--base", "HEAD")
+        assert code == 0 and "(в) frozen: ok" in out, (args, out)
+    git(tree, "add", "-A", "--", CARD, B2)                                      # a commit of exactly these files, as the printed Next line says
+    code, out = cli(tree, "check")
+    assert code == 0 and "(в) frozen: ok" in out and out.rstrip().endswith("piles check: ok"), out
+    card, batch = (tree / CARD).read_bytes(), (tree / B2).read_bytes()
+    assert b"\n" not in card.replace(b"\r\n", b"") and b"\n" not in batch.replace(b"\r\n", b"")
+    assert batch.startswith(b"\xef\xbb\xbf") and not card.startswith(b"\xef\xbb\xbf")
+    assert "статус: принято |" in batch.decode("utf-8") and "| M | принято |" in card.decode("utf-8")
+
+
+@needs_git
+@pytest.mark.parametrize("level", ["batch", "node"])
+def test_status_rollback_on_failed_write(tree, cli, monkeypatch, level):
+    status_world(tree, cli, "taken")
+    state = tree_state(tree)
+    real_write, calls = piles.write_like, []
+
+    def failing_write(path, text, form):
+        calls.append(path)
+        if len(calls) == 2 or level == "node":                                  # batch: the card is already written
+            raise OSError("disk full")
+        return real_write(path, text, form)
+
+    monkeypatch.setattr(piles, "write_like", failing_write)
+    args = ("--set", "сдано") if level == "batch" else ("F0-3", "--set", "сдано")
+    code, out = cli(tree, "status", "forge", "2", *args)
+    assert code == 1 and "every file touched was put back, nothing changed" in out, out
+    assert tree_state(tree) == state
+
+
+def test_status_order_is_the_one_table():
+    assert piles.STATUS_ORDER == {"ожидает": 0, "в работе": 1, "сдано": 2, "принято": 3, "закрыта": 4, "отклонено": 5}
+    assert piles.BATCH_STATUSES == ("ожидает", "в работе", "сдано", "принято", "закрыта")      # a batch never holds отклонено

@@ -9,6 +9,8 @@ findings (findings/*.md). `check` is the gate of a commit; the open batches are 
     python tools/piles.py take <slug> <N> --who <name>
     python tools/piles.py close <slug> <N> --hash <h> [--url <https://...>]
     python tools/piles.py close --id B-nnn --word "<who, date>" [--hash <h>]
+    python tools/piles.py status <slug> <N> --set <сдано|принято>
+    python tools/piles.py status <slug> <N> <node-id> --set <в работе|сдано|принято|отклонено> [--hash <h>] [--task t-NNN]
     python tools/piles.py [--repo DIR] ...        point at another tree (tests); default: the parent of tools/
 
 `release` was renamed `close` (the command closes a batch or a row; it is not a factory release): the old name is a
@@ -37,8 +39,9 @@ load the tree tolerantly: a finding file that is not UTF-8 is named (check (д) 
 others are still read; take, close and split stay strict. They are the only code writers of a batch's status and of
 Закрыто, and they write a file in the form it has (CRLF, BOM); a write that fails midway
 puts every file back (all or nothing, m-8). The status of a batch lives in the batch header (with the card row); `take` /
-`close` are its one code writer for the two statuses they set (`в работе`, `закрыта`); `сдано` / `принято` are written by
-hand (queued: a command that writes them). There is no
+`close` are its one code writer for the two statuses they set (`в работе`, `закрыта`); `status` is the one writer of `сдано` /
+`принято` (the header and the card row of a batch) and of one node row's Статус cell (`принято: <hash> (t-NNN)` with the
+evidence); it goes forward only, refuses before any write and writes exactly those cells, which (в) masks. There is no
 external board: take / close touch files only, make no network call and read no token. On `git commit --amend` the (г) base is HEAD,
 the commit being amended, so a row that commit added is grandfathered (m14).
 
@@ -107,7 +110,7 @@ BACKLOG_REL = "plans/BACKLOG.md"
 
 BATCH_STATUSES = ("ожидает", "в работе", "сдано", "принято", "закрыта")
 NODE_STATUSES = BATCH_STATUSES + ("отклонено",)
-STATUS_ORDER = {w: i for i, w in enumerate(BATCH_STATUSES)}
+STATUS_ORDER = {w: i for i, w in enumerate(NODE_STATUSES)}   # the one order table; `отклонено` is last (a batch never holds it)
 ACTIVE = ("в работе", "сдано")
 NOT_WRITING = ("принято", "отклонено")     # a node in these statuses writes nothing any more (P5)
 
@@ -2405,6 +2408,14 @@ def edit_header(text: str, edits: dict) -> str:
     return "\n".join(lines)
 
 
+def set_node_cell(text: str, node: Node, cell: str) -> str:
+    """The batch text with the Статус cell of the node's row replaced by `cell`; every other byte of the file stays."""
+    lines = text.split("\n")
+    cols = column_map(table_after(lines, "Узлы")[0], NODE_COLS)
+    lines[node.line - 1] = replace_cells(lines[node.line - 1], {cols["status"]: cell})
+    return "\n".join(lines)
+
+
 def _today(args) -> str:
     raw = getattr(args, "today", None)
     try:
@@ -2475,6 +2486,13 @@ def _overlap_refusal(tree: Tree, f: BatchFile, key, root, who=None, vocab=None) 
                 raise Refused("%s; the queue line is an append that (в) allows in a taken batch -- then run take again" % "; ".join(msgs))
 
 
+def _writer_tree(root, slug: str) -> Tree:
+    """The tree `take` and `status` act on (B.9): read like `check` in a commit -- the untracked files of OTHER piles are another
+    session's and not read; everything read stays strict, and the pile written is read whole, untracked files included."""
+    own = "%s/%s/" % (PILES_REL, slug)
+    return load_tree(Path(root), skip=frozenset(p for p in untracked_piles(root) if not p.startswith(own)))
+
+
 def cmd_take(args, root) -> int:
     root = Path(root)
     who = args.who.strip()
@@ -2482,11 +2500,8 @@ def cmd_take(args, root) -> int:
         raise Refused('--who: expected 1-%d characters without "|", a backtick (`) or a line break, got %r' % (WHO_MAX, args.who))
     n = _parse_n(args.n)
     slug = args.slug
-    own = "%s/%s/" % (PILES_REL, slug)
-    # B.9: read like `check` in a commit -- the untracked files of OTHER piles are another session's and not read; everything
-    # read stays strict, and the pile being taken is read whole, untracked files included
-    tree = load_tree(root, skip=frozenset(p for p in untracked_piles(root) if not p.startswith(own)))
-    refuse_unreadable_prose(tree)                 # before any write: a fence nothing closes halts the writer
+    tree = _writer_tree(root, slug)
+    refuse_unreadable_prose(tree)                # before any write: a fence nothing closes halts the writer
     pile, view = _find_view(tree, slug, n)
     where, branch = "%s/%d" % (slug, n), "pile/%s/batch-%d" % (slug, n)
     f = _batch_file(view, where, "write it (the integrator fixes the batch's content at take), then run take again")
@@ -3183,6 +3198,146 @@ def cmd_close(args, root) -> int:
     return _close_batch(args, root, today)
 
 
+STATUS_NODE_WORDS = ("в работе", "сдано", "принято", "отклонено")     # what `status` writes into a node's Статус cell
+STATUS_BATCH_WORDS = ("сдано", "принято")                              # `в работе` is `take`'s, `закрыта` is `close`'s
+TASK_RE = re.compile(r"t-\d{1,6}")
+NODE_ID_MAX = 40
+HAND_EDIT = "edit the cell by hand (a taken batch allows it: (в) masks every Статус cell)"
+
+
+def _ids_text(f: BatchFile) -> str:
+    ids = [printable(_shorten(nd.id, 30)) for nd in f.nodes]
+    return (", ".join(ids[:10]) + (", +%d more" % (len(ids) - 10) if len(ids) > 10 else "")) or "none (the table has no rows)"
+
+
+def _node_ids_of(cell: str) -> list:
+    """The ids a «Узел» cell names: split on `,` `+` `/` and white space, backticks and `*` stripped."""
+    return [t for t in (p.strip("`*") for p in re.split(r"[,+/\s]+", cell.strip())) if t]
+
+
+def _status_word_arg(raw, node_level: bool) -> str:
+    word = " ".join((raw or "").split()).lower()                  # another case or extra spaces: the same word, written canonical
+    if word in (STATUS_NODE_WORDS if node_level else STATUS_BATCH_WORDS):
+        return word
+    shown = printable(_shorten(raw or "", 40))
+    if node_level:
+        raise Refused('--set "%s": expected one of %s for a node' % (shown, ", ".join(STATUS_NODE_WORDS)))
+    why = {"в работе": " (`в работе` is written by `take`)", "закрыта": " (`закрыта` is written by `close`)"}.get(word, "")
+    raise Refused('--set "%s": expected %s for a batch%s; to set one node give its id: status <slug> <N> <node-id> --set <word>'
+                  % (shown, " or ".join(STATUS_BATCH_WORDS), why))
+
+
+def _status_evidence(root, args, word: str, node_level: bool) -> str:
+    """The cell text to write (one rule for shape and evidence), refused before anything is read from the tree."""
+    has_h, has_t = args.hash is not None, args.task is not None
+    if (has_h or has_t) and not (node_level and word == "принято"):
+        raise Refused('--hash and --task go with a node set to принято (`принято: <hash> (t-NNN)`); "%s" is written as the bare word'
+                      % word)
+    if has_t and not TASK_RE.fullmatch(args.task):
+        raise Refused('--task "%s": expected a task id t-NNN (1-6 digits)' % printable(_shorten(args.task, 40)))
+    if has_h:
+        check_hash(root, args.hash)
+    if node_level and word == "принято":
+        if not (has_h or has_t):
+            raise Refused("a node is accepted with its evidence: expected --hash <merge commit> and/or --task t-NNN")
+        return "принято" + (": " + args.hash if has_h else "") + (" (%s)" % args.task if has_t else "")
+    return word
+
+
+def _status_node_row(f: BatchFile, where: str, node_id: str) -> Node:
+    errors = [e for e in f.errors if e.startswith(("no node table", "the node table"))]
+    if errors:
+        raise Refused("%s: %s" % (where, "; ".join(errors)))
+    rows = [nd for nd in f.nodes if node_id in _node_ids_of(nd.id)]
+    if not rows:
+        raise Refused('no node "%s" in %s -- expected one of its node ids: %s' % (printable(_shorten(node_id, 40)), where, _ids_text(f)))
+    one_id = "one row, one id; split the row in an untaken batch, or write the cell by hand (the cell is masked by (в))"
+    if len(rows) > 1:
+        raise Refused("the id %s heads %d rows of %s (lines %s) -- %s" % (node_id, len(rows), where, ", ".join(str(r.line) for r in rows), one_id))
+    if len(_node_ids_of(rows[0].id)) > 1:
+        raise Refused('the row "%s" of %s names more than one id -- %s' % (printable(_shorten(rows[0].id, 40)), where, one_id))
+    return rows[0]
+
+
+def _status_node_cell(nd: Node, where: str, word: str, cell: str):
+    """The cell to write, or None when the row already says it. Refuses a move back, a final row and a row it cannot read."""
+    now, shown = nd.status, printable(_shorten(nd.status_raw, 60))
+    if now is None:
+        raise Refused('the Статус cell of %s %s is "%s", which starts with no known status word -- %s' % (where, nd.id, shown, HAND_EDIT))
+    if now in NOT_WRITING:
+        if word == now and (now == "отклонено" or " ".join(nd.status_raw.split()) == cell):
+            return None
+        why = ('already accepted with "%s"' % shown) if word == now else 'is "%s" and final' % shown
+        raise Refused("%s %s %s -- a node in %s writes nothing any more; to change it, %s" % (where, nd.id, why, " or ".join(NOT_WRITING), HAND_EDIT))
+    if STATUS_ORDER[word] < STATUS_ORDER[now]:
+        raise Refused('the Статус cell of %s %s is "%s" -- a status only goes forward (в работе → сдано → принято), so it cannot be set '
+                      'back to "%s"; to correct a mistake, %s' % (where, nd.id, shown, word, HAND_EDIT))
+    return None if word == now else cell
+
+
+def _status_batch_plan(root, tree, pile, view, f: BatchFile, where: str, word: str):
+    """[(path, text)] for the header and the card row, or None when the batch already says it."""
+    if f.status not in ("в работе", "сдано", "принято"):
+        raise Refused('%s is "%s" -- take it first (`take %s %d --who <name>`); a waiting batch has no status to set'
+                      % (where, printable(f.status_raw), where.split("/")[0], view.n))
+    if view.row.status != f.status:
+        raise Refused('the card and the batch file disagree on %s: card status "%s", batch status "%s" -- make them say the '
+                      "same thing, then set the status" % (where, view.row.status_raw, f.status_raw))
+    if STATUS_ORDER[word] < STATUS_ORDER[f.status]:
+        raise Refused('%s is "%s" -- a status only goes forward (в работе → сдано → принято → закрыта), so it cannot be set back to "%s"; '
+                      'to correct a mistake edit the header and the card row by hand and put "piles-skip: в -- <reason>" in the '
+                      "commit message ((в) refuses a status that moved back)" % (where, f.status, word))
+    if word == f.status:
+        return None
+    if word == "принято":
+        errors = [e for e in f.errors if e.startswith(("no node table", "the node table"))]
+        if errors:
+            raise Refused("%s: %s -- its nodes are read to judge the acceptance" % (where, "; ".join(errors)))
+        open_ids = [printable(_shorten(nd.id, 30)) for nd in f.nodes if nd.status not in NOT_WRITING]
+        if open_ids:
+            raise Refused("%s cannot be accepted while its node(s) %s are neither принято nor отклонено -- set them first "
+                          "(`status %s <node-id> --set принято --hash <h>`), or set the batch to сдано"
+                          % (where, ", ".join(open_ids[:10]) + (", +%d more" % (len(open_ids) - 10) if len(open_ids) > 10 else ""),
+                             where.replace("/", " ")))
+    card_path, batch_path = root / pile.card_rel, root / f.path
+    return [(card_path, edit_card(read_text(card_path), view.row, {"status": word})),
+            (batch_path, edit_header(read_text(batch_path), {"статус": word}))]
+
+
+def cmd_status(args, root) -> int:
+    """The one writer of `сдано` / `принято`: a batch's header and card row, or one node row's Статус cell. Refuses before any write."""
+    root, node_id = Path(root), args.node
+    n = _parse_n(args.n)
+    if node_id is not None and (not _text_arg_ok(node_id, NODE_ID_MAX) or re.search(r"\s", node_id)):
+        raise Refused('node id "%s": expected 1-%d characters without spaces, "|", a backtick (`) or a line break, e.g. F6-13'
+                      % (printable(_shorten(node_id, 40)), NODE_ID_MAX))
+    word = _status_word_arg(args.set, node_id is not None)
+    cell = _status_evidence(root, args, word, node_id is not None)
+    tree = _writer_tree(root, args.slug)
+    refuse_unreadable_prose(tree)                 # before any write: a fence nothing closes halts the writer
+    pile, view = _find_view(tree, args.slug, n)
+    where = "%s/%d" % (args.slug, n)
+    f = _batch_file(view, where, "nothing to set")
+    if f.status == "закрыта":
+        raise Refused('%s is "закрыта" -- a closed batch keeps its statuses; nothing was changed' % where)
+    label = where + (" " + node_id if node_id else "")
+    if node_id is None:
+        writes = _status_batch_plan(root, tree, pile, view, f, where, word)
+    else:
+        nd = _status_node_row(f, where, node_id)
+        new = _status_node_cell(nd, where, word, cell)
+        batch_path = root / f.path
+        writes = None if new is None else [(batch_path, set_node_cell(read_text(batch_path), nd, new))]
+    if writes is None:
+        print("piles status: %s is already %s; nothing changed" % (label, word))
+        return 0
+    apply_changes(root, writes, [])               # all or nothing
+    print("piles status: %s set to %s. Next:" % (label, cell))
+    print('  git add %s; git commit -m "piles: status %s %s"' % (" ".join(str(p.relative_to(root)).replace("\\", "/") for p, _ in writes),
+                                                                  label, word))
+    return 0
+
+
 def cmd_board(args, root) -> int:
     """The refused alias: the generated board was retired (13.11.2026). Nothing runs, whatever the other arguments are."""
     raise CannotRun("`board` was retired (the owner, 13.11.2026: there is no board) -- the open batches are shown by the "
@@ -3236,6 +3391,16 @@ def _take_args(p):
     p.add_argument("--today", help=argparse.SUPPRESS)
 
 
+def _status_args(p):
+    p.add_argument("slug", help="the pile (plans/piles/<slug>/)")
+    p.add_argument("n", metavar="N", help="the batch number, 1-999")
+    p.add_argument("node", nargs="?", help="a node id of the batch; without it the batch header and card row are set")
+    p.add_argument("--set", required=True, help="a batch: сдано | принято; a node: в работе | сдано | принято | отклонено")
+    p.add_argument("--hash", help="a node set to принято: the merge commit (7-40 hex characters, a commit of this repository)")
+    p.add_argument("--task", help="a node set to принято: the task id t-NNN")
+    p.add_argument("--today", help=argparse.SUPPRESS)
+
+
 def _release_args(p):
     """The alias takes no arguments of its own: whatever follows `release` is left over and the refusal does not read it."""
 
@@ -3252,7 +3417,7 @@ def _close_args(p):
 
 # command -> (adds its arguments, runs).
 COMMANDS = {"board": (_board_args, cmd_board), "check": (_check_args, cmd_check),
-            "take": (_take_args, cmd_take), "close": (_close_args, cmd_close),
+            "take": (_take_args, cmd_take), "close": (_close_args, cmd_close), "status": (_status_args, cmd_status),
             "summary": (_summary_args, cmd_summary),
             "release": (_release_args, cmd_release)}          # release, board: the refused aliases
 REFUSED_ALIASES = ("release", "board")                        # one road: no --help, extra arguments left unread
