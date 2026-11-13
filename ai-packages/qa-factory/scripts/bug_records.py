@@ -37,7 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import case_stamp as CS  # noqa: E402  (is_red_row: the one reader of a red run row)
 import contract as C  # noqa: E402
 import hooklib  # noqa: E402  (load_ref_json)
-from hooklib import is_story_folder, parse_frontmatter, sorted_paths  # noqa: E402
+from hooklib import parse_frontmatter, sorted_paths  # noqa: E402
 
 TITLE_UNREADABLE = "title unreadable"
 UNKNOWN = "unknown"
@@ -1394,10 +1394,7 @@ def _story_exists(root: Path, name) -> bool:
     """`name` is a story of `root` (`hooklib.is_story_folder`, the one rule: ONE path component, a folder of that exact
     spelling found in the listing) that also holds a `pipeline.json` file: the stricter test is this module's own.
     Anything else, an OS error included, is no story (the error direction is "unknown", which is then checked)."""
-    try:
-        return is_story_folder(root, name) and (Path(root) / name / "pipeline.json").is_file()
-    except OSError:
-        return False
+    return hooklib.is_story_with_pipeline(root, name)
 
 
 def _gate_id_stories(gate_id: str, root: Path, me: str) -> tuple:
