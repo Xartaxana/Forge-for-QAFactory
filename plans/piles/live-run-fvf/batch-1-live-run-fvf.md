@@ -49,6 +49,8 @@ FV1-12 ждёт слова владельца о замысле S2. НЕ дел�
 | FV1-17 | П1 | Онбординг не умеет определить, как войти на стенд проекта: POST на страницу `/login` → «вход кодом невозможен»; NextAuth-вход и `harness_command` не испробованы (`findings/20261112-onbording-ne-umeet-opredelit-kak-vojti-na-stend.md`) | designer → builder → critic | `scripts/stand_access.py`, `references/login-body-fields.json`, `skills/qa-onboarding/SKILL.md` | — | ожидает |
 | FV1-18 | П1 | Регрессия: без проверенного контракта селекторов `run_suite` отказывает запускать тесты автоматора (раньше работало); селекторы собирает раннер первого взгляда, его запись не читается `selectors_verified` (`findings/20261112-kontrakt-selektorov-nikogda-ne-proveren.md`) | designer → builder → critic | `scripts/execution_request.py`, `scripts/profile_contract.py`, `scripts/onboarding_probe.py` | — | ожидает |
 | FV1-20 | П1 | Критик кода S5 закрывает ревью без проб чувствительности (файл модели проб не написан, причины нет); `round` человека ушёл дирижёру, дирижёр ложно сказал «фабрика не может произвести пробы» (`findings/20261112-kritik-koda-ne-zapuskaet-proby.md`) | scout → designer → builder → critic | хартия и бриф S5 qa-code-critic, `scripts/driver_dispatch.py` (repair_limit → conductor) | — | ожидает |
+| FV1-22 | П1 | S7 по кругу: приёмка S6 из формы аналитика требует `failure_class`/`quote` и строку `inputs_read` раннера, которых в форме нет; дирижёр трижды повторил разбор аналитика с причиной `tooling`, лимит не тратится, ремонт TC-005 автору не ушёл (`findings/20261113-s7-petlya-dirizhera-na-prieme-s6.md`) | designer → builder → critic | `scripts/stage_done.py`, форма S7 qa-failure-analyst, `scripts/driver_dispatch.py` (conductor rework) | — | ожидает |
+| FV1-21 | П2 | Цена ложно помечена «not every session is recorded»: `task_price` считает ходы кода `gate_repair` звонками без сессии; цена CLI и цена по токенам совпадают ($24.32 / 71 сессия) (`findings/20261112-cena-lozhno-nepolnaya-iz-za-shagov-koda.md`) | builder → critic | `scripts/task_price.py` | — | ожидает |
 | FV1-19 | П1 | S5 требует `obligation_refs`, а `manifest_from_tests.py` читает маркер только из Python — для `.spec.ts` поле не произвести (FR-5, P31); проверка при этом пропустила рукописное значение без хэша (окно 2); починка «not a question for the person» ставится человеку exit_limit (`findings/20261112-pochinka-ne-vopros-cheloveku-dohodit-do-cheloveka.md`) | designer → builder → critic | `scripts/manifest_from_tests.py`, `scripts/s5_precheck.py`, `scripts/story_run.py` | — | ожидает |
 | FV1-12 | П2 | Карточка S2 и реестр стадий расходятся; замысел S2 — слово владельца (`findings/20261112-s2-kartochka-i-reestr-stadij-rashodyatsya.md`) | ждёт слова владельца → builder | `skills/qa-story/phases/s2.md`, `references/stages.json` | — | ожидает |
 
@@ -69,6 +71,12 @@ FV1-12 ждёт слова владельца о замысле S2. НЕ дел�
 - 12.11 21:23 — FV1-13 (третий экземпляр, `go on` на exit_limit) по слову владельца «чинить и продолжить»: t-180 8eb20e4 на ветке
   `worktree-agent-aaf518a792f694a7e` (в main не слита), правка наложена на копию `pkg-fix1`; плечо перезапущено. Первые два
   экземпляра FV1-13 (жетон в бэктиках, слова при `round`) не тронуты.
+- 12.11 22:50 — FV1-13 четвёртый экземпляр: дирижёр предложил `go on` (долг в гейт B) без писателя долга — записал заметку, вопрос
+  вернулся; долг critic-7 уже был записан, но стадия после него пустила раунд автора `S5-qa-automator-9`. Ответ оператора `retry`.
+- 12.11 23:04 — FV1-19: дверь t-186 неполна — финиш требует хэш каждой ссылки, его строит только путь маркера Python; ручные хэши
+  автора-9 не совпали с планом (×7). Критик-8 без блокирующих → `debt`; отказ финиша → `go on`.
+- 12.11 23:07 — S5 пройдена после хэшей из плана фрагментом оператора (помощь оператора); S6 18/1.
+- 13.11 01:00 — FV1-22: S7 по кругу (аналитики 2–4, причина `tooling`); плечо остановлено по слову владельца, гейт B не достигнут.
 
 ## Живые доказательства
 
