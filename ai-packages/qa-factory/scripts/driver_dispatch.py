@@ -1790,12 +1790,16 @@ class DriverDispatch:
                             "blocking_ids": self.passed_blockers(stop)}
         stop["resume"] = True
         self.state["pending_words"][dispatch] = words
-        # I5 (FV1-3): everything a later process needs is on disk BEFORE the seam, which may raise a Person or end the process
+        # I5 (FV1-3): everything a later process needs is on disk BEFORE the seam, which may raise a Person or end the process -
+        # the answer's audit row too (once per answer: the end of `take_answer` is then a no-op), so a rerun's re-ask carries FR-7's block
+        self.answer_file()
+        self.record_answer_row("", dispatch)
         self.save_state()
         if not (read["all_tokens"] and not read["unread"]):
             lines = self.register_words_to_conductor("questions", stage, dispatch, qtext, words, read, shown=shown)
             if lines:
                 self.state.setdefault("question_pass_lines", {}).setdefault(dispatch, []).extend(lines)   # AR-22: the role is told
+                self.save_state()                                                                          # and not lost to a crash
 
     def register_words_to_conductor(self, kind: str, stage: str, dispatch: str, qtext: str, words: str, recorded,
                                     *, shown=None) -> list:
@@ -1854,6 +1858,8 @@ class DriverDispatch:
         names = {"not_needed": "not needed", "deferred_to_report": "until the report", "open": "open again"}
         changed = []
         for qid, now in after.items():
+            if qid not in before:                  # new to the register during the seam: it was never answered, so "open again" would lie
+                continue
             if before.get(qid) != now:
                 status, reading, _at = now
                 changed.append(f"{qid}: " + (str(reading) if status == "answered" and reading else names.get(status, str(status))))

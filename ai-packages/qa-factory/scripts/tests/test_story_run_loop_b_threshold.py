@@ -463,6 +463,14 @@ def fv1_3_free_answer_at_a_question_stop() -> None:
         check_eq("seam-raises: code's own plan lines are saved BEFORE the seam", disk["question_pass_lines"].get(ctx.s.dispatch),
                  ["a plan line"])
         check_eq("seam-raises: ONE human_answer row", sum(1 for sc, a in ctx.s.py_calls if sc == "log_append.py" and "human_answer" in a), 1)
+        log = ctx.s.driver.state_dir / "driver-answers.jsonl"
+        rows = [json.loads(ln) for ln in (log.read_text(encoding="utf-8").splitlines() if log.exists() else []) if ln.strip()]
+        check_eq("seam-raises: ONE audit row for this answer, on disk before the seam (FR-7)", [(r["dispatch"], r["words"]) for r in rows],
+                 [(ctx.s.dispatch, ctx.words)])
+
+    def new_id_after(ctx, out, raised):
+        check_in("new-id-in-register: the print-back says nothing was recorded", "recorded nothing", out)
+        check("new-id-in-register: and names no Q8 (it was never answered)", "Q8" not in out, out)
 
     def printback_unreadable_after(ctx, out, raised):
         check_in("printback-unreadable: a register that cannot be read back says so", "could not be read back", out)
@@ -516,6 +524,8 @@ def fv1_3_free_answer_at_a_question_stop() -> None:
         ("register-unreadable", "Q1: a", "stop", 1, None, None, unreadable, None, unreadable_after),
         ("printback-unreadable", "Q3 go with the ticket", "stop", 1, None, None, None, unreadable, printback_unreadable_after),
         ("seam-raises", "Q1: a\nQ3 go with the ticket", "stop", 0, {"Q1": "answered"}, story_run.Person, seam_raises, None, seam_raises_after),
+        ("new-id-in-register", "Q3 go with the ticket", "stop", 1, {}, None, None,
+         lambda ctx: q_register(ctx.task_root, [f"Q{i}" for i in range(1, 9)]), new_id_after),
     ]
     from types import SimpleNamespace
     for row, words, mode, calls, records, raises, setup, in_conductor, after in rows:
@@ -647,7 +657,7 @@ def fv1_3_rerun_with_no_answer() -> None:
             check_in("rerun: and the seam's question", "try again or stop", again.text)
         check_eq("rerun: no role was resumed over the open question", [c for c in s.claude_calls if c["kind"] == "role"], [])
         check_eq("rerun: the words are still filed", d.state["pending_words"].get(s.dispatch), words)
-        del d.unread                                         # the real seam again
+        del d.unread                                        # the real seam again
         s.answer(root, "retry")
         s.claude_calls.clear()
         d.dispatch_action({"action": "wait_existing_job", "dispatch_id": s.dispatch})
