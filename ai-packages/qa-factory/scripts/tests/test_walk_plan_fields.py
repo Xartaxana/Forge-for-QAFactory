@@ -225,8 +225,11 @@ def walk_line_in_s3_head_once():
             check("flow requests failing: their own `not measured` line is there too",
                   any(x.startswith("Flow requests: not measured") for x in lines))
     req = {"key": "GET /api/r1", "method": "GET", "url_template": "/api/r1", "path": "App/src/a.ts", "line": 1}
+    story_base = harness.mark_project(harness.temp_dir("qa-walk-fields-"))
+    story = story_base / "qa-factory" / "artifacts" / "QA-9"
     for found in ({"requests": [], "unmeasured": []}, {"requests": [req], "unmeasured": []}):
-        check("request_lines carries no walk line", not any(x.startswith("Walk data: ") for x in BP.request_lines(found, "QA-9")))
+        check("request_lines carries no walk line", not any(x.startswith("Walk data: ") for x in BP.request_lines(found, story)))
+    harness.cleanup(story_base)
     src = (SCRIPTS / "user_path_failures.py").read_text(encoding="utf-8")
     check("user_path_failures carries no walk line of its own", "Walk data" not in src)
 
@@ -235,7 +238,9 @@ def strategist_line_present():
     check("the line names both fields and the shape",
           all(s in BP.WALK_DATA_LINE for s in ("`walk_data`", "`walk_global`", "kind", "exclusive", "changes")), BP.WALK_DATA_LINE)
     req = {"key": "GET /api/r1", "method": "GET", "url_template": "/api/r1", "path": "App/src/a.ts", "line": 1}
-    with_requests = BP.request_lines({"requests": [req], "unmeasured": []}, "QA-9")
+    story_base = harness.mark_project(harness.temp_dir("qa-walk-fields-"))
+    with_requests = BP.request_lines({"requests": [req], "unmeasured": []}, story_base / "qa-factory" / "artifacts" / "QA-9")
+    harness.cleanup(story_base)
     check("the closing line of the flow requests stays last", "each one gets a plan row" in with_requests[-1], with_requests[-1][:60])
     charter = (PACKAGE / "agents" / "qa-test-strategist.md").read_text(encoding="utf-8")
     check_in("the charter carries the experience sentence, exactly",
