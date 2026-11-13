@@ -1,0 +1,1 @@
+- The retro analyst's charter now owes every retro one finding: the dearest stage of the run, its numbers quoted verbatim from `retro-numbers.json`, the cause of the overpay and one cut; an unmeasured stage is reported as not measured, never given an invented cut.
