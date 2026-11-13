@@ -1468,6 +1468,14 @@
     "event_store.py"
    ]
   },
+  "test_import_test_receipt_refusal.py": {
+   "layer": "table",
+   "why": "table (B.2 criterion 5): import_test_receipt refusal cases",
+   "covers": [
+    "import_test_receipt.py",
+    "role_cli.py"
+   ]
+  },
   "test_environment_record.py": {
    "layer": "gate_named",
    "why": "named by gate-registry.json",
@@ -6746,7 +6754,7 @@
   },
   "test_walk_plan_fields.py": {
    "layer": "data_join",
-   "why": "process ratchet of every other role is at or below its frozen ceiling",
+   "why": "the plan row's walk_data / walk_global: shape check, carried whole into request.json, named to the strategist, release note names the raise",
    "covers": [
     "brief_pack.py",
     "judge.py",
@@ -6754,7 +6762,6 @@
     "planning_contract.py",
     "user_path_failures.py",
     "agents/qa-test-strategist.md",
-    "references/role-load.json",
     "tests/harness.py"
    ]
   },
