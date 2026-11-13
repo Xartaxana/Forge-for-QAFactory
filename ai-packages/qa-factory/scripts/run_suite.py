@@ -1582,6 +1582,39 @@ def request_profile(request: dict, cfg: dict) -> dict:
     return next((p for p in profiles if isinstance(p, dict) and str(p.get("profile_id")) == profile_id), {})
 
 
+_SELECTOR_PROBE_STATES = ("none", "command_changed", "unreadable")
+_SELECTOR_HAND = "a person may write selectors.verified: true in qa-factory/config.json"
+# state -> (what the state means to a person, or "" to keep the contract's own sentence; what can be done about it).
+# The onboarding probe is offered ONLY for the record states, the only ones its proof can change (FV1-18 FIX-3).
+_SELECTOR_STATE_WORDS = {
+    "none": ("", "to verify, run the onboarding probe, which writes the proof: {probe}; or " + _SELECTOR_HAND),
+    "command_changed": ("", "to verify, run the onboarding probe, which writes the proof: {probe}; or " + _SELECTOR_HAND),
+    "unreadable": ("", "to verify, run the onboarding probe, which writes the proof: {probe}; or " + _SELECTOR_HAND),
+    "no_selection_form": ("the factory knows no way to select one test for this kind of runner, and a probe record "
+                          "would not change that",
+                          "nothing needs doing for the run; " + _SELECTOR_HAND + " once the runner's own selection is trusted"),
+    "command_not_profile": ("the run's command is not the profile's one_test command, and only that one can be proven",
+                            "run the profile's own command, or " + _SELECTOR_HAND),
+    "hand_false": ("a person wrote selectors.verified: false in qa-factory/config.json",
+                   "change it there when the selection is trusted; no probe record overrides it"),
+    "hand_unreadable": ("", "fix `selectors` in qa-factory/config.json so it is an object"),
+    "no_command": ("", "fix the profile's commands.one_test in qa-factory/config.json"),
+    "error": ("", "run again; if it repeats, report it with this line"),
+}
+
+
+def selector_words(got: dict, probe_command: str) -> tuple[str, str]:
+    """`(meaning, remedy)` for a selector-contract answer `got` - the ONE state-to-words table, read by `selector_note`
+    and by the probe's R6(a) refusal (AR-15). `probe_command` is how the caller spells the onboarding probe. A state
+    outside the table gets the contract's own sentence and the probe as the way to verify (the generic text)."""
+    got = got if isinstance(got, dict) else {}
+    state = str(got.get("state") or "")
+    why = str(got.get("why") or "").strip() or "the selector contract has no recorded proof"
+    meaning, remedy = _SELECTOR_STATE_WORDS.get(
+        state, ("", "to verify, run the onboarding probe, which writes the proof: {probe}; or " + _SELECTOR_HAND))
+    return meaning or why, remedy.format(probe=probe_command)
+
+
 def selector_note(request: dict, cfg: dict, root) -> str:
     """ONE line when a behavioural request's selector contract is not verified, else "". A note, never a stop: any
     failure here is "" (it must not delay or stop a run). It judges the command that RUNS (D2)."""
@@ -1596,11 +1629,12 @@ def selector_note(request: dict, cfg: dict, root) -> str:
         profile_id = str(request.get("profile_id") or "")
         door = f"--probe-profiles --profile {profile_id}" if profile_id else "--probe-profiles --profile <id>"
         plugin = Path(__file__).resolve().parent
+        meaning, remedy = selector_words(got, f"python {plugin / 'onboarding_probe.py'} --root {root} {door} "
+                                              "--proposals-dir <a temporary folder outside the project>")
         return (f"SELECTORS (note): profile {profile_id or 'the selected profile'}: the factory has not verified how "
-                f"this runner selects one test ({got.get('why')}). The run goes by each instance's selector_args; a "
-                "selected test the runner did not run comes back not_run under its report id, never passed. To "
-                f"verify: python {plugin / 'onboarding_probe.py'} --root {root} {door} "
-                "--proposals-dir <a temporary folder outside the project>")
+                f"this runner selects one test ({meaning}). The run goes by each instance's selector_args; a "
+                "selected test the runner did not run comes back not_run under its report id, never passed. "
+                f"{remedy[:1].upper() + remedy[1:]}")
     except Exception:
         return ""
 
@@ -2923,7 +2957,7 @@ def main() -> None:
         selectors_line = selector_note(request, cfg, project_root())
         if selectors_line:
             print(selectors_line, file=sys.stderr)
-        launched =apply_resolved_ids(request, (checked or {}).get("resolved") or {})
+        launched = apply_resolved_ids(request, (checked or {}).get("resolved") or {})
         for asked, real in ((checked or {}).get("resolved") or {}).items():
             print(f"NODE IDS (note): {asked} is collected as {real}; ran the real id", file=sys.stderr)
         args.node_id_notes = ((checked or {}).get("notes") or []) + [

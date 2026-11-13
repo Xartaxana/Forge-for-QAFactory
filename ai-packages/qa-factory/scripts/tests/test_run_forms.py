@@ -1106,9 +1106,41 @@ def fv1_18_node_id_selection() -> None:
         print(f"R-N4-3 {argv}: form_id={got(argv)['form_id']!r} node_id_selection={got(argv)['node_id_selection']}")
 
 
+def fv1_18_selector_words() -> None:
+    """FV1-18 FIX-3: `run_suite.selector_words` is the ONE state-to-words table of the SELECTORS note and the probe's R6(a)
+    sentence. The onboarding probe is offered for the record states ONLY (none, command_changed, unreadable), the states its
+    proof can change; no word a person reads is an internal state token; an unknown state gets the generic text, never a crash."""
+    import run_suite
+    probe = "PROBE-CMD"
+    record_states = {"none", "command_changed", "unreadable"}
+    states = ["none", "command_changed", "unreadable", "no_selection_form", "command_not_profile", "hand_false",
+              "hand_unreadable", "no_command", "error", "a_state_nobody_wrote", ""]
+    for state in states:
+        meaning, remedy = run_suite.selector_words({"state": state, "why": "WHY-OF-CONTRACT"}, probe)
+        label = state or "(empty state)"
+        check_eq(f"FIX-3 {label}: the probe command appears in the words only for the record states (and the generic text)",
+                 "PROBE-CMD" in remedy, state in record_states or state not in run_suite._SELECTOR_STATE_WORDS)
+        check_eq(f"FIX-3 {label}: the onboarding probe is named only where it can help",
+                 "onboarding probe" in (meaning + remedy), state in record_states or state not in run_suite._SELECTOR_STATE_WORDS)
+        check(f"FIX-3 {label}: no internal state token is shown to a person",
+              state == "" or state not in (meaning + " " + remedy), meaning + " | " + remedy)
+        check(f"FIX-3 {label}: one non-empty line each", meaning.strip() != "" and remedy.strip() != ""
+              and "\n" not in meaning + remedy, meaning + " | " + remedy)
+    check_in("FIX-3 hand_false: the words say it is the person's value and no probe record overrides it",
+             "no probe record overrides it", run_suite.selector_words({"state": "hand_false"}, probe)[1])
+    check_in("FIX-3 no_selection_form: the words say a probe record would not change it", "would not change that",
+             run_suite.selector_words({"state": "no_selection_form"}, probe)[0])
+    check_eq("FIX-3 a state with its own sentence in the contract keeps it (none -> the contract's why)",
+             run_suite.selector_words({"state": "none", "why": "W"}, probe)[0], "W")
+    for odd in (None, {}, "x", {"state": None}):
+        check("FIX-3 an odd answer %r never raises and gets the generic text" % (odd,),
+              run_suite.selector_words(odd, probe)[1].count("PROBE-CMD") == 1)
+
+
 def main() -> None:
     k1_shipped_data()
     fv1_18_node_id_selection()
+    fv1_18_selector_words()
     k2_every_form_is_blocked_and_admitted()
     k3_near_misses_are_not_blocked()
     k4_diagnostics()

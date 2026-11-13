@@ -426,10 +426,11 @@ def selector_contract(profile, root, command=None) -> dict:
 
 def selectors_verified(profile, root) -> bool:
     """Does this profile's selector contract count as verified? The bool view of `selector_contract(profile, root)` - the ONE
-    answer (AR-13): the probe's shape check (`probe_by_code.run_shape_checks`) and the typed run's request
-    (`execution_request.build_mine_request`) both ask it. The order of its states, in short: the hand (`selectors` an object;
+    answer (AR-13): the probe's shape check (`probe_by_code.run_shape_checks`) and the run's SELECTORS note
+    (`run_suite.selector_note`) read the full answer; `build_mine_request` no longer asks it. The order of its states, in
+    short: the hand (`selectors` an object;
     a literal `verified` of false or true wins, any other literal is not read), then the command (a foreign `env` or an
-    unreadable argv is False), a pytest command (True), a run form with a `selection` row, and last the rehearsal record read
+    unreadable argv is False), a run form whose data row says `selection_by_node_id` (True), a run form with a `selection` row, and last the rehearsal record read
     with `command_identity` (argv words AND `env`, the digest every writer uses) of the profile's one_test. Error direction:
     False (the gate refuses and names its door); a `root` that is no directory, a record or table that cannot be read and any
     exception give False; nothing is written."""

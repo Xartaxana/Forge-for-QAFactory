@@ -1791,10 +1791,28 @@ def ep1_37_build_mine_request_role_wins() -> None:
                 (task / name).parent.mkdir(parents=True, exist_ok=True)
                 (task / name).write_text(json.dumps(value), encoding="utf-8")
             request = er.build_mine_request(work, ["TC-002"], cfg=cfg, task="K-1", probe=run_suite.probe_runtime)[0]
+            built["request"] = request
             iid = request["selected_instance_ids"][0]
             return request["command"]["selector_args"][iid], request["instance_contracts"][iid]
 
+        built: dict = {}
         args, contract = build(row)
+        # FV1-18 R-N2-2: a REAL `--mine` request carries no selector_contract_verified, and its note reads the record: with the
+        # hand silent and the profile's command proven it is "", without the proof it is the note (the control).
+        import onboarding_probe as OP
+        import profile_contract as PC
+        silent_cfg = {**cfg, "profiles": [{k: v for k, v in cfg["profiles"][0].items() if k != "selectors"}]}
+        check_not_in("R-N2-2: the built --mine command has no selector_contract_verified", "selector_contract_verified",
+                     built["request"]["command"])
+        check_in("R-N2-2 control: with no proof on record the built request gets the SELECTORS note", "SELECTORS (note)",
+                 run_suite.selector_note(built["request"], silent_cfg, work))
+        record = work / "qa-factory" / "state" / OP.G.REPORTER_REHEARSALS_FILE
+        record.write_text(json.dumps({"schema_version": 1, "rehearsals": {"k0": {
+            "profile_id": "web", "at": "2026-10-01T00:00:00",
+            "argv_digest": OP.argv_digest(PC.command_identity(silent_cfg["profiles"][0]["commands"]["one_test"]))}}}),
+            encoding="utf-8")
+        check_eq("R-N2-2: the built --mine request against a proven record: no note", run_suite.selector_note(
+            built["request"], silent_cfg, work), "")
         check_eq("no role value: the code builds the selector", args, ["/" + re.escape("tests/a.spec.ts") + ":1"])
         check_eq("no role value: the code builds the report id", contract["report_test_id"], "tests/a.spec.ts::TC-002 adds one")
         check_eq("no role value: file and join", (contract["file"], contract["classname_match"]), ("tests/a.spec.ts", "file_suffix"))
@@ -1871,10 +1889,9 @@ def fv1_18_selector_contract() -> None:
     """FV1-18 N1: `profile_contract.selector_contract` is the one answer to "is the runner's test selection proven for this
     command"; it reads the command's identity (argv AND env) as every writer of the record digests it, and the command that
     runs. Rows R-N1-1..R-N1-10 (the fixtures are built the way the rehearsal record is written, by this test's own helper)."""
-    import inspect
     import onboarding_probe as OP
     import profile_contract as PC
-    pw = ["npx", "playwright", "test", "--project", "chromium", "--reporter=junit", "<test-file>"]
+    pw =["npx", "playwright", "test", "--project", "chromium", "--reporter=junit", "<test-file>"]
     pw_run = [w for w in pw if w != "<test-file>"]
     env = {"PLAYWRIGHT_JUNIT_OUTPUT_NAME": "{report_path}"}
     made, seen = [], []
@@ -2030,9 +2047,10 @@ def fv1_18_selector_contract() -> None:
         check_eq("R-N1-5: every state the function names was reached", {g["state"] for g in seen} >= {
             "no_command", "hand_unreadable", "hand_false", "hand_true", "node_id", "no_selection_form", "command_not_profile",
             "same_command", "command_changed", "none", "unreadable", "error"}, True)
-        source = inspect.getsource(PC.selector_contract)
-        check("R-N1-1: runner_identity is handed argv WORDS, never the identity (its env separator is no runner word)",
-              "runner_identity(words)" in source and "runner_identity(command_identity" not in source)
+        # R-N1-1 (behaviour): runner_identity is handed argv WORDS, never the identity string (its env separator is no runner word):
+        # a proven-pytest command with an env still reads node_id.
+        ask("R-N1-1: a pytest command with an env is judged by its words (node_id)", (True, "node_id"),
+            prof(one_test(["pytest", "<test-file>"])), root_with())
     finally:
         for root in made:
             shutil.rmtree(root, ignore_errors=True)
@@ -2070,11 +2088,7 @@ def fv1_18_no_stop_one_note() -> None:
         # R-N2-2 / R-N2-3: no new request carries the key; the template skeleton has none.
         skeleton = [spec for name, _, spec in run_suite.REQUEST_TEMPLATE_FIELDS if name == "command"][0]
         check_not_in("R-N2-2: the template's command skeleton has no selector_contract_verified", "selector_contract_verified", skeleton)
-        import inspect
-        check_not_in("R-N2-2: build_mine_request writes no selector_contract_verified", "command[\"selector_contract_verified\"]",
-                     inspect.getsource(er.build_mine_request))
-        check_in("R-N2-3: a precedent command's old key is filtered at the copy (beside selector_args)",
-                 'k not in ("selector_args", "selector_contract_verified")', inspect.getsource(er.build_mine_request))
+        # (R-N2-2 on a real build_mine_request output: ep1_37_build_mine_request_role_wins)
 
         # R-N2-4: the note.
         request = {"purpose": "initial", "profile_id": "pw", "command": {"argv": pw_run, "env": dict(env)}}
