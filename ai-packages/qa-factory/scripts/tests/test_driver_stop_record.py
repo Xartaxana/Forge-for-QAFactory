@@ -678,6 +678,22 @@ def resume_kind_row_cases(tmp):
              (row4(resume="s1", resume_reason="why")["resume_kind"], len(notes4)), ("unclassified", 1))
     check_eq("a token of a wrong type (None, 7) is `unclassified`, never an exception",
              [row4(resume="s1", resume_reason="why", resume_kind=bad)["resume_kind"] for bad in (None, 7)], ["unclassified"] * 2)
+    # FIX-2: the in-call transient retry of a call that WORKED is the driver's own resume after the service broke it: `service_cut`
+    d5 = kind_rows(tmp, "kinds-transient")[0]
+    d5.infra_rules = {"failures": [{"id": "t-boom", "kind": "transient", "pattern": "boom", "retry_code": "503"}]}
+    d5.sleep, d5.unbooked = (lambda s: None), (lambda dispatch: contextlib.nullcontext())
+    d5.continuation_note = lambda *a, **k: ""
+    answers = iter([{"session_id": "s2", "result": "boom", "num_turns": 3, "total_cost_usd": 0.1, "is_error": True},
+                    {"session_id": "s2", "result": "ok", "num_turns": 3, "total_cost_usd": 0.1}])
+    d5.launch = lambda cmd, prompt, dispatch="", resume="": subprocess.CompletedProcess(cmd, 0, json.dumps(next(answers)), "")
+    seen: list = []
+    d5.journal_run = seen.append
+    with contextlib.redirect_stdout(io.StringIO()):
+        d5.run_claude("role", "p", role="r", dispatch="D1", stage="S5")
+    retried = [r for r in seen if r.get("kind") == "role"]
+    check_eq("(a) FIX-2: the in-call transient retry row is resumed and `service_cut`, with no `checks` key (next to the R-9 row)",
+             [(r["resumed"], r.get("resume_kind"), "checks" in r, r["retry"]) for r in retried],
+             [(False, None, False, 0), (True, "service_cut", False, 1)])
 
 
 def resume_kind_table_cases(tmp):
@@ -685,7 +701,7 @@ def resume_kind_table_cases(tmp):
     bad.mkdir()
     cases = {"absent": None, "not JSON": "{not json", "not an object": "[1, 2]", "no key": '{"run_classes": ["dry"]}',
              "key is not a list": '{"resume_kinds": "paid_round"}', "list of numbers": '{"resume_kinds": [1, 2]}',
-             "empty list": '{"resume_kinds": []}'}
+             "empty list": '{"resume_kinds": []}', "empty name": '{"resume_kinds": ["paid_round", ""]}'}
     real = DJ.RUN_RECORD_PATH
     try:
         for label, text in cases.items():
@@ -700,6 +716,19 @@ def resume_kind_table_cases(tmp):
             check_eq(f"(c) run-record.json {label}: a non-resumed row still has no key", "resume_kind" in row(), False)
     finally:
         DJ.RUN_RECORD_PATH = real
+
+
+def run_record_names_cases(tmp):
+    """FIX-3: the ONE validator of the lists of run-record.json, one verdict per input."""
+    base = tmp / "names"
+    base.mkdir()
+    cases = {"valid list": ('{"k": ["a", "b"]}', ("a", "b"), False), "empty list": ('{"k": []}', (), True),
+             "empty name": ('{"k": ["a", ""]}', (), True), "not a list": ('{"k": "a"}', (), True), "missing key": ('{"x": ["a"]}', (), True)}
+    for label, (text, want, noted) in cases.items():
+        path = base / (label.replace(" ", "-") + ".json")
+        path.write_text(text, encoding="utf-8")
+        names, why = DJ.run_record_names("k", path)
+        check_eq(f"(c) run_record_names {label}: the names and whether one note", (names, bool(why)), (want, noted))
 
 
 def resume_kind_road_cases(tmp):
@@ -1059,7 +1088,8 @@ def run_class_cases(tmp):
     bad = tmp / "run-record-bad"
     bad.mkdir()
     cases = {"absent": None, "not JSON": "{not json", "not an object": "[1, 2]", "no key": '{"schema_version": 1}',
-             "key is not a list": '{"run_classes": "dry"}', "list of numbers": '{"run_classes": [1, 2]}'}
+             "key is not a list": '{"run_classes": "dry"}', "list of numbers": '{"run_classes": [1, 2]}',
+             "empty list": '{"run_classes": []}', "empty name": '{"run_classes": ["dry", ""]}'}
     real_path = DJ.RUN_RECORD_PATH
     try:
         for label, text in cases.items():
@@ -1098,6 +1128,7 @@ def main():
         machine_ids_cases()
         resume_kind_row_cases(tmp)
         resume_kind_table_cases(tmp)
+        run_record_names_cases(tmp)
         resume_kind_road_cases(tmp)
         ctrl_c_serial_writes_one_stop_record(tmp)
         ctrl_c_parallel_road_writes_one_stop_record(tmp)

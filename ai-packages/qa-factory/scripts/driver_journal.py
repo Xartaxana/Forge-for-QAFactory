@@ -445,6 +445,20 @@ def run_record(path=None) -> tuple:
     return data, ""
 
 
+def run_record_names(key, path=None) -> tuple:
+    """(names, note) of one list of `references/run-record.json`: the ONE validator of those lists (AR-13, AR-15), used by
+    `run_class` and by the driver's `resume_kind_of`. `names` is a tuple of strings, or () when the file cannot be read or the
+    key is missing, not a list, empty, or holds anything but non-empty strings (one strictness: the stricter side); `note` is ""
+    then and one `note:` line otherwise. Never raises."""
+    data, why = run_record(path)
+    if why:
+        return (), why
+    names = data.get(key)
+    if not (isinstance(names, list) and names and all(isinstance(n, str) and n for n in names)):
+        return (), (f"note: the run record has no `{key}` list of non-empty names; what it names is unknown until it is repaired")
+    return tuple(names), ""
+
+
 def run_class(environ=None, notes=None) -> str:
     """The ONE reader of the run class (W1; AR-1, AR-28): `live`, `dry`, `smoke` or `unknown`.
 
@@ -457,13 +471,9 @@ def run_class(environ=None, notes=None) -> str:
     found = []
     environ = os.environ if environ is None else environ
     raw = environ.get(RUN_CLASS_ENV)
-    data, why = run_record()
-    table = data.get("run_classes")
+    table, why = run_record_names("run_classes")
     if why:
         found.append(why)
-        answer = CLASS_UNKNOWN
-    elif not isinstance(table, list) or not all(isinstance(name, str) for name in table):
-        found.append("note: the run record has no `run_classes` list of names; the run class is unknown until it is repaired")
         answer = CLASS_UNKNOWN
     elif raw is None or not str(raw).strip():
         answer = CLASS_LIVE
