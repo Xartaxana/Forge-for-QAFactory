@@ -421,7 +421,13 @@ def roster(root, cfg, stand) -> dict:
         import config_contract as CC
         import gate_preflight as GP
         rows, out["problem"] = load(root)
-        cfg = _config(root, cfg)
+        data, _, unreadable = _read(root, cfg)
+        if unreadable:    # the file is there and cannot be read: the roles are UNKNOWN, not "none" (AR-28, FR-59); both facts are said
+            door = ("qa-factory/config.json is there but cannot be read as one JSON object, so the product's roles are not known; "
+                    "repair that file (or move it aside and run onboarding again) and ask again")
+            out["problem"] = f"{out['problem']}; {door}" if out["problem"] else door
+            return out
+        cfg = data if isinstance(data, dict) else {}
         stand = str(stand or "").strip()
         seen = set()
         newest = {}

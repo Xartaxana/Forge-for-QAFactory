@@ -940,5 +940,46 @@ def test_environment_card_without_a_config_says_why(proj):
     assert got["found"] is False and "not a JSON object" in got["problem"]
 
 
+@pytest.mark.parametrize("raw, problem_names_config", [
+    (b"{broken", True),
+    (b"[]", True),
+    (b"", True),
+    (None, False),
+    (b'{"environments": []}', False),
+    (b'{"product": "x", "environments": "x"}', False),
+], ids=["broken_json", "non_object_list", "empty_file", "absent_file_control", "no_roles_key_control", "wrong_type_control"])
+def test_roster_says_an_unreadable_config_is_unknown(proj, raw, problem_names_config):
+    _put(proj, raw)
+    got = PK.roster(proj.root, None, "dev")
+    assert set(got) == {"elements", "removed", "problem"} and got["elements"] == [] and got["removed"] == []
+    assert bool(got["problem"]) is problem_names_config, got
+    if problem_names_config:
+        assert "qa-factory/config.json" in got["problem"] and "JSON object" in got["problem"] and "repair" in got["problem"]
+        assert "Traceback" not in got["problem"] and ".py" not in got["problem"]
+
+
+def test_roster_unreadable_config_keeps_the_registry_problem_too(proj):
+    proj.path().parent.mkdir(parents=True, exist_ok=True)
+    proj.path().write_text("{broken", encoding="utf-8")
+    proj.config.write_bytes(b"[]")
+    got = PK.roster(proj.root, None, "dev")
+    assert got["elements"] == [] and got["problem"].count(";") >= 1 and "qa-factory/config.json" in got["problem"], got
+
+
+def test_state_and_roster_with_a_given_cfg_ignore_the_file(proj):
+    proj.config.write_bytes(b"{broken")
+    cfg = {"environments": [{"name": "dev", "credentials_by_role": {"auditor": AUDITOR}}]}
+    got = PK.roster(proj.root, cfg, "dev")
+    assert got["problem"] == "" and [e["role"] for e in got["elements"]] == ["auditor"] and got["elements"][0]["account"] is True
+    assert PK.state(proj.root, PK.ACCOUNTS_KEY, "dev", "auditor", cfg)["state"] == "known"
+
+
+@pytest.mark.parametrize("raw", [b"{broken", b"[]", b""], ids=["broken_json", "non_object_list", "empty_file"])
+def test_account_state_on_an_unreadable_config_is_unknown(proj, raw):
+    proj.config.write_bytes(raw)
+    got = PK.state(proj.root, PK.ACCOUNTS_KEY, "dev", "auditor")
+    assert got["state"] == "unknown" and got["row"] is None
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q", "-p", "no:cacheprovider"]))
