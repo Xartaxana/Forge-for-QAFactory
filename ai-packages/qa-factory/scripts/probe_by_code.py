@@ -2785,8 +2785,16 @@ def run_shape_checks(cfg: dict, manifest: dict, case: str, entry_row: dict, spec
             problems.append(f"{len(offenders)} instance(s) of {case} that the run would select have no selector of "
                             f"their own: {_capped(offenders)}")
         if not verified:
-            problems.append(f"profile {profile.get('profile_id') or '(none found)'} does not say its selector contract "
-                            "is verified (selectors.verified in qa-factory/config.json: the onboarding's gap)")
+            pid = profile.get("profile_id") or "(none found)"
+            try:
+                why = str(PC.selector_contract(profile, root).get("why") or "").strip()
+            except Exception:   # the answer never raises; if it did, the refusal still prints with its door
+                why = ""
+            why = why or "the selector contract has no recorded proof"
+            problems.append(f"profile {pid} does not say its selector contract is verified ({why}; the onboarding probe "
+                            f"writes the proof: onboarding_probe.py --root <project> --probe-profiles --profile {pid} "
+                            "--proposals-dir <a temporary folder outside the project>, or a person writes "
+                            "selectors.verified in qa-factory/config.json)")
         raise ToolRefusal("probe_by_code: " + "; ".join(problems) + ". A non-pytest runner runs the whole case, and the "
                           "factory binds one report row by the report id the manifest records; the automator records "
                           "them once through `manifest_put.py --task <TICKET> --fragment <file>` "
