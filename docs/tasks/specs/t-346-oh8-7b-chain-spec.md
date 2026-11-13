@@ -607,6 +607,56 @@ but not yet accepted tip.
 
 A critic reads this plan before any builder (rule 3: a spec with forks and a census mechanism): t-353.
 
+### 6b. Lead decisions after the pair critic of 7c+7d+7e (Fable, 2026-11-13 13:10; review `docs/tasks/specs/reviews/t-411-oh8-7cde-diff-review.md`, journal t-414; technical, "решила сама")
+
+- **Rule 1 restated.** A row is `safety` by its RAISING CONDITION (it refuses a second writer or an overwrite), not by what
+  the function protects. No row moves.
+- **Rule 2 KEPT, its precedent list corrected.** A containment / symlink / link guard on a path that is WRITTEN is `safety`;
+  on a path only read it is `shape`. `red_sandbox.inside` guards writes (:615, :617, :625) and was cited wrongly as a read
+  precedent. Why kept: the higher class wins (CLASS_ORDER) and under-counting is the unsafe side of a shrink-only ratchet.
+  Fix round (F2): `red_sandbox.py::_check_row_in_clone` shape -> safety.
+- **`exploration.py::record_answer` -> safety, owner `intent`** (it refuses to let a conductor token or `--not-asked` override
+  the person's recorded word, :635/:638/:647; precedents `person_words.door`, `waiver.*`). Rule 3 stands for the comparison
+  itself (not a word list). Same fix round.
+- **Rule 4, reason restated.** The owner is never the class axis; `_trusted_producer` is xref by its raises (config
+  presence, one profile, opt-in flag, complete identity).
+- **Roles.** Nodes f..h keep the same-file precedent. One class node AFTER the chain re-derives the roles of role-run CLIs
+  (probe_by_code, execution_request `--mine` path, run_suite, red_sandbox, manual_capture, manual_evidence `prepare`,
+  import_test_receipt) from `references/role-commands.json`, `agents/*.md` and the phase cards, old and new rows together,
+  with named `blocking_per_role` raises.
+- **One class node AFTER the chain for written-path guards and trust (P31, one road):** the existing rows
+  `red_sandbox.inside`, `manual_evidence._copy_atomic`, `hooklib.artifacts_dir`, `artifact_packet.work_path`,
+  `import_test_receipt.validate_receipt` (the trust comparison, :96), and the new `red_sandbox._plan_row`,
+  `exploration._hit_repos`, `exploration._clean_stories` are re-judged together under rule 2 after a scout over the
+  `is_symlink` / `is_relative_to` / `is_one_component` callers; each raise named. Until then their written classes stand.
+- **Scanner blind spot (F4): a raise through a factory function (`raise _held_by(...)`).** Measured by the Lead on 097f58d
+  with the critic's script over all 279 scripts: 52 rowless functions carry such a raise (an upper bound: the scan does not
+  subtract functions that also raise directly), `exploration.py::acquire` among them (positive control). OH8-7h names this
+  form in the fixture `about` and the test's `BLIND_SPOT` with that count and does NOT claim completeness; the scanner
+  learns the form in its own node after the chain (designer spec; it creates pending units classified like this chain).
+- **7d tally correction (F3):** 8 xref, 22 shape, 8 safety (the commit message says 9/21/8; commits are not rewritten).
+- **Fix round after OH8-7g lands (one fresh builder, fixture only):** F1 (13 `","class"` lines get their space back, no
+  JSON change), F2 and `record_answer` (safety +2, each raise named).
+- Queue (findings, D-0044): `import_test_receipt.py::main` and `environment_preparation.py::main` leak a traceback (scout
+  t-418 feeds a builder node); the module class `ImportError` shadows the builtin (import_test_receipt.py:26); the
+  `_copy_evidence` / `_copy_atomic` duplication.
+
+### 6c. Lead decisions after the pair critic of 7f+7g (Fable, 2026-11-13 13:45; review `docs/tasks/specs/reviews/t-423-oh8-7fg-diff-review.md`; technical, "решила сама")
+
+- F1 accepted: `question_register.py::record_case` -> xref (the case id is joined against the story's case ids). No ratchet moves.
+- F2 accepted: `person_words.py::_from_file` -> safety, owner intent: its NUL / strict UTF-8 / empty refusals keep a text
+  other than the person's from being recorded, the same thing `read` guards. `safety` +1, named in the commit message.
+  Both rows go into the fix round that follows the OH8-7h critic (same fixture, one writer at a time).
+- Rule 3 wording, restated: safety is "a guard on a person's RECORDED word or answer" - not the raising shape. `_raise` and
+  `raise_role_question` stay as they are.
+- `vcs_evidence.readiness` leading-`-` host check stays shape.
+- The roles class node gains: `raise_question` / `_raise` (S4 author), `vcs_evidence.*` (qa-scout), `s5_plan.*`
+  (qa-automator). The E3 finding gains the existing row `machine_facts._check` (same catch path, no E3 note).
+- Dropped: the `via_cmd` "silently off" analog - `run_py_entry.py:162` registers itself as the module, the import cannot
+  fail on the cmd route (critic t-423, item 7).
+- Queue (findings): `record_case` has no guard against a second, different decision on a decided case; the duplicated
+  register-read block (two copies); goto-by-exception in two places; `onboard_apply.main` exit 1 vs 2.
+
 ---
 
 ## 7. Small technical choices closed by the designer
