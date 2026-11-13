@@ -745,7 +745,7 @@ def handed_instances(manifest, items, scope=None, root=None, runs=None, refused=
 # which instances are red by a row, `red_by_own_row` whether one of those rows is a case's own. The error direction of
 # all three is "not red": the cost is a refusal that names its door, the forbidden error is a red nobody explained
 # passing (FR-59), or a green one called red.
-CONTRADICTS_REQUIREMENT = "contradicts_requirement"
+CONTRADICTS_REQUIREMENT = C.CONTRADICTS_REQUIREMENT  # alias; the ONE home is contract.py (FR-13, AR-13)
 # What `row_slice` answers when the row does NOT speak about the instance (and, with `no_then`, the kinds a refusal of
 # `red_by_requirement` carries).
 SLICE_OTHER_CASE = "other_case"
@@ -848,6 +848,72 @@ def _red_refusal(kind, case, iid, row, entry, bound, needed) -> str:
             f"{iid} in `then_bindings`, and sends the rows through `{RED_ROW_ROAD}`")
 
 
+def _red_source(report, strict, runs, root):
+    """The ONE source of redness of a `red_by_requirement` call as a closure `failed(names) -> bool` (see (v-a), (v-b),
+    (v-c) there), or `None` when the run map cannot be read at all. Error direction "not red": an unreadable report or
+    run map says nothing failed."""
+    current: dict = {}
+    if report is not None:
+        try:
+            current = C.current_instance_results(report) if isinstance(report, dict) else {}
+        except Exception:
+            current = {}  # a report that cannot be read names no failure - the allowed error
+    elif strict:
+        if runs is None and root is not None:
+            try:
+                import window_record
+                runs = window_record._terminal_runs(Path(root))
+            except Exception:
+                return None  # runs unreadable: nobody can say the latest run failed - the allowed error
+        runs = runs if isinstance(runs, dict) else {}
+
+    def failed(names) -> bool:
+        """Does the source of redness of this call say `failed` for an instance answering to `names`?"""
+        if report is not None:
+            return any(isinstance(current.get(n), dict) and C.result_status(current[n]) == "failed" for n in names)
+        if not strict:
+            return True
+        try:
+            for name in names:
+                last = runs.get(name)
+                if last:
+                    return isinstance(last, (tuple, list)) and isinstance(last[0], dict) \
+                        and C.result_status(last[0]) == "failed"
+        except Exception:
+            return False  # a run map that cannot be read says nothing failed - the allowed error
+        return False
+
+    return failed
+
+
+def _rows_for_instance(rows, entry, iid, names, covered, bindings, cfg):
+    """`(matched, turned_down)` for one instance: the rows that explain it, in manifest order (every matching row, not
+    the first), and the `(code, row, case, held, needed)` of the rows that speak about a case it covers and were turned
+    down. Error direction "not red": a row that names nothing readable matches nothing."""
+    matched: list = []
+    turned_down: list = []
+    for row in rows:
+        here = [case for case in covered if C.case_matches(str(row.get("case") or ""), case, cfg=cfg)]
+        if not here:
+            continue  # a row about a case this instance does not cover: not about this instance at all
+        case = here[0]
+        code = row_slice(row, entry, case, cfg)
+        if code:
+            turned_down.append((code, row, case, set(), None))
+            continue
+        held = {n for n in (C.then_number(b.get("then")) for b in bindings
+                            if str(b.get("instance_id") or "").strip() in names
+                            and C.case_matches(str(b.get("case") or ""), case, cfg=cfg)) if n}
+        raw = row.get(C.UNRESOLVED_THENS_KEY)
+        needed = None if raw is None else ({n for n in (C.then_number(x) for x in raw) if n}
+                                           if isinstance(raw, list) else set())
+        if (held if needed is None else held & needed):
+            matched.append(row)
+        else:
+            turned_down.append((REFUSED_NO_THEN, row, case, held, needed))
+    return matched, turned_down
+
+
 def red_by_requirement(manifest, items, scope, root=None, runs=None, refused=None, strict=True, report=None) -> dict:
     """`{instance id: [the unresolved[] rows that make it red]}` for the `items` (dicts with an `instance_id`): every
     instance that FAILED against a requirement and says so, in the row's own words. Same signature as
@@ -893,37 +959,9 @@ def red_by_requirement(manifest, items, scope, root=None, runs=None, refused=Non
             by_alias.setdefault(alias, test)
     bindings = [b for b in (manifest.get("then_bindings") or []) if isinstance(b, dict)
                 and str(b.get("status") or "") == "covered"] if isinstance(manifest.get("then_bindings"), list) else []
-    current: dict = {}
-    if report is not None:
-        try:
-            current = C.current_instance_results(report) if isinstance(report, dict) else {}
-        except Exception:
-            current = {}  # a report that cannot be read names no failure - the allowed error
-    elif strict:
-        if runs is None and root is not None:
-            try:
-                import window_record
-                runs = window_record._terminal_runs(Path(root))
-            except Exception:
-                return {}  # runs unreadable: nobody can say the latest run failed - the allowed error
-        runs = runs if isinstance(runs, dict) else {}
-
-    def failed(names) -> bool:
-        """Does the source of redness of this call say `failed` for an instance answering to `names`?"""
-        if report is not None:
-            return any(isinstance(current.get(n), dict) and C.result_status(current[n]) == "failed" for n in names)
-        if not strict:
-            return True
-        try:
-            for name in names:
-                last = runs.get(name)
-                if last:
-                    return isinstance(last, (tuple, list)) and isinstance(last[0], dict) \
-                        and C.result_status(last[0]) == "failed"
-        except Exception:
-            return False  # a run map that cannot be read says nothing failed - the allowed error
-        return False
-
+    failed = _red_source(report, strict, runs, root)
+    if failed is None:
+        return {}  # runs unreadable: nobody can say the latest run failed - the allowed error
     found: dict = {}
     seen: set = set()
     for item in items or []:
@@ -936,27 +974,7 @@ def red_by_requirement(manifest, items, scope, root=None, runs=None, refused=Non
             continue  # a record naming a test the manifest does not hold is not a red test
         names = list(dict.fromkeys([iid, *C.instance_id_aliases(entry, cfg)]))
         covered = [case for case, ids in by_case.items() if iid in ids]
-        matched: list = []
-        turned_down: list = []
-        for row in rows:
-            here = [case for case in covered if C.case_matches(str(row.get("case") or ""), case, cfg=cfg)]
-            if not here:
-                continue  # a row about a case this instance does not cover: not about this instance at all
-            case = here[0]
-            code = row_slice(row, entry, case, cfg)
-            if code:
-                turned_down.append((code, row, case, set(), None))
-                continue
-            held = {n for n in (C.then_number(b.get("then")) for b in bindings
-                                if str(b.get("instance_id") or "").strip() in names
-                                and C.case_matches(str(b.get("case") or ""), case, cfg=cfg)) if n}
-            raw = row.get(C.UNRESOLVED_THENS_KEY)
-            needed = None if raw is None else ({n for n in (C.then_number(x) for x in raw) if n}
-                                               if isinstance(raw, list) else set())
-            if (held if needed is None else held & needed):
-                matched.append(row)
-            else:
-                turned_down.append((REFUSED_NO_THEN, row, case, held, needed))
+        matched, turned_down = _rows_for_instance(rows, entry, iid, names, covered, bindings, cfg)
         if matched and failed(names):
             found[iid] = matched
         elif (not matched and turned_down and refused is not None and report is None and strict and failed(names)):
