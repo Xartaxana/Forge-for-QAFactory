@@ -207,3 +207,12 @@ def write_words(task_root, dispatch_id, kind, text):
             except OSError:
                 pass
         raise
+
+
+def notes_args(task_root, dispatch_id, kind, text) -> tuple:
+    """The argv pair that hands a person's words to a script taking `--notes` / `--notes-file`: the ONE road of
+    write-then-pass (AR-13, AR-15). `("--notes-file", <absolute path>)` when `write_words` kept a file; else
+    (blank or None words: nothing written) `("--notes", text)` with the text as given. `write_words` may raise
+    `OSError`: the words are never put on the command line instead."""
+    kept = write_words(task_root, dispatch_id, kind, text)
+    return ("--notes-file", str(kept.absolute())) if kept is not None else ("--notes", text)

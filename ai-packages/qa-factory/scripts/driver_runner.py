@@ -287,8 +287,7 @@ class DriverRunner:
         write that fails raises `OSError` (the words are never put on the command line instead)."""
         import person_words
         note = _answer_note(prefix, words)
-        kept = person_words.write_words(self.state_dir.parent, "", "journalnote", note)
-        notes = ("--notes-file", str(kept.absolute())) if kept is not None else ("--notes", note)
+        notes = person_words.notes_args(self.state_dir.parent, "", "journalnote", note)
         self.owe_row("log_append.py", "--event", "human_answer", "--task", self.task, *extra, *notes, what=what)
 
     def py_trace(self, script: str, *args, why: str) -> None:

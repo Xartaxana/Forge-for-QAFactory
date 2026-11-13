@@ -1,0 +1,1 @@
+- The driver's three "write the person's words to a file, then pass them to `log_append.py`" sites now go through one helper, `person_words.notes_args`, and `take_answer` reads line endings through `person_words.lf`. No behavior change.

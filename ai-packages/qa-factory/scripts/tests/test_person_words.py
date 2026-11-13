@@ -739,6 +739,30 @@ def t4c_the_one_writer_of_state_words():
         cleanup(root)
 
 
+def t4d_notes_args_is_the_one_write_then_pass_road():
+    """T4d (FV1-4 Q2/Q3): `notes_args` is `--notes-file <absolute path>` when a file was kept, `--notes <text as given>` when
+    not (blank / None); `lf` equals the inline rule `take_answer` used on every str it can receive."""
+    import tempfile
+    root = Path(tempfile.mkdtemp(prefix="qa-words-notes-"))
+    try:
+        text = "owner: factory\r\nsecond line " + chr(233)
+        flag, path = person_words.notes_args(root, "", "journalnote", text)
+        check_eq("T4d: a kept file -> --notes-file", flag, "--notes-file")
+        check("T4d: the path is absolute, under state/words, and holds the words as given",
+              Path(path).is_absolute() and Path(path).parent == root / "state" / "words"
+              and Path(path).name.startswith("driver-journalnote-") and Path(path).read_bytes() == text.encode("utf-8"), path)
+        for blank in ("", "  \r\n\t ", None):
+            check_eq(f"T4d: blank {blank!r} -> --notes with the text as given, no file",
+                     person_words.notes_args(root, "", "journalnote", blank), ("--notes", blank))
+        check_eq("T4d: dispatch id and kind reach the file name",
+                 Path(person_words.notes_args(root, "D-7", "gateA", "x")[1]).name.startswith("driver-gateA-D-7-"), True)
+    finally:
+        cleanup(root)
+    for sample in ("", "a\r\nb", "a\rb", "a\r\nb\rc\nd\r\r\n", "\r", "\r\n", "plain"):
+        check_eq(f"T4d: lf equals the inline rule for {sample!r}", person_words.lf(sample),
+                 sample.replace("\r\n", "\n").replace("\r", "\n"))
+
+
 def c26_go_on_with_a_block_passes_the_original_words() -> None:
     """t-722 C2-6 §4.5 / §6 p.12: `go on` with `asked.block` hands `waiver.py` the ORIGINAL answer's file (byte for byte); with no original
     file named, the file of the token (the token was all that was said); a file named but gone -> the question is held and `waiver.py`
@@ -782,6 +806,7 @@ def c26_go_on_with_a_block_passes_the_original_words() -> None:
 def main() -> None:
     c26_go_on_with_a_block_passes_the_original_words()
     t4c_the_one_writer_of_state_words()
+    t4d_notes_args_is_the_one_write_then_pass_road()
     the_reader_returns_the_file_as_written()
     the_reader_refuses_with_a_door()
     the_controller_records_gate_words_from_a_file()
