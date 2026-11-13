@@ -1370,11 +1370,13 @@ def test_m1_the_collision_warn_names_a_band_that_overlapped_an_id_the_other_clon
     assert "lies inside band" not in _decide(staged, head, other, jk.NO_SEGMENTS)[2][0]
 
 
-@pytest.mark.parametrize("tail_id,ok", [("t-401", True), ("t-501", True), ("t-002", True), ("t-450", False), ("t-502", False)])
-def test_m2_two_parents_with_bands_of_their_own_the_tail_may_take_the_next_of_either(tail_id, ok):
+@pytest.mark.parametrize("tail_id,band,ok", [
+    ("t-401", "t-400..t-449", True), ("t-501", "t-500..t-549", True), ("t-002", None, True), ("t-450", None, False),
+    ("t-502", None, False), ("t-401", None, False), ("t-501", "t-400..t-449", False)])     # F1: a band's next id needs its band
+def test_m2_two_parents_with_bands_of_their_own_the_tail_may_take_the_next_of_either(tail_id, band, ok):
     h = [_band_obj("t-400", "2026-07-10T09:00:00", "t-400..t-449")]
     o = [_band_obj("t-500", "2026-07-10T09:30:00", "t-500..t-549", agent="scout", category="recon")]
-    tail = _band_obj(tail_id, "2026-07-10T11:00:00")
+    tail = _band_obj(tail_id, "2026-07-10T11:00:00", band)
     code, violations, _w = _decide(_text(B1, *h, *o, tail), _text(B1, *h), _text(B1, *o), jk.NO_SEGMENTS)
     assert (code == 0) is ok, violations
     if not ok:

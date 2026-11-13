@@ -849,12 +849,30 @@ def test_k3_where_with_every_band_used_up_prints_no_band_line_but_the_suggestion
     ("t-500..t-499", "band_reversed"), ("t-500..t-1499", None), ("t-500..t-1500", "band_too_big"),
     (["t-1"], "band_not_string"), (500, "band_not_string"), ("t-４００..t-４４９", "band_not_form"),
     ("t-1234567890..", "band_not_form"), ("t-" + "9" * 5000 + "..", "band_not_form"),
-    ("t-999999999..", None), ("t-500..\n", "band_not_form"),
+    ("t-999999999..", None), ("t-500..\n", "band_not_form"), ("t-50..", "band_not_form"),      # F2: 3-digit lower bound
 ])
 def test_id_band_of_forms(value, reason):
     band, why = jk.id_band_of({"id_band": value})
     assert why == reason and (band is not None) == (reason is None and value is not None)
     assert jk.id_band_of({}) == (None, None) and jk.id_band_of("x") == (None, None)
+
+
+def test_may_issue_is_the_one_predicate_of_who_takes_which_id():
+    st = jk.BandState()
+    for obj in ({"task_id": "t-356"}, {"task_id": "t-450", "id_band": "t-450..t-499"}):
+        st.add(obj)
+    b = jk.id_band_of({"id_band": "t-450..t-499"})[0]
+    other = jk.id_band_of({"id_band": "t-600..t-649"})[0]
+    assert st.may_issue(357) and not st.may_issue(358)
+    assert st.may_issue(451, b) and not st.may_issue(451) and not st.may_issue(451, other)    # scoped to the line's own band
+    assert not st.may_issue(452, b) and st.may_issue(357, None)
+    assert st.has_closed(b) and not st.has_closed(other) and st.band_around(460) == b and st.band_around(500) is None
+    assert not st.may_issue(451, jk.id_band_of({"id_band": "t-450.."})[0])                     # an open band reserves nothing
+    # the main sequence at a band edge skips the band, so its first id is never the main id
+    edge = jk.BandState()
+    for obj in ({"task_id": "t-399"}, {"id_band": "t-400..t-449"}):
+        edge.add(obj)
+    assert edge.issuable()[0] == 450 and not edge.may_issue(400) and edge.may_issue(400, jk.id_band_of({"id_band": "t-400..t-449"})[0])
 
 
 def test_the_band_state_is_the_one_next_id_rule():
@@ -865,7 +883,10 @@ def test_the_band_state_is_the_one_next_id_rule():
     assert jk.next_ids([{"task_id": "t-399"}, {"id_band": "t-400..t-449"}, {"id_band": "t-450..t-499"}]).main == 500
     assert jk.next_ids([{"task_id": "t-433"}, {"id_band": "t-500.."}]).main == 500
     assert jk.next_ids([]).main == 1 and jk.next_ids([{"task_id": "t-1234567890"}]).main == 1
-    assert jk.peer_note([], jk.BandState()) == ""
+    assert jk.peer_note([], jk.BandState()) == "" and jk.peer_note([], jk.BandState(), cleared=True) == ""
+    assert "on every journal line you issue from it" in jk.peer_note([("abcdefghij", 125)], jk.BandState())
+    plain = jk.peer_note([("abcdefghij", 125)], jk.BandState())
+    assert jk.peer_note([("abcdefghij", 125)], jk.BandState(), cleared=True) == plain + " (possibly this session before /clear)"
     note = jk.peer_note([(f"abcdefghij{i}", 125) for i in range(5)], jk.BandState())
     assert "2 min ago (abcdefgh, abcdefgh, abcdefgh, +2 more)" in note and 'id_band: "t-050..t-099"' in note
 

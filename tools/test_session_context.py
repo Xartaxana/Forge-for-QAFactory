@@ -3199,6 +3199,21 @@ def test_q1_session_start_adds_one_parallel_session_line_when_a_peer_wrote_two_m
     assert sum(1 for l in out if l.startswith("PARALLEL SESSION")) == 1 and out[-1].startswith("PARALLEL SESSION")
 
 
+def test_q1_after_a_clear_the_note_keeps_the_peer_and_gains_the_suffix_only_for_source_clear(tmp_path):
+    import session_context as _sc
+    root = _seed_repo(tmp_path / "r", events=[_event("delegated", task_id="t-001")])
+    own = _q1_transcripts(tmp_path, peer_age=125)
+    suffix = " (possibly this session before /clear)"
+    (note,) = _sc.peer_note_lines(root, {"transcript_path": own, "source": "clear"})
+    assert note.endswith(suffix) and "2 min ago (peer-ses)" in note          # the peer is not dropped
+    for source in ("startup", "resume", "compact", "", None, 5):
+        (plain,) = _sc.peer_note_lines(root, {"transcript_path": own, "source": source})
+        assert not plain.endswith(suffix) and plain == note[:-len(suffix)]
+    (tmp_path / "alone").mkdir()
+    alone = _q1_transcripts(tmp_path / "alone")                     # a folder with only the own file
+    assert _sc.peer_note_lines(root, {"transcript_path": alone, "source": "clear"}) == []
+
+
 def test_q1_with_no_peer_or_no_transcript_path_the_boot_text_is_unchanged(tmp_path, monkeypatch, capsys):
     import session_context as _sc
     root = _seed_repo(tmp_path / "r", events=[_event("delegated", task_id="t-001")])

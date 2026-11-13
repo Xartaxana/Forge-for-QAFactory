@@ -2238,7 +2238,9 @@ def peer_note_lines(root: Path, stdin_payload, now_epoch: float = None) -> list:
         root = Path(root)
         rel, _why = _jk.current_path(root)
         label = "" if rel in (None, _jk.HISTORY_REL) else Path(rel).stem
-        note = _jk.peer_note(peers, _jk.load_all(root).band_state(label))
+        # source "clear": the pre-/clear transcript of THIS person is among the peers (a new file starts at a clear)
+        note = _jk.peer_note(peers, _jk.load_all(root).band_state(label),
+                             cleared=extract_source(stdin_payload) == "clear")
         return [note] if note else []
     except Exception:  # noqa: BLE001
         return []

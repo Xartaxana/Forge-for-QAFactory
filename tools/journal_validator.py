@@ -102,7 +102,12 @@ log" section):
        applies BEFORE that line's own id is judged (the opening delegated
        of a band is legal); a band refused on a line never makes the same
        line's id legal. A used-up band is a NOVELTY violation that says so;
-       a filler line that only raises the max is not needed. A band only
+       a filler line that only raises the max is not needed. A band's next
+       id is issuable ONLY by a line that carries that band in its own
+       `id_band` (every line issued from a band declares it; repeating a
+       declared band is a reference, never BELOW): a line without it that
+       lands on the id is judged as a main-sequence id (NOVELTY plus the
+       door clause). BandState.may_issue is the one predicate. A band only
        raises or reserves ids above everything issued or reserved: it never
        lowers the counter and never makes an issued id issuable twice. In a
        merge each parent's form-valid bands are in the state of the tail;
@@ -995,7 +1000,7 @@ def validate_new_lines(new_lines: list[str], head_lines: list[str],
         # A refused band does not enter the state, so it can never make this line's own id legal (position invariant).
         band, _band_reason = _jk.id_band_of(obj)
         band_kind = None
-        if band is not None:
+        if band is not None and not band_state.has_closed(band):     # a repeated declared band is a reference
             band_kind = band_state.check_band(band)
             if band_kind is None:
                 band_state.add_band(band)
@@ -1007,8 +1012,11 @@ def validate_new_lines(new_lines: list[str], head_lines: list[str],
             if task_id not in seen_task_ids:
                 # (a) a brand-new task -- (ii) the file's own next id, or the next id of a closed band that is not
                 # used up (rule 9e). The band of THIS line, when accepted above, is already in the state.
-                if not _is_issuable(task_id, band_state):
-                    violations.append(_novelty_text(tag, task_id, band_state))
+                # the band counts only when it is in the state (a refused band never entered it)
+                own_band = band if band is not None and band_kind is None else None
+                m_id = _jk.ID_NUM_RE.match(task_id)      # more than 9 digits: never issuable
+                if m_id is None or not band_state.may_issue(int(m_id.group(1)), own_band):
+                    violations.append(_novelty_text(tag, task_id, band_state, own_band))
             elif task_id in closed_tasks:
                 # (d) reopen forbidden -- a collision counts as two tasks.
                 violations.append(
@@ -1149,17 +1157,6 @@ def validate_new_lines(new_lines: list[str], head_lines: list[str],
     return violations
 
 
-def _is_issuable(task_id: str, state) -> bool:
-    """Rule 9a/9e: is `task_id` (a valid t-NNN, not yet seen) the file's own next id or the next id of a closed
-    band that is not used up? An id the next-id readers cannot parse (more than 9 digits) is never issuable."""
-    m = _jk.ID_NUM_RE.match(task_id)
-    if m is None:
-        return False
-    actual = int(m.group(1))
-    main, bands = state.issuable()
-    return actual == main or actual in {n for n in bands.values() if n is not None}
-
-
 def _band_place_text(tag: str, band, kind: str, top: int) -> str:
     """The refusal of a band that is well formed but placed wrong: BELOW, NEAR or JUMP (rule 9e)."""
     s = _jk.suggested_band(top)
@@ -1176,14 +1173,20 @@ def _band_place_text(tag: str, band, kind: str, top: int) -> str:
             f"nearer, at t-{s:03d} (rule 9e)")
 
 
-def _novelty_text(tag: str, task_id, state) -> str:
-    """The refusal of a brand-new delegated whose id is neither the file's next id nor a band's next (rules 9a, 9e):
-    names every next id the writer may use, and a used-up band with the door."""
+def _novelty_text(tag: str, task_id, state, own_band=None) -> str:
+    """The refusal of a brand-new delegated whose id is neither the file's next id nor the next of the band the
+    line carries (rules 9a, 9e): names every next id the writer may use, the door when the id lies inside a band
+    the line does not carry, and a used-up band with the door."""
     main, _bands = state.issuable()
     s = _jk.suggested_band(state.top)
     text = f"{tag}: task_id novelty violated -- got {task_id}; the next new id is t-{main:03d} (this journal's sequence)"
     for band, nxt in _jk.free_bands(state)[-_jk.BAND_SHOW_MAX:]:
         text += f" or t-{nxt:03d} (band {band.label})"
+    m_id = _jk.ID_NUM_RE.match(task_id) if isinstance(task_id, str) else None
+    around = state.band_around(int(m_id.group(1))) if m_id else None
+    if around is not None and (own_band is None or (own_band.lo, own_band.hi) != (around.lo, around.hi)):
+        text += (f"; {task_id} lies in the id band {around.label} of another writer; a line issued from a band "
+                 f'carries "id_band":"{around.label}"')
     used = _jk.used_up_bands(state)[-_jk.BAND_SHOW_MAX:]
     for band in used:
         text += f"; band {band.label} is used up"

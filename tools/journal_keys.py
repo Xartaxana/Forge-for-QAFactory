@@ -325,6 +325,27 @@ class BandState:
             bands[b] = nxt if nxt <= b.hi else None
         return main, bands
 
+    def has_closed(self, band) -> bool:
+        """Is `band` (a Band) already one of the declared closed bands? A line that repeats a declared band is a
+        REFERENCE to it (the line is issued from that band), not a new declaration: it is never judged BELOW."""
+        return band is not None and band.hi is not None and any((b.lo, b.hi) == (band.lo, band.hi) for b in self.closed)
+
+    def band_around(self, n: int):
+        """The declared closed band that holds the id `n`, or None (the first one declared)."""
+        return next((b for b in self.closed if b.lo <= n <= b.hi), None)
+
+    def may_issue(self, n: int, own_band=None) -> bool:
+        """THE one predicate of "who may take which brand-new id" (rule 9a/9e): `n` is the file's own next id, OR it
+        is the next id of the closed band that the issuing line carries in ITS OWN `id_band` (`own_band`, a Band
+        already in this state) and that band is not used up. The next id of a band the line does not carry is
+        never issuable by it: a writer that took max+1 and landed on a band's id does not own the band."""
+        main, bands = self.issuable()
+        if n == main:
+            return True
+        if own_band is None or own_band.hi is None:
+            return False
+        return any(nxt == n for b, nxt in bands.items() if (b.lo, b.hi) == (own_band.lo, own_band.hi) and nxt is not None)
+
     def suggested(self):
         """(s, s + 49): the band a second writer is told to open, from suggested_band(top)."""
         s = suggested_band(self.top)
@@ -360,10 +381,15 @@ def band_lines(state) -> list:
     return [f"band {b.label}: next t-{n:03d}" for b, n in free_bands(state)[-BAND_SHOW_MAX:]]
 
 
-def peer_note(peers, state) -> str:
+PEER_CLEAR_SUFFIX = " (possibly this session before /clear)"
+
+
+def peer_note(peers, state, cleared: bool = False) -> str:
     """The PARALLEL SESSION note (a note, never a refusal): "" with no `peers` ([(stem, age_s)], youngest first,
     transcripts.peer_main_sessions), else one line that tells the session another main session of this project
-    is live and how to open a band. At most 3 stems are shown. `state`: a BandState or a NextIds (its `top`)."""
+    is live and how to open a band. At most 3 stems are shown. `state`: a BandState or a NextIds (its `top`).
+    `cleared` (SessionStart source "clear"): the youngest file may be this very session's pre-/clear transcript, so
+    the note ends with PEER_CLEAR_SUFFIX -- no peer is dropped (an unknown is never hidden)."""
     if not peers:
         return ""
     s = suggested_band(state.top)
@@ -374,8 +400,9 @@ def peer_note(peers, state) -> str:
         "PARALLEL SESSION (a note, nothing is blocked): another main session of this project wrote its "
         f"transcript {int(peers[0][1]) // 60} min ago ({shown}). Two sessions issuing task ids into one journal "
         "file collide on max+1 (13.11, t-347..t-356); one of you opens a band before its next id: "
-        f'id_band: "t-{s:03d}..t-{s + 49:03d}" on that journal line (python tools/journal_keys.py where prints '
-        "the next ids; CLAUDE.md, Routing log)."
+        f'id_band: "t-{s:03d}..t-{s + 49:03d}" on every journal line you issue from it (python tools/journal_keys.py '
+        "where prints the next ids; CLAUDE.md, Routing log)."
+        + (PEER_CLEAR_SUFFIX if cleared else "")
     )
 
 

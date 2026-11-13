@@ -1583,8 +1583,10 @@ def _ids(a, b):
 
 
 _B450 = ("d", "t-450", "t-450..t-499")
-_J1 = [_B450, ("d", "t-357"), ("d", "t-451"), ("d", "t-358")]
-_FILLED_400 = [("x", None, "t-400..t-449")] + _ids(341, 399) + [("d", "t-400")]
+_J1 = [_B450, ("d", "t-357"), ("d", "t-451", "t-450..t-499"), ("d", "t-358")]   # every band line carries its band
+_FILLED_400 = [("x", None, "t-400..t-449")] + _ids(341, 399) + [("d", "t-400", "t-400..t-449")]
+_DOOR_451 = 't-451 lies in the id band t-450..t-499 of another writer; a line issued from a band carries "id_band":"t-450..t-499"'
+_EDGE_400 = [("d", "t-340"), ("x", None, "t-400..t-449")] + _ids(341, 399)
 _HUGE = "t-" + "9" * 5000 + ".."
 _FORM_VALUES = ["t-5..t-9", "500..", "t-500 .. t-510", "t-500–t-510", "", ["t-1"], {"from": "t-1"}, 500,
                 "t-４００..t-４４９", "t-1234567890..", _HUGE]
@@ -1592,7 +1594,24 @@ _FORM_VALUES = ["t-5..t-9", "500..", "t-500 .. t-510", "t-500–t-510", "", ["t-
 # (row, head specs, new specs, needles that must ALL appear in the violations; () = no violation at all)
 ID_BAND_ROWS = [
     ("j1", [("d", "t-356")], _J1, ()),
-    ("j2", [("d", "t-356")], _J1 + [("d", "t-455")], ("task_id novelty violated", "got t-455", "t-452 (band t-450..t-499)")),
+    ("j2", [("d", "t-356")], _J1 + [("d", "t-455", "t-450..t-499")],
+     ("task_id novelty violated", "got t-455", "t-452 (band t-450..t-499)")),
+    # F1 (t-402): a band's next id is issuable only by a line that carries that band in its own id_band
+    ("S1-naive-max-plus-1", [("d", "t-356")], [_B450, ("d", "t-451")],
+     ("task_id novelty violated", "got t-451", "the next new id is t-357", _DOOR_451)),
+    ("S1-band-owner-with-field", [("d", "t-356")], [_B450, ("d", "t-451", "t-450..t-499")], ()),
+    ("P10-plain-id-at-a-band-first-id", [("d", "t-356"), ("x", None, "t-500..t-549")], [("d", "t-500")],
+     ("got t-500", "the next new id is t-357",
+      't-500 lies in the id band t-500..t-549 of another writer; a line issued from a band carries "id_band":"t-500..t-549"')),
+    ("edge-main-at-a-band-edge-takes-the-next-after-it", _EDGE_400, [("d", "t-450")], ()),
+    ("edge-main-at-a-band-edge-plain-first-id-refused", _EDGE_400, [("d", "t-400")],
+     ("got t-400", "the next new id is t-450", "t-400 lies in the id band t-400..t-449")),
+    ("band-never-declared-opens-on-its-own-line-and-its-id-is-judged", [("d", "t-356")], [("d", "t-455", "t-450..t-499")],
+     ("got t-455", "or t-450 (band t-450..t-499)")),
+    ("a-line-carries-another-bands-field", [("d", "t-356"), _B450, ("x", None, "t-600..t-649")],
+     [("d", "t-600", "t-450..t-499")], ("got t-600", "lies in the id band t-600..t-649")),
+    ("a-band-line-without-a-new-id-needs-no-field-for-9d", [("d", "t-356"), _B450], [("d", "t-450")],
+     ("repeated delegated by the same agent",)),
     ("j3", [("d", "t-356")], [("x", None, "t-300..t-310")], ("starts at or below t-356", "start it at t-450", "(rule 9e)")),
     ("j4", [("d", "t-356"), _B450], [("x", None, "t-470..t-480")], ("starts at or below t-499", "start it at t-550")),
     ("j5a-jump", [("d", "t-356")], [("x", None, "t-999999999..")], ("starts 999999643 ids above t-356", "at most 10000")),
@@ -1608,8 +1627,11 @@ ID_BAND_ROWS = [
     ("j10-pass", [("d", "t-340")], _FILLED_400 + [("d", "t-450")], ()),
     ("j10-skip-in-band", [("d", "t-340")], _FILLED_400 + [("d", "t-402")],
      ("got t-402", "the next new id is t-450", "or t-401 (band t-400..t-449)")),
-    ("j10-reuse", [("d", "t-340")], _FILLED_400 + [("d", "t-400")], ("repeated delegated by the same agent",)),
-    ("j11", [("d", "t-340")], [("x", None, "t-400..t-402")] + _ids(341, 360) + _ids(400, 402) + [("d", "t-403")],
+    ("j10-skip-in-band-with-field", [("d", "t-340")], _FILLED_400 + [("d", "t-402", "t-400..t-449")],
+     ("got t-402", "or t-401 (band t-400..t-449)")),
+    ("j10-reuse",[("d", "t-340")], _FILLED_400 + [("d", "t-400")], ("repeated delegated by the same agent",)),
+    ("j11", [("d", "t-340")],
+     [("x", None, "t-400..t-402")] + _ids(341, 360) + [("d", f"t-{n}", "t-400..t-402") for n in (400, 401, 402)] + [("d", "t-403")],
      ("got t-403", "the next new id is t-361", "band t-400..t-402 is used up -- open a new band at t-500")),
     ("j12", [("d", "t-356", "junk")], [("d", "t-357")], ()),
     ("j13", [("d", "t-356")], [("x", None, None), ("d", "t-357", None)], ()),
@@ -1618,7 +1640,7 @@ ID_BAND_ROWS = [
     ("j16", [("d", "t-356")], [("x", None, "t-357.."), ("d", "t-357")], ()),
     ("j17", [("d", "t-356")], [("d", "t-300", "t-300..t-310")],
      ("starts at or below t-356", "task_id novelty violated", "got t-300")),
-    ("j18", [("d", "t-356")], [("x", None, "t-450..t-499"), ("d", "t-450")], ()),
+    ("j18", [("d", "t-356")], [("x", None, "t-450..t-499"), ("d", "t-450", "t-450..t-499")], ()),
     ("j14-no-band-old-reading", [("d", "t-356")], [("d", "t-357"), ("d", "t-358")], ()),
     ("j14-no-band-gap", [("d", "t-356")], [("d", "t-358")], ("got t-358", "the next new id is t-357")),
 ] + [(f"j5-form-{i}", [("d", "t-356")], [("x", None, v)], ("is not \"t-A..t-B\"", "(rule 9e)"))
