@@ -429,6 +429,44 @@ def refusal_judge_and_source_gaps() -> None:
         check_in("and the question offers that route in words",
                  "provenance: person_pasted", gap)
 
+        # FV1-4 L3 (Q5): the note of supplied material names EVERY file, whole, from both fenced-answer callers; the shown text of
+        # a kinds acceptance reaches `accept-gap --shown-text` whole (S-1501), as on the other road.
+        saved_pasted, saved_row = driver.record_pasted, driver.answer_row
+        fenced = "the thread:\n```\nreviewer: the fixture shape was unreal\n```"
+        try:
+            for label, lines in (
+                    ("M-1500", ["x" * 1500]),
+                    ("M-1501", ["y" * 1501]),
+                    ("M-15000", [f"https://host.example.invalid/{n:02d}/" + "z" * 360 + f" <- work/pasted-{n}.md (pasted by the person)"
+                                 for n in range(40)]),
+                    ("M-CYR", ["https://" + "".join(chr(c) for c in (0x43f, 0x440, 0x438)) + ".example.invalid/" + chr(0x43f) * 8 + "/x" * 900 + " " + "<- work/p.md (pasted by the person)"])):
+                for caller in ("_answer_s1_gap", "record_gaps"):
+                    notes = []
+                    driver.record_pasted = lambda ids, words, _l=lines: list(_l)
+                    driver.answer_row = lambda note, words, **kw: notes.append(note)
+                    if caller == "_answer_s1_gap":
+                        taken = driver._answer_s1_gap(fenced, {"sources": ["SRC-1"], "classes": []}, "q", "S1", "S1-qa-scout-1")
+                    else:
+                        taken = driver.record_gaps("q", fenced, ids=["SRC-1"])
+                    check_eq(f"{label} {caller}: the fenced answer is taken", taken, True)
+                    check_eq(f"{label} {caller}: the note holds every name whole", notes,
+                             ["S1 material supplied by the person: " + "; ".join(lines)])
+        finally:
+            driver.record_pasted, driver.answer_row = saved_pasted, saved_row
+        for size in (1500, 1501):
+            argv = []
+            saved_py = driver.py
+            driver.py = lambda *a, **k: (argv.append(list(a)), (1, "stop"))[1]
+            try:
+                driver._accept_gap_kinds("skip all like these", ["SRC-1"], ["unreachable"],
+                                         "- " + "q" * (size - 2), "qa-factory/artifacts/QA-J6/work/source-inventory.json")
+            except Exception:  # the refusal of the stub is a held question; the argument is what is checked
+                pass
+            finally:
+                driver.py = saved_py
+            shown_arg = argv[0][argv[0].index("--shown-text") + 1]
+            check_eq(f"S-{size} the shown text reaches accept-gap whole", len(shown_arg), size)
+
         # F1: `ask_person` without a question is the conductor failing its own contract.
         driver.pass_to_person({"action": "ask_person", "question": "", "did": ""},
                               "conductor", "S1", "S1-qa-scout-1")
