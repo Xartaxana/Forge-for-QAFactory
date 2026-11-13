@@ -41,7 +41,7 @@ Written well: 1–6, 8–9. ALL written: 7 (planned window: only the roll-call).
 
 1. **Fit to the case** — every Then of the source case is checked; the case's data table is
    present, not trimmed.
-2. **Check quality** — assertions are substantive; tautologies are yours (no detector). A negative test checks
+2. **Check quality** — assertions are substantive; tautologies are yours (no static detector). A negative test checks
    the error and that state did NOT change. Proof reaches an observable outcome through the real exercised path.
    Check that a refusal test discriminates the cause: the reason the product names (code, message
    key, body field) or a control run that passes without the violated condition

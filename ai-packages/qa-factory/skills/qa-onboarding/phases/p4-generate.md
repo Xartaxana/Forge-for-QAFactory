@@ -363,7 +363,7 @@ default_branch}`, `path` relative to this repository's root, e.g. `../testprojec
 set to the repositories' common parent, and `protected_app_paths` relative to that parent
 (`["testproject1/src", "testproject1-ui/src"]`) so P-00 still covers real directories. Nobody could
 give a local path → `code_repos: []` **plus** a `[DEFERRED: application repo paths]`
-marker in `project-profile.md` and its `factory-backlog.md` row; never `app_root: "."`
+marker in `project-profile.md` and its `factory-backlog.md` row (step 8); never `app_root: "."`
 left standing as if the application were here.
 
 **Test locations (the application code and a test repository).** After `test_locations` is written, run
@@ -617,6 +617,15 @@ each preserved numeric class (several classes are still one question and one row
 already refuses a numeric value on every run, so the hole is loud without a timer. Its later resolution gives the exact
 `{"priority": ..., "severity": ...}` value of every class in `--field-values` and names `qa-factory/strategy/test-strategy.md`
 as `--marker-file` with `--marker-text "[DEFERRED: impact scale not set]"`.
+
+A deferred application repo path is ONE row too, and it exists only when topic 1 was asked and nobody could give a
+local path (step 1): `project_decisions.py --root . add --field-ref /code_repos --field-ref /app_root
+--field-ref /protected_app_paths --essence "application repo paths not given: config.json, strategy/project-profile.md"
+--asked "batch <id>: <the question as it was put>" --trigger-type story_count --trigger-value 1` (it comes due at the
+first story, which reads its change in the application code). Its later resolution gives the exact values of all three
+keys in `--field-values` (an object keyed by the three pointers; tests and application in one repository is
+`{"/code_repos": [], "/app_root": ".", "/protected_app_paths": ["src"]}`) and names
+`qa-factory/strategy/project-profile.md` as `--marker-file` with `--marker-text "[DEFERRED: application repo paths]"`.
 
 ## 8b. Keep run logs out of the repository
 

@@ -1322,6 +1322,21 @@ def compute(cfg: dict, root: Path, selected_profiles: list[str] | None = None,
     return data
 
 
+def _receipts_part(host: dict) -> str:
+    """The receipts part of the `host_integration` line (SC5-13). Until the live probe passed (`story_ready`), a missing
+    hook receipt is a call that has not happened yet, so the line counts what arrived instead of listing what has not;
+    once the probe passed, a missing receipt is news and is named. Counted from `mechanisms` (one entry per expected
+    script), never from `observed`, which may hold a receipt of a script that is not expected."""
+    if host.get('story_ready') is True:
+        missing = host.get('missing') or []
+        return 'missing: ' + (', '.join(missing) if missing else 'none')
+    mechanisms = host.get('mechanisms')
+    if not isinstance(mechanisms, dict) or not mechanisms:
+        return 'receipts so far: unknown'
+    seen = sum(1 for m in mechanisms.values() if isinstance(m, dict) and m.get('invocation') == 'observed')
+    return f'receipts so far: {seen} of {len(mechanisms)} expected scripts (they accumulate as the story runs)'
+
+
 def print_summary(data: dict) -> None:
     caps = data.get("capabilities") or {}
     width = max(len(k) for k in caps) if caps else 0
@@ -1335,8 +1350,9 @@ def print_summary(data: dict) -> None:
     profile = data.get('execution_profile')
     if profile:
         print(f"  execution_profile  {profile['status']:<15} owner: {profile['owner']:<8} {profile['note']}")
-    host=data.get('host_integration')
-    if host:print(f"  host_integration  {host['status']}  missing: {', '.join(host['missing'])}; live parity: {host['live_parity']}")
+    host = data.get('host_integration')
+    if host:
+        print(f"  host_integration  {host['status']}  {_receipts_part(host)}; live parity: {host['live_parity']}")
     telemetry=data.get('telemetry')
     if telemetry:print(f"  telemetry  {telemetry['status']}  {telemetry['note']}")
     runtime = data.get('runtime_paths', {})
@@ -1418,6 +1434,11 @@ def main() -> None:
             print(f"WARN {w}")
         if stop_line:
             print(f"WARN {stop_line}")
+        asked = set(wanted)
+        for name in CAPABILITIES:
+            entry = (data.get("capabilities") or {}).get(name) or {}
+            if name not in asked and entry.get("status", UNKNOWN) == UNKNOWN:
+                print(f"NOTE {name}: unknown; this story did not ask for it")
         if blockers:
             print("THIS STORY CANNOT START — capabilities it needs are not available:\n- "
                   + "\n- ".join(blockers), file=sys.stderr)

@@ -21,7 +21,7 @@ parameter id names its case. Other Thens: a consolidated scenario, or a test kep
 apart (`apart_reason`: another setup, surface or fixture). A case expected red by its
 requirement gets its own instance, or a parameter with its `blocked_by_check` marker
 on that case's `pytest.param`, never on the function, never in a consolidated body.
-A relative result (old/new, before/after, order) asserts BOTH sides against expected values and the side;
+A relative result (old/new, before/after, side, order) asserts BOTH sides against expected values and the side;
 cancelling actions (delete then undo) assert after each action, the positive control stays.
 Keep several asserts of ONE behavioural outcome together; optimize for maintainability,
 diagnostic value and execution cost.

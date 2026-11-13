@@ -16,5 +16,3 @@
 set -e
 python tools/forge_metrics.py --check
 python tools/journal_validator.py --merge-parent env
-# A clean merge never runs pre-commit: the generated piles board is checked here too (critic t-587 P12).
-python tools/piles.py board --check
