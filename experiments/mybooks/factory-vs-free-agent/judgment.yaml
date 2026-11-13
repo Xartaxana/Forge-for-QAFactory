@@ -1,0 +1,125 @@
+# Judgment file of comparison run LR2-1 (MyBooks "Add to Cart"): blind evaluation of arms X and Y.
+# Transcription of runs/blind-eval.md (evaluator: critic, fresh context, key not opened) and runs/blind-key.txt.
+# No judgment is made here. Row values are the evaluator's own words (Russian, verbatim). Rows name arms X / Y only;
+# the key is the separate top-level block `key`.
+# The evaluator scored against the table of the Lead version (blind-eval.md:11-14, "Ниже счёт по таблице правды"), flagging
+# cards where the owner version differs. Every card of the owner version v2026-11-05-owner has one row per arm.
+schema: judgment/1
+experiment: mybooks/factory-vs-free-agent
+run: LR2-1
+carrier: 'experiments/mybooks/factory-vs-free-agent/runs/blind-eval.md'
+by: 'critic (Opus, t-236), fresh context, key not opened (blind-eval.md:3)'
+truth_file: 'experiments/mybooks/truth/add-to-cart.yaml'
+evaluated_against_version: v2026-11-05-lead
+key:
+  carrier: 'experiments/mybooks/factory-vs-free-agent/runs/blind-key.txt:1-3'
+  drawn: 'Жребий 13.11.2026 01:3x (od /dev/urandom, чётность байта), оператор прогона'
+  X: {arm: free, outcome_file: outcome-free.md, source: 'blind-key.txt:2'}
+  Y: {arm: factory, outcome_file: outcome-factory.md, source: 'blind-key.txt:3'}
+card_rows:
+  # one row per (card, arm); `class_by_evaluator` = column "Класс по правде" of blind-eval.md; `source` = line of blind-eval.md
+  # card 3 and card 23 are one evaluator row "3/23" (blind-eval.md:22), written twice
+  - {card: 1, arm: X, verdict: 'пропущен', unsure: false, by: evaluator, source: 'blind-eval.md:20', class_by_evaluator: 'баг', evidence: 'Поле количества на странице книги в интерфейсе не проверялось; принята только проверка API; не ложный pass'}
+  - {card: 1, arm: Y, verdict: 'найден, неподтверждённый черновик', unsure: false, by: evaluator, source: 'blind-eval.md:20', class_by_evaluator: 'баг', evidence: 'Набрать 0 поверх выделенного текста: поле становится 1, добавляется один экземпляр… отказа нет'}
+  - {card: 2, arm: X, verdict: 'не замечено', unsure: false, by: evaluator, source: 'blind-eval.md:21', class_by_evaluator: 'решать владельцу', evidence: ''}
+  - {card: 2, arm: Y, verdict: 'не уверен: ложный баг или часть бага 1', unsure: true, by: evaluator, source: 'blind-eval.md:21, :78', class_by_evaluator: 'решать владельцу', evidence: 'стереть значение и набрать 3 — поле показывает 13… стереть и набрать 0 — 10, добавляется 10; Дублем не считаю'}
+  - {card: 3, arm: X, verdict: 'найден', unsure: false, by: evaluator, source: 'blind-eval.md:22', class_by_evaluator: 'баг', evidence: '«12» → остаётся 1, «4 прогона из 4»; красный e2e'}
+  - {card: 3, arm: Y, verdict: 'не уверен: пропущен или найден частично', unsure: true, by: evaluator, source: 'blind-eval.md:22, :79', class_by_evaluator: 'баг', evidence: 'Потеря фокуса после каждого символа названа, симптом «12 → 1» — нет; вместо него «3 → 13» в одном проходе и «не воспроизвелось» в другом'}
+  - {card: 4, arm: X, verdict: 'вопрос', unsure: false, by: evaluator, source: 'blind-eval.md:23', class_by_evaluator: 'решать владельцу', evidence: 'поле Quantity: остальное поведение — верно'}
+  - {card: 4, arm: Y, verdict: 'ложный баг, неподтверждённый черновик', unsure: false, by: evaluator, source: 'blind-eval.md:23', class_by_evaluator: 'решать владельцу', evidence: 'PUT… 400, сообщения об ошибке на странице нет, поле возвращается к 1; ожидание «выведено», вопроса не было'}
+  - {card: 5, arm: X, verdict: 'не замечено', unsure: false, by: evaluator, source: 'blind-eval.md:24', class_by_evaluator: 'решать владельцу', evidence: ''}
+  - {card: 5, arm: Y, verdict: 'не замечено', unsure: false, by: evaluator, source: 'blind-eval.md:24', class_by_evaluator: 'решать владельцу', evidence: ''}
+  - {card: 6, arm: X, verdict: 'не замечено', unsure: false, by: evaluator, source: 'blind-eval.md:25', class_by_evaluator: 'решать владельцу', evidence: ''}
+  - {card: 6, arm: Y, verdict: 'не замечено', unsure: false, by: evaluator, source: 'blind-eval.md:25', class_by_evaluator: 'решать владельцу', evidence: ''}
+  - {card: 7, arm: X, verdict: 'не замечено', unsure: false, by: evaluator, source: 'blind-eval.md:26', class_by_evaluator: 'решать владельцу', evidence: 'только успешный «Move to cart»'}
+  - {card: 7, arm: Y, verdict: 'не замечено', unsure: false, by: evaluator, source: 'blind-eval.md:26', class_by_evaluator: 'решать владельцу', evidence: 'только успешный путь'}
+  - {card: 8, arm: X, verdict: 'не замечено', unsure: false, by: evaluator, source: 'blind-eval.md:27', class_by_evaluator: 'решать владельцу', evidence: ''}
+  - {card: 8, arm: Y, verdict: 'не замечено', unsure: false, by: evaluator, source: 'blind-eval.md:27', class_by_evaluator: 'решать владельцу', evidence: ''}
+  - {card: 9, arm: X, verdict: 'пропущен', unsure: false, by: evaluator, source: 'blind-eval.md:28', class_by_evaluator: 'баг', evidence: 'сбой слияния не проверялся'}
+  - {card: 9, arm: Y, verdict: 'пропущен', unsure: false, by: evaluator, source: 'blind-eval.md:28', class_by_evaluator: 'баг', evidence: ''}
+  - {card: 10, arm: X, verdict: 'принят верно', unsure: false, by: evaluator, source: 'blind-eval.md:29', class_by_evaluator: 'не баг', evidence: 'docs/AUTH.md'}
+  - {card: 10, arm: Y, verdict: 'вопрос, затем принят верно', unsure: false, by: evaluator, source: 'blind-eval.md:29', class_by_evaluator: 'не баг', evidence: ''}
+  - {card: 11, arm: X, verdict: 'не уверен', unsure: true, by: evaluator, source: 'blind-eval.md:30, :76-77', class_by_evaluator: 'баг по таблице; «не баг» по слову владельца 05.11', evidence: 'обрезка по остатку… Верно; сцена карточки отдельно не описана'}
+  - {card: 11, arm: Y, verdict: 'не уверен', unsure: true, by: evaluator, source: 'blind-eval.md:30, :76-77', class_by_evaluator: 'баг по таблице; «не баг» по слову владельца 05.11', evidence: 'принято «ни одна слитая строка не превышает остаток»; в «Не удалось» — «достижимость не показана»'}
+  - {card: 12, arm: X, verdict: 'пропущен', unsure: false, by: evaluator, source: 'blind-eval.md:31', class_by_evaluator: 'пробел продукта', evidence: ''}
+  - {card: 12, arm: Y, verdict: 'пропущен', unsure: false, by: evaluator, source: 'blind-eval.md:31', class_by_evaluator: 'пробел продукта', evidence: ''}
+  - {card: 13, arm: X, verdict: 'не уверен: по таблице ложный pass, по слову владельца принят верно', unsure: true, by: evaluator, source: 'blind-eval.md:32, :76', class_by_evaluator: 'баг по таблице; «не баг» по слову владельца 05.11', evidence: 'Цена в корзине… пересчитаны. Верно; тикет: цена с бэкенда'}
+  - {card: 13, arm: Y, verdict: 'не проверено', unsure: true, by: evaluator, source: 'blind-eval.md:32, :76', class_by_evaluator: 'баг по таблице; «не баг» по слову владельца 05.11', evidence: 'ambiguity: row says «не проверено», but blind-eval.md:76 lists card 13 as unsure «у обоих»'}
+  - {card: 14, arm: X, verdict: 'пропущен', unsure: false, by: evaluator, source: 'blind-eval.md:33', class_by_evaluator: 'баг', evidence: ''}
+  - {card: 14, arm: Y, verdict: 'пропущен', unsure: false, by: evaluator, source: 'blind-eval.md:33', class_by_evaluator: 'баг', evidence: ''}
+  - {card: 15, arm: X, verdict: 'пропущен', unsure: false, by: evaluator, source: 'blind-eval.md:34', class_by_evaluator: 'баг', evidence: ''}
+  - {card: 15, arm: Y, verdict: 'пропущен', unsure: false, by: evaluator, source: 'blind-eval.md:34', class_by_evaluator: 'баг', evidence: ''}
+  - {card: 16, arm: X, verdict: 'вопрос, затем принят верно', unsure: false, by: evaluator, source: 'blind-eval.md:35', class_by_evaluator: 'не баг', evidence: ''}
+  - {card: 16, arm: Y, verdict: 'вопрос, затем принят верно', unsure: false, by: evaluator, source: 'blind-eval.md:35', class_by_evaluator: 'не баг', evidence: ''}
+  - {card: 17, arm: X, verdict: 'принят верно', unsure: false, by: evaluator, source: 'blind-eval.md:36', class_by_evaluator: 'не баг', evidence: ''}
+  - {card: 17, arm: Y, verdict: 'принят верно', unsure: false, by: evaluator, source: 'blind-eval.md:36', class_by_evaluator: 'не баг', evidence: ''}
+  - {card: 18, arm: X, verdict: 'пропущен', unsure: false, by: evaluator, source: 'blind-eval.md:37', class_by_evaluator: 'баг', evidence: ''}
+  - {card: 18, arm: Y, verdict: 'пропущен', unsure: false, by: evaluator, source: 'blind-eval.md:37', class_by_evaluator: 'баг', evidence: ''}
+  - {card: 19, arm: X, verdict: 'не замечено', unsure: false, by: evaluator, source: 'blind-eval.md:38', class_by_evaluator: 'решать владельцу', evidence: ''}
+  - {card: 19, arm: Y, verdict: 'не замечено', unsure: false, by: evaluator, source: 'blind-eval.md:38', class_by_evaluator: 'решать владельцу', evidence: ''}
+  - {card: 20, arm: X, verdict: 'не проверено', unsure: false, by: evaluator, source: 'blind-eval.md:39', class_by_evaluator: 'решать владельцу (снята владельцем)', evidence: 'гонка двух вкладок — в «Не удалось»'}
+  - {card: 20, arm: Y, verdict: 'не замечено', unsure: false, by: evaluator, source: 'blind-eval.md:39', class_by_evaluator: 'решать владельцу (снята владельцем)', evidence: ''}
+  - {card: 21, arm: X, verdict: 'не проверено', unsure: false, by: evaluator, source: 'blind-eval.md:40', class_by_evaluator: 'не баг', evidence: ''}
+  - {card: 21, arm: Y, verdict: 'не проверено', unsure: false, by: evaluator, source: 'blind-eval.md:40', class_by_evaluator: 'не баг', evidence: ''}
+  - {card: 22, arm: X, verdict: 'не замечено', unsure: false, by: evaluator, source: 'blind-eval.md:41', class_by_evaluator: 'решать владельцу', evidence: ''}
+  - {card: 22, arm: Y, verdict: 'не уверен: вопрос или не замечено', unsure: true, by: evaluator, source: 'blind-eval.md:41, :80', class_by_evaluator: 'решать владельцу', evidence: 'общий вопрос «повторное добавление той же книги — задумано ли»'}
+  - {card: 23, arm: X, verdict: 'найден', unsure: false, by: evaluator, source: 'blind-eval.md:22', class_by_evaluator: 'баг', evidence: 'evaluator row «3/23» written for card 23 too; «12» → остаётся 1, «4 прогона из 4»; красный e2e'}
+  - {card: 23, arm: Y, verdict: 'не уверен: пропущен или найден частично', unsure: true, by: evaluator, source: 'blind-eval.md:22, :79', class_by_evaluator: 'баг', evidence: 'evaluator row «3/23» written for card 23 too'}
+  - {card: 24, arm: X, verdict: 'проверено, в плюс', unsure: false, by: evaluator, source: 'blind-eval.md:42', class_by_evaluator: 'не запускалось', evidence: 'AC-09 при слиянии «товары без остатка отбрасываются»; AC-11, AC-12 — вопросы; AC-13 «книга удалена — строка исчезает»'}
+  - {card: 24, arm: Y, verdict: 'не проверено', unsure: false, by: evaluator, source: 'blind-eval.md:42', class_by_evaluator: 'не запускалось', evidence: 'AC-09 в «Не удалось»; AC-11..13 не упомянуты'}
+summary_counts:
+  # evaluator's own sums (blind-eval.md:44-45), by the Lead-version table of eight bugs
+  X: {source: 'blind-eval.md:44', text: 'найден 1 (3/23), пропущено 6 (1, 9, 12-пробел, 14, 15, 18), не уверен 2 (11, 13)'}
+  Y: {source: 'blind-eval.md:45', text: 'найден 1 (карточка 1, черновик), пропущено 6 (9, 12, 13 — не проверено, 14, 15, 18), не уверен 2 (3/23, 11)'}
+table_rows:
+  # rows (а)-(к) of blind-eval.md:51-60, verbatim; no normalisation
+  - {id: а, name: 'Требования из источников', source: 'blind-eval.md:51', unsure: false, X: 'числа нет; источники: тикет, документы продукта (TEST_IDS_REFERENCE.md, docs/AUTH.md, docs/openapi.json), 2 ответа владельца, «выведено»', Y: 'числа нет; источники: текст истории, ≥8 ответов владельца, «выведено»; документов продукта нет; связанные тикеты «трекер недоступен»'}
+  - {id: б, name: 'Баги по корневой причине, подтверждённые на стенде', source: 'blind-eval.md:52', unsure: false, X: '1 из 8 (3/23, «4 из 4», красный тест) + 1 новый вне 24 (возврат на /checkout, «3 из 3»); по слову владельца — 1 из 6', Y: '1 из 8, неподтверждённый (карточка 1, черновик); 3/23 — не уверен; новых нет'}
+  - {id: в, name: 'Ложные баги', source: 'blind-eval.md:53', unsure: false, X: '0', Y: '1 черновик (карточка 4, ожидание «выведено» без вопроса) и 1 под вопросом (карточка 2)'}
+  - {id: г, name: 'Дубли', source: 'blind-eval.md:54', unsure: false, X: '0', Y: '0'}
+  - {id: д, name: 'Ложный pass', source: 'blind-eval.md:55', unsure: true, X: 'не уверен: 0, 1 или 2 (по таблице карточки 13 и, возможно, 11; по слову владельца — 0)', Y: 'не уверен: 0 или 1 (карточка 11)'}
+  - {id: е, name: 'Вопросы владельцу: задано / по делу', source: 'blind-eval.md:56', unsure: true, X: '5, по делу 5 из 5 (16, 4, AC-11, AC-12, безопасность sessionId)', Y: '~13 (11 строк), 8 отвечено, по делу не уверен, ~6–7'}
+  - {id: ж, name: 'Автотесты: красные на сломанном; годны в регрессию', source: 'blind-eval.md:57', unsure: false, X: '15 API + 5 e2e; красные на 2 из 2 найденных багов; API-тесты сами создают данные', Y: '18 экземпляров, 17 зелёных, 1 красный — дефект самого теста; красных на сломанном продукте 0; проба чувствительности не выполнена'}
+  - {id: з, name: '«Не удалось проверить» — правда ли', source: 'blind-eval.md:58', unsure: true, X: '4, поддельных нет', Y: '11, больше половины — своя недоделка; «слияние при нулевом остатке — остаток менять нельзя» сомнительно'}
+  - {id: и, name: 'Потеряно между работой и отчётом', source: 'blind-eval.md:59', unsure: false, X: '0', Y: 'итоговый отчёт не выпущен; тексты трёх вопросов про изоляцию «не записаны»'}
+  - {id: к, name: 'Вердикт доставки и верен ли', source: 'blind-eval.md:60', unsure: false, X: '«не готово к поставке (два бага)» — направление верное, обоснование узкое', Y: 'вердикта нет'}
+evaluator_unsure_list:
+  source: 'blind-eval.md:74-83'
+  items:
+    - 'Карточки 11 и 13 у обоих: таблица (баги) или слова владельца 05.11 (не баги)'
+    - 'Карточка 11: та же ли сцена'
+    - 'Карточка 2 у Y: ложный баг или часть бага 1'
+    - 'Карточка 3/23 у Y: частично или пропущена'
+    - 'Карточка 22 у Y: засчитывать ли общий вопрос'
+    - 'Строка е у Y: сколько по делу'
+    - 'Строка з у Y: правда ли нельзя было менять остаток'
+    - 'Строка а: числа требований нет ни в одном исходе'
+gate_catch: []   # not part of the blind evaluation; Lead rows, absent = not judged (spec F4)
+test_quality:
+  # QA7-QA10 for both arms: placeholders. `unknown` is never good/poor and never n/a. QA7 has one sub-row per bug
+  # (class: bug) of the judged version v2026-11-05-owner: cards 1, 3, 9, 14, 15, 18, 23 (3 and 23 share a root cause).
+  judged_version: v2026-11-05-owner
+  X:
+    QA7:
+      - {bug: 1, state: unknown, why: 'blind evaluation not run yet'}
+      - {bug: 3, state: unknown, why: 'blind evaluation not run yet'}
+      - {bug: 9, state: unknown, why: 'blind evaluation not run yet'}
+      - {bug: 14, state: unknown, why: 'blind evaluation not run yet'}
+      - {bug: 15, state: unknown, why: 'blind evaluation not run yet'}
+      - {bug: 18, state: unknown, why: 'blind evaluation not run yet'}
+      - {bug: 23, state: unknown, why: 'blind evaluation not run yet'}
+    QA8: {state: unknown, why: 'blind evaluation not run yet'}
+    QA9: {state: unknown, why: 'blind evaluation not run yet'}
+    QA10: {state: unknown, why: 'blind evaluation not run yet'}
+  Y:
+    QA7:
+      - {bug: 1, state: unknown, why: 'blind evaluation not run yet'}
+      - {bug: 3, state: unknown, why: 'blind evaluation not run yet'}
+      - {bug: 9, state: unknown, why: 'blind evaluation not run yet'}
+      - {bug: 14, state: unknown, why: 'blind evaluation not run yet'}
+      - {bug: 15, state: unknown, why: 'blind evaluation not run yet'}
+      - {bug: 18, state: unknown, why: 'blind evaluation not run yet'}
+      - {bug: 23, state: unknown, why: 'blind evaluation not run yet'}
+    QA8: {state: unknown, why: 'blind evaluation not run yet'}
+    QA9: {state: unknown, why: 'blind evaluation not run yet'}
+    QA10: {state: unknown, why: 'blind evaluation not run yet'}
