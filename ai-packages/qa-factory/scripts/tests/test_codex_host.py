@@ -545,6 +545,7 @@ class NativeHostTests(unittest.TestCase):
                 said(seen['err'],'launch receipt could not be written',type(error).__name__,str(error))
                 (row,)=new_signals(before,'launch receipt could not be written',str(error))
                 self.assertEqual(row['notes'],seen['err'].strip())
+                self.assertIn('a shorter folder',seen['err']);self.assertIn('a shorter folder',row['notes'])
             packet=fresh();staged=packet.read_bytes();before=len(signals())
             with patch.object(native_context,'atomic_json',side_effect=PermissionError('locked')):
                 self.assertEqual(run(start('child-a',a)),'context A')
@@ -554,6 +555,8 @@ class NativeHostTests(unittest.TestCase):
             said(seen['err'],'could not be marked delivered','PermissionError','locked')
             (row,)=new_signals(before,'could not be marked delivered','locked')
             self.assertEqual(row['notes'],seen['err'].strip())
+            for text in (seen['err'],row['notes']):
+                self.assertNotIn('shorter folder',text);self.assertIn('writable',text)
             packet=fresh();before=len(signals())
             with patch('host_dispatch.record',side_effect=OSError('disk full')), \
                     patch.object(native_context,'atomic_json',side_effect=PermissionError('locked')):
