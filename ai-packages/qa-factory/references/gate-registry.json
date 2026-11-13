@@ -92,7 +92,7 @@
     },
     {
       "id": "request_shape", "inventory": "G3", "vocabulary": "target",
-      "decides": "the typed execution request is well-formed and authorised (the rest of validate_request: freshness, selector contract, budget, reporter)",
+      "decides": "the typed execution request is well-formed and authorised (the rest of validate_request: freshness, budget, reporter)",
       "sites": [],
       "field": null, "words": [], "verdict_map": {}, "accepts": {},
       "promotable": false,

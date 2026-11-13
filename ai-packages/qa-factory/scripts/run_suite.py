@@ -1572,6 +1572,39 @@ def refuse_missing_executor(profile_id: str, tool: str, cases: list, stage: str 
     sys.exit(3)
 
 
+def request_profile(request: dict, cfg: dict) -> dict:
+    """The profile row of `cfg` whose `profile_id` is this request's, else `{}` (the one lookup: executor_gap and the
+    selector note both ask it)."""
+    profile_id = str(request.get("profile_id") or "")
+    profiles = cfg.get("profiles") or []
+    if not isinstance(profiles, list):
+        return {}
+    return next((p for p in profiles if isinstance(p, dict) and str(p.get("profile_id")) == profile_id), {})
+
+
+def selector_note(request: dict, cfg: dict, root) -> str:
+    """ONE line when a behavioural request's selector contract is not verified, else "". A note, never a stop: any
+    failure here is "" (it must not delay or stop a run). It judges the command that RUNS (D2)."""
+    try:
+        import profile_contract
+        from execution_request import BEHAVIORAL
+        if request.get("purpose") not in BEHAVIORAL or root is None:
+            return ""
+        got = profile_contract.selector_contract(request_profile(request, cfg), root, command=request.get("command"))
+        if got.get("verified") is True:
+            return ""
+        profile_id = str(request.get("profile_id") or "")
+        door = f"--probe-profiles --profile {profile_id}" if profile_id else "--probe-profiles --profile <id>"
+        plugin = Path(__file__).resolve().parent
+        return (f"SELECTORS (note): profile {profile_id or 'the selected profile'}: the factory has not verified how "
+                f"this runner selects one test ({got.get('why')}). The run goes by each instance's selector_args; a "
+                "selected test the runner did not run comes back not_run under its report id, never passed. To "
+                f"verify: python {plugin / 'onboarding_probe.py'} --root {root} {door} "
+                "--proposals-dir <a temporary folder outside the project>")
+    except Exception:
+        return ""
+
+
 def executor_gap(request: dict, cfg: dict) -> dict | None:
     """`{"profile", "tool", "cases"}` when this request's launcher provably does not resolve
     here, else None. Degrades to None whenever it cannot tell — an unresolvable wrapper is
@@ -1582,8 +1615,7 @@ def executor_gap(request: dict, cfg: dict) -> dict | None:
         return None
     command = request.get("command") or {}
     profile_id = str(request.get("profile_id") or "")
-    profile = next((p for p in (cfg.get("profiles") or [])
-                    if isinstance(p, dict) and str(p.get("profile_id")) == profile_id), {})
+    profile = request_profile(request, cfg)
     try:
         probe = executor_probe(_collect_argv(list(command.get("argv") or [])),
                                Path(str(command.get("cwd") or ".")), profile)
@@ -2449,7 +2481,6 @@ REQUEST_TEMPLATE_FIELDS = [
                 "(the value is exactly {report_path}; the placeholder sits in ONE place, argv or env)",
      {"argv": ["<runner>", "{report_path}"], "cwd": "<cwd>", "reporter": "junit-xml",
       "report_path": "{report_path}", "scope": "selected", "repo_id": "<repository>",
-      "selector_contract_verified": True,
       "selector_args": {"<function>[<param>]": ["<framework selector>"]}}),
     ("instance_contracts", "the exact reporter row each instance maps to; a missing or "
                            "ambiguous row is not_run, never a guessed match",
@@ -2889,7 +2920,10 @@ def main() -> None:
             request, cfg, mined=getattr(args, "mine_memo", None))
         for note in (checked or {}).get("notes") or []:
             print(f"NODE IDS (note): {note}", file=sys.stderr)
-        launched = apply_resolved_ids(request, (checked or {}).get("resolved") or {})
+        selectors_line = selector_note(request, cfg, project_root())
+        if selectors_line:
+            print(selectors_line, file=sys.stderr)
+        launched =apply_resolved_ids(request, (checked or {}).get("resolved") or {})
         for asked, real in ((checked or {}).get("resolved") or {}).items():
             print(f"NODE IDS (note): {asked} is collected as {real}; ran the real id", file=sys.stderr)
         args.node_id_notes = ((checked or {}).get("notes") or []) + [

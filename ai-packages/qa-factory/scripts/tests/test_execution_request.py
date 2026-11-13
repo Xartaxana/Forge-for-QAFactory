@@ -2032,6 +2032,86 @@ def fv1_18_selector_contract() -> None:
             shutil.rmtree(root, ignore_errors=True)
 
 
+def fv1_18_no_stop_one_note() -> None:
+    """FV1-18 N2: an unverified selector contract never STOPS a behavioural run; one `SELECTORS (note)` line says what was not
+    proven and the door. Rows R-N2-1..R-N2-5."""
+    import run_suite
+    import execution_request as er
+    pw_run = ["npx", "playwright", "test", "--project", "chromium", "--reporter=junit"]
+    env = {"PLAYWRIGHT_JUNIT_OUTPUT_NAME": "{report_path}"}
+    cfg = {"profiles": [{"profile_id": "pw", "commands": {"one_test": {"argv": pw_run + ["<test-file>"], "cwd": ".", "env": env}}}]}
+    root = Path(tempfile.mkdtemp(prefix="qa-fv118-n2-"))
+    try:
+        # R-N2-1: the refusal is gone (key absent, false, true); the other refusals still refuse.
+        absent = base_request("n2-absent")
+        del absent["command"]["selector_contract_verified"]
+        false = base_request("n2-false")
+        false["command"]["selector_contract_verified"] = False
+        check_eq("R-N2-1: a request with no selector_contract_verified resolves (was refused)", refusal(absent), "")
+        check_eq("R-N2-1: ...with false resolves (E8, an old request)", refusal(false), "")
+        check_eq("R-N2-1: ...with true resolves (E8)", refusal(base_request("n2-true")), "")
+        none_selected = base_request("n2-none")
+        none_selected["selected_instance_ids"] = []
+        check_in("R-N2-1 negative control: no selected instance is still refused", "must select at least one approved instance", refusal(none_selected))
+        missing_args = base_request("n2-args")
+        del missing_args["command"]["selector_args"]["case-0"]
+        check("R-N2-1 negative control: selector_args missing an instance is still refused", refusal(missing_args) != "", refusal(missing_args))
+        no_id = base_request("n2-id")
+        del no_id["instance_contracts"]["case-0"]["report_test_id"]
+        check("R-N2-1 negative control: no report_test_id is still refused", refusal(no_id) != "", refusal(no_id))
+        print("R-N2-1 still-refused messages:", refusal(none_selected), "|", refusal(missing_args), "|", refusal(no_id))
+
+        # R-N2-2 / R-N2-3: no new request carries the key; the template skeleton has none.
+        skeleton = [spec for name, _, spec in run_suite.REQUEST_TEMPLATE_FIELDS if name == "command"][0]
+        check_not_in("R-N2-2: the template's command skeleton has no selector_contract_verified", "selector_contract_verified", skeleton)
+        import inspect
+        check_not_in("R-N2-2: build_mine_request writes no selector_contract_verified", "command[\"selector_contract_verified\"]",
+                     inspect.getsource(er.build_mine_request))
+        check_in("R-N2-3: a precedent command's old key is filtered at the copy (beside selector_args)",
+                 'k not in ("selector_args", "selector_contract_verified")', inspect.getsource(er.build_mine_request))
+
+        # R-N2-4: the note.
+        request = {"purpose": "initial", "profile_id": "pw", "command": {"argv": pw_run, "env": dict(env)}}
+        line = run_suite.selector_note(request, cfg, root)
+        check_in("R-N2-4: the note starts with SELECTORS (note) and names the profile", "SELECTORS (note): profile pw:", line)
+        for word in ("not_run", "never passed", "--probe-profiles --profile pw", "no proven rehearsal of this command is on record"):
+            check_in(f"R-N2-4: the note carries {word!r}", word, line)
+        check_not_in("R-N2-4: the note never says not_executed", "not_executed", line)
+        check("R-N2-4: the note is ONE line", "\n" not in line and line.strip() != "", line)
+        print("R-N2-4 note:", line)
+        check_eq("R-N2-4: no profile_id says 'the selected profile'", "the selected profile" in run_suite.selector_note(
+            {**request, "profile_id": ""}, cfg, root), True)
+        check_eq("R-N2-4: a pytest command is verified: no note", run_suite.selector_note(
+            {**request, "command": {"argv": ["pytest", "tests/a.py::t"]}}, cfg, root), "")
+        check_eq("R-N2-4: purpose collect: no note", run_suite.selector_note({**request, "purpose": "collect"}, cfg, root), "")
+        check_in("R-N2-4: a command that differs from the profile's: the command_not_profile why", "not the profile's one_test command",
+                 run_suite.selector_note({**request, "command": {"argv": pw_run + ["--grep", "x"], "env": dict(env)}}, cfg, root))
+        check_eq("R-N2-4: cfg not a dict never raises: no note", run_suite.selector_note(request, "x", root), "")
+        check_eq("R-N2-4: root absent never raises: no note", run_suite.selector_note(request, cfg, None), "")
+        block = run_suite.build_run_block(
+            {"purpose": "initial", "selected_instance_ids": ["case-0"], "profile_id": "pw", "dispatch_id": "d1",
+             "instance_contracts": {"case-0": {"report_test_id": "x::case-0"}}, "command": {"argv": pw_run}},
+            {"execution_status": "passed", "results": []}, "attempt-1")
+        check_eq("R-N2-4 (AR-28): a selected instance with no report row is not_run, never passed",
+                 (block["results"][0]["status"], block["results"][0]["reason"]), ("not_run", "report row missing"))
+
+        # R-N2-5: request_profile, and executor_gap unchanged.
+        row = cfg["profiles"][0]
+        check_eq("R-N2-5: request_profile finds the row", run_suite.request_profile({"profile_id": "pw"}, cfg), row)
+        check_eq("R-N2-5: an absent id gives {}", run_suite.request_profile({"profile_id": "zz"}, cfg), {})
+        check_eq("R-N2-5: no id gives {}", run_suite.request_profile({}, cfg), {})
+        check_eq("R-N2-5: cfg without profiles gives {}", run_suite.request_profile({"profile_id": "pw"}, {}), {})
+        check_eq("R-N2-5: profiles not a list gives {}", run_suite.request_profile({"profile_id": "pw"}, {"profiles": 5}), {})
+        check_eq("R-N2-5: a non-dict row is skipped", run_suite.request_profile({"profile_id": "pw"}, {"profiles": ["pw", None, row]}), row)
+        check_eq("R-N2-5: executor_gap: a launcher that is not on PATH is a gap", (run_suite.executor_gap(
+            {"profile_id": "tests-e2e-ios", "built_by": {"cases": ["TC-001"]},
+             "command": {"argv": ["maestro-not-installed-anywhere"], "cwd": "."}}, {}) or {}).get("tool"), "maestro-not-installed-anywhere")
+        check_eq("R-N2-5: executor_gap: a launcher that resolves is never a refusal", run_suite.executor_gap(
+            {"profile_id": "p", "command": {"argv": [sys.executable], "cwd": "."}}, {}), None)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def main() -> None:
     fv1_18_selector_contract()
     ep1_1_b371_instance_file_is_looked_for_in_the_run_directory_first()
@@ -2079,6 +2159,7 @@ def main() -> None:
         check_eq("valid request resolves ten explicit selector instances",
                  len(validate_request(request, ROOT)["selected_instance_ids"]), 10)
         selector_join_checks()
+        fv1_18_no_stop_one_note()
         dependency_files_checks()
 
         bad = {**request, "purpose": "impact_regression", "idempotency_key": "bad-regression"}
