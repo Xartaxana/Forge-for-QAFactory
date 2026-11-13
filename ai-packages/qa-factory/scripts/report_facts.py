@@ -958,7 +958,8 @@ def created_accounts_line(art: Path) -> str:
         if not k:
             return ""
         return f"Users this story tried to create on the stand: none was confirmed ({k} sign-up(s) not confirmed)."
-    more = f", +{len(names) - CREATED_SHOWN} more" if len(names) > CREATED_SHOWN else ""
+    where = path.relative_to(art).as_posix()       # the file that holds the whole list, as the task root spells it (FR-37)
+    more = f", +{len(names) - CREATED_SHOWN} more: {where}" if len(names) > CREATED_SHOWN else ""
     return f"Users this story created on the stand: {', '.join(names[:CREATED_SHOWN])}{more}; they are left in place{left}."
 
 
