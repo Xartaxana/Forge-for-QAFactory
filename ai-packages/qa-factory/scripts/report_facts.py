@@ -885,7 +885,7 @@ NO_WHAT_WORDS = "the requirement as written"
 NO_NEEDED_WORDS = "not named yet — a factory gap"
 
 
-def left_gap_line(ref, what, needed, requirements=()) -> str:
+def left_gap_line(ref, what, needed, requirements=(), whole="") -> str:
     """The ONE form of a gap line in "Left with you" (HF8-17, E17):
 
         - **<ref>** (<R-n, R-m>) — To check: <what>. Needed: <needed>
@@ -894,10 +894,16 @@ def left_gap_line(ref, what, needed, requirements=()) -> str:
     path, no code, no attempt id: `what` and `needed` pass `_words` and `_cut` (`FIRST_REASON_LIMIT`: exactly the limit stands
     whole, one character more ends with the ellipsis). The invariant (I7): a gap never disappears and never reads as checked -
     a field that is empty is said in words and the line is still there: no `ref` is `**a check the run does not name**`, no
-    `what` is `the requirement as written`, no `needed` is `Needed: not named yet — a factory gap`."""
+    `what` is `the requirement as written`, no `needed` is `Needed: not named yet — a factory gap`.
+
+    `whole` is the ONE part that is never cut (AR-24: a person's quoted word, FV1-30b): it is appended after the cut `what`, behind one
+    space, and passes `_words` only (a newline, a pipe or markdown stand as they are, whitespace runs collapse to one space - the same
+    escaping every other part gets, minus the cut). Empty (the default) adds nothing: every other caller is unchanged."""
     name = _cut(_words(ref)) or NO_REF_WORDS
     reqs = [r for r in dict.fromkeys(_words(r) for r in (requirements or ())) if r]
     shown = _cut(_words(what).rstrip(".")) or NO_WHAT_WORDS
+    if _words(whole):
+        shown = f"{shown} {_words(whole)}"
     wanted = _cut(_words(needed)) or NO_NEEDED_WORDS
     return f"- **{name}**" + (f" ({', '.join(reqs)})" if reqs else "") + " — " + gap_needed_line(shown, wanted)
 
@@ -3207,7 +3213,8 @@ WORD_NOT_IN_RECORD = "(the recorded word is no longer in the story's record)"
 WORD_PASS_NEEDED = {"then_unbound": "a test bound to it, or your check by hand", "not_run": "a run of it",
                     "row_fields_unestablished": "the refs given, or your acceptance of the coverage gap",
                     "s5_plan_unread": "a readable S5 plan"}
-_WORD_MARK = chr(0xE000)      # stands where the word goes: `left_gap_line` cuts a `what` at FIRST_REASON_LIMIT, the word is put in AFTER (AR-24)
+OBLIGATION_REFS = "obligation_refs"     # the one field whose standing the coverage reads (a row of the table's `row_fields`)
+WORD_TAKEN_BACK ="(you took this word back since; what it passed still stands)"
 
 
 def _fact_words(fact: str) -> str:
@@ -3223,26 +3230,35 @@ def _fact_words(fact: str) -> str:
 def _quoted_word(got: dict, pipeline: dict) -> str:
     """The person's word WHOLE, quoted: the entry of `pipeline.json` `stage_overrides` whose `at` is the pass's `word_at` (AR-24, E10).
     That entry gone (E11): the `decision` the journal kept, said to be no longer in the record; neither readable: a sentence that says
-    so, never a dropped line and never an invented word."""
+    so, never a dropped line and never an invented word. An entry the person took back (`revoked_at`, F1) is still quoted - what the
+    word passed still stands, so the line stays (AR-27) - but never as if the word still passes: the line says it was taken back."""
     at = str(got.get("at") or "")
     overrides = pipeline.get("stage_overrides") if isinstance(pipeline, dict) else None
-    for entry in overrides if (at and isinstance(overrides, list)) else []:
-        if isinstance(entry, dict) and str(entry.get("at") or "") == at:
-            if _words(entry.get("decision")):
-                return f'"{_words(entry["decision"])}"'
-            break
-    kept = _words(got.get("decision"))
-    return f'"{kept}"' + (f" {WORD_NOT_IN_RECORD}" if at else "") if kept else WORD_TEXT_UNREADABLE
+    entry = next((e for e in overrides if isinstance(e, dict) and str(e.get("at") or "") == at), None) if (at and isinstance(overrides, list)) else None
+    back = bool(entry and entry.get("revoked_at"))
+    word = _words(entry.get("decision")) if entry else ""
+    if word:
+        tail = WORD_TAKEN_BACK if back else ""
+    else:
+        word = _words(got.get("decision"))
+        tail = WORD_TAKEN_BACK if back else (WORD_NOT_IN_RECORD if at else "")
+    return (f'"{word}"' + (f" {tail}" if tail else "")) if word else WORD_TEXT_UNREADABLE
 
 
-def _word_gap_line(ref, fact: str, got: dict, pipeline: dict, requirements=(), detail: str = "") -> str:
+def _word_gap_line(ref, fact: str, got: dict, pipeline: dict, requirements=(), detail: str = "", needed: str = "") -> str:
     """One line of "Left with you" for a fact the person's word passed: `<fact's words> -- passed by your word "<word whole>" (<by>, <ts>)`
-    and what the fact still waits for, through `left_gap_line`. `by` and `ts` are bounded so the word's place always survives the cut."""
+    and what the fact still waits for (`needed`, else the fact's own), through `left_gap_line`: the word and its `(by, ts)` are its uncut
+    `whole` part (AR-24); `by` and `ts` are bounded here."""
     when = ", ".join(p for p in (_cut(_words(got.get("by")), 30), _cut(_words(got.get("ts")), 30)) if p)
     words = _fact_words(fact)
-    what = (f"{words}{detail} {chr(0x2014)} " if words else "") + f"passed by your word {_WORD_MARK}" + (f" ({when})" if when else "")
-    line = left_gap_line(ref, what, WORD_PASS_NEEDED.get(fact, ""), requirements)
-    return line.replace(_WORD_MARK, _quoted_word(got, pipeline)) + "\n"
+    what = (f"{words}{detail} {chr(0x2014)} " if words else "") + "passed by your word"
+    whole = _quoted_word(got, pipeline) + (f" ({when})" if when else "")
+    return left_gap_line(ref, what, needed or WORD_PASS_NEEDED.get(fact, ""), requirements, whole=whole) + "\n"
+
+
+def _field_empty(value) -> bool:
+    """A manifest row's field the person's word passed is still not given: absent, None, a blank string, an empty list or object."""
+    return value is None or (isinstance(value, str) and not value.strip()) or (isinstance(value, (list, dict)) and not value)
 
 
 def _not_run_instances(ledger, manifest) -> list:
@@ -3266,7 +3282,9 @@ def _word_passed_gap(art: Path, entries: list, ledger, manifest, pipeline: dict,
     """The gap lines of the facts the person's recorded word passed at the S5 exit (FV1-30b; the word passes the STEP, never the FACT):
     one line per Then no test is bound to (`entries`, the trace rows `traceability` annotated; the trace row is the ref source when a
     ledger record also names it), per instance the ledger shows as not run, per obligation whose refs the coverage still lacks
-    (`coverage.obligations[].word_passed`), and for the S5 plan not read and any other finding (a report line only). Each fact is asked of
+    (`coverage.obligations[].word_passed`), per other table field a manifest row still lacks (B1), and for the S5 plan not read, any other
+    finding and any old record line with no subjects (a report line only, E4). INVARIANT (AR-27): a pass whose fact still stands has
+    exactly one line; only a fact repaired since has none. Each fact is asked of
     the record's ONE index (`waiver.record_word_index`), only after a reader found the fact standing: a fact repaired since reads as
     today (E6, E8). No pass recorded: no line (the report is as before); the record cannot be read: ONE line that says so and
     `unknown["word_passes"]` (AR-28). Reads only."""
@@ -3295,19 +3313,44 @@ def _word_passed_gap(art: Path, entries: list, ledger, manifest, pipeline: dict,
         if got:
             out.append(_word_gap_line(iid, "not_run", got, pipeline))
     seen: set = set()
-    for item in ((ledger or {}).get("coverage") or {}).get("obligations") or [] if isinstance(ledger, dict) and isinstance(ledger.get("coverage"), dict) else []:
+    coverage = ledger.get("coverage") if isinstance(ledger, dict) else None
+    obligations = (coverage.get("obligations") if isinstance(coverage, dict) else None) or []
+    for item in obligations:
         for iid in (item.get("instance_ids") or []) if isinstance(item, dict) and item.get("word_passed") is True else []:
-            got = index.instance("row_fields_unestablished", iid, field="obligation_refs")
-            if got and iid not in seen:
-                seen.add(iid)
-                out.append(_word_gap_line(iid, "row_fields_unestablished", got, pipeline, detail=" (obligation_refs)"))
-    latest: dict = {}
-    for got in passes:         # one line per finding: the repeat of a pass is one fact (E5), the later word stands
-        if got["fact"] in ("s5_plan_unread", "other") and str(got.get("ts") or "") >= str((latest.get(got["finding_id"]) or {}).get("ts") or ""):
-            latest[got["finding_id"]] = got
-    for got in latest.values():
-        out.append(_word_gap_line(got["finding_id"] or got["tag"], got["fact"], got, pipeline))
+            got = index.instance("row_fields_unestablished", iid, field=OBLIGATION_REFS)
+            if got and (iid, OBLIGATION_REFS) not in seen:
+                seen.add((iid, OBLIGATION_REFS))
+                out.append(_word_gap_line(iid, "row_fields_unestablished", got, pipeline, detail=f" ({OBLIGATION_REFS})"))
+    for test in C.manifest_tests(manifest) if isinstance(manifest, dict) else []:       # B1 (a): every other field the table lets a word pass
+        iid = C.test_instance_id(test)
+        for field in index.passed_fields(iid) if iid else []:       # the fields come from the table's data, never from a list here
+            got = index.instance("row_fields_unestablished", iid, field=field)
+            if field != OBLIGATION_REFS and got and _field_empty(test.get(field)) and (iid, field) not in seen:
+                seen.add((iid, field))
+                out.append(_word_gap_line(iid, "row_fields_unestablished", got, pipeline, detail=f" ({field})",
+                                          needed=f"the {field} given in the test manifest"))
+    out.extend(_word_bare_lines(art, passes, pipeline))
     return "".join(out)
+
+
+def _word_bare_lines(art: Path, passes: list, pipeline: dict) -> list:
+    """B1 (b), E4: the lines of passes no reader above can attribute - the S5 plan not read, any other finding, and an OLD record line of
+    a fact that names no subject (nothing says which Then or instance it let go, so the fact is shown by its finding id, AR-28). A line
+    per finding: a repeat of a pass is one fact (E5), the LATER word by `ts` stands. Whether a line has subjects is read from the one
+    reader of the record rows (`waiver.person_passes`); that read failing leaves the old lines unnamed, as before."""
+    try:
+        import waiver
+        bare = {(str(r.get("finding_id") or ""), str(r.get("at") or "")) for r in waiver.person_passes(art)[0] or []
+                if isinstance(r, dict) and not any(isinstance(s, dict) for s in r.get("subjects") or [])}
+    except Exception:
+        bare = set()
+    latest: dict = {}
+    for got in passes:
+        key = got["finding_id"] or got["tag"]
+        if (got["fact"] in ("s5_plan_unread", "other") or (got["finding_id"], got["at"]) in bare) \
+                and str(got.get("ts") or "") >= str((latest.get(key) or {}).get("ts") or ""):
+            latest[key] = got
+    return [_word_gap_line(key, got["fact"], got, pipeline) for key, got in latest.items()]
 
 
 def _r_integration_gap(facts: dict) -> str:

@@ -2053,7 +2053,7 @@ def fv1_30b_n3_the_word_passed_gap_in_the_report() -> None:
         check_eq("E11: neither the word nor the decision is readable - the line is still there, with a sentence, no word invented",
                  (gone.count("\n"), "(the word's text is not readable)" in gone, 'passed by your word "' in gone), (1, True, False))
         _wp_record(task, _wp_line(word_at=""))
-        check_in("E4: an old line (no word_at) - the decision, with no 'no longer in the record' sentence", f'passed by your word "{WP_WORD}" (human',
+        check_in("E10: a line with no word_at - the decision, with no 'no longer in the record' sentence (the E4 old-line rows: B1 below)", f'passed by your word "{WP_WORD}" (human',
                  RF.build(task)["word_passed"])
         # E5: two passes for one fact (two words, the later one stands) - one line
         _wp_words(task, (WP_AT, "first word"), ("2026-11-13T11:30:00Z", "second word"))
@@ -2157,6 +2157,90 @@ def fv1_30b_n3_the_facts_the_ledger_and_the_coverage_show() -> None:
                  RF._word_passed_gap(root, [], {"rows": [row()]}, manifest, None, {}))
     finally:
         cleanup(root)
+
+
+def fv1_30b_n3_every_recorded_pass_has_a_line() -> None:
+    """FV1-30b N3 fix round. B1 (AR-27, AR-28): for every pass the record holds whose fact still stands the report has exactly ONE line -
+    over EVERY field of the facts table (the id of the case names the field), over an old line with no subjects (E4), and a field the table
+    gains later, with no code edit. F1: a taken-back word. F2: the word is the uncut `whole` of the one gap-line form."""
+    import waiver
+    fields = waiver.row_fields()[0]
+    word = {"stage_overrides": [{"at": WP_AT, "decision": WP_WORD}]}
+    manifest = lambda **given: {"tests": [dict({"instance_id": "test_a", "plan_row": "TS-1", "case": "TC-001", "covers": ["TC-001"], "file": "t.py"}, **given)]}  # noqa: E731
+    record = lambda field: _wp_line("manifest", "", "row-fields-missing", [{"instance_id": "test_a", "fields": [field]}])   # noqa: E731
+    line = lambda field, needed: (f'- **test_a** {EM} To check: row fields not given ({field}) {EM} passed by your word "{WP_WORD}" (human, {WP_TS}). '   # noqa: E731
+                                  f"Needed: {needed}\n")
+    cov = {"coverage": {"obligations": [{"instance_ids": ["test_a"], "word_passed": True}]}}
+
+    def run(lines, led=None, man=None, pipe=word, entries=()) -> str:
+        root = temp_dir("qa-report-wp-")
+        try:
+            _wp_record(root, *lines)
+            return RF._word_passed_gap(root, list(entries), led, man if man is not None else {}, pipe, {})
+        finally:
+            cleanup(root)
+
+    for field, row in fields.items():       # B1 (a): every field of the table, read from the data file
+        passes = row.get("pass") is True
+        refs = field == RF.OBLIGATION_REFS
+        needed = "the refs given, or your acceptance of the coverage gap" if refs else f"the {field} given in the test manifest"
+        led = cov if refs else None
+        check_eq(f"B1 (a) / field {field}: recorded, the manifest row still lacks it - {'ONE line' if passes else 'no line (the table never lets a word pass it)'}",
+                 run([record(field)], led, manifest()), line(field, needed) if passes else "")
+        check_eq(f"B1 (a) / field {field}: the field is given since (E8) - no line", run([record(field)], None, manifest(**{field: ["x"] if refs else "x"})), "")
+        if passes:
+            again = dict(record(field), decision="later word", word_at="2026-11-13T11:30:00Z", ts="2026-11-13T11:31:00+00:00")
+            twice = run([record(field), again], led, manifest(), {"stage_overrides": [{"at": WP_AT, "decision": WP_WORD}, {"at": again["word_at"], "decision": "later word"}]})
+            check_eq(f"B1 (a) / field {field}: a re-given word of the same subject and field - ONE line, the LATER word",
+                     (twice.count("\n"), '"later word"' in twice, WP_WORD in twice), (1, True, False))
+    # a field the data file gains later falls into the same branch, with no code edit: a copy of the table with one more passable field
+    grown, real = json.loads(json.dumps(waiver._fact_table()[0])), waiver._fact_table
+    grown["row_fields"]["synthetic_field"] = {"pass": True}
+    waiver._fact_table = lambda path=None: (grown, "")
+    try:
+        check_eq("B1 (a) / a field added to the table: its line, no code edit", run([record("synthetic_field")], None, manifest()),
+                 line("synthetic_field", "the synthetic_field given in the test manifest"))
+    finally:
+        waiver._fact_table = real
+    check_eq("B1 (a) / the same field with the real table: no row for it - never passed, no line", run([record("synthetic_field")], None, manifest()), "")
+    # B1 (b) / E4: an OLD record line (no check, no case, no tag, no subjects) - one line by its finding id, whatever its fact
+    old = lambda block, **over: dict({"ts": WP_TS, "stage": "S5", "dispatch": "d1", "block": block, "decision": WP_WORD, "word_at": WP_AT, "by": "human"}, **over)  # noqa: E731
+    bare = lambda ref, words, needed: f'- **{ref}** {EM} To check: {words} {EM} passed by your word "{WP_WORD}" (human, {WP_TS}). Needed: {needed}\n'  # noqa: E731
+    for label, block, expected in (
+            ("a Then not bound", "bindings:TC-001:unbound-2", bare("bindings:TC-001:unbound-2", "Then not bound to a test", THEN_NEEDED)),
+            ("a not-run instance", "run_mapping:-:no-row-test_a", bare("run_mapping:-:no-row-test_a", "no run row", "a run of it")),
+            ("row fields", "manifest:-:row-fields-missing", bare("manifest:-:row-fields-missing", "row fields not given",
+                                                                 "the refs given, or your acceptance of the coverage gap"))):
+        check_eq(f"B1 (b) / E4: an old line with no subjects - {label}: ONE line, no reader asked", run([old(block)]), expected)
+    check_eq("B1 (b) / E4: an old line with `subjects: []` is the same as one with none", run([old("bindings:TC-001:unbound-2", subjects=[])]),
+             bare("bindings:TC-001:unbound-2", "Then not bound to a test", THEN_NEEDED))
+    check_eq("B1 (b): a line WITH subjects whose fact was repaired (the Then has its binding) is NOT a bare line - no line", run([_wp_line()]), "")
+    check_eq("B1 (b) / E5: two words for one old finding - ONE line, the later word by ts",
+             run([old("bindings:TC-001:unbound-2"), old("bindings:TC-001:unbound-2", decision="later word", word_at="2026-11-13T11:30:00Z",
+                                                        ts="2026-11-13T11:31:00+00:00")], pipe={"stage_overrides": [{"at": "2026-11-13T11:30:00Z", "decision": "later word"}]}),
+             f'- **bindings:TC-001:unbound-2** {EM} To check: Then not bound to a test {EM} passed by your word "later word" (human, 2026-11-13T11:31:00+00:00). '
+             f"Needed: {THEN_NEEDED}\n")
+    # F1: a taken-back word - the line stays (the fact still stands), and it says the word was taken back
+    back = run([_wp_line("plan", "", "plan-unreadable", [])], pipe={"stage_overrides": [{"at": WP_AT, "decision": WP_WORD, "revoked_at": "2026-11-13T12:00:00Z"}]})
+    check_eq("F1: a revoked word - ONE line, the word quoted and said to be taken back, never as a word that still passes",
+             (back.count("\n"), f'passed by your word "{WP_WORD}" {RF.WORD_TAKEN_BACK} (human, {WP_TS})' in back), (1, True))
+    gone = run([_wp_line("plan", "", "plan-unreadable", [], decision="kept word")], pipe={"stage_overrides": [{"at": WP_AT, "decision": "", "revoked_at": "T9"}]})
+    check_in("F1: a revoked entry with no text - the kept decision, said to be taken back (not 'no longer in the record')", f'"kept word" {RF.WORD_TAKEN_BACK}', gone)
+    # F2: the word is the uncut `whole` of left_gap_line
+    check_eq("F2: a caller that passes no `whole` is byte-identical", RF.left_gap_line("R-1", "what", "need"), f"- **R-1** {EM} To check: what. Needed: need")
+    long_word = "w" * 450
+    cut = RF.left_gap_line("r" * 300, "x" * 300, "need", whole=f'"{long_word}"')
+    check_eq("F2: a ref and a what over the limit are cut, a word of 450 characters stays whole", (RF.ELLIPSIS in cut, long_word in cut, cut.count(RF.ELLIPSIS)), (True, True, 2))
+    check_eq("F2: a newline in the word collapses to one space (the escaping `_words` gives every part); a pipe and markdown stand",
+             RF.left_gap_line("r", "what", "need", whole='"a\n\nb | **c** `d`"'), f'- **r** {EM} To check: what "a b | **c** `d`". Needed: need')
+    sentinel = chr(0xE000)
+    check_eq("F2: a private-use character in the ref or the word is only text - the word appears once",
+             RF.left_gap_line(sentinel, "what" + sentinel, "need", whole="word").count("word"), 1)
+    check_eq("F2: an empty or blank `whole` adds nothing", (RF.left_gap_line("r", "what", "n", whole=""), RF.left_gap_line("r", "what", "n", whole=" \n ")),
+             (RF.left_gap_line("r", "what", "n"),) * 2)
+    big = "w" * 24576
+    plan = run([_wp_line("plan", "", "plan-unreadable", [])], pipe={"stage_overrides": [{"at": WP_AT, "decision": big}]})
+    check_eq("F2: through the report path a 24 KB word is whole, one line", (big in plan, plan.count("\n")), (True, 1))
 
 
 # --- t-305 N8: the third verdict in the report -------------------------------------------------------------------
@@ -4438,6 +4522,7 @@ def main() -> None:
     partly_proven_unconfirmed_then()
     fv1_30b_n3_the_word_passed_gap_in_the_report()
     fv1_30b_n3_the_facts_the_ledger_and_the_coverage_show()
+    fv1_30b_n3_every_recorded_pass_has_a_line()
     unconfirmed_expectations()
     one_source_per_count()
     first_reason_order()
