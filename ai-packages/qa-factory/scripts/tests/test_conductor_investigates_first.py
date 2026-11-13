@@ -47,7 +47,7 @@ SITES = (
     ("s5.md", "Blocked again: no window starts.", "risk"),
     ("s5.md", "**A probe that cannot run here.**", "gate_word"),
     ("s5.md", "**A stand block carries its fix.**", "access"),
-    ("s5.md", "A test file that has to live inside the application tree", "team_agreement"),
+    ("s5.md", "A test file that has to live in a place no recorded carrier of its area covers", "team_agreement"),
     ("s5.md", "**The stand.** On `stand_signal`", "access"),
     ("s6.md", "no name or no answer -> ask once", "access"),
     ("s6.md", "no name or no answer → ask", "access"),

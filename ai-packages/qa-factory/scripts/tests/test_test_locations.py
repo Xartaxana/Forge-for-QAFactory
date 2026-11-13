@@ -206,11 +206,11 @@ def part_inside_application_code() -> None:
         check_in("K3: and the reason says why", "inside application code 'src' and in none of the project's test "
                  "locations", found["reason"])
         found = verdict("tests/test_x.py", cfg, root)
-        check_eq("K3: outside the protected roots the usual names stay the fallback",
-                 (found["test"], found["by"], found["source"], found["kind"]), (True, "markers", "markers", "folder"))
-        check_eq("K3: a name marker: `src` is protected, `lib/foo.spec.ts` is not",
+        check_eq("K3 World R (B-355 3b): outside the protected roots the usual names decide nothing once the project recorded its tests",
+                 (found["test"], found["by"], found["source"], found["kind"]), (False, "none", "", ""))
+        check_eq("K3 World R (B-355 3b): a name marker: `src` is protected, `lib/foo.spec.ts` is not - and it is no test (no marker)",
                  (verdict("lib/foo.spec.ts", cfg, root)["by"], verdict("lib/foo.spec.ts", cfg, root)["where"]),
-                 ("markers", "stem_suffixes:.spec"))
+                 ("none", ""))
         none = {k: v for k, v in cfg.items() if k != "test_locations"}
         for p in ("src/app/test_x.py", "tests/test_x.py"):
             check_eq(f"K3: with no test_locations both are markers (today's behaviour): {p}",
@@ -361,10 +361,15 @@ def part_edges() -> None:
         hooklib.ref = lambda rel: empty / rel
         cfg = json.loads((root / "qa-factory" / "config.json").read_text(encoding="utf-8"))
         found = verdict("tests/test_x.py", cfg, root)
-        check_eq("E16: markers missing: no recognition by name, the reason names the file",
-                 (found["test"], "test-path-markers.json" in found["reason"]), (False, True))
+        check_eq("E16 World R (B-355 3b): markers missing: no recognition by name, the reason is the 3b one (the record decides)",
+                 (found["test"], "recorded where its tests are" in found["reason"]), (False, True))
         check_eq("E16: the project's word still answers", verdict("src/__checks__/a.py", cfg, root)["test"], True)
         check_eq("E16: markers() says why", TL.markers()[1], "missing, unreadable or empty")
+        # E16 World N (A-3): the same fixture without the project's word: nothing recorded, the reason names the markers file
+        cfg_n = {k: v for k, v in cfg.items() if k != "test_locations"}
+        found_n = verdict("tests/test_x.py", cfg_n, root)
+        check_eq("E16 World N: markers missing and nothing recorded: not read, the reason names test-path-markers.json",
+                 (found_n["test"], "test-path-markers.json" in found_n["reason"]), (False, True))
         (empty / "test-path-markers.json").write_text(json.dumps(
             {"dir_names": ["Tests"], "dir_suffixes": [], "stem_prefixes": [], "stem_suffixes": [],
              "stem_camel_suffixes": ["Test"], "code_extensions": [".py"], "skip_dirs": ["x"],
@@ -1240,6 +1245,117 @@ def part_door() -> None:
         cleanup(root)
 
 
+def part_recorded() -> None:
+    """B-355 (items 2 and 3): `area` and `recorded` answer "did the project record where its tests are, FOR THE AREA this
+    path lies in", and the verdict's step 3b reads that answer: where it is recorded no usual name makes a test. World N =
+    nothing recorded in the path's area (today); World R = recorded; a word about the other area changes nothing."""
+    import hooklib
+    base = temp_dir("qa-tl-rec-").resolve()
+    for folder in ("proj/qa-factory", "proj/qa", "proj/tests", "proj/helpers", "app/src", "other/tests"):
+        (base / folder).mkdir(parents=True)
+    proj, app, other = base / "proj", base / "app", base / "other"
+
+    def rec(cfg, path=None, at=None):
+        return TL.recorded(cfg, root=proj, path=path, base=at)
+
+    try:
+        # --- World N: nothing recorded in the path's area ---
+        for label, cfg in (("config absent", None), ("{}", {}), ("not a dict", "text"), ("a list", ["x"])):
+            check_eq(f"N recorded: {label} -> nothing recorded, the area is still named", rec(cfg, "src/a.py"), (False, [], "app"))
+        for label, value in (("absent", "absent"), ("[]", []), ("not a list", "src/tests"), ("no live entry", ["", "/abs", "../x"])):
+            cfg = {} if value == "absent" else {"test_locations": value}
+            check_eq(f"N recorded: test_locations {label} -> the application area is not recorded", rec(cfg, "src/a.py"),
+                     (False, [], "app"))
+        for label, value in (("'.'", "."), ("''", ""), ("'..'", ".."), ("the root itself, absolute", str(proj))):
+            check_eq(f"N recorded: tests_root {label} -> the project area is not recorded",
+                     rec({"app_root": "../app", "tests_root": value}, "x.py"), (False, [], "project"))
+        for label, extra in (("run.levels '**'", {"run": {"levels": {"unit": "**"}}}),
+                             ("profiles not a list", {"profiles": "x"}),
+                             ("roots not a dict", {"profiles": [{"roots": "tests"}]}),
+                             ("roots.test not a string", {"profiles": [{"roots": {"test": 5}}]}),
+                             ("a nested run.levels value", {"run": {"levels": {"unit": {"x": "tests"}}}})):
+            check_eq(f"N recorded: {label} -> not recorded", rec(dict(extra, app_root="../app"), "x.py"), (False, [], "project"))
+        check_eq("N recorded: any failure is (False, [], '')", TL.recorded({"test_locations": ["a/"]}, root=object(), path="x"),
+                 (False, [], ""))
+        check_eq("N recorded: no path -> any area; an empty path names no area", (rec({}, None), rec({"test_locations": ["a/"]}, "")),
+                 ((False, [], ""), (False, [], "")))
+        # --- World R ---
+        cfg = {"app_root": "../app", "tests_root": "qa"}
+        check_eq("R recorded: tests_root `qa` records the project area", rec(cfg, "qa/t.py"), (True, ["tests_root"], "project"))
+        check_eq("R recorded (THE BLOCKER ROW): a word about the test repository never silences the application area",
+                 rec(cfg, "../app/src/a.py"), (False, [], "app"))
+        check_eq("R recorded: ... nor does an absolute path in the application", rec(cfg, str(app / "src" / "a.py")), (False, [], "app"))
+        check_eq("R recorded: a path in neither base has no area, so nothing is recorded for it", rec(cfg, str(other / "tests" / "a.py")),
+                 (False, [], ""))
+        stand = {"app_root": "../app", "profiles": [{"profile_id": "pw", "roots": {"test": "tests"}}],
+                 "test_locations": ["src/**/*.test.ts", "**/test_*.md"]}
+        check_eq("R recorded: the stand's shape - the application by test_locations, the project by roots.test",
+                 (rec(stand, "../app/src/a.ts"), rec(stand, "tests/a.py"), rec(stand, "helpers/a.py"), rec(stand, None)),
+                 ((True, ["test_locations"], "app"), (True, ["roots.test"], "project"), (True, ["roots.test"], "project"),
+                  (True, ["test_locations", "roots.test"], "")))
+        check_eq("R recorded (F-11 tie): app_root '.' + roots.test + test_locations [] -> the application area is NOT recorded",
+                 rec({"app_root": ".", "test_locations": [], "profiles": [{"roots": {"test": "tests"}}]}, "tests/a.py"),
+                 (False, [], "app"))
+        check_eq("R recorded: app_root '..' (a common parent) -> the test repository's own files are the project area, recorded",
+                 (rec({"app_root": "..", "profiles": [{"roots": {"test": "tests"}}]}, "tests/a.py"),
+                  rec({"app_root": "..", "profiles": [{"roots": {"test": "tests"}}]}, "../app/src/a.py")),
+                 ((True, ["roots.test"], "project"), (False, [], "app")))
+        check_eq("R recorded: a project carrier that names a place in the application records neither area",
+                 rec({"app_root": "../app", "tests_root": "../app/tests"}, "x.py"), (False, [], "project"))
+        check_eq("R recorded: an entry that covers a whole protected root still records the application",
+                 rec({"protected_app_paths": ["src"], "test_locations": ["src/"]}, "lib/a.py"), (True, ["test_locations"], "app"))
+        # --- the adversarial battery: recorded() and the verdict read the same spelling ---
+        for label, value, inside in (("backslashes", "qa\\tests", "qa/tests/t.py"), ("slashes", "qa/tests", "qa/tests/t.py"),
+                                     ("case", "Tests", "tests/t.py"), ("trailing slash", "tests/", "tests/t.py"),
+                                     ("non-ASCII", "pruebas_ñ", "pruebas_ñ/t.py")):
+            c = {"app_root": "../app", "tests_root": value}
+            (proj / inside).parent.mkdir(parents=True, exist_ok=True)
+            check_eq(f"battery [{label}]: recorded() and the verdict agree on a path inside",
+                     (rec(c, inside)[0], verdict(inside, c, proj)["by"]), (True, "config"))
+            check_eq(f"battery [{label}]: and on a path outside it the area is recorded, the path is no test",
+                     (rec(c, "helpers/x.test.ts")[0], verdict("helpers/x.test.ts", c, proj)["test"]), (True, False))
+        many = {"test_locations": [f"d{i}/" for i in range(1000)]}
+        check_eq("battery: 1000 entries are recorded, no limit introduced", rec(many, "x.py")[:2], (True, ["test_locations"]))
+        long_entry = {"test_locations": ["a" * 4096 + "/"]}
+        check_eq("battery: an entry of 4096 characters is read as the verdict reads it", (rec(long_entry, "x.py")[0],
+                 verdict("a" * 4096 + "/x.py", long_entry, proj)["test"]), (True, True))
+        # --- the verdict, step 3b ---
+        cfg = {"app_root": "../app", "tests_root": "qa"}
+        got = (verdict("qa/foo.test.ts", cfg, proj), verdict("helpers/x.test.ts", cfg, proj), verdict("../app/src/foo.test.ts", cfg, proj))
+        check_eq("3b: a config test stays a config test (2b is unchanged)", (got[0]["test"], got[0]["source"]), (True, "tests_root"))
+        check_eq("3b: in the recorded test repository a usual name decides nothing, and the reason says whose word",
+                 (got[1]["test"], got[1]["by"]), (False, "none"))
+        check_in("3b: ... the reason", "recorded where its tests are for this test repository (tests_root)", got[1]["reason"])
+        check_eq("3b: the application area is not recorded: the usual names decide there as before", (got[2]["test"], got[2]["by"]),
+                 (True, "markers"))
+        recorded_app = {"app_root": ".", "protected_app_paths": ["src"], "test_locations": ["src/legacy/"]}
+        check_eq("3b: after step 3 - the protected-root refusal keeps its own reason; outside the root the new one speaks",
+                 ("inside application code" in verdict("src/test_a.py", recorded_app, proj)["reason"],
+                  "recorded where its tests are for this application code" in verdict("lib/test_a.py", recorded_app, proj)["reason"]),
+                 (True, True))
+        stream = "lib/app.ts:x.spec.ts"
+        check_eq("3b: an alternate data stream - a usual name in an unrecorded area, never one in a recorded area",
+                 (verdict(stream, {"protected_app_paths": ["src"]}, proj)["test"], verdict(stream, recorded_app, proj)["test"]),
+                 (True, False))
+        check_eq("3b: a path outside both bases reaches step 4's own answer",
+                 verdict(other / "tests" / "a.py", cfg, proj)["reason"], "outside the project and the application")
+        real_ref = hooklib.ref
+        empty = Path(tempfile.mkdtemp(prefix="qa-tl-rec-nomarkers-"))
+        try:
+            hooklib.ref = lambda rel: empty / rel
+            got = (verdict("qa/foo.test.ts", cfg, proj), verdict("helpers/x.test.ts", cfg, proj))
+            check_eq("3b: markers unreadable and the area recorded: the config verdict is unchanged, the rest is False for the record",
+                     (got[0]["test"], got[1]["test"], "test-path-markers.json" in got[1]["reason"]), (True, False, False))
+        finally:
+            hooklib.ref = real_ref
+            cleanup(empty)
+        check_eq("3b: the project area through app_root '..': a usual folder of the test repository is no test when it is recorded",
+                 (verdict("tests/a.py", {"app_root": "..", "profiles": [{"roots": {"test": "qa"}}]}, proj)["test"],
+                  verdict("tests/a.py", {"app_root": ".."}, proj)["test"]), (False, True))
+    finally:
+        cleanup(base)
+
+
 def main() -> None:
     os.environ.pop("QA_FACTORY_TASK", None)  # a person's word for the story would name one: not here
     root = temp_dir("qa-tl-shape-").resolve()
@@ -1253,6 +1369,7 @@ def main() -> None:
     part_edges()
     part_camel()
     part_recognition()
+    part_recorded()
     part_guard_write()
     part_guard_links()
     part_guard_shell()

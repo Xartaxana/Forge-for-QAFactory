@@ -127,6 +127,7 @@ from content_size import content_bytes
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from hooklib import artifact_root, PLUGIN_ROOT, project_root, state_dir, ref, parse_frontmatter, load_config
 import runtime_paths as RP  # noqa: E402
+import config_contract  # noqa: E402  the one reader of the `test_data` block (AR-13)
 import charter  # noqa: E402  A19: the one reader of a charter's form
 import validate_artifacts as va
 from hooklib import sorted_paths
@@ -773,7 +774,8 @@ REQUIRED_FACTS = [
                 and _blank((c.get("environment") or {}).get("health_url"))),
      ("environment", "stand", "base_url", "endpoint", "url")),
     ("test-data lifecycle (interview topic 3)",
-     lambda c: not any(str(v).strip() for v in (c.get("test_data") or {}).values() if v),
+     # a hole = absent / malformed / every key not_recorded or none; a person's "unknown" IS an answer (FR-7: never re-ask it)
+     lambda c: not any(status in ("recorded", "unknown") for _name, status in config_contract.test_data_states(c)["keys"]),
      ("test data", "test_data", "seeds", "pii", "cleanup", "accounts", "shared record")),
     ("ticket adapter (interview topic 7)",
      lambda c: _blank(((c.get("adapters") or {}).get("ticket") or {}).get("name")

@@ -106,9 +106,9 @@ No output → not a git repository. Otherwise, if `qa-factory/config.json` exist
 python "${CLAUDE_PLUGIN_ROOT}/scripts/readiness.py" --json --probe-vcs
 ```
 
-Parse `capabilities.*`: every capability whose `status` is not `ok` is listed with its
+Parse `capabilities.*`: every non-`ok` capability is listed with its
 `note`, `owner` and `remedy`. `unknown` is listed too - unverified is not "fine"; print the `note` verbatim.
-Print `surfaces` when present (each `words`) and `config_schema`'s `migration_hint` (stale schema: re-onboarding instruction), verbatim.
+Print `surfaces`/`test_places` when present (each `words`/`note`) and `config_schema`'s `migration_hint` (stale schema: re-onboarding instruction), verbatim.
 
 Show `vcs` (local Git), `vcs.remote_read` (real transport, SSH included) and `vcs_api`
 separately, successful Git access included. A configured remote is not proof of access;

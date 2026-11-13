@@ -563,6 +563,136 @@ def check_app_repo(cfg: dict, root: Path) -> dict:
                "needs the application repository present locally")
 
 
+TEST_PLACES_STEP = "/qa-factory:qa-onboarding (topic 1c: where the project's tests live)"
+_SAMPLE = "zz-sample"
+
+
+def _sample_of(pattern: str) -> str:
+    """A concrete path a candidate pattern would name: every wildcard filled with a plain word, a trailing `/` kept."""
+    parts = [(_SAMPLE if seg == "**" else seg.replace("*", _SAMPLE).replace("?", "z"))
+             for seg in pattern.replace("\\", "/").split("/") if seg not in ("", ".")]
+    return "/".join(parts) + ("/" if pattern.endswith("/") else "")
+
+
+def _places_row(status: str, note: str, **extra) -> dict:
+    return {"status": status, "note": note, **extra}
+
+
+def check_test_places(cfg: dict, root: Path) -> dict:
+    """Which places that look like tests the project's record does not name (B-355, node H).
+
+    The usual test names are a hint; where the project recorded where its tests are for an area, only the record
+    decides there (`test_locations.recorded`). So a test written in a place that carries a usual name but is not
+    in the record is committed unchecked and its write window is unclaimed. This check collects those places for
+    the conductor, who judges them (P27): per area `ok` (recorded, nothing unrecorded found), `not_recorded` (the
+    project said nothing for that area: the usual names still decide; "we have no tests" reads the same),
+    `uncovered` (at most 5 places named, `+N more`) or `unknown` (the walk or the list of usual names could not be
+    read, the walk stopped at its cap, or the config is broken: never `ok`); and `unreachable` for each configured
+    checkout outside both app_root and the project root while a word is recorded. It reports and blocks nothing,
+    runs nothing and hands a person no script; the remedy is a step of onboarding. The walk covers the application's
+    protected folders; the test repository's own folders are not walked."""
+    import test_locations as TL
+    try:
+        cfg = cfg if isinstance(cfg, dict) else {}
+        top = Path(root).resolve()
+        raw_app = str(cfg.get("app_root") or ".").strip() or "."
+        app_p = (Path(raw_app) if Path(raw_app).is_absolute() else top / raw_app).resolve()
+        sample_of_area = {"app": app_p / _SAMPLE}
+        if app_p != top:
+            sample_of_area["project"] = top / _SAMPLE
+        problems = TL.location_problems(cfg, top)
+        found = TL.suggest(cfg, top, TL.DEFAULT_MAX_FILES)
+        truncated = bool(found["truncated"])
+        walk_notes = list(found["unreadable"])
+        recorded_any = False
+        areas, outside = {}, {name: [] for name in sample_of_area}
+        carriers_of = {}
+        for name, sample in sample_of_area.items():
+            is_recorded, carriers, where = TL.recorded(cfg, root=top, path=sample)
+            carriers_of[name] = carriers
+            recorded_any = recorded_any or (is_recorded and where == name)
+        for cand in found["candidates"]:
+            probe = _sample_of(cand["pattern"])
+            name = TL.area(probe, cfg, base=app_p, root=top)
+            if name not in outside:
+                continue
+            verdict = TL.is_test_path(probe, cfg, base=app_p, root=top)
+            if not (verdict["test"] and verdict["by"] == "config" and verdict["source"] in carriers_of[name]):
+                outside[name].append(cand)
+        for name in sample_of_area:
+            carriers = carriers_of[name]
+            more = outside[name]
+            if name == "app" and problems and not carriers:
+                areas[name] = _places_row(UNKNOWN, "the application's test_locations could not be read: " + "; ".join(problems))
+            elif not carriers:
+                areas[name] = _places_row("not_recorded", f"nothing is recorded for where the {name} area's tests are; the usual "
+                                          "test names still decide there")
+            elif more:
+                shown = [f"`{c['pattern']}` ({'at least ' if truncated else ''}{c['files']} files)" for c in more[:5]]
+                tail = f" +{len(more) - 5} more" if len(more) > 5 else ""
+                areas[name] = _places_row("uncovered", ("at least " if truncated else "") + f"{len(more)} place(s) carry a usual "
+                                          f"test name but are not in the record ({', '.join(carriers)}): " + ", ".join(shown) + tail,
+                                          places=[c["pattern"] for c in more])
+            elif walk_notes or truncated:
+                why = "; ".join(walk_notes) or f"the walk stopped at {TL.DEFAULT_MAX_FILES} files"
+                areas[name] = _places_row(UNKNOWN, "no unrecorded place was found, but the search was not complete: " + why)
+            elif name == "project":
+                areas[name] = _places_row(OK, f"recorded ({', '.join(carriers)}); places outside the record are not searched "
+                                          "in the test repository")
+            else:
+                areas[name] = _places_row(OK, f"recorded ({', '.join(carriers)}); no place with a usual test name lies outside it")
+        unreachable = []
+        if recorded_any:
+            repos = [(f"implementation_repos[{i}].local_path", e.get("local_path"))
+                     for i, e in enumerate(cfg.get("implementation_repos") or []) if isinstance(e, dict)]
+            repos += [(f"code_repos[{i}].path", e.get("path") if isinstance(e, dict) else e)
+                      for i, e in enumerate(cfg.get("code_repos") or [])]
+            for label, value in repos:
+                text = str(value or "").strip()
+                if not text:
+                    continue
+                place = _resolve(top, text).resolve()
+                if not any(place == base or base in place.parents for base in (app_p, top)):
+                    unreachable.append(f"{label} `{text}`")
+        states = [row["status"] for row in areas.values()] + (["unreachable"] if unreachable else [])
+        worst = next((s for s in (UNKNOWN, "unreachable", "uncovered", "not_recorded") if s in states), OK)
+        notes = [f"{name}: {row['note']}" for name, row in areas.items()]
+        if unreachable:
+            notes.append("a recorded word cannot reach the files of " + ", ".join(unreachable)
+                         + " (they lie outside app_root and the project root)")
+        out = cap(worst, "user", "; ".join(notes), areas=areas, unreachable=unreachable)
+        if worst != OK:
+            out["remedy"] = {"kind": "human_step", "autorun": False, "owner": "user",
+                             "need": "the places where the project's tests live, said in the person's words",
+                             "steps": [TEST_PLACES_STEP],
+                             "blocks": "nothing: the check only reports; a test written in a place the record does not name "
+                                       "is committed unchecked until the place is recorded",
+                             "verify": "re-run readiness.py"}
+        return out
+    except Exception as exc:
+        return cap(UNKNOWN, "factory", f"where the project's tests live could not be checked ({type(exc).__name__})",
+                   areas={}, unreachable=[])
+
+
+def published_test_places(row: dict) -> dict:
+    """The part of `check_test_places` the doctor document carries: every area that is not `ok` (`uncovered`,
+    `unknown`, `not_recorded`, and any status not known here: never silently dropped) and the `unreachable`
+    entries. Empty when nothing is left to say; a row that is itself `unknown` (the check crashed, so it has no
+    areas) is still published, never silenced (AR-28). The `note` is rebuilt from what is kept, so it never
+    speaks of a dropped area."""
+    areas = {k: v for k, v in (row.get("areas") or {}).items() if v.get("status") != OK}
+    unreachable = row.get("unreachable") or []
+    if not areas and not unreachable and row.get("status") != UNKNOWN:
+        return {}
+    if not areas and not unreachable:
+        return dict(row, areas=areas)
+    notes = [f"{name}: {v.get('note', '')}" for name, v in areas.items()]
+    if unreachable:
+        notes.append("a recorded word cannot reach the files of " + ", ".join(unreachable)
+                     + " (they lie outside app_root and the project root)")
+    return dict(row, areas=areas, note="; ".join(notes))
+
+
 def check_vcs(root: Path, probe_remote: bool = False) -> dict:
     if not shutil.which("git"):
         return cap(MISSING, "user", "git is not on PATH")
@@ -1167,6 +1297,10 @@ def compute(cfg: dict, root: Path, selected_profiles: list[str] | None = None,
     # capability block is pinned key-for-key to references/templates/readiness.json, and a
     # project must not have to re-onboard to be told its execution is unconfigured.
     data["execution_profile"] = check_execution_profile(cfg)
+    # The key exists only when there is something to say (like `surfaces`): `ok` and `not_recorded` areas are dropped.
+    placed = published_test_places(check_test_places(cfg, root))
+    if placed:
+        data["test_places"] = placed
     # What the project tests on that an agent's hands cannot reach, or has no stand for (EP1-41a): the key exists only when
     # there is something to say, so a web or API project's document is unchanged. A broken table is `unknown`, never a crash
     # and never silence (AR-28).

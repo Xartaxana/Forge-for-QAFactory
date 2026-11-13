@@ -39,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import hooklib  # noqa: E402
 from test_locations import (MARKERS_FILE, _grammar_problem, _match,  # noqa: E402,F401
-                            _opens_boundary, _roots, _segments, _text, markers)
+                            _opens_boundary, _roots, _segments, _text, dir_marker, markers, name_marker)
 
 # `--block "protected test path: <p>"`: the key of a permission in `stage_overrides[]`.
 GRANT_BLOCK = re.compile(r"^\s*protected\s+test\s+path\s*:\s*(.*)$", re.IGNORECASE | re.DOTALL)
@@ -104,12 +104,9 @@ def _is_test_specific(segs: list, root: tuple, table: dict) -> bool:
     for part in segs[len(root):-1]:
         if "*" in part or "?" in part:
             continue
-        if part in table["dir_names"] or any(part.endswith(s) and len(part) > len(s) for s in table["dir_suffixes"]):
+        if dir_marker(part, table):
             return True
-    last = segs[-1]
-    stem = last.rpartition(".")[0] if "." in last else last
-    return (any(stem.startswith(m) for m in table["stem_prefixes"])
-            or any(stem.endswith(m) for m in table["stem_suffixes"]))
+    return bool(name_marker(segs[-1], table))   # the segments are lower-case: the camel endings do not apply here
 
 
 def _judge(p, cfg, app_root, loaded: tuple) -> tuple:

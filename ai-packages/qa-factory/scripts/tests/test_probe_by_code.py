@@ -3108,7 +3108,38 @@ def second_hop_name_in_two_files_is_refused() -> None:
         cleanup(root)
 
 
+B355_I_ROWS = [
+    # (label, cfg, project-relative path, expected) - `_in_test_root` reads `roots.test` / `tests_root` through `is_test_path`
+    ("World N: tests_root, a file under it", {"tests_root": "tests"}, "tests/x.py", True),
+    ("World N: roots.test of a profile", {"profiles": [{"profile_id": "api", "roots": {"test": "backend/tests"}}]}, "backend/tests/a.py", True),
+    ("World N: a path beside the root", {"tests_root": "tests"}, "src/x.py", False),
+    ("World N: a usual test name alone (markers) never passes", {}, "src/test_x.py", False),
+    ("World N: protected path wins over the root", {"tests_root": "tests", "protected_app_paths": ["tests"]}, "tests/x.py", False),
+    ("World N: tests_root `.` is ignored (names the whole project)", {"tests_root": "."}, "src/x.py", False),
+    ("World N: tests_root above the root is ignored", {"tests_root": ".."}, "src/x.py", False),
+    ("World R: a test_locations entry alone does not pass", {"test_locations": ["src/legacy/checks"]}, "src/legacy/checks/a.py", False),
+    ("World R: both carriers name the path -> True",
+     {"test_locations": ["tests"], "tests_root": "tests"}, "tests/x.py", True),
+    ("World R: protected wins over both carriers",
+     {"test_locations": ["tests"], "tests_root": "tests", "protected_app_paths": ["tests"]}, "tests/x.py", False),
+    ("World R: the record is kept, tests_root still recognises its place",
+     {"test_locations": ["src/legacy/checks"], "tests_root": "tests"}, "tests/x.py", True),
+    ("World R: the record is kept, a usual name outside it is not a test root",
+     {"test_locations": ["src/legacy/checks"], "tests_root": "tests"}, "src/test_x.py", False),
+    ("World R: an absolute path is refused first", {"tests_root": "tests"}, "/tests/x.py", False),
+    ("World R: a path that climbs out is refused first", {"tests_root": "tests"}, "../tests/x.py", False),
+]
+
+
+def b355_i_in_test_root_reads_the_one_reader() -> None:
+    """B-355 node I: `_in_test_root` answers through `test_locations.is_test_path` (`by == "config"`, source `roots.test` /
+    `tests_root`); one table, the label names the row."""
+    for label, cfg, rel, expected in B355_I_ROWS:
+        check_eq(f"B355-I {label}", PBC._in_test_root(cfg, rel), expected)
+
+
 def main() -> None:
+    b355_i_in_test_root_reads_the_one_reader()
     second_hop_name_in_two_files_is_refused()
     n2_k7_the_red_probe_reads_the_stand_as_the_run_does()
     the_author_binding_is_the_latest_block_by_the_clock()

@@ -455,7 +455,7 @@ def access_discovery(root: Path, config: dict | None = None) -> dict:
     # set - and dropping it left that set invisible with no move for the role.
     from config_contract import ACCESS_KEY_FIELDS
     login_named = {str(proposal["access"].get(field) or "") for field in ACCESS_KEY_FIELDS} - {""}
-    proposals = integration_proposals(in_code, absent, login_named, env_keys)
+    proposals = integration_proposals(in_code, absent, login_named, env_keys, config, root)
     # HF8-9: the accounts the file's names suggest. Only a file the project really uses (`.env.example` holds names nobody set).
     pair_keys = env_keys if chosen_file and not chosen_file["example"] else []
     pairs = account_pairs(pair_keys, str(proposal["access"].get("user_key") or ""))
@@ -515,18 +515,28 @@ def _cut(items: list, name: str, record: dict) -> None:
         record[f"{name}_more"] = len(items) - PROPOSAL_LIST_LIMIT
 
 
-def _test_area(place: str) -> str:
+def _test_area(place: str, cfg=None, project=None) -> str:
     """The folder of a call site that is a TEST (`names_a_test` says so), else "". A helper under `tests/` is not an area
     (`in_test_folder` is not asked), and a marker file that cannot be read (None) makes it no test: an unknown is never an
-    area (AR-28). A test at the root of the project is its file name."""
+    area (AR-28). A test at the root of the project is its file name.
+    B-355: where the project's config records where its tests are for the area the place lies in, only the record decides: a
+    code file that is a test place by the record is an area (a helper in a recorded folder counts as one now), anything else
+    is not. With no config (phase 1 runs before the config exists) or an area it does not record, the rule above."""
     path = place.rsplit(":", 1)[0]
+    if cfg and project is not None:
+        import test_locations
+        if test_locations.recorded(cfg, root=Path(project), path=path)[0]:
+            if (test_files.is_test_for("test_place", path, cfg, root=Path(project)) is not True
+                    or test_files.is_code_file(path) is not True):
+                return ""
+            return path.rpartition("/")[0] or path
     if test_files.names_a_test(path) is not True:
         return ""
     folder = path.rpartition("/")[0]
     return folder or path
 
 
-def integration_proposals(in_code: list, absent: list, at_login_keys: set, env_keys: list) -> list:
+def integration_proposals(in_code: list, absent: list, at_login_keys: set, env_keys: list, cfg=None, project=None) -> list:
     """One record per prefix with at least one key the code reads and the env file does not hold - the facts phase 1 judges
     when it writes `integrations[]` (OH3-8). `keys` are ALL the keys of the prefix the code reads (except the ones the
     proposed login itself uses, `at_login_keys`), the held ones too, and
@@ -543,7 +553,7 @@ def integration_proposals(in_code: list, absent: list, at_login_keys: set, env_k
     for prefix in prefixes:
         rows = [row for row in in_code if _prefix_of(row["key"]) == prefix and counted(row)]
         places = sorted({place for row in rows for place in row["read_at"]})
-        areas = sorted({area for area in map(_test_area, places) if area})
+        areas = sorted({area for area in (_test_area(place, cfg, project) for place in places) if area})
         record = {"name": f"{prefix.lower()}-integration", "keys": sorted(row["key"] for row in rows),
                   "set_in_env_file": sorted(row["key"] for row in rows if row["key"] in held)}
         if areas:

@@ -8,13 +8,18 @@ produced two ways - by the role from discovery (a fresh project) or by
 knows which.
 
 Invariant, spec-wide: nothing is retired that is carried data, outside the project root, not in
-the approved listing, or changed by a person since the summary was made. What holds it:
+the approved listing, or changed by a person since the summary was made - except the factory's own
+MACHINE-LOCAL technical data (a delete-mode row the table calls machine-local) found new or changed under
+its home after the summary, which the apply deletes by its class and reports (owner, 22.10.2026; OH3-9).
+What holds it:
 
   * only `install_paths.scan_tree` and a path the person NAMED can be retired; a carried path never
     is (the table's precedence), a directory never is (one file at a time), a link never is;
   * the listing carries the sha256 of every file it names; at apply EVERY listed path is read again
-    and one difference refuses the whole apply, nothing written ("the project changed since the
-    summary"); no whole-tree hash exists, because hooks write telemetry while onboarding runs;
+    and a difference OUTSIDE the factory's home refuses the whole apply, nothing written ("the project
+    changed since the summary"); inside it the file is settled by its class (`summary_drift`): machine-local
+    technical data deleted, anything else kept and listed by the next summary; no whole-tree hash exists,
+    because hooks write telemetry while onboarding runs;
   * a file the table flags `hook_written` (`dashboard-dirty.json`, `dashboard-refresh.json`, the
     `.dashboard-writer/` folder: a RUNNING session's hooks rewrite them on every call) is never retired, never
     in the sealed listing, never hashed, never a manifest entry, and its stale OS lock is neither removed nor
@@ -1272,26 +1277,74 @@ def render(p: dict) -> str:
 
 # --- apply ---------------------------------------------------------------------------------------
 
-def _changed_since_summary(root, listing_retire: list, now_retire: list | None = None, table: dict | None = None) -> list:
-    """Paths whose bytes are not the ones the summary showed: a listed file with another sha256, a
-    listed path that became a folder or a link, and (when `now_retire` is given) a candidate the
-    summary did not list. A listed file that is gone is NOT a change (a first attempt may have
-    removed it). A listed file that the table flags `hook_written` NOW is skipped (t-298): a running
-    session's hooks rewrite it, so a sealed listing of an older package that still names one cannot
-    make the apply refuse on it (`_retire` keeps it, whatever its bytes are). Every OTHER listed file
-    keeps its sha recheck (C2)."""
-    changed = []
+def _listed_kind(root, item: dict) -> tuple:
+    """How a LISTED file differs from the summary now -> (kind, sha256 read now); kind is None when the file is gone
+    (a first attempt may have removed it) or has the bytes it was listed with (no drift)."""
+    path = _abs(root, item["rel_path"])
+    if not os.path.lexists(path):
+        return None, None
+    if os.path.islink(path) or not path.is_file():
+        return "not_a_file", None
+    sha = _sha_or_none(path)
+    if sha is None:
+        return "unreadable", None
+    return (None, sha) if sha == item["sha256"] else ("changed", sha)
+
+
+def summary_drift(root, listing_retire: list, now_retire: list | None = None, table: dict | None = None) -> dict:
+    """What differs from the summary, settled by class (OH3-9). -> {refuse[], settled[]}, always both keys.
+
+    A listed file with another sha256, a listed path that became a folder or a link or cannot be read, and (when
+    `now_retire` is given) a candidate the summary did not list, are drift. A listed file that is gone is NOT
+    drift (a first attempt may have removed it). A path the table calls carried, or flags `hook_written` NOW,
+    is no drift row (t-298: a running session's hooks rewrite it; `_retire` keeps it, whatever its bytes are).
+    A drift path OUTSIDE the factory's home goes to `refuse` (C2: the person's project files; an unknown never
+    passes). Inside the home each is settled by its class, a row `{rel_path, kind, action, item}`: `delete` only for
+    a delete-mode row the table calls machine-local (the factory's own technical data, owner 22.10.2026; the item
+    carries `after_summary: True`), `keep` for everything else (a file a person or the fold step may have edited is
+    never removed unseen)."""
     table = table if table is not None else I.load_table()
-    for item in listing_retire:
-        if I.classify(item["rel_path"], table=table)["hook_written"]:
-            continue
-        path = _abs(root, item["rel_path"])
-        if os.path.lexists(path) and (os.path.islink(path) or not path.is_file() or I.sha256_file(path) != item["sha256"]):
-            changed.append(item["rel_path"])
+    refuse, settled = [], []
+    pending = [(item, False) for item in listing_retire]
     if now_retire is not None:
         listed = {i["rel_path"].casefold() for i in listing_retire}
-        changed.extend(r["rel_path"] for r in now_retire if r["rel_path"].casefold() not in listed)
-    return sorted(set(changed))
+        pending += [(r, True) for r in now_retire if r["rel_path"].casefold() not in listed]
+    for item, is_new in pending:
+        rel = item["rel_path"]
+        c = I.classify(rel, table=table)
+        if c["class"] == "carried" or c["hook_written"]:
+            continue
+        kind, sha = ("new", None) if is_new else _listed_kind(root, item)
+        if kind is None:
+            continue
+        if not I.in_home(rel, table):
+            refuse.append(rel)
+            continue
+        deletable = kind in ("new", "changed") and item.get("retire_mode") == "delete" and bool(c["machine_local"])
+        if deletable:
+            row_item = dict(item, after_summary=True) if is_new else dict(item, sha256=sha, after_summary=True)
+        else:
+            row_item = item
+        settled.append({"rel_path": rel, "kind": kind, "action": "delete" if deletable else "keep", "item": row_item})
+    return {"refuse": sorted(set(refuse)), "settled": settled}
+
+
+def _after_summary_line(rel: str, kind: str, result: str) -> str:
+    """The one sentence a person reads about a file the apply settled after the summary (OH3-9)."""
+    seen = "appeared" if kind == "new" else "changed"
+    if result == "deleted":
+        return f"{rel}: the factory's own technical data, {seen} after the summary - deleted; the removal record names it."
+    if result == "kept: cannot be read" or kind == "unreadable":
+        return f"{rel}: could not be read after the summary - kept as it is; the next summary lists it."
+    if result == "kept: no longer a plain file" or kind == "not_a_file":
+        return f"{rel}: is no longer a plain file - kept as it is."
+    if result in ("kept: changed since the summary", "kept: the next summary lists it"):
+        return f"{rel}: {seen} after the summary - kept as it is; the next summary lists it."
+    if result == "already gone":
+        return f"{rel}: was already gone."
+    if result == "waits for the fold":
+        return f"{rel}: kept until its content is folded into the project profile."
+    return f"{rel}: could not be removed - kept as it is."
 
 
 def changed_message(paths: list) -> str:
@@ -1332,10 +1385,18 @@ def _copy_template(root, rel: str, template: str) -> str:
     return "created"
 
 
+def _sha_or_none(path) -> str | None:
+    try:
+        return I.sha256_file(path)
+    except OSError:
+        return None
+
+
 def _retire(root, listing: dict, date: str, approval_ref: str, proposal_hash: str, table, *, locks: dict | None = None,
             changes: list | None = None) -> dict:
-    """Retire what the sealed listing names, one file at a time, each re-checked against the sha256 it was
-    shown with. -> {results[], record, tracking}. `locks` ({rel: what happened}) and `changes` ([(path, what)]
+    """Retire what the sealed listing names, plus the rows the apply settled after the summary (each marked
+    `after_summary`: the factory's own machine-local technical data, OH3-9), one file at a time, each re-checked
+    against the sha256 it was shown with. -> {results[], record, tracking}. `locks` ({rel: what happened}) and `changes` ([(path, what)]
     the install already made: records moved, locks removed) go into the record and into `tracking`, the git
     lines the ROLE runs afterwards (this function only READS git)."""
     modes = I.retire_modes(table)
@@ -1344,18 +1405,22 @@ def _retire(root, listing: dict, date: str, approval_ref: str, proposal_hash: st
     results = []
     for item in listing["retire"]:
         rel, path = item["rel_path"], _abs(root, item["rel_path"])
-        row = dict(item, result="")
+        row, cls = dict(item, result=""), I.classify(rel, table=table)
         if "fold_receipt" in item.get("requires", []) and not fold_ok:
             row["result"] = "waits for the fold"
         elif rel == OLD_READINESS_REL and not _abs(root, READINESS_REL).is_file():
             row["result"] = "kept: its replacement (state/readiness.json) was not built"
         elif not os.path.lexists(path):
             row["result"] = "already gone"
-        elif I.classify(rel, table=table)["hook_written"]:
+        elif cls["hook_written"]:
             row["result"] = "kept: rewritten by a running session"       # t-298: never retired, whatever an older listing says
+        elif cls["class"] == "carried":
+            row["result"] = "kept: the factory keeps it"                  # OH3-9: carried NOW, whatever an older listing says (twin of t-298)
         elif os.path.islink(path) or not path.is_file():
             row["result"] = "kept: no longer a plain file"
-        elif I.sha256_file(path) != item["sha256"]:
+        elif (sha := _sha_or_none(path)) is None:
+            row["result"] = "kept: cannot be read"
+        elif sha != item["sha256"]:
             row["result"] = "kept: changed since the summary"
         elif item["retire_mode"] == "delete":
             try:
@@ -1397,13 +1462,19 @@ def _retire(root, listing: dict, date: str, approval_ref: str, proposal_hash: st
 
 
 def apply(root, plan_: dict, approval_ref: str, *, phase: str = "all", date: str | None = None, plugin_root=None,
-          checkpoint=None) -> dict:
-    """Carry out an approved plan. -> {applied, phase, nothing_to_do, steps[], retired[], record, manifest}.
+          checkpoint=None, after_summary=None) -> dict:
+    """Carry out an approved plan. -> {applied, phase, nothing_to_do, steps[], retired[], record, manifest, after_summary[]}.
+
+    `after_summary` (keyword): the rows `main` computed with `summary_drift`. Only the items of `new` rows are taken
+    (candidates the summary did not list) and they are judged again here by `summary_drift`; rows of any other kind are
+    ignored, because the sealed listing re-derives them.
 
     Refuses BEFORE writing anything when: a writer is live (E1) after LIVE_TRIES looks, LIVE_WAIT_S apart
     (a lease is not waited for; this session's own writer is not a writer in this sense); the sealed proposal's hash is not
     its own; no recorded approval of THIS proposal carries `approval_ref`; the proposal still waits
-    on answers or holds conflicts; a listed path's sha256 differs from the summary (C2). A plan with
+    on answers or holds conflicts; a path OUTSIDE the factory's home changed, became a folder or link, could not be read,
+    or is new since the summary (C2; inside the home the apply settles such a file by its class and reports it in
+    `after_summary`, OH3-9). A plan with
     nothing to do needs no approval and writes nothing (K8). `checkpoint(step)` is called after each
     step: a test's way to stop the apply half-way. Steps never raise on the factory's own scripts
     failing (FR-47): the step says what failed and the apply goes on to a consistent state."""
@@ -1411,7 +1482,7 @@ def apply(root, plan_: dict, approval_ref: str, *, phase: str = "all", date: str
     if phase not in ("all", "early", "final"):
         raise ApplyRefused(f"phase must be all, early or final, not {phase!r}")
     out = {"applied": False, "phase": phase, "nothing_to_do": bool(plan_.get("nothing_to_do")), "steps": [],
-           "retired": [], "record": None, "manifest": None, "tracking": None}
+           "retired": [], "record": None, "manifest": None, "tracking": None, "after_summary": []}
     if plan_.get("blocked"):
         # a library call that goes round `main` does not go round the gate (OH3-26): nothing is written
         raise ApplyRefused(str((plan_["blocked"] or {}).get("message") or plan_["blocked"]))
@@ -1438,10 +1509,14 @@ def apply(root, plan_: dict, approval_ref: str, *, phase: str = "all", date: str
                            + ". Ask the person once for all of them, then make the proposal again with their answers "
                            "(--answers <file>: one JSON object mapping each pointer to the whole value the person gave).")
     listing = proposal.get("listing") or {"retire": [], "write": [], "regenerate": []}
+    settled = []
     if phase in ("all", "final"):
-        changed = _changed_since_summary(root, listing["retire"], table=table)
-        if changed:
-            raise ApplyRefused(changed_message(changed))
+        # the caller's rows are candidates, not verdicts: `new` ones are re-judged here; any other kind is
+        # re-derived from the sealed listing (a library call does not go round the gate)
+        drift = summary_drift(root, listing["retire"], [r["item"] for r in (after_summary or []) if r.get("kind") == "new"], table)
+        if drift["refuse"]:
+            raise ApplyRefused(changed_message(drift["refuse"]))
+        settled = drift["settled"]
 
     def step(name, detail=None):
         out["steps"].append({"step": name, **({"detail": detail} if detail is not None else {})})
@@ -1494,9 +1569,20 @@ def apply(root, plan_: dict, approval_ref: str, *, phase: str = "all", date: str
         step("regenerate", {"locks": locks, "scripts": runs})
         changes = [(m["from"], f"moved to {m['to']}") for m in moved["results"] if str(m.get("result", "")).startswith(("moved", "completed"))]
         changes += [(rel, "deleted") for rel, what in locks.items() if what == "removed"]
-        done = _retire(root, listing, day, approval_ref, proposal["proposal_hash"], table, locks=locks, changes=changes)
+        # The sealed listing is not touched: `_retire` gets an in-memory copy in which each listed row the drift
+        # settled as `delete` carries the bytes read now, and the new rows settled as `delete` are appended.
+        by_rel = {row["rel_path"]: row for row in settled if row["kind"] != "new" and row["action"] == "delete"}
+        effective = dict(listing, retire=[by_rel[i["rel_path"]]["item"] if i["rel_path"] in by_rel else i for i in listing["retire"]]
+                         + [row["item"] for row in settled if row["kind"] == "new" and row["action"] == "delete"])
+        done = _retire(root, effective, day, approval_ref, proposal["proposal_hash"], table, locks=locks, changes=changes)
         out["tracking"] = done["tracking"]
         out["retired"], out["record"] = done["results"], done["record"]
+        results = {r["rel_path"]: r["result"] for r in done["results"]}
+        for row in settled:
+            result = results.get(row["rel_path"]) if row["kind"] != "new" or row["action"] == "delete" else None
+            result = result or "kept: the next summary lists it"
+            out["after_summary"].append({"rel_path": row["rel_path"], "kind": row["kind"], "result": result,
+                                         "line": _after_summary_line(row["rel_path"], row["kind"], result)})
         step("retire", {"record": done["record"]})
         old = I.read_manifest(root, plugin_root=plugin_root)
         if old is not None and old["newer"] is True:
@@ -1883,10 +1969,12 @@ def main(argv=None) -> int:
             # file, no approval line and nothing written; stdout stays empty (FR-14), the text is on stderr.
             raise ApplyRefused(made["blocked"]["message"])
         if args.apply:
+            after = []
             if listing_given is not None:
-                changed = _changed_since_summary(root, listing_given.get("retire") or [], made["retire"], I.load_table())
-                if changed:
-                    raise ApplyRefused(changed_message(changed))
+                drift = summary_drift(root, listing_given.get("retire") or [], made["retire"], I.load_table())
+                if drift["refuse"]:
+                    raise ApplyRefused(changed_message(drift["refuse"]))
+                after = [r for r in drift["settled"] if r["kind"] == "new"]
                 made["proposal"] = given
             ref = args.approval_ref
             if not ref and not made["nothing_to_do"]:
@@ -1894,7 +1982,7 @@ def main(argv=None) -> int:
                     raise ApplyRefused("--phase final needs the --approval-ref of the approval recorded for this summary")
                 ref = f"headless:{made['proposal']['proposal_hash'][:12]}"
                 C.record_approval(root, made["proposal"], ref, args.evidence_ref or "headless: --apply on the command line")
-            done = apply(root, made, ref, phase=args.phase)
+            done = apply(root, made, ref, phase=args.phase, after_summary=after)
             done["report_probe"] = _report_probe(root, done, args)
             print(json.dumps(done, indent=2, ensure_ascii=False))
             return 0

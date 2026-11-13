@@ -205,15 +205,18 @@ def attach(summary: dict, *, project_root=None, task=None, cfg=None) -> dict | N
 
 # --- the remedy: what kind of thing is missing, and where it lives --------------------------
 
-def _names_a_test(name: str) -> bool:
+def _names_a_test(name: str, cfg=None, root=None) -> bool:
     """Is a quoted identifier a test's own name (`test_login`, `tests.api.client`, `FooTests.Bar`)? Any segment
     (split on `.`, `/`, `::`) that names a test or is a test folder name says so. The usual names cannot be
-    read: nothing is skipped (noise is cheaper than a missed name)."""
-    return any(test_files.is_test_for("name", segment) is True
+    read: nothing is skipped (noise is cheaper than a missed name). With the project's `cfg` (B-355) the project's word
+    decides where it recorded where its tests are: a segment is a test name only when it is the last folder segment a
+    recorded folder carrier names (or, with an area still unrecorded, also by the usual names); a project recorded only by
+    file shapes names no folder, so every quoted name is looked for. `cfg=None` is the call without a word."""
+    return any(test_files.is_test_for("name", segment, cfg, root=root) is True
                for segment in re.split(r"\.|/|::", name) if segment)
 
 
-def wanted_names(text: str) -> list:
+def wanted_names(text: str, cfg=None, root=None) -> list:
     """The names worth grepping for, in the order a person would try them: the variables the
     log shouts, then the identifiers it quotes (a test's own name is not one). Nothing is invented - every
     name is in the text."""
@@ -223,7 +226,7 @@ def wanted_names(text: str) -> list:
             seen.add(match)
             names.append(match)
     for match in _QUOTED_NAME.findall(text or ""):
-        if match not in seen and not _names_a_test(match):
+        if match not in seen and not _names_a_test(match, cfg, root):
             seen.add(match)
             names.append(match)
     return names[:6]
@@ -380,8 +383,9 @@ def remedy(error_head: str, *, project_root=None, task=None, case=None, cfg=None
         config = json.loads((root / "qa-factory/config.json").read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
         config = {}
-    names = wanted_names(error_head)
-    options = candidates(root, names, config if isinstance(config, dict) else {})
+    config = config if isinstance(config, dict) else {}
+    names = wanted_names(error_head, config, root)
+    options = candidates(root, names, config)
     out = {"kind": None, "where": None, "change": None, "restart": None,
            "candidates": options, "names": names, "status": "off"}
     if not judge.active(cfg):

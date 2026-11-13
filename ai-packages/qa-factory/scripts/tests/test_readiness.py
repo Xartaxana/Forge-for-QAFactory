@@ -788,6 +788,7 @@ def main() -> None:
         cleanup(root)
 
     project_dependencies_capability()
+    test_places_check()
     vcs_api_from_receipts()
     device_stand_environment()
     finish("test_readiness")
@@ -1082,6 +1083,102 @@ def project_dependencies_capability() -> None:
         check_eq("a reader that raises -> unknown, owner factory, no traceback", (row["status"], row["owner"]), (R.UNKNOWN, "factory"))
     finally:
         DD.check, subprocess.run, subprocess.Popen = held, held_run, held_popen
+        cleanup(root)
+
+
+def test_places_check() -> None:
+    """B-355 node H (spec t-155 item 14): the doctor names the places the project's record does not name. K-14-*."""
+    import test_locations as TL
+    table, _why = TL.markers()
+    folders = [n for n in table.get("dir_names", []) if n.isidentifier()][:7]
+    root = temp_project("qa-factory-readiness-places-")
+    try:
+        for name in ("tests", "other", *folders):
+            (root / "src" / name).mkdir(parents=True, exist_ok=True)
+            (root / "src" / name / "f.txt").write_text("x", encoding="utf-8")
+        base = {"app_root": ".", "protected_app_paths": ["src"]}
+        row = R.check_test_places(dict(base), root)
+        check_eq("K-14 World N: nothing recorded -> not_recorded, owner user, names the onboarding step",
+                 (row["status"], row["owner"], row["areas"]["app"]["status"], row["remedy"]["steps"]),
+                 ("not_recorded", "user", "not_recorded", [R.TEST_PLACES_STEP]))
+        check("K-14 World N: nothing blocks and nothing is autorun", row["remedy"]["autorun"] is False
+              and row["remedy"]["kind"] == "human_step")
+        row = R.check_test_places(dict(base, test_locations=[]), root)
+        check_eq("K-14 World N: an empty list is declared empty -> not_recorded", row["status"], "not_recorded")
+        # World R: every place the usual names find is in the record
+        only = root / "only"
+        (only / "src" / "tests").mkdir(parents=True)
+        (only / "src" / "tests" / "test_a.py").write_text("x", encoding="utf-8")
+        row = R.check_test_places(dict(base, test_locations=["src/tests/"]), only)
+        check_eq("K-14 World R: recorded and nothing outside it -> ok", (row["status"], row["areas"]["app"]["status"]),
+                 ("ok", "ok"))
+        # a recorded test-repository area is not walked: ok, and the note does not claim the places were checked
+        split = root / "split"
+        (split / "app" / "src").mkdir(parents=True)
+        row = R.check_test_places({"app_root": "app", "protected_app_paths": ["src"], "tests_root": "tests"}, split)
+        check_eq("K-14 project area: recorded, not walked -> ok with the honest note",
+                 (row["areas"]["project"]["status"], row["areas"]["project"]["note"]),
+                 ("ok", "recorded (tests_root); places outside the record are not searched in the test repository"))
+        # World R with unrecorded places named: at most 5 and `+N more`
+        row = R.check_test_places(dict(base, test_locations=["src/other/"]), root)
+        area = row["areas"]["app"]
+        check_eq("K-14 uncovered: recorded, places outside it named", (row["status"], area["status"]), ("uncovered", "uncovered"))
+        if len(folders) == 7:
+            check_eq("K-14 uncovered: five are named, the rest are counted", (len(area["places"]), "+2 more" in area["note"],
+                     sum(1 for f in folders if f"`src/{f}/`" in area["note"])), (7, True, 5))
+        check_in("K-14 uncovered: the remedy is the onboarding step", "qa-onboarding", row["remedy"]["steps"][0])
+        covering = R.check_test_places(dict(base, test_locations=[f"src/{n}/" for n in ("tests", "other", *folders)]), root)
+        check_eq("K-14 World R: a record that covers the places leaves nothing outside it", covering["status"], "ok")
+        # a broken config: never ok, never a traceback
+        broken = R.check_test_places(dict(base, test_locations="src/tests"), root)
+        check_eq("K-14 broken: test_locations is not a list -> unknown, the sentence names it",
+                 (broken["status"], "not a list" in broken["note"]), ("unknown", True))
+        for bad in (None, "x", []):
+            check_eq(f"K-14 broken: a config that is {type(bad).__name__} -> a row, not an exception",
+                     R.check_test_places(bad, root)["status"], "not_recorded")
+        # the usual names cannot be read: an unknown, never ok
+        held = TL.markers
+        TL.markers = lambda: ({}, "missing, unreadable or empty")
+        try:
+            row = R.check_test_places(dict(base, test_locations=["src/tests/"]), only)
+        finally:
+            TL.markers = held
+        check_eq("K-14 unknown: the list of usual names cannot be read -> unknown, never ok", row["status"], "unknown")
+        # a checkout the word cannot reach
+        outside = dict(base, test_locations=["src/tests/"], code_repos=[{"name": "far", "path": "../far-away"}],
+                       implementation_repos=[{"repo_id": "r", "local_path": "src"}])
+        row = R.check_test_places(outside, only)
+        check_eq("K-14 unreachable: a checkout outside app_root and the project root is named; one inside is not",
+                 (row["status"], row["unreachable"]), ("unreachable", ["code_repos[0].path `../far-away`"]))
+        row = R.check_test_places(dict(outside, test_locations=[]), only)
+        check_eq("K-14 unreachable: with no word recorded nothing is unreachable", row["unreachable"], [])
+        data = json.loads(cli(root, "--json").stdout)
+        check_eq("K-14: nothing recorded (not_recorded) -> the area is published with its not_recorded note",
+                 sorted({a["status"] for a in data.get("test_places", {}).get("areas", {}).values()}), ["not_recorded"])
+        check_eq("K-14: nothing recorded -> test_places key present", "test_places" in data, True)
+        ok_a = {"status": "ok", "note": "n"}
+        nr = {"status": "not_recorded", "note": "m"}
+        pub =R.published_test_places({"status": "uncovered", "areas": {"app": ok_a, "project": nr},
+                                       "unreachable": [], "note": "app: n; project: m"})
+        check_eq("K-14 publish: not_recorded kept, ok dropped, note rebuilt without the dropped area",
+                 (list(pub["areas"]), pub["note"]), (["project"], "project: m"))
+        check_eq("K-14 publish: an area status outside the known set is kept",
+                 list(R.published_test_places({"status": "ok", "areas": {"app": {"status": "weird", "note": "w"}},
+                                               "unreachable": []})["areas"]), ["app"])
+        check_eq("K-14 publish: unreachable sentence kept in the rebuilt note",
+                 "cannot reach the files of r" in R.published_test_places(
+                     {"status": "unreachable", "areas": {"app": ok_a}, "unreachable": ["r"], "note": "app: n"})["note"], True)
+        unc ={"status": "uncovered", "note": "u", "places": ["x"]}
+        check_eq("K-14 publish: all areas ok -> nothing to say, key absent",
+                 R.published_test_places({"status": "ok", "areas": {"app": ok_a, "project": ok_a}, "unreachable": []}), {})
+        check_eq("K-14 publish: one uncovered + one ok -> only the uncovered area",
+                 list(R.published_test_places({"status": "uncovered", "areas": {"app": ok_a, "project": unc},
+                                               "unreachable": []})["areas"]), ["project"])
+        check_eq("K-14 publish: a crashed check (unknown, no areas) still publishes, never silence",
+                 R.published_test_places({"status": "unknown", "areas": {}, "unreachable": []})["status"], "unknown")
+        check_eq("K-14 publish: an unreachable entry alone still publishes",
+                 bool(R.published_test_places({"status": "unreachable", "areas": {"app": ok_a}, "unreachable": ["r"]})), True)
+    finally:
         cleanup(root)
 
 

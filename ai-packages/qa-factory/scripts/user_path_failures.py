@@ -199,19 +199,25 @@ def _named(items, shown=NAMED_MAX) -> str:
     return ", ".join(str(i) for i in items[:shown]) + (f" (and {len(items) - shown} more)" if len(items) > shown else "")
 
 
-def _diff_files(task_root):
-    """({path: (lines, starts)}, production files only), or None when the task has no diff. `lines` = {number: text} of every line the
+def _diff_files(task_root, project=None):
+    """({path: (lines, starts)}, production files only), or None when the task has no diff. With a `project` each file is judged through
+    the checkout of its own diff (`handoff_check.diff_checkout`) and the project's word (B-355); without one, as before. `lines` = {number: text} of every line the
     hunks SHOW (added and context: a `loud` word or the `catch` itself may be a line the diff did not touch); `starts` = the numbers of the
     lines of the hunks that hold an added line, the only lines a match may START on (an added log call inside an old `catch`)."""
     import diff_pass as DP
-    import test_files as TF
     got = DP.index(task_root / "work")
     files = got.get("files") or []
     if not files and not got.get("refusals"):
         return None
+    cfg = _project_word(project)
+    bound: dict = {}
     out: dict = {}
     for rec in files:
-        if rec.get("deleted") or rec.get("refused") or rec.get("path_uncertain") or TF.file_kind(rec["path"]) != "production":
+        if rec.get("deleted") or rec.get("refused") or rec.get("path_uncertain"):
+            continue
+        if cfg and rec.get("diff") not in bound:
+            bound[rec.get("diff")] = _diff_bound(task_root, rec.get("diff") or "", cfg, project)
+        if not _production(rec["path"], cfg=cfg, checkout=bound.get(rec.get("diff")), project=project):
             continue
         shown, starts = out.setdefault(rec["path"], ({}, set()))
         for hunk in rec.get("hunks") or []:
@@ -230,6 +236,14 @@ def _diff_files(task_root):
                 starts.update(here)
             shown.update({n: text for n, (_, text) in here.items()})
     return out
+
+
+def _project_word(project) -> dict:
+    """The project's config (`regression_scope.project_config`, AR-13), {} with no project: the word every path here is judged by."""
+    if project is None:
+        return {}
+    import regression_scope
+    return regression_scope.project_config(project)
 
 
 def _register_places(task_root):
@@ -307,7 +321,6 @@ def _bundle_files(task_root, project):
     (`facts` and `source_revisions` are handed on for the files the notes name, `_note_files`). A label is RELATIVE to the first
     root that holds the file (the project first), never a machine path (AR-4)."""
     import contract
-    import test_files
     where = Path(contract.artifact(task_root, BUNDLE_NAME))
     if not where.is_file():
         return None
@@ -320,7 +333,9 @@ def _bundle_files(task_root, project):
     out["facts"] = facts if isinstance(facts, list) else []
     out["source_revisions"] = bundle.get("source_revisions") if isinstance(bundle.get("source_revisions"), list) else []
     roots = _bundle_roots(bundle, project)
+    cfg = _project_word(project)
     chosen: dict = {}
+    bases: dict = {}      # label -> (the checkout its file was found under, the path inside it): what the project's word is judged through
     for fact in facts if isinstance(facts, list) else []:
         raw = fact.get("path") if isinstance(fact, dict) else None
         text = raw.strip().replace("\\", "/") if isinstance(raw, str) else ""
@@ -330,23 +345,28 @@ def _bundle_files(task_root, project):
         found = _locate(text, roots) or (_locate(cut.group(1), roots) if cut else [])
         if not found:        # a path that starts with a configured repository id (`App/src/x.ts`): the checkout that id names (RN1-5)
             rel = cut.group(1) if cut else text
-            target, _why = resolve_code_path(project, rel, _revision_repo_ids(out["source_revisions"]))
+            ids = _revision_repo_ids(out["source_revisions"])
+            target, _why = resolve_code_path(project, rel, ids)
             if target is not None:
                 if rel not in chosen:
                     chosen[rel] = target.resolve()
+                    bases[rel] = _bound(project, rel, target, cfg, ids) if cfg else (None, rel)
                 elif chosen[rel] != target.resolve() and rel not in out["collisions"]:
                     out["collisions"].append(rel)
                 continue
         if not found and text not in out["unreadable"]:
             out["unreadable"].append(text)
         for path in found:
-            label = next(path.relative_to(root).as_posix() for root in roots if root in path.parents)
+            holder = next(root for root in roots if root in path.parents)
+            label = path.relative_to(holder).as_posix()
             if label not in chosen:
                 chosen[label] = path
+                bases[label] = (holder, label)
             elif chosen[label] != path and label not in out["collisions"]:
                 out["collisions"].append(label)
     for label, path in sorted(chosen.items()):
-        if test_files.file_kind(label) == "production":
+        checkout, sub = bases.get(label, (None, label))
+        if _production(label, cfg=cfg, checkout=checkout, project=project, rel=sub):
             out["files"].append((label, path))
         else:
             out["not_production"] += 1
@@ -403,6 +423,19 @@ def resolve_code_path(project, rel, repo_ids=()):
         return None, f"{rel} is not a canonical repository path"
     project = Path(project)
     cfg = regression_scope.project_config(project)
+    for base, sub in _candidates(project, rel, cfg, repo_ids):
+        try:
+            target = base / sub
+            if target.is_file() and base.resolve() in target.resolve().parents:
+                return target, ""
+        except OSError:
+            continue
+    return None, f"{rel} is not a readable file of the project or a configured checkout"
+
+
+def _candidates(project, rel, cfg, repo_ids=()) -> list:
+    """[(base folder, path inside it)] in the order `resolve_code_path` tries them: the checkout a first segment names, the project,
+    the checkout of each repository id given. The one list `resolve_code_path` reads and `_bound` matches a found file against."""
     first, _, rest = rel.partition("/")
     candidates = []
     if rest:
@@ -414,19 +447,51 @@ def resolve_code_path(project, rel, repo_ids=()):
         folder = _checkout_of(repo_id, cfg, project) if repo_id else None
         if folder is not None:
             candidates.append((folder, rel))
-    for base, sub in candidates:
-        try:
-            target = base / sub
-            if target.is_file() and base.resolve() in target.resolve().parents:
-                return target, ""
-        except OSError:
-            continue
-    return None, f"{rel} is not a readable file of the project or a configured checkout"
+    return candidates
 
 
-def _production(path) -> bool:
+def _bound(project, rel, target, cfg, repo_ids=()):
+    """(checkout, path inside it) of the candidate that `target` (a file `resolve_code_path` found for `rel`) lies at, else
+    (None, rel): the file is then unbound (B-355)."""
+    try:
+        for base, sub in _candidates(Path(project), rel, cfg, repo_ids):
+            if (base / sub).resolve() == Path(target).resolve():
+                return base, sub
+    except OSError:
+        pass
+    return None, rel
+
+
+def _production(path, *, cfg=None, checkout=None, project=None, rel=None) -> bool:
+    """Is `path` a production file (`test_files.file_kind`, the one rule)? `cfg` is the project's config, `checkout` the folder the
+    path is relative to, `project` the project root (B-355): with no `cfg` the call is today's, `file_kind(path)`. With a `cfg` the
+    word is judged through `checkout` (`file_kind(word=, checkout=)`); a path with no checkout under a recorded word is counted as
+    production (the leaf's unknown). `rel` is the path inside `checkout` when `path` is a LABEL that also names the repository
+    (`repo_id/p`): the record is asked about `rel`, and where it does not record that area today's call stays `file_kind(path)`.
+    Nothing here raises."""
     import test_files as TF
-    return TF.file_kind(path) == "production"
+    try:
+        if not cfg or not isinstance(cfg, dict):
+            return TF.file_kind(path) == "production"
+        if checkout is not None and rel is not None and rel != path:
+            import test_locations
+            if test_locations.recorded(cfg, root=project, path=str(Path(checkout) / rel))[0]:
+                return TF.file_kind(rel, word=cfg, checkout=checkout, root=project) == "production"
+            return TF.file_kind(path) == "production"
+        return TF.file_kind(path, word=cfg, checkout=checkout, root=project) == "production"
+    except Exception:  # noqa: BLE001 - advice: the today call, an extra file is the safe side
+        return TF.file_kind(path) == "production"
+
+
+def _diff_bound(task_root, name, cfg, project):
+    """The checkout the paths of the diff `work/<name>` are relative to (`handoff_check.diff_checkout`, the one survivor), or None."""
+    if not cfg or project is None:
+        return None
+    try:
+        import handoff_check
+        return handoff_check.diff_checkout(task_root, name, cfg, project)[0]
+    except Exception:  # noqa: BLE001 - an unbindable diff is unbound
+        return None
 
 
 def _add(files, path, lines, starts, via):
@@ -454,12 +519,14 @@ def _places(places, project, reach, out):
             out["unmeasured"].append(f"the place {place.path}:{place.line} is not a readable file of the checkout ({why})")
             continue
         spans.setdefault(place.path, (target, []))[1].append(place.line)
+    cfg = _project_word(project) if spans else {}
     for file in sorted(spans):
         target, cited = spans[file]
         lines = _file_lines(target)
+        checkout, sub = _bound(project, file, target, cfg) if cfg else (None, file)
         if lines is None:
             out["unmeasured"].append(f"{file} cannot be read")
-        elif _production(file):
+        elif _production(file, cfg=cfg, checkout=checkout, project=project, rel=sub):
             wanted = {k for n in cited for k in range(max(1, n - reach), n + reach + 1) if k in lines}
             _add(out["files"], file, lines, wanted, "register")
 
@@ -521,12 +588,12 @@ def _note_files(facts, project, repo_ids, out):
             if len(hit) > NAME_MATCH_MAX:
                 too_many.append((repo_id, len(hit)))
             else:
-                found += [f"{repo_id}/{p}" for p in hit]
+                found += [(f"{repo_id}/{p}", repo_id, p) for p in hit]
         unmeasured += [f"{name} named in context-bundle.json matches {k} files of {repo_id}: not read" for repo_id, k in too_many]
         if not found and not too_many and (listing or not ids):
             unmeasured.append(f"{name} named in context-bundle.json is no file of a configured checkout")
-        for key in found:
-            if key in files or not _production(key):
+        for key, repo_id, sub in found:                 # a key is `<repo id>/<path in its checkout>`: the record is asked about the path
+            if key in files or not _production(key, cfg=cfg, checkout=_checkout_of(repo_id, cfg, project), project=project, rel=sub):
                 continue
             target, _why = resolve_code_path(project, key, repo_ids)
             lines = _file_lines(target) if target is not None else None
@@ -576,7 +643,7 @@ def address_neighbours(task_root, project, files, table) -> dict:
             out["unmeasured"].append(f"{repo_id} is not a git checkout: neighbours of the flow not looked for")
             continue
         tracked = sorted(p for p in raw.decode("utf-8", "replace").split("\0")
-                         if p and Path(p).suffix.lower() in table["languages"] and _production(f"{repo_id}/{p}"))
+                         if p and Path(p).suffix.lower() in table["languages"] and _production(f"{repo_id}/{p}", cfg=cfg, checkout=folder, project=project, rel=p))
         if len(tracked) > NEIGHBOUR_SCAN_MAX:
             out["unmeasured"].append(f"{repo_id}: {len(tracked) - NEIGHBOUR_SCAN_MAX} files not scanned for neighbours of the flow")
         for p in tracked[:NEIGHBOUR_SCAN_MAX]:
@@ -618,7 +685,7 @@ def code_files(task_root, project, with_bundle=None, reach=1, table_file=None) -
     out = {"files": {}, "unmeasured": [], "had_diff": False, "had_register": False, "had_bundle": False}
     project = Path(project)
     try:
-        added = _diff_files(Path(task_root))
+        added = _diff_files(Path(task_root), project)
     except Exception as exc:  # noqa: BLE001 - the report is a courtesy
         added = None
         out["unmeasured"].append(f"the diff cannot be read ({type(exc).__name__}: {str(exc)[:80]}), a defect of the factory")

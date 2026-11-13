@@ -128,6 +128,20 @@ def part_consumers() -> None:
     check_eq("name: test_login, tests, FooTests are; contest_url, Latest, API_BASE_URL are not",
              [TF.is_test_for("name", s) for s in ("test_login", "tests", "FooTests", "contest_url", "Latest", "API_BASE_URL")],
              [True, True, True, False, False, False])
+    # --- B-355 item 1, World N (nothing recorded): five more usual names, as a hint ---
+    check_eq("B-355 N: a folder alone never drops a product file from S2 (`integration/` beside a non-test name)",
+             (TF.file_kind("src/integration/client.py"), TF.is_test_for("production", "src/integration/client.py")),
+             ("production", False))
+    check_eq("B-355 N: an agreeing name and usual folder is a test for `production` (a stated change)",
+             TF.is_test_for("production", "src/integration/client_test.go"), True)
+    check_eq("B-355 N: `fixtures/users.json` is a commit trigger, no test body, no test name",
+             (TF.is_test_for("commit", "fixtures/users.json"), TF.is_test_for("test_body", "fixtures/users.json"),
+              TF.is_test_for("name", "fixtures/users.json")), (True, False, False))
+    check_eq("B-355 N: `unit_tests/` is a folder hit, `_tests/` (no character before the suffix) is not",
+             (TF.in_test_folder("unit_tests/a.py"), TF.in_test_folder("_tests/a.py")), (True, False))
+    check_eq("B-355 N: the new folder names as quoted segments (judge_run skips them), an upper-case env name never",
+             [TF.is_test_for("name", s) for s in ("fixtures", "integration", "testing", "__test__", "API_BASE_URL")],
+             [True, True, True, True, False])
     check_eq("the verdict function is put back", TF.verdict is real, True)
     try:
         TF.is_test_for("everything", "x")
@@ -280,9 +294,10 @@ def part_superset() -> None:
                TF.is_test_for("commit", "src/app/FooTests.cs", cfg, root=root),
                TF.is_test_for("commit", "lib/FooTests.cs", cfg, root=root),
                TF.is_test_for("production", "src/legacy/a.py", cfg, base=root, root=root)]
-        check_eq("with the real verdict: the project's word is a commit test; a camel name in application code the project "
-                 "has spoken for fails step 3 but the commit consumer asks the names directly; a test_locations entry "
-                 "is a production-row exclusion even when run.levels names the place too", got, [True, True, True, True])
+        check_eq("with the real verdict: the project's word is a commit test; where the project recorded its tests "
+                 "(test_locations, app_root is the project) the usual names mean nothing to the commit consumer, inside "
+                 "application code (step 3) and outside it (step 3b) alike (B-355, owner F-3 (b)); a test_locations entry "
+                 "is a production-row exclusion even when run.levels names the place too", got, [True, False, False, True])
         check_eq("... and the verdict alone (step 3) says the camel name is no test there",
                  TF.verdict("src/app/FooTests.cs", cfg, root=root)["test"], False)
     finally:
@@ -350,8 +365,200 @@ def part_kinds() -> None:
     check("CONTROL: the control sees the class (at least one script carries a test-looking name)", len(named) >= 1)
 
 
+def part_recorded() -> None:
+    """B-355 (items 2-4): where the project recorded its tests for the area a path lies in, the usual names decide nothing for
+    `commit`, `test_body` and `test_code` (owner, F-3 (b)); `production` keeps them only as a narrowing; `name` follows the
+    record; `word` / `checkout` bind a diff path to the checkout it is relative to. ONE table, real verdict, a temp project:
+    each row is `<consumer>-<world>-<case>`, so the red line names the branch that fell."""
+    base = temp_dir("qa-tf-rec-").resolve()
+    for folder in ("proj/qa-factory", "proj/src/legacy", "proj/tests", "proj/qa", "proj/integration", "app/src", "other/tests"):
+        (base / folder).mkdir(parents=True)
+    proj, app, other = base / "proj", base / "app", base / "other"
+    cfg_r = {"app_root": ".", "protected_app_paths": ["src"], "test_locations": ["src/legacy/"]}     # R: the application is recorded
+    cfg_n = {"app_root": ".", "protected_app_paths": ["src"]}                                       # N: nothing recorded
+    cfg_ro = {"app_root": "../app", "tests_root": "qa"}                                              # the other area only
+    cfg_whole = {"app_root": ".", "protected_app_paths": ["src"], "test_locations": ["src/"]}      # an entry covering a whole root
+    cfg_mid = {"app_root": "../app", "run": {"levels": {"unit": "packages/*/checks/**"}}}           # a wildcard before the last folder
+    cfg_glob = {"app_root": "../app", "run": {"levels": {"unit": "**/checks/**"}}}                  # a wildcard first
+    cfg_whole_all = {"app_root": ".", "protected_app_paths": ["src"], "test_locations": ["src/**"]}  # `**` over a whole root
+    cfg_junk = {"app_root": ".", "run": {"levels": {"unit": "**"}}, "tests_root": "."}               # carriers that record nothing
+    five = ("src/integration/client.py", "src/integration/client_test.go", "fixtures/users.json", "unit_tests/a.py", "_tests/a.py")
+    # (id, consumer, path, cfg, kwargs, expected); kwargs name `base` / `word` / `checkout` as the string keys below
+    rows = []
+    for consumer in ("commit", "test_body"):
+        for path in five:
+            rows.append((f"{consumer}-R-outside-the-record-{path}", consumer, path, cfg_r, {"base": proj, "root": proj}, False))
+    for path in five:
+        rows.append((f"production-R-outside-the-record-{path}", "production", path, cfg_r, {"base": proj, "root": proj}, False))
+        rows.append((f"test_code-R-outside-the-record-{path}", "test_code", path, cfg_r, {"base": proj, "root": proj}, False))
+    rows += [
+        ("commit-R-the-record", "commit", "src/legacy/a.py", cfg_r, {"base": proj, "root": proj}, True),
+        ("production-R-the-record", "production", "src/legacy/a.py", cfg_r, {"base": proj, "root": proj}, True),
+        ("test_code-R-the-record", "test_code", "src/legacy/a.py", cfg_r, {"base": proj, "root": proj}, True),
+        ("test_body-R-folder-record-names-no-body", "test_body", "src/legacy/a.py", cfg_r, {"base": proj, "root": proj}, False),
+        ("commit-R-whole-root-entry-keeps-protection", "commit", "src/a_test.py", cfg_whole, {"base": proj, "root": proj}, False),
+        ("commit-R-whole-root-entry-outside", "commit", "lib/a_test.py", cfg_whole, {"base": proj, "root": proj}, False),
+        ("name-R-folder-of-the-record", "name", "legacy", cfg_r, {"root": proj}, True),
+        ("name-R-usual-name-means-nothing", "name", "tests", cfg_r, {"root": proj}, False),
+        ("name-R-test-name-means-nothing", "name", "test_login", cfg_r, {"root": proj}, False),
+        ("name-R-other-area-union-folder", "name", "qa", cfg_ro, {"root": proj}, True),
+        ("name-R-other-area-union-usual", "name", "tests", cfg_ro, {"root": proj}, True),
+        ("name-N-today", "name", "tests", cfg_n, {"root": proj}, True),
+        # the name set is the literal last folder of the value as written (critic t-184 A-1): never a wildcard, never the prefix
+        ("name-R-mid-wildcard", "name", "checks", cfg_mid, {"root": proj}, True),
+        ("name-R-mid-wildcard-prefix-is-no-name", "name", "packages", cfg_mid, {"root": proj}, False),
+        ("name-R-glob-first", "name", "checks", cfg_glob, {"root": proj}, True),
+        ("name-R-glob-first-project-folder-is-no-name", "name", "proj", cfg_glob, {"root": proj}, False),
+        ("name-R-whole-root-entry", "name", "src", cfg_whole_all, {"root": proj}, False),
+        # `name` has no path: with a word it judges over any area, the checkout is ignored, and no checkout is not None (A-2)
+        ("name-R-checkout-ignored", "name", "qa", None, {"word": cfg_ro, "checkout": app, "root": proj}, True),
+        ("name-R-checkout-ignored-other-checkout", "name", "qa", None, {"word": cfg_ro, "checkout": proj, "root": proj}, True),
+        ("name-R-word-no-checkout-judged", "name", "legacy", None, {"word": cfg_r, "root": proj}, True),
+        ("name-R-word-no-checkout-judged-usual-name", "name", "tests", None, {"word": cfg_r, "root": proj}, False),
+        # F-12 with a real config: a helper inside a recorded test place stays production (the name only keeps, never drops)
+        ("production-R-helper-in-recorded-place-kept", "production", "qa/helpers.py", cfg_ro, {"base": proj, "root": proj}, False),
+        # World N: nothing recorded in the path's area -> today's answers
+        ("commit-N-fixtures", "commit", "fixtures/users.json", cfg_n, {"base": proj, "root": proj}, True),
+        ("commit-N-unit_tests", "commit", "unit_tests/a.py", cfg_n, {"base": proj, "root": proj}, True),
+        ("commit-N-_tests", "commit", "_tests/a.py", cfg_n, {"base": proj, "root": proj}, False),
+        ("production-N-folder-alone", "production", "src/integration/client.py", cfg_n, {"base": proj, "root": proj}, False),
+        ("production-N-agreeing-pair", "production", "src/integration/client_test.go", cfg_n, {"base": proj, "root": proj}, True),
+        ("commit-N-junk-carriers", "commit", "tests/a.py", cfg_junk, {"base": proj, "root": proj}, True),
+        ("test_body-N-junk-carriers", "test_body", "tests/test_a.py", cfg_junk, {"base": proj, "root": proj}, True),
+        # R-other-area: a word about the test repository never silences the application area
+        ("commit-R-other-area-app-path", "commit", "src/foo.test.ts", cfg_ro, {"base": app, "root": proj}, True),
+        ("commit-R-other-area-project-path", "commit", "helpers/x.test.ts", cfg_ro, {"base": proj, "root": proj}, False),
+        ("commit-R-other-area-record", "commit", "qa/foo.test.ts", cfg_ro, {"base": proj, "root": proj}, True),
+        # R-unbound: a word that records something and no checkout -> the consumer's declared unknown
+        ("commit-R-unbound", "commit", "src/legacy/a.py", None, {"word": cfg_r, "root": proj}, None),
+        ("production-R-unbound", "production", "src/legacy/a.py", None, {"word": cfg_r, "root": proj}, None),
+        ("test_body-R-unbound", "test_body", "src/legacy/a.py", None, {"word": cfg_r, "root": proj}, None),
+        ("test_code-R-unbound", "test_code", "src/legacy/a.py", None, {"word": cfg_r, "root": proj}, None),
+        ("commit-R-unbound-other-area", "commit", "src/a.test.ts", None, {"word": cfg_ro, "root": proj}, None),
+        # N-unbound: nothing recorded anywhere -> today's call with the caller's own arguments
+        ("commit-N-unbound", "commit", "tests/a.py", None, {"word": cfg_n, "root": proj}, True),
+        ("production-N-unbound", "production", "src/integration/client_test.go", None, {"word": cfg_n, "root": proj}, True),
+        ("commit-N-unbound-junk", "commit", "tests/a.py", None, {"word": cfg_junk, "root": proj}, True),
+        # a checkout: the word judges only when it records the area `checkout/path` lies in
+        ("commit-R-checkout-record", "commit", "src/legacy/a.py", None, {"word": cfg_r, "checkout": proj, "root": proj}, True),
+        ("commit-R-checkout-usual-name-is-nothing", "commit", "fixtures/users.json", None,
+         {"word": cfg_r, "checkout": proj, "root": proj}, False),
+        ("production-R-checkout-record", "production", "src/legacy/a.py", None, {"word": cfg_r, "checkout": proj, "root": proj}, True),
+        ("commit-R-other-area-checkout-in-app", "commit", "src/foo.test.ts", None, {"word": cfg_ro, "checkout": app, "root": proj}, True),
+        ("commit-outside-both-checkout", "commit", "tests/a.py", None, {"word": cfg_r, "checkout": other, "root": proj}, True),
+        ("production-outside-both-checkout", "production", "tests/test_a.py", None, {"word": cfg_r, "checkout": other, "root": proj}, True),
+        ("commit-outside-both-climbing-out", "commit", "../other/tests/a.py", None, {"word": cfg_r, "checkout": proj, "root": proj}, True),
+        ("commit-N-checkout-named-integration", "commit", "a.py", None, {"word": cfg_n, "checkout": proj / "integration", "root": proj}, False),
+        ("production-N-checkout-named-app.tests", "production", "a.py", None, {"word": cfg_n, "checkout": base / "app.tests", "root": proj}, False),
+    ]
+    try:
+        for row_id, consumer, path, cfg, kw, expected in rows:
+            check_eq(f"B-355 {row_id}", TF.is_test_for(consumer, path, cfg, **kw), expected)
+        check_eq("B-355 file_kind-R-checkout: the word binds the file to its checkout (a test); unbound the file is production",
+                 (TF.file_kind("src/legacy/a.py", word=cfg_r, checkout=proj, root=proj),
+                  TF.file_kind("src/legacy/a.py", word=cfg_r, root=proj)), ("test", "production"))
+        check_eq("B-355 production_files-R: the same filter, the same keywords",
+                 TF.production_files(["src/legacy/a.py", "src/b.py"], {"production"}, word=cfg_r, checkout=proj, root=proj), ["src/b.py"])
+        check_eq("B-355 word=None is exactly the call without it",
+                 [TF.is_test_for("commit", p, cfg_r, base=proj, root=proj) for p in five],
+                 [TF.is_test_for("commit", p, cfg_r, base=proj, root=proj, word=None, checkout=proj) for p in five])
+    finally:
+        cleanup(base)
+
+
+def part_sites() -> None:
+    """B-355 items 11, 12, 12b: the sites that ask the leaf with the project's word. ONE table over the real verdict on a temp project,
+    ids `<site>-<world>-<case>`: R = the project recorded where its tests are for the path's area, N = nothing recorded, unbound = a diff
+    no manifest entry binds, unreadable = no config. Error direction pinned per site: a judge_run name is skipped only on a recorded folder
+    name (noise otherwise), a diff file with no checkout under a recorded word is production, a helper in a recorded folder may be a test."""
+    from types import SimpleNamespace
+    import base_slice as BS
+    import blast_radius as BR
+    import judge_run as JR
+    import project_inventory as PI
+    import repo_map as RM
+    base = temp_dir("qa-tf-sites-").resolve()
+    for folder in ("proj/qa-factory", "proj/src/legacy", "proj/src/new", "proj/tests", "app/src/legacy", "app/tests", "task/work"):
+        (base / folder).mkdir(parents=True)
+    proj, app, task = base / "proj", base / "app", base / "task"
+    (task / "work" / "context-manifest.json").write_text(
+        json.dumps({"implementations": [{"repo_id": "app", "diff_path": "work/impl-diff.txt"}]}), encoding="utf-8")
+    cfg_r = {"app_root": ".", "test_locations": ["src/legacy/"]}                       # R: the application of the project is recorded
+    cfg_n = {"app_root": "."}                                                          # N: nothing recorded
+    cfg_ar = {"app_root": "../app", "code_repos": [{"name": "app", "path": "../app"}], "test_locations": ["src/legacy/"]}
+    cfg_an = {"app_root": "../app", "code_repos": [{"name": "app", "path": "../app"}]}
+    try:
+        rows = []
+        # judge_run (item 12): a True from `name` skips the identifier; the safe side is noise, never a skipped project folder name
+        text = "AttributeError: 'legacy' 'tests' 'test_login' 'widget' 'proj'"
+        rows += [("judge_run-R-recorded-folder-skipped-usual-names-are-noise", JR.wanted_names(text, cfg_r, proj), ["tests", "test_login", "widget", "proj"]),
+                 ("judge_run-N-usual-names-skipped", JR.wanted_names(text, cfg_n, proj), ["legacy", "widget", "proj"]),
+                 ("judge_run-unbound-no-word-is-today", JR.wanted_names(text), ["legacy", "widget", "proj"]),
+                 ("judge_run-R-file-shapes-only-names-no-folder", JR.wanted_names("'src' 'tests' 'widget'", {"app_root": ".", "test_locations": ["src/**/*.test.ts"]}, proj),
+                  ["src", "tests", "widget"])]
+        # project_inventory._test_area (item 12): the record names a code file's folder; nothing recorded: names_a_test as before
+        rows += [("project_inventory-R-helper-in-recorded-folder-is-an-area", PI._test_area("src/legacy/helper.py:3", cfg_r, proj), "src/legacy"),
+                 ("project_inventory-R-test-named-outside-the-record-is-none", PI._test_area("src/new/test_x.py:3", cfg_r, proj), ""),
+                 ("project_inventory-R-recorded-non-code-file-is-none", PI._test_area("src/legacy/readme.md:1", cfg_r, proj), ""),
+                 ("project_inventory-N-test-name-is-an-area", PI._test_area("tests/test_a.py:3", cfg_n, proj), "tests"),
+                 ("project_inventory-N-helper-is-none", PI._test_area("src/legacy/helper.py:3", cfg_n, proj), ""),
+                 ("project_inventory-phase1-no-config-is-today", PI._test_area("tests/test_a.py:3"), "tests"),
+                 ("project_inventory-phase1-empty-config-is-today", PI._test_area("tests/test_a.py:3", {}, proj), "tests")]
+        # repo_map._is_test_file (item 12b): a recorded place makes every file of it a test (test_place); elsewhere test_body as before
+        rows += [("repo_map-R-helper-in-recorded-folder-is-a-test", RM._is_test_file(proj / "src/legacy/helper.py", cfg_r, proj), True),
+                 ("repo_map-R-test-named-outside-the-record-is-none", RM._is_test_file(proj / "src/new/test_x.py", cfg_r, proj), False),
+                 ("repo_map-N-test-named-is-a-test", RM._is_test_file(proj / "src/new/test_x.py", cfg_n, proj), True),
+                 ("repo_map-N-folder-alone-is-none", RM._is_test_file(proj / "tests/helper.py", cfg_n, proj), False)]
+        # blast_radius._kind (item 11): through the checkout of the path's own diff; unbound under a recorded word is production
+        def kind(cfg, path, checkout):
+            return BR._kind(SimpleNamespace(cfg=cfg, project=proj, kinds={}), path, checkout)
+        rows += [("blast_radius-R-the-record-names-a-test", kind(cfg_ar, "src/legacy/a.py", app), "test"),
+                 ("blast_radius-R-usual-folder-outside-the-record-is-production", kind(cfg_ar, "tests/a.py", app), "production"),
+                 ("blast_radius-R-unbound-is-production", kind(cfg_ar, "src/legacy/a.py", None), "production"),
+                 ("blast_radius-N-usual-folder-is-a-test", kind(cfg_an, "tests/a.py", app), "test"),
+                 ("blast_radius-N-no-word-is-today", kind({}, "tests/a.py", app), "test")]
+        # base_slice._collect_diff (item 11): the entries of a repository whose base cannot be had name the files that matter (no git needed)
+        entry = {"repo_id": "app", "diff_path": "work/impl-diff.txt"}
+        paths3 = ("src/legacy/a.py", "tests/b.py", "src/new/c.py")
+        def chosen(cfg, entry=entry):
+            res = SimpleNamespace(entries=[], failed=[])
+            ctx = SimpleNamespace(root=task, project=proj, cfg=cfg)
+            record = {"repo": "", "repo_id": "app", "implementation_commit": ""}
+            files = [{"path": p} for p in paths3]
+            BS._collect_diff(ctx, "impl-diff.txt", files, record, entry, set(), res)
+            return [e["file"] for e in res.entries]
+        def blast_kept(cfg, entry=entry):
+            # blast_radius side of the same diff: the commit is unrecorded (no_record), the checkout it found is kept on the record
+            rec = SimpleNamespace(entry=entry, name="impl-diff.txt", unreadable="", commit="", entry_why="", found=None, checkout=None)
+            ctx = SimpleNamespace(cfg=cfg, project=proj, kinds={})
+            BR._classify(ctx, rec)
+            ctx.by_diff = {rec.name: rec}
+            def area(p):                                                   # blast_radius's own site: the kind of the path of one diff file
+                f = {"path": p, "diff": rec.name, "repo": "", "hunks": [], "added": 0, "removed": 0, "path_uncertain": False,
+                     "refused": False, "new": False, "deleted": False}
+                return BR._new_area(ctx, f).kind
+            return [p for p in paths3 if area(p) in BS.KINDS]
+        rows += [("base_slice-R-the-record-names-a-test", chosen(cfg_ar), ["src/new/c.py", "tests/b.py"]),
+                 ("base_slice-N-usual-folder-is-a-test", chosen(cfg_an), ["src/legacy/a.py", "src/new/c.py"]),
+                 ("base_slice-unreadable-is-today", chosen({}), ["src/legacy/a.py", "src/new/c.py"]),
+                 # F-D-1: found checkout + unrecorded commit: both S3 tools keep the checkout and give one verdict under one recorded word
+                 ("twin-R-found-checkout-unrecorded-commit-base_slice", chosen(cfg_ar), ["src/new/c.py", "tests/b.py"]),
+                 ("twin-R-found-checkout-unrecorded-commit-blast_radius", blast_kept(cfg_ar), ["tests/b.py", "src/new/c.py"]),
+                 # checkout not found at all (no config repo): None -> production under a recorded word, in both tools
+                 ("twin-R-no-checkout-base_slice", chosen({"app_root": ".", "test_locations": ["src/legacy/"]}), sorted(paths3)),
+                 ("twin-R-no-checkout-blast_radius", blast_kept({"app_root": ".", "test_locations": ["src/legacy/"]}), list(paths3))]      # blast side keeps the diff's own order
+        (task / "work" / "context-manifest.json").unlink()
+        rows += [("base_slice-R-unbound-is-production", chosen(cfg_ar, None), ["src/legacy/a.py", "src/new/c.py", "tests/b.py"])]
+        for row_id, got, expected in rows:
+            check_eq(f"B-355 {row_id}", got, expected)
+    finally:
+        cleanup(base)
+
+
 def main() -> None:
     part_kinds()
+    part_recorded()
+    part_sites()
     part_consumers()
     part_unreadable()
     part_spellings()

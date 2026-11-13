@@ -67,7 +67,7 @@ SET_ASIDE_DIR = f"qa-factory/state/retired/{DATE}"
 # `hook_written` (t-298), so they are never retired and stay (HOOK_WRITTEN_KEPT below)
 REGEN_UNBUILT = [f"qa-factory/state/{n}" for n in (
     "host-probe.json", "integrations/jira-direct-probe.json", "stand-lease.json", "execution-leases.json",
-    ".exit_gate_blocks.json", "coverage-map.receipt.json", "scheduler-requests/r.json", "native-context/n.json")]
+    ".exit_gate_blocks.json", "scheduler-requests/r.json", "native-context/n.json")]
 # t-298: the hook-written files O has: kept where they are, never listed, hashed or deleted; and the stale lock of the dashboard writer,
 # which the install neither removes nor counts (its folder stays with it)
 HOOK_WRITTEN_KEPT = [f"qa-factory/state/{n}" for n in ("dashboard-dirty.json", "dashboard-refresh.json")]
@@ -108,7 +108,8 @@ CARRIED = [
 # CARRIED rows, one of which - stand-health.json - sits under the regenerated `stand-*.json` glob: precedence keeps it)
 MACHINE_LOCAL_KEPT = ["qa-factory/state/host-receipts/r1.json", "qa-factory/state/host-receipts/r2.json",
                       "qa-factory/state/host-receipts/r3.json", "qa-factory/state/turns/t1.json",
-                      "qa-factory/state/pre-0.7.0-recovery/metrics.json", "qa-factory/state/stand-health.json"]
+                      "qa-factory/state/pre-0.7.0-recovery/metrics.json", "qa-factory/state/stand-health.json",
+                      "qa-factory/state/coverage-map.receipt.json"]
 # What the install REBUILDS in state/ (the regenerate step's outputs, the table's `regenerate_step`) - the carried history files
 # the dashboard run also writes (metrics-history.json, metric-signals.json) are in the set: a fresh install makes them too.
 REBUILT = [f"qa-factory/state/{n}" for n in ("readiness.json", "factory-dashboard.html", "integrations/tracker-write.json",

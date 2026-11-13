@@ -145,6 +145,20 @@ try:
              [(2, "locator-outside-page-object")])
     check_eq("... and its neighbour that nobody named is not", named.get("jtests/flows/other.py"), None)
 
+    # B-355 item 12b: where the project recorded its tests for the area, the record alone says what a test body is - every file of a recorded
+    # FOLDER (the noise side: a helper there is advised too), and none outside it, whatever its name; nothing recorded: the names, as above
+    folder = findings_by_file({"test_locations": ["jtests/helpers/"]})
+    check_eq("B-355 R: a Java helper in the recorded folder is a test body (noise side)", folder.get("jtests/helpers/Driver.java"),
+             [(2, "locator-outside-page-object")])
+    check_eq("B-355 R: ... and a Python helper there", folder.get("jtests/helpers/latest.py"), [(2, "locator-outside-page-object")])
+    check_eq("B-355 R: a file named like a test OUTSIDE the record is no test body (its sleep stays a finding)",
+             folder.get("jtests/LoginTest.java"), [(3, "sleep")])
+    check_eq("B-355 R: ... a page object is still no test body", folder.get("jtests/pages/LoginPage.java"), None)
+    check_eq("B-355 N: a config that records nothing in the area (tests_root = the project root) is today's reading",
+             findings_by_file({"tests_root": "."}).get("jtests/LoginTest.java"), [(3, "sleep"), (4, "locator-outside-page-object")])
+    check_eq("B-355 N: an empty `test_locations` list is today's reading too",
+             findings_by_file({"test_locations": []}).get("jtests/helpers/Driver.java"), None)
+
     # E-C10: the same shapes through the data, and the floor when the data is missing (an older copy of the references)
     shipped = json.loads((Path(A.__file__).resolve().parents[1] / "references" / "detectors.json").read_text(encoding="utf-8"))
     scratch = Path(tempfile.mkdtemp(prefix="qa-arch-shapes-"))

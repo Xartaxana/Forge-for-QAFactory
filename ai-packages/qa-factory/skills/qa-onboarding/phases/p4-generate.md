@@ -28,9 +28,13 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/onboard_apply.py" --root . --proposal <sea
   kept in `qa-factory/state/` into `qa-factory/records/` (bytes unchanged, before anything is removed);
   removes lock files nobody holds, rebuilds
   readiness and the dashboard (step 9), deletes the factory's own technical data and sets aside what
-  the summary listed, and writes the install record last. It reads every listed file again first;
-  if one differs from what the summary showed it refuses, names the paths and writes nothing: make
-  the summary again. A session that is running refuses it too, with the way out.
+  the summary listed, and writes the install record last. It reads every listed file again first.
+  A file under `qa-factory/` that changed or appeared after the summary is settled by its class and
+  named in `after_summary`: the factory's own machine-local technical data is deleted and named in the
+  removal record; anything else is kept as it is and the next summary lists it. Only a path outside
+  `qa-factory/` that differs from what the summary showed refuses the apply: it names the paths and
+  writes nothing; make the summary again. Never ask the person what to do with a file under `qa-factory/`: relay the `after_summary` lines in the digest.
+  A session that is running refuses it too, with the way out.
 - The old `strategy/product-passport.md` goes only behind this run's fold receipt. After folding it
   (step 3) record the fold: `config_contract.py --root . --record-approval <sealed.json> --approval-ref
   <ref> --evidence-ref <ref> --fold`. Without the receipt the final half keeps the file and says it
@@ -89,7 +93,7 @@ This is the fill that makes the proposal's `proposed_config` at phase 3 for a pr
 configuration; the proofs at the end of this step run on the config once `--phase early` has
 written it. Start from `references/templates/config.json`; keep `schema_version: 1`. Fill from
 discovery + interview: `app_root`, `code_repos`, `protected_app_paths`, `test_locations`
-(topic 1c's answer, as given, relative to `app_root`; `[]` when none were named), `tests_root`,
+(topic 1c's answer for the application code, relative to `app_root`; `[]` when none were named), and 1c's answer for a test repository in `tests_root` / the profile's `roots.test` / `run.levels`,
 `cases_root` (phase 1's case-store candidate as topic 1b confirmed it, relative to the
 project root; empty when the project keeps no case library and cases stay per story),
 `case_id_form` (the id form phase 1 noted in the store's file names, as topic 1b confirmed it:
@@ -362,10 +366,12 @@ give a local path → `code_repos: []` **plus** a `[DEFERRED: application repo p
 marker in `project-profile.md` and its `factory-backlog.md` row; never `app_root: "."`
 left standing as if the application were here.
 
-**Test locations inside the application code.** After `test_locations` is written, run
+**Test locations (the application code and a test repository).** After `test_locations` is written, run
 `python "${CLAUDE_PLUGIN_ROOT}/scripts/test_locations.py" --root . --check --json`. An entry
 with a `problem` (a grammar fault, or one that covers a whole protected folder) is fixed or
-asked again before the phase goes on: an entry that opens nothing is a silent hole.
+asked again before the phase goes on: an entry that opens nothing is a silent hole. After
+`--check`, name once each `--suggest` candidate that no recorded carrier of its area covers; whether a candidate is covered is shown by
+`python "${CLAUDE_PLUGIN_ROOT}/scripts/test_locations.py" --root . --check --candidate "<p>" --json`.
 
 ## 2. `strategy/test-strategy.md`
 
