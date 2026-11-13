@@ -773,7 +773,7 @@ class DriverRunner:
     def run_claude(self, kind: str, prompt: str, *, role: str = "", dispatch: str = "", stage: str = "",
                    resume: str = "", tools: str = ROLE_TOOLS, system_file: Path | None = None,
                    max_turns: int = 0, plugin_agent: bool = True, resume_key: str = "",
-                   resume_reason: str = "") -> dict:
+                   resume_reason: str = "", checks: tuple | None = None, checks_n: dict | None = None) -> dict:
         """One `claude -p` call, and the ONE place an infrastructure failure of it is recognised.
 
         POSITION INVARIANT (B-012): the classifier runs right after the process exits, before the
@@ -797,7 +797,14 @@ class DriverRunner:
         `driver-runs.jsonl` row (a row of a call that is not a resume carries no such key, and a row from before this
         field reads as it always did). A resume the driver itself chooses in here (the session of a call the service
         cut off; a retry after a broken response) names its own reason. A caller that names none gets
-        `unclassified (the call named no reason)` - never a silent resume."""
+        `unclassified (the call named no reason)` - never a silent resume.
+
+        `checks` (P1-v W0): the ids of the checks whose findings the CALLER resumes the session on (`Refusal.checks`, or the ids
+        of the records of a handoff ladder). A row of a resume the caller asked for carries `checks` (sorted, unique; an empty
+        value is ONE `unknown`) and `checks_n` (`{id: findings}` for the ids whose count the caller knows - an id of `checks`
+        with no entry there has no recorded count). A row of a call with `checks=None` - a person's answer, the driver's own
+        resume of a cut call, every call that is not a resume - carries neither key (`journal_run` readers: an absent key reads
+        `unknown`, never an error)."""
         if not self.claude:
             raise Stop(EXIT_ERROR, f"no `{self.host}` executable on PATH and STORY_RUN_{self.host.upper()} is not set")
         import infra_failure
@@ -808,6 +815,8 @@ class DriverRunner:
         original_prompt = prompt
         attempt_resume, attempt_prompt, driver_resumed = resume, prompt, False
         why = (resume_reason.strip() or "unclassified (the call named no reason)") if resume else ""
+        ids = list(Refusal.id_set(checks)) if checks is not None else None     # P1-v W0: the row's `checks`
+        counted = {str(k): v for k, v in (checks_n or {}).items()}
         if prior:
             if resume:
                 note = self.continuation_note(kind, role, stage, dispatch, alone=False, known=True)
@@ -907,7 +916,10 @@ class DriverRunner:
                               "infra_rule": infra["rule"] if infra else None, "retry": retries_used,
                               **({"host": self.host, "usage": result["usage"], "cost_basis": cost_basis,
                                   "call_cost_usd": call_cost} if codex else {}),
-                              **({"resume_reason": why} if attempt_resume else {})})
+                              **({"resume_reason": why} if attempt_resume else {}),
+                              # only the call the CALLER asked for: the driver's own resume of a cut call (`driver_resumed`) answers no refusal
+                              **({"checks": ids, "checks_n": {k: counted[k] for k in ids if k in counted}}
+                                 if attempt_resume and not driver_resumed and ids is not None else {})})
             import driver_timing
             wall_said = driver_timing.wall_note(dispatch or kind, wall_ms, result["duration_ms"])
             if wall_said:

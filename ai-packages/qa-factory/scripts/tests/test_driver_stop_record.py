@@ -20,6 +20,7 @@ import contextlib
 import io
 import json
 import re
+import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -31,8 +32,10 @@ from harness import SCRIPTS, check, check_eq, cleanup, finish, temp_dir  # noqa:
 
 sys.path.insert(0, str(SCRIPTS))
 import collect_stall as CS  # noqa: E402
+import detector_verdict as DV  # noqa: E402
 import driver_journal as DJ  # noqa: E402
 import story_run as SR  # noqa: E402
+from role_cli import REPAIR_MARKER  # noqa: E402
 
 NAME = "driver-runs.jsonl"
 
@@ -342,9 +345,287 @@ def mixed_line_endings_are_read_whole(tmp):
     check_eq("mixed endings: collect_stall names no broken line", (CS._jsonl_rows(path, NAME, reasons), reasons)[1], [])
 
 
+# --- P1-v N0 (spec docs/tasks/specs/20261113-p1v-run-scoreboard-spec.md §2 W0, §7.11-7.13): the id of the check on every resume road -----
+def _rec(check, text="s5_precheck.py: [manifest manifest:TC-1:a] one", script="s5_precheck.py"):
+    return DV.Record(text, script=script, check=check)
+
+
+def refusal_checks_cases():
+    a1, a2, d1 = _rec("s5_precheck:manifest"), _rec("s5_precheck:manifest", text="two"), _rec("exit_gate:digest", script="")
+    got = SR.Refusal("head", findings=[d1, a1, a2])
+    check_eq("(d) the ids are the sorted unique `check_id` of the finding RECORDS, with their counts",
+             (got.checks, got.checks_n), (("exit_gate:digest", "s5_precheck:manifest"), {"exit_gate:digest": 1, "s5_precheck:manifest": 2}))
+    check_eq("(d) the findings are stringified as before (byte equality with today's `str` list)", got.findings, [str(d1), str(a1), str(a2)])
+    check_eq("(d) a plain str finding is the id `unknown`", SR.Refusal("h", findings=["plain"]).checks, ("unknown",))
+    check_eq("(d) a record with a script and no check is `<stem>:unlabelled`; a mixed set keeps both ids",
+             SR.Refusal("h", findings=[DV.Record("x", script="p/s5_precheck.py"), "plain"]).checks, ("s5_precheck:unlabelled", "unknown"))
+    check_eq("(d) no findings and no `checks=`: ONE `unknown`", (SR.Refusal("h").checks, SR.Refusal("h", findings=[]).checks), (("unknown",),) * 2)
+
+    class Skips(SR.Refusal):
+        def __init__(self):          # skips super().__init__: the class defaults answer
+            Exception.__init__(self, "x")
+    check_eq("(d) a subclass that skips `super().__init__` reads empty", (Skips().checks, Skips().checks_n or {}), ((), {}))
+    check("(d) two refusals never share one `checks_n` dict", SR.Refusal("h").checks_n is not SR.Refusal("h").checks_n)
+    many = SR.Refusal("h", findings=[_rec("s5_precheck:manifest", text=f"f{i}") for i in range(200)])
+    check_eq("(h) a refusal of 200 findings of one family: one id, checks_n 200", (many.checks, many.checks_n),
+             (("s5_precheck:manifest",), {"s5_precheck:manifest": 200}))
+    check_eq("(d) `checks=` wins over the findings' own ids, sorted and unique",
+             SR.Refusal("h", findings=[a1], checks=["b:x", "a:y", "b:x"]).checks, ("a:y", "b:x"))
+    check_eq("(d) `checks=` as one bare string is one id, not its letters", SR.Refusal("h", checks="a:y").checks, ("a:y",))
+    check_eq("(d) an empty `checks=` reads like none: ONE `unknown`, never dropped", SR.Refusal("h", findings=[], checks=[]).checks, ("unknown",))
+
+
+def _take(out):
+    printed = io.StringIO()
+    with contextlib.redirect_stdout(printed):
+        text, ids = SR.Driver.take_checks_line(out)
+    return text, ids, [ln for ln in printed.getvalue().splitlines() if ln.startswith("note:")]
+
+
+def take_checks_line_cases():
+    body = "story_step: r handed d off (2 finding(s))\n- one\n- two\n  Doors: x\n  [repair marker]."
+    line = 'checks: ["s5_precheck:manifest", "exit_gate:digest"]'
+    check_eq("(e) a valid line is taken out whole, the text is byte-identical, the ids sorted, no note",
+             _take(body + "\n" + line), (body, ("exit_gate:digest", "s5_precheck:manifest"), []))
+    check_eq("(e) stderr after the line: only the line leaves, the blank line and the stderr stay byte for byte",
+             _take(body + "\n" + line + "\n\nwarn: x")[0], body + "\n\nwarn: x")
+    two = _take(body + "\nchecks: [\"early:one\"]\n- a later finding\n" + line)
+    check_eq("(h) two `checks:` lines: the LAST is the machine line, the earlier one stays in the text",
+             (two[0], two[1]), (body + "\nchecks: [\"early:one\"]\n- a later finding", ("exit_gate:digest", "s5_precheck:manifest")))
+    unknown = ("unknown",)
+    check_eq("(e) no line at all: the text is unchanged, `unknown`, ONE note", _take(body)[0:2], (body, unknown))
+    check_eq("(e) ... and exactly one note", len(_take(body)[2]), 1)
+    for name, bad in (("broken JSON", "checks: [\"a:b\""), ("a nested object", 'checks: [{"a": 1}]'), ("an object", 'checks: {"a": "b"}'),
+                      ("an empty list", "checks: []"), ("an empty id", 'checks: [""]'), ("a number", "checks: [1]"),
+                      ("a replacement character (bytes that were not UTF-8)", 'checks: ["a:\ufffd"]'), ("not JSON", "checks: nope")):
+        text, ids, notes = _take(body + "\n" + bad)
+        check_eq(f"(h) a `checks:` line with {name}: `unknown`, one note, the line still leaves the text",
+                 (text, ids, len(notes)), (body, unknown, 1))
+    check_eq("(e) `finding_key` of the text is the one it was before the line existed",
+             SR.finding_key(_take(body + "\n" + line)[0].splitlines()), SR.finding_key(body.splitlines()))
+
+
+def gate_refusal_line_cases(tmp):
+    """The seam story_step -> driver: `_gate_refusal` PRINTS the machine line last, `Driver.finish`'s reader takes it out (the join row
+    belongs here, not in `test_story_step.py`, which holds no check of its own - the five parts are not this node's)."""
+    import argparse
+    import story_step
+    args = argparse.Namespace(task="QA-700", dispatch_id="d-1")
+    blocking = [_rec("s5_precheck:manifest"), _rec("s5_precheck:manifest", text="two"), "a plain str", _rec("exit_gate:digest", script="")]
+    text = story_step._gate_refusal(args, tmp / "gate", {"stage": "S5", "role": "qa-automator"}, blocking)
+    rows = text.split("\n")
+    check_eq("(e) `_gate_refusal` prints `checks:` LAST: nothing after it, the repair marker line before it",
+             (rows[-1], rows[-2]), ('checks: ["exit_gate:digest", "s5_precheck:manifest", "unknown"]', f"  {REPAIR_MARKER}."))
+    check("(e) the head of the text is today's", rows[0].startswith("story_step: qa-automator handed d-1 off while the exit gate of S5 still refuses it (4 finding(s))"))
+    back, ids, notes = _take(text)
+    check_eq("(e) the driver's reader gives back the text WITHOUT its last line, byte for byte, and the ids", (back, ids, notes),
+             ("\n".join(rows[:-1]), ("exit_gate:digest", "s5_precheck:manifest", "unknown"), []))
+    check_eq("(e) a refusal of one family prints one id", story_step._gate_refusal(args, tmp / "gate", {"stage": "S5", "role": "r"},
+                                                                                  [_rec("s5_precheck:manifest")]).split("\n")[-1], 'checks: ["s5_precheck:manifest"]')
+
+
+def finish_refusal_cases(tmp):
+    def drive(printed, name, code=3):
+        d = SR.Driver.__new__(SR.Driver)
+        d.task, d.state, d.state_dir = "QA-C", {}, tmp / name / "state"
+        d.timed = lambda *a, **k: contextlib.nullcontext()
+        d.py = lambda script, *args, **k: (code, printed)
+        said = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(said):
+                d.finish("S1-r-1", "digest", complete=False, role="r", stage="S1")
+        except SR.Refusal as refusal:
+            refusal.said = said.getvalue()
+            return refusal
+        raise AssertionError("finish did not refuse")
+    text = "story_step: r handed S1-r-1 off (1 finding(s))\n- one\n  [repair marker]."
+    got = drive(text + '\nchecks: ["s5_precheck:manifest"]', "with")
+    check_eq("(e) `finish`: the refusal text is today's, byte for byte, and the ids are the line's",
+             (got.text, got.checks), (f"story_step finish S1-r-1 (exit 3):\n{text}".strip(), ("s5_precheck:manifest",)))
+    absent = drive(text, "without")
+    check_eq("(e) `finish` with no line: the text is today's and the ids are `unknown`", (absent.text, absent.checks),
+             (f"story_step finish S1-r-1 (exit 3):\n{text}".strip(), ("unknown",)))
+    # F2: only exit 3 has a writer of the line, so any other code keeps its text whole (a quoted `checks:` line stays), reads `unknown`, no note
+    for code in (2, 1):
+        quoted = drive(text + '\nchecks: ["x:y"]', f"exit{code}", code)
+        check_eq(f"(e) `finish` at exit {code} with a valid-looking `checks:` line: the text stays whole, `unknown`, no note",
+                 (quoted.text, quoted.checks, "note:" in quoted.said),
+                 (f"story_step finish S1-r-1 (exit {code}):\n{text}\nchecks: [\"x:y\"]".strip(), ("unknown",), False))
+    bare = drive(text, "exit2-bare", 2)
+    check_eq("(e) `finish` at exit 2 with no line at all: no note, `unknown`", (bare.checks, "note:" in bare.said), (("unknown",), False))
+
+
+def claude_rig(name, rows, tmp):
+    d = SR.Driver.__new__(SR.Driver)
+    d.claude, d.model, d.host, d.infra_rules, d.state = "x", "m", "claude", [], {"sessions": {}}
+    d.task_root, d.state_dir = tmp / name, tmp / name / "state"
+    d.claude_cmd, d.host_prompt = (lambda *a, **k: ["x"]), (lambda *a, **k: "")
+    d.journal_run, d.package_check, d.mark_host, d.save_state = rows.append, (lambda *a, **k: None), (lambda: None), (lambda: None)
+    answer = json.dumps({"session_id": "s2", "result": "ok", "num_turns": 3, "total_cost_usd": 0.1})
+    d.launch = lambda cmd, prompt, dispatch="", resume="": subprocess.CompletedProcess(cmd, 0, answer, "")
+    return d
+
+
+def resumed_row_cases(tmp):
+    rows: list = []
+    d = claude_rig("rows", rows, tmp)
+
+    def row(**kw):
+        rows.clear()
+        with contextlib.redirect_stdout(io.StringIO()):
+            d.run_claude("role", "p", role="r", dispatch="D1", stage="S5", **kw)
+        return [r for r in rows if r.get("kind") == "role"][0]
+    both = row(resume="s1", resume_reason="why", checks=("b:x", "a:y"), checks_n={"a:y": 3, "b:x": 1})
+    check_eq("(f) a resumed row carries `checks` and `checks_n`", (both["checks"], both["checks_n"]), (["a:y", "b:x"], {"a:y": 3, "b:x": 1}))
+    part = row(resume="s1", resume_reason="why", checks=("a:y", "b:x"), checks_n={"a:y": 3})
+    check_eq("(f) an id whose count the caller does not know has no entry in `checks_n`", (part["checks"], part["checks_n"]), (["a:y", "b:x"], {"a:y": 3}))
+    check_eq("(f) `checks=()` is ONE `unknown`", row(resume="s1", resume_reason="why", checks=())["checks"], ["unknown"])
+    person = row(resume="s1", resume_reason="the person answered")
+    check_eq("(f) R-3: a resume with no `checks` carries neither key", ("checks" in person, "checks_n" in person, person["resumed"]), (False, False, True))
+    plain = row(checks=("a:y",))
+    check_eq("(f) a call that is not a resume carries no key whatever the caller passed", ("checks" in plain, "resumed" in plain and plain["resumed"]), (False, False))
+    d.state["interrupted"] = {"D1": {"worked": True, "session_id": "s0"}}
+    cut = row(checks=("a:y",))
+    check_eq("(f) R-9: the driver's own resume of a cut call has a `resume_reason` and no `checks`",
+             ("resume_reason" in cut, "checks" in cut, "checks_n" in cut), (True, False, False))
+
+
+def ladder_cases():
+    d = SR.Driver.__new__(SR.Driver)
+    mech = DV.Record("a.py: [m x] bad (" + REPAIR_MARKER + ")", script="a.py", check="a:m")
+    calls, limits = [], []
+    d.task_root = Path("task-root")
+    d.refusal_sid, d.resume_record, d.note_resume = (lambda dispatch, sid: sid), (lambda dispatch, sid: {}), (lambda *a: None)
+    d.exit_ask, d.digest_of, d.keep_resumed_result = (lambda *a, **k: "ask"), (lambda text: "digest"), (lambda *a: None)
+    d.run_claude = lambda kind, prompt, **kw: calls.append(kw) or {"result": "x", "session_id": "s2"}
+    d.exit_errors, d.form_errors, d.shorten_form = (lambda role, digest, dispatch=None: [mech]), (lambda dispatch: []), (lambda *a, **k: 0)
+    d.role_has_bash, d.listed, d.s1_person = (lambda role: True), (lambda *a, **k: ("L", False, "")), (lambda *a, **k: None)
+    first = [_rec("s5_precheck:manifest"), _rec("s5_precheck:manifest", text="b"), _rec("handoff_check:header.verdict", text="c")]
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            d.handoff_ladder("r", "S5", "S5-x-1", {"session_id": "s1"}, "dig", first, "")
+        raised = None
+    except SR.Refusal as refusal:
+        raised = refusal
+    check_eq("(f) R-1: the first resume carries the ids and counts of the findings it answers",
+             (calls[0]["checks"], calls[0]["checks_n"]), (("handoff_check:header.verdict", "s5_precheck:manifest"),
+                                                          {"handoff_check:header.verdict": 1, "s5_precheck:manifest": 2}))
+    check_eq("(f) R-2: the mechanical third turn carries the RECOMPUTED errors' ids", (calls[1]["checks"], calls[1]["checks_n"]),
+             (("a:m",), {"a:m": 1}))
+    check_eq("(f) the ladder's own refusal carries the ids of what is still wrong", raised.checks if raised else None, ("a:m",))
+    d.resume_record = lambda dispatch, sid: {SR.finding_key(first): "handoff"}
+    d.exit_limit = lambda *a, **k: limits.append(k)
+    d.handoff, d.saved_result = (lambda *a: "again"), (lambda dispatch: {})
+    with contextlib.redirect_stdout(io.StringIO()):
+        d.handoff_ladder("r", "S5", "S5-x-1", {"session_id": "s1"}, "dig", first, "")
+    check_eq("(f) the seam call of the ladder passes the ids", limits[0]["checks"], ("handoff_check:header.verdict", "s5_precheck:manifest"))
+
+
+def form_record_cases(tmp):
+    d = SR.Driver.__new__(SR.Driver)
+    d.task, d.task_root, d.config = "QA-F", tmp / "form", {}
+    (d.task_root / "work" / "handoffs").mkdir(parents=True)
+    (d.task_root / "work" / "handoffs" / "D1.yaml").write_text("x: 1\n", encoding="utf-8")
+    report = {"problems": [{"path": "scope[2].reason", "problem": "too long"}, {"path": "header.verdict", "problem": "bad"},
+                           {"path": "scope[10].rows[3].id", "problem": "empty"}, {"path": "", "problem": "none"}]}
+    d.py = lambda *a, **k: (1, json.dumps(report))
+    _rep, lines = d.form_report("D1")
+    check_eq("(a) the handoff form's problems are records: `handoff_check:` + the path with list indices dropped",
+             [DV.check_id(x) for x in lines], ["handoff_check:scope[].reason", "handoff_check:header.verdict",
+                                               "handoff_check:scope[].rows[].id", "handoff_check:unlabelled"])
+    check_eq("(b) ... and their text is today's", str(lines[0]), "handover form D1.yaml - scope[2].reason: too long")
+    d.py = lambda *a, **k: (2, "no json here")
+    check_eq("(a) no readable answer from handoff_check: `handoff_check:unreadable`", [DV.check_id(x) for x in d.form_report("D1")[1]],
+             ["handoff_check:unreadable"])
+
+
+def resume_with_cases(tmp):
+    d = SR.Driver.__new__(SR.Driver)
+    seen, limits = [], []
+    d.progress_line, d.dispatch_role, d.save_state = (lambda: None), (lambda x: "r"), (lambda: None)
+    d.state, d.state_dir = {"pending_words": {}}, tmp / "rw" / "state"
+    d.run_claude = lambda kind, prompt, **kw: seen.append(kw) or {"result": "ok", "is_error": False}
+    refusal = SR.Refusal("t", findings=[_rec("s5_precheck:manifest"), _rec("s5_precheck:manifest", text="b")], dispatch="D1")
+    d.resume_with(refusal, "S5", "D1", "s1", "lead ")
+    check_eq("(f) R-4 (and R-5/R-6/R-7 through it): `resume_with` passes the refusal's ids and counts",
+             (seen[0]["checks"], seen[0]["checks_n"]), (("s5_precheck:manifest",), {"s5_precheck:manifest": 2}))
+    d.run_claude = lambda kind, prompt, **kw: {"result": "", "is_error": True, "stderr": "gone"}
+    d.refusal_lines = SR.Driver.refusal_lines
+    d.exit_limit = lambda *a, **k: limits.append(k)
+    d.resume_with(SR.Refusal("t", checks=["a:y"], dispatch="D1"), "S5", "D1", "s1", "lead ")
+    check_eq("(f) a session that is gone: the seam call carries the refusal's ids", limits[0]["checks"], ("a:y",))
+
+
+def exit_record_cases(tmp):
+    class Seam(Exception):
+        pass
+
+    def no_move(state):
+        raise Seam()
+    d = SR.Driver.__new__(SR.Driver)
+    d.state, d.save_state, d.revoke_passes_of_dead = {"pending_words": {}}, (lambda: None), (lambda *a, **k: None)
+    d.exit_limit_facts, d.no_move = (lambda *a, **k: {"lead": "l", "details": "d", "offer": []}), no_move
+    for checks, expected in ((("c:d", "a:b"), ["a:b", "c:d"]), (None, ["unknown"]), ((), ["unknown"])):
+        d.state["exit_limit"] = {}
+        try:
+            d.exit_limit("S5", "r", "D1", ["a line"], sid="", why="handoff", **({} if checks is None else {"checks": checks}))
+        except Seam:
+            pass
+        check_eq(f"(f) R-7: `exit_limit` stores the ids in the exit record ({checks!r})", d.state["exit_limit"]["D1"]["checks"], expected)
+    made = []
+    d.exit_ask = lambda *a, **k: "ask"
+    d.task_root = tmp / "er"
+    d.resume_with = lambda refusal, *a, **k: made.append(refusal)
+    for rec_checks, expected in ((["a:b"], ("a:b",)), (None, ("unknown",))):
+        rec = {"rounds": {"k": {"granted": 1, "spent": 0, "words_file": ""}}}
+        if rec_checks is not None:
+            rec["checks"] = rec_checks
+        with contextlib.redirect_stdout(io.StringIO()):
+            d.exit_round("S5", "r", "D1", ["a line"], "s1", rec, "k")
+        check_eq(f"(g) `exit_round` reads `rec[\"checks\"]` (absent key: `unknown`, TEMPORAL) - {rec_checks}", made[-1].checks, expected)
+
+
+def machine_ids_cases():
+    class Seam(Exception):
+        pass
+    limits, runs = [], []
+    d = SR.Driver.__new__(SR.Driver)
+    refusal = SR.Refusal("t", findings=[_rec("s5_precheck:manifest")], dispatch="S5-x-1")
+    d.close_by_doors, d.refusal_dispatch, d.dispatch_role = (lambda *a: ""), (lambda r: "S5-x-1"), (lambda x: "r")
+    d.exit_limit = lambda *a, **k: limits.append(k) or (_ for _ in ()).throw(Seam())
+    for sid, record in (("", {}), ("s1", {SR.finding_key(d.refusal_lines(refusal)): "refusal", "k2": "stand"})):
+        d.refusal_sid, d.resume_record = (lambda *a, _s=sid: _s), (lambda *a, _r=record: _r)
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                d.resume_on_refusal(refusal, "S5", "S5-x-1")
+        except Seam:
+            pass
+    check_eq("(f) R-5/R-6 seams (`exit_limit` at both sites of `resume_on_refusal`) pass `refusal.checks`",
+             [k["checks"] for k in limits], [("s5_precheck:manifest",)] * 2)
+    d2 = SR.Driver.__new__(SR.Driver)
+    d2.boundary, d2.state = "S5:S5-x-1", {"sessions": {"S5-x-1": "s1"}}
+    d2.journal_conductor, d2.save_state, d2.controller_state = (lambda **k: None), (lambda: None), (lambda: {})
+    d2.run_claude = lambda kind, prompt, **kw: runs.append(kw) or {}
+    text = "story_step: refused - S5 structured artifact invalid: x"
+    with contextlib.redirect_stdout(io.StringIO()):
+        out = d2.handle_refusal(SR.Refusal(text, dispatch="S5-x-1"))
+    check_eq("(f) R-8: the structured-artifact resume carries `unknown` (the controller prints no id, F18)",
+             (out, runs[0]["checks"] if runs else None), ("retry", ("unknown",)))
+
+
 def main():
     tmp = temp_dir("qa-stop-record-")
     try:
+        refusal_checks_cases()
+        take_checks_line_cases()
+        gate_refusal_line_cases(tmp)
+        finish_refusal_cases(tmp)
+        resumed_row_cases(tmp)
+        ladder_cases()
+        form_record_cases(tmp)
+        resume_with_cases(tmp)
+        exit_record_cases(tmp)
+        machine_ids_cases()
         ctrl_c_serial_writes_one_stop_record(tmp)
         ctrl_c_parallel_road_writes_one_stop_record(tmp)
         ctrl_c_in_run_level_handler_writes_one_stop_record(tmp)

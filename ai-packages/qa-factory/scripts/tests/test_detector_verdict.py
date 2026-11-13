@@ -140,6 +140,86 @@ def record_cases() -> None:
     check_in("flatten: the unmigrated text whole", "unmigrated detector output", DV.flatten(DV.parse(1, "free", ""))[0])
 
 
+def check_id_cases() -> None:
+    """P1-v N0 (spec 20261113-p1v-run-scoreboard-spec.md §2 W0): every record of the exit gate carries the id of the check that produced it,
+    in a FIELD (`check`, `tag`), read from the contract's own parse (`labels`), never from the text. Text of every record unchanged."""
+    import exit_gate as EG
+    import contract as C
+    findings = ["[manifest manifest:TC-1:row-fields-missing] one — fix: a", "plain finding, no label",
+                "a finding that quotes [grounding R3] in its middle", "[smell smell-id] an id with no colon",
+                "[a a:b:c] has [grounding R3] inside"]
+    v = DV.parse(1, "REJECT — 5 finding(s):\n" + "\n".join("- " + f for f in findings), "")
+    check_eq("(a) parse: `labels` runs parallel to `findings`; a mid-line `[x y]` is no label, an id with no `:` keeps its family",
+             (len(v["labels"]) == len(v["findings"]), v["labels"]),
+             (True, [("manifest", "manifest:TC-1:row-fields-missing"), None, None, ("smell", "smell-id"), ("a", "a:b:c")]))
+    check_eq("(a) parse: no findings (exit 0, unreadable, unmigrated) -> no labels",
+             [DV.parse(0, "x", "")["labels"], DV.parse(3, "UNREADABLE: why", "")["labels"], DV.parse(1, "free text", "")["labels"]], [[], [], []])
+    recs = EG.detector_records("s5_precheck.py", 1, v, words="gate")
+    check_eq("(a) a finding's check is `<producer stem>:<label check>`, `:unlabelled` without a label",
+             [r.check for r in recs], ["s5_precheck:manifest", "s5_precheck:unlabelled", "s5_precheck:unlabelled", "s5_precheck:smell", "s5_precheck:a"])
+    check_eq("(a) its tag is the third `:`-part of the label's id, `\"\"` for an id with fewer parts or no label",
+             [r.tag for r in recs], ["row-fields-missing", "", "", "", "c"])
+    check_eq("(b) the TEXT of every record is today's: the producer's prefix and the line, byte for byte",
+             [str(r) for r in recs], ["s5_precheck.py: " + f for f in findings])
+    broken = DV.parse(1, "REJECT — 1 finding(s) " + DV.WORDS_AT_SOURCE + ":\n- a\n- b\n- c", "")
+    zero = DV.parse(1, "REJECT — 0 finding(s):", "")
+    check_eq("(a) the unmigrated record, the defect record and the unreadable record name their family",
+             [EG.detector_records("x.py", 1, broken, words="source")[-1].check, EG.detector_records("x.py", 1, zero, words="gate")[-1].check,
+              EG.detector_records("x.py", 3, DV.parse(3, "UNREADABLE: why", ""), words="gate")[0].check],
+             ["x:unmigrated", "x:defect", "x:unreadable"])
+    wit = EG.detector_records("work/art.json", 1, v, words="gate", producer="check_witness.py")
+    check_eq("(a) check_witness: the check is the producer's (`check_witness:<family>`), `script` stays the artifact (the person's word)",
+             (wit[0].check, wit[0].script, wit[1].check), ("check_witness:manifest", "work/art.json", "check_witness:unlabelled"))
+    check_eq("(a) `unreadable_record` is `<script stem>:unreadable`, owner file or not",
+             [EG.unreadable_record("check_witness.py", "r").check, EG.unreadable_record("s2_check.py", "r", "register.json").check],
+             ["check_witness:unreadable", "s2_check:unreadable"])
+    # check_id / with_check
+    plain, bare, named = "plain", DV.Record("x", script="p/q.py"), DV.Record("x", check="k:v")
+    check_eq("check_id: the field, else `<script stem>:unlabelled`, else `unknown` (a plain str, a record built by hand)",
+             [DV.check_id(named), DV.check_id(bare), DV.check_id(plain), DV.check_id(DV.Record("x"))], ["k:v", "q:unlabelled", "unknown", "unknown"])
+    copy = DV.with_check(DV.Record("t", script="s.py", words="source", kind="unmigrated", refused="family", tag="g"), "exit_gate:scoped")
+    check_eq("with_check keeps script, words, kind, refused, tag and the text", (str(copy), copy.script, copy.words, copy.kind, copy.refused, copy.tag, copy.check),
+             ("t", "s.py", "source", "unmigrated", "family", "g", "exit_gate:scoped"))
+    check_eq("with_check: a record that already has a check keeps it (the same object); a plain str becomes a Record with the defaults",
+             (DV.with_check(named, "other:x") is named, DV.with_check("s", "exit_gate:digest").check, DV.with_check("s", "e:d").kind), (True, "exit_gate:digest", "finding"))
+    # (c) the tag is a field: the waiting class is today's on a producer record, and a hand-built record with the label in its TEXT has no tag
+    waiting = f"[bindings bindings:TC-700:{C.THEN_REMAINDER_WAITS}4] one remainder"
+    src = EG.detector_records("s5_precheck.py", 1, DV.parse(1, "REJECT — 1 finding(s) " + DV.WORDS_AT_SOURCE + ":\n- " + waiting, ""), words="source")[0]
+    hand = DV.Record("s5_precheck.py: " + waiting, script="s5_precheck.py", words="source")
+    check_eq("(c) `_finding_tag_of` reads the field; `word_class` is `refused` for a source-judged waiting Then and `star` for a hand-built text",
+             (EG._finding_tag_of(src), EG.word_class(src), EG._finding_tag_of(hand), EG.word_class(hand), EG._finding_tag_of("plain str")),
+             (f"{C.THEN_REMAINDER_WAITS}4", "refused", "", "star", ""))
+    # (a) one row per family of `all_errors`: its own producers are named right after the call, the detectors name theirs
+    names = ("scoped_errors", "detector_errors", "witness_errors", "grounding_errors", "case_identity_errors", "digest_errors",
+             "required_outputs_errors", "run_advisers", "_task_pipeline", "_stage_id", "is_halting_handoff")
+    saved = {n: getattr(EG, n) for n in names}
+    try:
+        EG.scoped_errors = lambda *a, **k: ["scoped plain", DV.Record("scoped rec", script="x.py", check="keep:me")]
+        EG.detector_errors = lambda *a, **k: [DV.Record("det", script="s5_precheck.py", check="s5_precheck:manifest")]
+        EG.witness_errors = lambda *a, **k: [DV.Record("wit", script="a.json", check="check_witness:manifest")]
+        EG.grounding_errors = lambda *a, **k: ["grounding plain"]
+        EG.case_identity_errors = lambda *a, **k: ["case plain"]
+        EG.digest_errors = lambda *a, **k: [DV.Record("digest rec", script="role_digest")]
+        EG.required_outputs_errors = lambda *a, **k: ["required plain"]
+        EG.run_advisers = lambda *a, **k: []
+        EG._task_pipeline, EG._stage_id, EG.is_halting_handoff = (lambda *a: {}), (lambda *a: "S5"), (lambda digest: False)
+        blocking, _passed = EG.all_errors("r", "T-1", "digest")
+        check_eq("(a) all_errors: scoped / detector / witness / grounding / case_identity / digest / required_outputs each carry their family",
+                 [(str(r), r.check) for r in blocking],
+                 [("scoped plain", "exit_gate:scoped"), ("scoped rec", "keep:me"), ("det", "s5_precheck:manifest"), ("wit", "check_witness:manifest"),
+                  ("grounding plain", "exit_gate:grounding"), ("case plain", "exit_gate:case_identity"), ("digest rec", "exit_gate:digest"),
+                  ("required plain", "exit_gate:required_outputs")])
+        for name in names[:7]:
+            setattr(EG, name, lambda *a, **k: [])
+        EG.run_advisers = lambda *a, **k: ["adviser plain"]
+        blocking, _passed = EG.all_errors("r", "T-1", "digest")
+        check_eq("(a) all_errors: an adviser's refusal carries `exit_gate:adviser`, its text untouched", [(str(r), r.check) for r in blocking],
+                 [("adviser plain", "exit_gate:adviser")])
+    finally:
+        for name, fn in saved.items():
+            setattr(EG, name, fn)
+
+
 COMPOUND = ("3 problems - the request is refused whole, every one is listed:\n"
             "1) decision references stale source revision\n"
             "2) gate before prerequisite completion: already accepted\n   (the second line of item 2)\n"
@@ -500,6 +580,7 @@ def main() -> None:
     parse_cases()
     tag_cases()
     record_cases()
+    check_id_cases()
     refusal_cases()
     render_cases()
     joined_cases()

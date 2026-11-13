@@ -343,13 +343,17 @@ class DriverDispatch:
         report = hooklib.read_document(out)  # t-2020: `handoff_check --json` prints a PRETTY object (indent=1): the document reader; a stderr warning does not hide it
         if report is None:
             # an answer nobody could read is an unknown, never a pass of the form gate (AR-28, FR-59), exit 0 or not
-            return None, [f"handover form: handoff_check gave no readable answer (exit {code}): {((out or '').splitlines() or ['no output'])[-1][:200]}"]
+            return None, [DV.Record(f"handover form: handoff_check gave no readable answer (exit {code}): {((out or '').splitlines() or ['no output'])[-1][:200]}",
+                                    script="handoff_check.py", check="handoff_check:unreadable")]
         required = bool((self.config.get("handoffs") or {}).get("required", True))
         if report.get("untouched") and not required:
             return report, []
         for line in report.get("fixed") or []:
             print(f"note: handover form filled by code: {line}")
-        return report, [f"handover form {form.name} - {p['path']}: {p['problem']}"
+        # P1-v W0: each problem is a record whose check id is the problem's own field `path` with the list indices dropped
+        # (`scope[2].reason` -> `handoff_check:scope[].reason`), a transform of a structured field, never of the text
+        return report, [DV.Record(f"handover form {form.name} - {p['path']}: {p['problem']}", script="handoff_check.py",
+                                  check="handoff_check:" + (re.sub(r"\[\d+\]", "[]", str(p["path"])) or "unlabelled"))
                         for p in report.get("problems") or []]
 
     def shorten_form(self, role: str, dispatch: str, digest: str, *, assembly_follows: bool = True) -> int:
@@ -537,16 +541,18 @@ class DriverDispatch:
             if result["session_id"]:
                 print(f"{stage}: {dispatch} was already resumed on these findings; no second resume")
             self.exit_limit(stage, role, dispatch, self.refusal_lines(None, items=errors), sid=result["session_id"] or "", why="handoff",
-                            digest=digest)
+                            digest=digest, checks=Refusal.id_set(Refusal.id_counts(errors)))
             return self.handoff(role, stage, dispatch, self.saved_result(dispatch))
         elif errors and result["session_id"]:
             if resume_key:
                 self.note_resume(dispatch, resume_sid, resume_key, "handoff")
             ask = self.exit_ask(role, dispatch, errors)
+            counts = Refusal.id_counts(errors)       # P1-v W0 (R-1): the ids of the findings this resume answers, read from the records
             again = self.run_claude("role", ask, role=role, dispatch=dispatch, stage=stage,
                                     resume=result["session_id"],
                                     resume_reason=resume_reason(errors)
-                                    + (f" (not assembled by code: {not_assembled})" if not_assembled else ""))
+                                    + (f" (not assembled by code: {not_assembled})" if not_assembled else ""),
+                                    checks=Refusal.id_set(counts), checks_n=counts)
             if again["result"].strip():
                 digest = self.digest_of(again["result"])
                 self.keep_resumed_result(dispatch, again, result)
@@ -572,9 +578,11 @@ class DriverDispatch:
                 exact = ("Two things and nothing else. 1) " + how
                          + self.listed(errors, dispatch, "handoff")[0]
                          + "\n2) Then print your digest, in the form, and nothing else:\n" + HANDOFF_FORM)
+                counts = Refusal.id_counts(errors)       # R-2: the same errors, recomputed above
                 third = self.run_claude("role", exact, role=role, dispatch=dispatch, stage=stage,
                                         resume=again.get("session_id") or result["session_id"],
-                                        resume_reason="still not repaired after one resume: " + resume_reason(errors))
+                                        resume_reason="still not repaired after one resume: " + resume_reason(errors),
+                                        checks=Refusal.id_set(counts), checks_n=counts)
                 if third["result"].strip():
                     digest = self.digest_of(third["result"])
                     self.keep_resumed_result(dispatch, third, again if again["result"].strip() else result)
@@ -825,6 +833,11 @@ class DriverDispatch:
                 print(line)
         saved = self.state_dir / "driver-runs" / f"{dispatch}.json"
         if code:
+            # P1-v W0 (F17): the machine line leaves BEFORE the text is built or read - on exit 3 ONLY, the one exit whose writer
+            # (`story_step._gate_refusal`) prints it; any other code keeps its text whole and reads `unknown` (no note)
+            checks = None
+            if code == 3:
+                out, checks = self.take_checks_line(out)
             retry = lambda: self.finish(dispatch, digest, complete=given, role=role, stage=stage)
             if stage == "S9" and f"stage_done refused {stage}" in out:
                 # The dispatch is accepted already; only the S9 record was refused, so "again" is that
@@ -838,7 +851,7 @@ class DriverDispatch:
             # `window_gaps` travels in a field of its own, never in the text: the text is story_step's own words
             # (t-217 §4/C2), and the one-resume record keys on them.
             raise Refusal(f"story_step finish {dispatch} (exit {code}):\n{out}", retry=retry, dispatch=dispatch,
-                          window_findings=window_gaps)
+                          window_findings=window_gaps, checks=checks)
         if complete is True and WINDOW_ROUND_STAGES.get(stage) == role:
             # F-cmp2-28c / C1: ONLY the accepted completion of the stage's closing role ends the window's series.
             # An author's finish (`--not-complete`) between two reviews of the same window never does: that is
@@ -856,6 +869,30 @@ class DriverDispatch:
             return digest, parse_next(out)
         except Refusal:
             return digest, {}
+
+    @staticmethod
+    def take_checks_line(out: str) -> tuple:
+        """`(out without the machine line, the check ids)` for the output of `story_step finish` (P1-v W0, F17, the `parse_next`
+        precedent): the LAST line that starts with `checks: ` is the machine line `_gate_refusal` prints - a JSON list of
+        non-empty strings, which names the checks that refused; it is taken out of the text whole, every other byte stays (the
+        text the role, the conductor and `finding_key` read is byte-identical to what it was before the line existed), and an
+        EARLIER line of that shape is text and stays. No such line, or one that is not a non-empty JSON list of strings (a nested
+        object, no ids, a replacement character from bytes that were not UTF-8), gives `("unknown",)` and ONE `note:` line: a
+        refusal with no id is counted as `unknown`, never dropped and never given an id nobody printed."""
+        rows = (out or "").split("\n")
+        at = next((i for i in range(len(rows) - 1, -1, -1) if rows[i].startswith(DV.CHECKS_LINE_PREFIX)), None)
+        if at is None:
+            print("note: story_step printed no `checks:` line for this refusal; its check is counted as `unknown`")
+            return out, ("unknown",)
+        raw = rows.pop(at)[len(DV.CHECKS_LINE_PREFIX):]
+        try:
+            ids = json.loads(raw)
+        except ValueError:
+            ids = None
+        if not (isinstance(ids, list) and ids and all(isinstance(i, str) and i.strip() and "�" not in i for i in ids)):
+            print("note: the `checks:` line of story_step could not be read; its check is counted as `unknown`")
+            return "\n".join(rows), ("unknown",)
+        return "\n".join(rows), tuple(sorted(set(ids)))
 
     @staticmethod
     def file_stamp(path):
@@ -2078,10 +2115,11 @@ class DriverDispatch:
         result = self.run_claude("role", prompt, role=self.dispatch_role(dispatch), dispatch=dispatch, stage=stage,
                                  resume=sid,
                                  resume_reason=reason or "the factory refused to close the dispatch: "
-                                 + resume_reason(refusal.findings or refusal.text))
+                                 + resume_reason(refusal.findings or refusal.text),
+                                 checks=refusal.checks, checks_n=refusal.checks_n or {})        # P1-v W0 (R-4): the ids the refusal carries
         if result.get("is_error") and not str(result.get("result") or "").strip():
             self.exit_limit(stage, self.dispatch_role(dispatch), dispatch, self.refusal_lines(refusal), sid=sid, why="session_gone",
-                            error=str(result.get("stderr") or "")[-600:], text=refusal.text)
+                            error=str(result.get("stderr") or "")[-600:], text=refusal.text, checks=refusal.checks)
         _write_json(self.state_dir / "driver-runs" / f"{dispatch}.json", result)
         self.state["pending_words"].pop(dispatch, None)     # t-764 A12: the role answered them in THIS result, before anyone judges it
         self.save_state()
@@ -3536,7 +3574,8 @@ class DriverDispatch:
     EXIT_SOURCES_SHOWN = 12         # sources the lead lists; the rest is counted (the GATE_TOP_LIMIT precedent)
 
     def exit_record(self, dispatch: str) -> dict:
-        """`state["exit_limit"][dispatch]`: `lines` (the set that reached the seam), `key`, `rounds` ({key: {granted, spent,
+        """`state["exit_limit"][dispatch]`: `lines` (the set that reached the seam), `checks` (the ids of the checks behind them,
+        P1-v W0; absent in a record written before it = `unknown`), `key`, `rounds` ({key: {granted, spent,
         words_file, at}}), `ask` (the question's facts), `passes` (the waiver rows `go on` wrote), `fresh_line`."""
         held = self.state.get("exit_limit")
         if not isinstance(held, dict):
@@ -3582,7 +3621,7 @@ class DriverDispatch:
             self.save_state()
 
     def exit_limit(self, stage: str, role: str, dispatch: str, errors: list, *, sid: str, why: str, digest: str = "", error: str = "",
-                   text: str = "") -> None:
+                   text: str = "", checks=None) -> None:
         """The ONE seam for an exit-gate refusal that survives the resume limit. `errors`: the lines that reached it, already the
         caller's `refusal_lines` (normalised ONCE there, never again here; `None` / `[]` = no lines: the generic question, no record); `text`: the
         refusal's own words, whole, when it has them (they are the details file). `sid`: the
@@ -3595,7 +3634,9 @@ class DriverDispatch:
         lines = [str(e) for e in (errors or []) if str(e).strip()]      # the caller's `refusal_lines`, normalised ONCE there (t-842 F3)
         key = finding_key(lines)
         rec = self.exit_record(dispatch)
-        rec.update(lines=lines, key=key, stage=stage, role=role)
+        # P1-v W0 (R-7): the ids of the checks behind `lines`, which the caller read from the finding RECORDS before `refusal_lines`
+        # stringified them; `exit_round` reads them back from here. A caller that names none is ONE `unknown`, never a gap.
+        rec.update(lines=lines, key=key, stage=stage, role=role, checks=list(Refusal.id_set(checks)))
         self.state["pending_words"].pop(dispatch, None)
         self.save_state()
         bought = (rec.get("rounds") or {}).get(key) or {}
@@ -3620,7 +3661,9 @@ class DriverDispatch:
         except OSError:
             words = ""
         print(f"{stage}: {dispatch} gets one more turn in its own session on the person's answer (round {taken['spent']} of this set)")
-        refusal = Refusal(self.exit_ask(role, dispatch, lines, why=why), dispatch=dispatch, findings=lines)
+        # `lines` are strings, so the ids come from the exit record (`exit_limit` wrote them); a record written before P1-v W0 has
+        # none and reads `unknown` (TEMPORAL: an absent key is never an error)
+        refusal = Refusal(self.exit_ask(role, dispatch, lines, why=why), dispatch=dispatch, findings=lines, checks=rec.get("checks"))
         self.resume_with(refusal, stage, dispatch, sid,
                          "A person has answered what to do about the refusal below. Their words, whole, are your instruction for "
                          "this turn:\n\n" + (words or "(they gave no words beyond the choice)") + "\n\n",

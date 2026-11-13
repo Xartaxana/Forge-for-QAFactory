@@ -266,7 +266,8 @@ class DriverMachine:
         if not sid:
             # t-764 E9 (FR-42): the dispatch is known and no session of it is - the one seam says so, with no `round`
             print("refusal: no session of the role is known; the person is asked")
-            self.exit_limit(stage, self.dispatch_role(dispatch), dispatch, self.refusal_lines(refusal), sid="", why="refusal", text=refusal.text)
+            self.exit_limit(stage, self.dispatch_role(dispatch), dispatch, self.refusal_lines(refusal), sid="", why="refusal", text=refusal.text,
+                            checks=refusal.checks)
         key = finding_key(self.refusal_lines(refusal))
         record = self.resume_record(dispatch, sid)
         if key not in record:
@@ -296,7 +297,8 @@ class DriverMachine:
         print(f"refusal: {dispatch} was already resumed on these findings; the person is asked")
         # t-764 E8: the ONE seam (the finish refusals `story_step finish (exit 3)` reach only this site); a round the person
         # bought is spent there and the loop judges the role's new result
-        self.exit_limit(stage, self.dispatch_role(dispatch), dispatch, self.refusal_lines(refusal), sid=sid, why="refusal", text=refusal.text)
+        self.exit_limit(stage, self.dispatch_role(dispatch), dispatch, self.refusal_lines(refusal), sid=sid, why="refusal", text=refusal.text,
+                        checks=refusal.checks)
         return "continue"
 
     def window_key(self, stage: str, dispatch: str) -> str:
@@ -530,7 +532,7 @@ class DriverMachine:
                         # the set is `finding_key` of the refusal's lines (`structured_resumes` is per dispatch), so a round the person
                         # buys is counted for THIS set; a round is spent there and the loop judges the role's new result
                         self.exit_limit(stage, self.dispatch_role(dispatch), dispatch, self.refusal_lines(refusal), sid=sid or "",
-                                        why="structured", text=refusal.text)
+                                        why="structured", text=refusal.text, checks=refusal.checks)
                         return "continue"
                     return self.no_move({"why": "refusal", "kind": "refusal", "call": False, "stage": stage,
                                          "dispatch": self.refusal_dispatch(refusal), "lines": self.refusal_lines(refusal),
@@ -546,7 +548,8 @@ class DriverMachine:
                 self.run_claude("role", "The factory refused to close your dispatch " + dispatch + ":\n\n" + refusal.text.strip()
                                 + "\n\nRepair the named fields in the artifact, change nothing else, then your final "
                                   "message is the handoff form only.", role=role, dispatch=dispatch, stage=stage, resume=sid,
-                                resume_reason=resume_reason(refusal.findings or refusal.text))
+                                resume_reason=resume_reason(refusal.findings or refusal.text),
+                                checks=refusal.checks, checks_n=refusal.checks_n)     # P1-v W0 (R-8): `unknown` - the controller prints no id
                 return "retry"
             elif action in ("resume_handoff", "resume_repair"):
                 # t-217 / F-cmp2-23: a refusal of the role's handoff or of its `finish` (exit 3) is answered by the

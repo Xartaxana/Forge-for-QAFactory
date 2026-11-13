@@ -2049,6 +2049,9 @@ def _gate_refusal(args, task_root: Path, dispatch: dict, blocking: list) -> str:
                              else f"{len(refused)} finding(s) carry the source's `refused` tag: no recorded word "
                                   "passes them, `*` included; they are the author's repair."))
     lines.append(f"  {REPAIR_MARKER}.")
+    # P1-v W0 (F17): the ids of the checks that refused, as the LAST line - a machine line, JSON, that `Driver.finish` takes out of
+    # the text before a role, the conductor or `finding_key` reads it. POSITION INVARIANT: nothing is appended after it.
+    lines.append(detector_verdict.CHECKS_LINE_PREFIX + json.dumps(sorted({detector_verdict.check_id(r) for r in blocking})))
     return "\n".join(lines)
 
 

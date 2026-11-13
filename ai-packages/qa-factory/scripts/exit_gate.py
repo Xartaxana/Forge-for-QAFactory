@@ -73,10 +73,11 @@ def unreadable_record(script: str, reason, owner_file: str = "") -> DV.Record:
     `owner_file` (N1): a check that runs at EVERY stage's stop but is one stage's business (the S2 register checks)
     starts its text with the file that stage owns, so `scoped_errors.mine()` hands it to that stage and to no other
     (invariant: an S2 crash of the check blocks S2; an S5 stop is not blocked by it). `script` stays the check's name:
-    the person's word is `<script>: unreadable`, not the file's."""
+    the person's word is `<script>: unreadable`, not the file's. `check` (P1-v W0) is `<script stem>:unreadable`."""
     prefix = f"{owner_file}: " if owner_file else ""
     return DV.Record(f"{prefix}{script}: unreadable - {reason} - the factory's own defect, not the role's work; the "
-                     "conductor takes it", script=script, kind="unreadable", words="gate")
+                     "conductor takes it", script=script, kind="unreadable", words="gate",
+                     check=f"{Path(script).stem}:unreadable")
 
 
 def _run_failure(exc: BaseException) -> str:
@@ -152,7 +153,8 @@ def witness_errors(agent: str, task: str = "") -> list:
                             "the evidence contract is not satisfied, fix it yourself: you still have the "
                             "context, the orchestrator no longer does. " + " | ".join(tail),
                             script=name, kind="summary")
-        return detector_records(name, r.returncode, verdict, words="gate") + [summary]
+        # `script` stays the artifact's name (a person's word is judged against it); the check that RAN is check_witness (P1-v W0)
+        return detector_records(name, r.returncode, verdict, words="gate", producer="check_witness.py") + [summary]
     print(f"witness OK (re-run by the exit gate): {art.name} - the orchestrator needs no second run")
     return []
 
@@ -440,28 +442,40 @@ def advice_records(script: str, verdict: dict) -> list:
     return [DV.Record(line, script=script, words="gate", kind=DV.ADVICE_KIND) for line in verdict.get("advice") or []]
 
 
-def detector_records(script: str, code: int, verdict: dict, *, words: str) -> list:
+def detector_records(script: str, code: int, verdict: dict, *, words: str, producer: str = "") -> list:
     """The gate's records for one refused detector run, from `detector_verdict.parse`: one per finding (with the
     producer's marker verbatim, the way the driver routes on it), one per defect of the detector itself (NO
     marker: a defect of the factory must not send the role to repair it), and one for output that is not in the
     contract's form, shown whole. Each record carries who judged its words (`words`) and its kind. A check that did
-    not run (`verdict["unreadable"]`, RH1-5) is ONE `unreadable` record and nothing else: no finding is read from it."""
+    not run (`verdict["unreadable"]`, RH1-5) is ONE `unreadable` record and nothing else: no finding is read from it.
+
+    Every record carries the id of the check that produced it (P1-v W0): `<producer stem>:<label check>` for a finding
+    (its `tag` the third `:`-part of the label's id, read from `verdict["labels"]` - the contract's own parse, never the
+    text), `:unlabelled` for a finding with no label, `:defect`, `:unmigrated`. `producer` is the script that RAN (`script`
+    names what the person's word is judged against, and for `check_witness` that is the artifact); it defaults to `script`."""
     if verdict.get("unreadable"):
-        return [unreadable_record(script, verdict["unreadable"])]
+        return [unreadable_record(producer or script, verdict["unreadable"])]
+    stem = Path(producer or script).stem
     marker = {"repair": REPAIR_MARKER, "person": PERSON_MARKER}.get(verdict["marker"], "")
-    out = [DV.Record(f"{script}: {line}" + (f" ({marker})" if marker else ""), script=script, words=words,
-                     kind="finding", refused=refused)
-           for line, refused in zip(verdict["findings"], verdict["refused"])]
+    labels = list(verdict.get("labels") or [])
+    labels += [None] * (len(verdict["findings"]) - len(labels))      # a verdict from before `labels`: no label known, never a guess
+    out = []
+    for line, refused, label in zip(verdict["findings"], verdict["refused"], labels):
+        parts = label[1].split(":", 2) if label else []
+        out.append(DV.Record(f"{script}: {line}" + (f" ({marker})" if marker else ""), script=script, words=words,
+                             kind="finding", refused=refused, check=f"{stem}:{label[0] if label else 'unlabelled'}",
+                             tag=parts[2] if len(parts) > 2 else ""))
     for defect in verdict["defects"]:
         why = ("the gate cannot say what is wrong. This is the factory's own defect, not your work: name it in "
                "your digest under blocked; the orchestrator takes it from there."
                if defect.endswith(DV.PRINTED_NOTHING) else
                "the detector's own defect, not your work: name it in your digest under blocked; the "
                "orchestrator takes it from there")
-        out.append(DV.Record(f"{script}: {defect} - {why}", script=script, words="gate", kind="defect"))
+        out.append(DV.Record(f"{script}: {defect} - {why}", script=script, words="gate", kind="defect", check=f"{stem}:defect"))
     if verdict["unmigrated"]:
         out.append(DV.Record(f"{script}: " + DV.unmigrated_text(verdict["unmigrated"], code),
-                             script=script, words=words, kind="unmigrated", refused=verdict["unmigrated_refused"]))
+                             script=script, words=words, kind="unmigrated", refused=verdict["unmigrated_refused"],
+                             check=f"{stem}:unmigrated"))
     return out
 
 
@@ -1773,13 +1787,11 @@ WAITING_FINDING_TAGS = (C.THEN_REMAINDER_WAITS,)
 
 
 def _finding_tag_of(record) -> str:
-    """The tag of a finding record, read from the id in its label (`[<check> <id>]`, the contract's own structure in
-    `detector_verdict.LABEL_RE`, and `<check>:<case>:<tag>` the way `s5_precheck._finding_tag` splits it), else `""`."""
-    text, script = str(record), getattr(record, "script", "")
-    body = text[len(script) + 2:] if script and text.startswith(script + ": ") else text
-    label = DV.LABEL_RE.match(body)
-    parts = label.group(2).split(":", 2) if label else []
-    return parts[2] if len(parts) > 2 else ""
+    """The tag of a finding record: the field `detector_records` filled from the id in its label (`[<check> <id>]`, the
+    contract's own structure read by `detector_verdict.parse`, and `<check>:<case>:<tag>` the way `s5_precheck._finding_tag`
+    splits it), else `""` (P1-v W0: the field, never the text - the ONE reader of the label is `parse`, AR-15)."""
+    tag = getattr(record, "tag", "")
+    return tag if isinstance(tag, str) else ""
 
 
 def word_class(record) -> str:
@@ -1863,15 +1875,20 @@ def all_errors(agent: str, task: str, digest: str = "", facts_text: str = "") ->
 
     `facts_text` is what the identity decision read (`_identity`'s `scope["identity_facts"]`), for the header of an
     audit of a stop that named no story."""
-    errors = scoped_errors(agent, task, facts_text) + detector_errors(agent, task) + witness_errors(agent, task)
-    errors += grounding_errors(agent, task) + case_identity_errors(agent, task)
-    errors += digest_errors(agent, task, digest)
+    def own(records: list, family: str) -> list:
+        # P1-v W0: the gate's OWN producers name their family (`exit_gate:<family>`) right after the call, before `judge_words`;
+        # the detectors and `check_witness` name theirs in `detector_records`. The text of a record is not touched.
+        return [DV.with_check(r, f"exit_gate:{family}") for r in records]
+
+    errors = own(scoped_errors(agent, task, facts_text), "scoped") + detector_errors(agent, task) + witness_errors(agent, task)
+    errors += own(grounding_errors(agent, task), "grounding") + own(case_identity_errors(agent, task), "case_identity")
+    errors += own(digest_errors(agent, task, digest), "digest")
     if not is_halting_handoff(digest):
-        errors += required_outputs_errors(agent, task)
+        errors += own(required_outputs_errors(agent, task), "required_outputs")
     if not errors:
         # nothing blocks: the advisers run and write the advice file for THE NAMED story (GW1-10); what an adviser refuses
         # and is not advice (E-X2-2c) is judged below like any other block
-        refused = run_advisers(agent, task)
+        refused = own(run_advisers(agent, task), "adviser")
         if not refused:
             return [], []
         errors = refused
@@ -1881,7 +1898,7 @@ def all_errors(agent: str, task: str, digest: str = "", facts_text: str = "") ->
         # a summary never blocks and is shown to no one, whatever the outcome (rule 1)
         blocking, passed = [e for e in errors if getattr(e, "kind", "finding") != "summary"], []
     if not blocking:                        # a person's word passed every block: the same as a clean stop
-        late = run_advisers(agent, task)
+        late = own(run_advisers(agent, task), "adviser")
         if late:
             try:
                 blocking, more = judge_words(late, _task_pipeline(agent, task), _stage_id(agent, task))
