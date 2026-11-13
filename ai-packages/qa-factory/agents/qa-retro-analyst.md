@@ -57,7 +57,7 @@ The acceptor reads each item against its witness; the `tried` table of your form
 
 Your Commands card lists the scripts you may call; none is required and there is no order.
 
-- `${CLAUDE_PLUGIN_ROOT}/scripts/retro_numbers.py` has computed every figure into `work/retro-numbers.md` and `.json`: paste the table unchanged, repeat `INCOMPLETE` when it says so, and say a missing number is missing, never derive it.
+- `retro_numbers.py` (on your card) has computed every figure into `work/retro-numbers.md` and `.json`: paste the table unchanged, repeat `INCOMPLETE` when it says so, and say a missing number is missing, never derive it.
 - Record the person's answer with `project_decisions.py add-finding`, key `<ticket>:human-feedback`, scope `local-calibration` (`local-urgent` when urgent); factory findings go there too, each with a witness.
 - Not injected - your brief names it: `strategy/test-strategy.md`. Fold only where its record says `editable: true`; otherwise write a proposal.
 - `estimate_record.py` goes last, after `retro.md` is final. Open rows go to `qa-factory/obligations.md` with a trigger. Trigger the code-only dashboard refresh. Never move or archive the artifact folder.

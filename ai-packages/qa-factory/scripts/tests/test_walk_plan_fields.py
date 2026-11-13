@@ -260,8 +260,8 @@ def role_load_raise_named():
     # 15425 -> 15441 / 13963 -> 13979, the requirements tester 12594 -> 12609 / 11244 -> 11259. PC-9c fix round (t-2551, B1): one charter sentence
     # (claims cite `reference:<item>`) is counted in the row set below. The pins below follow role-load.json.
     check_eq("strategist ratchet: 16718 -> 16747 (TR3-10 e) -> 16804 (f571cdf10, J-15) -> 16854 (t-2391, J-15 (a): the regenerated key page, 3 product_roles lines) -> 16925 (FL-4: one craft sentence)", doc["ratchet_tokens"]["qa-test-strategist"], 16925)
-    check_eq("strategist process ratchet: 15287 -> 15286 (TR3-10 e) -> 15346 (f571cdf10, J-15) -> 15396 (t-2391, same)",
-             doc["process_ratchet_tokens"]["qa-test-strategist"], 15396)
+    check_eq("strategist process ratchet: 15287 -> 15286 (TR3-10 e) -> 15346 (f571cdf10, J-15) -> 15396 (t-2391, same) -> 15392 (t-273 OH5-2 B legend)",
+             doc["process_ratchet_tokens"]["qa-test-strategist"], 15392)
     # t-2554 (J-15, AR-20): the name `reference-snapshot.yaml` in the artifact tree of artifact-contract.md (test_stages needs it there; every
     # slice of that file carries the tree) raised six roles by 6-7 tokens: tester 12609 -> 12616 / 11259 -> 11266, designer 13331 -> 13338 /
     # 12094 -> 12101, case critic 18308 -> 18315 / 15941 -> 15948, bug reporter 14811 -> 14817 / 13931 -> 13937, scribe 17944 -> 17950 /
