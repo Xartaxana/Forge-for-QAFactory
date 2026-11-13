@@ -577,8 +577,9 @@ def coverage_projection(task, report=None, manifest=None):
             oid = ob["obligation_id"]
             matching = [b for b in bindings if b.get("obligation_id") == oid]
             binding = matching[0] if len(matching) == 1 else {}
-            current = binding.get("obligation_hash") == content_hash(ob)
-            design = binding.get("design_assessment", "unknown") if current else "unknown"
+            cur = C.binding_currency(binding, content_hash(ob))  # the ONE reader of a binding's stamps (FV1-19e)
+            current = cur["design_assessment"]
+            design = binding.get("design_assessment", C.JUDGED_UNKNOWN["design_assessment"]) if current else C.JUDGED_UNKNOWN["design_assessment"]
             instance_ids = binding.get("instance_ids") or []
             outcomes = [results.get(i, {}) for i in instance_ids]
             if not outcomes:
@@ -591,8 +592,9 @@ def coverage_projection(task, report=None, manifest=None):
                 execution = "passed"
             else:
                 execution = "inconclusive"
-            validity = binding.get("code_validity", "unverified") if current else "unverified"
-            sensitivity = binding.get("sensitivity", "missing") if current else "missing"
+            validity = (binding.get("code_validity", C.JUDGED_UNKNOWN["code_validity"]) if cur["code_validity"]
+                        else C.JUDGED_UNKNOWN["code_validity"])
+            sensitivity = binding.get("sensitivity", C.JUDGED_UNKNOWN["sensitivity"]) if current else C.JUDGED_UNKNOWN["sensitivity"]
             # Actual review/quality/probe witnesses, not just status strings, are required.
             witnessed = current and bool(binding.get("assertion_refs")) and witnessed_binding(task, binding, instance_ids, results)
             candidate_joined, candidate_gap = _reused_candidate_join(task, ob, binding)

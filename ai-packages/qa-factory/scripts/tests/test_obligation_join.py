@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from harness import (check, check_eq, check_in, check_not_in, cleanup, finish,  # noqa: E402
                      run_script, temp_project)
 
+import contract as C  # noqa: E402
 import coverage_contract as CC  # noqa: E402
 from event_store import content_hash  # noqa: E402
 import manifest_put as M  # noqa: E402
@@ -255,8 +256,61 @@ def main() -> None:
                 task, TICKET, root,
                 json.loads((task / "work" / "automation-manifest.json").read_text(encoding="utf-8")))
             check_eq("a second run renames nothing", again["changed"], [])
+            # FV1-19e t3-d: the seed binds a `sensitivity` and no counting judgment field (design_assessment / code_validity),
+            # so nothing is owed again and no `left` row names the renamed id; t3-e: the second run adds none either.
+            check_eq("t3-d: no `left` row names TS-1-O1 (no counting judgment field to re-judge)",
+                     [x for x in report["left"] if "TS-1-O1" in x["artifact"]], [])
+            check_eq("t3-e: a second run adds no `left` row for a renamed id",
+                     [x for x in again["left"] if x["artifact"].startswith("obligation_bindings[]:TS-")], [])
     finally:
         cleanup(root)
+
+    # --- 4a. FV1-19e t3-a..t3-c: the rename never drops a judgment and never carries one as current ----------------------
+    new_ob = PLAN_ROWS[0]["coverage_obligations"][0]
+    new_hash = content_hash(new_ob)
+    for name, seed_binding, want_kept, want_hash, want_judged_on, want_current, want_stale in (
+            ("t3-a: a judgment made on another text (hash hb)",
+             {"obligation_hash": "hb", "design_assessment": "sufficient", "code_validity": "valid"},
+             {"design_assessment": "sufficient", "code_validity": "valid"}, "hb", {"code_validity": "hb"},
+             {"design_assessment": False, "code_validity": False}, "design_assessment, code_validity"),
+            ("t3-b: a judgment made on the plan's text now (hash == plan hash)",
+             {"obligation_hash": new_hash, "design_assessment": "sufficient", "code_validity": "valid"},
+             {"design_assessment": "sufficient", "code_validity": "valid"}, new_hash, {"code_validity": new_hash},
+             {"design_assessment": True, "code_validity": True}, None),
+            ("t3-c: a counting design_assessment that no text ever certified (no hash)",
+             {"design_assessment": "sufficient"},
+             {"design_assessment": "sufficient"}, None, {},
+             {"design_assessment": False, "code_validity": False}, "design_assessment")):
+        root, task = make_story()
+        try:
+            seed = {"obligation_bindings": [dict({"obligation_id": "OB-1", "instance_ids": ["test_five"]}, **seed_binding)]}
+            (task / "work" / "automation-manifest.json").write_text(json.dumps(seed), encoding="utf-8")
+            (task / "state").mkdir(exist_ok=True)
+            proc = run_script("migrate_artifacts.py", "--task-root", str(task), "--if-older", cwd=root)
+            try:
+                rep = json.loads(proc.stdout.strip().splitlines()[-1])
+            except (ValueError, IndexError):
+                check(f"{name}: the last stdout line is the JSON report", False, f"stdout tail: {proc.stdout[-400:]!r}")
+                continue
+            stored = json.loads((task / "work" / "automation-manifest.json").read_text(encoding="utf-8"))["obligation_bindings"]
+            b = next(x for x in stored if x["obligation_id"] == "TS-1-O1")
+            check_eq(f"{name}: every judgment is kept, the stamps are the OLD ones, and `renamed_from` is never stored",
+                     ({k: b.get(k) for k in want_kept}, b.get("obligation_hash"), b.get("judged_on"), "renamed_from" in b),
+                     (want_kept, want_hash, want_judged_on, False))
+            check_eq(f"{name}: currency against the plan's hash", C.binding_currency(b, new_hash), want_current)
+            rows = [x for x in rep["left"] if x["artifact"] == "obligation_bindings[]:TS-1-O1"]
+            if want_stale is None:
+                check_eq(f"{name}: no `left` row", rows, [])
+            else:
+                check_eq(f"{name}: exactly one `left` row", len(rows), 1)
+                reason = rows[0]["reason"] if rows else ""
+                check(f"{name}: the reason opens with the field list and names the rename and the door",
+                      reason.startswith(f"not current, re-judge: {want_stale} (") and "renamed from OB-1" in reason
+                      and f"manifest_put.py --task {task.name} --fragment" in reason,f"reason: {reason!r}")
+                check(f"{name}: the journal's 80-character cut keeps the field list", f"re-judge: {want_stale}" in reason[:80],
+                      f"reason[:80]: {reason[:80]!r}")
+        finally:
+            cleanup(root)
 
     # --- 4b. FV1-19 (row p, re-pinned by F1): the two retraction sites resend the covering rows by identity only ------------
     import migrate_artifacts as MA

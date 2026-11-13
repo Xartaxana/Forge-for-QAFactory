@@ -5356,14 +5356,82 @@ def _stamp_row_refs(row: dict, at: int, plan_map: dict, problems: list) -> None:
         row["obligation_hash"] = content_hash(stamped) if stamped else ""
 
 
+JUDGED_FIELDS = ("code_validity",)
+JUDGED_UNKNOWN = {"design_assessment": "unknown", "code_validity": "unverified", "sensitivity": "missing"}
+# the closed words of a binding's judged fields (`references/artifact-contract-automation.md`), for a finding's example
+BINDING_VOCAB = {"design_assessment": ("sufficient", "partial", "unknown"), "code_validity": ("valid", "unverified")}
+
+
+def counting_value(binding, field: str) -> bool:
+    """True when `binding[field]` is a value the coverage projection would COUNT (if its stamp were current): present,
+    not None and not the projection's own "counts for nothing" word (`JUDGED_UNKNOWN`). The ONE such test (FV1-19e)."""
+    return isinstance(binding, dict) and binding.get(field) is not None and binding.get(field) != JUDGED_UNKNOWN.get(field)
+
+
 def _binding_stamp_allowed(binding: dict, stored, want: str) -> bool:
     """May the stamp write the plan's hash `want` onto an incoming hash-less `binding`? Only when that cannot revive a
-    STALE stored judgment (FV1-19 B1): no stored binding of the id, the stored one has no hash, the stored hash already
-    equals the plan's, or the incoming binding re-sends the judgment the hash certifies (a non-null `design_assessment`).
-    `stored` is the stored binding of the id or None."""
-    if not isinstance(stored, dict) or stored.get("obligation_hash") in (None, ""):
+    STALE stored judgment (FV1-19 B1): no stored binding of the id; the stored one has a hash that already equals the
+    plan's, or the incoming binding re-sends the judgment the hash certifies (a non-null `design_assessment`); or the
+    stored one has NO hash and carries no COUNTING `design_assessment` (`counting_value`: a judgment never written
+    against any recorded text must not start counting on a receipt write). `stored` is the stored binding of the id or
+    None."""
+    if not isinstance(stored, dict):
         return True
-    return stored.get("obligation_hash") == want or binding.get("design_assessment") is not None
+    resent = binding.get("design_assessment") is not None
+    if stored.get("obligation_hash") in (None, ""):
+        return resent or not counting_value(stored, "design_assessment")
+    return stored.get("obligation_hash") == want or resent
+
+
+def binding_currency(binding, plan_hash) -> dict:
+    """`{"design_assessment": bool, <each JUDGED field>: bool}`: which judgments of `binding` were written against the
+    obligation text whose hash is `plan_hash`. The ONE reader of a binding's stamps. `design_assessment` is current
+    iff `obligation_hash` is a non-empty str equal to `plan_hash`; a JUDGED field iff the binding's `judged_on` is a
+    dict holding `plan_hash` for it, or (no `judged_on` key: a binding written before the per-field stamp) the binding
+    hash equals `plan_hash`. It errs only toward False: a non-dict binding, a `plan_hash` that is not a non-empty str,
+    a non-dict `judged_on`, a non-str stamp. Never raises."""
+    out = {"design_assessment": False, **{f: False for f in JUDGED_FIELDS}}
+    if not isinstance(binding, dict) or not isinstance(plan_hash, str) or not plan_hash:
+        return out
+    bound = binding.get("obligation_hash") == plan_hash
+    out["design_assessment"] = bound
+    stamps = binding.get("judged_on")
+    for f in JUDGED_FIELDS:
+        if "judged_on" not in binding:
+            out[f] = bound
+        elif isinstance(stamps, dict):
+            out[f] = stamps.get(f) == plan_hash
+    return out
+
+
+def _renamed_stamps(binding: dict, old: dict, want: str) -> None:
+    """Step 4b of `stamp_obligation_refs` (a valid `renamed_from`, `old` = the stored binding of the old id): writes the
+    CARRIED stamps onto `binding` in place. A counting judgment keeps the stamp it was written with, never `want`."""
+    old_hash = old.get("obligation_hash")
+    old_hash = old_hash if isinstance(old_hash, str) and old_hash else None
+    if not counting_value(binding, "design_assessment"):
+        binding["obligation_hash"] = want
+    elif old_hash:
+        binding["obligation_hash"] = old_hash
+    stamps, old_stamps = {}, old.get("judged_on")
+    for f in JUDGED_FIELDS:
+        if binding.get(f) is None:
+            continue
+        if not counting_value(binding, f):
+            stamps[f] = want
+        elif isinstance(old_stamps, dict):
+            if isinstance(old_stamps.get(f), str) and old_stamps[f]:
+                stamps[f] = old_stamps[f]
+        elif "judged_on" not in old and old_hash:
+            stamps[f] = old_hash
+    binding["judged_on"] = stamps
+
+
+def _renamed_from_valid(value, oid, retracted, stored_by_id: dict) -> bool:
+    """True when `renamed_from` `value` is a rename instruction the fragment backs: a non-empty string that is not the
+    binding's own id, is listed in the fragment's `retracted_obligations` (a list) and has a stored binding."""
+    return (isinstance(value, str) and bool(value) and value != oid and isinstance(retracted, list)
+            and value in retracted and value in stored_by_id)
 
 
 def stamp_obligation_refs(fragment, plan_map, stored_bindings=None) -> tuple:
@@ -5377,13 +5445,24 @@ def stamp_obligation_refs(fragment, plan_map, stored_bindings=None) -> tuple:
        with a different hash is a problem; with an empty map the refs stay as sent;
     5. `obligation_ids` = the refs' ids in refs order (a sent list that differs as a SET is a problem), and the row's
        `obligation_hash` = `content_hash(<stamped refs>)` (`""` for `[]`) unless the row sent one.
-    An `obligation_bindings[]` row drops a `None` hash (null = not sent); one that names a plan obligation and carries
-    a different hash is a problem; one that carries none gets the plan's hash unless `stored_bindings` (the manifest's
-    stored `obligation_bindings[]`, as `merge` reads them: the LAST row of an id) hold a binding of that id whose hash
-    differs from the plan's and the incoming binding re-sends no `design_assessment` - then it goes on WITHOUT a hash,
-    the merge keeps the stored (stale) one, and the binding stays not current (a receipt never re-validates a judgment
-    made on other plan text). Absent, None, non-list `stored_bindings` and non-dict items are "no stored binding". A
-    binding naming an id the plan does not is left alone (its refusal is `manifest_put`'s)."""
+    An `obligation_bindings[]` row, per binding, in this order (FV1-19e):
+    1. `judged_on`, `renamed_from` and `obligation_hash` sent as `None` are dropped (null = not sent); any other
+       `judged_on` is a problem (the stamp is the code's: leave it out) and is never kept;
+    2. `renamed_from` is the migration's instruction, POPPED and never stored: valid iff a non-empty string, not the
+       binding's own id, listed in the fragment's `retracted_obligations` (a list) and holding a stored binding in
+       `stored_bindings`; anything else is ONE problem;
+    3. the sent `obligation_hash` is ALWAYS popped after it is compared: with a non-empty map and a known id a value
+       that differs from the plan's is a problem, an equal one counts as not sent; with an empty map or an id the map
+       lacks it is dropped (the merge keeps the stored hash);
+    4. a binding naming a plan obligation (non-empty map, known id): (a) no valid `renamed_from`: it gets the plan's
+       hash unless `_binding_stamp_allowed` says a STALE stored judgment would be revived (then it goes on WITHOUT a
+       hash, the merge keeps the stored one and the binding stays not current: a receipt never re-validates a
+       judgment made on other plan text), and `judged_on` = `{f: <plan hash>}` for every `JUDGED_FIELDS` field it
+       sends non-null (`{}` included: it triggers the legacy materialization in `merge`); (b) a valid `renamed_from`:
+       the CARRIED stamps (`_renamed_stamps`): a counting judgment keeps the stamp the old id's stored binding held
+       for it, never the plan's hash, so a judgment made on another text counts for nothing and stays to be named;
+    5. an empty map or an id the plan does not name: no hash, no `judged_on` (the id's refusal is `manifest_put`'s).
+    Absent, None, non-list `stored_bindings` and non-dict items are "no stored binding"; the LAST row of an id is read."""
     import copy
     from event_store import content_hash
     problems = []
@@ -5411,16 +5490,33 @@ def stamp_obligation_refs(fragment, plan_map, stored_bindings=None) -> tuple:
             if not isinstance(binding, dict):
                 rows.append(binding)
                 continue
-            binding = {k: copy.deepcopy(v) for k, v in binding.items() if not (k == "obligation_hash" and v is None)}
+            binding = {k: copy.deepcopy(v) for k, v in binding.items()
+                       if not (k in ("obligation_hash", "judged_on", "renamed_from") and v is None)}
             oid = binding.get("obligation_id")
+            where = f"obligation_bindings[{at}]"
+            if "judged_on" in binding:
+                binding.pop("judged_on")
+                problems.append(f"{where}.judged_on is the code's (the obligation hash each judgment was made against); "
+                                "leave it out, the code writes it")
+            old = None
+            if "renamed_from" in binding:
+                source = binding.pop("renamed_from")
+                if _renamed_from_valid(source, oid, fragment.get("retracted_obligations"), stored_by_id):
+                    old = stored_by_id[source]
+                else:
+                    problems.append(f"{where}.renamed_from {source!r} names no stored binding this fragment retracts; "
+                                    "leave it out, it is the migration's")
+            sent = binding.pop("obligation_hash", None)
             if plan_map and isinstance(oid, str) and oid in plan_map:
-                want, sent = content_hash(plan_map[oid]), binding.get("obligation_hash")
-                if sent in (None, ""):
-                    binding.pop("obligation_hash", None)
+                want = content_hash(plan_map[oid])
+                if sent not in (None, "", want):
+                    problems.append(_hash_problem(where, oid, sent, want))
+                elif old is not None:
+                    _renamed_stamps(binding, old, want)
+                else:
                     if _binding_stamp_allowed(binding, stored_by_id.get(oid), want):
                         binding["obligation_hash"] = want
-                elif sent != want:
-                    problems.append(_hash_problem(f"obligation_bindings[{at}]", oid, sent, want))
+                    binding["judged_on"] = {f: want for f in JUDGED_FIELDS if binding.get(f) is not None}
             rows.append(binding)
         out["obligation_bindings"] = rows
     return out, problems

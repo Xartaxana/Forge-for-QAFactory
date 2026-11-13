@@ -244,9 +244,8 @@ def _obligation_refs_problem(entry: dict, plan, known=None) -> str:
         if found:
             stale = any(kind == "stale" for kind, _text in found)
             text = "; ".join(("stale: " if kind == "stale" else "") + text for kind, text in found)
-            return text + ((" - the plan's obligation changed after the row was written, or the hash was typed; " + REF_REPAIR
-                            + "; a stale binding hash: re-send the binding's `design_assessment` through `" + FRAGMENT_DOOR
-                            + "` and the code re-stamps the hash") if stale else " - " + REF_REPAIR)
+            return text + ((" - the plan's obligation changed after the row was written, or the hash was typed; " + REF_REPAIR)
+                            if stale else " - " + REF_REPAIR)
         return ""
     owed = [ob for ob in plan or [] if isinstance(ob, dict) and ob.get("obligation_id")
             and not str(ob.get("decision") or "").startswith("manual-")]
