@@ -659,6 +659,7 @@
         "scripts/walk_session.py",
         "scripts/walk_pool.py",
         "scripts/walk_timing.py",
+        "scripts/tests/test_project_for_task_readers.py",
         "scripts/tests/test_walk_account.py",
         "scripts/tests/test_walk_account_rejoin.py",
         "scripts/tests/test_walk_batch.py",
