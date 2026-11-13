@@ -405,7 +405,7 @@ and the new one-line action printed.</p>
 
 <h2>Sending the factory's records to its developers</h2>
 
-<p><code>/qa-factory:qa-collect</code> packs the factory's records of your project &#8212; what ran, where it stalled, what it cost, and your own words about it &#8212; into one file that you send to the factory's developers yourself. qa-collect asks two questions in one message, runs one packing command and changes nothing in your stories. Run <code>/qa-factory:qa-collect</code> from the project folder that holds <code>qa-factory/config.json</code>; the factory sends nothing from your machine.</p>
+<p><code>/qa-factory:qa-collect</code> packs the factory's records of your project &#8212; what ran, where it stalled or looped, what it cost, and your own words about it &#8212; into one file that you send to the factory's developers yourself. qa-collect asks two questions in one message, runs one packing command and changes nothing in your stories. Run <code>/qa-factory:qa-collect</code> from the project folder that holds <code>qa-factory/config.json</code>; the factory sends nothing from your machine.</p>
 
 <table><tbody>
 <tr><th>Step</th><th>What the skill asks and does</th></tr>
@@ -414,7 +414,7 @@ and the new one-line action printed.</p>
 <tr><td>Pack</td><td>ONE command, <code>collect_pack.py</code>, with the files of this run only. No agent packs anything and no model is involved. A data set that is not at its standard place is named in the output as <code>&lt;SET&gt;: not found at the standard place</code>; the skill then asks where it lives and runs the command again with <code>--extra &lt;SET&gt;=&lt;path inside the project&gt;</code>, and nothing else is searched for</td></tr>
 <tr><td>The window</td><td>By default the archive holds what is new since the last packing; <code>--since install</code> packs everything since the install again. An archive you did not send stays on disk</td></tr>
 <tr><td>Show</td><td>The summary of the run, as printed (at most twelve lines): the archive file and its size, the window, the gaps named, the files skipped with a reason, and <code>Package modified</code>. If the place for the file would show in git, the archive goes to the temp folder and the summary names the reason. Any other refusal is shown as printed; the skill does not work around it</td></tr>
-<tr><td>Send</td><td>You send the file named in the summary to the QA factory developers, or delete it. The transcripts of stalled stories are in a file of their own, named in the summary, so that you can delete just that file</td></tr>
+<tr><td>Send</td><td>You send the file named in the summary to the QA factory developers, or delete it. The transcripts of stalled or looped stories are in a file of their own, named in the summary, so that you can delete just that file</td></tr>
 </tbody></table>
 
 <p>Everything that goes into the archive passes the factory's redaction rules. The finished archive is read back and checked again; if anything is found, the archive is deleted and the command refuses.</p>
