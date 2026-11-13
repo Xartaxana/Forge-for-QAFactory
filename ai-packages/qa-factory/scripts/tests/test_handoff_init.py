@@ -72,5 +72,43 @@ def test_purpose_table() -> None:
         cleanup(root)
 
 
+# (id, stage, role, argv that make the form, words the door must carry, words it must not carry). The door is the line a
+# not-UTF-8 refusal of handoff_check.py prints; the purposes and receivers expected are the ones of the handoffs/index.yaml rows.
+DOOR_ROWS = [
+    ("door: a plan form (purpose s5_plan, author) names --to then --purpose", "S5", AUTHOR, ["--purpose", "s5_plan"],
+     [f"--role <role> --to {CRITIC} --purpose s5_plan --dispatch"], []),
+    ("door: a plan review form (purpose s5_plan, critic) names --to then --purpose", "S5", CRITIC, ["--purpose", "s5_plan"],
+     [f"--role <role> --to {AUTHOR} --purpose s5_plan --dispatch"], []),
+    ("door: an ordinary S5 form prints no --purpose and no --to", "S5", AUTHOR, [],
+     ["--role <role> --dispatch"], ["--purpose", "--to "]),
+    ("door: a two-contract stage form (S4 secondary) still prints --to alone", "S4", "qa-case-designer", ["--to", "qa-runner"],
+     ["--role <role> --to qa-runner --dispatch"], ["--purpose"]),
+]
+
+
+def test_door_table() -> None:
+    root = temp_project()
+    try:
+        art = root / "artifacts" / "QA-9"
+        (art / "work").mkdir(parents=True)
+        for number, (name, stage, role, argv, words, absent) in enumerate(DOOR_ROWS):
+            dispatch = f"{stage}-{role}-door-{number}"
+            made = run_script("handoff_init.py", "--task", "QA-9", "--stage", stage, "--role", role,
+                              "--dispatch", dispatch, "--task-root", str(art), *argv)
+            form = art / "work" / "handoffs" / f"{dispatch}.yaml"
+            if made.returncode != 0 or not form.is_file():
+                check(name, False, f"the form was not made: exit {made.returncode}\n{(made.stdout + made.stderr)[:500]}")
+                continue
+            form.write_bytes(form.read_bytes() + b"\n# \xff\xfe\n")
+            run = run_script("handoff_check.py", "--file", str(form), "--task-root", str(art), "--no-judge")
+            seen = run.stdout + run.stderr
+            ok = run.returncode == 2 and "Traceback" not in seen and "not UTF-8" in seen \
+                and all(word in seen for word in words) and not any(word in seen.split("Start it again:")[-1] for word in absent)
+            check(name, ok, f"exit {run.returncode}, output:\n{seen[:700]}")
+    finally:
+        cleanup(root)
+
+
 test_purpose_table()
+test_door_table()
 finish("handoff_init purpose")

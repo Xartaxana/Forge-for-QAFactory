@@ -394,6 +394,7 @@
   {"file": "handoff_check.py", "function": "run", "class": "shape", "roles": ["qa-automator", "qa-bug-reporter", "qa-case-critic", "qa-case-designer", "qa-code-critic", "qa-doc-scribe", "qa-failure-analyst", "qa-requirements-tester", "qa-retro-analyst", "qa-runner", "qa-scout", "qa-test-strategist", "conductor"], "owner": "data"},
   {"file": "handoff_check.py", "function": "tried_errors", "class": "shape", "roles": ["qa-automator", "qa-bug-reporter", "qa-case-designer", "qa-doc-scribe", "qa-failure-analyst", "qa-requirements-tester", "qa-retro-analyst", "qa-runner", "qa-scout", "qa-test-strategist"], "owner": "data"},
   {"file": "handoff_help.py", "function": "ask", "class": "meaning", "roles": ["conductor"], "owner": "judgment"},
+  {"file": "handoff_init.py", "function": "clean_purpose", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "handoff_init.py", "function": "task_root", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "hooklib.py", "function": "_run", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "hooklib.py", "function": "append_jsonl_line", "class": "shape", "roles": ["qa-automator", "qa-bug-reporter", "qa-case-critic", "qa-case-designer", "qa-code-critic", "qa-doc-scribe", "qa-failure-analyst", "qa-requirements-tester", "qa-retro-analyst", "qa-runner", "qa-scout", "qa-test-strategist", "conductor"], "owner": "data"},
