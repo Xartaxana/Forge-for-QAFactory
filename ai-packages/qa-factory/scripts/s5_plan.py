@@ -22,6 +22,10 @@ the windows are written against it. This module is the plan's one reader and its
   stamp_review(task_root, id)    the receipt of the plan the critic judged: `work/s5-plan-reviews.json` (E11): bytes, rows, tests
   check(task_root, controller)   every gap of the plan, all at once (`check_report` adds what could not be checked)
   grouping_hints(plan) / hint_rows(task_root)   advice, never a gate: tests at one level in one file that each prove their own case
+  merge_hints(plan, concerns) / merge_hint_rows(task_root)   advice, never a gate: cases the case critic asked to parametrise into
+                                 one test that the plan keeps in separate tests with no `apart_reason`
+  concern_report(task_root, state)   the case critic's carried concerns with the rounds read and the files that gave none (receipt)
+  placed_remarks / concerns_for_scope / remark_lines   the one placer and the one printer of remarks: windows, legacy windows, side file
   window_slice(task_root, n | cases)   the plan's part for window n (or for the cases of a dispatch), as the controller cut the
                                  windows (the plan holds no window), with the review's remarks for it
   reviews(task_root, state)      THE reader of the chain of plan reviews: form + receipt of every accepted critic dispatch
@@ -1113,11 +1117,13 @@ def _concern_remark(number, case, check, problem, expected, fix, review) -> dict
             "problem": problem, "expected": expected, "fix": fix, "review": review}
 
 
-def _file_concerns(key, rounds, root, number) -> list:
-    """The remarks of ONE findings file, numbered from `number`. Per case, the LATEST accepted round that lists it decides
+def _file_concerns(key, rounds, root, number) -> tuple:
+    """`(remarks, silent)` of ONE findings file, numbered from `number`. Per case, the LATEST accepted round that lists it decides
     (AR-21): a later round over fewer cases never drops the concerns of a case only an earlier round reviewed, and a later
     round that lists the case with no concern supersedes the earlier one's. An unreadable file is a global remark (FR-59:
-    nobody reads stderr; case None goes to every window)."""
+    nobody reads stderr; case None goes to every window; `silent` False, the file already has its remark). `silent` is True when
+    the file was read and no accepted round of it listed a case (the receipt measured other bytes, no roll-call): the brief
+    names such a file, it is never "none carried" (FR-41)."""
     import critic_rollcall as CR
     where = "/".join(key)
     try:
@@ -1129,7 +1135,7 @@ def _file_concerns(key, rounds, root, number) -> list:
                                 f"the case critic's findings file {where} cannot be read, so its concerns are not carried to "
                                 "automation",
                                 "read that file yourself before automating, or say in `plan_remarks` why it does not apply",
-                                "", rounds[-1][1])]
+                                "", rounds[-1][1])], False
     read = CR.accepted_rounds(data, rounds, root)
     latest = {case: position for position, one in enumerate(read) for case in one["listed"]}
     out = []
@@ -1140,7 +1146,24 @@ def _file_concerns(key, rounds, root, number) -> list:
                     number + len(out), _ref(item["case"]), "case critic, S4", item["problem"],
                     f"the case critic's full finding is in {where}, round {item['review']}; take it into account when the case "
                     "is automated, or say in `plan_remarks` why it does not apply", item["fix"], item["review"]))
-    return out
+    return out, not any(one["listed"] for one in read)
+
+
+def concern_report(task_root, state) -> dict:
+    """`{"concerns": [...], "rounds": n, "silent": [paths]}`: `concerns` are exactly what `case_concerns` returns; `rounds` is the
+    number of accepted S4 case-critic rounds of the files that could be read (a round of a `silent` file is not counted: "none raised
+    in N rounds" is a fact only about rounds that were read, FR-41); `silent` the story-relative paths of the findings files that were read and gave
+    nothing because no round of them could be read against its receipt (AR-28: that is not "no concern"). THE one reader of the
+    concern list (AR-13): `case_concerns` is its `concerns`."""
+    root, out, silent = Path(task_root).resolve(), [], []
+    files = _case_critic_files(state)
+    for key, rounds in files.items():
+        remarks, quiet = _file_concerns(key, rounds, root, len(out) + 1)
+        out.extend(remarks)
+        if quiet:
+            silent.append("/".join(key))
+    read = sum(len(rounds) for key, rounds in files.items() if "/".join(key) not in silent)
+    return {"concerns": out, "rounds": read, "silent": silent}
 
 
 def case_concerns(task_root, state) -> list:
@@ -1154,10 +1177,7 @@ def case_concerns(task_root, state) -> list:
     `CC-n` is numbered across the files in the order the dispatches were accepted. A file that cannot be read becomes a global
     remark naming it (never a concern from bytes the receipt did not measure; a round whose receipt does not match carries
     nothing and stderr says why). Gate A's line "Concerns carried to automation" reads this too."""
-    root, out = Path(task_root).resolve(), []
-    for key, rounds in _case_critic_files(state).items():
-        out.extend(_file_concerns(key, rounds, root, len(out) + 1))
-    return out
+    return concern_report(task_root, state)["concerns"]
 
 
 def remark_rows_missing(remarks, rows) -> list:
@@ -1193,6 +1213,37 @@ def _placement(remark, window_of, tests):
         else:
             windows.add(window)
     return windows, ("unplaced" if lost or not windows else "window")
+
+
+def placed_remarks(remarks, window_of, tests, reach) -> list:
+    """The remarks a window (or a legacy dispatch) is handed, each with its `placement`: the ones that point at cases go to the
+    windows those cases are in (kept when they meet `reach`), the global and the unplaced ones go to every window. THE one placer
+    of the planned slices and the legacy windows (AR-15)."""
+    out = []
+    for remark in remarks:
+        places, how = _placement(remark, window_of, tests)
+        if how != "window" or places & reach:
+            out.append(dict(remark, placement=how))
+    return out
+
+
+def concerns_for_scope(task_root, state, concerns, scope) -> tuple:
+    """`(concerns of ONE legacy window, why)`: the same placement rule as the planned windows, the window being `scope`. When the
+    stage's scope cannot be derived, the dispatch names no scope, or anything fails, every concern comes back `unplaced` with `why` (over-carry, said aloud:
+    AR-28); `why` is "" otherwise. Never raises."""
+    if not scope:       # a window that names no case is the story scope: no window to cut, so nothing is dropped for want of one
+        return [dict(c, placement="unplaced") for c in concerns], "the dispatch names no scope"
+    try:
+        import controller as CT
+        stage = CT.Controller(task_root).stage_scope("S5", state)
+        if not stage.get("derived"):
+            return [dict(c, placement="unplaced") for c in concerns], str(stage.get("reason") or "the stage scope is not derived")
+        mine = {str(key) for key in scope}
+        window_of = {str(key): (1 if str(key) in mine else 0) for key in stage.get("scope") or []}
+        window_of.update({key: 1 for key in mine})
+        return placed_remarks(concerns, window_of, [], {1}), ""
+    except Exception as exc:      # noqa: BLE001 - advice to a window never stops its brief
+        return [dict(c, placement="unplaced") for c in concerns], f"{type(exc).__name__}: {_show(exc, 100)}"
 
 
 def _settled_lines(task_root, plan_rows, mapping, cases) -> dict:
@@ -1293,11 +1344,7 @@ def window_slice(task_root, n=None, state=None, cases=None) -> dict:
     own = [rows[case] for case in asked if case in rows]
     tests = [test for test in _rows(plan, "tests") if any(str(c) in asked for c in test.get("cases") or [])]
     reach = {window_of[case] for case in asked if case in window_of}
-    remarks = []
-    for remark in remarks_of(task_root, state):
-        places, how = _placement(remark, window_of, _rows(plan, "tests"))
-        if how != "window" or places & reach:
-            remarks.append(dict(remark, placement=how))
+    remarks = placed_remarks(remarks_of(task_root, state), window_of, _rows(plan, "tests"), reach)
     requirements = list(dict.fromkeys(str(r) for row in own for r in row.get("requirements") or []))
     remainders = [dict(r, case=str(row.get("case"))) for row in own for r in _rows(row, "remainders")]
     held = window or {}
@@ -1355,14 +1402,19 @@ def render_slice(piece) -> str:
             lines.append(f"apart_reason: {test['apart_reason']}")      # a window reads why this test stands apart (AR-21)
         lines.append(f"assert: {test.get('assert')}")
         lines += [f"deviation ({d.get('from')}): {d.get('reason')}" for d in _rows(test, "deviation")]
-    lines += ["", "## Remarks (plan review and case critic)"]
-    for remark in piece["remarks"]:
+    lines += ["", "## Remarks (plan review and case critic)"] + remark_lines(piece["remarks"])
+    return "\n".join(lines) + "\n"
+
+
+def remark_lines(remarks) -> list:
+    """The lines of a list of remarks (each with its `placement`): the one printer of the window slice and of the case critic's
+    side file (AR-15); `no remarks for this window` when the list is empty (AR-23)."""
+    lines = []
+    for remark in remarks:
         where = ", ".join(f"{key} {remark[key]}" for key in ("case", "test", "then") if remark.get(key)) or "the whole plan"
         lines += [f"- {remark['id']} [{remark['kind']}] {where} ({remark['check']}; {remark['placement']}): {remark['problem']} "
                   f"Expected: {remark['expected']}" + (f" Fix: {remark['fix']}" if str(remark.get("fix") or "").strip() else "")]
-    if not piece["remarks"]:
-        lines.append("no remarks for this window")
-    return "\n".join(lines) + "\n"
+    return lines or ["no remarks for this window"]
 
 
 def check(task_root, controller, files=True) -> list:
@@ -1457,6 +1509,69 @@ def hint_rows(task_root) -> tuple:
         return [], f"{type(exc).__name__}: {_show(exc, 100)}"
 
 
+def merge_hints(plan, concerns, cfg=None) -> list:
+    """`[{case, message, fix, tag}]`: the cases the S4 case critic asked to parametrise into one test (`parametrise into one
+    test: <ids>` in a carried concern) that the plan keeps in separate tests with no `apart_reason`. The same row shape as
+    `grouping_hints`, printed by `print_hints`. An ADVISER, never a gate (AR-29, FR-47): the join of ids is data; whether a reason
+    is real, and whether the merge is acceptable, is the plan critic's. A key of the plan matches an id when it equals it or holds
+    it (an area key `speakers/TC-9` matches the bare `TC-9`). Cases no test holds (remainders, one automated, ids outside the plan)
+    give no row: nothing is automated twice. One test holding every key of the group follows the merge, whatever its shape; every
+    test meeting the group naming a text `apart_reason` answers it (presence only). One row per group, whichever concern names it.
+    `[]` for anything it cannot read; no malformed row stops it."""
+    if not isinstance(plan, dict):
+        return []
+    import critic_rollcall as CR
+    keys = [str(row["case"]) for row in plan.get("cases") or [] if isinstance(row, dict) and isinstance(row.get("case"), str)]
+    tests = [t for t in plan.get("tests") or [] if isinstance(t, dict) and isinstance(t.get("cases"), list)]
+    held = {str(c) for t in tests for c in t["cases"]}
+
+    def matches(key, ident) -> bool:
+        return C.names_case([key], ident, cfg)
+
+    rows, seen = [], set()
+    for concern in concerns or []:
+        if not isinstance(concern, dict) or not isinstance(concern.get("problem"), str):
+            continue
+        group = CR.parametrise_group(concern["problem"], cfg)
+        if len(group) < 2:
+            continue
+        near = [key for key in keys if any(matches(key, ident) for ident in group)]
+        both = [key for key in near if key in held]
+        if len(both) < 2:
+            continue
+        meeting = [t for t in tests if any(str(c) in both for c in t["cases"])]
+        if any(set(both) <= {str(c) for c in t["cases"]} for t in meeting):
+            continue
+        if all(isinstance(t.get("apart_reason"), str) and t["apart_reason"].strip() for t in meeting):
+            continue
+        tag = "merge-" + hashlib.sha1("\n".join(sorted(both)).encode("utf-8")).hexdigest()[:8]
+        if tag in seen:
+            continue
+        seen.add(tag)
+        listed = ", ".join(str(t.get("id")) for t in meeting)
+        rows.append({"case": both[0], "tag": tag,
+                     "message": f"the case critic asked to parametrise {', '.join(both)} into one test ({concern.get('id')}); "
+                                f"the plan puts them in {listed} and not every one of those tests says why in apart_reason",
+                     "fix": f"write one parameterized test over {', '.join(both)} (each parameter id naming its case), or give "
+                            "each test that holds them an apart_reason naming another setup, surface or fixture"})
+    return rows
+
+
+def merge_hint_rows(task_root) -> tuple:
+    """`(rows, why)`: the merge hints of the plan on disk, with the contract of `hint_rows`: `why` = "" when they were computed
+    (even to none) or when the plan check already says there is no plan to read; otherwise the words of what failed (the caller
+    says "not checked", AR-28)."""
+    plan, why = plan_for_hints(task_root)
+    if plan is None:
+        return [], ("" if why == NO_PLAN or why.startswith(PlanUnreadable.__name__ + ":") else why)
+    try:
+        import controller as CT
+        state = CT.Controller(task_root).state()
+        return merge_hints(plan, case_concerns(task_root, state), cfg=C.case_config(task_root)), ""
+    except Exception as exc:        # noqa: BLE001
+        return [], f"{type(exc).__name__}: {_show(exc, 100)}"
+
+
 def print_hints(hints) -> None:
     """The one printer of `hint:` lines, shared by `--check` here and `s5_precheck.report`: the same hint prints the same line
     on both paths, every text one line (AR-18)."""
@@ -1491,11 +1606,15 @@ def main() -> int:
             hints, why = hint_rows(task_root)      # advice: never changes the findings, the verdict or the exit code
             if why:
                 notes.append(f"not checked: the grouping hints of the plan ({why})")
+            merges, merge_why = merge_hint_rows(task_root)
+            if merge_why:
+                notes.append(f"not checked: the case-critic merge hints of the plan ({merge_why})")
             for note in notes:
                 print(f"note: {_line(note)}")
-            print_hints(hints)
+            print_hints(hints + merges)
             if not findings:
-                print(f"OK: the plan has no gap ({len(notes)} thing(s) not checked, named above)." + (" " + HINT_ADVICE if hints else ""))
+                print(f"OK: the plan has no gap ({len(notes)} thing(s) not checked, named above)."
+                      + (" " + HINT_ADVICE if hints or merges else ""))
                 return 0
             print(f"REJECT — {len(findings)} finding(s) in the S5 plan for the author before the code critic:")
             for finding in findings:

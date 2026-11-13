@@ -11,11 +11,12 @@
     at most 60 code lines an excerpt and 28 000 bytes with the left-out list (E15, at 28 000 and 28 001); the head grows by at
     most two lines and the brief stays under 6 KB;
   * a resumed rework writes a delta with the fallback line (E4); a fresh one does not;
-  * the earlier form (`legacy`) is the brief as it was: no plan path, no slice, no side file.
+  * the earlier form (`legacy`) is the brief as it was plus the case critic's concerns for its window: no plan path, no slice.
 
 Every key names the mutation it kills (spec section 5, C2: M38 the 28 000 cap without the left-out list, M39 the head over the cap,
 M40 a global remark missing from window 2, M41 a plan over the cap with no slices).
 """
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -538,7 +539,7 @@ def k8_legacy():
 
 # The size of the plan critic's full brief on the K7 fixture, in path-normalised bytes (`harness.normalised_bytes`; AR-4, AR-20).
 # SHRINK-ONLY: a raise needs a named reason in the verdict, never a quiet edit of this number.
-S5_PLAN_BRIEF_BYTES_MAX = 9520   # FV1-4 N1 (AR-20): re-based from DOORS_ONLY_BRIEF_MAX (6443 budget B) to normalised bytes (harness.normalised_bytes); measured 2026-11-13 on Windows (the helper makes the number machine-independent)
+S5_PLAN_BRIEF_BYTES_MAX = 9559   # FV1-4 N1 (AR-20): re-based from DOORS_ONLY_BRIEF_MAX (6443 budget B) to normalised bytes (harness.normalised_bytes); measured 2026-11-13 on Windows (the helper makes the number machine-independent). TQ2-1 K2 (AR-20): +39 B, the plan brief states the case critic's concerns, "none carried" on the K7 story (AR-23)
 
 
 def size_verdict(n):
@@ -599,6 +600,108 @@ def k9_grouping_hint_line():
         check("K7 verdict: one byte BEYOND the ratchet is RED", not size_verdict(top + 1)[0], "")
     finally:
         cleanup(project)
+
+
+FINDINGS = "work/test-cases/critic-findings.md"
+TOKEN = "parametrise into one test:"
+
+
+def concern_scenario(role, dispatch, notes, legacy=None, tamper=False, groups=None, read=None, other=2, same_file=False, over=False):
+    """`(brief markdown, {side file name: text})` of a story whose accepted S4 case-critic round carries `notes` ((case, note) rows
+    of its roll-call; the S4 dispatch listing is the one patched seam: the file, its receipt and the reader are real). `legacy` is
+    the scope of a driver-process window (the earlier form); None is the plan dispatch."""
+    cases = ("TC-1", "TC-2", "TC-3")
+    if legacy is None:
+        project, task, c = story(cases, groups, other, read)
+    else:
+        project = temp_project("qa-bp-cc-")
+        task = project / "qa-factory" / "artifacts" / TICKET
+        task.mkdir(parents=True)
+        put(task, "pipeline.json", json.dumps({"ticket": TICKET, "size": "S", "environment": "local", "stages": {}, "gates": {}, "halts": []}))
+        c = s5_story(task, cases=cases, with_case_files=True)
+        config(project, other)
+        harness.use_project(project)
+    real = SP._case_critic_files
+    try:
+        if notes:
+            data = ("# Case critic findings - QA-9 - round 1 (dispatch S4-qa-case-critic-1)\n\nVerdict: approve_with_concerns\n\n## Roll-call\n\n"
+                    "| plan row | case | reviewed | verdict | note |\n|---|---|---|---|---|\n"
+                    + "".join(f"| TS-{n[-1]} | {n} | yes | approve_with_concerns | {note} |\n" for n, note in notes) + "\n").encode("utf-8")
+            put(task, FINDINGS, data)
+            sha = hashlib.sha256(data).hexdigest()
+            if tamper:
+                put(task, FINDINGS, data + b"edited after the receipt\n")
+            SP._case_critic_files = lambda state: {tuple(FINDINGS.split("/")): [(sha, "S4-qa-case-critic-1")]}
+        if same_file:
+            plan = SP.load(task)
+            for test in plan["tests"]:
+                test["file"], test["shape"], test["level"] = "tests/test_same.py", "new", "api"
+            atomic_json(task / SP.PLAN_REL, plan)
+        if over:
+            plan = SP.load(task)
+            plan["refactor"] = "x" * 4000
+            atomic_json(task / SP.PLAN_REL, plan)
+        if legacy is not None:
+            with harness.run_mode("driver"):
+                send(c, task, dispatch, role, scope=legacy)
+        got = build(role, dispatch, write=True)
+        return got["markdown"], {Path(p).name: Path(p).read_text(encoding="utf-8") for p in got["written"]}
+    finally:
+        SP._case_critic_files = real
+        cleanup(project)
+
+
+def k14_case_concerns_reach_the_s5_brief():
+    """TQ2-1 K2 B1-B8: the case critic's concerns reach the plan author and the plan critic (under and over the guard's read cap), and
+    every window of the earlier form its own (the concerns of ITS cases). Each row names the input; its empty outcome is one of three
+    distinct lines (none carried / none raised / could not be read against the receipt: AR-23, AR-28)."""
+    # a real round: S4 exit demands the token on EVERY case of a merged pair (`_merge_concern_errors`)
+    merge = [("TC-1", f"{TOKEN} TC-1, TC-2"), ("TC-2", f"{TOKEN} TC-1, TC-2"), ("TC-3", "F-3 another concern")]
+    pair = merge[:2]
+    two_pairs = [("TC-1", f"{TOKEN} TC-1, TC-2"), ("TC-2", f"{TOKEN} TC-1, TC-2"), ("TC-3", f"{TOKEN} TC-2, TC-3")]
+    three_group = [(f"TC-{n}", f"{TOKEN} TC-1, TC-2, TC-3") for n in (1, 2, 3)]
+    untagged = [("TC-1", "F-1 plain concern"), ("TC-2", "F-2 plain concern")]
+    plan_split = dict(same_file=True)       # one test per case, all in one file and level: the grouping line fires too
+    rows = [  # label, args, kwargs, must be in the brief, must not be, must be in the side file (None: no side file)
+        ("B1 author-under-cap", (AUTHOR, "S5-plan-author-1", pair), {}, ["S5-plan-author-1-case-concerns.md", "2 concern(s)",
+         "1 ask to parametrise", "in `apart_reason`", "the windows get the same lines"], ["none carried"], ["CC-1", "CC-2", TOKEN]),
+        ("B2 critic-under-cap, the plan splits TC-1/TC-2", (CRITIC, "S5-plan-critic-1", pair), plan_split,
+         ["prints 1 merge hint(s)", "is a blocker (rubric", "prints 1 grouping hint(s)", "S5-plan-critic-1-case-concerns.md"], ["none carried"], ["CC-1", TOKEN]),
+        ("B3 author-over-cap", (AUTHOR, "S5-plan-author-1", pair), dict(read=2500, over=True),
+         ["S5-plan-author-1-case-concerns.md", "as the windows will cut it"], [], ["CC-1", "CC-2"]),
+        ("B4 critic-over-cap", (CRITIC, "S5-plan-critic-1", pair), dict(read=2500, over=True),
+         ["S5-plan-critic-1-case-concerns.md", "Judge whether the plan answers each"], [], ["CC-1", "CC-2"]),
+        ("B5 no accepted case-critic dispatch", (AUTHOR, "S5-plan-author-1", []), {}, ["case critic's concerns: none carried"],
+         ["case-concerns.md"], None),
+        ("B6 findings edited after the receipt", (AUTHOR, "S5-plan-author-1", pair), dict(tamper=True),
+         ["could not be read against the critic's receipt", "work/test-cases/critic-findings.md - case critic's findings that gave no"],
+         ["none carried", "none raised", "case-concerns.md - the case critic"], None),
+        ("B1b two pairs sharing TC-2 are two groups", (AUTHOR, "S5-plan-author-1", two_pairs), {},
+         ["3 concern(s)", "(2 ask to parametrise"], ["(1 ask", "(3 ask"], ["CC-1", "CC-3"]),
+        ("B1c a group of three cases is one ask", (AUTHOR, "S5-plan-author-1", three_group), {},
+         ["3 concern(s)", "(1 ask to parametrise"], ["(2 ask", "(3 ask"], ["CC-3"]),
+        ("B1d concerns with no token ask nothing, none dropped", (AUTHOR, "S5-plan-author-1", untagged), {},
+         ["2 concern(s)", "(0 ask to parametrise"], ["none carried", "none raised"], ["CC-1", "CC-2"]),
+        ("B7a legacy author, window [TC-1]", (AUTHOR, "S5-qa-automator-1", merge), dict(legacy=["TC-1"], other=1),
+         ["1 concern(s) for the cases of this window", "1 ask to parametrise", "1 name a case of another window"], ["3 concern(s)"], ["CC-1"]),
+        ("B7b legacy author, window [TC-1, TC-2]", (AUTHOR, "S5-qa-automator-1", merge), dict(legacy=["TC-1", "TC-2"]),
+         ["2 concern(s) for the cases of this window"], ["name a case of another window", "CC-3"], ["CC-1", "CC-2"]),
+        ("B8 legacy code critic, window [TC-1, TC-2]", (CRITIC, "S5-qa-code-critic-1", merge), dict(legacy=["TC-1", "TC-2"]),
+         ["2 concern(s) for the cases of this window", "judge each answer (C12)"], ["name a case of another window"], ["CC-1", "CC-2"]),
+    ]
+    for label, args, kwargs, wanted, unwanted, side in rows:
+        text, sides = concern_scenario(*args, **kwargs)
+        mine = [t for name, t in sides.items() if name.endswith("-case-concerns.md")]
+        check(f"{label}: the brief holds {wanted}", all(w in text for w in wanted), str([w for w in wanted if w not in text]))
+        check(f"{label}: the brief holds none of {unwanted}", not any(w in text for w in unwanted), str([w for w in unwanted if w in text]))
+        if side is None:
+            check_eq(f"{label}: no side file of concerns", mine, [])
+        else:
+            check(f"{label}: the side file holds {side}", len(mine) == 1 and all(w in mine[0] for w in side), str(mine)[:300])
+    text, sides = concern_scenario(AUTHOR, "S5-plan-author-1", pair, read=2500, over=True)
+    slices = sorted((t for name, t in sides.items() if "-plan-w" in name))
+    check("B3: over the cap each slice still prints the remarks (window 1 holds the concerns of its cases)",
+          len(slices) >= 2 and "CC-1" in slices[0] and "no remarks for this window" in slices[-1], str(slices)[:300])
 
 
 def k12_helpers_section():
@@ -877,6 +980,7 @@ def main():
     k13_base_log_lines()
     k12_helpers_section()
     k1_plan_dispatch()
+    k14_case_concerns_reach_the_s5_brief()
     k9_grouping_hint_line()
     n2_could_not_lines_name_the_whole_text()
     k2_plan_over_the_cap()
