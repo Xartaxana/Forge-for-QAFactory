@@ -551,6 +551,28 @@ class NativeStageRefusal(unittest.TestCase):
                            and s['call'].startswith(entry['call'])]
                 self.assertEqual(len(covered), 1)
 
+    def test_dispatch_valueerrors_and_every_other_raise_of_the_host_modules_have_an_a24_row(self):
+        """OH7-2: B-8 (`check_override`, two raises) and B-9 (`rewritten_input`) are keyed by the text they raise,
+        and so is every other refusal of the two files the scanner now reads."""
+        import refusal_registry as RR
+        self.assertIn('codex_roles.py', RR.SCANNED)
+        self.assertIn('host_adapter.py', RR.SCANNED)
+        line_entries = [e for e in RR.REGISTRY if e.get('kind') != 'operation']
+        live = [s for s in RR.sites(RR.PLUGIN_ROOT) if s['file'] in ('codex_roles.py', 'host_adapter.py')]
+        wanted = [('codex_roles.py', 'check_override', 'Native Codex role missing'),
+                  ('codex_roles.py', 'check_override', 'Native {role} {key} mismatch'),
+                  ('host_adapter.py', 'rewritten_input', 'Explicit desktop model/effort overrides')]
+        for file, function, head in wanted:
+            with self.subTest(refusal=head):
+                sites = [s for s in live if (s['file'], s['function']) == (file, function) and s['call'].startswith(head)]
+                self.assertEqual(len(sites), 1, 'the scanner no longer sees the raise')
+                rows = [e for e in line_entries if RR._covers(e, sites[0])]
+                self.assertEqual(len(rows), 1, f'{file}:{function} `{head}` has no single A24 row')
+                self.assertTrue(rows[0]['unpassable_because'] or rows[0]['override'])
+        for site in live:
+            with self.subTest(site=f"{site['file']}:{site['function']}:{site['call'][:40]}"):
+                self.assertEqual(sum(1 for e in line_entries if RR._covers(e, site)), 1)
+
 
 DOOR = ('context diagnostic requires current allow/deny evidence in this host session; '
         'run host_probe.py --prepare, its two native commands, then --check')
