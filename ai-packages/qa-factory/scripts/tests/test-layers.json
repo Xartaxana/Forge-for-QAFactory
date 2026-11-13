@@ -128,6 +128,7 @@
     "references/artifact-contract-run.md",
     "references/artifact-writers.json",
     "references/stages.json",
+    "tests/dashboard_fixture.py",
     "tests/harness.py"
    ]
   },
