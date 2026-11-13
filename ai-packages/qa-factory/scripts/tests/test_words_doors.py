@@ -2003,23 +2003,33 @@ def row_fv130a_no_second_question() -> None:
         c = S5.s5_task(task, ("TC-1",))
         acceptance.validate_window = lambda window, root_: ["product:test_x", "product:test_y", "stale_run:test_x"]
         d, p = {"id": "a2", "scope": ["TC-1"]}, {}
+        # FV1-30b: the let-go reads the window item (the no-run shape the writer builds) and the pass's `subjects` (the producer's
+        # own list, `s5_precheck._finding(subjects=)`): a pass that names no instance lets nothing go
+        no_run = {"evidence_refs": []}
+        window = {"instances": [dict(no_run, instance_id="test_x"), dict(no_run, instance_id="test_y")]}
         P.word_passes = lambda *_a, **_k: []
-        text = " ".join(m for _cls, m in c._s5_gap_problems(d, p, {}))
+        text = " ".join(m for _cls, m in c._s5_gap_problems(d, p, window))
         check("no word: both instances are refused", "product:test_x" in text and "product:test_y" in text, text)
         P.word_passes = lambda *_a, **_k: [{"finding_id": "run_mapping:TC-1:no-row-test_x", "check": "run_mapping", "case": "TC-1",
-                                            "tag": "no-row-test_x", "decision": "go on", "at": "t"}]
-        text = " ".join(m for _cls, m in c._s5_gap_problems(d, p, {}))
+                                            "tag": "no-row-test_x", "decision": "go on", "at": "t",
+                                            "subjects": [{"instance_id": "test_x"}]}]
+        text = " ".join(m for _cls, m in c._s5_gap_problems(d, p, window))
         check("the passed instance is not refused a second time; the other still is; another gap of the passed one still is",
               "product:test_x" not in text and "product:test_y" in text and "stale_run:test_x" in text, text)
         P.word_passes = lambda *_a, **_k: [{"finding_id": "bindings:TC-1:no-bindings", "check": "bindings", "case": "TC-1",
                                             "tag": "no-bindings", "decision": "go on", "at": "t"}]
-        text = " ".join(m for _cls, m in c._s5_gap_problems(d, p, {}))
+        text = " ".join(m for _cls, m in c._s5_gap_problems(d, p, window))
         check("a pass of ANOTHER finding (`no-bindings`) lets no instance go", "product:test_x" in text and "product:test_y" in text, text)
+        P.word_passes = lambda *_a, **_k: [{"finding_id": "run_mapping:TC-1:no-row-test_x", "check": "run_mapping", "case": "TC-1",
+                                            "tag": "no-row-test_x", "decision": "go on", "at": "t"}]
+        text = " ".join(m for _cls, m in c._s5_gap_problems(d, p, window))
+        check("(E4, E13) a pass of a line written before `subjects` names no instance: nothing goes on a guess",
+              "product:test_x" in text and "product:test_y" in text, text)
 
         def boom(*_a, **_k):
             raise RuntimeError("boom")
         P.word_passes = boom
-        text = " ".join(m for _cls, m in c._s5_gap_problems(d, p, {}))
+        text = " ".join(m for _cls, m in c._s5_gap_problems(d, p, window))
         check("a reader that cannot answer lets nothing go (the refusing direction)", "product:test_x" in text and "product:test_y" in text, text)
         # critic F4: `_plan_refusal` (it runs inside `validate`, on probes and refused requests) records nothing: the recording of
         # its pass is queued by the Lead
@@ -2034,7 +2044,320 @@ def row_fv130a_no_second_question() -> None:
         cleanup(root)
 
 
+def row_fv130b_the_journal_line_carries_the_subjects() -> None:
+    """FV1-30b N0 (f), (g), E9, E13: the line of a pass carries `check`, `case`, `tag` and `subjects` (each only when it has a value);
+    `subjects` is cut at 200 entries with `subjects_cut` beside it, AT (200) and BEYOND (201, 5000), and the reader names only the
+    entries listed; a line written before this node (no such key) is read as before."""
+    import s5_precheck as P
+    real = P.word_passes
+    at = "2026-10-01T10:00:00+00:00"
+    root, task, c, complete, S5 = _s5_completion("qa-words-door-fv30b-", [])
+    try:
+        journal = task / "state" / "passed-by-person.jsonl"
+        lines = lambda: [json.loads(x) for x in journal.read_text(encoding="utf-8").splitlines()] if journal.is_file() else []  # noqa: E731
+        state = c.state()
+        with_subjects = {"finding_id": "run_mapping:TC-1:no-row-test_x", "check": "run_mapping", "case": "TC-1", "tag": "no-row-test_x",
+                         "decision": "go on", "at": at, "subjects": [{"instance_id": "test_x"}]}
+        case_less = {"finding_id": "plan:-:plan-unreadable", "check": "plan", "case": "", "tag": "plan-unreadable", "decision": "d", "at": at,
+                     "subjects": []}
+        P.word_passes = lambda *_a, **_k: [with_subjects, case_less]
+        c._record_s5_word_passes({"id": "a2", "scope": ["TC-1"]}, state)
+        got = lines()
+        check_eq("(f) a pass with subjects: check, case, tag and subjects on the line, no cut mark",
+                 [(x["check"], x["case"], x["tag"], x["subjects"], "subjects_cut" in x) for x in got[:1]],
+                 [("run_mapping", "TC-1", "no-row-test_x", [{"instance_id": "test_x"}], False)])
+        check_eq("(f) a case-less pass with no subjects: check and tag, and NO `case`, `subjects`, `subjects_cut` (written only when non-empty)",
+                 [(x.get("check"), x.get("tag"), "case" in x, "subjects" in x, "subjects_cut" in x) for x in got[1:]],
+                 [("plan", "plan-unreadable", False, False, False)])
+        # (g) the cut, AT and BEYOND
+        for count, cut in ((1, False), (200, False), (201, True), (5000, True)):
+            rows = [dict(with_subjects, subjects=[{"instance_id": f"i{n}"} for n in range(count)])]
+            P.word_passes = lambda *_a, **_k: rows
+            before = len(lines())
+            c._record_s5_word_passes({"id": "a2", "scope": ["TC-1"]}, state)
+            line = lines()[before]
+            check_eq(f"(g) {count} subjects: {min(count, 200)} on the line, `subjects_cut` {'= ' + str(count) if cut else 'absent'}",
+                     (len(line["subjects"]), line.get("subjects_cut")), (min(count, 200), count if cut else None))
+        passes, why = waiver.person_passes(task)
+        index = waiver.word_passed_index(passes)
+        check_eq("(g) the reader names the 200 listed instances", [bool(index.instance("not_run", f"i{n}")) for n in (0, 199)], [True, True])
+        check_eq("(g) ...and passes none of the 4800 cut: a cut never passes an unnamed instance",
+                 [bool(index.instance("not_run", f"i{n}")) for n in (200, 201, 4999)], [False, False, False])
+        cut_pass = next(p for p in index.all() if p.get("subjects_cut"))
+        check_eq("(g) ...and the pass carries the whole count for the report's `and N more`", cut_pass["subjects_cut"], 5000)
+        # E13: a line written before this node
+        old = {"ts": "2026-10-01T10:00:00+00:00", "stage": "S5", "dispatch": "a2", "block": "bindings:TC-1:no-bindings", "decision": "go", "by": "human"}
+        with journal.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(old) + "\n")
+        passes, why = waiver.person_passes(task)
+        old_row = next(p for p in passes if p["finding_id"] == "bindings:TC-1:no-bindings")
+        check_eq("E13: an old line is read: its parts from the block, no subjects", (old_row["check"], old_row["case"], old_row["tag"], old_row["subjects"]),
+                 ("bindings", "TC-1", "no-bindings", []))
+        check_eq("E13: ...and it matches no Then (an old record never lets a gate go on a guess)",
+                 waiver.word_passed_index(passes).then("TC-1", 1), None)
+    finally:
+        P.word_passes = real
+        cleanup(root)
+
+
+def row_fv130b_person_passes() -> None:
+    """FV1-30b N0 (h): `waiver.person_passes` - no file, unreadable, torn, old, repeated (E1-E5)."""
+    root = Path(temp_dir("qa-words-door-fv30b-pp-"))
+    try:
+        (root / "state").mkdir()
+        journal = root / "state" / "passed-by-person.jsonl"
+
+        def put(*lines, raw=b"") -> None:
+            journal.write_bytes(raw + "".join(json.dumps(x, ensure_ascii=False) + "\n" for x in lines).encode("utf-8"))
+
+        check_eq("E1: no file: no pass, no reason", waiver.person_passes(root), ([], ""))
+        journal.mkdir()
+        rows, why = waiver.person_passes(root)
+        check("E2: the path cannot be read (a directory): `(None, why)`, never a pass", rows is None and "could not be read" in why, str((rows, why)))
+        journal.rmdir()
+        at, at2 = "2026-10-01T10:00:00+00:00", "2026-10-01T11:00:00+00:00"
+        (root / "pipeline.json").write_text(json.dumps({"stage_overrides": [
+            {"stage": "S5", "match": "*", "decision": "the person's whole word " + "w" * 3000, "at": at}]}), encoding="utf-8")
+        good = {"ts": "2026-10-01T10:05:00+00:00", "stage": "S5", "dispatch": "a2", "block": "run_mapping:TC-1:no-row-x", "decision": "short",
+                "by": "human", "word_at": at, "check": "run_mapping", "case": "TC-1", "tag": "no-row-x", "subjects": [{"instance_id": "x"}]}
+        # E3: a torn line, a non-object, a line with no block, bytes that are no UTF-8: each skipped, the others stay
+        put(good, raw=b'{"stage": "S5", "block": "torn\n[1, 2]\n\xff\xfe not text\n' + json.dumps({"stage": "S5", "decision": "no block"}).encode() + b"\n")
+        rows, why = waiver.person_passes(root)
+        check_eq("E3: the good line survives four bad ones", [r["finding_id"] for r in rows], ["run_mapping:TC-1:no-row-x"])
+        for line_no in ("line 1 ", "line 2 ", "line 3 ", "line 4 "):
+            check_in(f"E3: the one reason names {line_no.strip()}", line_no, why)
+        check_eq("E3: one reason, not one per line", why.count("were skipped"), 1)
+        check_eq("the word is the person's WHOLE word from stage_overrides by `word_at`, not the cut decision",
+                 (len(rows[0]["word"]), rows[0]["word_recorded"], rows[0]["decision"]), (3024, True, "short"))
+        check_eq("...`at` is the `word_at`; `ts` and `by` are the line's", (rows[0]["at"], rows[0]["ts"], rows[0]["by"]), (at, good["ts"], "human"))
+        # E11: word_at names no word in the record: the decision stands, marked not recorded
+        put(dict(good, word_at="2026-01-01T00:00:00+00:00"))
+        check_eq("E11: `word_at` names no recorded word: the decision, `word_recorded` False",
+                 [(r["word"], r["word_recorded"]) for r in waiver.person_passes(root)[0]], [("short", False)])
+        (root / "pipeline.json").write_text("{torn", encoding="utf-8")
+        put(good)
+        check_eq("`pipeline.json` unreadable: the decision, not a failure", [(r["word"], r["word_recorded"]) for r in waiver.person_passes(root)[0]],
+                 [("short", False)])
+        # E4: an old line (no check, case, tag, subjects, word_at): parts from the block, split once
+        old = {"ts": "2026-10-01T10:00:00+00:00", "stage": "S5", "dispatch": "a1", "block": "manifest:-:row-fields-missing", "decision": "go", "by": "human"}
+        old2 = dict(old, block="bindings:TC-1:unbound-2", dispatch="a1")
+        colon = dict(old, block="oracle:TC-1:changed-after-red-a.py:12")
+        put(old, old2, colon)
+        rows, why = waiver.person_passes(root)
+        check_eq("E4: old lines are taken apart from the block: a `-` case is empty, a tag keeps its colon",
+                 [(r["check"], r["case"], r["tag"], r["subjects"], r["at"]) for r in rows],
+                 [("manifest", "", "row-fields-missing", [], ""), ("bindings", "TC-1", "unbound-2", [], ""), ("oracle", "TC-1", "changed-after-red-a.py:12", [], "")])
+        check_eq("E4: and the index maps them to their facts but names no Then or instance",
+                 ([p["fact"] for p in waiver.word_passed_index(rows).all()], waiver.word_passed_index(rows).then("TC-1", 2)),
+                 (["row_fields_unestablished", "then_unbound", "other"], None))
+        # a block cut at 400 with the whole id beside it: the whole id is the finding
+        long_id = "bindings:TC-1:" + "t" * 500
+        put(dict(old, block=long_id[:400], finding_id=long_id))
+        check_eq("a cut block: the whole `finding_id` is read", [r["finding_id"] for r in waiver.person_passes(root)[0]], [long_id])
+        # stages: only S5
+        put(dict(old, stage="S4"), old)
+        check_eq("a line of another stage is no S5 pass", len(waiver.person_passes(root)[0]), 1)
+        # E5: repeats of (dispatch, block, word_at) collapse; another dispatch or word is another pass
+        put(old, dict(old, ts="2026-10-01T12:00:00+00:00", decision="again"), dict(old, dispatch="a2"), dict(old, word_at="2026-10-02T00:00:00+00:00"))
+        rows, _why = waiver.person_passes(root)
+        check_eq("E5: two lines of the same (dispatch, block, word_at) are one pass, the later; another dispatch / word_at is its own",
+                 sorted((r["dispatch"], r["at"], r["decision"]) for r in rows),
+                 sorted([("a1", "", "again"), ("a2", "", "go"), ("a1", "2026-10-02T00:00:00+00:00", "go")]))
+        check_eq("E5: the index collapses the same repeat too", len(waiver.word_passed_index(rows + rows).all()), len(rows))
+        late = waiver.word_passed_index([
+            {"finding_id": "plan:-:plan-unreadable", "decision": "old", "ts": "2026-10-01T09:00:00+00:00", "dispatch": "a1", "at": "t1"},
+            {"finding_id": "plan:-:plan-unreadable", "decision": "new", "ts": "2026-10-01T10:00:00+00:00", "dispatch": "a2", "at": "t2"},
+            {"finding_id": "plan:-:plan-unreadable", "decision": "mid", "ts": "2026-10-01T09:30:00+00:00", "dispatch": "a3", "at": "t3"}])
+        check_eq("E5: three passes of one fact, the latest by ts answers", (len(late.all()), late.s5_plan()["decision"]), (3, "new"))
+    finally:
+        cleanup(root)
+
+
+def row_fv130b_the_one_reader() -> None:
+    """FV1-30b N0 (i), (j), (k), (l), E18, E20, E26: `waiver.word_passed_index` and `waiver.row_fields`."""
+    def rows_of(*rows):
+        return waiver.word_passed_index(list(rows))
+
+    def pass_row(finding_id, subjects=None, **extra):
+        return dict({"finding_id": finding_id, "decision": "go on", "at": "2026-10-01T10:00:00+00:00", "subjects": subjects or []}, **extra)
+
+    # (i) .then: case_matches, a sibling case misses; the number must be a real Then number
+    then = rows_of(pass_row("bindings:TC-1:no-bindings", [{"case": "TC-1", "then": 1}, {"case": "TC-1", "then": 3}]))
+    check_eq("(i) .then hits a named Then", [bool(then.then("TC-1", n)) for n in (1, 3)], [True, True])
+    check_eq("(i) .then misses an unnamed Then and a sibling case", [bool(then.then("TC-1", 2)), bool(then.then("TC-2", 1)), bool(then.then("TC-10", 1))],
+             [False, False, False])
+    check_eq("(i) .then reads `then` as the contract does: `\"3\"` hits, 0 / True / junk miss",
+             [bool(then.then("TC-1", v)) for v in ("3", 0, True, None, "x", [3])], [True, False, False, False, False, False])
+    check_eq("(i) .then: a bare id matches any area (`case_matches`), and an empty case matches nothing",
+             [bool(then.then("feedback-api/TC-1", 1)), bool(then.then("", 1))], [True, False])
+    unbound = rows_of(pass_row("bindings:TC-1:unbound-2", [{"case": "TC-1", "then": 2}]))
+    check_eq("(i) `unbound-2` is a then_unbound pass", (unbound.all()[0]["fact"], bool(unbound.then("TC-1", 2))), ("then_unbound", True))
+    check_eq("(i) .then asks only the then_unbound fact: a not_run pass naming a Then answers nothing",
+             rows_of(pass_row("run_mapping:TC-1:no-row-A", [{"case": "TC-1", "then": 1}])).then("TC-1", 1), None)
+    # (i) .instance: an alias hits, a parameter-label prefix misses
+    inst = rows_of(pass_row("run_mapping:TC-1:no-row-TC-1::test_x[eu]", [{"instance_id": "TC-1::test_x[eu]"}]))
+    check_eq("(i) .instance hits the id itself and its bare alias",
+             [bool(inst.instance("not_run", i)) for i in ("TC-1::test_x[eu]", "test_x[eu]")], [True, True])
+    check_eq("(i) .instance misses a prefix, another label, another case's spelling and the wrong fact",
+             [bool(inst.instance("not_run", i)) for i in ("test_x", "test_x[eu2]", "TC-2::test_x[eu]", "test_x[eu][neg]", "")] +
+             [bool(inst.instance("row_fields_unestablished", "test_x[eu]"))], [False] * 6)
+    label = rows_of(pass_row("run_mapping:TC-1:no-row-A", [{"instance_id": "A"}]))
+    check_eq("(j) a pass for `no-row-A` does not pass the instance `A[neg]` (30a B1)",
+             (bool(label.instance("not_run", "A")), label.instance("not_run", "A[neg]"), label.instance("not_run", "A[neg]x")), (True, None, None))
+    # (i) unknown (check, tag) is `other`; unmatched-A is no fact; a prefix needs something after it
+    odd = rows_of(pass_row("bindings:TC-1:contradicted-1"), pass_row("run_mapping:TC-1:unmatched-A", [{"instance_id": "A"}]),
+                  pass_row("run_mapping:TC-1:no-row-"), pass_row("bindings:TC-1:no-bindings-extra"), pass_row("manifest:-:row-fields-missing-x"),
+                  pass_row("oracle:TC-1:no-row-A"), pass_row("plan:-:plan-unreadable"))
+    check_eq("(i) unknown (check, tag), `unmatched-A`, a bare prefix, a longer exact tag and a tag of another check are `other`; the plan is its fact",
+             [p["fact"] for p in odd.all()], ["other"] * 6 + ["s5_plan_unread"])
+    check_eq("(i) ...and `unmatched-A` answers no lookup of a fact a gate asks (it is `other`: a report line only)",
+             [odd.instance(f, "A") for f in ("not_run", "row_fields_unestablished", "then_unbound")] + [odd.then("TC-1", 1)], [None] * 4)
+    check_eq("(i) .s5_plan answers the plan pass, and None without one", (bool(odd.s5_plan()), rows_of().s5_plan()), (True, None))
+    facts = rows_of(pass_row("bindings:TC-1:no-bindings"), pass_row("bindings:TC-1:unbound-7"), pass_row("run_mapping:TC-1:no-row-x"),
+                    pass_row("manifest:-:row-fields-missing"), pass_row("plan:-:plan-unreadable"))
+    check_eq("(i) the table maps each of its five rows", [p["fact"] for p in facts.all()],
+             ["then_unbound", "then_unbound", "not_run", "row_fields_unestablished", "s5_plan_unread"])
+    check_eq("(i) a pass is the keys of the spec", sorted(facts.all()[0]), sorted(["finding_id", "check", "case", "tag", "fact", "decision", "at", "by", "ts", "fields"]))
+    # (k) a field the table does not pass is never passed, though the subject names it
+    named = pass_row("manifest:-:row-fields-missing", [{"instance_id": "A", "fields": ["obligation_refs", "change_disposition", "input_hash", "no_such_field"]}])
+    fields = rows_of(named)
+    # (N1 added the `profile_id` row, so the field with NO row is a name the table never had)
+    check_eq("(k) .instance with `obligation_refs` hits; `change_disposition`, `input_hash` and a field with NO row (`no_such_field`) miss",
+             [bool(fields.instance("row_fields_unestablished", "A", field=f)) for f in ("obligation_refs", "change_disposition", "input_hash", "no_such_field", "other_field")],
+             [True, False, False, False, False])
+    check_eq("(k) .instance with no field names the instance", bool(fields.instance("row_fields_unestablished", "A")), True)
+    check_eq("(k) another instance is named by nothing", [fields.instance("row_fields_unestablished", "B", field="obligation_refs"), fields.passed_fields("B")], [None, []])
+    check_eq("(k) passed_fields lists only `obligation_refs` for a subject of [obligation_refs, change_disposition]",
+             rows_of(pass_row("manifest:-:row-fields-missing", [{"instance_id": "A", "fields": ["obligation_refs", "change_disposition"]}])).passed_fields("A"),
+             ["obligation_refs"])
+    check_eq("(k) ...and the pass says every field the subjects name (the table decides what passes)",
+             fields.all()[0]["fields"], ["obligation_refs", "change_disposition", "input_hash", "no_such_field"])
+    check_eq("(k) a subject whose `fields` is no list names no field", rows_of(pass_row("manifest:-:row-fields-missing", [{"instance_id": "A", "fields": "obligation_refs"}])).passed_fields("A"), [])
+    # E20: the same, through the deletion-loop's view - a pass naming only excluded fields passes nothing
+    check_eq("E20: a pass naming only `change_disposition` / `input_hash` lets no field go",
+             rows_of(pass_row("manifest:-:row-fields-missing", [{"instance_id": "A", "fields": ["change_disposition", "input_hash"]}])).passed_fields("A"), [])
+    # (l) / E26: the table unreadable or without its section: facts still map, no field passes
+    tmp = Path(temp_dir("qa-words-door-fv30b-rf-"))
+    try:
+        absent = tmp / "absent.json"
+        broken = tmp / "broken.json"
+        broken.write_text("{torn", encoding="utf-8")
+        nosection = tmp / "nosection.json"
+        nosection.write_text(json.dumps({"facts": [{"check": "manifest", "tag": "row-fields-missing", "match": "exact", "fact": "row_fields_unestablished"}]}), encoding="utf-8")
+        notobject = tmp / "notobject.json"
+        notobject.write_text(json.dumps({"row_fields": ["obligation_refs"]}), encoding="utf-8")
+        toplist = tmp / "toplist.json"
+        toplist.write_text("[1]", encoding="utf-8")
+        good = tmp / "good.json"
+        good.write_text(json.dumps({"row_fields": {"obligation_refs": {"pass": True}, "bad_row": "x", "falsy": {"pass": "yes"}}}), encoding="utf-8")
+        for label, path in (("the file absent", absent), ("the file not JSON", broken), ("the file a directory (unreadable)", tmp),
+                            ("the section absent", nosection), ("the section not an object", notobject), ("the file not an object", toplist)):
+            got, why = waiver.row_fields(path)
+            check(f"(l) {label}: `({{}}, why)`", got == {} and bool(why), str((got, why)))
+        got, why = waiver.row_fields(good)
+        check_eq("(l) a good file: the rows that are objects; the section is read as is", (sorted(got), why), (["falsy", "obligation_refs"], ""))
+        table = {"facts": [{"check": "manifest", "tag": "row-fields-missing", "match": "exact", "fact": "row_fields_unestablished"}]}
+        for label, tb in (("no `row_fields`", table), ("a `row_fields` list", dict(table, row_fields=["obligation_refs"])),
+                          ("a `row_fields` null", dict(table, row_fields=None)), ("`pass` that is not True", dict(table, row_fields={"obligation_refs": {"pass": "yes"}}))):
+            idx = waiver.word_passed_index([named], tb)
+            check_eq(f"E26: {label}: the fact still maps, no field passes",
+                     (idx.all()[0]["fact"], idx.passed_fields("A"), idx.instance("row_fields_unestablished", "A", field="obligation_refs")),
+                     ("row_fields_unestablished", [], None))
+    finally:
+        cleanup(tmp)
+    real, none_why = waiver.row_fields()
+    check_eq("(l) the shipped table: obligation_refs passes, the two measured exclusions do not",
+             (real["obligation_refs"]["pass"], real["change_disposition"]["pass"], real["input_hash"]["pass"], none_why), (True, False, False, ""))
+    check_eq("(l) ...and the shipped table carries the keys N1 reads", (sorted(real["obligation_refs"]["window_keys"]), real["obligation_refs"]["tier4_gaps"]),
+             (["obligation_hash", "obligation_ids", "obligation_refs"], ["obligation_binding", "obligation_hash"]))
+    # a table that is unreadable maps every pass to `other` (the reader never raises)
+    for label, tb in (("an empty table", {}), ("facts not a list", {"facts": "x"}), ("a facts row with no tag", {"facts": [{"check": "manifest"}]}),
+                      ("a match that is neither exact nor prefix", {"facts": [{"check": "manifest", "tag": "row-fields-missing", "match": "regex", "fact": "f"}]})):
+        check_eq(f"{label}: every pass is `other`", [p["fact"] for p in waiver.word_passed_index([named], tb).all()], ["other"])
+    # never raises, counts what is no pass
+    junk = waiver.word_passed_index([None, 5, "x", {}, {"subjects": [1]}, pass_row("bindings:TC-1:no-bindings", "not a list"),
+                                     pass_row("bindings:TC-1:no-bindings", [None, 3, {"case": 7, "then": "x"}, {"instance_id": None}], at="t2")])
+    check_eq("junk rows are counted, not raised: five are no pass, two are passes that name nobody",
+             (junk.skipped, len(junk.all()), junk.then("TC-1", 1), junk.instance("not_run", "A")), (5, 2, None, None))
+    check_eq("rows that are not a list (the record could not be read: None) name nobody", [waiver.word_passed_index(v).all() for v in (None, 5, "x", {})], [[]] * 4)
+    check_eq("lookups on junk arguments answer None / []", (junk.then(None, None), junk.instance(None, None), junk.passed_fields(None), junk.instance("not_run", [1])),
+             (None, None, [], None))
+
+
+def row_fv130b_the_two_survivors() -> None:
+    """FV1-30b topic fix (F3, F5): `s5_precheck.live_word_index` and `waiver.record_word_index` never raise; None names nobody, an
+    empty read is an empty index (not None); the live one forwards its scope; `_finding_tag` is the waiver splitter's tag."""
+    import s5_precheck
+    root = Path(temp_dir("qa-words-door-fv30b-sv-"))
+    real, seen = s5_precheck.word_passes, []
+    named = {"finding_id": "run_mapping:TC-1:no-row-A", "check": "run_mapping", "case": "TC-1", "tag": "no-row-A", "decision": "go on",
+             "at": "t1", "subjects": [{"instance_id": "A"}]}
+    try:
+        def fake(task_root, scope=None, dispatch_id=None):
+            seen.append((str(task_root), scope, dispatch_id))
+            return [named]
+        s5_precheck.word_passes = fake
+        index = s5_precheck.live_word_index(root, ["TC-1"], "d1")
+        check_eq("live: the passes read as facts, the scope and the dispatch forwarded",
+                 (bool(index.instance("not_run", "A")), seen), (True, [(str(root), ["TC-1"], "d1")]))
+        check_eq("live: an empty scope is None (every case), as `word_passes` reads it", (s5_precheck.live_word_index(root, [])
+                 and seen[-1][1]), None)
+        s5_precheck.word_passes = lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("unreadable artifact"))
+        check_eq("live: a reader that raises -> None (names nobody, never a pass)", s5_precheck.live_word_index(root), None)
+    finally:
+        s5_precheck.word_passes = real
+    try:
+        check_eq("live: no live S5 word -> an empty index, not None", s5_precheck.live_word_index(root).all(), [])
+        check_eq("record: no file -> an empty index, not None", waiver.record_word_index(root).all(), [])
+        (root / "state").mkdir()
+        journal = root / "state" / "passed-by-person.jsonl"
+        journal.write_text(json.dumps({"ts": "2026-10-01T10:05:00+00:00", "stage": "S5", "dispatch": "a2", "block": "run_mapping:TC-1:no-row-A",
+                                       "decision": "short", "by": "human", "subjects": [{"instance_id": "A"}]}) + "\n", encoding="utf-8")
+        check_eq("record: a line -> the index names the instance", bool(waiver.record_word_index(root).instance("not_run", "A")), True)
+        journal.unlink()
+        journal.mkdir()
+        check_eq("record: a path that cannot be read -> None (names nobody)", waiver.record_word_index(root), None)
+        check_eq("record: a task root that is no path at all -> None, never a raise", waiver.record_word_index(object()), None)
+    finally:
+        cleanup(root)
+    check_eq("F5: `_finding_tag` is the waiver splitter's tag (a tag carries `file.py:79`), and \"\" for no id",
+             [s5_precheck._finding_tag({"id": i}) for i in ("bindings:TC-1:x.py:79", "bindings:-:t", "bindings", "")] + [s5_precheck._finding_tag({})],
+             ["x.py:79", "t", "", "", ""])
+    check_eq("F2: `waiver.same_instance` is public: an alias is the instance, another case's spelling is not",
+             [waiver.same_instance("TC-1::x", "x"), waiver.same_instance("TC-1::x", "TC-2::x")], [True, False])
+
+
+def row_fv130b_n1_the_not_run_section_and_the_field_rows() -> None:
+    """FV1-30b N1 (n): `waiver.not_run_lets_go()` is `({}, why)` for a file absent / not JSON / a directory / not an object / a section
+    absent / a section that is no object (nothing is let go, E30), and the section as it is otherwise; the shipped `change_basis_ref` row is
+    not passable and says why."""
+    tmp = Path(temp_dir("qa-words-door-fv30b-nr-"))
+    try:
+        absent, broken, toplist = tmp / "absent.json", tmp / "broken.json", tmp / "toplist.json"
+        broken.write_text("{torn", encoding="utf-8")
+        toplist.write_text("[1]", encoding="utf-8")
+        nosection, notobject, good = tmp / "nosection.json", tmp / "notobject.json", tmp / "good.json"
+        nosection.write_text(json.dumps({"row_fields": {}}), encoding="utf-8")
+        notobject.write_text(json.dumps({"not_run": ["product"]}), encoding="utf-8")
+        good.write_text(json.dumps({"not_run": {"tier4_gaps": ["product"]}}), encoding="utf-8")
+        for label, path in (("the file absent", absent), ("the file not JSON", broken), ("the file a directory (unreadable)", tmp),
+                            ("the file not an object", toplist), ("the section absent", nosection), ("the section not an object", notobject)):
+            got, why = waiver.not_run_lets_go(path)
+            check(f"(n) {label}: `({{}}, why)`", got == {} and bool(why), str((got, why)))
+        check_eq("(n) a good file: the section as it is", waiver.not_run_lets_go(good), ({"tier4_gaps": ["product"]}, ""))
+    finally:
+        cleanup(tmp)
+    # (F10: the shipped table's VALUES are data, pinned by no row here; the behaviour they drive is rows (g)/(l) and test_window_record)
+    rows, _why = waiver.row_fields()
+    check_eq("the shipped rows: change_basis_ref is NOT passable and says why", (rows["change_basis_ref"]["pass"], bool(rows["change_basis_ref"].get("why"))), (False, True))
+
+
 def main() -> None:
+    row_fv130b_n1_the_not_run_section_and_the_field_rows()
+    row_fv130b_the_two_survivors()
+    row_fv130b_the_journal_line_carries_the_subjects()
+    row_fv130b_person_passes()
+    row_fv130b_the_one_reader()
     row_fv130a_the_controller_records_what_the_word_passed()
     row_fv130a_no_second_question()
     row_repo_words_cli()

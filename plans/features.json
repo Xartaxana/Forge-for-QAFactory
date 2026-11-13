@@ -712,6 +712,7 @@
         "references/config-projection.json",
         "scripts/tests/fixtures/config-projection/**",
         "scripts/window_record.py",
+        "references/word-passed-facts.json",
         "scripts/window_budget.py",
         "scripts/exit_gate.py",
         "scripts/diff_scope.py",

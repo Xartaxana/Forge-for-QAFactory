@@ -1636,6 +1636,156 @@ def built_items_of(task: Path) -> tuple:
     return window, {item["instance_id"]: item for item in window["instances"]}
 
 
+def fv1_30b_the_window_carries_the_word_it_was_given():
+    """FV1-30b N1 (R3 window record): `build` keeps the `window_keys` of a passable field the LIVE index names (empty), lists it in the
+    item's `word_passed`, deletes a field the table does not pass as before, and writes `word_passed` on the no-run item; the
+    index is built once per call, and a reader that raises changes nothing."""
+    project = temp_project("qa-window-fv130b-")
+    use_project(project)
+    real = s5_precheck.word_passes
+    calls: list = []
+    try:
+        task = project / "qa-factory" / "artifacts" / TICKET
+        (task / "work").mkdir(parents=True)
+        test_file(project, "TC-1", "test_a")
+
+        def word(*fields, fact="fields", at="t1"):
+            if fact == "not_run":
+                return {"finding_id": "run_mapping:TC-1:no-row-test_a[x]", "check": "run_mapping", "case": "TC-1",
+                        "tag": "no-row-test_a[x]", "decision": "go on", "at": at, "subjects": [{"instance_id": "test_a[x]"}]}
+            return {"finding_id": "manifest:-:row-fields-missing", "check": "manifest", "case": "", "tag": "row-fields-missing",
+                    "decision": "go on", "at": at, "subjects": [{"instance_id": "test_a[x]", "fields": list(fields)}]}
+
+        def built(rows, **over):
+            def fake(*args, **_kw):
+                calls.append(args)
+                if isinstance(rows, Exception):
+                    raise rows
+                return list(rows)
+            s5_precheck.word_passes = fake
+            del calls[:]
+            write(task / "work/automation-manifest.json", {"schema_version": 2, "tests": [novelty_row("test_a[x]", **over)]})
+            return built_items_of(task)[1]["test_a[x]"]
+
+        keys = ("obligation_refs", "obligation_ids", "obligation_hash")
+        item = built([])
+        check_eq("no word: the three obligation keys, assertion_id and defect_location are deleted, as today",
+                 [k for k in (*keys, "assertion_id", "defect_location") if k in item], [])
+        check_eq("...and no `word_passed`", "word_passed" in item, False)
+        item = built([word("obligation_refs", "change_disposition")])
+        check_eq("a refs word: the three keys stay, EMPTY", [item.get(k) for k in keys], [[], [], ""])
+        check_eq("...assertion_id (not named) is deleted", "assertion_id" in item, False)
+        check_eq("...`word_passed` names the passed field only (change_disposition is not passable and is present)",
+                 item.get("word_passed"), [{"finding_id": "manifest:-:row-fields-missing", "fields": ["obligation_refs"], "at": "t1"}])
+        item = built([word("obligation_refs", "assertion_id", "defect_location")])
+        check_eq("refs + assertion_id + defect_location: all five keys stay empty",
+                 [item.get(k, "ABSENT") for k in (*keys, "assertion_id", "defect_location")], [[], [], "", "", ""])
+        check_eq("...listed once, in the order named", [x["fields"] for x in item["word_passed"]],
+                 [["obligation_refs", "assertion_id", "defect_location"]])
+        item = built([word("obligation_refs", "change_basis_ref")], change_basis_ref="")
+        check_eq("a not passable field (change_basis_ref, `pass: false`) is deleted as today", "change_basis_ref" in item, False)
+        check_eq("...and is not listed", [x["fields"] for x in item["word_passed"]], [["obligation_refs"]])
+        item = built([word("profile_id")])
+        check_eq("a profile_id word keeps no key and (the obligation keys being empty) lists profile_id",
+                 ("obligation_refs" in item, [x["fields"] for x in item.get("word_passed", [])]), (False, [["profile_id"]]))
+        refs = [{"obligation_id": "OB-1", "obligation_hash": "oh-1"}]
+        item = built([word("obligation_refs")], obligation_refs=refs)
+        check_eq("(F1) a word for refs the row HAS (a stale ref is still the field the person passed): the entry is written, the keys are the row's",
+                 ([x["fields"] for x in item["word_passed"]], item["obligation_ids"]), ([["obligation_refs"]], ["OB-1"]))
+        item = built([word("obligation_refs", "assertion_id")], obligation_refs=refs, assertion_id="A-1")
+        check_eq("(F1) every passed field is listed, though only the empty one keeps a key",
+                 ([x["fields"] for x in item["word_passed"]], item["assertion_id"]), ([["obligation_refs", "assertion_id"]], "A-1"))
+        item = built([word("obligation_refs", "input_hash")])
+        check_eq("input_hash is never kept empty: it is the measured hash of the file", bool(item.get("input_hash")), True)
+        # the no-run item (no run block on disk): nothing invented, the word listed
+        item = built([word(fact="not_run")])
+        check_eq("a not_run word: no outcome, no fingerprint, evidence_refs [] - the shape of the writer's no-run branch",
+                 ("outcome" in item, "execution_fingerprint" in item, item["evidence_refs"]), (False, False, []))
+        check_eq("...`word_passed` says the fact", item["word_passed"], [{"finding_id": "run_mapping:TC-1:no-row-test_a[x]", "fact": "not_run", "at": "t1"}])
+        item = built([word("obligation_refs"), word(fact="not_run", at="t2")])
+        check_eq("named under BOTH facts: one list, the two entries", [("fields" in x, x.get("fact")) for x in item["word_passed"]],
+                 [(True, None), (False, "not_run")])
+        check_eq("...the live index was built ONCE for the whole call", len(calls), 1)
+        other = dict(word(fact="not_run"), subjects=[{"instance_id": "test_zz"}])
+        item = built([other])
+        check_eq("a not_run word for another instance: nothing listed", "word_passed" in item, False)
+        item = built(RuntimeError("boom"))
+        check_eq("word_passes raises: nothing kept, nothing listed (today's window)",
+                 ("word_passed" in item, "obligation_refs" in item), (False, False))
+    finally:
+        s5_precheck.word_passes = real
+        cleanup(project)
+
+
+def fv1_30b_word_let_go_is_the_one_predicate():
+    """FV1-30b N1 (m), E29, E30: `window_record.word_let_go` over its inputs: a line is let go only for an instance the index names, by
+    the table's kinds, and a `not_run` line only for an item with the no-run shape; every other line, an index of None, a table row
+    that is off or an absent `not_run` section keeps every line."""
+    import waiver
+    run = {"finding_id": "run_mapping:TC-1:no-row-i", "check": "run_mapping", "case": "TC-1", "tag": "no-row-i", "at": "t",
+           "subjects": [{"instance_id": "i"}]}
+    refs = {"finding_id": "manifest:-:row-fields-missing", "check": "manifest", "case": "", "tag": "row-fields-missing", "at": "t",
+            "subjects": [{"instance_id": "i", "fields": ["obligation_refs", "change_basis_ref"]}]}
+    no_run = {"instance_id": "i", "evidence_refs": []}
+    ran = {"instance_id": "i", "outcome": "passed", "evidence_refs": [{"path": "p", "sha256": "s"}]}
+    window = lambda item: {"instances": [item]}  # noqa: E731
+    probe_line = f"i: {C.PROBE_MISSING_ERROR}"
+    shape = ["i: outcome is missing", "i: execution_fingerprint is missing", probe_line]
+    gaps = ["product:i", "evidence:i", "obligation_binding:i", "obligation_hash:i", "sensitivity:i", "semantic_sensitivity:i",
+            "review:i", "stale_review:i", "stale_run:i", "malformed_instance:i", "change_basis:i", "probe_evidence:i"]
+    everything = shape + gaps + ["i: input_hash is missing", "i: outcome must be one of passed"]
+    lets = {"not_run": waiver.not_run_lets_go()[0], "row_fields": waiver.row_fields()[0]}
+    only = lambda index, win, lines=everything, lg=None: WR.word_let_go(lines, win, index, lg)  # noqa: E731
+    index = waiver.word_passed_index([run])
+    kept, gone = only(index, window(no_run))
+    check_eq("not_run on the no-run shape: the two shape lines, the probe line, `product:` and `evidence:` go",
+             gone, shape + ["product:i", "evidence:i"])
+    check_eq("...every other line is kept, in order", kept, [g for g in everything if g not in gone])
+    check_eq("(E29) an item that shows a run: nothing goes", only(index, window(ran)), (everything, []))
+    check_eq("(E29) an outcome alone is enough to keep the lines", only(index, window({**no_run, "outcome": "passed"}))[1], [])
+    check_eq("(E29) a fingerprint alone too", only(index, window({**no_run, "execution_fingerprint": "fp"}))[1], [])
+    check_eq("(E29) so does cited evidence", only(index, window({**no_run, "evidence_refs": [{"path": "p"}]}))[1], [])
+    check_eq("an instance the index does not name: nothing goes", only(waiver.word_passed_index([dict(run, subjects=[{"instance_id": "zz"}])]), window(no_run))[1], [])
+    check_eq("a parameter-label sibling is not the instance", only(waiver.word_passed_index([run]), window({**no_run, "instance_id": "i[neg]"}),
+             ["product:i[neg]"])[1], [])
+    check_eq("an index of None lets nothing go", only(None, window(no_run)), (everything, []))
+    check_eq("(E30) the not_run section absent: nothing goes (30a's `product:` included)",
+             only(index, window(no_run), everything, {"not_run": {}, "row_fields": lets["row_fields"]}), (everything, []))
+    check_eq("a section that is no object: nothing goes", only(index, window(no_run), everything, {"not_run": ["product"], "row_fields": {}})[1], [])
+    check_eq("the section's own lists decide: only `product` listed", only(index, window(no_run), everything,
+             {"not_run": {"tier4_gaps": ["product"]}, "row_fields": {}})[1], ["product:i"])
+    check_eq("a probe line goes only when `shape_probe_missing` is true", only(index, window(no_run), [probe_line],
+             {"not_run": {"shape_missing": ["outcome"], "shape_probe_missing": "yes"}, "row_fields": {}})[1], [])
+    check_eq("the lets_go None reads the table files (the same answer as the explicit table)",
+             only(index, window(no_run)), only(index, window(no_run), everything, lets))
+    # row_fields_unestablished: the kinds of the PASSED fields only
+    index = waiver.word_passed_index([refs])
+    kept, gone = only(index, window(ran))
+    check_eq("a refs pass: `obligation_binding:` and `obligation_hash:` go (the run does not matter)", gone, ["obligation_binding:i", "obligation_hash:i"])
+    check_eq("a field not passable (change_basis_ref): `change_basis:` kept", "change_basis:i" in kept, True)
+    check_eq("semantic_sensitivity, sensitivity, review, stale_*, malformed_instance, probe_*: kept",
+             [g for g in ("semantic_sensitivity:i", "sensitivity:i", "review:i", "stale_review:i", "stale_run:i", "malformed_instance:i",
+                          "probe_evidence:i") if g in kept], ["semantic_sensitivity:i", "sensitivity:i", "review:i", "stale_review:i",
+                                                              "stale_run:i", "malformed_instance:i", "probe_evidence:i"])
+    off = {"not_run": lets["not_run"], "row_fields": {"obligation_refs": {"pass": False, "tier4_gaps": ["obligation_binding"]}}}
+    check_eq("a row with `pass: false` lets nothing go", only(index, window(ran), everything, off)[1], [])
+    check_eq("no row for the field lets nothing go", only(index, window(ran), everything, {"not_run": lets["not_run"], "row_fields": {}})[1], [])
+    both = waiver.word_passed_index([run, refs])
+    check_eq("both facts: each lets go its own kinds, the union", only(both, window(no_run))[1],
+             shape + ["product:i", "evidence:i", "obligation_binding:i", "obligation_hash:i"])
+    # never raises
+    check_eq("lines that are no list: nothing, nothing", WR.word_let_go(None, window(no_run), index), ([], []))
+    check_eq("a window that is no object", only(index, "x"), (everything, []))
+    check_eq("items that are no objects, or carry no id, are passed over", only(index, {"instances": ["x", {}, None, no_run]})[1],
+             ["obligation_binding:i", "obligation_hash:i"])
+    check_eq("a line that is no string is kept", WR.word_let_go([7, "product:i"], window(no_run), waiver.word_passed_index([run])), ([7], ["product:i"]))
+
+    class Broken:
+        def instance(self, *_a, **_k):
+            raise RuntimeError("boom")
+    check_eq("an index that raises: every line kept", only(Broken(), window(no_run)), (everything, []))
+
+
 def sensitivity_gaps(window: dict, task: Path) -> list:
     """The `sensitivity:` gaps of the window's own acceptance check: who is asked for a live check."""
     return [gap for gap in validate_window(window, task) if gap.startswith("sensitivity:")]
@@ -2173,6 +2323,8 @@ def the_item_carries_the_identity_the_run_recorded():
 
 
 def pure_group():
+    fv1_30b_word_let_go_is_the_one_predicate()
+    fv1_30b_the_window_carries_the_word_it_was_given()
     the_item_carries_the_identity_the_run_recorded()
     the_review_receipt_bytes_did_not_change_with_the_extraction()
     the_owed_pairs_are_copied_from_the_real_detector()

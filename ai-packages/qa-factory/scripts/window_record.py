@@ -1207,6 +1207,82 @@ def demanded_quality_checks(recorded, task_root=None, project=None) -> tuple:
     return demanded, not_run, why
 
 
+def _no_run_shape(item) -> bool:
+    """Is this window item the one `build`'s no-run branch writes: no `outcome` key, no truthy `execution_fingerprint`, and
+    `evidence_refs` an empty list. An item that shows a run (an outcome, a fingerprint, a cited file) is never this."""
+    return (isinstance(item, dict) and "outcome" not in item and not item.get("execution_fingerprint")
+            and item.get("evidence_refs") == [])
+
+
+def word_let_go(lines, window, index, lets_go=None) -> tuple:
+    """`(kept, let_go)` - THE one predicate "is this S5 window line let go by a person's recorded word" (FV1-30b, AR-13, AR-15):
+    `lines` are shape lines (`"<label>: <text>"`) and gap lines (`"<kind>:<iid>"`) in any mix, `window` the record they judge,
+    `index` the LIVE `waiver.word_passed_index`, `lets_go` `{"not_run": <section>, "row_fields": <rows>}` (None reads the table
+    through `waiver.not_run_lets_go` and `waiver.row_fields`). Two rules, each for an instance the INDEX names:
+    - `not_run`: the window item has the no-run SHAPE (`_no_run_shape`) and the line is `"<iid>: <f> is missing"` for `f` in the
+      section's `shape_missing`, or `"<iid>: " + PROBE_MISSING_ERROR` when `shape_probe_missing` is true, or `"<kind>:<iid>"` for
+      `kind` in its `tier4_gaps`;
+    - `row_fields_unestablished`: `"<kind>:<iid>"` for `kind` in the `tier4_gaps` of a row (`pass` true) of a field in
+      `index.passed_fields(iid)`.
+    Every other line is kept (the refusing direction). PURE; never raises - any exception, an `index` of None, a table that cannot
+    be read: `(list(lines), [])`, nothing let go (AR-28). Lines are matched by exact text built from the window's own instance ids,
+    never by taking a line apart."""
+    try:
+        lines = list(lines)
+    except Exception:
+        return [], []
+    try:
+        if index is None or not isinstance(window, dict):
+            return lines, []
+        if lets_go is None:
+            import waiver
+            lets_go = {"not_run": waiver.not_run_lets_go()[0], "row_fields": waiver.row_fields()[0]}
+        section = lets_go.get("not_run") if isinstance(lets_go.get("not_run"), dict) else {}
+        rows = lets_go.get("row_fields") if isinstance(lets_go.get("row_fields"), dict) else {}
+
+        def names(value) -> list:
+            return [x for x in value if isinstance(x, str) and x] if isinstance(value, list) else []
+
+        let: set = set()
+        for item in window.get("instances") or []:
+            iid = str(item.get("instance_id") or "") if isinstance(item, dict) else ""
+            if not iid:
+                continue
+            if section and _no_run_shape(item) and index.instance("not_run", iid):
+                let.update(f"{iid}: {f} is missing" for f in names(section.get("shape_missing")))
+                if section.get("shape_probe_missing") is True:
+                    let.add(f"{iid}: {C.PROBE_MISSING_ERROR}")
+                let.update(f"{kind}:{iid}" for kind in names(section.get("tier4_gaps")))
+            for field in index.passed_fields(iid):
+                row = rows.get(field)
+                if isinstance(row, dict) and row.get("pass") is True:
+                    let.update(f"{kind}:{iid}" for kind in names(row.get("tier4_gaps")))
+        kept = [line for line in lines if not (isinstance(line, str) and line in let)]
+        gone = [line for line in lines if isinstance(line, str) and line in let]
+        return kept, gone
+    except Exception:
+        return lines, []
+
+
+def _word_kept_keys(identity, empty_fields, index, table) -> tuple:
+    """`(kept, entry)` for one window item: `kept` is `{key: value}` of the `window_keys` of every field the LIVE `index` says a
+    person's word passed for instance `identity` (and `table`, the `row_fields` rows, lets pass), limited to the keys `empty_fields`
+    names (the keys the item has empty); `entry` is `{finding_id, fields, at}` listing EVERY passed field (the item's `word_passed`),
+    or None when the index names nothing for the instance. An index of None names nobody: `({}, None)`. Never raises."""
+    try:
+        passed = index.passed_fields(identity) if index is not None else []
+        pass_row = index.instance("row_fields_unestablished", identity) if passed else None
+        if not passed or not pass_row:
+            return {}, None
+        kept: dict = {}
+        for field in passed:
+            keys = (table.get(field) or {}).get("window_keys")
+            kept.update({k: v for k, v in keys.items() if k in empty_fields} if isinstance(keys, dict) else {})
+        return kept, {"finding_id": pass_row["finding_id"], "fields": list(passed), "at": pass_row["at"]}
+    except Exception:
+        return {}, None
+
+
 def build(task_root: Path, dispatch_id: str) -> tuple:
     """(window record, notes) — notes are `(instance id, field, sentence)` for what was not
     on disk, so the verdict can name the artifact instead of only the missing key."""
@@ -1244,6 +1320,30 @@ def build(task_root: Path, dispatch_id: str) -> tuple:
     probe_gap_words = C.probe_gap_words(pipeline)
     not_proved_words = C.probe_not_proved_words(pipeline)      # t-1968 N5: the word for a probe the code critic could not judge
     runs = _terminal_runs(task_root)
+    word_cache: list = []     # the LIVE index of the person's recorded words (FV1-30b), built at most once per call
+
+    def live_index():
+        """The live S5 index of this window (`s5_precheck.live_word_index`), or None when it cannot be built (the refusing
+        direction: no field and no instance is then passed)."""
+        if not word_cache:
+            try:
+                import s5_precheck
+                word_cache.append(s5_precheck.live_word_index(task_root, scope or None, str(dispatch_id)))
+            except Exception:
+                word_cache.append(None)
+        return word_cache[0]
+
+    table_cache: list = []    # the `row_fields` table, read once per call
+
+    def row_table() -> dict:
+        if not table_cache:
+            try:
+                import waiver
+                table_cache.append(waiver.row_fields()[0])
+            except Exception:
+                table_cache.append({})
+        return table_cache[0]
+
     reviewed = _reviewed_identity(task_root, str(reviewer.get("id") or ""))
     # Once per build, read-only: the tests of this scope changed after their red run (t-108).
     changes, changes_unmeasured = owed_changes(task_root, scope, manifest)
@@ -1353,8 +1453,21 @@ def build(task_root: Path, dispatch_id: str) -> tuple:
         # A field no artifact gave is LEFT OUT, never filled with an empty string:
         # `contract.window_shape_errors` then says "<instance>: <field> is missing" and the
         # verdict names the artifact under it. An invented placeholder would read as a value.
-        for field in ("input_hash", "obligation_refs", "obligation_ids", "obligation_hash", *window_text_fields()):
+        # FV1-30b: a field the person's recorded word passed (the LIVE `row_fields_unestablished` pass names it - only while its
+        # finding stands - and the table `row_fields` says it is passable) is listed in the item's `word_passed`, EVERY such field
+        # (a stale ref is passed too); the `window_keys` of its row stay, EMPTY, only where the item's key is empty, so tier 2 does
+        # not stop on a key that is missing. A field with no row or a row with `pass: false` (`input_hash`) is deleted as above.
+        # The index is built ONCE per call (`live_index`); the table once per build.
+        loop_fields = ("input_hash", "obligation_refs", "obligation_ids", "obligation_hash", *window_text_fields())
+        empty_fields = {field for field in loop_fields if not item[field]}
+        kept_keys, word_entry = _word_kept_keys(identity, empty_fields, live_index(), row_table())
+        if word_entry:
+            item.setdefault("word_passed", []).append(word_entry)
+        for field in loop_fields:
             if not item[field]:
+                if field in kept_keys:
+                    item[field] = copy.deepcopy(kept_keys[field])
+                    continue
                 del item[field]
                 if field in ORIGIN:
                     notes.append((identity, field, _origin_text(field)))
@@ -1410,6 +1523,13 @@ def build(task_root: Path, dispatch_id: str) -> tuple:
             item["evidence_refs"] = []
             notes.append((identity, "outcome", _origin_text("outcome")))
             notes.append((identity, "execution_fingerprint", _origin_text("execution_fingerprint")))
+            # FV1-30b (R3 ii): the person's word for "no run row" passes the STEP, never the fact: no outcome is invented, the
+            # item stays this no-run shape and says so; `word_let_go` lets its lines go
+            word_index = live_index()
+            not_run = word_index.instance("not_run", identity) if word_index is not None else None
+            if not_run:
+                item.setdefault("word_passed", []).append(
+                    {"finding_id": not_run["finding_id"], "fact": "not_run", "at": not_run["at"]})
         # The row's own `sensitivity_proof.receipt_ref` first (what `probe_by_code.py` and
         # `red_sandbox.py` both publish and delivery reads), the obligation binding as the
         # fallback: the window used to read the binding alone, so a receipt that reached only the

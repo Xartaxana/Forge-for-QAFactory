@@ -1180,6 +1180,43 @@ def _question_open_to_check(artifacts: Path, requirement: str, qid: str) -> str:
     return f"answer {qid} ({requirement})" + (f": {text}" if text else "")
 
 
+def _word_passed_then_words(artifacts: Path, gap: dict) -> tuple:
+    """`(to_check, how)` of a Then the person's word passed at S5 while no test is bound to it: "Then <n> of <case>: <the Then's
+    own text>" and the time of the word. A text or a time that cannot be read is left out, never invented."""
+    case, number = str(gap.get("case") or ""), gap.get("then")
+    text = ""
+    try:
+        import traceability as T
+        meta = C.case_index(artifacts).get(case) or {}
+        if meta.get("path"):
+            text = T.case_thens(Path(meta["path"])).get(number, "")
+    except Exception:  # noqa: BLE001
+        pass
+    ts = _word_passed_ts(artifacts, case, number)
+    to_check = f"Then {number} of {_bare(case) or case}" + (f": {text}" if text else "")
+    how = "passed by your word at S5" + (f" ({ts})" if ts else "") + ": no test is bound to it"
+    return to_check, how
+
+
+def _word_passed_ts(artifacts: Path, case: str, number) -> str:
+    """The time of the record's pass naming Then `number` of `case`, "" when it cannot be read (never invented)."""
+    try:
+        import waiver
+        index = waiver.record_word_index(artifacts)
+        got = index.then(case, number, cfg=C.case_config(artifacts)) if index is not None else None
+        return str((got or {}).get("ts") or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _word_passed_mention(artifacts: Path, gap: dict) -> str:
+    """"; Then <n> of <case>: passed by your word at S5 (<ts>)" for a gate-B reason of a `word_passed:then_unbound` gap, put AFTER
+    the 120-character cut of the case detail so a long detail never loses the word (E16); no time known: no parenthesis."""
+    case, number = str(gap.get("case") or ""), gap.get("then")
+    ts = _word_passed_ts(artifacts, case, number)
+    return f"; Then {number} of {_bare(case) or case}: passed by your word at S5" + (f" ({ts})" if ts else "")
+
+
 def traceability_records(artifacts: Path, facts: dict | None = None) -> list:
     """The traceability gaps as typed records: `[{text, kind, case, ref, requirements, source}]`. One record per
     requirement that reaches no terminal outcome: when EVERY case of it without an outcome is a kind that says
@@ -1227,9 +1264,16 @@ def traceability_records(artifacts: Path, facts: dict | None = None) -> list:
                           "gap": word, "option": option}
                 if word == "question_open":
                     record["to_check"] = _question_open_to_check(artifacts, row["requirement"], (gap or {}).get("question") or "")
+                elif word == "word_passed:then_unbound":
+                    # FV1-30b R2 (built now, M3): under the kinds file as it is the kind says `no` and this branch is not reached;
+                    # a kinds file that maps the word to an `after_checks` kind (one data row) lands here with its words.
+                    record["to_check"], record["how"] = _word_passed_then_words(artifacts, gap or {})
                 out.append(record)
         else:
             bad = next(k for k in kinds if DV.verdict_of_kind(k, doc) != "after_checks")
+            # E16 / F4: the word mention stands OUTSIDE the 120-character cut of the detail above
+            text += "".join(_word_passed_mention(artifacts, g) for g in row.get("gaps") or []
+                            if isinstance(g, dict) and g.get("gap") == "word_passed:then_unbound")
             out.append({"text": text, "kind": bad, "case": "", "ref": row["requirement"],
                         "requirements": [row["requirement"]], "source": "traceability"})
     return out
@@ -1581,6 +1625,39 @@ def stand_word(facts: dict | None) -> bool:
     return any(waiver.split_overridden([waiver.STAND_NOT_CONFIRMED_BLOCK], pipeline, stage)[1] for stage in STAND_WORD_STAGES)
 
 
+def _record_word_index(facts: dict):
+    """The RECORD index of what a person's word passed at S5 (`waiver.person_passes`), or False when there is nothing to read
+    (no story folder in `facts`, no record file, a record that cannot be read): False names nobody. Never raises."""
+    try:
+        artifacts = (facts or {}).get("artifacts")
+        if not artifacts:
+            return False
+        return waiver.record_word_index(artifacts) or False     # `waiver` is imported at the top: the one composition (None -> False)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _no_run_word_suffix(row: dict, facts: dict, index) -> str:
+    """"; passed by the person's word at S5 (<ts>)" when the row stands for an instance the record's pass names under `not_run`
+    (the row's own ref, or - for a plan row - a manifest test of it); "" otherwise. The pass is asked only about an instance the
+    row already shows as not run, so a pass never makes a fact appear (E6)."""
+    if not index:
+        return ""
+    try:
+        ref = str(row.get("ref") or "")
+        if row.get("kind") == "plan_row":
+            iids = [C.test_instance_id(t) for t in C.manifest_tests(facts["manifest"]) if str(t.get("plan_row") or "") == ref]
+        else:
+            iids = [ref]
+        for iid in iids:
+            got = index.instance("not_run", iid) if iid else None
+            if got:
+                return f"; passed by the person's word at S5 ({got.get('ts', '')})"
+    except Exception:  # noqa: BLE001
+        return ""
+    return ""
+
+
 def ledger_records(ledger: dict, facts: dict | None = None) -> list:
     """The ledger's rows as typed records `[{text, kind, case, ref, requirements, tests, words, source, ...}]` (t-305 N8).
 
@@ -1608,6 +1685,7 @@ def ledger_records(ledger: dict, facts: dict | None = None) -> list:
                if str(u.get("reason") or "") == "blocked_by_env"}
     stand = stand_word(facts)
     stricter = _stricter_cases(facts)
+    word_index = None       # FV1-30b R4: the RECORD index, read at most once and only when a `not_executed` text is built
     for row in ledger.get("rows") or []:
         state = str(row.get("state") or "")
         prefix = C.ledger_state_prefix(state)
@@ -1647,6 +1725,11 @@ def ledger_records(ledger: dict, facts: dict | None = None) -> list:
                 else:
                     text = f"ledger: {ref} is `{state}` ({row.get('detail') or 'no detail'})"
                     text += _limit_suffix(row)
+                    if prefix == "not_executed":
+                        # FV1-30b R4: text only, the kind never changes - the word passed the step, never the fact
+                        if word_index is None:
+                            word_index = _record_word_index(facts)
+                        text += _no_run_word_suffix(row, facts, word_index)
             rec = {"text": text, "kind": kind, "case": case or (rec_cases[0] if len(rec_cases) == 1 else ""),
                    "cases": rec_cases, "ref": ref, "row_kind": row.get("kind"), "state": state, "source": "ledger",
                    "option": option, "decision": row.get("decision") or []}

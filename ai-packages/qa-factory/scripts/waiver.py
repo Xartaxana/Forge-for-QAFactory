@@ -733,6 +733,321 @@ def _held_against_record(task: str, stage: str, match: str, pipeline: dict) -> t
     return "unknown", []
 
 
+# --- FV1-30b: the facts a person's recorded word passed at the S5 exit (AR-1, AR-13, AR-15) ---------------------------------------
+# The word passes the STEP, never the FACT. Which finding IS which fact, and which tests[] row fields a word may pass, is the data
+# file `references/word-passed-facts.json`; THE one reader is `word_passed_index` (and `row_fields` for the field table). No other
+# script keeps a (check, tag) list or a field list. Never raises: every unreadable input names nobody (AR-28).
+WORD_PASSED_FACTS_FILE = "word-passed-facts.json"
+PERSON_PASSES_FILE = "passed-by-person.jsonl"
+OTHER_FACT = "other"
+SUBJECTS_FACT_THEN, SUBJECTS_FACT_FIELDS = "then_unbound", "row_fields_unestablished"
+_WHY_LISTED = 5   # the lines `person_passes` names by number in its one reason; the rest are counted
+
+
+def _fact_table(path=None) -> tuple:
+    """`(table, why)`: the parsed `word-passed-facts.json`, or `({}, why)` when it is absent, unreadable, not JSON or not an object."""
+    path = Path(path) if path is not None else reference_file(WORD_PASSED_FACTS_FILE)
+    try:
+        value = json.loads(path.read_text(encoding="utf-8-sig"))
+    except FileNotFoundError:
+        return {}, f"references/{path.name} is absent"
+    except Exception as exc:  # an OSError, a bad encoding, bad JSON, a nesting too deep: the table is unknown
+        return {}, f"references/{path.name} cannot be read ({type(exc).__name__})"
+    if not isinstance(value, dict):
+        return {}, f"references/{path.name} is not an object"
+    return value, ""
+
+
+def _field_rows(table) -> tuple:
+    """`(rows, why)` of the `row_fields` section of a parsed table: only the rows that are objects; an absent or non-object section is `({}, why)`."""
+    section = table.get("row_fields") if isinstance(table, dict) else None
+    if not isinstance(section, dict):
+        return {}, "the `row_fields` section of references/" + WORD_PASSED_FACTS_FILE + " is absent or not an object"
+    return {str(k): v for k, v in section.items() if isinstance(v, dict)}, ""
+
+
+def row_fields(path=None) -> tuple:
+    """`(rows, why)`: the `row_fields` table of `references/word-passed-facts.json` - `{field: {pass, window_keys, tier4_gaps, why}}`.
+    The file absent or unreadable, or the section absent or not an object, is `({}, why)`: NO field is passable (a field with no
+    row is never passed, E26). `path` is for a test; the one file is the default."""
+    table, why = _fact_table(path)
+    return _field_rows(table) if table else ({}, why)
+
+
+def not_run_lets_go(path=None) -> tuple:
+    """`(section, why)`: the `not_run` section of `references/word-passed-facts.json` - `{shape_missing, shape_probe_missing,
+    tier4_gaps}`, what a `not_run` word lets go of at the S5 finish (FV1-30b N1; `window_record.word_let_go` is its one reader). The file
+    absent or unreadable, or the section absent or not an object, is `({}, why)`: NOTHING is let go for `not_run` (E30, AR-28).
+    `path` is for a test; the one file is the default."""
+    table, why = _fact_table(path)
+    if not table:
+        return {}, why
+    section = table.get("not_run")
+    if not isinstance(section, dict):
+        return {}, "the `not_run` section of references/" + WORD_PASSED_FACTS_FILE + " is absent or not an object"
+    return section, ""
+
+
+def _split_finding_id(finding_id: str) -> tuple:
+    """`(check, case, tag)` of a finding id `<check>:<case or ->:<tag>` (`s5_precheck._finding`): split on the left twice, a tag
+    carries `file.py:79`; `("", "", "")` when the text is no finding id. The splitter the word readers use (A3-E4). Two more copies
+    of the same split stay: `s5_precheck._finding_tag` (it must work with no `waiver` import) and `exit_gate._finding_tag_of`; both queued."""
+    parts = str(finding_id or "").split(":", 2)
+    if len(parts) < 3:
+        return "", "", ""
+    return parts[0], "" if parts[1] == "-" else parts[1], parts[2]
+
+
+def _fact_of(facts, check: str, tag: str) -> str:
+    """The fact a finding of this `check` and `tag` is, by the table's rows (exact, or prefix with something after it); `other` for none."""
+    for row in facts:
+        want = row["tag"]
+        if row["check"] != check:
+            continue
+        if (row["match"] == "exact" and tag == want) or (row["match"] == "prefix" and tag.startswith(want) and len(tag) > len(want)):
+            return row["fact"]
+    return OTHER_FACT
+
+
+def _fact_rows(table) -> list:
+    out = []
+    for row in (table.get("facts") if isinstance(table, dict) else None) or []:
+        if (isinstance(row, dict) and all(isinstance(row.get(k), str) and row.get(k) for k in ("check", "tag", "match", "fact"))
+                and row["match"] in ("exact", "prefix")):
+            out.append(row)
+    return out
+
+
+def same_instance(left: str, right: str) -> bool:
+    """Do two spellings name ONE instance: equal, or one is an alias of the other (`contract.instance_id_aliases`). A parameter
+    label is part of the id (`A[neg]` is not `A`) and a case prefix is not (`TC-1::x` is `x`); `TC-1::x` and `TC-2::x` are two."""
+    if left == right:
+        return True
+    import contract
+    return right in contract.instance_id_aliases({"instance_id": left}) or left in contract.instance_id_aliases({"instance_id": right})
+
+
+class _Entry:
+    __slots__ = ("pass_", "subjects", "ts", "order")
+
+    def __init__(self, pass_: dict, subjects: list, order: int):
+        self.pass_, self.subjects, self.ts, self.order = pass_, subjects, pass_["ts"], order
+
+
+class WordPasses:
+    """The passes of the S5 exit read as FACTS (`word_passed_index`). A `pass` is `{finding_id, check, case, tag, fact, decision, at,
+    by, ts, fields}` (`fields`: every field a subject of the pass names; `subjects_cut` too when the record cut its subjects). Every
+    lookup answers the LATEST pass by `ts` (a later line wins a tie) or None, and never raises: a reader that cannot answer names
+    nobody. `skipped` counts the rows that were no pass at all."""
+
+    def __init__(self, entries: list, field_rows: dict, skipped: int = 0):
+        self._entries, self._fields, self.skipped = entries, field_rows, skipped
+
+    def _latest(self, fact: str):
+        """The entries of one fact, newest first."""
+        return sorted((e for e in self._entries if e.pass_["fact"] == fact), key=lambda e: (e.ts, e.order), reverse=True)
+
+    def _passable(self, field) -> bool:
+        row = self._fields.get(field) if isinstance(field, str) else None
+        return isinstance(row, dict) and row.get("pass") is True
+
+    def then(self, case, then, cfg=None):
+        """The `then_unbound` pass whose subjects name Then `then` of `case` (the case by `contract.case_matches`), or None."""
+        try:
+            import contract
+            number, case = contract.then_number(then), str(case or "")
+            if not number or not case:
+                return None
+            for entry in self._latest(SUBJECTS_FACT_THEN):
+                for subject in entry.subjects:
+                    named = subject.get("case")
+                    if (isinstance(named, str) and named and contract.then_number(subject.get("then")) == number
+                            and contract.case_matches(named, case, cfg=cfg)):
+                        return dict(entry.pass_)
+        except Exception:
+            return None
+        return None
+
+    def instance(self, fact: str, iid, field=None):
+        """The pass of `fact` whose subjects name instance `iid` (equal or an alias, `same_instance`), or None. With `field`: only a
+        subject whose `fields` list it AND whose `row_fields` row says `pass: true` (a field with no row is never passed)."""
+        try:
+            iid = str(iid or "")
+            if not iid:
+                return None
+            for entry in self._latest(fact):
+                for subject in entry.subjects:
+                    named = subject.get("instance_id")
+                    if not isinstance(named, str) or not named or not same_instance(named, iid):
+                        continue
+                    if field is None:
+                        return dict(entry.pass_)
+                    fields = subject.get("fields")
+                    if isinstance(fields, list) and field in fields and self._passable(field):
+                        return dict(entry.pass_)
+        except Exception:
+            return None
+        return None
+
+    def passed_fields(self, iid) -> list:
+        """The fields a `row_fields_unestablished` subject for `iid` names that the table lets a word pass, in the order named."""
+        out: list = []
+        try:
+            iid = str(iid or "")
+            if not iid:
+                return []
+            for entry in self._latest(SUBJECTS_FACT_FIELDS):
+                for subject in entry.subjects:
+                    named, fields = subject.get("instance_id"), subject.get("fields")
+                    if isinstance(named, str) and named and isinstance(fields, list) and same_instance(named, iid):
+                        out.extend(f for f in fields if self._passable(f) and f not in out)
+        except Exception:
+            return []
+        return out
+
+    def s5_plan(self):
+        """The `s5_plan_unread` pass, or None."""
+        latest = self._latest("s5_plan_unread")
+        return dict(latest[0].pass_) if latest else None
+
+    def all(self) -> list:
+        """Every pass, once (a repeat of the same `(dispatch, finding, word)` collapsed), in the order first seen."""
+        return [dict(e.pass_) for e in self._entries]
+
+
+def _entry_of(row: dict, facts: list, order: int):
+    """`(key, _Entry)` of one row (a live `word_passes` row or a `person_passes` row), or None when it is no pass: no finding id and no tag."""
+    finding_id = str(row.get("finding_id") or "")
+    check, case, tag = (str(row.get(k) or "") for k in ("check", "case", "tag"))
+    if finding_id and not (check and tag):
+        got = _split_finding_id(finding_id)
+        check, case, tag = check or got[0], case or got[1], tag or got[2]
+    if not finding_id and not tag:
+        return None
+    raw = row.get("subjects")
+    subjects = [s for s in raw if isinstance(s, dict)] if isinstance(raw, list) else []
+    fields: list = []
+    for subject in subjects:
+        names = subject.get("fields")
+        if isinstance(names, list):
+            fields.extend(f for f in names if isinstance(f, str) and f not in fields)
+    at = row.get("at")
+    pass_ = {"finding_id": finding_id, "check": check, "case": case, "tag": tag, "fact": _fact_of(facts, check, tag),
+             "decision": str(row.get("decision") or ""), "at": "" if at is None else str(at),
+             "by": str(row.get("by") or "human"), "ts": str(row.get("ts") or ""), "fields": fields}
+    if isinstance(row.get("subjects_cut"), int) and not isinstance(row.get("subjects_cut"), bool) and row["subjects_cut"] > 0:
+        pass_["subjects_cut"] = row["subjects_cut"]
+    return (str(row.get("dispatch") or ""), finding_id or tag, pass_["at"]), _Entry(pass_, subjects, order)
+
+
+def word_passed_index(rows, table=None) -> WordPasses:
+    """THE reader of "was this fact passed by a person's word" (AR-13): `rows` are the passes of the S5 exit - the LIVE rows
+    `s5_precheck.word_passes` returns at the finish, or the RECORD `person_passes` returns below S5 - and `table` the parsed
+    `word-passed-facts.json` (None reads the file). PURE and never raises: rows that are no pass are counted in `.skipped`, a
+    table that cannot be read maps every pass to fact `other` and passes no field, `rows` of None (the record could not be read)
+    or not a list names nobody."""
+    try:
+        if table is None:
+            table, _why = _fact_table()
+        facts, field_rows = _fact_rows(table), _field_rows(table)[0]
+    except Exception:
+        facts, field_rows = [], {}
+    kept: dict = {}
+    skipped = 0
+    try:
+        for order, row in enumerate(rows if isinstance(rows, (list, tuple)) else []):
+            try:
+                got = _entry_of(row, facts, order) if isinstance(row, dict) else None
+            except Exception:
+                got = None
+            if got is None:
+                skipped += 1
+                continue
+            key, entry = got
+            old = kept.get(key)
+            if old is None or entry.ts >= old.ts:
+                if old is not None:
+                    entry.order = old.order
+                kept[key] = entry
+    except Exception:
+        pass
+    return WordPasses(sorted(kept.values(), key=lambda e: e.order), field_rows, skipped)
+
+
+def person_passes(task_root) -> tuple:
+    """`(rows | None, why)`: THE reader of `state/passed-by-person.jsonl` for stage S5 (FV1-30b). No file is `([], "")` (no pass); a file
+    that cannot be read is `(None, why)` (an unknown is never a pass, AR-28); a torn line, a line that is no object or names no
+    block is skipped and the one `why` names how many and the first lines by number, the other lines stay readable (E3). Repeats of
+    `(dispatch, block, word_at)` collapse to the last (A3-E5); an old line (no `check`/`case`/`tag`) is taken apart from its block
+    once (A3-E4). A row is `{finding_id, check, case, tag, subjects, [subjects_cut], decision, at, by, ts, dispatch, word,
+    word_recorded}`: `at` is the line's `word_at`, `word` the person's word whole from `pipeline.json.stage_overrides[]` by that `at`
+    (`word_recorded` True), else the line's `decision` (False)."""
+    root = Path(task_root)
+    path = root / "state" / PERSON_PASSES_FILE
+    try:
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        return [], ""
+    except Exception as exc:
+        return None, f"state/{PERSON_PASSES_FILE} could not be read ({type(exc).__name__})"
+    words = {}
+    for entry in (read_json(root / "pipeline.json", {}, kind=dict, errors=Exception).get("stage_overrides") or []):
+        if isinstance(entry, dict) and str(entry.get("at") or "") and str(entry.get("at")) not in words:
+            words[str(entry["at"])] = str(entry.get("decision") or "")
+    rows: dict = {}
+    bad: list = []
+    for number, chunk in enumerate(raw.split(b"\n"), 1):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        try:
+            line = json.loads(chunk.decode("utf-8"))
+        except Exception:
+            bad.append(f"line {number} is not JSON")
+            continue
+        if not isinstance(line, dict):
+            bad.append(f"line {number} is not an object")
+            continue
+        if str(line.get("stage") or "") != "S5":
+            continue
+        finding_id = str(line.get("finding_id") or line.get("block") or "")
+        if not finding_id:
+            bad.append(f"line {number} names no block")
+            continue
+        check, case, tag = (str(line.get(k) or "") for k in ("check", "case", "tag"))
+        if not (check and tag):
+            got = _split_finding_id(finding_id)
+            check, case, tag = check or got[0], case or got[1], tag or got[2]
+        at = str(line.get("word_at") or "")
+        row = {"finding_id": finding_id, "check": check, "case": case, "tag": tag,
+               "subjects": line.get("subjects") if isinstance(line.get("subjects"), list) else [],
+               "decision": str(line.get("decision") or ""), "at": at, "by": str(line.get("by") or "human"),
+               "ts": str(line.get("ts") or ""), "dispatch": str(line.get("dispatch") or ""),
+               "word": words.get(at, str(line.get("decision") or "")) if at else str(line.get("decision") or ""),
+               "word_recorded": bool(at and at in words)}
+        if isinstance(line.get("subjects_cut"), int) and not isinstance(line.get("subjects_cut"), bool):
+            row["subjects_cut"] = line["subjects_cut"]
+        key = (row["dispatch"], finding_id, at)
+        rows.pop(key, None)   # the last line of a repeat wins and stands in the order of its last write
+        rows[key] = row
+    why = ""
+    if bad:
+        why = (f"{len(bad)} line(s) of state/{PERSON_PASSES_FILE} were skipped: " + "; ".join(bad[:_WHY_LISTED])
+               + (f"; and {len(bad) - _WHY_LISTED} more" if len(bad) > _WHY_LISTED else ""))
+    return list(rows.values()), why
+
+
+def record_word_index(task_root):
+    """`WordPasses | None`: THE composition of the RECORD index (`person_passes` read as facts, `word_passed_index`) every reader below S5
+    takes (AR-13, AR-15). NEVER raises. None means "names nobody": the record could not be read (`person_passes` -> None) or the
+    read raised; a caller treats None as no pass, never as a pass (AR-28). An empty record is an empty index, not None."""
+    try:
+        rows = person_passes(task_root)[0]
+        return word_passed_index(rows) if rows is not None else None
+    except Exception:
+        return None
+
+
 def listed(items: list, more, bullet: bool = False) -> str:
     """`  1. <line>` (or `  - <line>`) per item, each whole, up to the ceiling; beyond it `  (+k more: <more>)`, `more`
     naming where the rest is read."""
