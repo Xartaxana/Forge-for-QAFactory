@@ -1729,8 +1729,6 @@ def _row_form(task_root: Path, view: dict, wanted: list) -> tuple:
                   f"(a field left null counts as missing) and send it with `{WR.FRAGMENT_DOOR.replace('<T>', task)}` "
                   "before your handback:",
                   json.dumps({"tests": form["tests"]}, ensure_ascii=False, indent=2)]
-    else:
-        lines.append("row fields still missing, and not yours to fill by hand:")
     lines += [f"  `{field}`: {line}" for field, line in form["legend"].items()]
     return form, lines
 

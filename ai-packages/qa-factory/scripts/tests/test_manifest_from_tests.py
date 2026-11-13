@@ -1899,6 +1899,13 @@ def hf_k7() -> None:
               json.dumps(form_dry["tests"])[:300])
         check_in("K7 (d'): a dry run says the rows are not in the manifest yet", "send it after the write: these rows are not in the manifest yet", notes)
 
+        print("-- F-2: an empty `wanted` prints no header with nothing under it; a non-empty one keeps its form (pinned by K7 (a), text mode)")
+        import manifest_put as _mp
+        view_none = _mp.merge(copy.deepcopy(story.manifest), copy.deepcopy(fragment))[0]
+        form_none, lines_none = MFT._row_form(task, view_none, [])
+        check_eq("F-2: empty wanted -> an empty form and no line at all", (form_none, lines_none), ({"tests": [], "legend": {}}, []))
+        check_not_in("F-2: ...so no `row fields still missing` header", "row fields still missing", "\n".join(lines_none))
+
         print("-- K7 (i): a fragment that was not written leaves no form")
         notes = []
         check_eq("K7 (i): put_code 3 -> no form", MFT._form_after_write(task, story, fragment, False, 3, notes), (None, []))

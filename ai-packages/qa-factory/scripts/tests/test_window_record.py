@@ -1825,9 +1825,6 @@ def fv1_19_the_carrier_the_origin_notes_and_the_charter():
         check_in(f"N2 (k): ...and that the code writes the hashes", "the code writes the hash", text)
         check_not_in(f"N2 (k): ...and none says the automator writes them", "automator writes", text)
         check_not_in(f"N2 (k): ...nor names the marker", "marker", text)
-    check_in("QB (k): the binding hash's origin names the door of a stale binding: re-send its design_assessment",
-             "re-sending the binding's `design_assessment` through the same door, and the code re-stamps the hash",
-             WR.ORIGIN["obligation_hash"][1])
     charter = (SCRIPTS.parent / "agents" / "qa-automator.md").read_text(encoding="utf-8")
     named = [line for line in charter.splitlines() if "`obligation_refs`" in line]
     check_eq("N2 (l): ONE charter line names `obligation_refs`", len(named), 1)

@@ -143,8 +143,7 @@ ORIGIN = {
                        "in `obligation_refs`; the code writes the hashes and the ids list"),
     "obligation_hash": ("the manifest row carries no `obligation_refs` to hash",
                         "the automator sends the plan's obligation ids through `manifest_put.py --task <T> --fragment <file>` "
-                        "in `obligation_refs`; the code writes the hashes; a stale binding hash is refreshed by re-sending the "
-                        "binding's `design_assessment` through the same door, and the code re-stamps the hash"),
+                        "in `obligation_refs`; the code writes the hashes"),
     "assertion_id": ("the manifest row carries no `assertion_id`",
                      "the automator names the assertion that fails when the behaviour breaks"),
     "defect_location": ("the manifest row carries no `defect_location`",

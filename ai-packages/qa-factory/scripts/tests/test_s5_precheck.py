@@ -4630,7 +4630,6 @@ def fv1_19_obligation_refs_at_the_precheck() -> None:
         check_in("QB: the stale finding says to re-send the binding's design_assessment through the fragment door",
                  "re-send the binding's `design_assessment` through `manifest_put.py --task <T> --fragment <file>` and the "
                  "code re-stamps the hash", stale_text)
-        check_in("QB: ...and the binding's own gap origin says it too", "design_assessment", WR.ORIGIN["obligation_hash"][1])
 
         # (j) a NON-owed row with no refs, and an owed row with valid refs: nothing
         quiet = [refs_row("q1", "TC-501", "TS-2"), refs_row("q2", "TC-500", "TS-1", obligation_refs=[
