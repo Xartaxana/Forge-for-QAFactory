@@ -149,6 +149,7 @@ def _runner(rc=0, out=b"", err=b"", raises=None):
     ("e2_one_line_only", _runner(0, b".git\n"), "git", "exited 0"),
     ("e2_empty_stdout", _runner(0, b""), "git", "exited 0"),
     ("e3_main_checkout_relative", _runner(0, b".git\n.git\n"), "", ""),
+    ("f4_nul_in_the_answer", _runner(0, b".git\n.g\x00it\n"), "resolve", "does not resolve"),
     ("e5_bare_common_dir", _runner(0, b"bare.git\nbare.git\n"), "not-a-checkout", "not a .git directory"),
     ("e5_three_lines_only_two_read", _runner(0, b".git\nbare.git\n.git\n"), "not-a-checkout", "not a .git directory"),
 ])

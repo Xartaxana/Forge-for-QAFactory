@@ -88,7 +88,7 @@ def main_checkout(root, *, runner=None, timeout=DEFAULT_TIMEOUT):
         p = p if p.is_absolute() else base / p
         try:
             resolved.append(p.resolve())
-        except OSError:
+        except (OSError, ValueError):     # ValueError: a NUL in the path
             return None, "resolve", "git dir %s does not resolve" % line
     git_dir, common = resolved
     if common.name != ".git":

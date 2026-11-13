@@ -524,7 +524,7 @@ def test_b1_archive_failure_skips_the_prune_and_the_sweep_goes_on(repo, how):
 
         rep = repo.sweep(apply=True, runner=runner)
         assert line(rep, "FAILED worktree prune").endswith("fatal: cannot prune")
-        assert "pb" in repo.branches() and not has(rep, "REMOVED branch pb") and not other.exists()
+        assert "pb" in repo.branches() and not has(rep, "REMOVED branch pb") and not has(rep, "KEEP branch pb") and not other.exists()
     assert rep.exit_code == 3
     assert rep.lines[-1] == "worktree_sweep: 2 registered, 1 removed, 1 kept, 1 failed"      # the prunable is not in "removed"
 
@@ -558,6 +558,25 @@ def test_r1_archive_refs_expire_only_when_old_and_in_origin_main(repo, case):
     assert (git(repo.main, "for-each-ref", "--format=%(refname)", ref) == "") == (case == "old-merged-apply")
     assert not any(a[:2] == ("update-ref", "-d") for a in calls) or case == "old-merged-apply"
     assert rep.exit_code == 0
+
+
+def test_r1_a_local_branch_named_origin_main_does_not_shadow_the_remote_ref(repo):
+    # F1: `git branch origin/main <unpushed commit>` makes the short name resolve to the local branch; the expiry names the full remote ref
+    sha = repo.commit(repo.add_wt("um"), "um.txt", "unpushed work")
+    git(repo.main, "branch", "origin/main", sha)
+    ref = "refs/worktree-sweep/t/" + sha[:12]
+    git(repo.main, "update-ref", ref, sha)
+    rep = repo.sweep(apply=True, now=time.time() + (ws.ARCHIVE_KEEP_DAYS + 1) * 86400)
+    assert line(rep, "archive refs:").startswith("archive refs: 0 expired (") and git(repo.main, "for-each-ref", "--format=%(refname)", ref) == ref
+
+
+def test_r1_a_symref_under_the_archive_prefix_never_deletes_its_target(repo):
+    # F2: `update-ref -d` follows a symbolic ref; --no-deref deletes only the listed ref
+    sha = git(repo.main, "rev-parse", "origin/main")
+    git(repo.main, "branch", "keepme", sha)
+    git(repo.main, "symbolic-ref", "refs/worktree-sweep/x/sym", "refs/heads/keepme")
+    repo.sweep(apply=True, now=time.time() + (ws.ARCHIVE_KEEP_DAYS + 1) * 86400)
+    assert "keepme" in repo.branches()
 
 
 def test_r1_no_archive_ref_and_a_ref_that_is_not_a_commit_are_counted_quietly(repo):

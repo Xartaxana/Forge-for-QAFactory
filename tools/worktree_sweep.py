@@ -79,6 +79,13 @@ STATES = ("running", "finished", "refused", "crashed", "not-started")
 ARCHIVE_PREFIX = "refs/worktree-sweep/"
 ARCHIVE_KEEP_DAYS = 30               # an archive ref is old when its commit's committer date is MORE than this many days back (F-A1)
 ARCHIVE_SAFE_REF = DEFAULT_REF       # ... and it expires only when its commit is reachable from this pushed reference
+REMOTE_MAIN_FULL = "refs/remotes/" + DEFAULT_REF   # git calls name the remote main by its FULL refname: a local branch or tag `origin/main` shadows the short name
+
+
+def git_ref(ref):
+    """The refname to hand to git: the short remote main becomes its full refname; any other ref is passed as given."""
+    return REMOTE_MAIN_FULL if ref == DEFAULT_REF else ref
+
 JUNK_FILE = _TOOLS / "worktree-junk.json"
 REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
 GLOB_CHARS = set("*?[]{}")
@@ -297,7 +304,7 @@ def admin_dirs(common):
 
 
 def resolve_ref(git, root, ref):
-    rc, out, err = git(root, "log", "-1", "--format=%H%x09%cs", ref)
+    rc, out, err = git(root, "log", "-1", "--format=%H%x09%cs", git_ref(ref))
     text = gitcmd.as_text(out).strip()
     if rc != 0 or "\t" not in text:
         raise Refuse("worktree_sweep: the reference %s does not resolve (%s) -- pass --ref main to judge by the local main; "
@@ -389,12 +396,12 @@ def merged_verdict(git, repo_root, head, ref):
     """('ancestor' | 'patch-equal' | 'unmerged' | 'unknown', detail). An ancestor cannot err toward "merged". `git cherry` can
     (a commit equal to an old main commit that main later reverted; a branch whose only work is a merge commit, which cherry
     skips) -- that error direction is covered by the archive ref taken before every branch deletion (M4)."""
-    rc, _, err = git(repo_root, "merge-base", "--is-ancestor", head, ref)
+    rc, _, err = git(repo_root, "merge-base", "--is-ancestor", head, git_ref(ref))
     if rc == 0:
         return "ancestor", ""
     if rc != 1:
         return "unknown", first_line(err)
-    rc, out, err = git(repo_root, "cherry", ref, head)
+    rc, out, err = git(repo_root, "cherry", git_ref(ref), head)
     if rc != 0:
         return "unknown", first_line(err)
     plus = [l for l in gitcmd.as_text(out).split("\n") if l.startswith("+")]
@@ -668,7 +675,7 @@ def prune_registrations(ctx, wts, rep):
     for w in wts[1:]:
         if w.prunable is None or w.locked is not None:
             continue
-        if w.head and git(root, "merge-base", "--is-ancestor", w.head, ctx.ref)[0] == 0:
+        if w.head and git(root, "merge-base", "--is-ancestor", w.head, git_ref(ctx.ref))[0] == 0:
             continue
         ok, info = archive_head(git, root, w.short or detached_name(ctx, w), w.head)
         if not ok:
@@ -693,7 +700,7 @@ def expire_archive_refs(git, root, now, rep, *, apply):
     if rc != 0:
         rep.add("KEEP archive refs: cannot list (%s)" % first_line(err or gitcmd.as_text(out)))
         return
-    rc, _, err = git(root, "rev-parse", "--verify", "--quiet", ARCHIVE_SAFE_REF + "^{commit}")
+    rc, _, err = git(root, "rev-parse", "--verify", "--quiet", REMOTE_MAIN_FULL + "^{commit}")
     if rc != 0:
         rep.add("KEEP archive refs: %s does not resolve -- none expired" % ARCHIVE_SAFE_REF)
         return
@@ -705,7 +712,7 @@ def expire_archive_refs(git, root, now, rep, *, apply):
         ref, sha, date = row[0].strip(), row[1].strip(), int(row[2].strip())
         if now - date <= ARCHIVE_KEEP_DAYS * 86400:                        # strict: exactly N days is kept; a future date is kept
             continue
-        rc, _, _ = git(root, "merge-base", "--is-ancestor", sha, ARCHIVE_SAFE_REF)
+        rc, _, _ = git(root, "merge-base", "--is-ancestor", sha, REMOTE_MAIN_FULL)
         if rc == 0:
             candidates.append((ref, sha))
         elif rc != 1:
@@ -715,7 +722,7 @@ def expire_archive_refs(git, root, now, rep, *, apply):
         if not apply:
             expired += 1
             continue
-        rc, out2, err2 = git(root, "update-ref", "-d", ref, sha)
+        rc, out2, err2 = git(root, "update-ref", "--no-deref", "-d", ref, sha)
         if rc != 0:
             rep.add("KEEP archive ref %s: delete refused (%s)" % (ref, first_line(err2 or gitcmd.as_text(out2))))
         else:
@@ -1294,7 +1301,7 @@ def count_estimate(root, timeout=COUNT_TIMEOUT, ref=DEFAULT_REF, runner=None):
     wts = parse_worktrees(out)
     if not wts:
         raise RuntimeError("worktree list: no entries")
-    rc, out, err = run(str(root), "branch", "--merged", ref, "--format=%(refname)", timeout=timeout, stderr=True)
+    rc, out, err = run(str(root), "branch", "--merged", git_ref(ref), "--format=%(refname)", timeout=timeout, stderr=True)
     if rc != 0:
         raise RuntimeError("branch --merged %s: %s" % (ref, first_line(gitcmd.as_text(err))))
     merged = set(gitcmd.as_text(out).split("\n"))
