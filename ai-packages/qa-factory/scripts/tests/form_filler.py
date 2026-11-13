@@ -26,9 +26,10 @@ import handoff  # noqa: E402
 import handoff_check  # noqa: E402
 
 RULES_PATH = HERE / "fixtures" / "form-fill-rules.json"
-REFERENCES = HERE.parents[1] / "references"
+ROOT = HERE.parents[1]               # the package root: a template row names its contract file from here (`references/...`)
+REFERENCES = ROOT / "references"
 ROLE_WRITER = " (the role)"          # the predicate of driver_runner (`writer == "<role> (the role)"`): a role writes the output
-HINT = re.compile(r"<[^<>\n]+>")
+HINT = re.compile(r"<(?!!--)[^<>\n]+>")      # a hint, never the `<!-- ... -->` marker line of a report block
 FRONT_KEY = re.compile(r"^([A-Za-z_][\w-]*):\s?(.*)$")
 BODY = "body:"
 VARIANT_BASE, OMIT_OPTIONAL, EMPTY_LISTS = "base", "omit_optional", "empty_lists"
@@ -66,6 +67,7 @@ class FillContext:
     requirements: list = field(default_factory=list)
     dispatch_id: str = ""        # what the token `<dispatch>` reads; empty keeps the token unfillable (the caller names it)
     case_id: str = ""            # what the artifact token `<case id>` reads: set by `fill_artifact` for each id of `cases` (forms never read it)
+    bug_id: str = ""             # what the artifact token `<bug id>` reads: set by `fill_artifact` for each id of `bugs`
 
 
 @dataclass(frozen=True)
@@ -758,7 +760,16 @@ def _fill_json(output: str, row: dict, ctx: FillContext, overrides: dict, fills:
             fills.append(Fill(path, parent[key] if isinstance(parent[key], str) else "", value, "override"))
             covered.append(path)
         elif isinstance(parent[key], str):
-            parent[key] = _text_of(parent[key], path, generic, ctx, fills, unfillable)
+            cited = (row.get("cites") or {}).get(path) or (row.get("cites") or {}).get(generic)
+            if cited and handoff.is_placeholder(parent[key]) and ID_TOKEN.match(_hint_of(parent[key])):
+                issued = (ctx.minted.get(cited) or [""])[0]          # the id another form issued (3.5): never an invented one
+                if not issued:
+                    unfillable.append(Unfillable(path, parent[key], f"the field cites an id another form issued, and ctx.minted holds no `{cited}` id"))
+                else:
+                    fills.append(Fill(path, parent[key], issued, "minted"))
+                    parent[key] = issued
+            else:
+                parent[key] = _text_of(parent[key], path, generic, ctx, fills, unfillable)
     for _position, parent, key, value in sorted(ops, key=lambda op: op[0], reverse=True):
         if value is ABSENT:
             del parent[key]
@@ -788,6 +799,20 @@ def _fill_md(output: str, row: dict, ctx: FillContext, overrides: dict, fills: l
     Override keys: a front matter key, or `body:<label>` — the FIRST template line (outside the front matter) whose text starts with the
     label; ABSENT removes the line, any other value replaces the whole line."""
     lines = row["template"].split("\n")
+    each = row.get("per_case")                          # a line holding this token is written once per id of `ctx.cases` (a report's rows)
+    if each and ctx.cases:
+        spread = []
+        for at, one in enumerate(ctx.cases):             # one row per id: an empty or repeated id is no row (as a directory output)
+            if not isinstance(one, str) or not one.strip() or one in ctx.cases[:at]:
+                unfillable.append(Unfillable(output, str(one), "an id of the context that is empty or repeated: one row per id"))
+        for text in lines:
+            if each in text:
+                for one in dict.fromkeys(c for c in ctx.cases if isinstance(c, str) and c.strip()):
+                    spread.append(text.replace(each, grammar.escape_cell(one) if text.lstrip().startswith("|") else one))   # axis 21
+                    fills.append(Fill(text.strip()[:40], each, one, "token"))
+            else:
+                spread.append(text)
+        lines = spread
     front_end = 0
     if lines and lines[0].strip() == "---":
         front_end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), 0)
@@ -858,6 +883,9 @@ def fill_artifact(output: str, ctx: FillContext, *, variant: str = VARIANT_BASE,
     row = _row_of(output)
     overrides = dict(overrides or {})
     fills, unfillable = [], []
+    problem = _anchor_problem(row)
+    if problem is not None:                                   # the contract line the template stands on is gone: no shape is guessed
+        return FilledArtifact(output, {}, fills, [problem], [])
     if row.get("markers"):                                    # a test file: its case marker is the form `case-markers.json` holds (E9)
         marker, why = marker_form(_lang_of(output), row)
         if marker is None:
@@ -874,12 +902,28 @@ def fill_artifact(output: str, ctx: FillContext, *, variant: str = VARIANT_BASE,
                 unfillable.append(Unfillable(output, str(one), "an id of the context that is empty or repeated: one file per id"))
                 continue
             seen.add(one)
-            at = replace(ctx, case_id=one)
+            at = replace(ctx, **{row.get("id_field", "case_id"): one})
             text = _fill_text(output, row, at, overrides, fills, unfillable, variant)
-            files[(row.get("dir") or output) + row["file_name"].replace("<case id>", one)] = text
+            files[(row.get("dir") or output) + row["file_name"].replace(row.get("id_token", "<case id>"), one)] = text
         return FilledArtifact(output, files, fills, unfillable, [])
     text = _fill_text(output, row, ctx, overrides, fills, unfillable, variant)
     return FilledArtifact(output, {row.get("path") or output: text}, fills, unfillable, list(row.get("left_for_code") or []))
+
+
+def _anchor_problem(row: dict):
+    """None when the line of the contract the template stands on (`anchor`, a whole line, compared as the heading is written, never by its
+    line number) is in the contract file; otherwise the `Unfillable` naming the file and the line (the heading moved or went)."""
+    contract, anchor = row.get("contract"), row.get("anchor")
+    if not contract or not anchor:
+        return None
+    try:
+        lines = [ln.rstrip() for ln in (ROOT / contract).read_text(encoding="utf-8").splitlines()]
+    except Exception as exc:
+        return Unfillable("anchor", anchor, f"{contract} cannot be read ({type(exc).__name__}: {exc}): there is no shape to fill from")
+    if anchor not in lines:
+        return Unfillable("anchor", anchor, f"{contract} has no line {anchor!r}: the heading was renamed or removed, so the template row has no "
+                                            "shape to stand on; the filler does not guess one")
+    return None
 
 
 def _row_of(output: str) -> dict:

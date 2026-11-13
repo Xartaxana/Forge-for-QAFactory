@@ -485,7 +485,8 @@ def every_stage_output_fills_or_is_named() -> None:
     required field gone is NAMED in the summary (`outputs no reader refuses`), a `NotCovered` one too; neither is red (E7, E21)."""
     import form_filler as FF
     import validate_artifacts as VA
-    ctx = FF.FillContext(task_key="TP1-1", dispatch_id="S1-dispatch-1", cases=["TC-001", "TC-002"], minted={"P": ["P-1"]})
+    ctx = FF.FillContext(task_key="TP1-1", dispatch_id="S1-dispatch-1", cases=["TC-001", "TC-002"], bugs=["BUG-1", "BUG-2"],
+                         minted={"P": ["P-1"], "TC": ["TC-001"]})
     try:
         pairs = FF.stage_outputs()
     except Exception as exc:                       # an unreadable table is red, never "no outputs"
@@ -578,14 +579,14 @@ def every_stage_output_fills_or_is_named() -> None:
                 contract_lines = [ln.rstrip() for ln in (harness.PLUGIN_ROOT / template["contract"]).read_text(encoding="utf-8").splitlines()]
                 check(f"output: {name}[anchor]", template["anchor"] in contract_lines, f"{template['contract']} has no line {template['anchor']!r}")
                 errors = refusals(root / ("manifest" if name == "manifest_row" else "base"), result)   # a manifest row has a world of its own: one case, its plan row
-                check(row, errors == [], "; ".join(e[:160] for e in errors[:3]))
+                check(row, errors == [], "; ".join(errors))                  # the whole refusal: no printed list is cut
                 for variant in FF.artifact_variants(name, ctx)[1:]:          # the citation read by its own hint (3.5)
                     cited = FF.fill_artifact(name, ctx, variant=variant)
                     for u in cited.unfillable:
                         check(f"unfillable output {name}[{variant}]:{u.path} «{u.hint}»", False, u.why)
                     errors = [] if cited.unfillable else refusals(root / "base", cited)
                     check(f"output: {name}[{variant}]", not cited.unfillable and errors == [] and cited.files != result.files,
-                          "; ".join(e[:160] for e in errors[:3]) or "the variant wrote the same bytes as the base")
+                          "; ".join(errors) or "the variant wrote the same bytes as the base")
                 required = FF.required_of(name)
                 if not required:
                     unread.append(name)            # nothing to remove: no broken variant can be built
@@ -746,6 +747,111 @@ def every_stage_output_fills_or_is_named() -> None:
             check(f"output: {name}[named, not covered]", isinstance(got, FF.NotCovered) and name in names and "not landed" not in got.why, repr(got))
         check("output: work/evidence/manual/<case>/tried.md[the stage table writes the placeholder, the filler writes no folder of that name]",
               not [p for p in root.rglob("*") if "<" in p.name or ">" in p.name], str([str(p) for p in root.rglob("*") if "<" in p.name]))
+        # the rows of the S7-S9 group (a file per bug of the context, the cited case, the report's rows per case, the project files with no shape)
+        import contract as C
+        triage, drafts, bugs_dir, report, retro = "work/triage.json", "work/bug-drafts/", "project:bugs/", "test-report.md", "retro.md"
+        made = json.loads(FF.fill_artifact(triage, ctx).files[triage])["triage"][0]
+        check(f"output: {triage}[the verdict of the template is a word of contract.TRIAGE_VERDICTS, the evidence is not empty]",
+              made["verdict"] in C.TRIAGE_VERDICTS and bool(str(made["evidence"]).strip()), str(made))
+        two_drafts, two_bugs = FF.fill_artifact(drafts, ctx), FF.fill_artifact(bugs_dir, ctx)
+        check(f"output: {drafts}[two bugs, two files, each citing the case the context issued]", sorted(two_drafts.files) == [f"{drafts}BUG-1.json", f"{drafts}BUG-2.json"]
+              and all(json.loads(t)["case"] == "TC-001" for t in two_drafts.files.values()), str(sorted(two_drafts.files)))
+        check(f"output: {bugs_dir}[two bugs, two files, each naming the draft file of its own bug]", sorted(two_bugs.files) == [f"{bugs_dir}BUG-1.md", f"{bugs_dir}BUG-2.md"]
+              and all(f"source_draft: {drafts}{Path(p).stem}.json\n" in t and f"{drafts}{Path(p).stem}.json" in two_drafts.files and "cases: [TC-001]\n" in t
+                      for p, t in two_bugs.files.items()), str(sorted(two_bugs.files)))
+        placed = FF.write_outputs(task_root_of(root / "s7"), root / "s7", two_bugs) + FF.write_outputs(task_root_of(root / "s7"), root / "s7", two_drafts)
+        check(f"output: {bugs_dir}[a bug file lands under the project's qa-factory/bugs/, a draft under the task's work/bug-drafts/]",
+              placed == [(root / "s7" / "qa-factory" / "bugs" / f"BUG-{n}.md").resolve() for n in (1, 2)]
+              + [(task_root_of(root / "s7") / "work" / "bug-drafts" / f"BUG-{n}.json").resolve() for n in (1, 2)], str(placed))
+        for name in (drafts, bugs_dir):
+            none = FF.fill_artifact(name, empty_ctx)
+            check(f"output: {name}[no bug in the context: no file, a named line]", not none.files and [u.path for u in none.unfillable] == [name]
+                  and none.unfillable[0].why.startswith("no ids in ctx for a directory output (ctx.bugs"), str([(u.path, u.why) for u in none.unfillable]))
+            try:
+                FF.write_outputs(task_root_of(root / "nobug"), root / "nobug", none)
+                check(f"output: {name}[no bug in the context: nothing is written]", False, "no error")
+            except FF.NotFillable:
+                check(f"output: {name}[no bug in the context: nothing is written]", not (root / "nobug").exists(), "something was written")
+            for what, ids in (("an id that escapes the folder", ["../x"]), ("an id that is empty", [""]), ("an id twice", ["BUG-1", "BUG-1"])):
+                got = FF.fill_artifact(name, FF.FillContext(task_key="TP1-1", bugs=ids, minted={"TC": ["TC-001"]}))
+                if ids == ["../x"]:
+                    try:
+                        FF.write_outputs(task_root_of(root / "e22bug"), root / "e22bug", got)
+                        check(f"output: {name}[{what}]", False, "write_outputs wrote it")
+                    except ValueError:
+                        check(f"output: {name}[{what}]", not (root / "e22bug").exists() or not list((root / "e22bug").rglob("x.*")), "a file was written")
+                else:
+                    check(f"output: {name}[{what}]", len(got.unfillable) >= 1 and (what != "an id twice" or len(got.files) == 1), str([(u.path, u.why) for u in got.unfillable]))
+            for what, minted in (("no issued case", {}), ("an empty list of issued cases", {"TC": []})):
+                got = FF.fill_artifact(name, FF.FillContext(task_key="TP1-1", bugs=["BUG-1"], minted=minted))
+                check(f"output: {name}[{what}: unfillable naming the hint]", [(u.path, u.hint) for u in got.unfillable] == [("case" if name == drafts else "cases", "<TC-n>")],
+                      str([(u.path, u.hint, u.why) for u in got.unfillable]))
+        both = FF.fill_artifact(drafts, ctx, overrides={"title": FF.ABSENT})
+        check(f"output: {drafts}[ABSENT title lands in every file]", not both.unfillable and all("title" not in json.loads(t) for t in both.files.values()), str(both.unfillable))
+        for name, wrong in ((triage, "triage[3].test"), (drafts, "nowhere.x"), (retro, "body:## Nowhere")):
+            got = FF.fill_artifact(name, ctx, overrides={wrong: 1})
+            check(f"output: {name}[override missing path {wrong}]", [u.path for u in got.unfillable][:1] == [wrong] and got.unfillable[0].why.startswith("override names no field of"),
+                  str([(u.path, u.why) for u in got.unfillable]))
+        for name in ("work/ledger.json", "work/ledger.md", "work/proposals/"):
+            check(f"output: {name}[written by code: the filler names the writer and writes nothing]", FF.classify(name) == "code" and isinstance(FF.fill_artifact(name, ctx), FF.ByCode)
+                  and name in names, FF.classify(name))
+        shapeless = "project:obligations.md", "project:factory-backlog.md"
+        for name in shapeless:
+            got = FF.fill_artifact(name, ctx)
+            check(f"output: {name}[named, not covered: no shape in the contract]", isinstance(got, FF.NotCovered) and got.why == 'no shape in artifact-contract.md "Project-level files"'
+                  and names.count(name) == 1, repr(got))
+        both_stages = sorted(stage for stage, name in pairs if name == shapeless[0])
+        check(f"output: {shapeless[0]}[named by two stages, one template row for both]", len(both_stages) == 2, str(both_stages))
+        heading = "## Project-level files"
+        contract_lines = (harness.PLUGIN_ROOT / "references" / "artifact-contract.md").read_text(encoding="utf-8").splitlines()
+        found_at = next((i for i, ln in enumerate(contract_lines) if ln.rstrip() == heading), None)
+        if found_at is None:                           # found by the HEADING, never by a line number: a heading that is gone is red
+            check(f"output: project-level files[artifact-contract.md has the heading {heading!r}]", False, "heading absent: re-judge the not_covered rows of the two project files")
+        else:
+            body = []
+            for line in contract_lines[found_at + 1:]:
+                if line.startswith("#"):
+                    break
+                body.append(line)
+            shaped = [ln for ln in body if ln.lstrip().startswith(("|", "```", "---"))]
+            check("output: project-level files[the section names the two files and gives no table, fence or front matter]",
+                  not shaped and all(any(Path(n.split(":", 1)[1]).stem in ln for ln in body) for n in shapeless), str(shaped))
+        base_files = FF.fill_artifact(triage, ctx).files
+        saved_root = FF.ROOT
+        for what, edit in (("the heading moved down three lines", lambda t: "\n\n\n" + t), ("the heading renamed", lambda t: t.replace("## `triage.json`", "## `triage-rows.json`"))):
+            fake = harness.temp_dir()
+            try:
+                (fake / "references").mkdir()
+                (fake / "references" / "artifact-contract-run.md").write_text(edit((saved_root / "references" / "artifact-contract-run.md").read_text(encoding="utf-8")),
+                                                                              encoding="utf-8")
+                FF.ROOT = fake
+                got = FF.fill_artifact(triage, ctx)
+            finally:
+                FF.ROOT = saved_root
+                harness.cleanup(fake)
+            if "moved" in what:
+                check(f"output: {triage}[{what}: found by its heading, the same bytes]", not got.unfillable and got.files == base_files, str(got.unfillable))
+            else:
+                check(f"output: {triage}[{what}: unfillable naming the file and the heading, no file]", not got.files and len(got.unfillable) == 1
+                      and "artifact-contract-run.md" in got.unfillable[0].why and "## `triage.json`" in got.unfillable[0].why, str([(u.path, u.why) for u in got.unfillable]))
+        text2 = FF.fill_artifact(report, ctx).files[report]
+        appendix = [ln for ln in text2.splitlines() if ln.startswith("| R-1 |")]
+        left = [ln for ln in text2.splitlines() if ln.startswith("1. ") and "To check:" in ln]
+        check(f"output: {report}[two cases: two appendix rows and two items, each naming its case]", [ln.split("|")[2].strip() for ln in appendix] == ctx.cases
+              and len(left) == 2 and all(f"R-1, {c})" in ln for ln, c in zip(left, ctx.cases)), str(appendix + left))
+        piped = FF.fill_artifact(report, FF.FillContext(task_key="TP1-1", cases=["TC|1"])).files[report]
+        check(f"output: {report}[a bar in a case id goes through grammar.escape_cell in the appendix row only]", "| R-1 | TC\\|1 | pass |\n" in piped and "(R-1, TC|1)" in piped, "the bar was not escaped")
+        got = FF.fill_artifact(report, FF.FillContext(task_key="TP1-1"))
+        check(f"output: {report}[no case in the context: unfillable naming the token]", {u.hint for u in got.unfillable} == {"<case id>"}, str([(u.path, u.hint) for u in got.unfillable]))
+        got = FF.fill_artifact(report, FF.FillContext(task_key="TP1-1", cases=["TC-001", "TC-001", ""]))
+        check(f"output: {report}[a repeated or empty id: unfillable, one row per distinct id]", len([u for u in got.unfillable if "empty or repeated" in u.why]) == 2
+              and len([ln for ln in got.files[report].splitlines() if ln.startswith("| R-1 |")]) == 1, str([(u.path, u.why) for u in got.unfillable]))
+        unfilled = []
+        nothing = FF._fill_md("synthetic", {"template": "x: < >\n"}, ctx, {}, [], unfilled)
+        check("output: synthetic template[a hint no rule fills is unfillable, the text stays as written]", [u.why for u in unfilled] == ["the template holds no hint for this field"]
+              and nothing == "x: < >\n", str(unfilled))
+        check("output: E16[no row of not_covered says a group has not landed]", not [(n, w) for n, w in tables["not_covered"].items() if "not landed" in w],
+              str([(n, w) for n, w in tables["not_covered"].items() if "not landed" in w]))
         # the rows of the interface itself (E20, E22, the escape of a cell, determinism)
         manifest, register, understanding = "work/context-manifest.json", "work/requirements-register.md", "understanding.md"
         for name, overrides, wanted in (

@@ -1719,6 +1719,8 @@
     "references/artifact-contract-grounding.md",
     "references/artifact-contract-json.md",
     "references/artifact-contract-plan.md",
+    "references/artifact-contract-results.md",
+    "references/artifact-contract-run.md",
     "references/artifact-contract.md",
     "references/artifact-writers.json",
     "references/case-markers.json",

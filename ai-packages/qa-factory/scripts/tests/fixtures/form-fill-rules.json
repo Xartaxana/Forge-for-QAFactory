@@ -23,7 +23,8 @@
     "<the author's dispatch>": "author_dispatch"
   },
   "artifact_tokens": {
-    "<case id>": "case_id"
+    "<case id>": "case_id",
+    "<bug id>": "bug_id"
   },
   "artifact_templates": {
     "test-plan.md": {
@@ -266,6 +267,71 @@
       "format": "md",
       "template": "## Why this change\n\n<one sentence on why the change exists>\n\n## What we verify\n\n- <R-n>: <what is verified, one sentence>\n\n## What we do not verify, and why\n\n- none\n\n## What else the change may touch\n\n- <one area the change may touch>\n\n## Questions without which testing is pointless\n\n- none\n",
       "required": ["body:## Why this change", "body:## What we verify", "body:## What we do not verify", "body:## What else the change may touch", "body:## Questions without which"]
+    },
+    "work/triage.json": {
+      "contract": "references/artifact-contract-run.md",
+      "anchor": "## `triage.json`",
+      "format": "json",
+      "template": {
+        "triage": [
+          {
+            "test": "test_removed_node[chromium]",
+            "verdict": "APP_BUG",
+            "evidence": "<what the run showed: the failure as the run report words it>",
+            "detail": "<why this verdict, one sentence in the task's terms>"
+          }
+        ]
+      },
+      "required": ["triage"]
+    },
+    "work/bug-drafts/": {
+      "contract": "references/artifact-contract-run.md",
+      "anchor": "## `bug-drafts/*.json`",
+      "format": "json",
+      "ids": "bugs",
+      "id_field": "bug_id",
+      "id_token": "<bug id>",
+      "file_name": "<bug id>.json",
+      "cites": {"case": "TC"},
+      "template": {
+        "title": "<one line: what is broken>",
+        "impact": "degraded",
+        "violates": "requirement:R-1",
+        "case": "<TC-n>",
+        "triage_ref": {"instance_id": "test_removed_node[chromium]", "attempt_id": "a1"},
+        "manual_steps": ["<what a person does in the product to see the defect>"],
+        "red_test": {"path": "tests/test_diff.py::test_removed_node", "command": "pytest tests/test_diff.py::test_removed_node"},
+        "confirmation": "unconfirmed"
+      },
+      "required": ["title", "impact", "violates", "case", "triage_ref", "manual_steps", "red_test", "confirmation"]
+    },
+    "test-report.md": {
+      "contract": "references/artifact-contract-results.md",
+      "anchor": "## `test-report.md`",
+      "format": "md",
+      "per_case": "<case id>",
+      "template": "# <TICKET> — test report\n\n**The change.** <one paragraph: what the change is, in the product's words>\n\nR-n is a requirement, TC-n a test case, TS-n a plan row, BUG-n a bug.\n\n`delivery_ready: <yes|after_checks|no>`\n\n## Proven — <n> green tests\n\n- <R-n>: <the requirement in words>\n\n## Product bugs — 0\n\nnone found\n\n## Left with you\n\n1. <what is left, in the case's words> (<R-n>, <case id>). To check: <the Then, quoted>. Needed: <the account or decision that is missing>.\n\n## Skipped by the plan (approved at gate A)\n\nnone\n\n## Not proven, and what it costs\n\nnone\n\n## Factory defects — nothing is wanted from you\n\n<what the factory's own bookkeeping got wrong, in words>\n\n## Size\n\nForecast: <size_initial>\nFact: <size_final>\n\n## Where to look\n\n- understanding.md\n- test-plan.md\n- retro.md\n- the appendix below\n\n## Appendix — traceability\n\n| R | case | result |\n|---|---|---|\n| <R-n> | <case id> | pass |\n",
+      "required": ["body:## Proven", "body:## Product bugs", "body:## Left with you", "body:## Not proven", "body:## Factory defects", "body:## Size", "body:## Where to look", "body:## Appendix"]
+    },
+    "project:bugs/": {
+      "contract": "references/artifact-contract-run.md",
+      "anchor": "## `bugs/BUG-n.md` — the filing header (HF8-21)",
+      "format": "md",
+      "ids": "bugs",
+      "id_field": "bug_id",
+      "id_token": "<bug id>",
+      "dir": "project:bugs/",
+      "file_name": "<bug id>.md",
+      "cites": {"cases": "TC"},
+      "template": "---\nsource_draft: work/bug-drafts/<bug id>.json\ncases: [<TC-n>]\nrequirements: [<R-n>]\n---\n",
+      "required": ["source_draft", "cases", "requirements"]
+    },
+    "retro.md": {
+      "contract": "references/artifact-contract-results.md",
+      "anchor": "## `retro.md`",
+      "format": "md",
+      "template": "# <TICKET> — retro\n\n## What went wrong and what to do about it\n\n- <a number, its diagnosis in plain words, and the change it argues for>\n\n## Time per stage\n\n<the time each stage took, in words>\n\n## Human wait per gate\n\n<how long each gate waited for the person>\n\n## Cost per role\n\n<the cost per role, in the units the run recorded>\n\n## Marathons\n\n<each marathon with its tool histogram>\n\n## Redundant runs\n\n<the redundant-run count>\n\n## Rejects by reason family\n\n<the rejects, grouped by reason family>\n\n## Gate A disposition overrides\n\n<the overrides the person made at gate A, or none>\n\n## Forecast and actual\n\n<the forecast against the actual>\n\n## The closing question\n\n<the human's verbatim answer to the one closing question>\n",
+      "required": ["body:## What went wrong and what to do about it"]
     }
   },
   "not_covered": {
@@ -273,12 +339,7 @@
     "work/s5-plan.json": "shape is the skeleton s5_plan.py --init writes; no contract template",
     "work/s5-notes/": "free notes, no contract shape",
     "work/evidence/manual/<case>/tried.md": "no contract heading; the recorder's build reads it",
-    "work/triage.json": "group N2d not landed",
-    "work/bug-drafts/": "group N2d not landed",
-    "test-report.md": "group N2d not landed",
-    "project:bugs/": "group N2d not landed",
-    "project:obligations.md": "group N2d not landed",
-    "retro.md": "group N2d not landed",
-    "project:factory-backlog.md": "group N2d not landed"
+    "project:obligations.md": "no shape in artifact-contract.md \"Project-level files\"",
+    "project:factory-backlog.md": "no shape in artifact-contract.md \"Project-level files\""
   }
 }
