@@ -73,19 +73,105 @@ def conductor_verdict(prompt: str, control: dict) -> dict:
             "options": [T.seam_option(token, move) for move, token in moves]}
 
 
-def pending_judgments(inventory: Path) -> str:
-    """"" when the inventory holds no source whose relevance is still `pending`; else the live_only reason: each such source is a mentioned ticket the
-    scout must `peek` and judge (`ticket_adapter.py assess --relevance <relevant|not_relevant|unknown> --reason ...`), the role's judgment - the type
-    holds no closed answer for it, so the stub writes none (E13) and the exit gate's own refusal stands."""
+def source_key(item: dict) -> str:
+    """The tracker key of an inventory source: the tail of its canonical ref (the rule of `source_inventory._key`)."""
+    return str(item.get("canonical_ref") or item.get("source_id") or "").rsplit("/browse/", 1)[-1]
+
+
+def read_sources(inventory: Path):
+    """`(sources, "")` of the inventory read through the package's one reader (`source_inventory.load_inventory`, AR-13), or `([], why)`."""
+    import source_inventory as SI
     try:
-        sources = json.loads(inventory.read_text(encoding="utf-8")).get("sources") or []
+        return [s for s in SI.load_inventory(inventory).get("sources") or [] if isinstance(s, dict)], ""
     except (OSError, ValueError):
-        return "work/source-inventory.json is missing or unreadable after the collect step"
-    waiting = [s.get("canonical_ref") or s.get("source_id") for s in sources if isinstance(s, dict) and s.get("required") and s.get("relevance") == "pending"]
-    if not waiting:
-        return ""
-    return (f"{len(waiting)} mentioned source(s) await the scout's judgment ({', '.join(map(str, waiting[:5]))}): `ticket_adapter.py peek` then `assess "
-            "--relevance` is role judgment and the type holds no closed answer for it")
+        return [], "work/source-inventory.json is missing or unreadable after the collect step"
+
+
+def awaiting(sources: list) -> tuple:
+    """`(unjudged, uncollected)`: the required sources whose relevance is still `pending` (a mention the scout must `peek` and `assess`), and the
+    kept ones (`relevant`) whose full collection has not replaced the pending status yet (`source_inventory.record_relevance_assessment`)."""
+    unjudged = [s for s in sources if s.get("required") and s.get("relevance") == "pending"]
+    uncollected = [s for s in sources if s.get("required") and s.get("relevance") == "relevant" and s.get("status") == "pending"]
+    return unjudged, uncollected
+
+
+def pending_judgments(inventory: Path, skip=()) -> str:
+    """"" when the inventory holds no source awaiting the scout (`awaiting`), else the live_only reason, naming each source: an unjudged mention is
+    the role's judgment - a key the type's `stub.source_relevance` does not name gets no value from the stub (E13, AR-29) and the exit gate's own refusal
+    stands; a kept source left uncollected has no read step that closed it. `skip` holds the keys a command already reported with its own text."""
+    sources, why = read_sources(inventory)
+    if why:
+        return why
+    unjudged, uncollected = awaiting(sources)
+    parts = []
+    refs = [s.get("canonical_ref") or s.get("source_id") for s in unjudged if source_key(s) not in skip]
+    if refs:
+        parts.append(f"{len(refs)} mentioned source(s) await the scout's judgment ({', '.join(map(str, refs[:5]))}): `ticket_adapter.py peek` then `assess "
+                     "--relevance` is role judgment and the type holds no closed answer for it")
+    kept = [s.get("canonical_ref") or s.get("source_id") for s in uncollected if source_key(s) not in skip]
+    if kept:
+        parts.append(f"{len(kept)} kept source(s) left pending after `assess` with no read step that closes them ({', '.join(map(str, kept[:5]))})")
+    return "; ".join(parts)
+
+
+def run_script(project: Path, script: str, args: list) -> tuple:
+    """`(exit code, stdout+stderr)` of `python -B <package script> <args>` run in the project, as the role runs it."""
+    done = subprocess.run([sys.executable, "-B", str(harness.SCRIPTS / script), *args], cwd=str(project), capture_output=True, text=True,
+                          encoding="utf-8", errors="replace")
+    return done.returncode, (done.stderr or done.stdout)
+
+
+def judge_sources(inventory: Path, declared: dict, runner) -> tuple:
+    """`(ran, judged, live_only)` of the scout's source work after `collect`: for each required source with `relevance: pending` whose key IS in
+    `declared` (the type row's `stub.source_relevance`, data the stub only READS - AR-29) run `ticket_adapter.py peek <KEY>` then `assess` with exactly
+    the declared value and the `assessment_ref` peek wrote; a key not named is left alone (`live_only` by the caller, no command); each kept source
+    (`relevant`, still pending) gets the complete collector `collect <KEY> --relation referenced`, a read that decides nothing. A command that fails
+    is a `live_only` with its text cut at 400 and is never retried with another value (E-R4). `runner(script, args) -> (exit, text)`."""
+    ran, judged, live_only, tried = [], [], [], set()
+    out = str(inventory)
+    for _round in range(8):         # a collected ticket names further tickets, each needing peek+assess then its collection: a bounded few rounds, then what is left is reported
+        sources, why = read_sources(inventory)
+        if why:
+            live_only.append({"output": "work/source-inventory.json", "why": why})
+            break
+        unjudged, uncollected = awaiting(sources)
+        moved = False
+        for item in unjudged:
+            key = source_key(item)
+            decl = declared.get(key)
+            if not decl or ("judge", key) in tried:
+                continue
+            tried.add(("judge", key))
+            moved = True
+            code, text = runner("ticket_adapter.py", ["peek", key, "--output", out])
+            ran.append(f"peek {key} exit {code}")
+            after = next((s for s in read_sources(inventory)[0] if s.get("source_id") == item.get("source_id")), {})
+            if after.get("relevance") != "pending" or not after.get("assessment_ref"):
+                live_only.append({"output": "work/source-inventory.json", "key": key,
+                                  "why": f"peek {key} left nothing to cite for `assess` (exit {code}): {' '.join(text.split())[:400]}"})
+                continue
+            code, text = runner("ticket_adapter.py", ["assess", "--output", out, "--source-id", item["source_id"], "--relevance", decl["relevance"],
+                                                      "--reason", decl["reason"], "--assessment-ref", after["assessment_ref"]])
+            ran.append(f"assess {key} {decl['relevance']} exit {code}")
+            if code == 0:
+                judged.append(key)
+            else:
+                live_only.append({"output": "work/source-inventory.json", "key": key,
+                                  "why": f"assess {key} refused (exit {code}): {' '.join(text.split())[:400]}"})
+        for item in uncollected:
+            key = source_key(item)
+            if key not in judged or ("collect", key) in tried:
+                continue            # kept before this call (not by a declared value): the stub does not collect what it did not judge
+            tried.add(("collect", key))
+            moved = True
+            code, text = runner("ticket_adapter.py", ["collect", key, "--relation", "referenced", "--output", out, "--summary"])
+            ran.append(f"collect {key} referenced exit {code}")
+            if code != 0:
+                live_only.append({"output": "work/source-inventory.json", "key": key,
+                                  "why": f"collect {key} refused (exit {code}): {' '.join(text.split())[:400]}"})
+        if not moved:
+            break
+    return ran, judged, live_only
 
 
 def role_plan(role: str, stage: str, ff) -> list:
@@ -161,9 +247,15 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
                               cwd=str(project), capture_output=True, text=True, encoding="utf-8", errors="replace")
         (row["wrote"] if done.returncode == 0 else row["live_only"]).append(
             out if done.returncode == 0 else {"output": out, "why": f"{script} exit {done.returncode}: {' '.join((done.stderr or done.stdout).split())[:400]}"})
-    gap = pending_judgments(task_dir / "work" / "source-inventory.json") if stage == "S1" and role in ROLE_STEPS else ""
-    if gap:
-        row["live_only"].append({"output": "work/source-inventory.json", "why": gap})
+    if stage == "S1" and role in ROLE_STEPS:
+        inventory = task_dir / "work" / "source-inventory.json"
+        ran, judged, failed = judge_sources(inventory, (control.get("stub") or {}).get("source_relevance") or {},
+                                            lambda script, args: run_script(project, script, args))
+        row["ran"], row["judged"] = ran, judged
+        row["live_only"].extend(failed)
+        gap = pending_judgments(inventory, skip={f["key"] for f in failed if f.get("key")})
+        if gap:
+            row["live_only"].append({"output": "work/source-inventory.json", "why": gap})
     for out, kind in role_plan(role, stage, FF):
         if kind == "fill":
             try:
@@ -303,6 +395,96 @@ def selftest() -> int:
         inv.write_text(json.dumps(body), encoding="utf-8")
         check(f"round 2: inventory with {name}", expect in pending_judgments(inv) and bool(pending_judgments(inv)) == bool(expect), pending_judgments(inv))
     check("round 2: an inventory that is not there is named, never read as no pending source", "missing or unreadable" in pending_judgments(tmp / "nope.json"))
+    # round 3: the declared judgment is data the stub reads (AR-29, E-R1..E-R5)
+    mention = {"source_id": "SRC-a", "canonical_ref": "https://x/browse/A-1", "required": True, "relevance": "pending", "status": "pending"}
+    declared = {"A-1": {"relevance": "relevant", "reason": "explicit required source", "from": "x"}}
+
+    class FakeRole:
+        """A runner standing in for `ticket_adapter.py`: it records every call and changes the inventory as the real commands would."""
+        def __init__(self, path, assess_exit=0, peek_ref="sources/SRC-a/assessment/ticket.json"):
+            self.path, self.calls, self.assess_exit, self.peek_ref = path, [], assess_exit, peek_ref
+
+        def __call__(self, script, args):
+            self.calls.append([script, *args])
+            body = json.loads(self.path.read_text(encoding="utf-8"))
+            item = body["sources"][0]
+            if args[0] == "peek":
+                item["assessment_ref"] = self.peek_ref
+            elif args[0] == "assess" and self.assess_exit == 0:
+                item.update(relevance=args[args.index("--relevance") + 1], relevance_reason=args[args.index("--reason") + 1])
+            elif args[0] == "collect":
+                item["status"] = "read"
+            self.path.write_text(json.dumps(body), encoding="utf-8")
+            return (self.assess_exit, "assess refused: the person left it out") if args[0] == "assess" and self.assess_exit else (0, "")
+
+    def fresh(name, **kw):
+        path = tmp / f"{name}.json"
+        path.write_text(json.dumps({"sources": [dict(mention)]}), encoding="utf-8")
+        return path, FakeRole(path, **kw)
+
+    path, role = fresh("named")
+    ran, judged, gap = judge_sources(path, declared, role)
+    check_eq("round 3: a named key runs peek then assess then the collector, argv exactly the data values",
+             role.calls, [["ticket_adapter.py", "peek", "A-1", "--output", str(path)],
+                          ["ticket_adapter.py", "assess", "--output", str(path), "--source-id", "SRC-a", "--relevance", "relevant", "--reason",
+                           "explicit required source", "--assessment-ref", "sources/SRC-a/assessment/ticket.json"],
+                          ["ticket_adapter.py", "collect", "A-1", "--relation", "referenced", "--output", str(path), "--summary"]])
+    check_eq("round 3: a judged and collected source leaves no gap", (judged, gap, pending_judgments(path)), (["A-1"], [], ""))
+    path, role = fresh("unnamed")
+    ran, judged, gap = judge_sources(path, {}, role)
+    check_eq("E-R1 / AR-29: a pending source the data does not name gets no command (no peek, no assess) and is a live_only naming it",
+             (role.calls, ran, judged, "https://x/browse/A-1" in pending_judgments(path)), ([], [], [], True))
+    path, role = fresh("refused", assess_exit=1)
+    ran, judged, gap = judge_sources(path, declared, role)
+    check("E-R4: an assess refused is a live_only with the refusal verbatim, no second attempt with another value",
+          "assess A-1 refused (exit 1): assess refused: the person left it out" in gap[0]["why"] and [c[1] for c in role.calls] == ["peek", "assess"] and not judged, f"{gap} {role.calls}")
+    path, role = fresh("noref", peek_ref=None)
+    ran, judged, gap = judge_sources(path, declared, role)
+    check("E-R5: a peek that left no assessment to cite is a live_only and no assess runs", "left nothing to cite" in gap[0]["why"] and [c[1] for c in role.calls] == ["peek"], f"{gap} {role.calls}")
+    path = tmp / "kept.json"
+    path.write_text(json.dumps({"sources": [dict(mention, relevance="relevant")]}), encoding="utf-8")
+    check("round 3: a kept source left pending after `assess relevant` with no read step is named by pending_judgments",
+          "left pending after `assess`" in pending_judgments(path) and "https://x/browse/A-1" in pending_judgments(path), pending_judgments(path))
+    check_eq("round 3: judge_sources does not collect a kept source it did not judge", judge_sources(path, {}, FakeRole(path))[0], [])
+    cut_gap = judge_sources(fresh("cut")[0], declared, lambda s, a: (1, "x" * 900))[2]
+    check("E-R10: the command text a live_only carries is cut at 400 characters and keeps its head", "x" * 400 in cut_gap[0]["why"] and "x" * 401 not in cut_gap[0]["why"], cut_gap[0]["why"][:80])
+    check_eq("E-R2: a declared key no source took is a NOTE", W.unused_judgments({"A-1": {}, "B-2": {}}, [{"judged": ["A-1"]}, {}]),
+             ["NOTE: unused judgment B-2 (the stub never judged a source with that key)"])
+    check_eq("item 2: the row's own value wins over the type's, key by key; the type's other keys stay",
+             W.merge_stub({"source_relevance": {"A-1": {"relevance": "relevant"}, "B-2": {"relevance": "unknown"}}, "qa-scout": {"verdict": "x"}},
+                          {"source_relevance": {"A-1": {"relevance": "not_relevant"}}}),
+             {"source_relevance": {"A-1": {"relevance": "not_relevant"}, "B-2": {"relevance": "unknown"}}, "qa-scout": {"verdict": "x"}})
+    check_eq("item 2: the main pass reads the type's stub alone", W.merge_stub({"source_relevance": {"A-1": {}}}, None), {"source_relevance": {"A-1": {}}})
+    # E-R3 / A1-E4: a declared judgment that cannot be trusted is red before the world is built
+    good_j = {"relevance": "relevant", "reason": "r", "from": "f"}
+    for n, (name, stub, needle) in enumerate((
+            ("a row without `stub` (the round-2 table) loads (control)", None, "ok"),
+            ("a good judgment loads (control)", {"source_relevance": {"A-1": good_j}}, "ok"),
+            ("`stub` not a mapping", ["x"], "`stub` is not a mapping"),
+            ("a value outside the closed list", {"source_relevance": {"A-1": dict(good_j, relevance="maybe")}}, "relevance 'maybe'"),
+            ("an empty reason", {"source_relevance": {"A-1": dict(good_j, reason="  ")}}, "has no `reason`"),
+            ("a key twice, case-folded", {"source_relevance": {"A-1": good_j, "a-1": good_j}}, "repeats a key"),
+            ("`source_relevance` not a mapping", {"source_relevance": []}, "is not a mapping"))):
+        got = table(f"s{n}", json.dumps({"default": "a", "types": [one("a", **({} if stub is None else {"stub": stub}))], "gaps": []}), ("in-a",))
+        check(f"load_types (E-R3): {name}", got == "ok" if needle == "ok" else needle in got and "'a'" in got, f"got {got!r}")
+    real = W.type_row()
+    check_eq("item 1: the real type declares the recorded verdict of TP1-15791", (real["stub"]["source_relevance"]["TP1-15791"]["relevance"],
+             real["stub"]["source_relevance"]["TP1-15791"]["from"].split(":")[0]), ("relevant", "investigation-14857/TP1-14857/work/source-inventory.json"))
+    # AR-28: a gate verdict only when S3 is done; E-R8: a byte change in a snapshot is red
+    all_done = {"S0": "done", "S1": "done", "S2": "done", "S3": "done"}
+    check("AR-28: S3 done prints the numbers verdict", W.gate_line(all_done, {}, 10, 5, 8).startswith("gate: continue ("), W.gate_line(all_done, {}, 10, 5, 8))
+    early = W.gate_line(dict(all_done, S2="running", S3="absent"), {"S2": "running - live_only: " + "y" * 300}, 10, 5, 8)
+    check("AR-28 / E-R7: S3 not done prints `undecided` with the stage, the cut outcome and the measured part",
+          early.startswith("gate: undecided -- the road ended at S2: running - live_only: y") and "measured: S0..S2 10.0 s, row median 5.0 s" in early
+          and "y" * 20 in early and "y" * 300 not in early and len(early.split(": ", 2)[2].split("; measured")[0]) <= 160, early)
+    check("AR-28: an undecided line never reads `continue`", "continue" not in early, early)
+    snap_dir = tmp / "snapdir"
+    snap_dir.mkdir()
+    (snap_dir / "a.txt").write_bytes(b"one")
+    before = W.tree_hash(snap_dir)
+    check_eq("E-R8: an untouched tree is not red", W.snapshot_red("row1", before, snap_dir), "")
+    (snap_dir / "a.txt").write_bytes(b"onE")
+    check_eq("E-R8: a byte change between the two hashes is red naming the row", W.snapshot_red("row1", before, snap_dir), "red: snapshot changed by a row: row1")
     check_eq("round 2: the answers of the road are the words of the first row naming the kind", W.closed_answers([{"answers": {"a": "x"}}, {"answers": {"a": "y", "b": "z"}}]), {"a": "x", "b": "z"})
     # the conductor stub offers every open move the prompt lists, and stops when it lists none
     prompt = "x\n## Moves open here\n\nintro\n- `retry` — token `again`; option carries no \"args\"\n- `story_fact` — yours to run, never an option\n- `stop_here` — token `stop`; option carries no \"args\"\n\n## Other\n- `no` — token `no`;"

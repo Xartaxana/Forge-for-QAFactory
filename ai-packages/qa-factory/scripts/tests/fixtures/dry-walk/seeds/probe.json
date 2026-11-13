@@ -6,5 +6,5 @@
   {"id": "questions/answers", "start": "S0", "stub": {},
    "expect": "any", "answers": {"s1_review": "go on", "conductor": "stop"}},
   {"id": "halt/words", "start": "S0", "stub": {"qa-scout": {"verdict": "halt"}},
-   "expect": "halt", "answers": {"halt": "go on without it"}}
+   "expect": "halt", "answers": {"s1_review": "go on", "halt": "go on without it"}}
  ]}

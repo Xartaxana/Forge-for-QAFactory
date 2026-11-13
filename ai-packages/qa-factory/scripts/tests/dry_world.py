@@ -11,6 +11,7 @@ branch on a project name; AR-3: the tracker kind comes from the row, the project
 Unknown never becomes a pass (AR-28): a types file that cannot be trusted, a snapshot not made by this process, a route the world
 does not hold (404) are each a named refusal or a recorded gap.
 """
+import hashlib
 import json
 import os
 import re
@@ -92,9 +93,48 @@ def load_types(path=None, base=None) -> tuple:
             raise TypesError(f"{name}: type {tid!r} tracker kind {kind!r}; expected one of {list(TRACKER_KINDS)}")
         if kind == "jira" and not (base / row["input"] / str(tracker.get("routes") or "")).is_file():
             raise TypesError(f"{name}: type {tid!r} names the routes file {tracker.get('routes')!r}, which is not in {row['input']}")
+        check_stub(name, tid, row.get("stub"))
     if data.get("default") not in seen:
         raise TypesError(f"{name}: `default` is {data.get('default')!r}, which is not the id of a type; expected one of {sorted(seen)}")
     return data["types"], gaps
+
+
+RELEVANCE_VALUES = ("relevant", "not_relevant", "unknown")
+
+
+def check_stub(name: str, tid: str, stub) -> None:
+    """The declared judgments of a type row (`stub`, E-R3): a row without `stub` is `{}`; `stub` is a mapping; `source_relevance` is a mapping
+    of ticket key -> `{relevance: relevant|not_relevant|unknown, reason: <non-empty>, from: <where the value was recorded>}`, a key once (case-folded).
+    A value outside the closed list never reaches the factory (AR-28): a `TypesError` naming the file, the type and the key."""
+    if stub is None:
+        return
+    if not isinstance(stub, dict):
+        raise TypesError(f"{name}: type {tid!r} `stub` is not a mapping; expected an object (role controls, `source_relevance`)")
+    declared = stub.get("source_relevance")
+    if declared is None:
+        return
+    if not isinstance(declared, dict):
+        raise TypesError(f"{name}: type {tid!r} `stub.source_relevance` is not a mapping; expected ticket key -> judgment")
+    folded = set()
+    for key, judgment in declared.items():
+        where = f"type {tid!r} `stub.source_relevance[{key!r}]`"
+        if key.casefold() in folded:
+            raise TypesError(f"{name}: {where} repeats a key (case-folded); expected each ticket key once")
+        folded.add(key.casefold())
+        if not isinstance(judgment, dict):
+            raise TypesError(f"{name}: {where} is not a mapping; expected relevance, reason, from")
+        if judgment.get("relevance") not in RELEVANCE_VALUES:
+            raise TypesError(f"{name}: {where} relevance {judgment.get('relevance')!r}; expected one of {list(RELEVANCE_VALUES)}")
+        if not isinstance(judgment.get("reason"), str) or not judgment["reason"].strip():
+            raise TypesError(f"{name}: {where} has no `reason`; expected a non-empty sentence")
+
+
+def merge_stub(base, over) -> dict:
+    """The control the stub reads: the type's `stub` overlaid by a row's `stub`, the row winning key by key (one level below the top: a role, a ticket key)."""
+    merged = {k: dict(v) if isinstance(v, dict) else v for k, v in (base or {}).items()}
+    for key, value in (over or {}).items():
+        merged[key] = {**merged[key], **value} if isinstance(merged.get(key), dict) and isinstance(value, dict) else value
+    return merged
 
 
 def type_row(type_id=None, path=None) -> dict:
@@ -176,7 +216,7 @@ class World:
     def control(self, stub: dict | None = None) -> None:
         """The stub's own control file (the stub is a process: this file is how a row steers it)."""
         (self.root / "dry-stub-control.json").write_text(json.dumps(
-            {"task": self.task, "type": self.row["id"], "stub": stub or {}}), encoding="utf-8")
+            {"task": self.task, "type": self.row["id"], "stub": merge_stub(self.row.get("stub"), stub)}), encoding="utf-8")
 
     def close(self) -> None:
         if self.server is not None:
@@ -458,6 +498,37 @@ def gate_verdict(total: float, median: float, worst: float) -> str:
     return "continue"
 
 
+def gate_line(state: dict, outcomes: dict, total: float, median: float, worst: float) -> str:
+    """The gate line (AR-28): a numbers verdict only when S3 is `done`; a road that ended earlier is `undecided` and names the stage it ended at, the head of
+    that stage's outcome line (cut at 160, the stub journal holds the whole text) and what was measured."""
+    if state.get("S3") == "done":
+        return f"gate: {gate_verdict(total, median, worst)} (S0..S3 {total:.1f} s, row median {median:.1f} s, worst row {worst:.1f} s)"
+    stuck = next((s for s in ("S0", "S1", "S2", "S3") if state.get(s) != "done"), "S0")
+    return (f"gate: undecided -- the road ended at {stuck}: {' '.join(str(outcomes.get(stuck, '')).split())[:160]}; "
+            f"measured: S0..{stuck} {total:.1f} s, row median {median:.1f} s")
+
+
+def tree_hash(root: Path) -> str:
+    """sha256 over the sorted relative paths and the bytes of every file under `root` (lives only in this run, S-2)."""
+    digest = hashlib.sha256()
+    root = Path(root)
+    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        digest.update(path.relative_to(root).as_posix().encode("utf-8") + b"\0")
+        digest.update(path.read_bytes() + b"\0")
+    return digest.hexdigest()
+
+
+def snapshot_red(name: str, before: str, root: Path) -> str:
+    """"" when the tree under `root` still has the hash taken before the row `name`, else the red line (E-R8, E16)."""
+    return "" if tree_hash(root) == before else f"red: snapshot changed by a row: {name}"
+
+
+def unused_judgments(declared: dict, rows: list) -> list:
+    """The NOTE lines for declared ticket keys the main pass never judged (E-R2): a stale or mistyped key never vanishes without a line."""
+    judged = {k for r in rows for k in r.get("judged") or []}
+    return [f"NOTE: unused judgment {key} (the stub never judged a source with that key)" for key in declared if key not in judged]
+
+
 def tail(text: str, n: int = 40) -> str:
     return "\n".join(text.splitlines()[-n:])
 
@@ -488,7 +559,16 @@ def spike(type_id=None, local_label: str = "") -> int:
             print(f"turn {t['turn']}: driver exit {t['rc']} in {t['seconds']} s; question {t['question']}; stages {t['stages']}")
         print(f"S1..S3 {road.seconds:.1f} s in {len(road.turns)} driver process(es); seconds per stage {road.stages}; stop: {road.stop or 'none'}")
         outcomes = stage_outcomes(world, road.stop, road.first_refusal)
-        results = [run_row(world, r) for r in rows]
+        starts = {r["start"]: world.snaps / world.row["id"] / r["start"] for r in rows}
+        hashes = {name: tree_hash(path) for name, path in starts.items() if path.is_dir()}
+        results, reds = [], []
+        for r in rows:
+            results.append(run_row(world, r))
+            if r["start"] in hashes:
+                red = snapshot_red(r["id"], hashes[r["start"]], starts[r["start"]])
+                if red:
+                    reds.append(red)
+                    hashes[r["start"]] = tree_hash(starts[r["start"]])
         seconds = [r["seconds"] for r in results]
         median = statistics.median(seconds) if seconds else 0.0
         total = s0.seconds + road.seconds
@@ -502,13 +582,17 @@ def spike(type_id=None, local_label: str = "") -> int:
         print("::endgroup::")
         for stage, line in outcomes.items():
             print(f"outcome {stage}: {line}")
+        for note in unused_judgments((row.get("stub") or {}).get("source_relevance") or {}, stub_rows(world)):
+            print(note)
         for r in results:
             print(f"row {r['id']}: {r['seconds']} s - {r['outcome']}")
+        for red in reds:
+            print(red)
         print(f"tracker: {world.server.summary()}")
         print(f"spike[{row['id']}]: S0..S3 {total:.1f} s; snapshot {snap_seconds:.1f} s; row median {median:.1f} s; rows {len(results)}"
               + (f" ({local_label})" if local_label else ""))
-        print(f"gate: {gate_verdict(total, median, max(seconds or [0]))} (S0..S3 {total:.1f} s, row median {median:.1f} s, worst row {max(seconds or [0]):.1f} s)")
-        return 0
+        print(gate_line(statuses(world), outcomes, total, median, max(seconds or [0])))
+        return 1 if reds else 0
     finally:
         world.close()
 

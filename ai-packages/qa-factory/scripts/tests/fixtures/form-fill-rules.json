@@ -273,8 +273,8 @@
       "contract": "references/artifact-contract-plan.md",
       "anchor": "## `requirements-register.md`",
       "format": "md",
-      "template": "---\ntask: <TICKET>\ncreated: 2026-11-13\nids: [<R-n>]\nby_source: {ac: 1}\nconfidence: <high|low>\n---\n\n# Requirements register\n\n## Register\n\n| R | Requirement (one verifiable statement) | source | derived_from | verifiable | ac_ref | observable | impact | delta | code_says |\n|---|---|---|---|---|---|---|---|---|---|\n| <R-n> | <one verifiable statement of the story> | ac | - | yes | <AC-n> | expected-contract:spec | none | new | unknown |\n\n## Contradiction matrix\n\n| R | story | ac |\n|---|---|---|\n| <R-n> | silent | silent |\n",
-      "required": ["task", "created", "ids", "by_source", "confidence"]
+      "template": "---\ntask: <TICKET>\ncreated: 2026-11-13\nids: [<R-n>]\nby_source: {ac: 1}\nconfidence: <high|low>\n---\n\n# Requirements register\n\n## Register\n\n| R | Requirement (one verifiable statement) | source | derived_from | verifiable | ac_ref | observable | impact | delta | code_says |\n|---|---|---|---|---|---|---|---|---|---|\n| <R-n> | <one verifiable statement of the story> | ac | - | yes | <AC-n> | expected-contract:spec | none | new | unknown |\n\n## Contradiction matrix\n\n| R | story | ac |\n|---|---|---|\n| <R-n> | silent | silent |\n\n## Branches\n\nBranches: none -- the filler reads no branch out of the story; this is the contract's empty form, not a judgment that the story has none\n\n## Source obligations\n\n| unit | home |\n|---|---|\n| rest | unreconciled: the filler gives no unit its own home; the remainder is declared and left to the gate as a debt |\n",
+      "required": ["task", "created", "ids", "by_source", "confidence", "body:## Branches", "body:## Source obligations"]
     },
     "work/requirements-readiness.json": {
       "contract": "references/artifact-contract-json.md",

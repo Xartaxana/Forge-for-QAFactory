@@ -997,6 +997,10 @@ def every_stage_output_fills_or_is_named() -> None:
         source = json.loads(FF.fill_artifact(manifest, ctx).files[manifest])["implementations"][0].get("source_sha", "")
         check(f"output: {manifest}[implementations[0].source_sha is a commit id the bundle's schema accepts, marked synthetic by the row]",
               bool(re.fullmatch(r"[0-9a-f]{40}", source)) and "implementations[0].source_sha" in (FF._row_of(manifest).get("synthetic") or {}), repr(source))
+        reg_text = FF.fill_artifact(register, ctx).files[register]
+        check(f"output: {register}[carries `## Branches` with the contract's empty form and `## Source obligations` with the contract's header and its `rest` row]",
+              "\n## Branches\n\nBranches: none -- " in reg_text and "\n## Source obligations\n\n| unit | home |\n|---|---|\n| rest | unreconciled: " in reg_text,
+              reg_text[reg_text.find("## Branches"):][:200])
         cell = FF._fill_md("synthetic", {"template": "| <TICKET> | x |\n"}, FF.FillContext(task_key="A|B"), {}, [], [])
         check("output: synthetic table row[a bar in a cell goes through grammar.escape_cell]", cell == "| A\\|B | x |\n", repr(cell))
         for name, bad in (("a parent step", "../escape.txt"), ("a step inside", "work/../../escape.txt"), ("an absolute path", str(root / "abs.txt")),
