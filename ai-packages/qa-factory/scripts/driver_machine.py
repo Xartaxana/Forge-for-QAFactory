@@ -840,8 +840,8 @@ class DriverMachine:
         """t-2181 PC-1b (E-U1, AR-25): a relaunch re-reads the project's record of sides when S0 could not (`pipeline.sides_unknown`).
         Nothing happens for a story that is not marked (no `pipeline.json`, or no mark). The registry is read for the story's own stand
         (`pipeline.environment`); a read that still fails or holds a malformed row keeps the mark and says why in one line. A clean
-        read clears the mark and, when the story has no `pipeline.sides` yet, records the registry's non-real or referenced sides
-        (`source: registry`), and the implicit `product` (`source: default`) when `contract.product_implied`, in the SAME
+        read clears the mark and, when the story has no `pipeline.sides` yet, records the merged entries of `_sides_entries` (registry, launch
+        words, the person's answers), as `s0_sides_sets` writes them, and the implicit `product` (`source: default`) when `contract.product_implied`, in the SAME
         `stage_done` call, so the clear and the record land together. The Thens proven while the mark
         stood keep their stamp (PC-5 owns that). INVARIANT: an unreadable registry is never read as real, and the mark never clears
         without a clean read."""
@@ -851,29 +851,19 @@ class DriverMachine:
         if not pipeline.get("sides_unknown"):
             return
         import contract
-        read = contract.registry_sides(self.project, pipeline.get("environment"))
-        if read["problem"]:
-            print(f"{self.task}: the project's sides are still unknown ({read['problem']})")
+        got = self._sides_entries(pipeline.get("environment"))      # the S0 merge: registry + launch words + the person's answers
+        if got["problem"]:
+            print(f"{self.task}: the project's sides are still unknown ({got['problem']})")
             return
+        self.side_case_twins(got)       # C15 as at S0 (a Refusal to the conductor, nothing written, the mark stays): a launch word `UI` beside a registry `ui`
         sets, now = ["sides_unknown="], _now()
         if not pipeline.get("sides"):
-            entries = {}
-            for name, row in sorted(read["sides"].items()):
-                if row["reality"] and (row["reality"] != self.SIDE_REAL or row["reference"]):
-                    entries[name] = row
+            entries = got["entries"]
             if entries:
-                if contract.product_implied(read["sides"]):     # over the registry's sides, never the filtered `entries`
-                    entries.setdefault("product", {"reality": self.SIDE_REAL, "deliverable": True, "settles_by": "", "reference": None,
-                                                   "source": "default"})
-                for name, row in entries.items():
-                    attrs = {"reality": row["reality"], "source": row["source"], "at": now}
-                    if row["deliverable"] is not None:
-                        attrs.update(deliverable="true" if row["deliverable"] else "false")
-                        if row.get("settles_by"):
-                            attrs.update(settles_by=row["settles_by"])
-                    if row["reference"]:
-                        attrs.update(reference=row["reference"])
-                    sets += self.side_set_args(name, **attrs)
+                if contract.product_implied(entries):           # over the merged entries, as `s0_sides_sets` does
+                    entries.setdefault("product", contract.product_default_entry())
+                for name, row in sorted(entries.items()):   # the one record (`side_attrs`); a non-real side nobody answered stays unanswered here
+                    sets += self.side_set_args(name, **self.side_attrs(row, now, unanswered_ok=True))
         self.py("stage_done.py", "--task", self.task, *[part for item in sets for part in ("--set", item)], check=True)
         print(f"{self.task}: the project's sides were read again; the mark `sides_unknown` is cleared")
 
