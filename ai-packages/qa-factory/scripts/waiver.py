@@ -774,6 +774,20 @@ def row_fields(path=None) -> tuple:
     return _field_rows(table) if table else ({}, why)
 
 
+def not_run_lets_go(path=None) -> tuple:
+    """`(section, why)`: the `not_run` section of `references/word-passed-facts.json` - `{shape_missing, shape_probe_missing,
+    tier4_gaps}`, what a `not_run` word lets go of at the S5 finish (FV1-30b N1; `window_record.word_let_go` is its one reader). The file
+    absent or unreadable, or the section absent or not an object, is `({}, why)`: NOTHING is let go for `not_run` (E30, AR-28).
+    `path` is for a test; the one file is the default."""
+    table, why = _fact_table(path)
+    if not table:
+        return {}, why
+    section = table.get("not_run")
+    if not isinstance(section, dict):
+        return {}, "the `not_run` section of references/" + WORD_PASSED_FACTS_FILE + " is absent or not an object"
+    return section, ""
+
+
 def _split_finding_id(finding_id: str) -> tuple:
     """`(check, case, tag)` of a finding id `<check>:<case or ->:<tag>` (`s5_precheck._finding`): split on the left twice, a tag
     carries `file.py:79`; `("", "", "")` when the text is no finding id. The ONE place the id is taken apart (A3-E4)."""

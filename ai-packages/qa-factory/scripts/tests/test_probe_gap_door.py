@@ -119,6 +119,8 @@ class StubController:
     def __init__(self, root):
         self.store = SimpleNamespace(root=root)
         self._noted = controller.Controller._noted
+        # FV1-30b: the finish reads the live word index through this one method (an index that cannot be built is None)
+        self._s5_word_index = lambda d: controller.Controller._s5_word_index(self, d)
 
     @staticmethod
     def _ticket():

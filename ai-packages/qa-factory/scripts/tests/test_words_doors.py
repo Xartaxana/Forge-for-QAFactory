@@ -2003,23 +2003,33 @@ def row_fv130a_no_second_question() -> None:
         c = S5.s5_task(task, ("TC-1",))
         acceptance.validate_window = lambda window, root_: ["product:test_x", "product:test_y", "stale_run:test_x"]
         d, p = {"id": "a2", "scope": ["TC-1"]}, {}
+        # FV1-30b: the let-go reads the window item (the no-run shape the writer builds) and the pass's `subjects` (the producer's
+        # own list, `s5_precheck._finding(subjects=)`): a pass that names no instance lets nothing go
+        no_run = {"evidence_refs": []}
+        window = {"instances": [dict(no_run, instance_id="test_x"), dict(no_run, instance_id="test_y")]}
         P.word_passes = lambda *_a, **_k: []
-        text = " ".join(m for _cls, m in c._s5_gap_problems(d, p, {}))
+        text = " ".join(m for _cls, m in c._s5_gap_problems(d, p, window))
         check("no word: both instances are refused", "product:test_x" in text and "product:test_y" in text, text)
         P.word_passes = lambda *_a, **_k: [{"finding_id": "run_mapping:TC-1:no-row-test_x", "check": "run_mapping", "case": "TC-1",
-                                            "tag": "no-row-test_x", "decision": "go on", "at": "t"}]
-        text = " ".join(m for _cls, m in c._s5_gap_problems(d, p, {}))
+                                            "tag": "no-row-test_x", "decision": "go on", "at": "t",
+                                            "subjects": [{"instance_id": "test_x"}]}]
+        text = " ".join(m for _cls, m in c._s5_gap_problems(d, p, window))
         check("the passed instance is not refused a second time; the other still is; another gap of the passed one still is",
               "product:test_x" not in text and "product:test_y" in text and "stale_run:test_x" in text, text)
         P.word_passes = lambda *_a, **_k: [{"finding_id": "bindings:TC-1:no-bindings", "check": "bindings", "case": "TC-1",
                                             "tag": "no-bindings", "decision": "go on", "at": "t"}]
-        text = " ".join(m for _cls, m in c._s5_gap_problems(d, p, {}))
+        text = " ".join(m for _cls, m in c._s5_gap_problems(d, p, window))
         check("a pass of ANOTHER finding (`no-bindings`) lets no instance go", "product:test_x" in text and "product:test_y" in text, text)
+        P.word_passes = lambda *_a, **_k: [{"finding_id": "run_mapping:TC-1:no-row-test_x", "check": "run_mapping", "case": "TC-1",
+                                            "tag": "no-row-test_x", "decision": "go on", "at": "t"}]
+        text = " ".join(m for _cls, m in c._s5_gap_problems(d, p, window))
+        check("(E4, E13) a pass of a line written before `subjects` names no instance: nothing goes on a guess",
+              "product:test_x" in text and "product:test_y" in text, text)
 
         def boom(*_a, **_k):
             raise RuntimeError("boom")
         P.word_passes = boom
-        text = " ".join(m for _cls, m in c._s5_gap_problems(d, p, {}))
+        text = " ".join(m for _cls, m in c._s5_gap_problems(d, p, window))
         check("a reader that cannot answer lets nothing go (the refusing direction)", "product:test_x" in text and "product:test_y" in text, text)
         # critic F4: `_plan_refusal` (it runs inside `validate`, on probes and refused requests) records nothing: the recording of
         # its pass is queued by the Lead
@@ -2209,10 +2219,11 @@ def row_fv130b_the_one_reader() -> None:
              ["then_unbound", "then_unbound", "not_run", "row_fields_unestablished", "s5_plan_unread"])
     check_eq("(i) a pass is the keys of the spec", sorted(facts.all()[0]), sorted(["finding_id", "check", "case", "tag", "fact", "decision", "at", "by", "ts", "fields"]))
     # (k) a field the table does not pass is never passed, though the subject names it
-    named = pass_row("manifest:-:row-fields-missing", [{"instance_id": "A", "fields": ["obligation_refs", "change_disposition", "input_hash", "profile_id"]}])
+    named = pass_row("manifest:-:row-fields-missing", [{"instance_id": "A", "fields": ["obligation_refs", "change_disposition", "input_hash", "no_such_field"]}])
     fields = rows_of(named)
-    check_eq("(k) .instance with `obligation_refs` hits; `change_disposition`, `input_hash` and a field with NO row (`profile_id`) miss",
-             [bool(fields.instance("row_fields_unestablished", "A", field=f)) for f in ("obligation_refs", "change_disposition", "input_hash", "profile_id", "other_field")],
+    # (N1 added the `profile_id` row, so the field with NO row is a name the table never had)
+    check_eq("(k) .instance with `obligation_refs` hits; `change_disposition`, `input_hash` and a field with NO row (`no_such_field`) miss",
+             [bool(fields.instance("row_fields_unestablished", "A", field=f)) for f in ("obligation_refs", "change_disposition", "input_hash", "no_such_field", "other_field")],
              [True, False, False, False, False])
     check_eq("(k) .instance with no field names the instance", bool(fields.instance("row_fields_unestablished", "A")), True)
     check_eq("(k) another instance is named by nothing", [fields.instance("row_fields_unestablished", "B", field="obligation_refs"), fields.passed_fields("B")], [None, []])
@@ -2220,7 +2231,7 @@ def row_fv130b_the_one_reader() -> None:
              rows_of(pass_row("manifest:-:row-fields-missing", [{"instance_id": "A", "fields": ["obligation_refs", "change_disposition"]}])).passed_fields("A"),
              ["obligation_refs"])
     check_eq("(k) ...and the pass says every field the subjects name (the table decides what passes)",
-             fields.all()[0]["fields"], ["obligation_refs", "change_disposition", "input_hash", "profile_id"])
+             fields.all()[0]["fields"], ["obligation_refs", "change_disposition", "input_hash", "no_such_field"])
     check_eq("(k) a subject whose `fields` is no list names no field", rows_of(pass_row("manifest:-:row-fields-missing", [{"instance_id": "A", "fields": "obligation_refs"}])).passed_fields("A"), [])
     # E20: the same, through the deletion-loop's view - a pass naming only excluded fields passes nothing
     check_eq("E20: a pass naming only `change_disposition` / `input_hash` lets no field go",
@@ -2273,7 +2284,40 @@ def row_fv130b_the_one_reader() -> None:
              (None, None, [], None))
 
 
+def row_fv130b_n1_the_not_run_section_and_the_field_rows() -> None:
+    """FV1-30b N1 (n): `waiver.not_run_lets_go()` is `({}, why)` for a file absent / not JSON / a directory / not an object / a section
+    absent / a section that is no object (nothing is let go, E30), and the section as it is otherwise; the shipped table carries the
+    `not_run` section of the spec and the four rows N1 adds (`assertion_id`, `defect_location`, `profile_id` passable;
+    `change_basis_ref` not)."""
+    tmp = Path(temp_dir("qa-words-door-fv30b-nr-"))
+    try:
+        absent, broken, toplist = tmp / "absent.json", tmp / "broken.json", tmp / "toplist.json"
+        broken.write_text("{torn", encoding="utf-8")
+        toplist.write_text("[1]", encoding="utf-8")
+        nosection, notobject, good = tmp / "nosection.json", tmp / "notobject.json", tmp / "good.json"
+        nosection.write_text(json.dumps({"row_fields": {}}), encoding="utf-8")
+        notobject.write_text(json.dumps({"not_run": ["product"]}), encoding="utf-8")
+        good.write_text(json.dumps({"not_run": {"tier4_gaps": ["product"]}}), encoding="utf-8")
+        for label, path in (("the file absent", absent), ("the file not JSON", broken), ("the file a directory (unreadable)", tmp),
+                            ("the file not an object", toplist), ("the section absent", nosection), ("the section not an object", notobject)):
+            got, why = waiver.not_run_lets_go(path)
+            check(f"(n) {label}: `({{}}, why)`", got == {} and bool(why), str((got, why)))
+        check_eq("(n) a good file: the section as it is", waiver.not_run_lets_go(good), ({"tier4_gaps": ["product"]}, ""))
+    finally:
+        cleanup(tmp)
+    section, why = waiver.not_run_lets_go()
+    check_eq("(n) the shipped `not_run` section is the spec's", (section, why),
+             ({"shape_missing": ["outcome", "execution_fingerprint"], "shape_probe_missing": True, "tier4_gaps": ["product", "evidence"]}, ""))
+    rows, _why = waiver.row_fields()
+    check_eq("the shipped rows: passable fields and their tier-4 kinds",
+             {k: (rows[k]["pass"], rows[k].get("window_keys"), rows[k].get("tier4_gaps")) for k in ("assertion_id", "defect_location", "profile_id")},
+             {"assertion_id": (True, {"assertion_id": ""}, ["assertion_identity"]), "defect_location": (True, {"defect_location": ""}, ["defect_location"]),
+              "profile_id": (True, {}, [])})
+    check_eq("the shipped rows: change_basis_ref is NOT passable and says why", (rows["change_basis_ref"]["pass"], bool(rows["change_basis_ref"].get("why"))), (False, True))
+
+
 def main() -> None:
+    row_fv130b_n1_the_not_run_section_and_the_field_rows()
     row_fv130b_the_journal_line_carries_the_subjects()
     row_fv130b_person_passes()
     row_fv130b_the_one_reader()

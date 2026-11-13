@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "note": "word-passed-facts: which finding of the S5 exit is which FACT a person's recorded word passed (`facts`: the finding's check and tag, exact or prefix), and which tests[] row fields that word may pass (`row_fields`: a field with no row, or a row with pass false, is NEVER passed: the safe default is that the field is deleted when empty and refused as before). The one reader is waiver.word_passed_index (and waiver.row_fields); no other script keeps a (check, tag) list or a field list. A pass whose (check, tag) matches no `facts` row is fact `other`: a report line only, read by no gate. `words` is the wording of each fact for the report.",
+  "note": "word-passed-facts: which finding of the S5 exit is which FACT a person's recorded word passed (`facts`: the finding's check and tag, exact or prefix), and which tests[] row fields that word may pass (`row_fields`: a field with no row, or a row with pass false, is NEVER passed: the safe default is that the field is deleted when empty and refused as before). The one reader is waiver.word_passed_index (and waiver.row_fields); no other script keeps a (check, tag) list or a field list. A pass whose (check, tag) matches no `facts` row is fact `other`: a report line only, read by no gate. `words` is the wording of each fact for the report. `not_run` is what a `not_run` word lets go at the S5 finish (shape lines, tier-4 gap kinds); `row_fields[f].tier4_gaps` is what a passed field lets go; both are read by window_record.word_let_go through waiver.not_run_lets_go and waiver.row_fields.",
   "facts": [
     {"check": "bindings", "tag": "no-bindings", "match": "exact", "fact": "then_unbound"},
     {"check": "bindings", "tag": "unbound-", "match": "prefix", "fact": "then_unbound"},
@@ -8,11 +8,35 @@
     {"check": "manifest", "tag": "row-fields-missing", "match": "exact", "fact": "row_fields_unestablished"},
     {"check": "plan", "tag": "plan-unreadable", "match": "exact", "fact": "s5_plan_unread"}
   ],
+  "not_run": {
+    "shape_missing": ["outcome", "execution_fingerprint"],
+    "shape_probe_missing": true,
+    "tier4_gaps": ["product", "evidence"]
+  },
   "row_fields": {
     "obligation_refs": {
       "pass": true,
       "window_keys": {"obligation_refs": [], "obligation_ids": [], "obligation_hash": ""},
       "tier4_gaps": ["obligation_binding", "obligation_hash"]
+    },
+    "assertion_id": {
+      "pass": true,
+      "window_keys": {"assertion_id": ""},
+      "tier4_gaps": ["assertion_identity"]
+    },
+    "defect_location": {
+      "pass": true,
+      "window_keys": {"defect_location": ""},
+      "tier4_gaps": ["defect_location"]
+    },
+    "profile_id": {
+      "pass": true,
+      "window_keys": {},
+      "tier4_gaps": []
+    },
+    "change_basis_ref": {
+      "pass": false,
+      "why": "the basis is the evidence of the disposition, and an `unchanged` disposition switches off the probe demand (proof_level._wanted): an empty basis would let an unsupported `unchanged` keep it off"
     },
     "change_disposition": {
       "pass": false,

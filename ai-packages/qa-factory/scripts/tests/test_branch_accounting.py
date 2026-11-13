@@ -1978,6 +1978,29 @@ def s5_a_person_word_passes_the_same_fact_in_both_detectors() -> None:
         cleanup(root)
 
 
+def fv1_30b_no_row_passed_reads_the_index() -> None:
+    """FV1-30b N1 (h): `_no_row_passed` answers from the word index (`index.then`), not from the tag of a finding: a `then_unbound`
+    pass whose subjects name the Then, and no `then_bindings` row for it; a Then with a row, another case, another Then, an index of
+    None, a pass with no subjects (a line of before FV1-30b) and an unreadable reader all refuse."""
+    import waiver
+    cfg = C.case_config()
+
+    def index(*subjects, tag="no-bindings"):
+        return waiver.word_passed_index([{"finding_id": f"bindings:TC-009:{tag}", "check": "bindings", "case": "TC-009", "tag": tag,
+                                          "decision": "go on", "at": "t", "subjects": list(subjects)}])
+    one = index({"case": "TC-009", "then": 1})
+    check_eq("the Then the pass names, no row: passed", BA._no_row_passed({}, cfg, "TC-009", 1, one), True)
+    check_eq("another Then of the case: not passed", BA._no_row_passed({}, cfg, "TC-009", 2, one), False)
+    check_eq("another case: not passed", BA._no_row_passed({}, cfg, "TC-001", 1, one), False)
+    check_eq("the `unbound-<n>` spelling of the other detector: passed", BA._no_row_passed({}, cfg, "TC-009", 3, index({"case": "TC-009", "then": 3}, tag="unbound-3")), True)
+    row = {"then_bindings": [{"case": "TC-009", "then": 1, "instance_id": "ghost"}]}
+    check_eq("the Then HAS a row (bound to something that does not hold): the word did not name that", BA._no_row_passed(row, cfg, "TC-009", 1, one), False)
+    check_eq("an index of None names nobody", BA._no_row_passed({}, cfg, "TC-009", 1, None), False)
+    check_eq("a pass with no subjects (a line before FV1-30b) names nobody", BA._no_row_passed({}, cfg, "TC-009", 1, index()), False)
+    check_eq("a reader that cannot answer (a root with no state): None, the refusing direction", BA._word_pass_rows("/no/such/root", ["TC-009"]) is None
+             or BA._word_pass_rows("/no/such/root", ["TC-009"]).all() == [], True)
+
+
 def f_1_pair_binding_scope() -> None:
     """F-1 (t-402): the pair (Then, partition) is `covered` through the test its binding NAMES. The critic's table, run on `_pair`: each
     row is shown beside the pair that stays `covered`; a binding with no instance (`instance_id` None) keeps the any-test rule."""
@@ -3242,6 +3265,7 @@ if __name__ == "__main__":
     doc_keys_step2()
     s5_1_to_3()                                   # step 3 (TQ1-20): the block above
     s5_a_person_word_passes_the_same_fact_in_both_detectors()   # FV1-30a
+    fv1_30b_no_row_passed_reads_the_index()   # FV1-30b N1
     f_1_pair_binding_scope()
     v_7_source_unreconciled()
     v_9_legacy_and_11_material()
