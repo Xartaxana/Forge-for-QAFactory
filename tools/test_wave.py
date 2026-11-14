@@ -230,9 +230,38 @@ def test_piles_refusal_keeps_the_pushed_merge_and_prints_the_command_E_C3_7(env)
     push_main(env, {"plans/refuse": "x\n"})
     branch(env, "b12", {"f.txt": "x\n"})
     rc, out, w = go(env, "b12", node=("pile", "1", "N-3"))
-    assert rc == 1 and "refused: nope" in out and "run by hand: python -B tools/piles.py status pile 1 N-3" in out
+    assert rc == 1 and "refused: nope" in out and "run by hand, from " in out and "tools/piles.py status pile 1 N-3" in out
+    assert "then commit and push the batch file" in out
     assert blob(env, "f.txt") == b"x\n" and w.pushed
     assert g(env.origin, "branch", "--list", "b12") == ""
+
+
+def test_status_commit_refusal_takes_the_same_road_C3_5(env):
+    branch(env, "b12c", {"f.txt": "x\n"})
+    (env.root / ".git" / "hooks" / "pre-commit").write_bytes(
+        b"#!/bin/sh\ngit diff --cached --name-only | grep -q node.txt && { echo 'HOOK: no node' >&2; exit 1; }\nexit 0\n")
+    rc, out, w = go(env, "b12c", node=("pile", "1", "N-4"))
+    assert rc == 1 and "the status commit was refused" in out and "HOOK: no node" in out and w.pushed
+    assert blob(env, "f.txt") == b"x\n" and blob(env, "plans/node.txt") is None
+
+
+def test_piles_refusal_on_attempt_1_then_success_exits_0_C3_5(env, monkeypatch):
+    push_main(env, {"plans/refuse": "x\n"})
+    branch(env, "b12r", {"f.txt": "x\n"})
+    real, calls = wave.Wave.push, []
+
+    def moved_once(self, w, step):
+        calls.append(step)
+        if len(calls) == 1:
+            g(env.dev, "fetch", "-q", "origin")
+            g(env.dev, "checkout", "-q", "--detach", "origin/main")
+            g(env.dev, "rm", "-q", "plans/refuse")
+            g(env.dev, "commit", "-q", "-m", "drop the refusal")
+            g(env.dev, "push", "-q", "origin", "HEAD:main")
+        return real(self, w, step)
+    monkeypatch.setattr(wave.Wave, "push", moved_once)
+    rc, out, _ = go(env, "b12r", node=("pile", "1", "N-5"))
+    assert rc == 0 and "piles status not recorded" not in out and blob(env, "plans/node.txt") is not None
 
 
 def test_two_waves_in_a_row(env):
@@ -302,14 +331,65 @@ def test_failed_refresh_restores_journal_and_names_git_E_C3_10(env):
     assert not list(jl.lock_dir(env.root).glob("wave-copy-*"))
 
 
-def test_restore_mismatch_keeps_the_copy_exit_1(env, monkeypatch):
+def test_restore_mismatch_keeps_the_copy_and_the_summary_exit_1_C3_1(env, monkeypatch):
     branch(env, "b17", {"f.txt": "x\n"})
     (env.root / REL).write_bytes(L1 + L2)
-    shas = iter(["before", "after"])
-    monkeypatch.setattr(wave, "_sha", lambda d: next(shas))
+    monkeypatch.setattr(wave, "_hook", lambda n: (env.root / REL).write_bytes(b"garbage\n") if n == "step9-locked" else None)
     rc, out, _ = go(env, "b17")
-    assert rc == 1 and "JOURNAL RESTORE MISMATCH: copy kept at" in out
-    assert list(jl.lock_dir(env.root).glob("wave-copy-*"))
+    assert rc == 1 and "JOURNAL RESTORE MISMATCH: the journal changed inside the window; copy kept at" in out
+    assert "merge: " in out and "branch: deleted" in out
+    assert list(jl.lock_dir(env.root).glob("wave-copy-*"))[0].read_bytes() == L1 + L2
+
+
+def test_unlocked_appender_in_the_window_is_carried_over_Q5a(env, monkeypatch):
+    branch(env, "b17a", {"f.txt": "x\n"})
+    (env.root / REL).write_bytes(L1 + L2)
+
+    def hook(n):
+        if n == "step9-locked":
+            with open(env.root / REL, "ab") as f:      # a by-hand Edit that takes no lock
+                f.write(L3)
+    monkeypatch.setattr(wave, "_hook", hook)
+    rc, out, _ = go(env, "b17a")
+    assert rc == 0 and "a line written during the window was appended" in out
+    assert (env.root / REL).read_bytes() == L1 + L2 + L3
+    assert list(jl.lock_dir(env.root).glob("wave-copy-*"))[0].read_bytes() == L1 + L2
+
+
+def test_oserror_in_the_window_names_the_copy_Q5c(env, monkeypatch):
+    branch(env, "b17b", {"f.txt": "x\n"})
+    (env.root / REL).write_bytes(L1 + L2)
+
+    def hook(n):
+        if n == "step9-locked":
+            raise OSError("disk says no")
+    monkeypatch.setattr(wave, "_hook", hook)
+    rc, out, _ = go(env, "b17b")
+    assert rc == 1 and "JOURNAL RESTORE FAILED (disk says no): copy kept at" in out and "merge: " in out
+    assert list(jl.lock_dir(env.root).glob("wave-copy-*"))[0].read_bytes() == L1 + L2
+
+
+def test_fetch_failure_in_step_9_after_the_push_still_finishes_C3_1(env, monkeypatch):
+    branch(env, "b17c", {"f.txt": "x\n"})
+    real = wave.Wave.fetch
+
+    def fetch(self, step="step 2"):
+        if step == "step 9":
+            raise wave.Refuse("step 9: git fetch origin failed: network")
+        return real(self, step)
+    monkeypatch.setattr(wave.Wave, "fetch", fetch)
+    rc, out, w = go(env, "b17c")
+    assert rc == 0 and w.pushed and "refused" not in out and "merge: " in out
+    assert "root checkout not refreshed: git fetch origin failed" in out and blob(env, "f.txt") == b"x\n"
+
+
+def test_sweep_deleting_the_branch_first_is_not_reported_as_kept_C3_7(env, monkeypatch):
+    branch(env, "b17d", {"f.txt": "x\n"})
+    g(env.root, "fetch", "-q", "origin")
+    g(env.root, "branch", "b17d", "origin/b17d")
+    monkeypatch.setattr(wave, "_hook", lambda n: g(env.root, "branch", "-D", "b17d") if n == "before-branch-delete" else None)
+    rc, out, _ = go(env, "b17d")
+    assert rc == 0 and "branch: deleted (by the post-merge sweep" in out
 
 
 def test_branch_in_clean_worktree_is_removed_E_C3_12(env):
@@ -333,6 +413,21 @@ def test_branch_in_dirty_worktree_is_kept_E_C3_12(env):
     rc, out, _ = go(env, "b19")
     assert rc == 0 and "branch: kept, checked out in" in out and "(dirty)" in out and wt.exists()
     assert g(env.root, "branch", "--list", "b19") != "" and blob(env, "f.txt") == b"x\n"
+    assert "remote kept: " in out and g(env.origin, "branch", "--list", "b19") != ""      # Q4
+
+
+def test_remote_branch_that_moved_is_kept_by_the_lease_C3_3(env, monkeypatch):
+    branch(env, "b19m", {"f.txt": "x\n"})
+
+    def hook(n):
+        if n == "before-delete-remote":                # a live worker pushes after step 3
+            g(env.dev, "checkout", "-q", "-B", "b19m", "origin/b19m")
+            put(env.dev, {"late.txt": "late\n"}, "late")
+            g(env.dev, "push", "-q", "origin", "b19m")
+    monkeypatch.setattr(wave, "_hook", hook)
+    rc, out, _ = go(env, "b19m")
+    assert rc == 0 and "remote branch kept: it moved" in out
+    assert g(env.origin, "show", "b19m:late.txt") == "late"
 
 
 def test_unrefreshed_root_deletes_a_merged_local_branch_by_update_ref(env):
@@ -367,6 +462,14 @@ def test_lock_held_by_another_wave_refuses_with_the_holder_E_C3_2(env):
 def test_bad_task_is_refused_before_anything_E_C3_3(env, task, capsys):
     assert wave.main(["merge", "b", "--task", task, "--repo", str(env.root)]) == 2
     assert "expected a task id" in capsys.readouterr().out
+
+
+def test_clone_letters_pass_the_task_check_and_bad_nodes_are_refused_C3_4(env, capsys):
+    argv = ["merge", "nope", "--repo", str(env.root)]
+    assert wave.main(argv + ["--task", "t-123ab"]) == 2 and "expected a task id" not in capsys.readouterr().out
+    for node in (["Pile", "1", "N-1"], ["pile", "0", "N-1"], ["pile", "x", "N-1"], ["pile", "1", "-"]):
+        assert wave.main(argv + ["--task", "t-123", "--node", *node]) == 2
+        assert "node grammar" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("name", ["a..b", "a b", "a~1"])

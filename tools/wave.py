@@ -16,12 +16,12 @@ journal, its HEAD is an ancestor of origin/main and origin's journal is a byte-p
 the root's journal bytes are copied aside (sha256 H), the file is put to its HEAD state (or removed when HEAD lacks it),
 the merge runs, and WHATEVER its result the bytes are written back and checked against H. A mismatch keeps the copy and is
 exit 1. Exit codes: 0 done, 1 done but something named must be fixed by hand (piles refusal, journal restore mismatch),
-2 refused before any push."""
+2 refused before any push. A step-9 failure after the push never turns into "refused": the summary is printed and a
+restore mismatch is exit 1 after it."""
 from __future__ import annotations
 
 import argparse
 import hashlib
-import re
 import shutil
 import subprocess
 import sys
@@ -41,8 +41,7 @@ LOCK_WAIT = 60.0                  # seconds on another wave's merge (module cons
 JOURNAL_WAIT = 15.0
 ATTEMPTS = 3
 MAIN = "main"
-TASK_RE = re.compile(r"t-\d{3,9}[a-z]?")
-CI_TIMEOUT = 60
+CI_TIMEOUT = 15                   # seconds per ci_read call; two calls stay well under LOCK_WAIT (C3-6)
 _NONFF = ("non-fast-forward", "fetch first", "failed to update ref", "(stale info)")
 
 
@@ -112,7 +111,9 @@ class Wave:
         self.branch, self.task, self.node, self.ci, self.out = branch, task, node, ci, out
         self.root = jl.common_dir(repo).parent
         self.sha = None
+        self.branch_sha = None
         self.piles_text = None
+        self.mismatch = None
         self.seq = 0
         self.pushed = False
 
@@ -158,6 +159,7 @@ class Wave:
         rc, sha, _e = git(self.root, "rev-parse", "--verify", "-q", "refs/remotes/origin/" + self.branch)
         if rc != 0 or self.branch == MAIN:
             raise Refuse("step 3: branch %s is not on origin (expected an existing branch other than main)" % self.branch)
+        self.branch_sha = sha
         self.say("forge-check: %s" % self.ci(self.root, sha))
         self.merge_and_push(sha)
         self.commit_journal()
@@ -202,20 +204,25 @@ class Wave:
 
     def record_node(self, w):
         slug, n, ident = self.node
+        self.piles_text = None                      # one attempt's refusal never outlives the attempt (C3-5)
         argv = [sys.executable, "-B", str(Path(w) / "tools" / "piles.py"), "status", slug, n, ident, "--set", "принято",
                 "--hash", self.sha, "--task", self.task]
         p = subprocess.run(argv, capture_output=True, cwd=str(w), timeout=120)
         if p.returncode != 0:
             text = (p.stdout + p.stderr).decode("utf-8", "replace").strip()
-            self.piles_text = "%s\nrun by hand: python -B tools/piles.py status %s %s %s --set принято --hash %s --task %s" % (
-                text, slug, n, ident, self.sha, self.task)
+            self.piles_text = self.by_hand(text)
             return
         changed = [ln[3:] for ln in git(w, "status", "--porcelain")[1].splitlines()]
         if changed:
             git(w, "add", "--", *changed)
             rc, o, err = git(w, "commit", "-m", "piles: %s %s %s принято (%s)" % (slug, n, ident, self.task))
             if rc != 0:
-                raise Refuse("step 6: the commit was refused: %s" % (err or o))
+                self.piles_text = self.by_hand("the status commit was refused: %s" % (err or o))
+
+    def by_hand(self, text):
+        slug, n, ident = self.node
+        return ("%s\nrun by hand, from %s: python -B tools/piles.py status %s %s %s --set принято --hash %s --task %s"
+                " -- then commit and push the batch file" % (text, self.root, slug, n, ident, self.sha, self.task))
 
     def commit_journal(self):
         rel = journal_rel(self.root)
@@ -261,7 +268,10 @@ class Wave:
     def refresh(self):
         """None when the root was refreshed, else the reason it was not."""
         root = self.root
-        self.fetch("step 9")
+        try:
+            self.fetch("step 9")
+        except Refuse:
+            return "git fetch origin failed"       # after the push: never "refused" (C3-1)
         rc, cur_branch, _e = git(root, "symbolic-ref", "-q", "--short", "HEAD")
         if rc != 0 or cur_branch != MAIN:
             return "the root is not on %s (%s)" % (MAIN, cur_branch or "detached")
@@ -287,29 +297,51 @@ class Wave:
             return "the journal lock is busy (%s)" % exc
 
     def swap(self, rel):
-        """Under the journal lock: copy aside, journal to its HEAD state, ff merge, bytes back, verify. None = refreshed."""
+        """Under the journal lock: copy aside, journal to its HEAD state, ff merge, bytes back, verify. None = refreshed.
+        A line an unlocked writer appended inside the window rides on top of the copy (copy kept, named); anything else
+        found in the file keeps the copy and is the mismatch; an OSError names the copy (Q5)."""
         root = self.root
         path = root / rel
         cur = path.read_bytes() if path.exists() else None
         copy = jl.lock_dir(root) / ("wave-copy-" + time.strftime("%Y%m%d-%H%M%S"))
         copy.write_bytes(cur or b"")
-        digest = _sha(cur)
-        rc, head_bytes = git_bytes(root, "show", "HEAD:" + rel)
-        if rc != 0:
-            path.unlink(missing_ok=True)
+        try:
+            rc, head_bytes = git_bytes(root, "show", "HEAD:" + rel)
+            head_bytes = head_bytes if rc == 0 else None
+            if head_bytes is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.write_bytes(head_bytes)
+            _hook("step9-locked")
+            rc, o, err = git(root, "merge", "--ff-only", "origin/" + MAIN)
+            left = path.read_bytes() if path.exists() else None
+            expected = head_bytes
+            if rc == 0:
+                orc, ob = git_bytes(root, "show", "origin/%s:%s" % (MAIN, rel))
+                expected = ob if orc == 0 else None
+            target, kept = cur, False
+            if left != expected:
+                if left is not None and expected is not None and left.startswith(expected):
+                    target, kept = (cur or b"") + left[len(expected):], True
+                else:
+                    self.mismatch = "JOURNAL RESTORE MISMATCH: the journal changed inside the window; copy kept at %s" % copy
+                    return "journal restore mismatch"
+            if target is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(target)
+            now = path.read_bytes() if path.exists() else None
+            if _sha(now) != _sha(target) or (now is None) != (target is None):
+                self.mismatch = "JOURNAL RESTORE MISMATCH: copy kept at %s" % copy
+                return "journal restore mismatch"
+        except OSError as exc:
+            self.mismatch = "JOURNAL RESTORE FAILED (%s): copy kept at %s" % (exc, copy)
+            return "journal restore failed"
+        if kept:
+            self.say("a line written during the window was appended to the journal; the copy is kept at %s" % copy)
         else:
-            path.write_bytes(head_bytes)
-        _hook("step9-locked")
-        rc, o, err = git(root, "merge", "--ff-only", "origin/" + MAIN)
-        if cur is None:
-            path.unlink(missing_ok=True)
-        else:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(cur)
-        now = path.read_bytes() if path.exists() else None
-        if _sha(now) != digest or (now is None) != (cur is None):
-            raise Refuse("JOURNAL RESTORE MISMATCH: copy kept at %s" % copy, 1)
-        copy.unlink()
+            copy.unlink()
         return None if rc == 0 else (err or o)
 
     def worktree_of(self):
@@ -330,17 +362,23 @@ class Wave:
             same_as_root = Path(wt).resolve() == root.resolve()
             entries = [(ln[:2], ln[3:]) for ln in git(wt, "status", "--porcelain")[1].splitlines()]
             real, _traces = ws.real_changes(entries, ws.load_junk())
-            if same_as_root or real:
+            if real:                                  # a dirty tree is a live worker: keep the remote too (Q4)
+                self.say("remote kept: %s is dirty" % wt)
+                return False, "kept, checked out in %s (dirty)" % wt
+            if same_as_root:
                 self.delete_remote()
-                return False, "kept, checked out in %s%s" % (wt, " (dirty)" if real else "")
+                return False, "kept, checked out in %s" % wt
             git(root, "worktree", "remove", "--force", wt)
         rc, local, _e = git(root, "rev-parse", "--verify", "-q", "refs/heads/" + br)
         ok, text = True, "deleted"
         if rc == 0:
+            _hook("before-branch-delete")
             if refreshed:
                 rc, o, err = git(root, "branch", "-d", br)
                 ok = rc == 0
                 text = "deleted" if ok else "kept: %s" % (err or o)
+                if not ok and git(root, "rev-parse", "--verify", "-q", "refs/heads/" + br)[0] != 0:
+                    ok, text = True, "deleted (by the post-merge sweep that the root refresh started)"   # C3-7
             elif git(root, "merge-base", "--is-ancestor", "refs/heads/" + br, "origin/" + MAIN)[0] != 0:
                 ok, text = False, "kept: not merged into origin/%s" % MAIN
             else:
@@ -352,9 +390,14 @@ class Wave:
         return ok, text
 
     def delete_remote(self):
-        rc, _o, err = git(self.root, "push", "origin", "--delete", self.branch)
+        _hook("before-delete-remote")
+        lease = "--force-with-lease=refs/heads/%s:%s" % (self.branch, self.branch_sha)
+        rc, _o, err = git(self.root, "push", lease, "origin", "--delete", self.branch)
         if rc != 0:
-            self.say("remote branch not deleted: %s" % err)
+            if "stale info" in err or "rejected" in err:
+                self.say("remote branch kept: it moved")
+            else:
+                self.say("remote branch not deleted: %s" % err)
 
     def finish(self, why):
         _deleted, btext = self.delete_branch(why is None)
@@ -363,7 +406,10 @@ class Wave:
         self.say("branch: %s" % btext)
         self.say("root: refreshed" if why is None else "root checkout not refreshed: %s" % why)
         if self.piles_text:
-            self.say("piles status refused (the merge is pushed and stays): %s" % self.piles_text)
+            self.say("piles status not recorded (the merge is pushed without the status commit): %s" % self.piles_text)
+        if self.mismatch:
+            self.say(self.mismatch)
+        if self.piles_text or self.mismatch:
             raise Refuse("", 1)
 
     def run(self):
@@ -398,14 +444,14 @@ def build_parser():
 def main(argv=None):
     streams.utf8_stdio()
     a = build_parser().parse_args(argv)
-    if not TASK_RE.fullmatch(a.task):
-        print("refused: --task %r: expected a task id t-NNN (3-9 digits, optional lower-case letter)" % a.task)
+    if jk.parse_id(a.task) is None:
+        print("refused: --task %r: expected a task id t-NNN (3-9 digits, optional clone letters aa..zz)" % a.task)
         return 2
     if not a.branch or a.branch.startswith("-") or git(a.repo, "check-ref-format", "--branch", a.branch)[0] != 0:
         print("refused: %r is not a branch name" % a.branch)
         return 2
-    if a.node and not a.node[1].isdigit():
-        print("refused: --node N must be a number, not %r" % a.node[1])
+    if a.node and not jk.NODE_RE.match("/".join(a.node)):
+        print("refused: --node %s: expected <slug> <N> <id> in the node grammar (slug/N/id, N from 1)" % " ".join(a.node))
         return 2
     try:
         wave = Wave(a.repo, a.branch, a.task, a.node)
