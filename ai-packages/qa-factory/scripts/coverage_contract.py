@@ -724,7 +724,10 @@ def recorded_checkout_revisions(task, profile_id) -> set:
     `evidence/runtime-provenance-*.json` of the task whose `profile_id` is `profile_id` (`runtime_probe.py` writes
     one per run, with the checkout's git HEAD). Empty when the story recorded none for the profile, and then no
     manual proof can bind to it (unknown is not a match, FR-41). `unknown` - the probe's word for a revision it
-    could not read - is never a revision."""
+    could not read - is never a revision. A `not_applicable` or `unknown` record compared no build, so the revision it
+    carries binds nothing (P1B-9)."""
+    from profile_contract import PROVENANCE_RESULTS
+    compared = PROVENANCE_RESULTS - {"unknown", "not_applicable"}
     found = set()
     wanted = str(profile_id or "").strip()
     for path in sorted_paths((Path(task) / "evidence").glob("runtime-provenance-*.json")):
@@ -732,7 +735,8 @@ def recorded_checkout_revisions(task, profile_id) -> set:
             data = json.loads(path.read_text(encoding="utf-8-sig"))
         except (OSError, ValueError):
             continue
-        if isinstance(data, dict) and wanted and str(data.get("profile_id") or "").strip() == wanted:
+        if (isinstance(data, dict) and wanted and str(data.get("profile_id") or "").strip() == wanted
+                and str(data.get("result") or "") in compared):
             revision = str(data.get("expected_source_revision") or "").strip()
             if revision and revision != "unknown":
                 found.add(revision)
