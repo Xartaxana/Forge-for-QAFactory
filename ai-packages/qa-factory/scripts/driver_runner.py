@@ -426,7 +426,8 @@ class DriverRunner:
         judges no cause (P27, AR-29). ONCE per (road, key, finding_key(lines), outcome) across relaunches: the mark lives in the
         state file under `repeat_recorded` (absent, None or not a dict in an older state = empty), so the arrival after a person's
         `retry` writes nothing, and neither does the arrival that spends a paid round the person bought on the set the first
-        arrival recorded (same tuple: the person's `round` is no new stop). An empty set writes no row (FR-41: an unknown is not a repeat).
+        arrival recorded (same tuple: the person's `round` is no new stop). A caller that records before `exit_limit` first asks
+        `driver_dispatch.paid_round_open` (the layer that owns the exit record): no row for a non-stop. An empty set writes no row (FR-41: an unknown is not a repeat).
         Any failure is one stderr line and never stops the factory (P1)."""
         try:
             found = finding_lines(lines)

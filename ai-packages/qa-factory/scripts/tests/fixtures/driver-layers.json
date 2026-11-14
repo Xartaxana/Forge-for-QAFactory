@@ -88,6 +88,8 @@
   {"name": "match_known", "kind": "func", "home": "driver_machine", "row": 22},
   {"name": "route_known", "kind": "func", "home": "driver_machine", "row": 22, "note": "C2-1s: a refusal that is a list is routed item by item; a head that does not hold its count is the conductor's (K1)"},
   {"name": "parse_next", "kind": "func", "home": "driver_dispatch", "row": 23},
+  {"name": "paid_round_open", "kind": "func", "home": "driver_dispatch", "note": "FV1-22 F2: exit_limit's own test of a paid round the person bought (session, key, granted > spent), read-only, so the callers that record a repeat before exit_limit (resume_on_refusal, handle_refusal, handoff_ladder) write no row for a non-stop"},
+  {"name": "window_round_lead", "kind": "func", "home": "driver_machine", "note": "FV1-22 remark e: the console line and the person's lead of a window_round_gate stop, extracted from the gate; called only by Driver.window_round_gate"},
   {"name": "parse_prompt", "kind": "func", "home": "driver_dispatch", "row": 23},
   {"name": "last_json_line", "kind": "func", "home": "driver_conductor", "row": 24, "note": "critic t-314: the conductor's reader of a claude result (the draft said runner)"},
   {"name": "named_files", "kind": "func", "home": "driver_conductor", "row": 25},

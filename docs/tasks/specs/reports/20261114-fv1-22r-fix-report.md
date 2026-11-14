@@ -72,6 +72,15 @@ no contract                      -> ...; the form must carry one of them as its 
 
 Slow files NOT run here, judged by the one CI run: `test_driver_layers.py` (B1 and the state-key row), `test_story_run_loop_b_loop.py` (loop_waiver_and_journal_shapes: the row shape and L8), `test_story_run_refusals.py`, the `test_no_move_seam_*` files, `test_driver_chain.py`, `test_conductor_doors.py`, `test_infra_failure_*`, the `test_story_run_*` set.
 
+## Continuation (Lead: F2 residue, remarks b, c, e) - commit below
+
+- F2 residue CLOSED at the callers: new module function `driver_dispatch.paid_round_open(state, dispatch, lines, sid)` (exit_limit's own test: session, key, `granted > spent`; read-only, never raises). Called before `record_repeat` at S-b (`driver_machine.py` `resume_on_refusal`), S-c (`handle_refusal` resume_structured) and S-d (`driver_dispatch.py` `handoff_ladder`, which now builds the normalised `lines` once and passes the same list to the check and to `exit_limit`, so the keys match). `record_repeat` is unchanged (layer L7 stays); S-a and S-e untouched. Rows: `driver-layers.json` `paid_round_open` (func, driver_dispatch).
+- Test row: `test_fv122_n3b_paid_round_arrival_writes_no_row_even_without_an_earlier_record[granted1-spent0 -> 0 rows | granted1-spent1 -> 1 | nothing bought -> 1]` through the real `resume_on_refusal` with a fresh state (no mark).
+- Remark (e) DONE: `window_round_lead(...)` extracted as a module function in `driver_machine.py` (the lead branches, 4 levels of nesting gone from the gate); row in `driver-layers.json`. I made it a module function, not a method, so the stub-driven tests of other files (`test_probe_not_proved`, `test_silent_passes`, ...) that call `window_round_gate` on a `self` stub keep working.
+- Remark (b) DONE: a stage outside `WINDOW_ROUND_STAGES` now prints "step" instead of "window" in the three console lines (same_set, cap, and the conductor-round line); S5 texts are byte-equal.
+- Remark (c) NOT DONE, outside owns: `vocabulary.yaml:121-123` ("stage critic (S2-S4)"), `stage_done.py:961` docstring, the "Reviewed dispatch" comment in the dropped S7 skeleton template.
+- Witness (narrow): `test_probe_gap_door.py` -> `54 passed in 9.67s` (was 51); `test_field_producers.py` -> `=== test_field_producers: 920/920 ok ===`; also `test_probe_not_proved.py` -> `47 passed in 6.92s`, `test_silent_passes.py` -> `=== test_silent_passes: 326/326 ok ===` (stub callers of the edited functions); `selftest.py --limits --lang` -> `=== qa-factory selftest: 4/4 ok ===`. No CI run (Lead). Slow files (`test_driver_layers.py` for the two new func rows, `test_story_run_*`, `test_no_move_seam_*`) are judged by the batch canon.
+
 ## Pushed commit and CI
 
 Fix commit pushed to `wip/fv1-22r-fix`: `01563f1960848c3769bec22eab2060e53e86dc5f`. CI run started once (canon.yml, `python -B tools/ci_read.py start --ref wip/fv1-22r-fix`): run id `43534916929`; NOT read - the Lead's correction says do not wait. The slow files named above are judged by the batch canon after the merge.

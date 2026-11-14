@@ -174,6 +174,18 @@ def resume_reason(findings) -> str:
     return "; ".join(classes) if classes else "unclassified (the exit gate named no finding)"
 
 
+def paid_round_open(state, dispatch: str, lines, sid: str) -> bool:
+    """Is the arrival of `lines` at `exit_limit` the spending of a paid round the person bought (FV1-22 F2)? The same test as
+    `exit_limit`'s own (a session, a key, `granted > spent` for this dispatch and set): a stop's record is written by the caller
+    BEFORE `exit_limit`, so a caller that must not record a non-stop asks this first. Read-only; an unreadable state is `False`."""
+    try:
+        key = finding_key([str(e) for e in (lines or []) if str(e).strip()])
+        bought = (((state.get("exit_limit") or {}).get(dispatch) or {}).get("rounds") or {}).get(key) or {}
+        return bool(sid and key and bought.get("granted", 0) > bought.get("spent", 0))
+    except Exception:
+        return False
+
+
 def parse_next(out: str) -> dict:
     """The `next: {...}` line story_step and controller print."""
     for line in reversed((out or "").splitlines()):
@@ -538,10 +550,12 @@ class DriverDispatch:
         resume_sid = self.refusal_sid(dispatch, result["session_id"])
         resume_key = finding_key(errors) if errors else ""
         if errors and (not result["session_id"] or (resume_key and resume_key in self.resume_record(dispatch, resume_sid))):
+            lines = self.refusal_lines(None, items=errors)
             if result["session_id"]:        # no session = not a repeat of anything the role saw (N3)
                 print(f"{stage}: {dispatch} was already resumed on these findings; no second resume")
-                self.record_repeat(stage, "handoff_resume", dispatch, dispatch, errors, "again")
-            self.exit_limit(stage, role, dispatch, self.refusal_lines(None, items=errors), sid=result["session_id"] or "", why="handoff",
+                if not paid_round_open(getattr(self, "state", None), dispatch, lines, result["session_id"]):     # a paid round spent is no stop (F2)
+                    self.record_repeat(stage, "handoff_resume", dispatch, dispatch, errors, "again")
+            self.exit_limit(stage, role, dispatch, lines, sid=result["session_id"] or "", why="handoff",
                             digest=digest, checks=Refusal.id_set(Refusal.id_counts(errors)))
             return self.handoff(role, stage, dispatch, self.saved_result(dispatch))
         elif errors and result["session_id"]:

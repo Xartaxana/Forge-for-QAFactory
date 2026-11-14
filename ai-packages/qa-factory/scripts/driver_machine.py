@@ -20,7 +20,7 @@ import waiver
 from driver_core import CODE_CLOSE_IDLE_CAP, CODE_CLOSE_SITES, DISPATCH_ID_RE, EXIT_DONE, EXIT_ERROR, EXIT_GAVE_UP, GATE_KINDS, HALT_RECORD_WHY, InfraStop, JOURNAL_ROWS_BLOCK, Person, REFUSALS_PER_BOUNDARY, Refusal, RepairFailed, ReworkRefused, STUCK_REPEATS, Stop, UNTIL_PAST, _answer_note, _now, _read_json, _read_jsonl, finding_key, finding_lines
 from driver_dialog import ANSWER_BLOCK_RE, QUESTION_HEAD_RE, question_body_sha
 from driver_conductor import MOVES_RULE, OWN_TOKEN_RULE, PRE_FILLED
-from driver_dispatch import KNOWN_REFUSALS, STRUCTURED_RE, WINDOW_ROUND_STAGES, parse_next, resume_reason
+from driver_dispatch import KNOWN_REFUSALS, STRUCTURED_RE, WINDOW_ROUND_STAGES, paid_round_open, parse_next, resume_reason
 from driver_sources import S1_DISPATCH_RE
 
 
@@ -94,6 +94,34 @@ def route_known(refusal):
             return None
     routes = {match_known(item) for item in items}
     return routes.pop() if len(routes) == 1 else None
+
+
+def window_round_lead(stage: str, scope: str, cause: str, reason: str, same, rounds_n: int, mine_n: int, found_n: int) -> str:
+    """The console line and the person's lead of a stop of `window_round_gate` (`reason`: same_set | cap), extracted so the gate keeps
+    its logic only (FV1-22 remark e). A stage outside WINDOW_ROUND_STAGES says `step`, never `window` (it has no window); the S5 texts
+    are byte-equal to what the gate printed before. Prints the console line and returns the lead."""
+    own = stage in WINDOW_ROUND_STAGES
+    label = "window" if own else "step"
+    if reason == "same_set":
+        print(f"{stage} {label} {scope}: round {rounds_n + 1} came back with the same {found_n} "
+              f"finding(s) as round {same} — no further rework; the person is asked")
+        if cause == "refusal" and not own:
+            return (f"The factory's own checks refused this step again with the same reasons as round {same}; "
+                    "asking again brings the same refusal. Tell me how to go on.\n\n")
+        if cause == "refusal":
+            return (f"The factory's own checks refused this window again with the same reasons as round {same}. "
+                    "Nothing was reworked: the reasons are not about its tests. Tell me how to go on.\n\n")
+        return f"This window came back with the same findings as round {same}; the driver does not rework it again.\n\n"
+    if cause == "refusal":
+        if not own:
+            print(f"{stage} step {scope}: {WINDOW_ROUND_CAP} rounds over refusals are spent - the person is asked")
+            return f"The factory's own checks refused this step {mine_n} times, and the driver does not hand it on again.\n\n"
+        print(f"{stage} window {scope}: {WINDOW_ROUND_CAP} rounds over refusals that are not about the "
+              "window's tests are spent - the person is asked")
+        return (f"The factory's own checks refused this window {mine_n} times for reasons that are not "
+                "about its tests, and the driver does not hand it on again.\n\n")
+    print(f"{stage} window {scope}: the cap of {WINDOW_ROUND_CAP} rounds is spent — the person is asked")
+    return f"The driver has sent this window back for rework {mine_n} times already and does not do it again.\n\n"
 
 
 class RelayCtx(NamedTuple):
@@ -298,7 +326,8 @@ class DriverMachine:
         print(f"refusal: {dispatch} was already resumed on these findings; the person is asked")
         # t-764 E8: the ONE seam (the finish refusals `story_step finish (exit 3)` reach only this site); a round the person
         # bought is spent there and the loop judges the role's new result
-        self.record_repeat(stage, "role_resume", dispatch, dispatch, self.refusal_lines(refusal), "again")
+        if not paid_round_open(getattr(self, "state", None), dispatch, self.refusal_lines(refusal), sid):     # a paid round spent is no stop (F2)
+            self.record_repeat(stage, "role_resume", dispatch, dispatch, self.refusal_lines(refusal), "again")
         self.exit_limit(stage, self.dispatch_role(dispatch), dispatch, self.refusal_lines(refusal), sid=sid, why="refusal", text=refusal.text,
                         checks=refusal.checks)
         return "continue"
@@ -371,32 +400,8 @@ class DriverMachine:
                 self.journal_run({"kind": "window_round", "stage": stage, "key": key, "dispatch": dispatch,
                                   "round": len(series), "cause": cause, "outcome": reason, "findings": len(found)})
                 self.record_repeat(stage, "conductor_round", key, dispatch, source, reason)
-            if reason == "same_set":
-                print(f"{stage} window {scope}: round {len(rounds) + 1} came back with the same {len(found)} "
-                      f"finding(s) as round {same} — no further rework; the person is asked")
-                if cause == "refusal" and stage not in WINDOW_ROUND_STAGES:
-                    lead = (f"The factory's own checks refused this step again with the same reasons as round {same}; "
-                            "asking again brings the same refusal. Tell me how to go on.\n\n")
-                elif cause == "refusal":
-                    lead = (f"The factory's own checks refused this window again with the same reasons as round {same}. "
-                            "Nothing was reworked: the reasons are not about its tests. Tell me how to go on.\n\n")
-                else:
-                    lead = (f"This window came back with the same findings as round {same}; the driver does not "
-                            "rework it again.\n\n")
-            elif cause == "refusal":
-                print(f"{stage} window {scope}: {WINDOW_ROUND_CAP} rounds over refusals that are not about the "
-                      "window's tests are spent - the person is asked")
-                if stage not in WINDOW_ROUND_STAGES:
-                    lead = (f"The factory's own checks refused this step {len(mine)} times, "
-                            "and the driver does not hand it on again.\n\n")
-                else:
-                    lead = (f"The factory's own checks refused this window {len(mine)} times for reasons that are not "
-                            "about its tests, and the driver does not hand it on again.\n\n")
-            else:
-                print(f"{stage} window {scope}: the cap of {WINDOW_ROUND_CAP} rounds is spent — the person is asked")
-                lead = (f"The driver has sent this window back for rework {len(mine)} times already and does "
-                        "not do it again.\n\n")
-            state = {"why": "threshold", "kind": "refusal", "call": False, "stage": stage, "dispatch": dispatch,
+            lead = window_round_lead(stage, scope, cause, reason, same, len(rounds), len(mine), len(found))
+            state ={"why": "threshold", "kind": "refusal", "call": False, "stage": stage, "dispatch": dispatch,
                      "lead": lead + self.question_from_refusal(refusal, stage), "lines": self.refusal_lines(refusal, items=source),
                      "text": refusal.text + "\n\nThe findings of this round:\n- " + "\n- ".join(found)}
             if stage == "S5" and dispatch:
@@ -422,6 +427,9 @@ class DriverMachine:
         self.journal_run({"kind": "window_round", "stage": stage, "key": key, "dispatch": dispatch,
                           "round": len(series), "cause": cause, "outcome": "to_conductor", "findings": len(found)})
         number = len(mine) + 1
+        if cause == "refusal" and stage not in WINDOW_ROUND_STAGES:
+            print(f"{stage} step {scope}: refusal round {number} of {WINDOW_ROUND_CAP} goes to the conductor")
+            return
         if cause == "refusal":
             print(f"{stage} window {scope}: refusal round {number} of {WINDOW_ROUND_CAP} goes to the conductor - the "
                   "refusal is not about the window's tests; the window's own rounds stay "
@@ -549,7 +557,9 @@ class DriverMachine:
                         # t-764 F-d6 (E11): the same class as the handoff's - one resume spent, the dispatch not accepted. The key of
                         # the set is `finding_key` of the refusal's lines (`structured_resumes` is per dispatch), so a round the person
                         # buys is counted for THIS set; a round is spent there and the loop judges the role's new result
-                        if done.get(dispatch):      # a spent resume only: the first refusal with no session resumed nothing (not a repeat, FR-41)
+                        if done.get(dispatch) and not paid_round_open(self.state, dispatch, self.refusal_lines(refusal), sid):
+                            # a spent resume only (the first refusal with no session resumed nothing: not a repeat, FR-41), and
+                            # not the arrival that spends a paid round the person bought (F2)
                             self.record_repeat(stage, "structured_resume", dispatch, dispatch, self.refusal_lines(refusal), "again")
                         self.exit_limit(stage, self.dispatch_role(dispatch), dispatch, self.refusal_lines(refusal), sid=sid or "",
                                         why="structured", text=refusal.text, checks=refusal.checks)

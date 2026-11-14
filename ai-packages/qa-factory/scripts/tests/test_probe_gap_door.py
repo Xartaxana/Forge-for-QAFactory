@@ -551,6 +551,37 @@ def test_fv122_n3d_gate_stop_writes_one_repeat_row_for_same_set_and_cap():
         assert rows[0]["set_size"] == 2 and d.handed                                   # the stop's own move still happens
 
 
+@pytest.mark.parametrize("bought, rows", [({"granted": 1, "spent": 0}, 0),      # the arrival that SPENDS a round the person bought: no stop
+                                          ({"granted": 1, "spent": 1}, 1),      # the round is spent: this arrival is a stop again
+                                          (None, 1)])                           # nothing bought: a stop
+def test_fv122_n3b_paid_round_arrival_writes_no_row_even_without_an_earlier_record(bought, rows):
+    """F2 residue: a round was bought on a no-session question (nothing recorded), then the same set arrives WITH a session. The
+    caller asks `paid_round_open` before `record_repeat`; the state is a fresh one (no `repeat_recorded` mark)."""
+    import driver_core
+    key_lines = ["the form misses failure_class"]
+    record = {driver_core.finding_key(key_lines): "refusal"}
+    state = {"exit_limit": {"S8-qa-doc-scribe-1": {"rounds": {driver_core.finding_key(key_lines): bought}}}} if bought else {}
+    d = SimpleNamespace(journal_rows=[], state=state, save_state=lambda: None)
+    d.refusal_dispatch = lambda refusal: "S8-qa-doc-scribe-1"
+    d.refusal_sid = lambda dispatch: "sid-1"
+    d.close_by_doors = lambda refusal, stage, dispatch: ""
+    d.refusal_lines = lambda refusal, items=None: list(refusal.findings)
+    d.resume_record = lambda dispatch, sid: record
+    d.stand_probe = lambda dispatch: None
+    d.dispatch_role = lambda dispatch: "qa-doc-scribe"
+    d.journal_run = d.journal_rows.append
+    d.record_repeat = types.MethodType(SR.Driver.record_repeat, d)
+
+    def exit_limit(*args, **kw):
+        raise RuntimeError("person")
+
+    d.exit_limit = exit_limit
+    refusal = SR.Refusal("head\nthe form misses failure_class", findings=key_lines, dispatch="S8-qa-doc-scribe-1")
+    with pytest.raises(RuntimeError, match="person"):
+        SR.Driver.resume_on_refusal(d, refusal, "S8", "S8-qa-doc-scribe-1")
+    assert len(fv122_repeats(d)) == rows
+
+
 def test_fv122_n3b_second_arrival_of_the_same_set_writes_nothing():
     """F2: ONCE per (road, key, finding_key, outcome) across relaunches - the mark is in the persisted state. A different outcome on
     the same set is a new tuple. An older state (no mark, None, not a dict) reads as empty and never crashes."""
