@@ -123,7 +123,7 @@
     {"id": "LA5", "codes": [429], "answer": "throttled"},
     {"id": "LA6", "from": 500, "to": 599, "answer": "stand_error"},
     {"id": "LA7", "codes": [401], "kinds": ["service"], "answer": "credentials_refused"},
-    {"id": "LA8", "codes": [400, 422], "kinds": ["service"], "roads": ["local_login", "oidc_password"], "answer": "credentials_refused"},
+    {"id": "LA8", "codes": [400, 422], "kinds": ["service"], "roads": ["oidc_password"], "answer": "credentials_refused"},
     {"id": "LA9", "any": true, "answer": "unjudged"}
   ],
   "login_recheck": "{script:env_probe.py} --project-root . --json and record its login.record as environment.access.login_probe",

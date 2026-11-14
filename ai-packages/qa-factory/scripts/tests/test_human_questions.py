@@ -437,6 +437,12 @@ def the_stand_login_words() -> None:
                  ("", human_text.ONBOARDING_NOTE, ""))
         check_not_in("FV1-15 D5: the command is never in a body (rule 5)", "/qa-factory:", driver.stand_question_text(
             "S5", "Local", ["Local"], "", ["login"], "wrong_door", True))
+        # S2: after a search that exited 0 (a way was recorded) the body says the recorded way did not sign in when checked again - never
+        # that every way was tried and none signed in; after a refusal (exit 2) it keeps the old sentence
+        for label, exit_code, says, not_says in (("s2-exit-0", 0, "did not sign in when I checked again", SEARCHED_SAYS),
+                                                 ("s2-exit-2", 2, SEARCHED_SAYS, "when I checked again")):
+            text = driver.stand_question_text("S5", "Local", ["Local", "Staging"], "", ["login"], "wrong_door", True, exit_code)
+            check_eq(f"FV1-15 {label}: the body's sentence", (says in text, not_says in text), (True, False))
         # (5) D1: `stand_check` carries the answer and the search state into the question and its answer block
         (task_root / "pipeline.json").write_text(json.dumps(
             {"ticket": "QA-9", "size": "S", "environment": "Local", "environment_pending": True,
@@ -447,6 +453,9 @@ def the_stand_login_words() -> None:
                 ("check-way-searched", wrong, {"Local": {"at": "2026-11-14T10:00:00", "exit": 2}}, False, human_text.ONBOARDING_LOGIN_NOTE),
                 ("check-way-searched-other-stand", wrong, {"Staging": {"at": "2026-11-14T10:00:00", "exit": 2}}, True, ""),
                 ("check-way-search-record-not-a-table", wrong, "Local", True, ""),
+                ("check-way-search-s2-no-exit", wrong, {"Local": {"at": "2026-11-14T10:00:00"}}, True, ""),
+                ("check-way-search-s2-exit-bool", wrong, {"Local": {"at": "2026-11-14T10:00:00", "exit": True}}, True, ""),
+                ("check-way-search-s2-exit-0", wrong, {"Local": {"at": "2026-11-14T10:00:00", "exit": 0}}, False, human_text.ONBOARDING_LOGIN_NOTE),
                 ("check-account-searched", "liveness: alive - x\nTHE ENVIRONMENT CANNOT BE USED:\n- " + PREFIX_ANSWER_ROWS[0][1] + "x\n",
                  {"Local": {"at": "2026-11-14T10:00:00", "exit": 2}}, False, ""),
                 ("check-out-empty", "", None, False, "")):
