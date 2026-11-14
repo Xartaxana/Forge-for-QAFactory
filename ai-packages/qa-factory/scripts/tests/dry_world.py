@@ -220,6 +220,35 @@ def mr_diff(row: dict) -> str:
     return (folder / served[0]["file"]).read_bytes().decode("utf-8") if served else ""
 
 
+class ChangeError(ValueError):
+    """The change of a story world cannot be read: names the story and the key, or the path (AR-28: never an empty fill in its place)."""
+
+
+def change_text(control: dict, base=None) -> str:
+    """The change (the diff text) of a world, through ONE function: for a type world (`control["type"]`) what `mr_diff(type_row(type))` returns; for a story
+    world (`control["story"]`) the text of the file `story.json` names in `change.diff_file`, read as bytes (no line ending changes). A story with no `change`
+    key, or a `change` with no `diff_file`, is a `ChangeError` naming the story and the key; a file that is absent, unreadable or empty is a `ChangeError`
+    naming the path. A control that names neither (a bare task) holds no change: "" as before."""
+    if control.get("type"):
+        return mr_diff(type_row(control["type"]))
+    if not control.get("story"):
+        return ""
+    import dry_stub
+    folder = Path(base or STORIES) / control["story"]
+    change = dry_stub.read_json(folder / "story.json").get("change")
+    name = change.get("diff_file") if isinstance(change, dict) else None
+    if not isinstance(name, str) or not name.strip():
+        raise ChangeError(f"story {control['story']!r}: {folder / 'story.json'} has no `change.diff_file`; expected the name of a diff file in the story folder")
+    path = folder / name
+    try:
+        text = path.read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ChangeError(f"story {control['story']!r}: the change file {path} cannot be read ({type(exc).__name__}); expected a unified diff") from None
+    if not text.strip():
+        raise ChangeError(f"story {control['story']!r}: the change file {path} is empty; expected a unified diff")
+    return text
+
+
 def tracker_server(row: dict) -> TrackerServer:
     folder = STORIES / row["input"]
     routes = json.loads((folder / row["tracker"]["routes"]).read_text(encoding="utf-8"))
@@ -292,7 +321,10 @@ def build_story_world(story_id: str = "dry-1") -> World:
     dry_stub.install_runner(root, dry_stub.runner_row(kit["runner"], story_id))
     env.update(STORY_RUN_CLAUDE=str(STUB_PATH), STORY_RUN_CLASS="dry", DRY_STUB_CONTROL=str(root / "dry-stub-control.json"))
     env.pop("STUB_CONTROL", None)
-    world = World({"id": story_id, "task": task}, root, env, None, Path(tempfile.mkdtemp(prefix="qa-dry-snap-")), story_id)
+    # the story's own `stub` (role controls: the values of what a role's judgment writes, DATA of the story, like the type row's `stub`)
+    check_stub("story.json", story_id, story.get("stub"), what="story")
+    world = World({"id": story_id, "task": task, **({"stub": story["stub"]} if story.get("stub") else {})}, root, env, None,
+                  Path(tempfile.mkdtemp(prefix="qa-dry-snap-")), story_id)
     world.control()
     return world
 
@@ -887,11 +919,13 @@ def main_pass(story_id: str = DEFAULT_STORY, label: str = "default", ledger_path
             if kind == "conductor":
                 details = world.task_root / "state" / "driver-question-details.md"
                 stop = ("the road met the conductor: a state the driver has no move for; "
-                        + (f"its own words: {cut(details.read_text(encoding='utf-8', errors='replace'), 700)}" if details.is_file() else "no details file"))
+                        + (f"its own words: {cut(details.read_text(encoding='utf-8', errors='replace'), 1600)}" if details.is_file() else "no details file"))
                 break
             words = answers.get((stage, kind))
             if words is None:
-                stop = f"no answer for {kind} at {stage} in story {story_id} (A1-E3): the walk rows of story.json hold none"
+                details = world.task_root / "state" / "driver-question-details.md"
+                stop = (f"no answer for {kind} at {stage} in story {story_id} (A1-E3): the walk rows of story.json hold none"
+                        + (f"; the question's details: {cut(details.read_text(encoding='utf-8', errors='replace'), 1600)}" if details.is_file() else ""))
                 break
             answer.write_bytes(words.encode("utf-8"))
         else:
@@ -918,6 +952,11 @@ def main_pass(story_id: str = DEFAULT_STORY, label: str = "default", ledger_path
         if stop:
             line("main/stop", "note", f"stopped at {stop_stage or 'the end'}: {stop}"
                  + (f"; the driver's first refusal: {cut(first_ref)}" if first_ref else ""))
+        for gap in read_rows(world.task_root / "state" / "dry-stub.jsonl", "the stub's journal"):       # what the stub could not fill, per call: the stop's other half
+            for item in gap.get("live_only") or []:
+                line("main/stub-live_only", "note", f"{gap.get('stage') or '?'} {gap.get('role') or ''}: {cut(item.get('output', ''), 80)}: {cut(item.get('why', ''), 400)}")
+            if (gap.get("fixed") or {}).get("exit"):
+                line("main/stub-fix", "note", f"{gap.get('stage') or '?'} {gap.get('role') or ''}: handoff_check --fix: {cut((gap['fixed']).get('text', ''), 500)}")
         made = sorted(p.name for p in (world.snaps / world.row["id"]).glob("*") if SNAPSHOT_NAME.match(p.name))
         line("main/snapshots", "note", f"made {', '.join(made) or 'none'}")
         lacking = [s for s in STAGES if s not in made]

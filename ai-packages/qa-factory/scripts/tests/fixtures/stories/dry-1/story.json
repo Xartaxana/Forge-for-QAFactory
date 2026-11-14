@@ -3,6 +3,23 @@
  "task": "DRY-1",
  "synthetic": true,
  "package_version": "0.11.0",
+ "change": {"diff_file": "impl.diff"},
+ "stub": {
+  "qa-case-critic": {"verdict": "ok"},
+  "qa-requirements-tester": {
+   "result_text": "qa-requirements-tester S2 DRY-1 · ok\nR-1 · found · the total is the sum of price times quantity of the lines\nR-2 · found · an empty cart shows zero and offers no checkout\nwork/requirements-register.md",
+   "overrides": {
+    "work/requirements-readiness.json": {
+     "goal_summary": "Show a shopper the total of the cart lines, and offer no checkout while the cart is empty.",
+     "aspects": {
+      "shopping cart": {"status": "ready"},
+      "checkout": {"status": "ready"},
+      "sign-in and user accounts": {"status": "n/a", "reason": "the story does not touch sign-in"}
+     }
+    }
+   }
+  }
+ },
  "walk": [
   {"stage": "S1", "role": "qa-scout", "door": {"kind": "driver"}, "answers": {"s1_review": "go on"}},
   {"stage": "S2", "role": "qa-requirements-tester", "door": {"kind": "driver"}},

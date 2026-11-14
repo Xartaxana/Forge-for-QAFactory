@@ -36,8 +36,16 @@ COMMANDS = {"context_bundle.py": ["--manifest", "{task_root}/work/context-manife
 # "Source collection", the one writer of work/source-inventory.json is ticket_adapter.py). Only a step that decides nothing is here: recording the task is
 # a read by the tracker's own client; the judging of a mentioned ticket (`assess`) is the role's and stays with no step (E13).
 ROLE_STEPS = {"qa-scout": [("work/source-inventory.json", "ticket_adapter.py",
-                            ["collect", "{task}", "--relation", "task", "--output", "{task_root}/work/source-inventory.json", "--summary"])]}
-MOVE_LINE =re.compile(r"^- `(\w+)`(?: — token `([^`]+)`)?;")
+                            ["collect", "{task}", "--relation", "task", "--output", "{task_root}/work/source-inventory.json", "--summary"]),
+                           # skills/qa-story/phases/s1.md "Exit" step 2: `stage_done.py --task <TICKET> --set implementation_source=<diff|current-code|ungrounded>`;
+                           # the value is `diff` because the world holds a change (the step is skipped, named, when it holds none)
+                           ("pipeline.implementation_source", "stage_done.py", ["--task", "{task}", "--set", "implementation_source=diff"])]}
+# The commands a role runs AFTER it wrote its outputs (they read them): the S2 tester's step 5 (`sizing.py --task <TICKET>`, agents/qa-requirements-tester.md and
+# skills/qa-story/phases/s2.md "Exit" 1) and the recording of the size it printed (`stage_done.py --task <TICKET> --set size=<XS|S|M|L|XL|XXL>`, same text).
+# `{size}` is the `size` of the `work/sizing.json` the first step wrote: a value computed by code, never one of the stub's own.
+AFTER_STEPS = {("qa-requirements-tester", "S2"): [("work/sizing.json", "sizing.py", ["--task", "{task}"]),
+                                                   ("pipeline.size", "stage_done.py", ["--task", "{task}", "--set", "size={size}"])]}
+MOVE_LINE = re.compile(r"^- `(\w+)`(?: — token `([^`]+)`)?;")
 FORM_CONTRACT = re.compile(r"^contract:\s*(\S+)", re.M)
 FORM_STAGE = re.compile(r"^stage:\s*(\S+)", re.M)
 
@@ -154,6 +162,19 @@ def awaiting(sources: list) -> tuple:
     return unjudged, uncollected
 
 
+# The field of a form that names "each source the scout marked `relevant`" (handoffs/s2-tester-to-strategist.yaml `inputs_read`): the role writes the file it read
+# for that source, the inventory's `inspection_ref` (a task-relative path); the filler holds no rule for it. Keyed by contract: data, not a branch on a stage.
+FORM_SOURCE_PATH = {"s2-tester-to-strategist": "inputs_read[2].path"}
+
+
+def relevant_source_paths(inventory: Path) -> list:
+    """The task-relative path (`work/` + `inspection_ref`: the inventory's refs are relative to `work/`, measured on a collected ticket) of every source the
+    inventory marks `relevant` and whose file is on disk (a read of the inventory through its one reader)."""
+    sources, _why = read_sources(inventory)
+    refs = [f"work/{s['inspection_ref']}" for s in sources if s.get("relevance") == "relevant" and s.get("inspection_ref")]
+    return [r for r in refs if (inventory.parent.parent / r).is_file()]
+
+
 def pending_judgments(inventory: Path, skip=()) -> str:
     """"" when the inventory holds no source awaiting the scout (`awaiting`), else the live_only reason, naming each source: an unjudged mention is
     the role's judgment - a key the type's `stub.source_relevance` does not name gets no value from the stub (E13, AR-29) and the exit gate's own refusal
@@ -254,12 +275,22 @@ def load_kit(story_id: str, base=None) -> dict:
     return kit
 
 
-def kit_context(kit: dict, dispatch: str = "", impl_diff: str = "", cases=None):
+REVIEWED_DISPATCH = re.compile(r"^Reviewed dispatch: .*?`path: work/handoffs/([^`/\s]+)\.yaml`", re.M)
+
+
+def author_dispatch_of(prompt: str) -> str:
+    """The id of the author's dispatch a reviewing role's prompt names (the brief's own line `Reviewed dispatch: ... `path: work/handoffs/<id>.yaml``,
+    `brief_pack.reviewed_dispatch_lines`): what the critic reads before its work. "" when the prompt names none (the filler's token stays unfillable)."""
+    found = REVIEWED_DISPATCH.search(prompt)
+    return found.group(1) if found else ""
+
+
+def kit_context(kit: dict, dispatch: str = "", impl_diff: str = "", cases=None, author_dispatch: str = ""):
     """The `FillContext` of the kit for ONE call: its ids (`cases` narrows them, a test file is one per case), the call's dispatch id."""
     import form_filler as FF
     ids = [c["id"] for c in kit["cases"]] if cases is None else list(cases)
     return FF.FillContext(task_key=kit["key"], dispatch_id=dispatch, requirements=list(kit["requirements"]), cases=ids,
-                          minted={k: list(v) for k, v in kit["minted"].items()}, impl_diff=impl_diff)
+                          minted={k: list(v) for k, v in kit["minted"].items()}, impl_diff=impl_diff, author_dispatch=author_dispatch)
 
 
 def runner_rows(story_id: str = "dry-1", base=None) -> list:
@@ -528,14 +559,29 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
     mine = (control.get("stub") or {}).get(role) or {}
     task = control.get("task", "")
     import dry_world as W
-    diff = W.mr_diff(W.type_row(control.get("type"))) if control.get("type") else ""
+    try:
+        diff = W.change_text(control)         # the ONE road to the world's change, type or story (no second function)
+    except (W.ChangeError, KitError, W.TypesError) as exc:
+        diff = ""
+        row["live_only"].append({"output": "the world's change", "why": cut(str(exc), 240)})
     kit = load_kit(control["story"]) if control.get("story") else None
-    ctx = kit_context(kit, dispatch, diff) if kit else FF.FillContext(task_key=task, dispatch_id=dispatch, impl_diff=diff)
+    brief = task_dir / "work" / "briefs" / f"{dispatch}.md"        # the role's brief: the file its prompt hands it (`brief_pack`), where the `Reviewed dispatch:` line is
+    author = author_dispatch_of(prompt) or (author_dispatch_of(brief.read_text(encoding="utf-8", errors="replace")) if brief.is_file() else "")
+    ctx = kit_context(kit, dispatch, diff, author_dispatch=author) if kit else FF.FillContext(task_key=task, dispatch_id=dispatch, impl_diff=diff, author_dispatch=author)
     if not contract:
         row["live_only"].append({"output": f"work/handoffs/{dispatch}.yaml", "why": "no form with a `contract:` line at that path"})
     else:
         try:
-            filled = fill_handover(contract.group(1), ctx, mine.get("verdict"), overrides_for(mine, contract.group(1), n))
+            over = overrides_for(mine, contract.group(1), n)
+            field = FORM_SOURCE_PATH.get(contract.group(1))
+            if field and field not in over:
+                kept = relevant_source_paths(task_dir / "work" / "source-inventory.json")
+                if len(kept) == 1:
+                    over = dict(over, **{field: kept[0]})
+                else:        # the form has ONE row for "each source the scout marked relevant": none or several is the role's judgment, not the stub's
+                    row["live_only"].append({"output": f"form {contract.group(1)}", "field": field,
+                                             "why": f"the inventory marks {len(kept)} source(s) relevant with a recorded file; the form's one row takes exactly one"})
+            filled = fill_handover(contract.group(1), ctx, mine.get("verdict"), over)
             form.write_bytes(filled.text.encode("utf-8"))
             row["wrote"].append(f"work/handoffs/{dispatch}.yaml")
         except Unfillable as exc:
@@ -548,6 +594,9 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
         if "no_command" in done:
             row["no_command"] = done["no_command"]
     for out, script, args in ROLE_STEPS.get(role, []) if stage == "S1" else []:
+        if script == "stage_done.py" and not diff:       # the step records a diff as the story's source: a world with no change has none to record (AR-28)
+            row["live_only"].append({"output": out, "why": "the world holds no change: `implementation_source=diff` is not recorded"})
+            continue
         code, text = run_script(project, script, [a.format(task=task, task_root=str(task_dir)) for a in args])
         (row["wrote"] if code == 0 else row["live_only"]).append(out if code == 0 else {"output": out, "why": f"{script} exit {code}: {cut(text)}"})
     if stage == "S1" and role in ROLE_STEPS:
@@ -574,6 +623,25 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
             (row["wrote"] if code == 0 else row["live_only"]).append(out if code == 0 else {"output": out, "why": f"{kind[8:]} exit {code}: {cut(text)}"})
         else:
             row["live_only"].append(live_row(Unfillable(out, "", kind[len("live_only:"):])))        # no filler kind: the same refusal, no text in its place
+    size = ""
+    for out, script, args in AFTER_STEPS.get((role, stage), []):
+        if "size={size}" in args and not size:
+            row["live_only"].append({"output": out, "why": "work/sizing.json holds no `size` (the step before did not write it): the size is not recorded"})
+            continue
+        code, text = run_script(project, script, [a.format(task=task, size=size) for a in args])
+        (row["wrote"] if code == 0 else row["live_only"]).append(out if code == 0 else {"output": out, "why": f"{script} exit {code}: {cut(text)}"})
+        if script == "sizing.py" and code == 0:
+            try:
+                size = str(json.loads((task_dir / "work" / "sizing.json").read_text(encoding="utf-8")).get("size") or "")
+            except (OSError, ValueError):
+                size = ""
+    if f"work/handoffs/{dispatch}.yaml" in row["wrote"]:
+        # the first line of every form: "fill it, then: handoff_check.py --file <form> --task <T>"; `--fix` writes in what code derives (the form's own header
+        # names it: a version is the sha256 of the path the row names, never a value the role makes up). What it still refuses stays a live_only row.
+        code, text = run_script(project, "handoff_check.py", ["--file", str(form), "--task", task, "--fix"])
+        row["fixed"] = {"exit": code, "text": cut(text)}
+        if code != 0:
+            row["live_only"].append({"output": f"form {contract.group(1)}", "why": f"handoff_check.py --fix exit {code}: {cut(text, 240)}"})
     default = f"{role} {stage} {task} - the stub filled the handover form of {dispatch}; nothing else to say"
     return dispatch, mine.get("result_text") or default, row
 
@@ -974,8 +1042,11 @@ def selftest_n2(tmp: Path) -> None:
         got = rows(task_dir)
         left = FF.HINT.findall(handover.read_text(encoding="utf-8")) if handover.is_file() else ["no form"]
         template_hints = FF.HINT.findall(template.decode("utf-8"))
-        check_eq(f"N2 (1): the register and the form are written by the filler (the form has fewer hints than the template; the rest are code's fields), no live_only (world {tag})",
-                 (register.is_file(), handover.is_file(), got[1]["live_only"], len(left) < len(template_hints)), (True, True, [], True))
+        # N2b: the S2 steps (`sizing.py`, `stage_done --set size=`, `handoff_check --fix`) and the source row of the form now run in this call; this bare world holds no
+        # inventory and no pipeline.json, so exactly those three are its live_only rows - the filler's own outputs have none
+        check_eq(f"N2 (1): the register and the form are written by the filler (the form has fewer hints than the template; the rest are code's fields); the only live_only rows are the bare world's missing inventory and pipeline (world {tag})",
+                 (register.is_file(), handover.is_file(), [(i["output"], i.get("field", "")) for i in got[1]["live_only"]], len(left) < len(template_hints)),
+                 (True, True, [("form s2-tester-to-strategist", "inputs_read[2].path"), ("pipeline.size", ""), ("form s2-tester-to-strategist", "")], True))
         saved.append((register.read_bytes(), handover.read_bytes()))
         if tag == "a":
             rc, second, err = call(project, control, prompt, *role_arg)
@@ -1095,6 +1166,56 @@ def selftest_n2(tmp: Path) -> None:
     check("N2 item 5: positive control of the grep: it finds the assignment the wrapper does make (the one module attribute)",
           re.search(r"\bno_move\.priced_options\s*=[^=]", owned[1].read_text(encoding="utf-8")) is not None)
     check("N2 item 5: no owned file assigns an attribute of the driver's class", not [str(p) for p in owned if pattern.search(p.read_text(encoding="utf-8"))])
+    selftest_n2b(tmp, world, call, form, rows, control)
+
+
+def selftest_n2b(tmp: Path, world, call, form, rows, control: dict) -> None:
+    """The rows of node N2b: the change of a world through ONE function (story file, type merge request, the edges), the scout's recording step and the
+    S2 steps in the tables, and the scout's call in the journal (the step ran, or is named as not run when the world holds no change)."""
+    import dry_world as W
+    from harness import check, check_eq
+    real = (STORIES / "dry-1" / "impl.diff").read_bytes().decode("utf-8")
+    check_eq("N2b item 1: a story world's change is the text of its diff file, byte for byte, and a unified diff of 2 files, 2 hunks",
+             (W.change_text({"story": "dry-1"}) == real, real.startswith("diff --git "), real.count("\ndiff --git ") + 1, real.count("\n@@ ")), (True, True, 2, 2))
+    check_eq("N2b item 1: a type world's change is what mr_diff returns for its row (byte-identical to before)",
+             W.change_text({"type": W.type_row()["id"]}) == W.mr_diff(W.type_row()), True)
+    check_eq("N2b item 1: a control that names neither a type nor a story holds no change", W.change_text({"task": "T-1"}), "")
+    story = (STORIES / "dry-1" / "story.json").read_text(encoding="utf-8")
+    base = tmp / "n2b"
+    for name, files, needle in (
+            ("a story with no `change` key", {"s/story.json": story.replace('"change": {"diff_file": "impl.diff"},', "")}, "no `change.diff_file`"),
+            ("a `change` with no file name", {"s/story.json": story.replace('"diff_file": "impl.diff"', '"x": 1')}, "no `change.diff_file`"),
+            ("a diff file that is absent", {"s/story.json": story}, "s" + os.sep + "impl.diff cannot be read"),
+            ("a diff file that is empty", {"s/story.json": story, "s/impl.diff": " \n"}, "impl.diff is empty")):
+        folder = base / name.replace(" ", "-").replace("`", "")
+        for rel_path, text in files.items():
+            (folder / rel_path).parent.mkdir(parents=True, exist_ok=True)
+            (folder / rel_path).write_text(text, encoding="utf-8")
+        try:
+            W.change_text({"story": "s"}, folder)
+            got = "no refusal"
+        except W.ChangeError as exc:
+            got = str(exc)
+        check(f"N2b edge: {name} is a red line naming the story and the key or the path", needle in got and "story 's'" in got, got)
+    steps = ROLE_STEPS["qa-scout"]
+    check_eq("N2b item 2: the scout's steps are the collection and then the recording of the source, the S1 exit text's own command",
+             [(o, s, a) for o, s, a in steps][1:], [("pipeline.implementation_source", "stage_done.py", ["--task", "{task}", "--set", "implementation_source=diff"])])
+    check_eq("N2b item 3: the S2 tester's steps are sizing.py then the recording of the size it computed",
+             [(o, s) for o, s, _a in AFTER_STEPS[("qa-requirements-tester", "S2")]], [("work/sizing.json", "sizing.py"), ("pipeline.size", "stage_done.py")])
+    check_eq("N2b: a brief's `Reviewed dispatch:` line gives the author's dispatch, none gives none",
+             (author_dispatch_of("x\nReviewed dispatch: the LAST `inputs_read` row naming a qa-requirements-tester dispatch must be `path: work/handoffs/S2-qa-requirements-tester-1.yaml` (other"),
+              author_dispatch_of("Reviewed dispatch: none yet - no accepted dispatch")), ("S2-qa-requirements-tester-1", ""))
+    # a world with a change runs the step (no pipeline.json in this bare project, so the command's own refusal is the row); a control with neither type nor
+    # story holds no change: the step is not run and the row says so (never `diff` recorded for a world that has none)
+    for tag, ctl, expect in (("with a change", control, "stage_done.py exit"), ("with no change", {"task": "DRY-1"}, "the world holds no change")):
+        project, task_dir = world(tag.replace(" ", "-"))
+        code, text = form(project, task_dir, "S1", "qa-scout", "S1D")
+        check(f"N2b: handoff_init made the S1 form ({tag})", code == 0, text)
+        rc, answer, err = call(project, ctl, f"Artifacts dir: {task_dir}\nDispatch: S1D.\n", "-p", "--agent", "qa-factory:qa-scout")
+        journal_row = rows(task_dir)[-1]
+        steps_text = json.dumps(journal_row.get("live_only", []) + journal_row.get("wrote", []))
+        check(f"N2b item 2/5: the scout's recording step is in the stub's journal ({tag})", rc == 0 and expect in steps_text and "implementation_source" in steps_text,
+              steps_text[:500] + err[-300:])
 
 
 def rows_dir(tmp: Path, name: str, calls: list) -> Path:
