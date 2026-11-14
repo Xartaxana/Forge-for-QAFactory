@@ -2593,13 +2593,15 @@ def test_consumer_gap_road() -> None:
                 return 0, ""
             driver.py, driver.stage_acceptance_write = py, write
 
-            def finish(label, word="reject", quote="the run report has no row", counted=(1, 1), known=True, refuse="", inner="INNER"):
+            def finish(label, word="reject", quote="the run report has no row", counted=(1, 1), known=True, refuse="", inner="INNER", step=""):
                 pipeline.pop("acceptance", None), pipeline.pop("warnings", None), calls.clear(), seam.clear(), ran.clear()
                 counts[0], driver.stage_verdict_known = counted, lambda form: known
 
                 def written(st, dispatch):
                     if refuse:
-                        raise Refusal(refuse)
+                        refusal = Refusal(refuse)
+                        refusal.step = step
+                        raise refusal
                     write(st, dispatch, word, quote)
                 driver.stage_acceptance_write = written
                 out = driver.consumer_completion(stage, inner)("digest")
@@ -2627,6 +2629,18 @@ def test_consumer_gap_road() -> None:
                 out, rec, warns, order = finish(label, **kw)
                 check_eq(f"{stage} {label}: gap record, then the warning; no round is started; the consumer's own completion",
                          (out, rec[0]["quote"], warns, order, ran), ("INNER", f"{GAP_PREFIX} {why}: {quote}", [words(why)], ["record", "warn"], []))
+            # G4c (F4): a refusal of the consumer's questions to the person propagates; no gap record, no warning
+            try:
+                finish("G4c questions-refused", refuse="the question has no title", step="questions")
+                raised = False
+            except Refusal:
+                raised = True
+            check_eq(f"{stage} G4c: a refused question raise is a Refusal, never a gap", (raised, pipeline.get("acceptance"), pipeline.get("warnings"), calls), (True, None, None, []))
+            # G8b (F3): a person's word that stands before the verdict is never overwritten by a gap (the finish road)
+            driver.consumer_person_pass = lambda *a, **k: True
+            out, rec, warns, order = finish("G8b person-pass-beats-gap", counted=(1, 1))
+            driver.consumer_person_pass = lambda *a, **k: False
+            check_eq(f"{stage} G8b: no gap record, no warning, the consumer's own completion", (out, order, warns), ("INNER", [], []))
             # G10: no author run to judge -> no record, no warning, the consumer goes on
             dispatches.clear()
             out, rec, warns, order = finish("G10 no-author-no-record", known=False)
@@ -2647,6 +2661,20 @@ def test_consumer_gap_road() -> None:
                 if refused:
                     check_in(f"{stage} {label}: the refusal text is in the gap quote", "could not be started: the controller will not register a round",
                              pipeline["acceptance"][stage][-1]["quote"])
+            # G4 settled form-refused (F5, P31): the finish died after the consumer's dispatch; its form is refused -> the gap road, True
+            route = driver.CONSUMER_ROUTES[stage]
+            dispatches[judge] = {"id": judge, "stage": route["consumer_stage"], "role": A.consumer_of(stage), "status": "accepted"}
+            pipeline.pop("acceptance", None), pipeline.pop("warnings", None), calls.clear(), seam.clear(), ran.clear()
+
+            def refused_form(st, dispatch):
+                raise Refusal("the form lacks its quote")
+            driver.stage_acceptance_write, driver.stage_verdict_known = refused_form, lambda form: True
+            done = driver.consumer_settled(stage, driver.controller_state(), tip, True, ran=True)
+            check_eq(f"{stage} G4 settled form-refused: gap record, then the warning; no seam; the entry is done",
+                     (done, calls, seam, ran, [w for w in pipeline.get("warnings") or []]),
+                     (True, ["record", "warn"], [], [], [words(f"the {who}'s acceptance form was refused: the form lacks its quote")]))
+            driver.stage_acceptance_write = write
+            del dispatches[judge]
             pipeline.pop("acceptance", None), pipeline.pop("warnings", None)
             finish("G6 close words", counted=(1, 1))
             check_eq(f"{stage} G6 close-words-say-gap", driver.consumer_close_words(stage),
@@ -2666,7 +2694,9 @@ def test_consumer_gap_road() -> None:
         packet = Path(root) / "qa-factory" / "artifacts" / "QA-9"
         packet.mkdir(parents=True, exist_ok=True)
         (packet / "pipeline.json").write_text(json.dumps({"ticket": "QA-9", "stages": {}, "warnings": [line.replace("S6", "S7")]}), encoding="utf-8")
-        check_eq("S7 G6 s7-gap-after-scribe-brief-reaches-gate-b", [w for w in gate_brief.collect("QA-9", packet)["warnings"] if "S7 was accepted with a gap" in w] != [], True)
+        check_in("S7 G6c s7-gap-after-scribe-brief-reaches-gate-b", "S7 was accepted with a gap", gate_brief.render_gate_b("QA-9", packet))
+        (packet / "pipeline.json").write_text(json.dumps({"ticket": "QA-9", "stages": {}}), encoding="utf-8")
+        check_not_in("S7 G6c no warnings, no block at gate B", "Warnings the factory is carrying", gate_brief.render_gate_b("QA-9", packet))
     finally:
         harness.cleanup(root)
 

@@ -621,9 +621,13 @@ class DriverStagePlan:
         names the entries, so no question is lost in silence; a form with no questions raises nothing; idempotent by `raised_from`)."""
         try:
             if (self.task_root / "work" / "handoffs" / f"{dispatch}.yaml").is_file():
-                _code, out = self.py("question_register.py", "--task", self.task, "--raise", "--stage", stage, "--asked-by", self.stage_acceptor(stage),
-                                     "--from-handoff", f"work/handoffs/{dispatch}.yaml", check=True,
-                                     expect=f"the questions[] of work/handoffs/{dispatch}.yaml raised into the register (none when the form has none)")
+                try:
+                    _code, out = self.py("question_register.py", "--task", self.task, "--raise", "--stage", stage, "--asked-by", self.stage_acceptor(stage),
+                                         "--from-handoff", f"work/handoffs/{dispatch}.yaml", check=True,
+                                         expect=f"the questions[] of work/handoffs/{dispatch}.yaml raised into the register (none when the form has none)")
+                except Refusal as asked:
+                    asked.step = "questions"      # F4: the consumer's questions to the person; a consumer-judged stage never folds them into a gap
+                    raise
                 # FV1-9 (P1, A-1): the acceptor's lines are keyed by the stage ITS OWN session runs at (a consumer acceptor runs at the next
                 # stage: S7's scribe at S8), falling back to `stage`. INSIDE the try and BEFORE `stage_done --acceptance`: a refused write keeps them.
                 record = (self.controller_state().get("dispatches") or {}).get(dispatch)

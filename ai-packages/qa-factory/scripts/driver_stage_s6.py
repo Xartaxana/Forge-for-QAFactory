@@ -366,6 +366,9 @@ class DriverStageS6:
         if not author:
             print(f"{stage}: no author run to judge; the consumer goes on")
             return False
+        if self.consumer_person_pass(stage, author):      # INVARIANT (E-B8, F3): a person's word is never overwritten by a gap - all six callers
+            print(f"{stage}: a person's word passes it; no gap")
+            return False
         said = " ".join(str(quote or "").split())
         said = said[:400] + "..." if len(said) > 400 else (said or "(no quote)")
         self.py("stage_done.py", "--task", self.task, "--stage", stage, "--acceptance", f"work/handoffs/{author}.yaml",
@@ -375,6 +378,26 @@ class DriverStageS6:
                 expect=f"the warning of the {stage} gap recorded in pipeline.json")
         print(f"{stage}: accepted with a gap ({why}); the {route['who']} goes on with what it has")
         return True
+
+    def consumer_form_write(self, stage: str, dispatch: str) -> str:
+        """THE write of the consumer's form (`stage_acceptance_write`) for both roads (P31): `""` = written, else the WHY (the form was refused,
+        200 characters of the writer's text). A refusal tagged `step == "questions"` (the consumer's questions to the person, F4) is never
+        folded into a gap: it propagates."""
+        try:
+            self.stage_acceptance_write(stage, dispatch)
+        except Refusal as refusal:
+            if getattr(refusal, "step", "") == "questions":
+                raise
+            return (f"the {self.CONSUMER_ROUTES[stage]['who']}'s acceptance form was refused: "
+                    + " ".join(str(getattr(refusal, "text", "") or refusal).split())[:200])
+        return ""
+
+    def consumer_no_round_why(self, stage: str, counted, cap) -> str:
+        """FR-41: an unknown count is not «no round is left» - the `why` of the gap says which of the two it is."""
+        author = self.CONSUMER_ROUTES[stage]["author"]
+        if isinstance(counted, int) and isinstance(cap, int):
+            return f"the one repair round of the {author} is spent"
+        return f"the repair rounds of the {author} could not be counted"
 
     def consumer_completion(self, stage: str, inner, dispatch_id=None):
         """The `complete` callable of the consumer's finish while `stage` awaits it (the shape of `stage_critic_completion`): write the record from
@@ -394,10 +417,9 @@ class DriverStageS6:
             if not dispatch or not self.stage_verdict_known(form):
                 self.consumer_gap(stage, f"the {route['who']}'s verdict word could not be read")
                 return own()
-            try:
-                self.stage_acceptance_write(stage, dispatch)
-            except Refusal as refusal:
-                self.consumer_gap(stage, f"the {route['who']}'s acceptance form was refused: " + " ".join(str(getattr(refusal, "text", "") or refusal).split())[:200])
+            why = self.consumer_form_write(stage, dispatch)
+            if why:
+                self.consumer_gap(stage, why)
                 return own()
             record = acceptance.stage_acceptance(self.pipeline(), stage) or {}
             if record.get("verdict") == "accept":
@@ -406,9 +428,7 @@ class DriverStageS6:
             if isinstance(counted, int) and isinstance(cap, int) and counted < cap:
                 return OpenWork(acceptance.SUPERSEDED_WORD, open_work_reason(
                     f"the {route['who']} sent {route['what']} back: {record.get('quote') or ''}", f"... [list: {form}]"))
-            # FR-41: an unknown count is not «no round is left» - the `why` says which of the two it is
-            self.consumer_gap(stage, f"the one repair round of the {route['author']} is spent" if isinstance(counted, int) and isinstance(cap, int)
-                              else f"the repair rounds of the {route['author']} could not be counted", str(record.get("quote") or ""))
+            self.consumer_gap(stage, self.consumer_no_round_why(stage, counted, cap), str(record.get("quote") or ""))
             return own()
         return complete
 
@@ -433,8 +453,11 @@ class DriverStageS6:
             if not self.stage_verdict_known(form_mine):         # the guard its sibling `consumer_completion` has: an unreadable word is no accept
                 self.consumer_gap(stage, f"the {route['who']}'s verdict word could not be read")
                 return True
-            self.stage_acceptance_write(stage, mine)
-            record = acceptance.stage_acceptance(self.pipeline(), stage) or {}
+            why = self.consumer_form_write(stage, mine)          # P31: the same road as `consumer_completion`
+            if why:
+                self.consumer_gap(stage, why)
+                return True
+            record =acceptance.stage_acceptance(self.pipeline(), stage) or {}
         if record.get("reviewed_dispatch") != awaiting:
             return False
         if record.get("verdict") == "accept" or self.consumer_person_pass(stage, awaiting):
@@ -443,9 +466,7 @@ class DriverStageS6:
         counted, cap = self.consumer_counts(stage, awaiting)
         quote = str(record.get("quote") or "")
         if not (isinstance(counted, int) and isinstance(cap, int) and counted < cap):
-            # FR-41: an unknown count is not «no round is left» - the `why` says which of the two it is
-            self.consumer_gap(stage, f"the one repair round of the {route['author']} is spent" if isinstance(counted, int) and isinstance(cap, int)
-                              else f"the repair rounds of the {route['author']} could not be counted", quote)
+            self.consumer_gap(stage, self.consumer_no_round_why(stage, counted, cap), quote)
             return True
         try:
             self.rework(stage, route["author"], [], f"{route['who']}, acceptance record of {stage} for {awaiting}: " + quote,

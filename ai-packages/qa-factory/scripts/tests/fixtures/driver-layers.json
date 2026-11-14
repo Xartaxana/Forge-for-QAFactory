@@ -702,6 +702,8 @@
   {"name": "Driver.consumer_counts", "kind": "method", "home": "driver_stage_s6", "row": 74, "note": "X7-6c B1: the repair rounds of the reviewed dispatch from the controller's ledger, read only on a reject"},
   {"name": "Driver.consumer_round_line", "kind": "method", "home": "driver_stage_s6", "row": 74, "note": "SC-B2 B2-2: the round line the consumer's brief carries before its work (one chance / no return left / uncounted)"},
   {"name": "Driver.consumer_gap", "kind": "method", "home": "driver_stage_s6", "row": 74, "note": "SC-B2 B2-3: the gap road replaces the seam for a consumer-judged stage: the driver's accept with a `gap:` quote, then the warning; no question"},
+  {"name": "Driver.consumer_form_write", "kind": "method", "home": "driver_stage_s6", "row": 74, "note": "SC-B2 F5: the one write of the consumer's form for both roads; empty = written, else the why of the refusal; a `questions` refusal propagates"},
+  {"name": "Driver.consumer_no_round_why", "kind": "method", "home": "driver_stage_s6", "row": 74, "note": "SC-B2 F6: the why of a gap with no round - spent, or the rounds could not be counted"},
   {"name": "Driver.consumer_completion", "kind": "method", "home": "driver_stage_s6", "row": 74, "note": "X7-6/X7-6b merged: the consumer's finish writes the stage acceptance record first"},
   {"name": "Driver.consumer_settled", "kind": "method", "home": "driver_stage_s6", "row": 74, "note": "X7-6/X7-6b merged: what follows the consumer's finish, and the restart recovery (consumer dispatches after the awaited one only)"},
   {"name": "Driver.s7_closed_by_scribe", "kind": "method", "home": "driver_stage_s7", "row": 76, "note": "X7-6b: S7 closes by the scribe's accept record at s7.accepted (no second finalize)"},
