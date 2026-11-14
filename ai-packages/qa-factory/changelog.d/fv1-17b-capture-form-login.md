@@ -1,0 +1,1 @@
+- `stand_access.form_session(access, values, base_url, timeout)` returns `(receipt, cookie_header | None)`: the one implementation of the sign-in form road (`_form_login` returns its receipt). The cookie header is handed out only when the answer is `in` and is never put in a receipt.

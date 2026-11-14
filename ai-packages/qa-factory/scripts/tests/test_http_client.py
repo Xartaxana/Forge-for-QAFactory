@@ -586,9 +586,38 @@ def the_sign_in_rows():
             cleanup(root)
         check_eq("table-control: the shipped table is read again", SA.answer_of(405, "", road="local_login"), "wrong_door")
         the_roads(stub)
+        the_form_session_rows(stub)
     finally:
         stub.close()
     the_contract_joins()
+
+
+def the_form_session_rows(stub):
+    """FV1-17b: `form_session` hands out the Cookie header only on `in`; the header is a secret (rows capture-form-*)."""
+    stub.routes, stub.seen = {}, []
+    form_routes(stub, "user")
+    receipt, cookie = SA.form_session(FORM, VALUES, stub.base, 4.0)
+    parts = sorted((cookie or "").split("; "))
+    check_eq("capture-form-in: answer in, the header holds the session and both csrf-step cookies",
+             (receipt["answer"], parts), ("in", ["a=1", "b=2", "session=sess-val-999"]))
+    check_eq("capture-form-in: `_form_login` is the same receipt", SA._form_login(FORM, VALUES, stub.base, 4.0), receipt)
+    check("capture-cookie-redacted: no cookie, csrf or credential value in the receipt",
+          all(x not in json.dumps(receipt) for x in (*VALUES.values(), "csrf-tok-123", "sess-val-999", "a=1", "b=2")))
+    for case, access, values, session in (
+            ("capture-form-refused", FORM, dict(VALUES, S="wrong-one-x"), "user"),
+            ("capture-form-refused-no-session", FORM, VALUES, "empty"),
+            ("capture-form-refused-no-secret", FORM, {"U": VALUES["U"]}, "user"),
+            ("capture-form-refused-no-form", {"kind": "form_login", "form": "nope", "user_key": "U", "secret_key": "S"}, VALUES, "user"),
+            ("capture-form-refused-empty-access", {}, VALUES, "user")):
+        stub.routes, stub.seen = {}, []
+        form_routes(stub, session)
+        receipt, cookie = SA.form_session(access, values, stub.base, 4.0)
+        posts = sum(r["method"] == "POST" for r in stub.seen)
+        check_eq(f"{case}: no cookie header", cookie, None)
+        check(f"{case}: a refusal receipt, at most one submit, no cookie value in it",
+              receipt["answer"] != "in" and posts <= 1 and all(x not in json.dumps(receipt) for x in ("sess-val-999", "csrf-tok-123")))
+        if case in ("capture-form-refused-no-secret", "capture-form-refused-no-form", "capture-form-refused-empty-access"):
+            check_eq(f"{case}: nothing was sent", len(stub.seen), 0)
 
 
 def the_roads(stub):
