@@ -131,10 +131,13 @@ class DriverStageS7:
                 # X7-6. POSITION: the record is written from the analyst's FINISH, BEFORE the controller accepts it as S7 work, and never by
                 # the runner's own finish; the analyst is let in by the controller while S6 awaits (`awaits_acceptance`, one reader).
                 complete = self.consumer_completion("S6", complete)      # the repair budget is read only if the verdict is a reject (B1)
+            import handoff
+            word_at = handoff.acceptance_verdict_path(handoff.contract_of("S7", "qa-failure-analyst"))      # THE reader of where the word is (AR-13)
             self.run_role("S7", "qa-failure-analyst", complete=complete,
                           extra=self.role_lines("S7", "qa-failure-analyst") + told
-                          + ([f"You also accept or return the runner's handoff ({awaiting}): the verdict is `header.verdict` of your form, "
-                              "and `inputs_read` names the runner's form work/handoffs/" + awaiting + ".yaml."] if awaiting else []))
+                          + ([f"You also accept or return the runner's handoff ({awaiting}): your word on it is `{word_at}` of your form "
+                              "(`accept` or `return`), and `inputs_read` names the runner's form work/handoffs/" + awaiting + ".yaml."]
+                             if awaiting else []))
             if awaiting:
                 self.consumer_settled("S6", self.controller_state(), awaiting, True, ran=True)
                 return          # S6 closes by the record (or the runner repairs) BEFORE S7's own repairs run

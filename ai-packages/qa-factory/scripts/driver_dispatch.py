@@ -174,6 +174,18 @@ def resume_reason(findings) -> str:
     return "; ".join(classes) if classes else "unclassified (the exit gate named no finding)"
 
 
+def paid_round_open(state, dispatch: str, lines, sid: str) -> bool:
+    """Is the arrival of `lines` at `exit_limit` the spending of a paid round the person bought (FV1-22 F2)? The same test as
+    `exit_limit`'s own (a session, a key, `granted > spent` for this dispatch and set): a stop's record is written by the caller
+    BEFORE `exit_limit`, so a caller that must not record a non-stop asks this first. Read-only; an unreadable state is `False`."""
+    try:
+        key = finding_key([str(e) for e in (lines or []) if str(e).strip()])
+        bought = (((state.get("exit_limit") or {}).get(dispatch) or {}).get("rounds") or {}).get(key) or {}
+        return bool(sid and key and bought.get("granted", 0) > bought.get("spent", 0))
+    except Exception:
+        return False
+
+
 def parse_next(out: str) -> dict:
     """The `next: {...}` line story_step and controller print."""
     for line in reversed((out or "").splitlines()):
@@ -538,9 +550,12 @@ class DriverDispatch:
         resume_sid = self.refusal_sid(dispatch, result["session_id"])
         resume_key = finding_key(errors) if errors else ""
         if errors and (not result["session_id"] or (resume_key and resume_key in self.resume_record(dispatch, resume_sid))):
-            if result["session_id"]:
+            lines = self.refusal_lines(None, items=errors)
+            if result["session_id"]:        # no session = not a repeat of anything the role saw (N3)
                 print(f"{stage}: {dispatch} was already resumed on these findings; no second resume")
-            self.exit_limit(stage, role, dispatch, self.refusal_lines(None, items=errors), sid=result["session_id"] or "", why="handoff",
+                if not paid_round_open(getattr(self, "state", None), dispatch, lines, result["session_id"]):     # a paid round spent is no stop (F2)
+                    self.record_repeat(stage, "handoff_resume", dispatch, dispatch, errors, "again")
+            self.exit_limit(stage, role, dispatch, lines, sid=result["session_id"] or "", why="handoff",
                             digest=digest, checks=Refusal.id_set(Refusal.id_counts(errors)))
             return self.handoff(role, stage, dispatch, self.saved_result(dispatch))
         elif errors and result["session_id"]:
@@ -852,7 +867,7 @@ class DriverDispatch:
             # (t-217 §4/C2), and the one-resume record keys on them.
             raise Refusal(f"story_step finish {dispatch} (exit {code}):\n{out}", retry=retry, dispatch=dispatch,
                           window_findings=window_gaps, checks=checks)
-        if complete is True and WINDOW_ROUND_STAGES.get(stage) == role:
+        if complete is True and (WINDOW_ROUND_STAGES.get(stage) == role or stage not in WINDOW_ROUND_STAGES):
             # F-cmp2-28c / C1: ONLY the accepted completion of the stage's closing role ends the window's series.
             # An author's finish (`--not-complete`) between two reviews of the same window never does: that is
             # exactly where cmp2-27 (automator-10, accepted) sat between critic-2 and critic-3.
