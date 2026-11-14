@@ -863,12 +863,33 @@ def run_counters_questions_briefs_and_quality() -> None:
     check_eq("G2 gate repairs by gate with their moves", (d["G2"]["n"], d["G2"]["by_gate"], d["G2"]["moves"]), (2, {"A": 2}, 5))
     check_eq("U1 a row with no kind and a time with no offset are counted", (d["U1"]["rows_without_kind"], d["U1"]["naive_timestamps"]), (2, 1))
     # B1 at and beyond the ceiling
-    write_state(troot, "brief-sizes.jsonl", [{"role": "a", "budget_bytes": 6144, "ceiling": 6144}, {"role": "a", "budget_bytes": 6145, "ceiling": 6144},
-                                             {"role": "b", "budget_bytes": 100, "ceiling": 6144}, {"role": "b", "budget_bytes": 7}, {"role": "b", "budget_bytes": True, "ceiling": 1}])
+    old = {"role": "a", "budget_bytes": 6144, "ceiling": 6144}
+    new = {"role": "a", "bytes": 7000}          # the writer's shape since FV1-4: no ceiling
+    # (case id, rows, (state, over or "absent", n, judged_rows or "absent", no_ceiling_rows, unreadable_rows))
+    b1_cases = [
+        ("empty record", [], ("unknown", "absent", 0, "absent", 0, 0)),
+        ("writer shape, bytes only", [new, {"role": "b", "bytes": 5}], ("unknown", "absent", 2, "absent", 2, 0)),
+        ("all rows unreadable", [{"role": "a"}, {"role": "a", "budget_bytes": True, "bytes": "x"}], ("unknown", "absent", 0, "absent", 0, 2)),
+        ("mixed old and new", [old, new, {"role": "b", "bytes": 1}], ("measured", 0, 3, 1, 2, 0)),
+        ("old shape with one over", [old, {"role": "a", "budget_bytes": 6145, "ceiling": 6144}, {"role": "b", "budget_bytes": 100, "ceiling": 6144}],
+         ("measured", 1, 3, 3, 0, 0)),
+        ("non-numeric ceiling is no ceiling", [{"role": "a", "bytes": 9, "ceiling": "big"}, {"role": "a", "budget_bytes": 9, "ceiling": True}],
+         ("unknown", "absent", 2, "absent", 2, 0)),
+        ("bytes AT the ceiling", [{"role": "a", "bytes": 6144, "ceiling": 6144}], ("measured", 0, 1, 1, 0, 0)),
+        ("bytes ONE beyond the ceiling", [{"role": "a", "bytes": 6145, "ceiling": 6144}], ("measured", 1, 1, 1, 0, 0)),
+        ("a bool size is unreadable, a ceiling alone does not rescue it", [old, {"role": "b", "budget_bytes": True, "ceiling": 1}],
+         ("measured", 0, 1, 1, 0, 1)),
+    ]
+    for case, rows, want in b1_cases:
+        write_state(troot, "brief-sizes.jsonl", rows)
+        b1 = counted(troot)["B1"]
+        got = (b1["state"], b1.get("over", "absent"), b1["n"], b1.get("judged_rows", "absent"), b1["no_ceiling_rows"], b1["unreadable_rows"])
+        check_eq(f"B1 {case}", got, want)
+    write_state(troot, "brief-sizes.jsonl", [old, {"role": "a", "budget_bytes": 6145, "ceiling": 6144}, {"role": "b", "bytes": 7}])
     b1 = counted(troot)["B1"]
-    check_eq("B1 AT the ceiling is not over, BEYOND (6145) is", (b1["by_role"]["a"]["n"], b1["by_role"]["a"]["over"]), (2, 1))
-    check_eq("B1 mean and max of the budget bytes per role", (b1["by_role"]["a"]["mean_budget_bytes"], b1["by_role"]["a"]["max_budget_bytes"]), (6144.5, 6145))
-    check_eq("B1 rows with no ceiling or a bool size are counted aside", b1["unreadable_rows"], 2)
+    check_eq("B1 mean and max of the sizes per role (a row with no ceiling is a size, not a verdict)",
+             (b1["by_role"]["a"]["mean_budget_bytes"], b1["by_role"]["a"]["max_budget_bytes"], b1["by_role"]["b"]["n"], b1["by_role"]["b"]["over"]),
+             (6144.5, 6145, 1, 0))
     check_eq("B1 no record: unknown", counted(project()[2])["B1"]["state"], "unknown")
     # a dry run: counts stay, nothing is written
     write_state(troot, "driver-runs.jsonl", [p_start(0, run_class="dry"), role_row(5, 5, session="stub-S1-x-1-1", resumed=True, resume_kind="refusal_resume", checks=["exit_gate:scoped"]), p_end(0, 9, run_class="dry")])

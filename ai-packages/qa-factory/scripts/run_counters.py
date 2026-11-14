@@ -548,21 +548,34 @@ def _briefs(task_root) -> tuple:
     present, rows, bad = _carrier(task_root, BRIEF_SIZES_NAME)
     if not present:
         return _unknown("no brief-sizes record (the record predates its writer, or no brief was dispatched)"), bad
-    per_role, unreadable = {}, 0
+    per_role, unreadable, no_ceiling, judged = {}, 0, 0, 0
     for r in rows:
-        size, ceiling = _number(r.get("budget_bytes")), _number(r.get("ceiling"))
-        if size is None or ceiling is None:
+        # the writer's field is `bytes` (FV1-4); `budget_bytes` is the older row shape and wins when both are numbers
+        size = _number(r.get("budget_bytes"))
+        if size is None:
+            size = _number(r.get("bytes"))
+        if size is None:
             unreadable += 1
             continue
+        ceiling = _number(r.get("ceiling"))
         slot = per_role.setdefault(str(r.get("role") or NO_KIND), {"n": 0, "over": 0, "sum": 0.0, "max": 0.0})
         slot["n"] += 1
-        slot["over"] += 1 if size > ceiling else 0
+        if ceiling is None:
+            no_ceiling += 1
+        else:
+            judged += 1
+            slot["over"] += 1 if size > ceiling else 0
         slot["sum"] += size
         slot["max"] = max(slot["max"], size)
     roles = {name: {"n": s["n"], "over": s["over"], "mean_budget_bytes": round(s["sum"] / s["n"], 1), "max_budget_bytes": int(s["max"])}
              for name, s in sorted(per_role.items())}
-    return _state("measured", n=sum(s["n"] for s in per_role.values()), over=sum(s["over"] for s in per_role.values()),
-                  unreadable_rows=unreadable, by_role=roles), bad
+    n = sum(s["n"] for s in per_role.values())
+    if not judged:
+        # no row can be judged against a ceiling: `over` is unknown, never 0 (FR-41, AR-28); the sizes are still data
+        return _unknown(f"{len(rows)} brief-size row(s) and none carries a ceiling to judge it against",
+                        n=n, unreadable_rows=unreadable, no_ceiling_rows=no_ceiling, by_role=roles), bad
+    return _state("measured", n=n, over=sum(s["over"] for s in per_role.values()), judged_rows=judged,
+                  no_ceiling_rows=no_ceiling, unreadable_rows=unreadable, by_role=roles), bad
 
 
 # --------------------------------------------------------------------------------------- the one function
