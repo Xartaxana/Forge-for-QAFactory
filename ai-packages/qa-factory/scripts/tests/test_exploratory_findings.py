@@ -8,6 +8,7 @@ count of VALID lines -> K-M1-4; skip the torn-tail newline -> K-M1-4b; allow `ad
 excluded keys at the top level only -> K-M1-4c.
 """
 import contextlib
+import errno
 import hashlib
 import io
 import json
@@ -177,6 +178,156 @@ def key_m1_1(root):
     check_eq("K-M1-1 oracle default per kind: unresolved_question", (code, row["oracle_status"]), (0, "owner_question"))
     code, out, err = cli("add", "--task-root", task, "--no-such-flag", "1")
     check("K-M1-1 an argparse refusal has the one shape", code == 2 and err.splitlines()[1].startswith("exploratory_findings.py add: "), err[:300])
+    # ONE refusal carries every problem of the line (AR-9, AR-18): each sentence as it always was, joined by "; " in the walk's
+    # order; a stopper (not an object, `op`, `--by`, the window) is refused alone; an unusable value skips its dependants.
+    T = "--title is required: name the finding in one line"
+    S = "--statement is required: say what was seen, in the words of what was seen"
+    W = "--why-not-a-bug is required: say why this is not a product bug"
+    E = "--evidence is required: at least one file under the story folder"
+    NOT_ACTIVE = (" is not an active line (unknown, superseded or withdrawn); "
+                  f"`exploratory_findings.py list --task-root {task}` shows the active ids")
+    ids = ", ".join(EF.OPS)
+    pre = file_bytes(task)
+
+    def problem_of(line, by="S7-1"):
+        try:
+            EF.append(task, line, by=by)
+        except ValueError as exc:
+            return str(exc)
+        return None
+
+    def excluded(key):      # the OLD module's sentence for an excluded key, verbatim
+        return (f"`{key}` is not a field of the findings register: a product bug goes through S7 triage and gate B; "
+                "record the finding without the field")
+
+    # an evidence path the OS cannot measure is that ref's own factory sentence, on every OS (P31): the rows are driven by
+    # a patched measuring call, so no row depends on what this OS raises; the real long / NUL paths assert only what holds on both
+    troot = Path(task).resolve()
+
+    def unreadable(raw):    # the factory's sentence: the path is cut at 80 characters
+        return (f"evidence path {(raw if len(raw) <= 80 else raw[:80] + '...')!r} is not a file under the task root {troot}: "
+                "the path cannot be read as a file")
+
+    real_is_file, real_sha = Path.is_file, EF.install_paths.sha256_file
+
+    def raising_is_file(exc):
+        return lambda self: (_ for _ in ()).throw(exc) if self.name.startswith("boom") else real_is_file(self)
+
+    def with_patch(exc, where, line):
+        try:
+            if where == "is_file":
+                Path.is_file = raising_is_file(exc)
+            else:
+                EF.install_paths.sha256_file = lambda path: (_ for _ in ()).throw(exc)
+            return problem_of(line)
+        finally:
+            Path.is_file, EF.install_paths.sha256_file = real_is_file, real_sha
+
+    ref_line = lambda raw, **others: good_line(evidence_refs=[{"path": raw}], **others)
+    for label, exc, where in (("ValueError", ValueError("x"), "is_file"),
+                              ("ENAMETOOLONG", OSError(errno.ENAMETOOLONG, "x"), "is_file"),
+                              ("EINVAL", OSError(errno.EINVAL, "x"), "is_file"),
+                              ("ENAMETOOLONG while hashing", OSError(errno.ENAMETOOLONG, "x"), "sha")):
+        raw = "work/evidence/one.txt" if where == "sha" else "work/evidence/boom.txt"
+        check_eq(f"K-M1-1 unmeasurable path, {label}: the factory sentence alone", with_patch(exc, where, ref_line(raw)), unreadable(raw))
+        check_eq(f"K-M1-1 unmeasurable path, {label}: joins the other problems",
+                 with_patch(exc, where, ref_line(raw, title="", statement="")), f"{T}; {S}; {unreadable(raw)}")
+    for length in (79, 80, 81, 40000):      # below the cut, AT it, one beyond it, far beyond it
+        raw = "work/evidence/boom" + "a" * (length - len("work/evidence/boom"))
+        got = with_patch(ValueError("x"), "is_file", ref_line(raw))
+        check_eq(f"K-M1-1 unmeasurable path of {len(raw)} characters: shown cut at 80", got, unreadable(raw))
+        check(f"K-M1-1 unmeasurable path of {len(raw)} characters: never echoed beyond the cut", len(got) < 400, str(len(got)))
+    try:
+        with_patch(PermissionError(errno.EACCES, "x"), "is_file", ref_line("work/evidence/boom.txt"))
+        denied = None
+    except OSError as exc:
+        denied = exc
+    check("K-M1-1 a file that exists but cannot be read keeps its OSError (PermissionError)", isinstance(denied, PermissionError), repr(denied))
+    try:
+        with_patch(OSError(errno.EIO, "x"), "sha", ref_line("work/evidence/one.txt"))
+        denied = None
+    except OSError as exc:
+        denied = exc
+    check("K-M1-1 an I/O error while hashing keeps its OSError", isinstance(denied, OSError) and denied.errno == errno.EIO, repr(denied))
+    check("K-M1-1 patched rows restored the real calls", Path.is_file is real_is_file and EF.install_paths.sha256_file is real_sha)
+    for label, raw, others in (("real over-long evidence path", "work/evidence/" + "a" * 40000, {}),
+                               ("real over-long evidence path with two other problems", "work/evidence/" + "a" * 40000, {"title": "", "statement": ""}),
+                               ("real NUL evidence path", "work/evidence/o\x00ne.txt", {})):
+        got = problem_of(ref_line(raw, **others)) or ""
+        # what this OS does with the name differs (an error the factory words, or a plain "not a file"); both name the ref
+        check(f"K-M1-1 {label}: one ValueError holding the ref's sentence and every other problem",
+              (unreadable(raw) in got or "is not a file under the task root" in got) and all(p in got for p in [T, S] * bool(others)),
+              got[:300])
+    probe_ok = {"method": "api", "runs": 1, "reproduced": 1}
+    link_ok = {"id": "EX-1", "reason": "r"}
+    for name, line, expected in (
+        ("a confirmed oracle alone: its one sentence", good_line(oracle_status="confirmed"),
+         "a confirmed oracle is a case check: it goes through the case and S7, not this register"),
+        ("an unlisted oracle alone: the closed-list sentence", good_line(oracle_status="maybe"),
+         f"`oracle_status` is `maybe`; expected one of {EF._list_text(EF.ORACLES)}"),
+        ("excluded key in an evidence ref: once", good_line(evidence_refs=[{"path": "work/evidence/one.txt", "severity": "x"}]),
+         excluded("severity")),
+        ("excluded key in probe: once", good_line(probe=dict(probe_ok, impact="x")), excluded("impact")),
+        ("excluded key in origin: once", good_line(origin={"dispatch": "S7-1", "target": "t9", "bug": "x"}), excluded("bug")),
+        ("excluded key in corrects: once", good_line(op="correct", corrects=dict(link_ok, priority="x")), excluded("priority")),
+        ("the same excluded key in probe and origin: once",
+         good_line(probe=dict(probe_ok, impact="x"), origin={"dispatch": "S7-1", "target": "t9", "impact": "x"}), excluded("impact")),
+        ("a nested key that is unknown, not excluded: its own sentence", good_line(probe=dict(probe_ok, flavour="x")),
+         f"`flavour` is not a field of the findings register; the fields of `probe` are {EF._list_text(EF.PROBE_FIELDS)}"),
+        ("two required fields: both sentences, in order", good_line(title="", statement=" "), f"{T}; {S}"),
+        ("one problem: the sentence alone, as it always was", good_line(kind="bug"),
+         "`kind` is `bug`; expected one of observation, unresolved_question, coverage_gap"),
+        ("a closed word and a required field: both", good_line(kind="bug", title=""),
+         f"`kind` is `bug`; expected one of observation, unresolved_question, coverage_gap; {T}"),
+        ("an unusable kind (a list) with its dependants: one sentence, no crash", good_line(kind=["x"]),
+         "`kind` is ['x']; expected one of observation, unresolved_question, coverage_gap"),
+        ("refs not a list and no evidence: both", good_line(refs="R-1", evidence_refs=[]),
+         f"`refs` is not a list of ids; expected requirement and case ids such as R-1, TC-2 (may be empty); {E}"),
+        ("evidence_refs not a list: the absent sentence, no crash", good_line(evidence_refs="x"), E),
+        ("two bad evidence refs: each one's sentence", good_line(evidence_refs=[{"path": "work/evidence/a.txt"}, {"path": "../b.txt"}]), None),
+        ("an excluded key and an unknown key: both", good_line(severity="high", blocker=1),
+         "`severity` is not a field of the findings register: a product bug goes through S7 triage and gate B; record the "
+         f"finding without the field; `blocker` is not a field of the findings register; its fields are {EF._list_text(EF.FIELDS)}"),
+        ("`op` unknown stops alone, whatever follows", good_line(op="close", title="", kind="bug"),
+         f"`op` is `close`; expected one of {ids}"),
+        ("`op` absent ({}): the op sentence alone", {}, f"`op` is missing; expected one of {ids}"),
+        ("not an object: alone", ["x"], "a finding is an object; expected {kind, title, statement, why_not_a_bug, evidence_refs, ...}"),
+        ("`add`, kind observation, nothing else: every missing field", {"op": "add", "kind": "observation"}, f"{T}; {S}; {W}; {E}"),
+        ("`add`, kind unresolved_question, nothing else", {"op": "add", "kind": "unresolved_question"},
+         f"{T}; {S}; {W}; an `unresolved_question` needs --question and --owner-role; {E}"),
+        ("`add`, kind coverage_gap, nothing else", {"op": "add", "kind": "coverage_gap"},
+         f"{T}; {S}; {W}; a `coverage_gap` needs --missing-prerequisite; {E}"),
+        ("`correct`, kind observation, nothing else", {"op": "correct", "kind": "observation"},
+         f"{T}; {S}; {W}; {E}; `corrects` is missing: a correct line names the line it acts on, {{id, reason}}"),
+        ("`withdraw`, nothing else", {"op": "withdraw"}, "`withdraws` is missing: a withdraw line names the line it acts on, {id, reason}"),
+        ("a withdraw with a reasonless link and an unknown id: both", {"op": "withdraw", "withdraws": {"id": "EX-9"}},
+         f"--reason is required: say why the line is withdrawn; EX-9{NOT_ACTIVE}"),
+        ("a withdraw that carries a kind: that sentence alone (its link is fine)", {"op": "withdraw", "kind": "observation", "withdraws": {"id": "EX-1", "reason": "r"}},
+         "`kind` is not carried by a withdraw line: a withdraw names only the line it retracts and the reason"),
+        ("a correct of an unknown id with an empty title: both", good_line(op="correct", title="", corrects={"id": "EX-9", "reason": "r"}),
+         f"{T}; EX-9{NOT_ACTIVE}"),
+        ("a correct whose origin is not an object: its sentence, and no target comparison", good_line(op="correct", origin="x", corrects={"id": "EX-1", "reason": "r"}),
+         "`origin` is not an object; expected {dispatch, target}"),
+        ("a correct whose link is not an object: its sentence, no id lookup", good_line(op="correct", corrects="x"),
+         "`corrects` is missing: a correct line names the line it acts on, {id, reason}"),
+        ("a correct that changes the target and is missing a title: both", good_line(op="correct", title="", corrects={"id": "EX-1", "reason": "r"},
+                                                                                      origin={"dispatch": "S7-1", "target": "t9"}),
+         f"{T}; EX-1 belongs to no target; a correction keeps that: leave --target out"),
+        ("a code-set field and a required field: both", good_line(window="x", title=""), f"{T}; `window` is set by code; leave it out"),
+        ("`--by` blank stops alone", good_line(title=""), EF.BY_TEXT),
+    ):
+        by = "  " if name.startswith("`--by`") else "S7-1"
+        got = problem_of(line, by=by)
+        if expected is None:
+            check(f"K-M1-1 all problems: {name}", bool(got) and got.count("; ") == 1 and "a.txt is not a file" in got and "escapes the task root" in got, str(got)[:300])
+        else:
+            check_eq(f"K-M1-1 all problems: {name}", got, expected)
+    check("K-M1-1 all problems: nothing was written by any refused line", file_bytes(task) == pre)
+    set_pipeline(task, "between")
+    (task / "pipeline.json").write_text("[]", encoding="utf-8")
+    check_eq("K-M1-1 all problems: an unreadable window stops alone, before the line's own problems",
+             problem_of(good_line(title="", kind="bug")), EF.WINDOW_TEXT)
+    set_pipeline(task, "between")
 
 
 def key_m1_2(root):
@@ -478,8 +629,235 @@ def key_m1_h(root):
     check("K-M1-h `person:<name>` is a person too", code == 0, err[:300])
 
 
+GAP_PLACEHOLDER = ('  - title: "<the gap in one line>"\n    statement: "<the register line and what no requirement holds>"\n'
+                   '    refs:\n      - <R-n or TC-n the gap stands against, or omit>\n    missing_prerequisite: "<what would close it>"\n')
+
+
+def gap_row(title="R-2 has no boundary", statement="the register of R-2 names no boundary value", refs=("R-2",),
+            missing="the owner's word on the boundary of R-2", extra=""):
+    """One block-YAML row of a critic's `register_gaps` (what its values file produces); a `None` field is left out."""
+    lines = [f'{key}: "{value}"' for key, value in (("title", title), ("statement", statement)) if value is not None]
+    if refs:
+        lines += ["refs:"] + [f"  - {ref}" for ref in refs]
+    if missing is not None:
+        lines.append(f'missing_prerequisite: "{missing}"')
+    return "".join(("  - " if k == 0 else "    ") + line + "\n" for k, line in enumerate(lines)) + extra
+
+
+def gap_form(task: Path, dispatch: str, section: str, verdict="ok") -> str:
+    """Write `work/handoffs/<dispatch>.yaml` with the verdict and a `register_gaps` section (the text after the key); return its path."""
+    path = task / "work" / "handoffs" / f"{dispatch}.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"header:\n  verdict: {verdict}\nregister_gaps:{section}", encoding="utf-8")
+    return f"work/handoffs/{dispatch}.yaml"
+
+
+class GapStub:
+    """The driver's own methods bound to a minimal object: `task_root`, the stages table, the dispatch the finish names and stubs for the
+    two moves the call site must come before (the acceptance record and the verdict seam); no driver process, no subprocess."""
+    def __init__(self, task: Path, dispatch: str):
+        import driver_stage_plan as DSP
+        self.task_root, self.task, self.last_dispatch, self.calls = task, "TP1-TEST", dispatch, []
+        for name in ("register_gaps_write", "s4_critic_completion", "stage_acceptor", "stage_verdict_known", "case_verdict"):
+            setattr(self, name, getattr(DSP.DriverStagePlan, name).__get__(self))
+        self.stages = lambda: {"S4": {"acceptance_by": "qa-case-critic"}}
+        self.stage_acceptance_write = lambda stage, dispatch: self.calls.append(("acceptance", dispatch))
+        self.stage_review_exhausted = lambda *a, **k: self.calls.append(("seam", k.get("unreadable"))) or "seam"
+
+
+def gap_write(task, dispatch):
+    """`register_gaps_write` for `dispatch`: (printed text, refusal text or "", the Refusal)."""
+    out, text, refusal = io.StringIO(), "", None
+    with contextlib.redirect_stdout(out):
+        try:
+            GapStub(task, dispatch).register_gaps_write("S4", dispatch)
+        except Exception as exc:  # noqa: BLE001 - the table names the refusal class below
+            text, refusal = str(exc), exc
+    return out.getvalue(), text, refusal
+
+
+def register_lines(task: Path) -> list:
+    return [json.loads(raw) for raw in (file_bytes(task) or b"").decode("utf-8").splitlines()]
+
+
+def key_f7rc(root):
+    """F7-RC: the S4 case critic's `register_gaps` rows are recorded by the driver (G1-G14, J1, A1, A4). One world per row id."""
+    import report_facts
+    import driver_stage_plan as DSP
+    from driver_core import Refusal
+    D = "S4-qa-case-critic-1"
+    n = [0]
+
+    def world(pipeline="gate-a-open"):
+        n[0] += 1
+        return story(root / f"w{n[0]}", pipeline)
+
+    # G1 rows recorded (R1): kind, recorded_by, evidence is the form, why_not_a_bug is the constant, window pre-gate-a
+    task = world()
+    form = gap_form(task, D, "\n" + gap_row() + gap_row("Second gap", "a second sentence", ("R-3", "TC-1"), "an answer"))
+    printed, text, _ = gap_write(task, D)
+    lines = register_lines(task)
+    check_eq("G1 two rows recorded, in form order", [(l["title"], l["kind"], l["refs"]) for l in lines],
+             [("R-2 has no boundary", "coverage_gap", ["R-2"]), ("Second gap", "coverage_gap", ["R-3", "TC-1"])])
+    check_eq("G1 recorded_by is the dispatch, the evidence is the form, the window comes from code, the why is the constant",
+             {(l["recorded_by"], l["evidence_refs"][0]["path"], l["window"], l["why_not_a_bug"]) for l in lines},
+             {(D, form, "pre-gate-a", DSP.REGISTER_GAP_WHY)})
+    check("G1 the print names each row and its id", "register_gaps[0] recorded in the findings register as EX-1" in printed
+          and "register_gaps[1] recorded in the findings register as EX-2" in printed, printed)
+    check("G1 the why text holds no stage code and no role name", "S4" not in DSP.REGISTER_GAP_WHY and "qa-" not in DSP.REGISTER_GAP_WHY)
+    # G2 absent / [] / null / a placeholder-only section -> nothing written, nothing printed (R3)
+    for label, section in (("empty list", " []\n"), ("null", "\n"), ("placeholder row only", "\n" + GAP_PLACEHOLDER)):
+        task = world()
+        gap_form(task, D, section)
+        printed, text, _ = gap_write(task, D)
+        check_eq(f"G2 {label}: no file, no print, no refusal", (file_bytes(task), printed, text), (None, "", ""))
+    task = world()
+    path = task / "work" / "handoffs" / f"{D}.yaml"
+    path.parent.mkdir(parents=True)
+    path.write_text("header:\n  verdict: ok\n", encoding="utf-8")
+    check_eq("G2 section absent (an older form): nothing", (gap_write(task, D)[0], file_bytes(task)), ("", None))
+    # G3 the placeholder row is skipped, a real row after it keeps the form's own index (R4)
+    task = world()
+    gap_form(task, D, "\n" + GAP_PLACEHOLDER + gap_row())
+    printed, _, _ = gap_write(task, D)
+    check("G3 placeholder skipped, the real row recorded as register_gaps[1]", "register_gaps[1] recorded" in printed
+          and len(register_lines(task)) == 1 and register_lines(task)[0]["title"] == "R-2 has no boundary", printed)
+    # G4 a string / a mapping -> Refusal, register bytes unchanged (R5)
+    for label, section in (("a word", " none\n"), ("a mapping", "\n  title: x\n"), ("a number", " 5\n")):
+        task = world()
+        gap_form(task, D, section)
+        _, text, refusal = gap_write(task, D)
+        check(f"G4 {label}: a Refusal naming the section and the expected list, nothing written",
+              isinstance(refusal, Refusal) and "register_gaps: is " in text and "Expected a list of rows" in text and file_bytes(task) is None, text)
+    # G5 two rows with shape problems -> ONE refusal naming both, nothing written (R6); the refusal carries the dispatch and the
+    # conductor's door (A3); a key outside the template row is ignored with a print line, never refused (A9)
+    task = world()
+    gap_form(task, D, '\n  - title: 5\n    statement: "x"\n    missing_prerequisite: "y"\n  - title: "t"\n    statement: "s"\n    refs: oops\n'
+                      '    missing_prerequisite: "m"\n')
+    _, text, refusal = gap_write(task, D)
+    check("G5 ONE refusal names both rows' problems", text.count("register_gaps[0].title: is int") == 1 and "register_gaps[1].refs: is str" in text, text)
+    check("G5 the refusal carries the dispatch and a door the conductor can use", getattr(refusal, "dispatch", "") == D
+          and f"handoff_check.py --file work/handoffs/{D}.yaml --set register_gaps[<i>].<field>=<value>" in text and "questions[]" in text
+          and "retry the finish" in text, text)
+    check("G5 nothing written, and the refusal is not routed by phrase (known False)", file_bytes(task) is None
+          and getattr(refusal, "known", True) is False)
+    task = world()
+    gap_form(task, D, "\n" + gap_row(extra="    note: extra\n"))
+    printed, text, _ = gap_write(task, D)
+    check("G5 a key outside the row is ignored with a print line, the row recorded", text == "" and len(register_lines(task)) == 1
+          and "carries `note`, not a field of the row; ignored" in printed, printed + text)
+    # G6 a placeholder field is absent -> the writer's own refusal names the flag and the row index (R7, R8)
+    task = world()
+    gap_form(task, D, '\n  - title: "t"\n    statement: "s"\n    missing_prerequisite: "<what would close it>"\n')
+    _, text, refusal = gap_write(task, D)
+    check("G6 the writer's refusal names --missing-prerequisite, the row index, the form and the door", "register_gaps[0]" in text
+          and "--missing-prerequisite" in text and f"work/handoffs/{D}.yaml" in text and "delete the row" in text
+          and file_bytes(task) is None and getattr(refusal, "dispatch", "") == D, text)
+    # G7 row 0 ok, row 1 refused -> row 0 written, the refusal names row 1; after the fix the retry writes ONLY row 1 (R8, D.4)
+    task = world()
+    gap_form(task, D, "\n" + gap_row() + gap_row("Bad", "a sentence", ("R-4",), None))
+    _, text, _ = gap_write(task, D)
+    check("G7 row 0 stays written, the refusal names row 1", len(register_lines(task)) == 1 and "register_gaps[1]" in text, text)
+    gap_form(task, D, "\n" + gap_row() + gap_row("Bad", "a sentence", ("R-4",), "now fixed"))
+    printed, text, _ = gap_write(task, D)
+    check("G7 the retry skips row 0 as recorded already and writes only row 1", text == "" and len(register_lines(task)) == 2
+          and "register_gaps[0] of" in printed and "is recorded already as EX-1" in printed and "register_gaps[1] recorded" in printed, printed + text)
+    # G8 the same form twice (a repeated finish, the recovery road) -> one line per row
+    task = world()
+    gap_form(task, D, "\n" + gap_row())
+    gap_write(task, D)
+    first = file_bytes(task)
+    printed, _, _ = gap_write(task, D)
+    check("G8 the second call writes nothing: the register bytes are equal, the row skipped", file_bytes(task) == first
+          and "recorded already as EX-1" in printed)
+    # G9 a repair round's new form: one equal row, one new -> only the new row is recorded (R11)
+    gap_form(task, "S4-qa-case-critic-2", "\n" + gap_row() + gap_row("Third", "a third sentence", ("R-5",), "an answer"))
+    gap_write(task, "S4-qa-case-critic-2")
+    check_eq("G9 only the new row was added, by the later dispatch", [(l["title"], l["recorded_by"]) for l in register_lines(task)],
+             [("R-2 has no boundary", D), ("Third", "S4-qa-case-critic-2")])
+    # G10 a reworded row is a second line (R12): duplicate allowed, loss never
+    gap_form(task, "S4-qa-case-critic-3", "\n" + gap_row(statement="the register of R-2 names no boundary value at all"))
+    gap_write(task, "S4-qa-case-critic-3")
+    check_eq("G10 the reworded row is a second line", len(register_lines(task)), 3)
+    # G11 the register path is a directory -> the read gives the empty register, the append raises -> a refusal naming the register (R10, A5)
+    task = world()
+    (task / "work" / "exploratory-findings.jsonl").mkdir()
+    gap_form(task, D, "\n" + gap_row())
+    _, text, refusal = gap_write(task, D)
+    check("G11 a Refusal that names work/exploratory-findings.jsonl and the form, with the dispatch", isinstance(refusal, Refusal)
+          and "work/exploratory-findings.jsonl" in text and f"work/handoffs/{D}.yaml" in text and getattr(refusal, "dispatch", "") == D, text)
+    # G12 after gate A answered -> the window is s5-s8 (R14)
+    task = world("between")
+    gap_form(task, D, "\n" + gap_row())
+    gap_write(task, D)
+    check_eq("G12 window s5-s8", register_lines(task)[0]["window"], "s5-s8")
+    # G13 the unknown verdict word and one gap row: the line is written, THEN the seam stub is called (positional invariant, R2)
+    task = world()
+    gap_form(task, D, "\n" + gap_row(), verdict="wibble")
+    stub = GapStub(task, D)
+    with contextlib.redirect_stdout(io.StringIO()):
+        answer = stub.s4_critic_completion(["TC-1"], 1, 3, dispatch_id=D)("digest")
+    check_eq("G13 the gap line is written, the seam stub called once (unreadable), the acceptance record not written",
+             (len(register_lines(task)), answer, stub.calls), (1, "seam", [("seam", True)]))
+    # G14 a refused gap row: a Refusal, and neither the acceptance record nor the seam was reached
+    task = world()
+    gap_form(task, D, "\n" + gap_row(None, "s", (), "m"))
+    stub = GapStub(task, D)
+    try:
+        stub.s4_critic_completion(["TC-1"], 1, 3, dispatch_id=D)("digest")
+        refused_at_call = False
+    except Refusal:
+        refused_at_call = True
+    check_eq("G14 a refused row stops the finish before the record and the seam", (refused_at_call, stub.calls, file_bytes(task)), (True, [], None))
+    # G15 a finish with no dispatch id records nothing and goes on to the seam as before (R13)
+    task = world()
+    stub = GapStub(task, "")
+    with contextlib.redirect_stdout(io.StringIO()):
+        answer = stub.s4_critic_completion(["TC-1"], 1, 3, dispatch_id="")("digest")
+    check_eq("G15 no dispatch id: the seam, no register", (answer, stub.calls, file_bytes(task)), ("seam", [("seam", True)], None))
+    # J1 form -> register -> the report's reader counts one gap and its text holds the statement and `missing:`
+    task = world()
+    gap_form(task, D, "\n" + gap_row())
+    gap_write(task, D)
+    unknown: dict = {}
+    got = report_facts._exploratory(task, unknown)
+    text = report_facts._r_exploratory({"exploratory": got, "unknown": unknown, "gate_b": {}})
+    check_eq("J1 the report's reader counts ONE gap and no finding", (got["formal"]["gaps"], got["formal"]["findings"], unknown), (1, 0, {}))
+    check("J1 the report text holds the statement and `missing:` with the critic's words",
+          "the register of R-2 names no boundary value" in text and "missing: the owner's word on the boundary of R-2" in text, text)
+    # A1 the role's copy holds `register_gaps: []`; the exit check of a form with one filled row and no refs raises no problem of this
+    # section, while the untouched sample row of the raw template does (the control that the check would have refused it)
+    import handoff
+    import handoff_check
+    import handoff_init
+    name = "s4-case-critic-to-designer"
+    raw = handoff_init.fill_head((handoff.CONTRACTS / f"{name}.yaml").read_text(encoding="utf-8"), task="QA-1", dispatch=D,
+                                 role="qa-case-critic", stage="S4", scope="R-1")
+    emptied = handoff_init.empty_optional_lists(raw, name)
+    check_eq("A1 the role's copy holds register_gaps: []", handoff.parse(emptied).data.get("register_gaps"), [])
+    art = handoff_check.Artifacts(root)
+    mine = lambda text: [p.path for p in handoff_check.check(handoff.parse(text), name, art)[2] if p.path.startswith("register_gaps")]
+    check("A1 control: the untouched sample row of the raw template is refused as not filled", mine(raw) != [], str(mine(raw)))
+    check_eq("A1 the emptied copy raises no problem of its own", mine(emptied), [])
+    out, applied, problems, _notes = handoff_check.apply_values(handoff.parse(emptied), name, [
+        ("register_gaps[0].title", "R-2 has no boundary", 0, ""), ("register_gaps[0].statement", "no boundary", 0, ""),
+        ("register_gaps[0].missing_prerequisite", "the owner's word", 0, "")])
+    check_eq("A1 a values file opens row 0 of the emptied section", (applied, [p.path for p in problems]), (3, []))
+    check_eq("A1 a filled row with no refs gives no register_gaps problem at the exit check", mine(out.text()), [])
+    # A4 a second `handoff_check --fix` over the unchanged form leaves equal bytes
+    task = world()
+    fixed = task / "work" / "handoffs" / f"{D}.yaml"
+    fixed.parent.mkdir(parents=True)
+    fixed.write_text(out.text(), encoding="utf-8")
+    argv = ("handoff_check.py", "--file", str(fixed), "--task", "TP1-TEST", "--task-root", str(task), "--fix")
+    run_script(*argv, cwd=root)
+    after_first = fixed.read_bytes()
+    run_script(*argv, cwd=root)
+    check("A4 the second --fix leaves the form's bytes equal to the first", fixed.read_bytes() == after_first)
+
+
 def main():
-    for key in (key_m1_1, key_m1_2, key_m1_2b, key_m1_3, key_m1_4, key_m1_4b, key_m1_4c, key_m1_smoke, key_fix1, key_m3, key_m1_h):
+    for key in (key_m1_1, key_m1_2, key_m1_2b, key_m1_3, key_m1_4, key_m1_4b, key_m1_4c, key_m1_smoke, key_fix1, key_m3, key_m1_h, key_f7rc):
         root = temp_project()
         try:
             key(root)

@@ -30,14 +30,14 @@ DESIGNER = "S4-qa-case-designer-1"
 CRITIC = "S4-qa-case-critic-1"
 
 
-def at_s4(root: Path) -> Controller:
-    """A story accepted through S0..S3, with S4 not yet run."""
+def at_s4(root: Path, through: int = 4) -> Controller:
+    """A story accepted through S0..S3 (`through` = how many stages from S0), with S4 not yet run."""
     (root / "qa-factory").mkdir(parents=True, exist_ok=True)
     (root / "qa-factory" / "config.json").write_text("{}", encoding="utf-8")
     controller = Controller(root)
     controller.apply("initialize", {"scope": ["TC-1"], "source_revision": "src-1",
                                     "known_paths": {"root": str(root)}, "idempotency_key": "init"})
-    for number in range(4):
+    for number in range(through):
         BASE.accept_stage(controller, root, f"S{number}")
     return controller
 
@@ -179,7 +179,163 @@ def story_step_finish_names_the_work_a_stage_leaves_open():
         cleanup(project)
 
 
+def author_last_closes_by_repair():
+    """T1 (A.5, AR-25): a story paused under 0.11.0 whose S2 / S3 author finished not-complete and was accepted, with no stage critic after
+    it. The author is now the stage's LAST role, so `stage_repairs` offers `stage_completed` for it - unless it named work still open
+    (`unresolved`) or a dispatch of the stage is open."""
+    def story(stage, role, **record):
+        dispatch = {"id": f"{stage}-{role}-1", "stage": stage, "role": role, "status": "accepted", "stage_complete": False}
+        dispatch.update(record)
+        return {"stages": {stage: {"status": "running"}}, "dispatches": {dispatch["id"]: dispatch}}
+
+    for label, stage, role, record, want in (
+            ("S2 tester accepted without stage_complete, nothing open: closed by repair", "S2", "qa-requirements-tester", {}, 1),
+            ("S2 tester accepted with unresolved named: not closed", "S2", "qa-requirements-tester", {"unresolved": "R-1"}, 0),
+            ("S2 tester still running: nothing is repaired", "S2", "qa-requirements-tester", {"status": "running"}, 0),
+            ("S3 strategist exit window accepted without stage_complete, nothing open: closed by repair", "S3", "qa-test-strategist", {}, 1),
+            # T1-b (t-654 fix round): the parameter ids name the case. A record with no `request_binding` is an exit window (the
+            # reader `s3_window_of` answers "exit" for everything but the labelling word; a window 1 always carries its purpose).
+            ("s3-between-windows-not-closed: window 1 (purpose s3_labelling) accepted, no stage_complete, nothing open", "S3",
+             "qa-test-strategist", {"request_binding": {"purpose": "s3_labelling"}}, 0),
+            ("s3-after-last-window-closed: exit window with another purpose in its binding", "S3", "qa-test-strategist",
+             {"request_binding": {"purpose": "exit"}}, 1),
+            ("s3-purpose-absent: binding without a purpose is an exit window, closed", "S3", "qa-test-strategist",
+             {"request_binding": {"reason": "x"}}, 1),
+            ("s2-unchanged: S2 tester carrying the labelling word is still closed (S2 has no windows)", "S2",
+             "qa-requirements-tester", {"request_binding": {"purpose": "s3_labelling"}}, 1)):
+        fixes = Controller.stage_repairs(story(stage, role, **record))
+        check_eq(f"T1 {label}", [(f["kind"], f["stage"]) for f in fixes], [("stage_completed", stage)] * want)
+
+
+def s3_window_one_never_closes():
+    """SC-A1c (AR-25, AR-13, AR-15): the strategist is S3's last role, so the role-only answer is True for window 1 too. ONE predicate
+    (`controller.dispatch_can_close_stage`, which `_closes_stage` starts with) says "this dispatch can close its stage"; every site that
+    OFFERS or ASSUMES a close asks it. The ids name the case; the parameters are the whole table."""
+    import types
+    import story_step
+    from controller import dispatch_can_close_stage, record_purpose
+    from contract import stage_roles
+    last = lambda stage: stage_roles(stage)[-1]      # noqa: E731
+    win1 = {"stage": "S3", "role": "qa-test-strategist", "id": "S3-qa-test-strategist-1", "status": "running",
+            "request_binding": {"purpose": "s3_labelling"}}
+    exit_window = dict(win1, request_binding={"purpose": "initial"})
+    no_purpose = {k: v for k, v in win1.items() if k != "request_binding"}
+    root = temp_dir("qa-stage-closure-s3w1-")
+    try:
+        ctl = at_s4(root)
+        # (label, record, the one predicate, `_closes_stage`): the S5 plan and the S7 investigation keep their own exemptions in
+        # `_closes_stage` (the predicate is the stage model's word and the S3 window's, nothing more)
+        for label, record, pred, closes in (
+                ("closes-s3-window-one: labelling", win1, False, False),
+                ("closes-s3-exit-window: another purpose in the binding", exit_window, True, True),
+                ("closes-s3-exit-window: no binding at all (absent purpose never means labelling)", no_purpose, True, True),
+                ("closes-s3-exit-window: binding without a purpose", dict(win1, request_binding={"reason": "x"}), True, True),
+                ("closes-s3-exit-window: a binding that is not a mapping", dict(win1, request_binding="s3_labelling"), True, True),
+                ("closes-s3-exit-window: the top of the record is never read",
+                 dict(win1, request_binding={}, purpose="s3_labelling"), True, True),
+                ("closes-s3-not-the-last-role: the first look runner", dict(win1, role="qa-runner"), False, False),
+                ("closes-s4-unchanged: the critic closes S4", {"stage": "S4", "role": last("S4")}, True, True),
+                ("closes-s4-unchanged: the designer does not", {"stage": "S4", "role": "qa-case-designer"}, False, False),
+                ("closes-s2-unchanged: the labelling word on S2 is no window",
+                 {"stage": "S2", "role": last("S2"), "request_binding": {"purpose": "s3_labelling"}}, True, True),
+                ("closes-s5-plan-unchanged: the plan never closes S5",
+                 {"stage": "S5", "role": last("S5"), "request_binding": {"purpose": "s5_plan"}}, True, False),
+                ("closes-s7-investigation-unchanged: the investigation never closes S7",
+                 {"stage": "S7", "role": last("S7"), "request_binding": {"purpose": "investigation"}}, True, False)):
+            check_eq(f"A1c predicate {label}", dispatch_can_close_stage(record), pred)
+            check_eq(f"A1c _closes_stage {label}", ctl._closes_stage(record, {"stages": {}}), closes)
+        check_eq("A1c predicate closes-unreadable: not a mapping", dispatch_can_close_stage(None), False)
+        for label, record, want in (("purpose-reader: the binding's word", win1, "s3_labelling"),
+                                    ("purpose-reader: absent binding", no_purpose, ""),
+                                    ("purpose-reader: a binding that is not a mapping", dict(win1, request_binding=["x"]), ""),
+                                    ("purpose-reader: a purpose that is not a string", dict(win1, request_binding={"purpose": 5}), ""),
+                                    ("purpose-reader: never the top of the record", dict(no_purpose, purpose="s3_labelling"), ""),
+                                    ("purpose-reader: not a mapping", None, "")):
+            check_eq(f"A1c {label}", record_purpose(record), want)
+
+        task_root = root / "qa-factory" / "artifacts" / "QA-C"
+        args = types.SimpleNamespace(task="QA-C", dispatch_id=win1["id"])
+        for label, record, form_halted, has_close, has_open in (
+                ("halt-doors-s3-window-one: no --close, --open stays", win1, False, False, True),
+                ("halt-doors-s3-window-one: a form that declares the halt widens nothing", win1, True, False, True),
+                ("halt-doors-s3-exit-window: the closing role keeps both", exit_window, False, True, True),
+                ("halt-doors-s4-critic: unchanged", {"stage": "S4", "role": last("S4"), "id": "d"}, False, True, True)):
+            text = story_step._halt_doors(args, task_root, record, form_halted)
+            check_eq(f"A1c {label}", ("--close" in text, "--open" in text), (has_close, has_open))
+        for label, kind, record, form_halted, want in (
+                ("decide-s3-window-one: --close refused", "close", win1, False, "refused"),
+                ("decide-s3-window-one: --close refused even for a form that declares the halt", "close", win1, True, "refused"),
+                ("decide-s3-window-one: --open is the door and is taken", "open", win1, False, ""),
+                ("decide-s3-exit-window: --close taken", "close", exit_window, False, ""),
+                ("decide-s4-critic: --close taken", "close", {"stage": "S4", "role": last("S4")}, False, "")):
+            refusal = story_step._decide_refusal(kind, [], dict(record, id="d", scope=[]), "d", {}, "QA-C", task_root, form_halted)
+            check_eq(f"A1c {label}", bool(refusal), want == "refused")
+            if want == "refused":
+                for part, why in (("S3 window 1", "what is wrong"), ("--open", "a door: open"), ("plan_pending", "a door: finish"),
+                                  ("never closes S3", "what was expected")):
+                    check_in(f"A1c {label}: names {why}", part, refusal)
+                check("A1c " + label + ": no word of a role that 'does not close' the stage", "does not close" not in refusal, refusal)
+                # F1 (critic t-733): the named finish door is RUN through `finish`'s own first refusal - a door `finish` refuses is no door
+                import re
+                door = next((m for m in re.findall(r"`(finish [^`]*)`", refusal)), "")
+                check(f"A1c {label}: the finish door is the full form", all(
+                    part in door for part in ("--task ", "--dispatch-id ", "--digest ", "--not-complete", "--unresolved plan_pending",
+                                              "--reason ")), door)
+                unresolved = (re.search(r"--unresolved (\S+)", door) or [None, ""])[1]
+                reason = "x" if "--reason " in door else ""
+                check_eq(f"A1c {label}: the finish door passes `_unresolved_refusal`",
+                         story_step._unresolved_refusal(types.SimpleNamespace(not_complete="--not-complete" in door), unresolved, reason),
+                         "")
+        # F2: a stage with no roles is never closed by the predicate (no IndexError at the finish default)
+        check_eq("A1c closes-no-roles: a stage that has no role", dispatch_can_close_stage({"stage": "S-none", "role": "x"}), False)
+        # F3: the S1 reference-walk reading of `completion_for` goes through the one purpose reader
+        from driver_stage_plan import DriverStagePlan
+
+        class _Owed(DriverStagePlan):
+            def s1_window_owed(self, stage, role):
+                return True
+
+        plan = _Owed.__new__(_Owed)
+        for label, binding, want in (("completion-for-s1-reference-walk: the binding's word", {"purpose": "reference_walk"}, True),
+                                     ("completion-for-s1-binding-not-a-mapping: no AttributeError", "x", False),
+                                     ("completion-for-s1-no-binding: unchanged", None, False)):
+            check_eq(f"A1c {label}", plan.completion_for("S1", "qa-runner", {"request_binding": binding}), want)
+    finally:
+        cleanup(root)
+
+
+def s3_window_one_accept_without_unresolved():
+    """SC-A1c (c): `finish --not-complete` with no `unresolved` on window 1 reaches the controller as `stage_complete: false`. The refusal
+    "leaves S3 with no role to close it - pass stage_complete: true" was FALSE for window 1 (true is refused by the completion gate), so
+    window 1 is no closer and the text is not printed; the exit window keeps it (control). INVARIANT: a window-1 claim of completeness
+    is still refused by `_s3_completion_gate` (the predicate only stops the earlier sites from offering or assuming a close)."""
+    for label, purpose, claim, want in (
+            ("accept-s3-window-one-not-complete: no 'no role to close it' refusal", "s3_labelling", False, "accepted"),
+            ("accept-s3-window-one-complete: the completion gate still refuses", "s3_labelling", True, "cannot close the stage"),
+            ("accept-s3-exit-window-not-complete: control, the silent false is refused", "initial", False, "no role to close it")):
+        root = temp_dir("qa-stage-closure-s3acc-")
+        try:
+            controller = at_s4(root, through=3)         # S0..S2 accepted: S3 is the stage under judgment
+            identity = "S3-qa-test-strategist-9"
+            controller.apply("dispatch", {"id": identity, "stage": "S3", "role": "qa-test-strategist", "scope": ["TC-1"],
+                                          "input_hash": "plan-1", "budget": {}, "known_paths": {}, "purpose": purpose,
+                                          "idempotency_key": "d-" + identity})
+            text = ""
+            try:
+                controller.apply("accept", {"id": identity, "status": "accepted", "stage_complete": claim,
+                                            "evidence_refs": [evidence(root, "plan.txt")], "idempotency_key": "a-" + identity})
+                text = "accepted"
+            except Exception as exc:        # a refusal of any class: its text is what is judged
+                text = str(exc)
+            check(f"A1c {label}", want in text if want != "accepted" else text == "accepted", text[:300])
+        finally:
+            cleanup(root)
+
+
 def main():
+    s3_window_one_never_closes()
+    s3_window_one_accept_without_unresolved()
+    author_last_closes_by_repair()
     story_step_finish_names_the_work_a_stage_leaves_open()
     the_last_role_closes_the_stage()
     saying_false_on_the_closing_role_is_refused()

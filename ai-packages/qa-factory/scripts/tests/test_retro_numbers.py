@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import SCRIPTS, check, check_eq, check_in, check_not_in, cleanup, finish, temp_dir  # noqa: E402
 
 sys.path.insert(0, str(SCRIPTS))
+import report_facts as RF  # noqa: E402
 import retro_numbers as RN  # noqa: E402
 import run_counters as RC  # noqa: E402
 import driver_journal as DJ  # noqa: E402
@@ -339,6 +340,79 @@ def the_retro_prints_the_knowledge_table_beside_the_question_count() -> None:
                  "**Questions put to the person: 0; known facts no brief carried: unmeasured: briefs are not kept", zero)
         check_eq("F1: facts of an older shape (no key) render nothing", RN.knowledge_lines(None), [])
         check_in("F1: a block that could not be built is one `unmeasured` line", "unmeasured: boom", "\n".join(RN.knowledge_lines({"problem": "boom"})))
+    finally:
+        cleanup(root)
+
+
+def test_fv19_retro_lists_merged_questions() -> None:
+    """FV1-9 N5 (owner 14.11): the retro marks the questions the factory merged as repeats - a T16 line per record with both texts as they
+    stood and the standing; no merge or an older story: no section; a record set that cannot be read: one line, never a raise."""
+    import question_register as QR
+    name = "fv19_retro_lists_merged_questions"
+    root, base, troot = project()
+    try:
+        def row(qid, text):
+            return {"id": qid, "question": text, "source_says": [{"quote": "the limit is 100", "where": "R-1"}],
+                    "readings": [{"reading": f"reading {i}", "from": "code", "if_chosen": "x"} for i in range(2)],
+                    "severity": "major", "owner_role": "po_ba"}
+        long_text = "w" * 250
+        (troot / "work" / "requirements-readiness.json").write_text(json.dumps({"verdict": "blocked", "open_questions": [
+            row("Q7", "What is the limit?"), row("Q16", "How many may I add?"), row("Q17", long_text), row("Q18", "Another one?")]}), encoding="utf-8")
+        older = RN.numbers("QA-1", base, troot)
+        check_eq(f"{name}: a story with a register and no merge says none (F3, AR-23: the key with no records, the T16 none line)",
+                 (older.get("merged_questions"), RN.merged_question_lines(older.get("merged_questions"))[-1],
+                  "Questions merged as one" in RN.render(older)),
+                 ({"records": [], "unreadable": False}, "- none: no question was merged in this story", True))
+        check_eq(f"{name}: before any merge the retro's question count is all four rows", RF.question_count(troot), 4)
+        bare_root, bare_base, bare_troot = project()
+        try:
+            check_eq(f"{name}: a story with no register has no key (an older story: the section is absent)",
+                     "merged_questions" in RN.numbers("QA-1", bare_base, bare_troot), False)
+        finally:
+            cleanup(bare_root)
+        QR.declare_repeat(troot, "Q16", "Q7", "both ask the limit", by="driver", declared_by="qa-case-designer", stage="S4")
+        QR.declare_repeat(troot, "Q17", "Q7", "y" * 250, by="driver", declared_by="qa-test-strategist", stage="S3")
+        QR.declare_repeat(troot, "Q18", "Q7", "same", by="driver", declared_by="qa-case-designer", stage="S4")
+        check_eq(f"{name}: after three merges the person is asked one question, not four (a merged twin is not counted twice)",
+                 RF.question_count(troot), 1)
+        data = RN.numbers("QA-1", base, troot)
+        recs = data["merged_questions"]["records"]
+        check_eq(f"{name}: three records, in file order, with the standing the register reader returns",
+                 ([r["id"] for r in recs], [r["standing"] for r in recs], data["merged_questions"]["unreadable"]),
+                 (["Q16", "Q17", "Q18"], ["merged"] * 3, False))
+        check_eq(f"{name}: the facts keep a long text whole (FR-49)", (len(recs[1]["texts"]["question"]), len(recs[1]["why"])), (250, 250))
+        text = RN.render(data)
+        lines = [line for line in text.splitlines() if " merged into Q7 by " in line]
+        check_eq(f"{name}: a heading and a line per record", ("## Questions merged as one" in text, len(lines)), (True, 3))
+        check_in(f"{name}: both texts as they stood, who, stage, standing", "- Q16 merged into Q7 by case designer at S4 (", lines[0])
+        check_in(f"{name}: ... both texts, why and standing", "\"How many may I add?\" / \"What is the limit?\"; why: both ask the limit; now: merged", lines[0])
+        check_in(f"{name}: a long text (250) is printed whole, why too (F3: texts uncut)",
+                 "\"" + "w" * 250 + "\" / \"What is the limit?\"; why: " + "y" * 250 + "; now: merged", lines[1])
+        check_in(f"{name}: the role is in words", " by test strategist at S3 (", lines[1])
+        edge = "\n".join(RN.merged_question_lines({"records": [{"id": "Q1", "same_as": "Q2", "texts": {"question": "a" * 200, "same_as_question": "b" * 201},
+                                                                "why": "z" * 200, "standing": "shown again: gone"}], "unreadable": False}))
+        check_in(f"{name}: AT 200 and 201 both whole, no ellipsis", "\"" + "a" * 200 + "\" / \"" + "b" * 201 + "\"; why: " + "z" * 200 + ";", edge)
+        check_in(f"{name}: a record whose question is gone from the register says the reader's standing, no KeyError", "now: shown again: gone", edge)
+        check_eq(f"{name}: an empty block says none", RN.merged_question_lines({"records": [], "unreadable": False})[-1],
+                 "- none: no question was merged in this story")
+        check_in(f"{name}: records beside a broken answers line carry the unreadable line too",
+                 "- the question records could not be read, so merges are not known",
+                 "\n".join(RN.merged_question_lines({"records": recs, "unreadable": True})))
+        check_eq(f"{name}: a block with a problem is the one unreadable line", RN.merged_question_lines({"problem": "boom"})[-2:],
+                 ["", "- the question records could not be read, so merges are not known"])
+        real = QR.repeat_records
+        QR.repeat_records = lambda task_root: (_ for _ in ()).throw(OSError("disk"))
+        try:
+            broken = RN.numbers("QA-1", base, troot)
+            check_in(f"{name}: a reader that raises is a problem in the facts", "OSError: disk", broken["merged_questions"]["problem"])
+            check_in(f"{name}: ... and one unreadable line in the render, the retro still renders",
+                     "- the question records could not be read, so merges are not known", RN.render(broken))
+        finally:
+            QR.repeat_records = real
+        check_eq(f"{name}: a story with no register at all has no section", RN.merged_question_lines(None), [])
+        QR.record(troot, "Q18", "open", "asking this one after all", "remark", "person", "")
+        check_eq(f"{name}: a merged question reopened through the register is shown again and counted (over-counting is the allowed error)",
+                 RF.question_count(troot), 2)
     finally:
         cleanup(root)
 
@@ -879,6 +953,7 @@ def main() -> None:
     run_counters_friction_and_money()
     run_counters_one_road_and_cli()
     the_retro_prints_the_knowledge_table_beside_the_question_count()
+    test_fv19_retro_lists_merged_questions()
     the_resumes_add_up_per_stage()
     the_unknown_and_the_empty_are_not_the_same()
     the_class_of_a_gate_block_has_one_reader()

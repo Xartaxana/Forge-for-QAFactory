@@ -2151,7 +2151,7 @@ def open_oracle_asserted_errs_toward_firing() -> None:
 
 def no_word_passes_the_open_oracle_gate() -> None:
     """K-WORD / M5: a stage-wide word (`*`), a word naming the tag and a word naming the family all leave the finding; `report()`
-    prints its WORDS_REFUSED_AT_SOURCE line (cause `family`)."""
+    prints its WORDS_REFUSED_AT_SOURCE line (cause `awaits_answer`)."""
     import waiver as W
     root = temp_project("qa-s5-oa-word-")
     try:
@@ -2165,7 +2165,8 @@ def no_word_passes_the_open_oracle_gate() -> None:
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             P.report(P.run(task))
-        check_in("report() prints the finding's refusal line, cause family", f"WORDS_REFUSED_AT_SOURCE: {finding_id} family", out.getvalue())
+        check_in("report() prints the finding's refusal line, cause awaits_answer", f"WORDS_REFUSED_AT_SOURCE: {finding_id} awaits_answer",
+                 out.getvalue())
     finally:
         cleanup(root)
 
@@ -3036,7 +3037,7 @@ def the_verdict_is_one_line_per_finding() -> None:
              (len(verdict["findings"]), verdict["defects"], verdict["unmigrated"], verdict["marker"], verdict["words"]),
              (3, [], "", "repair", "source"))
     check_eq("the families no word passes carry their line, the passable one does not",
-             verdict["refused"], ["", "family", "family"])
+             verdict["refused"], ["", "awaits_answer", "awaits_answer"])
     check("the refusal lines stand ABOVE the header", all(i < heads[0] for i, line in enumerate(lines)
           if line.startswith(DETV.WORDS_REFUSED_AT_SOURCE)) and out.count(DETV.WORDS_REFUSED_AT_SOURCE) == 2, out[:300])
     # FV1-30a (F1): the door is the finding's tag or its whole id; `*` is named only with its two exceptions
@@ -3056,9 +3057,9 @@ def the_verdict_is_one_line_per_finding() -> None:
     check_not_in("...and the door sentence is not printed (no finding is passable)", "--block", out)
     out_zero = printed({"ok": False, "findings": [], "hints": [], "notes": [], "cases": []})
     check_not_in("zero findings: no door either", "--block", out_zero)
-    check_eq("...and every finding has its family line", [line for line in out.splitlines()
+    check_eq("...and every finding has its awaits_answer line", [line for line in out.splitlines()
              if line.startswith(DETV.WORDS_REFUSED_AT_SOURCE)],
-             [f"{DETV.WORDS_REFUSED_AT_SOURCE} {f['id']} family" for f in only])
+             [f"{DETV.WORDS_REFUSED_AT_SOURCE} {f['id']} awaits_answer" for f in only])
     # the waiver cannot be imported: the passable finding is printed as it is (no verdict, no line), the other keeps its tag
     saved = sys.modules.get("waiver")
     sys.modules["waiver"] = None
@@ -3070,8 +3071,8 @@ def the_verdict_is_one_line_per_finding() -> None:
         else:
             sys.modules["waiver"] = saved
     out = printed({"ok": False, "findings": kept, "hints": [], "notes": [], "cases": []})
-    check_eq("no waiver: label there, the passable finding untagged, the other tagged `family`",
-             (DETV.WORDS_AT_SOURCE in out, DETV.parse(1, out, "")["refused"]), (True, ["", "family"]))
+    check_eq("no waiver: label there, the passable finding untagged, the other tagged `awaits_answer`",
+             (DETV.WORDS_AT_SOURCE in out, DETV.parse(1, out, "")["refused"]), (True, ["", "awaits_answer"]))
     empty = printed({"ok": False, "findings": [], "hints": [], "notes": [], "cases": []})
     parsed = DETV.parse(1, empty, "")
     with contextlib.redirect_stdout(io.StringIO()):

@@ -82,7 +82,7 @@ def test_roster_lines_s3_only(world):
     root, _ = world
     set_stands(root, [stand("dev", accounts("admin"))])
     brief = {(stage, role): brief_pack.build(TASK, stage, role, f"{stage}-{role}-1", write=False)["markdown"]
-             for stage, role in (("S3", "qa-test-strategist"), ("S3", "qa-case-critic"))}      # S3 has two roles; other stages are not S3
+             for stage, role in (("S3", "qa-test-strategist"),)}      # S3 has one role; other stages are not S3
     assert "- admin: an account on dev (the project's settings) " + MARK in brief[("S3", "qa-test-strategist")]
     assert [k for k, text in brief.items() if "Product roles" in text or MARK in text or "product_roles" in text] == [("S3", "qa-test-strategist")]
 

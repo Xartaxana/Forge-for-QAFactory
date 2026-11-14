@@ -1,0 +1,1 @@
+- The S5 exit check now refuses an asserted open expectation with its own cause `awaits_answer`, and the finish refusal names the expectation question as its way out.

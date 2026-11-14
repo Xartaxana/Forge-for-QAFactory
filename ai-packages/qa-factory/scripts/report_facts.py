@@ -2399,7 +2399,8 @@ def knowledge_facts(task_root, project_root=None) -> dict:
 def question_count(task_root):
     """How many questions the story put to the person, for the retro's line: the questions of the story's register
     (`question_register.load`, the one reader of `work/requirements-readiness.json` `open_questions`) except those a designer took
-    (`with_designer`: the person was not asked). A story with no readable register has no count: `unmeasured: <why>`, never 0; a register that
+    (`with_designer`: the person was not asked) and a question merged into another one (`QR.hidden_repeat`): the person is asked it once,
+    under the earlier id. A story with no readable register has no count: `unmeasured: <why>`, never 0; a register that
     is read and holds no question is a MEASURED zero."""
     try:
         got = QR.load(task_root)
@@ -2409,7 +2410,7 @@ def question_count(task_root):
         return _unmeasured("the story has no question register (work/requirements-readiness.json open_questions)")
     if got.get("problems") and not got.get("questions"):
         return _unmeasured("the question register could not be read: " + "; ".join(str(p) for p in got["problems"])[:160])
-    return sum(1 for q in got.get("questions") or [] if q.get("status") != "with_designer")
+    return sum(1 for q in got.get("questions") or [] if q.get("status") != "with_designer" and not QR.hidden_repeat(q))
 
 
 # The retro's reading of the counters: lines of words, no money in them (the repository's files never print prices), nothing refused.
@@ -2643,12 +2644,15 @@ def _questions(art: Path, unknown: dict, ledger=None):
         return None
     # HF2-6b (RD1-8): the one predicate is `QR.settled` - an answer on the bytes the person saw. A question the person
     # answered and whose row changed since, or one kept open until this report, is listed (before: by the raw status).
+    # FV1-9 (T15, AR-27): a declared repeat that stands (`QR.hidden_repeat`, the one predicate) is not listed - its target is, once,
+    # with `also` naming the ids merged into it; a repeat that does not stand is listed under its own id.
     listed = []
     for q in loaded.get("questions") or []:
-        if QR.settled(q):
+        if QR.settled(q) or QR.hidden_repeat(q):
             continue
         listed.append({"id": str(q.get("id") or ""), "status": q.get("status"), "where": str(q.get("where") or ""),
-                       "changed": q.get("changed_since_answer") is True,
+                       "changed": q.get("changed_since_answer") is True and q.get("status") != QR.REPEAT,
+                       "also": [str(i) for i in q.get("repeated_by") or []],
                        "stray": QR.stray_line(q.get("id"), q.get("words")) if q.get("status") == "named" else "",
                        "owner": _words(q.get("owner_role")), "text": _words(q.get("question"))})
     listed.sort(key=lambda q: T._numeric_key(q["id"]))
@@ -4163,6 +4167,8 @@ def _r_questions(facts: dict) -> str:
             note = " (kept on your word until this report)"
         elif c["changed"]:
             note = " (your answer was given to an earlier wording of this question)"
+        if c.get("also"):
+            note += " (raised twice in this story; this one question covers both)"
         cards.append(f"{c['owner'] or 'owner not named'} · {c['text'] or 'the question text is not recorded'}{note}")
     out.append(_quoted("\n".join(cards)))
     return "\n".join(out) + "\n"

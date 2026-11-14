@@ -785,13 +785,19 @@ def raise_pending(task_root, *, store: Path | None = None) -> dict:
     the `raise_questions` entry dropped, and re-pins a new version - no designer dispatch. A case with no
     `raise` is never read past one substring test and never written. Returns {"raised": [{case, then,
     question}], "skipped": [{case_id, reason}], "plan_notes": [line]}: a Then that could not be raised keeps its `raise` and the
-    gate A rehearsal refuses it by name (`gate_preflight.check_unraised_questions`)."""
+    gate A rehearsal refuses it by name (`gate_preflight.check_unraised_questions`).
+
+    FV1-9: the same exit also executes the designer's `question_repeats` (`QR.repeats_for_case`: the question is declared a repeat of
+    an earlier one) and `reword_questions` (`QR.rewords_for_case`: an unanswered question is asked again in clearer words), per case
+    in that order, after the raise; a case is written and re-pinned ONCE when any of the three changed its text, and a case that holds
+    none of the three keys is never read past one substring test. Their results are `repeats` / `rewords` (what was done) and
+    `question_notes` (one line per entry that was refused or malformed: it stays in the case and says why)."""
     task_root = Path(task_root)
     import case_versions as V
     import contract as C
     import question_register as QR
     store = Path(store) if store is not None else V.store_root(task_root)
-    out: dict = {"raised": [], "skipped": [], "plan_notes": []}
+    out: dict = {"raised": [], "skipped": [], "plan_notes": [], "repeats": [], "rewords": [], "question_notes": []}
     for link in C.story_case_links(task_root):
         if not isinstance(link, dict):
             continue
@@ -803,14 +809,25 @@ def raise_pending(task_root, *, store: Path | None = None) -> dict:
             content = source.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        if C.RAISE_REF not in content:
+        if not any(key in content for key in (C.RAISE_REF, "question_repeats", "reword_questions")):
             continue
         result = QR.raise_for_case(task_root, content, case_id)
         out["plan_notes"].extend(result.get("plan_notes") or [])
         out["skipped"].extend({"case_id": case_id, "reason": problem} for problem in result["problems"])
-        if result["text"] is None:
+        text = result["text"] if result["text"] is not None else content
+        for name, step, done in (("repeats", QR.repeats_for_case, "recorded"), ("rewords", QR.rewords_for_case, "reworded")):
+            try:
+                step_result = step(task_root, text, case_id)
+            except Exception as exc:  # noqa: BLE001 - the case's own key never stops the exit (P1); it is said
+                out["question_notes"].append(f"{case_id}: {name} were not executed ({type(exc).__name__}: {' '.join(str(exc).split())[:160]})")
+                continue
+            out["question_notes"].extend(step_result["problems"])
+            out[name].extend(step_result[done])
+            if step_result["text"] is not None:
+                text = step_result["text"]
+        if text == content:
             continue
-        source.write_text(result["text"], encoding="utf-8", newline="\n")
+        source.write_text(text, encoding="utf-8", newline="\n")
         record = V.create_version(store, source)
         V.pin(task_root, record, expected_previous_version=link.get("version"))
         out["raised"].extend(result["raised"])
@@ -1214,6 +1231,9 @@ def main() -> int:
             result["skipped"].extend(raised["skipped"])
             if raised["plan_notes"]:
                 result["plan_notes"] = raised["plan_notes"]      # raised, but the plan row was not told: said, never dropped (FR-59)
+            for key in ("repeats", "rewords", "question_notes"):    # FV1-9: what the exit declared, asked again, or kept and why
+                if raised[key]:
+                    result[key] = raised[key]
         except Exception as exc:  # code informs, it never stops the factory on its own defect (P1)
             result.setdefault("errors", []).append(f"raise_questions: {type(exc).__name__}: {exc}")
         print(json.dumps(result, ensure_ascii=False, default=str))

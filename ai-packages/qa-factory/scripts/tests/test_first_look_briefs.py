@@ -25,7 +25,7 @@ from test_first_look_wiring import STAND, TICKET, WALK, Project  # noqa: E402
 MARK = brief_pack.S3_ROSTER_MARK
 FILE = "work/first-look.yaml"
 FORBIDDEN = ("EXPECTED-VAL", "THEN-VAL", "SHOULD-VAL", "PATH-EXPECTED", "SAMPLE-EXPECTED")
-PAIRS = (("S3", "qa-test-strategist"), ("S3", "qa-case-critic"), ("S4", "qa-case-designer"), ("S4", "qa-case-critic"),
+PAIRS = (("S3", "qa-test-strategist"), ("S4", "qa-case-designer"), ("S4", "qa-case-critic"),
          ("S5", "qa-automator"), ("S5", "qa-code-critic"), ("S6", "qa-runner"), ("S7", "qa-failure-analyst"))
 
 
@@ -68,7 +68,7 @@ def test_s3_lines_count_and_red_rows():
     with tempfile.TemporaryDirectory() as tmp:
         p = Project(tmp, sides={"product": {"reality": "substituted"}})
         write_record(p)
-        for role in ("qa-test-strategist", "qa-case-critic"):
+        for role in ("qa-test-strategist",):          # S3 has no critic since the stage critics were removed
             got = lines(p, "S3", role)
             text = "\n".join(got)
             check_in(f"s3_lines_count_and_red_rows: the {role} head says 5 requirements", "5 requirement(s)", text)
@@ -303,17 +303,11 @@ def test_plan_critic_lines_only_when_s3_reviewer_exists():
         p = Project(tmp)
         write_record(p)
         stages = brief_pack._stages()
-        check("plan_critic_lines_only_when_s3_reviewer_exists: S3 names a reviewer in stages.json today (the report line `S3 has no plan critic` does not apply)",
-              "qa-case-critic" in stages["S3"]["roles"], str(stages["S3"]["roles"]))
-        check("plan_critic_lines_only_when_s3_reviewer_exists: the reviewer gets lines", bool(lines(p, "S3", "qa-case-critic")))
-        original = brief_pack._stages
-        try:
-            brief_pack._stages = lambda: {**original(), "S3": {**original()["S3"], "roles": ["qa-test-strategist"]}}
-            check_eq("plan_critic_lines_only_when_s3_reviewer_exists: with no reviewer at S3 the critic gets none (nothing is invented)",
-                     lines(p, "S3", "qa-case-critic"), [])
-            check("plan_critic_lines_only_when_s3_reviewer_exists: the strategist still does", bool(lines(p, "S3", "qa-test-strategist")))
-        finally:
-            brief_pack._stages = original
+        check("plan_critic_lines_only_when_s3_reviewer_exists: S3 names no reviewer in stages.json (the stage critics were removed)",
+              "qa-case-critic" not in stages["S3"]["roles"], str(stages["S3"]["roles"]))
+        check_eq("plan_critic_lines_only_when_s3_reviewer_exists: with no reviewer at S3 the critic gets none (nothing is invented)",
+                 lines(p, "S3", "qa-case-critic"), [])
+        check("plan_critic_lines_only_when_s3_reviewer_exists: the strategist still does", bool(lines(p, "S3", "qa-test-strategist")))
         check_eq("plan_critic_lines_only_when_s3_reviewer_exists: other pairs get none (a scout at S1, a tester at S2, a critic at S9)",
                  [lines(p, "S1", "qa-scout"), lines(p, "S2", "qa-requirements-tester"), lines(p, "S9", "qa-case-critic")], [[], [], []])
 

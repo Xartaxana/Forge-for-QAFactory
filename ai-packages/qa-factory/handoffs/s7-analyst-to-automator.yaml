@@ -33,6 +33,9 @@ stage: S7
 from_role: qa-failure-analyst
 to_role: qa-automator
 
+# Where the acceptance word of the runner's handoff is read; `header.verdict` stays the verdict of THIS handoff.
+acceptance_verdict_at: stage_acceptance.verdict
+
 # The contract's own exception to "every handover has items" (handoff.null_outcomes). The check reads
 # it; it is not a field you fill.
 null_outcome:
@@ -61,18 +64,34 @@ inputs:
     what: the log, the artifact or the rerun series the verdict rests on
     required: true
 
+# Reviewed dispatch (as in your brief): the LAST `inputs_read` row naming a qa-runner dispatch must be `path: work/handoffs/<the runner's dispatch>.yaml` (other qa-runner forms go above it; a review binds only that dispatch)
 inputs_read:
+  - path: work/handoffs/<the author's dispatch>.yaml
+    version: <its window id>
   - path: work/run-report.json
     version: <the report the triage was taken from>
     failures: <how many rows were triaged>
   - path: <the runtime_provenance record>
     version: <the build the failures happened on>
 
+required_when:
+  return: [stage_acceptance]
+
 header:
   role: qa-failure-analyst
   stage: S7
   window: <the instance ids handed for repair>
   verdict: <one of vocabulary.header_verdicts>
+
+# Your word on the runner's handoff: `accept` when you can rely on the run - your repairs, bugs and doubts do not make it a
+# return; `return` sends the run back to the runner for one repair round and owes the class and the runner's own words that show why.
+# This section is absent when no runner's handoff awaits your word.
+stage_acceptance:
+  verdict: <accept|return>
+  failure_class: <spec|capability|data|tooling>
+  quote: "<the runner's own words, with path#anchor>"
+  witness_paths:
+    - <task-relative path the verdict rests on, or omit when none>
 
 # One row per repair. `state` is the triage verdict (TEST_BUG, TEST_BUG:collection, FLAKY) or `reorder`
 # for a triage row that carries `reorder: true`; it comes from the restricted part of vocabulary.row_states

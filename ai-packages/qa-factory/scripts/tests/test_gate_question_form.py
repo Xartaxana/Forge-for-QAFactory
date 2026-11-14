@@ -31,6 +31,7 @@ import gate_preflight  # noqa: E402
 import human_text  # noqa: E402
 import planning_contract  # noqa: E402
 import question_register as QR  # noqa: E402
+import question_stop as QS  # noqa: E402
 
 EM_DASH = chr(0x2014)  # built, never typed: the package is ASCII-clean (FR-30)
 
@@ -408,8 +409,8 @@ def test_a_story_from_before_the_fields_reads_as_it_did() -> None:
         check_eq("E-9 nothing is computed for a story without the fields", data["question_effects"], {})
         check_eq("E-9 and nothing is unreadable", data["question_effect_problems"], [])
         expected = ["- **Q1** [major, owner dev_arch] What must happen for Q1?",
-                    "  - a) reading 1 of Q1 (from description)", "    if chosen: Q1 goes by reading 1",
-                    "  - b) reading 2 of Q1 (from description)", "    if chosen: Q1 goes by reading 2",
+                    "  - a) reading 1 of Q1 (from the ticket's description)", "    if chosen: Q1 goes by reading 1",
+                    "  - b) reading 2 of Q1 (from the ticket's description)", "    if chosen: Q1 goes by reading 2",
                     f"  - or your own wording {EM_DASH} the readings are what the sources say, "
                     "not a closed list of answers.",
                     "  - Answer: `Q1: a`, `Q1: b` or `Q1: not needed`"]        # GW1-32: the one line added to the card of before
@@ -530,7 +531,7 @@ def test_no_question_and_no_reading_is_cut() -> None:
         last = "abcdefghijklmnopqrstuvwxyz"[count - 1]
         check_eq(f"E-13 {count} readings: {count} lettered lines", len(lettered), count)
         check_in(f"E-13 {count} readings: the last one is lettered {last} and keeps its text",
-                 f"  - {last}) reading {count} of Q1 (from description)", lines)
+                 f"  - {last}) reading {count} of Q1 (from the ticket's description)", lines)
     nine = gate_story("qa-a2-nine-", [question("Q1", 9)])
     try:
         check_in("E-13 nine readings in the packet: the ninth has letter i",
@@ -543,7 +544,7 @@ def test_no_question_and_no_reading_is_cut() -> None:
              "The factory wrote 27 readings for this question, more than it can letter (26). "
              "That is the factory's own defect, not yours", over)
     check_in("E-13 27 readings: and offers the person's own words", "answer in your own words", over)
-    check_in("E-13 27 readings: no reading is cut", "reading 27: reading 27 of Q1 (from description)", over)
+    check_in("E-13 27 readings: no reading is cut", "reading 27: reading 27 of Q1 (from the ticket's description)", over)
 
 
 def test_the_decision_text_holds_the_words_where_they_are_stored() -> None:
@@ -1070,6 +1071,673 @@ def test_the_answers_are_printed_whole_on_both_roads() -> None:
     check_not_in("...with no truncation marker", "brief truncated", cover)
 
 
+# --- FV1-9 N2: the card helps, the target says it was raised twice, the gate's top and the rehearsal leave a carded question alone ---
+
+def help_question(**extra) -> dict:
+    row = {"id": "Q1", "question": "What is the import limit?", "severity": "major", "owner_role": "dev_arch"}
+    row.update(extra)
+    return row
+
+
+def readings_row(count: int = 2, **each) -> list:
+    return [dict({"reading": f"reading {i + 1}"}, **each) for i in range(count)]
+
+
+def test_fv19_card_help_fields() -> None:
+    """D5: each help field H1..H7 present ALONE gives its line, absent gives none; T6 only when nothing helps (H5 only without H1)."""
+    note = {"words": "The ticket says 100 in its description.", "by": "conductor", "at": "2026-11-14T10:20:30"}
+    effects = {"Q1": {"a": [], "b": []}}
+    field_lines = {
+        "H1": ('the source says: "limit is 100"', help_question(source_says=[{"quote": "limit is 100", "where": "AC-2"}]), None),
+        "H2": ("before the change: 100", help_question(before={"value": "100", "where": "code"}, now={"value": "1000", "where": "diff"}), None),
+        "H3": ("if chosen: goes by 1", help_question(readings=readings_row(2, if_chosen="goes by 1")), None),
+        "H4": ("what changes if you choose a:", help_question(readings=readings_row(2)), effects),
+        "H5": ('the requirement it is about (R-8): "Imports over 100 files are refused"',
+               help_question(requirement_help={"id": "R-8", "text": "Imports over 100 files are refused"}), None),
+        "H6": ("what may help you answer, from the factory's helper, who read the sources for it (written 2026-11-14; "
+               "it does not say which answer is right - you decide): The ticket says 100 in its description.",
+               help_question(note=note), None),
+        "H7": ("(from the ticket's description)", help_question(readings=readings_row(2, **{"from": "description"})), None),
+    }
+    sentinel = {"H1": "the source says", "H2": "before the change:", "H5": "the requirement it is about", "H6": "what may help you",
+                "H7": "(from"}
+    for name, (line, row, eff) in field_lines.items():
+        lines = [l.strip() for l in gate_brief.question_card(row, 1, eff)]
+        check(f"fv19_card_help_fields {name}: present alone, its line is on the card", any(line in l for l in lines))
+        for other, marker in sentinel.items():
+            if other != name:
+                check(f"fv19_card_help_fields {name}: the line of {other} is not printed beside it", not any(marker in l for l in lines))
+        check(f"fv19_card_help_fields {name}: never a `?` origin", not any("(from ?)" in l for l in lines))
+    bare = gate_brief.question_card(help_question(), 1)
+    for name, marker in sentinel.items():
+        check(f"fv19_card_help_fields {name}: absent gives no line (no heading over nothing)", not any(marker in l for l in bare))
+    both = gate_brief.question_card(help_question(source_says=[{"quote": "limit is 100", "where": "AC-2"}],
+                                                 requirement_help={"id": "R-8", "text": "Imports over 100 files are refused"}), 1)
+    check("fv19_card_help_fields H5: suppressed when the card has a source quote", not any("the requirement it is about" in l for l in both))
+    blank_quote = gate_brief.question_card(help_question(source_says=[{"quote": "  ", "where": "AC-2"}],
+                                                        requirement_help={"id": "R-8", "text": "Imports over 100 files are refused"}), 1)
+    check("fv19_card_help_fields H5: a blank quote is no H1 - the requirement text is printed",
+          any("the requirement it is about (R-8)" in l for l in blank_quote))
+    undated = gate_brief.question_card(help_question(note={"words": "Words only.", "by": "conductor", "at": ""}), 1)
+    check_in("fv19_card_help_fields H6: a note with no usable date has no `written` clause",
+             "  - what may help you answer, from the factory's helper, who read the sources for it "
+             "(it does not say which answer is right - you decide): Words only.", undated)
+    cuts = []
+    for n in (240, 241):
+        card = gate_brief.question_card(help_question(requirement_help={"id": "R-8", "text": "r" * n}), 1)
+        cuts.append(len(next(l for l in card if "(R-8)" in l).split('"')[1]))
+    check_eq("fv19_card_help_fields H5: the requirement text is cut at 240 characters (AT 240 whole, BEYOND 240 plus the three dots)", cuts, [240, 243])
+    ends = [next(l for l in gate_brief.question_card(help_question(requirement_help={"id": "R-8", "text": "r" * n}), 1) if "(R-8)" in l)
+            for n in (240, 241)]
+    check_eq("fv19_card_help_fields H5: AT 240 no `...`, BEYOND 240 `...` inside the quote (the same cut rule as T3)",
+             ['..."' in ends[0], '..."' in ends[1]], [False, True])
+
+
+def test_fv19_card_no_help_line() -> None:
+    """D5, FR-41: nothing helps (no H1, H2, H5, H6 and no reading with a known origin) -> T6 and no `?`; one known origin is help enough."""
+    t6 = ("  - where these readings come from is not recorded, and the factory has found nothing more than what is shown here; "
+          "answer from what you know of the product, or in your own words.")
+    t6_bare = ("  - the factory has found nothing more than what is shown here; answer from what you know of the product, "
+               "or in your own words.")
+    for label, row, expected in (("a bare question (F1: no readings, so no readings clause)", help_question(), t6_bare),
+                                 ("readings with a blank origin", help_question(readings=readings_row(2, **{"from": ""})), t6),
+                                 ("readings with no origin key", help_question(readings=readings_row(2)), t6)):
+        lines = gate_brief.question_card(row, 1)
+        check_in(f"fv19_card_no_help_line {label}: T6 is printed", expected, lines)
+        check_eq(f"fv19_card_no_help_line {label}: `these readings` only where there are readings",
+                 any("these readings" in l for l in lines), bool(row.get("readings")))
+        check(f"fv19_card_no_help_line {label}: no `(from ?)`", not any("(from ?)" in l for l in lines))
+        check_eq(f"fv19_card_no_help_line {label}: the answer line stays last", lines[-1].startswith("  - Answer: "), True)
+        check_eq(f"fv19_card_no_help_line {label}: T6 is before the answer line", lines.index(expected) < len(lines) - 1, True)
+    spec = gate_brief.question_card(help_question(readings=readings_row(2, **{"from": "spec"})), 1)
+    check_eq("fv19_card_no_help_line (F1, FR-10): a reading whose origin the data file does not know is printed `(from: spec)` and T6 "
+             "does not say the origin is unrecorded", (any("(from: spec)" in l for l in spec), any("not recorded" in l for l in spec)), (True, False))
+    bare_lines = gate_brief.question_card(help_question(), 1)
+    check_eq("fv19_card_no_help_line: a bare card has no `?` but the question's own",
+             [l for l in bare_lines if "?" in l], ["- **Q1** [major, owner dev_arch] What is the import limit?"])
+    known = gate_brief.question_card(help_question(readings=readings_row(2, **{"from": "code"})), 1)
+    check_not_in("fv19_card_no_help_line: one reading with a known origin word is help - no T6", t6, known)
+    many = gate_brief.question_card(help_question(readings=readings_row(27, **{"from": ""})), 1)
+    check_in("fv19_card_no_help_line: the unlettered branch (27 readings) says it too", t6, many)
+    check_eq("fv19_card_no_help_line: and prints no `(from ?)`", [l for l in many if "(from ?)" in l], [])
+
+
+def test_fv19_origin_words_on_card() -> None:
+    """T7: every word of `contract.READING_ORIGINS` is printed as the data file's words; an unknown word plainly; a detail kept; blank: nothing."""
+    words = QR.vocabulary()["reading_origin_words"]
+    for origin in contract.READING_ORIGINS:
+        lines = gate_brief.question_card(help_question(readings=readings_row(1, **{"from": origin})), 1)
+        check_in(f"fv19_origin_words_on_card {origin}: printed as the person's words", f"  - a) reading 1 (from {words[origin]})", lines)
+    unknown = gate_brief.question_card(help_question(readings=readings_row(1, **{"from": "x"})), 1)
+    check_in("fv19_origin_words_on_card: an unknown word is printed plainly as `(from: x)`", "  - a) reading 1 (from: x)", unknown)
+    detail = gate_brief.question_card(help_question(readings=readings_row(1, **{"from": "comment:Alice"})), 1)
+    check_in("fv19_origin_words_on_card: a known word with a detail keeps the detail", "  - a) reading 1 (from a comment on the ticket: Alice)", detail)
+    blank = gate_brief.question_card(help_question(readings=readings_row(1, **{"from": "   "})), 1)
+    check_in("fv19_origin_words_on_card: a blank origin has no parenthetical", "  - a) reading 1", blank)
+
+
+def test_fv19_target_card_says_also_raised() -> None:
+    """T2 on the target's card and nothing else: the hidden twin has no card, no twin text, no split door (owner 14.11)."""
+    task_root = gate_story("qa-fv19-target-", [question("Q7"), question("Q16")])
+    try:
+        QR.declare_repeat(task_root, "Q16", "Q7", "both ask the limit", by="driver", declared_by="qa-case-designer", stage="S4")
+        text = packet(task_root)
+        card = card_of(text, "Q7")
+        check_in("fv19_target_card_says_also_raised: the target's card says it was raised twice and the answer covers both",
+                 "  - this question was raised twice in this story; it is asked once, here, and your answer is the answer to both.", card)
+        check_not_in("fv19_target_card_says_also_raised: the hidden twin has no card", "- **Q16**", text)
+        check_not_in("fv19_target_card_says_also_raised: no twin text and no id of it on the target's card", "Q16", card)
+        for door in ("split", "separately", "ask again", "not the same"):
+            check_not_in(f"fv19_target_card_says_also_raised: no split door ({door})", door, card.lower())
+        check_eq("fv19_target_card_says_also_raised: a card with no repeat carries no such line",
+                 [l for l in gate_brief.question_card(question("Q8"), 1) if "raised twice" in l], [])
+    finally:
+        drop(task_root)
+
+
+def test_fv19_card_says_asked_again() -> None:
+    """T3: a reworded open question says it is the same question, shows what it read before (cut at 240, `...` when cut) and the changed readings."""
+    def reworded(was: str, was_readings=None, status="open") -> list:
+        entry = {"at": "2026-11-14T09:00:00", "by": "conductor", "role": "conductor", "stage": "S4", "why": "w", "was": was}
+        if was_readings is not None:
+            entry["was_readings"] = was_readings
+        return gate_brief.question_card(question("Q1", 2, reworded=[entry], status=status), 1)
+    lead = "  - asked again in clearer words: this is the same question as before, which had no answer yet. Earlier it read: "
+    check_in("fv19_card_says_asked_again: AT 240 characters the earlier wording is whole, no `...`",
+             lead + '"' + "w" * 240 + '"', reworded("w" * 240))
+    check_in("fv19_card_says_asked_again: BEYOND 240 it is cut and says so with `...`",
+             lead + '"' + "w" * 240 + '..."', reworded("w" * 241))
+    check_in("fv19_card_says_asked_again: whitespace is squeezed", lead + '"the old words"', reworded("  the   old\nwords "))
+    changed = reworded("old", ["old a", "reading 2 of Q1"])
+    check_in("fv19_card_says_asked_again: a changed reading gets one line with its letter", '    earlier, reading a read: "old a"', changed)
+    check_eq("fv19_card_says_asked_again: an unchanged reading gets none", [l for l in changed if "earlier, reading b" in l], [])
+    check_in("fv19_card_says_asked_again: an earlier reading is cut at 200",
+             '    earlier, reading a read: "' + "x" * 200 + '"', reworded("old", ["x" * 201, "reading 2 of Q1"]))
+    check_eq("fv19_card_says_asked_again: no was_readings, no reading lines", [l for l in reworded("old") if "earlier, reading" in l], [])
+    check_eq("fv19_card_says_asked_again: a settled status is not an asked-again card",
+             [l for l in reworded("old", status="answered") if "asked again in clearer words" in l], [])
+    check_eq("fv19_card_says_asked_again: an old row with no `reworded` key has no line",
+             [l for l in gate_brief.question_card(question("Q1"), 1) if "clearer words" in l], [])
+    check_eq("fv19_card_says_asked_again: a `reworded` that is not a list is no line, never a crash",
+             [l for l in gate_brief.question_card(question("Q1", 2, reworded="oops"), 1) if "clearer words" in l], [])
+
+
+def test_fv19_note_on_card() -> None:
+    """T4: the helper's note shows on the gate A card with its date and the "you decide" clause, only on the bytes it was written for."""
+    task_root = gate_story("qa-fv19-note-", [question("Q1", 2)])
+    try:
+        rec = QR.record_note(task_root, "Q1", "The ticket says 100 in its description.", by="conductor", where="stage ran")
+        card = card_of(packet(task_root), "Q1")
+        check_in("fv19_note_on_card: date, helper, the clause that it does not pick an answer, and the words",
+                 "  - what may help you answer, from the factory's helper, who read the sources for it (written "
+                 + rec["at"][:10] + "; it does not say which answer is right - you decide): The ticket says 100 in its description.", card)
+        check_eq("fv19_note_on_card: a note is help - no T6", "where these readings come from is not recorded" in card, False)
+        (task_root / "work" / "requirements-readiness.json").write_text(
+            json.dumps({"verdict": "ready", "open_questions": [question("Q1", 2, question="Other words?")]}), encoding="utf-8")
+        check_not_in("fv19_note_on_card: a note measured on other bytes is not shown", "what may help you answer", card_of(packet(task_root), "Q1"))
+    finally:
+        drop(task_root)
+
+
+def test_fv19_repeat_shown_again_note() -> None:
+    """T14: a repeat that does not stand is asked, with the reason as its status note (card line), per `repeat_problem`."""
+    base = {"status": "repeat", "same_as": "Q7", "follows": "", "changed_since_answer": False}
+    for label, extra, expected in (
+            ("gone", {"repeat_problem": "gone"}, "it was marked as the same question as Q7, which the factory no longer has, so it is asked here"),
+            ("cycle", {"repeat_problem": "cycle"}, "it was marked as the same question as another one that points back to it, so it is asked here"),
+            ("target_changed", {"repeat_problem": "target_changed"}, "it was marked as the same question as Q7, whose words have changed since, so it is asked here"),
+            ("its own words changed", {"repeat_problem": "", "changed_since_answer": True},
+             "it was marked as the same question as Q7, but its own words have changed since, so it is asked here")):
+        check_eq(f"fv19_repeat_shown_again_note {label}: the note", gate_brief.question_note(dict(base, **extra)), expected)
+    check_eq("fv19_repeat_shown_again_note: a repeat that stands has no note",
+             gate_brief.question_note(dict(base, follows="Q7", repeat_problem="")), "")
+    task_root = gate_story("qa-fv19-again-", [question("Q7"), question("Q16")])
+    try:
+        QR.declare_repeat(task_root, "Q16", "Q7", "both ask the limit", by="driver", declared_by="qa-case-designer", stage="S4")
+        (task_root / "work" / "requirements-readiness.json").write_text(
+            json.dumps({"verdict": "ready", "open_questions": [question("Q7", question="New words for Q7?"), question("Q16")]}), encoding="utf-8")
+        text = packet(task_root)
+        check_in("fv19_repeat_shown_again_note: the target changed -> the twin has its own card with the reason",
+                 "it was marked as the same question as Q7, whose words have changed since, so it is asked here.", card_of(text, "Q16"))
+        check_not_in("fv19_repeat_shown_again_note: and the target's card does not claim a twin that is shown", "raised twice", card_of(text, "Q7"))
+    finally:
+        drop(task_root)
+
+
+def test_fv19_still_open_skips_hidden_repeat() -> None:
+    """P2: a hidden repeat is not listed and copies `repeated_by` onto its target; a row with no register match is listed."""
+    rows = [question("Q7"), question("Q16"), {"question": "no id here", "severity": "minor", "owner_role": "po_ba"}]
+    task_root = gate_story("qa-fv19-still-", rows)
+    try:
+        QR.declare_repeat(task_root, "Q16", "Q7", "both ask the limit", by="driver", declared_by="qa-case-designer", stage="S4")
+        got = gate_brief.unanswered_questions(task_root)
+        check_eq("fv19_still_open_skips_hidden_repeat: the hidden twin is not listed, the unmatched row is",
+                 [q.get("id") for q in got], ["Q7", None])
+        check_eq("fv19_still_open_skips_hidden_repeat: the target carries the twin's id", got[0].get("repeated_by"), ["Q16"])
+        check_eq("fv19_still_open_skips_hidden_repeat: an unmatched row carries none", "repeated_by" in got[1], False)
+        QR.record(task_root, "Q7", "answered", "Q7: a", "gate A", "person", QR.load(task_root)["questions"][0]["row_hash"], reading="a")
+        check_eq("fv19_still_open_skips_hidden_repeat: a target the person answered is not listed and its hidden twin stays out",
+                 [q.get("id") for q in gate_brief.unanswered_questions(task_root)], [None])
+    finally:
+        drop(task_root)
+
+
+def test_fv19_stop_and_gate_cards_print_the_same_help() -> None:
+    """H5 on both cards: one question through gate A's list and the question stop prints the same requirement line (one reader); the
+    absent-register and no-requirement-id rows add no line and never raise."""
+    line_of = lambda lines: [l for l in lines if "the requirement it is about" in l]
+    for label, extra, register, expected in (
+            ("`requirement` names an R id", {"requirement": "R-4"}, True, ['  - the requirement it is about (R-4): "A removed node is shown at its former position" — work/requirements-register.md']),
+            ("`raised_for.requirement`", {"raised_for": {"requirement": "R-3"}}, True, ['  - the requirement it is about (R-3): "A restored node keeps its identity" — work/requirements-register.md']),
+            ("an id the register lacks", {"requirement": "R-99"}, True, []),
+            ("no requirement id", {}, True, []),
+            ("the register is absent", {"requirement": "R-4"}, False, [])):
+        task_root = gate_story("qa-fv19-h5-", [question("Q1", 2, **extra)], with_register_md=register)
+        try:
+            gate_card = gate_brief.question_card(gate_brief.unanswered_questions(task_root)[0], 1)
+            stop_card = QS.open_cards(task_root)
+            check_eq(f"fv19_stop_gate_help {label}: gate A card help lines", line_of(gate_card), expected)
+            check_eq(f"fv19_stop_gate_help {label}: the stop's card prints the same help lines", line_of(stop_card), line_of(gate_card))
+        finally:
+            drop(task_root)
+
+
+class TopStub:
+    """What `DriverGates.unrepaired_text` and `conductor_text` read of a driver: the task id and the case critic's findings file."""
+    task = "T-1"
+    task_root = Path(".")
+
+    def s4_findings(self):
+        return None
+
+
+def test_fv19_gate_top_skips_carded_question() -> None:
+    """P6: an `open_questions` finding tagged `on_card` True is not at the gate's top; False, an old finding without the tag and
+    every other check are; the header is unchanged; nothing left prints no block."""
+    import driver_gates
+    unrepaired = driver_gates.DriverGates.unrepaired_text
+
+    def finding(**extra):
+        return dict({"check": "open_questions", "class": "factory_fixable", "message": "Q1 cannot be answered as it stands (x)", "fix": "f"}, **extra)
+    other = {"check": "gate_decision", "class": "factory_fixable", "message": "the gate decision is open", "fix": "f"}
+    header = "## What the factory could not repair before asking you"
+    cases = (("on_card True", [finding(on_card=True, question="Q1"), other], False),
+             ("on_card False", [finding(on_card=False, question="Q1"), other], True),
+             ("an old finding with no keys", [finding(), other], True),
+             ("on_card as the text `true` is not True", [finding(on_card="true"), other], True))
+    for label, fixable, printed in cases:
+        text = unrepaired(TopStub(), "A", fixable)
+        check_eq(f"fv19_gate_top_skips_carded_question {label}: the question line is {'printed' if printed else 'left out'}",
+                 "Q1 cannot be answered" in text, printed)
+        check_in(f"fv19_gate_top_skips_carded_question {label}: the other finding stays", "- the gate decision is open", text)
+        check_in(f"fv19_gate_top_skips_carded_question {label}: the header is unchanged",
+                 header + "\n\nThese are the factory's own to repair, not questions for you:", text)
+    check_eq("fv19_gate_top_skips_carded_question: only carded findings -> no block at all, never a heading over nothing",
+             unrepaired(TopStub(), "A", [finding(on_card=True, question="Q1")]), "")
+    same = unrepaired(TopStub(), "A", [finding(on_card=True), finding(on_card=True, message="Q2 cannot be answered as it stands (y)"), other])
+    check_eq("fv19_gate_top_skips_carded_question: every carded finding goes, not the first only", "cannot be answered" in same, False)
+
+
+def test_fv19_rehearsal_skips_hidden_repeat() -> None:
+    """P8: the rehearsal raises no finding for a hidden repeat; the others carry `question` and `on_card`."""
+    bare = [{"id": "Q7", "severity": "major", "owner_role": "po_ba", "question": "Where must a removed node appear?"},
+            {"id": "Q16", "severity": "major", "owner_role": "po_ba", "question": "Where does a removed node go?"},
+            {"id": "Q20", "severity": "major", "owner_role": "po_ba", "question": "A third bare one?"}]
+    base = story("qa-fv19-rehearse-", questions=bare)
+    task_root = base / "artifacts" / "TP1-15045"
+    try:
+        before = gate_preflight.Rehearsal(task_root, "A")
+        before.check_open_questions()
+        check_eq("fv19_rehearsal_skips_hidden_repeat control: with no repeat every bare question is a finding",
+                 [f["question"] for f in before.findings], ["Q7", "Q16", "Q20"])
+        QR.declare_repeat(task_root, "Q16", "Q7", "both ask where", by="driver", declared_by="qa-case-designer", stage="S4")
+        rehearsal = gate_preflight.Rehearsal(task_root, "A")
+        rehearsal.check_open_questions()
+        check_eq("fv19_rehearsal_skips_hidden_repeat: the hidden twin has no finding",
+                 [f["question"] for f in rehearsal.findings], ["Q7", "Q20"])
+        check_eq("fv19_rehearsal_skips_hidden_repeat: `on_card` is True for a question the person is shown",
+                 [f["on_card"] for f in rehearsal.findings], [True, True])
+        check_in("fv19_rehearsal_skips_hidden_repeat: and the finding text is as before",
+                 "Q7 cannot be answered as it stands", rehearsal.findings[0]["message"])
+        QR.record(task_root, "Q20", "with_designer", "with the designer", "stage ran", "driver", QR.load(task_root)["questions"][2]["row_hash"])
+        owned = gate_preflight.Rehearsal(task_root, "A")
+        owned.check_open_questions()
+        check_eq("fv19_rehearsal_skips_hidden_repeat (F2): a `with_designer` row IS in gate A's list (`still_open`), so `on_card` is True",
+                 {f["question"]: f["on_card"] for f in owned.findings}, {"Q7": True, "Q20": True})
+    finally:
+        cleanup(base.parent)
+
+
+def test_fv19_conductor_text_note_door() -> None:
+    """P7: T10 only with an `open_questions` finding among `rest`; the closing paragraph stays last."""
+    import driver_gates
+    conductor_text = driver_gates.DriverGates.conductor_text
+    finding = {"check": "open_questions", "id": "open_questions-1", "message": "Q1 cannot be answered as it stands (x)", "fix": "back to S2"}
+    other = {"check": "gate_decision", "id": "gate_decision-1", "message": "the gate decision is open", "fix": "f"}
+    t10 = ("For each `open_questions` finding above: when `controller.py --operation rework --stage S2 --role qa-requirements-tester` is "
+           "refused by the repair cap, do not try again. Read the sources and write what helps the person answer that question - where each "
+           "reading comes from, the source line, what each answer changes, an answered question it rests on - with `question_register.py "
+           "--task T-1 --note <id> --words-file <file> --by conductor --where \"stage ran\"`. Do not say which reading is right: the "
+           "person decides. Do not rewrite the question; its card shows your note.")
+    with_it = conductor_text(TopStub(), "A", "the cap", [finding, other], "a rework")
+    check_in("fv19_conductor_text_note_door: with an open_questions finding T10 is present, word for word", t10, with_it)
+    class NoTask(TopStub):
+        task = ""
+    check_in("fv19_conductor_text_note_door (F5): with no task id the placeholder `<T>` stays", "--task <T> --note <id>",
+             conductor_text(NoTask(), "A", "the cap", [finding], ""))
+    check_eq("fv19_conductor_text_note_door: T10 comes after the findings",
+             with_it.index(t10) > with_it.index("the gate decision is open"), True)
+    check_eq("fv19_conductor_text_note_door: the closing paragraph stays last",
+             with_it.rindex("Repair what you can") > with_it.index(t10)
+             and with_it.endswith("only for a finding that needs a decision of theirs."), True)
+    without = conductor_text(TopStub(), "A", "the cap", [other], "")
+    check_not_in("fv19_conductor_text_note_door: with no open_questions finding there is no T10", "--note <id>", without)
+    check_eq("fv19_conductor_text_note_door: nothing else of the text changes", with_it.replace("\n\n" + t10, "").count("Repair what you can"), 1)
+
+
+def card_problems(text: str) -> list:
+    """`human_text.problems` of a card alone: the card is a block of the packet, whose how-to-answer block is the packet's own, so that
+    one rule is not asked of a block."""
+    return [p for p in human_text.problems(text) if p.get("rule") != "no_how_to_answer"]
+
+
+def test_fv19_human_text_passes() -> None:
+    """FR-6: the new card lines pass `human_text.problems` - a card with every new line, and the gate A packet that carries them."""
+    task_root = gate_story("qa-fv19-human-", [question("Q7"), question("Q16")])
+    try:
+        QR.declare_repeat(task_root, "Q16", "Q7", "both ask the limit", by="driver", declared_by="qa-case-designer", stage="S4")
+        QR.record_note(task_root, "Q7", "The ticket says 100 in its description.", by="conductor", where="stage ran")
+        card = card_of(packet(task_root), "Q7")
+        check_in("fv19_human_text_passes: the card under test carries T2", "raised twice", card)
+        check_in("fv19_human_text_passes: and T4", "what may help you answer", card)
+        check_eq("fv19_human_text_passes: that card has no human-text problem", card_problems(card), [])
+    finally:
+        drop(task_root)
+    full = "\n".join(gate_brief.question_card(help_question(
+        readings=readings_row(2, **{"from": "comment:Alice"}),
+        requirement_help={"id": "R-8", "text": "Imports over 100 files are refused"}, repeated_by=["Q16"],
+        reworded=[{"was": "old words", "was_readings": ["old a", "reading 2"]}],
+        note={"words": "Helpful words.", "by": "conductor", "at": "2026-11-14T10:00:00"}), 1))
+    check_eq("fv19_human_text_passes: a card with every new line has no human-text problem", card_problems(full), [])
+    bare = "\n".join(gate_brief.question_card(help_question(), 1))
+    check_eq("fv19_human_text_passes: nor the card with T6", card_problems(bare), [])
+    repeat_note = "\n".join(gate_brief.question_card(help_question(status_note=gate_brief.question_note(
+        {"status": "repeat", "same_as": "Q7", "repeat_problem": "gone", "follows": ""})), 1))
+    check_eq("fv19_human_text_passes: nor a card with T14", card_problems(repeat_note), [])
+
+
+def test_fv19_card_old_row_without_keys() -> None:
+    """TEMPORAL: a row with none of the new keys renders as before - no KeyError, no empty help line, no line over nothing."""
+    row = question("Q1")
+    lines = gate_brief.question_card(row, 1)
+    check_eq("fv19 temporal: no empty or whitespace-only line", [l for l in lines if not l.strip()], [])
+    check_eq("fv19 temporal: no line mentions a twin, a note or an earlier wording",
+             [l for l in lines if any(w in l for w in ("raised twice", "helper", "clearer words", "requirement it is about"))], [])
+    for odd in ({"note": "text"}, {"note": None}, {"note": {"words": "  "}}, {"repeated_by": []}, {"reworded": []},
+                {"requirement_help": "x"}, {"requirement_help": {"id": "R-1", "text": ""}}):
+        check_eq(f"fv19 temporal: a malformed value {odd} is no line and no crash", gate_brief.question_card(dict(row, **odd), 1), lines)
+
+
+def test_fv19_handover_names_the_doors() -> None:
+    """FV1-9 tail card C (P2): the hand-over of a person's words names the answer, reword, repeat and show doors with `--task` (and
+    `--stage` on the two that record it), the script by its full path, every instruction before `## The question`; no register read
+    (`recorded=None`) names none of them (control)."""
+    import story_run
+    scripts = Path("C:/factory/scripts")
+    script = f"python {scripts / 'question_register.py'}"
+    recorded = {"recorded": ["Q1"], "deferred": [], "unread": [], "unknown_ids": []}
+    for kind, stage in (("questions", "S3"), ("halt", "S4"), ("questions", "S2")):
+        seen = []
+        driver = story_run.Driver.__new__(story_run.Driver)
+        driver.task, driver.scripts, driver.task_root, driver.state_dir = "T-1", scripts, Path("."), Path(".")
+        driver.unread = lambda k, s, d, text, words=None, seen=seen: seen.append(text)
+        driver.apply_question_answers = lambda s: {"plan_lines": []}
+        driver.register_words_to_conductor(kind, stage, "D-1", "Q1 text", "my words", recorded)
+        text = seen[0]
+        head = text[:text.index("## The question")]
+        label = f"fv19_handover_names_the_doors[{kind}/{stage}]"
+        for name, needle in (
+                ("answer sentence", f"recorded with `{script}` (--answer QID --reading <letter> | --not-needed QID | --defer QID, with --task T-1, --words-file"),
+                ("reword door", f"`{script} --task T-1 --reword QID --question-file <file> --by conductor --where \"{stage} stop\" --stage {stage}`"),
+                ("repeat door", f"`{script} --task T-1 --repeat QID --same-as QID --words-file <file> --by conductor --where \"{stage} stop\" --stage {stage}`"),
+                ("show door", f"`{script} --task T-1 --show`")):
+            check(f"{label}: the {name} is there, whole, before `## The question`", needle in head, needle)
+        check_eq(f"{label}: each door is named once", (head.count("--reword QID"), head.count("--repeat QID")), (1, 1))
+    seen = []
+    driver = story_run.Driver.__new__(story_run.Driver)
+    driver.task, driver.scripts, driver.task_root, driver.state_dir = "T-1", scripts, Path("."), Path(".")
+    driver.unread = lambda k, s, d, text, words=None: seen.append(text)
+    driver.judged_reply = lambda *a, **k: ""
+    driver.register_words_to_conductor("questions", "S3", "D-1", "Q1 text", "my words", None)
+    check_eq("fv19_handover_names_the_doors[control]: with no register read none of the doors is named",
+             [w for w in ("--reword QID", "--repeat QID", "--answer QID", "--stage") if w in seen[0]], [])
+
+
+FV19_TR1 = ("Code did not carry out these question entries from your earlier work, or could not tell whether it did; each line says "
+            "which and why:")
+FV19_UNKNOWN = ("the factory could not read what this step reported, so whether your question entries were carried out is not known; "
+                "look at them in your work")
+FV19_S4_TAIL = "it stays in your case and is tried again when S4 closes next; remove it if it no longer holds"
+FV19_S3_TAIL = "it stays on your plan row and is tried again when S3 closes next; remove it if it no longer holds"
+FV19_PLAN_TAIL = "code could not write this onto your plan row and will not try again; add it to the row yourself if it still holds"
+FV19_ACC_TAIL = "an item of a handoff form is not tried again: write it again in your next form if it still holds"
+FV19_NOTE = "TC-1: a `question_repeats` entry needs `question`, `same_as` and `why`, each a text"
+
+
+def fv19_rig(dispatches=None, code=0, out="", stage_done=None):
+    """A `Driver.__new__` with what the carriers read: `py` records the scripts (and what the store held when `stage_done.py` ran) and answers
+    `(code, out)` for the roll-call / the form raiser; the store is the real `question_pass_lines` of `state`."""
+    import story_run
+    d = story_run.Driver.__new__(story_run.Driver)
+    d.state, d.told_saves, d.told_calls, d.told_at_done = {}, [], [], []
+    d.save_state = lambda: d.told_saves.append(json.dumps(d.state.get("question_pass_lines"), sort_keys=True))
+    d.task, d.task_root = "T-1", temp_dir("qa-fv19-told-")
+    d.controller_state = lambda: {"dispatches": dict(dispatches or {})}
+    d.pin_cases = lambda: d.told_calls.append("pin_cases")
+
+    def py(script, *args, **kw):
+        d.told_calls.append(script)
+        if script == "stage_done.py":
+            d.told_at_done.append(json.dumps(d.state.get("question_pass_lines"), sort_keys=True))
+            if stage_done is not None:
+                raise stage_done
+            return 0, ""
+        return code, out
+    d.py = py
+    return d
+
+
+def fv19_quiet(call):
+    """(the exception `call` raised or None, what it printed)."""
+    import contextlib
+    import io
+    printed = io.StringIO()
+    raised = None
+    with contextlib.redirect_stdout(printed):
+        try:
+            call()
+        except Exception as exc:  # noqa: BLE001 - the row asserts on it
+            raised = exc
+    return raised, printed.getvalue()
+
+
+def fv19_s4(d):
+    d.settle_role_questions = lambda stage: None
+    d.s4_findings = lambda: None
+    d.unraised_cases = lambda: ["TC-1"]
+    d.render_appendix = lambda: None
+    return lambda: d.s4_after_critic("approve", [], 0, 2, True)
+
+
+def fv19_raise_move(d):
+    return lambda: d.raise_move("A", [], {}, {"moves": []})
+
+
+def fv19_acceptance(stage, dispatch):
+    def build(d):
+        (d.task_root / "work" / "handoffs").mkdir(parents=True)
+        (d.task_root / "work" / "handoffs" / f"{dispatch}.yaml").write_text("questions: []\n", encoding="utf-8")
+        return lambda: d.stage_acceptance_write(stage, dispatch)
+    return build
+
+
+def fv19_s3(notes, problems):
+    def build(d):
+        import types
+        planning_contract.project_plan = lambda *a, **k: types.SimpleNamespace(wrote=False, problems=list(problems), notes=list(notes))
+        return lambda: d.s3_project(claims=False)
+    return build
+
+
+def test_fv19_carriers_tell() -> None:
+    """FV1-9 tail card A (P1): every carrier that drops what code did NOT carry out of a role's question entries tells it to the role that
+    wrote them - stored under `next:<receiving stage>:<role>`, read by `next_session_lines`, removed by `forget_told` - and the one
+    reader in `run_role` puts it in the next prompt. One table; the id of a row names the case. Each row asserts through
+    `next_session_lines(<receiving stage>, <role>)`, then `forget_told` empties the key."""
+    from driver_core import RepairFailed, Refusal
+    notes_out = json.dumps({"question_notes": [FV19_NOTE], "repeats": [], "rewords": []})
+    form_out = json.dumps({"dispatch": "D", "raised": [], "already": [], "rewords": [], "reword_problems": ["questions[0]: Q3 was not asked again: x"]}, indent=2)
+    acc = "S4-qa-case-critic-1"
+    planner, designer = "qa-test-strategist", "qa-case-designer"
+    # id, build(driver) -> call, code, out, kwargs of the rig, (stage, role) read, expected lines of that key, expected exception type
+    rows = [
+        ("s4_after_critic: question_notes -> the designer's S4 key", fv19_s4, 0, notes_out, {}, ("S4", designer), [f"{FV19_NOTE} ({FV19_S4_TAIL})"], None),
+        ("s4_after_critic: empty question_notes -> no key, no header", fv19_s4, 0, json.dumps({"question_notes": []}), {}, ("S4", designer), [], None),
+        ("s4_after_critic: output that is not JSON -> the one unknown line", fv19_s4, 0, "Traceback (most recent call last)", {}, ("S4", designer),
+         [f"{FV19_UNKNOWN} ({FV19_S4_TAIL})"], None),
+        ("s4_after_critic: exit 1 with an errors list (A-3) -> the unknown line", fv19_s4, 1, json.dumps({"errors": ["raise_questions: X"]}), {},
+         ("S4", designer), [f"{FV19_UNKNOWN} ({FV19_S4_TAIL})"], None),
+        ("s4_after_critic: plan_notes (item 13) -> the S3 planner's key, not the designer's", fv19_s4, 0,
+         json.dumps({"plan_notes": ["Q3 was raised, but the plan row was not told"]}), {}, ("S3", planner),
+         [f"Q3 was raised, but the plan row was not told ({FV19_PLAN_TAIL})"], None),
+        ("raise_move: plan_notes (exit 0) -> the S3 planner's key with the same true tail", fv19_raise_move, 0,
+         json.dumps({"plan_notes": ["Q3 was raised, but the plan row was not told"]}), {}, ("S3", planner),
+         [f"Q3 was raised, but the plan row was not told ({FV19_PLAN_TAIL})"], None),
+        ("s4_after_critic: plan_notes leave the designer's key empty", fv19_s4, 0, json.dumps({"plan_notes": ["x"]}), {}, ("S4", designer), [], None),
+        ("raise_move: exit 0 -> the designer's S4 key", fv19_raise_move, 0, notes_out, {}, ("S4", designer), [f"{FV19_NOTE} ({FV19_S4_TAIL})"], None),
+        ("raise_move: exit 1 stays legal and is told", fv19_raise_move, 1, notes_out, {}, ("S4", designer), [f"{FV19_NOTE} ({FV19_S4_TAIL})"], None),
+        ("raise_move: any other exit tells the unknown line BEFORE RepairFailed", fv19_raise_move, 2, "boom", {}, ("S4", designer),
+         [f"{FV19_UNKNOWN} ({FV19_S4_TAIL})"], RepairFailed),
+        ("stage_acceptance_write: reword_problems -> the acceptor's key at its own session's stage", fv19_acceptance("S4", acc), 0, form_out,
+         {"dispatches": {acc: {"id": acc, "stage": "S4"}}}, ("S4", "qa-case-critic"),
+         [f"questions[0]: Q3 was not asked again: x ({FV19_ACC_TAIL})"], None),
+        ("stage_acceptance_write: S7 accepted by the scribe -> read by its S8 session (A-1)", fv19_acceptance("S7", "S8-qa-doc-scribe-1"), 0, form_out,
+         {"dispatches": {"S8-qa-doc-scribe-1": {"id": "S8-qa-doc-scribe-1", "stage": "S8"}}}, ("S8", "qa-doc-scribe"),
+         [f"questions[0]: Q3 was not asked again: x ({FV19_ACC_TAIL})"], None),
+        ("stage_acceptance_write: no dispatch record -> the accepted stage", fv19_acceptance("S7", "S8-qa-doc-scribe-1"), 0, form_out, {},
+         ("S7", "qa-doc-scribe"), [f"questions[0]: Q3 was not asked again: x ({FV19_ACC_TAIL})"], None),
+        ("stage_acceptance_write: a form with no rewords has no reword_problems key -> nothing", fv19_acceptance("S4", acc), 0,
+         json.dumps({"dispatch": "D", "raised": [], "already": []}), {}, ("S4", "qa-case-critic"), [], None),
+        ("stage_acceptance_write: a refused acceptance write keeps the lines", fv19_acceptance("S4", acc), 0, form_out,
+         {"stage_done": Refusal("stage_done refused")}, ("S4", "qa-case-critic"), [f"questions[0]: Q3 was not asked again: x ({FV19_ACC_TAIL})"], Refusal),
+        ("s3_project: notes and problems -> the key is written, then the Refusal is raised", fv19_s3(["Q9 stays on row 2: x"], ["a problem"]), 0, "", {},
+         ("S3", planner), [f"Q9 stays on row 2: x ({FV19_S3_TAIL})"], Refusal),
+        ("s3_project: notes alone -> stored, no refusal", fv19_s3(["Q9 stays on row 2: x"], []), 0, "", {}, ("S3", planner),
+         [f"Q9 stays on row 2: x ({FV19_S3_TAIL})"], None),
+        ("s3_project: no notes -> no key", fv19_s3([], []), 0, "", {}, ("S3", planner), [], None),
+    ]
+    original = planning_contract.project_plan
+    try:
+        for name, build, code, out, rig_kw, (stage, role), expected, raises in rows:
+            label = f"fv19_carriers_tell[{name}]"
+            d = fv19_rig(rig_kw.get("dispatches"), code, out, rig_kw.get("stage_done"))
+            raised, _printed = fv19_quiet(build(d))
+            check_eq(f"{label}: the exception", type(raised) if raised else None, raises)
+            read = d.next_session_lines(stage, role)
+            check_eq(f"{label}: next_session_lines({stage}, {role})", read, ([FV19_TR1] + [f"- {l}" for l in expected]) if expected else [])
+            if expected:
+                check_eq(f"{label}: stored under the one key, saved once", (sorted(d.state.get("question_pass_lines") or {}), len(d.told_saves)),
+                         ([f"next:{stage}:{role}"], 1))
+                if d.told_at_done:
+                    check_in(f"{label}: written before stage_done.py ran", expected[0], d.told_at_done[0])
+                d.forget_told(stage, role, read)
+                check_eq(f"{label}: forget_told empties and drops the key", (d.next_session_lines(stage, role), d.state.get("question_pass_lines")), ([], {}))
+            else:
+                kept = d.state.get("question_pass_lines") or {}
+                check_eq(f"{label}: no key for this role, no header", f"next:{stage}:{role}" in kept, False)
+                check_eq(f"{label}: no save unless another role was told", not d.told_saves or bool(kept), True)
+    finally:
+        planning_contract.project_plan = original
+    # replay: the same line twice is stored once; two roles -> two keys; an empty role stores nothing but prints; nothing sent writes nothing
+    d = fv19_rig()
+    _r, printed = fv19_quiet(lambda: [d.tell_next_session("S4", designer, [FV19_NOTE, "  ", FV19_NOTE], "t") for _ in range(2)])
+    check_eq("fv19_carriers_tell[replay]: the line is stored once, printed once", (len((d.state.get("question_pass_lines") or {}).get("next:S4:qa-case-designer", [])),
+             printed.count("note: S4 qa-case-designer: "), len(d.told_saves)), (1, 1, 1))
+    fv19_quiet(lambda: d.tell_next_session("S3", planner, ["x"], "t"))
+    check_eq("fv19_carriers_tell[two roles]: two keys", sorted(d.state.get("question_pass_lines") or {}), ["next:S3:qa-test-strategist", "next:S4:qa-case-designer"])
+    check_eq("fv19_carriers_tell[another stage or role reads nothing]", (d.next_session_lines("S4", planner), d.next_session_lines("S5", designer)), ([], []))
+    saves = len(d.told_saves)
+    d.forget_told("S4", designer, [])
+    d.forget_told("S4", "qa-nobody", [f"- {FV19_NOTE} (t)"])
+    check_eq("fv19_carriers_tell[forget_told with nothing sent or nothing stored]: no save", len(d.told_saves), saves)
+    sent = d.next_session_lines("S4", designer)
+    fv19_quiet(lambda: d.tell_next_session("S4", designer, ["added after the read"], "t"))
+    d.forget_told("S4", designer, sent)
+    check_eq("fv19_carriers_tell[forget_told]: a line added after the read stays", d.next_session_lines("S4", designer),
+             [FV19_TR1, "- added after the read (t)"])
+    # the old world: a state with no `question_pass_lines` reads as nothing
+    check_eq("fv19_carriers_tell[old state]: no key at all -> no lines", fv19_rig().next_session_lines("S4", designer), [])
+    check_eq("fv19_carriers_tell[old state]: a dispatch key is no `next:` key", (lambda r: (r.state.update(question_pass_lines={"S4-qa-case-designer-1": ["x"]}),
+             r.next_session_lines("S4", designer))[1])(fv19_rig()), [])
+    # an empty role (a stage with no acceptor) stores nothing and prints the lines
+    d = fv19_rig()
+    _r, printed = fv19_quiet(lambda: d.tell_next_session("S2", "", ["a line"], "t"))
+    check_eq("fv19_carriers_tell[empty role]: nothing stored, nothing saved, the note printed", (d.state.get("question_pass_lines"), d.told_saves,
+             "note: S2 : a line" in printed), (None, [], True))
+    fv19_run_role_rows()
+    fv19_case_rows()
+
+
+def fv19_run_role_rig(saved=None, result=None, stored=None):
+    """`run_role` up to `bind`: `run_claude` records the prompt and answers `result`; the handoff raises `Stop` so the row ends there."""
+    import story_run
+
+    class Stop(Exception):
+        pass
+    d = story_run.Driver.__new__(story_run.Driver)
+    root = temp_dir("qa-fv19-run-")
+    (root / "state" / "driver-runs").mkdir(parents=True)
+    d.task_root, d.task, d.plugin, d.scripts, d.state_dir = root, "T-1", Path("C:/factory"), Path("C:/factory/scripts"), root / "state"
+    d.state = {"sessions": {}, "pending_words": {}, "question_pass_lines": stored or {}}
+    d.prompts, d.told_saves = [], []
+    d.save_state = lambda: d.told_saves.append(1)
+    d.controller_state = lambda: {"dispatches": {}}
+    d.pipeline = lambda: {}
+    d.progress_line = lambda: None
+    d.system_file = lambda role, dispatch, scope: None
+    d.walk_reopen = lambda dispatch, reopen=True: ([], "")
+    d.retire_infra_result = lambda *a, **k: False
+    d.step = lambda *a: "dispatched S4-qa-case-designer-1 (revision 1)\n--- Agent prompt, verbatim\nPROMPT\n--- the moment the Agent call returns"
+    d.py = lambda *a, **k: (0, "")
+    d.handoff = lambda *a, **k: (_ for _ in ()).throw(Stop("handoff"))
+    if saved:
+        (root / "state" / "driver-runs" / "S4-qa-case-designer-1.json").write_text(json.dumps(saved), encoding="utf-8")
+
+    def run_claude(kind, prompt, **kw):
+        d.prompts.append(prompt)
+        return dict(result)
+    d.run_claude = run_claude
+    return d, Stop
+
+
+def fv19_case_rows() -> None:
+    """Item 8 (F-4): `cases_with_question_entries` lists a case whose `question_repeats` / `reword_questions` front line parses to a
+    NON-EMPTY list or is malformed, read through `contract.case_files`; an empty list, an absent key and an unreadable store list none."""
+    entry = '[{"question": "Q16", "same_as": "Q7", "why": "same"}]'
+    rows = [("question_repeats with an entry", f"question_repeats: {entry}", ["c1"]),
+            ("reword_questions with an entry", f"reword_questions: {entry}", ["c1"]),
+            ("an empty list", "question_repeats: []", []),
+            ("a malformed key", "reword_questions: not json", ["c1"]),
+            ("a key with no value", "question_repeats:", ["c1"]),
+            ("neither key", "title: x", []),
+            ("a case file that is not text", None, [])]
+    original = contract.case_files
+    try:
+        for name, front, expected in rows:
+            d = fv19_rig()
+            path = d.task_root / "c1.md"
+            if front is None:
+                path.write_bytes(b"\xff\xfe\x00")
+            else:
+                path.write_text(f"---\n{front}\n---\nbody\n", encoding="utf-8")
+            contract.case_files = lambda root, path=path: [str(path)]
+            check_eq(f"fv19_carriers_tell[cases_with_question_entries: {name}]", d.cases_with_question_entries(), expected)
+        contract.case_files = lambda root: (_ for _ in ()).throw(OSError("unreadable"))
+        check_eq("fv19_carriers_tell[cases_with_question_entries: the store cannot be read]", fv19_rig().cases_with_question_entries(), [])
+    finally:
+        contract.case_files = original
+
+
+def fv19_run_role_rows() -> None:
+    """FV1-9 tail card A (P1, A-2, A-4): `run_role` is the one reader: the lines enter the prompt before `extra` and before the closing
+    lines, and leave the store only when the saved result carries words; a dead or empty result, a reused saved result and another role
+    leave them. (The S4 rework prompt through a whole story is judged by the batch canon.)"""
+    key = "next:S4:qa-case-designer"
+    stored = {key: [f"{FV19_NOTE} ({FV19_S4_TAIL})"], "S4-qa-case-designer-1": ["a dispatch key stays"]}
+    live = {"result": "the form is written", "session_id": "sid", "is_error": False}
+    dead = {"result": "", "session_id": "sid", "is_error": True}
+    blank = {"result": "  \n", "session_id": "sid", "is_error": False}
+    rows = [("a live result with words", "qa-case-designer", None, live, True, False),
+            ("a dead result (is_error, no words)", "qa-case-designer", None, dead, True, True),
+            ("an empty result", "qa-case-designer", None, blank, True, True),
+            ("a reused saved result (no session ran)", "qa-case-designer", live, dead, True, True),
+            ("another role at the same stage", "qa-case-critic", None, live, False, True)]
+    for name, role, saved, result, told, kept in rows:
+        label = f"fv19_run_role_tells_and_forgets[{name}]"
+        d, Stop = fv19_run_role_rig(saved, result, json.loads(json.dumps(stored)))
+        _raised, _printed = fv19_quiet(lambda: d.run_role("S4", role, extra=["EXTRA LINE"]))
+        if d.prompts:
+            prompt = d.prompts[0]
+            check_eq(f"{label}: the prompt holds the heading and the line {'once' if told else 'never'}",
+                     (FV19_TR1 in prompt, prompt.count(FV19_NOTE)), (True, 1) if told else (False, 0))
+            if told:
+                check("{}: heading, then the line, then `extra`, then the closing lines".format(label),
+                      prompt.index(FV19_TR1) < prompt.index(FV19_NOTE) < prompt.index("EXTRA LINE") < prompt.index("Plugin root"), prompt[:400])
+        left = d.state["question_pass_lines"]
+        check_eq(f"{label}: the key {'stays' if kept else 'is gone'}", key in left, kept)
+        check_eq(f"{label}: the dispatch key is never touched", left["S4-qa-case-designer-1"], ["a dispatch key stays"])
+
+
 if __name__ == "__main__":
     test_the_test_repository_question_offers_its_words_with_prices()
     test_the_words_are_offered_only_where_they_can_be_carried_out()
@@ -1094,4 +1762,20 @@ if __name__ == "__main__":
     test_question_status_comes_from_the_register()
     test_a_register_that_cannot_be_read_is_said_and_never_read_as_answered()
     test_an_empty_register_and_a_question_with_no_readings()
+    test_fv19_card_help_fields()
+    test_fv19_card_no_help_line()
+    test_fv19_origin_words_on_card()
+    test_fv19_target_card_says_also_raised()
+    test_fv19_card_says_asked_again()
+    test_fv19_note_on_card()
+    test_fv19_repeat_shown_again_note()
+    test_fv19_still_open_skips_hidden_repeat()
+    test_fv19_stop_and_gate_cards_print_the_same_help()
+    test_fv19_gate_top_skips_carded_question()
+    test_fv19_rehearsal_skips_hidden_repeat()
+    test_fv19_conductor_text_note_door()
+    test_fv19_human_text_passes()
+    test_fv19_card_old_row_without_keys()
+    test_fv19_handover_names_the_doors()
+    test_fv19_carriers_tell()
     finish("gate question form")

@@ -12,6 +12,12 @@
     question_register.py --task T --automate <full case id> --words "<words>" --where ... --by ...
     question_register.py --task T --raise --case-file <case.md> --then N --question-file <q.json>
         # a before/now question after S2 (t-227, P20): the id and the two readings are code's, the rest the author's
+    question_register.py --task T --repeat Q16 --same-as Q7 --words-file <why> --where "stage ran" --by conductor
+        # FV1-9: Q16 asks what Q7 asks; it is hidden while Q7 stands unchanged and nothing else rests on Q16
+    question_register.py --task T --reword Q7 --question-file <q.json> --where "stage ran" --by conductor
+        # FV1-9: an unanswered question the person was shown is asked again in clearer words (the id stays)
+    question_register.py --task T --note Q7 --words-file <file> --where "stage ran" --by conductor
+        # FV1-9: what helps the person answer Q7, written by the conductor; shown on its card while the row is as it was
     (--words-file <path> instead of --words for long words; exactly one of the two)
     (--where and --by have no default: the values are the closed lists of question-vocabulary.json)
 
@@ -87,6 +93,10 @@ DEFERRED = "deferred_to_report"      # kept open on the person's word: not asked
 UNTIL_THE_REPORT = "until the report"  # the token that records it
 NOT_BLOCKING = ("major", "minor")    # any other severity (or none) is blocking: the error goes toward asking
 WHERE_UNKNOWN = "earlier"            # the words for a `where` the vocabulary does not know
+REPEAT = "repeat"                    # FV1-9: a question declared to ask what an earlier one asks; hidden only through `hidden_repeat`
+NOTE_MAX = 2000                      # characters of a conductor's note: a card is a card
+REWORD_ARTIFACT_KINDS = ("cases", "plan_rows")   # the artifact kinds `reword_own_artifacts` may name for a role
+DRIVER_STATE_REL = ("state", "driver-state.json")
 
 
 class Refused(ValueError):
@@ -104,6 +114,12 @@ def vocabulary() -> dict:
         words = data["where_words"]
         if not (isinstance(words, dict) and all(isinstance(words.get(w), str) and words[w].strip() for w in data["where"])):
             raise ValueError("`where_words` must give every value of `where` a non-empty text (what a person reads)")
+        origins = data.get("reading_origin_words", {})      # FV1-9 rows: optional, but when present they must be usable
+        if not (isinstance(origins, dict) and all(isinstance(k, str) and isinstance(v, str) and v.strip() for k, v in origins.items())):
+            raise ValueError("`reading_origin_words` must map each origin word to a non-empty text (what a person reads)")
+        own = data.get("reword_own_artifacts", {})
+        if not (isinstance(own, dict) and all(isinstance(k, str) and v in REWORD_ARTIFACT_KINDS for k, v in own.items())):
+            raise ValueError("`reword_own_artifacts` must map a role to one of " + ", ".join(REWORD_ARTIFACT_KINDS))
         return data
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise RuntimeError(f"{VOCAB_PATH} is unusable ({type(exc).__name__}: {exc}); it holds the "
@@ -115,6 +131,15 @@ def where_words(where) -> str:
     `earlier` for a value it does not know. The raw value ("S2 stop") never reaches a person (FR-6, FR-13)."""
     found = vocabulary()["where_words"].get(where) if isinstance(where, str) else None
     return found if isinstance(found, str) and found.strip() else WHERE_UNKNOWN
+
+
+def origin_words(origin) -> str:
+    """How a person reads the origin of a reading (`from`, the part before any `:`): the data file's words (`reading_origin_words`,
+    FR-13), `""` for a word the file does not know and for a blank one - the caller prints an unknown word plainly and a blank one not
+    at all. The raw word (`parent_ticket`) never reaches a person from here."""
+    word = str(origin or "").split(":")[0].strip()
+    found = vocabulary().get("reading_origin_words", {}).get(word) if word else None
+    return found.strip() if isinstance(found, str) and found.strip() else ""
 
 
 # --------------------------------------------------------------------------------------------
@@ -157,18 +182,22 @@ def _hash(value) -> str:
 
 
 def _answers(root: Path, ids: set, vocab: dict) -> tuple:
-    """(last question record per id, last case record per case id, skipped counts, file present).
+    """(last question record per id, last case record per case id, skipped counts, file present, extras).
     A bad line is counted, never raised. A valid case record is not a skipped line. A file that EXISTS and cannot
-    be read (a folder, no permission) is `unreadable_file: 1`: without it that case looked like an empty file."""
+    be read (a folder, no permission) is `unreadable_file: 1`: without it that case looked like an empty file.
+    `extras` (FV1-9): `repeats` - every `repeat` record of an id in `ids`, `(id, record)` in file order, whether or not a later
+    record replaced it (the retro's record); `notes` - {id: [every valid `note` record in file order]}. A `note` is neither a
+    question record (it never wins an id) nor a skipped line."""
     skipped = {"broken_lines": 0, "non_object_lines": 0, "unknown_id": 0, "invalid": 0, "unreadable_file": 0}
+    extras: dict = {"repeats": [], "notes": {}}
     path = root.joinpath(*ANSWERS_REL)
     try:
         text = path.read_bytes().decode("utf-8-sig", errors="replace")
     except FileNotFoundError:
-        return {}, {}, skipped, False
+        return {}, {}, skipped, False, extras
     except OSError:
         skipped["unreadable_file"] = 1
-        return {}, {}, skipped, True
+        return {}, {}, skipped, True, extras
     last: dict = {}
     cases: dict = {}
     for line in text.split("\n"):  # JSON escapes newlines inside a record, so "\n" is a boundary
@@ -191,6 +220,14 @@ def _answers(root: Path, ids: set, vocab: dict) -> tuple:
             cases[case.strip()] = rec
             continue
         rid = rec.get("id")
+        if kind == "note":
+            if not isinstance(rid, str) or not isinstance(rec.get("words"), str) or not rec["words"].strip():
+                skipped["invalid"] += 1
+            elif rid.strip() not in ids:
+                skipped["unknown_id"] += 1
+            else:
+                extras["notes"].setdefault(rid.strip(), []).append(rec)
+            continue
         if kind != "question" or not isinstance(rid, str) or rec.get("status") not in vocab["recorded_statuses"]:
             skipped["invalid"] += 1
             continue
@@ -199,7 +236,9 @@ def _answers(root: Path, ids: set, vocab: dict) -> tuple:
             skipped["unknown_id"] += 1
             continue
         last[rid] = rec
-    return last, cases, skipped, True
+        if rec["status"] == REPEAT:
+            extras["repeats"].append((rid, rec))
+    return last, cases, skipped, True, extras
 
 
 def _lines(text: str) -> list:
@@ -249,19 +288,27 @@ def _gate_words(root: Path) -> list:
     return out
 
 
-def _merge(qid: str, row: dict, rec, gates=None) -> dict:
+def _merge(qid: str, row: dict, rec, gates=None, notes=None) -> dict:
     """One register row and the record that wins for it (None: no record) as the question `load` returns.
 
     The ONE place that says what a row's status, hash and `changed_since_answer` are: `load` merges the register
     on disk with it, `statuses_for` merges the rows of a file that is not on disk yet (a publish). `gates` is a
     callable giving the gate words, asked only for a row with no record; None means "do not look" (`named` is
-    an open status all the same)."""
+    an open status all the same). `notes` (FV1-9) are the `note` records of this id in file order: the LAST one stored
+    for the bytes of this row as they are TODAY becomes `note` ({words, by, at}); a note measured on other bytes never counts.
+    The keys `_resolve_repeats` computes (`follows`, `repeat_problem`, `repeated_by`) and `note` are code's: a register row
+    that carries a key of such a name does not keep it."""
     readings = row.get("readings")
     count = len(readings) if isinstance(readings, list) else 0
     question = dict(row)
+    for computed in ("follows", "repeat_problem", "repeated_by", "note"):
+        question.pop(computed, None)
     question.update({"id": qid, "status": "open", "reading": "", "words": "", "where": "", "at": "",
                      "line": "", "readings_count": count, "letters": LETTERS[:count],
                      "row_hash": _hash(row), "record_row_hash": "", "changed_since_answer": False})
+    mine = [n for n in (notes or []) if n.get("row_hash") == question["row_hash"]]
+    if mine:
+        question["note"] = {"words": mine[-1]["words"], "by": str(mine[-1].get("by") or ""), "at": str(mine[-1].get("at") or "")}
     if rec is not None:
         words = rec.get("words") if isinstance(rec.get("words"), str) else ""
         stored = rec.get("row_hash")
@@ -270,6 +317,9 @@ def _merge(qid: str, row: dict, rec, gates=None) -> dict:
                          "where": str(rec.get("where") or ""), "at": str(rec.get("at") or ""),
                          "record_row_hash": stored,
                          "changed_since_answer": (stored != question["row_hash"]) if stored else None})
+        if rec["status"] == REPEAT:      # what the declaration said (never the row's own keys: a row cannot declare a repeat)
+            for key in ("same_as", "declared_by", "target_hash"):
+                question[key] = rec.get(key)
         if rec["status"] == "answered":
             question["reading"] = str(rec.get("reading") or "")
             stamp = rec.get("before_from_thens")
@@ -321,7 +371,7 @@ def load(task_root) -> dict:
             continue
         seen.add(qid)
         kept.append((qid, row))
-    last, case_last, skipped, answers_present = _answers(root, seen, vocab)
+    last, case_last, skipped, answers_present, extras = _answers(root, seen, vocab)
     gate_cache: list = []
 
     def gates() -> list:  # read once, and only when a question with no record asks for them
@@ -329,7 +379,8 @@ def load(task_root) -> dict:
             gate_cache.append(_gate_words(root))
         return gate_cache[0]
 
-    questions = [_merge(qid, row, last.get(qid), gates) for qid, row in kept]
+    questions = [_merge(qid, row, last.get(qid), gates, extras["notes"].get(qid)) for qid, row in kept]
+    _resolve_repeats(questions)
     decisions = {}
     for case, rec in case_last.items():
         decisions[case] = {"decision": rec["decision"], "words": rec.get("words") if isinstance(rec.get("words"), str) else "",
@@ -337,7 +388,57 @@ def load(task_root) -> dict:
                            "at": str(rec.get("at") or "")}
     return {"questions": questions, "register_present": present, "register_hash": register_hash,
             "answers_present": answers_present, "skipped": skipped, "problems": problems,
-            "duplicates": duplicates, "case_decisions": decisions}
+            "duplicates": duplicates, "case_decisions": decisions, "repeat_history": extras["repeats"]}
+
+
+def _resolve_repeats(questions) -> None:
+    """The one pass after merging (`load` and `statuses_for`; FV1-9): for each question whose status is `repeat`, walk `same_as`
+    through the `repeat` rows to the first row that is not one. Found, and every hop's stored `target_hash` equals the row_hash
+    of the hop's target: it gets `follows` (the id found), and - when it is hidden (`hidden_repeat`) - joins `repeated_by` of
+    that target. Otherwise `follows` is "" and `repeat_problem` says why: `gone` (no such id, or no usable `same_as`), `cycle`
+    (the walk met an id twice), `target_changed` (a hop's target is not the row the declaration saw, or the record stores no
+    `target_hash`). Computed here, never stored. A question that is no object, or has no id, is left alone."""
+    by_id: dict = {}
+    resolved: dict = {}
+    for q in questions:
+        if isinstance(q, dict) and isinstance(q.get("id"), str):
+            by_id.setdefault(q["id"], q)
+    for q in questions:
+        if not isinstance(q, dict) or q.get("status") != REPEAT or not isinstance(q.get("id"), str):
+            continue
+        found, problem, current, seen = "", "", q, {q.get("id")}
+        while True:
+            target_id = current.get("same_as")
+            target = by_id.get(target_id.strip()) if isinstance(target_id, str) else None
+            if target is None:
+                problem = "gone"
+            elif target["id"] in seen:
+                problem = "cycle"
+            elif not (isinstance(current.get("target_hash"), str) and current["target_hash"]
+                      and current["target_hash"] == target.get("row_hash")):
+                problem = "target_changed"
+            if problem:
+                break
+            seen.add(target["id"])
+            if target.get("status") != REPEAT:
+                found = target["id"]
+                break
+            current = target
+        q["follows"], q["repeat_problem"] = found, problem
+        resolved[q["id"]] = found
+    for q in questions:
+        if isinstance(q, dict) and q.get("id") in resolved and hidden_repeat(q):
+            by_id[resolved[q["id"]]].setdefault("repeated_by", []).append(q["id"])
+
+
+def hidden_repeat(question) -> bool:
+    """Is this question a declared repeat that the person is not asked, because it asks what its target asks (FV1-9)? The ONE reader of
+    that fact (AR-13): `is_open`, `still_open`, the report, the brief and the rehearsal all ask this. True only for status `repeat`
+    whose chain was resolved by `_resolve_repeats` (`follows` set, no `repeat_problem`) AND whose own row is the one declared
+    (`changed_since_answer is False`: a record with no stored hash proves nothing about the bytes). The ERROR DIRECTION is "shown":
+    a missing key, a dict built outside `load`, a gone or changed target, a cycle, a changed row are all not hidden."""
+    return (isinstance(question, dict) and question.get("status") == REPEAT and bool(question.get("follows"))
+            and not question.get("repeat_problem") and question.get("changed_since_answer") is False)
 
 
 # --------------------------------------------------------------------------------------------
@@ -440,6 +541,8 @@ def is_open(question) -> bool:
         return False
     if status in SETTLED_STATUSES + (DEFERRED,):
         return not _holds(question)
+    if status == REPEAT:
+        return not hidden_repeat(question)     # FV1-9: a declared repeat that stands is not asked; anything unresolved is
     return True
 
 
@@ -477,14 +580,15 @@ def statuses_for(task_root, rows) -> list:
     row as open. Never raises on the story's data."""
     root = Path(task_root)
     ids = {r["id"].strip() for r in rows if isinstance(r, dict) and isinstance(r.get("id"), str) and r["id"].strip()}
-    last, _cases, _skipped, _present = _answers(root, ids, vocabulary())
+    last, _cases, _skipped, _present, extras = _answers(root, ids, vocabulary())
     out = []
     for row in rows:
         if not isinstance(row, dict):
             out.append(None)
             continue
         qid = row["id"].strip() if isinstance(row.get("id"), str) else ""
-        out.append(_merge(qid, row, last.get(qid) if qid else None))
+        out.append(_merge(qid, row, last.get(qid) if qid else None, notes=extras["notes"].get(qid) if qid else None))
+    _resolve_repeats(out)
     return out
 
 
@@ -504,7 +608,7 @@ def readiness_drift(task_root) -> list:
     rows, problems, present, _hash_of = _register(root)
     if problems or not present:
         return []
-    last, _cases, _skipped, _present = _answers(root, _EveryId(), vocabulary())
+    last, _cases, _skipped, _present, _extras = _answers(root, _EveryId(), vocabulary())
     held = {r["id"].strip() for r in rows if isinstance(r, dict) and isinstance(r.get("id"), str)}
     out = []
     for qid, rec in last.items():
@@ -859,7 +963,8 @@ def _different_answer_text(row: dict, qid: str) -> str:
             "first answer are reworked")
 
 
-def record(task_root, qid, status, words, where, by, shown_hash, reading="", at=None) -> dict:
+def record(task_root, qid, status, words, where, by, shown_hash, reading="", at=None, *,
+           same_as=None, declared_by=None, target_hash=None, stage=None, texts=None) -> dict:
     """Append ONE answer record and return it. Raises `Refused` (text: what is wrong, what was
     expected, the valid values) and writes nothing when any argument is unusable.
 
@@ -873,7 +978,10 @@ def record(task_root, qid, status, words, where, by, shown_hash, reading="", at=
     the last record and the plan follows the first, so a second answer would split them. `--reopen` (status
     `open`) is the door; the same answer again (another hash, other words) is appended as it always was; an
     answer on a question that is not settled - deferred, `with_designer`, or one whose row changed since - is
-    written."""
+    written.
+
+    FV1-9: status `repeat` is written by `declare_repeat` only; its keyword fields `same_as`, `declared_by`, `target_hash`,
+    `stage` and `texts` ({question, same_as_question}: both texts as they stood) are stored on a `repeat` record and on no other."""
     root = Path(task_root)
     vocab = vocabulary()
     view = load(root)
@@ -914,6 +1022,9 @@ def record(task_root, qid, status, words, where, by, shown_hash, reading="", at=
     rec.update({"words": words, "by": by, "where": where, "at": at or _now()})
     if shown:
         rec["row_hash"] = shown
+    if status == REPEAT:
+        rec.update({k: v for k, v in (("same_as", same_as), ("declared_by", declared_by), ("target_hash", target_hash),
+                                      ("stage", stage), ("texts", texts)) if v not in (None, "")})
     stamp = _before_from_thens(root, row, status, reading)
     if stamp:
         rec["before_from_thens"] = {"cases": stamp}
@@ -1192,6 +1303,501 @@ def answers_for_brief(task_root) -> dict:
                     "reading_text": text, "where": q["where"], "at": q["at"], "words": q["words"]})
     unreadable = bool(skipped["broken_lines"] + skipped["non_object_lines"] + skipped["unreadable_file"])
     return {"answers": out, "unreadable": unreadable}
+
+
+def last_stop_shown(task_root) -> dict:
+    """What the LAST question stop showed, `{"stage", "at", "shown": {id: row_hash as shown}}`, read from the driver's state
+    (`state/driver-state.json`, key `question_stop`; overwritten at every stop). `{"shown": {}}` when the file or the key is absent
+    or unreadable, or `shown` is no object; an entry whose hash is not a text is left out. Read-only, never raises. The ONE reader
+    of that record outside the driver (AR-13): the brief's `shown_at_last_stop` and `reword`'s one-reword-per-showing rule."""
+    try:
+        data = json.loads(Path(task_root).joinpath(*DRIVER_STATE_REL).read_bytes().decode("utf-8-sig", errors="replace"))
+    except (OSError, ValueError, RecursionError):
+        return {"shown": {}}
+    stop = data.get("question_stop") if isinstance(data, dict) else None
+    shown = stop.get("shown") if isinstance(stop, dict) else None
+    if not isinstance(shown, dict):
+        return {"shown": {}}
+    return {"stage": str(stop.get("stage") or ""), "at": str(stop.get("at") or ""),
+            "shown": {k: v for k, v in shown.items() if isinstance(k, str) and isinstance(v, str) and v}}
+
+
+def asked_for_brief(task_root) -> dict:
+    """What a role is told about the questions already asked of the person, BEFORE it raises one (FV1-9, D1):
+    `{"open": [{id, question, repeated_by: [ids], shown_at_last_stop: bool, reworded: int}], "repeats": [{id, same_as, target_settled,
+    declared_by}], "unreadable": bool, "present": bool}`. `open` is every question `is_open` says the person is (still) asked, in register
+    order (`shown_at_last_stop`: the last question stop showed it on its CURRENT bytes; `reworded`: how many times it was asked
+    again in other words); `repeats` is every declared repeat that is hidden (`repeated_by` of its target), in register order, with the
+    target it stands behind and whether that target is settled. `present` is False with no register file; `unreadable` is True
+    when the register or the answers file has a broken part, so the list may be incomplete. Never raises on the story's data."""
+    view = load(task_root)
+    skipped = view["skipped"]
+    shown = last_stop_shown(task_root)["shown"]
+    questions = [q for q in view["questions"] if isinstance(q, dict)]
+    by_id = {q["id"]: q for q in questions}
+    order = {q["id"]: i for i, q in enumerate(questions)}
+    open_rows = [{"id": q["id"], "question": str(q.get("question") or ""), "repeated_by": list(q.get("repeated_by") or []),
+                  "shown_at_last_stop": shown.get(q["id"]) == q["row_hash"],
+                  "reworded": len(q["reworded"]) if isinstance(q.get("reworded"), list) else 0} for q in questions if is_open(q)]
+    repeats = sorted(({"id": rid, "same_as": target["id"], "target_settled": settled(target),
+                       "declared_by": str(by_id[rid].get("declared_by") or "")}
+                      for target in questions for rid in target.get("repeated_by") or []), key=lambda e: order[e["id"]])
+    unreadable = bool(view["problems"] or skipped["broken_lines"] + skipped["non_object_lines"] + skipped["unreadable_file"])
+    return {"open": open_rows, "repeats": repeats, "unreadable": unreadable, "present": view["register_present"]}
+
+
+def repeat_records(task_root) -> dict:
+    """The retro's record of every merge (FV1-9, owner 14.11): `{"records": [{id, same_as, declared_by, by, why, stage, at, texts,
+    standing}], "unreadable": bool}`, one entry per `repeat` record of the answers file in file order, an undone one included.
+    `texts` are the two questions as they stood when the record was written. `standing` says what became of it: `merged` (the id is
+    a hidden repeat now), `shown again: gone|cycle|target_changed|its words changed`, `answered by the person`, `reopened`,
+    `replaced by a later merge` (a later `repeat` record of the same id, a carried-over one included). `present` is True when the
+    story has a register at all (F3: with one, "no merge" is a fact the retro says; without one it says nothing). `unreadable` is True when
+    the answers file has a broken line or cannot be read: a merge may be missing. The ONE reader of `repeat_history` (AR-13)."""
+    view = load(task_root)
+    skipped = view["skipped"]
+    by_id = {q["id"]: q for q in view["questions"] if isinstance(q, dict)}
+    history = view["repeat_history"]
+    newest = {rid: rec for rid, rec in history}
+    records = []
+    for rid, rec in history:
+        question = by_id.get(rid)
+        if rec is not newest[rid]:
+            standing = "replaced by a later merge"
+        elif question is None:
+            standing = "shown again: gone"
+        elif question.get("status") == REPEAT:
+            standing = ("merged" if hidden_repeat(question) else f"shown again: {question['repeat_problem']}"
+                        if question.get("repeat_problem") else "shown again: its words changed")
+        else:
+            standing = "reopened" if question.get("status") == "open" else "answered by the person"
+        records.append({"id": rid, "same_as": str(rec.get("same_as") or ""), "declared_by": str(rec.get("declared_by") or ""),
+                        "by": str(rec.get("by") or ""), "why": str(rec.get("words") or ""), "stage": str(rec.get("stage") or ""),
+                        "at": str(rec.get("at") or ""), "texts": dict(rec["texts"]) if isinstance(rec.get("texts"), dict) else {},
+                        "standing": standing})
+    return {"records": records, "present": view["register_present"],
+            "unreadable": bool(skipped["broken_lines"] + skipped["non_object_lines"] + skipped["unreadable_file"])}
+
+
+# --------------------------------------------------------------------------------------------
+# FV1-9: a question asked once - repeats declared, questions asked again in clearer words, a note that helps
+# --------------------------------------------------------------------------------------------
+
+def _dependants_in_plan(root: Path, qid: str, out: dict) -> None:
+    import planning_contract as PC
+    path, _document, rows, problem = PC._plan_state(root)
+    if path is None:
+        return
+    if problem:
+        out["unknown"].append(f"{problem}, so what rests on {qid} in it cannot be told")
+        return
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        refs = row.get("question_refs")
+        refs = [x.strip() for x in refs if isinstance(x, str)] if isinstance(refs, list) else []
+        branches = row.get("if_answered")
+        reason = row.get("reason")
+        found = {"refs": qid in refs,
+                 "branch": isinstance(branches, dict) and any(str(k).strip() == qid for k in branches),
+                 "reason": isinstance(reason, str) and bool(PC._id_token(qid).search(reason))}
+        if any(found.values()):
+            out["plan_rows"].append(dict(found, id=str(row.get("id") or "").strip()))
+
+
+def _dependants_in_cases(root: Path, qid: str, out: dict) -> None:
+    import gate_brief
+    C = _contract()
+    cases, problems = gate_brief.story_cases(root)
+    out["unknown"].extend(problems)
+    for case_id, case in cases.items():
+        try:
+            text = Path(case["path"]).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            out["unknown"].append(f"{case_id} could not be read, so what it rests on cannot be told")
+            continue
+        oracles, why = C.then_oracles_from_text(text)
+        if oracles is None and why:
+            out["unknown"].append(f"{case_id}: its `then_oracles` could not be read ({why})")
+        by_oracle = [e.get("then") for e in oracles or [] if e.get("source") in ("person", "unknown") and str(e.get("ref") or "").strip() == qid]
+        by_letter = [t.get("then") for t in case.get("thens") or [] if str(t.get("question") or "").strip() == qid]
+        if by_oracle or by_letter:
+            out["cases"].append({"id": str(case_id), "oracle_thens": by_oracle, "question_thens": by_letter})
+
+
+def dependants(task_root, qid) -> dict:
+    """Everything that still rests on the question `qid` besides the register (FV1-9, B1): `{"plan_rows": [{id, refs, branch, reason}],
+    "cases": [{id, oracle_thens, question_thens}], "unknown": [what could not be read]}`. A plan row rests on it when it names the id in
+    `question_refs` (`refs`), as a key of `if_answered` (`branch`: its answers are keyed by letter) or as a whole token of `reason`;
+    a case when a `then_oracles` entry with source `person` or `unknown` names it, or a `question_thens` entry does (`question_thens`:
+    its Then texts are keyed by letter). The ONE reader of who keys an id (AR-13): `declare_repeat` and `reword` ask it. The ERROR
+    DIRECTION is "a dependant exists": a plan or a case that cannot be read is an `unknown` entry, never "nothing rests on it".
+    No plan, no cases: empty lists. Never raises."""
+    root, qid = Path(task_root), str(qid or "").strip()
+    out: dict = {"plan_rows": [], "cases": [], "unknown": []}
+    for read, what in ((_dependants_in_plan, "the test plan"), (_dependants_in_cases, "the test cases")):
+        try:
+            read(root, qid, out)
+        except Exception as exc:  # noqa: BLE001 - an unreadable source is an unknown, never a silence
+            out["unknown"].append(f"{what} could not be read ({type(exc).__name__}), so what rests on {qid} in it cannot be told")
+    return out
+
+
+def _dependant_lines(deps: dict, *, bare_ok: bool) -> list:
+    """One phrase per dependant (`plan row TS-3 (its answers branch)`, `case TC-9 (Then 2)`), the unreadable ones as they are said.
+    `bare_ok`: a plan row that names the id in `question_refs` only is left out (`repoint_bare_ref` moves it)."""
+    lines = []
+    for row in deps["plan_rows"]:
+        if bare_ok and row["refs"] and not row["branch"] and not row["reason"]:
+            continue
+        lines.append(f"plan row {row['id'] or '(no id)'} (" + ("its answers branch" if row["branch"] else "its reason" if row["reason"]
+                                                             else "its question_refs") + ")")
+    for case in deps["cases"]:
+        thens = sorted({str(n) for n in case["oracle_thens"] + case["question_thens"]})
+        lines.append(f"case {case['id']} (Then {', '.join(thens)})")
+    return lines + list(deps["unknown"])
+
+
+def _reaches(by_id: dict, start: str, goal: str) -> bool:
+    """Does walking `same_as` from `start` through the `repeat` rows reach `goal`? (the cycle `declare_repeat` refuses)"""
+    current, seen = start, set()
+    while current and current not in seen:
+        if current == goal:
+            return True
+        seen.add(current)
+        row = by_id.get(current)
+        current = row["same_as"].strip() if row is not None and row.get("status") == REPEAT and isinstance(row.get("same_as"), str) else ""
+    return False
+
+
+def _unusable_register(view: dict) -> str:
+    """"" when the register and the answers file can be read, else what is wrong (the ONE preamble of the FV1-9 writers)."""
+    if not view["register_present"]:
+        return "the story has no work/requirements-readiness.json, so there is no register"
+    if view["problems"] and not view["questions"]:
+        return view["problems"][0]
+    if view["skipped"]["unreadable_file"]:
+        return "work/question-answers.jsonl exists and cannot be read"
+    return ""
+
+
+def declare_repeat(task_root, qid, same_as, why, *, by, declared_by, stage) -> dict:
+    """Declare that question `qid` asks what question `same_as` asks (FV1-9, D3): the person is then asked once. Appends ONE `repeat`
+    record (the retro's record: who declared, both ids, both texts as they stand, the why, the stage, the time) and returns it; a
+    declaration that already stands (the same target, the target's row unchanged) returns its record and writes nothing. Raises
+    `Refused` and writes nothing when: the register or the answers file cannot be read; `qid` or `same_as` is no id of the register, or
+    they are the same; `why` is blank; `qid` is settled, deferred or with the designer; `same_as` leads back to `qid` (a cycle); or
+    something else still rests on `qid` (`dependants`: a plan row that keys its answers by it, a case that names it, anything that
+    could not be read). A plan row that only lists `qid` in `question_refs` is moved to `same_as` first (`repoint_bare_ref`; no
+    letter is ever mapped). Whether the two questions ask the same thing is the DECLARING ROLE's judgment, judged afterwards from
+    the retro; this checks ids, bytes and dependants only."""
+    root = Path(task_root)
+    view = load(root)
+    wanted = qid.strip() if isinstance(qid, str) else ""
+    target_id = same_as.strip() if isinstance(same_as, str) else ""
+    unusable = _unusable_register(view)
+    if unusable:
+        raise Refused(f"- {unusable}. Expected: a story whose register and answers file can be read, before a question is marked as a repeat")
+    by_id = {q["id"]: q for q in view["questions"]}
+    row, target = by_id.get(wanted), by_id.get(target_id)
+    if row is not None and target is not None and hidden_repeat(row) and row.get("same_as") == target_id \
+            and row.get("target_hash") == target["row_hash"]:
+        return next(rec for rid, rec in reversed(view["repeat_history"]) if rid == wanted)
+    problems = []
+    if row is None:
+        problems.append(f"no question with id {qid!r}. {_valid_ids(view)}")
+    if not target_id:
+        problems.append("`same_as` is missing: name the id of the question this one repeats")
+    elif target is None:
+        problems.append(f"`same_as` {same_as!r} is no id of the register. {_valid_ids(view)}")
+    elif target_id == wanted:
+        problems.append(f"{wanted} cannot be marked as a repeat of itself. Expected: the id of the EARLIER question it repeats")
+    elif _reaches(by_id, target_id, wanted):
+        problems.append(f"{target_id} is itself marked as a repeat that leads back to {wanted}: a cycle. Expected: the id of the "
+                        "question both stand behind")
+    if not (isinstance(why, str) and why.strip()):
+        problems.append("`why` is blank. Expected one line saying what the two questions both ask")
+    if row is not None and (settled(row) or row["status"] in (DEFERRED, "with_designer")):
+        problems.append(f"{wanted} is {row['status']}: a question the person already settled or left with the designer is not marked as a "
+                        "repeat. Expected: point the work at the question that is open instead")
+    if problems:
+        raise Refused("\n".join(f"- {p}" for p in problems))
+    deps = dependants(root, wanted)
+    notes = []
+    if not _dependant_lines(deps, bare_ok=True) and deps["plan_rows"]:
+        for entry in deps["plan_rows"]:
+            _written, line = _plan_module().repoint_bare_ref(root, entry["id"], wanted, target_id, f"{wanted} merged into {target_id}")
+            if line:
+                notes.append(line)
+        deps = dependants(root, wanted)
+    left = _dependant_lines(deps, bare_ok=False)
+    if left:
+        raise Refused(f"- {wanted} cannot be merged into {target_id} while these still rest on {wanted}: {'; '.join(left)}"
+                      + ("".join(f" ({n})" for n in notes))
+                      + ". Expected: repoint them first - the test planner's rework for a plan row, the case designer for a case - "
+                        "then declare the repeat again")
+    texts = {"question": str(row.get("question") or ""), "same_as_question": str(target.get("question") or "")}
+    return record(root, wanted, REPEAT, why.strip(), "stage ran", by, row["row_hash"], same_as=target_id,
+                  declared_by=declared_by, target_hash=target["row_hash"], stage=stage, texts=texts)
+
+
+def _plan_module():
+    if str(HERE) not in sys.path:
+        sys.path.insert(0, str(HERE))
+    import planning_contract
+    return planning_contract
+
+
+def _reading_texts(row) -> list:
+    return [str(r.get("reading") or "") if isinstance(r, dict) else str(r) for r in (row.get("readings") if isinstance(row.get("readings"), list) else [])]
+
+
+def _squeeze(text) -> str:
+    return " ".join(str(text or "").split())
+
+
+def _may_reword(role: str, row: dict, deps: dict, own: dict) -> bool:
+    """Who may ask a question again (owner 14.11, F-10): the conductor always; a role whose own artifact kind (`reword_own_artifacts`)
+    names the id or whose carrier raised the row; any other role only a question it asked itself (`asked_by`)."""
+    if role == "conductor":
+        return True
+    kind = own.get(role)
+    raised = row.get("raised_for") if isinstance(row.get("raised_for"), dict) else {}
+    if kind == "cases":
+        return bool(deps["cases"]) or bool(raised.get("case"))
+    if kind == "plan_rows":
+        return bool(deps["plan_rows"]) or raised.get("origin") == "S3-plan"
+    return bool(role) and str(row.get("asked_by") or "").strip() == role
+
+
+def reword(task_root, qid, spec, *, role, by, stage) -> dict:
+    """Ask the unanswered question `qid` again in clearer words (FV1-9, D4): the id stays, the row's `question` (and, when `spec` gives
+    them, the text of each reading) is replaced, and `reworded` gains `{at, by, role, stage, why, was[, was_readings]}` so the person
+    sees the earlier wording. `spec` is `{"question", "readings"?, "why"}`. Returns the row as `load` shows it afterwards. Each hidden
+    repeat of the row is declared again against its new bytes, so a reword never shows two questions at once. Raises `Refused` and
+    writes nothing when: no such id or the register cannot be read; the row is not `open`/`named`; the last question stop did not
+    show the row on its current bytes (ONE reword per showing); `role` may not (the conductor always; a role whose own work cites
+    the id; any other only a question it asked); `readings` are given and a plan row or a case answers them by letter for another
+    role, or that could not be read (the question text alone is then allowed); the count of readings differs or one is blank; the new
+    row fails `contract.question_errors`; nothing changed; `why` is blank. A reword whose words already stand, or stood as the result of
+    an earlier reword, is done: nothing is written (a replay after a crash); a history match counts only for the same `role` and `why`
+    that produced those words. Whether the meaning was kept is the rewording role's stage
+    critic's judgment; this checks ids, shape, showings and dependants."""
+    root = Path(task_root)
+    view = load(root)
+    wanted = qid.strip() if isinstance(qid, str) else ""
+    unusable = _unusable_register(view)
+    if unusable:
+        raise Refused(f"- {unusable}. Expected: a story whose register can be read, before a question is asked again")
+    row = next((q for q in view["questions"] if q["id"] == wanted), None)
+    if row is None:
+        raise Refused(f"- no question with id {qid!r}. {_valid_ids(view)}")
+    spec = spec if isinstance(spec, dict) else {}
+    text = spec["question"].strip() if isinstance(spec.get("question"), str) else ""
+    given = spec.get("readings")
+    why = spec["why"].strip() if isinstance(spec.get("why"), str) else ""
+    role, own = str(role or "").strip(), vocabulary().get("reword_own_artifacts", {})
+    # REPLAY (P6): words that already stand, or stood as the result of the same party's earlier reword for the same reason, are DONE.
+    # It sits before every other check: a done reword changed the row's bytes, so the showing check would refuse its replay forever.
+    # Never turns a no-op request into a success: the ORIGINAL words were produced by no reword and match nothing here.
+    if text and (given is None or isinstance(given, list)):
+        history = row.get("reworded") if isinstance(row.get("reworded"), list) else []
+        if history and _squeeze(text) == _squeeze(row.get("question")) and (
+                given is None or [_squeeze(x) for x in given] == [_squeeze(x) for x in _reading_texts(row)]):
+            return row
+        for k in range(len(history) - 1):
+            made, later = history[k], history[k + 1]
+            if (isinstance(made, dict) and isinstance(later, dict) and isinstance(later.get("was"), str)
+                    and _squeeze(text) == _squeeze(later["was"]) and str(made.get("role") or "").strip() == role
+                    and _squeeze(made.get("why")) == _squeeze(why)):
+                return row
+    deps = dependants(root, wanted)
+    problems = []
+    if row["status"] not in OPEN_STATUSES:
+        problems.append(f"{wanted} is {row['status']}: only a question nobody has answered is asked again in other words. Expected: for an "
+                        "answered one, the person reopens it first")
+    if last_stop_shown(root)["shown"].get(wanted) != row["row_hash"]:
+        problems.append(f"{wanted} was not shown to the person in these words since it was last worded; it can be asked again in other "
+                        "words after the person has seen it")
+    if not _may_reword(role, row, deps, own):
+        problems.append(f"`{role}` does not cite {wanted} in its own work: raise a question of your own, or cite {wanted} by its id instead")
+    old_readings = _reading_texts(row)
+    new_readings = old_readings
+    if given is not None:
+        if not (isinstance(given, list) and len(given) == len(old_readings)
+                and all(isinstance(x, str) and x.strip() for x in given)):
+            problems.append(f"`readings` must be {len(old_readings)} texts, one for each reading of {wanted}, none blank")
+        else:
+            new_readings = [x.strip() for x in given]
+        kind = own.get(role) if role != "conductor" else None
+        frozen = [r["id"] for r in deps["plan_rows"] if r["branch"] and kind != "plan_rows"]
+        frozen += [c["id"] for c in deps["cases"] if c["question_thens"] and kind != "cases"]
+        if frozen or deps["unknown"]:
+            problems.append(f"the readings of {wanted} are what {' / '.join(frozen) or 'something that could not be read'} answer by letter: "
+                            "reword the question only, or ask their owner to repoint first")
+    if not why:
+        problems.append("`why` is blank. Expected one line saying what the earlier words did not make clear")
+    changed_readings = [_squeeze(a) for a in new_readings] != [_squeeze(b) for b in old_readings]
+    if not text:
+        problems.append("`question` is blank. Expected the question in clearer words")
+    elif _squeeze(text) == _squeeze(row.get("question")) and not changed_readings:
+        problems.append(f"nothing changed: the question and every reading are the words {wanted} already has")
+    if text and not problems:
+        candidate = dict(row, question=text, readings=[dict(r, reading=new_readings[i]) if isinstance(r, dict) else r
+                                                       for i, r in enumerate(row["readings"])])
+        errors = _contract().question_errors(candidate)
+        if errors:
+            problems.append("the reworded question does not pass the shape check of a question: " + "; ".join(errors))
+    if problems:
+        raise Refused("\n".join(f"- {p}" for p in problems))
+    carry = [q for q in view["questions"] if q.get("status") == REPEAT and isinstance(q.get("same_as"), str)
+             and q["same_as"].strip() == wanted and hidden_repeat(q)]
+    path = root.joinpath(*READINESS_REL)
+    with answers_lock(root):
+        try:
+            data = json.loads(path.read_bytes().decode("utf-8-sig"))
+            rows = data["open_questions"]
+            stored = next(r for r in rows if isinstance(r, dict) and isinstance(r.get("id"), str) and r["id"].strip() == wanted)
+        except (OSError, ValueError, RecursionError, KeyError, TypeError, StopIteration):
+            raise Refused(f"- {path} could not be read again for {wanted}: nothing was written")
+        if _hash(stored) != row["row_hash"]:
+            raise Refused(f"- {wanted} changed while it was being reworded: nothing was written. Expected: look at it again")
+        entry = {"at": _now(), "by": by, "role": role, "stage": stage, "why": why, "was": str(stored.get("question") or "")}
+        stored["question"] = text
+        if changed_readings:
+            entry["was_readings"] = old_readings
+            for item, new in zip(stored["readings"], new_readings):
+                item["reading"] = new
+        stored["reworded"] = (stored["reworded"] if isinstance(stored.get("reworded"), list) else []) + [entry]
+        _write_readiness(path, data)
+    after = {q["id"]: q for q in load(root)["questions"]}
+    for q in carry:      # the target's bytes moved: each repeat that stood behind it stands behind the new words (F-13)
+        try:
+            record(root, q["id"], REPEAT, f"carried over: {wanted} was asked again in clearer words", "stage ran", by, q["row_hash"],
+                   same_as=wanted, declared_by=q.get("declared_by") or "", target_hash=after[wanted]["row_hash"], stage=stage,
+                   texts={"question": str(q.get("question") or ""), "same_as_question": str(after[wanted].get("question") or "")})
+        except Refused:
+            continue         # not carried: the repeat shows again (`target_changed`), the error goes toward asking
+    return after[wanted]
+
+
+def record_note(task_root, qid, words, *, by, where) -> dict:
+    """Record what helps the person answer question `qid`, written by the conductor from the sources (FV1-9, D5): ONE `note` record
+    bound to the bytes of the row as they are now (`row_hash`), so a card shows it only while the row is as it was. The words are
+    1..`NOTE_MAX` characters (outer blanks cut); `human_text.problems` finds nothing in them (no plugin path, no field name reaches the
+    person); `by` and `where` are values of the vocabulary. The note is the helper's, never the person's words. Raises `Refused`
+    and writes nothing otherwise."""
+    root = Path(task_root)
+    vocab = vocabulary()
+    view = load(root)
+    wanted = qid.strip() if isinstance(qid, str) else ""
+    row = next((q for q in view["questions"] if q["id"] == wanted), None)
+    problems = [] if row is not None else [f"no question with id {qid!r}. {_valid_ids(view)}"]
+    problems.extend(_common_problems(vocab, words, where, by))
+    text = words.strip() if isinstance(words, str) else ""
+    if len(text) > NOTE_MAX:
+        problems.append(f"the note is {len(text)} characters and a card carries at most {NOTE_MAX}. Expected: the one thing that helps the "
+                        "person answer, shorter")
+    elif text:
+        if str(HERE) not in sys.path:
+            sys.path.insert(0, str(HERE))
+        import human_text
+        found = human_text.problems(text, kind="report")
+        if found:
+            problems.append("the note breaks the rules for a text a person reads: " + "; ".join(f"{p['rule']} ({p['found']})" for p in found)
+                            + ". Expected: plain words, with no path or field name of the factory in them")
+    if problems:
+        raise Refused("\n".join(f"- {p}" for p in problems))
+    rec = {"kind": "note", "id": wanted, "words": text, "by": by, "where": where, "at": _now(), "row_hash": row["row_hash"]}
+    _append(root, rec)
+    return rec
+
+
+REWORD_ENTRY_FORM = ('{"question": "Q<n>", "text": "<the question in clearer words>", "readings": ["<text>", ...] (optional), '
+                      '"why": "<one line>"}')
+
+
+def reword_entry(item) -> tuple:
+    """`(qid, spec, problem)` of ONE `reword_questions` entry (FV1-9 F4): the one check and the one spec build the case carrier
+    (`rewords_for_case`) and the plan carrier (`planning_contract._reword_plan_entries`) share. `problem` is "" for a well-formed entry
+    (then `qid` is the target and `spec` is `reword`'s argument), else why not, with the expected form, and `qid`/`spec` are None."""
+    if not isinstance(item, dict):
+        return None, None, f"is not an object. Expected: {REWORD_ENTRY_FORM}"
+    qid, text, why, readings = (item.get(k) for k in ("question", "text", "why", "readings"))
+    if not all(isinstance(x, str) and x.strip() for x in (qid, text, why)) or not (readings is None or isinstance(readings, list)):
+        return None, None, f"needs `question`, `text` and `why` as texts (`readings` a list when given). Expected: {REWORD_ENTRY_FORM}"
+    return qid, {"question": text, "why": why, **({"readings": readings} if readings is not None else {})}, ""
+
+
+def _apply_case_key(case_text: str, case_id: str, key: str, apply) -> dict:
+    """The shared walk of a case front-matter key that holds a list of entries the S4 exit executes (`question_repeats`,
+    `reword_questions`): `apply(entry)` returns "" when the entry is done, else why not. `{"text", "done", "problems"}`: `text` is the
+    case with the done entries dropped from the key (the key itself when none is left), None when nothing was done; a refused entry
+    stays in the key and says why; a key that is not one line of JSON holding a list of objects is one problem and is kept."""
+    C = _contract()
+    out = {"text": None, "done": [], "problems": []}
+    entries, why = C.parse_json_list(C.front_line(case_text, key))
+    if entries is None:
+        if why:
+            out["problems"].append(f"{case_id}: `{key}` was not read ({why}); it is kept and nothing was done for it")
+        return out
+    left = []
+    for entry in entries:
+        line = apply(entry)
+        if line:
+            out["problems"].append(f"{case_id}: {line}")
+            left.append(entry)
+        else:
+            out["done"].append(entry)
+    if out["done"]:
+        out["text"] = C.set_front_line(case_text, key, json.dumps(left, ensure_ascii=False) if left else None)
+    return out
+
+
+def repeats_for_case(task_root, case_text: str, case_id: str) -> dict:
+    """The S4-exit half of declaring a repeat (FV1-9, D3): execute the case designer's `question_repeats` entries
+    (`{"question": "Q16", "same_as": "Q7", "why": "<one line>"}`) through `declare_repeat` (role `qa-case-designer`, by `driver`, stage S4)
+    and return `{"text", "recorded": [{question, same_as}], "problems": [line]}`. Done entries (a replay included) are dropped from
+    the key; a refused or malformed one stays and says why; a `same_as` of `raise` is malformed. Never raises on the case's own data."""
+    C = _contract()
+    recorded = []
+
+    def one(entry) -> str:
+        question, target, why = (entry.get(k) for k in ("question", "same_as", "why"))
+        if not all(isinstance(x, str) and x.strip() for x in (question, target, why)):
+            return "a `question_repeats` entry needs `question`, `same_as` and `why`, each a text"
+        if target.strip() == C.RAISE_REF:
+            return f"{question.strip()}: `same_as` is `{C.RAISE_REF}`; name the id of a question the register already holds"
+        try:
+            declare_repeat(task_root, question, target, why, by="driver", declared_by="qa-case-designer", stage="S4")
+        except Refused as exc:
+            return f"{question.strip()} -> {target.strip()} was not recorded: {_squeeze(exc)}"
+        recorded.append({"question": question.strip(), "same_as": target.strip()})
+        return ""
+
+    out = _apply_case_key(case_text, case_id, "question_repeats", one)
+    return {"text": out["text"], "recorded": recorded, "problems": out["problems"]}
+
+
+def rewords_for_case(task_root, case_text: str, case_id: str) -> dict:
+    """The S4-exit half of asking a question again (FV1-9, D4): execute the case designer's `reword_questions` entries
+    (`{"question": "Q7", "text": "<clearer words>", "readings": [...]?, "why": "<one line>"}`) through `reword` (role `qa-case-designer`,
+    by `driver`, stage S4); the same shape and rules as `repeats_for_case`: `{"text", "reworded": [{question}], "problems": [line]}`."""
+    reworded = []
+
+    def one(entry) -> str:
+        question, spec, problem = reword_entry(entry)
+        if problem:
+            return f"a `reword_questions` entry {problem}"
+        try:
+            reword(task_root, question, spec, role="qa-case-designer", by="driver", stage="S4")
+        except Refused as exc:
+            return f"{question.strip()} was not asked again: {_squeeze(exc)}"
+        reworded.append({"question": question.strip()})
+        return ""
+
+    out = _apply_case_key(case_text, case_id, "reword_questions", one)
+    return {"text": out["text"], "reworded": reworded, "problems": out["problems"]}
 
 
 def record_case(task_root, case_id, decision, words, where, by, case_ids=None, shown_hash="", at=None) -> dict:
@@ -1610,6 +2216,11 @@ def raise_from_handoff(task_root, handoff_file, *, stage, asked_by) -> dict:
     # Only a NON-EMPTY `<...>` text is the sample: an empty or missing `question` is still a defective entry the shape check names.
     entries = [None if (isinstance(e, dict) and isinstance(e.get("question"), str) and e["question"].strip()
                         and handoff.PLACEHOLDER.match(e["question"].strip())) else e for e in entries]
+    # FV1-9 (P9): an item with `rewords` asks an existing question again; it is taken out BEFORE the shape check, so a reword's timing or
+    # a malformed one never refuses the form, and run AFTER the raises (a `rewords` naming an id raised in this very form is found).
+    # The index of every other entry stays the form's own.
+    rewords = [(i, e) for i, e in enumerate(entries) if isinstance(e, dict) and "rewords" in e]
+    entries = [None if isinstance(e, dict) and "rewords" in e else e for e in entries]
     problems = []
     for i, entry in enumerate(entries):
         if entry is None:
@@ -1624,6 +2235,19 @@ def raise_from_handoff(task_root, handoff_file, *, stage, asked_by) -> dict:
         row, written = raise_role_question(task_root, entry, stage=stage, asked_by=asked_by,
                                            raised_from={"dispatch": path.stem, "row": f"questions[{i}]"})
         out["raised" if written else "already"].append(row)
+    if rewords:
+        out["rewords"], out["reword_problems"] = [], []
+        for i, entry in rewords:
+            target = entry.get("rewords")
+            if not (isinstance(target, str) and target.strip()):
+                out["reword_problems"].append(f"questions[{i}]: `rewords` must be the id of the question asked again")
+                continue
+            spec = {k: entry[k] for k in ("question", "readings", "why") if k in entry}
+            try:
+                reword(task_root, target, spec, role=asked_by, by="driver", stage=stage)
+                out["rewords"].append(target.strip())
+            except Refused as exc:
+                out["reword_problems"].append(f"questions[{i}]: {target.strip()} was not asked again: {_squeeze(exc)}")
     return out
 
 
@@ -1633,7 +2257,8 @@ def raise_from_handoff(task_root, handoff_file, *, stage, asked_by) -> dict:
 
 _VALUE_OPTIONS = ("--task", "--answer", "--not-needed", "--reopen", "--defer", "--keep-manual", "--automate", "--reading",
                   "--words", "--words-file", "--where", "--by", "--register-hash", "--case-ids-file",
-                  "--case-file", "--then", "--question-file", "--stage", "--asked-by", "--from-handoff")
+                  "--case-file", "--then", "--question-file", "--stage", "--asked-by", "--from-handoff",
+                  "--repeat", "--same-as", "--reword", "--note")
 _ALL_OPTIONS = _VALUE_OPTIONS + ("--show", "--raise", "-h", "--help")
 
 
@@ -1681,6 +2306,90 @@ def _story_case_ids(root: Path) -> list:
     return list(dict.fromkeys(ids))
 
 
+def _checked_stage(value: str):
+    """(stage, problem) for a `--stage` value: "" for a blank one (never refused), the stripped id when `stages.json` names it
+    (read through `acceptance.stage_def_of`, no case folding), else "" and what is wrong with it, what was expected and the ids."""
+    stage = (value or "").strip()
+    if not stage:
+        return "", ""
+    import acceptance
+    import null_outcomes
+    if acceptance.stage_def_of(stage):
+        return stage, ""
+    shown = repr(stage if len(stage) <= 80 else stage[:80] + "...")
+    ids = sorted(null_outcomes.stage_ids(), key=lambda i: (int(re.sub(r"\D", "", i) or 0), i))
+    if not ids:
+        return "", (f"--stage {shown} cannot be checked: the stage table could not be read (references/stages.json). "
+                    "Expected a stage id; leave --stage out to record none")
+    return "", f"--stage {shown} is not a stage of the factory. Valid: " + ", ".join(ids) + " (or leave --stage out)"
+
+
+def _main_fv19(root: Path, ns, operation: str) -> int:
+    """The three FV1-9 operations of the CLI (the conductor's door; a role reaches the same writers through its form):
+    `--repeat QID --same-as QID`, `--reword QID --question-file`, `--note QID`. The role is `conductor`; the stage is the
+    conductor's `--stage` (a stage id of stages.json; blank records "", as an older hand-over did), `--note` has none."""
+    flag = f"--{operation}"
+    stray = [name for name, value in (("--reading", ns.reading), ("--register-hash", ns.register_hash),
+                                      ("--case-ids-file", ns.case_ids_file), ("--case-file", ns.case_file), ("--then", ns.then),
+                                      ("--question-file", ns.question_file if operation != "reword" else ""),
+                                      ("--words", ns.words if operation == "reword" else None),
+                                      ("--words-file", ns.words_file if operation == "reword" else "")) if value]
+    vocab = vocabulary()
+    problems = [f"{name} has no meaning with {flag}; drop it" for name in stray]
+    stage = ""
+    if operation != "note":                      # `main`'s guard already refused a `--stage` with `--note`
+        stage, why = _checked_stage(ns.stage)
+        if why:
+            problems.append(why)
+    for value, key, name, what in ((ns.where, "where", "--where", "where it was written"), (ns.by, "by", "--by", "who wrote it")):
+        if not value:
+            problems.append(f"{name} is missing: say {what} (there is no default). Valid: " + ", ".join(vocab[key]))
+        elif value not in vocab[key]:
+            problems.append(f"{key} {value!r} is not a known value. Valid: " + ", ".join(vocab[key]))
+    words, spec = None, None
+    if operation == "reword":
+        if not ns.question_file:
+            problems.append("--reword needs --question-file: a JSON object {question, why, readings?}")
+        else:
+            text, why = _read_text_file("--question-file", ns.question_file)
+            try:
+                spec = json.loads(text) if not why else None
+            except (ValueError, RecursionError):
+                spec, why = None, f"--question-file {ns.question_file!r} is not valid JSON. Expected one object"
+            if why:
+                problems.append(why)
+    else:
+        if operation == "repeat" and not ns.same_as:
+            problems.append("--repeat needs --same-as: the id of the earlier question it repeats")
+        if ns.words_file and ns.words is not None:
+            problems.append("give the words with exactly one of --words and --words-file, not both")
+        elif ns.words_file:
+            words, why = _read_text_file("--words-file", ns.words_file)
+            if why:
+                problems.append(why)
+        elif ns.words is None:
+            problems.append("the words are blank. Expected " + ("the why, one line: what both questions ask" if operation == "repeat"
+                                                               else "what helps the person answer") + " (pass them with exactly one of --words and --words-file)")
+        else:
+            words = ns.words
+    if problems:
+        return _refuse("\n".join(f"- {p}" for p in problems))
+    target = ns.repeat or ns.reword or ns.note
+    try:
+        if operation == "repeat":
+            rec = declare_repeat(root, target, ns.same_as, words, by=ns.by, declared_by="conductor", stage=stage)
+            print(json.dumps({"recorded": rec}, ensure_ascii=False, indent=2))
+        elif operation == "reword":
+            row = reword(root, target, spec, role="conductor", by=ns.by, stage=stage)
+            print(json.dumps({"reworded": row}, ensure_ascii=False, indent=2))
+        else:
+            rec = record_note(root, target, words, by=ns.by, where=ns.where)
+            print(json.dumps({"recorded": rec}, ensure_ascii=False, indent=2))
+    except Refused as exc:
+        return _refuse(str(exc))
+    return 0
+
+
 def main(argv=None) -> int:
     try:
         import console_io
@@ -1718,18 +2427,28 @@ def main(argv=None) -> int:
     ap.add_argument("--question-file", dest="question_file", default="", metavar="PATH",
                     help="a UTF-8 JSON file {question, source_says, severity, owner_role, before: {value, where}, "
                          "now: {value, where}} (with --raise)")
-    ap.add_argument("--stage", default="", help="with --raise --from-handoff: the stage (S1-S4) of the role that asked")
+    ap.add_argument("--stage", default="", help="with --raise --from-handoff, --repeat or --reword: the stage (a stage id of "
+                                                "references/stages.json, e.g. S3) the question was asked at; blank = not recorded")
     ap.add_argument("--asked-by", dest="asked_by", default="", metavar="ROLE", help="with --raise --from-handoff: the role that asked")
     ap.add_argument("--from-handoff", dest="from_handoff", default="", metavar="PATH",
                     help="with --raise: raise every `questions[]` entry of this role's form work/handoffs/<dispatch>.yaml "
                          "(instead of --case-file/--then/--question-file)")
+    ap.add_argument("--repeat", default="", metavar="QID",
+                    help="mark the question as asking what --same-as asks (the words are the why; --where, --by); the person is asked once")
+    ap.add_argument("--same-as", dest="same_as", default="", metavar="QID", help="with --repeat: the id of the earlier question it repeats")
+    ap.add_argument("--reword", default="", metavar="QID",
+                    help="ask an unanswered question the person was shown again in clearer words (--question-file: a JSON object "
+                         "{question, why, readings?}; --where, --by); the id stays")
+    ap.add_argument("--note", default="", metavar="QID",
+                    help="record what helps the person answer the question (the words; --where, --by); shown on its card while the row is as it was")
     ns = hooklib.exact_options(ap).parse_args(_glue(list(sys.argv[1:] if argv is None else argv)))
     operations = [("show", ns.show), ("answer", ns.answer), ("not-needed", ns.not_needed), ("reopen", ns.reopen),
-                  ("defer", ns.defer), ("keep-manual", ns.keep_manual), ("automate", ns.automate), ("raise", ns.raise_question)]
+                  ("defer", ns.defer), ("keep-manual", ns.keep_manual), ("automate", ns.automate), ("raise", ns.raise_question),
+                  ("repeat", ns.repeat), ("reword", ns.reword), ("note", ns.note)]
     chosen = [name for name, value in operations if value]
     if len(chosen) != 1:
         return _refuse("- name exactly one operation: --show, --answer QID, --not-needed QID, --reopen QID, "
-                       "--defer QID, --keep-manual CASE_ID, --automate CASE_ID or --raise "
+                       "--defer QID, --keep-manual CASE_ID, --automate CASE_ID, --raise, --repeat QID, --reword QID or --note QID "
                        f"(got {len(chosen)}: {', '.join(chosen) or 'none'})")
     try:
         vocabulary()
@@ -1742,20 +2461,27 @@ def main(argv=None) -> int:
     except ValueError as exc:
         return _refuse(f"- {exc}")
     is_case = chosen[0] in ("keep-manual", "automate")
-    if (ns.stage or ns.asked_by or ns.from_handoff) and not ns.raise_question:
-        return _refuse("- --stage, --asked-by and --from-handoff go with --raise only")
+    guard = ([] if ns.raise_question or not (ns.asked_by or ns.from_handoff)
+             else ["--asked-by and --from-handoff go with --raise only"])
+    if ns.stage and not (ns.raise_question or chosen[0] in ("repeat", "reword")):
+        guard.append("--stage goes with --raise --from-handoff, --repeat or --reword only")
+    if guard:
+        return _refuse("\n".join(f"- {line}" for line in guard))
     if ns.raise_question and ns.from_handoff:
         stray = [flag for flag, value in (("--words", ns.words), ("--words-file", ns.words_file), ("--reading", ns.reading),
                                           ("--where", ns.where), ("--by", ns.by), ("--register-hash", ns.register_hash),
                                           ("--case-ids-file", ns.case_ids_file), ("--case-file", ns.case_file), ("--then", ns.then),
                                           ("--question-file", ns.question_file)) if value]
-        missing = [flag for flag, value in (("--stage", ns.stage), ("--asked-by", ns.asked_by)) if not value]
+        missing = [flag for flag, value in (("--stage", ns.stage.strip()), ("--asked-by", ns.asked_by)) if not value]
         if stray or missing:
             return _refuse((f"- --raise --from-handoff needs {', '.join(missing)}" if missing else "")
                            + ("\n" if stray and missing else "")
                            + (f"- {', '.join(stray)} has no meaning with --raise --from-handoff; drop it" if stray else ""))
+        stage, why = _checked_stage(ns.stage)
+        if why:
+            return _refuse(f"- {why}")
         try:
-            result = raise_from_handoff(root, ns.from_handoff, stage=ns.stage, asked_by=ns.asked_by)
+            result = raise_from_handoff(root, ns.from_handoff, stage=stage, asked_by=ns.asked_by)
         except Refused as exc:
             return _refuse(str(exc))
         print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -1796,6 +2522,10 @@ def main(argv=None) -> int:
             return _refuse(f"- --show writes nothing, so {', '.join(stray)} has no meaning with it; drop it")
         print(json.dumps(load(root), ensure_ascii=False, indent=2))
         return 0
+    if ns.same_as and not ns.repeat:
+        return _refuse("- --same-as goes with --repeat only")
+    if chosen[0] in ("repeat", "reword", "note"):
+        return _main_fv19(root, ns, chosen[0])
     problems = []
     words = ns.words
     if ns.words_file and ns.words is not None:

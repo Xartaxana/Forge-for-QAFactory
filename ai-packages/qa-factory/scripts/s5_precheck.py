@@ -3960,7 +3960,8 @@ def finding_line(finding: dict) -> str:
 
 # The two tags no recorded word passes, `*` included (FV1-30a): `open-oracle-asserted-<n>` waits for the answer to the
 # expectation question (owner idea node OI-assumptions), `then-remainder-unrecorded-<n>` waits for the person's word BY NAME
-# of the Then (`then handed: <case>#<n>`, read in `check_then_remainders`). Every other finding is passable.
+# of the Then (`then handed: <case>#<n>`, read in `check_then_remainders`). Every other finding is passable. The open-oracle
+# finding's refusal line carries the cause `awaits_answer` (`refusal_cause`).
 NOT_PASSABLE_TAGS = (OPEN_ORACLE_ASSERTED, THEN_REMAINDER_WAITS)
 
 
@@ -3989,16 +3990,21 @@ def _names(finding: dict, match) -> bool:
 
 
 def refusal_cause(finding: dict) -> str:
-    """Why the source refused every recorded word for this finding, or `""` when it did not: `family` (not
-    passable), or `predating` (a stage-wide word given before this pair's green run, marked by `passed_by_word`).
+    """Why the source refused every recorded word for this finding, or `""` when it did not: `awaits_answer` (an
+    `open-oracle-asserted-*` finding: only the answer to its expectation question settles it, no word, `*` included),
+    `family` (any other finding no word may pass), or `predating` (a stage-wide word given before this pair's green run,
+    marked by `passed_by_word`).
     Decided by `_passable`, not by what `passed_by_word` reached, so an early return or a failed `waiver`
     import cannot leave a refused finding without its line.
 
     One finding is not refused to a word, it WAITS for one (GW1-14): `then-remainder-unrecorded-<n>` is satisfied by
     the person's `then handed:` word for that Then (read by identifier in `check_then_remainders`), so it carries no
     refusal line; every other `then-remainder-*` finding is passable by its tag, whole id or `*` and has no `family` line."""
-    if _finding_tag(finding).startswith(THEN_REMAINDER_WAITS):
+    tag = _finding_tag(finding).lower()
+    if tag.startswith(THEN_REMAINDER_WAITS):
         return ""
+    if tag.startswith(OPEN_ORACLE_ASSERTED):
+        return DV.AWAITS_ANSWER
     if not _passable(finding):
         return "family"
     return "predating" if finding.get("refused") == "predating" else ""
@@ -4798,6 +4804,10 @@ def report(result: dict) -> int:
                              "\"<the finding's tag, or its whole id>\"") + "`, which passes that finding; `*` passes every finding "
              "here except `open-oracle-asserted-*` (answer the expectation question) and a Then left with its owner."
              if any(_passable(f) for f in findings) else "")
+          + (" A finding whose refusal line above says `awaits_answer` (`open-oracle-asserted-*`) waits for the answer to its "
+             "expectation question: no word passes it, `*` included; its own line names the author's repair and either the "
+             "question the person settles by answering it or the road back to S4."
+             if any(refusal_cause(f) == DV.AWAITS_ANSWER for f in findings) else "")
           + (" A Then the person takes is the one exception: the orchestrator records their words under "
              f"`{C.THEN_HANDED_MATCH_PREFIX} <case>#<n>` (named in the finding); that block is read by NAME, "
              "so no substring of a line passes it."

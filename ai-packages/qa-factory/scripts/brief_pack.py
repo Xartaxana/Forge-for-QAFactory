@@ -105,11 +105,14 @@ ROLE_FILES = {
     "qa-retro-analyst": ["work/retro-numbers.md", "work/retro-numbers.json", "work/context-manifest.json",
                          "project:strategy/test-strategy.md"],
 }
-# The readers of a `tried` table that are not a stage critic (t-1884 M-2, AR-22): (stage, role of the reader) -> ((stage, author), ...).
+# The readers of an EARLIER stage's `tried` table (t-1884 M-2, AR-22): (stage, role of the reader) -> ((stage, author), ...).
 # The retro analyst reads the last S8 forms of the scribe and the bug reporter; the scribe's form is also linked from the gate B
-# packet (`gate_brief`, "The long documents"). A form with no row here and no `acceptance_by` has no reader in the brief.
+# packet (`gate_brief`, "The long documents"). The S4 case critic reads the S2 tester's and the S3 strategist's last forms (S2 and S3
+# have no critic of their own; the S4 designer's brief is not changed: it has no row). A form with no row here and no
+# `acceptance_by` has no reader in the brief. RESIDUAL closed variety in code (AR-1): its move into `stages.json` is queued for the Lead.
 # The S9 form's `tried` is read by the NEXT story's retro (`prior_retro_lines`) and packed by qa-collect (collect-sets B16).
-TRIED_READERS = {("S9", "qa-retro-analyst"): (("S8", "qa-doc-scribe"), ("S8", "qa-bug-reporter"))}
+TRIED_READERS = {("S9", "qa-retro-analyst"): (("S8", "qa-doc-scribe"), ("S8", "qa-bug-reporter")),
+                 ("S4", "qa-case-critic"): (("S2", "qa-requirements-tester"), ("S3", "qa-test-strategist"))}
 # Inputs the stage declares that this role does NOT read whole: the brief names the slice
 # command instead of the file.
 SLICE_INSTEAD = {
@@ -236,15 +239,15 @@ TOOLING = {
         "probe_by_code.py --task <T> --dispatch <ID> --test \"<file>::<test name>\" --instance <IID> [--oracle <file>::<function>] [--at <line>] [--release-copy <file>] [--json] - "
         "the default probe, every check of every new/changed test, one call per instance: with no --at it walks every check, and each check needs an entry in "
         "work/probe-models/<ID>.json; --at and --oracle "
-        "select rows on the same road and need the entry too; --plan first: it prints the model file, the entry shape and the run count, and runs nothing; a plan of more than 3 rows runs in the background; "
+        "need the entry too; --plan first: prints the model file, entry shape and run count; runs nothing; a plan of more than 3 rows runs in the background; "
         "`plan_unfinished`: the same call continues it; the live receipt is written only when every owed check is proved. <test name> is [Class::]<func>[<param>] for pytest, "
         "the method or title in any other language with an `assertion_probes` entry. "
         "It mutates the check, restores the "
         "file, writes work/probes/<IID>.json {verdict intended_failure|no_failure|wrong_location|incomplete, "
         "location, reason, failure_kind, evidence_ref} with a row per check; "
-        "`incomplete`, and a refusal that names a factory data gap or a killed probe's unresolved copy, is `tooling` (say so in your digest), never a verdict on the test; "
+        "`incomplete`, and a refusal that names a factory data gap or a killed probe's unresolved copy, is `tooling` (say so in your digest, record `sensitivity_proof_missing_reason` on the row), never a verdict on the test; "
         "`--release-copy <file>` alone drops that copy, only after the test's author has settled the file; "
-        "a repeat on the same bytes and entries is answered already_probed and nothing runs",
+        "a repeat on the same bytes and entries gets already_probed, nothing runs",
         "red_sandbox.py --probe --request <mutations.json> --task-root <task root> --repo <root> [--dispatch <ID>] - only when you doubt the "
         "check looks at the product; it proves the one check it names, you name it with a `product` entry in the model file, "
         "the others stay owed; say why in the findings; "
@@ -781,7 +784,10 @@ def proof_required_lines(task_root: Path, role: str, dispatch_id: str) -> list:
     the same rule as `expectation_change_lines` (nothing is owed).
     A manifest that is absent or cannot be read, or a measurement that failed, gets ONE line saying
     so and why - never "none" (FR-41); the brief is built either way, because it is a courtesy and
-    never a refusal."""
+    never a refusal.
+    The closing sentence names only the doors `Controller._code_review_problems` accepts: a model entry plus the
+    probe, or `sensitivity_proof_missing_reason` on the row; the debt file is the factory's, never the role's (AR-14).
+    A blank dispatch id prints `<your dispatch id>` in both paths."""
     if role != PROOF_ROLE:
         return []
     cannot = "The live checks the predicate requires could not be listed: "
@@ -838,13 +844,19 @@ def proof_required_lines(task_root: Path, role: str, dispatch_id: str) -> list:
         line += f", and {count - PROOF_NAMES_SHOWN} more - the full list: {PROOF_LIST} (`novelty` per row)"
     elif any(clipped_names[:PROOF_NAMES_SHOWN]):   # a name clipped in the middle: where the whole is
         line += f" - the full list: {PROOF_LIST} (`novelty` per row)"
-    try:
-        import probe_debt
-        debt = probe_debt.debt_rel(dispatch_id)       # TR3-15: the debt file of THIS critic dispatch (the one spelling), never another window's
-    except Exception:   # a brief line never stops a brief
-        debt = "work/probe-debt/<your dispatch id>.json"
-    return [line + f". Each needs a receipt: run its check and record it, or leave it in {debt} "
-                   "for the conductor."]
+    ident = str(dispatch_id or "").strip()
+    models = f"work/probe-models/{ident or '<your dispatch id>'}.json"
+    debt = "work/probe-debt/<your dispatch id>.json"
+    if ident:   # a blank id has no file of its own: the placeholder, never the legacy single file
+        try:
+            import probe_debt
+            debt = probe_debt.debt_rel(ident)         # TR3-15: the debt file of THIS critic dispatch (the one spelling), never another window's
+        except Exception:   # a brief line never stops a brief
+            pass
+    return [line + f". Each needs a receipt: enter each check in {models} and run probe_by_code.py. "
+                   "A probe the tool or stand stopped is `critic_verdict: unverified` "
+                   "with `sensitivity_proof_missing_reason` on that row via manifest_put.py; "
+                   f"{debt} is the factory's, not yours."]
 
 
 # --- the sides of the story and what a test assumes about them (t-2181 PC-8, AR-10, AR-13) ------------------------------
@@ -3652,22 +3664,51 @@ def stage_critic_names(stage_def: dict, role: str, task_root: Path) -> list:
     """X2-1: the extra files of the stage critic's brief, for the role that ACCEPTS the stage (`stage_def["acceptance_by"] == role`):
     the artifact under acceptance (the stage's `outputs`), the advice file of the stage (`work/advice-<stage>.json`, named whether or
     not it exists: an absent file prints the absence line of `file_lines`) and the handoff form of the author's last accepted dispatch
-    (where its `tried` table is). [] for any other role or a stage with no `acceptance_by`: that brief does not change."""
+    (where its `tried` table is). [] for any other role or a stage with no `acceptance_by`: that brief does not change.
+    The stage row's `acceptance_reads` (AR-1; `{earlier stage: [part, ...]}`, parts `outputs` and `advice`) adds what the acceptor is
+    given from EARLIER stages: `outputs` the earlier stage's outputs (no `project:` entries), `advice` its `work/advice-<stage>.json`
+    (named whether or not it exists). A key absent adds nothing; an unknown part word, an earlier stage not in the table or a value that
+    is not a list adds nothing for that entry and prints one line naming it (never a crash)."""
     if not role or stage_def.get("acceptance_by") != role:
         return []
     stage = str(stage_def.get("id") or "")
-    names = [n for n in (stage_def.get("outputs") or []) if isinstance(n, str) and not n.startswith("project:")]
-    names.append(f"work/advice-{stage}.json")
+    def parts_of(row: dict, stage_id: str, parts: tuple) -> list:
+        """The names of the given parts of one stage: `outputs` (no `project:` entries), `advice` (`work/advice-<stage>.json`)."""
+        found = []
+        for part in parts:
+            if part == "outputs":
+                found += [n for n in (row.get("outputs") or []) if isinstance(n, str) and not n.startswith("project:")]
+            elif part == "advice":
+                found.append(f"work/advice-{stage_id}.json")
+        return found
+
+    names = parts_of(stage_def, stage, ("outputs", "advice"))
     roles = stage_def.get("roles") or []
     form = last_accepted_form(task_root, stage, roles[0]) if roles else ""
     if form:
         names.append(form)
+    reads = stage_def.get("acceptance_reads")
+    if isinstance(reads, dict):
+        table = _stages()
+        for earlier, parts in reads.items():
+            if earlier not in table or not isinstance(parts, list):
+                print(f"brief_pack: acceptance_reads of {stage} names {earlier!r} that is not a stage with a list of parts; nothing is added for it",
+                      file=sys.stderr)
+                continue
+            for part in parts:
+                if part in ("outputs", "advice"):
+                    names += parts_of(table[earlier], earlier, (part,))
+                else:
+                    print(f"brief_pack: acceptance_reads of {stage} names the unknown part {part!r} of {earlier}; nothing is added for it",
+                          file=sys.stderr)
+    elif reads is not None:
+        print(f"brief_pack: acceptance_reads of {stage} is not a mapping; nothing is added", file=sys.stderr)
     return names
 
 
 def reviewed_dispatch(stage: str, role: str, state: dict, pipeline: dict) -> tuple:
     """TR4-12 (2), AR-13: THE reader of "which dispatch does `role` review at `stage`": `(target stage, author's dispatch id, stage_critic)`.
-    `("", "", False)` for a role that reviews nothing; `stage_critic` is True when the role judges its OWN stage's author (S2-S4), where
+    `("", "", False)` for a role that reviews nothing; `stage_critic` is True when the role judges its OWN stage's author (S4), where
     an empty id still gets the "none yet" brief line; for a consumer an empty id means nothing awaits it. The brief line and the form
     prefill (`story_step._author_argv`) both ask it, so they never name different dispatches. Reads only."""
     import acceptance
@@ -3710,7 +3751,7 @@ def reviewed_dispatch_lines(stage: str, role: str, state: dict, pipeline: dict) 
 
 def last_accepted_form(task_root: Path, stage: str, role: str) -> str:
     """`work/handoffs/<id>.yaml` of the LAST accepted dispatch of `role` at `stage` (where its `tried` table is), "" when there is none.
-    The one reader of that question (AR-13): the stage critic's brief, the readers of `TRIED_READERS` and the gate B packet ask it."""
+    The one reader of that question (AR-13): the S4 critic's own-stage line, the readers of `TRIED_READERS` and the gate B packet ask it."""
     state = _load(task_root / "state" / "controller.json")
     found = ""
     for d in ((state.get("dispatches") if isinstance(state, dict) else None) or {}).values():
@@ -3720,8 +3761,9 @@ def last_accepted_form(task_root: Path, stage: str, role: str) -> str:
 
 
 def tried_reader_names(stage_def: dict, role: str, task_root: Path) -> list:
-    """M-2 (t-1884): the forms whose `tried` table has a reader that is not a stage critic - the brief of `role` at that stage names the
-    last accepted form of each author in `TRIED_READERS`. [] for any other role."""
+    """M-2 (t-1884): the forms whose `tried` table is read by an EARLIER stage's reader (the retro analyst; the S4 case critic, which
+    reads the S2 tester's and the S3 strategist's) - the brief of `role` at that stage names the last accepted form of each author in
+    `TRIED_READERS`; an author with no accepted dispatch names nothing (no path is invented). [] for any other role."""
     names = []
     for stage, author in TRIED_READERS.get((str(stage_def.get("id") or ""), role), ()):
         form = last_accepted_form(task_root, stage, author)
@@ -4084,7 +4126,7 @@ FIRST_LOOK_MARK = "[first-look:{}]"           # a DATA token on every line that 
 FIRST_LOOK_NONE = "First look: there was no first look at the stand for this story."
 # (stage, role) -> the kind of lines. Every closed word (the statuses, the red ones, the S7 `blocked_by` filter, the confirmed stand build)
 # is read from `references/first-look-statuses.json` through `first_look.py` (AR-1): none is held here.
-FIRST_LOOK_KIND = {("S3", "qa-test-strategist"): "s3", ("S3", "qa-case-critic"): "s3", ("S4", "qa-case-designer"): "s4",
+FIRST_LOOK_KIND = {("S3", "qa-test-strategist"): "s3", ("S4", "qa-case-designer"): "s4",
                    ("S4", "qa-case-critic"): "s4_critic", ("S5", "qa-automator"): "s5", ("S5", "qa-code-critic"): "s5_critic",
                    ("S6", "qa-runner"): "s6", ("S7", "qa-failure-analyst"): "s7"}
 FIRST_LOOK_AUTHOR_KINDS = {"s4": ("screen", "step", "api", "sample"), "s5": ("locator", "api", "sample", "data")}
@@ -4200,11 +4242,11 @@ def _fl_body(kind: str, task_root, got: dict) -> list:
 
 def first_look_lines(task_root, stage: str, role: str) -> list:
     """The head lines that carry the first look to the role that reads it at `stage` (t-2277 FL-4, AR-8, AR-10, AR-13, AR-21, AR-29):
-    S3 the strategist and the plan's reviewer (counts by status, the red rows with their reason, the sides that are not real, the stand
+    S3 the strategist (counts by status, the red rows with their reason, the sides that are not real, the stand
     build when it is not established), S4 the case designer (the path of each requirement) and the case critic (the record's path and the
     rule on a diverging step), S5 the automator (locators, routes and data seen, before its own discovery) and the code critic (the path
     and the rule on a rediscovered selector), S6 the runner (the width was walked) and S7 the failure analyst (the red rows). `[]` for any
-    other pair - and for S3 and the critics when `stages.json` names no such role at the stage (a reviewer is never invented).
+    other pair - and for the S3-S5 roles when `stages.json` names no such role at the stage (a reviewer is never invented).
 
     Read through `first_look.read` and `app_card.first_look_path_items` (the one reader and the one reading of a path). Data only: no
     line carries a value of the record as an expected one (FR-58, P20) - the record's `why`, quote and evidence are the walker's words, the
@@ -4306,7 +4348,7 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         head += flow_request_lines(task_root, task, write and output is None)      # RN1-6: the head is never shrunk
         head.append(WALK_DATA_LINE)                                                # TR3-10 E: once, whatever the flow requests did
         head += walk_lines(task_root)                                              # RN1-6: a walk per function
-        if role == "qa-test-strategist":       # the stage critic stands on S3 too and gets no roster (FR-56, AR-11)
+        if role == "qa-test-strategist":       # the strategist alone gets the roster; no critic stands on S3 any more (FR-56, AR-11)
             head += s3_roster_lines(task_root, None, pipeline.get("environment"))  # PK0-2: the product's roles; the head is never shrunk
     if stage == "S2":
         head += user_path_failure_lines(task_root, write and output is None)       # G2-14: the head is never shrunk

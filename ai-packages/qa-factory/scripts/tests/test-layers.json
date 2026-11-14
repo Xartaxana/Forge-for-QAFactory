@@ -1656,6 +1656,7 @@
    ],
    "replaced_by": null,
    "covers": [
+    "driver_stage_plan.py",
     "env_probe.py",
     "exploratory_findings.py",
     "investigation_probe.py",
@@ -1699,9 +1700,7 @@
     "handoffs/role-to-conductor.yaml",
     "handoffs/s0-setup-to-scout.yaml",
     "handoffs/s1-scout-to-tester.yaml",
-    "handoffs/s2-stage-critic-to-tester.yaml",
     "handoffs/s2-tester-to-strategist.yaml",
-    "handoffs/s3-stage-critic-to-strategist.yaml",
     "handoffs/s3-strategist-to-designer.yaml",
     "handoffs/s4-case-critic-to-designer.yaml",
     "handoffs/s4-designer-to-case-critic.yaml",
@@ -3815,8 +3814,12 @@
   },
   "test_probe_gap_door.py": {
    "layer": "data_join",
-   "why": "held by import: test_probe_not_proved.py imports it; leaves the canon when the import is cut (TD-15.8)",
+   "why": "FV1-22 N2/N3 rows judge the real window_round_gate, stage_acceptance_write, record_repeat, gate_stop and resume_on_refusal (one case table per stop road, AT and BEYOND the caps); also held by import: test_probe_not_proved.py imports its helpers",
    "covers": [
+    "driver_gates.py",
+    "driver_machine.py",
+    "driver_runner.py",
+    "driver_stage_plan.py",
     "tests/harness.py",
     "tests/story_run_common.py"
    ]

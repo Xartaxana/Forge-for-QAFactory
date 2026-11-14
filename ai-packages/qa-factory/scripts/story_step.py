@@ -102,7 +102,8 @@ import config_view  # noqa: E402  (`card_values`: the values of the config keys 
 import grammar  # noqa: E402  (`_fence`: a code fence as CommonMark reads it, so `_sections` sees the headings `grammar.heading_lines` sees)
 import stage_done  # noqa: E402  (`S3_REMARK_PREFIX`: the one head of the line `finish` keeps whatever follows it)
 from controller import (Controller, MANUAL_BLOCK_CASES, MANUAL_WINDOW_CASES, S5_PLAN, SCOPE_SHOWN,  # noqa: E402
-                        dispatch_life_key, lane_keys, manual_done_cases, s3_window_of, s5_part_of, stop_after, validate_manual_runner_block,
+                        dispatch_can_close_stage, dispatch_life_key, lane_keys, manual_done_cases, record_purpose, s3_window_of, s5_part_of,
+                        stop_after, validate_manual_runner_block,
                         walk_lanes, with_stop_after)
 from event_store import EventCommitted, IdempotencyKeyReused  # noqa: E402
 from role_cli import REPAIR_MARKER  # noqa: E402
@@ -119,7 +120,7 @@ def _optional_row(stage_id: str, role: str, purpose):
     """The `optional_dispatches` row of the stage that admits `role` with `purpose`, or None - through the ONE reader
     (`stage_guard.optional_row`, AR-13; t-2277 FL-5). A blank purpose never matches."""
     import stage_guard
-    return stage_guard.optional_row({"stages": list(_stages().values())}, stage_id, role, purpose)
+    return stage_guard.optional_row(stage_guard.stage_model(), stage_id, role, purpose)
 
 
 def _task_root(task: str) -> Path:
@@ -362,7 +363,7 @@ def _handoff_form(task: str, stage_id: str, role: str, dispatch_id: str, task_ro
         named = [str(item).strip() for item in rows if isinstance(item, (str, int)) and str(item).strip()]
         if named:
             argv += ["--rows", ",".join(named)]
-    # F1 (B-2): a stage critic's contract (S2-S4) carries the token `<the author's dispatch>`; the author's last accepted dispatch is a
+    # F1 (B-2): the stage critic's contract (S4) carries the token `<the author's dispatch>`; the author's last accepted dispatch is a
     # value code knows (the same function `stage_done` compares with). Unknown or unreadable state -> no argument, the token stays
     # a placeholder (FR-59: a guessed author never stands in a form).
     argv += _author_argv(stage_id, role, contract, task_root)
@@ -379,17 +380,11 @@ def _handoff_form(task: str, stage_id: str, role: str, dispatch_id: str, task_ro
     return "", (out.splitlines()[0] if out else f"handoff_init exit {code}")
 
 
-def _purpose_of(record) -> str:
-    """The purpose word a dispatch RECORD was made with (`request_binding.purpose`, never the top of the record), or ''."""
-    binding = record.get("request_binding") if isinstance(record, dict) else None
-    return str(binding.get("purpose") or "") if isinstance(binding, dict) else ""
-
-
 def _purpose_contract(stage_id: str, role: str, record) -> str:
     """The contract id registered for this dispatch's PURPOSE (`handoff.contract_of(..., purpose=...)`), or '' when the dispatch
     has no purpose, none is registered for it, or the registry cannot be read (the caller then keeps today's lookup). THE one
     place the form is told by purpose: `_handoff_form` writes by it and `_form_owed` asks by it (AR-15)."""
-    purpose = _purpose_of(record)
+    purpose = record_purpose(record)
     if not purpose:
         return ""
     try:
@@ -402,7 +397,7 @@ def _purpose_contract(stage_id: str, role: str, record) -> str:
 def _plan_form_gap(role: str, record, contract: str) -> list:
     """A one-line note when a PLAN dispatch got the stage's usual form because the registry names no contract for the plan: a gap of the
     factory is told, never silently the window's form (only `s5_plan` is a registered purpose, so only it is told)."""
-    if contract or _purpose_of(record) != S5_PLAN:
+    if contract or record_purpose(record) != S5_PLAN:
         return []
     return [f"handoff: no contract is registered for purpose {S5_PLAN} ({role}) in handoffs/index.yaml; the stage's usual form was written"]
 
@@ -1901,9 +1896,13 @@ def _halt_doors(args, task_root: Path, dispatch: dict, form_halted: bool) -> str
     stage, did = dispatch["stage"], args.dispatch_id
     road = _pause_recover_door(args.task, did, task_root, dispatch.get("agent_id"))
     decide = f"`story_step.py decide --task {args.task} --dispatch-id {did} --words-file <file>"
-    if stage != "S5" and C.stage_closes_with(stage, dispatch["role"]):
+    if stage != "S5" and dispatch_can_close_stage(dispatch):
         doors = (f"record the person's decision, then run finish again: {decide} --close` (accept this work as it is) "
                  f"or `--open [<ids>]` (the stage stays open on that work). Or {road}")
+    elif stage != "S5" and _labelling(dispatch):
+        # SC-A1c: S3 window 1 never closes the stage, so `--close` is no door here (`decide` refuses it); `--open` is the one door
+        doors = (f"record the person's decision, then run finish again: {decide} --open [<ids>]` (the stage stays open on "
+                 f"that work; window 1 does not close S3). Or {road}")
     elif stage != "S5" and form_halted:
         doors = (f"record the person's decision, then run finish again: {decide} --close` (accept this work as it is; "
                  f"{stage} follows its own rule). Or {road}")
@@ -2044,8 +2043,19 @@ def _gate_refusal(args, task_root: Path, dispatch: dict, blocking: list) -> str:
     if waiting:
         lines.append("  " + str(len(waiting)) + " finding(s) wait for the person's word their line names (`then handed: "
                      "<case>#<n>`), recorded by the conductor from the person's own words; `*` does not pass them.")
+    # an open expectation (`awaits_answer`) is settled only by the answer to its question: its line names the question and the
+    # author's way (bind the Then `expectation_unconfirmed`, or return the item), never a word door (FR-10, FR-2, AR-28)
+    awaiting = [r for r in refused if getattr(r, "refused", "") == detector_verdict.AWAITS_ANSWER]
+    refused = [r for r in refused if r not in awaiting]
+    if awaiting:
+        lines.append("  " + str(len(awaiting)) + " finding(s) wait for the answer to an expectation question "
+                     "(`awaits_answer`): no recorded word passes them, `*` included. Each line above names either the question and "
+                     "the command with which the conductor records the person's answer, or sends the case back to S4; until it is answered, the author "
+                     "binds that Then `expectation_unconfirmed` as the line says, or returns the item in its digest when "
+                     "the line sends the case back to S4.")
     if refused:
-        lines.append("  " + ("No recorded word passes these; they are the author's repair." if not (named or starred or waiting)
+        lines.append("  " + ("No recorded word passes these; they are the author's repair."
+                             if not (named or starred or waiting or awaiting)
                              else f"{len(refused)} finding(s) carry the source's `refused` tag: no recorded word "
                                   "passes them, `*` included; they are the author's repair."))
     lines.append(f"  {REPAIR_MARKER}.")
@@ -2411,7 +2421,7 @@ def finish(args) -> int:
         return 2
     stage = _stages()[dispatch["stage"]]
     role = dispatch["role"]
-    optional = _optional_row(dispatch["stage"], role, _purpose_of(dispatch))      # t-2277 FL-5: an optional dispatch, never a closer
+    optional = _optional_row(dispatch["stage"], role, record_purpose(dispatch))      # t-2277 FL-5: an optional dispatch, never a closer
     # The handover form IS the handover. It is checked here, repaired by code where code can
     # derive the value, and kept as evidence - so a receipt nobody wrote cannot close a stage.
     # Required by DEFAULT: a story already running under an older build, whose roles do not
@@ -2481,7 +2491,9 @@ def finish(args) -> int:
         # (B1b) with its door - the refusal is the controller's, not a silent drop of the flag here.
         complete = bool(args.complete) and not args.not_complete
     else:
-        complete = not args.not_complete and (args.complete or role == stage.get("roles", [role])[-1])
+        # SC-A1c: "the last role closes" is the one predicate's word, so S3's window 1 (the strategist, the stage's last role) is not
+        # assumed closed; only the person's `--complete` reaches the controller's `_s3_completion_gate`, which refuses it.
+        complete = not args.not_complete and (args.complete or dispatch_can_close_stage(dispatch))
     decision_notes = ([halt_note] if halt_note else []) + gate_notes
     if "open_work" in decided:
         if complete:
@@ -2491,8 +2503,8 @@ def finish(args) -> int:
         if not unresolved:
             unresolved, reason = _open_pair(task_root, decided["open_work"])
     elif "close" in decided:
-        if not C.stage_closes_with(dispatch["stage"], role):
-            # A role that does not close its stage (a halted S4 designer): `close` means "accept this work as it
+        if not dispatch_can_close_stage(dispatch):
+            # A role that does not close its stage (a halted S4 designer; S3's window 1, which `decide` refuses `--close` on): `close` means "accept this work as it
             # is" and the stage follows its OWN rule - the decision never closes a stage over the role after it.
             decision_notes.append("the person's recorded decision accepts this work as it is (" +
                                   str(decided["close"].get("words_ref")) + "); " + dispatch["stage"] +
@@ -2818,7 +2830,14 @@ def _decide_refusal(kind: str, ids: list, dispatch: dict, did: str, manifest: di
     if stage == "S5":
         return (f"story_step: `--{kind}` is for the other stages; {did} is an S5 dispatch, whose window is either "
                 "accepted as unresolved or left open (finish --unresolved / --not-complete).")
-    if not C.stage_closes_with(stage, dispatch["role"]):
+    if _labelling(dispatch) and kind == "close":
+        # SC-A1c: window 1 of S3 is BETWEEN the strategist's two windows; "closes the stage as it is" would claim what
+        # `_s3_completion_gate` refuses (FR-1, FR-2: what is wrong, what is expected, a door the caller can use)
+        return (f"story_step: `--close` accepts the work of the dispatch that closes a stage; {did} is S3 window 1 (the labelling "
+                f"window), which never closes S3 - the plan is owed after it. Door: `--open [<ids>]` keeps S3 open on that work, or "
+                f"`finish --task {task} --dispatch-id {did} --digest \"<digest>\" --not-complete --unresolved plan_pending "
+                f"--reason \"<words>\"` ends the window. {REPAIR_MARKER}.")
+    if not dispatch_can_close_stage(dispatch) and not _labelling(dispatch):
         if kind == "close" and form_halted:
             # F-1 (b): the one widening - a role whose FORM declares a halt may be accepted as it is (`finish` does
             # not force the stage closed for it). Not `--open`: nothing starts a rework on this host by itself.
@@ -2949,7 +2968,7 @@ def decide(args) -> int:
     elif kind == "open":
         print(f"recorded: {dispatch['stage']} stays open on {', '.join(cases)}; the rework of that work starts by "
               "itself on the factory's next step, with these words")
-    elif not C.stage_closes_with(dispatch["stage"], dispatch["role"]):
+    elif not dispatch_can_close_stage(dispatch):
         print(f"recorded: the work of {did} is accepted as it is; {dispatch['stage']} follows its own rule (this "
               f"role does not close it); the words are kept in {ref}")
     else:

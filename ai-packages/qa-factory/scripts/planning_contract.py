@@ -110,7 +110,7 @@ def _validate_walk_fields(row):
     """TR3-10 E: the SHAPE of the optional `walk_data` / `walk_global` of ANY plan row that carries them, and nothing else.
     `walk_data`: a list of {kind: non-blank text, exclusive: true|false, changes: text}; `walk_global`: non-blank text. ABSENT
     (and `walk_data: []`) is not said = no constraint, so older plans stay valid. Whether what the strategist wrote is RIGHT is the
-    S3 critic's judgment, never this check's (AR-29). Each problem names the row, the field and the right shape (FR-1, FR-38)."""
+    stage's acceptor's judgment, never this check's (AR-29). Each problem names the row, the field and the right shape (FR-1, FR-38)."""
     rid = row.get("id", "<unknown>")
     errors = []
     if "walk_data" in row:
@@ -2958,6 +2958,42 @@ def append_question_ref(task_root, row_id: str, qid: str, case: str = "a case") 
     return _write_row_state(state, nothing)
 
 
+def repoint_bare_ref(task_root, row_id: str, old_qid: str, new_qid: str, case: str = "a case") -> tuple:
+    """`(written, line)`: the question `old_qid` was declared a repeat of `new_qid` (FV1-9, B1), and plan row `row_id` only LISTS it in
+    `question_refs` - no branch of `if_answered` is keyed by it and its `reason` does not name it - so the ref moves to `new_qid`
+    (once, even when the row names `new_qid` already). No letter is involved: a row that answers by `old_qid`'s letters is not moved
+    (the strategist's rework repoints it). Written only on a plan the person has not approved at gate A (the ban every writer
+    of the plan keeps); every other case returns `(False, line)` saying why and writes nothing. `line` is "" when the row does not
+    name `old_qid` at all. Never raises; the same preamble as `append_question_ref` (`_plan_row_for_write`)."""
+    root = Path(task_root)
+    row_id, old_qid, new_qid = (str(x or "").strip() for x in (row_id, old_qid, new_qid))
+    nothing = f"{old_qid} was marked as the same question as {new_qid} for {case}; "
+    state, line = _plan_row_for_write(root, row_id, nothing)
+    if state is None:
+        return False, line
+    row = state.rows[state.index]
+    refs = [str(ref).strip() for ref in row.get("question_refs") or []]
+    if old_qid not in refs:
+        return False, ""
+    branches = row.get("if_answered")
+    if isinstance(branches, dict) and any(str(key).strip() == old_qid for key in branches):
+        return False, nothing + f"{row_id} answers by {old_qid}'s letters, so its branch is not moved; the plan is unchanged"
+    reason = row.get("reason")
+    if isinstance(reason, str) and _id_token(old_qid).search(reason):
+        return False, nothing + f"the reason of {row_id} names {old_qid}, so the ref is not moved; the plan is unchanged"
+    if state.approved:
+        return False, nothing + "you have already approved the test plan at gate A, so the plan is unchanged"
+    moved = []
+    for ref in row["question_refs"]:
+        name = str(ref).strip()
+        if name == old_qid:
+            name = new_qid
+        if name not in [str(x).strip() for x in moved]:
+            moved.append(name if name == new_qid else ref)
+    state.rows[state.index] = dict(row, question_refs=moved)
+    return _write_row_state(state, nothing)
+
+
 def _plan_row_for_write(root: Path, row_id: str, nothing: str) -> tuple:
     """`(state, "")` or `(None, line)`: the ONE preamble of every row-level write of a question ref (`append_question_ref`,
     `repoint_question_ref`; AR-14): the plan exists and reads, gate A's approval can be read, the row is there and its
@@ -3312,6 +3348,44 @@ def _rename_new_refs(rows: list, made: dict) -> tuple:
     return out, renames
 
 
+def _reword_plan_entries(root: Path, rows: list) -> tuple:
+    """`(rows, notes)`: execute the `reword_questions` entries of `rows` (FV1-9, D4), the test planner's way to ask an unanswered
+    question again in clearer words. An entry is `{"question": "Q<n>", "text": "<clearer words>", "readings": [...]?, "why":
+    "<one line>"}` and goes through `question_register.reword` (the ONE writer; role `qa-test-strategist`, by `driver`, stage S3).
+    A done entry leaves its row (the key goes when none is left); a refused or malformed one STAYS on the row and is one line in
+    `notes` naming the row and the entry, and never stops the other entries or rows. A key that is no list, or an empty one, is
+    a line and is kept. A row with no `reword_questions` is returned as it was. Pure on `rows` (a copy is returned); never raises."""
+    import question_register as QR
+    out, notes = copy.deepcopy(rows), []
+    for index, row in enumerate(out):
+        if not isinstance(row, dict) or "reword_questions" not in row:
+            continue
+        rid = str(row.get("id") or f"row[{index}]")
+        entries = row["reword_questions"]
+        if not isinstance(entries, list) or not entries:
+            notes.append(f"{rid}: reword_questions must be a list of entries and holds {'none' if isinstance(entries, list) else 'no list'}. "
+                         f"Expected: {QR.REWORD_ENTRY_FORM}")
+            continue
+        left = []
+        for position, item in enumerate(entries):
+            label = f"{rid}: reword_questions[{position}]"
+            qid, spec, problem = QR.reword_entry(item)      # F4: the one entry check and spec build, shared with the case carrier
+            if problem:
+                notes.append(f"{label} {problem}")
+                left.append(item)
+                continue
+            try:
+                QR.reword(root, qid, spec, role="qa-test-strategist", by="driver", stage="S3")
+            except Exception as exc:  # noqa: BLE001 - a refusal of the writer, or anything else: the entry stays, the rest go on
+                notes.append(f"{label} ({qid.strip()}) was not asked again: {' '.join(str(exc).split())}")
+                left.append(item)
+        if left:
+            row["reword_questions"] = left
+        else:
+            row.pop("reword_questions", None)
+    return out, notes
+
+
 def project_plan(task_root, reopening: bool = False) -> types.SimpleNamespace:
     """Write what code owes the S3 plan when S3 closes (RN1-2): the revision mark (`stamp_revision`) and the register
     questions the rows declared as `new:<n>`. `SimpleNamespace(wrote, problems)`; never raises. `reopening`: the TICKET re-run of
@@ -3325,7 +3399,7 @@ def project_plan(task_root, reopening: bool = False) -> types.SimpleNamespace:
     `new:<n>` without its entry, a register that cannot be read or written: a PROBLEM line and nothing is written - never a plan
     that S4 reads with a `new:` ref (FR-59, AR-28). Order: register first, plan second, the human view last: a crash in between
     leaves a question no row names, never a row naming a missing question; a rerun converges (`raised_for`)."""
-    out = types.SimpleNamespace(wrote=False, problems=[])
+    out = types.SimpleNamespace(wrote=False, problems=[], notes=[])
     try:
         root = Path(task_root)
         path, document, rows, problem = _plan_state(root)
@@ -3337,9 +3411,15 @@ def project_plan(task_root, reopening: bool = False) -> types.SimpleNamespace:
         mode, _version = story_contract_mode(root)
         stamped = stamp_revision(rows, mode)
         declared = _declares_new(rows)
-        if not declared and stamped == rows:
+        rewording = any(isinstance(row, dict) and "reword_questions" in row for row in rows)
+        if not declared and not rewording and stamped == rows:
             return out
         approved, why = _gate_a_state(root)
+        if not why and approved and not reopening and not declared and stamped == rows:
+            # only asking again in other words is owed: the approved plan is left as it is and the planner is told, never refused
+            out.notes.append("gate A is approved: code does not change the plan the person approved, so the `reword_questions` of its rows "
+                             "were not executed. Door: the person sends the plan back at gate A, and they are executed when S3 closes again")
+            return out
         if why or (approved and not reopening):
             out.problems.append(why or "gate A is approved: code does not change the plan the person approved (the revision mark "
                                        "or a new question is owed). Door: the person sends the plan back at gate A (a rework of S3 with "
@@ -3368,6 +3448,11 @@ def project_plan(task_root, reopening: bool = False) -> types.SimpleNamespace:
                 out.problems.extend(problems)
                 return out
             stamped, renames = _rename_new_refs(stamped, made)
+        if rewording:
+            stamped, notes = _reword_plan_entries(root, stamped)
+            out.notes.extend(notes)
+        if not declared and stamped == rows:
+            return out     # every entry was refused and nothing else is owed: the plan is not written
         _write_plan_rows(path, document, stamped)
         out.wrote = True
         if renames:

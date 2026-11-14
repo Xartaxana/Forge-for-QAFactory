@@ -19,8 +19,8 @@ THE CONTRACT ("form 1")
                          (c) a tail: lines that start neither with `- ` nor with `REJECT` (the door, the marker
                              `role_cli.REPAIR_MARKER` / `PERSON_MARKER`, a summary);
                          (d) before the first header, one line `WORDS_REFUSED_AT_SOURCE: <finding id> <cause>`
-                             for each finding the producer refused to every recorded word (cause: `family` or
-                             `predating`); the finding line carries the same id in its label.
+                             for each finding the producer refused to every recorded word (cause: `family`, `predating` or
+                             `awaits_answer`); the finding line carries the same id in its label.
                        (e) ADVICE blocks, at exit 0 or 1: a header `ADVICE — <n>` (U+2014) and right after it exactly n
                            lines, each starting with `- `, one line = one piece of advice, the same shape as a `REJECT`
                            block. Advice is a judgment the detector prints for the stage critic (X2-2): it never blocks
@@ -65,7 +65,8 @@ FINDINGS_MAX_BYTES = 6000
 WORDS_AT_SOURCE = "(words judged at source)"
 # The line a producer prints for each finding it refused to every recorded word; `*` does not open it either.
 WORDS_REFUSED_AT_SOURCE = "WORDS_REFUSED_AT_SOURCE:"
-REFUSAL_CAUSES = ("family", "predating")
+AWAITS_ANSWER = "awaits_answer"    # an `open-oracle-asserted-*` finding: only the answer to its question settles it
+REFUSAL_CAUSES = ("family", "predating", AWAITS_ANSWER)
 UNREADABLE = "unreadable"
 
 HEAD_RE = re.compile(r"^REJECT — (\d+)\b")
@@ -167,7 +168,7 @@ def _tag_lines(lines: list) -> tuple:
             tags.append((parts[0], parts[1], line))
             continue
         tags.append((parts[0] if parts else "", UNREADABLE, line))
-        defects.append(f"the line '{line}' gives no known cause (family or predating): "
+        defects.append(f"the line '{line}' gives no known cause ({' or '.join(REFUSAL_CAUSES)}): "
                        "the source refusal cannot be read")
     return tags, defects
 
@@ -321,7 +322,7 @@ def _unreadable_of(code: int, stdout: str, stderr: str):
 def parse(code: int, stdout: str, stderr: str) -> dict:
     """`{"findings": [str], "refused": [str], "labels": [(check, id) | None], "marker": "repair"|"person"|"", "defects": [str], "unmigrated": str,
     "unmigrated_refused": str, "words": "source"|"gate", "unreadable": str, "advice": [str]}`. `refused` runs parallel
-    to `findings`: `""`, `family`, `predating` or `unreadable`; so does `labels` (P1-v W0): the `(check, id)` of the
+    to `findings`: `""`, `family`, `predating`, `awaits_answer` or `unreadable`; so does `labels` (P1-v W0): the `(check, id)` of the
     `[<check> <id>]` label a finding starts with, `None` for one that has none. `advice` is the lines of the `ADVICE` blocks of stdout
     (X2-2), read at exit 0 and 1 alike, `[]` for an unreadable run; a block that breaks its shape is a `defects` entry.
 

@@ -460,7 +460,13 @@ def _peer(state: dict, dispatch: dict, role: str) -> dict:
 
 
 def _terminal_runs(task_root: Path) -> dict:
-    """instance id -> (the latest terminal result row, its block, the block's path).
+    """Every spelling of an instance (`contract.instance_id_aliases` of the ONE manifest entry the run row's id
+    names) -> (the latest terminal result row of that instance under any spelling, its block, the block's path).
+
+    A spelling claimed by two different manifest entries is ambiguous and maps to nobody (its raw key stays as
+    written). When the manifest or the config cannot be read, only the exact ids of the run rows are keys. A run
+    of another instance (another parameter, a name that only shares a prefix) never counts: the join is
+    equality of whole spellings.
 
     "Latest" is the story's ONE block order, `run_history.read_run_blocks`: the block's own clock,
     a reparse block right after the block it supersedes. File-name order is not chronological for
@@ -472,6 +478,22 @@ def _terminal_runs(task_root: Path) -> dict:
     """
     import run_history
     found: dict = {}
+    manifest = _load(Path(C.artifact(task_root, "automation-manifest.json")))
+    try:
+        cfg = C.case_config(task_root)
+        spellings: dict = {}      # alias -> the canonical ids of the entries naming it
+        aliases_of: dict = {}     # canonical id -> every alias of that entry
+        for entry in C.manifest_tests(manifest):
+            names = tuple(C.instance_id_aliases(entry, cfg))
+            if not names:
+                continue
+            aliases_of.setdefault(names[0], names)
+            for name in names:
+                spellings.setdefault(name, set()).add(names[0])
+        owner = {name: tuple(a for a in aliases_of[next(iter(keys))] if len(spellings[a]) == 1)
+                 for name, keys in spellings.items() if len(keys) == 1}
+    except Exception:
+        owner = {}
     blocks, _unreadable = run_history.read_run_blocks(task_root)
     for item in blocks:
         block = item["data"]
@@ -480,7 +502,10 @@ def _terminal_runs(task_root: Path) -> dict:
                 continue
             identity = str(row.get("instance_id") or "")
             if identity and C.result_status(row) in C.TERMINAL_RESULT_STATUSES:
-                found[identity] = (row, block, task_root / RUN_BLOCK_DIR / item["name"])
+                value = (row, block, task_root / RUN_BLOCK_DIR / item["name"])
+                found[identity] = value
+                for name in owner.get(identity, ()):
+                    found[name] = value
     return found
 
 

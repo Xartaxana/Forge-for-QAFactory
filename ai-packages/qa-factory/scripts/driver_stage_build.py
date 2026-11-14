@@ -28,17 +28,31 @@ class DriverStageBuild:
                    "manual": "carrying out the manual checks",
                    "both": "running the automated tests and carrying out the manual checks"}
 
-    def stand_question_text(self, stage: str, environment: str, names: list, kind: str = "") -> str:
+    def stand_question_text(self, stage: str, environment: str, names: list, kind: str = "", why=None) -> str:
         """The question (references/human-questions.md): what was done, why the stand cannot be
         derived, one question, the closed answers. Nothing in it is the probe's own vocabulary -
         that goes in the details file. `kind` is what the stage is about to do on the stand
-        (S6: automation, manual, or both) - a manual-only S6 must not say "automated tests"."""
+        (S6: automation, manual, or both) - a manual-only S6 must not say "automated tests".
+        `why` is the probe's `blocked_by` list: it decides which of four sentences names the named stand
+        (dead / answers but the login did not get in / could not be checked / unknown); None or empty is `unknown`."""
         task = self.task
+        # FV1-5: the probe's `blocked_by` words (env_probe.blocked_by_of) -> the sentence class a person reads. ONE closed mapping;
+        # the FIRST word decides; a word nobody here knows (a future one) and an empty list are the `unknown` class (FR-41).
+        # "did not answer" is said ONLY for `stand_dead` and `device`; a stand never asked (`no_address`) is a config fault (FR-41, AR-28).
+        classes = {"stand_dead": "dead", "device": "dead", "login": "login", "login_key": "login",
+                   "selection": "config", "env_file": "config", "no_address": "config", "not_configured": "config"}
+        first = why[0] if isinstance(why, (list, tuple)) and why else ""
+        reason = classes.get(first, "unknown") if isinstance(first, str) else "unknown"
         step = self.STAND_STEPS["S5" if stage == "S5" else (kind if kind in self.STAND_STEPS else "automation")]
         head = (f"The requirements, the test plan and the test cases for {task} are done. The next "
                 f"step is {step}, and for that I need a stand I can trust. I could not confirm one: ")
         if environment:
-            head += (f"the stand `{environment}` did not answer when I checked it just now. ")
+            head += {"dead": f"the stand `{environment}` did not answer when I checked it just now. ",
+                     "login": (f"the stand `{environment}` answers, but the login recorded for this project did not get in "
+                               "when I checked it just now. "),
+                     "config": (f"the stand `{environment}` could not be checked: its setting in the project's config is "
+                                "missing or broken. "),
+                     "unknown": f"I could not check the stand `{environment}`. "}[reason]
         elif names:
             head += "no stand has been chosen for this story yet. "
         else:
@@ -46,7 +60,15 @@ class DriverStageBuild:
         head += ("I have not run anything on a stand and I have not switched to another one on my "
                  "own: which stand the tests may touch is your decision.")
         options = []
-        if environment:
+        if environment and reason == "login":
+            options.append({"answer": "retry", "token": "retry",
+                            "slots": {"what": "fix the login the project records, or name the way the project signs in"},
+                            "says": ("fix the login the project records (the details name what came back), or name the way "
+                                     "the project signs in; I check again")})
+        elif environment and reason == "config":
+            options.append({"answer": "retry", "token": "retry", "slots": {"what": "fix the stand's setting in the project's config"},
+                            "says": f"fix the stand's setting in the project's config; I check `{environment}` again"})
+        elif environment:
             options.append({"answer": "retry", "token": "retry", "slots": {"what": f"bring `{environment}` up, or fix what stops it answering"},
                             "says": f"bring `{environment}` up, or fix what stops it answering; I check it again"})
         elif not names:
@@ -107,6 +129,7 @@ class DriverStageBuild:
                       f"\"{self.s0_quote(passed[0].get('decision'))}\"; going on without a confirmed stand")
                 return
         details = "no stand is recorded for this story (environment: none)"
+        why: list = []                  # FV1-5: the probe's `blocked_by` words; empty = the question says "I could not check"
         if environment:
             code, out = self.py("env_probe.py", "--env", environment, "--task", self.task)
             if code == 0:
@@ -114,10 +137,12 @@ class DriverStageBuild:
                 print(f"{stage}: stand `{environment}` answered the check; it is confirmed")
                 return
             details = out or "the probe printed nothing"
+            import env_probe            # the one reader of the probe's text for words (AR-13); a crash or empty text is `unknown`
+            why = env_probe.blocked_by_of(out)
         # A7 (C1-6b): a seam question - `retry` / `go on` carry the seam's own moves (`person_does`, `go_on_as_is` + the block), so
         # `take_seam_answer` executes them; the stand's NAME is the site's own door (`_take_stand_answer`)
         # remains: the stand question is a seam question (priced, `offered`): retry / go on run the seam's executors, the name has its own, other words go to the seam
-        person = self.site_seam_person("environment", self.stand_question_text(stage, environment, self.stand_names(), kind), stage,
+        person = self.site_seam_person("environment", self.stand_question_text(stage, environment, self.stand_names(), kind, why), stage,
                                        block=waiver.STAND_NOT_CONFIRMED_BLOCK, details=details,
                                        answer_note=human_text.onboarding_note(environment, self.stand_names()))
         person.stand_stage = stage       # read by `ask()`, which sets the flag - and clears it for every other Person

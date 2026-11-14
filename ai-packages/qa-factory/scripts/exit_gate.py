@@ -817,7 +817,7 @@ def stage_dispatch(records, stage: str):
 def s3_strategist_records(records) -> dict:
     """The S3 dispatch records of the plan's author (`qa-test-strategist`) that count, in the mapping's own order: the optional first-look
     runner's record (t-2277 FL-5) is none of them, and a set-aside record (`controller.DISCOUNTED`) does not count. THE one reader
-    (AR-13) of "the strategist's dispatches": `_s3_window_one` reads it here; `story_run.s3_window` and `s3_author_done` read it too (t-2277 small-1). `{}` for anything that is not a mapping."""
+    (AR-13) of "the strategist's dispatches": `_s3_window_one` reads it here; `story_run.s3_window` reads it too (t-2277 small-1). `{}` for anything that is not a mapping."""
     from controller import DISCOUNTED
     if not isinstance(records, dict):
         return {}
