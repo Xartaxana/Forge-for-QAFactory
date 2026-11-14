@@ -953,6 +953,11 @@ def main_pass(story_id: str = DEFAULT_STORY, label: str = "default", ledger_path
             line("main/stop", "note", f"stopped at {stop_stage or 'the end'}: {stop}"
                  + (f"; the driver's first refusal: {cut(first_ref)}" if first_ref else ""))
         for gap in read_rows(world.task_root / "state" / "dry-stub.jsonl", "the stub's journal"):       # what the stub could not fill, per call: the stop's other half
+            if gap.get("dispatch"):
+                line("main/stub-call", "note", f"{gap.get('dispatch')} n={gap.get('n')} stage={gap.get('stage') or '?'} resume={bool(gap.get('resume'))} wrote={len(gap.get('wrote') or [])} "
+                     f"live_only={len(gap.get('live_only') or [])}")
+            if gap.get("wrote"):
+                line("main/stub-wrote", "note", f"{gap.get('stage') or '?'} {gap.get('role') or ''} (window {gap.get('window') or '-'}): {cut(', '.join(map(str, gap['wrote'])), 300)}")
             for item in gap.get("live_only") or []:
                 line("main/stub-live_only", "note", f"{gap.get('stage') or '?'} {gap.get('role') or ''}: {cut(item.get('output', ''), 80)}: {cut(item.get('why', ''), 400)}")
             if (gap.get("fixed") or {}).get("exit"):

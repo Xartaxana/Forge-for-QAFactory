@@ -7,6 +7,32 @@
  "stub": {
   "qa-case-critic": {"verdict": "ok"},
   "qa-case-critic@S2": {"result_text": "qa-case-critic S2 DRY-1 · ok\nR-1 · reviewed · the register row names its observable\nR-2 · reviewed · the register row names its observable\nwork/handoffs/S2-qa-case-critic-1.yaml"},
+  "qa-case-critic@S3": {"result_text": "qa-case-critic S3 DRY-1 · ok\nTS-1 · reviewed · the plan row names the requirement and its level\nTS-2 · reviewed · the plan row names the requirement and its level\nwork/handoffs/S3-qa-case-critic-1.yaml"},
+  "qa-case-critic@S4": {"result_text": "qa-case-critic S4 DRY-1 · ok\nTC-1 · reviewed · the case checks the total and names its plan row\nTC-2 · reviewed · the case checks the empty cart and names its plan row\nwork/handoffs/S4-qa-case-critic-1.yaml"},
+  "qa-case-designer@S4": {
+   "result_text": "qa-case-designer S4 DRY-1 · ok\nTC-1 · created · the case checks the cart total with a quantity\nwork/handoffs/S4-qa-case-designer-1.yaml",
+   "overrides": {
+    "s4-designer-to-case-critic": {
+     "scope[0].case_version": "pending: the orchestrator pins it with case_versions.py --all (the designer has no Bash)"
+    }
+   }
+  },
+  "qa-test-strategist@S3#1": {
+   "result_text": "qa-test-strategist S3 DRY-1 · ok\nG-1 · reviewed · labelled implements R-1\nG-2 · reviewed · labelled implements R-1\nwork/grounding.yaml",
+   "grounding": {
+    "rows": [
+     {"file": "src/shop/cart.py", "label": "implements", "requirements": ["R-1"], "reason": "the total now multiplies price by quantity, as R-1 asks"},
+     {"file": "src/shop/checkout.py", "label": "implements", "requirements": ["R-1"], "reason": "checkout is offered only while the cart has lines; the register holds R-1 only (the filler's register has one row)"}
+    ],
+    "requirements": [
+     {"r": "R-1", "state": "implemented", "files": ["src/shop/cart.py", "src/shop/checkout.py"]}
+    ],
+    "areas": [
+     {"id": "B-1", "matters": "no", "why": "the cart module has one function the story changes and nothing else calls it in this synthetic project", "regression": "gap:the synthetic project holds no test of the cart module"},
+     {"id": "B-2", "matters": "no", "why": "the checkout module has one function the story changes and nothing else calls it in this synthetic project", "regression": "gap:the synthetic project holds no test of the checkout module"}
+    ]
+   }
+  },
   "qa-requirements-tester": {
    "result_text": "qa-requirements-tester S2 DRY-1 · ok\nR-1 · found · the total is the sum of price times quantity of the lines\nR-2 · found · an empty cart shows zero and offers no checkout\nwork/requirements-register.md",
    "overrides": {

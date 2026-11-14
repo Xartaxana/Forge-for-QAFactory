@@ -285,12 +285,23 @@ def author_dispatch_of(prompt: str) -> str:
     return found.group(1) if found else ""
 
 
-def kit_context(kit: dict, dispatch: str = "", impl_diff: str = "", cases=None, author_dispatch: str = ""):
+def world_cases_root(task_dir) -> str:
+    """The world's own case store as the product's reader (`contract.cases_root`: `config.cases_root`, else the story's `work/test-cases`) resolves it, as a
+    task-relative path when it lies under the task folder (the way a form names it), else as the reader returned it."""
+    import contract as CO
+    root = Path(CO.cases_root(Path(task_dir)))
+    try:
+        return root.resolve().relative_to(Path(task_dir).resolve()).as_posix()
+    except ValueError:
+        return str(root)
+
+
+def kit_context(kit: dict, dispatch: str = "", impl_diff: str = "", cases=None, author_dispatch: str = "", cases_root: str = ""):
     """The `FillContext` of the kit for ONE call: its ids (`cases` narrows them, a test file is one per case), the call's dispatch id."""
     import form_filler as FF
     ids = [c["id"] for c in kit["cases"]] if cases is None else list(cases)
     return FF.FillContext(task_key=kit["key"], dispatch_id=dispatch, requirements=list(kit["requirements"]), cases=ids,
-                          minted={k: list(v) for k, v in kit["minted"].items()}, impl_diff=impl_diff, author_dispatch=author_dispatch)
+                          minted={k: list(v) for k, v in kit["minted"].items()}, impl_diff=impl_diff, author_dispatch=author_dispatch, cases_root=cases_root)
 
 
 def runner_rows(story_id: str = "dry-1", base=None) -> list:
@@ -544,10 +555,79 @@ def calls_before(task_dir: Path, key: str) -> int:
     return len([r for r in rows if (r.get("dispatch") or r.get("conductor")) == key])
 
 
-def stub_control(control: dict, role: str, stage: str) -> dict:
-    """The ONE reader of a role's row in the control's `stub`: the row `<role>@<stage>` over the row `<role>` (the default for every stage of a role)."""
+STUB_KEY = re.compile(r"[a-z][a-z0-9-]*(@S[0-9](#[0-9])?)?")      # `<role>`, `<role>@<stage>`, `<role>@<stage>#<window>`
+STUB_PLAIN_KEYS = ("source_relevance",)                              # keys of the table that are no role row
+WINDOW1_MARK = "Closed words of work/grounding.yaml, given here"    # the line only the S3 labelling brief carries (`brief_pack.s3_labelling_vocabulary_lines`)
+
+
+FROM_STORY_DATA = ("work/grounding.yaml",)                              # outputs a role writes whose content is the story's data (`apply_grounding`), never the filler's
+WINDOW_OUTPUTS = {("qa-test-strategist", "S3", "1"): FROM_STORY_DATA}    # skills/qa-story/phases/s3.md "Window 1": the role writes NO plan, only work/grounding.yaml
+
+
+def window_of(brief: str) -> str:
+    """"1" when the brief is the S3 labelling window's (the dispatch's own brief names the closed words of the grounding table), else "": the key of a
+    role row has a window part ONLY where (role, stage) cannot separate two dispatches (S3: window 1 labels the table, window 2 writes the plan)."""
+    return "1" if WINDOW1_MARK in brief else ""
+
+
+def stub_control(control: dict, role: str, stage: str, window: str = "") -> dict:
+    """The ONE reader of a role's row in the control's `stub`: `<role>@<stage>#<window>` over `<role>@<stage>` over `<role>` (the default for every stage of
+    a role). A key of the table that has none of these forms is a `KitError` naming it - a mistyped key must never be a silently absent row."""
     table = control.get("stub") or {}
-    return {**(table.get(role) or {}), **(table.get(f"{role}@{stage}") or {})}
+    bad = [k for k in table if k not in STUB_PLAIN_KEYS and not (isinstance(k, str) and STUB_KEY.fullmatch(k))]
+    if bad:
+        raise KitError(f"the story's `stub` table has the key {bad[0]!r}; expected `<role>`, `<role>@<stage>` or `<role>@<stage>#<window>` (or one of {list(STUB_PLAIN_KEYS)})")
+    rows = [table.get(role), table.get(f"{role}@{stage}"), table.get(f"{role}@{stage}#{window}") if window else None]
+    return {k: v for row in rows for k, v in (row or {}).items()}
+
+
+def apply_grounding(task_dir: Path, data: dict, key: str) -> list:
+    """The role's window-1 work, as story data: label the rows of `work/grounding.yaml` and state its requirement lines. `data` = `{"rows": [{"file", "label",
+    "requirements", "reason"[, "question"]}], "requirements": [{"r", "state", "files"[, "where", "question"]}]}`; the table is read by its one reader
+    (`planning_contract.read_grounding`) and written by its one writer (`grounding_table.write_yaml`); a hunk is named by its FILE, its id is the table's own.
+    A row or line the data does not cover, a file the table does not hold, a table that cannot be read: `KitError` naming the key (never an empty product).
+    Returns the ids of the rows and lines it wrote."""
+    import grounding_table as GT
+    import planning_contract as PC
+    doc, problem = PC.read_grounding(task_dir)
+    if doc is None:
+        raise KitError(f"{key}: work/grounding.yaml cannot be read ({problem}); the driver's preparation should have written the table")
+    table = json.loads(json.dumps(doc.data))
+    files = {h["id"]: h["file"] for h in table.get("hunks") or [] if isinstance(h, dict) and h.get("id") and h.get("file")}
+    by_file = {}
+    for ident, name in files.items():
+        by_file.setdefault(name, []).append(ident)
+    declared = {r.get("file"): r for r in data.get("rows") or [] if isinstance(r, dict)}
+    wrote = []
+    for row in table.get("rows") or []:
+        named = {files.get(h) for h in (row.get("hunks") if isinstance(row.get("hunks"), list) else [row.get("hunks")])}
+        mine = [declared[f] for f in named if f in declared]
+        if len(mine) != 1:
+            raise KitError(f"{key}: `grounding.rows` covers {len(mine)} of the files of table row {row.get('id')} (files {sorted(map(str, named))}; declared {sorted(map(str, declared))}); expected exactly one")
+        row.update({k: v for k, v in mine[0].items() if k != "file"})
+        wrote.append(str(row.get("id")))
+    stated = {r.get("r"): r for r in data.get("requirements") or [] if isinstance(r, dict)}
+    for line in table.get("requirements") or []:
+        mine = stated.get(line.get("r"))
+        if mine is None:
+            raise KitError(f"{key}: `grounding.requirements` has no line for {line.get('r')}; the table holds it (declared {sorted(map(str, stated))})")
+        absent = [f for f in mine.get("files") or [] if f not in by_file]
+        if absent:
+            raise KitError(f"{key}: `grounding.requirements[{line.get('r')}].files` names {absent}, which the table's hunks do not hold (they hold {sorted(by_file)})")
+        line.update({k: v for k, v in mine.items() if k not in ("r", "files")}, hunks=[i for f in mine.get("files") or [] for i in by_file[f]])
+        wrote.append(str(line.get("r")))
+    areas = {a.get("id"): a for a in data.get("areas") or [] if isinstance(a, dict)}
+    for area in (table.get("blast_radius") or {}).get("areas") or []:       # the blast radius areas the role judges (`matters`, `why`, `regression`, ...), declared by area id
+        mine = areas.get(area.get("id"))
+        if mine is None:
+            raise KitError(f"{key}: `grounding.areas` has no entry for area {area.get('id')}; the table holds it (declared {sorted(map(str, areas))})")
+        area.update({k: v for k, v in mine.items() if k in GT.ROLE_AREA_FIELDS})
+        wrote.append(str(area.get("id")))
+    GT.write_yaml(GT.table_path(task_dir), table)
+    again, problem = PC.read_grounding(task_dir)         # what the stub wrote must read back through the one reader, or the role's product is a lie
+    if again is None:
+        raise KitError(f"{key}: the table the stub wrote is refused by its reader ({problem})")
+    return wrote
 
 
 def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Path, dispatch: str = "", n: int = 1) -> tuple:
@@ -560,9 +640,14 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
     form = task_dir / "work" / "handoffs" / f"{dispatch}.yaml"
     text = form.read_text(encoding="utf-8") if form.is_file() else ""
     contract, stage = FORM_CONTRACT.search(text), FORM_STAGE.search(text)
-    stage = stage.group(1) if stage else ""
+    named = re.match(r"(S\d)-", dispatch)       # a dispatch id is `<stage>-<role>-<n>`: the stage of a call that has no handover form (S3 window 1)
+    stage = stage.group(1) if stage else (named.group(1) if named else "")
     row["stage"] = stage
-    mine = stub_control(control, role, stage)
+    brief = task_dir / "work" / "briefs" / f"{dispatch}.md"        # the role's brief: the file its prompt hands it (`brief_pack`), where the `Reviewed dispatch:` line is
+    brief_text = brief.read_text(encoding="utf-8", errors="replace") if brief.is_file() else ""
+    window = window_of(brief_text)
+    row["window"] = window
+    mine = stub_control(control, role, stage, window)
     task = control.get("task", "")
     import dry_world as W
     try:
@@ -571,9 +656,13 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
         diff = ""
         row["live_only"].append({"output": "the world's change", "why": cut(str(exc), 240)})
     kit = load_kit(control["story"]) if control.get("story") else None
-    brief = task_dir / "work" / "briefs" / f"{dispatch}.md"        # the role's brief: the file its prompt hands it (`brief_pack`), where the `Reviewed dispatch:` line is
-    author = author_dispatch_of(prompt) or (author_dispatch_of(brief.read_text(encoding="utf-8", errors="replace")) if brief.is_file() else "")
-    ctx = kit_context(kit, dispatch, diff, author_dispatch=author) if kit else FF.FillContext(task_key=task, dispatch_id=dispatch, impl_diff=diff, author_dispatch=author)
+    author = author_dispatch_of(prompt) or author_dispatch_of(brief_text)
+    try:
+        store = world_cases_root(task_dir)
+    except (OSError, ValueError, KeyError, TypeError) as exc:       # the product's reader refused the world's config: the token stays unfillable and the row says why
+        store = ""
+        row["live_only"].append({"output": "the world's case store", "why": cut(f"contract.cases_root: {type(exc).__name__}: {exc}", 240)})
+    ctx = kit_context(kit, dispatch, diff, author_dispatch=author, cases_root=store) if kit else FF.FillContext(task_key=task, dispatch_id=dispatch, impl_diff=diff, author_dispatch=author, cases_root=store)
     if not contract:
         row["live_only"].append({"output": f"work/handoffs/{dispatch}.yaml", "why": "no form with a `contract:` line at that path"})
     else:
@@ -592,6 +681,12 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
             row["wrote"].append(f"work/handoffs/{dispatch}.yaml")
         except Unfillable as exc:
             row["live_only"].append(dict(live_row(exc), output=f"form {contract.group(1)}"))
+    if kit and window == "1":        # S3 window 1: the role labels work/grounding.yaml (no handover form); the labels are the story's data, never the stub's
+        data = mine.get("grounding")
+        if not isinstance(data, dict) or not data:
+            raise KitError(f"story `stub` holds no `grounding` for `{role}@{stage}#{window}`; the labelling window's product is the story's data (rows, requirements)")
+        row["wrote"] += [f"work/grounding.yaml: {', '.join(apply_grounding(task_dir, data, f'{role}@{stage}#{window}'))}"]
+        row["live_only"] = [x for x in row["live_only"] if "no form with a `contract:` line" not in str(x.get("why"))]       # window 1 has no handover form: not a gap
     if kit and role == "qa-automator" and stage == "S5":
         done = automator_branch(project, task_dir, kit, runner_row(kit["runner"]), dispatch)
         row["wrote"] += done["wrote"]
@@ -615,6 +710,8 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
         if gap:
             row["live_only"].append({"output": "work/source-inventory.json", "why": gap})
     for out, kind in role_plan(role, stage, FF):
+        if out in FROM_STORY_DATA or (WINDOW_OUTPUTS.get((role, stage, window)) is not None and out not in WINDOW_OUTPUTS[(role, stage, window)]):
+            continue       # written from the story's data (the table), or an output this window of the role does not write (window 1 writes no plan): never the filler's text
         if kind == "fill":
             try:
                 FF.write_outputs(task_dir, project, fill_output(out, ctx, overrides_for(mine, out, n)))
@@ -674,7 +771,13 @@ def claude_main(argv: list) -> int:
             result, row, session = (control.get("stub") or {}).get(role, {}).get("result_text") or "", {"role": role, "resume": True, "wrote": [], "live_only": []}, resume
             dispatch_id = key
         else:         # a call, or the repair resume the row's `repair_on_round` names: the forms are filled again, now without the row's overrides
-            dispatch_id, result, row = fill_role(role, prompt, control, project, task_dir, dispatch=key, n=n)
+            try:
+                dispatch_id, result, row = fill_role(role, prompt, control, project, task_dir, dispatch=key, n=n)
+            except KitError as exc:         # story data the call needs is absent or wrong: loud, named, exit non-zero (never an empty product)
+                sys.stderr.write(f"dry_stub: {exc}\n")
+                journal(task_dir, {"ts": now(), "dispatch": key, "n": n, "role": role, "wrote": [], "failed": True,
+                                   "live_only": [{"output": "the call", "why": cut(str(exc), 900)}], "run_class": os.environ.get("STORY_RUN_CLASS", "")})
+                return 3
             session = resume if resume else f"stub-{dispatch_id}-{n}"
             row = dict(row, resume=True) if resume else row
         journal(task_dir, dict(row, ts=now(), dispatch=dispatch_id, n=n, prompt_sha=hashlib.sha256(
@@ -1173,6 +1276,7 @@ def selftest_n2(tmp: Path) -> None:
           re.search(r"\bno_move\.priced_options\s*=[^=]", owned[1].read_text(encoding="utf-8")) is not None)
     check("N2 item 5: no owned file assigns an attribute of the driver's class", not [str(p) for p in owned if pattern.search(p.read_text(encoding="utf-8"))])
     selftest_n2b(tmp, world, call, form, rows, control)
+    selftest_n2c(tmp)
 
 
 def selftest_n2b(tmp: Path, world, call, form, rows, control: dict) -> None:
@@ -1222,6 +1326,75 @@ def selftest_n2b(tmp: Path, world, call, form, rows, control: dict) -> None:
         steps_text = json.dumps(journal_row.get("live_only", []) + journal_row.get("wrote", []))
         check(f"N2b item 2/5: the scout's recording step is in the stub's journal ({tag})", rc == 0 and expect in steps_text and "implementation_source" in steps_text,
               steps_text[:500] + err[-300:])
+
+
+def selftest_n2c(tmp: Path) -> None:
+    """The rows of node N2c: the one reader of the story's stub table (`stub_control`: the keys, the precedence, the unknown key), the story's data of the S2
+    stage critic, the window of an S3 call, and the window-1 product (`apply_grounding`: the table labelled from data, every gap named)."""
+    import grounding_table as GT
+    import planning_contract as PC
+    from harness import check, check_eq
+    table = {"qa-x": {"a": 1, "b": 1}, "qa-x@S2": {"b": 2}, "qa-x@S3#1": {"c": 3}}
+    check_eq("N2c item 5: `<role>@<stage>` wins over `<role>`, the role-only row is the default of every stage",
+             (stub_control({"stub": table}, "qa-x", "S2"), stub_control({"stub": table}, "qa-x", "S4"), stub_control({"stub": table}, "qa-y", "S2")),
+             ({"a": 1, "b": 2}, {"a": 1, "b": 1}, {}))
+    check_eq("N2c item 5: `<role>@<stage>#<window>` is read only for the window the call has",
+             (stub_control({"stub": table}, "qa-x", "S3", "1"), stub_control({"stub": table}, "qa-x", "S3", "")), ({"a": 1, "b": 1, "c": 3}, {"a": 1, "b": 1}))
+    for bad in ("qa-x@S33", "QA-X", "qa-x@", "qa-x S2", "qa-x@S3#", ""):
+        try:
+            stub_control({"stub": {bad: {"a": 1}}}, "qa-x", "S2")
+            got = "no error"
+        except KitError as exc:
+            got = str(exc)
+        check(f"N2c item 5: an unknown key {bad!r} is a KitError naming it, never a silent default", repr(bad) in got and "expected `<role>`" in got, got)
+    check_eq("N2c item 5: `source_relevance` is no role row and is accepted", stub_control({"stub": {"source_relevance": {}}}, "qa-x", "S2"), {})
+    story = read_json(STORIES / "dry-1" / "story.json")["stub"]
+    check_eq("N2c item 5: the story's `qa-case-critic@S2` row carries the S2 digest over the role's verdict `ok`",
+             (stub_control({"stub": story}, "qa-case-critic", "S2").get("verdict"), stub_control({"stub": story}, "qa-case-critic", "S2").get("result_text", "").splitlines()[0],
+              "result_text" in stub_control({"stub": story}, "qa-case-critic", "S7")),
+             ("ok", "qa-case-critic S2 DRY-1 · ok", False))
+    check_eq("N2c: window 1 is the call whose brief carries the labelling words, any other brief is no window",
+             (window_of("x\n" + WINDOW1_MARK + ": labels"), window_of("Reviewed dispatch: none"), window_of("")), ("1", "", ""))
+    # the window-1 product, on a hand-made table (two hunks of two files, two rows, two requirement lines)
+    folder = tmp / "n2c" / "T"
+    (folder / "work").mkdir(parents=True)
+    empty = {"schema_version": 1, "implementation_source": "diff", "register_sha256": "x",
+             "hunks": [{"id": "h1-1", "file": "a.py"}, {"id": "h2-1", "file": "b.py"}],
+             "rows": [GT.empty_row(1, ["h1-1"]), GT.empty_row(2, ["h2-1"])], "requirements": [GT.empty_line("R-1", ""), GT.empty_line("R-2", "")],
+             "blast_radius": {"index": {"state": "built"}, "areas": [{"id": "B-1", "matters": "", "why": "", "regression": ""}]}}
+    GT.write_yaml(folder / "work" / "grounding.yaml", empty)
+    data = {"rows": [{"file": "a.py", "label": "implements", "requirements": ["R-1"], "reason": "r1"}, {"file": "b.py", "label": "refactoring", "reason": "r2"}],
+            "requirements": [{"r": "R-1", "state": "implemented", "files": ["a.py"]}, {"r": "R-2", "state": "outside_diff", "files": [], "where": "elsewhere"}],
+            "areas": [{"id": "B-1", "matters": "no", "why": "w", "regression": "gap:none", "path_kind": "ignored: not a role field"}]}
+    wrote = apply_grounding(folder, data, "k")
+    doc, problem = PC.read_grounding(folder)
+    got = doc.data if doc is not None else {}
+    check_eq("N2c item 2: window 1 labels each row from the data by the FILE of its hunk, and states each requirement line with the table's own hunk ids",
+             (wrote, [(r["id"], r["label"], r["requirements"]) for r in got.get("rows", [])], [(r["r"], r["state"], r["hunks"]) for r in got.get("requirements", [])]),
+             (["G-1", "G-2", "R-1", "R-2", "B-1"], [("G-1", "implements", ["R-1"]), ("G-2", "refactoring", [])], [("R-1", "implemented", ["h1-1"]), ("R-2", "outside_diff", [])]))
+    check_eq("N2c item 2: an area gets the role's fields of the data (`matters`, `why`, `regression`) and nothing the code owns (`path_kind`)",
+             [(a["matters"], a["regression"], "path_kind" in a) for a in got.get("blast_radius", {}).get("areas", [])], [("no", "gap:none", False)])
+    for name, mutate, needle in (
+            ("a row whose file the data does not cover", lambda d: d["rows"].pop(), "covers 0 of the files of table row G-2"),
+            ("a requirement line the data does not state", lambda d: d["requirements"].pop(), "has no line for R-2"),
+            ("an area the data does not declare", lambda d: d["areas"].pop(), "has no entry for area B-1"),
+            ("a requirement naming a file the table does not hold", lambda d: d["requirements"][0].update(files=["zz.py"]), "which the table's hunks do not hold")):
+        GT.write_yaml(folder / "work" / "grounding.yaml", empty)
+        copy = json.loads(json.dumps(data))
+        mutate(copy)
+        try:
+            apply_grounding(folder, copy, "k")
+            got_text = "no error"
+        except KitError as exc:
+            got_text = str(exc)
+        check(f"N2c edge 6: {name} is a KitError naming the key", needle in got_text and got_text.startswith("k:"), got_text)
+    (folder / "work" / "grounding.yaml").unlink()
+    try:
+        apply_grounding(folder, data, "k")
+        got_text = "no error"
+    except KitError as exc:
+        got_text = str(exc)
+    check("N2c edge 6: an absent table is a KitError naming the key and the problem", got_text.startswith("k: work/grounding.yaml cannot be read"), got_text)
 
 
 def rows_dir(tmp: Path, name: str, calls: list) -> Path:
