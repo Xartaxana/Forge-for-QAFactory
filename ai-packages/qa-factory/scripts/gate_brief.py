@@ -2865,7 +2865,6 @@ def _help_lines(question: dict, part: str, has_quote: bool = False, has_side: bo
     helper's note on today's bytes, T4), `tail` (after the readings: T6, only when NOTHING helps - no quote, no before/now, no
     H5/H6 line, no reading whose origin the data file knows). Every field absent gives no line. Data only: the lines are what
     the register and the readiness row hold, never a comparison of two rows (P27)."""
-    import question_register as QR
     out: list = []
     if part == "notes":
         if question.get("repeated_by"):
