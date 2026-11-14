@@ -110,7 +110,7 @@ def _validate_walk_fields(row):
     """TR3-10 E: the SHAPE of the optional `walk_data` / `walk_global` of ANY plan row that carries them, and nothing else.
     `walk_data`: a list of {kind: non-blank text, exclusive: true|false, changes: text}; `walk_global`: non-blank text. ABSENT
     (and `walk_data: []`) is not said = no constraint, so older plans stay valid. Whether what the strategist wrote is RIGHT is the
-    S3 critic's judgment, never this check's (AR-29). Each problem names the row, the field and the right shape (FR-1, FR-38)."""
+    stage's acceptor's judgment, never this check's (AR-29). Each problem names the row, the field and the right shape (FR-1, FR-38)."""
     rid = row.get("id", "<unknown>")
     errors = []
     if "walk_data" in row:

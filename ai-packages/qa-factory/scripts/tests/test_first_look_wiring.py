@@ -96,7 +96,7 @@ def test_s3_has_optional_first_look_runner():
     optional = s3.get("optional_dispatches") or []
     check_eq("s3_has_optional_first_look_runner: S3 names one optional dispatch, the runner with purpose first_look, before window 1",
              optional, [{"role": "qa-runner", "purpose": "first_look", "output": "work/first-look.yaml", "before": "window 1"}])
-    check("s3_has_optional_first_look_runner: it is no stage role (the strategist and the critic stay the roles; no new stage)",
+    check("s3_has_optional_first_look_runner: it is no stage role (the strategist stays the role; no new stage)",
           "qa-runner" not in s3["roles"] and s3["role"] == "qa-test-strategist", str(s3["roles"]))
     check_eq("s3_has_optional_first_look_runner: the stage numbers are unchanged", list(STAGES), [f"S{n}" for n in range(10)])
     check_eq("s3_has_optional_first_look_runner: S3 still requires S2 and S4 requires S3",
@@ -120,10 +120,9 @@ def test_first_look_yaml_is_input_of_s3_to_s7_and_critics():
         p = Project(tmp, walk=False)
         p.dispatches["S4-qa-case-critic-1"] = {"id": "S4-qa-case-critic-1", "stage": "S4", "role": "qa-case-critic", "status": "running", "scope": []}
         p.dispatches["S5-qa-code-critic-1"] = {"id": "S5-qa-code-critic-1", "stage": "S5", "role": "qa-code-critic", "status": "running", "scope": []}
-        p.dispatches["S3-qa-case-critic-1"] = {"id": "S3-qa-case-critic-1", "stage": "S3", "role": "qa-case-critic", "status": "running", "scope": []}
         p.save()
         path = f"qa-factory/artifacts/{TICKET}/work/first-look.yaml"
-        for stage, role in (("S3", "qa-test-strategist"), ("S3", "qa-case-critic"), ("S4", "qa-case-critic"), ("S5", "qa-code-critic")):
+        for stage, role in (("S3", "qa-test-strategist"), ("S4", "qa-case-critic"), ("S5", "qa-code-critic")):
             text = p.brief(stage, role, f"{stage}-{role}-1")
             check(f"first_look_yaml_is_input_of_s3_to_s7_and_critics: the {role} brief at {stage} names the record's path", path in text,
                   text[-500:])

@@ -41,7 +41,7 @@ PERSON_HEADS = ("S1 source collection pending/invalid", "S3 structured test plan
 
 COMMAND = {
     # G1-5: window 1 of S3 labels the table and writes no plan; no word of a person closes the stage from it, the driver's door is `finish --not-complete`
-    "a window-1 (labelling) dispatch of S3 cannot close the stage": "the driver accepts window 1 with `story_step.py finish --not-complete --unresolved plan_pending`; the stage is closed by the exit window",
+    "a window-1 (labelling) dispatch of S3 cannot close the stage": "the driver accepts window 1 with `story_step.py finish --task <T> --dispatch-id <id> --digest \"<digest>\" --not-complete --unresolved plan_pending --reason \"<words>\"`; the stage is closed by the exit window",
     # t-1455 q1: `prepare` with a derived EMPTY automated half names the empty half and its two doors
     "the automated half of the approved plan is empty": "a manual block (`story_step.py start --stage S6 --role qa-runner --execution-kind manual --scope <1..5 ids>`) for the manual-agent cases, or a plan row's disposition changed (S3 rework, then gate A)",
     # `_retry_holds` (F6) is the one head of the refusals of a superseded dispatch; each site adds its own door after it.

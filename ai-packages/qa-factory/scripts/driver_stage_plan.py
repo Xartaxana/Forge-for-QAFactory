@@ -112,14 +112,9 @@ class DriverStagePlan:
         import grounding_table as GT
         self.first_look_step()       # t-2277 FL-5: before `s3_prepare` and window 1 of THIS pass; no strategist dispatch is registered ahead of it
         role = self.stages()["S3"]["roles"][0]
-        critic = bool(self.stage_acceptor("S3"))
-        if critic and self.s3_author_done():
-            return self.stage_critic_route("S3", role)       # X2-7: the author's exit window is accepted; the stage critic is next
         if GT.source_state(self.task_root)[0] != "diff":
             self.s3_prepare()
             self.run_role("S3", role, extra=self.role_lines("S3", role), complete=self.s3_window_completion({"window": "exit"}))
-            if critic:
-                self.stage_critic_route("S3", role)
             return
         if self.s3_window() == "between":
             back = self.s3_fresh_for_window2()          # step 8: "" or why window 1 runs again (R5 was prepared there)
@@ -127,8 +122,6 @@ class DriverStagePlan:
                 self.s3_between_windows()
                 self.run_role("S3", role, extra=self.role_lines("S3", role, {"window": "exit"}),
                               complete=self.s3_window_completion({"window": "exit"}))
-                if critic:
-                    self.stage_critic_route("S3", role)       # never after window 1 (labelling): a plan nobody wrote is not judged
                 return
             print(f"S3: window 1 runs again - {back}")
         else:
@@ -326,17 +319,6 @@ class DriverStagePlan:
         # remains: a closed question over the story's own state, not a state without a move: every answer has an executor (`_first_look_answer`)
         raise Person("first_look_dead", self.closed_question("first_look.dead", "\n\n".join(lines), options),
                      "S3", answer_note="Write `continue`, `stop`, or your own words (the conductor reads them).")
-
-    def s3_author_done(self) -> bool:
-        """True when the newest S3 strategist dispatch that counts is ACCEPTED and is not window 1 (labelling): the plan is written and the
-        stage critic's route is next (a restart of the process, or the author's repair round). Unreadable state: False."""
-        import exit_gate
-        try:
-            mine = exit_gate.s3_strategist_records(self.controller_state().get("dispatches") or {})
-        except Exception:
-            return False
-        newest = exit_gate.stage_dispatch(mine, "S3")
-        return bool(newest) and newest.get("status") == "accepted" and not self.s3_labelling_of(newest)
 
     def s3_window(self) -> str:
         """`"between"` when the newest S3 strategist dispatch that counts is an ACCEPTED window 1, else `"w1"`. The word is read through
@@ -559,7 +541,7 @@ class DriverStagePlan:
         `author` (a registered rework, whatever its state) follows it - a repair round the critic's finish promised and nobody
         registered. Read from the controller's dispatch records, in their creation order; a record whose `unresolved` is absent or
         of another word, or a state that is no mapping, is "not owed" (the road below is a fresh critic: costly, never a silent
-        close of the stage). ONE rule for S2, S3 and S4 (X2-7)."""
+        close of the stage). ONE rule for the stages that keep an acceptor (S4 today; X2-7)."""
         rows = [d for d in (dispatches.values() if isinstance(dispatches, dict) else []) if isinstance(d, dict) and d.get("stage") == stage]
         critics = [i for i, d in enumerate(rows) if d.get("role") == critic]
         if not critics:
@@ -574,69 +556,11 @@ class DriverStagePlan:
         registered."""
         return DriverStagePlan.stage_repair_owed(dispatches, "S4", "qa-case-designer", "qa-case-critic", "cases_in_repair")
 
-    # --- X2-7: the stage critic's route for S2 and S3 (queue: X2-7 -> X6-1, the map of the driver moves it) ----------------------
+    # --- X2-7: the stage acceptance (S4, S6, S7; the S2/S3 critic route is gone) ---------------------------------------------
 
     def stage_acceptor(self, stage: str) -> str:
         """The role that accepts `stage` by meaning (`acceptance_by` in references/stages.json), or "" when the stage has none."""
         return str((self.stages().get(stage) or {}).get("acceptance_by") or "")
-
-    def stage_S2(self) -> None:
-        """S2: the tester, then the stage critic's route. A stage with no acceptor (the world before `acceptance_by`) stays `stage_simple`.
-        An accepted author dispatch is not dispatched again (a restart, or the author of a repair round): the route goes straight on."""
-        role = self.stages()["S2"]["roles"][0]
-        if not self.stage_acceptor("S2"):
-            return self.stage_simple("S2")
-        accepted = [d for d in (self.controller_state().get("dispatches") or {}).values()
-                    if isinstance(d, dict) and d.get("stage") == "S2" and d.get("role") == role and d.get("status") == "accepted"]
-        if not accepted:
-            self.run_role("S2", role, extra=self.role_lines("S2", role))
-        self.stage_critic_route("S2", role)
-
-    def stage_raise_questions(self, stage: str, author: str) -> list:
-        """X2-6 on the route (t-1815 F2): the questions of the stage's critic were raised into the register by `stage_acceptance_write`
-        (the critic's form is the one that declares `questions[]`; no author contract does), so here the conductor only settles what is
-        still open (`settle_role_questions`). Returns the rows that carry a person class."""
-        return self.settle_role_questions(stage)
-
-    def stage_critic_route(self, stage: str, author: str) -> None:
-        """The route of the stage critic after the author's stop (S2, S3): questions, the ONE repair counter (`budget_or_none`), a round owed
-        by an earlier promise, then the critic's dispatch whose finish writes the acceptance record BEFORE the controller accepts it
-        (`stage_critic_completion`). A rejected stage goes back to the author in a FRESH context (`rework`, `rework_mode: fresh`) with the
-        artifact and the verdict; a budget nobody can read (None) gives no round and the critic still runs once."""
-        critic = self.stage_acceptor(stage)
-        self.stage_raise_questions(stage, author)
-        scope: list = []
-        budget = self.budget_or_none(stage, author, scope)
-        counted, cap = (budget or {}).get("counted"), (budget or {}).get("cap")
-        last_round = not (isinstance(counted, int) and isinstance(cap, int) and counted < cap)
-        if not last_round and self.stage_repair_owed(self.controller_state().get("dispatches"), stage, author, critic, "stage_in_repair"):
-            print(f"{stage}: the stage critic was accepted with the stage sent back and no repair round is registered; the round starts now, "
-                  "no new critic")
-            return self.stage_after_critic(stage, author, scope, counted, cap, last_round)
-        self.run_role(stage, critic, scope=scope, complete=self.stage_critic_completion(stage, author, scope, counted, cap),
-                      extra=[f"You accept or return {stage} by meaning: the author's artifact, its handoff form and "
-                             f"work/advice-{stage}.json are in the brief; the verdict is `header.verdict` of your form."])
-        self.stage_after_critic(stage, author, scope, counted, cap, last_round)
-
-    def stage_after_critic(self, stage: str, author: str, scope, counted, cap, last_round: bool) -> None:
-        """What follows the stage critic's accepted finish: a `reject` record with a round left starts the author's round (fresh context, the
-        critic's form as the only extra). An `accept`, or no round left (the conductor already settled it inside `complete`), does nothing."""
-        import acceptance
-        self.stage_raise_questions(stage, author)        # the critic's questions were raised inside its finish; the conductor settles them now
-        record = acceptance.stage_acceptance(self.pipeline(), stage) or {}
-        if record.get("verdict") != "reject" or last_round:
-            return
-        form = self.stage_critic_form(stage)
-        self.rework(stage, author, scope, "stage critic: " + str(record.get("quote") or ""), cause="test_defect",
-                    extra=[f"Repair round {counted + 1} of {cap}: the stage critic's verdict is in {form}; change only what it names."])
-
-    def stage_critic_form(self, stage: str) -> str:
-        """The task-relative handoff form of the newest accepted dispatch of the stage critic of `stage`, or the form of the one running."""
-        critic = self.stage_acceptor(stage)
-        found = [str(d.get("id")) for d in (self.controller_state().get("dispatches") or {}).values()
-                 if isinstance(d, dict) and d.get("stage") == stage and d.get("role") == critic]
-        dispatch = found[-1] if found else getattr(self, "last_dispatch", "")
-        return f"work/handoffs/{dispatch}.yaml"
 
     def stage_acceptance_write(self, stage: str, dispatch: str) -> None:
         """THE call of the writer (`stage_done.py --acceptance`, X2-5) for the stage critic's form of `dispatch`; a refusal of the writer is a
@@ -654,34 +578,6 @@ class DriverStagePlan:
             # FV1-22 N2: the raiser knows the identity (FR-16): the refusal carries the dispatch, so the conductor-round gate has a key.
             exc.dispatch = exc.dispatch or dispatch
             raise
-
-    def stage_critic_completion(self, stage: str, author: str, scope, counted, cap, dispatch_id=None):
-        """The `complete` callable of the stage critic's finish (S2, S3): write the record, then (a) `accept` closes the stage (None), (b)
-        `reject` with a round left keeps it open by `OpenWork("stage_in_repair")` (the controller accepts the pair), (c) `reject` on the last
-        round, or a verdict word the table does not know, goes to the conductor (`stage_review_exhausted`) BEFORE the finish. Direction of
-        error: never `None` without an `accept` record or a person's word. `dispatch_id` (t-1815 F1): the id of the critic dispatch
-        this finish closes. The recovery road (`completion_for`) passes the saved RECORD's id ("" when it carries none: the seam gets the
-        reason, never a guess); the live road passes None and `run_role` has set `last_dispatch` just before `finish`."""
-        import acceptance
-        last_round = not (isinstance(counted, int) and isinstance(cap, int) and counted < cap)
-
-        def complete(digest: str):
-            dispatch = str(getattr(self, "last_dispatch", "") or "") if dispatch_id is None else str(dispatch_id or "")
-            form = f"work/handoffs/{dispatch}.yaml" if dispatch else ""
-            if not dispatch:
-                return self.stage_review_exhausted(stage, author, dispatch, None, form, unreadable=True,
-                                                   text="the saved result of the stage critic carries no dispatch id, so its form cannot be found")
-            if not self.stage_verdict_known(form):
-                return self.stage_review_exhausted(stage, author, dispatch, None, form, unreadable=True)
-            self.stage_acceptance_write(stage, dispatch)
-            record = acceptance.stage_acceptance(self.pipeline(), stage) or {}
-            if record.get("verdict") == "accept":
-                return None
-            quote = str(record.get("quote") or "")
-            if not last_round:
-                return OpenWork("stage_in_repair", open_work_reason(f"the stage critic sent {stage} back: {quote}", f"… [list: {form}]"))
-            return self.stage_review_exhausted(stage, author, dispatch, record, form)
-        return complete
 
     def stage_verdict_known(self, form: str) -> bool:
         """True when the form's ACCEPTANCE word - read by `acceptance.acceptance_word`, at the contract's `acceptance_verdict_at` (default
@@ -806,7 +702,7 @@ class DriverStagePlan:
 
         def complete(digest: str):
             # X2-7 (a): the acceptance record is written FIRST, from the critic's own form, before the controller accepts the critic (E-X2-7d)
-            dispatch = str(getattr(self, "last_dispatch", "") or "") if dispatch_id is None else str(dispatch_id or "")      # F1, as the S2/S3 rule
+            dispatch = str(getattr(self, "last_dispatch", "") or "") if dispatch_id is None else str(dispatch_id or "")      # F1
             form = f"work/handoffs/{dispatch}.yaml" if dispatch else ""
             if self.stage_acceptor("S4"):
                 if not dispatch:
@@ -965,23 +861,6 @@ class DriverStagePlan:
                 print(f"role question {q['id']} ({stage}, {q['asked_by']}) has no person class and no answer on disk: left as a gap, not asked")
         return [q for q in left if q.get("why_person")]
 
-    def ticket_rerun_critic(self, dispatch: str) -> None:
-        """The restart route of a ticket re-run of S2/S3 (AR-25, AR-28): the stage has an acceptor, so the author's re-run no longer closes
-        it (`completion_for` answers None) and the stage stays `completed` from its first run - nothing would ever enter its critic route
-        again, and the re-run would go unreviewed. When the dispatch just finished is that author's accepted `ticket_changed` re-run, the
-        stage critic's route runs now and its verdict closes (`stage_critic_completion`). A dispatch still running, another cause, the
-        critic's own dispatch or a stage without an acceptor does nothing. Runs AFTER the finish, never before: the critic reads the accepted re-run."""
-        record = (self.controller_state().get("dispatches") or {}).get(dispatch) or {}
-        stage, role = str(record.get("stage") or ""), str(record.get("role") or "")
-        if (record.get("status") != "accepted" or record.get("repair_cause") != "ticket_changed" or stage not in ("S2", "S3")
-                or not self.stage_acceptor(stage) or role == self.stage_acceptor(stage)):
-            return
-        rows = [d for d in (self.controller_state().get("dispatches") or {}).values() if isinstance(d, dict) and d.get("stage") == stage]
-        ids = [str(d.get("id")) for d in rows]
-        if dispatch in ids and any(d.get("role") == self.stage_acceptor(stage) for d in rows[ids.index(dispatch) + 1:]):
-            return          # the critic of this re-run is registered already (a retry that came back here): never a second one
-        self.stage_critic_route(stage, role)
-
     def s3_record_lines(self, stage: str, role: str, record: dict) -> list:
         """The window lines of an S3 strategist dispatch finished through a recovery branch (the lines the live road gave it); other
         roles get none, as before - except an S7 INVESTIGATION dispatch (P2 M3), which gets the lines of its live road (its targets, caps and
@@ -1015,9 +894,10 @@ class DriverStagePlan:
         self.s3_between_windows()           # the same slot `stage_S3` runs: a packet over an unanswered stop does not go out (G2-2, AR-19)
 
     def completion_for(self, stage: str, role: str, record: dict):
+        import controller as CT
         if stage == "S8" and role == "qa-doc-scribe":
             return True
-        if stage == "S1" and role == "qa-runner" and (record.get("request_binding") or {}).get("purpose") == "reference_walk":
+        if stage == "S1" and role == "qa-runner" and CT.record_purpose(record) == "reference_walk":
             # t-2181 PC-9b (critic t-2513 F2, axis 5): the S1 reference window closes the stage - the live road (`stage_simple`) finishes the
             # runner with `complete=True`; the recovery roads (`wait_existing_job`, `resume_role`) get the same answer here, or "the stage's
             # last role closes it" would make the scout the last role and leave S1 open for a SECOND window. POSITION: before every rule below
@@ -1028,25 +908,26 @@ class DriverStagePlan:
             # the next `where` -> `stage_simple` skips the accepted scout and runs the window (its `complete=True` closes S1). POSITION: after the
             # runner's own rule above (the window closes the stage), before every other rule. A story with no reference gets None here: unchanged
             return False
+        import controller as CT
+        import stage_guard as SG
+        stages = self.stages()         # built once: the declared roles and the model the optional row is read from
+        declared = (stages.get(stage) or {}).get("roles") or []
+        if declared and role not in declared and SG.optional_row({"stages": list(stages.values())}, stage, role,
+                                                                 CT.record_purpose(record)) is None:
+            # T2 (0.11.0 state in flight, AR-25): a dispatch of a role the stage does not declare - the S2/S3 stage critic a story paused
+            # under 0.11.0 left running - never closes any stage, whatever its `repair_cause`; the same reading `story_step.start` applies
+            # (`roles`, else an `optional_dispatches` row for the (role, purpose)). No stage or role name here: the stage row decides.
+            # POSITION INVARIANT: after the S1 rules (untouched), BEFORE the S2/S3 `ticket_changed` branch below, which answers for ANY role
+            # of S2/S3 - an undeclared role must not reach it, a declared author's ticket re-run still does; an optional dispatch is declared
+            # (a row) and falls through as before.
+            return False
         if stage in ("S2", "S3") and record.get("repair_cause") == "ticket_changed":
             # B-364 (F12 / Change 10): the ticket re-run of S2 and S3 closes as COMPLETE, which re-captures the plan baseline.
             # Finished through `wait_existing_job` (the restart route) it must say so too: the `rework_of` rule at the end
             # answers False for every rework, and S3's baseline would stay the old plan's - the re-run's changes would later
             # count as the person's overrides. Placed before that rule; nothing else of the order changes.
             # S3 (G1-11) closes through the same callable as the live road (`s3_ticket_completion`: project, refresh, True).
-            # X2-7: with an acceptor (`acceptance_by`) the author no longer closes the stage - the stage critic's accept does; the plan
-            # baseline is then taken by that closing accept (B-364), and the side steps of S3 stay on the author's finish.
-            if self.stage_acceptor(stage):
-                return self.s3_ticket_completion(closes=False) if stage == "S3" else None
             return self.s3_ticket_completion() if stage == "S3" else True
-        if stage in ("S2", "S3") and role == self.stage_acceptor(stage):
-            # X2-7: the recovery road closes S2/S3 by the SAME rule the live route applies (`stage_critic_completion`), the budget read again.
-            # POSITION INVARIANT: after the `ticket_changed` branch, BEFORE the `rework_of` rule below (whose silent False would leave the
-            # critic's finish refused by the controller for a record the driver owns).
-            budget = self.budget_or_none(stage, self.stages()[stage]["roles"][0], []) or {}
-            # t-1815 F1: the dispatch is the RECORD's (a fresh process never ran `run_role`, `last_dispatch` is empty or another role's)
-            return self.stage_critic_completion(stage, self.stages()[stage]["roles"][0], [], budget.get("counted"), budget.get("cap"),
-                                                dispatch_id=str(record.get("id") or ""))
         if stage == "S6" and role == "qa-runner" and str(record.get("id") or getattr(self, "last_dispatch", "")) in {
                 str(x) for ids in (self.state.get("s7_rejudge") or {}).values() if isinstance(ids, list) for x in ids}:
             # HF8-19 (t-909 F-4 class): an S7 RE-JUDGE dispatch finished through `wait_existing_job` closes like the live road

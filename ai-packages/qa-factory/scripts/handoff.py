@@ -403,7 +403,7 @@ def template(contract_id: str) -> Doc:
     return _read(path)
 
 
-AUTHOR_TOKEN = "<the author's dispatch>"          # the ONE token of the contracts that review a dispatch: S2-S4 stage critics, S7/S8 consumers (AR-15)
+AUTHOR_TOKEN = "<the author's dispatch>"          # the ONE token of the contracts that review a dispatch: the S4 stage critic, S7/S8 consumers (AR-15)
 
 
 def only_template(value) -> bool:

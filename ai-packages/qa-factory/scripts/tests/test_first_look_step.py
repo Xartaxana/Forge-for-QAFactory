@@ -610,8 +610,8 @@ def test_exit_gate_judges_first_look_runner_by_its_own_output():
 
 
 def s3_readers_with_first_look_dispatch_present():
-    """B2 (readers in story_run): with a first-look runner record among the S3 dispatches - even the newest - `s3_window`, `s3_author_done`
-    and `stage_S3` itself read the STRATEGIST's records only: the plan's window and the critic's route are what they would be without it."""
+    """B2 (readers in story_run): with a first-look runner record among the S3 dispatches - even the newest - `s3_window` reads the
+    STRATEGIST's records only: the plan's window is what it would be without it (no stage critic's route exists any more)."""
     runner = {"stage": "S3", "role": "qa-runner", "status": "accepted", "request_binding": {"purpose": "first_look"}}
     w1 = {"stage": "S3", "role": "qa-test-strategist", "status": "accepted", "request_binding": {"purpose": "s3_labelling"}}
     w2 = {"stage": "S3", "role": "qa-test-strategist", "status": "accepted"}
@@ -619,28 +619,18 @@ def s3_readers_with_first_look_dispatch_present():
 
     def at(dispatches):
         d.controller_state = lambda: {"dispatches": dispatches}
-        return d.s3_window(), d.s3_author_done()
-    check_eq("s3_readers: window 1 accepted, the runner newest -> between the windows, plan not written",
-             at({"S3-qa-test-strategist-1": w1, "S3-qa-runner-2": runner}), ("between", False))
-    check_eq("s3_readers: window 2 accepted, the runner newest -> the author is done", at({"a": w1, "b": w2, "S3-qa-runner-2": runner}), ("w1", True))
-    check_eq("s3_readers: the runner alone -> no strategist work at all", at({"S3-qa-runner-1": runner}), ("w1", False))
-    check_eq("s3_readers: control - nothing at all", at({}), ("w1", False))
+        return d.s3_window()
+    check_eq("s3_readers: window 1 accepted, the runner newest -> between the windows",
+             at({"S3-qa-test-strategist-1": w1, "S3-qa-runner-2": runner}), "between")
+    check_eq("s3_readers: window 2 accepted, the runner newest -> w1 (as without the runner)", at({"a": w1, "b": w2, "S3-qa-runner-2": runner}), "w1")
+    check_eq("s3_readers: the runner alone -> no strategist work at all", at({"S3-qa-runner-1": runner}), "w1")
+    check_eq("s3_readers: control - nothing at all", at({}), "w1")
     gone = dict(w2, status="superseded")
     check_eq("s3_readers: pin - a set-aside newest strategist record does not count (window 1 accepted stays the newest)",
-             at({"a": w1, "b": gone}), ("between", False))
-    check_eq("s3_readers: pin - only a set-aside window 1 -> nothing counts", at({"a": dict(w1, status="released_by_person")}), ("w1", False))
+             at({"a": w1, "b": gone}), "between")
+    check_eq("s3_readers: pin - only a set-aside window 1 -> nothing counts", at({"a": dict(w1, status="released_by_person")}), "w1")
     check_eq("s3_readers: pin - a runner record changes nothing next to set-aside ones",
-             at({"a": w1, "b": gone, "S3-qa-runner-2": runner}), ("between", False))
-    calls = []
-    d.stages = lambda: {"S3": {"roles": ["qa-test-strategist", "qa-case-critic"]}}
-    d.stage_acceptor = lambda stage: "qa-case-critic"
-    d.first_look_step = lambda: None
-    d.stage_critic_route = lambda stage, role: calls.append(("critic_route", stage, role))
-    d.run_role = lambda *a, **k: calls.append(("run_role", a))
-    d.controller_state = lambda: {"dispatches": {"a": w1, "b": w2, "S3-qa-runner-2": runner}}
-    SR.Driver.stage_S3(d)
-    check_eq("s3_readers: stage_S3 goes to the critic's route over the author's accepted exit window, not back to the strategist",
-             calls, [("critic_route", "S3", "qa-test-strategist")])
+             at({"a": w1, "b": gone, "S3-qa-runner-2": runner}), "between")
 
 
 def test_s3_readers_ignore_first_look_dispatch():

@@ -2743,13 +2743,12 @@ class DriverDispatch:
             raise Refusal("S3 plan projection (planning_contract.project_plan): " + "\n".join(f"- {p}" for p in planned.problems),
                           dispatch=dispatch, retry=None)
 
-    def s3_ticket_completion(self, closes: bool = True):
-        """The ticket re-run of S3 closes COMPLETE (the plan baseline is re-captured): project -> refresh-if-wrote -> True. With
-        `closes=False` (a stage that has an acceptor, X2-7) the same side steps run and the finish does not close: the stage critic does."""
+    def s3_ticket_completion(self):
+        """The ticket re-run of S3 closes COMPLETE (the plan baseline is re-captured): project -> refresh-if-wrote -> True."""
         def closing(digest):
             self.s3_project(reopening=True)      # gate A's approval is on the old text; `ticket_reopen_gate_a` reopens it right after (B-2)
             self.py("grounding_table.py", "--share", "--task", self.task, check=True)
-            return True if closes else None
+            return True
         return closing
 
     def rework(self, stage: str, role: str, cases: list, reason: str, *, cause: str,

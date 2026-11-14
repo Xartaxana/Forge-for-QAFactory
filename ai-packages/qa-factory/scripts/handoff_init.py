@@ -182,9 +182,8 @@ def fill_head(text: str, *, task: str, dispatch: str, role: str, stage: str, sco
 
 # F1 (b): the sections whose template rows are emptied in the role's copy, by contract. The contract files stay the schema.
 EMPTIED = {
-    "questions": ("s2-stage-critic-to-tester", "s3-stage-critic-to-strategist", "s4-case-critic-to-designer"),
-    "findings": ("s2-stage-critic-to-tester", "s3-stage-critic-to-strategist", "s4-case-critic-to-designer",
-                 "s5-critic-to-automator"),
+    "questions": ("s4-case-critic-to-designer",),
+    "findings": ("s4-case-critic-to-designer", "s5-critic-to-automator"),
 }
 
 
@@ -466,7 +465,7 @@ def main() -> int:
                     help="comma-separated plan row ids the dispatch was sent for (S3 rework): written as `scope[i].id` of the "
                          "form and recorded under `derived:`; nothing else of a row is written")
     ap.add_argument("--author-dispatch", default="",
-                    help="a stage critic's form (S2-S4): the id of the author's last accepted dispatch; fills the token "
+                    help="the stage critic's form (S4): the id of the author's last accepted dispatch; fills the token "
                          "`<the author's dispatch>` of the contract (the critic may change the row)")
     args = (hooklib.exact_options(ap) if hooklib else ap).parse_args()
     try:                                              # the story is decided first: before the contract, before `--out`

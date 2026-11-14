@@ -117,8 +117,14 @@ def w1_no_new_stage() -> None:
     rows = list(rows.values()) if isinstance(rows, dict) else rows
     by = {r["id"]: r for r in rows}
     check_eq("W1: stages.json ids are exactly S0..S9", sorted(by), names)
-    check_eq("W1: S3 requires S2 and has the strategist and the stage critic", (by["S3"]["requires"], by["S3"]["roles"]), (["S2"], [ROLE, "qa-case-critic"]))
+    check_eq("W1: S3 requires S2 and has the strategist alone (no stage critic)", (by["S3"]["requires"], by["S3"]["roles"]), (["S2"], [ROLE]))
+    check_eq("W1: S2 has the tester alone (no stage critic)", by["S2"]["roles"], ["qa-requirements-tester"])
+    check("W1: neither S2 nor S3 has an acceptor", "acceptance_by" not in by["S2"] and "acceptance_by" not in by["S3"], str((by["S2"], by["S3"])))
     check_eq("W1: S4 requires S3", by["S4"]["requires"], ["S3"])
+    check_eq("W1: S4 keeps its critic: acceptor and last role (R7 S4 survivor)",
+             (by["S4"].get("acceptance_by"), by["S4"]["roles"][-1]), ("qa-case-critic", "qa-case-critic"))
+    check_eq("W1: S4 hands its critic the S2 and S3 advice and the S2 outputs (acceptance_reads)",
+             by["S4"].get("acceptance_reads"), {"S2": ["outputs", "advice"], "S3": ["advice"]})
 
 
 # --- W2 ---------------------------------------------------------------------------------------------------------------------
@@ -126,13 +132,13 @@ def w2_routing() -> None:
     root, _task_root, _env, driver = story()
     try:
         seen = []
-        for name in ("stage_S2", "stage_S3", "stage_S4"):
+        for name in ("stage_S3", "stage_S4"):
             setattr(driver, name, lambda name=name: seen.append(name))
         driver.stage_simple = lambda stage: seen.append("simple:" + stage)
         for stage in ("S1", "S2", "S3", "S4"):
             driver._act_prepare_stage({"stage": stage})
-        check_eq("W2: S1 -> stage_simple, S2 -> stage_S2, S3 -> stage_S3, S4 -> stage_S4 (control)",
-                 seen, ["simple:S1", "stage_S2", "stage_S3", "stage_S4"])
+        check_eq("W2: S1 -> stage_simple, S2 -> stage_simple, S3 -> stage_S3, S4 -> stage_S4",
+                 seen, ["simple:S1", "simple:S2", "stage_S3", "stage_S4"])
     finally:
         harness.cleanup(root)
 
@@ -172,7 +178,6 @@ def w3_the_live_road() -> None:
         stops = []
         driver.grounding_stop = lambda: stops.append("stop")
         rows_q = lambda root: types.SimpleNamespace(projected=[], problems=[], notes=[], wrote=False)      # noqa: E731
-        driver.stage_critic_route = lambda stage, author: None      # the critic's window after window 2 is judged in test_stage_critic_route
         with patched(GT, "check", lambda root: []), patched(CP, "project", projection()), patched(CP, "project_row_questions", rows_q), quiet():
             driver.stage_S3()
             second = driver.roles[0]
@@ -195,11 +200,8 @@ def w11_off_the_diff() -> None:
         stub_py(driver)
         stub_role(driver)
         with_state(driver, {})
-        routed = []
-        driver.stage_critic_route = lambda stage, author: routed.append((stage, author))   # the critic's window is judged in test_stage_critic_route
         with patched(CP, "project", projection()), quiet():
             driver.stage_S3()
-        check_eq("W11: after the author's one window the stage critic is routed once (X2-7)", routed, [("S3", ROLE)])
         check_eq("W11: off the diff the preparation is the GT step alone", scripts_of(driver), ["grounding_table.py"])
         check_eq("W11: one window, no purpose", (len(driver.roles), driver.roles[0].get("purpose", "")), (1, ""))
         check_eq("W11: the lines are today's plan line and the fence line alone (no reach line, nothing counted)",
@@ -282,13 +284,13 @@ def w5_completion_matrix() -> None:
                   callable(old_road) and old_road("d") is None, str(old_road))
             (task_root / "work" / "grounding.yaml").write_text("x: 1\n", encoding="utf-8")
             ticket = driver.completion_for("S3", ROLE, record("running", word=False, repair_cause="ticket_changed", rework_of="S3-x-1"))
-            # X2-7: S3 has an acceptor (qa-case-critic), so the ticket re-run runs the side steps and does not close: None, the critic closes
-            check("W5: S3 ticket_changed -> the s3_ticket_completion callable (closes=False: the stage critic closes) -> None", callable(ticket) and ticket("d") is None)
+            # S3 has no acceptor any more: the ticket re-run runs the side steps and CLOSES (re-captures the baseline)
+            check("W5: S3 ticket_changed -> the s3_ticket_completion() callable (no acceptor: it closes) -> True", callable(ticket) and ticket("d") is True)
             for label, extra in (("rework_of", {"rework_of": "S3-x-1"}), ("repair_verify", {"purpose": "repair_verify"})):
                 rework = driver.completion_for("S3", ROLE, record("running", word=False, **extra))
                 check(f"W5: S3 {label} -> a callable (the plan projection, RN1-2 B-1) whose answer stays False", callable(rework) and rework("d") is False)
             check_eq("W5 control: another S3 role's rework_of stays the plain False", driver.completion_for("S3", "qa-other", {"rework_of": "x"}), False)
-            check_eq("W5 control: S2 ticket_changed -> None (S2 has an acceptor: the stage critic closes)", driver.completion_for("S2", "qa-requirements-tester", {"repair_cause": "ticket_changed"}), None)
+            check_eq("W5: S2 ticket_changed with the tester -> True (no acceptor: it closes)", driver.completion_for("S2", "qa-requirements-tester", {"repair_cause": "ticket_changed"}), True)
             check_eq("W5 control: S4 critic rework_of -> False through the S4 rule's own answer or the rework rule",
                      driver.completion_for("S4", "qa-case-designer", {"rework_of": "x"}), False)
             check_eq("W5 control: S7 analyst unchanged (a callable)", callable(driver.completion_for("S7", "qa-failure-analyst", {})), True)
@@ -985,9 +987,73 @@ def w20_every_strategist_road_projects_the_plan() -> None:
         harness.cleanup(root)
 
 
+# --- SC-1 / SC-3 / T2 (the stage critics are gone: A1a) ---------------------------------------------------------------------
+def sc1_s2_closes_without_critic() -> None:
+    """SC-1 s2-closes-without-critic: S2 through `_act_prepare_stage` with the role stub makes ONE dispatch, the tester, and nothing
+    routes a critic; the tester is the stage's last role, so its completion (None = the stage's own rule) closes the stage."""
+    from contract import stage_closes_with
+    root, _task_root, _env, driver = story()
+    try:
+        stub_py(driver)
+        stub_role(driver)
+        with_state(driver, {})
+        with quiet():
+            driver._act_prepare_stage({"stage": "S2"})
+        check_eq("SC-1: S2 dispatches the tester once and nothing else", [(r["stage"], r["role"]) for r in driver.roles],
+                 [("S2", "qa-requirements-tester")])
+        check_eq("SC-1: the tester asks for no forced completion: the stage's own rule decides", driver.roles[0].get("complete"), None)
+        check("SC-1: and that rule closes S2 on the tester's finish (it is the last role)", stage_closes_with("S2", "qa-requirements-tester"))
+    finally:
+        harness.cleanup(root)
+
+
+def sc3_s4_still_runs_its_critic() -> None:
+    """SC-3 s4-still-runs-its-critic (control): `stage_S4` with stubs dispatches the designer, then `qa-case-critic`."""
+    root, _task_root, _env, driver = story()
+    try:
+        stub_py(driver)
+        stub_role(driver)
+        with_state(driver, {})
+        driver.pin_cases = lambda: None
+        driver.revise_plan = lambda: None
+        driver.critic_scope = lambda: ["TC-1"]
+        driver.budget_or_none = lambda *args, **kwargs: {"counted": 0, "cap": 2}
+        driver.s4_findings = lambda: {}
+        driver.s4_critic_completion = lambda *args, **kwargs: None
+        driver.case_verdict = lambda digest: "ok"
+        driver.s4_after_critic = lambda *args, **kwargs: None
+        with quiet():
+            driver.stage_S4()
+        check_eq("SC-3: S4 dispatches the designer then the case critic", [(r["stage"], r["role"]) for r in driver.roles],
+                 [("S4", "qa-case-designer"), ("S4", "qa-case-critic")])
+    finally:
+        harness.cleanup(root)
+
+
+def t2_undeclared_role_never_closes() -> None:
+    """T2 undeclared-role-never-closes (A.5): a dispatch of a role the stage neither declares in `roles` nor admits through an
+    `optional_dispatches` row never closes any stage, whatever its `repair_cause`; a declared optional dispatch falls through."""
+    root, _task_root, _env, driver = story()
+    try:
+        stub_py(driver)
+        for label, stage, role, record_ in (
+                ("S2 critic, bare record", "S2", "qa-case-critic", {}),
+                ("S2 critic, ticket_changed", "S2", "qa-case-critic", {"repair_cause": "ticket_changed"}),
+                ("S3 critic, ticket_changed", "S3", "qa-case-critic", {"repair_cause": "ticket_changed"}),
+                ("S3 runner with no purpose, ticket_changed", "S3", "qa-runner", {"repair_cause": "ticket_changed"})):
+            check_eq(f"T2 undeclared-role-never-closes: {label} -> False", driver.completion_for(stage, role, record_), False)
+        control = driver.completion_for("S3", "qa-runner", {"request_binding": {"purpose": "first_look"}})
+        check("T2 control: the declared first-look runner at S3 is not answered False by the T2 rule", control is not False, repr(control))
+        check_eq("T2 control: the declared author's ticket re-run at S2 still closes",
+                 driver.completion_for("S2", "qa-requirements-tester", {"repair_cause": "ticket_changed"}), True)
+    finally:
+        harness.cleanup(root)
+
+
 SCENARIOS = [w1_no_new_stage, w2_routing, w3_the_live_road, w4_prepare_failures, w5_completion_matrix, w6_the_window_word,
              w7_step_eight, w8_the_lines, w9_projector_problems, w10_text_pins, w11_off_the_diff, w12_start_and_finish,
-             w13_the_word_check, w14_exit_gate, w15_relaunch_and_never_launched, w16_ticket_rework, w17_warning_write, w18_the_slot_and_the_counted_lines, w19_the_plan_projection, w20_every_strategist_road_projects_the_plan]
+             w13_the_word_check, w14_exit_gate, w15_relaunch_and_never_launched, w16_ticket_rework, w17_warning_write, w18_the_slot_and_the_counted_lines, w19_the_plan_projection, w20_every_strategist_road_projects_the_plan,
+             sc1_s2_closes_without_critic, sc3_s4_still_runs_its_critic, t2_undeclared_role_never_closes]
 
 
 def main() -> None:

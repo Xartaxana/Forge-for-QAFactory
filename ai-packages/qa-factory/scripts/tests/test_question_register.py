@@ -1925,7 +1925,7 @@ def test_x2_6_role_questions(tmp):
         import handoff
         import gate_brief
         contracts = Path(QR.__file__).resolve().parent.parent / "handoffs"
-        for name in ("s2-stage-critic-to-tester", "s3-stage-critic-to-strategist", "s4-case-critic-to-designer"):
+        for name in ("s4-case-critic-to-designer",):
             template = handoff.parse((contracts / f"{name}.yaml").read_text(encoding="utf-8")).data["questions"][0]
             check_eq(f"F2 {name}: the template's severity words are blocker|major|minor, `read` is a list, every option has if_chosen",
                      (template["severity"], isinstance(template["read"], list), all("if_chosen" in o for o in template["options"])),
