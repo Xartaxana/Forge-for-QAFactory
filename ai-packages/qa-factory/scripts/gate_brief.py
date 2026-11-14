@@ -2890,7 +2890,8 @@ def _help_lines(question: dict, part: str, has_quote: bool = False, has_side: bo
         found = question.get("requirement_help")
         text = " ".join(str(found.get("text") or "").split()) if isinstance(found, dict) else ""
         if text and not has_quote:
-            out.append(f"  - the requirement it is about ({found.get('id')}): \"{text[:240]}\" — work/requirements-register.md")
+            cut = "...\"" if len(text) > 240 else "\""
+            out.append(f"  - the requirement it is about ({found.get('id')}): \"{text[:240]}{cut} — work/requirements-register.md")
         note = question.get("note")
         words = " ".join(str(note.get("words") or "").split()) if isinstance(note, dict) else ""
         if words:
@@ -4239,6 +4240,28 @@ def unmarked_value_note(question: dict) -> str:
         "the question does not say what the behaviour before the change was: say what it was")
 
 
+def requirement_help(question: dict, task_root, cache: list) -> dict | None:
+    """H5, the ONE reader (AR-13; gate A's `still_open` and the question stop's `question_stop._with_note` both call it, so a question's
+    two cards print the same help): `{"id": "R-8", "text": <requirement text>}` when `requirement`, `raised_for.requirement` or `ref` of
+    the question is an R id of the story's requirements register (exact match) and the question has no source quote of its own (the
+    card prints this line only then); else None - no id, no register, an unreadable one: no help line, never a raise (FR-41). `cache`
+    is a list the caller keeps for one pass, so the register is read once and only when a question names an R id."""
+    try:
+        raised = question.get("raised_for") if isinstance(question.get("raised_for"), dict) else {}
+        named = [str(v).strip() for v in (question.get("requirement"), raised.get("requirement"), question.get("ref"))
+                 if isinstance(v, str) and v.strip()]
+        if not named or any(str(q.get("quote") or "").strip() for q in (question.get("source_says") or []) if isinstance(q, dict)):
+            return None
+        if not cache:
+            import planning_contract
+            cache.append(planning_contract.story_register_text(task_root))
+        by_r = {r["r"]: r["requirement"] for r in C.register_rows(cache[0])}
+        found = next((r for r in named if by_r.get(r)), "")
+        return {"id": found, "text": by_r[found]} if found else None
+    except Exception:
+        return None
+
+
 def repeat_shown_note(question: dict) -> str:
     """T14: why a question marked as a repeat is asked here after all - the target is gone, the chain loops back, the target's words
     changed since the declaration, or its own words did. A repeat that is not shown (`QR.hidden_repeat`) has no note. Said as the
@@ -4361,19 +4384,9 @@ def still_open(rows, view, pipeline: dict, task_root) -> list:
         if kind and item.get("status") in (None, "", "open"):
             item.update({"status": "named", "where": kind})
             item["status_note"] = question_note(item)
-        raised = item.get("raised_for") if isinstance(item.get("raised_for"), dict) else {}
-        named = [str(v).strip() for v in (item.get("requirement"), raised.get("requirement"), item.get("ref")) if isinstance(v, str) and v.strip()]
-        if named and not any(str(q.get("quote") or "").strip() for q in (item.get("source_says") or []) if isinstance(q, dict)):
-            if not register_text:
-                import planning_contract
-                register_text.append(planning_contract.story_register_text(task_root))
-            try:
-                by_r = {r["r"]: r["requirement"] for r in C.register_rows(register_text[0])}
-            except Exception:
-                by_r = {}           # a register that cannot be read gives no H5 line; the card says the rest (FR-41)
-            found = next((r for r in named if by_r.get(r)), "")
-            if found:
-                item["requirement_help"] = {"id": found, "text": by_r[found]}
+        found = requirement_help(item, task_root, register_text)
+        if found:
+            item["requirement_help"] = found
         out.append(item)
     return out
 

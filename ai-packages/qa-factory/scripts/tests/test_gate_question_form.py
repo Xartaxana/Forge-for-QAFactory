@@ -31,6 +31,7 @@ import gate_preflight  # noqa: E402
 import human_text  # noqa: E402
 import planning_contract  # noqa: E402
 import question_register as QR  # noqa: E402
+import question_stop as QS  # noqa: E402
 
 EM_DASH = chr(0x2014)  # built, never typed: the package is ASCII-clean (FR-30)
 
@@ -1125,7 +1126,11 @@ def test_fv19_card_help_fields() -> None:
     for n in (240, 241):
         card = gate_brief.question_card(help_question(requirement_help={"id": "R-8", "text": "r" * n}), 1)
         cuts.append(len(next(l for l in card if "(R-8)" in l).split('"')[1]))
-    check_eq("fv19_card_help_fields H5: the requirement text is cut at 240 characters (AT 240 whole, BEYOND 240)", cuts, [240, 240])
+    check_eq("fv19_card_help_fields H5: the requirement text is cut at 240 characters (AT 240 whole, BEYOND 240 plus the three dots)", cuts, [240, 243])
+    ends = [next(l for l in gate_brief.question_card(help_question(requirement_help={"id": "R-8", "text": "r" * n}), 1) if "(R-8)" in l)
+            for n in (240, 241)]
+    check_eq("fv19_card_help_fields H5: AT 240 no `...`, BEYOND 240 `...` inside the quote (the same cut rule as T3)",
+             ['..."' in ends[0], '..."' in ends[1]], [False, True])
 
 
 def test_fv19_card_no_help_line() -> None:
@@ -1269,6 +1274,26 @@ def test_fv19_still_open_skips_hidden_repeat() -> None:
                  [q.get("id") for q in gate_brief.unanswered_questions(task_root)], [None])
     finally:
         drop(task_root)
+
+
+def test_fv19_stop_and_gate_cards_print_the_same_help() -> None:
+    """H5 on both cards: one question through gate A's list and the question stop prints the same requirement line (one reader); the
+    absent-register and no-requirement-id rows add no line and never raise."""
+    line_of = lambda lines: [l for l in lines if "the requirement it is about" in l]
+    for label, extra, register, expected in (
+            ("`requirement` names an R id", {"requirement": "R-4"}, True, ['  - the requirement it is about (R-4): "A removed node is shown at its former position" — work/requirements-register.md']),
+            ("`raised_for.requirement`", {"raised_for": {"requirement": "R-3"}}, True, ['  - the requirement it is about (R-3): "A restored node keeps its identity" — work/requirements-register.md']),
+            ("an id the register lacks", {"requirement": "R-99"}, True, []),
+            ("no requirement id", {}, True, []),
+            ("the register is absent", {"requirement": "R-4"}, False, [])):
+        task_root = gate_story("qa-fv19-h5-", [question("Q1", 2, **extra)], with_register_md=register)
+        try:
+            gate_card = gate_brief.question_card(gate_brief.unanswered_questions(task_root)[0], 1)
+            stop_card = QS.open_cards(task_root)
+            check_eq(f"fv19_stop_gate_help {label}: gate A card help lines", line_of(gate_card), expected)
+            check_eq(f"fv19_stop_gate_help {label}: the stop's card prints the same help lines", line_of(stop_card), line_of(gate_card))
+        finally:
+            drop(task_root)
 
 
 class TopStub:
@@ -1435,6 +1460,7 @@ if __name__ == "__main__":
     test_fv19_note_on_card()
     test_fv19_repeat_shown_again_note()
     test_fv19_still_open_skips_hidden_repeat()
+    test_fv19_stop_and_gate_cards_print_the_same_help()
     test_fv19_gate_top_skips_carded_question()
     test_fv19_rehearsal_skips_hidden_repeat()
     test_fv19_conductor_text_note_door()
