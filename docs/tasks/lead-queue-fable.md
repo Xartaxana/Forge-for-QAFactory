@@ -14,7 +14,11 @@
    `piles.py:3257`), `fmt_id`, `ID_NUMBER_MAX` в `journal_keys` рядом с `is_canonical`; piles, валидатор и
    `journal_write.py` их импортируют. Пути механизма. Отчёт: `docs/tasks/handoffs/t-861-B1-fix.md`.
 4. **Слияния** (после 2): `offload/a2` (с 4699b563 — строка исключения сухой стори в TESTING.md), `offload/a3`,
-   `offload/c2`, затем `offload/b1` (3f7760ad + фикс 7217de57) поверх B0, `offload/c1` (db7f6182).
+   `offload/c2` (+ фикс b5bd6320), затем `offload/b1` (3f7760ad + фикс 7217de57) поверх B0, `offload/c1` (db7f6182 +
+   фикс 7704f734) — СТРОГО после B0 (критик t-870 C1-0: без B0 26 из 28 тестов C1 красные), `offload/c3` (C3, после B1).
+   B23 (t-869, staged в `.claude/worktrees/offload-b23`, патч `docs/tasks/handoffs/t-869-B23.patch`) — коммит Fable
+   после вердикта критика t-871; кейсы hook_liveness_probe для хуков — вместе с установкой settings (поток L), тексты
+   готовы в `docs/tasks/handoffs/t-869-B23.md`.
 5. **Приёмка уровня Lead** вердиктов критиков, принятых с `basis: queued-to-lead`: t-854 (тема A), t-852 (SC тема B),
    t-865 (тема B разгрузки).
 6. **Волна 3**: B23 (хуки пишут журнал; DoD несёт решение по цепочке оси 15 для `journal_write`/`journal_lock` в
