@@ -763,9 +763,11 @@ def journal_lines(event: dict | None = None) -> list:
 LAST_DENIAL: dict = {"message": "", "ticket": "", "stage": "", "role": ""}
 
 
-def deny(message: str) -> int:
-    LAST_DENIAL["message"] = message
-    print("STAGE GUARD: " + message, file=sys.stderr)
+def deny(message) -> int:
+    """`message` is a plain `str` or a `detector_verdict.refusal(...)` Record. `LAST_DENIAL` keeps the PROBLEM only (`str`), so
+    `BLOCK_MATCHES` / `block_match` and the readers of `LAST_DENIAL` never see the sentence or the door; the print is `spoken`."""
+    LAST_DENIAL["message"] = str(message)
+    print("STAGE GUARD: " + DV.spoken(message), file=sys.stderr)
     return DENY
 
 

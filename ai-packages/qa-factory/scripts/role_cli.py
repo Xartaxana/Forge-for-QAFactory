@@ -71,11 +71,28 @@ def epilog(script: str) -> str:
     return ("what a role-written --input must carry:\n\n" + "\n\n".join(parts)) if parts else ""
 
 
-def refuse(command: str, problem: str, stream=None) -> int:
-    """Print the refusal as an instruction and return the exit code. Never raises."""
+def _is_record(problem) -> bool:
+    """A `detector_verdict.Record` by its fields (this module cannot import that one: it imports this one)."""
+    return isinstance(problem, str) and all(isinstance(getattr(problem, name, None), str) for name in ("check", "expected", "door"))
+
+
+def refuse(command: str, problem, stream=None, *, check=None) -> int:
+    """Print the refusal as an instruction and return the exit code. Never raises.
+
+    `problem` is a plain `str` or a `detector_verdict.refusal(...)` Record. The lines keep their order: `<command>: <problem>`,
+    the Record's `expected` / `door` lines (skipped when empty, and when the Record's check is this command's own
+    `role_cli:<command>` row: the card lines below already say it), what to write, how to prove it, `if you cannot`, and LAST
+    `  check: <the Record's check, else `check`, else role_cli:<command>>`."""
     out = stream or sys.stderr
     row = entry(command)
-    print(f"{command}: {problem}", file=out)
+    own = f"role_cli:{command}"
+    record = _is_record(problem)
+    print(f"{command}: {str(problem)}", file=out)
+    if record and problem.check != own:
+        if problem.expected:
+            print(f"  expected: {problem.expected}", file=out)
+        if problem.door:
+            print(f"  door: {problem.door}", file=out)
     if row.get("input"):
         print(f"  what to write: {row['input']}", file=out)
     if row.get("verify"):
@@ -83,6 +100,7 @@ def refuse(command: str, problem: str, stream=None) -> int:
     print("  if you cannot: do not repeat this call — record what you were trying to do and why it "
           "could not be done in your findings and your handover, and halt. A refusal with no way "
           "out is a factory defect, not your mistake.", file=out)
+    print(f"  check: {(problem.check if record else '') or check or own}", file=out)
     return EXIT_REFUSED
 
 
@@ -108,7 +126,7 @@ class RefusingParser(argparse.ArgumentParser):
             # usage above is then all the role has and `--help` of the script is the next door.
             print(f"{command}: no command card is registered for this call, so the usage above is all the "
                   "factory can quote; `--help` of the script lists every registered shape.", file=sys.stderr)
-        refuse(command, message)
+        refuse(command, message, check=f"role_cli:{command}")
         raise SystemExit(EXIT_REFUSED)
 
 
@@ -161,7 +179,10 @@ def run_guarded(command: str, entrypoint, stream=None) -> int:
         return refuse(command, f"{exc.filename or exc}: no such file. A path is read as given, "
                                "relative to the directory you run from", stream)
     except ValueError as exc:
-        return refuse(command, str(exc) or exc.__class__.__name__, stream)
+        # a `refusal(...)` Record raised as `ValueError(record)` reaches `refuse` whole (its row's sentence and door print);
+        # any other ValueError is today's text
+        first = exc.args[0] if exc.args else None
+        return refuse(command, first if _is_record(first) else (str(exc) or exc.__class__.__name__), stream)
     except DEFECT as exc:
         return refuse(command, f"this is a defect in {command}, not something you wrote wrong: "
                                f"{exc.__class__.__name__}: {exc}. Do not try other argument shapes "

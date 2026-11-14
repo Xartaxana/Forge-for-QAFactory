@@ -1019,6 +1019,85 @@ def grounding_example(root: Path) -> None:
     check_in("grounding_section: and the refusal lists the ids there", "ids there:", text)
 
 
+def refuse_lines() -> None:
+    """told-before-work T2, rows g and h: `role_cli.refuse` keeps today's lines in their order and adds ONE last line
+    `  check: <id>`; a `refusal(...)` Record also prints its row's `expected` / `door` (unless the Record is the command's own
+    `role_cli:<command>` row); `run_guarded` passes a Record raised as a ValueError whole; `RefusingParser.error` names its check."""
+    import contextlib
+    import io
+    import detector_verdict as DV
+    import role_cli
+    command = "manual_evidence.py prepare"
+    own = f"role_cli:{command}"
+    card = [f"  what to write: {COMMANDS[command]['input']}", f"  how to prove it: {COMMANDS[command]['verify']}"]
+
+    def lines_of(call) -> tuple:
+        out = io.StringIO()
+        code = call(out)
+        return code, out.getvalue().splitlines()
+
+    def tail(lines):                                   # the "if you cannot" line is today's, whole; compared by its start
+        return [line.split(":", 1)[0] for line in lines[-2:]]
+    # g: a plain str
+    code, got = lines_of(lambda s: role_cli.refuse(command, "`case` is missing", s))
+    check_eq("g/str-registered: today's lines in order, then ONE last line `  check: role_cli:<command>`",
+             (code, got[:3], tail(got), got[-1]), (2, [f"{command}: `case` is missing"] + card, ["  if you cannot", "  check"], f"  check: {own}"))
+    code, got = lines_of(lambda s: role_cli.refuse("no_such_script.py", "p", s))
+    check_eq("g/str-unregistered: the problem, `if you cannot`, the check line (no card lines, no lookup of a row)",
+             (code, got[0], tail(got), got[-1]), (2, "no_such_script.py: p", ["  if you cannot", "  check"], "  check: role_cli:no_such_script.py"))
+    code, got = lines_of(lambda s: role_cli.refuse(command, "p", s, check="x:y"))
+    check_eq("g/str-check-keyword: an explicit check= is the check line", got[-1], "  check: x:y")
+    # h: a Record
+    ROW = {"check": "t:one", "requirement": "Write <T> first.", "door": "run <ID> now"}
+    import stage_joints as SJ
+    saved = SJ.row_for
+    SJ.row_for = lambda check, data=None: (ROW, "")
+    try:
+        record = DV.refusal("t:one", "the plan is missing", fill={"T": "QA-7", "ID": "G-3"})
+        own_record = DV.refusal(own, "the plan is missing")
+    finally:
+        SJ.row_for = saved
+    code, got = lines_of(lambda s: role_cli.refuse(command, record, s))
+    check_eq("h/record: the problem line, then the Record's expected and door, then today's card lines, `if you cannot`, and the Record's check LAST",
+             (code, got[:3], got[3:5], tail(got), got[-1]),
+             (2, [f"{command}: the plan is missing", "  expected: Write QA-7 first.", "  door: run G-3 now"], card, ["  if you cannot", "  check"], "  check: t:one"))
+    own_record.expected, own_record.door = "SENTENCE", "DOOR"
+    code, got = lines_of(lambda s: role_cli.refuse(command, own_record, s, check="ignored:x"))
+    check_eq("h/own-row: a Record whose check is the command's own `role_cli:<command>` skips expected and door (the card lines say it)",
+             (got[0], any("expected:" in line or "door:" in line for line in got), got[-1]),
+             (f"{command}: the plan is missing", False, f"  check: {own}"))
+    sentenceless = DV.Record("p", check="t:agg")
+    code, got = lines_of(lambda s: role_cli.refuse(command, sentenceless, s))
+    check_eq("h/sentence-less: empty expected and door print nothing (no blank lines), the check line is the Record's",
+             (got[0], got[1], got[-1]), (f"{command}: p", card[0], "  check: t:agg"))
+
+    def guarded(raised):
+        def run(stream):
+            def entry():
+                raise raised
+            return role_cli.run_guarded(command, entry, stream)
+        return run
+    code, got = lines_of(guarded(ValueError(record)))
+    check_eq("h/run_guarded-record: a ValueError whose first arg is a Record reaches refuse whole (expected, door, its check)",
+             (code, got[1], got[2], got[-1]), (2, "  expected: Write QA-7 first.", "  door: run G-3 now", "  check: t:one"))
+    code, got = lines_of(guarded(ValueError("a plain rule")))
+    check_eq("h/run_guarded-plain: a plain ValueError is today's text and the command's own check line",
+             (code, got[0], got[-1]), (2, f"{command}: a plain rule", f"  check: {own}"))
+    code, got = lines_of(guarded(ValueError()))
+    check_eq("h/run_guarded-empty: a ValueError with no argument is its class name (today's)", got[0], f"{command}: ValueError")
+    parser = role_cli.RefusingParser(command=command, prog="x", add_help=False)
+    parser.add_argument("--kind", required=True)
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        try:
+            parser.parse_args([])
+        except SystemExit as exc:
+            code = exc.code
+    got = err.getvalue().splitlines()
+    check_eq("h/parser-error: the usage error is the problem, the card follows, the check line is `role_cli:<command>` and last",
+             (code, any("--kind" in line for line in got[:3]), got[-1]), (2, True, f"  check: {own}"))
+
+
 def main() -> int:
     root = temp_project()
     try:
@@ -1093,6 +1172,7 @@ def main() -> int:
     walk_examples()
     first_look_examples()
     reference_snapshot_example()
+    refuse_lines()
     check_eq("every one of the cards had its own example fed to its command and accepted (one key each)",
              sorted(ACCEPTED), sorted(COMMANDS))
     return finish("test_role_commands")

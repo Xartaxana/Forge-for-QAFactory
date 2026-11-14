@@ -220,6 +220,169 @@ def check_id_cases() -> None:
             setattr(EG, name, fn)
 
 
+def _reader(rows: dict, seen: list = None):
+    """A stand-in for `stage_joints.row_for`: `{check id: (row | None, why)}`; an id it does not know is `(None, "no row for <id>")`."""
+    def row_for(check, data=None):
+        if seen is not None:
+            seen.append(check)
+        return rows.get(check, (None, f"no row for {check}"))
+    return row_for
+
+
+class _Rows:
+    """`with _Rows(rows) as seen:` - `stage_joints.row_for` is replaced by the stand-in (and `rows_for` by a trap: the constructor
+    must never use it, C-10), then put back."""
+    def __init__(self, rows, reader=None):
+        self.rows, self.reader = rows, reader
+
+    def __enter__(self):
+        import stage_joints as SJ
+        self.sj, self.seen = SJ, []
+        self.saved = (SJ.row_for, SJ.rows_for)
+        SJ.row_for = self.reader or _reader(self.rows, self.seen)
+
+        def trap(*a, **k):
+            raise AssertionError("rows_for must not be read by refusal()")
+        SJ.rows_for = trap
+        return self.seen
+
+    def __exit__(self, *exc):
+        self.sj.row_for, self.sj.rows_for = self.saved
+
+
+def _stderr_of(fn, *args) -> tuple:
+    """`(result or exit code, the stderr text as UTF-8 bytes)` of a call that prints to stderr and may exit."""
+    import contextlib
+    import io
+    buf = io.StringIO()
+    with contextlib.redirect_stderr(buf):
+        try:
+            got = fn(*args)
+        except SystemExit as exc:
+            got = exc.code
+    return got, buf.getvalue().encode("utf-8")
+
+
+ROW_ONE = {"check": "t:one", "requirement": "Write <T> before you end the dispatch.", "door": "run <ID> now"}
+
+
+def told_cases() -> None:
+    """told-before-work T2 (rows a-f, i of the dispatch spec): `Record.expected` / `.door`, the constructor `refusal`, the renderer
+    `spoken`, and the two in-process sinks `hooklib.block` and `stage_guard.deny` (the third, `role_cli.refuse`, is in
+    test_role_commands rows g, h). The rows are injected by replacing the reader; no test reads the real stage-joints.json."""
+    import hooklib
+    import stage_guard
+    # (a) T2-1: the two new fields default to "", old constructors are unchanged, `str` is the problem only
+    old = DV.Record("x: y", script="x", words="source", kind="unmigrated", refused="family", check="k:v", tag="t")
+    new = DV.Record("p", check="k:v", expected="E", door="D")
+    check_eq("(a) Record: expected and door default to empty; the old constructor keywords are unchanged",
+             (old.expected, old.door, old.check, old.tag, old.kind, str(old)), ("", "", "k:v", "t", "unmigrated", "x: y"))
+    check_eq("(a) Record: expected and door are fields; `str` is the problem only, JSON too",
+             (new.expected, new.door, str(new), json.dumps([new])), ("E", "D", "p", '["p"]'))
+    copy = DV.with_check(DV.Record("p", expected="E", door="D"), "a:b")
+    check_eq("(a) with_check keeps expected and door on a copy", (copy.expected, copy.door, copy.check), ("E", "D", "a:b"))
+    # (b) T2-2 and T2-3
+    with _Rows({"t:one": (ROW_ONE, "")}) as seen:
+        got = DV.refusal("t:one", "the plan is missing", fill={"T": "QA-7", "ID": "G-3"})
+        check_eq("(b) refusal: the problem is the text, the check is set, expected and door are the row's, filled",
+                 (str(got), got.check, got.expected, got.door),
+                 ("the plan is missing", "t:one", "Write QA-7 before you end the dispatch.", "run G-3 now"))
+        check_eq("(b) refusal reads only through row_for (the rows_for trap was not hit; the reader saw the id once)", seen, ["t:one"])
+        got = DV.refusal("t:one", "p")
+        check_eq("(b) fill=None leaves the placeholders as written", (got.expected, got.door),
+                 ("Write <T> before you end the dispatch.", "run <ID> now"))
+        got = DV.refusal("t:one", "p", fill={"T": "", "ID": None, "home": "H"})
+        check_eq("(b) a placeholder with no value (empty, None, absent) stays literal, no KeyError", (got.expected, got.door),
+                 ("Write <T> before you end the dispatch.", "run <ID> now"))
+        check_eq("(b) a non-text problem is its text, never an exception", str(DV.refusal("t:one", 42)), "42")
+    # (c) T2 behaviour table: absent row, broken file, a reader that raises, two rows, a sentence-less row
+    absent = "(the factory's requirement row t:none could not be read: no row for t:none; this is a factory defect)"
+    with _Rows({}):
+        got = DV.refusal("t:none", "p")
+        check_eq("(c) absent row: the problem, the check, the `could not be read` sentence, no door",
+                 (str(got), got.check, got.expected, got.door), ("p", "t:none", absent, ""))
+        check_eq("(c) absent row: spoken is the problem, the expected line and the check line, no door line",
+                 DV.spoken(got), f"p\n  expected: {absent}\n  check: t:none")
+    import stage_joints as SJ
+    tmp = Path(tempfile.mkdtemp(prefix="qa-factory-told-"))
+    saved = SJ.DATA
+    try:
+        for label, body in (("absent file", None), ("unparsable file", "{not json"), ("not a v2 file", '{"schema_version": 1}')):
+            SJ.DATA = tmp / "stage-joints.json"
+            if body is not None:
+                SJ.DATA.write_text(body, encoding="utf-8")
+            got = DV.refusal("t:none", "p")
+            check_eq(f"(c) broken rows file ({label}): no crash, no pass - the I-P text, no door",
+                     (str(got), got.check, got.door, got.expected.startswith("(the factory's requirement row t:none could not be read: "),
+                      got.expected.endswith("; this is a factory defect)")), ("p", "t:none", "", True, True))
+    finally:
+        SJ.DATA = saved
+        cleanup(tmp)
+    def boom(check, data=None):
+        raise RuntimeError("x")
+    with _Rows({}, reader=boom):
+        check_eq("(c) a reader that raises: the I-P text with the exception class, never a crash",
+                 DV.refusal("t:none", "p").expected,
+                 "(the factory's requirement row t:none could not be read: RuntimeError; this is a factory defect)")
+    with _Rows({"t:one": (ROW_ONE, "two rows")}):
+        got = DV.refusal("t:one", "p")
+        check_eq("(c) two rows (row_for returns the first and a why): the first row's expected and door; the why is not shown",
+                 (got.expected, got.door, "two rows" in DV.spoken(got)),
+                 ("Write <T> before you end the dispatch.", "run <ID> now", False))
+    with _Rows({"t:agg": ({"check": "t:agg", "door": "look at <T>"}, ""), "t:bare": ({"check": "t:bare"}, "")}):
+        got = DV.refusal("t:agg", "p", fill={"T": "QA-1"})
+        check_eq("(c) a sentence-less row (an aggregator key): expected empty, its own door; this is not the absent case",
+                 (got.expected, got.door, DV.spoken(got)), ("", "look at QA-1", "p\n  door: look at QA-1\n  check: t:agg"))
+        got = DV.refusal("t:bare", "p")
+        check_eq("(c) a row with neither sentence nor door: only the problem and the check", DV.spoken(got), "p\n  check: t:bare")
+    with _Rows({"t:one": ({"check": "t:one", "requirement": "see <missing>", "door": ""}, "")}):
+        check_eq("(c) an unknown placeholder token stays literal", DV.refusal("t:one", "p", fill={"T": "x"}).expected, "see <missing>")
+    # (d) T2-4: spoken
+    text = "plain — text\n"
+    check_eq("(d) spoken: a plain str is returned unchanged, byte for byte (a trailing newline, a dash)", DV.spoken(text).encode("utf-8"),
+             text.encode("utf-8"))
+    check_eq("(d) spoken: a Record with no check and nothing to tell is its text unchanged", DV.spoken(DV.Record("only")), "only")
+    check_eq("(d) spoken: problem, expected, door, check - in that order, the check line last",
+             DV.spoken(DV.Record("p", check="a:b", expected="E", door="D")), "p\n  expected: E\n  door: D\n  check: a:b")
+    check_eq("(d) spoken: an empty expected or door line is omitted, not printed blank (S-6)",
+             (DV.spoken(DV.Record("p", check="a:b", expected="E")), DV.spoken(DV.Record("p", check="a:b", door="D"))),
+             ("p\n  expected: E\n  check: a:b", "p\n  door: D\n  check: a:b"))
+    long = "w" * 20000
+    check_eq("(d) spoken never truncates", len(DV.spoken(DV.Record("p", check="a:b", expected=long))), len("p\n  expected: \n  check: a:b") + 20000)
+    check_eq("(d) spoken: a non-str is its text", DV.spoken(7), "7")
+    from driver_machine import match_known
+    with _Rows({"t:one": (ROW_ONE, "")}):
+        for problem in ("required stages are not done", "a sentence nobody matches", "the plan is missing"):
+            got = DV.refusal("t:one", problem)
+            check_eq(f"(d) I-R: match_known of spoken equals match_known of the problem ({problem[:20]}...)",
+                     match_known(DV.spoken(got)), match_known(str(got)))
+        shown = DV.spoken(DV.refusal("t:one", "p", fill={"T": "x", "ID": "y"}))
+        check_eq("(d) I-R: no marker is added by refusal or spoken", (REPAIR_MARKER in shown, PERSON_MARKER in shown), (False, False))
+    # (e) T2-5: block
+    for label, message in (("ascii", "a refusal"), ("dash and a trailing newline", "a — refusal\n\n"), ("empty", "")):
+        code, got = _stderr_of(hooklib.block, message)
+        check_eq(f"(e) block(str) [{label}]: exit 2 and the stderr bytes are today's, `message.rstrip() + newline + TRAPPED`",
+                 (code, got), (2, (message.rstrip() + "\n" + hooklib.TRAPPED + "\n").encode("utf-8")))
+    record = DV.Record("p", check="a:b", expected="E", door="D")
+    code, got = _stderr_of(hooklib.block, record)
+    lines = got.decode("utf-8").splitlines()
+    check_eq("(e) block(Record): the spoken text, then TRAPPED as the last line", (code, lines[:-1], lines[-1]),
+             (2, ["p", "  expected: E", "  door: D", "  check: a:b"], hooklib.TRAPPED))
+    # (f) T2-6: deny
+    for label, message in (("ascii", "a refusal"), ("dash", "a — refusal"), ("trailing newline", "x\n")):
+        code, got = _stderr_of(stage_guard.deny, message)
+        check_eq(f"(f) deny(str) [{label}]: DENY, the stderr bytes are today's `STAGE GUARD: ` + message, LAST_DENIAL is the message",
+                 (code, got, stage_guard.LAST_DENIAL["message"]), (stage_guard.DENY, ("STAGE GUARD: " + message + "\n").encode("utf-8"), message))
+    record = DV.Record("the dispatch is stopped", check="a:b", expected="the item is absent and could not be written", door="D")
+    code, got = _stderr_of(stage_guard.deny, record)
+    check_eq("(f) deny(Record): the printed text is spoken, LAST_DENIAL holds the problem only (an exact str)",
+             (code, got.decode("utf-8"), type(stage_guard.LAST_DENIAL["message"]) is str, stage_guard.LAST_DENIAL["message"]),
+             (stage_guard.DENY, "STAGE GUARD: the dispatch is stopped\n  expected: the item is absent and could not be written\n  door: D\n  check: a:b\n",
+              True, "the dispatch is stopped"))
+    check_eq("(f) deny(Record): block_match reads the problem, never the expected or door text (`is absent` is in expected only)",
+             (stage_guard.block_match(stage_guard.LAST_DENIAL["message"]), stage_guard.block_match(str(record))), ("*", "*"))
+
+
 COMPOUND = ("3 problems - the request is refused whole, every one is listed:\n"
             "1) decision references stale source revision\n"
             "2) gate before prerequisite completion: already accepted\n   (the second line of item 2)\n"
@@ -581,6 +744,7 @@ def main() -> None:
     tag_cases()
     record_cases()
     check_id_cases()
+    told_cases()
     refusal_cases()
     render_cases()
     joined_cases()
