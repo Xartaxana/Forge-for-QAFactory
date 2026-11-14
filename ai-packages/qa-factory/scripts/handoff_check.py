@@ -169,6 +169,13 @@ def _review_receipt(art, doc, row=None):
     return (rel, "window_record.py wrote it for this dispatch") if (art.root / rel).is_file() else None
 
 
+def _form_dispatch(art, doc) -> str:
+    """The dispatch id of THIS form: `art.form_dispatch` (the file stem), else `header.dispatch`, else `dispatch`.
+    The one reader for the derivers that follow the form's own name (AR-13); `_review_receipt` keeps its own order."""
+    return (str(getattr(art, "form_dispatch", "") or "").strip()
+            or str(doc.get("header.dispatch") or "").strip() or str(doc.get("dispatch") or "").strip())
+
+
 def _findings_file(art, doc, row=None):
     """The findings file of THIS form's dispatch: `work/test-code/critic-findings-<dispatch>.md` (the registry row
     `critic-findings-*.md`, one file per critic dispatch, so a window's handoff never points at another window's findings).
@@ -176,7 +183,7 @@ def _findings_file(art, doc, row=None):
     writes it). Never "the newest on disk": that was another window's file when two ran. The S4 case critic's file
     (`work/test-cases/`) answers an S4 form ONLY; an S5 form whose own file is missing gets None (t-2098 F2, AR-19)."""
     import findings_path
-    dispatch = str(getattr(art, "form_dispatch", "") or doc.get("header.dispatch") or doc.get("dispatch") or "").strip()
+    dispatch = _form_dispatch(art, doc)
     stage = _form_stage(art, dispatch)
     if stage == "S4":
         for rel in findings_path.s4_files(art.root, nested=False):
@@ -573,8 +580,7 @@ def window_runtime_record(task_root, dispatch) -> tuple:
 
 
 def _runtime_provenance(art, doc, row=None):
-    dispatch = (str(getattr(art, "form_dispatch", "") or "").strip()
-                or str(doc.get("header.dispatch") or "").strip() or str(doc.get("dispatch") or "").strip())
+    dispatch = _form_dispatch(art, doc)
     path, why = window_runtime_record(art.root, dispatch)
     return (path, why) if path else (None, "", why)
 

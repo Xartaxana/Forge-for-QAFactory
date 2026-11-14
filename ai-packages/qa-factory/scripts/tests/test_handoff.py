@@ -366,6 +366,33 @@ def the_runtime_record_is_the_windows_own() -> None:
             _run_block(task, "a1", D, old, provenance)
             cases.append((f"record-{provenance!r}", derive(task), (None,), "carries a runtime_provenance record"))
 
+        for case, refs in (("refs-not-a-list", "evidence/x.json"), ("ref-not-a-string", [5])):
+            task = story(case)
+            record(task, "x.json")
+            _run_block(task, "a1", D, old, {"profile_id": "api", "result": "matched", "evidence_refs": refs})
+            cases.append((case, derive(task), (None,), "no evidence_refs"))
+
+        task = story("ref-absolute-other-story")
+        record(task, "runtime-provenance-api-a.json")
+        _run_block(task, "a1", D, old, {"profile_id": "api", "result": "matched",
+                                         "evidence_refs": ["D:/proj/artifacts/QA-8/evidence/runtime-provenance-api-a.json"]})
+        cases.append(("ref-absolute-other-story", derive(task), (None,), "not a file of this story"))
+
+        task = story("block-without-dispatch-id")
+        ref = record(task, "runtime-provenance-api-a.json")
+        _run_block(task, "a1", "", old, {"profile_id": "api", "result": "matched", "evidence_refs": [ref]})
+        cases.append(("block-without-dispatch-id", derive(task), (None,), "carries a runtime_provenance record"))
+
+        task = story("reparse-of-own-is-newest")
+        own_record(task, name="runtime-provenance-api-a.json", block="a1")
+        copied = record(task, "runtime-provenance-api-a-copy.json")
+        _run_block(task, "a1-reparse-h1", D, old, {"profile_id": "api", "result": "matched", "evidence_refs": [copied]})
+        reparse = task / "work" / "run-blocks" / "a1-reparse-h1.json"
+        data = json.loads(reparse.read_text(encoding="utf-8"))
+        data["supersedes_block_id"] = "a1"
+        reparse.write_text(json.dumps(data), encoding="utf-8")
+        cases.append(("reparse-of-own-is-newest", derive(task), ("evidence/runtime-provenance-api-a-copy.json",), ""))
+
         for case, got, expected, said in cases:
             check_eq(f"C3 {case}: the path", got[:1], expected)
             if said:

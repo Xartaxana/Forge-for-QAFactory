@@ -57,7 +57,7 @@ scope:
     freshness: <one of vocabulary.freshness_states - fresh|stale|never_run>
     stale_because: <one of vocabulary.staleness_causes, or a dash when freshness is fresh>
 
-# The identity the freshness verdicts above were taken against. The runner probes the stand before
+# The record (read its `result`) the freshness verdicts above were taken against. The runner probes the stand before
 # and after its own run and compares with this; a difference is a reason to rerun, and it is the
 # reason it records.
 runtime:

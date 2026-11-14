@@ -51,7 +51,7 @@ scope:
 # Every probe this review ran, by code. One that failed at its line on a text code cannot read
 # is yours to judge (`--judge`); one that did not run is a `tooling` finding.
 probes:
-  # The stand the probes ran on: the record the author handed over, re-read.
+  # The stand the probes ran on: the record of this review's own probe run.
   runtime_provenance: <path of the runtime_provenance record this review probed against>
   records:
   - instance: <instance id>
