@@ -23,7 +23,7 @@
 | № | Что изменится для пользователя | Строки | Размер | Статус | Взял | Ветка | MR |
 |---|---|---|---|---|---|---|---|
 | 1 | роли читают меньше и точнее (диета инъекции, карточки AHEAD), уставы ролей несут P16/P17, джев-суждения достроены | B-023 | M | закрыта | — | — | `855d4e5c` |
-| 2 | на самом сильном сжатии брифа слова человека из ответа на вопрос остаются в брифе, а заметка о брифе не теряется за строкой stderr | — (находки 12.11.2026, узлы RC2-1, RC2-2, RC2-3) | S | ожидает | — | — | — |
+| 2 | на самом сильном сжатии брифа слова человека из ответа на вопрос остаются в брифе, а заметка о брифе не теряется за строкой stderr | — (находки 12.11.2026, узлы RC2-1, RC2-2, RC2-3, RC2-8) | S | ожидает | — | — | — |
 
 Открытое перенесено 01.11.2026 → release-next/1, words-gates/1, onboarding-forge/1, driver-hosts/2, onboarding-forge/2.
 
@@ -105,6 +105,7 @@ AHEAD», «форма передачи».
 | **Бриф роли: слова человека и заметка о брифе (пачка 2)** | | | | | | |
 | `findings/20261112-slova-cheloveka-iz-otveta-na-vopros-uhodyat-iz-brifa-na-urovne-1.md` | находка, id — | на уровне слов 1 ответ на вопрос теряет слова человека (FR-8, AR-24); заметка о брифе — последняя строка stdout+stderr, а не строка `brief: ` | `scripts/brief_pack.py`, `scripts/story_step.py`, `scripts/tests/test_brief_pack.py` | пачка 2, RC2-1, RC2-2, ожидает | нет | критик на план t-051 (B5, N2); PC2-6 `package-ci/2`; `docs/tasks/specs/reviews/t-042-critic-on-plan.md` |
 | `findings/20261112-razdely-masterstva-nesut-stroki-procedury-p27.md` | находка, id — | в разделах `kind: craft` `qa-runner` и `qa-case-critic` стоят строки процедуры (`about:`, `first_look.py put`, фиксированные метки): переносятся в `process`, подъём храповика называется | `agents/qa-runner.md`, `agents/qa-case-critic.md`, `references/role-load.json` | пачка 2, RC2-3, ожидает | нет | калибровка 12.11 п. 13 (проверка 41(d)); P27; AR-20 |
+| `findings/20261114-handoff-sobiraet-kod-odna-sistema.md` | находка, id — | одна система сборки формы передачи на все контракты: код заполняет данные на `story_step start`, роль пишет только суждение; разведка t-863 внутри | `scripts/handoff_init.py`, `scripts/handoff_check.py`, `scripts/story_step.py`, `phases/s8.md` | пачка 2, RC2-8, П1, ожидает | да, решено: слово владельца 14.11.2026 | FV2-92 `live-run-fvf` (Q7); `driver-hosts` находка 20261031 (скелет значений); P27; AR-22, AR-21, AR-14; FR-49 |
 
 ## Входящие
 
