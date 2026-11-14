@@ -1900,7 +1900,7 @@ def _halt_doors(args, task_root: Path, dispatch: dict, form_halted: bool) -> str
         doors = (f"record the person's decision, then run finish again: {decide} --close` (accept this work as it is) "
                  f"or `--open [<ids>]` (the stage stays open on that work). Or {road}")
     elif stage != "S5" and _labelling(dispatch):
-        # SC-A1c: S3 window 1 never closes the stage, so `--close` is no door here (`decide` refuses it); `--open` is
+        # SC-A1c: S3 window 1 never closes the stage, so `--close` is no door here (`decide` refuses it); `--open` is the one door
         doors = (f"record the person's decision, then run finish again: {decide} --open [<ids>]` (the stage stays open on "
                  f"that work; window 1 does not close S3). Or {road}")
     elif stage != "S5" and form_halted:
@@ -2493,8 +2493,7 @@ def finish(args) -> int:
     else:
         # SC-A1c: "the last role closes" is the one predicate's word, so S3's window 1 (the strategist, the stage's last role) is not
         # assumed closed; only the person's `--complete` reaches the controller's `_s3_completion_gate`, which refuses it.
-        complete = not args.not_complete and (args.complete or (role == stage.get("roles", [role])[-1]
-                                                                 and dispatch_can_close_stage(dispatch)))
+        complete = not args.not_complete and (args.complete or dispatch_can_close_stage(dispatch))
     decision_notes = ([halt_note] if halt_note else []) + gate_notes
     if "open_work" in decided:
         if complete:
@@ -2836,7 +2835,8 @@ def _decide_refusal(kind: str, ids: list, dispatch: dict, did: str, manifest: di
         # `_s3_completion_gate` refuses (FR-1, FR-2: what is wrong, what is expected, a door the caller can use)
         return (f"story_step: `--close` accepts the work of the dispatch that closes a stage; {did} is S3 window 1 (the labelling "
                 f"window), which never closes S3 - the plan is owed after it. Door: `--open [<ids>]` keeps S3 open on that work, or "
-                f"`finish --not-complete --unresolved plan_pending` ends the window. {REPAIR_MARKER}.")
+                f"`finish --task {task} --dispatch-id {did} --digest \"<digest>\" --not-complete --unresolved plan_pending "
+                f"--reason \"<words>\"` ends the window. {REPAIR_MARKER}.")
     if not dispatch_can_close_stage(dispatch) and not _labelling(dispatch):
         if kind == "close" and form_halted:
             # F-1 (b): the one widening - a role whose FORM declares a halt may be accepted as it is (`finish` does

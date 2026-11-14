@@ -275,6 +275,31 @@ def s3_window_one_never_closes():
                                   ("never closes S3", "what was expected")):
                     check_in(f"A1c {label}: names {why}", part, refusal)
                 check("A1c " + label + ": no word of a role that 'does not close' the stage", "does not close" not in refusal, refusal)
+                # F1 (critic t-733): the named finish door is RUN through `finish`'s own first refusal - a door `finish` refuses is no door
+                import re
+                door = next((m for m in re.findall(r"`(finish [^`]*)`", refusal)), "")
+                check(f"A1c {label}: the finish door is the full form", all(
+                    part in door for part in ("--task ", "--dispatch-id ", "--digest ", "--not-complete", "--unresolved plan_pending",
+                                              "--reason ")), door)
+                unresolved = (re.search(r"--unresolved (\S+)", door) or [None, ""])[1]
+                reason = "x" if "--reason " in door else ""
+                check_eq(f"A1c {label}: the finish door passes `_unresolved_refusal`",
+                         story_step._unresolved_refusal(types.SimpleNamespace(not_complete="--not-complete" in door), unresolved, reason),
+                         "")
+        # F2: a stage with no roles is never closed by the predicate (no IndexError at the finish default)
+        check_eq("A1c closes-no-roles: a stage that has no role", dispatch_can_close_stage({"stage": "S-none", "role": "x"}), False)
+        # F3: the S1 reference-walk reading of `completion_for` goes through the one purpose reader
+        from driver_stage_plan import DriverStagePlan
+
+        class _Owed(DriverStagePlan):
+            def s1_window_owed(self, stage, role):
+                return True
+
+        plan = _Owed.__new__(_Owed)
+        for label, binding, want in (("completion-for-s1-reference-walk: the binding's word", {"purpose": "reference_walk"}, True),
+                                     ("completion-for-s1-binding-not-a-mapping: no AttributeError", "x", False),
+                                     ("completion-for-s1-no-binding: unchanged", None, False)):
+            check_eq(f"A1c {label}", plan.completion_for("S1", "qa-runner", {"request_binding": binding}), want)
     finally:
         cleanup(root)
 

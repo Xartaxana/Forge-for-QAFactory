@@ -112,7 +112,7 @@ def dispatch_can_close_stage(record) -> bool:
 def record_purpose(record) -> str:
     """The PURPOSE a dispatch record was registered with, read from its BINDING only (`request_binding.purpose`), never from the top
     of the record (a checkpoint or an acceptance overwrites the top). `""` for an absent purpose, a non-mapping binding, a non-string
-    purpose or an unreadable record. The one public reader (AR-13); `s3_window_of` is its S3 reading. Pure; never raises."""
+    purpose or an unreadable record. The one reader of a RECORD's purpose (AR-13); `s3_window_of` is its S3 reading; `s5_part_of`/`s7_part_of` read record-or-request. Pure; never raises."""
     binding = record.get("request_binding") if isinstance(record, dict) else None
     purpose = binding.get("purpose") if isinstance(binding, dict) else None
     return purpose if isinstance(purpose, str) else ""
@@ -7603,7 +7603,8 @@ class Controller:
         complete = bool(p.get("stage_complete"))
         if window == "labelling" and complete:
             raise StateConflict("a window-1 (labelling) dispatch of S3 cannot close the stage; it is accepted with "
-                                "--not-complete --unresolved plan_pending")
+                                "finish --task <T> --dispatch-id <id> --digest \"<digest>\" --not-complete --unresolved plan_pending "
+                                "--reason \"<words>\"")
         if window != "labelling" and not complete:
             return
         errors, rows = [], None

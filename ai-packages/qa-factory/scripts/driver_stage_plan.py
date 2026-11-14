@@ -894,9 +894,10 @@ class DriverStagePlan:
         self.s3_between_windows()           # the same slot `stage_S3` runs: a packet over an unanswered stop does not go out (G2-2, AR-19)
 
     def completion_for(self, stage: str, role: str, record: dict):
+        import controller as CT
         if stage == "S8" and role == "qa-doc-scribe":
             return True
-        if stage == "S1" and role == "qa-runner" and (record.get("request_binding") or {}).get("purpose") == "reference_walk":
+        if stage == "S1" and role == "qa-runner" and CT.record_purpose(record) == "reference_walk":
             # t-2181 PC-9b (critic t-2513 F2, axis 5): the S1 reference window closes the stage - the live road (`stage_simple`) finishes the
             # runner with `complete=True`; the recovery roads (`wait_existing_job`, `resume_role`) get the same answer here, or "the stage's
             # last role closes it" would make the scout the last role and leave S1 open for a SECOND window. POSITION: before every rule below
