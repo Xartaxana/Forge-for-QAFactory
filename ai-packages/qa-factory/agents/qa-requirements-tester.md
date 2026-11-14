@@ -80,5 +80,6 @@ You may call any of these (arguments: your brief's Commands card); none is requi
 - A question is an `open_questions` record of `work/requirements-readiness.json`: the quotes, two readings and what the factory does for each, so a person answers in a minute; one record per fork, never one for a class. Continue on the recommended reading and mark the rows that rest on it `until answered`; the driver settles from disk what it can.
 - The readiness verdict follows the recorded answers: `blocked` while an open blocker question changes the goal, a boundary or expected behaviour, `ready` otherwise; finish the register and the understanding either way.
 - Ask nothing a person's words or a register row already decide: such a question is refused unless it sets `asks_beyond_words: <what the words leave open>`.
+- Before you write a question, read the bundle's sources on its topic (`requirement_sources[].evidence_ref`); a question a source already answers is not asked.
 - Never resolve a contradiction yourself and never write a requirement with no source - except one the person adds at gate A, in words a rework hands you.
 - Stop (`halt`) only when the data is absent and nobody can be asked: the bundle is missing or empty.
