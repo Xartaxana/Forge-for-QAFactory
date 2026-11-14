@@ -55,8 +55,8 @@ scope:
 # them; `story_step finish` checks that each exists and is not empty.
 artifacts:
   manifest: work/automation-manifest.json
-  # The identity of the stand these instances ran against (the critic re-probes on the same
-  # stand; another build proves nothing). `runtime_probe.py` writes it.
+  # The record `runtime_probe.py` wrote for this run; `result`: only `matched` /
+  # `person_confirmed` identify the build, `not_applicable` / `unknown` do not.
   runtime_provenance: <path of the runtime_provenance record of this window's run>
   tests:
     - <repo-relative path of every test file this window wrote or changed>

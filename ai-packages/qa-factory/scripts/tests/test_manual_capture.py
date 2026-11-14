@@ -1350,7 +1350,8 @@ def build_refusals():
 
 def seed_runtime_records(t):
     """The runs of this story that `runtime_probe.py` records (`evidence/runtime-provenance-*.json`, one per profile):
-    `build` binds a probe to the checkout revision a run of THIS story recorded for the profile (t-271 F1). Written
+    `build` binds a probe to the checkout revision a run of THIS story recorded for the profile (t-271 F1); the seed
+    is a matched run record (only a record that compared a build binds, P1B-9 C2). Written
     only for a profile the fixture holds no record of, so it is a no-op once the scaffold writes them itself."""
     folder = t.task / "evidence"
     folder.mkdir(exist_ok=True)
@@ -1360,7 +1361,8 @@ def seed_runtime_records(t):
     for profile in ("e2e-ui", "api"):
         if profile not in held:
             (folder / f"runtime-provenance-{profile}.json").write_text(
-                json.dumps({"profile_id": profile, "expected_source_revision": S.SOURCE}), encoding="utf-8")
+                json.dumps({"profile_id": profile, "expected_source_revision": S.SOURCE,
+                            "result": "matched"}), encoding="utf-8")
 
 
 def one_profile_per_attempt():
