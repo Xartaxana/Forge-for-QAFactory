@@ -139,7 +139,6 @@ def w2_routing() -> None:
             driver._act_prepare_stage({"stage": stage})
         check_eq("W2: S1 -> stage_simple, S2 -> stage_simple, S3 -> stage_S3, S4 -> stage_S4",
                  seen, ["simple:S1", "simple:S2", "stage_S3", "stage_S4"])
-        check("W2: the deleted S2 critic method is gone (S2 never reaches a generic getattr)", not hasattr(type(driver), "stage_S2"))
     finally:
         harness.cleanup(root)
 
@@ -179,8 +178,6 @@ def w3_the_live_road() -> None:
         stops = []
         driver.grounding_stop = lambda: stops.append("stop")
         rows_q = lambda root: types.SimpleNamespace(projected=[], problems=[], notes=[], wrote=False)      # noqa: E731
-        routed = []
-        driver.stage_critic_route = lambda stage, author: routed.append((stage, author))      # SC-2: nothing may route a critic any more
         with patched(GT, "check", lambda root: []), patched(CP, "project", projection()), patched(CP, "project_row_questions", rows_q), quiet():
             driver.stage_S3()
             second = driver.roles[0]
@@ -190,7 +187,6 @@ def w3_the_live_road() -> None:
             check("W3: window 2 lines carry the plan line and the K-n/B-n reach line",
                   any("test-plan.json" in l for l in second["extra"]) and any("K-n" in l and "B-n" in l for l in second["extra"]), str(second["extra"]))
             check_eq("W3: window 2 closes S3 by the stage's own rule after the projection", second["complete"]("digest"), None)
-            check_eq("SC-2 s3-closes-without-critic (diff world): after window 2 no stage critic is routed", routed, [])
             check_eq("W3: ...and measures again over the bytes the role left (the saved keys follow them)", driver.calls,
                      [("grounding_table.py", "--share", "--task", KEY)])
     finally:
@@ -204,11 +200,8 @@ def w11_off_the_diff() -> None:
         stub_py(driver)
         stub_role(driver)
         with_state(driver, {})
-        routed = []
-        driver.stage_critic_route = lambda stage, author: routed.append((stage, author))   # SC-2: nothing may route a critic any more
         with patched(CP, "project", projection()), quiet():
             driver.stage_S3()
-        check_eq("SC-2 s3-closes-without-critic (off the diff): after the author's one window no stage critic is routed", routed, [])
         check_eq("W11: off the diff the preparation is the GT step alone", scripts_of(driver), ["grounding_table.py"])
         check_eq("W11: one window, no purpose", (len(driver.roles), driver.roles[0].get("purpose", "")), (1, ""))
         check_eq("W11: the lines are today's plan line and the fence line alone (no reach line, nothing counted)",
@@ -1004,13 +997,10 @@ def sc1_s2_closes_without_critic() -> None:
         stub_py(driver)
         stub_role(driver)
         with_state(driver, {})
-        routed = []
-        driver.stage_critic_route = lambda stage, author: routed.append((stage, author))
         with quiet():
             driver._act_prepare_stage({"stage": "S2"})
         check_eq("SC-1: S2 dispatches the tester once and nothing else", [(r["stage"], r["role"]) for r in driver.roles],
                  [("S2", "qa-requirements-tester")])
-        check_eq("SC-1: no stage critic is routed", routed, [])
         check_eq("SC-1: the tester asks for no forced completion: the stage's own rule decides", driver.roles[0].get("complete"), None)
         check("SC-1: and that rule closes S2 on the tester's finish (it is the last role)", stage_closes_with("S2", "qa-requirements-tester"))
     finally:

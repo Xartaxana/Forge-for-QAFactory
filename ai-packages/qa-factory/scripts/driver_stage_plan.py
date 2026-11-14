@@ -907,10 +907,12 @@ class DriverStagePlan:
             # the next `where` -> `stage_simple` skips the accepted scout and runs the window (its `complete=True` closes S1). POSITION: after the
             # runner's own rule above (the window closes the stage), before every other rule. A story with no reference gets None here: unchanged
             return False
+        import controller as CT
         import stage_guard as SG
-        declared = (self.stages().get(stage) or {}).get("roles") or []
-        if declared and role not in declared and SG.optional_row({"stages": list(self.stages().values())}, stage, role,
-                                                                 SG._record_purpose(record)) is None:
+        stages = self.stages()         # built once: the declared roles and the model the optional row is read from
+        declared = (stages.get(stage) or {}).get("roles") or []
+        if declared and role not in declared and SG.optional_row({"stages": list(stages.values())}, stage, role,
+                                                                 CT.record_purpose(record)) is None:
             # T2 (0.11.0 state in flight, AR-25): a dispatch of a role the stage does not declare - the S2/S3 stage critic a story paused
             # under 0.11.0 left running - never closes any stage, whatever its `repair_cause`; the same reading `story_step.start` applies
             # (`roles`, else an `optional_dispatches` row for the (role, purpose)). No stage or role name here: the stage row decides.

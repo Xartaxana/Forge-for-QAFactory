@@ -1270,7 +1270,7 @@ def validate_window(window, root):
 
 
 # --------------------------------------------------------------------------------------------
-# The stage acceptance record (X2-5, t-1765): the stage critic's verdict on S2-S4, kept in `pipeline.json` `acceptance`.
+# The stage acceptance record (X2-5, t-1765): the acceptor's verdict on S4, S6 and S7, kept in `pipeline.json` `acceptance`.
 # Code owns the DATA - the record's keys, its form, its binding to the author's last accepted dispatch, its transport; the
 # MEANING of the verdict is the critic's (AR-29). ONE reader (`stage_acceptance`), ONE writer (`stage_done.py --acceptance`).
 # --------------------------------------------------------------------------------------------

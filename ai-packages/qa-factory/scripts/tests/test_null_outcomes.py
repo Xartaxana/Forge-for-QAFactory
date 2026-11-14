@@ -150,7 +150,7 @@ def the_real_tree_is_green_and_the_line_is_printed() -> None:
 "conditional, 16 validator rows, 12 conditions)",
              (c["scope"], c["other"], c["outputs"], c["tool_fields"], c["conditional"], c["validator"],
               len(NO.CONDITIONS)), (17, 4, 16, 27, 11, 16, 12))
-    check_eq("homes: one declared, 20 never_empty (+16 validator), 52 pending",
+    check_eq("homes: one declared, 18 never_empty (+16 validator), 52 pending",
              (c["declared"], c["never_empty"], c["pending"]), (1, 18, 52))
     check_in("K0.8: the summary line says what was walked and what each home holds",
              "walked scope 17, outputs 16, tool fields 27, conditional 11 | declared 1, never_empty 18 (+16 validator), "

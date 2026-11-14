@@ -631,7 +631,6 @@ def s3_readers_with_first_look_dispatch_present():
     check_eq("s3_readers: pin - only a set-aside window 1 -> nothing counts", at({"a": dict(w1, status="released_by_person")}), "w1")
     check_eq("s3_readers: pin - a runner record changes nothing next to set-aside ones",
              at({"a": w1, "b": gone, "S3-qa-runner-2": runner}), "between")
-    check_eq("s3_readers: the stage critic's route is gone from the driver", hasattr(SR.Driver, "stage_critic_route"), False)
 
 
 def test_s3_readers_ignore_first_look_dispatch():

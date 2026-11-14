@@ -3661,8 +3661,17 @@ def stage_critic_names(stage_def: dict, role: str, task_root: Path) -> list:
     if not role or stage_def.get("acceptance_by") != role:
         return []
     stage = str(stage_def.get("id") or "")
-    names = [n for n in (stage_def.get("outputs") or []) if isinstance(n, str) and not n.startswith("project:")]
-    names.append(f"work/advice-{stage}.json")
+    def parts_of(row: dict, stage_id: str, parts: tuple) -> list:
+        """The names of the given parts of one stage: `outputs` (no `project:` entries), `advice` (`work/advice-<stage>.json`)."""
+        found = []
+        for part in parts:
+            if part == "outputs":
+                found += [n for n in (row.get("outputs") or []) if isinstance(n, str) and not n.startswith("project:")]
+            elif part == "advice":
+                found.append(f"work/advice-{stage_id}.json")
+        return found
+
+    names = parts_of(stage_def, stage, ("outputs", "advice"))
     roles = stage_def.get("roles") or []
     form = last_accepted_form(task_root, stage, roles[0]) if roles else ""
     if form:
@@ -3676,10 +3685,8 @@ def stage_critic_names(stage_def: dict, role: str, task_root: Path) -> list:
                       file=sys.stderr)
                 continue
             for part in parts:
-                if part == "outputs":
-                    names += [n for n in (table[earlier].get("outputs") or []) if isinstance(n, str) and not n.startswith("project:")]
-                elif part == "advice":
-                    names.append(f"work/advice-{earlier}.json")
+                if part in ("outputs", "advice"):
+                    names += parts_of(table[earlier], earlier, (part,))
                 else:
                     print(f"brief_pack: acceptance_reads of {stage} names the unknown part {part!r} of {earlier}; nothing is added for it",
                           file=sys.stderr)
@@ -3690,7 +3697,7 @@ def stage_critic_names(stage_def: dict, role: str, task_root: Path) -> list:
 
 def reviewed_dispatch(stage: str, role: str, state: dict, pipeline: dict) -> tuple:
     """TR4-12 (2), AR-13: THE reader of "which dispatch does `role` review at `stage`": `(target stage, author's dispatch id, stage_critic)`.
-    `("", "", False)` for a role that reviews nothing; `stage_critic` is True when the role judges its OWN stage's author (S2-S4), where
+    `("", "", False)` for a role that reviews nothing; `stage_critic` is True when the role judges its OWN stage's author (S4), where
     an empty id still gets the "none yet" brief line; for a consumer an empty id means nothing awaits it. The brief line and the form
     prefill (`story_step._author_argv`) both ask it, so they never name different dispatches. Reads only."""
     import acceptance
@@ -4330,7 +4337,7 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         head += flow_request_lines(task_root, task, write and output is None)      # RN1-6: the head is never shrunk
         head.append(WALK_DATA_LINE)                                                # TR3-10 E: once, whatever the flow requests did
         head += walk_lines(task_root)                                              # RN1-6: a walk per function
-        if role == "qa-test-strategist":       # the stage critic stands on S3 too and gets no roster (FR-56, AR-11)
+        if role == "qa-test-strategist":       # the strategist alone gets the roster; no critic stands on S3 any more (FR-56, AR-11)
             head += s3_roster_lines(task_root, None, pipeline.get("environment"))  # PK0-2: the product's roles; the head is never shrunk
     if stage == "S2":
         head += user_path_failure_lines(task_root, write and output is None)       # G2-14: the head is never shrunk

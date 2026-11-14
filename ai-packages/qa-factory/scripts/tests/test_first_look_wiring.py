@@ -96,7 +96,7 @@ def test_s3_has_optional_first_look_runner():
     optional = s3.get("optional_dispatches") or []
     check_eq("s3_has_optional_first_look_runner: S3 names one optional dispatch, the runner with purpose first_look, before window 1",
              optional, [{"role": "qa-runner", "purpose": "first_look", "output": "work/first-look.yaml", "before": "window 1"}])
-    check("s3_has_optional_first_look_runner: it is no stage role (the strategist and the critic stay the roles; no new stage)",
+    check("s3_has_optional_first_look_runner: it is no stage role (the strategist stays the role; no new stage)",
           "qa-runner" not in s3["roles"] and s3["role"] == "qa-test-strategist", str(s3["roles"]))
     check_eq("s3_has_optional_first_look_runner: the stage numbers are unchanged", list(STAGES), [f"S{n}" for n in range(10)])
     check_eq("s3_has_optional_first_look_runner: S3 still requires S2 and S4 requires S3",

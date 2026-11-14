@@ -93,10 +93,29 @@ def s3_window_of(record) -> str:
     acceptance overwrites the top). Error direction: only toward `exit`. Pure; never raises."""
     if not isinstance(record, dict) or record.get("stage") != "S3":
         return "exit"
-    binding = record.get("request_binding")
-    if isinstance(binding, dict) and binding.get("purpose") == S3_LABELLING:
-        return "labelling"
-    return "exit"
+    return "labelling" if record_purpose(record) == S3_LABELLING else "exit"
+
+
+def dispatch_can_close_stage(record) -> bool:
+    """ONE predicate: can this dispatch RECORD close its stage by the stage model alone? `contract.stage_closes_with(stage, role)`
+    and NOT S3's labelling window (window 1 is BETWEEN the strategist's two windows, never the end). An absent purpose is the EXIT
+    window and closes. Every site that OFFERS or ASSUMES a close asks this; `_s3_completion_gate` stays the last word and still
+    refuses a window-1 completeness claim. `_closes_stage` adds the S5-plan / S7-investigation / state exemptions. Pure; never raises."""
+    from contract import stage_closes_with
+    if not isinstance(record, dict):
+        return False
+    if not stage_closes_with(str(record.get("stage") or ""), str(record.get("role") or "")):
+        return False
+    return s3_window_of(record) != "labelling"
+
+
+def record_purpose(record) -> str:
+    """The PURPOSE a dispatch record was registered with, read from its BINDING only (`request_binding.purpose`), never from the top
+    of the record (a checkpoint or an acceptance overwrites the top). `""` for an absent purpose, a non-mapping binding, a non-string
+    purpose or an unreadable record. The one public reader (AR-13); `s3_window_of` is its S3 reading. Pure; never raises."""
+    binding = record.get("request_binding") if isinstance(record, dict) else None
+    purpose = binding.get("purpose") if isinstance(binding, dict) else None
+    return purpose if isinstance(purpose, str) else ""
 
 
 # The S5 plan dispatch (SC1-14): ONE dispatch of the author (and one of the critic) written against EVERY case of the stage, before
@@ -7574,7 +7593,7 @@ class Controller:
         inside the branch of every S3 acceptance, not only the closing one. ORDER (INVARIANT: the plan's refusal never comes before the
         refusal by the marker):
           a. a window-1 (labelling) dispatch that claims the stage complete is refused, and no word of a person passes it (its door is the
-             driver's: `finish --not-complete`); `stage_complete: "true"` is complete here, and so is the default a last role gets;
+             driver's: `finish --not-complete`); `stage_complete: "true"` is complete here; the default a last role gets is not given to window 1 (`_closes_stage`);
           b. window 1 without `stage_complete`: the role's findings of `GT.check`, through the person's word;
           c. an exit (`stage_complete`): the plan's errors and the grounding findings are ONE list in ONE `_passed_by_person`; the plan's
              head `S3 structured test plan invalid: ` stays when the plan has errors, else `S3 grounding: `; with no grounding finding the
@@ -7631,9 +7650,8 @@ class Controller:
         when no other window is still waiting for it. Anything this cannot read answers False:
         a rule that cannot see the state must not invent a closure or a refusal.
         """
-        from contract import stage_closes_with
         stage, role = str((d or {}).get("stage") or ""), str((d or {}).get("role") or "")
-        if not stage_closes_with(stage, role):
+        if not dispatch_can_close_stage(d):
             return False
         # SC1-14 B1a, INVARIANT: the S5 plan dispatch (its critic is the stage's last role) never closes S5 and never "leaves
         # S5 with no role": the windows are written after it. So `apply` sets no `stage_complete` on it and `validate` does
@@ -8587,7 +8605,6 @@ class Controller:
         the closure is not invented here either: the role the stage model names as its last
         one was accepted, which is exactly what closing a stage means.
         """
-        from contract import stage_closes_with
         dispatches = state.get("dispatches") or {}
         if any(d.get("status") == "running" for d in dispatches.values()):
             return []
@@ -8605,10 +8622,9 @@ class Controller:
                                         f"after {last.get('id')} was accepted as stage_complete"})
             elif (last.get("status") == "accepted" and not last.get("stage_complete")
                   and not last.get("unresolved")  # work it named itself is not a closure
-                  and stage_closes_with(stage, str(last.get("role") or ""))
                   # S3 has two windows of its last role: an accepted window 1 (labelling) is BETWEEN them, not the end (t-654 T1-b);
-                  # `s3_window_of` is the one reader (any other stage answers "exit", so S2 is untouched)
-                  and s3_window_of(last) != "labelling"
+                  # the one predicate answers that (any other stage answers as the stage model does, so S2 is untouched)
+                  and dispatch_can_close_stage(last)
                   and not any(d.get("status") in OPEN_AFTER_CLOSURE for d in own)):
                 fixes.append({"kind": "stage_completed", "stage": stage, "dispatch_id": last.get("id"),
                               "reason": f"recover: {stage}'s last role {last.get('role')} was accepted "
