@@ -261,6 +261,16 @@ log" section):
     only (node_warnings; never a FAIL): a NEW `delegated` dated NODE_WARN_FROM (2026-10-15) or later with no `node` field whose
     `notes` carry a node token (one, or two different: `two_tokens`), or with a good field and a token that names another
     node (the field wins). A line with neither is silent. The same limit as rule 14: the write-moment hook sees decide() only.
+19. ORDER-KNOWN DOOR (FG7-32). Three order defects of a NEW line -- a task id issued out of order (rule 9a), a ts not monotone
+    against its predecessor (rule 10), a repeated delegated on an open task with no legal reason (rule 9c/d) -- are
+    declarable: a LATER line of the SAME file whose `notes` carry `order-known:<ts>` (the exact ts of the defective
+    line; the first non-whitespace run after the colon, several tokens allowed) drops the refusal. A line never
+    declares itself, a token on an earlier line does not count, two lines with one ts are both covered, lines of
+    another file never declare. An undeclared defect is refused with the exact token to append (one refusal per line);
+    a token naming no earlier line is refused; one naming a line with no order defect, an empty one, or a value that is not a ts (prose such as `<ts>`; the token is
+    ignored, the defect stays refused), is a WARN. Lines
+    already in HEAD are never judged (unchanged). The count is the WARN-channel line `order-known: N declared`
+    (decide_with_warnings; calibration check 13(m)). tools/journal_echo.py calls decide(), so it shares the door.
 """
 from __future__ import annotations
 
@@ -353,6 +363,11 @@ REPLACES_WORKER_RE = re.compile(r"replaces_worker:(\S+)")
 # (otherwise monotonicity between lines of different offsets loses
 # its unambiguous ordering).
 TS_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$")
+# Rule 19 (FG7-32): the door for ORDER defects of lines already written. `order-known:<ts>` in the `notes` of a
+# line that stands LATER in the same file declares the line(s) whose `ts` is exactly <ts>; the first non-whitespace
+# run after the colon is read, and it is a ts only when it matches TS_RE (shape-gated like `closes:`); an empty or
+# non-ts value (prose such as `<ts>`) is a WARN and ignored: an ignored token never declares anything.
+ORDER_KNOWN_RE = re.compile(r"(?<!\w)order-known:(\S*)")
 
 
 def parse_ts(ts: str):
@@ -400,6 +415,77 @@ def extract_replaces_worker(notes) -> str | None:
         return None
     m = REPLACES_WORKER_RE.search(notes)
     return m.group(1) if m else None
+
+
+def order_known_tokens(notes) -> list[str]:
+    """Rule 19: every `order-known:<ts>` value in notes, in order ('' for a token with nothing after the colon).
+    notes absent or not a string -> [] (the base-field check owns that refusal)."""
+    if not isinstance(notes, str):
+        return []
+    return ORDER_KNOWN_RE.findall(notes)
+
+
+def _order_known_door(original: str, ts, task_id, defect: str) -> str:
+    return (f"{original} -- ORDER DEFECT ({defect}) on the journal line with ts {ts!r}, task_id {task_id!r}: if the "
+            "line is already written and cannot be edited, declare it -- expected: a LATER line of this same file "
+            f"whose notes carry the token `order-known:{ts}`; append a new line with that token in its notes, then "
+            "commit again (rule 19)")
+
+
+def _resolve_order_known(violations: list[str], marks: list, file_ts: list, tokens: list, n_head: int,
+                         report: dict | None) -> list[str]:
+    """Rule 19. `marks` = [(index in violations, file index of the line, ts, task_id, defect)] of the three
+    declarable order defects of NEW lines; `file_ts` = the ts of every line of THIS file (HEAD then new; None for a
+    line that does not parse); `tokens` = [(file index of the carrier, ts value)] of every token in the file.
+    A defect is declared by a token whose ts equals the line's ts and whose carrier stands strictly LATER; the same
+    line never declares itself. Returns the violations with declared ones dropped and the door text added to the
+    undeclared ones; a token on a NEW line whose ts names no earlier line is a refusal, one that names only lines
+    with no order defect is a WARN, an empty or non-ts one is a WARN and ignored (into report['warnings']).
+    report['declared'] = the number of distinct defective LINES declared."""
+    drop: set = set()
+    declared_lines: set = set()
+    replace: dict = {}
+    good = [(q, tv) for q, tv in tokens if TS_RE.match(tv)]     # a non-ts value never declares anything
+    for vi, fi, ts, tid, defect in marks:
+        if any(q > fi and tv == ts for q, tv in good):
+            drop.add(vi)
+            declared_lines.add(fi)
+        else:
+            replace[vi] = _order_known_door(violations[vi], ts, tid, defect)
+    extra: list[str] = []
+    defective_idx = {fi for _vi, fi, *_rest in marks}
+    for q, tv in tokens:
+        if q < n_head:
+            continue                                    # a token of an old line is never judged
+        carrier = f"line {q + 1}"
+        if tv == "":
+            if report is not None:
+                report.setdefault("warnings", []).append(
+                    f"{carrier}: WARN `order-known:` has nothing after the colon -- it declares no line and is ignored "
+                    "-- write order-known:<ts> with the exact ts of the defective line (a warning only)")
+            continue
+        if not TS_RE.match(tv):
+            if report is not None:
+                report.setdefault("warnings", []).append(
+                    f"{carrier}: WARN `order-known:{tv}` is not a ts (YYYY-MM-DDTHH:MM:SS) -- it declares no line and "
+                    "is ignored; a defect it meant stays refused -- write order-known:<ts> with the exact ts of the "
+                    "defective line (a warning only)")
+            continue
+        named = [p for p in range(q) if file_ts[p] == tv]
+        if not named:
+            extra.append(f"{carrier}: `order-known:{tv}` names no line -- no line of this journal that stands before "
+                         f"line {q + 1} has the ts {tv!r}, so the token declares nothing and could hide a typo -- copy "
+                         "the ts of the defective line exactly (the `ts` value of that line), and put the token on a "
+                         "LATER line (rule 19)")
+        elif not any(p in defective_idx for p in named) and report is not None:
+            if all(p < n_head for p in named):
+                why = "names a line already in HEAD; HEAD lines are not judged, so nothing was declared"
+            else:
+                why = "names a line that carries no order defect, so nothing was declared"
+            report.setdefault("warnings", []).append(f"{carrier}: WARN `order-known:{tv}` {why} (a warning only)")
+    if report is not None:
+        report["declared"] = len(declared_lines)
+    return [replace.get(i, v) for i, v in enumerate(violations) if i not in drop] + extra
 
 
 def _harvest_line_into(idx: int, event, task_id, agent, worker_ref, delegated_agents: dict, closed_tasks: set,
@@ -935,7 +1021,8 @@ _ANCHOR_FROM_HEAD = object()     # validate_new_lines: "anchor ts order on the l
 
 def validate_new_lines(new_lines: list[str], head_lines: list[str],
                         now: datetime.datetime, ts_anchor=_ANCHOR_FROM_HEAD, *,
-                        seed_lines: list[str] = (), drift: bool = True) -> list[str]:
+                        seed_lines: list[str] = (), drift: bool = True,
+                        order_report: dict | None = None) -> list[str]:
     """`ts_anchor`: the ts the first new line is compared with for rule 10's monotonicity. The
     default is the last line of `head_lines`. The merge mode passes HEAD's OWN last ts (or None =
     no lower bound): the lines it validates are OUR side's tail, and the kept part's last line is
@@ -944,8 +1031,25 @@ def validate_new_lines(new_lines: list[str], head_lines: list[str],
     for the file that continues it. They seed rule 9 (ids seen, max, the per-task state) and the
     ts anchor when `head_lines` is empty; line numbers in the messages stay those of the file.
     `drift=False` switches off the "later than now+10min" check (the CI run: the runner's clock
-    is not the writer's)."""
+    is not the writer's).
+    `order_report` (rule 19): a dict the call fills with `declared` (the count of order defects declared by an
+    `order-known:<ts>` token) and `warnings` (token WARN texts); None = not wanted."""
     violations: list[str] = []
+    # rule 19: the ts and the order-known tokens of every line of THIS file (HEAD then new; the seed is another file)
+    file_ts: list = []
+    tokens: list[tuple[int, str]] = []
+    for fi, fl in enumerate(list(head_lines) + list(new_lines)):
+        fobj = _try_parse_obj(fl)
+        file_ts.append(fobj.get("ts") if fobj is not None and isinstance(fobj.get("ts"), str) else None)
+        if fobj is not None:
+            tokens.extend((fi, tv) for tv in order_known_tokens(fobj.get("notes")))
+    order_marks: list = []
+
+    def _mark(defect: str, fi: int, ts_value, task_id_value) -> None:
+        # call right after the append: the mark binds to the LAST violation by position
+        if isinstance(ts_value, str) and ts_value:
+            order_marks.append((len(violations) - 1, fi, ts_value, task_id_value, defect))
+
     state_lines = list(seed_lines) + list(head_lines)
     seen_task_ids = extract_task_ids(state_lines)
     # the next-id state (rule 9a/9e): HEAD and seed lines contribute their ids and their form-valid bands, never judged
@@ -1017,6 +1121,7 @@ def validate_new_lines(new_lines: list[str], head_lines: list[str],
                 m_id = _jk.ID_NUM_RE.match(task_id)      # more than 9 digits: never issuable
                 if m_id is None or not band_state.may_issue(int(m_id.group(1)), own_band):
                     violations.append(_novelty_text(tag, task_id, band_state, own_band))
+                    _mark("task id issued out of order", line_no - 1, ts, task_id)
             elif task_id in closed_tasks:
                 # (d) reopen forbidden -- a collision counts as two tasks.
                 violations.append(
@@ -1106,6 +1211,7 @@ def validate_new_lines(new_lines: list[str], head_lines: list[str],
                             "'replaces_worker:<prior worker_ref>' marker in notes when replacing "
                             "a dead worker with no verdict (rule 9c2)"
                         )
+                        _mark("repeated delegated on an open task with no legal reason", line_no - 1, ts, task_id)
         elif event in ("accepted", "rejected", "escalated", "defect_found") and valid_tid:
             if task_id not in seen_task_ids:
                 violations.append(
@@ -1137,6 +1243,7 @@ def validate_new_lines(new_lines: list[str], head_lines: list[str],
                     "re-read the clock and re-order the batch before "
                     "writing (rule 10)"
                 )
+                _mark("ts not monotone against its predecessor", line_no - 1, ts, task_id)
             if drift and parsed_ts > now_limit:
                 violations.append(
                     f"{tag}: ts {ts!r} is later than now+10min "
@@ -1154,7 +1261,7 @@ def validate_new_lines(new_lines: list[str], head_lines: list[str],
         if valid_tid:
             seen_task_ids.add(task_id)
 
-    return violations
+    return _resolve_order_known(violations, order_marks, file_ts, tokens, len(head_lines), order_report)
 
 
 def _band_place_text(tag: str, band, kind: str, top: int) -> str:
@@ -1199,7 +1306,7 @@ def _novelty_text(tag: str, task_id, state, own_band=None) -> str:
 
 def decide(staged_text: str | None, head_text: str | None,
            now: datetime.datetime | None = None, *, seed_text: str | None = None,
-           drift: bool = True) -> tuple[int, list[str]]:
+           drift: bool = True, order_report: dict | None = None) -> tuple[int, list[str]]:
     """Pure gate decision -- tested without git (see tools/test_journal_validator.py).
     `seed_text` (t-581): the lines that precede this file in its LOGICAL journal (the history, for
     the file that continues it) -- they seed rule 9 and the ts anchor, never the append-only
@@ -1212,7 +1319,8 @@ def decide(staged_text: str | None, head_text: str | None,
     if not ok:
         return 1, [msg]
     new_lines = staged_lines[len(head_lines):]
-    violations = validate_new_lines(new_lines, head_lines, now, seed_lines=split_lines(seed_text), drift=drift)
+    violations = validate_new_lines(new_lines, head_lines, now, seed_lines=split_lines(seed_text), drift=drift,
+                                    order_report=order_report)
     if violations:
         return 1, violations
     return 0, []
@@ -1304,12 +1412,19 @@ def decide_with_warnings(staged_text: str | None, head_text: str | None,
                          seed_text: str | None = None) -> tuple[int, list[str], list[str]]:
     """decide() plus the WARN list; the exit code is exactly decide()'s -- warnings never
     change it."""
-    code, violations = decide(staged_text, head_text, now, seed_text=seed_text)
+    report: dict = {}
+    code, violations = decide(staged_text, head_text, now, seed_text=seed_text, order_report=report)
     staged_lines = split_lines(staged_text)
     head_lines = split_lines(head_text)
     ok, _msg = check_append_only(staged_lines, head_lines)
     new_lines = staged_lines[len(head_lines):]
     warnings = feature_warnings(new_lines, head_lines, known) + node_warnings(new_lines, head_lines) if ok else []
+    if ok:
+        warnings = warnings + report.get("warnings", [])
+        if report.get("declared"):
+            warnings.append(f"order-known: {report['declared']} declared (summary: the number of distinct defective "
+                            "lines of this journal declared by an `order-known:<ts>` token of a later line; calibration "
+                            "check 13(m))")
     return code, violations, warnings
 
 
