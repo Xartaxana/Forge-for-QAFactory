@@ -5098,6 +5098,21 @@
     "scripts/tests/fixtures/stories/cart-1"
    ]
   },
+  "test_scenario_dry_1.py": {
+   "layer": "scenario",
+   "why": "story dry-1 (synthetic): the REAL driver runs S0..S9 in a world of its own, roles and conductor are dry_stub.py; snapshots on each closed stage, C3/C5/C6 invariants, a stop only at a known_red row with a finding id (P1-b N3). Claims no story_coverage: a synthetic story never closes the recorded stories' requirement",
+   "covers": [
+    "scripts/story_run.py",
+    "tests/dry_exits.py",
+    "tests/dry_stub.py",
+    "tests/dry_world.py",
+    "tests/dry_driver.py",
+    "tests/scenario_walk.py",
+    "tests/known_red.py",
+    "scripts/tests/fixtures/driver-exits",
+    "scripts/tests/fixtures/stories/dry-1"
+   ]
+  },
   "test_scenario_local_1_0108.py": {
    "layer": "scenario",
    "why": "story local-1-0108: a scrubbed recorded MyBooks run (LOCAL-1, package 0.10.8) replayed through today's S1..S9 exits, hand-overs, both gate decisions and the delivery assessment, with the red Then at S7; three amendments name gaps of 0.10.8 that 0.10.9 closed",

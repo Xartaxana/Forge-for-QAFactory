@@ -116,6 +116,7 @@
     "test_s7_null_outcome.py": 33.4,
     "test_s7_rejudge.py": 24.7,
     "test_scenario_cart_1.py": 67.4,
+    "test_scenario_dry_1.py": 51.0,
     "test_scenario_local_1_0108.py": 110.4,
     "test_scenario_local_1_arm_b.py": 22.8,
     "test_selftest_ran_nothing.py": 35.0,

@@ -4,14 +4,14 @@
  "synthetic": true,
  "package_version": "0.11.0",
  "walk": [
-  {"stage": "S1", "role": "qa-scout"},
-  {"stage": "S2", "role": "qa-requirements-tester"},
-  {"stage": "S3", "role": "qa-test-strategist"},
-  {"stage": "S4", "role": "qa-case-designer"},
-  {"stage": "S5", "role": "qa-automator"},
-  {"stage": "S6", "role": "qa-runner"},
-  {"stage": "S7", "role": "qa-failure-analyst"},
-  {"stage": "S8", "role": "qa-doc-scribe"},
-  {"stage": "S9", "role": "qa-retro-analyst"}
+  {"stage": "S1", "role": "qa-scout", "door": {"kind": "driver"}, "answers": {"s1_review": "go on"}},
+  {"stage": "S2", "role": "qa-requirements-tester", "door": {"kind": "driver"}},
+  {"stage": "S3", "role": "qa-test-strategist", "door": {"kind": "driver"}},
+  {"stage": "S4", "role": "qa-case-designer", "door": {"kind": "driver"}},
+  {"stage": "S5", "role": "qa-automator", "door": {"kind": "driver"}},
+  {"stage": "S6", "role": "qa-runner", "door": {"kind": "driver"}},
+  {"stage": "S7", "role": "qa-failure-analyst", "door": {"kind": "driver"}},
+  {"stage": "S8", "role": "qa-doc-scribe", "door": {"kind": "driver"}},
+  {"stage": "S9", "role": "qa-retro-analyst", "door": {"kind": "driver"}}
  ]
 }
