@@ -554,15 +554,21 @@ def r_carried(files, links=None, edit=None):
         cleanup(root)
 
 
-def r_brief_head(files):
+def r_brief(files, dispatch_id="W1", role="qa-automator"):
+    """`(head, the side file's story path)` of the plan-form brief of `role` for a story built from `files`."""
     import brief_pack as BP
     root = temp_dir("qa-fv16-n2-")
     try:
         state = r_story(root, files)
         with contextlib.redirect_stderr(io.StringIO()):
-            return BP.case_concern_lines(root, "W1", state, "qa-automator", False)["head"]
+            return (BP.case_concern_lines(root, dispatch_id, state, role, False)["head"],
+                    BP._rel(root, f"work/briefs/{dispatch_id}-case-concerns.md"))
     finally:
         cleanup(root)
+
+
+def r_brief_head(files, dispatch_id="W1", role="qa-automator"):
+    return r_brief(files, dispatch_id, role)[0]
 
 
 def fv16_still_rejected_rows():
@@ -605,6 +611,21 @@ def fv16_still_rejected_rows():
              [(r["id"], r["case"], r["problem"]) for r in got],
              [("CR-global", None, "(plan row TS-5) no case named"), ("CR-global.2", None, "(plan row TS-6) again")])
 
+    two_rounds = lambda a, b: {"critic-findings.md": [(r_round(1, "reject", [a]), ok), (r_round(2, "reject", [b]), ok)]}
+    got, _s, _ = r_carried(two_rounds(glob, ("TS-6", "", "yes", "reject", "no case for TS-6", "")))
+    check_eq("C5b case-less-reject-of-another-plan-row-kept: round 2's TS-6 does not drop round 1's TS-5",
+             (sorted(r["id"] for r in got), sorted(r["problem"] for r in got)),
+             (["CR-global", "CR-global.2"], ["(plan row TS-5) no case named", "(plan row TS-6) no case for TS-6"]))
+    got, _s, _ = r_carried(two_rounds(glob, ("TS-5", "", "yes", "reject", "still no case", "")))
+    check_eq("C5b case-less-reject-of-the-same-plan-row: only the later round's remark is carried",
+             [(r["id"], r["problem"]) for r in got], [("CR-global", "(plan row TS-5) still no case")])
+    got, _s, _ = r_carried(two_rounds(("", "", "yes", "reject", "first", ""), ("", "", "yes", "reject", "second", "")))
+    check_eq("C5b case-less-reject-with-no-plan-row: they share one key, the later round's is carried",
+             [r["problem"] for r in got], ["(plan row ) second"])
+    got, _s, _ = r_carried(two_rounds(("", "", "yes", "reject", "first", ""), ("TS-6", "", "yes", "reject", "other", "")))
+    check_eq("C5b case-less-reject-with-no-plan-row: a later reject of ANOTHER plan row does not drop it (over-carry)",
+             sorted(r["problem"] for r in got), ["(plan row ) first", "(plan row TS-6) other"])
+
     base = {"critic-findings.md": [(r_round(1, "approve_with_concerns", [conc]), ok)]}
     alone, _s, _ = r_carried(base)
     both, _s, _ = r_carried({"critic-findings.md": [(r_round(1, "reject", [conc, ("TS-4", "TC-4", "yes", "reject", "n", "")]), ok)]})
@@ -621,6 +642,26 @@ def fv16_still_rejected_rows():
     check_eq("C7 receipt-doubt-carries-nothing: no remark, the file is silent", (got, silent), ([], [R_DIR + "critic-findings.md"]))
     check_in("C7 receipt-doubt-carries-nothing: stderr says why", "no end of the file matches the receipt", err)
 
+    import brief_pack as BP
+    root7 = temp_dir("qa-fv16-n2-")
+    try:
+        state7 = r_story(root7, {"critic-findings.md": [(r_round(1, "reject", [rej]), ok)]})
+        (root7 / R_DIR / "critic-findings.md").write_bytes((root7 / R_DIR / "critic-findings.md").read_bytes() + b"x")
+        for role7 in ("qa-automator", "qa-code-critic"):
+            with contextlib.redirect_stderr(io.StringIO()):
+                heads7 = BP.case_concern_lines(root7, "W1", state7, role7, False)["head"]
+            check(f"C7b receipt-doubt-head-reads-every-non-approving-row: role {role7}",
+                  len(heads7) == 1 and "whose verdict is not an approving one there before you" in heads7[0], str(heads7))
+        real7, BP._sp = BP._sp, (lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+        try:
+            fail7 = BP.case_concern_lines(root7, "W1", state7, "qa-automator", False)["head"]
+        finally:
+            BP._sp = real7
+        check("C7b the failed-read head reads every non-approving row too", "whose verdict is not an approving one in work/test-cases" in fail7[0],
+              str(fail7))
+    finally:
+        cleanup(root7)
+
     only = {"critic-findings.md": [(r_round(1, "approve_with_concerns", [conc]), ok)]}
     got, _s, _ = r_carried(only)
     check_eq("C8 no-reject-byte-identical: the concern is the nine-key CC-1 remark as before", got,
@@ -633,6 +674,38 @@ def fv16_still_rejected_rows():
     check("C9 brief-head-counts: 2 carried, 1 of them still rejected", any(
         "carried 2 concern(s) to automation (1 of them cases it still rejected when S4 went on; 0 ask to parametrise" in l for l in head), str(head))
     check_eq("C9 brief-head-counts: r = 0, no clause", [l for l in r_brief_head(only) if "of them cases it still rejected" in l], [])
+
+    head8, rel8 = r_brief(only)
+    check_eq("C8b no-reject-head-byte-equal-to-main: the plan-author head is the text main builds, word for word", head8,
+             [f"The case critic carried 1 concern(s) to automation (0 ask to parametrise cases into one test): {rel8}. Answer each in the "
+              f"plan: a `{CR.PARAMETRISE_TOKEN}` concern is one parameterized test over its cases, or each test that holds them says why "
+              "in `apart_reason`"])
+
+    withrej = {"critic-findings.md": [(r_round(1, "reject", [conc, rej]), ok)]}
+    clause = "1 of them cases it still rejected when S4 went on; "
+    for role9, field9 in (("qa-automator", "in `apart_reason`"),):
+        long9 = r_brief_head(withrej, "S5-qa-automator-plan-12-and-a-long-tail-of-id-" + "x" * 8, role9)
+        check("C9b clause-does-not-cut-the-instruction: a 55-character dispatch id keeps the field to fill and the clause",
+              len(long9) == 1 and clause in long9[0], str(long9))
+    sizes9 = set()
+    for size in range(1, 80):
+        one, _rel = r_brief(withrej, "d" * size)
+        pre = one[0].replace(clause, "", 1)
+        check(f"C9b head-at-the-limit: id of {size} characters, the clause once and the text without it within the bound",
+              one[0].count(clause) == 1 and len(pre) <= BP.HEAD_LINE_CHARS, str(one))
+        sizes9.add(len(pre))
+        if "apart_reason" in pre:
+            check(f"C9b head-keeps-the-field: id of {size} characters", "in `apart_reason`" in one[0], one[0])
+    check("C9b head-at-the-limit: the ids reach a text of exactly 400 characters before the clause, and one cut from a longer one (400)",
+          BP.HEAD_LINE_CHARS in sizes9 and max(sizes9) == BP.HEAD_LINE_CHARS, str(sorted(sizes9)[-3:]))
+    real_limit = BP.HEAD_LINE_CHARS
+    BP.HEAD_LINE_CHARS = 30
+    try:
+        forced = r_brief_head(withrej)
+    finally:
+        BP.HEAD_LINE_CHARS = real_limit
+    check("C9b clause-after-the-cut: a cut that loses the parenthesis appends the clause as its own sentence, never drops it",
+          len(forced) == 1 and forced[0].endswith(". 1 of them cases it still rejected when S4 went on"), str(forced))
 
     gone = {"critic-findings.md": [(r_round(1, "reject", [("TS-9", "TC-9", "yes", "reject", "bad", "")]), ok)]}
     prefix = "(case removed since the review) bad"

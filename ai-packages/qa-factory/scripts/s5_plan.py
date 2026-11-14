@@ -1144,7 +1144,20 @@ def _file_concerns(key, rounds, root, number) -> tuple:
                                 "", rounds[-1][1])], False
     read = CR.accepted_rounds(data, rounds, root)
     latest = {case: position for position, one in enumerate(read) for case in one["listed"]}
-    out, pinned = [], None
+    # a case-less row has no case to supersede it: the LATEST round holding a case-less reject of the same plan row decides it
+    latest_global = {item["plan_row"]: position for position, one in enumerate(read) for item in one["rejected"] if _ref(item["case"]) is None}
+    out, pinned = [], []        # `pinned[0]`: the story's pinned case set once read; empty (a legacy story, unreadable) skips the test
+
+    def led(case, problem):
+        if not pinned:
+            try:
+                pinned.append({str(link.get("case_id")) for link in C.story_case_links(root)})
+            except Exception:  # noqa: BLE001 - a remark is never lost for want of this test (AR-28)
+                pinned.append(set())
+        if pinned[0] and case not in pinned[0] and case.rsplit("/", 1)[-1] not in pinned[0]:
+            return "(case removed since the review) " + problem
+        return problem
+
     for position, one in enumerate(read):
         for item in one["concerns"]:
             if latest.get(str(item["case"])) == position:
@@ -1154,20 +1167,16 @@ def _file_concerns(key, rounds, root, number) -> tuple:
                     f"the case critic's full finding is in {where}, round {item['review']}; take it into account when the case "
                     "is automated, or say in `plan_remarks` why it does not apply", item["fix"], item["review"]))
         for item in one["rejected"]:
-            if latest.get(str(item["case"])) != position:
+            if _ref(item["case"]) is None:
+                if latest_global.get(item["plan_row"]) != position:
+                    continue
+            elif latest.get(str(item["case"])) != position:
                 continue
             case, problem = _ref(item["case"]), item["problem"]
             if case is None:
                 case_key, problem = "global", f"(plan row {item['plan_row']}) {problem}"
             else:
-                case_key = case
-                if pinned is None:      # the story's pinned case set; empty (a legacy story, unreadable) skips the test
-                    try:
-                        pinned = {str(link.get("case_id")) for link in C.story_case_links(root)}
-                    except Exception:  # noqa: BLE001 - a remark is never lost for want of this test (AR-28)
-                        pinned = set()
-                if pinned and case not in pinned and case.rsplit("/", 1)[-1] not in pinned:
-                    problem = "(case removed since the review) " + problem
+                case_key, problem = case, led(case, problem)
             remark = _concern_remark(
                 0, case, "case critic, S4 - still rejected", problem,
                 f"the case critic still rejected this case in its round {item['review']} (its full finding is in {where}); S4 "

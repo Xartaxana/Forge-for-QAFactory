@@ -420,10 +420,10 @@ def rejected_rows(rows: list, declared: str = "") -> list:
     for row in rows:
         if row.get("reviewed") is not True:
             continue
+        if _row_outcome("", {"reviewed": True, "verdict": row.get("verdict")}, declared)[0] == "accepted":
+            continue      # THE rule "this row approves" is `_row_outcome`'s, not a second writing of it
         word = row.get("verdict")
         word = declared if word is None else str(word)
-        if word in APPROVING_VERDICTS:
-            continue
         for case in [str(one) for one in row.get("ids") or [row.get("case") or ""]]:
             out.append({"case": case, "verdict": word or "unstated", "problem": row.get("note") or REJECTED_NOTE,
                         "fix": row.get("fix") or "", "plan_row": str(row.get("plan_row") or "")})
