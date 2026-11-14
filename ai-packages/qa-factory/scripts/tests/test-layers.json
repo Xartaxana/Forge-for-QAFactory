@@ -5379,7 +5379,9 @@
     "agents/qa-runner.md",
     "references/slices/qa-automator/artifact-contract-automation.md",
     "references/slices/qa-runner/common-rules.md",
-    "tests/harness.py"
+    "scripts/tests/fixtures/told-ratchet.json",
+    "tests/harness.py",
+    "tests/test_judgment_census.py"
    ]
   },
   "test_stage_joints_12586.py": {

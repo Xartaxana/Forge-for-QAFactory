@@ -1269,6 +1269,8 @@
   {"file": "test_story_run_codex.py", "function": "host_is_read_only_where_the_node_says", "count": 1, "targets": ["every Driver member that reads `self.host` (I-1: only the members the CX1-15 node lists)"]}
  ],
  "source_mentions": [
+  {"file": "dry_exits.py", "function": "_numbers", "count": 1, "why": "command text: the recount command printed on the `routes` NUMBER line (`grep -cE 'return .marked_' driver_machine.py`) for a person to run, not a read of the source"},
+  {"file": "dry_world.py", "function": "drive", "count": 1, "why": "command text: the path of `story_run.py` handed to Popen to run the driver as a child process, not a read of the source"},
   {"file": "test_interim_packet.py", "function": "packet_data", "count": 2, "why": "the restart command handed to the packet as text (`python story_run.py --task QA-700`) and its expected line in the rendered document, not a read of the source"},
   {"file": "test_exploratory_findings.py", "function": "key_m3", "count": 1, "why": "the file-name list `env_probe.py, manual_capture.py, story_run.py, walk_pool.py` of the expected readers of a stand's `safe_to_break` key, handed to check_eq as data, not a read of the source"},
   {"file": "test_audit_rules.py", "function": "driver_root", "count": 1, "why": "writes a FAKE story_run.py as A27's synthetic driver; the real source is read only by test_a27_planted_copy (a source_readers row)"},
