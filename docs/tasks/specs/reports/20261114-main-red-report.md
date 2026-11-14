@@ -30,4 +30,6 @@ Verdict for the sixth class: none found.
 - The four test-file outputs are quoted in the item sections above.
 
 ## Commits, push, pipeline
-See the final lines appended below after the push.
+Commits: 2c4ee8d (the fixes), e1fcfdf (merge of origin/main after wave 7 moved it; after the merge test_driver_layers 283/283 and test_selftest_slow_tests 124/124 again). Pushed `HEAD:main` (1517fe9..e1fcfdf), no force.
+Pipeline run 43533652870 on main e1fcfdf (push): `pending` when read once. Not waited on. Item 5 is expected green from this push (BASE = previous main), unverified until that run ends. The wave-7 push run 43533215100 (1517fe9) was still in_progress.
+Files in `slow_tests.json` touched: test_story_run_refusals.py is judged by the pipeline too (name only; its location in slow_tests.json not checked).
