@@ -7529,11 +7529,7 @@ class Controller:
             raise StateConflict("a window-1 (labelling) dispatch of S3 cannot close the stage; it is accepted with "
                                 "--not-complete --unresolved plan_pending")
         if window != "labelling" and not complete:
-            # X2-5 (E-X2-5f): the author of a stage that has an acceptor no longer closes it, but his exit window is still the one the plan
-            # is judged on - the refusal reaches him, as before; the critic's closing accept repeats the same check on the same bytes
-            from acceptance import author_exit_owes_plan
-            if not author_exit_owes_plan(d):
-                return
+            return
         errors, rows = [], None
         if window != "labelling":
             from planning_contract import validate_plan

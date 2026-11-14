@@ -662,12 +662,12 @@ def an_exited_s2_key_is_read_in_any_shape() -> None:
 
 
 def a_section_owed_only_under_a_header_value_has_an_empty_outcome_otherwise() -> None:
-    """t-1765 G2/G3 (AR-23, AR-28, AR-19): the three critic forms (S4, S2, S3) owe `stage_acceptance` and `questions` only when
+    """t-1765 G2/G3 (AR-23, AR-28, AR-19): the critic form (S4) owes `stage_acceptance` and `questions` only when
     `header.verdict` is `concerns` (each form's own `required_when:`). An `ok` review leaves both as the form has them and is not
     refused for it; a `concerns` review, or a form whose verdict is missing, is refused for them; a filled block is still checked."""
     import handoff_check as H
     import hooklib
-    forms = ("s4-case-critic-to-designer", "s2-stage-critic-to-tester", "s3-stage-critic-to-strategist")
+    forms = ("s4-case-critic-to-designer",)
     owed = ("stage_acceptance", "questions")
 
     def owed_problems(contract: str, text: str, view) -> list:

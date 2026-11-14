@@ -1512,15 +1512,6 @@ def consumer_close_refusal(pipeline, state, stage, table=None) -> str:
             f"while {stage} awaits) and record its verdict: `stage_done.py --task {ticket} --stage {stage} --acceptance work/handoffs/<its dispatch>.yaml`.")
 
 
-def author_exit_owes_plan(dispatch, table=None) -> bool:
-    """True when `dispatch` is the AUTHOR of a stage that has an acceptor (`acceptance_by`): its exit window is no longer the closing one,
-    and S3's plan check must still run on it (E-X2-5f). False for every stage without `acceptance_by` (the world before X2-7)."""
-    d = dispatch if isinstance(dispatch, dict) else {}
-    stage_def = stage_def_of(d.get("stage"), table)
-    roles = stage_def.get("roles") or []
-    return bool(stage_def.get("acceptance_by") and roles and d.get("role") == roles[0])
-
-
 def stage_acceptance_refusal(pipeline, dispatch, state, split, table=None) -> tuple:
     """`(refusal text, passed)` of the E-B11 gate for the accept of `dispatch` that claims `stage_complete`. `("", [])` when the stage has no
     `acceptance_by` (TEMPORAL: nothing new is refused before X2-7 sets it) or its record is acceptable. `split(stage, problems)` is the

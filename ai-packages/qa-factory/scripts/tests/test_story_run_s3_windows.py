@@ -132,13 +132,14 @@ def w2_routing() -> None:
     root, _task_root, _env, driver = story()
     try:
         seen = []
-        for name in ("stage_S2", "stage_S3", "stage_S4"):
+        for name in ("stage_S3", "stage_S4"):
             setattr(driver, name, lambda name=name: seen.append(name))
         driver.stage_simple = lambda stage: seen.append("simple:" + stage)
         for stage in ("S1", "S2", "S3", "S4"):
             driver._act_prepare_stage({"stage": stage})
-        check_eq("W2: S1 -> stage_simple, S2 -> stage_S2, S3 -> stage_S3, S4 -> stage_S4 (control)",
-                 seen, ["simple:S1", "stage_S2", "stage_S3", "stage_S4"])
+        check_eq("W2: S1 -> stage_simple, S2 -> stage_simple, S3 -> stage_S3, S4 -> stage_S4",
+                 seen, ["simple:S1", "simple:S2", "stage_S3", "stage_S4"])
+        check("W2: the deleted S2 critic method is gone (S2 never reaches a generic getattr)", not hasattr(type(driver), "stage_S2"))
     finally:
         harness.cleanup(root)
 

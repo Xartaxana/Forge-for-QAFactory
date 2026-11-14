@@ -1295,7 +1295,7 @@ class DriverMachine:
         if kind == "execute_gate_b":
             return self._act_execute_gate_b(action)
         if kind == "wait_existing_job":
-            return self._wait_then_critic(action)
+            return self._act_wait_existing_job(action)
         if kind == "resume_checkpoint":
             return self._act_resume_checkpoint(action)
         if kind == "relaunch":
@@ -1324,10 +1324,8 @@ class DriverMachine:
                 self.code_only("S0", "preflight green: S0 closed on a task initialized before it", ["pipeline.json"])
             else:
                 self.s0()
-        elif stage == "S1":
+        elif stage in ("S1", "S2"):
             self.stage_simple(stage)
-        elif stage == "S2":
-            self.stage_S2()
         elif stage == "S3":
             self.stage_S3()
         else:
@@ -1433,12 +1431,6 @@ class DriverMachine:
                               + "\n".join(f"{item['dispatch_id']}: {item.get('stage')} {item.get('role')} - {item.get('reason') or ''}"
                                           for item in held))
 
-    def _wait_then_critic(self, action: dict) -> None:
-        """`_act_wait_existing_job`, then the stage critic's route over a finished ticket re-run (`ticket_rerun_critic`). The one entry of
-        the `wait_existing_job` action and of its `retry`."""
-        self._act_wait_existing_job(action)
-        self.ticket_rerun_critic(str(action.get("dispatch_id") or ""))
-
     def _act_wait_existing_job(self, action: dict) -> None:
         dispatch = action.get("dispatch_id", "")
         state = self.controller_state()
@@ -1500,7 +1492,7 @@ class DriverMachine:
             labelling = CT.s3_window_of(record) == "labelling"
             scope = list(record.get("scope") or [])
             relaunched = bool(record.get("relaunch_of"))
-            self.record_running(stage, role, dispatch, retry=lambda: self._wait_then_critic(action), relaunched=relaunched,
+            self.record_running(stage, role, dispatch, retry=lambda: self._act_wait_existing_job(action), relaunched=relaunched,
                                 rework_of=str(record.get("rework_of") or ""))
             # The registered record's own `reason` is what the role is told (FR-8): the person's words of a conductor rework, whole.
             # `purpose` ("repair_verify") is a word of the controller's, not a reason (C1-2, F3). Window 1 of S3 is not a rework

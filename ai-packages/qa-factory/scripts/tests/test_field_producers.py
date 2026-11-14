@@ -561,12 +561,12 @@ def every_form_fills_from_its_own_hints() -> None:
                     check(row, not problems, "; ".join(p.line()[:140] for p in problems[:3]))
         # the negative rows: what the reader MUST refuse (E5, E6)
         negatives = [
-            ("owed rows absent are refused", "s2-stage-critic-to-tester", "concerns", {"findings": FF.ABSENT}, "findings"),
+            ("owed rows absent are refused", "s4-case-critic-to-designer", "concerns", {"findings": FF.ABSENT}, "findings"),
             ("scope [] without a null outcome is refused", "s3-strategist-to-designer", "ok", {"scope": []}, "scope"),
         ]
-        base = FF.fill_form("s2-stage-critic-to-tester", ctx, verdict="concerns")
+        base = FF.fill_form("s4-case-critic-to-designer", ctx, verdict="concerns")
         unfilled = {f.path: f.hint for f in base.fills if f.path.startswith("stage_acceptance.")}
-        negatives.append(("an owed section left as the template is refused", "s2-stage-critic-to-tester", "concerns", unfilled,
+        negatives.append(("an owed section left as the template is refused", "s4-case-critic-to-designer", "concerns", unfilled,
                           "stage_acceptance"))
         for name, contract, verdict, overrides, path in negatives:
             filled = FF.fill_form(contract, ctx, verdict=verdict, overrides=overrides)

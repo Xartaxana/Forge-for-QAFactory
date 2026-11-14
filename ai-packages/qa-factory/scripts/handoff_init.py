@@ -149,9 +149,8 @@ def fill_head(text: str, *, task: str, dispatch: str, role: str, stage: str, sco
 
 # F1 (b): the sections whose template rows are emptied in the role's copy, by contract. The contract files stay the schema.
 EMPTIED = {
-    "questions": ("s2-stage-critic-to-tester", "s3-stage-critic-to-strategist", "s4-case-critic-to-designer"),
-    "findings": ("s2-stage-critic-to-tester", "s3-stage-critic-to-strategist", "s4-case-critic-to-designer",
-                 "s5-critic-to-automator"),
+    "questions": ("s4-case-critic-to-designer",),
+    "findings": ("s4-case-critic-to-designer", "s5-critic-to-automator"),
 }
 
 

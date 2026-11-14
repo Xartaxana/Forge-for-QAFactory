@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "note": "Proposed word lists the stage roles may extend (spec t-1765 F-3 (b)). The words stay with their owners (grammar.py, contract.py, this file for the S2 verdict); this file carries only whether a list is open, the door, and the bans no door lifts. The stage critic judges every extension; code checks the form only.",
+  "note": "Proposed word lists the stage roles may extend (spec t-1765 F-3 (b)). The words stay with their owners (grammar.py, contract.py, this file for the S2 verdict); this file carries only whether a list is open, the door, and the bans no door lifts. The critic of the stage judges every extension (S4, S5); an extension proposed at S2 or S3 is read by the case critic at S4 through the author's form and by the person at gate A; code checks the form only.",
   "door": {"prefix": "new:", "separator": " -- ", "word_re": "^[a-z][a-z0-9_-]{1,39}$", "min_reason_chars": 10},
   "vocabularies": {
     "defect_class": {"open": true, "words_from": "grammar.DEFECT_CLASSES + config.defect_classes_extra"},
