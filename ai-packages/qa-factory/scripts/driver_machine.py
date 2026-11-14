@@ -298,6 +298,7 @@ class DriverMachine:
         print(f"refusal: {dispatch} was already resumed on these findings; the person is asked")
         # t-764 E8: the ONE seam (the finish refusals `story_step finish (exit 3)` reach only this site); a round the person
         # bought is spent there and the loop judges the role's new result
+        self.record_repeat(stage, "role_resume", dispatch, dispatch, self.refusal_lines(refusal), "again")
         self.exit_limit(stage, self.dispatch_role(dispatch), dispatch, self.refusal_lines(refusal), sid=sid, why="refusal", text=refusal.text,
                         checks=refusal.checks)
         return "continue"
@@ -369,6 +370,7 @@ class DriverMachine:
                 self.save_state()
                 self.journal_run({"kind": "window_round", "stage": stage, "key": key, "dispatch": dispatch,
                                   "round": len(series), "cause": cause, "outcome": reason, "findings": len(found)})
+                self.record_repeat(stage, "conductor_round", key, dispatch, source, reason)
             if reason == "same_set":
                 print(f"{stage} window {scope}: round {len(rounds) + 1} came back with the same {len(found)} "
                       f"finding(s) as round {same} — no further rework; the person is asked")
@@ -547,6 +549,7 @@ class DriverMachine:
                         # t-764 F-d6 (E11): the same class as the handoff's - one resume spent, the dispatch not accepted. The key of
                         # the set is `finding_key` of the refusal's lines (`structured_resumes` is per dispatch), so a round the person
                         # buys is counted for THIS set; a round is spent there and the loop judges the role's new result
+                        self.record_repeat(stage, "structured_resume", dispatch, dispatch, self.refusal_lines(refusal), "again")
                         self.exit_limit(stage, self.dispatch_role(dispatch), dispatch, self.refusal_lines(refusal), sid=sid or "",
                                         why="structured", text=refusal.text, checks=refusal.checks)
                         return "continue"

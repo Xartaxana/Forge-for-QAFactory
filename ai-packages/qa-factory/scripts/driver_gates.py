@@ -996,6 +996,8 @@ class DriverGates:
         record = {"at": _now(), "keys": keys, "moves": [], "outcome": "to_conductor" if rest else "shown",
                   "stop": reason}
         self.record_round(gate, series, record)
+        if reason in ("same_set", "cap"):      # N3: the stop's own record is written once per series (a stopped series returns early)
+            self.record_repeat(stage, "gate_repair", gate, "", [f"{f['check']}: {f['message']}" for f in fixable], reason)
         return self.hand_to_conductor(gate, stage, why, rest, direct, tried, fixable)
 
     def hand_to_conductor(self, gate: str, stage: str, why: str, rest: list, direct: list, tried: str,

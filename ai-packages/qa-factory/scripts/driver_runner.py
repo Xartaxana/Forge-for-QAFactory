@@ -15,7 +15,7 @@ import human_text
 import no_move as NM
 import person_owned as PO
 import waiver
-from driver_core import EXIT_ERROR, InfraStop, JOURNAL_ROWS_BLOCK, Person, Priced, Refusal, Stop, _answer_note, _append_jsonl, _now, _read_answer, _read_json, _write_json, gate_refusal, recorded_earlier
+from driver_core import EXIT_ERROR, InfraStop, JOURNAL_ROWS_BLOCK, Person, Priced, Refusal, Stop, _answer_note, _append_jsonl, _now, _read_answer, _read_json, _write_json, finding_lines, gate_refusal, recorded_earlier
 
 
 # What the person reads beside a Codex call's price (`cost_basis` of the journal row, the cost line, the dashboard card,
@@ -417,6 +417,22 @@ class DriverRunner:
             ended = str(row.get("dispatch") or row.get("kind") or "")
             for entry in [e for e in list(open_calls) if e[0] == ended]:
                 open_calls.discard(entry)
+
+    def record_repeat(self, stage: str, road: str, key: str, dispatch: str, lines, outcome: str) -> None:
+        """THE one writer of a repeat stop (FV1-22 N3): one `repeat_stop` row of `driver-runs.jsonl` that names the stage, the
+        road (`conductor_round`, `role_resume`, `structured_resume`, `handoff_resume`, `gate_repair`), the series key, the dispatch,
+        the outcome (`same_set`, `cap`, `again`) and the finding set as it is COMPARED (`finding_lines`: ids masked, sorted), cut to 20
+        lines of 300 characters with `set_size` keeping the true count. Data for the cause analysis (`collect-loops.json` L8); it
+        judges no cause (P27, AR-29). Once-ness is the caller's (the stop's own record guards it). An empty set writes no row (FR-41:
+        an unknown is not a repeat). Any failure is one stderr line and never stops the factory (P1)."""
+        try:
+            found = finding_lines(lines)
+            if not found:
+                return
+            self.journal_run({"kind": "repeat_stop", "stage": stage, "road": road, "key": key, "dispatch": dispatch,
+                              "outcome": outcome, "set": [line[:300] for line in found][:20], "set_size": len(found)})
+        except Exception as exc:
+            print(f"repeat record not written ({type(exc).__name__}: {' '.join(str(exc).split())[:160]})", file=sys.stderr)
 
     def journal_conductor(self, **record) -> None:
         _append_jsonl(self.state_dir / "conductor.jsonl", dict(ts=_now(), boundary=self.boundary, **record))

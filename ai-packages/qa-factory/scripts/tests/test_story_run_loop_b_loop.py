@@ -66,7 +66,7 @@ def loop_waiver_and_journal_shapes() -> None:
         check("the saved result was consumed", (task_root / "state/driver-runs/S1-qa-scout-1.done.json").is_file())
 
         # --- journal shapes (design/driver.md) ---------------------------------------------
-        runs = [r for r in jsonl(task_root / "state/driver-runs.jsonl") if r.get("kind") != "process"]  # the role and conductor lines: the `process` rows (P1-v N1) are the run record, counted apart
+        runs = [r for r in jsonl(task_root / "state/driver-runs.jsonl") if r.get("kind") not in ("process", "repeat_stop")]  # the role and conductor lines: the `process` rows (P1-v N1) are the run record and the `repeat_stop` rows (FV1-22 N3) the repeat record, counted apart
         wanted = {"ts", "kind", "role", "dispatch", "stage", "session_id", "num_turns", "total_cost_usd",
                   "duration_ms", "resumed", "exit_code", "is_error", "model"}
         check("every driver-runs line has the documented keys", all(wanted <= set(r) for r in runs))
@@ -76,6 +76,19 @@ def loop_waiver_and_journal_shapes() -> None:
         check("a conductor call carries its session and cost",
               all({"session_id", "total_cost_usd", "num_turns", "duration_ms", "words"} <= set(r)
                   for r in conductor if not str(r["action"]).startswith("known:")))
+        # FV1-22 N3-e: the collector's data row L8 reads the repeat record; a repeat_stop row is a loop hit, and none is none
+        import collect_stall as CS
+        loops = CS.load_loops()
+        check("N3-e: the loops table holds the L8 row of the repeat_stop kind",
+              any(r.get("id") == "L8" and r.get("kind") == "repeat_stop" and "same_set" in r.get("values", []) for r in loops["records"]))
+        repeat = {"ts": "2026-11-14T10:00:00", "kind": "repeat_stop", "stage": "S8", "road": "conductor_round", "key": "S8|S8-qa-doc-scribe-1",
+                  "dispatch": "S8-qa-doc-scribe-1", "outcome": "same_set", "set": ["a finding"], "set_size": 1}
+        base = {"closed": True, "unreadable": [], "driver_state": {}, "driver_state_present": True}
+        hit = CS.judge(dict(base, driver_runs=[repeat]), None, 1_900_000_000, 0, loops)
+        none = CS.judge(dict(base, driver_runs=[]), None, 1_900_000_000, 0, loops)
+        check_eq("N3-e: a repeat_stop row with outcome same_set is a loop hit, and a run without the row is not looped",
+                 ([s["where"] for s in hit["loop_signals"]], hit["looped"], none["looped"]),
+                 (["driver-runs.jsonl repeat_stop row same_set"], True, False))
     finally:
         harness.cleanup(root)
 

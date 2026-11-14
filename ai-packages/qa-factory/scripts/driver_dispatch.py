@@ -540,6 +540,8 @@ class DriverDispatch:
         if errors and (not result["session_id"] or (resume_key and resume_key in self.resume_record(dispatch, resume_sid))):
             if result["session_id"]:
                 print(f"{stage}: {dispatch} was already resumed on these findings; no second resume")
+            if result["session_id"]:        # no session = not a repeat of anything the role saw (N3)
+                self.record_repeat(stage, "handoff_resume", dispatch, dispatch, errors, "again")
             self.exit_limit(stage, role, dispatch, self.refusal_lines(None, items=errors), sid=result["session_id"] or "", why="handoff",
                             digest=digest, checks=Refusal.id_set(Refusal.id_counts(errors)))
             return self.handoff(role, stage, dispatch, self.saved_result(dispatch))
