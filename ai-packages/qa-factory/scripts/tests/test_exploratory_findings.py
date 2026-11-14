@@ -8,6 +8,7 @@ count of VALID lines -> K-M1-4; skip the torn-tail newline -> K-M1-4b; allow `ad
 excluded keys at the top level only -> K-M1-4c.
 """
 import contextlib
+import errno
 import hashlib
 import io
 import json
@@ -199,22 +200,64 @@ def key_m1_1(root):
         return (f"`{key}` is not a field of the findings register: a product bug goes through S7 triage and gate B; "
                 "record the finding without the field")
 
-    def os_text(raw):       # what the stdlib raises (as ValueError) for this path; "" where this platform raises none
-        try:
-            (Path(task).resolve() / raw).resolve().is_file()
-        except ValueError as exc:
-            return str(exc)
-        return ""
+    # an evidence path the OS cannot measure is that ref's own factory sentence, on every OS (P31): the rows are driven by
+    # a patched measuring call, so no row depends on what this OS raises; the real long / NUL paths assert only what holds on both
+    troot = Path(task).resolve()
 
-    long_path, nul_path = "work/evidence/" + "a" * 40000, "work/evidence/o\x00ne.txt"
-    os_rows = []
-    for label, raw, others in (("over-long evidence path alone", long_path, {}),
-                               ("over-long evidence path with two other problems", long_path, {"title": "", "statement": ""}),
-                               ("NUL evidence path alone", nul_path, {})):
-        said = os_text(raw)
-        if said:
-            os_rows.append((label, good_line(evidence_refs=[{"path": raw}], **others),
-                            "; ".join([T, S] * bool(others) + [said])))
+    def unreadable(raw):    # the factory's sentence: the path is cut at 80 characters
+        return (f"evidence path {(raw if len(raw) <= 80 else raw[:80] + '...')!r} is not a file under the task root {troot}: "
+                "the path cannot be read as a file")
+
+    real_is_file, real_sha = Path.is_file, EF.install_paths.sha256_file
+
+    def raising_is_file(exc):
+        return lambda self: (_ for _ in ()).throw(exc) if self.name.startswith("boom") else real_is_file(self)
+
+    def with_patch(exc, where, line):
+        try:
+            if where == "is_file":
+                Path.is_file = raising_is_file(exc)
+            else:
+                EF.install_paths.sha256_file = lambda path: (_ for _ in ()).throw(exc)
+            return problem_of(line)
+        finally:
+            Path.is_file, EF.install_paths.sha256_file = real_is_file, real_sha
+
+    ref_line = lambda raw, **others: good_line(evidence_refs=[{"path": raw}], **others)
+    for label, exc, where in (("ValueError", ValueError("x"), "is_file"),
+                              ("ENAMETOOLONG", OSError(errno.ENAMETOOLONG, "x"), "is_file"),
+                              ("EINVAL", OSError(errno.EINVAL, "x"), "is_file"),
+                              ("ENAMETOOLONG while hashing", OSError(errno.ENAMETOOLONG, "x"), "sha")):
+        raw = "work/evidence/one.txt" if where == "sha" else "work/evidence/boom.txt"
+        check_eq(f"K-M1-1 unmeasurable path, {label}: the factory sentence alone", with_patch(exc, where, ref_line(raw)), unreadable(raw))
+        check_eq(f"K-M1-1 unmeasurable path, {label}: joins the other problems",
+                 with_patch(exc, where, ref_line(raw, title="", statement="")), f"{T}; {S}; {unreadable(raw)}")
+    for length in (79, 80, 81, 40000):      # below the cut, AT it, one beyond it, far beyond it
+        raw = "work/evidence/boom" + "a" * (length - len("work/evidence/boom"))
+        got = with_patch(ValueError("x"), "is_file", ref_line(raw))
+        check_eq(f"K-M1-1 unmeasurable path of {len(raw)} characters: shown cut at 80", got, unreadable(raw))
+        check(f"K-M1-1 unmeasurable path of {len(raw)} characters: never echoed beyond the cut", len(got) < 400, str(len(got)))
+    try:
+        with_patch(PermissionError(errno.EACCES, "x"), "is_file", ref_line("work/evidence/boom.txt"))
+        denied = None
+    except OSError as exc:
+        denied = exc
+    check("K-M1-1 a file that exists but cannot be read keeps its OSError (PermissionError)", isinstance(denied, PermissionError), repr(denied))
+    try:
+        with_patch(OSError(errno.EIO, "x"), "sha", ref_line("work/evidence/one.txt"))
+        denied = None
+    except OSError as exc:
+        denied = exc
+    check("K-M1-1 an I/O error while hashing keeps its OSError", isinstance(denied, OSError) and denied.errno == errno.EIO, repr(denied))
+    check("K-M1-1 patched rows restored the real calls", Path.is_file is real_is_file and EF.install_paths.sha256_file is real_sha)
+    for label, raw, others in (("real over-long evidence path", "work/evidence/" + "a" * 40000, {}),
+                               ("real over-long evidence path with two other problems", "work/evidence/" + "a" * 40000, {"title": "", "statement": ""}),
+                               ("real NUL evidence path", "work/evidence/o\x00ne.txt", {})):
+        got = problem_of(ref_line(raw, **others)) or ""
+        # what this OS does with the name differs (an error the factory words, or a plain "not a file"); both name the ref
+        check(f"K-M1-1 {label}: one ValueError holding the ref's sentence and every other problem",
+              (unreadable(raw) in got or "is not a file under the task root" in got) and all(p in got for p in [T, S] * bool(others)),
+              got[:300])
     probe_ok = {"method": "api", "runs": 1, "reproduced": 1}
     link_ok = {"id": "EX-1", "reason": "r"}
     for name, line, expected in (
@@ -231,7 +274,6 @@ def key_m1_1(root):
          good_line(probe=dict(probe_ok, impact="x"), origin={"dispatch": "S7-1", "target": "t9", "impact": "x"}), excluded("impact")),
         ("a nested key that is unknown, not excluded: its own sentence", good_line(probe=dict(probe_ok, flavour="x")),
          f"`flavour` is not a field of the findings register; the fields of `probe` are {EF._list_text(EF.PROBE_FIELDS)}"),
-        *os_rows,
         ("two required fields: both sentences, in order", good_line(title="", statement=" "), f"{T}; {S}"),
         ("one problem: the sentence alone, as it always was", good_line(kind="bug"),
          "`kind` is `bug`; expected one of observation, unresolved_question, coverage_gap"),

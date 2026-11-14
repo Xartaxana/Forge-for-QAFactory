@@ -18,6 +18,7 @@ duplicated id is detected by `read` (the id differs from the physical line numbe
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import sys
 from datetime import datetime, timezone
@@ -240,6 +241,21 @@ def _check_probe(problems: list, probe) -> None:
         problems.append("`probe.safe_to_break` is set; expected null (the register never declares a probe safe)")
 
 
+PATH_SHOWN = 80     # characters of an evidence path echoed in a sentence; a longer path is cut with "..."
+_NO_SUCH_NAME = (errno.ENAMETOOLONG, errno.EINVAL, errno.ENOENT, errno.ENOTDIR)
+
+
+def _name_cannot_exist(exc: Exception) -> bool:
+    """True for what the OS says of a NAME that cannot exist (embedded NUL, too long, invalid): the same on every OS.
+    An OSError about a file that is there but unreadable (permission, I/O) is not this class."""
+    return isinstance(exc, ValueError) or (isinstance(exc, OSError) and exc.errno in _NO_SUCH_NAME)
+
+
+def _unmeasurable_text(raw: str, root) -> str:
+    shown = raw if len(raw) <= PATH_SHOWN else raw[:PATH_SHOWN] + "..."
+    return f"evidence path {shown!r} is not a file under the task root {root}: the path cannot be read as a file"
+
+
 def _judge_refs(problems: list, task_root, refs) -> list:
     """Each evidence ref gets its sha256 measured now when it is missing and names a file under the root, then is judged
     by `contract.evidence_ref_issue` - the one judge; its words are the refusal. Every ref's problems are collected."""
@@ -253,12 +269,13 @@ def _judge_refs(problems: list, task_root, refs) -> list:
             if raw and not ref.get("sha256") and not Path(raw).is_absolute():
                 try:
                     candidate = (root / raw).resolve()
-                    measurable = candidate.is_relative_to(root) and candidate.is_file()
-                except ValueError as exc:       # a path the OS cannot stat (too long, embedded NUL): this ref's own sentence
-                    problems.append(str(exc))
+                    if candidate.is_relative_to(root) and candidate.is_file():
+                        ref["sha256"] = install_paths.sha256_file(candidate)
+                except (ValueError, OSError) as exc:
+                    if not _name_cannot_exist(exc):     # a real file that cannot be read keeps its error
+                        raise
+                    problems.append(_unmeasurable_text(raw, root))
                     continue
-                if measurable:
-                    ref["sha256"] = install_paths.sha256_file(candidate)
         issue = C.evidence_ref_issue(task_root, ref, "evidence")
         if issue:
             problems.append(issue)
