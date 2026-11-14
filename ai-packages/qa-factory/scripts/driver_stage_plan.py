@@ -41,11 +41,12 @@ class DriverStagePlan:
             # SS1-13: the person's `current code` answer reaches the scout BEFORE its work (FR-38): without the line step 4 of the role halts.
             grounding = ([f"implementation_source: {launch['implementation_source']}"] if launch.get("implementation_source") else [])
             # OH3-39: the places the project keeps requirements (config.json `requirements_sources`) reach the scout before its work (FR-38)
-            from source_inventory import requirement_source_lines
+            from source_inventory import document_place_lines, requirement_source_lines
             return ([f"Launch flags: {flags}"] + grounding + [f"Environment: {env}", f"Ticket source: {source}"]
                     + tracker_route_lines(self.config, by_role=by_role)
                     + [f"Repositories: {repos}", f"pipeline.json: {base}pipeline.json"]
-                    + requirement_source_lines(self.config, local=self.s0_is_local(), by_role=by_role) + self.left_out_lines())
+                    + requirement_source_lines(self.config, local=self.s0_is_local(), by_role=by_role)
+                    + document_place_lines(self.config, self.task_root) + self.left_out_lines())
         if role == "qa-requirements-tester":
             return [f"implementation_source: {pipeline.get('implementation_source') or 'unknown'}",
                     f"context-bundle.json (read first): {base}work/context-bundle.json",

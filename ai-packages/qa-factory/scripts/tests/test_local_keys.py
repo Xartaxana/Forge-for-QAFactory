@@ -448,6 +448,10 @@ def record_source_edges() -> None:
         new = json.loads(inventory.read_text(encoding="utf-8"))["sources"]
         check_eq("record-source: other bytes are a new revision with prior_revisions", (len(new), new[0]["revision"] != item["revision"],
                  [h["revision"] for h in new[0].get("prior_revisions", [])]), (1, True, [item["revision"]]))
+        # FV1-23 A-2: a folder of the project and the files a refusal must not echo
+        (root / "docs" / "token=abc123").mkdir(parents=True)
+        (root / "docs" / "a.md").write_bytes(b"# A\n")
+        (root / "docs" / "token=abc123.md").write_bytes(b"# T\n")
         before = inventory.read_bytes()
         # edges: every one refused, the inventory untouched
         empty = root / "empty.md"
@@ -475,6 +479,18 @@ def record_source_edges() -> None:
             ("a drive taken for a scheme (F5)", record(ref="C://Users/dev7/x.md"), 2, "give the locator relative to the project"),
             ("a file: URL names this machine (F5)", record(ref="file:///C:/Users/dev7/x.md"), 2, "give the locator relative to the project"),
             ("FILE: in capitals (F5)", record(ref="FILE:///home/me/x.md"), 2, "give the locator relative to the project"),
+            ("a backslash escape docs\\..\\..\\x.md (B-1)", record(ref="docs\\..\\..\\x.md"), 2, "give the locator relative to the project"),
+            ("a NUL inside the ref", record(ref="a\0b.md"), 2, "give the locator relative to the project"),
+            ("outside the project and every declared repository", record(ref="../elsewhere/a.md"), 2, "resolves outside"),
+            ("a credential-like path outside is refused for the credential, never echoed (B-2)",
+             record(ref="../elsewhere/token=abc123.md"), 2, "credential-like"),
+            ("a credential-like folder name on a folder ref (B-2)", record(ref="docs/token=abc123"), 2, "credential-like"),
+            ("a folder ref names the one document the file sits in", record(ref="docs", file=root / "docs" / "a.md"), 2,
+             "is a folder; one record per document: --ref `docs/a.md`"),
+            ("a folder ref with a credential-like file name keeps a placeholder (B-2)",
+             record(ref="docs", file=root / "docs" / "token=abc123.md"), 2, "--ref `docs/<file name>`"),
+            ("a folder ref with a file from elsewhere", record(ref="docs/"), 2, "is a folder"),
+            ("the project itself is a folder", record(ref="."), 2, "is a folder"),
             ("relation task", record(relation="task"), 2, "one task source"),
             ("no relation", cli(root, "record-source", "--output", inventory, "--ref", "a.md", "--file", doc), 2, "usage"),
         )
@@ -512,6 +528,216 @@ def record_source_edges() -> None:
         except Exception as exc:  # noqa: BLE001
             check("B1: branch_accounting.collect does not fail on a text source", False, f"{type(exc).__name__}: {exc}")
     finally:
+        cleanup(root)
+
+
+def _set_config(root: Path, **keys) -> dict:
+    """Write `keys` into the project's config.json (the marker the tests share) and return the config as written."""
+    path = root / "qa-factory" / "config.json"
+    cfg = json.loads(path.read_text(encoding="utf-8"))
+    cfg.update(keys)
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    return cfg
+
+
+def record_source_declared_roots() -> None:
+    """FV1-23 A-2 (record_source_edges, the accept rows): a ref that resolves inside a declared `code_repos` root is a source
+    under its normal ref. Mutation: restore the `_safe_rel` test in `_record_source`, or let `declared_place` take a malformed
+    code_repos entry through (a traceback)."""
+    root = project()
+    sib = root.parent / (root.name + "-sib")
+    try:
+        (sib / "docs").mkdir(parents=True)
+        (sib / "docs" / "A.md").write_bytes(b"# A\n")
+        (sib / "docs" / "B.md").write_bytes(b"# B\n")
+        _set_config(root, code_repos=[{"path": 123}, {"path": ""}, {"name": "sib", "path": "../" + sib.name}])
+        work = work_of(root, "PROJ-1")
+        inventory = work / "source-inventory.json"
+
+        def record(ref, file):
+            return cli(root, "record-source", "--output", inventory, "--ref", ref, "--file", file, "--relation", "normative")
+
+        def refs():
+            return sorted(s["canonical_ref"] for s in json.loads(inventory.read_text(encoding="utf-8"))["sources"]) if inventory.exists() else []
+
+        prefix = f"../{sib.name}/docs/"
+        got = record(prefix + "A.md", sib / "docs" / "A.md")
+        check_eq("declared root: a dotdot ref into a code_repos checkout is recorded (a malformed entry before it is skipped)", (got.code, refs()), (0, [prefix + "A.md"]))
+        got = record(prefix.replace("/", "\\", 1) + "A.md", sib / "docs" / "A.md")
+        check_eq("declared root: the mixed-slash spelling is the same record", (got.code, refs()), (0, [prefix + "A.md"]))
+        got = record(prefix + "B.md", sib / "docs" / "B.md")
+        check_eq("declared root: two documents of one folder are two records (the second defect of F-1)", (got.code, refs()),
+                 (0, [prefix + "A.md", prefix + "B.md"]))
+        got = record(f"../{sib.name}/docs", sib / "docs" / "A.md")
+        check_eq("declared root: the folder ref is refused and names the document", (got.code, "--ref `" + prefix + "A.md`" in got.err), (2, True))
+        for label, ref in (("another folder next to the project", "../elsewhere/x.md"), ("a climb out of the checkout", f"../{sib.name}/../x.md"),
+                           ("a backslash climb", "docs\\..\\..\\x.md")):
+            got = record(ref, sib / "docs" / "A.md")
+            check_eq(f"declared root: {label} is refused, no traceback", (got.code, "Traceback" in got.err), (2, False))
+        check_eq("declared root: the refused refs left the inventory as it was", len(refs()), 2)
+        # no marker above --output: nothing to check a `..` against (FR-59); a ref without one keeps today's rule
+        loose = harness_dir()
+        try:
+            out = loose / "work" / "source-inventory.json"
+            out.parent.mkdir(parents=True)
+            doc = loose / "t.md"
+            doc.write_bytes(b"# t\n")
+            got = cli(root, "record-source", "--output", out, "--ref", "../x.md", "--file", doc, "--relation", "normative")
+            check_eq("no project: a dotdot ref is refused and says why", (got.code, "no qa-factory/config.json above --output" in got.err), (2, True))
+            got = cli(root, "record-source", "--output", out, "--ref", "docs/ok.md", "--file", doc, "--relation", "normative")
+            check_eq("no project: a ref without a dotdot is recorded as before", got.code, 0)
+        finally:
+            cleanup(loose)
+    finally:
+        cleanup(sib)
+        cleanup(root)
+
+
+def harness_dir() -> Path:
+    from harness import temp_dir
+    return temp_dir("qa-local-keys-loose-")
+
+
+DOC_HEAD = ("Documents under {} (record each one you read on its own: record-source --ref <the path as listed> --relation normative; "
+            "a first look at each, charter: the walk of references):")
+
+
+def document_places() -> None:
+    """FV1-23 A-2: `source_inventory.document_place_lines`, one table (the lines a scout is told about the documents of a folder
+    row). One tool, one run: the volume is the limits (25/26, 40/41, depth 3, 2000/2001, 200/201) and the files that must never be
+    listed (NUL, UTF-16, empty, credential-like, left out), each with its own id. Mutation: drop the predicate (a listed path
+    `record-source` refuses), a cap, or a count line."""
+    root = project()
+    sib = root.parent / (root.name + "-sib")
+    try:
+        (sib / "docs").mkdir(parents=True)
+        task = work_of(root, "PROJ-1").parent
+        repos = [{"name": "sib", "path": "../" + sib.name}]
+
+        def put(rel, data=b"alpha\n", base=root):
+            path = base / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+            return path
+
+        def listing(*locators, kind="file", status="verified", **config):
+            rows = [{"source_id": f"s{n}", "kind": kind, "locator": locator, "status": status} for n, locator in enumerate(locators)]
+            return SI.document_place_lines(_set_config(root, requirements_sources=rows, code_repos=config.pop("repos", []), **config), task)
+
+        def paths(lines):
+            return [line[2:].split(" (")[0] for line in lines if line.startswith("- ") and " (" in line and " B)" in line]
+
+        put("docs/a.md"), put("docs/b.md", b"bravo bravo\n"), put("docs/c.md")
+        put("docs/sub/d.md")
+        got = listing("docs")
+        check_eq("places: a folder with files lists them in order, one heading, sizes in B",
+                 got, [DOC_HEAD.format("docs"), "- docs/a.md (6 B)", "- docs/b.md (12 B)", "- docs/c.md (6 B)", "- docs/sub/d.md (6 B)"])
+        check_eq("places: the same listing for kind repository", listing("docs", kind="repository"), got)
+        # JOIN: what is listed is what record-source accepts
+        inventory = work_of(root, "PROJ-1") / "source-inventory.json"
+        codes = [cli(root, "record-source", "--output", inventory, "--ref", ref, "--file", root / ref, "--relation", "normative").code for ref in paths(got)]
+        check_eq("places JOIN: every listed path is accepted by record-source", codes, [0, 0, 0, 0])
+        put("docs/deep.md", b"x\n" * 40)
+        check_eq("places: a file over the read cap says so", [l for l in listing("docs", read={"max_bytes": 50}) if "deep.md" in l or "a.md" in l],
+                 ["- docs/a.md (6 B)", "- docs/deep.md (80 B) over the read cap: read it with offset/limit"])
+        _set_config(root, read={})
+        # limits
+        for n in (25, 26):
+            for i in range(n):
+                put(f"d{n}/f{i:02d}.md")
+        got = listing("d25")
+        check_eq("places AT 25 files: 25 listed, no remainder line", (len(paths(got)), [l for l in got if "more" in l]), (25, []))
+        got = listing("d26")
+        check_eq("places BEYOND 25 files: 25 listed and 'and 1 more' with its place",
+                 (len(paths(got)), [l for l in got if "more" in l]), (25, ["- and 1 more under d26: list them yourself"]))
+        for i in range(15):
+            put(f"d15/f{i:02d}.md")
+        for i in range(16):
+            put(f"d16/f{i:02d}.md")
+        put("last/z.md")
+        got = listing("d25", "d15", "last")
+        check_eq("places AT the total 40: 40 listed, the next folder row says the list is full",
+                 (len(paths(got)), got[-1]), (40, "s2: last: not listed (the list is full); search it yourself"))
+        got = listing("d25", "d16", "last")
+        check_eq("places BEYOND the total 40: the row holding the 40th counts its remainder, the next row is full",
+                 (len(paths(got)), [l for l in got if "more" in l], got[-1]),
+                 (40, ["- and 1 more under d16: list them yourself"], "s2: last: not listed (the list is full); search it yourself"))
+        # depth: a file directly in the folder is depth 1; a folder at depth 3 is not entered
+        for rel in ("dp/f1.md", "dp/a/f2.md", "dp/a/b/f3.md", "dp/a/b/c/f4.md"):
+            put(rel)
+        got = listing("dp")
+        check_eq("places depth: the file at depth 3 is listed, the folder at depth 3 is counted not walked",
+                 (paths(got), [l for l in got if "deeper" in l]),
+                 (["dp/a/b/f3.md", "dp/a/f2.md", "dp/f1.md"], ["- 1 folder(s) deeper than 3 levels not walked under dp: list them yourself"]))
+        # entries: the Nth examined, the (N+1)th stops the walk. The shipped N is 2000; the rows run the same code on N = 20 (the 10 s
+        # budget of this file: 2001 files cost 3 s), and one row holds the shipped constant
+        check_eq("places: the shipped entries cap is 2000", SI.DOC_ENTRIES_SCANNED, 2000)
+        shipped, SI.DOC_ENTRIES_SCANNED = SI.DOC_ENTRIES_SCANNED, 20
+        try:
+            for n, name in ((20, "e20"), (21, "e21")):
+                for i in range(n):
+                    put(f"{name}/{i:04d}.md", b"")
+            check_eq("places AT the entries cap: all examined, no stop line",
+                     listing("e20"), ["s0: no text file under e20", "- 20 file(s) not listed: not text or empty"])
+            check_eq("places BEYOND the entries cap: the walk stops and says so with its place",
+                     listing("e21")[-1], "- the walk stopped after 20 entries under e21: list the rest yourself")
+        finally:
+            SI.DOC_ENTRIES_SCANNED = shipped
+        put("dots/.hidden/x.md"), put("dots/.env"), put("dots/ok.md")
+        check_eq("places: dot entries are skipped and not counted", listing("dots"), [DOC_HEAD.format("dots"), "- dots/ok.md (6 B)"])
+        # files that are not text, credential-like names, long names, left-out paths
+        put("bad/nul.md", b"ab\x00cd"), put("bad/u16.md", "hi".encode("utf-16")), put("bad/empty.md", b""), put("bad/blank.md", b" \n\t")
+        put("bad/image.png", b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"), put("bad/good.md")
+        check_eq("places: NUL, UTF-16, empty, whitespace-only and an image are counted, never listed",
+                 listing("bad"), [DOC_HEAD.format("bad"), "- bad/good.md (6 B)", "- 5 file(s) not listed: not text or empty"])
+        put("onlyimg/p.png", b"\x89PNG\x00")
+        os.makedirs(root / "nothing")
+        check_eq("places: images only", listing("onlyimg"), ["s0: no text file under onlyimg", "- 1 file(s) not listed: not text or empty"])
+        check_eq("places: an empty folder", listing("nothing"), ["s0: no text file under nothing"])
+        put("cred/token=abc123.md"), put("cred/ok.md")
+        got = listing("cred")
+        check_eq("places: a credential-like file name is withheld, never printed",
+                 (got, "abc123" in "".join(got)), ([DOC_HEAD.format("cred"), "- cred/ok.md (6 B)", "- 1 file(s) withheld: a credential-like name"], False))
+        deep_name = "lg/" + "x" * 193
+        try:
+            put(deep_name + "1.md"), put("lg/" + "y" * 193 + "11.md"), put("lg/" + "z" * 193 + "11.mdx")
+            got = listing("lg")
+            check_eq("places AT 200 and BEYOND 200 characters of a path: listed / counted 'name too long'",
+                     (len(paths(got)), [l for l in got if "too long" in l]), (1, ["- 2 file(s) not listed: name too long"]))
+        except OSError as exc:
+            print(f"skipped: places 200/201 character paths - the OS refused the file name ({type(exc).__name__})")
+        # a left-out path: a HAND-MADE `as_written` entry (no exclusion kind names a path today)
+        record = task / "work" / "source-exclusions.json"
+        record.write_text(json.dumps({"schema_version": 1, "exclusions": [
+            {"id": "X-1", "as_written": "docs/b.md", "target": {"kind": "ref", "branch": "none"}, "reason": "stale"}]}), encoding="utf-8")
+        got = listing("docs")
+        check_eq("places: a path the person's word names is counted left out, not listed (hand-made as_written entry)",
+                 ("docs/b.md" in "".join(got), got[-1]), (False, "- 1 file(s) left out by the person's word"))
+        record.write_text("not json", encoding="utf-8")
+        check_eq("places: an unreadable exclusion record gives no listing (left_out_lines refuses next)", listing("docs"), [])
+        record.unlink()
+        # rows that are not a folder to list
+        put("f.md")
+        for label, locator, kw, expected in (
+                ("a file locator adds nothing", "docs/a.md", {}, []),
+                ("a missing path", "nope", {}, ["s0: nope is not on disk here: a gap with that reason, not a question"]),
+                ("a climb out of the project", "../../..", {}, ["s0: ../../.. is outside the project's repositories: not listed"]),
+                ("an absolute locator", str(root), {}, [f"s0: {str(root)[:200]} is outside the project's repositories: not listed"]),
+                ("the project itself is a whole repository", ".", {}, []),
+                ("a code_repos root is a whole repository", "../" + sib.name, {"repos": repos}, []),
+                ("a folder of a code_repos checkout is listed", "../" + sib.name + "/docs", {"repos": repos}, ["s0: no text file under ../" + sib.name + "/docs"]),
+                ("a status that is not verified", "docs", {"status": "unknown"}, []),
+                ("a kind routed to the role", "docs", {"kind": "wiki"}, []),
+                ("a kind outside the table", "docs", {"kind": "mystery"}, []),
+                ("a credential locator", "docs?token=abc123", {}, []),
+        ):
+            check_eq(f"places: {label}", listing(locator, **kw), expected)
+        check_eq("places: no requirements_sources", [SI.document_place_lines(cfg, task) for cfg in ({}, {"requirements_sources": []}, {"requirements_sources": "x"}, None)], [[], [], [], []])
+        check_eq("places: a row that is not a dict is skipped", SI.document_place_lines({"requirements_sources": ["x", 3, None]}, task), [])
+        check_eq("places: no project above the task root gives nothing", SI.document_place_lines(_set_config(root, requirements_sources=[
+            {"kind": "file", "locator": "docs", "status": "verified"}]), sib), [])
+    finally:
+        cleanup(sib)
         cleanup(root)
 
 
@@ -726,6 +952,8 @@ def main() -> None:
     main_key()
     refresh_with_a_tracker_source()
     record_source_edges()
+    record_source_declared_roots()
+    document_places()
     record_source_never_replaces()
     get_and_freshness()
     key_gate()

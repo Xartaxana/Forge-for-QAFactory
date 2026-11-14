@@ -517,6 +517,57 @@ def contained(path, root) -> bool:
     return _rest_under(path, root) is not None
 
 
+DECLARED_NOT_RELATIVE, DECLARED_OUTSIDE, DECLARED_NO_PROJECT = "not_relative", "outside", "no_project"
+_SCHEME_RE = re.compile(r"(?i)^(?:file:|[a-z][a-z0-9+.-]+://)")      # two letters or more: `C://` is a drive, not a scheme
+
+
+def declared_place(project, cfg, ref) -> tuple:
+    """`(normal_ref, "")` when the locator `ref` names a place inside the project or inside a repository its config declares
+    (`code_repos`), else `(None, why)` with `why` one of `not_relative`, `outside`, `no_project`. PURE of writes; the disk is
+    read only through `contained` (the one containment predicate, so a link inside a repository that leads out is `outside`).
+
+    The syntax is read the same on every OS (B-1): a drive, a root, a UNC share, `file:`, a scheme, a NUL, a blank or a
+    non-text ref is `not_relative` whichever dialect names it (`PureWindowsPath` and `PurePosixPath` both), then every `\\` is
+    a separator and the ref is normalised with `posixpath` semantics BEFORE it meets the project, so one table row gives one
+    answer on Windows and on Linux. `normal_ref` is that form: posix, `./` dropped, `..` collapsed lexically; a ref into a
+    sibling checkout keeps its leading `..` (`../repo/sub/a.md`).
+
+    With no `project` (no marker above the caller) nothing can be checked against the declared repositories: a ref with a
+    `..` part is `no_project` (FR-59: not a pass), a ref without one is returned in its normal form (the old lexical rule).
+    A `code_repos` entry whose path is not a non-empty text, or cannot be resolved, is skipped: that root holds nothing (AR-3).
+    The allowed error is not recognising a path as ours (a legal document refused, the caller names a door); a path outside
+    every declared root is never accepted (AR-4)."""
+    import posixpath
+    from pathlib import PurePosixPath, PureWindowsPath
+    if not isinstance(ref, str) or not ref.strip() or "\0" in ref:
+        return None, DECLARED_NOT_RELATIVE
+    text = ref.strip()
+    win, posix = PureWindowsPath(text), PurePosixPath(text)
+    if (_SCHEME_RE.match(text) or text.startswith(("/", "\\")) or win.drive or win.is_absolute() or posix.is_absolute()):
+        return None, DECLARED_NOT_RELATIVE
+    slashed = text.replace("\\", "/")
+    normal = posixpath.normpath(slashed)
+    if project is None:
+        return (None, DECLARED_NO_PROJECT) if ".." in slashed.split("/") else (normal, "")
+    place = os.path.normpath(os.path.join(str(project), normal))
+    return (normal, "") if any(contained(place, root) for root in declared_roots(project, cfg)) else (None, DECLARED_OUTSIDE)
+
+
+def declared_roots(project, cfg) -> list:
+    """The places a locator may name: `[project] + the code_repos roots` of `cfg`, as absolute text. The ONE reader of the
+    declared roots for `declared_place` and for what lists a place (AR-13). An entry that is not a dict, whose path is not
+    a non-empty text or that cannot be resolved (NUL, a type, a loop) holds nothing and is skipped; `cfg` that is not a dict
+    or has no list `code_repos` gives the project alone."""
+    roots = [str(project)]
+    repos = cfg.get("code_repos") if isinstance(cfg, dict) else None
+    for item in repos if isinstance(repos, list) else []:
+        try:
+            roots += list(_repository_roots(project, {"code_repos": [item]}).values())
+        except (OSError, ValueError, TypeError, RuntimeError):
+            continue
+    return roots
+
+
 def _under(text: str, roots: list) -> str:
     """`text` with the longest root of `roots` [(token, path)] that holds it replaced by the token; unchanged when no
     root holds it or it is not an absolute path. The roots are compared as TEXT first (a record of another machine names

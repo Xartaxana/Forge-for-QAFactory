@@ -2299,17 +2299,191 @@ def requirement_source_lines(cfg: dict, *, local: bool, by_role: bool = False) -
         elif route == "adapter":
             lines.append(f"{name} ({kind}): read through collect/peek, as the ticket")
         elif route == "grep":
-            # `--ref` is the locator only when it is shown WHOLE; a withheld or cut one is a placeholder, never a wrong ref (F-10b)
-            whole = locator if locator and locator == " ".join(str(row.get("locator") or "").split()) else "<locator>"
-            lines.append(f"{name}: search {locator} for the story's words with Grep; what you read is recorded with "
-                         f"ticket_adapter.py record-source --ref {whole} --file <file> --relation normative; it reaches the "
-                         "manifest from the inventory")
+            # `--ref` is a DOCUMENT's path, never the locator: a locator may be a folder or a whole repository, and `record-source`
+            # refuses a folder (one record per document, FV1-23 A-2); the placeholder serves a file row and a folder row alike
+            lines.append(f"{name}: search {locator} for the story's words with Grep; record each document you read on its own "
+                         "with ticket_adapter.py record-source --ref <that document's path, relative to the project> --file <file> "
+                         "--relation normative; it reaches the manifest from the inventory")
         else:
             lines.append(f"{name}: read it yourself if you can reach it: {locator}{own_route}; save what you read under work/raw/, "
                          "record it with ticket_adapter.py record-source; otherwise record it as a gap with the reason")
     if len(sources) > REQUIREMENT_SOURCE_LINE_LIMIT:
         lines.append(f"and {len(sources) - REQUIREMENT_SOURCE_LINE_LIMIT} more in config.json")
     return [] if lead is not None and lines == ["Requirement sources:"] else lines
+
+
+# FV1-23 A-2: the documents a FOLDER row of `requirements_sources` holds, listed to the scout one by one (a record names a
+# document, never a folder: `record-source` refuses a folder ref). Data only: which document matters is the scout's judgment.
+DOC_FILES_LIMIT = 25         # paths listed per row; the rest are ONE line `and <k> more under <locator>`
+DOC_FILES_TOTAL = 40         # paths listed over all rows; a later folder row says "the list is full"
+DOC_DEPTH = 3                # a file directly in the folder is depth 1; a folder at depth 3 is not entered
+DOC_ENTRIES_SCANNED = 2000   # directory entries examined per row (dot entries are not counted)
+DOC_SNIFF_BYTES = 4096       # the first bytes `text_file_problem` reads
+
+
+def text_file_problem(path) -> str:
+    """Why the file at `path` is not a text `record-source` would take, else "": `unreadable`, `empty` (size 0, or whitespace
+    only within the first DOC_SNIFF_BYTES when the file fits in them), `not_text` (a NUL byte, or bytes that are not UTF-8,
+    BOM allowed, within the first DOC_SNIFF_BYTES). The criteria of `record-source`'s whole-file test, applied to a slice: a file
+    whose first bad byte lies beyond the slice passes here and is refused there - the listing is advice, the refusal names its
+    door (the allowed error). A multibyte character cut by the end of the slice is tolerated."""
+    try:
+        size = Path(path).stat().st_size
+        with open(path, "rb") as handle:
+            data = handle.read(DOC_SNIFF_BYTES)
+    except (OSError, ValueError):
+        return "unreadable"
+    if size == 0 or (size <= DOC_SNIFF_BYTES and not data.strip()):
+        return "empty"
+    if b"\x00" in data:
+        return "not_text"
+    cut = size > len(data)
+    for drop in range(4 if cut else 1):
+        try:
+            data[:len(data) - drop].decode("utf-8-sig")
+            return ""
+        except UnicodeDecodeError:
+            continue
+    return "not_text"
+
+
+def _document_walk(base: str, ref: str, project, cfg: dict, live: list) -> dict:
+    """The files of the folder `base` (named `ref` from the project), sorted, links not followed, dot names skipped, as
+    `{"files": [(ref, size)], "text", "withheld", "long", "outside", "left": counts, "deep": folders not entered,
+    "stopped": bool}`. Each file passes the predicate `record-source` applies (`declared_place`, text, credential, length,
+    the person's exclusions); an OSError is the caller's."""
+    import posixpath
+    import runtime_paths
+    import source_exclusions
+    from config_contract import SECRET_QUERY_RE
+    found = {"files": [], "text": 0, "withheld": 0, "long": 0, "outside": 0, "left": 0, "deep": 0, "stopped": False}
+    scanned = 0
+
+    def walk(folder: str, prefix: str, level: int) -> bool:
+        nonlocal scanned
+        for name in sorted(os.listdir(folder)):
+            if name.startswith("."):
+                continue
+            if scanned >= DOC_ENTRIES_SCANNED:
+                found["stopped"] = True
+                return True
+            scanned += 1
+            path = os.path.join(folder, name)
+            entry = posixpath.normpath(prefix + "/" + name) if prefix != "." else name
+            if os.path.isdir(path):
+                if os.path.islink(path):
+                    continue
+                if level + 1 >= DOC_DEPTH:
+                    found["deep"] += 1
+                elif walk(path, entry, level + 1):
+                    return True
+                continue
+            if not os.path.isfile(path):
+                continue
+            normal, _why = runtime_paths.declared_place(project, cfg, entry)
+            if normal is None:
+                found["outside"] += 1
+            elif text_file_problem(path):
+                found["text"] += 1
+            elif SECRET_QUERY_RE.search(normal):
+                found["withheld"] += 1
+            elif len(normal) > REQUIREMENT_SOURCE_LOCATOR_LIMIT:
+                found["long"] += 1
+            elif source_exclusions.first_ref_match(live, normal):
+                found["left"] += 1
+            else:
+                found["files"].append((normal, os.path.getsize(path)))
+        return False
+
+    walk(base, ref, 0)
+    return found
+
+
+def document_place_lines(cfg: dict, task_root) -> list:
+    """The scout's list of the DOCUMENTS under the folder rows of `cfg["requirements_sources"]` (the rows the kinds table routes
+    `grep`, status `verified`, no credential in the locator), one line per path, bounded: DOC_FILES_LIMIT per row, DOC_FILES_TOTAL
+    over the rows, DOC_DEPTH levels, DOC_ENTRIES_SCANNED entries per row; every cut is said with its place. Reads the disk,
+    writes nothing; the project is the one `record-source` derives (`runtime_paths.nearest_project(task_root)`), so a listed
+    path is a ref `record-source` accepts. A row naming a whole repository or a file adds nothing (its grep line stands);
+    a locator outside the declared roots, missing here or unreadable is a line with its reason. Nothing to list (no rows, a
+    kinds table that cannot be read, no project above `task_root`, an unreadable record of the person's exclusions - which
+    `left_out_lines` refuses next, naming the file) gives []."""
+    import runtime_paths
+    import source_exclusions
+    from config_contract import SECRET_QUERY_RE, requirement_source_kinds
+    sources = cfg.get("requirements_sources") if isinstance(cfg, dict) else None
+    if not isinstance(sources, list) or not sources:
+        return []
+    try:
+        kinds = requirement_source_kinds()["kinds"]
+    except ValueError:
+        return []
+    project = runtime_paths.nearest_project(task_root)
+    if project is None:
+        return []
+    try:
+        live = source_exclusions.live(task_root)
+    except source_exclusions.ExclusionRecordError:
+        return []
+    roots = runtime_paths.declared_roots(project, cfg)
+    cap, lines, total = size_limit_of(task_root), [], 0
+    for index, row in enumerate(sources[:REQUIREMENT_SOURCE_LINE_LIMIT]):
+        if not isinstance(row, dict) or row.get("status") != "verified" or not isinstance(row.get("kind"), str):
+            continue
+        if (kinds.get(row["kind"]) or {}).get("route") != "grep" or not isinstance(row.get("locator"), str):
+            continue
+        raw = " ".join(row["locator"].split())
+        if not raw or SECRET_QUERY_RE.search(raw):
+            continue
+        name = _shown(row.get("source_id") or row["kind"] or f"source {index + 1}", SECRET_QUERY_RE)
+        locator = raw[:REQUIREMENT_SOURCE_LOCATOR_LIMIT]
+        normal, _why = runtime_paths.declared_place(project, cfg, raw)
+        if normal is None:
+            lines.append(f"{name}: {locator} is outside the project's repositories: not listed")
+            continue
+        place = os.path.normpath(os.path.join(str(project), normal))
+        if any(runtime_paths.contained(place, root) and runtime_paths.contained(root, place) for root in roots):
+            continue      # a whole repository: today's grep line stands for it
+        if os.path.isfile(place):
+            continue      # one file: the grep line covers it
+        if not os.path.exists(place):
+            lines.append(f"{name}: {locator} is not on disk here: a gap with that reason, not a question")
+            continue
+        if not os.path.isdir(place):
+            continue
+        if total >= DOC_FILES_TOTAL:
+            lines.append(f"{name}: {locator}: not listed (the list is full); search it yourself")
+            continue
+        try:
+            found = _document_walk(place, normal, project, cfg, live)
+        except OSError as exc:
+            lines.append(f"{name}: {locator} could not be read here ({type(exc).__name__}): a gap with that reason")
+            continue
+        shown = found["files"][:min(DOC_FILES_LIMIT, DOC_FILES_TOTAL - total)]
+        more = len(found["files"]) - len(shown)
+        total += len(shown)
+        notes = []
+        if more:
+            notes.append(f"- and {more} more under {locator}: list them yourself")
+        for key, text in (("text", "not listed: not text or empty"), ("withheld", "withheld: a credential-like name"),
+                          ("long", "not listed: name too long"), ("outside", "not listed: outside the declared repositories")):
+            if found[key]:
+                notes.append(f"- {found[key]} file(s) {text}")
+        if found["left"]:
+            notes.append(f"- {found['left']} file(s) left out by the person's word")
+        if found["deep"]:
+            notes.append(f"- {found['deep']} folder(s) deeper than {DOC_DEPTH} levels not walked under {locator}: list them yourself")
+        if found["stopped"]:
+            notes.append(f"- the walk stopped after {DOC_ENTRIES_SCANNED} entries under {locator}: list the rest yourself")
+        if shown:
+            lines.append(f"Documents under {locator} (record each one you read on its own: record-source --ref <the path as listed> "
+                         "--relation normative; a first look at each, charter: the walk of references):")
+            lines += [f"- {ref} ({size} B)" + (" over the read cap: read it with offset/limit" if cap > 0 and size > cap else "")
+                      for ref, size in shown]
+        else:
+            lines.append(f"{name}: no text file under {locator}")
+        lines += notes
+    return lines
 
 
 def refresh_relevant_sources(client: JiraClient, output: Path) -> dict:

@@ -2198,15 +2198,42 @@ def _record_source(args, emit=None) -> int:
               "one task source and `collect` writes it", file=sys.stderr)
         return EXIT_USAGE
     ref = args.ref.strip()
-    if ref.lower().startswith("file:") or (not _URL_RE.match(ref) and not SI._safe_rel(ref)):     # file: names THIS machine (AR-4)
-        print("ticket_adapter: give the locator relative to the project (a path with no drive and no `..`), or a URL",
-              file=sys.stderr)
-        return EXIT_USAGE
     from config_contract import SECRET_QUERY_RE
+    # the credential test reads no disk and runs FIRST: no refusal below echoes a ref or a --file name that matches it (B-2)
     if SECRET_QUERY_RE.search(ref) or (_URL_RE.match(ref) and urllib.parse.urlsplit(ref).password):
         print("ticket_adapter: the locator holds a credential-like field (token=, secret=, password=, key=); the value is not "
               "shown and nothing was recorded: record the locator without it", file=sys.stderr)
         return EXIT_USAGE
+    if not _URL_RE.match(ref):      # file: names THIS machine (AR-4); a URL keeps today's road
+        try:
+            project = RP.nearest_project(Path(args.output).resolve().parent.parent)
+        except (OSError, ValueError):
+            project = None
+        normal, why = RP.declared_place(project, RP._config_of(project) if project is not None else None, ref)
+        if normal is None:
+            door = {RP.DECLARED_NOT_RELATIVE: "give the locator relative to the project (a path with no drive and no `..`), or a URL; "
+                    "a document of a declared repository is named from the project, for example `<code_repos path>/<path inside it>`",
+                    RP.DECLARED_OUTSIDE: f"give the locator relative to the project: `{' '.join(ref.split())[:200]}` resolves outside the "
+                    "project and every declared repository (code_repos); name a file inside one of them, or save the text under work/raw/ "
+                    "and record that path",
+                    RP.DECLARED_NO_PROJECT: "give the locator relative to the project: no qa-factory/config.json above --output, so a `..` "
+                    "path cannot be checked against the declared repositories; record the text under work/raw/ with that path"}[why]
+            print("ticket_adapter: " + door, file=sys.stderr)
+            return EXIT_USAGE
+        ref = normal
+        folder = os.path.normpath(os.path.join(str(project), normal)) if project is not None else ""
+        if folder and os.path.isdir(folder):      # one record per document: a folder names many (they would replace one another)
+            example = f"{normal}/<file name>"
+            try:
+                inside = Path(args.file).resolve()
+                if RP.contained(inside, folder) and str(inside) != str(Path(folder).resolve()):
+                    named = (normal + "/" if normal != "." else "") + inside.relative_to(Path(folder).resolve()).as_posix()
+                    example = named if not SECRET_QUERY_RE.search(named) else example
+            except (OSError, ValueError):
+                pass
+            print(f"ticket_adapter: give the locator relative to the project: `{normal}` is a folder; one record per document: "
+                  f"--ref `{example}`", file=sys.stderr)
+            return EXIT_USAGE
     # FR-36, AR-24: a source the person left out before the run is not recorded by the role route either; the door is the handoff
     left_out = source_exclusions.first_ref_match(source_exclusions.live_in(Path(args.output).parent), ref)
     if left_out:
