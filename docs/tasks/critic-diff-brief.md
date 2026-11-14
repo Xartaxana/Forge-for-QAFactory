@@ -38,10 +38,12 @@ and the critic role file's rule 18 point here (B-419).
    exists for, through the door the factory uses — judged by READING it; is there a junction test when the node
    changes a field, a refusal or a handoff form. Findings: a pin on role text, on the source of a script, on a
    measured constant, a receipt per DoD key / edge / mutation, a negative control inside a test (the table
-   «не пишется» of `docs/TESTING.md`); more test lines than product lines with no reason named; a subprocess per
+   «не пишется» of `docs/TESTING.md`); more test lines than product lines (ratio and door: `docs/TESTING.md` «Бюджет / Объём») with no reason named — the
+   finding is the missing `tests-over:` line in the commit message; a subprocess per
    check where one world per file would do. A missing pin is NOT a finding. The layers
    (`ai-packages/qa-factory/scripts/tests/test-layers.json`, spec `docs/tasks/specs/td-15-scenarios-quarantine.md`): a new
-   test file with no keep row, or a keep row whose layer/why does not hold — finding; an edit to a quarantined file without a
+   test file in the package (`ai-packages/`) with no keep row (the exception: the new forge tools of the offload spec,
+   `docs/TESTING.md` «Бюджет / Файлы»), or a keep row whose layer/why does not hold — finding; an edit to a quarantined file without a
    `quarantine-edit:` reason that holds — finding; a phase-2 move whose replacement does not catch the detector's class —
    finding.
 6. **DUPLICATION AND CONSISTENCY**: does the diff implement anything the repository already has a
