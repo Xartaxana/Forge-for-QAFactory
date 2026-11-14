@@ -93,6 +93,7 @@ FV1-12 ждёт слова владельца о замысле S2. НЕ дел�
 - 14.11 (t-672) — волна 7: FV1-18 принято, `wip/fv118-fix` (27a6cf4; содержит топик и ветки n1…n4) слита 7aee0ca; конфликт один — `test_probe_by_code_languages.py` разрезан в main (PC3-2), правки ветки перенесены в `test_probe_by_code_languages_ts_playwright.py`. Отчёт `docs/tasks/specs/reports/20261114-wave7-integration-report.md`.
 - 14.11 (t-700) — волна 8: FV1-22 принято (N1+N2+N3, фикс-раунд), `wip/fv1-22r-fix` слита 379f687. Отчёт `docs/tasks/specs/reports/20261114-wave8-report.md`.
 - 14.11 (t-720) — волна 9: FV1-9 принято (N1+N2+N4+N5, фикс-раунд), `wip/fv1-9-fix` слита ec7b838; FV1-30 принято: 30b N5 (`wip/fv130b-n5`, facd5d1) и N4 (`wip/fv130b-n4`, 2a88226) слиты, N0–N3 и N6 были в main раньше; FV1-23 слит частично (A-1, A-4, `wip/fv123-a14`, b9dd7d0), статус не меняется. Отчёт `docs/tasks/specs/reports/20261114-wave9-report.md`.
+- 14.11 (t-729) — волна 10: FV1-20 — узел B-1 слит (`wip/fv120-b1`, 754b9de), узлы B-2…B-4 не слиты, статус не меняется; FV1-9 — карточка D хвоста слита (`wip/fv1-9-td`, 659dcc4), статус не меняется. Отчёт `docs/tasks/specs/reports/20261114-wave10-report.md`.
 
 ## Живые доказательства
 
