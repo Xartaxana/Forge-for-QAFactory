@@ -1869,6 +1869,9 @@ class DriverDispatch:
                      + "An answer they gave to a question in other words is recorded with question_register.py "
                      f"(--answer QID --reading <letter> | --not-needed QID | --defer QID, with --words-file, --where \"{stage} stop\", "
                      f"--by conductor and {hash_text})."
+                     " A question their words show they could not tell what it asks is reworded with "
+                     f"`question_register.py --reword QID --question-file <file> --by conductor --where \"{stage} stop\"`; "
+                     "the file is JSON with `question`, `why` and optionally `readings`."
                      f" Read the questions whole with `python {self.scripts / 'question_register.py'} --task {self.task} --show`: "
                      "the question text below may be cut.")
         # `s1_review` gets no options: `record_review` records ANY words as the S1 review before the conductor sees them (C1-3 owns that

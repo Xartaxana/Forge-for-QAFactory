@@ -2225,9 +2225,22 @@ def numbers(task: str, root: Path | None = None, task_root: Path | None = None) 
             knowledge = {"facts": kept, "questions": report_facts.question_count(troot)}
     except Exception as exc:
         knowledge = {"problem": f"{type(exc).__name__}: {' '.join(str(exc).split())[:200]}"}
+    # The questions the factory merged as repeats (FV1-9 N5, owner 14.11): `question_register.repeat_records` is the one reader (AR-13); a key
+    # only for a story that has a question register (F3, AR-23: with one, "no merge" is a fact and the key says so with no records; with
+    # none - an older story - no key, as `knowledge`); whether a merge was right is the forge's judgment afterwards, from this and the
+    # collect, never code's. A record set that cannot be read is said, never dropped (FR-41).
+    merged: dict = {}
+    try:
+        import question_register as QR
+        found = QR.repeat_records(troot)
+        if found.get("present") or found.get("records") or found.get("unreadable"):
+            merged = {"records": list(found.get("records") or []), "unreadable": bool(found.get("unreadable"))}
+    except Exception as exc:
+        merged = {"problem": f"{type(exc).__name__}: {' '.join(str(exc).split())[:200]}"}
 
     return {
         **({"knowledge": knowledge} if knowledge else {}),
+        **({"merged_questions": merged} if merged else {}),
         "task": task,
         "sessions": [r["session"] for r in price.get("sessions") or []],
         "story": spend,
@@ -2785,6 +2798,7 @@ def render(data: dict, left_out: bool = True) -> str:
     lines += test_run_lines(data.get("test_run_counts"))
     lines += resume_lines(data.get("resumes"))
     lines += knowledge_lines(data.get("knowledge"))
+    lines += merged_question_lines(data.get("merged_questions"))
     kept_out = left_out_retro_lines(data) if left_out else []
     if kept_out:
         lines += ["", "**Sources the person left out before the run:**", ""] + ["- " + line for line in kept_out]
@@ -2805,6 +2819,36 @@ def knowledge_lines(block) -> list:
     out = ["", f"**{report_facts.question_count_line(block.get('questions'), facts)}**"]
     if table:
         out += ["", f"**{table[0]}**", ""] + [line if line.startswith("- ") else "- " + line for line in table[1:]]
+    return out
+
+
+def merged_question_lines(block) -> list:
+    """The retro's section `## Questions merged as one` (FV1-9 N5, T16): a line per merge record, both questions as they stood and what
+    became of the merge. No lines for facts with no such block (an older story, or no merge); a block that could not be built, or an answers
+    file with a broken line, is the "unreadable" line (a merge may be missing, FR-41). Words and the record only: whether a merge was right
+    is judged later by the forge from the collect (AR-29); every text is printed whole (F3: a cut would hide how two questions differ)."""
+    if not isinstance(block, dict) or not block:
+        return []
+
+    def cut(text) -> str:
+        return " ".join(str(text or "").split()) or "(not recorded)"
+
+    unreadable = "- the question records could not be read, so merges are not known"
+    out = ["", "## Questions merged as one", ""]
+    if block.get("problem") or not isinstance(block.get("records"), list):
+        return out + [unreadable]
+    for rec in block["records"]:
+        rec = rec if isinstance(rec, dict) else {}
+        texts = rec.get("texts") if isinstance(rec.get("texts"), dict) else {}
+        from driver_dialog import DriverDialog      # F6: the one `role_words` (the person's name of a role)
+        who = DriverDialog.role_words(rec["declared_by"]) if rec.get("declared_by") else "an unrecorded role"
+        out.append(f"- {rec.get('id') or '(no id)'} merged into {rec.get('same_as') or '(no id)'} by {who} at {rec.get('stage') or 'an unrecorded stage'} "
+                   f"({rec.get('at') or 'time not recorded'}): \"{cut(texts.get('question'))}\" / \"{cut(texts.get('same_as_question'))}\"; "
+                   f"why: {cut(rec.get('why'))}; now: {rec.get('standing') or 'not recorded'}")
+    if not block["records"] and not block.get("unreadable"):
+        out.append("- none: no question was merged in this story")
+    if block.get("unreadable"):
+        out.append(unreadable)
     return out
 
 
