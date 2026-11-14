@@ -1099,11 +1099,12 @@ class _Sink:
 
 
 def survey_opens_on(record) -> bool:
-    """Whether a SURVEY walk may open on this probe answer (FV1-28 A2): only when the build is NOT ESTABLISHED - the stand answered
-    (`asks_person` set), the answer is `unknown` both as declared and as the validator reads it, and nothing proves another build, no
-    device halt, no checkout without a commit. Read from FIELDS (FR-12). Pure, never raises. ERROR DIRECTION: only toward False (today's
-    refusal): a False on a reachable stand costs one walk not opened; a True on a dead stand or another build would put a false
-    observation in the record."""
+    """Whether a SURVEY walk may open on this probe answer (FV1-28 A2): only when the build is NOT ESTABLISHED - `asks_person` set means no rung could
+    read the build or tie it to a revision; the stand may or may not answer (a stand with no container named, or a failing registry
+    command, lands here too), and the survey walk then opens and is recorded `taken: not_established`. The answer is `unknown` both
+    as declared and as the validator reads it, and nothing proves another build, no device halt, no checkout without a commit. Read
+    from FIELDS (FR-12). Pure, never raises. ERROR DIRECTION: only toward False (today's refusal): a False costs one walk not opened;
+    a True on a provably other build would put a false observation in the record."""
     try:
         import profile_contract
         import runtime_probe
@@ -1372,7 +1373,7 @@ class Walk:
                         self.sink.probe("end", self.profile, self.surface, exc.provenance, taken="not_established")
                     else:
                         end_failed = exc
-                ends =[r for r in self.sink.rows if r["when"] == "end"]
+                ends = [r for r in self.sink.rows if r["when"] == "end"]
                 for item, rec in self.item_rec.items():
                     if end_failed:
                         rec["attempt"].env_blocked(item, end_failed.row)
