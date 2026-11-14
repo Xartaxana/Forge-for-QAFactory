@@ -28,7 +28,7 @@ import shutil
 import sys
 import tempfile
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -1279,8 +1279,8 @@ def b267_tests(root: Path) -> None:
     check("start line: the interactive session is Start-Process too", 'Start-Process -FilePath claude -WorkingDirectory' in text, text)
     default_logs = "\n".join(prepare_copy.start_lines(r"C:\p\copy-man1\test-harness", "C:/pkg/qa-factory", "PROJ-1", "man1"))
     check("start line: with no runs folder named the logs go under BASE, never into the measurers' folder (edge 3)",
-          str(HERE) not in default_logs
-          and str(paths.table_path("runs_dir") or paths.BASE / "runs") in default_logs, default_logs)
+          str(PureWindowsPath(str(HERE))) not in default_logs
+          and str(PureWindowsPath(str(paths.table_path("runs_dir") or paths.BASE / "runs"))) in default_logs, default_logs)
 
 
 FULL_TABLE = {
