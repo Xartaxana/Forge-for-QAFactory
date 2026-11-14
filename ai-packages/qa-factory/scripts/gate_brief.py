@@ -5106,9 +5106,10 @@ def render_gate_b(task: str, root: Path | None = None) -> str:
     # own renderer (`report_facts.review_gap_lines`, imported, never copied: FR-10). Nothing to list, no section; the person
     # answers on the bugs, and this is what they hold besides.
     # A ledger that cannot be read is said, never read as "nothing rejected" (FR-41): the guarded read is `read_ledger`.
-    from report_facts import gate_b_gap_lines
+    from report_facts import case_remarks_left, gate_b_gap_lines
     ledger = read_ledger(task_root)
-    lines += gate_b_gap_lines(ledger if ledger is not None else {"repair_windows_problem": "the ledger cannot be read"})
+    lines += gate_b_gap_lines(ledger if ledger is not None else {"repair_windows_problem": "the ledger cannot be read"},
+                              left=case_remarks_left(task_root))
     lines.append("")
     lines.append(filing_line(task_root, config))
     size = sizing_line(task_root)
