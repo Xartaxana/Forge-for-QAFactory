@@ -490,7 +490,8 @@ def _terminal_runs(task_root: Path) -> dict:
             aliases_of.setdefault(names[0], names)
             for name in names:
                 spellings.setdefault(name, set()).add(names[0])
-        owner = {name: aliases_of[next(iter(keys))] for name, keys in spellings.items() if len(keys) == 1}
+        owner = {name: tuple(a for a in aliases_of[next(iter(keys))] if len(spellings[a]) == 1)
+                 for name, keys in spellings.items() if len(keys) == 1}
     except Exception:
         owner = {}
     blocks, _unreadable = run_history.read_run_blocks(task_root)
