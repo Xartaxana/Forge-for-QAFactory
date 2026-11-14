@@ -194,8 +194,8 @@ def test_no_record_one_line():
         for stage, role in PAIRS:
             got = lines(p, stage, role)
             check(f"no_record_one_line: {role} at {stage} gets exactly one line, a GAP and never `no stand` as a fact",
-                  len(got) == 1 and got[0].startswith("First look: a GAP - ") and "no record was written" in got[0]
-                  and "it is not a fact that there is no stand" in got[0], str(got))
+                  len(got) == 1 and got[0].startswith("First look: a GAP (") and "(no record)" in got[0]
+                  and "not a fact that there is no stand" in got[0], str(got))
 
 
 def test_null_record_reason_line():
@@ -433,7 +433,7 @@ def test_one_reader_of_the_record_state():
         try:
             FL.state = lambda task_root: {"kind": "absent", "got": FL.read(task_root), "error": ""}
             check_eq("one_reader_of_the_record_state: the brief follows the classifier (absent although a file exists)",
-                     lines(p, "S3", "qa-test-strategist"), [brief_pack._fl_gap("no record was written", "s3")])
+                     lines(p, "S3", "qa-test-strategist"), [brief_pack._fl_gap("no record", "s3")])
             check_eq("one_reader_of_the_record_state: the card follows it too", AC._first_look(p.task), ([], ["there was no first look"]))
             FL.state = lambda task_root: {"kind": "error", "got": {}, "error": "ValueError"}
             check("one_reader_of_the_record_state: an error kind is one courtesy line in the brief",
@@ -573,22 +573,22 @@ def test_missing_first_look_is_a_gap_for_every_reader():
                ("s6", "S6", "qa-runner", look), ("s7", "S7", "qa-failure-analyst", look))
     with tempfile.TemporaryDirectory() as tmp:
         p = Project(tmp, walk=False)
-        check("gap: the two clauses differ (else the per-reader data proves nothing)", look != name and look.startswith("Where your work needs"))
+        check("gap: the two clauses differ (else the per-reader data proves nothing)", look != name and look.startswith("Where needed"))
         done = FL.put(p.task, None, "no_stand")
         check("gap: a null record is written", done["written"], str(done))
         for reader, stage, role, clause in readers:
             got = lines(p, stage, role)
             check(f"gap: {reader} - a GAP, the reason, `not a fact`, then that reader's clause",
-                  len(got) == 1 and got[0].startswith("First look: a GAP - what the stand shows is not known for this story (the stand was not walked: no stand); "
-                                                      "it is not a fact that there is no stand. ") and got[0].endswith(clause), str(got))
+                  len(got) == 1 and got[0].startswith("First look: a GAP (the stand was not walked: no stand); "
+                                                      "not a fact that there is no stand. ") and got[0].endswith(clause), str(got))
             check_not_in(f"gap: {reader} - no script is named", ".py", got[0])
             check_not_in(f"gap: {reader} - the old wording that said no stand as a fact is gone", "there was no first look", got[0])
         line = brief_pack.first_look_input_line(p.task, "work/first-look.yaml", "1 B")
         check("gap: the file line is a GAP too and names no script",
-              line == "- work/first-look.yaml: a GAP - no first look was written for this story (the stand was not walked: no stand); it is not a fact that there is no stand",
+              line == "- work/first-look.yaml: no first look (the stand was not walked: no stand)",
               line)
         (p.task / "work" / "first-look.yaml").unlink()
-        check_in("gap: the file line of an absent record", "a GAP - no first look was written for this story (the record does not exist)",
+        check_in("gap: the file line of an absent record", "no first look (the record does not exist)",
                  brief_pack.first_look_input_line(p.task, "work/first-look.yaml", ""))
         write_record(p, source_head={"product": "b" * 40})
         check("gap: a stale record keeps its meaning and gains the clause", lines(p, "S6", "qa-runner")[0].endswith(look)

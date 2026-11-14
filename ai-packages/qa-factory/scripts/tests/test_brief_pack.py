@@ -2963,7 +2963,7 @@ def n2_summaries_name_their_whole() -> None:
                     bad = brief_pack.prior_retro_lines(task, root)
                 check_in(f"prior_retro_lines: a {size}-character unreadable-form reason is whole", f"cannot be read ({text});", "\n".join(bad))
             with patched(FL_MOD := __import__("first_look"), read=lambda tr, _t=text: {"problem": _t, "rows": [], "null": None, "stale": False}):
-                check_in(f"first_look_input_line: a {size}-character problem is whole", f"a GAP - no first look was written for this story ({text}); it is not a fact that there is no stand", brief_pack.first_look_input_line(task, "d", "1 B"))
+                check_in(f"first_look_input_line: a {size}-character problem is whole", f"no first look ({text})", brief_pack.first_look_input_line(task, "d", "1 B"))
             with patched(FL_MOD, walk_actors=lambda *a, _t=text: {"accounts": [], "none": [], "problem": _t}), patched(WS, data=lambda: {"max_actors": 3}):
                 check_in(f"_first_look_accounts: a {size}-character problem is whole", f"cannot be read ({text}):", brief_pack._first_look_accounts(task, "s", []))
             with patched(FL_MOD, read_attempt=lambda tr: {"walk": "w", "env": "s"}, register_ids=lambda tr, _t=text: ([], _t)), \
@@ -2994,7 +2994,7 @@ def n2_summaries_name_their_whole() -> None:
         with patched(FL, state=lambda task_root, _p=problem: {"kind": "unreadable", "got": {"problem": _p}, "error": ""}):
             state, got = brief_pack._fl_state(Path("."))
         check_eq(f"first look, an unreadable record's {size}-character problem is whole", (state, got),
-                 ("line", [f"First look: a GAP - what the stand shows is not known for this story (the record cannot be read: {problem}); it is not a fact that there is no stand."]))
+                 ("line", [f"First look: a GAP (the record cannot be read: {problem}); not a fact that there is no stand."]))
     row = {"req": "R-1", "status": "missing"}
     short_line = brief_pack._fl_line(row, "b")
     clipped_line = brief_pack._fl_line(row, "b" * 600)
@@ -3007,17 +3007,17 @@ def n2_summaries_name_their_whole() -> None:
     check_eq("Q6-COINCIDENCE: 180 characters, unclipped, ending `... [first-look:R-1]` - not a `_Clipped`, no `whole:` line",
              (len(coincidence), coincidence.endswith("... [first-look:R-1]"), isinstance(coincidence, brief_pack._Clipped)),
              (brief_pack.FIRST_LOOK_LINE_CHARS, True, False))
-    with patched(brief_pack, _fl_state=lambda task_root: ("rows", {}), _fl_body=lambda kind, task_root, got: [coincidence]):
+    with patched(brief_pack, _fl_state=lambda task_root, kind="": ("rows", {}), _fl_body=lambda kind, task_root, got, window=None: [coincidence]):
         got = brief_pack.first_look_lines(Path("."), "S4", "qa-case-designer")
     check_eq("Q6-COINCIDENCE: first_look_lines adds no `whole:` line", got, [coincidence])
     # Q6-CUT-AWAY: a clipped line past the count cap adds no `whole:` line (the `+N more:` line names the file)
     cut_body = [short_line] * brief_pack.FIRST_LOOK_LINES_MAX + [clipped_line]
-    with patched(brief_pack, _fl_state=lambda task_root: ("rows", {}), _fl_body=lambda kind, task_root, got: list(cut_body)):
+    with patched(brief_pack, _fl_state=lambda task_root, kind="": ("rows", {}), _fl_body=lambda kind, task_root, got, window=None: list(cut_body)):
         got = brief_pack.first_look_lines(Path("."), "S4", "qa-case-designer")
     check_eq("Q6-CUT-AWAY: a clipped line cut away by the count cap adds no `whole:` line",
              got, [short_line] * brief_pack.FIRST_LOOK_LINES_MAX + [f"+1 more: {brief_pack.FIRST_LOOK_FILE}"])
     for label, body, ends in (("no clipped line", [short_line], False), ("one clipped line", [short_line, clipped_line], True)):
-        with patched(brief_pack, _fl_state=lambda task_root: ("rows", {}), _fl_body=lambda kind, task_root, got, _b=body: list(_b)):
+        with patched(brief_pack, _fl_state=lambda task_root, kind="": ("rows", {}), _fl_body=lambda kind, task_root, got, window=None, _b=body: list(_b)):
             got = brief_pack.first_look_lines(Path("."), "S4", "qa-case-designer")
         check_eq(f"first_look_lines, {label}: the block ends `whole: work/first-look.yaml` exactly when a line was clipped",
                  (got[-1] == f"whole: {brief_pack.FIRST_LOOK_FILE}", got[:len(body)]), (ends, body))

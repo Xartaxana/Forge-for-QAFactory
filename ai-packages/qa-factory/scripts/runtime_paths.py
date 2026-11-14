@@ -549,7 +549,7 @@ def declared_place(project, cfg, ref) -> tuple:
     slashed = text.replace("\\", "/")
     normal = posixpath.normpath(slashed)
     if project is None:
-        return (None, DECLARED_NO_PROJECT) if ".." in slashed.split("/") else (normal, "")
+        return (None, DECLARED_NO_PROJECT) if _has_climb(slashed) else (normal, "")
     place = os.path.normpath(os.path.join(str(project), normal))
     if not any(contained(place, root) for root in declared_roots(project, cfg)):
         return None, DECLARED_OUTSIDE
@@ -598,12 +598,17 @@ def _under(text: str, roots: list) -> str:
     return found[1] + "".join("/" + part for part in found[2])
 
 
+def _has_climb(text: str) -> bool:
+    """The ONE `..` test of this module: a path with a `..` part, either slash dialect (the pin of test_resolver K1 F1)."""
+    return ".." in text.replace(chr(92), "/").split("/")
+
+
 def _climbs_out(original, got, roots) -> bool:
     """A path spelled with a `..` part that the resolution changed and that now lies inside none of `roots`: under a root
     by TEXT, but climbing out of it into a sibling copy. ONE predicate for READ (`state_paths`) and RUN
     (`known_paths_for_dispatch`): the real place decides, through `contained` (FR-17)."""
     return (isinstance(original, str) and isinstance(got, str) and got != original
-            and ".." in original.replace(chr(92), "/").split("/")
+            and _has_climb(original)
             and not any(contained(got, root) for root in roots if root))
 
 

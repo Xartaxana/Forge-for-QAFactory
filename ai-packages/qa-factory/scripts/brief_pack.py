@@ -4026,7 +4026,7 @@ def first_look_input_line(task_root: Path, display: str, size: str = "") -> str:
     there is no stand" (FR-41, AR-28). A stale record says so (it confirms nothing). No script is named: the roles that read this line may
     have no shell."""
     def gap(reason: str) -> str:
-        return f"- {display}: a GAP - no first look was written for this story ({reason}); it is not a fact that there is no stand"
+        return f"- {display}: no first look ({reason})"
     try:
         import first_look as FL
         got = FL.read(task_root)
@@ -4040,7 +4040,7 @@ def first_look_input_line(task_root: Path, display: str, size: str = "") -> str:
         return (f"- {display} ({size}): the first look at the stand before the plan - per requirement what the walker saw "
                 "(status, where, a quoted capture); an observation, never an oracle")
     except Exception as exc:  # noqa: BLE001 - a courtesy line: the brief is always built
-        return f"- {display}: a GAP - no first look was written for this story (the record could not be read: {type(exc).__name__}); it is not a fact that there is no stand"
+        return f"- {display}: no first look (the record could not be read: {type(exc).__name__})"
 
 
 def _first_look_accounts(task_root: Path, stand: str, opened: list) -> str:
@@ -4146,10 +4146,9 @@ FIRST_LOOK_ITEM_CHARS = 400                   # one item line of the S5 block (t
 SIGN_IN_LINE_CHARS = 600                      # the one line of the way in the story's own first look found; longer is cut and followed by `whole:`
 # A missing first look is a GAP of this brief's knowledge, never the fact "there is no stand" (FR-41, FR-59, AR-28). One text for S3-S7 (AR-15);
 # the clause is the reader's: a role with a stand and tools looks itself, a role with no tool of the stand names the gap. FV1-29 flips `s5`.
-FIRST_LOOK_GAP = ("First look: a GAP - what the stand shows is not known for this story ({reason}); it is not a fact that there is no stand. "
-                  "{clause}")
-_CLAUSE_LOOK = "Where your work needs the stand, look yourself with the tools your brief names."
-_CLAUSE_NAME = "Name it as a gap where your work rests on the stand."
+FIRST_LOOK_GAP = "First look: a GAP ({reason}); not a fact that there is no stand. {clause}"
+_CLAUSE_LOOK = "Where needed, look with your brief's tools."
+_CLAUSE_NAME = "Name it as a gap where you need the stand."
 FIRST_LOOK_GAP_CLAUSE = {"s3": _CLAUSE_NAME, "s4": _CLAUSE_NAME, "s4_critic": _CLAUSE_NAME, "s5": _CLAUSE_NAME, "s5_critic": _CLAUSE_NAME,
                          "s6": _CLAUSE_LOOK, "s7": _CLAUSE_LOOK}
 FIRST_LOOK_HEADS = {
@@ -4213,7 +4212,7 @@ def _fl_state(task_root, kind: str = "") -> tuple:
                         f"{FIRST_LOOK_FILE} as history" + (f" ({_text_whole(got['problem'])})." if got["problem"] else ".")
                         + (f" {clause}" if clause else "")]
     if rec == "absent":
-        return "line", [_fl_gap("no record was written", kind)]
+        return "line", [_fl_gap("no record", kind)]
     if rec == "unreadable":
         return "line", [_fl_gap(f"the record cannot be read: {_text_whole(got['problem'])}", kind)]
     return "rows", got

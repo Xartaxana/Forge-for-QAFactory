@@ -433,19 +433,18 @@ class DriverRunner:
             found = finding_lines(lines)
             if not found:
                 return
-            state = getattr(self, "state", None)
-            state = state if isinstance(state, dict) else None
+            has_state = isinstance(getattr(self, "state", None), dict)      # plain `self.state` below: the census map sees the key (L4)
             ident = "|".join((road, key, finding_key(lines), outcome))
-            if state is not None:
-                held = state.get("repeat_recorded")
+            if has_state:
+                held = self.state.get("repeat_recorded")
                 if isinstance(held, dict) and held.get(ident):
                     return
             self.journal_run({"kind": "repeat_stop", "stage": stage, "road": road, "key": key, "dispatch": dispatch,
                               "outcome": outcome, "set": [line[:300] for line in found][:20], "set_size": len(found)})
-            if state is not None:
-                if not isinstance(state.get("repeat_recorded"), dict):
-                    state["repeat_recorded"] = {}
-                state["repeat_recorded"][ident] = 1
+            if has_state:
+                if not isinstance(self.state.get("repeat_recorded"), dict):
+                    self.state["repeat_recorded"] = {}
+                self.state["repeat_recorded"][ident] = 1
                 getattr(self, "save_state", lambda: None)()
         except Exception as exc:
             print(f"repeat record not written ({type(exc).__name__}: {' '.join(str(exc).split())[:160]})", file=sys.stderr)
