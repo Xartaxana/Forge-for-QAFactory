@@ -195,8 +195,7 @@ EVENTS = [
     ("degraded", ["--reason", "r", "--scope", "s", "--feature", "F19", "--notes", "n"], "lead_degraded",
      {"agent": "lead", "reason": "r", "scope": "s", "category": "coordination"}),
     ("restored", ["--feature", "F19", "--notes", "n"], "lead_restored", {"agent": "lead", "category": "process"}),
-    ("calibrated", ["--period", "p", "--events-reviewed", "7", "--feature", "F19", "--notes", "n"], "calibrated",
-     {"events_reviewed": 7, "category": "calibration"}),
+    ("calibrated", ["--feature", "F19", "--notes", "period 14.11, 40 events"], "calibrated", {"category": "calibration"}),
     ("event", ["--json", '{"event":"dispatch_skipped","agent":"scout","category":"recon","notes":"retroactive: n"}'],
      "dispatch_skipped", {"agent": "scout"}),
 ]
@@ -341,13 +340,55 @@ def test_clone_claim_is_idempotent_and_a_second_clone_of_one_slug_takes_the_next
 
 
 def test_a_linked_worktree_of_the_claiming_clone_copies_the_row_and_keeps_the_letter(repo, tmp_path):
+    cid = (repo / ".git/forge-journal/clone-id").read_text().strip()
+    (repo / "logs/journal-letters.json").write_text(jw.dump_registry([
+        {"letter": "a", "slug": "dev1", "clone": cid, "since": "2026-11-14T10:00:00"},
+        {"letter": "", "slug": "dev1", "clone": "another-clone", "since": "2026-11-01T10:00:00"}]))
     wt = tmp_path / "wt"
     git(repo, "worktree", "add", "-q", str(wt))
     (wt / "tools/dev.config.yaml").write_text("developer: dev1\n")
     (wt / "logs/journal-letters.json").write_text('{"letters": [\n]}\n')             # the row is not merged there yet
     code, out, _ = cli(wt, "clone", "--claim")
-    assert code == 0 and "claimed letter '(none)'" in out
-    assert json.loads((wt / "logs/journal-letters.json").read_text())["letters"][0]["letter"] == ""
+    assert code == 0 and "claimed letter 'a'" in out          # the copy, not a fresh pick: "" is taken by the other clone
+    assert [r["letter"] for r in json.loads((wt / "logs/journal-letters.json").read_text())["letters"]] == ["a"]
+
+
+def test_e_b1_5_a_clone_of_another_developer_scans_only_its_own_journal(repo, tmp_path):
+    other = tmp_path / "second"
+    git(tmp_path, "clone", "-q", str(repo), str(other))
+    (other / "tools/dev.config.yaml").write_text("developer: dev2\n")
+    (other / "logs/journal/dev2.jsonl").write_text(SEED)
+    with open(other / "logs/journal/dev1.jsonl", "a", encoding="utf-8", newline="") as f:
+        f.write(jw_delegated_line("t-1500"))                      # dev1's file in this tree: no business of dev2's counter
+    assert cli(other, "clone", "--claim")[0] == 0
+    code, out, err = cli(other, *DELEG, "--worker", "agent:d2")
+    assert code == 0, err
+    assert json.loads((other / "logs/journal/dev2.jsonl").read_text().splitlines()[-1])["task_id"] == "t-001"
+
+
+def test_e_b1_6_a_failure_after_the_append_is_still_written_with_a_counter_warn(repo, monkeypatch):
+    def boom(*_a):
+        raise PermissionError("replace refused")
+    monkeypatch.setattr(jw, "save_counter", boom)
+    res = jw.write_event(repo, {"event": "delegated", "agent": "builder", "model": "m", "worker_ref": "w", "category": "implementation",
+                                "feature": "F19", "notes": "n"})
+    assert res.written and res.task_id == "t-001" and last(repo)["task_id"] == "t-001"
+    assert any("counter not updated" in m for m in res.messages)
+    monkeypatch.undo()
+    assert deleg(repo, "agent:next") == "t-002"                    # the file max stands in for the counter
+
+
+def test_save_counter_retries_a_refused_replace_for_a_moment(repo, monkeypatch):
+    real, calls = jw.os.replace, []
+
+    def flaky(src, dst):
+        calls.append(1)
+        if len(calls) < 3:
+            raise PermissionError
+        real(src, dst)
+    monkeypatch.setattr(jw.os, "replace", flaky)
+    jw.save_counter(repo / ".git/forge-journal/counter.json", {"": 5})
+    assert len(calls) == 3 and json.loads((repo / ".git/forge-journal/counter.json").read_text()) == {"": 5}
 
 
 # ------------------------------------------------------------------ accept: witness rows
@@ -355,6 +396,21 @@ def test_a_linked_worktree_of_the_claiming_clone_copies_the_row_and_keeps_the_le
 def accept(repo, t, *more, agent="builder", by="opus"):
     return cli(repo, "accept", "--task", t, "--agent", agent, "--model", "sonnet", "--by", by, "--feature", "F19",
                "--notes", "ok SECRETNOTE", *more)
+
+
+def test_f5_an_unknown_task_on_accept_gets_the_validators_door_not_the_new_id_door(repo):
+    deleg(repo)
+    refused(repo, "accept", "--task", "t-990", "--agent", "builder", "--model", "sonnet", "--by", "opus", "--feature", "F19",
+            "--notes", "ok", "--witness", "w", text="point task_id at a real earlier delegated")
+
+
+def test_f7_a_run_for_an_unknown_task_is_refused_before_the_command_runs(repo, tmp_path):
+    deleg(repo)
+    flag = tmp_path / "ran"
+    for task, text in (("t-990", "was not issued"), ("zz", "expected a task id")):
+        refused(repo, "accept", "--task", task, "--agent", "builder", "--model", "sonnet", "--by", "opus", "--feature", "F19",
+                "--notes", "ok", "--run", f"touch {flag.as_posix()}", text=text)
+    assert not flag.exists()
 
 
 def test_accept_text_witness_and_a_non_builder_without_one(repo):

@@ -17,6 +17,11 @@ Order of one write (POSITIONAL, BL-2): arguments are checked; the witness is pro
 `hooklib.append_jsonl_line` and the counter updated; the lock is released; only then the echo and the warnings are made.
 The lock is never held across a subprocess, a file read other than the journal / the registry-free counter, or the echo.
 
+The counter is first built (no file, or a damaged one) from THIS logical journal (`current_path` and its seed) in every worktree
+of the clone -- never another developer's file, which the validator's jump cap (rule 9a'') does not measure against. KNOWN
+RESIDUAL: two worktrees of one clone whose bases are more than 1000 apart can hold a counter the validator refuses; the door is
+`event --json` with an id inside the cap.
+
 Exit codes: 0 written, 2 refused (nothing written; the text names the door), 3 the lock timed out or `--run` timed out.
 What the writer prints never echoes a witness or notes (E-B1-16): the outcome line, the validator's own texts, the echo's
 WARN lines, and for `--run` one line `run: exit=<rc>`."""
@@ -32,6 +37,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -43,6 +49,7 @@ if str(_TOOLS) not in sys.path:
 import journal_keys as jk  # noqa: E402
 import journal_lock  # noqa: E402
 import journal_validator as jv  # noqa: E402
+import streams  # noqa: E402
 
 REPO = _TOOLS.parent
 PACKAGE_SCRIPTS = REPO / "ai-packages" / "qa-factory" / "scripts"
@@ -67,7 +74,8 @@ AGENT_ROWS = {"scout": "recon", "builder": "implementation", "critic": "review",
 LEAD_ROWS = {"lead_degraded": "coordination", "lead_restored": "process", "calibrated": "calibration"}
 CONTROL_RE = re.compile("[\x00-\x1f\x7f\x85  ]")
 WITNESS_CONTROL_RE = re.compile("[\x00-\x08\x0b-\x1f\x7f]")
-TASK_IN_JSON_RE = re.compile(r'"task_id"\s*:\s*"(t-[^"]*)"')
+NEW_TASK_EVENTS = ("delegated", "decomposable")        # the events that bring a task id into existence (others point at one)
+SAVE_RETRY_SECONDS = 1.0                               # Windows refuses os.replace onto a file another handle has open
 
 
 class Refused(Exception):
@@ -194,7 +202,6 @@ def clone_id(forge: Path) -> str:
         try:
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
         except FileExistsError:
-            import time
             time.sleep(0.025)
             continue
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -224,7 +231,7 @@ def load_counter(path: Path):
         if not isinstance(data, dict):
             raise ValueError("not an object")
         for key, value in data.items():
-            if not (isinstance(key, str) and re.fullmatch(r"[a-z]{0,2}", key)):
+            if not (isinstance(key, str) and jk.parse_id("t-001" + key) == ("001", key)):
                 raise ValueError("bad key")
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError("bad value")
@@ -236,24 +243,28 @@ def load_counter(path: Path):
 def save_counter(path: Path, counter: dict) -> None:
     tmp = path.with_name(f"{COUNTER_NAME}.{os.getpid()}.tmp")
     tmp.write_text(json.dumps(counter, sort_keys=True), encoding="utf-8")
-    os.replace(tmp, path)
+    deadline = time.monotonic() + SAVE_RETRY_SECONDS
+    while True:
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.02)
 
 
-def scan_worktrees(root: Path) -> dict:
-    """{letter: highest number} over the journal files of EVERY worktree of this clone (first use of the counter, or a
-    damaged one -- the safe direction is higher). Outside the lock: it runs a subprocess and reads many files."""
+def scan_worktrees(root: Path, rel: str) -> dict:
+    """{letter: highest number} over THIS logical journal (`rel` and its seed) in EVERY worktree of this clone (first use of
+    the counter, or a damaged one -- the safe direction is higher). Runs a subprocess and reads files: never under the lock."""
     out: dict = {}
     for wt in worktrees_of(root):
-        files = list((wt / jk.JOURNAL_DIR_REL).glob("*.jsonl")) + [wt / jk.HISTORY_REL]
-        for path in files:
-            try:
-                text = path.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-            for match in TASK_IN_JSON_RE.finditer(text):
-                parsed = jk.parse_id(match.group(1))
-                if parsed is not None:
-                    out[parsed[1]] = max(out.get(parsed[1], 0), int(parsed[0]))
+        try:
+            _text, file_lines, seed = read_journal(wt, rel)
+        except Refused:
+            continue
+        for letter, number in jk.max_by_letter(_objs(seed + file_lines)).items():
+            out[letter] = max(out.get(letter, 0), number)
     return out
 
 
@@ -297,35 +308,37 @@ def _hooklib():
 
 @dataclass
 class _Pre:
-    forge: Path
     letter: object
     letter_why: object
     counter_path: Path
-    scan: object
-    notes: list
 
 
 def _pre_lock(root: Path, need_counter: bool) -> _Pre:
     forge = journal_lock.lock_dir(root)
     letter, why = letter_of(root, forge) if need_counter else (None, None)
-    counter_path = forge / COUNTER_NAME
-    scan, notes = None, []
-    if need_counter:
-        peek, note = load_counter(counter_path)
-        if peek is None:
-            scan = scan_worktrees(root)
-            if note:
-                notes.append(note)
-    return _Pre(forge, letter, why, counter_path, scan, notes)
+    return _Pre(letter, why, forge / COUNTER_NAME)
 
 
-def _counter_in_lock(pre: _Pre) -> dict:
-    counter, _note = load_counter(pre.counter_path)
-    if counter is None:
-        if pre.scan is None:
-            raise Refused(3, "the id counter changed while this call waited; run it again (nothing written)")
-        counter = dict(pre.scan)
-    return counter
+@contextlib.contextmanager
+def _locked_counter(root: Path, rel: str, pre: _Pre, need_counter: bool, timeout: float, notes: list):
+    """Hold the journal lock and yield the counter dict. The counter file is read ONLY inside the lock; when it is absent or
+    damaged the lock is released, the worktrees are scanned (a subprocess), and the lock is retaken -- the in-lock file wins
+    over the scan when another process wrote it meanwhile."""
+    scan, note = None, None
+    while True:
+        with journal_lock.machine_lock("journal", timeout, repo=root):
+            counter = {}
+            if need_counter:
+                counter, seen_note = load_counter(pre.counter_path)
+                note = seen_note or note
+                if counter is None and scan is not None:
+                    counter = dict(scan)
+            if counter is not None:
+                if note:
+                    notes.append(note)
+                yield counter
+                return
+        scan = scan_worktrees(root, rel)
 
 
 def _need_letter(pre: _Pre):
@@ -350,16 +363,16 @@ def reserve_ids(root, n: int = 1, *, lock_timeout: float = CLI_LOCK_TIMEOUT) -> 
         rel = _journal_path(root)
         pre = _pre_lock(root, True)
         letter = _need_letter(pre)
-        with journal_lock.machine_lock("journal", lock_timeout, repo=root):
+        notes: list = []
+        with _locked_counter(root, rel, pre, True, lock_timeout, notes) as counter:
             _text, file_lines, seed = read_journal(root, rel)
-            counter = _counter_in_lock(pre)
             fmax = jk.max_by_letter(_objs(seed + file_lines))
             first = max(counter.get(letter, 0), fmax.get(letter, 0)) + 1
             if first + n - 1 > ID_NUMBER_MAX:
                 raise Refused(2, f"the id numbers of letter {letter or '(none)'} are used up")
             counter[letter] = first + n - 1
             save_counter(pre.counter_path, counter)
-        return Result(True, ids=[fmt_id(first + i, letter) for i in range(n)], errors=pre.notes)
+        return Result(True, ids=[fmt_id(first + i, letter) for i in range(n)], errors=notes)
     except Refused as exc:
         return Result(False, code=exc.code, messages=[exc.text])
     except journal_lock.LockBusy as exc:
@@ -392,14 +405,37 @@ def _prepare(obj: dict, via: str) -> dict:
     for key, value in list(obj.items()):
         if isinstance(value, str):
             obj[key] = clean(value, keep_newline=(key == "witness"))
-    notes = obj.get("notes")
-    if not isinstance(notes, str) or not notes.strip():
-        raise Refused(2, "notes are required: one non-empty line saying what happened and why")
-    if via == "cli" and len(notes) > NOTES_MAX:
-        raise Refused(2, f"notes are at most {NOTES_MAX} characters (CLAUDE.md rule 12); got {len(notes)} -- shorten them, "
-                         "the long text goes into a file the notes name")
+    check_notes(obj.get("notes"), via)
     obj["via"] = via
     return obj
+
+
+def check_notes(notes, via: str = "cli") -> None:
+    """The ONE notes check: non-empty after cleaning; at most NOTES_MAX characters on the CLI (the hooks are not capped here)."""
+    text = clean(notes) if isinstance(notes, str) else ""
+    if not text.strip():
+        raise Refused(2, "notes are required: one non-empty line saying what happened and why")
+    if via == "cli" and len(text) > NOTES_MAX:
+        raise Refused(2, f"notes are at most {NOTES_MAX} characters (CLAUDE.md rule 12); got {len(text)} -- shorten them, "
+                         "the long text goes into a file the notes name")
+
+
+def _fill_returned(obj: dict, state: list) -> None:
+    """`returned` names the worker it closes: agent / model / category come from the matching delegated (task + worker_ref),
+    read inside the lock; a given value wins. No agent, given or found -> refused."""
+    match = None
+    for old in _objs(state):
+        if old.get("event") == "delegated" and old.get("task_id") == obj.get("task_id") and old.get("worker_ref") == obj.get("worker_ref"):
+            match = old
+    agent = obj.get("agent") or (match or {}).get("agent")
+    if not agent:
+        raise Refused(2, f"no delegated of {obj.get('task_id')} with worker_ref {obj.get('worker_ref')!r} is in the journal, so "
+                         "`returned` has no agent to name -- check the task and the worker, or pass --agent for a repair")
+    obj["agent"] = agent
+    model = obj.get("model") or (match or {}).get("model")
+    if model:
+        obj["model"] = model
+    obj.setdefault("category", (match or {}).get("category") or _category(agent)[0])
 
 
 def _check_new_task(tid, pre: _Pre, counter: dict) -> None:
@@ -426,16 +462,19 @@ DOOR_TEXT = ("nothing was written; fix what is named above and run the call agai
 def _write_event(root: Path, obj: dict, via: str, lock_timeout: float) -> Result:
     obj = _prepare(obj, via)
     rel = _journal_path(root)
-    issuing = obj.get("event") == "delegated" and not obj.get("task_id")
-    need_counter = issuing or bool(obj.get("task_id"))
+    event = obj.get("event")
+    issuing = event == "delegated" and not obj.get("task_id")
+    new_task = event in NEW_TASK_EVENTS and bool(obj.get("task_id"))      # other events point at a task: the validator judges them
+    need_counter = issuing or new_task
     pre = _pre_lock(root, need_counter)
-    result = Result(False, errors=list(pre.notes), path=rel)
-    with journal_lock.machine_lock("journal", lock_timeout, repo=root):
+    result = Result(False, path=rel)
+    with _locked_counter(root, rel, pre, need_counter, lock_timeout, result.errors) as counter:
         text, file_lines, seed = read_journal(root, rel)
         state = seed + file_lines
-        counter, dirty = {}, False
+        dirty = False
+        if event == "returned":
+            _fill_returned(obj, state)
         if need_counter:
-            counter = _counter_in_lock(pre)
             if issuing:
                 letter = _need_letter(pre)
                 fmax = jk.max_by_letter(_objs(state))
@@ -458,12 +497,20 @@ def _write_event(root: Path, obj: dict, via: str, lock_timeout: float) -> Result
         violations = jv.validate_new_lines([line], file_lines, now, seed_lines=seed)
         if violations:
             raise Refused(2, "\n".join(str(v) for v in violations) + "\n" + DOOR_TEXT)
-        _hooklib().append_jsonl_line(root / rel, line)
-        if dirty:
-            save_counter(pre.counter_path, counter)
         line_no = text.count("\n") + (1 if text and not text.endswith("\n") else 0) + 1
+        _hooklib().append_jsonl_line(root / rel, line)
+        # from here on the line is IN the journal: nothing below may turn into "nothing written"
+        counter_warn = None
+        if dirty:
+            try:
+                save_counter(pre.counter_path, counter)
+            except Exception as exc:  # noqa: BLE001
+                counter_warn = (f"WARN counter not updated: {type(exc).__name__}; the next call takes max(counter, file), "
+                                "so no id is reused")
     tid = ordered.get("task_id")
     messages = [f"journal: {ordered.get('event')} {tid or '-'} written ({rel}:{line_no})"]
+    if counter_warn:
+        messages.append(counter_warn)
     with contextlib.suppress(Exception):
         messages.extend(jv.feature_warnings([line], file_lines))
         messages.extend(jv.node_warnings([line], file_lines))
@@ -574,7 +621,7 @@ def claim_letter(root: Path, *, lock_timeout: float = CLI_LOCK_TIMEOUT) -> Resul
         if mine is None:
             used = {r.get("letter") for r in own + others if r.get("slug") == slug}
             names = [""] + [chr(c) for c in range(97, 123)] + [a + b for a in map(chr, range(97, 123)) for b in map(chr, range(97, 123))]
-            letter = next(n for n in names if n not in used)
+            letter = next(n for n in names if n not in used and jk.parse_id("t-001" + n) == ("001", n))
             mine = {"letter": letter, "slug": slug, "clone": cid, "since": _now().isoformat(timespec="seconds")}
         path = root / REGISTRY_REL
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -628,7 +675,7 @@ def _build_parser() -> argparse.ArgumentParser:
     add("decomposable", req=("agent", "notes"), opt=("task", "feature", "category"))
     add("degraded", req=("notes",), opt=("agent", "model", "reason", "scope", "feature", "category"))
     add("restored", req=("notes",), opt=("agent", "model", "feature", "category"))
-    add("calibrated", req=("notes",), opt=("agent", "model", "period", "events-reviewed", "feature", "category"))
+    add("calibrated", req=("notes",), opt=("agent", "model", "feature", "category"))
     add("event", req=("json",))
     p = add("clone", flags=("claim", "show"))
     return ap
@@ -672,14 +719,19 @@ def _delegated_obj(a) -> tuple:
     return obj, warn
 
 
-def _matching_delegated(root: Path, task: str, worker: str):
-    rel = _journal_path(root)
-    _text, file_lines, seed = read_journal(root, rel)
-    found = None
-    for obj in _objs(seed + file_lines):
-        if obj.get("event") == "delegated" and obj.get("task_id") == task and obj.get("worker_ref") == worker:
-            found = obj
-    return found
+def _precheck_task(root: Path, task: str) -> None:
+    """ADVISORY and read-only (no lock): before a witness command runs, `--task` is a task id of the read grammar that the journal
+    has seen or the counter has issued. The locked write stays the authority; a pass here promises nothing."""
+    parsed = jk.parse_id(task)
+    if parsed is None:
+        raise Refused(2, f"task id {str(task)[:40]!r}: {ID_GRAMMAR_TEXT}")
+    _text, file_lines, seed = read_journal(root, _journal_path(root))
+    if task in jv.extract_task_ids(seed + file_lines):
+        return
+    counter, _note = load_counter(journal_lock.lock_dir(root) / COUNTER_NAME)
+    if int(parsed[0]) > (counter or {}).get(parsed[1], 0):
+        raise Refused(2, f"{task} is not in the journal and was not issued, so the command was not run -- point --task at a real "
+                         f"earlier delegated (new ids come from `{jk.JOURNAL_WRITE_DOOR}`)")
 
 
 def _accept_obj(a, root: Path) -> tuple:
@@ -693,12 +745,9 @@ def _accept_obj(a, root: Path) -> tuple:
         raise Refused(2, "accepting a builder needs a witness: exactly one of --run \"<cmd>\", --witness-file <path>, "
                          "--witness \"<text>\"")
     notes = f"{a.notes} allow-red: {a.allow_red}" if a.allow_red else a.notes
-    cleaned = clean(notes)
-    if not cleaned.strip():
-        raise Refused(2, "notes are required: one non-empty line saying what happened and why")
-    if len(cleaned) > NOTES_MAX:
-        raise Refused(2, f"notes are at most {NOTES_MAX} characters (CLAUDE.md rule 12); got {len(cleaned)}")
+    check_notes(notes)                                 # before a --run executes; _prepare runs the same function again
     if a.run is not None:                              # POSITIONAL: before the lock
+        _precheck_task(root, a.task)
         witness, _rc = run_witness(a.run, root, allow_red=a.allow_red)
         witness_by = "run"
     elif a.witness_file is not None:
@@ -715,15 +764,9 @@ def _event_from_args(a, root: Path) -> tuple:
     if cmd == "delegated":
         return _delegated_obj(a)
     if cmd == "returned":
-        match = _matching_delegated(root, a.task, a.worker)
-        agent = a.agent or (match or {}).get("agent")
-        if not agent:
-            raise Refused(2, f"no delegated of {a.task} with worker_ref {a.worker!r} is in the journal, so `returned` has no "
-                             "agent to name -- check the task and the worker, or pass --agent for a repair")
-        model = a.model or (match or {}).get("model") or ""
-        obj, warn = _base("returned", agent, a.notes or "worker returned", a.category or (match or {}).get("category"),
-                          model=model or None, task_id=a.task, worker_ref=a.worker, feature=a.feature)
-        return obj, warn
+        obj = {"event": "returned", "task_id": a.task, "worker_ref": a.worker, "notes": a.notes or "worker returned"}
+        obj.update({k: v for k, v in (("agent", a.agent), ("model", a.model), ("category", a.category), ("feature", a.feature)) if v})
+        return obj, None             # agent / model / category are filled from the matching delegated, inside the lock
     if cmd == "accept":
         return _accept_obj(a, root)
     if cmd == "reject":
@@ -742,8 +785,7 @@ def _event_from_args(a, root: Path) -> tuple:
     if cmd == "restored":
         return _lead_obj("lead_restored", a), None
     if cmd == "calibrated":
-        events = _int(a.events_reviewed, "events-reviewed") if a.events_reviewed is not None else None
-        return _lead_obj("calibrated", a, period=a.period, events_reviewed=events), None
+        return _lead_obj("calibrated", a), None
     raise Refused(2, f"unknown subcommand {cmd}")
 
 
@@ -767,14 +809,8 @@ def _print_result(res: Result) -> int:
     return 0 if res.written else (res.code or 2)
 
 
-def _utf8_streams() -> None:
-    for stream in (sys.stdout, sys.stderr):
-        with contextlib.suppress(Exception):
-            stream.reconfigure(encoding="utf-8", errors="replace")
-
-
 def main(argv: list | None = None) -> int:
-    _utf8_streams()
+    streams.utf8_stdio()
     a = _build_parser().parse_args(argv)
     try:
         root = repo_root(a.repo or os.getcwd())
