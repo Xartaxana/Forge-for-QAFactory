@@ -32,19 +32,13 @@
    }
   },
   "qa-automator@S5": {
-   "result_text": "qa-automator S5 window · ok\nTC-1 · green · the test checks the cart total with a quantity\nTC-2 · unresolved · the story's kit makes this case manual; the stub automates only the auto cases\nwork/automation-manifest.json",
+   "result_text": "qa-automator S5 window · ok\nTC-1 · green · the test checks the cart total with a quantity\nwork/automation-manifest.json",
    "manifest_fragments": [
     {"then_bindings": [
-      {"case": "TC-1", "then": 1, "instance_id": "test_the_case", "assertion_ref": "qa-factory/tests/TC-1_test.py:6", "status": "covered"},
-      {"case": "TC-2", "then": 1, "instance_id": null, "assertion_ref": null, "status": "unresolved", "reason": "handed_to_person", "owner": "person", "part": "the empty cart", "detail": "open the cart page with no lines; the total reads zero and no checkout is offered"}
+      {"case": "TC-1", "then": 1, "instance_id": "test_the_case", "assertion_ref": "qa-factory/tests/TC-1_test.py:6", "status": "covered"}
      ],
      "obligation_bindings": [{"obligation_id": "OB-1", "instance_ids": ["test_the_case"]}]}
-   ],
-   "overrides": {
-    "manifest_row": {
-     "tests[].obligation_refs[].obligation_hash": {"$absent": true}
-    }
-   }
+   ]
   },
   "qa-case-designer@S4": {
    "result_text": "qa-case-designer S4 DRY-1 · ok\nTC-1 · created · the case checks the cart total with a quantity\nwork/handoffs/S4-qa-case-designer-1.yaml",

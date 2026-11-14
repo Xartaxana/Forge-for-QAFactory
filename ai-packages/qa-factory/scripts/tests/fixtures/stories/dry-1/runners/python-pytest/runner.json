@@ -3,6 +3,7 @@
  "lang": "python",
  "profile_id": "dry-pytest",
  "command": "one_test",
+ "runtime_probe": {"argv": ["{python}", "{plugin_root}/scripts/runtime_probe.py", "--profile", "dry-pytest", "--environment", "dry-world", "--checkout", "."], "cwd": ".", "timeout_s": 30},
  "profile": {
   "profile_id": "dry-pytest",
   "commands": {

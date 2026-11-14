@@ -38,7 +38,8 @@
   "artifact_tokens": {
     "<case id>": "case_id",
     "<bug id>": "bug_id",
-    "<the diff text>": "impl_diff"
+    "<the diff text>": "impl_diff",
+    "<channel>": "case_channel"
   },
   "artifact_templates": {
     "work/impl-diff.txt": {
@@ -170,7 +171,7 @@
       "ids": "cases",
       "file_name": "general/<case id>.md",
       "cites": {"body:Plan row:": "P"},
-      "template": "---\nid: <case id>\ntitle: <one line saying what the case checks>\narea: general\npriority: P1\nstatus: Draft\nchannel: auto\nreuse_decision: new\nupdated: 2026-11-13\ntask: <TICKET>\ncovers: [<R-n>]\ndefect_class: error-path\nbasis: requirement:<R-n>\nthen_oracles: [{\"then\": 1, \"source\": \"requirement\", \"ref\": \"<R-n>\"}]\n---\n\n# <case id>\n\nRequirements: <R-n>\nPlan row: <TS-n>\n\n## Steps\n\n1. <the first step the case takes>\n\n## Then\n\n1. <what must hold after the steps>\n\n## Obligation coverage\n\n| part | oracle | boundary | Then and evidence | residual gap |\n|---|---|---|---|---|\n| <the part of the obligation> | requirement:<R-n> | <the boundary observed> | Then 1 | none |\n",
+      "template": "---\nid: <case id>\ntitle: <one line saying what the case checks>\narea: general\npriority: P1\nstatus: Draft\nchannel: <channel>\nreuse_decision: new\nupdated: 2026-11-13\ntask: <TICKET>\ncovers: [<R-n>]\ndefect_class: error-path\nbasis: requirement:<R-n>\nthen_oracles: [{\"then\": 1, \"source\": \"requirement\", \"ref\": \"<R-n>\"}]\n---\n\n# <case id>\n\nRequirements: <R-n>\nPlan row: <TS-n>\n\n## Steps\n\n1. <the first step the case takes>\n\n## Then\n\n1. <what must hold after the steps>\n\n## Obligation coverage\n\n| part | oracle | boundary | Then and evidence | residual gap |\n|---|---|---|---|---|\n| <the part of the obligation> | requirement:<R-n> | <the boundary observed> | Then 1 | none |\n",
       "required": ["id", "title", "area", "priority", "status", "channel", "reuse_decision", "updated"]
     },
     "case": {
@@ -191,7 +192,7 @@
       "row_fields": {
         "from": "window_record.REQUIRED_ROW_FIELDS",
         "at": "tests",
-        "shapes": {"obligation_refs": [{"obligation_id": "<OB-n>", "obligation_hash": "<the hash of the obligation>"}]}
+        "shapes": {"obligation_refs": [{"obligation_id": "<OB-n>"}]}
       },
       "template": {
         "tests": [

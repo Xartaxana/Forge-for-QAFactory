@@ -222,7 +222,7 @@ def cut(text: str, limit: int = 400) -> str:
 STORIES = HERE / "fixtures" / "stories"
 ABSENT_JSON = {"$absent": True}        # in a row's `overrides`: the field is left out (`form_filler.ABSENT`, which JSON cannot carry)
 DEFAULT_WHY, DEFAULT_CHECKED = "access", "the refusal"       # RN1-9: a question names a class and what was read; a row that wants another says so
-CHANNELS = ("auto", "manual")
+CHANNELS = ("auto", "manual-agent", "manual-human")      # the case file's own `channel` words (the S4 exit gate's closed set): the kit names them, the filler writes them
 
 
 class Unfillable(Exception):
@@ -310,6 +310,7 @@ def kit_context(kit: dict, dispatch: str = "", impl_diff: str = "", cases=None, 
     import form_filler as FF
     ids = [c["id"] for c in kit["cases"]] if cases is None else list(cases)
     return FF.FillContext(task_key=kit["key"], dispatch_id=dispatch, requirements=list(kit["requirements"]), cases=ids,
+                          channels={c["id"]: c["channel"] for c in kit["cases"]},
                           minted={k: list(v) for k, v in kit["minted"].items()}, impl_diff=impl_diff, author_dispatch=author_dispatch, cases_root=cases_root)
 
 
@@ -351,6 +352,8 @@ def install_runner(project, row: dict) -> None:
         shutil.copytree(src, project, dirs_exist_ok=True)
     cfg = read_json(config_path(project))
     cfg["profiles"] = [p for p in cfg.get("profiles") or [] if not (isinstance(p, dict) and p.get("profile_id") == row["profile_id"])] + [row["profile"]]
+    if isinstance(row.get("runtime_probe"), dict):     # the row's data: the probe the factory's own reader (`execution_request.registered_probe`) takes; absent = no entry, as before
+        cfg.setdefault("execution", {}).setdefault("runtime_probes", {})[row["profile_id"]] = row["runtime_probe"]
     config_path(project).write_text(json.dumps(cfg, indent=2), encoding="utf-8")
 
 
@@ -1124,7 +1127,7 @@ def selftest_n2(tmp: Path) -> None:
     check_eq("N2 item 6: scenario_walk.load_story reads dry-1: id, task, synthetic, the nine stages", (story.id, story.task, [e["stage"] for e in story.walk]),
              ("dry-1", "DRY-1", [f"S{n}" for n in range(1, 10)]))
     check_eq("N2 item 6: the kit holds two requirements, one automated case and one manual case, and names the first runner row",
-             ([c["id"] for c in kit["cases"] if c["channel"] == "auto"], [c["id"] for c in kit["cases"] if c["channel"] == "manual"], kit["requirements"],
+             ([c["id"] for c in kit["cases"] if c["channel"] == "auto"], [c["id"] for c in kit["cases"] if c["channel"] == "manual-agent"], kit["requirements"],
               [r["id"] for r in runner_rows()], kit["runner"]), (["TC-1"], ["TC-2"], ["R-1", "R-2"], ["python-pytest"], "python-pytest"))
     # an unreadable story file is a red line naming the file; an empty runners folder is a refusal naming it
     def broken(name, files):
@@ -1480,9 +1483,26 @@ def selftest_n2c(tmp: Path) -> None:
             got_text = str(exc)
         check(f"N2e: `manifest_fragments` as {name} is a KitError naming the key", "qa-automator@S5.manifest_fragments" in got_text, got_text)
     mine = story["qa-automator@S5"]
-    check_eq("N2e: the story's S5 automator row: a digest line per case and the path, one fragment of `then_bindings`/`obligation_bindings`, the hash left out (the code writes it)",
-             (mine["result_text"].splitlines()[-1], [sorted(f) for f in mine["manifest_fragments"]], decode_overrides(mine["overrides"]["manifest_row"])),
-             ("work/automation-manifest.json", [["obligation_bindings", "then_bindings"]], {"tests[].obligation_refs[].obligation_hash": __import__("form_filler").ABSENT}))
+    check_eq("N2f: the story's S5 automator row: the path last, one fragment of `then_bindings`/`obligation_bindings`, no override (the filler writes no hash, edge 4)",
+             (mine["result_text"].splitlines()[-1], [sorted(f) for f in mine["manifest_fragments"]], mine.get("overrides")),
+             ("work/automation-manifest.json", [["obligation_bindings", "then_bindings"]], None))
+    import form_filler as FF
+    kit = load_kit("dry-1")
+    check_eq("N2f: the filler's case channel is the kit's: TC-1 auto, TC-2 manual-agent, a case the kit does not list auto (no kit: auto)",
+             (*(FF.replace(kit_context(kit), case_id=c).case_channel for c in ("TC-1", "TC-2", "TC-9")), FF.FillContext(case_id="TC-2").case_channel),
+             ("auto", "manual-agent", "auto", "auto"))
+    probe_world = harness.temp_project("qa-dry-n2f-")
+    install_runner(probe_world, runner_row(kit["runner"]))
+    import execution_request as ER
+    seen = ER.registered_probe(read_json(config_path(probe_world)), "dry-pytest")
+    check("N2f: the world's runtime probe row is one the factory's own reader takes (`registered_probe`): the plugin's runtime_probe.py for the profile",
+          bool(seen) and seen["argv"][1].endswith("runtime_probe.py") and "dry-pytest" in seen["argv"] and seen["cwd"] == ".", str(seen))
+    bare = {"id": "x", "profile_id": "p", "profile": {"profile_id": "p"}, "dir": str(probe_world / "none")}
+    install_runner(probe_world, bare)
+    check("N2f: a runner row with no `runtime_probe` writes no entry for its profile",
+          "p" not in (read_json(config_path(probe_world)).get("execution") or {}).get("runtime_probes", {}), "")
+    cased = FF.fill_artifact("work/test-cases/", kit_context(kit, cases=["TC-2"]))
+    check("N2f: the case file written for TC-2 says `channel: manual-agent`", "\nchannel: manual-agent\n" in next(iter(cased.files.values()), ""), str(cased.files)[:200])
 
 
 def rows_dir(tmp: Path, name: str, calls: list) -> Path:

@@ -8,6 +8,9 @@
   one manual case, the first runner row `python-pytest`) is readable by `scenario_walk.load_story` (P1-b N2)
 - dry story, main pass past gate A (P1-b N2e): the runner project holds one passing test (`test_cart.py`) so the reporter probe has a test to name and
   gate A records its approval; the profile command targets the project root; the story's S5 rows carry the scripted stand answer, the automator's
-  digest, its `then_bindings`/`obligation_bindings` fragment (`manifest_fragments`, merged by `manifest_put.py`) and a manifest override that
-  leaves the code-written hash out; the automator branch derives `profile_id` from the runner row and runs the role's scoped run
+  digest, its `then_bindings`/`obligation_bindings` fragment (`manifest_fragments`, merged by `manifest_put.py`); the automator branch derives `profile_id` from the runner row and runs the role's scoped run
   (`run_suite.py --mine`); a stop prints up to 6000 characters of the question details
+- dry story, S5 (P1-b N2f): the filler's manifest row sends `obligation_refs` with ids only (the code writes the hash, as the role contract says);
+  the case template takes each case's `channel` from the story kit (`FillContext.channels`, token `<channel>`; a case the kit does not list is
+  `auto`, as before) and the kit names the case file's own words (`auto`, `manual-agent`, `manual-human`); a runner row may carry a `runtime_probe`
+  that the world builder installs under `execution.runtime_probes` (the factory's own `runtime_probe.py` for the profile)

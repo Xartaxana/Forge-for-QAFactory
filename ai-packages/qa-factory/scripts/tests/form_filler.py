@@ -74,6 +74,14 @@ class FillContext:
     cases_root: str = ""         # what the token `<cases_root>` reads when the form has no plain `cases_root` field: the world's own case store, as the
                                  # product's reader (`contract.cases_root`) resolves it there; empty keeps the token unfillable (the caller names it)
 
+    channels: dict = field(default_factory=dict)   # case id -> `auto` | `manual`: the story kit's channel of each case (the one source in a dry world)
+
+    @property
+    def case_channel(self) -> str:
+        """What the artifact token `<channel>` reads: the kit's channel of the case being written; a case the kit gives none (or no kit at all) is `auto`."""
+        given = self.channels.get(self.case_id) if isinstance(self.channels, dict) else None
+        return given if isinstance(given, str) and given.strip() else "auto"
+
     @property
     def first_case(self) -> str:
         """What the token `<case>` reads: the case `fill_artifact` is writing, else the first case of the world; empty when there is none."""

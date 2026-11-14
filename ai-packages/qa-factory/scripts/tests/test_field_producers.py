@@ -775,8 +775,8 @@ def every_stage_output_fills_or_is_named() -> None:
               and FF.required_of(row_name)[:len(fields)] == [f"tests[0].{f}" for f in fields], f"fields {fields}, row {sorted(made)}")
         check(f"output: {row_name}[its marker and file are the ones of {test_name}]", made["marker"] == "TC-001" and made["covers"] == ["TC-001"]
               and f"project:{made['file'].removeprefix('qa-factory/')}" in FF.fill_artifact(test_name, ctx).files, f"{made['file']} / {list(FF.fill_artifact(test_name, ctx).files)}")
-        check(f"output: {row_name}[the obligation refs are objects with an id and a hash]", isinstance(made["obligation_refs"], list)
-              and sorted(made["obligation_refs"][0]) == ["obligation_hash", "obligation_id"], str(made["obligation_refs"]))
+        check(f"output: {row_name}[the obligation refs are objects with an id and no hash (the code writes it, N2f)]", isinstance(made["obligation_refs"], list)
+              and sorted(made["obligation_refs"][0]) == ["obligation_id"], str(made["obligation_refs"]))
         for field_name in fields:                      # E20 on every field the module names: ABSENT removes exactly that key
             got = FF.fill_artifact(row_name, ctx, overrides={f"tests[0].{field_name}": FF.ABSENT})
             kept = json.loads(got.files[manifest_out])["tests"][0] if got.files else {}
