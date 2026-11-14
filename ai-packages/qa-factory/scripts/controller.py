@@ -8553,6 +8553,9 @@ class Controller:
             elif (last.get("status") == "accepted" and not last.get("stage_complete")
                   and not last.get("unresolved")  # work it named itself is not a closure
                   and stage_closes_with(stage, str(last.get("role") or ""))
+                  # S3 has two windows of its last role: an accepted window 1 (labelling) is BETWEEN them, not the end (t-654 T1-b);
+                  # `s3_window_of` is the one reader (any other stage answers "exit", so S2 is untouched)
+                  and s3_window_of(last) != "labelling"
                   and not any(d.get("status") in OPEN_AFTER_CLOSURE for d in own)):
                 fixes.append({"kind": "stage_completed", "stage": stage, "dispatch_id": last.get("id"),
                               "reason": f"recover: {stage}'s last role {last.get('role')} was accepted "

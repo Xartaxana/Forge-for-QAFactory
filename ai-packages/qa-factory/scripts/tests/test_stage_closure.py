@@ -192,8 +192,17 @@ def author_last_closes_by_repair():
             ("S2 tester accepted without stage_complete, nothing open: closed by repair", "S2", "qa-requirements-tester", {}, 1),
             ("S2 tester accepted with unresolved named: not closed", "S2", "qa-requirements-tester", {"unresolved": "R-1"}, 0),
             ("S2 tester still running: nothing is repaired", "S2", "qa-requirements-tester", {"status": "running"}, 0),
-            ("S3 strategist exit window accepted without stage_complete, nothing open: closed by repair", "S3", "qa-test-strategist", {}, 1)):
-        # T1-b (S3 between the windows is not closed by `stage_repairs`) is NOT pinned here: its row was RED on this tree (returned to the Lead)
+            ("S3 strategist exit window accepted without stage_complete, nothing open: closed by repair", "S3", "qa-test-strategist", {}, 1),
+            # T1-b (t-654 fix round): the parameter ids name the case. A record with no `request_binding` is an exit window (the
+            # reader `s3_window_of` answers "exit" for everything but the labelling word; a window 1 always carries its purpose).
+            ("s3-between-windows-not-closed: window 1 (purpose s3_labelling) accepted, no stage_complete, nothing open", "S3",
+             "qa-test-strategist", {"request_binding": {"purpose": "s3_labelling"}}, 0),
+            ("s3-after-last-window-closed: exit window with another purpose in its binding", "S3", "qa-test-strategist",
+             {"request_binding": {"purpose": "exit"}}, 1),
+            ("s3-purpose-absent: binding without a purpose is an exit window, closed", "S3", "qa-test-strategist",
+             {"request_binding": {"reason": "x"}}, 1),
+            ("s2-unchanged: S2 tester carrying the labelling word is still closed (S2 has no windows)", "S2",
+             "qa-requirements-tester", {"request_binding": {"purpose": "s3_labelling"}}, 1)):
         fixes = Controller.stage_repairs(story(stage, role, **record))
         check_eq(f"T1 {label}", [(f["kind"], f["stage"]) for f in fixes], [("stage_completed", stage)] * want)
 

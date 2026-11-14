@@ -2361,8 +2361,11 @@ def p1v_n3_brief_size_record() -> None:
 # `RATCHET ROLE_BRIEF_BYTES_MAX <role> <n>`, write n here with a named raise line, and re-run green.
 # FV1-4 N1 (AR-20): re-based from the runtime ceiling BRIEF_MAX_BYTES (6144 budget B) to normalised bytes (harness.normalised_bytes);
 # measured 2026-11-13 on Windows (the helper makes the number machine-independent).
+# RAISE (AR-20, t-654 fix round of node A1a, Lead 2026-11-14): qa-case-critic 6130 -> 6580 (+450 B), measured. The S4 critic brief grows by
+# design: with the S2/S3 stage critics removed it reads the S2 outputs and advice (stages.json S4 `acceptance_reads`) and names the
+# S2 tester / S3 strategist forms in TRIED_READERS. The brief is not compacted.
 ROLE_BRIEF_BYTES_MAX = {
-    "qa-automator": 6863, "qa-bug-reporter": 4880, "qa-case-critic": 6130, "qa-case-designer": 5606, "qa-code-critic": 7189,
+    "qa-automator": 6863, "qa-bug-reporter": 4880, "qa-case-critic": 6580, "qa-case-designer": 5606, "qa-code-critic": 7189,
     "qa-doc-scribe": 4910, "qa-failure-analyst": 6442, "qa-requirements-tester": 5510, "qa-retro-analyst": 4404, "qa-runner": 5670,
     "qa-scout": 6416, "qa-test-strategist": 6375,
 }
