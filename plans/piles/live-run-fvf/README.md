@@ -21,7 +21,7 @@
 | № | Что изменится для пользователя | Строки | Размер | Статус | Взял | Ветка | MR |
 |---|---|---|---|---|---|---|---|
 | 1 | фабрика доходит до тестов без ручной помощи оператора; слова человека доходят и исполняются | FV1-1…FV1-30 | L | ожидает | — | — | — |
-| 2 | читатели и носители, найденные критиками 13.11.2026: `_plan_row_of`, `BY_LEAF`, `py.test`, выходы без читателя и мелкие хвосты | FV2-1…FV2-75 | L | ожидает | — | — | — |
+| 2 | читатели и носители, найденные критиками 13.11.2026: `_plan_row_of`, `BY_LEAF`, `py.test`, выходы без читателя и мелкие хвосты | FV2-1…FV2-78 | L | ожидает | — | — | — |
 
 Статусы пачки: `ожидает` → `в работе` → `сдано` → `принято` → `закрыта`. Размер — по узлам: S ≤ 4 узлов,
 M 5–9, L 10–15 (больше — две пачки). Взятая пачка заморожена: её файл правит только взявший, новое
@@ -141,6 +141,9 @@ M 5–9, L 10–15 (больше — две пачки). Взятая пачка
 | `findings/20261114-sekret-v-svobodnom-tekste-strok-pervogo-vzglyada.md` | находка, id — | гард секрета не смотрит `why`, `quote`, `path.api.sample.response` строк первого взгляда | `scripts/first_look.py`, `scripts/tests/test_first_look.py` | пачка 2, FV2-73 | нет | критик диффа FV1-28 волны 1 (Q2); AR-28, AR-15 |
 | `findings/20261114-literaly-sekreta-garda-bez-secret-keys-i-patternov-proekta.md` | находка, id — | литералы гарда берут только пароль аккаунта: `secret_keys` и `secret_content_patterns` проекта не учтены; до C1 | `scripts/first_look.py`, `scripts/tests/test_first_look.py` | пачка 2, FV2-74 | нет | критик диффа FV1-28 волны 1 (Q5); AR-13, AR-28 |
 | `findings/20261114-p1b-n4w-proverki-c7-c8-c10-ne-postroeny-i-sled-na-ryady.md` | находка, id — | ходок строк выхода не строит C7, C8, C10: строка печатает «pending judge»; узел-след после N4w | — (ветка `wip/p1b-n4w`) | пачка 2, FV2-75 | C8: да (F9, E22 спеки N4w) | спека N4w §13 (Q-1); AR-24, AR-26 |
+| `findings/20261114-p1b-9-rolevoj-provenance-ne-sveryaetsya-s-zapisyu-okna.md` | находка, id — | роль-типизированный `runtime_provenance` не сверяется с `window_runtime_record`: код и роль заполняют поле двумя дорогами (Q-L1) | `scripts/handoff_check.py`, `scripts/tests/test_handoff.py` | пачка 2, FV2-76 | нет | критик темы P1B-9 (Q-L1); AR-13, AR-28 |
+| `findings/20261114-p1b-9-s5-formy-do-p1b-9-stoyat-na-prichine-e.md` | находка, id — | истории до P1B-9 с записью A3 `refs: []`: формы S5 стоят на причине e до следующего прогона; наблюдать, кода нет (Q-3) | — | пачка 2, FV2-77 | нет | критик темы P1B-9 (Q-3); AR-28 |
+| `findings/20261114-p1b-9-review-receipt-pervyj-zagolovok-drugoj-poryadok.md` | находка, id — | `_review_receipt` берёт `dispatch` заголовком вперёд, два других вывода — порядком `_form_dispatch`: один порядок (Q-4) | `scripts/handoff_check.py`, `scripts/tests/test_handoff.py` | пачка 2, FV2-78 | нет | критик темы P1B-9 (Q-4, S-2); AR-13 |
 
 ## Входящие
 

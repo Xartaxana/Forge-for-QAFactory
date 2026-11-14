@@ -25,3 +25,8 @@ id: — | кучка: `live-run-fvf` | от: план-критик P1B-9 (`docs/
 Связи: `findings/20261114-p1b-9-handoff-check-pustye-ishody-polej-s5.md` (тот же файл `handoff_check.py`, другие функции).
 
 Решение владельца нужно: нет.
+
+## Поправка вердикта P1B-9 (Q-2)
+
+Источник: критик темы P1B-9 (`docs/tasks/specs/reviews/20261114-p1b-9-topic-diff-critic.md`, «Queue lines», Q-2). После C3 пункты 1-2 выше («новая функция `provenance_record`» и перевод `handoff_check._runtime_provenance`) — второй читатель того же факта (AR-13, P31).
+Узел сужен до L-2 ровно: `driver_dispatch.walk_run_values` привязывает `evidence_refs[0]` стартовой пробы через хвостовой разрешитель, ВЫНЕСЕННЫЙ из `handoff_check.window_runtime_record` (одна функция, два зовущих); `handoff_check.py` из «Пишет в» убран. C1 сделал L-2 срочнее: файлы A3/A5 теперь сортируются среди последних имён.
