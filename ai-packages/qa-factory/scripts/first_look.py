@@ -31,6 +31,7 @@ import hashlib
 import json
 import re
 import sys
+import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -57,7 +58,16 @@ REQ_ID = re.compile(r"R-\d+")
 COMMIT = re.compile(r"[0-9a-f]{40}")
 
 # The shape of the form (its field names are the contract, `references/artifact-contract-first-look.md`); the WORDS they take are data.
-TOP_KEYS = ("rows", "gaps")
+TOP_KEYS = ("rows", "gaps", "sign_in")
+# `sign_in`: the way in the walker found. The closed lists are data (`sign_in_keys`, `sign_in_surfaces`, `sign_in_surface_keys`,
+# `sign_in_fields_keys`, `sign_in_landed_keys`, `sign_in_access_keys`, `sign_in_http_refused_kinds`); the code holds the two surface words.
+SIGN_IN_UI, SIGN_IN_HTTP = "ui", "http"
+SIGN_IN_SCRUBBED = ("url", "steps", "why")      # the keys, besides the surface keys, whose text `app_card.scrub` reads
+SIGN_IN_STEPS_MAX = 20          # lines of `steps`
+SIGN_IN_LINE_MAX = 300          # characters of one line of `steps`
+SIGN_IN_TEXT_MAX = 500          # characters of `url`, of a selector, of a `url_not` fragment, of a string of `access`
+SIGN_IN_LIST_MAX = 20           # entries of `landed.url_not`
+NOT_PRINTED = "[not printed]"   # what stands where a refusal would have echoed an account value
 SENT_BY_CODE = ("walked_at", "walk", "stand", "stand_build", "source_head", "register_hash", "sides_met", "null")
 ROW_KEYS = ("req", "status", "blocked_by", "why", "evidence", "quote", "path")
 PATH_KEYS = ("url", "steps", "locators", "api", "data", "roles", "stand_needs")
@@ -75,6 +85,12 @@ def data() -> dict:
 def _words(key: str) -> list:
     value = data().get(key)
     return [str(w) for w in value] if isinstance(value, list) else []
+
+
+def _surface_keys() -> dict:
+    """`{surface: [keys only that surface's way in holds]}` (data: `sign_in_surface_keys`); `{}` when the file cannot say."""
+    value = data().get("sign_in_surface_keys")
+    return {str(k): [str(w) for w in v] for k, v in value.items() if isinstance(v, list)} if isinstance(value, dict) else {}
 
 
 def red_statuses() -> list:
@@ -391,6 +407,268 @@ def _row_faults(row, n: int, ids: list, stand: str, walk: str, task_root) -> lis
     return out
 
 
+# --- the way in the walker found: what put checks of `sign_in` ---------------------------------------------------------------
+
+SIGN_IN_DOOR = "see references/artifact-contract-first-look.md, section `The way in you found`"
+
+
+def _leaves(value, where: str, hidden=None) -> list:
+    """`[(path, leaf, is_key)]` of every scalar leaf AND every dict key of a nested mapping / list (the path is for the problem text, never
+    the value: a key that `hidden(text)` calls a secret stands in the path as `NOT_PRINTED`)."""
+    if isinstance(value, dict):
+        out = []
+        for k, v in value.items():
+            shown = NOT_PRINTED if hidden is not None and hidden(str(k)) else k
+            out.append((f"{where}.{shown}", k, True))
+            out += _leaves(v, f"{where}.{shown}", hidden)
+        return out
+    if isinstance(value, list):
+        return [leaf for n, v in enumerate(value) for leaf in _leaves(v, f"{where}[{n}]", hidden)]
+    return [] if value is None else [(where, value, False)]
+
+
+def _holds_secret(text: str, secret: str) -> bool:
+    """The secret inside the text, compared case-folded, in the text as written and with ONE pass of URL-unquoting (not chased: `%252D`).
+    A secret of 4+ characters is a substring; a shorter one a whole token of the text (a token = a run of non-whitespace, with or without its
+    surrounding punctuation), so a 1-3 character secret does not refuse every text that has those letters in a word (C-3). Error direction:
+    over-refusal."""
+    needle = secret.casefold()
+    if not needle:
+        return False
+    for seen in {text.casefold(), urllib.parse.unquote(text).casefold()}:
+        if len(needle) >= 4:
+            if needle in seen:
+                return True
+        else:
+            tokens = seen.split()
+            if needle in tokens or needle in {t.strip("\"'`,.;:()[]{}!?") for t in tokens}:
+                return True
+    return False
+
+
+def _leaf_holds(leaf, secrets) -> bool:
+    """A leaf holds an account value: a string by `_holds_secret`; a number by its `str()` only against an all-digit secret; else no."""
+    if isinstance(leaf, str):
+        return any(_holds_secret(leaf, s) for s in secrets)
+    if isinstance(leaf, (int, float)) and not isinstance(leaf, bool):
+        return any(s.isdigit() and _holds_secret(str(leaf), s) for s in secrets)
+    return False
+
+
+def _scrub_changes(text: str) -> bool:
+    """`app_card.scrub(text, tokens=False)` changes the text (compared with the whitespace-folded text: a long selector or a double space
+    is not a secret)."""
+    import app_card
+    return app_card.scrub(text, tokens=False) != " ".join(text.split())
+
+
+def _shown(value, secrets, limit: int = 40) -> str:
+    """The role's value as a refusal may echo it: the first `limit` characters, or `NOT_PRINTED` when it holds an account value or
+    `scrub` would change it (a refusal never prints a value that may be the secret)."""
+    text = str(value)
+    if _leaf_holds(text, secrets) or _scrub_changes(text):
+        return NOT_PRINTED
+    return text[:limit]
+
+
+def sign_in_secret_faults(sign_in, literals) -> list:
+    """Problems of the `sign_in` text that look like a secret, each naming the FIELD PATH and never the value; `[]` when clean. Pure. (a) a
+    string leaf of `url`, `steps`, `why` and of the surface keys (`fields`, `landed`, `access`) that `app_card.scrub(v, tokens=False)`
+    changes; (b) EVERY leaf and EVERY dict key at any depth that holds one of `literals` - the secret values of the walk's accounts, read in
+    memory by the caller (case-folded, URL-unquoted once; an empty literal is no literal). A safety guard on data (AR-29): it never judges
+    whether the way is right. ONE guard for the walker's record here and for the registry later (AR-15)."""
+    if not isinstance(sign_in, dict):
+        return []
+    secrets = [s for s in (str(x) for x in (literals or [])) if s]
+    scrubbed = set(SIGN_IN_SCRUBBED) | {k for keys in _surface_keys().values() for k in keys}
+    hidden = lambda text: _leaf_holds(text, secrets) or _scrub_changes(text)  # noqa: E731
+    out = []
+    for top, value in sign_in.items():
+        for where, leaf, is_key in _leaves({top: value}, "sign_in", hidden):
+            if top in scrubbed and not is_key and isinstance(leaf, str) and _scrub_changes(leaf):
+                out.append(f"`{where}` looks like a secret value (a password, token or cookie); record names and selectors only")
+            elif _leaf_holds(leaf, secrets):
+                out.append(f"`{where}` holds an account value of this walk; record names and selectors only, never a value")
+    return out
+
+
+def _account_secrets(task_root, stand: str, actors: list) -> tuple:
+    """`(secrets, problems)`: the SECRET values of the walk's account actors, read in memory through `manual_capture.read_login` (a
+    user name is a handle, C-3). A project with no `qa-factory/config.json` above the story holds no account value: `([], [])`. An actor
+    whose values cannot be read is a problem (FR-59: the guard does not pass on an unknown)."""
+    names = [a for a in actors if a != WS.GUEST]
+    if not names:
+        return [], []
+    import manual_capture as MC
+    import runtime_paths
+    if runtime_paths.nearest_project(Path(task_root)) is None:
+        return [], []
+    try:
+        cfg, project = MC.load_config(task_root)
+        row = WS.env_row(cfg, stand)[0]
+    except ValueError:
+        cfg, project, row = None, None, {}
+    secrets, problems = [], []
+    for actor in names:
+        try:
+            login = MC.read_login(cfg, project, actor=actor, stand=row, task_root=task_root) if cfg is not None else None
+            secret = str(getattr(login, "password", "") or "") if login is not None else None
+        except Exception:  # noqa: BLE001 - any reader failure is "cannot be read now"
+            secret = None
+        if secret is None:
+            problems.append(f"the account values of `{actor}` cannot be read now, so `sign_in` cannot be checked against them; leave "
+                            "`sign_in` out and say in `gaps` how you signed in")
+        elif secret:
+            secrets.append(secret)
+    return secrets, problems
+
+
+def _text_limit_faults(text, limit: int, where: str) -> list:
+    return [f"{where} is longer than {limit} characters (the limit); say it shorter"] if isinstance(text, str) and len(text) > limit else []
+
+
+def _unknown_keys(where: str, mapping: dict, allowed: list, secrets) -> list:
+    """One problem per key of `mapping` outside `allowed`; the key is echoed through `_shown` (it may be the secret)."""
+    return [f"`{where}`: unknown key `{_shown(k, secrets)}` (allowed: {', '.join(allowed)})" for k in mapping if k not in allowed]
+
+
+def _sign_in_fields_faults(fields, secrets) -> list:
+    if not isinstance(fields, dict):
+        return ["`sign_in.fields` is a mapping with `user`, `secret` and optional `submit` (the selectors of the sign-in page)"]
+    allowed = _words("sign_in_fields_keys")
+    out = _unknown_keys("sign_in.fields", fields, allowed, secrets)
+    for key in allowed:
+        value = fields.get(key)
+        if value in (None, "") and key != "submit":
+            out.append(f"`sign_in.fields.{key}` is the selector text of that field of the sign-in page")
+        elif value not in (None, "") and not _text_of(value):
+            out.append(f"`sign_in.fields.{key}` is selector text")
+        else:
+            out += _text_limit_faults(value, SIGN_IN_TEXT_MAX, f"`sign_in.fields.{key}`")
+    return out
+
+
+def _sign_in_landed_faults(landed, secrets) -> list:
+    if landed in (None, ""):
+        return []
+    if not isinstance(landed, dict):
+        return ["`sign_in.landed` is a mapping with `url_not`: address fragments that mean `still on the sign-in page`"]
+    out = _unknown_keys("sign_in.landed", landed, _words("sign_in_landed_keys"), secrets)
+    listed = landed.get("url_not")
+    out += _list_faults(listed, "`sign_in.landed.url_not`")
+    if isinstance(listed, list) and all(_text_of(v) for v in listed):
+        if len(listed) > SIGN_IN_LIST_MAX:
+            out.append(f"`sign_in.landed.url_not` holds {len(listed)} entries; at most {SIGN_IN_LIST_MAX} (the limit)")
+        for n, fragment in enumerate(listed):
+            out += _text_limit_faults(fragment, SIGN_IN_TEXT_MAX, f"`sign_in.landed.url_not[{n}]`")
+    return out
+
+
+def _sign_in_access_faults(key: str, access, secrets) -> list:
+    """The http way (`sign_in.<key>`, the surface's own key): an `environment.access`-shaped object of a closed shape - a `kind` (required),
+    keys of the data list `sign_in_access_keys` only, strings that are text within the limit, and never a command kind."""
+    import config_contract
+    where = f"sign_in.{key}"
+    out = [f"`{where}`: {why}" for why in config_contract.access_errors(access)]
+    if not isinstance(access, dict):
+        return out
+    refused = _words("sign_in_http_refused_kinds")
+    kind = str(access.get("kind") or "")
+    if not kind:
+        out.append(f"`{where}.kind` names how the request signs in (one of: "
+                   f"{', '.join(k for k in config_contract.ACCESS_KINDS if k not in refused)})")
+    elif kind in refused:
+        out.append(f"`{where}.kind` is `{kind}`: a way in found in a story names a request, never a command; record the ui way, or leave "
+                   "`sign_in` out")
+    allowed = _words("sign_in_access_keys")
+    out += _unknown_keys(where, access, allowed, secrets)
+    for name, value in access.items():
+        if name not in allowed or name == "unauth_status":      # a list of HTTP codes: `access_errors` reads it
+            continue
+        if not isinstance(value, str):
+            out.append(f"`{where}.{name}` is text (a name, an address or a word), not a mapping, a list or a number")
+        else:
+            out += _text_limit_faults(value, SIGN_IN_TEXT_MAX, f"`{where}.{name}`")
+    return out
+
+
+def _sign_in_evidence_faults(task_root, sign_in: dict, walk: str, stand: str, secrets) -> list:
+    """`evidence`, `quote` and `req`: every cited path through `walk_session.capture_cited` (a reason names the path)."""
+    out = []
+    evidence, quote, req = sign_in.get("evidence"), sign_in.get("quote"), sign_in.get("req")
+    listed = evidence if isinstance(evidence, list) and evidence and all(_text_of(e) for e in evidence) else []
+    if not listed:
+        out.append("`sign_in.evidence` is a list of capture paths of this walk (one `- <path>` each): a way in with no capture that shows "
+                   "you landed never reaches the record")
+    if quote is None:
+        out.append("`sign_in.quote` is words copied from the captures in `evidence`, as the capture holds them")
+    elif not isinstance(quote, str):
+        out.append("`sign_in.quote` is text: words copied from the captures in `evidence`")
+    if not (isinstance(req, str) and REQ_ID.fullmatch(req)):
+        out.append(f"`sign_in.req` is the requirement (R-n) whose survey attempt holds the captures; got {_shown(req, secrets)!r}")
+    elif listed and isinstance(quote, str):
+        for n, path in enumerate(listed):
+            shown = _shown(path, secrets, 120)
+            if shown == NOT_PRINTED:        # the path may be a secret: refused by field here, and `capture_cited` (which echoes a path) is not asked
+                out.append(f"`sign_in.evidence[{n}]` is not a capture path of this walk (a path that looks like a secret value is not printed)")
+                continue
+            reason = WS.capture_cited(task_root, walk, req, path, quote, stand)
+            if reason:
+                out.append(f"`sign_in.evidence` `{shown}`: {reason}")
+    return out
+
+
+def _sign_in_faults(task_root, sign_in, attempt) -> list:
+    """What is wrong with the role's `sign_in` (part of the put_problems unit; not a unit of its own): keys and surface words from data,
+    the surface's own keys, the limits, `actor` among the walk's actors, the evidence against the walk, and the secret guard. Data only
+    (AR-29): whether the way is the right one is the role's, never checked here."""
+    if not isinstance(sign_in, dict):
+        return [f"`sign_in` is a mapping (surface, actor, url, evidence, quote, req, why ...) or is left out; {SIGN_IN_DOOR}"]
+    walk, stand = str(attempt.get("walk") or ""), str(attempt.get("env") or "")
+    actor = sign_in.get("actor")
+    actors = WS.read_record(task_root, walk).get("actors") if walk else None
+    actors = [str(a) for a in actors] if isinstance(actors, list) else []
+    secrets, problems = _account_secrets(task_root, stand, actors)      # first: every echo below goes through `_shown(v, secrets)`
+    surfaces = _words("sign_in_surfaces")
+    out = _unknown_keys("sign_in", sign_in, _words("sign_in_keys"), secrets)
+    surface = sign_in.get("surface")
+    if surface not in surfaces:
+        out.append(f"`sign_in.surface` is one of: {', '.join(surfaces)}; got {_shown(surface, secrets)!r}")
+        surface = ""
+    for key in ("url", "why"):
+        if not _text_of(sign_in.get(key)):
+            out.append(f"`sign_in.{key}` is text" + (": where the sign-in starts (ui) / the stand's base address (http)" if key == "url" else
+                                                      ": one sentence, what you did"))
+    out += _text_limit_faults(sign_in.get("url"), SIGN_IN_TEXT_MAX, "`sign_in.url`")
+    accounts = [a for a in actors if a != WS.GUEST]
+    if not _text_of(actor) or actor == WS.GUEST or actor not in actors:
+        out.append(f"`sign_in.actor` is one of the accounts this walk signed in as ({', '.join(accounts) or 'the walk has none'}), never "
+                   f"`{WS.GUEST}`: it names who signed in, never a key or a value; got {_shown(actor, secrets)!r}")
+    steps = sign_in.get("steps")
+    step_faults = _list_faults(steps, "`sign_in.steps`")
+    out += step_faults
+    if isinstance(steps, list) and not step_faults:
+        if len(steps) > SIGN_IN_STEPS_MAX:
+            out.append(f"`sign_in.steps` holds {len(steps)} lines; at most {SIGN_IN_STEPS_MAX} (the limit)")
+        for n, line in enumerate(steps):
+            out += _text_limit_faults(line, SIGN_IN_LINE_MAX, f"`sign_in.steps[{n}]`")
+    own = _surface_keys()
+    if surface:
+        wrong = [k for other, keys in own.items() if other != surface for k in keys]
+        out += [f"`sign_in.{k}` belongs to the other surface, not to `{surface}`; leave it out" for k in wrong if sign_in.get(k) not in (None, "")]
+    if surface == SIGN_IN_UI:
+        out += _sign_in_fields_faults(sign_in.get("fields"), secrets)
+        out += _sign_in_landed_faults(sign_in.get("landed"), secrets)
+    elif surface == SIGN_IN_HTTP:
+        for key in own.get(SIGN_IN_HTTP, []):
+            if sign_in.get(key) in (None, ""):
+                out.append(f"`sign_in.{key}` is required for surface `http`: an `environment.access`-shaped object (`kind`, `url`, key names)")
+            else:
+                out += _sign_in_access_faults(key, sign_in.get(key), secrets)
+    out += _sign_in_evidence_faults(task_root, sign_in, walk, stand, secrets)
+    return out + problems + sign_in_secret_faults(sign_in, secrets)
+
+
 def put_problems(task_root, record, attempt) -> list:
     """What is wrong with the role's record (J-C3), each with its door; `[]` when it can be written. `record` is the parsed mapping, `attempt`
     the open attempt (the walk and the stand come from it, never from the record). Data only (AR-29): the shape of the form, the words of the
@@ -425,6 +703,8 @@ def put_problems(task_root, record, attempt) -> list:
         out.append(f"no row for {', '.join(absent)}: every requirement of the register has one row (a requirement the stand does not show is "
                    "`missing`, never an absent row)")
     out += _list_faults(record.get("gaps"), "`gaps`")
+    if "sign_in" in record and record["sign_in"] not in (None, {}):       # absent, null and `{}` are "no way in recorded"
+        out += _sign_in_faults(task_root, record["sign_in"], attempt)
     return out
 
 
@@ -546,6 +826,8 @@ def put(task_root, file, null_reason="") -> dict:
     gaps = parsed.get("gaps") if isinstance(parsed.get("gaps"), list) else []
     record = {**frame, "rows": [{k: v for k, v in row.items() if v not in (None, "")} for row in parsed["rows"]],
               "gaps": [str(g) for g in gaps]}
+    if parsed.get("sign_in"):           # a mapping that passed `put_problems`; absent, null and `{}` store nothing
+        record["sign_in"] = {k: v for k, v in parsed["sign_in"].items() if v not in (None, "")}
     problems = _store(task, record)
     if not problems:
         _write_attempt(task, dict(attempt, outcome="written"))
@@ -556,12 +838,13 @@ def put(task_root, file, null_reason="") -> dict:
 # --- the questions (pure) ----------------------------------------------------------------------------------------------------
 
 def read(task_root) -> dict:
-    """THE reader of the record: `{rows, gaps, null, stale, stand_build, source_head, register_hash, walk, problem, absent}` (`absent`: the file does not exist; `state` classifies). `source_head` is the
-    record's map. `stale` is true when the record's heads differ from the current heads (value by value; `unmeasured: ...` is a value) or its
+    """THE reader of the record: `{rows, gaps, null, stale, stand_build, source_head, register_hash, walk, problem, absent, sign_in}` (`absent`: the file does not exist; `state` classifies). `source_head` is the
+    record's map. `sign_in` is the way in the walker found (the mapping of `put`), `{}` when the record has none (an old record, a null
+    record, a value that is no mapping) - an absent key reads as before. `stale` is true when the record's heads differ from the current heads (value by value; `unmeasured: ...` is a value) or its
     register hash from the current one, or the register cannot be read now. A record that is absent or cannot be read has `problem` and no
     rows; whether a stale record's rows are used is the caller's, and a stale record never confirms anything."""
     out = {"rows": [], "gaps": [], "null": "", "stale": False, "stand_build": "", "source_head": {}, "register_hash": "", "walk": "",
-           "problem": "", "absent": False}
+           "problem": "", "absent": False, "sign_in": {}}
     path = _record_path(task_root)
     if not path.is_file():
         out["absent"] = True
@@ -580,7 +863,8 @@ def read(task_root) -> dict:
     gaps = doc.get("gaps")
     out.update(rows=rows, gaps=[str(g) for g in gaps] if isinstance(gaps, list) else [], null=str(doc.get("null") or ""),
                stand_build=str(doc.get("stand_build") or ""), source_head={str(k): str(v) for k, v in (heads or {}).items()},
-               register_hash=str(doc.get("register_hash") or ""), walk=str(doc.get("walk") or ""))
+               register_hash=str(doc.get("register_hash") or ""), walk=str(doc.get("walk") or ""),
+               sign_in=doc["sign_in"] if isinstance(doc.get("sign_in"), dict) else {})
     text, reg_hash = current_keys(task_root)
     if not reg_hash:
         out["stale"], out["problem"] = True, "the register cannot be read now, so the record cannot be told current"
@@ -646,7 +930,10 @@ def share(task_root, cfg) -> dict:
 
 def due(task_root, pipeline, cfg) -> tuple:
     """`(bool, null_reason, why)`: is a first look to be walked now. Pure. False with `no_code_yet` when a deliverable side is absent; with
-    `empty_register` / `register_unreadable`; with `no_stand` when no stand is named or it is not confirmed; False with no reason when an
+    `empty_register` / `register_unreadable`; with `no_stand` when NO stand is named (a fact of the story). `pipeline.environment_pending`
+    (the probe at S0 could not log in) does NOT stop the look: that probe is a guess of code, the role decides whether it can reach the
+    stand (owner's word; FR-41, FR-59), and a stand that is really dead fails at `walk_session open`, which is `walk_not_opened`, never
+    "no stand". Order (positional invariant): parks_after_s5, register unreadable, empty register, no stand named, the attempt. False with no reason when an
     attempt on THESE heads and register already exists with the outcome walking, written or nothing_written (the paid dispatch is not
     repeated); an `open_failed` attempt (the role never ran, nothing was paid) is retried while `open_failures` <= `open_retry_max`, then
     False with `walk_not_opened`. Otherwise true. An empty or null record is no attempt. An attempt file that cannot be read is no attempt."""
@@ -659,8 +946,8 @@ def due(task_root, pipeline, cfg) -> tuple:
     if not register["ids"]:
         return False, "empty_register", "the register holds no requirement"
     environment = pipeline.get("environment") if isinstance(pipeline, dict) else None
-    if not environment or pipeline.get("environment_pending"):
-        return False, "no_stand", "no stand is named and confirmed for this story"
+    if not environment:
+        return False, "no_stand", "no stand is named for this story"
     text, reg_hash = current_keys(task_root)
     attempt = read_attempt(task_root)
     if attempt and _canon(attempt.get("source_head")) == text and attempt.get("register_hash") == reg_hash:

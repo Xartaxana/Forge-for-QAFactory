@@ -63,7 +63,64 @@ gaps:
   `response` - an observation, never an expectation), `data`, `roles`, `stand_needs` (lists of lines). A route the code names and the walker did
   not call is `seen: no` with no `sample`.
 - `gaps` are lines for what you could not establish.
+- `sign_in` is the way in you found (the section below this one).
 - A word of yours for `walked_at`, `walk`, `stand`, `stand_build`, `source_head`, `register_hash` or `sides_met` is ignored: code writes them.
+
+## The way in you found
+
+Find the way in yourself, as a tester would; the factory's own probe at the start is a guess, not a fact for you. Record the way that
+worked under `sign_in`, with a capture that shows you landed. If nothing worked, every requirement is `unreachable` with
+`blocked_by: access`, and `why` says what you tried (and you send no `sign_in`).
+
+`sign_in` is optional; absent, `null` or `{}` records no way in. Key names only below, never a value:
+
+```yaml
+sign_in:                      # a way in through the page
+  surface: ui
+  actor: default              # one of the accounts this walk signed in as; never guest
+  url: /login
+  steps:
+    - opened the sign-in page
+    - typed the account into the user box and the password box, pressed Sign in
+  fields:
+    user: "#email"
+    secret: "#password"
+    submit: "button[type=submit]"
+  landed:
+    url_not:
+      - /login
+  evidence:
+    - work/evidence/manual/survey-R-1/a1/look-1.txt
+  quote: Welcome back
+  req: R-1
+  why: Signed in through the page and landed on the dashboard.
+```
+
+```yaml
+sign_in:                      # a way in through requests
+  surface: http
+  actor: default
+  url: https://stand.example
+  access:                     # the shape of config.json `environment.access`: kind, url, key NAMES
+    kind: local_login
+    url: /api/login
+    user_key: AUTH_USERNAME
+    secret_key: AUTH_PASSWORD
+  evidence:
+    - work/evidence/manual/survey-R-1/a1/http-1.json
+  quote: token
+  req: R-1
+  why: Logged in with POST /api/login and the next call answered 200.
+```
+
+- `surface` is `ui` or `http`; `actor`, `url`, `evidence`, `quote`, `req` and `why` are required. `fields` (with `user` and `secret`,
+  `submit` optional) is for `ui` and `landed.url_not` (address fragments that mean "still on the sign-in page") is optional there;
+  `access` is for `http`, and a `harness_command` or `none` kind is refused (a way in found in a story names a request, never a command).
+- `evidence`, `quote` and `req` work as in a row: capture files of THIS walk's attempt of the requirement `req`, words copied from them.
+- Limits: `steps` at most 20 lines of at most 300 characters; `url`, every selector and every `url_not` fragment at most 500 characters;
+  `url_not` at most 20 entries; `why` has no limit.
+- The record names who signed in and where, never a key or a value: a text that looks like a password, token or cookie, or that holds an
+  account value of this walk, is refused by the field's name. A selector such as `[data-testid=login-form-submit-button]` is fine.
 
 ## What code writes
 

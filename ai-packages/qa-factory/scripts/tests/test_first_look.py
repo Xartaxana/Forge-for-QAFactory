@@ -53,8 +53,9 @@ class Story:
     def set_pipeline(self, pipeline: dict):
         (self.task / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
 
-    def walk(self, items=("R-1", "R-2"), place="survey", wid=WALK, stand=STAND):
-        record = {"walk": wid, "place": place, "stand": stand, "profiles": {"ui": PROFILE}, "attempts": {i: "a1" for i in items}}
+    def walk(self, items=("R-1", "R-2"), place="survey", wid=WALK, stand=STAND, actors=("default", "guest")):
+        record = {"walk": wid, "place": place, "stand": stand, "profiles": {"ui": PROFILE}, "attempts": {i: "a1" for i in items},
+                  "actors": list(actors)}
         path = WS.record_path(self.task, wid)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(record), encoding="utf-8")
@@ -293,9 +294,9 @@ def test_null_never_replaces_current_walked_record():
         s = Story(tmp)
         caps = s.ready()
         check("null_never_replaces_current_walked_record: fixture: a walked record", s.put(s.rows(caps))["written"])
-        pending = {**PIPELINE, "environment_pending": True}
+        pending = {**PIPELINE, "environment": ""}
         got = FL.due(s.task, pending, {})
-        check_eq("null_never_replaces_current_walked_record: the stand goes pending, due names no_stand", got[:2], (False, "no_stand"))
+        check_eq("null_never_replaces_current_walked_record: the stand name goes away, due names no_stand", got[:2], (False, "no_stand"))
         done = FL.put(s.task, None, got[1])
         check_in("null_never_replaces_current_walked_record: the null is refused with its door", "does not replace it", problems_text(done))
         after = FL.read(s.task)
@@ -373,6 +374,217 @@ def test_api_route_row_shape():
         check_in("api_route_row_shape: api that is no list is refused", ".api is a list", problems_text(s.put([row])))
         row["path"] = {"locators": [{"what": "Pay", "selector": "#pay", "seen": "sometimes"}]}
         check_in("api_route_row_shape: a locator's seen is yes or no", ".seen is one of", problems_text(s.put([row])))
+
+
+# --- sign_in: the way in the walker found (FV1-28 card A1) ------------------------------------------------------------
+
+SECRET = "S3cr3t-pw-9"
+
+
+def _good_ui(caps):
+    return {"surface": "ui", "actor": "default", "url": "/login", "steps": ["opened the sign-in page", "typed the account and pressed Sign in"],
+            "fields": {"user": "#email", "secret": "#password", "submit": "button[type=submit]"}, "landed": {"url_not": ["/login"]},
+            "evidence": [caps["R-1"]], "quote": QUOTE, "req": "R-1", "why": "Signed in through the page and landed on the dashboard."}
+
+
+def _good_http(caps):
+    return {"surface": "http", "actor": "default", "url": "https://stand.example",
+            "access": {"kind": "local_login", "url": "/api/login", "user_key": "AUTH_USERNAME", "secret_key": "AUTH_PASSWORD"},
+            "evidence": [caps["R-1"]], "quote": QUOTE, "req": "R-1", "why": "Logged in with POST /api/login and the next call answered 200."}
+
+
+def _ui(**change):
+    """A case builder: the whole ui `sign_in` with `change` laid over it (a value of `DROP` removes the key)."""
+    return lambda caps: {k: v for k, v in {**_good_ui(caps), **change}.items() if v is not DROP}
+
+
+def _http(**change):
+    return lambda caps: {k: v for k, v in {**_good_http(caps), **change}.items() if v is not DROP}
+
+
+def _ui_fields(**change):
+    return lambda caps: {**_good_ui(caps), "fields": {**_good_ui(caps)["fields"], **change}}
+
+
+def _ui_landed(entries):
+    return lambda caps: {**_good_ui(caps), "landed": {"url_not": entries}}
+
+
+DROP = object()
+CODE_FLOOR = "the account values of `default` cannot be read now"
+# (id, builder -> the `sign_in` value | bytes of a file, the text the refusal carries or None when it is written, the login the project holds)
+SIGN_IN_CASES = [
+    ("whole ui accepted and read back", _good_ui, None, None),
+    ("whole http accepted", _good_http, None, None),
+    ("absent", lambda caps: DROP, None, None),
+    ("null", lambda caps: None, None, None),
+    ("empty mapping", lambda caps: {}, None, None),
+    ("a list is refused", lambda caps: [], "`sign_in` is a mapping", None),
+    ("a string is refused", lambda caps: "logged in", "`sign_in` is a mapping", None),
+    ("an unknown key", _ui(mood="good"), "unknown key `mood`", None),
+    ("surface missing", _ui(surface=DROP), "`sign_in.surface` is one of: ui, http", None),
+    ("unknown surface", _ui(surface="ftp"), "`sign_in.surface` is one of: ui, http", None),
+    ("fields under http", _http(fields={"user": "#u", "secret": "#p"}), "`sign_in.fields` belongs to the other surface", None),
+    ("landed under http", _http(landed={"url_not": ["/login"]}), "`sign_in.landed` belongs to the other surface", None),
+    ("access under ui", _ui(access={"kind": "local_login", "url": "/l"}), "`sign_in.access` belongs to the other surface", None),
+    ("ui with no fields", _ui(fields=DROP), "`sign_in.fields` is a mapping", None),
+    ("ui fields with an unknown key", _ui_fields(password="x"), "`sign_in.fields`: unknown key `password`", None),
+    ("ui fields with no secret selector", _ui_fields(secret=""), "`sign_in.fields.secret` is the selector text", None),
+    ("http with no access", _http(access=DROP), "`sign_in.access` is required for surface `http`", None),
+    ("access kind harness_command", _http(access={"kind": "harness_command", "command": "make login"}), "never a command", None),
+    ("access kind none", _http(access={"kind": "none"}), "never a command", None),
+    ("access with a key that is no name", _http(access={"kind": "local_login", "url": "/l", "user_key": "my pass 1"}), "`sign_in.access`:", None),
+    ("actor guest", _ui(actor="guest"), "`sign_in.actor` is one of the accounts this walk signed in as (default)", None),
+    ("actor not in the walk", _ui(actor="admin"), "`sign_in.actor` is one of the accounts this walk signed in as (default)", None),
+    ("empty evidence", _ui(evidence=[]), "`sign_in.evidence` is a list of capture paths", None),
+    ("empty quote", _ui(quote=""), "nothing is quoted", None),
+    ("quote missing", _ui(quote=DROP), "`sign_in.quote` is words copied", None),
+    ("a capture of another item", lambda caps: {**_good_ui(caps), "evidence": [caps["R-2"]]}, "not in attempt a1 of item R-1", None),
+    ("req missing", _ui(req=DROP), "`sign_in.req` is the requirement", None),
+    ("req that is no attempt of the walk", _ui(req="R-9"), "has no attempt of item 'R-9'", None),
+    ("why missing", _ui(why=DROP), "`sign_in.why` is text", None),
+    ("url empty", _ui(url=""), "`sign_in.url` is text", None),
+    ("steps at the limit (20)", _ui(steps=[f"step {n}" for n in range(20)]), None, None),
+    ("steps beyond the limit (21)", _ui(steps=[f"step {n}" for n in range(21)]), "holds 21 lines; at most 20", None),
+    ("a line at the limit (300)", _ui(steps=["x" * 300]), None, None),
+    ("a line beyond the limit (301)", _ui(steps=["x" * 301]), "`sign_in.steps[0]` is longer than 300", None),
+    ("steps empty", _ui(steps=[]), None, None),
+    ("a nested mapping in steps", _ui(steps=[{"typed": "the account"}]), "`sign_in.steps` is a list of lines", None),
+    ("url at the limit (500)", _ui(url="/" + "x" * 499), None, None),
+    ("url beyond the limit (501)", _ui(url="/" + "x" * 500), "`sign_in.url` is longer than 500", None),
+    ("selector at the limit (500)", _ui_fields(user="#" + "x" * 499), None, None),
+    ("selector beyond the limit (501)", _ui_fields(user="#" + "x" * 500), "`sign_in.fields.user` is longer than 500", None),
+    ("url_not at the limit (20 entries)", _ui_landed([f"/p{n}" for n in range(20)]), None, None),
+    ("url_not beyond the limit (21 entries)", _ui_landed([f"/p{n}" for n in range(21)]), "holds 21 entries; at most 20", None),
+    ("a url_not fragment at the limit (500)", _ui_landed(["/" + "x" * 499]), None, None),
+    ("a url_not fragment beyond the limit (501)", _ui_landed(["/" + "x" * 500]), "`sign_in.landed.url_not[0]` is longer than 500", None),
+    ("non-UTF-8 file", lambda caps: b"sign_in:\n  surface: \xff\xfe\n", "not UTF-8", None),
+    ("a literal account secret in steps", _ui(steps=[f"typed {SECRET} into the box"]), "`sign_in.steps[0]` holds an account value", "pw"),
+    ("a literal account secret in a selector", _ui_fields(user=f"#{SECRET}"), "`sign_in.fields.user` holds an account value", "pw"),
+    ("a password pair in steps", _ui(steps=["password: hunter2hunter2"]), "`sign_in.steps[0]` looks like a secret value", None),
+    ("a user:pass address", _ui(url="https://alice:pw1234@stand.example/login"), "`sign_in.url` looks like a secret value", None),
+    ("a 30-character data-testid selector", _ui_fields(submit="[data-testid=login-form-submit-button-v2]"), None, "pw"),
+    ("a selector with a double space", _ui_fields(submit="form  button[type=submit]"), None, "pw"),
+    ("read_login raising", _ui(), CODE_FLOOR, "raises"),
+    # A1-1: the literal check reads EVERY leaf and every key, the scrub reads `why` too; a refusal names the field path, never the value
+    ("a literal account secret in why", _ui(why=f"I typed {SECRET} and landed"), "`sign_in.why` holds an account value", "pw"),
+    ("a literal account secret in quote", _ui(quote=f"{QUOTE} {SECRET}"), "`sign_in.quote` holds an account value", "pw"),
+    ("a literal account secret in an evidence path", _ui(evidence=[SECRET]), "`sign_in.evidence[0]` is not a capture path", "pw"),
+    ("a password pair in why", _ui(why="the password: hunter2hunter2 worked"), "`sign_in.why` looks like a secret value", None),
+    ("a secret as a key of sign_in", _ui(**{SECRET: "x"}), "`sign_in`: unknown key `[not printed]`", "pw"),
+    ("a secret as a key of fields", _ui_fields(**{SECRET: "#x"}), "`sign_in.fields`: unknown key `[not printed]`", "pw"),
+    ("a secret as a key of landed", lambda caps: {**_good_ui(caps), "landed": {"url_not": ["/login"], SECRET: "x"}},
+     "`sign_in.landed`: unknown key `[not printed]`", "pw"),
+    # A1-2: case-folded, URL-unquoted once; a short secret is matched as a whole token
+    ("a secret in upper case in steps", _ui(steps=[f"typed {SECRET.upper()} into the box"]), "`sign_in.steps[0]` holds an account value", "pw"),
+    ("a secret url-encoded in url", _ui(url="/login?x=" + SECRET.replace("-", "%2D")), "`sign_in.url` holds an account value", "pw"),
+    ("a short secret as a whole token", _ui(steps=["typed ab into the box"]), "`sign_in.steps[0]` holds an account value", "short"),
+    ("a short secret as a token with punctuation and case", _ui(steps=["typed (AB), then pressed"]), "`sign_in.steps[0]` holds an account value", "short"),
+    ("a short secret inside words is no hit", _ui(why="Used the label and the table, then landed."), None, "short"),
+    ("an all-digit secret in steps", _ui(steps=["typed 908172 into the box"]), "`sign_in.steps[0]` holds an account value", "digits"),
+    ("an empty password: no literal check", _ui(), None, "empty"),
+    ("an empty password: the scrub still runs", _ui(why="the password: hunter2hunter2 worked"), "`sign_in.why` looks like a secret value", "empty"),
+    # A1-5: no got-value is echoed when it may be the secret
+    ("actor equal to the secret", _ui(actor=SECRET), "got '[not printed]'", "pw"),
+    ("surface equal to the secret", _ui(surface=SECRET), "got '[not printed]'", "pw"),
+    ("req equal to the secret", _ui(req=SECRET), "`sign_in.req` is the requirement (R-n) whose survey attempt holds the captures; got '[not printed]'", "pw"),
+    ("a plain wrong actor is still echoed", _ui(actor="admin"), "got 'admin'", "pw"),
+    # A1-3 / A1-4: the http `access` object has a shape
+    ("access empty", _http(access={}), "`sign_in.access.kind` names how the request signs in", None),
+    ("access kind empty", _http(access={"kind": "", "url": "/l"}), "`sign_in.access.kind` names how the request signs in", None),
+    ("access with an extra key token", _http(access={"kind": "local_login", "url": "/l", "token": "x" * 18}), "`sign_in.access`: unknown key `token`", None),
+    ("access with a secret as a key", _http(access={"kind": "local_login", "url": "/l", SECRET: "v"}),
+     "`sign_in.access`: unknown key `[not printed]`", "pw"),
+    ("access url at the limit (500)", _http(access={"kind": "local_login", "url": "/" + "x" * 499}), None, None),
+    ("access url beyond the limit (501)", _http(access={"kind": "local_login", "url": "/" + "x" * 500}), "`sign_in.access.url` is longer than 500", None),
+    ("access user_field beyond the limit (501)", _http(access={"kind": "local_login", "url": "/l", "user_field": "u" * 501}),
+     "`sign_in.access.user_field` is longer than 500", None),
+    ("access with a number where text is expected", _http(access={"kind": "local_login", "url": "/l", "user_key": 5}),
+     "`sign_in.access.user_key` is text", None),
+    ("access with a mapping where text is expected", _http(access={"kind": "local_login", "url": {"a": "b"}}), "`sign_in.access.url` is text", None),
+    ("access with unauth_status codes", _http(access={"kind": "local_login", "url": "/l", "unauth_status": [401, 403]}), None, None),
+]
+LOGIN_PASSWORDS = {"pw": SECRET, "short": "ab", "digits": "908172", "empty": ""}
+
+
+def test_sign_in_battery():
+    """FV1-28 A1: `sign_in` of `put` - keys, surfaces, limits (AT and BEYOND), xref, evidence, the secret guard in both directions."""
+    import manual_capture
+    cases = [c[0] for c in SIGN_IN_CASES]
+    check_eq("sign_in_battery: ids are unique", len(set(cases)), len(cases))
+    data = FL.data()
+    check_eq("sign_in_battery: the surfaces and the keys are data", (data["sign_in_surfaces"], "evidence" in data["sign_in_keys"]), (["ui", "http"], True))
+    check("sign_in_battery: `sign_in` is a key of the form", "sign_in" in FL.TOP_KEYS)
+    with tempfile.TemporaryDirectory() as tmp:
+        s = Story(tmp)
+        caps = s.ready()
+        config = s.root / "qa-factory" / "config.json"
+        original = manual_capture.read_login
+        for name, build, needle, login in SIGN_IN_CASES:
+            label = f"sign_in_battery: {name}"
+            if login:
+                config.parent.mkdir(exist_ok=True)
+                config.write_text(json.dumps({"environments": [{"name": STAND}]}), encoding="utf-8")
+
+                def fake(cfg, root, actor=None, stand=None, task_root=None, _login=login):
+                    if _login == "raises":
+                        raise manual_capture.LoginMaterialMissing("the keys are not set", "key")
+                    return manual_capture.Credentials("alice", LOGIN_PASSWORDS[_login])
+                manual_capture.read_login = fake
+            try:
+                value = build(caps)
+                if isinstance(value, bytes):
+                    path = s.root / "raw.yaml"
+                    path.write_bytes(value)
+                    done = FL.put(s.task, path)
+                else:
+                    extra = {} if value is DROP else {"sign_in": value}
+                    done = s.put(s.rows(caps), **extra)
+            finally:
+                manual_capture.read_login = original
+                if login and config.exists():
+                    config.unlink()
+            text = problems_text(done)
+            read = FL.read(s.task)
+            if needle is None:
+                sent = {} if value is DROP or not isinstance(value, dict) else value
+                check(f"{label}: is written", done["written"], text)
+                check_eq(f"{label}: and read back as sent ({{}} when none)", read["sign_in"], sent)
+            else:
+                check(f"{label}: is refused with `{needle}`", not done["written"] and needle in text, text[:400])
+                check(f"{label}: no secret value is ever in the problem text", SECRET.casefold() not in text.casefold() and "hunter2hunter2" not in text
+                      and "pw1234" not in text and "908172" not in text, text[:400])
+            FL._record_path(s.task).unlink(missing_ok=True)
+        s.put(s.rows(caps))
+        text = FL._record_path(s.task).read_text(encoding="utf-8")
+        FL._record_path(s.task).write_text(text + "sign_in: abc\n", encoding="utf-8")
+        check_eq("sign_in_battery: an old record, a record with no key and a non-mapping on disk read {}", FL.read(s.task)["sign_in"], {})
+        FL._record_path(s.task).write_text(text, encoding="utf-8")
+        check_eq("sign_in_battery: a record with no `sign_in` reads {}", FL.read(s.task)["sign_in"], {})
+        FL._record_path(s.task).unlink()
+        check_eq("sign_in_battery: `put --null` writes no sign_in", (FL.put(s.task, None, "no_stand")["written"], FL.read(s.task)["sign_in"]), (True, {}))
+
+
+def test_sign_in_secret_guard_leaves_and_data():
+    """FV1-28 A1: the guard on scalar leaves and keys, and the closed lists of `sign_in` as data (AR-1)."""
+    import config_contract
+    guard = FL.sign_in_secret_faults
+    check_eq("guard_leaves: an all-digit secret as a number leaf is found by its str(), the field named",
+             guard({"steps": [], "x": {"n": 908172}}, ["908172"]), ["`sign_in.x.n` holds an account value of this walk; record names and selectors only, never a value"])
+    check_eq("guard_leaves: a number leaf against a secret that is not all digits is skipped", guard({"x": 908172}, ["a908172"]), [])
+    check_eq("guard_leaves: a boolean and None are skipped", guard({"x": True, "y": None}, ["1", "True"]), [])
+    found = guard({SECRET: 1, "x": {SECRET: "v"}}, [SECRET])
+    check_eq("guard_leaves: a key holding the secret is found at any depth", len(found), 2)
+    check("guard_leaves: and the path never carries the key", all(SECRET not in p for p in found), str(found))
+    check_eq("guard_leaves: an empty literal is no literal", guard({"x": "anything"}, [""]), [])
+    check_eq("guard_leaves: one pass of unquote only (%252D is not chased)", guard({"x": "S3cr3t%252Dpw%252D9"}, [SECRET]), [])
+    data = FL.data()
+    check_eq("data: the access keys are the union of the constants of config_contract and kind, url, unauth_status",
+             set(data["sign_in_access_keys"]), set(config_contract.ACCESS_KEY_FIELDS) | set(config_contract.BODY_FIELD_KEYS) | {"kind", "url", "unauth_status"})
+    check_eq("data: the surface keys", data["sign_in_surface_keys"], {"ui": ["fields", "landed"], "http": ["access"]})
+    check_eq("data: the fields, landed keys and the refused kinds", (data["sign_in_fields_keys"], data["sign_in_landed_keys"], data["sign_in_http_refused_kinds"]),
+             (["user", "secret", "submit"], ["url_not"], ["harness_command", "none"]))
+    check("data: the refused kinds are kinds of config_contract", set(data["sign_in_http_refused_kinds"]) <= set(config_contract.ACCESS_KINDS))
 
 
 # --- read ------------------------------------------------------------------------------------------------------------
@@ -602,9 +814,17 @@ def test_due_false_without_stand():
     with tempfile.TemporaryDirectory() as tmp:
         s = Story(tmp)
         for label, pipeline in (("no environment key", {"ticket": "QA-1"}), ("an empty name", {**PIPELINE, "environment": ""}),
-                                ("a null name", {**PIPELINE, "environment": None}), ("an unconfirmed name", {**PIPELINE, "environment_pending": True})):
-            check_eq(f"due_false_without_stand: {label}", FL.due(s.task, pipeline, {})[:2], (False, "no_stand"))
+                                ("a null name", {**PIPELINE, "environment": None})):
+            got = FL.due(s.task, pipeline, {})
+            check_eq(f"due_false_without_stand: {label}", got[:2], (False, "no_stand"))
+            check_eq(f"due_false_without_stand: {label} says the stand is not NAMED", got[2], "no stand is named for this story")
         check_eq("due_false_without_stand: a named confirmed stand is due", FL.due(s.task, PIPELINE, {})[0], True)
+        for label, pipeline in (("a named stand whose probe is pending (FV1-28 A1: the role decides, not the probe)", {**PIPELINE, "environment_pending": True}),
+                                ("a pending probe on a stand named `local`", {"ticket": "QA-1", "environment": "local", "environment_pending": True})):
+            check_eq(f"due_false_without_stand: {label} is due", FL.due(s.task, pipeline, {})[:2], (True, ""))
+        s.begin()
+        check_eq("due_false_without_stand: the attempt checks still apply to a pending stand (no second walk on the same heads)",
+                 FL.due(s.task, {**PIPELINE, "environment_pending": True}, {})[:2], (False, ""))
 
 
 def test_due_false_when_attempt_on_same_head():
