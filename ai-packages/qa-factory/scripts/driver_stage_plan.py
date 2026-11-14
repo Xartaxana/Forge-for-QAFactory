@@ -671,10 +671,7 @@ class DriverStagePlan:
                                  "--task-root", str(self.task_root))
             # FV1-9 (P1): the designer's refused entries and the planner's notes are told BEFORE `pin_cases` (which can raise) and `rework`:
             # the round the critic sends back hears them in its first prompt. No `check` here: exit 1 stays legal.
-            self.tell_next_session("S4", "qa-case-designer", self.told_from(out, ("question_notes",)),
-                                   "it stays in your case and is tried again when S4 closes next; remove it if it no longer holds")
-            self.tell_next_session("S3", self.stages()["S3"]["roles"][0], self.told_from(out, ("plan_notes",), unknown=False),
-                                   "it stays on your plan row and is tried again when S3 closes next; remove it if it no longer holds")
+            self.tell_rollcall(out)
             self.pin_cases()
         if verdict in ("concerns", "review") and not last_round and findings:
             reason = findings.read_text(encoding="utf-8", errors="replace")[:1200]

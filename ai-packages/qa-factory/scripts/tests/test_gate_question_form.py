@@ -1479,6 +1479,7 @@ FV19_UNKNOWN = ("the factory could not read what this step reported, so whether 
                 "look at them in your work")
 FV19_S4_TAIL = "it stays in your case and is tried again when S4 closes next; remove it if it no longer holds"
 FV19_S3_TAIL = "it stays on your plan row and is tried again when S3 closes next; remove it if it no longer holds"
+FV19_PLAN_TAIL = "code could not write this onto your plan row and will not try again; add it to the row yourself if it still holds"
 FV19_ACC_TAIL = "an item of a handoff form is not tried again: write it again in your next form if it still holds"
 FV19_NOTE = "TC-1: a `question_repeats` entry needs `question`, `same_as` and `why`, each a text"
 
@@ -1568,7 +1569,10 @@ def test_fv19_carriers_tell() -> None:
          ("S4", designer), [f"{FV19_UNKNOWN} ({FV19_S4_TAIL})"], None),
         ("s4_after_critic: plan_notes (item 13) -> the S3 planner's key, not the designer's", fv19_s4, 0,
          json.dumps({"plan_notes": ["Q3 was raised, but the plan row was not told"]}), {}, ("S3", planner),
-         [f"Q3 was raised, but the plan row was not told ({FV19_S3_TAIL})"], None),
+         [f"Q3 was raised, but the plan row was not told ({FV19_PLAN_TAIL})"], None),
+        ("raise_move: plan_notes (exit 0) -> the S3 planner's key with the same true tail", fv19_raise_move, 0,
+         json.dumps({"plan_notes": ["Q3 was raised, but the plan row was not told"]}), {}, ("S3", planner),
+         [f"Q3 was raised, but the plan row was not told ({FV19_PLAN_TAIL})"], None),
         ("s4_after_critic: plan_notes leave the designer's key empty", fv19_s4, 0, json.dumps({"plan_notes": ["x"]}), {}, ("S4", designer), [], None),
         ("raise_move: exit 0 -> the designer's S4 key", fv19_raise_move, 0, notes_out, {}, ("S4", designer), [f"{FV19_NOTE} ({FV19_S4_TAIL})"], None),
         ("raise_move: exit 1 stays legal and is told", fv19_raise_move, 1, notes_out, {}, ("S4", designer), [f"{FV19_NOTE} ({FV19_S4_TAIL})"], None),

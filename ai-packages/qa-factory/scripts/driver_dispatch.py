@@ -1798,6 +1798,18 @@ class DriverDispatch:
             self.state.setdefault("question_pass_lines", {})[key] = [*stored, *fresh]
             self.save_state()
 
+    def tell_rollcall(self, out, code: int = 0) -> None:
+        """FV1-9 (P1, Q2): the roll-call's two tells, in one place. The designer hears `question_notes` at its next S4 session; the S3
+        planner hears `plan_notes` at its next S3 session, with a tail that is true (code could not write the note onto the plan row and does
+        not try again). `code` is the command's exit: any exit but 0/1 means `out` is not the object, so the designer hears the ONE unknown
+        line and the planner nothing. Designer first, planner second; no `plan_notes` / `question_notes` stores nothing."""
+        readable = code in (0, 1)
+        self.tell_next_session("S4", "qa-case-designer", self.told_from(out if readable else "", ("question_notes",)),
+                               "it stays in your case and is tried again when S4 closes next; remove it if it no longer holds")
+        if readable:
+            self.tell_next_session("S3", self.stages()["S3"]["roles"][0], self.told_from(out, ("plan_notes",), unknown=False),
+                                   "code could not write this onto your plan row and will not try again; add it to the row yourself if it still holds")
+
     def next_session_lines(self, stage: str, role: str) -> list:
         """The prompt lines for what `tell_next_session` stored for this role at this stage: `[]` when nothing is stored, else the heading
         and the stored lines. Reads only; `forget_told` removes what was sent once the session's result is saved."""
