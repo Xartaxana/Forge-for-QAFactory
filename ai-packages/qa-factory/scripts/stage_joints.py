@@ -780,16 +780,21 @@ def _demands_leg(check: str, entry: dict, env: Env) -> list:
     if carrier is not None and carrier not in CARRIERS:
         return [f"`demands_from` {carrier!r} is not one of {', '.join(CARRIERS)}"]
     out = []
+    told = entry.get("told") if isinstance(entry.get("told"), list) else []
+    page_only = bool(told) and all(_is_page(t) for t in told)       # the page carries the sentence: no tokens are owed (T1r)
     for role in entry.get("roles") or []:
         tokens, why = list(literal), ""
         if carrier:
             more, why = demand_tokens(carrier, role, check, env)
             tokens += more
+        if page_only and not why and not tokens:
+            continue
         if why or not tokens:
             out.append(why or f"the demands leg is missing for {role}")
             continue
-        texts = [env.text(_expand(str(t["path"]), role)) or "" for t in entry.get("told") or []
-                 if isinstance(t, dict) and "path" in t and env.reaches(role, _expand(str(t["path"]), role))]
+        paths = [KEY_PAGE.format(role=role) if _is_page(t) else _expand(str(t["path"]), role)
+                 for t in told if _is_page(t) or (isinstance(t, dict) and "path" in t)]
+        texts = [env.text(p) or "" for p in paths if env.reaches(role, p)]
         out += [f"{role} is not told `{token}` in any of its told files" for token in dict.fromkeys(tokens)
                 if not any(token in text for text in texts)]
     return out
@@ -922,6 +927,10 @@ def _row_problems(row, env: Env, stage_ids: set, detectors: dict, kinds=None) ->
     stages = row["stages"]
     if not isinstance(stages, list) or not stages:
         out.append(f"stage-joints: {check}: `stages` is empty - a check that runs at no stage")
+    elif stages == [ANY] and check not in detectors:
+        pass                                           # the single item `*`: every stage (T1r); a detector row keeps its own stages
+    elif ANY in stages and len(stages) > 1:
+        out.append(f"stage-joints: {check}: `stages` mixes `{ANY}` with {[s for s in stages if s != ANY]}: `{ANY}` stands alone")
     elif not all(s in stage_ids for s in stages):
         out.append(f"stage-joints: {check}: `stages` names {[s for s in stages if s not in stage_ids]}, "
                    "which are no stage of stages.json")
@@ -1110,7 +1119,7 @@ def audit(data=None, uni=None, pins=None, env=None, path=None, sited=None) -> Re
     rows = data["joints"]
     if sited is None:
         id_errors = []
-        sited = sited_ids(uni, check_ids(env.plugin, errors=id_errors))
+        sited = sited_ids(uni, check_ids(env.plugin, errors=id_errors), errors=id_errors)
         report.problems.extend(f"stage-joints: {e}" for e in id_errors)
     problems, unsited = _direction_a(rows, uni, sited)
     report.problems.extend(problems)

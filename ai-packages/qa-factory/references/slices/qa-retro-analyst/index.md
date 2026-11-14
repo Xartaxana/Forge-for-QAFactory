@@ -7,4 +7,4 @@ names. A rule you did not read is still a rule the exit gate checks.
 - `references/slices/qa-retro-analyst/artifact-contract-results.md` (2,064 B) — `retro.md`
 - `references/slices/qa-retro-analyst/artifact-contract.md` (5,213 B) — Where artifacts live, Project-level files, Strategy documents: one fact, one owner, Where the working files sit, Versioned lifecycle records
 - `references/slices/qa-retro-analyst/vocabularies.md` (2,747 B) — Triage verdict and FLAKY mechanism, Bug confirmation, Checks-ledger state, Traceability result
-- `references/slices/qa-retro-analyst/handoff-keys.md` (5,420 B) — Outputs, Witness, Handoff form, What code will check of you, Not yet in rows
+- `references/slices/qa-retro-analyst/handoff-keys.md` (19,654 B) — Outputs, Witness, Handoff form, What code will check of you, Not yet in rows

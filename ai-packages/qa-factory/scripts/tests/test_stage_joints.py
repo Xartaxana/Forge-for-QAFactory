@@ -816,8 +816,8 @@ def told_real() -> None:
     check_eq("K1: no check argument the scanner cannot read (`own` is a listed pass-through)", totals["check_arg_errors"], 0)
     check_eq("K1-A24/at-baseline: the A24 and literal ids a role can meet and no row covers equal the baseline",
              rowless_problems(world["rowless"], told["rowless"]), [])
-    check_in("K1-lit/adviser-counted: `exit_gate:adviser` (a literal id of a role-reachable unit, no row yet) is counted until T1r",
-             "exit_gate:adviser", " ".join(world["rowless"]))
+    check_eq("K1-lit/adviser-rowed: `exit_gate:adviser` (a literal id of a role-reachable unit) has its row since T1r and is not counted",
+             ("exit_gate:adviser" in world["rowless"], SJ.row_for("exit_gate:adviser", REAL)[0] is not None), (False, True))
     check_eq("K6/untold-counted: the blocking units with a role and no sourced/tagged site are at their baseline",
              untold_problems(world["untold"], told["untold"]), [])
     check_eq("K4/at-baseline: bare/tagged of every role-reachable unit at or under its baseline",
@@ -871,7 +871,7 @@ def told_variants() -> None:
              "told_ratchet.unsited is 1 but 2 rows have no site in code (exit_gate:gone, exit_gate:gone2)", text_of(audit(data=mutated(two))))
     check_eq("K12/unsited-cap: the real tree measures the stored number; a cap above the measurement is allowed (<=)",
              (audit().counts["unsited"], REAL["told_ratchet"]["unsited"], audit(data=mutated(lambda d: d["told_ratchet"].update(unsited=3))).problems),
-             (0, 0, []))
+             (150, 150, []))
     for counter, up, down in (("hand_cards", True, True), ("legacy_legs", True, False)):
         stored = REAL["told_ratchet"][counter]
         dash = counter.replace("_", "-")
@@ -978,6 +978,22 @@ def told_leg_and_rows() -> None:
              text_of(audit(data=mutated(lambda d: d["joints"].append(copy.deepcopy(row_of(d, "exit_gate:scoped")))))))
     check_in("E7/two-star-rows: two `<stem>:*` rows for one stem are red", "branch_accounting:* has two rows",
              text_of(audit(data=mutated(lambda d: d["joints"].append(copy.deepcopy(row_of(d, "branch_accounting:*")))))))
+    # T1r: the `*` stage line and the page branch of the demands leg (the invariants: a mixed or unknown stage and a path entry with
+    # no demands stay red; a page entry's tokens are still checked)
+    one_row = lambda stages: SJ._row_problems(a_row("a:x", stages=stages, requirement="Say it.", door="d"), ENV, stage_ids, {}, kinds)[0]
+    check_eq("stages-star/ok: the single item `*` (every stage) is green", [p for p in one_row(["*"]) if "stages" in p], [])
+    check_in("stages-star/mixed-red: `*` beside a stage id is red", "`*` stands alone", " ".join(one_row(["*", "S3"])))
+    check_in("stages-empty/red: an empty stage list stays red", "`stages` is empty", " ".join(one_row([])))
+    check_in("stages-star/unknown-red: an unknown stage id stays red", "which are no stage of stages.json", " ".join(one_row(["S99"])))
+    page = {"roles": ["qa-runner"], "field": "a field", "told": [{"page": True}], "demands": []}
+    check_eq("demands-page/empty-ok: a page entry with no demands is no finding (the page carries the sentence)",
+             SJ._demands_leg("a:x", page, ENV), [])
+    check_in("demands-page/token-missing-red: a page entry's token is looked up on the key page and a missing one is red",
+             "qa-runner is not told `zz_not_a_token_zz`", " ".join(SJ._demands_leg("a:x", {**page, "demands": ["zz_not_a_token_zz"]}, ENV)))
+    check_eq("demands-page/token-present-ok: a token the key page holds is green", SJ._demands_leg("a:x", {**page, "demands": ["## Outputs"]}, ENV), [])
+    check_in("demands-path/empty-red: a path entry with no demands stays red",
+             "the demands leg is missing for qa-runner", " ".join(SJ._demands_leg("a:x", {
+                 **page, "told": [{"path": "references/slices/<role>/handoff-keys.md", "anchor": "## Outputs"}]}, ENV)))
     # K2: the page leg is gated on the renderer
     env = copy.copy(ENV)
     env.load_map = {"common": [], "roles": {"qa-runner": [f"plugin:{SJ.KEY_PAGE.format(role='qa-runner')}"], "qa-scout": []}}

@@ -55,8 +55,8 @@
           "field": "run-report.json / triage.json of the role's stage",
           "told": [
             {
-              "path": "references/slices/<role>/artifact-contract-run.md",
-              "anchor": "witness"
+              "path": "references/slices/<role>/handoff-keys.md",
+              "anchor": "## Outputs"
             }
           ],
           "demands": [],
@@ -72,8 +72,8 @@
           "field": "the register, the case files and the bug records of the role's stage",
           "told": [
             {
-              "path": "agents/<role>.md",
-              "anchor": "<!-- gen:digest contract_slices.py -->"
+              "path": "references/slices/<role>/handoff-keys.md",
+              "anchor": "## Outputs"
             }
           ],
           "demands": [],
@@ -169,8 +169,8 @@
           "field": "the witness artifact of the role (stages.json witness)",
           "told": [
             {
-              "path": "references/slices/<role>/artifact-contract-automation.md",
-              "anchor": "automation-manifest.json"
+              "path": "references/slices/<role>/handoff-keys.md",
+              "anchor": "## Witness"
             }
           ],
           "demands": [],
@@ -259,23 +259,21 @@
           "field": "the role's final message in the digest form",
           "told": [
             {
-              "path": "agents/<role>.md",
-              "anchor": "<!-- gen:digest contract_slices.py -->"
-            },
-            {
-              "path": "references/slices/<role>/common-rules.md",
-              "anchor": "Your final message IS the digest"
+              "page": true
             }
           ],
-          "demands": [
-            "digest"
-          ]
+          "demands": []
         }
       ],
       "joint": {
         "test": "scripts/tests/test_exit_gate_digest_source.py",
         "fixture": "scripts/tests/fixtures/run-12586-digest/"
-      }
+      },
+      "requirement": "Your final message is the handoff form: a header `<role> <stage> <window> · ok|concerns|halt|impossible`; one line `<id> · <state> · <reason of at most 80 characters>` for every item of the dispatch's scope (a halting digest owes no scope lines); nothing but those lines between the header and the path; and, last, the task-relative path of what you wrote (a halting digest may omit it). A verdict or a state word outside the form's list is advice, not a refusal; a reason over 80 characters, an absolute path under the task root, prose before the header and a missing path the witness names are mended by code when mending makes the form pass.",
+      "door": "fix the digest line the refusal names, then end the dispatch again",
+      "when": [
+        "always"
+      ]
     },
     {
       "check": "exit_gate:required_outputs",
@@ -333,8 +331,8 @@
           "field": "the stage's required outputs, written by the stage's first role",
           "told": [
             {
-              "path": "references/slices/<role>/artifact-contract-automation.md",
-              "anchor": "automation-manifest.json"
+              "path": "references/slices/<role>/handoff-keys.md",
+              "anchor": "## Outputs"
             }
           ],
           "demands": [],
@@ -428,8 +426,8 @@
               "anchor": "## Outputs"
             },
             {
-              "path": "references/slices/<role>/artifact-contract-plan.md",
-              "anchor": "branch_accounting"
+              "path": "references/slices/<role>/handoff-keys.md",
+              "anchor": "## Outputs"
             }
           ],
           "demands": [],
@@ -442,17 +440,12 @@
           "field": "the work the detector re-runs over",
           "told": [
             {
-              "path": "agents/<role>.md",
+              "path": "references/slices/<role>/handoff-keys.md",
               "anchor": "## Outputs"
             }
           ],
           "demands": [],
-          "demands_from": "check:script",
-          "gap": {
-            "leg": "demands",
-            "ref": "F6-51/4",
-            "why": "the gate re-runs branch_accounting.py at the case critic's stop; no file the case critic receives names it"
-          }
+          "demands_from": "check:script"
         },
         {
           "roles": [
@@ -510,7 +503,7 @@
           "field": "the work the detector re-runs over",
           "told": [
             {
-              "path": "agents/<role>.md",
+              "path": "references/slices/<role>/handoff-keys.md",
               "anchor": "## Outputs"
             }
           ],
@@ -1108,12 +1101,6802 @@
         }
       ],
       "joint": null
+    },
+    {
+      "check": "exit_gate:EG-digest-form",
+      "stages": [
+        "*"
+      ],
+      "requirement": "Your final message is the handoff form: a header `<role> <stage> <window> · ok|concerns|halt|impossible`; one line `<id> · <state> · <reason of at most 80 characters>` for every item of the dispatch's scope (a halting digest owes no scope lines); nothing but those lines between the header and the path; and, last, the task-relative path of what you wrote (a halting digest may omit it). A verdict or a state word outside the form's list is advice, not a refusal; a reason over 80 characters, an absolute path under the task root, prose before the header and a missing path the witness names are mended by code when mending makes the form pass.",
+      "door": "fix the digest line the refusal names, then end the dispatch again",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the role's final message in the digest form",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "exit_gate:EG-s5-plan-outputs",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "Before you end an S5 dispatch, every output the S5 plan names for your role is written.",
+      "door": "write the output the refusal names before you end the dispatch",
+      "when": [
+        "plan"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-code-critic"
+          ],
+          "field": "the plan outputs the S5 plan names for the role",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "exit_gate:EG-text-end",
+      "stages": [
+        "*"
+      ],
+      "requirement": "Your dispatch ends with the host's handback tool carrying your digest line, never with free text after it.",
+      "door": "call the host's handback tool with your digest line",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the host's handback call as the last act of the dispatch",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "exit_gate:adviser",
+      "stages": [
+        "*"
+      ],
+      "producers": [
+        {
+          "code": "exit_gate.py::run_advisers",
+          "field": "advice",
+          "told": [
+            {
+              "path": "scripts/exit_gate.py"
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "when": [
+        "always"
+      ],
+      "joint": null
+    },
+    {
+      "check": "guard_pre_tool:PT-command-size",
+      "stages": [
+        "*"
+      ],
+      "requirement": "A Bash or PowerShell command is at most 64 KB (65,536 characters); a longer one is refused before any other check reads it.",
+      "door": "split the work into several commands, or write the long text to a file with Write and name the file",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the tool call (a command or a file write) the guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "guard_pre_tool:PT-direct-test-run",
+      "stages": [
+        "*"
+      ],
+      "requirement": "Tests are never launched directly (any form of `launch-causes.json` `run_forms`): outside a dispatch through `run_suite.py --task <T> --label <label> -- <command>`, inside an open dispatch only through a typed request; a command that runs no test carries its runner's no-run flag.",
+      "door": "`run_suite.py --mine <CASE>` (inside a dispatch); `run_suite.py --template request` prints a request skeleton",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the tool call (a command or a file write) the guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "guard_pre_tool:PT-git-config",
+      "stages": [
+        "*"
+      ],
+      "requirement": "A shell command never changes git configuration: `git config` passes only with `--get`, `--get-all`, `--get-regexp`, `--get-urlmatch`, `--list` or `-l`.",
+      "door": "report the blocker in your digest; the person decides",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the tool call (a command or a file write) the guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "guard_pre_tool:PT-logs",
+      "stages": [
+        "*"
+      ],
+      "requirement": "An evidence `.log` or `.junit.xml` heavier than `guards.raw_log_free_bytes` (default 8192 bytes) is never read whole, by Read or by a shell command (a command that mentions `run_suite` is exempt).",
+      "door": "read the `<label>-<ts>.json` summary beside the log (`error_head`, failed names); with a shell, `run_suite.py --request <file> --detail <test>`",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the tool call (a command or a file write) the guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "guard_pre_tool:PT-plugin-read",
+      "stages": [
+        "*"
+      ],
+      "requirement": "A role's Read, Grep or Glob never targets the installed plugin outside its `references/` folder.",
+      "door": "read your brief `work/briefs/<ID>.md` and the plugin's `references/`",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the tool call (a command or a file write) the guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "guard_pre_tool:PT-big-read",
+      "stages": [
+        "*"
+      ],
+      "requirement": "A file over `config.read.max_bytes` is read with `offset`/`limit`, a PDF with a `pages` range within `config.read.max_pdf_pages`, and a picture only up to `config.read.max_image_bytes`.",
+      "door": "`Grep -n` for the line, then Read with `offset`/`limit`; a PDF by `pages` ranges",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the tool call (a command or a file write) the guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "guard_pre_tool:PT-case-store",
+      "stages": [
+        "*"
+      ],
+      "requirement": "When the project declares `cases_root`, a case file is written inside it and nowhere else.",
+      "door": "write it as `<cases_root>/<area>/<case id>.md`",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the tool call (a command or a file write) the guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "guard_pre_tool:PT-handoff-rewrite",
+      "stages": [
+        "*"
+      ],
+      "requirement": "A handover form that exists is never rewritten whole by Write.",
+      "door": "Write `work/handoffs/<ID>.values.yaml` with `path: value` lines, or Edit one field",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the tool call (a command or a file write) the guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "guard_pre_tool:PT-handoff-edit-pending",
+      "stages": [
+        "*"
+      ],
+      "requirement": "A handover form is not edited while its `<ID>.values.yaml` waits to be applied.",
+      "door": "put the field into `<ID>.values.yaml` (rewrite it whole with the field added)",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the tool call (a command or a file write) the guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "guard_pre_tool:PT-handoff-code-file",
+      "stages": [
+        "*"
+      ],
+      "requirement": "`<ID>.values.applied.yaml` and `<ID>.values.stale.yaml` are written by code only.",
+      "door": "write your fields to `<ID>.values.yaml`",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the tool call (a command or a file write) the guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "guard_pre_tool:PT-handoff-values",
+      "stages": [
+        "*"
+      ],
+      "requirement": "A Write of `<ID>.values.yaml` lands only when the form with those values merged is ready (every word from its list, every line parses, every path known), or when it fills `blocked.problem`.",
+      "door": "rewrite the file with the kept lines and the fixed lines the refusal lists; what you cannot fill goes to `blocked.field` and `blocked.problem`",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the tool call (a command or a file write) the guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "guard_pre_tool:PT-artifact-rewrite",
+      "stages": [
+        "*"
+      ],
+      "requirement": "An artifact that exists with content, and whose `artifact-writers.json` entry carries `rewrite`, is never replaced whole by Write.",
+      "door": "the point edit the entry's `rewrite` names (quoted in the refusal)",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the tool call (a command or a file write) the guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "guard_pre_tool:PT-plan-rewrite",
+      "stages": [
+        "*"
+      ],
+      "requirement": "`work/test-plan.json` that already holds rows is never replaced whole by Write.",
+      "door": "Edit one row's lines; with a shell `plan_row.py --task <T> --row <TS-n> --set <field>=<value>` or `--add-row`",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-test-strategist"
+          ],
+          "field": "the tool call (a command or a file write) the guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "guard_pre_tool:PT-plan-md-rewrite",
+      "stages": [
+        "*"
+      ],
+      "requirement": "`work/test-plan.md` that exists is never replaced whole by Write.",
+      "door": "Edit the lines that changed",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-test-strategist"
+          ],
+          "field": "the tool call (a command or a file write) the guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "guard_pre_tool:PT-manifest-shrink",
+      "stages": [
+        "*"
+      ],
+      "requirement": "`automation-manifest.json` that holds `tests` or `unresolved` entries is never replaced whole by Write.",
+      "door": "`manifest_put.py` (merges by case) or Edit one line",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the tool call (a command or a file write) the guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "guard_pre_tool:PT-owner",
+      "stages": [
+        "*"
+      ],
+      "requirement": "An artifact owned by a role is written only by that role, or while a dispatch of that role is open for the story.",
+      "door": "name it in your digest; the conductor sends it back to its owner (`controller.py --operation rework`)",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the tool call (a command or a file write) the guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "guard_pre_tool:PT-window-file",
+      "stages": [
+        "*"
+      ],
+      "requirement": "When S5 windows run in parallel, a test file another window claimed first is not written by Write, Edit or NotebookEdit until that window releases it.",
+      "door": "put your test in a new file in the same directory",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the tool call (a command or a file write) the guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "guard_pre_tool:PT-external-writes",
+      "stages": [
+        "*"
+      ],
+      "requirement": "No shell command writes to a tracker or a test-management system (a declared `external_writes` command, a tracker CLI with a write verb and object, or an `api` call with a write method).",
+      "door": "write a proposal file under `work/proposals/` in the shape `external-writes.md` defines",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the tool call (a command or a file write) the guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "guard_pre_tool:PT-human-word",
+      "stages": [
+        "*"
+      ],
+      "requirement": "A role never runs a command that records a person's word: `waiver.py --stage` or `--carry-from`, `ticket_adapter.py accept-gap` or `review --record`, `source_exclusions.py --load` or `--revoke`, `stand_identity.py record|confirm|forget|unconfirm`, `environment_record.py record|revoke`, `project_knowledge.py account|role|revoke|side|lesson`, `report_adapt.py kind|forget`, `story_step.py decide`.",
+      "door": "return the open point in your digest",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the tool call (a command or a file write) the guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "guard_pre_tool:PT-config-write",
+      "stages": [
+        "*"
+      ],
+      "requirement": "A role never writes `qa-factory/config.json`, by Write, Edit, NotebookEdit or a shell write shape.",
+      "door": "name `launch: <cause>` (or `launch: unknown`) and the evidence line in your digest",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the tool call (a command or a file write) the guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "guard_pre_tool:PT-stand-record-write",
+      "stages": [
+        "*"
+      ],
+      "requirement": "A role never writes `records/stand-identity.json`, `records/environment-properties.json`, `records/report-adaptations.json`, `records/project-knowledge.json` or a story's `state/stand-confirmations.jsonl`.",
+      "door": "hand off as a halt with the row `stand · blocked · <what>` and the evidence line in `blocked`",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the tool call (a command or a file write) the guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "guard_pre_tool:PT-walker-error",
+      "stages": [
+        "*"
+      ],
+      "requirement": "A shell command is one the guard's command reader can walk.",
+      "door": "several simpler commands, or the long text written to a file with Write",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the tool call (a command or a file write) the guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "guard_pre_tool:PT-patch-unchecked",
+      "stages": [
+        "*"
+      ],
+      "requirement": "A write whose content the guard can read; a patch it cannot parse is blocked.",
+      "door": "a patch in the host's grammar (`*** Begin Patch` / `*** End Patch`, a path per section)",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the tool call (a command or a file write) the guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "guard_pre_tool:PT-unparsed-event",
+      "stages": [
+        "*"
+      ],
+      "requirement": "(No requirement the role can meet: the host's hook event could not be read.).",
+      "door": "try the call once more; the second time the factory records a finding and the conductor is called",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the tool call (a command or a file write) the guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "stage_guard:SG-command.opaque",
+      "stages": [
+        "*"
+      ],
+      "requirement": "Inside an open dispatch, a command that launches the runner holds none of the forms the shell reads differently from the guard (`hooklib.SHELL_OPAQUE_BAN`, e.g. a backslash-escaped quote).",
+      "door": "write it without that form, or launch `run_suite.py --request FILE` as its own command",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the shell command the stage guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "stage_guard:SG-command.typed_runner",
+      "stages": [
+        "*"
+      ],
+      "requirement": "Inside an open dispatch, tests run only through `run_suite.py --mine <CASE>`, `--request FILE` or `--schedule FILE`, with the runner's path and flags written literally (no `$(...)`, backtick pair or `(Join-Path ...)`); `--task/--label` and the default full suite are refused.",
+      "door": "`run_suite.py --mine <CASE>`",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the shell command the stage guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "stage_guard:SG-command.request",
+      "stages": [
+        "*"
+      ],
+      "requirement": "The `--request` file exists (or the same command writes it), parses, and each request names the running dispatch's `dispatch_id` and selects only instances inside its scope (an instance is in scope when the manifest says it `covers` a scope case).",
+      "door": "`run_suite.py --template request`; add the case to `covers` through `manifest_put.py`",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the shell command the stage guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "stage_guard:SG-command.commit.pathspec",
+      "stages": [
+        "*"
+      ],
+      "requirement": "A commit names its paths (or uses `--`) and never `-a` or `--all`.",
+      "door": "git commit -m \"...\" -- <paths>",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the shell command the stage guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "stage_guard:SG-command.commit.manifest",
+      "stages": [
+        "*"
+      ],
+      "requirement": "A commit does not leave a manifest case unresolved without a reason from the closed vocabulary (`closed_unresolved_reasons()` or `deferred:<gate>`).",
+      "door": "write the reason on the case",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the shell command the stage guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "stage_guard:SG-command.stash",
+      "stages": [
+        "*"
+      ],
+      "requirement": "A `git stash` names its paths.",
+      "door": "name the paths",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the shell command the stage guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "stage_guard:SG-command.delivery",
+      "stages": [
+        "*"
+      ],
+      "requirement": "Before gate B, a delivery form is written only when the ledger word is `yes` or `after_checks`, or a deliver_with_risks journal line stands.",
+      "door": "write it without those words, split it, or file it",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the shell command the stage guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "stage_guard:SG-walker-error",
+      "stages": [
+        "*"
+      ],
+      "requirement": "A shell command is one the stage guard's command reader can walk.",
+      "door": "several simpler commands, or the long text written to a file",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the shell command the stage guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "host_adapter:HA-call-shape",
+      "stages": [
+        "*"
+      ],
+      "requirement": "A tool call has a shape the host adapter can read (a command as text or an argv list, one call per code cell, no tty option).",
+      "door": "send the command as text or as an argv list",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the host tool call the adapter judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "host_adapter:HA-no-command-text",
+      "stages": [
+        "*"
+      ],
+      "requirement": "On Codex, every command call carries its command text (the field words of FIELD_WORDS; in a code cell, the literal `tools.exec_command({cmd: ...})`).",
+      "door": "send the command in the fields the refusal names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the host tool call the adapter judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "host_adapter:HA-role-nested-delegation",
+      "stages": [
+        "*"
+      ],
+      "requirement": "On Codex, a role with its own agent file does not delegate to another agent.",
+      "door": "name the need in your digest; the conductor dispatches",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the host tool call the adapter judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "host_adapter:HA-role-read-only",
+      "stages": [
+        "*"
+      ],
+      "requirement": "On Codex without a shell, Bash is used only to read: rg or Get-Content, no chaining; otherwise the CODEX_DESKTOP_TOOLS.",
+      "door": "the read in one plain command, or the desktop tools the refusal names",
+      "when": [
+        "no_shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the host tool call the adapter judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "host_adapter:HA-stdin-chars",
+      "stages": [
+        "*"
+      ],
+      "requirement": "On Codex, a `write_stdin` call never sends characters to a running process.",
+      "door": "a guarded `exec_command` call",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the host tool call the adapter judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "host_adapter:HA-exec-tty",
+      "stages": [
+        "*"
+      ],
+      "requirement": "On Codex, an `exec_command` call never asks for a tty.",
+      "door": "a non-interactive call",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the host tool call the adapter judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "host_adapter:HA-connector-unclassified",
+      "stages": [
+        "*"
+      ],
+      "requirement": "A role with no shell never calls an unclassified or mutating connector tool (`mcp__…`).",
+      "door": "the desktop tools the refusal names; a write goes through a proposal and gate B",
+      "when": [
+        "no_shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the host tool call the adapter judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "host_adapter:HA-connector-orchestrator",
+      "stages": [
+        "*"
+      ],
+      "requirement": "A caller with a shell never calls a connector tool that `host_tools.read_only` does not list.",
+      "door": "name it in your digest; the conductor registers a verified read-only tool",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the host tool call the adapter judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "controller:s3_plan",
+      "stages": [
+        "S3"
+      ],
+      "requirement": "When your exit window claims S3 complete, the structured test plan passes its contract with no blocking problem (the refusal lists them).",
+      "door": "repair the rows the refusal names, change nothing else",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-test-strategist"
+          ],
+          "field": "the structured test plan (work/test-plan.json)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "controller:s5_plan_accept",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "A plan dispatch never closes S5: it is accepted without `stage_complete` (no `--complete`).",
+      "door": "finish the plan dispatch without `--complete`",
+      "when": [
+        "plan"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-code-critic"
+          ],
+          "field": "the S5 plan dispatch's close",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "controller:s5_plan_gaps",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "Your plan has no gap the plan check names (the refusal lists up to six).",
+      "door": "repair the named rows of `work/s5-plan.json`",
+      "when": [
+        "plan"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "work/s5-plan.json",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "controller:s5_plan_review",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "Your plan review does not contradict itself, is stamped on the plan bytes now on disk, reuses no remark id of an earlier review, and leaves no blocking remark undecided.",
+      "door": "rewrite the review on the current plan with new remark ids",
+      "when": [
+        "plan"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-code-critic"
+          ],
+          "field": "the plan review of the S5 plan",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "controller:code_review_receipts",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "Your review's evidence_refs name the findings file (a name containing `findings`, e.g. `work/test-code/critic-findings-<dispatch>.md`); every obligation binding carries `review_receipt_ref`, written through manifest_put; each new or changed test that is not red-by-requirement carries a sensitivity_proof or a reason.",
+      "door": "add the ref, receipt or proof the refusal names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-code-critic"
+          ],
+          "field": "the code review record of a window",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "controller:s5_plan_gaps.rework_rows",
+      "stages": [
+        "S3"
+      ],
+      "requirement": "A plan rework changes only blocker rows, new cases and test neighbours of new or dropped cases; the plan and the review stay readable.",
+      "door": "keep the rework to those rows",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-test-strategist"
+          ],
+          "field": "the reworked plan rows",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "s5_precheck:manifest",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "The manifest of this dispatch's cases keeps the invariants `manifest_put.py` owns (one instance per id, a covering row per scoped case), as a hand edit would break them.",
+      "door": "each finding's `fix`",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the manifest, the test code and the window's records",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "s5_precheck:row_fields",
+      "stages": [
+        "S5"
+      ],
+      "requirement_from": "window_record.REQUIRED_ROW_FIELDS",
+      "door": "add the named field to the row through `manifest_put.py`",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the manifest rows of the window",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "s5_precheck:bindings",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "Every Then clause of every case in scope is bound to a test and an assertion (`then_bindings`), or is a remainder the person took (`then handed:`), named.",
+      "door": "bind the clause, or name the remainder",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the manifest, the test code and the window's records",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "s5_precheck:oracle",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "A test never asserts an expected value the case left `open` or `invalid`; a test that went red and later passed on changed code has an `expectation_changes[]` record whose `then_refs` resolve; an unresolved row never disputes the approved case.",
+      "door": "each finding's `fix`",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the manifest, the test code and the window's records",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "s5_precheck:run_mapping",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "Every test of the scope has a reporter row in its run block.",
+      "door": "`run_suite.py --reparse-block`, never a rerun",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the manifest, the test code and the window's records",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "s5_precheck:environment",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "A `blocked_by_env` row of this dispatch carries the fix it found (`remedy`), names no credential value, blames the stand for no fixture the approved case never asked for, and stands on a run that shows the stand.",
+      "door": "each finding's `fix`",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the manifest, the test code and the window's records",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "s5_precheck:obligations",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "Every coverage obligation of the plan row a scoped case belongs to has an `obligation_bindings[]` row, under the plan's own id, reaching that case.",
+      "door": "add the binding through `manifest_put.py`",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the manifest, the test code and the window's records",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "s5_precheck:plan",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "On a plan-form S5, the window's tests match its slice of the plan, unless a `deviations[]` row of the window's form declares the difference.",
+      "door": "match the slice, or declare the deviation",
+      "when": [
+        "window"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the manifest, the test code and the window's records",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "execution_request:purpose",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "`purpose` is one of `PURPOSES` and never `impact_regression`.",
+      "door": "`run_suite.py --template request`, or `run_suite.py --mine <CASE>`",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the typed run request",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "execution_request:selection",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "`selected_instance_ids` and `current_scope_instance_ids` are string arrays, every selected instance is in the approved current scope, a behavioural request selects at least one, and only supported selectors are used.",
+      "door": "`run_suite.py --template request`, or `run_suite.py --mine <CASE>`",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the typed run request",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "execution_request:budget",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "`remaining_budget` is a non-negative number, and above zero for new behavioural execution.",
+      "door": "`run_suite.py --template request`, or `run_suite.py --mine <CASE>`",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the typed run request",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "execution_request:freshness",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "`freshness` is `fresh`.",
+      "door": "`run_suite.py --template request`, or `run_suite.py --mine <CASE>`",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the typed run request",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "execution_request:runtime",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "`runtime_provenance` is present, its `profile_id` matches the selected profile and it is matched or person_confirmed; a runtime-required request carries a read-only `runtime_probe` with a non-empty argv, an existing cwd and a positive timeout.",
+      "door": "`run_suite.py --template request`, or `run_suite.py --mine <CASE>`",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the typed run request",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "execution_request:fingerprint",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "`fingerprint_components` carries `source_sha`, `test_content_sha` and `config_sha`.",
+      "door": "`run_suite.py --template request`, or `run_suite.py --mine <CASE>`",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the typed run request",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "execution_request:command",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "`command` is an object with a non-empty string `argv`, an existing `cwd` and a `reporter` from `REPORTERS`; a behavioural request never runs a full suite; a command that runs tests declares `runs_tests`; an external reporter carries `{report_path}` in exactly one argv token and in `report_path`; `env` and `selector_join` follow their shapes.",
+      "door": "`run_suite.py --template request`, or `run_suite.py --mine <CASE>`",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the typed run request",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "execution_request:execution",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "`execution` has `schema_version` 1, a reporter equal to the command's with a job-isolated `{report_path}`, a `data_seed_contract` with `result` and `evidence_refs`, and a `selection` with a typed reason and non-empty `evidence_refs`.",
+      "door": "`run_suite.py --template request`, or `run_suite.py --mine <CASE>`",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the typed run request",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "execution_request:selector",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "A behavioural command has a verified adapter selector contract and framework `selector_args`: non-empty string arrays, never holding `{report_path}`.",
+      "door": "`run_suite.py --template request`, or `run_suite.py --mine <CASE>`",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the typed run request",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "execution_request:instance_contracts",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "A behavioural request carries `instance_contracts`, each with a `report_test_id`, object `parameters` and a `report_id_source` that proves the reporter id, and no reporter id maps to two instances.",
+      "door": "`run_suite.py --template request`, or `run_suite.py --mine <CASE>`",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the typed run request",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "manifest_put:colliding_ids",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "Two rows of one fragment that resolve to one instance id never name different test files.",
+      "door": "rename one function or split the fragment, then `manifest_put.py` again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the manifest fragment sent to manifest_put.py",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "manifest_put:novelty",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "A `tests[]` row carries `novelty` only as the whole row form `manifest_from_tests.py` writes (an object with `measured_on` and `measured_by`, no `resolved`).",
+      "door": "leave `novelty` out; code writes it",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the manifest fragment sent to manifest_put.py",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "manifest_put:base_outcome",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "`base_outcome` is `{\"outcome\": refused|working, \"run\": <non-empty run id>}`.",
+      "door": "run the same command again with the fixed value",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the manifest fragment sent to manifest_put.py",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "manifest_put:obligation_hash",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "A row never sends an `obligation_hash` the code did not build (`content_hash(obligation_refs)`).",
+      "door": "leave it out; code writes it",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the manifest fragment sent to manifest_put.py",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "manifest_put:helper_rows",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "An `introduced_helpers[]` row has `file`, `name` and the four role fields as strings, `novelty` (new, changed or unknown) only when the writer sent it, and no other key.",
+      "door": "run the same command again with the fixed row",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the manifest fragment sent to manifest_put.py",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "manifest_put:provisional",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "`provisional` is a list of rows in the registry's provisional form.",
+      "door": "run the same command again with the fixed row",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the manifest fragment sent to manifest_put.py",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "manifest_put:unknown_obligation",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "`obligation_bindings[]` name only obligations the plan names, in the plan's own spelling.",
+      "door": "copy the obligation ids from the plan",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the manifest fragment sent to manifest_put.py",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "manifest_put:then_remainder",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "A Then-level hand-off row has the contract's Then-remainder form (a case with a whole-case `unresolved[]` row keeps its echo rows).",
+      "door": "run the same command again with the fixed row",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the manifest fragment sent to manifest_put.py",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "manifest_put:retract",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "`retract` never names `tests`, `unresolved` or `obligation_bindings` (never replaced whole) and is otherwise well formed.",
+      "door": "change those keys row by row",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the manifest fragment sent to manifest_put.py",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "manifest_put:critic_approval",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "A row never turns a stored `critic_verdict: unverified` into `approved` without a non-empty `critic_note`.",
+      "door": "add the `critic_note`",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-code-critic"
+          ],
+          "field": "the manifest fragment sent to manifest_put.py",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "manifest_put:assertion_line",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "Every `assertion_id` `<file>:<line>` stands on a line that holds a check (`probe_by_code.check_on_line`).",
+      "door": "point the id at the assertion's line",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the manifest fragment sent to manifest_put.py",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "manifest_put:ghost_rows",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "A fragment never binds a Then to an id it retracts in the same fragment, and never sends a ghost row of an instance the manifest retracted.",
+      "door": "drop the row or the retract",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the manifest fragment sent to manifest_put.py",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "manifest_put:revision",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "`expected_revision` equals the revision the manifest file shows now.",
+      "door": "read the file's revision and send again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the manifest fragment sent to manifest_put.py",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "run_suite:phantom_story",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "`--task` names a story that exists (for `--detail`, `--wait` and the untyped run).",
+      "door": "the task id of your prompt",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the run_suite.py call",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "run_suite:detail_target",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "`--request FILE --detail TEST` names a request with a recorded run.",
+      "door": "the request file of the run you ask about",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the run_suite.py call",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "run_suite:untyped_story_run",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "A run for a story uses a typed request, never the untyped `--task/--label` run while a dispatch is open.",
+      "door": "`run_suite.py --mine <CASE>`",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the run_suite.py call",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "run_suite:missing_executor",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "The launcher of the run's profile exists in this session (else the run stops with a three-option question for the person, exit 3).",
+      "door": "hand off with the question as printed",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the run_suite.py call",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "manifest_put:expectation_changes",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "An expectation change names its function(s), red_attempt, green_attempt (or null), then_refs as `[{case, then: int}]`, what_changed, and a reason for a new row; the patch verdict joins; critic_verdict is a list, critic_note a string, and a note stands for each NOTE_REQUIRED_VERDICTS verdict.",
+      "door": "fix the entry the refusal names",
+      "door_needs": "shell",
+      "when": [
+        "window",
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the manifest fragment sent to manifest_put.py",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "s5_precheck:sides.declared",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "Each test declares its sides.",
+      "door": "declare them",
+      "when": [
+        "window"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the test's sides declaration",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "s5_precheck:sides.settled",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "A provisional row whose side is now real is not left open (unless it is a first-look accounting row): it is settled in the bind round, retracted, or kept by decision citing the person's word `substitute kept: <side>`; a settled row (`settled_matched` / `settled_edited`) cites in `evidence.run` a run block that is not a collect and whose stamp says its side was real, keeps the comment `qa-provisional: <id>` on its home line, and its status agrees with that line: `settled_matched` when the line is unchanged since `home_hash`, `settled_edited` when it changed and stands as the tool recorded in `evidence.home_hash_after`.",
+      "door": "run the test on the real side, then send the row with `status` and `evidence: {run: <block id>}` through `manifest_put.py --fragment` (the tool records the hashes itself); or retract it",
+      "door_needs": "shell",
+      "when": [
+        "window",
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the provisional rows and the tests that name them",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "s5_precheck:sides.placeholders",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "Every id a test names in `provisional` is a row of `provisional[]`; an open first-look accounting row (a `placeholder_locator` assumed from `first_look:<R-n>`, on a real side) stands only while the current, fresh first-look record holds that requirement missing or unreachable because of the product; and every test linked to such a row declares it in `provisional`, sits in no `blocked_by_env` unresolved row, is not handed to the person, and has a passed or failed run row.",
+      "door": "the finding's `fix`: drop or send the id / row through `manifest_put.py --fragment`; retract the row (`status: retracted`) or ask the conductor for a new first look; take the test out of the env row or the hand-off; run it once (`run_suite.py --mine <case>`)",
+      "door_needs": "shell",
+      "when": [
+        "window",
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the provisional rows and the tests that name them",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_case",
+      "stages": [
+        "S4"
+      ],
+      "requirement": "A case file opens with YAML front matter that carries every required field, takes `status`, `priority`, `channel` and `reuse_decision` from their closed lists, carries `automated_by` (file::test) when `Automated`, a `red_lock` that names a BUG-NNN, passes the form checks, and covers register requirements (or legacy `covers_ac`).",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-case-designer"
+          ],
+          "field": "the artifact the check judges (check_case)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_case_form",
+      "stages": [
+        "S4"
+      ],
+      "requirement": "`covers` names only register `R-n` ids of the task's register (or `legacy:<import reason>`), and the case inherits `defect_class` and `basis` from its plan row.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-case-designer"
+          ],
+          "field": "the artifact the check judges (check_case_form)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_then_oracles",
+      "stages": [
+        "S4"
+      ],
+      "requirement": "A case written on or after the oracle cutoff gives every Then an entry in `then_oracles` with a basis per the oracle grammar.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-case-designer"
+          ],
+          "field": "the artifact the check judges (check_then_oracles)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_cell_counts",
+      "stages": [
+        "S2",
+        "S4"
+      ],
+      "requirement": "A table row never holds more cells than its header; a bar inside a cell is written as `|`.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-case-designer",
+            "qa-requirements-tester"
+          ],
+          "field": "the artifact the check judges (check_cell_counts)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_bug",
+      "stages": [
+        "S8"
+      ],
+      "requirement": "A bug file opens with front matter that carries every required field, with `status` from its list and `severity` from the allowed set.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-bug-reporter"
+          ],
+          "field": "the artifact the check judges (check_bug)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_bug_filing_header",
+      "stages": [
+        "S8"
+      ],
+      "requirement": "A bug filed from a draft of this run carries non-empty `cases` (from the draft's `case`/`cases`) and `requirements` (the R-n its `violates` names).",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-bug-reporter"
+          ],
+          "field": "the artifact the check judges (check_bug_filing_header)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_bug_form",
+      "stages": [
+        "S8"
+      ],
+      "requirement": "A bug carries an impact from the scale and the sections that make it reproducible; when its source draft has several manifestations of one cause, the source draft is readable, `cases` lists every manifestation's case and a `## Manifestations` section has one complete line per case.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-bug-reporter"
+          ],
+          "field": "the artifact the check judges (check_bug_form)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_register",
+      "stages": [
+        "S2"
+      ],
+      "requirement": "The register's front matter carries the required fields, non-empty `ids` of the form R-n, sources from the source list and `confidence` high or low; every declared id has a full-width row under the register heading with a listed source (or a derivation), matrix cells per the grammar and an impact from the project's scale.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-requirements-tester"
+          ],
+          "field": "the artifact the check judges (check_register)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_delta_column",
+      "stages": [
+        "S2"
+      ],
+      "requirement": "With a `delta` column, every row carries `new`, `changed` or `unchanged`, and an `unchanged` row does not cite the diff as its observable.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-requirements-tester"
+          ],
+          "field": "the artifact the check judges (check_delta_column)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_behaviour_claims",
+      "stages": [
+        "S2"
+      ],
+      "requirement": "Every requirement seen only in the implementation has exactly one entry under the behaviour-claims heading, with an `origin` from its list and the fields of a claim.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-requirements-tester"
+          ],
+          "field": "the artifact the check judges (check_behaviour_claims)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_manifest_reuse",
+      "stages": [
+        "S2"
+      ],
+      "requirement": "Every path the register cites was recorded in the S1 context manifest.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-requirements-tester"
+          ],
+          "field": "the artifact the check judges (check_manifest_reuse)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_requirements_review",
+      "stages": [
+        "S2"
+      ],
+      "requirement": "`requirements-review.md` carries the required front matter, a `mode` and a `verdict` from their lists, and in mode B the matrix fields.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-requirements-tester"
+          ],
+          "field": "the artifact the check judges (check_requirements_review)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_understanding",
+      "stages": [
+        "S2"
+      ],
+      "requirement": "The understanding file stays within `UNDERSTANDING_MAX_LINES`, has every section of `UNDERSTANDING_SECTIONS`, and names every requirement id in a \"What we verify\" or \"What we do not verify\" line.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-requirements-tester"
+          ],
+          "field": "the artifact the check judges (check_understanding)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_plan",
+      "stages": [
+        "S3"
+      ],
+      "requirement": "The plan carries its required fields and TS rows; each row names register R-ids, an impact from the scale with the priority it derives, a non-empty distinguishing observation and a basis per the oracle grammar; the profile is from its list and the front matter counts (smoke rows and the rest) match the table.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-test-strategist"
+          ],
+          "field": "the artifact the check judges (check_plan)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_plan_v0",
+      "stages": [
+        "S3"
+      ],
+      "requirement": "The `## Plan` table has unique TS-n rows; each names a register requirement, a disposition from its list (with a reason where owed), an observable, an oracle from the list that is not implementation-only, a level from `PLAN_LEVELS` for `automate` (never on a low-value row), and a new behaviour is never judged by `history:` or on `current-code`.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-test-strategist"
+          ],
+          "field": "the artifact the check judges (check_plan_v0)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_manifest_v0",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "Every `automate` case of the plan has a `tests[]` or `unresolved[]` row; a `tests[]` row names an existing file and a `marker` or a full content-bound trace; an `unresolved` reason is from its list; a critic verdict is from its list, with `fix_notes[]` only for `approved_with_fixes`.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-code-critic"
+          ],
+          "field": "the artifact the check judges (check_manifest_v0)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_manifest_invariants",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "No two `tests[]` entries carry one instance id, no case is green in `tests[]` and present in `unresolved[]`, and no `self_fixes[]` entry repeats an earlier one byte for byte.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the artifact the check judges (check_manifest_invariants)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_remedy_rows",
+      "stages": [
+        "S5",
+        "S6"
+      ],
+      "requirement": "A row blocked on the environment carries a `remedy` that is the fix, and names no value of a credential key.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-runner"
+          ],
+          "field": "the artifact the check judges (check_remedy_rows)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_self_fixes",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "A `self_fixes[]` entry carries every required key and never drops a Then line's assertion that was there before.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the artifact the check judges (check_self_fixes)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_marker_in_file",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "The marker a manifest row names stands in the test file it names.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator"
+          ],
+          "field": "the artifact the check judges (check_marker_in_file)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_context_manifest_v0",
+      "stages": [
+        "S1"
+      ],
+      "requirement": "Every `related[]` entry is an object with a `kind` from `RELATED_KINDS` and a `source`; every `implementations[]` entry is an object naming a `repo` once with a listed `source`; the list keys are arrays or absent.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-scout"
+          ],
+          "field": "the artifact the check judges (check_context_manifest_v0)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_run_report_empty",
+      "stages": [
+        "S6"
+      ],
+      "requirement": "A run with zero tests carries `env_preflight: blocked`, or names its environment-blocked, manual-check or manual-skipped rows.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the artifact the check judges (check_run_report_empty)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_run_report_head",
+      "stages": [
+        "S6"
+      ],
+      "requirement": "The run report carries a non-empty `head`.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the artifact the check judges (check_run_report_head)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_run_report_v0",
+      "stages": [
+        "S6"
+      ],
+      "requirement": "The run report carries an `execution_status` from its list, computed from the run's own evidence, and `blocked` when `env_preflight` is blocked.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the artifact the check judges (check_run_report_v0)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_result_rows",
+      "stages": [
+        "S6"
+      ],
+      "requirement": "Every `results[]` row is an object naming one case or a test id, with a status from its list, a reason when skipped, and totals that agree with the rows.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the artifact the check judges (check_result_rows)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_run_report_coverage",
+      "stages": [
+        "S6"
+      ],
+      "requirement": "Every case S5 automated and every manual-agent plan row is accounted for in the run report.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the artifact the check judges (check_run_report_coverage)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_triage_v0",
+      "stages": [
+        "S7"
+      ],
+      "requirement": "One triage row per observation, a verdict from its list, and a FLAKY verdict only with enough reruns, a listed mechanism and a `fix_result`.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-failure-analyst"
+          ],
+          "field": "the artifact the check judges (check_triage_v0)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_report_sections",
+      "stages": [
+        "S8"
+      ],
+      "requirement": "Every template section stands, in the template's order, with the verdict and its `delivery_ready:` line above the rest.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-doc-scribe"
+          ],
+          "field": "the artifact the check judges (check_report_sections)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_report_traceability",
+      "stages": [
+        "S8"
+      ],
+      "requirement": "Every register requirement and every plan case stands in a row of the traceability appendix.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-doc-scribe"
+          ],
+          "field": "the artifact the check judges (check_report_traceability)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_report_left_with_you",
+      "stages": [
+        "S8"
+      ],
+      "requirement": "Every `Left with you` item names its requirement and case, what a person would observe, and how.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-doc-scribe"
+          ],
+          "field": "the artifact the check judges (check_report_left_with_you)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_report_test_marks",
+      "stages": [
+        "S8"
+      ],
+      "requirement": "Every test line under `Proven`, and every test a `Left with you` item names, carries the real-or-mock mark the ledger records.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-doc-scribe"
+          ],
+          "field": "the artifact the check judges (check_report_test_marks)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_report_forbidden",
+      "stages": [
+        "S8"
+      ],
+      "requirement": "The report carries none of the factory's internal identifiers, and no decision marker without its decision text.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-doc-scribe"
+          ],
+          "field": "the artifact the check judges (check_report_forbidden)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_report_human_text",
+      "stages": [
+        "S8"
+      ],
+      "requirement": "Each `Factory defects` item is written in plain words, as `human-questions.md` asks.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-doc-scribe"
+          ],
+          "field": "the artifact the check judges (check_report_human_text)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_report_gate_b",
+      "stages": [
+        "S8"
+      ],
+      "requirement": "\"Decided at gate B\" quotes the person's recorded words for each decision, never a paraphrase.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-doc-scribe"
+          ],
+          "field": "the artifact the check judges (check_report_gate_b)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_report_blocks",
+      "stages": [
+        "S8"
+      ],
+      "requirement": "Every code-owned block stands with its markers, opens with its own heading and holds no section heading; \"Decided at gate B\" stands only when gate B has recorded words, and never quotes gate A's.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-doc-scribe"
+          ],
+          "field": "the artifact the check judges (check_report_blocks)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_report_coverage",
+      "stages": [
+        "S8"
+      ],
+      "requirement": "The report's coverage line enumerates the check coverage.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-doc-scribe"
+          ],
+          "field": "the artifact the check judges (check_report_coverage)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_ptr_readiness",
+      "stages": [
+        "S8"
+      ],
+      "requirement": "`Readiness within what was verified` gives every register requirement a row with a status from its list.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-doc-scribe"
+          ],
+          "field": "the artifact the check judges (check_ptr_readiness)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_test_report",
+      "stages": [
+        "S8"
+      ],
+      "requirement": "`work/delivery-summary.md` is readable and fresh (regenerated when stale).",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-doc-scribe"
+          ],
+          "field": "the artifact the check judges (check_test_report)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_report_ledger_and_readiness",
+      "stages": [
+        "S8"
+      ],
+      "requirement": "Hand text outside the generated tables stays within `TEST_REPORT_MAX_BYTES`, section 1 is the table `ledger.py` generated, and a `delivery_ready: yes|after_checks|no` line agrees with `ledger.json`.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-doc-scribe"
+          ],
+          "field": "the artifact the check judges (check_report_ledger_and_readiness)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_legacy_report_sections",
+      "stages": [
+        "S8"
+      ],
+      "requirement": "(legacy form) Every gate-B section stands, in order.",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-doc-scribe"
+          ],
+          "field": "the artifact the check judges (check_legacy_report_sections)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_phase_json.context-manifest.json",
+      "stages": [
+        "S1"
+      ],
+      "requirement_from": "validate_artifacts.PHASE_JSON_KEYS",
+      "carrier_key": "context-manifest.json",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-scout"
+          ],
+          "field": "context-manifest.json",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "validate_artifacts:check_phase_json.triage.json",
+      "stages": [
+        "S7"
+      ],
+      "requirement_from": "validate_artifacts.PHASE_JSON_KEYS",
+      "carrier_key": "triage.json",
+      "door": "edit the file and the field the refusal line names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-failure-analyst"
+          ],
+          "field": "triage.json",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "handoff_check:field.blank",
+      "stages": [
+        "*"
+      ],
+      "requirement_from": "handoff_form",
+      "door": "write the value as a `path: value` line in the values file, then run the check again",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the handover form of the dispatch",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "handoff_check:field.value",
+      "stages": [
+        "*"
+      ],
+      "requirement_from": "handoff_form",
+      "door": "write one of the listed words (or `new: <word> -- <why>` where the list is open)",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the handover form of the dispatch",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "handoff_check:field.max_len",
+      "stages": [
+        "*"
+      ],
+      "requirement_from": "handoff_form",
+      "door": "shorten it (`--shorten` with `--fix`) or rewrite",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the handover form of the dispatch",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "handoff_check:required_rows",
+      "stages": [
+        "*"
+      ],
+      "requirement": "A required list has one row per item in scope: the id, a state and a reason of at most 80 characters.",
+      "door": "write the rows as index lines in the values file, then run this check again",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the handover form of the dispatch",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "handoff_check:required_rows.owed_by_verdict",
+      "stages": [
+        "*"
+      ],
+      "requirement": "When the verdict owes rows (the verdict word names work done on items), the list is not empty.",
+      "door": "write the rows the verdict owes, or change the verdict",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the handover form of the dispatch",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "handoff_check:required_rows.null_word",
+      "stages": [
+        "*"
+      ],
+      "requirement": "A list's null-outcome word (the declared empty outcome) stands only when the list has no rows; never both.",
+      "door": "remove the word or remove the rows",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the handover form of the dispatch",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "handoff_check:tried",
+      "stages": [
+        "*"
+      ],
+      "requirement": "In a contract that asks what was tried (TRIED_CONTRACTS), each tried entry states what was tried and the error it gave (TRIED_MEANING).",
+      "door": "fill the tried entry with the attempt and its error",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the handover form of the dispatch",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "handoff_check:blocked_problem",
+      "stages": [
+        "*"
+      ],
+      "requirement": "A row in state `blocked` carries `blocked.problem`; `blocked_by_env` is used only where `options_for_role` offers it to this role.",
+      "door": "write the problem, or pick a state the role is offered",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the handover form of the dispatch",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "handoff_check:findings_tooling",
+      "stages": [
+        "*"
+      ],
+      "requirement": "A finding whose cause is `tooling` is repeated in `tooling_findings`.",
+      "door": "add it to `tooling_findings`",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the handover form of the dispatch",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "handoff_check:claims",
+      "stages": [
+        "*"
+      ],
+      "requirement": "What the form claims is true is true on disk (\"the form claims this is true, and it is not\").",
+      "door": "fix the claim or make it true",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the handover form of the dispatch",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "handoff_check:null_outcome.repairs",
+      "stages": [
+        "*"
+      ],
+      "requirement": "No repair is pending when the null outcome is claimed.",
+      "door": "finish or record the repair",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the handover form of the dispatch",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "handoff_check:null_outcome.verdict",
+      "stages": [
+        "*"
+      ],
+      "requirement": "The triage verdict is a known word.",
+      "door": "write a known verdict",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the handover form of the dispatch",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "handoff_check:null_outcome.names",
+      "stages": [
+        "*"
+      ],
+      "requirement": "Every row has a name.",
+      "door": "name the row",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the handover form of the dispatch",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "handoff_check:null_outcome.report",
+      "stages": [
+        "*"
+      ],
+      "requirement": "The run report is readable.",
+      "door": "rerun / point at the readable report",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the handover form of the dispatch",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "handoff_check:null_outcome.failures",
+      "stages": [
+        "*"
+      ],
+      "requirement": "Each shown failure has a triage row.",
+      "door": "triage it once",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the handover form of the dispatch",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "handoff_check:null_outcome.listing",
+      "stages": [
+        "*"
+      ],
+      "requirement": "Everything named in `listed_in` exists, and nothing extra stands.",
+      "door": "list exactly what exists",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the handover form of the dispatch",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "handoff_check:values_file",
+      "stages": [
+        "*"
+      ],
+      "requirement": "The values file is `path: value` lines (or a JSON object): valid JSON, an object not a list, each path given once, each key a field path, no nested value.",
+      "door": "fix the line the refusal names (FILE_FIX)",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the handover form of the dispatch",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "handoff_check:values_apply",
+      "stages": [
+        "*"
+      ],
+      "requirement": "Each path names a field of this contract, by its index where it is a list row, not a contract-owned path; a list field gets a list and a one-value field one value; rows open in order.",
+      "door": "correct the path (the refusal suggests \"did you mean\")",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the handover form of the dispatch",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "handoff_check:cli",
+      "stages": [
+        "*"
+      ],
+      "requirement": "The call names an existing UTF-8 form with a `contract:` line and an existing values file; `--shorten` only with `--fix`.",
+      "door": "the refusal's door; a non-UTF-8 form: run `handoff_init` again (:3040-3041)",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the handover form of the dispatch",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "handoff_check:binding",
+      "stages": [
+        "S7"
+      ],
+      "requirement": "Each failure of the run report has at most one triage row and each triage row answers one failure: a row that names several failures is a verdict for none of them, and several rows for one failure keep one - on both paths of the S7 form (its repair list empty or not).",
+      "door": "triage every failure in `work/triage.json` with ONE row under that failure's own `instance_id`, then run this check again",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-failure-analyst"
+          ],
+          "field": "the handover form of the S7 dispatch",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "handoff_check:investigation",
+      "stages": [
+        "S7"
+      ],
+      "requirement": "In an S7 investigation dispatch the form hands nothing for repair and relists no triage row: `scope` and `not_for_repair` are each an empty list (or absent).",
+      "door": "write `scope: []` and `not_for_repair: []`",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-failure-analyst"
+          ],
+          "field": "the handover form of the S7 dispatch",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "planning_contract:plan",
+      "stages": [
+        "S3"
+      ],
+      "requirement": "The plan validates: every obligation of the registry has its row, coverage revisions and revision marks are consistent (validate_plan + coverage_revision_errors + unmarked_revision_errors).",
+      "door": "fix the plan row the block names, then end the step again",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-test-strategist"
+          ],
+          "field": "the structured test plan (work/test-plan.json)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "planning_contract:contradictions",
+      "stages": [
+        "S3"
+      ],
+      "requirement": "No two plan rows contradict each other on the same requirement.",
+      "door": "resolve the contradiction in the plan",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-test-strategist"
+          ],
+          "field": "the structured test plan (work/test-plan.json)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "planning_contract:branches",
+      "stages": [
+        "S3"
+      ],
+      "requirement": "Every question branch kind of S3_EXIT_KINDS is accounted for (the messages :1786-2035 name what each kind expects).",
+      "door": "write the branch the block names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-test-strategist"
+          ],
+          "field": "the structured test plan (work/test-plan.json)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "planning_contract:branches.new_questions",
+      "stages": [
+        "S3"
+      ],
+      "requirement": "A new question the plan raises is well formed (as `bad_branch`).",
+      "door": "fix the question entry",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-test-strategist"
+          ],
+          "field": "the structured test plan (work/test-plan.json)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "planning_contract:fence.plan_row",
+      "stages": [
+        "S3"
+      ],
+      "requirement": "Every requirement has a plan row.",
+      "door": "add the row",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-test-strategist"
+          ],
+          "field": "the structured test plan (work/test-plan.json)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "planning_contract:fence.r_column",
+      "stages": [
+        "S3"
+      ],
+      "requirement": "The md plan's R column names the requirement.",
+      "door": "fill the R column",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-test-strategist"
+          ],
+          "field": "the structured test plan (work/test-plan.json)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "planning_contract:fence.candidate_defects",
+      "stages": [
+        "S3"
+      ],
+      "requirement": "A candidate defect is carried to its row.",
+      "door": "carry it",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-test-strategist"
+          ],
+          "field": "the structured test plan (work/test-plan.json)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "planning_contract:fence.waiting_branch",
+      "stages": [
+        "S3"
+      ],
+      "requirement": "A row waiting on an answer has its branch.",
+      "door": "add the branch",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-test-strategist"
+          ],
+          "field": "the structured test plan (work/test-plan.json)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "planning_contract:regression",
+      "stages": [
+        "S3"
+      ],
+      "requirement": "The regression list holds only existing tests at real paths with one runnable command per item (P24).",
+      "door": "fix the item the block names",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-test-strategist"
+          ],
+          "field": "the structured test plan (work/test-plan.json)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "planning_contract:targets",
+      "stages": [
+        "S3"
+      ],
+      "requirement": "A fit target names a real place.",
+      "door": "correct the target",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-test-strategist"
+          ],
+          "field": "the structured test plan (work/test-plan.json)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "planning_contract:requests",
+      "stages": [
+        "S3"
+      ],
+      "requirement": "A request row is in its form (shown capped by `branch_accounting.limit(\"refusal_units_shown\")`).",
+      "door": "fix the request",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-test-strategist"
+          ],
+          "field": "the structured test plan (work/test-plan.json)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "planning_contract:plan_json",
+      "stages": [
+        "S3"
+      ],
+      "requirement": "The plan JSON is readable.",
+      "door": "write valid JSON",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-test-strategist"
+          ],
+          "field": "the structured test plan (work/test-plan.json)",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "coverage_contract:obligations",
+      "stages": [
+        "S3"
+      ],
+      "requirement": "Each obligation in the plan names its requirement, its coverage and a known state, per the messages of validate_obligations.",
+      "door": "fix the obligation entry",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-test-strategist"
+          ],
+          "field": "the obligations of the test plan",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "coverage_contract:obligations.observation",
+      "stages": [
+        "S3"
+      ],
+      "requirement": "When the coverage contract revision requires it, every obligation carries an `observation_contract` object: `claim_kind` a non-empty list from `state_unchanged, no_write_attempt, response_parity, no_leak, rendered_behavior, ordinary`; `oracle_ref` `{ref, revision}` that joins a requirement of the obligation's `requirement_refs` at its revision, or a declared source-conflict decision; non-empty `surfaces`, each an object with a unique `id`, a `boundary` and a status `planned`, `observed` or `gap` - a gap with a `gap_reason` (and then no coverage of the obligation is `sufficient`), any other with an `assertion_ref` naming an existing check or step; `controls` and `completion_ref` naming existing checks or steps; `independent_expectations` a list of `{partition_ref, expected_ref, attribution_assertion_ref}` whose attribution names an existing assertion (for `response_parity` two or more, with unique partitions); `source_conflicts` a list of declared decision ids; for `state_unchanged` / `no_write_attempt` a `sequence` of exactly `before_read, action, completion, after_read` over existing refs, a separate `positive_control_ref` and a `reachability_assertion_ref`; for `no_leak` a `payload_assertion_ref`.",
+      "door": "fix the field of the obligation's `observation_contract` the line names, then end the step again",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-test-strategist"
+          ],
+          "field": "the obligations of the test plan",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "execution_request:sandbox",
+      "stages": [
+        "S5",
+        "S7"
+      ],
+      "requirement": "A run in a sandbox clone runs in the profile's own directory inside the clone: the profile's `commands.one_test.cwd` (when set) lies inside the project root; the sandbox root is a directory; the run directory resolves inside the clone (no link out of it) and exists there; and every test file the run needs is a file the clone holds.",
+      "door": "name it as `tooling` in your digest (the card's rule for an incomplete probe); a test file the clone lacks: add it to the repository or run the probe on a tracked copy - see **F-P2-5**",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-code-critic",
+            "qa-failure-analyst"
+          ],
+          "field": "the sandbox run request of a probe",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "execution_request:place_rows",
+      "stages": [
+        "S5",
+        "S6",
+        "S7"
+      ],
+      "requirement": "Every test file the manifest names for an asked case exists under the run directory or the project root (a path relative to the project root).",
+      "door": "correct `file` through `manifest_put.py` (path relative to the project root), or pass `--cwd` when the test lives in a sandbox",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-runner",
+            "qa-code-critic",
+            "qa-failure-analyst"
+          ],
+          "field": "the manifest rows' test files",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "execution_request:active_dispatch",
+      "stages": [
+        "S5",
+        "S6",
+        "S7"
+      ],
+      "requirement": "A `--mine` call belongs to exactly one running dispatch: the controller of the story has one open (with `--dispatch ID`, that running dispatch or one it resumes through `parent_retry`); when several are open, `--dispatch ID` (and `--task TICKET` across stories) names yours.",
+      "door": "pass `--dispatch <your prompt's Dispatch id>` (and `--task <T>`); when none is open, name it in your digest (the conductor opens dispatches)",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-runner",
+            "qa-code-critic",
+            "qa-failure-analyst"
+          ],
+          "field": "the `--mine` call and its manifest rows",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "execution_request:case_entries",
+      "stages": [
+        "S5",
+        "S6",
+        "S7"
+      ],
+      "requirement": "An asked case id names one case: a bare id the story holds under more than one area is asked with its area (`<area>/<id>`), and the manifest row's `covers` names the same area as the dispatch scope (a row that names no area is not run for a qualified id when the story holds the number under several areas, or once another row names one).",
+      "door": "`--mine <area>/<id>`; or correct the row's `covers` through `manifest_put.py`; or hand the case back in your digest",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-runner",
+            "qa-code-critic",
+            "qa-failure-analyst"
+          ],
+          "field": "the `--mine` call and its manifest rows",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "execution_request:profile",
+      "stages": [
+        "S5",
+        "S6",
+        "S7"
+      ],
+      "requirement": "The execution profile of the run is known without a guess: a profile named by `--profile` or a manifest row's `profile_id` is one `qa-factory/config.json` holds; the asked cases run under one profile; a row that names no profile and whose file lies under another profile's test root, or a root several profiles share, names its `profile_id`; when nothing else tells, `--profile` names it.",
+      "door": "`profile_id` on the manifest row through `manifest_put.py --fragment`, or `--profile ID` (only where the caller takes it: `run_suite --mine`, never `probe_by_code`, :1707-1708, :1728); cases of two profiles: one `--mine` per profile",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-runner",
+            "qa-code-critic",
+            "qa-failure-analyst"
+          ],
+          "field": "the `--mine` call and its manifest rows",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "execution_request:profile_command",
+      "stages": [
+        "S5",
+        "S6",
+        "S7"
+      ],
+      "requirement": "The profile's one-test command in `qa-factory/config.json` is readable: `commands.one_test.argv` present and in shape, its `env` in shape, and a `selectors.join` rule (when the profile has one) of the form `{\"option\", \"separator\", \"group\"?}`.",
+      "door": "report it in your digest as an onboarding gap, and write this one run with `run_suite.py --template request`",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-runner",
+            "qa-code-critic",
+            "qa-failure-analyst"
+          ],
+          "field": "the `--mine` call and its manifest rows",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "execution_request:stand",
+      "stages": [
+        "S5",
+        "S6",
+        "S7"
+      ],
+      "requirement": "The stand the run would stand on can be looked at now, and it runs this story's build.",
+      "door": "name it as `environment` in your digest (`stand_health.py --probe --env <environment>`); a stand that runs another build: the person's word at the build question of the stage entry",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-runner",
+            "qa-code-critic",
+            "qa-failure-analyst"
+          ],
+          "field": "the `--mine` call and its manifest rows",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "execution_request:stand.probe",
+      "stages": [
+        "S5",
+        "S6",
+        "S7"
+      ],
+      "requirement": "The story's first typed run on a profile has a way to identify the stand: an `execution.runtime_probes` entry for the profile (or `*`) with an `argv`, or an earlier typed run of the story on the profile to copy the probe from.",
+      "door": "the probe write command the refusal prints when there is one (`runtime_probe.py --suggest --write --profile <p>`), else write this one request from `run_suite.py --template request` (every later `--mine` copies its probe)",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-runner",
+            "qa-code-critic",
+            "qa-failure-analyst"
+          ],
+          "field": "the `--mine` call and its manifest rows",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "execution_request:stand.reference",
+      "stages": [
+        "S5",
+        "S6",
+        "S7"
+      ],
+      "requirement": "The story's record does not name its own stand (`pipeline.json` `environment`) as the reference (old version) of a side as well.",
+      "door": "tell the conductor in your digest which stand runs the new version (the record is corrected by `stage_done.py --set sides.<side>.reference=...`, a conductor command - F-W2)",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-runner",
+            "qa-code-critic",
+            "qa-failure-analyst"
+          ],
+          "field": "the `--mine` call and its manifest rows",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "execution_request:mine_call",
+      "stages": [
+        "S5",
+        "S6",
+        "S7"
+      ],
+      "requirement": "A `--mine` call names at least one case id (in the project's case-id form), a `--purpose` of `initial`, `repair_verify` or `red_probe` (any other purpose goes through `--request`), `--node-id` only with ONE case, at most one of `--cwd` and `--sandbox-root`, and a red probe always one of them (never the author's tree).",
+      "door": "correct the call as the refusal names (`--template request` for another purpose; `red_sandbox.py --probe` prepares and passes the sandbox)",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-runner",
+            "qa-code-critic",
+            "qa-failure-analyst"
+          ],
+          "field": "the `--mine` call and its manifest rows",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "execution_request:scope",
+      "stages": [
+        "S5",
+        "S6",
+        "S7"
+      ],
+      "requirement": "A dispatch runs only the cases it was given: every asked case is in the dispatch's scope (a stale live check of a qa-code-critic red probe is admitted by code; anything else passes only on a person's recorded word).",
+      "door": "hand the case back in your digest; the conductor dispatches it or records the person's word (`waiver.py`, block \"outside its scope\")",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-runner",
+            "qa-code-critic",
+            "qa-failure-analyst"
+          ],
+          "field": "the `--mine` call and its manifest rows",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "execution_request:no_test",
+      "stages": [
+        "S5",
+        "S6",
+        "S7"
+      ],
+      "requirement": "Every asked case has a test to run: a manifest row with file and selector, or (pytest only) a file the manifest names whose tests mention the case in a marker, comment or docstring.",
+      "door": "put the test in the manifest through `manifest_put.py` (file + selector), or name it for this run: `--mine <case> --node-id <file>::<test function>`",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-runner",
+            "qa-code-critic",
+            "qa-failure-analyst"
+          ],
+          "field": "the `--mine` call and its manifest rows",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "execution_request:selector_args",
+      "stages": [
+        "S5",
+        "S6",
+        "S7"
+      ],
+      "requirement": "A manifest row of a profile that does not run pytest carries `selector_args` (the framework's own arguments) and `report_test_id`, unless the factory can build the selection from a `run_forms` direct form.",
+      "door": "give the row `selector_args` and `report_test_id` through `manifest_put.py` once; until then run through `--template request`",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-runner",
+            "qa-code-critic",
+            "qa-failure-analyst"
+          ],
+          "field": "the `--mine` call and its manifest rows",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "execution_request:window_first",
+      "stages": [
+        "S5",
+        "S6",
+        "S7"
+      ],
+      "requirement": "A run that picks part of a case (`--node-id`) does not leave tests of the same file in the dispatch's scope that have never run in this window: one call runs them together.",
+      "door": "run the command the answer names (`run_suite.py --mine <cases>`); only what a repair touched: `--purpose repair_verify`; this exact run once more: `--again`",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-runner",
+            "qa-code-critic",
+            "qa-failure-analyst"
+          ],
+          "field": "the `--mine` call and its manifest rows",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "run_suite:recover",
+      "stages": [
+        "S5",
+        "S6",
+        "S7"
+      ],
+      "requirement": "`--recover <KEY> --task <T>` names the idempotency key of a job recorded in that story's job store, and the job's file is readable JSON.",
+      "door": "the `idempotency_key` the earlier answer printed (the not-launched answer names `--recover <idempotency_key> --task <task>`, `run_suite.py:3026-3027`) and your prompt's task; a job file that cannot be read is the factory's: name it in your digest",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner",
+            "qa-automator",
+            "qa-code-critic"
+          ],
+          "field": "the run_suite.py call",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "run_suite:begin",
+      "stages": [
+        "S5",
+        "S6",
+        "S7"
+      ],
+      "requirement": "A request's `idempotency_key` is new, or names the very request (same digest) already recorded under it; a key another process is claiming at the same moment is not reused.",
+      "door": "write the request with a new `idempotency_key` (a `--mine` run takes a key of its own: run it again); a claim that cannot be read: `--recover <key> --task <T>`",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-runner",
+            "qa-failure-analyst",
+            "qa-code-critic"
+          ],
+          "field": "the run_suite.py call",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "run_suite:reparse",
+      "stages": [
+        "S6"
+      ],
+      "requirement": "A reparse names an existing task-local run block by its canonical immutable block_id, with machine reporter evidence whose raw file is present, safe and unchanged; a mapping (needs instance_contracts) covers exactly the prior selected instances, with reporter ids non-empty and unique, and no projection collision.",
+      "door": "fix the block id / mapping the refusal names; when the evidence is missing, run the suite again instead of reparsing",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the run_suite.py call",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "first_look:put.null_reason",
+      "stages": [
+        "S6"
+      ],
+      "requirement": "A null first look carries a reason from the closed list.",
+      "door": "write one of the listed reasons",
+      "door_needs": "shell",
+      "when": [
+        "first_look",
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the first look record",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "first_look:put.walk_open",
+      "stages": [
+        "S6"
+      ],
+      "requirement": "A first look is put only while its walk is open.",
+      "door": "open the walk first (the refusal's command)",
+      "door_needs": "shell",
+      "when": [
+        "first_look",
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the first look record",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "first_look:put.inputs_current",
+      "stages": [
+        "S6"
+      ],
+      "requirement": "The code and the register the first look was taken on are still the current ones.",
+      "door": "take the first look again on the current code/register",
+      "door_needs": "shell",
+      "when": [
+        "first_look",
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the first look record",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "first_look:put.input",
+      "stages": [
+        "S6"
+      ],
+      "requirement": "The input file is readable in the first-look form.",
+      "door": "fix the input file",
+      "door_needs": "shell",
+      "when": [
+        "first_look",
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the first look record",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "first_look:put.rows",
+      "stages": [
+        "S6"
+      ],
+      "requirement": "Each row states its path, API, auth and locator correctly (sub-ids below from the problem builders).",
+      "door": "fix the row the problem names",
+      "door_needs": "shell",
+      "when": [
+        "first_look",
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the first look record",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "first_look:put.rows.row",
+      "stages": [
+        "S6"
+      ],
+      "requirement": "Each row has its required fields.",
+      "door": "fill them",
+      "door_needs": "shell",
+      "when": [
+        "first_look",
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the first look record",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "first_look:put.rows.path",
+      "stages": [
+        "S6"
+      ],
+      "requirement": "A path names a real place of the product.",
+      "door": "correct it",
+      "door_needs": "shell",
+      "when": [
+        "first_look",
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the first look record",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "first_look:put.rows.api",
+      "stages": [
+        "S6"
+      ],
+      "requirement": "An API entry names method and route.",
+      "door": "correct it",
+      "door_needs": "shell",
+      "when": [
+        "first_look",
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the first look record",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "first_look:put.rows.auth",
+      "stages": [
+        "S6"
+      ],
+      "requirement": "An auth entry names how access is got.",
+      "door": "correct it",
+      "door_needs": "shell",
+      "when": [
+        "first_look",
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the first look record",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "first_look:put.rows.locator",
+      "stages": [
+        "S6"
+      ],
+      "requirement": "A locator is in the accepted form.",
+      "door": "correct it",
+      "door_needs": "shell",
+      "when": [
+        "first_look",
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the first look record",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "first_look:put.rows.list",
+      "stages": [
+        "S6"
+      ],
+      "requirement": "A list field is a list.",
+      "door": "write it as a list",
+      "door_needs": "shell",
+      "when": [
+        "first_look",
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the first look record",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:manual_evidence.py prepare",
+      "stages": [
+        "S6"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "manual_evidence.py prepare",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:manual_evidence.py write-block",
+      "stages": [
+        "S6"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "manual_evidence.py write-block",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:manual_evidence.py validate",
+      "stages": [
+        "S6"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "manual_evidence.py validate",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:manual_evidence.py export",
+      "stages": [
+        "S6"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "manual_evidence.py export",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:manual_evidence.py build",
+      "stages": [
+        "S6"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "manual_evidence.py build",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:manual_evidence.py rejudge",
+      "stages": [
+        "S6"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "manual_evidence.py rejudge",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:manual_capture.py ui",
+      "stages": [
+        "S6",
+        "S7"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "manual_capture.py ui",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner",
+            "qa-failure-analyst"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:manual_capture.py http",
+      "stages": [
+        "S6",
+        "S7"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "manual_capture.py http",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner",
+            "qa-failure-analyst"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:place_answers.py write",
+      "stages": [
+        "S7"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "place_answers.py write",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-failure-analyst"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:walk_session.py open",
+      "stages": [
+        "S6",
+        "S7"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "walk_session.py open",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-failure-analyst",
+            "qa-runner"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:first_look.py put",
+      "stages": [
+        "S6"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "first_look.py put",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:reference_snapshot.py put",
+      "stages": [
+        "S6"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "reference_snapshot.py put",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:first_look.py show",
+      "stages": [
+        "S6"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "first_look.py show",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:walk_session.py item",
+      "stages": [
+        "S6"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "walk_session.py item",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:walk_session.py step",
+      "stages": [
+        "S6",
+        "S7"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "walk_session.py step",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner",
+            "qa-failure-analyst"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:walk_session.py look",
+      "stages": [
+        "S6",
+        "S7"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "walk_session.py look",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner",
+            "qa-failure-analyst"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:walk_session.py final",
+      "stages": [
+        "S6",
+        "S7"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "walk_session.py final",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner",
+            "qa-failure-analyst"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:walk_session.py verdict",
+      "stages": [
+        "S6"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "walk_session.py verdict",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:walk_session.py claim",
+      "stages": [
+        "S6"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "walk_session.py claim",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:walk_session.py done",
+      "stages": [
+        "S6"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "walk_session.py done",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:walk_session.py status",
+      "stages": [
+        "S6",
+        "S7"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "walk_session.py status",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner",
+            "qa-failure-analyst"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:manual_capture.py app",
+      "stages": [
+        "S6"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "manual_capture.py app",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-runner"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:artifact_producer.py publish",
+      "stages": [
+        "S2",
+        "S4",
+        "S7",
+        "S8"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "artifact_producer.py publish",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-failure-analyst",
+            "qa-bug-reporter",
+            "qa-case-designer",
+            "qa-requirements-tester"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:artifact_producer.py validate-batch",
+      "stages": [
+        "S2",
+        "S4",
+        "S7",
+        "S8"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "artifact_producer.py validate-batch",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-failure-analyst",
+            "qa-bug-reporter",
+            "qa-case-designer",
+            "qa-requirements-tester"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:manifest_put.py --fragment",
+      "stages": [
+        "S5"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "manifest_put.py --fragment",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-code-critic"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:critic_rollcall.py --store",
+      "stages": [
+        "S2",
+        "S3",
+        "S4"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "critic_rollcall.py --store",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-case-critic"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:external_writes.py --record",
+      "stages": [
+        "S8",
+        "S9"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "external_writes.py --record",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-bug-reporter",
+            "qa-retro-analyst"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:case_versions.py --pin",
+      "stages": [
+        "S4",
+        "S5"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "case_versions.py --pin",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-case-designer",
+            "qa-automator"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:plan_row.py",
+      "stages": [
+        "S3",
+        "S4"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "plan_row.py",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-test-strategist",
+            "qa-case-designer"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:grounding_section.py",
+      "stages": [
+        "S3"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "grounding_section.py",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-test-strategist"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:execution_fingerprint.py",
+      "stages": [
+        "S5",
+        "S6"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "execution_fingerprint.py",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-runner"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:context_bundle.py",
+      "stages": [
+        "S1"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "context_bundle.py",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-scout"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "role_cli:red_sandbox.py --diagnostic",
+      "stages": [
+        "S7"
+      ],
+      "requirement_from": "role-commands.json",
+      "carrier_key": "red_sandbox.py --diagnostic",
+      "door": "write the input the command asks for as its refusal names it, then run the same command again",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-failure-analyst"
+          ],
+          "field": "the file the command reads",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
     }
   ],
   "ratchet": [
     {
       "node": "F6-51",
-      "gaps": 5
+      "gaps": 4
     }
   ],
   "when_kinds": [
@@ -1140,7 +7923,7 @@
   ],
   "told_ratchet": {
     "hand_cards": 12,
-    "legacy_legs": 9,
-    "unsited": 0
+    "legacy_legs": 0,
+    "unsited": 150
   }
 }
