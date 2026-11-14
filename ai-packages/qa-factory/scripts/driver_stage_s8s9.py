@@ -77,8 +77,10 @@ class DriverStageS8s9:
             # X7-6b. POSITION: the record is written from the scribe's FINISH, BEFORE the controller accepts it as S8 work, and never by the
             # analyst's own finish. `True` (today's close of S8) is the scribe's own completion on an accept.
             complete = self.consumer_completion("S7", True)      # the repair budget is read only if the verdict is a reject (B1)
-            extra += [f"You also accept or return the analyst's handoff ({awaiting}): the verdict is `header.verdict` of your form (`ok` accepts it; "
-                      "`concerns` sends it back and needs the section `stage_acceptance`), and `inputs_read` names the analyst's form "
+            import handoff
+            word_at = handoff.acceptance_verdict_path(handoff.contract_of("S8", "qa-doc-scribe"))      # THE reader of where the word is (AR-13)
+            extra += [f"You also accept or return the analyst's handoff ({awaiting}): your word on it is `{word_at}` of your form "
+                      "(`accept` or `return`), and `inputs_read` names the analyst's form "
                       "work/handoffs/" + awaiting + ".yaml. A concern about the report itself belongs in `unresolved`."]
             extra += self.s7_places_scribe_line()        # t-1991 U3a: settled / unsettled places, with the source of each expectation
         self.run_role("S8", "qa-doc-scribe", complete=complete, extra=extra)

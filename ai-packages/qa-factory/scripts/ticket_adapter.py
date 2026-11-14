@@ -1651,12 +1651,15 @@ def write_paste_references(path: Path, ticket_obj: dict, cfg: dict, key: str, wo
     if parent and form.strict.fullmatch(parent[0]):
         known |= prefix_set(parent[0])
         seeded.append({"ref": parent[0], "origins": ["field:parent"]})
-    rows = TL.references(paste_texts(path, ticket_obj), known_prefixes=known,
+    texts = paste_texts(path, ticket_obj)
+    rows = TL.references(texts, known_prefixes=known,
                          not_tracker_prefixes=SI.not_tracker_prefixes(), reference_kinds=kinds,
                          known_hosts=hosts, repos=context["repos"], seeded=seeded, own_key=key, key_form=form)
     for row in rows:
         if row.get("kind") == "ticket":
             row["status"], row["reason"] = "unproven", UNPROVEN_REASON
+    # FV1-23 A-5: the documents the pasted text links on disk (the REST leg's road, `text_link_rows`); every ref is masked before it is stored
+    rows = SI.mask_reference_rows(rows + SI.text_link_rows(work.parent, texts))
     document = {"schema_version": 1, "ticket": key, "written_by": ["S0"], "provenance": {"source": "person_pasted"},
                 "scanned": ["summary", "description"], "rows": rows}
     SI._atomic_write(work / "ticket-references.json",
@@ -1993,13 +1996,15 @@ def _ready_line(command, args, form) -> str:
     value: a ticket from `peek` is a mention, not the story, so the inventory path is never built from its key (FR-59,
     SC1-7 E2). A switch (`--json`) is printed when the call set it. Run 12586: 'usage:' alone cost the scout a `--help`
     read and a retry per command."""
+    from config_contract import SECRET_QUERY_RE
     parts = ["ready: ticket_adapter.py", command]
     for flag, dest, placeholder in form:
         value = getattr(args, dest, None)
         if value is True:
             parts.append(flag)
         elif value:
-            parts += ([flag] if flag else []) + [f'"{value}"' if any(c.isspace() for c in str(value)) else str(value)]
+            shown = SECRET_QUERY_RE.sub(r"\1=<hidden>", str(value))      # B-2: a credential-like value is never echoed
+            parts += ([flag] if flag else []) + [f'"{shown}"' if any(c.isspace() for c in shown) else shown]
         elif placeholder:
             parts += ([flag] if flag else []) + [placeholder]
     return " ".join(parts)
@@ -2198,15 +2203,45 @@ def _record_source(args, emit=None) -> int:
               "one task source and `collect` writes it", file=sys.stderr)
         return EXIT_USAGE
     ref = args.ref.strip()
-    if ref.lower().startswith("file:") or (not _URL_RE.match(ref) and not SI._safe_rel(ref)):     # file: names THIS machine (AR-4)
-        print("ticket_adapter: give the locator relative to the project (a path with no drive and no `..`), or a URL",
-              file=sys.stderr)
-        return EXIT_USAGE
     from config_contract import SECRET_QUERY_RE
+    # the credential test reads no disk and runs FIRST: no refusal below echoes a ref or a --file name that matches it (B-2)
     if SECRET_QUERY_RE.search(ref) or (_URL_RE.match(ref) and urllib.parse.urlsplit(ref).password):
         print("ticket_adapter: the locator holds a credential-like field (token=, secret=, password=, key=); the value is not "
               "shown and nothing was recorded: record the locator without it", file=sys.stderr)
         return EXIT_USAGE
+    project, config = None, None
+    if not _URL_RE.match(ref):      # file: names THIS machine (AR-4); a URL keeps today's road
+        try:
+            project = RP.nearest_project(Path(args.output).resolve().parent.parent)
+        except (OSError, ValueError):
+            project = None
+        config = RP._config_of(project) if project is not None else None
+        normal, why = RP.declared_place(project, config, ref)
+        if normal is None:
+            door = {RP.DECLARED_NOT_RELATIVE: "give the locator relative to the project (no drive, no leading / or \\, no file: or other "
+                    "scheme), or a URL; a document of a declared repository is named from the project, for example "
+                    "<code_repos path>/<path inside it>, which may start with ..",
+                    RP.DECLARED_OUTSIDE: f"give the locator relative to the project: `{' '.join(ref.split())[:200]}` resolves outside the "
+                    "project and every declared repository (code_repos); name a file inside one of them, or save the text under work/raw/ "
+                    "and record that path",
+                    RP.DECLARED_NO_PROJECT: "give the locator relative to the project: no qa-factory/config.json above --output, so a `..` "
+                    "path cannot be checked against the declared repositories; record the text under work/raw/ with that path"}[why]
+            print("ticket_adapter: " + door, file=sys.stderr)
+            return EXIT_USAGE
+        ref = normal
+        folder = os.path.normpath(os.path.join(str(project), normal)) if project is not None else ""
+        if folder and os.path.isdir(folder):      # one record per document: a folder names many (they would replace one another)
+            example = f"{normal}/<file name>"
+            try:
+                inside = Path(args.file).resolve()
+                if RP.contained(inside, folder) and str(inside) != str(Path(folder).resolve()):
+                    named = (normal + "/" if normal != "." else "") + inside.relative_to(Path(folder).resolve()).as_posix()
+                    example = named if not SECRET_QUERY_RE.search(named) else example
+            except (OSError, ValueError):
+                pass
+            print(f"ticket_adapter: give the locator relative to the project: `{normal}` is a folder; one record per document: "
+                  f"--ref `{example}`", file=sys.stderr)
+            return EXIT_USAGE
     # FR-36, AR-24: a source the person left out before the run is not recorded by the role route either; the door is the handoff
     left_out = source_exclusions.first_ref_match(source_exclusions.live_in(Path(args.output).parent), ref)
     if left_out:
@@ -2214,12 +2249,13 @@ def _record_source(args, emit=None) -> int:
             [left_out], left_out.get("id")) or "no reason given"), file=sys.stderr)
         return EXIT_USAGE
     path = Path(args.file)
+    shown_file = SECRET_QUERY_RE.sub(r"\1=<hidden>", str(args.file))      # B-2: a credential-like file name is never echoed
     try:
         data = path.read_bytes() if path.is_file() else b""
     except OSError:
         data = b""
     if not data.strip():
-        print(f"ticket_adapter: {args.file}: nothing to record: expected the text you read, saved as a UTF-8 file",
+        print(f"ticket_adapter: {shown_file}: nothing to record: expected the text you read, saved as a UTF-8 file",
               file=sys.stderr)
         return EXIT_USAGE
     try:
@@ -2228,7 +2264,7 @@ def _record_source(args, emit=None) -> int:
             raise ValueError("NUL byte")
     except ValueError:
         try:
-            fail(EXIT_NOT_CONFIGURED, f"{args.file} is not text: record the gap in your manifest with the reason", owner="config")
+            fail(EXIT_NOT_CONFIGURED, f"{shown_file} is not text: record the gap in your manifest with the reason", owner="config")
         except SystemExit as exc:
             return refuse_exit(exc, emit)
     try:
@@ -2238,6 +2274,36 @@ def _record_source(args, emit=None) -> int:
             print_summary(record, load_inventory(Path(args.output)), args.output)
         else:
             print_result(load_inventory(Path(args.output)) if args.json else record, args.json)
+        # FV1-23 A-3: the documents this text links on disk, to STDERR (stdout keeps its three shapes, FR-14) and as reference rows;
+        # it runs after the record, so no failure here changes the verdict or the exit code
+        try:
+            found = SI.linked_documents(project, config, ref, text, Path(args.output).resolve().parent.parent)
+            if found["rows"]:
+                SI._merge_reference_rows(Path(args.output).parent / "ticket-references.json", found["rows"], "documents")
+            if found["paths"] or found["more"] or found["recorded"]:
+                print(f"Linked from {ref}, inside the declared repositories (a first look at each, charter: the walk of references; "
+                      "record what can carry a requirement, or name it in your trail):", file=sys.stderr)
+                for linked in found["paths"]:
+                    print(f"- {linked} ({found['sizes'][linked]} B)", file=sys.stderr)
+                if found["more"]:
+                    print(f"- and {found['more']} more linked from {ref}: look for them yourself", file=sys.stderr)
+                if found["recorded"]:
+                    print(f"- {found['recorded']} linked document(s) already recorded", file=sys.stderr)
+                if not found["checked_all"]:
+                    print(f"- more than {SI.LINK_CANDIDATES_LIMIT} names in the text: only the first {SI.LINK_CANDIDATES_LIMIT} were checked",
+                          file=sys.stderr)
+        except Exception as exc:  # noqa: BLE001 - advice must never change the verdict
+            print(f"ticket_adapter: links of {ref} could not be listed ({type(exc).__name__})", file=sys.stderr)
+        # FV1-23 A-5 (a): the keys, URLs and merge requests of the text, through the reader and the merge attachments use
+        try:
+            adapter = ((config or {}).get("adapters") or {}).get("ticket") or {}
+            direct = adapter.get("direct_api") if isinstance(adapter.get("direct_api"), dict) else {}
+            keys = adapter.get("project_keys")
+            SI.append_document_references(Path(args.output), ref, text, context=references_context(config or {}),
+                                          project_keys=keys if isinstance(keys, list) else (),
+                                          base_url=direct.get("base_url") if isinstance(direct.get("base_url"), str) else None)
+        except Exception as exc:  # noqa: BLE001 - advice must never change the verdict
+            print(f"ticket_adapter: references of {ref} could not be read ({type(exc).__name__})", file=sys.stderr)
         return 0
     except ValueError as exc:      # the call's fault, not the factory's (FR-46): the inventory is untouched
         print(f"ticket_adapter: {exc}", file=sys.stderr)

@@ -13,7 +13,9 @@ import json
 import os
 import sys
 import threading
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -409,6 +411,455 @@ def the_failures_pass_through():
           out.getvalue() == "" and err.getvalue() == "" and "proxypass" not in repr(H.classify(502, None, b"")))
 
 
+# ---- the sign-in answers built on the client (FV1-17a): one table, the host's answer and the project's config are the input ----
+import stand_access as SA  # noqa: E402
+import config_contract as CC  # noqa: E402
+import env_probe as EP  # noqa: E402
+
+VALUES = {"U": "admin@example.invalid", "S": "not-a-real-secret"}
+LOCAL = {"kind": "local_login", "url": "/login", "user_key": "U", "secret_key": "S", "user_field": "email",
+         "secret_field": "password"}
+FORM = {"kind": "form_login", "user_key": "U", "secret_key": "S", "user_field": "email", "secret_field": "password"}
+FORM_UNRECORDED = {"kind": "form_login", "user_key": "U", "secret_key": "S"}
+
+
+def jb(node, status=200):
+    return (status, [("Content-Type", "application/json")], json.dumps(node).encode())
+
+
+HTML = (200, [("Content-Type", "text/html")], b"<html><head><title>Sign in</title></head><body>token</body></html>")
+
+
+class SignStub:
+    """A routed loopback stub: `routes[(METHOD, path)]` is (status, headers, body) or a callable of the seen request."""
+
+    def __init__(self):
+        self.routes, self.seen = {}, []
+        stub = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def _answer(self):
+                size = int(self.headers.get("Content-Length") or 0)
+                request = {"method": self.command, "path": self.path.split("?")[0], "headers": dict(self.headers.items()),
+                           "body": self.rfile.read(size) if size else b""}
+                stub.seen.append(request)
+                route = stub.routes.get((self.command, request["path"]), (404, [], b""))
+                if route == "STALL":
+                    self.send_response(200)
+                    self.send_header("Content-Length", "1000")
+                    self.end_headers()
+                    self.wfile.write(b"{")
+                    self.wfile.flush()
+                    time.sleep(1.5)
+                    return
+                status, headers, body = route(request) if callable(route) else route
+                self.send_response(status)
+                for name, value in headers:
+                    self.send_header(name, value)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            do_GET = do_POST = _answer  # noqa: N815
+
+            def log_message(self, *args):
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.server.handle_error = lambda *a: None
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+def form_routes(stub, session_kind="user", location=None):
+    def submit(req):
+        form = urllib.parse.parse_qs(req["body"].decode())
+        cookie = req["headers"].get("Cookie", "")
+        good = (form.get("email") == ["admin@example.invalid"] and form.get("password") == ["not-a-real-secret"]
+                and form.get("csrfToken") == ["csrf-tok-123"] and form.get("json") == ["true"] and "a=1" in cookie and "b=2" in cookie)
+        if good:
+            return (302, [("Location", location or "/"), ("Set-Cookie", "session=sess-val-999; Path=/")], b"")
+        return (302, [("Location", stub.base + "/api/auth/signin?error=CredentialsSignin")], b"")
+
+    def session(req):
+        if session_kind == "html":
+            return HTML
+        signed = "session=sess-val-999" in req["headers"].get("Cookie", "")
+        return jb({"user": {"name": "x"}} if signed and session_kind == "user" else {})
+    stub.routes[("GET", "/api/auth/csrf")] = (200, [("Content-Type", "application/json"), ("Set-Cookie", "a=1; Path=/"),
+                                                    ("Set-Cookie", "b=2; HttpOnly")], b'{"csrfToken": "csrf-tok-123"}')
+    stub.routes[("POST", "/api/auth/callback/credentials")] = submit
+    stub.routes[("GET", "/api/auth/session")] = session
+
+
+def padded(total, token_first):
+    head = '{"token": "t-ok", "pad": "' if token_first else '{"pad": "'
+    tail = '"}' if token_first else '", "token": "t-ok"}'
+    return (head + "x" * (total - len(head) - len(tail)) + tail).encode()
+
+
+def sign_in_rows():
+    """(id, route for POST /login, access, wanted answer)"""
+    short = {"timeout": 0.5}
+    rows = [("H-404-local", (404, [], b""), "wrong_door"), ("H-405-local", (405, [], b""), "wrong_door"),
+            ("H-200-html-token-word", HTML, "wrong_door"), ("H-200-json-no-token", jb({"ok": True}), "wrong_door"),
+            ("H-200-empty", (200, [], b""), "wrong_door"),
+            ("H-302-local", (302, [("Location", "/signin")], b""), "wrong_door"),
+            ("H-401-empty", (401, [], b""), "unjudged"),
+            ("H-401-detail-json", jb({"detail": "Invalid credentials"}, 401), "credentials_refused"),
+            ("H-403-csrf-json", jb({"message": "CSRF token missing"}, 403), "unjudged"),
+            ("H-403-html", (403, [("Content-Type", "text/html")], b"<html><title>Denied</title></html>"), "unjudged"),
+            ("H-400-sent-fields-service", jb({"detail": [{"loc": ["body", "email"], "msg": "bad"}]}, 400), "credentials_refused"),
+            ("H-400-unsent-field", jb({"detail": [{"loc": ["body", "login"], "msg": "required"}]}, 400), "body_shape"),
+            ("H-429", (429, [], b""), "throttled"), ("H-503", (503, [], b""), "stand_error"),
+            ("H-timeout", lambda r: (time.sleep(1.2), (200, [], b"{}"))[1], "no_answer"), ("H-stalled-2xx", "STALL", "no_answer"),
+            ("adv-token-true", jb({"token": True}), "wrong_door"), ("adv-token-list", jb({"token": [1]}), "wrong_door"),
+            ("adv-token-empty", jb({"token": "  "}), "wrong_door"), ("adv-token-null", jb({"token": None}), "wrong_door"),
+            ("body-at-262144", (200, [], padded(262144, True)), "in"),
+            ("body-beyond-262144", (200, [], padded(262150, False)), "wrong_door")]
+    for case, route, want in rows:
+        yield case, route, want, short if case in ("H-timeout", "H-stalled-2xx") else {}
+
+
+def the_sign_in_rows():
+    stub = SignStub()
+    try:
+        for case, route, want, extra in sign_in_rows():
+            stub.routes, stub.seen = {("POST", "/login"): route}, []
+            receipt = SA.login(LOCAL, VALUES, stub.base, extra.get("timeout", 4.0))
+            check_eq(f"{case}: answer", receipt["answer"], want)
+            check_eq(f"{case}: status follows the answer", receipt["status"], "ok" if want == "in" else "failed")
+            check(f"{case}: no credential in the receipt", all(v not in json.dumps(receipt) for v in VALUES.values()))
+        stub.routes, stub.seen = {("POST", "/login"): jb({"access_token": "tok-value-1"})}, []
+        check_eq("H-200-token: in, once", (SA.login(LOCAL, VALUES, stub.base)["answer"], len(stub.seen)), ("in", 1))
+        closed = SignStub()
+        base = closed.base
+        closed.close()
+        check_eq("H-refused: no_answer", SA.login(LOCAL, VALUES, base, 2.0)["answer"], "no_answer")
+        # the form road
+        for case, access, session, values, want, posts in (
+                ("form-csrf-ok-in", FORM, "user", VALUES, "in", 1),
+                ("form-wrong-password", FORM, "user", dict(VALUES, S="wrong-one-x"), "credentials_refused", 1),
+                ("form-unrecorded-fields-refused", FORM_UNRECORDED, "user", dict(VALUES, S="wrong-one-x"), "fields_unconfirmed", 1),
+                ("form-session-empty", FORM, "empty", VALUES, "unjudged", 1), ("form-session-html", FORM, "html", VALUES, "wrong_door", 1)):
+            stub.routes, stub.seen = {}, []
+            form_routes(stub, session)
+            receipt = SA.login(access, values, stub.base, 4.0)
+            check_eq(f"{case}: answer", receipt["answer"], want)
+            check_eq(f"{case}: at most 3 requests, one submit", (len(stub.seen) <= 3, sum(r["method"] == "POST" for r in stub.seen)), (True, posts))
+            blob = json.dumps(receipt)
+            check(f"{case}: the secret, csrf and cookie values and the raw query are absent",
+                  all(x not in blob for x in (*values.values(), "csrf-tok-123", "sess-val-999", "CredentialsSignin", "error=")))
+            if case == "form-csrf-ok-in":
+                cookie = next(r for r in stub.seen if r["method"] == "POST")["headers"].get("Cookie", "")
+                check_eq("form-two-set-cookie: both csrf-step cookies are sent back", ("a=1" in cookie, "b=2" in cookie), (True, True))
+        stub.routes, stub.seen = {}, []
+        form_routes(stub, location="http://other.invalid/x?next=1")
+        receipt = SA.login(FORM, VALUES, stub.base, 4.0)
+        check_eq("form-location-other-host: decided by the session, the url never printed",
+                 (receipt["answer"], "other.invalid" in json.dumps(receipt)), ("in", False))
+        stub.routes, stub.seen = {}, []
+        check_eq("form-csrf-404: wrong_door, nothing submitted", (SA.login(FORM, VALUES, stub.base)["answer"], len(stub.seen)), ("wrong_door", 1))
+        stub.routes[("GET", "/api/auth/csrf")] = jb({})
+        stub.seen = []
+        check_eq("form-csrf-no-token: wrong_door, nothing submitted",
+                 (SA.login(FORM, VALUES, stub.base)["answer"], [r["method"] for r in stub.seen[1:]]), ("wrong_door", []))
+        # the table is unreadable: a proof still stands, an HTTP answer is unjudged, an exception stays no_answer (I2, I3)
+        root = temp_dir("qa-sign-in-")
+        real = EP.STAND_ANSWERS_PATH
+        try:
+            EP.STAND_ANSWERS_PATH = root / "absent.json"
+            EP.reload_stand_answers()
+            stub.routes, stub.seen = {("POST", "/login"): (404, [], b"")}, []
+            got = [SA.login(LOCAL, VALUES, stub.base)["answer"]]
+            stub.routes[("POST", "/login")] = jb({"access_token": "tok-value-1"})
+            got.append(SA.login(LOCAL, VALUES, stub.base)["answer"])
+            got.append(SA.login(LOCAL, VALUES, base, 2.0)["answer"])
+            check_eq("table-unreadable: HTTP -> unjudged, token -> in, exception -> no_answer", got, ["unjudged", "in", "no_answer"])
+        finally:
+            EP.STAND_ANSWERS_PATH = real
+            EP.reload_stand_answers()
+            cleanup(root)
+        check_eq("table-control: the shipped table is read again", SA.answer_of(405, "", road="local_login"), "wrong_door")
+        the_roads(stub)
+        the_form_session_rows(stub)
+        the_capture_auth_rows(stub)
+    finally:
+        stub.close()
+    the_contract_joins()
+
+
+def the_form_session_rows(stub):
+    """FV1-17b: `form_session` hands out the Cookie header only on `in`; the header is a secret (rows capture-form-*)."""
+    stub.routes, stub.seen = {}, []
+    form_routes(stub, "user")
+    receipt, cookie = SA.form_session(FORM, VALUES, stub.base, 4.0)
+    parts = sorted((cookie or "").split("; "))
+    check_eq("capture-form-in: answer in, the header holds the session and both csrf-step cookies",
+             (receipt["answer"], parts), ("in", ["a=1", "b=2", "session=sess-val-999"]))
+    check_eq("capture-form-in: `_form_login` is the same receipt", SA._form_login(FORM, VALUES, stub.base, 4.0), receipt)
+    check("capture-cookie-redacted: no cookie, csrf or credential value in the receipt",
+          all(x not in json.dumps(receipt) for x in (*VALUES.values(), "csrf-tok-123", "sess-val-999", "a=1", "b=2")))
+    for case, access, values, session in (
+            ("capture-form-refused", FORM, dict(VALUES, S="wrong-one-x"), "user"),
+            ("capture-form-refused-no-session", FORM, VALUES, "empty"),
+            ("capture-form-refused-no-secret", FORM, {"U": VALUES["U"]}, "user"),
+            ("capture-form-refused-no-form", {"kind": "form_login", "form": "nope", "user_key": "U", "secret_key": "S"}, VALUES, "user"),
+            ("capture-form-refused-empty-access", {}, VALUES, "user")):
+        stub.routes, stub.seen = {}, []
+        form_routes(stub, session)
+        receipt, cookie = SA.form_session(access, values, stub.base, 4.0)
+        posts = sum(r["method"] == "POST" for r in stub.seen)
+        check_eq(f"{case}: no cookie header", cookie, None)
+        check(f"{case}: a refusal receipt, at most one submit, no cookie value in it",
+              receipt["answer"] != "in" and posts <= 1 and all(x not in json.dumps(receipt) for x in ("sess-val-999", "csrf-tok-123")))
+        if case in ("capture-form-refused-no-secret", "capture-form-refused-no-form", "capture-form-refused-empty-access"):
+            check_eq(f"{case}: nothing was sent", len(stub.seen), 0)
+
+
+def the_capture_auth_rows(stub):
+    """FV1-17b: the capture's sign-in header (`manual_capture._http_auth`) and the token-only wrapper `_http_login`."""
+    import manual_capture as MC
+    creds = MC.Credentials(VALUES["U"], VALUES["S"])
+    spec_data = MC.spec()
+    tok_cfg = {"environment": {"access": dict(LOCAL)}}
+    form_cfg = {"environment": {"access": dict(FORM)}}
+
+    def run(fn, cfg, session="user", routes=None, who=creds):
+        stub.routes, stub.seen = {}, []
+        form_routes(stub, session)
+        stub.routes.update(routes or {})
+        try:
+            return fn(MC.UrllibHttp(), {"base_url": stub.base}, who, spec_data, cfg, 4.0), None
+        except ValueError as exc:
+            return None, str(exc)
+
+    # a token stand: LOCAL at /login
+    got, err = run(MC._http_auth, tok_cfg, routes={("POST", "/login"): jb({"access_token": "tok-value-1"})})
+    check_eq("auth-token: Authorization, Bearer, the same bytes as before",
+             (got, err, run(MC._http_login, tok_cfg, routes={("POST", "/login"): jb({"access_token": "tok-value-1"})})[0]),
+             (("Authorization", "Bearer tok-value-1"), None, "tok-value-1"))
+    got, err = run(MC._http_auth, form_cfg)
+    check_eq("auth-form-in: the Cookie header, never Authorization", (got[0], sorted(got[1].split("; "))),
+             ("Cookie", ["a=1", "b=2", "session=sess-val-999"]))
+    got, err = run(MC._http_auth, form_cfg, who=MC.Credentials(VALUES["U"], "wrong-one-x"))
+    check("auth-form-refused: a refusal with the why, one submit, no cookie, csrf or secret value in the text",
+          got is None and err and sum(r["method"] == "POST" for r in stub.seen) == 1
+          and all(x not in err for x in ("sess-val-999", "csrf-tok-123", "wrong-one-x", "a=1", "b=2")))
+    got, err = run(MC._http_login, form_cfg)
+    check("login-wrapper-form-refuses: one sentence, nothing sent, no header",
+          got is None and "token only" in err and stub.seen == [])
+
+
+def the_roads(stub):
+    root = temp_dir("qa-roads-")
+    saved = {k: os.environ.get(k) for k in ("SIGN_BASE", "U", "S")}
+    os.environ.update({"SIGN_BASE": stub.base, "U": VALUES["U"], "S": VALUES["S"]})
+    real_path = SA.LOGIN_ROADS_PATH
+
+    def cfg(access=None):
+        env = {"base_url_key": "SIGN_BASE", "user_key": "U", "secret_keys": ["S"], "health_path": "/health", "env_file": ""}
+        if access:
+            env["access"] = access
+        return {"environment": env}
+
+    def fresh(login_route=None, forms=True):
+        stub.routes, stub.seen = {("GET", "/health"): jb({"status": "ok"})}, []
+        if login_route:
+            stub.routes[("POST", "/login")] = login_route
+        if forms:
+            form_routes(stub)
+
+    def answers(out):
+        return [e["answer"] for e in out["roads"]]
+    try:
+        fresh((405, [], b""))
+        out = SA.try_roads(cfg(LOCAL), root)
+        check_eq("roads-e1-shape: recorded /login is a wrong door, the form road gets in, first_in is the form road",
+                 (answers(out), out["first_in"], out["spent"], [e["road"] for e in out["roads"]]),
+                 (["wrong_door", "in"], 1, 0, ["a", "b:csrf-credentials-form"]))
+        for case, route, want_b, spent in (("budget-refused-stops", jb({"detail": "Invalid credentials"}, 401), "refused at road 1", 1),
+                                           ("budget-unjudged-spends-1", (401, [], b""), "budget of this run is spent", 1),
+                                           ("budget-throttled-stops", (429, [], b""), "HTTP 429", 0)):
+            fresh(route)
+            out = SA.try_roads(cfg(LOCAL), root)
+            check_eq(f"{case}: the later road is not tried, nothing reaches the form routes",
+                     (out["roads"][1]["answer"], want_b in out["roads"][1]["why"], out["spent"],
+                      [r["path"] for r in stub.seen if r["path"].startswith("/api/auth")]), ("not_tried", True, spent, []))
+        out = SA.try_roads(cfg(), root)
+        check_eq("no-key-names: every road not_tried, tried 0",
+                 (answers(out), out["tried"], out["first_in"], "key names" in out["roads"][0]["why"]), (["not_tried"], 0, None, True))
+        # candidates: at the cap and beyond it (wrong doors do not spend)
+        fresh(forms=False)
+        for case, count, noted in (("candidates-5-at", 5, False), ("candidates-6-beyond", 6, True)):
+            out = SA.try_roads(cfg(), root, user_key="U", secret_key="S",
+                               candidates=[f"local_login=/c{i}" for i in range(count)])
+            check_eq(f"{case}: five tried at most", (sum(e["kind"] == "local_login" for e in out["roads"]), "candidates_note" in out),
+                     (5, noted))
+        code = SA.main(["--project-root", str(root), "--roads", "--candidate", "harness_command=x"])
+        check_eq("candidate-bad-kind: refused, exit 2", code, 2)
+        # the negative control of a harness road
+        script = root / "login.py"
+        for case, body, want in (("negative-refused", "import os,sys; sys.exit(0 if os.environ.get('S') == 'not-a-real-secret' else 1)", "refused"),
+                                 ("negative-passed", "import sys; sys.exit(0)", "passed")):
+            script.write_text(body, encoding="utf-8")
+            fresh(forms=False)
+            out = SA.try_roads(cfg(), root, command=f'"{sys.executable}" "{script}"', user_key="U", secret_key="S")
+            road = next(e for e in out["roads"] if e["road"] == "c")
+            check_eq(f"{case}: the answer stays in", (road["answer"], road.get("negative"), out["first_in"] is not None), ("in", want, True))
+            check(f"{case}: the junk secret is never printed", "qa-factory-wrong-" not in json.dumps(out))
+        out = SA.try_roads(cfg(), root, command=f'"{sys.executable}" "{script}"', user_key="U", secret_key="S", negative=False)
+        check_eq("negative off: not_run", next(e for e in out["roads"] if e["road"] == "c").get("negative"), "not_run")
+        # the budget numbers are data, clamped by the code
+        for case, raw, want, noted in (("budget-value-absent", None, 1, False), ("budget-value-0", 0, 1, False),
+                                       ("budget-value-x", "x", 1, False), ("budget-value-3", 3, 3, False), ("budget-value-4", 4, 3, True)):
+            SA.LOGIN_ROADS_PATH = root / f"{case}.json"
+            SA.LOGIN_ROADS_PATH.write_text(json.dumps({"budget": {} if raw is None else {"real_secret_failures": raw}, "forms": []}), encoding="utf-8")
+            got = SA.login_roads()
+            check_eq(f"{case}: clamped", (got["budget"]["real_secret_failures"], "budget_note" in got, got["table"]), (want, noted, "unreadable"))
+    finally:
+        SA.LOGIN_ROADS_PATH = real_path
+        for key, value in saved.items():
+            os.environ.pop(key, None) if value is None else os.environ.__setitem__(key, value)
+        cleanup(root)
+
+
+def the_contract_joins():
+    ui = {"kind": "ui_only"}
+    receipt = SA.login(ui, {}, "http://x.invalid")
+    check_eq("ui-only: skipped, not_tried, no key needed", (receipt["status"], receipt["answer"], SA.login_keys(ui), SA.code_login_declined(ui)),
+             ("skipped", "not_tried", [], True))
+    check_eq("source-registry: set by login(), `access` by default",
+             (SA.login(ui, {}, "", source="registry")["source"], receipt["source"]), ("registry", "access"))
+    e5 = {"login_probe": {"user_key": "U", "outcome": "ok", "status": 0, "checked_at": "2026-11-12T10:00:00", "seconds": 60}}
+    got = SA.recorded_login(e5)
+    check_eq("recorded-login-e5-status-0: status None, answer never guessed", (got["recorded"], got["status"], got["answer"], got["outcome"]),
+             (True, None, None, "ok"))
+    check_eq("recorded-login: not a dict -> not recorded", SA.recorded_login({"login_probe": "x"})["recorded"], False)
+    probe = {"user_key": "AUTH_USER", "outcome": "ok", "checked_at": "2026-11-12T10:00:00"}
+    check_eq("record-answer-validates", CC.access_errors({"kind": "form_login", "form": "csrf-credentials-form",
+                                                          "login_probe": dict(probe, answer="in", status=200)}), [])
+    check_in("form-unknown-id-refused", "environment.access.form must be one of", CC.access_errors({"kind": "form_login", "form": "nope"})[0])
+    check_in("answer-word-refused", "login_probe.answer must be one of", " ".join(CC.access_errors({"kind": "none", "login_probe": dict(probe, answer="maybe")})))
+    check_in("status-0-refused", "must be an HTTP code (100..599)", " ".join(CC.access_errors({"kind": "none", "login_probe": dict(probe, status=0)})))
+    check_eq("one tuple: ACCESS_KINDS and LOGIN_ANSWERS are the module's own", (CC.ACCESS_KINDS is SA.KINDS, CC.LOGIN_ANSWERS is SA.ANSWERS), (True, True))
+
+
+def the_stand_login_joins():
+    """FV1-15 join rows: the story-time search (`project_decisions.record_stand_login`), the probe that follows it, and the readers
+    of a recorded answer (`stand_health._login_receipt`, remedy L0). Expected values are the card's (docs/tasks/specs/
+    20261114-fv1-17-15-cards-redraft-spec.md, FV1-15 D6, P4, P5, edges E-D5), not read from the code they judge."""
+    import project_decisions as PD
+    import stand_health as SH
+    stub = SignStub()
+    root = temp_dir("qa-stand-login-")
+    saved = {k: os.environ.get(k) for k in ("SIGN_BASE", "SIGN_U", "SIGN_S")}
+    os.environ.update({"SIGN_BASE": stub.base, "SIGN_U": VALUES["U"], "SIGN_S": VALUES["S"]})
+    named = dict(LOCAL, user_key="SIGN_U", secret_key="SIGN_S")   # the contract wants variable NAMES of two characters or more
+    config_path = root / "qa-factory" / "config.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    words = root / "words.txt"
+    words.write_text("find the way in", encoding="utf-8")
+
+    def write_config(access, extra=None):
+        env = {"base_url_key": "SIGN_BASE", "user_key": "SIGN_U", "secret_keys": ["SIGN_S"], "health_path": "/health", "env_file": ""}
+        if access:
+            env["access"] = access
+        config_path.write_text(json.dumps({"environment": env, **(extra or {})}, indent=2), encoding="utf-8")
+
+    def fresh(login_route):
+        stub.routes, stub.seen = {("GET", "/health"): jb({"status": "ok"}), ("POST", "/login"): login_route}, []
+        form_routes(stub)
+    try:
+        # E1: the recorded `local_login /login` is a wrong door (405); the form road signs in -> recorded, and the probe exits 0
+        write_config(named)
+        fresh((405, [], b""))
+        got = PD.record_stand_login(root, words="find the way in")
+        saved_config = json.loads(config_path.read_text(encoding="utf-8"))
+        access = saved_config["environment"]["access"]
+        check_eq("stand-login-e1: the form road is recorded, replacing the local login",
+                 (got["road"], got["kind"], got["replaced"], access["kind"], access["form"], access["login_probe"]["answer"],
+                  access["login_probe"]["outcome"]), ("b:csrf-credentials-form", "form_login", "local_login", "form_login",
+                                                      "csrf-credentials-form", "in", "ok"))
+        check("stand-login-e1: the decision row keeps the person's words, no credential in the record",
+              got["decision"].startswith("DD-") and all(v not in json.dumps(saved_config) for v in VALUES.values()))
+        result = EP.probe(saved_config, "", root=root)
+        check_eq("stand-login-e1: the probe that follows exits 0 (no Layer-1 line), login in", (result["layer1"], result["login"]["answer"]),
+                 ([], "in"))
+        # none in: refused, the config bytes unchanged, no registry row left open
+        for case, route in (("stand-login-none-in-401-empty", (401, [], b"")), ("stand-login-none-in-429", (429, [], b""))):
+            write_config(named)
+            before = config_path.read_bytes()
+            backlog = root / "qa-factory" / "factory-backlog.md"
+            had = backlog.read_bytes() if backlog.exists() else None
+            fresh(route)
+            try:
+                PD.record_stand_login(root, words="find the way in")
+                refusal = ""
+            except ValueError as exc:
+                refusal = str(exc)
+            check_in(f"{case}: refused, naming the roads and their answers", "no way in signed in (a: ", refusal)
+            check_in(f"{case}: ...and that nothing was written", "nothing was written", refusal)
+            check(f"{case}: the config bytes and the registry are unchanged",
+                  config_path.read_bytes() == before and (backlog.read_bytes() if backlog.exists() else None) == had)
+        # the recorded way already signs in: unchanged
+        write_config(named)
+        before = config_path.read_bytes()
+        fresh(jb({"access_token": "tok-value-1"}))
+        check_eq("stand-login-a-in: unchanged, nothing written", (PD.record_stand_login(root, words="find the way in"),
+                                                                  config_path.read_bytes() == before), ({"unchanged": True}, True))
+        # no config file: today's refusal; the CLI turns a refusal into one stderr line and exit 2
+        lone = temp_dir("qa-stand-login-none-")
+        try:
+            PD.record_stand_login(lone, words="x")
+            none_refusal = ""
+        except ValueError as exc:
+            none_refusal = str(exc)
+        check_in("stand-login-no-config: today's `_project_config` refusal", "does not exist", none_refusal)
+        cleanup(lone)
+        write_config(named)
+        fresh((401, [], b""))
+        args = PD._build_parser().parse_args(["--root", str(root), "stand-login", "--words-file", str(words)])
+        err = io.StringIO()
+        code = None
+        with contextlib.redirect_stderr(err):
+            try:
+                PD._record_stand_login(args)
+            except SystemExit as exc:
+                code = exc.code
+        check_eq("stand-login-cli-refusal: one stderr line, exit 2", (code, err.getvalue().count("\n"), "stand-login refused" in err.getvalue()),
+                 (2, 1, True))
+        # the readers of a recorded answer
+        probe = {"user_key": "SIGN_U", "outcome": "ok", "status": 0, "checked_at": "2026-11-12T10:00:00", "seconds": 60}
+        got = SH._login_receipt({"environment": {"access": {"kind": "harness_command", "login_probe": probe}}})
+        check_eq("stand-health-e5: status 0 is no code: proved by the project's login command",
+                 (got["outcome"], "proved" in got["sentence"], "login command" in got["sentence"], "contradicts" in got["sentence"]),
+                 ("proved", True, True, False))
+        failed = {"user_key": "SIGN_U", "outcome": "failed", "status": 405, "checked_at": "2026-11-12T10:00:00"}
+        wrong = SH._login_receipt({"environment": {"access": {"kind": "local_login", "login_probe": dict(failed, answer="wrong_door")}}})["sentence"]
+        old = SH._login_receipt({"environment": {"access": {"kind": "local_login", "login_probe": failed}}})["sentence"]
+        check_eq("remedy-l0: answer wrong_door -> the door's remedy and the plain words; no answer + 405 -> today's, nothing guessed",
+                 ("find the way in" in wrong, "its answer did not look like a sign-in" in wrong, "find the way in" in old,
+                  "its answer did not" in old), (True, True, False, False))
+        unjudged = SH._login_receipt({"environment": {"access": {"kind": "local_login", "login_probe": dict(failed, answer="unjudged")}}})["sentence"]
+        check_eq("remedy-l0: unjudged says it did not show, and offers no door", ("its answer did not show whether a sign-in is there" in unjudged,
+                                                                                  "find the way in" in unjudged), (True, False))
+        check_eq("remedy-answer-not-a-word: read as absent", "its answer did not" in SH._login_receipt(
+            {"environment": {"access": {"kind": "local_login", "login_probe": dict(failed, answer="maybe")}}})["sentence"], False)
+        # _derived_frontend reads the record through `recorded_login`: a harness access whose record is not `ok` derives nothing
+        check_eq("derived-frontend-reads-recorded-login: outcome ` ok ` (padded) and `maybe`",
+                 [SA.recorded_login({"login_probe": {"user_key": "SIGN_U", "outcome": o}})["outcome"] for o in (" ok ", "maybe")], ["ok", None])
+    finally:
+        stub.close()
+        for key, value in saved.items():
+            os.environ.pop(key, None) if value is None else os.environ.__setitem__(key, value)
+        cleanup(root)
+
+
 def main():
     stub = Stub()
     try:
@@ -425,6 +876,8 @@ def main():
     the_table_world()
     the_door()
     the_failures_pass_through()
+    the_sign_in_rows()
+    the_stand_login_joins()
     finish("http_client")
 
 

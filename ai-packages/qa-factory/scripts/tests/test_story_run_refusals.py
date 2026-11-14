@@ -3566,7 +3566,8 @@ def refusal_c2_4_s4_keeps_open_only_when_the_round_will_run():
         # X2-7 point 7: a critic that sends cases back on the LAST round (or with a count that is no number) goes to the conductor seam; here the seam
         # answers "no move needed" (a stub, as in test_repair_route), so the T18 expectations of those rows (None) stay what they were
         driver.pipeline = lambda: {}
-        driver.stage_review_exhausted = lambda stage, *a, **k: None
+        seam = []
+        driver.stage_review_exhausted = lambda stage, *a, **k: seam.append((stage, bool(k.get("unreadable")), k.get("text") or "")) or None
         digest = "qa-case-critic S4 TC-1 · concerns\nTC-1 · rejected · weak Then\nwork/test-cases/critic-findings.md"
         rule = driver.s4_critic_completion(["TC-1", "TC-2"], 0, 2)
         check_eq("F-3: concerns, a round left, NO findings file: the old False (one resume of the critic, no open stage)", rule(digest), False)
@@ -3582,8 +3583,13 @@ def refusal_c2_4_s4_keeps_open_only_when_the_round_will_run():
                  (no_rows.startswith("the case critic sent work back for repair; S4 was kept open"), any(ch.isdigit() for ch in no_rows.split(";")[0])), (True, False))
         check_not_in("T18: and is timeless (no 'round k of cap', no present tense)", " is kept", got.reason)
         check_eq("T18: approve -> None (the critic closes S4)", rule(digest.replace("concerns", "approve")), None)
-        check_eq("T18: the last round (counted == cap) -> None", driver.s4_critic_completion(["TC-1"], 2, 2)(digest), None)
-        check_eq("T18/edge 15: a cap or count that is no number -> None, as today", driver.s4_critic_completion(["TC-1"], None, "x")(digest), None)
+        check_eq("T18: the last round (counted == cap) with an unreadable roll-call -> the conductor seam",
+                 (driver.s4_critic_completion(["TC-1"], 2, 2)(digest), seam[-1][:2]), (None, ("S4", True)))
+        check_in("T18: the last round (counted == cap) with an unreadable roll-call -> the conductor seam: its text", "roll-call could not be read", seam[-1][2])
+        check_eq("T18/edge 15: a count that is no number -> the conductor seam, no number printed",
+                 (driver.s4_critic_completion(["TC-1"], None, "x")(digest), seam[-1][:2]), (None, ("S4", True)))
+        check_in("T18/edge 15: the seam's text names the repair count", "repair count", seam[-1][2])
+        check("T18/edge 15: and prints no digit", not any(ch.isdigit() for ch in seam[-1][2]), seam[-1][2])
         long_scope = [f"TC-{i:04d}" for i in range(80)]
         long_digest = "qa-case-critic S4 TC-0000 · concerns\n" + "".join(f"{c} · rejected · weak Then\n" for c in long_scope) + "work/test-cases/critic-findings.md"
         reason = driver.s4_critic_completion(long_scope, 0, 2)(long_digest).reason
@@ -3804,6 +3810,79 @@ def refusal_n5_the_driver_refuses_as_the_hook_does_and_uses_the_one_packet() -> 
         harness.cleanup(root)
 
 
+def refusal_s4_critic_finish_survivors():
+    """A1a S-R8 / S-R9 / S-R10: the S4 behaviours of the deleted stage-critic route test (R8, R9 S4 part, R10 through S4's writer), pinned
+    on the live S4 code. S-R8: the record is written FIRST from the critic's form, then S4's own rule (`concerns` at 0 of 2 -> OpenWork
+    `cases_in_repair`; `ok` -> None; `concerns` at 2 of 2 -> the seam is asked with "S4"). S-R9: the restart road writes the record of the
+    RECORD's dispatch id; a record with no id writes nothing and asks the seam with the reason. S-R10: the critic's `questions[]` are
+    raised BEFORE its record, `check=True`, by the acceptor, from its form; with no form file only the record is written."""
+    for verdict, counted, expect in (("concerns", 0, "OpenWork"), ("ok", 0, "None"), ("concerns", 2, "seam")):
+        root, task_root, env = seed("QA-9")
+        try:
+            driver = driver_for(root, env, "QA-9", max_boundaries=1)
+            findings = driver.task_root / "work" / "test-cases" / "critic-findings.md"
+            findings.parent.mkdir(parents=True, exist_ok=True)
+            findings.write_text("the cases say too little\n", encoding="utf-8")
+            log = {"written": [], "seam": [], "events": []}
+            driver.last_dispatch = "S4-qa-case-critic-1"
+            driver.stage_verdict_known = lambda form: True
+            driver.stage_acceptance_write = lambda stage, dispatch: log["written"].append((stage, dispatch)) or log["events"].append("written")
+            driver.stage_review_exhausted = lambda *a, **k: log["seam"].append(a[0]) or None
+            driver.pipeline = lambda: {}
+            got = driver.s4_critic_completion(["TC-1"], counted, 2)(f"qa-case-critic S4 TC-1 · {verdict}\nTC-1 · ok · reviewed\nwork/x.md")
+            check_eq(f"S-R8 s4-record-first-then-rule: {verdict} at {counted} of 2: the record is written first, for this dispatch",
+                     (log["written"], log["events"][:1]), ([("S4", "S4-qa-case-critic-1")], ["written"]))
+            check_eq(f"S-R8 s4-record-first-then-rule: {verdict} at {counted} of 2: the result and the seam calls",
+                     (type(got).__name__, getattr(got, "unresolved", None), log["seam"]),
+                     {"OpenWork": ("OpenWork", "cases_in_repair", []), "None": ("NoneType", None, []),
+                      "seam": ("NoneType", None, ["S4"])}[expect])
+        finally:
+            harness.cleanup(root)
+    root, task_root, env = seed("QA-9")
+    try:
+        driver = driver_for(root, env, "QA-9", max_boundaries=1)
+        log = {"written": [], "seam": []}
+        driver.last_dispatch = ""
+        driver.stage_verdict_known = lambda form: True
+        driver.stage_acceptance_write = lambda stage, dispatch: log["written"].append((stage, dispatch))
+        driver.stage_review_exhausted = lambda *a, **k: log["seam"].append(k.get("text") or "verdict") or None
+        driver.pipeline = lambda: {}
+        got = driver.s4_critic_completion(["TC-1"], 0, 2, dispatch_id="S4-qa-case-critic-7")("qa-case-critic S4 TC-1 · ok\nTC-1 · ok · reviewed\n")
+        check_eq("S-R9 s4-restart-reads-record-id: the restart road writes the record of the RECORD's dispatch",
+                 (log["written"], got), ([("S4", "S4-qa-case-critic-7")], None))
+        log["written"].clear()
+        driver.s4_critic_completion(["TC-1"], 0, 2, dispatch_id="")("x")
+        check_eq("S-R9 s4-restart-reads-record-id: a record with no id writes nothing and asks the seam once", (log["written"], len(log["seam"])), ([], 1))
+        check_in("S-R9 s4-restart-reads-record-id: the seam's reason names the missing id", "no dispatch id", log["seam"][0])
+    finally:
+        harness.cleanup(root)
+    for present in (True, False):
+        root, task_root, env = seed("QA-9")
+        try:
+            driver = driver_for(root, env, "QA-9", max_boundaries=1)
+            form = driver.task_root / "work" / "handoffs" / "S4-qa-case-critic-1.yaml"
+            if present:
+                form.parent.mkdir(parents=True, exist_ok=True)
+                form.write_text("header:\n  role: qa-case-critic\n  stage: S4\n  verdict: ok\n", encoding="utf-8")
+            calls = []
+            driver.py = lambda script, *a, **kw: calls.append((script, [str(x) for x in a], kw.get("check"))) or (0, "")
+            driver.stage_acceptance_write("S4", "S4-qa-case-critic-1")
+            label = "form present" if present else "form file absent"
+            if present:
+                raise_args = calls[0][1]
+                check_eq(f"S-R10 s4-critic-questions-before-record: {label}: the raise comes first, with check=True, by the acceptor, from the form",
+                         (calls[0][0], calls[0][2], raise_args[raise_args.index("--stage") + 1], raise_args[raise_args.index("--asked-by") + 1],
+                          raise_args[raise_args.index("--from-handoff") + 1]),
+                         ("question_register.py", True, "S4", "qa-case-critic", "work/handoffs/S4-qa-case-critic-1.yaml"))
+            check_eq(f"S-R10 s4-critic-questions-before-record: {label}: the record call follows (and is the only call when the form is absent)",
+                     [(c[0], c[1][c[1].index("--acceptance") + 1]) for c in calls if c[0] == "stage_done.py"],
+                     [("stage_done.py", "work/handoffs/S4-qa-case-critic-1.yaml")])
+            check_eq(f"S-R10 s4-critic-questions-before-record: {label}: the order of the scripts",
+                     [c[0] for c in calls], ["question_register.py", "stage_done.py"] if present else ["stage_done.py"])
+        finally:
+            harness.cleanup(root)
+
+
 def story_run_refusal():
     import story_run
     return story_run.Refusal
@@ -3831,6 +3910,7 @@ def main() -> None:
                        refusal_c2_4_a_length_is_cut_by_code_not_resumed_for,
                        refusal_c2_4_the_doors_of_code_run_before_every_resume,
                        refusal_c2_4_s4_keeps_open_only_when_the_round_will_run,
+                       refusal_s4_critic_finish_survivors,
                        refusal_c2_4_an_owed_s4_repair_round_starts_instead_of_a_new_critic,
                        refusal_n5_the_driver_refuses_as_the_hook_does_and_uses_the_one_packet])
     harness.finish("test_story_run_refusals")

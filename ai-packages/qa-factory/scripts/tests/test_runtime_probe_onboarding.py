@@ -281,6 +281,7 @@ def main() -> int:
         cleanup(root)
     keyed_by_the_profile()
     the_probe_writes_no_evidence_when_told_not_to()
+    every_answer_leaves_one_record_and_a_rehearsal_none()
     the_container_is_a_candidate_only_when_it_holds_every_file()
     the_write_check_compares_against_the_story_it_is_given()
     refusals_keep_their_two_halves_and_the_checkout_questions_are_pure()
@@ -778,6 +779,106 @@ def the_probe_writes_no_evidence_when_told_not_to() -> None:
         cleanup(root)
 
 
+def every_answer_leaves_one_record_and_a_rehearsal_none() -> None:
+    """P1B-9 C1: the one writer `write_record` - every non-rehearsal answer (A3 not_applicable, A4 unknown without a revision,
+    A5 unknown at the end of the ladder) is a file that equals the printed record; a rehearsal and a reference stand write none;
+    a written not_applicable is accepted, a written unknown never (I-1); a failed write is a warning, never a pass (I-5, FR-41)."""
+    import profile_contract as P
+    root = temp_project()
+    try:
+        use_project(root)
+        checkout = root / "app"
+        (checkout / "src").mkdir(parents=True)
+        (checkout / "src" / "a.py").write_text("print(1)\n", encoding="utf-8")
+        down = (1, "", "Cannot connect to the Docker daemon")
+        # (id, diff text, extra argv, result, reason_code or None)
+        cases = (
+            ("a3", "+++ b/README.md\n", [], "not_applicable", "no_changed_file"),
+            ("a4", None, ["--expected", ""], "unknown", "no_expected_revision"),
+            ("a5", None, [], "unknown", None),
+        )
+        written_files = {}
+        for answer, diff, extra, result, code_word in cases:
+            for mode in ("quiet", "loud"):
+                row = f"{answer}-{mode}"
+                task = root / f"story-{row}"
+                (task / "work").mkdir(parents=True)
+                if diff is not None:
+                    (task / "work" / "impl-diff.txt").write_text(diff, encoding="utf-8")
+                flags = list(extra) + (["--no-evidence"] if mode == "quiet" else [])
+                code, record = run_the_probe("api", checkout, task, flags, stand=Stand(digest=down))
+                files = sorted((task / "evidence").glob("runtime-provenance-*.json")) if (task / "evidence").exists() else []
+                check_eq(f"{row}: exit and answer", (code, record["result"], record.get("reason_code")), (0, result, code_word))
+                if mode == "quiet":
+                    check_eq(f"{row}: no file, no refs, no rehearsal marker (it is read for matched only)",
+                             (files, record["evidence_refs"], "observed_without_evidence" in record), ([], [], False))
+                    continue
+                check_eq(f"{row}: exactly one file", len(files), 1)
+                check_eq(f"{row}: it names itself", record["evidence_refs"], [files[0].as_posix()])
+                check_eq(f"{row}: and equals the printed record", json.loads(files[0].read_text(encoding="utf-8")), record)
+                if answer == "a5":
+                    check(f"{row}: it says what was tried", bool(record.get("tried")))
+                written_files[answer] = json.loads(files[0].read_text(encoding="utf-8"))
+        check_eq("written-accepts (I-1): not_applicable is accepted, no unknown ever is",
+                 [P.acceptable_provenance(written_files[a], P.ACCEPTS) for a in ("a3", "a4", "a5")], [True, False, False])
+        # a reference stand: printed, never written (I-3)
+        task = root / "story-ref"
+        (task / "work").mkdir(parents=True)
+        original = R.reference_skip
+        R.reference_skip = lambda ns, story: dict(
+            profile_id=ns.profile, result="not_applicable", evidence_refs=[], reason_code="no_changed_file")
+        try:
+            code, record = run_the_probe("api", checkout, task, stand=Stand())
+        finally:
+            R.reference_skip = original
+        check_eq("a2-reference-loud: answered, no file", (record["result"], (task / "evidence").exists()), ("not_applicable", False))
+        # write-fails: `evidence` is a FILE, an A3 answer is still printed, no refs, one warning, exit 0
+        task = root / "story-fails"
+        (task / "work").mkdir(parents=True)
+        (task / "work" / "impl-diff.txt").write_text("+++ b/README.md\n", encoding="utf-8")
+        (task / "evidence").write_text("not a folder", encoding="utf-8")
+        err, out, old = io.StringIO(), io.StringIO(), sys.argv
+        sys.argv = ["runtime_probe.py", "--profile", "api", "--environment", "localhost", "--container", "c", "--checkout",
+                    str(checkout), "--expected", "rev-1", "--task-root", str(task)]
+        try:
+            with Stand(), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = R.main()
+        finally:
+            sys.argv = old
+        record = json.loads(out.getvalue())
+        check_eq("write-fails: exit 0, the record is printed with no refs, never a pass",
+                 (code, record["result"], record["evidence_refs"]), (0, "not_applicable", []))
+        check_eq("write-fails: one stderr line", len([ln for ln in err.getvalue().splitlines() if ln.strip()]), 1)
+        # collision: one second, one profile, two records; and beyond _99 soft warns and strict raises (I-5)
+        folder_root = root / "story-collision"
+        folder_root.mkdir()
+        now = "2026-11-14T10:00:00+0000"
+        paths = []
+        for _ in range(2):
+            rec = {"result": "unknown"}
+            R.write_record(folder_root, "api", now, rec, no_evidence=False, soft=True)
+            paths.append(rec["evidence_refs"][0])
+        names = [Path(p).name for p in paths]
+        check_eq("collision: the second record gets `_02`, each names its own file",
+                 (names, [Path(p).is_file() for p in paths]),
+                 (["runtime-provenance-api-20261114T100000Z.json", "runtime-provenance-api-20261114T100000Z_02.json"], [True, True]))
+        check_eq("collision: name order is write order", sorted(paths), paths)
+        for _ in range(97):
+            R.write_record(folder_root, "api", now, {"result": "unknown"}, no_evidence=False, soft=True)
+        full = {"result": "unknown"}
+        with contextlib.redirect_stderr(io.StringIO()):
+            R.write_record(folder_root, "api", now, full, no_evidence=False, soft=True)
+        check_eq("bound: soft warns and names no file", (full["evidence_refs"], len(list((folder_root / "evidence").iterdir()))), ([], 99))
+        try:
+            R.write_record(folder_root, "api", now, {"result": "matched"}, no_evidence=False, soft=False)
+            raised = None
+        except FileExistsError as exc:
+            raised = str(exc)
+        check("bound: strict raises FileExistsError naming the folder", raised is not None and "evidence" in raised)
+    finally:
+        cleanup(root)
+
+
 def the_container_is_a_candidate_only_when_it_holds_every_file() -> None:
     """C3: a candidate holds EVERY compared file; none is a fact about the stand, not a question."""
     import types
@@ -1041,8 +1142,10 @@ def t238_w1_w4_the_probe_says_what_it_can_say_about_a_story_that_does_not_touch_
             checked = P.validate_runtime_provenance(api)
             check_eq("W4: the record is a VALID provenance record, kept as not_applicable by profile_contract",
                      (checked["valid"], checked["result"]), (True, "not_applicable"))
-            check_eq("W4: nothing observed, so no evidence file even without --no-evidence",
-                     (api["evidence_refs"], (task / "evidence").exists()), ([], False))
+            written = Path(api["evidence_refs"][0]) if len(api["evidence_refs"]) == 1 else None
+            check_eq("W4: the not_applicable record is written like every other answer",
+                     (written is not None and written.is_file(),
+                      json.loads(written.read_text(encoding="utf-8")) == api if written else None), (True, True))
             code, ui_record = run_the_probe("e2e-ui", ui, task, stand=fake)
             check_eq("W4: the e2e-ui profile is probed, today's way",
                      (code, ui_record["result"], len(ui_record["comparisons"])), (0, "matched", 1))

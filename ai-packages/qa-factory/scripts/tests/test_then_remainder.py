@@ -830,8 +830,63 @@ def k20_the_gate_refusal_names_the_remainder_door() -> None:
         check_in("K20 control: a finding only the source refused keeps the old sentence",
                  "No recorded word passes these; they are the author's repair.", alone)
         check_not_in("K20 control: ... and names no `then handed` door", "then handed", alone)
+        # FV1-30b N4: an open expectation (`awaits_answer`) has its own line, never a word door and never "the author's repair" alone
+        oracle = DV.Record("s5_precheck.py: [oracle oracle:TC-700:open-oracle-asserted-1] an open expectation - fix: bind it",
+                           script="s5_precheck.py", words="source", refused="awaits_answer")
+        wait_line = "1 finding(s) wait for the answer to an expectation question (`awaits_answer`)"
+        g1 = text([oracle])
+        check_in("K20 g1: an awaits_answer record alone gets its own line", wait_line, g1)
+        check_in("K20 g1: ... naming who records the person's answer", "the conductor records the person's answer", g1)
+        check_not_in("K20 g1: ... never the sentence of the author's repair alone",
+                     "No recorded word passes these; they are the author's repair.", g1)
+        check_not_in("K20 g1: ... and no word door", "--block", g1)
+        g2 = text([oracle, real])
+        check_in("K20 g2: beside a smell-1 record the new line is there", wait_line, g2)
+        check_in("K20 g2: ... and the smell-1 line keeps its sentence", "1 finding(s) carry the source's `refused` tag", g2)
+        g3 = text(list(waiting) + [oracle])
+        check("K20 g3: the `then handed` line comes before the new line",
+              0 <= g3.find("wait for the person's word") < g3.find(wait_line), g3)
+        family = DV.Record(str(real), script="s5_precheck.py", words="source", refused="family")
+        check_in("K20 g4: a `family` record alone keeps today's sentence", "No recorded word passes these; they are the author's repair.",
+                 text([family]))
+        check_not_in("K20 g4: ... and gets no awaits_answer line", "awaits_answer", text([family]))
+        check_not_in("K20 g5: the K20 inputs (waiting, smell-1) carry no awaits_answer line", "awaits_answer", mixed)
+        tail = g1.split("\n")[-2:]
+        check("K20 g6: the last two lines are the repair marker and the `checks:` line",
+              tail[0].strip() == f"{story_step.REPAIR_MARKER}." and tail[1].startswith(DV.CHECKS_LINE_PREFIX), tail)
     finally:
         cleanup(root)
+
+
+def k22_open_oracle_awaits_its_answer() -> None:
+    """FV1-30b N4: an `open-oracle-asserted-*` finding is refused at the source with the cause `awaits_answer`; the cause of every
+    other finding is what it was. Direction of error: an open expectation never reads `""` (that would let `*` pass it, P20)."""
+    def finding(tag, **extra):
+        out = P._finding("oracle", "TC-700", "an open expectation", "bind it", tag)
+        out.update(extra)
+        return out
+    rows = [("k22-1 open-oracle-asserted-1", finding("open-oracle-asserted-1"), "awaits_answer", False),
+            ("k22-2 upper case", finding("OPEN-ORACLE-ASSERTED-2"), "awaits_answer", False),
+            ("k22-3 no number", finding("open-oracle-asserted"), "awaits_answer", False),
+            ("k22-4 plus refused predating", finding("open-oracle-asserted-1", refused="predating"), "awaits_answer", False),
+            ("k22-5 environment", finding("stand-login"), "", True),
+            ("k22-5 no-bindings", finding("no-bindings"), "", True),
+            ("k22-5 predating", finding("changed-after-red-a.py:12", refused="predating"), "predating", True),
+            ("k22-7 upper-case waiting Then", finding("THEN-REMAINDER-UNRECORDED-1"), "", False),
+            ("k22-8 prefix elsewhere", finding("xopen-oracle-asserted-1"), "", True)]
+    for label, f, cause, passable in rows:
+        check_eq(f"{label}: the refusal cause", P.refusal_cause(f), cause)
+        check_eq(f"{label}: passable", P._passable(f), passable)
+    out = printed({"ok": False, "findings": [f for lab, f, _c, _p in rows if lab.startswith("k22-5")]})
+    check_not_in("k22-5: a result with no open-oracle finding prints no awaits_answer text", "awaits_answer", out)
+    env, oracle = finding("stand-login"), finding("open-oracle-asserted-1")
+    out = printed({"ok": False, "findings": [env, oracle]})
+    check_in("k22-6: the refusal line sits above the header", f"{DV.WORDS_REFUSED_AT_SOURCE} {oracle['id']} awaits_answer\n"
+             "REJECT", out)
+    check_eq("k22-6: the item-3 clause is printed once", out.count("waits for the answer to its expectation question"), 1)
+    check_in("k22-6: the star clause is still there", "`*` passes every finding", out)
+    v = DV.parse(1, out, "")
+    check_eq("k22-6: parse reads the cause and finds no defect", (v["refused"], v["defects"]), (["", "awaits_answer"], []))
 
 
 # --- K21: one reader of the Then number, one spelling of the waiting tag (HF2-2, AR-13, AR-15) --------------------------
@@ -1160,6 +1215,7 @@ def main() -> None:
     k19_one_reader_of_the_persons_prefixed_words()
     k20_the_gate_refusal_names_the_remainder_door()
     k21_one_carrier()
+    k22_open_oracle_awaits_its_answer()
     finish("test_then_remainder")
 
 

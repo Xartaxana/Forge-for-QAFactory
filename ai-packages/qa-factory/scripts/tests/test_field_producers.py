@@ -561,12 +561,12 @@ def every_form_fills_from_its_own_hints() -> None:
                     check(row, not problems, "; ".join(p.line()[:140] for p in problems[:3]))
         # the negative rows: what the reader MUST refuse (E5, E6)
         negatives = [
-            ("owed rows absent are refused", "s2-stage-critic-to-tester", "concerns", {"findings": FF.ABSENT}, "findings"),
+            ("owed rows absent are refused", "s4-case-critic-to-designer", "concerns", {"findings": FF.ABSENT}, "findings"),
             ("scope [] without a null outcome is refused", "s3-strategist-to-designer", "ok", {"scope": []}, "scope"),
         ]
-        base = FF.fill_form("s2-stage-critic-to-tester", ctx, verdict="concerns")
+        base = FF.fill_form("s4-case-critic-to-designer", ctx, verdict="concerns")
         unfilled = {f.path: f.hint for f in base.fills if f.path.startswith("stage_acceptance.")}
-        negatives.append(("an owed section left as the template is refused", "s2-stage-critic-to-tester", "concerns", unfilled,
+        negatives.append(("an owed section left as the template is refused", "s4-case-critic-to-designer", "concerns", unfilled,
                           "stage_acceptance"))
         for name, contract, verdict, overrides, path in negatives:
             filled = FF.fill_form(contract, ctx, verdict=verdict, overrides=overrides)
@@ -1184,9 +1184,12 @@ def _f_check_plan(obj, w, value, row):
 
 
 def _accept_form(FF, row, w):
+    import handoff
     author = f"{row['stage']}-{row['author_role']}-1"
+    path = handoff.acceptance_verdict_path(row["contract"])      # the word sits where the contract says (AR-13): the reject is asked for there
+    asked = dict(verdict="concerns") if path == "header.verdict" else dict(verdict=None, overrides={path: "return"})
     filled = FF.fill_form(row["contract"], FF.FillContext(author_dispatch=author, dispatch_id=f"{row['contract']}-w1", cases=["TC-001"],
-                                                          cases_root=_world_cases_root(w.world, w.task)), verdict="concerns")
+                                                          cases_root=_world_cases_root(w.world, w.task)), **asked)
     if filled.unfillable:
         raise _Red(f"the form {row['contract']} cannot be filled: {[(u.path, u.why) for u in filled.unfillable][:2]}")
     return filled, author
@@ -1476,6 +1479,53 @@ def readers_of_one_field_agree() -> None:
               f"{len(accepted)} readers accept it ({', '.join(accepted[:3])}...) and {len(refused)} refuse it ({', '.join(refused[:3])}...)")
 
 
+def advice_and_forms_reach_s4_critic() -> None:
+    """A1a J1 / J2 (AR-21, AR-22, AR-23): with no critic at S2 and S3, what they produced still has a reader. The S4 case critic is NAMED the
+    S2 and S3 advice files and the S2 outputs (stage row `acceptance_reads`, `stage_critic_names`) and the S2 tester's and S3
+    strategist's last accepted forms (`TRIED_READERS`, `tried_reader_names`); the S4 designer is named none of them (its brief is
+    unchanged). An advice file that is absent is named and prints its absence line; an author with no accepted dispatch names no form."""
+    import tempfile
+    import brief_pack as BP
+    s4 = BP._stages()["S4"]
+    advice = ["work/advice-S2.json", "work/advice-S3.json"]
+    s2_outputs = ["work/requirements-register.md", "work/requirements-readiness.json", "understanding.md"]
+    with tempfile.TemporaryDirectory() as tmp:
+        task = Path(tmp)
+        (task / "state").mkdir()
+        (task / "state" / "controller.json").write_text(json.dumps({"dispatches": {
+            "S2-qa-requirements-tester-1": {"id": "S2-qa-requirements-tester-1", "stage": "S2", "role": "qa-requirements-tester", "status": "accepted"},
+            "S2-qa-requirements-tester-2": {"id": "S2-qa-requirements-tester-2", "stage": "S2", "role": "qa-requirements-tester", "status": "accepted"},
+            "S3-qa-test-strategist-1": {"id": "S3-qa-test-strategist-1", "stage": "S3", "role": "qa-test-strategist", "status": "accepted"},
+            "S3-qa-runner-1": {"id": "S3-qa-runner-1", "stage": "S3", "role": "qa-runner", "status": "accepted"}}}), encoding="utf-8")
+        got = BP.stage_critic_names(s4, "qa-case-critic", task)
+        check("J1 advice-and-forms-reach-s4-critic: the critic is named the S2 and S3 advice files and the S2 outputs",
+              all(n in got for n in advice + s2_outputs), str(got))
+        check_eq("J1 advice-and-forms-reach-s4-critic: the critic is named the tester's and the strategist's LAST accepted forms",
+                 BP.tried_reader_names(s4, "qa-case-critic", task),
+                 ["work/handoffs/S2-qa-requirements-tester-2.yaml", "work/handoffs/S3-qa-test-strategist-1.yaml"])
+        check_eq("J1 advice-and-forms-reach-s4-critic: the S4 designer is named none of them",
+                 (BP.stage_critic_names(s4, "qa-case-designer", task), BP.tried_reader_names(s4, "qa-case-designer", task)), ([], []))
+        check_eq("J1 advice-and-forms-reach-s4-critic: the retro's readers are as before (S9 row unchanged)",
+                 sorted(k for k in BP.TRIED_READERS if k[0] == "S9"), [("S9", "qa-retro-analyst")])
+        lines = BP.file_lines(advice, task, task)
+        check("J2 absent-advice-named: both advice files are absent and each is still named, with its absence line",
+              len(lines) == 2 and all(a in line for a, line in zip(advice, lines)), str(lines))
+        for label, reads in (("a key absent", None), ("an unknown part word", {"S2": ["bogus"]}), ("an earlier stage not in the table", {"S99": ["advice"]}),
+                             ("a value that is not a list", {"S2": "advice"}), ("the table is not a mapping", ["S2"])):
+            row = {k: v for k, v in s4.items() if k != "acceptance_reads"}
+            if reads is not None:
+                row["acceptance_reads"] = reads
+            with contextlib.redirect_stderr(__import__("io").StringIO()) as err:
+                names = BP.stage_critic_names(row, "qa-case-critic", task)
+            check(f"J2 acceptance_reads-{label.replace(' ', '-')}: nothing extra, no crash, one printed line unless the key is absent",
+                  names == BP.stage_critic_names({k: v for k, v in s4.items() if k != "acceptance_reads"}, "qa-case-critic", task)
+                  and len(err.getvalue().strip().splitlines()) == (0 if reads is None else 1), f"{names} / {err.getvalue()!r}")
+    with tempfile.TemporaryDirectory() as tmp:
+        task = Path(tmp)
+        check_eq("J2 no-author-form-named-nothing: no controller state, no accepted dispatch: no form is named, no path invented",
+                 BP.tried_reader_names(s4, "qa-case-critic", task), [])
+
+
 def red_rows_equal_the_known_red_ledger() -> None:
     """P1-a N3 item 7 (C6): every row this file checked is judged by `known_red.reconcile` against the ledger of `form-rounds.json`. A red row
     the ledger does not name is `new red`, a ledger row that is green is `stale`, a ledger row that is no row of the walk is `unknown row`,
@@ -1521,6 +1571,7 @@ def main() -> None:
     every_derived_field_meets_its_deriver()
     one_fact_one_form_everywhere()
     readers_of_one_field_agree()
+    advice_and_forms_reach_s4_critic()
     red_rows_equal_the_known_red_ledger()
     finish("test_field_producers")
 

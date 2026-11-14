@@ -29,6 +29,23 @@ From the repository root (never change the working directory):
   an empty list or no key disables nothing). `copy_prefix` is letters, digits, `.`, `-`, `_` only, and
   `toolchain.import` a dotted Python name (`pkg`, `pkg.sub`); anything else is refused naming the key.
 
+## Release judgment of the run scoreboard
+
+    python -B experiments/measurers/scoreboard.py compare --release <version> [--norms F] [--root DIR]
+    python -B experiments/measurers/scoreboard.py release-check --release <version> [--norms F] [--root DIR]
+
+`compare --release` prints one `release:` line per ELEMENT of `ratchets` in `experiments/scoreboards/norms.json` (worse,
+not decided, unknown, no value, no comparable measurement, or ok), a `release: warning` per red unratcheted row, `can ratchet:`
+for a measured row better than a bar, and exits 0. `release-check --release` judges those lines: exit 0 when every
+`owner's word needed` has a `worsened_passes` entry of the same row, version and pair (or a `bar_changes` answer), else 1;
+2 for a file or version it cannot read. `release-check --version V --lines FILE|-` judges a saved copy of the lines.
+
+`norms.json` is schema `norms/2`: `rows.<row id>` = `{norm, unit, better, ratchets[], raises[], worsened_passes[]}` plus the
+per-norm keys of the old shape (`id`, `kind`, `op`, `bar_row`, `unknown_row`, `initial`, `carrier`, `ratcheted_since`); a raise
+keeps `from` and `to`; top level `bar_changes[]`. An old `norms/1` file is refused with the way to convert it
+(`scoreboard.py norms --convert FILE`); `norms --check --against OLD` still reads an old file as the comparison side.
+`norms --check` refuses a removed `ratchets` element, or one whose `value` worsened, without a new `raises` element with a `word`.
+
 ## Prove them
 
     python -B experiments/measurers/test_measurers.py

@@ -1185,6 +1185,38 @@ def a_persons_word_is_not_asked_for_again():
         cleanup(project)
 
 
+def alias_manifest(*pairs):
+    return {"tests": [{"instance_id": instance, "covers": [case]} for instance, case in pairs]}
+
+
+ALIAS_MANIFEST_X = alias_manifest(("test_x", "TC-012"))
+# (label, manifest file content or None, [(run instance id, status)] in block order, {expected key: block suffix})
+ALIAS_ROWS = (
+    ("w1 an alias-spelled run is found under the canonical id too", ALIAS_MANIFEST_X, [("TC-012::test_x", "passed")],
+     {"TC-012::test_x": "b0", "test_x": "b0"}),
+    ("w2 two spellings of one instance, the later block wins (bare last)", ALIAS_MANIFEST_X,
+     [("TC-012::test_x", "failed"), ("test_x", "passed")], {"TC-012::test_x": "b1", "test_x": "b1"}),
+    ("w2 reverse clocks (prefixed last)", ALIAS_MANIFEST_X,
+     [("test_x", "passed"), ("TC-012::test_x", "failed")], {"TC-012::test_x": "b1", "test_x": "b1"}),
+    ("w3 a run of another parameter label never counts for a prefix entry",
+     alias_manifest(("test_a", "TC-1"), ("test_a[pos]", "TC-1")), [("test_a[neg]", "passed")], {"test_a[neg]": "b0"}),
+    ("w4 a bare spelling shared by two entries maps to nobody",
+     alias_manifest(("TC-1::test_x[eu]", "TC-1"), ("TC-2::test_x[eu]", "TC-2")), [("test_x[eu]", "passed")],
+     {"test_x[eu]": "b0"}),
+    ("w4b a shared bare spelling, the run spelled with one entry's prefix: the bare spelling gets no run",
+     alias_manifest(("TC-1::test_x[eu]", "TC-1"), ("TC-2::test_x[eu]", "TC-2")), [("TC-1::test_x[eu]", "failed")],
+     {"TC-1::test_x[eu]": "b0"}),
+    ("w4c a bare name that is one entry's canonical and another's alias: the run of the other gives it no run",
+     alias_manifest(("test_x", "TC-5"), ("TC-9::test_x", "TC-9")), [("TC-9::test_x", "failed")],
+     {"TC-9::test_x": "b0"}),
+    ("w5 no manifest file", None, [("TC-012::test_x", "passed")], {"TC-012::test_x": "b0"}),
+    ("w5 a manifest that is not JSON", "not json", [("TC-012::test_x", "passed")], {"TC-012::test_x": "b0"}),
+    ("w5 a manifest whose tests is a string", {"tests": "x"}, [("TC-012::test_x", "passed")], {"TC-012::test_x": "b0"}),
+    ("w5 a manifest whose tests is a number", {"tests": 5}, [("TC-012::test_x", "passed")], {"TC-012::test_x": "b0"}),
+    ("w6 an alias-spelled skipped row is no key", ALIAS_MANIFEST_X, [("TC-012::test_x", "skipped")], {}),
+)
+
+
 def a_terminal_run_is_the_latest_by_the_clock():
     """F-order: `_terminal_runs` reads the blocks in the story's one order (the block's own clock, a reparse
     right after the block it supersedes), not in file-name order: the reparse of an OLD attempt whose id starts
@@ -1224,6 +1256,55 @@ def a_terminal_run_is_the_latest_by_the_clock():
                  WR._terminal_runs(root)["i1"][2].name, "aaaa-reparse-9999.json")
     finally:
         cleanup(root)
+    # FV1-30b N5: a run is found under every spelling of its instance (the manifest entry's aliases), by whole-spelling equality
+    for label, entries, runs_in, expect in ALIAS_ROWS:
+        root = temp_dir("qa-window-alias-")
+        try:
+            runs = root / "work" / "run-blocks"
+            runs.mkdir(parents=True)
+            if entries is not None:
+                (root / "work" / "automation-manifest.json").write_text(
+                    entries if isinstance(entries, str) else json.dumps(entries), encoding="utf-8")
+            for number, (instance, status) in enumerate(runs_in):
+                stamp = f"202610{number + 1:02d}T050000000000Z-b{number}"
+                (runs / (stamp + ".json")).write_text(json.dumps({
+                    "block_id": stamp, "attempt_id": stamp, "attempt_started_at": f"2026-10-{number + 1:02d}T05:00:00+00:00",
+                    "results": [{"instance_id": instance, "status": status}]}), encoding="utf-8")
+            found = WR._terminal_runs(root)
+            check_eq(label + ": the keys", sorted(found), sorted(expect))
+            check_eq(label + ": the block each key holds",
+                     {key: found[key][1]["attempt_id"][-2:] for key in found}, {key: expect[key] for key in expect})
+        finally:
+            cleanup(root)
+    # w7 (N5-E2): a config that cannot be read leaves today's exact map
+    root = temp_dir("qa-window-alias-cfg-")
+    real = C.case_config
+    try:
+        runs = root / "work" / "run-blocks"
+        runs.mkdir(parents=True)
+        (root / "work" / "automation-manifest.json").write_text(json.dumps(ALIAS_MANIFEST_X), encoding="utf-8")
+        (runs / "20260930T050000000000Z-b0.json").write_text(json.dumps({
+            "block_id": "b0", "attempt_id": "b0", "attempt_started_at": "2026-09-30T05:00:00+00:00",
+            "results": [{"instance_id": "TC-012::test_x", "status": "passed"}]}), encoding="utf-8")
+        check_eq("w7 control: the alias is found while the config reads", sorted(WR._terminal_runs(root)),
+                 ["TC-012::test_x", "test_x"])
+        C.case_config = lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("no config"))
+        check_eq("w7: case_config raises -> only the exact id is a key", sorted(WR._terminal_runs(root)), ["TC-012::test_x"])
+    finally:
+        C.case_config = real
+        cleanup(root)
+    # w1 (build): the window item of an instance whose only run is spelled with its case prefix has its outcome and fingerprint
+    project = temp_project("qa-window-alias-build-")
+    use_project(project)
+    try:
+        task, _ = a_story_at_s5(project)
+        run_block(task, "20260924T090000000000Z-b1.json", "TC-1::test_a[x]", "fp-a", "fingerprint-a")
+        window, _notes = WR.build(task, CRITIC)
+        item = next(i for i in window["instances"] if i["instance_id"] == "test_a[x]")
+        check_eq("w1 build: an alias-spelled run gives the item its outcome and fingerprint",
+                 (item.get("outcome"), item.get("execution_fingerprint")), ("passed", "fp-a"))
+    finally:
+        cleanup(project)
 
 
 # ---- t-134 R8 (P5-G): a window item carries the novelty its row had, RESOLVED at build time ---------------

@@ -1193,7 +1193,69 @@ def pc5a_c11_about_is_checked_against_the_stories_sides():
         shutil.rmtree(ROOT, ignore_errors=True)
 
 
+def p1b9_c2_only_answers_that_compared_a_build_bind():
+    """P1B-9 C2 (I-4): `recorded_checkout_revisions` counts a record only when its `result` is matched, mismatched or
+    person_confirmed. One table, row id = outcome; then one row through the second caller `_other_profile_errors`."""
+    from coverage_contract import recorded_checkout_revisions
+
+    def seed_raw(task, name, body):
+        path = Path(task) / "evidence" / f"runtime-provenance-{name}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body if isinstance(body, str) else json.dumps(body), encoding="utf-8")
+
+    def body(result="absent", profile="api", revision=CHECKOUT_HEAD):
+        data = {"profile_id": profile, "expected_source_revision": revision}
+        if result != "absent":
+            data["result"] = result
+        return data
+
+    rows = [("matched", body("matched"), True), ("mismatched", body("mismatched"), True),
+            ("person_confirmed", body("person_confirmed"), True),
+            ("not_applicable", body("not_applicable"), False), ("unknown", body("unknown"), False),
+            ("no-result", body(), False), ("result-a-list", body(["matched"]), False),
+            ("result-a-number", body(1), False), ("other-profile", body("matched", profile="web"), False),
+            ("empty-revision", body("matched", revision=""), False),
+            ("revision-unknown", body("matched", revision="unknown"), False)]
+    for name, data, binds in rows:
+        task = Path(tempfile.mkdtemp(prefix="qa-c2-rows-"))
+        try:
+            seed_raw(task, "api-x", data)
+            got = recorded_checkout_revisions(task, "api")
+            check_eq(f"P1B-9 C2 row {name}: the revision {'binds' if binds else 'binds nothing'}",
+                     got, {CHECKOUT_HEAD} if binds else set())
+        finally:
+            shutil.rmtree(task, ignore_errors=True)
+    task = Path(tempfile.mkdtemp(prefix="qa-c2-rows-"))
+    try:
+        seed_raw(task, "api-a", "{not json")
+        seed_raw(task, "api-b", [1, 2])
+        seed_raw(task, "api-c", body("matched"))
+        check_eq("P1B-9 C2 row broken-beside-matched: the matched revision is kept",
+                 recorded_checkout_revisions(task, "api"), {CHECKOUT_HEAD})
+    finally:
+        shutil.rmtree(task, ignore_errors=True)
+
+    # The second caller: a part whose profile has only a not_applicable record binds nothing.
+    binds_text = "binds a checkout revision no run of this story recorded"
+
+    def part_errors(result):
+        story = Path(tempfile.mkdtemp(prefix="qa-c2-other-"))
+        try:
+            seed_raw(story, "api-x", body(result))
+            probe = {"profile_id": "api", "expected_source_revision": CHECKOUT_HEAD, "result": "matched"}
+            record_ = {"runtime_before": {"profile_id": "manual", "expected_source_revision": CHECKOUT_HEAD},
+                       "other_profiles": [{"attempt": "a2", "steps_actual": ["open"],
+                                           "runtime_before": dict(probe), "runtime_after": dict(probe)}]}
+            return M._other_profile_errors(record_, story)
+        finally:
+            shutil.rmtree(story, ignore_errors=True)
+    check_in("P1B-9 C2 row other-profiles-a3-only: _other_profile_errors names the unbound revision",
+             binds_text, part_errors("not_applicable"))
+    check_not_in("P1B-9 C2 row other-profiles-matched: CONTROL, a matched record binds", binds_text, part_errors("matched"))
+
+
 def main():
+    p1b9_c2_only_answers_that_compared_a_build_bind()
     pc5a_c11_about_is_checked_against_the_stories_sides()
     f5_unprepared_cases()
     f5_only_the_cases_own_shape_errors_unprepare_it()

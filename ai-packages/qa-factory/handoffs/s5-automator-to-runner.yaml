@@ -8,7 +8,7 @@
 #
 # `runtime_provenance` is here for the reason the whole of S5 learned on TP1-13797: a run on a
 # stand whose build is not the one under test proves nothing, and nothing in the manifest said
-# which build it was. `runtime_probe.py` writes that record; this file names it.
+# which build it was. `runtime_probe.py` writes the run's record; its `result` says if it identified the build.
 schema_version: 1
 contract: s5-automator-to-runner
 stage: S5
@@ -23,7 +23,7 @@ inputs:
     what: every instance, its case links, obligations and last receipt
     required: true
   - path: <the runtime_provenance record named below>
-    what: the identity of the stand the evidence was taken on
+    what: the run's record; read its `result`
     required: true
   - path: work/evidence/
     what: the receipts behind the green rows this file calls fresh

@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import SCRIPTS, check, check_eq, check_in, check_not_in, cleanup, finish, temp_dir  # noqa: E402
 
 sys.path.insert(0, str(SCRIPTS))
+import report_facts as RF  # noqa: E402
 import retro_numbers as RN  # noqa: E402
 import run_counters as RC  # noqa: E402
 import driver_journal as DJ  # noqa: E402
@@ -339,6 +340,79 @@ def the_retro_prints_the_knowledge_table_beside_the_question_count() -> None:
                  "**Questions put to the person: 0; known facts no brief carried: unmeasured: briefs are not kept", zero)
         check_eq("F1: facts of an older shape (no key) render nothing", RN.knowledge_lines(None), [])
         check_in("F1: a block that could not be built is one `unmeasured` line", "unmeasured: boom", "\n".join(RN.knowledge_lines({"problem": "boom"})))
+    finally:
+        cleanup(root)
+
+
+def test_fv19_retro_lists_merged_questions() -> None:
+    """FV1-9 N5 (owner 14.11): the retro marks the questions the factory merged as repeats - a T16 line per record with both texts as they
+    stood and the standing; no merge or an older story: no section; a record set that cannot be read: one line, never a raise."""
+    import question_register as QR
+    name = "fv19_retro_lists_merged_questions"
+    root, base, troot = project()
+    try:
+        def row(qid, text):
+            return {"id": qid, "question": text, "source_says": [{"quote": "the limit is 100", "where": "R-1"}],
+                    "readings": [{"reading": f"reading {i}", "from": "code", "if_chosen": "x"} for i in range(2)],
+                    "severity": "major", "owner_role": "po_ba"}
+        long_text = "w" * 250
+        (troot / "work" / "requirements-readiness.json").write_text(json.dumps({"verdict": "blocked", "open_questions": [
+            row("Q7", "What is the limit?"), row("Q16", "How many may I add?"), row("Q17", long_text), row("Q18", "Another one?")]}), encoding="utf-8")
+        older = RN.numbers("QA-1", base, troot)
+        check_eq(f"{name}: a story with a register and no merge says none (F3, AR-23: the key with no records, the T16 none line)",
+                 (older.get("merged_questions"), RN.merged_question_lines(older.get("merged_questions"))[-1],
+                  "Questions merged as one" in RN.render(older)),
+                 ({"records": [], "unreadable": False}, "- none: no question was merged in this story", True))
+        check_eq(f"{name}: before any merge the retro's question count is all four rows", RF.question_count(troot), 4)
+        bare_root, bare_base, bare_troot = project()
+        try:
+            check_eq(f"{name}: a story with no register has no key (an older story: the section is absent)",
+                     "merged_questions" in RN.numbers("QA-1", bare_base, bare_troot), False)
+        finally:
+            cleanup(bare_root)
+        QR.declare_repeat(troot, "Q16", "Q7", "both ask the limit", by="driver", declared_by="qa-case-designer", stage="S4")
+        QR.declare_repeat(troot, "Q17", "Q7", "y" * 250, by="driver", declared_by="qa-test-strategist", stage="S3")
+        QR.declare_repeat(troot, "Q18", "Q7", "same", by="driver", declared_by="qa-case-designer", stage="S4")
+        check_eq(f"{name}: after three merges the person is asked one question, not four (a merged twin is not counted twice)",
+                 RF.question_count(troot), 1)
+        data = RN.numbers("QA-1", base, troot)
+        recs = data["merged_questions"]["records"]
+        check_eq(f"{name}: three records, in file order, with the standing the register reader returns",
+                 ([r["id"] for r in recs], [r["standing"] for r in recs], data["merged_questions"]["unreadable"]),
+                 (["Q16", "Q17", "Q18"], ["merged"] * 3, False))
+        check_eq(f"{name}: the facts keep a long text whole (FR-49)", (len(recs[1]["texts"]["question"]), len(recs[1]["why"])), (250, 250))
+        text = RN.render(data)
+        lines = [line for line in text.splitlines() if " merged into Q7 by " in line]
+        check_eq(f"{name}: a heading and a line per record", ("## Questions merged as one" in text, len(lines)), (True, 3))
+        check_in(f"{name}: both texts as they stood, who, stage, standing", "- Q16 merged into Q7 by case designer at S4 (", lines[0])
+        check_in(f"{name}: ... both texts, why and standing", "\"How many may I add?\" / \"What is the limit?\"; why: both ask the limit; now: merged", lines[0])
+        check_in(f"{name}: a long text (250) is printed whole, why too (F3: texts uncut)",
+                 "\"" + "w" * 250 + "\" / \"What is the limit?\"; why: " + "y" * 250 + "; now: merged", lines[1])
+        check_in(f"{name}: the role is in words", " by test strategist at S3 (", lines[1])
+        edge = "\n".join(RN.merged_question_lines({"records": [{"id": "Q1", "same_as": "Q2", "texts": {"question": "a" * 200, "same_as_question": "b" * 201},
+                                                                "why": "z" * 200, "standing": "shown again: gone"}], "unreadable": False}))
+        check_in(f"{name}: AT 200 and 201 both whole, no ellipsis", "\"" + "a" * 200 + "\" / \"" + "b" * 201 + "\"; why: " + "z" * 200 + ";", edge)
+        check_in(f"{name}: a record whose question is gone from the register says the reader's standing, no KeyError", "now: shown again: gone", edge)
+        check_eq(f"{name}: an empty block says none", RN.merged_question_lines({"records": [], "unreadable": False})[-1],
+                 "- none: no question was merged in this story")
+        check_in(f"{name}: records beside a broken answers line carry the unreadable line too",
+                 "- the question records could not be read, so merges are not known",
+                 "\n".join(RN.merged_question_lines({"records": recs, "unreadable": True})))
+        check_eq(f"{name}: a block with a problem is the one unreadable line", RN.merged_question_lines({"problem": "boom"})[-2:],
+                 ["", "- the question records could not be read, so merges are not known"])
+        real = QR.repeat_records
+        QR.repeat_records = lambda task_root: (_ for _ in ()).throw(OSError("disk"))
+        try:
+            broken = RN.numbers("QA-1", base, troot)
+            check_in(f"{name}: a reader that raises is a problem in the facts", "OSError: disk", broken["merged_questions"]["problem"])
+            check_in(f"{name}: ... and one unreadable line in the render, the retro still renders",
+                     "- the question records could not be read, so merges are not known", RN.render(broken))
+        finally:
+            QR.repeat_records = real
+        check_eq(f"{name}: a story with no register at all has no section", RN.merged_question_lines(None), [])
+        QR.record(troot, "Q18", "open", "asking this one after all", "remark", "person", "")
+        check_eq(f"{name}: a merged question reopened through the register is shown again and counted (over-counting is the allowed error)",
+                 RF.question_count(troot), 2)
     finally:
         cleanup(root)
 
@@ -789,12 +863,33 @@ def run_counters_questions_briefs_and_quality() -> None:
     check_eq("G2 gate repairs by gate with their moves", (d["G2"]["n"], d["G2"]["by_gate"], d["G2"]["moves"]), (2, {"A": 2}, 5))
     check_eq("U1 a row with no kind and a time with no offset are counted", (d["U1"]["rows_without_kind"], d["U1"]["naive_timestamps"]), (2, 1))
     # B1 at and beyond the ceiling
-    write_state(troot, "brief-sizes.jsonl", [{"role": "a", "budget_bytes": 6144, "ceiling": 6144}, {"role": "a", "budget_bytes": 6145, "ceiling": 6144},
-                                             {"role": "b", "budget_bytes": 100, "ceiling": 6144}, {"role": "b", "budget_bytes": 7}, {"role": "b", "budget_bytes": True, "ceiling": 1}])
+    old = {"role": "a", "budget_bytes": 6144, "ceiling": 6144}
+    new = {"role": "a", "bytes": 7000}          # the writer's shape since FV1-4: no ceiling
+    # (case id, rows, (state, over or "absent", n, judged_rows or "absent", no_ceiling_rows, unreadable_rows))
+    b1_cases = [
+        ("empty record", [], ("unknown", "absent", 0, "absent", 0, 0)),
+        ("writer shape, bytes only", [new, {"role": "b", "bytes": 5}], ("unknown", "absent", 2, "absent", 2, 0)),
+        ("all rows unreadable", [{"role": "a"}, {"role": "a", "budget_bytes": True, "bytes": "x"}], ("unknown", "absent", 0, "absent", 0, 2)),
+        ("mixed old and new", [old, new, {"role": "b", "bytes": 1}], ("measured", 0, 3, 1, 2, 0)),
+        ("old shape with one over", [old, {"role": "a", "budget_bytes": 6145, "ceiling": 6144}, {"role": "b", "budget_bytes": 100, "ceiling": 6144}],
+         ("measured", 1, 3, 3, 0, 0)),
+        ("non-numeric ceiling is no ceiling", [{"role": "a", "bytes": 9, "ceiling": "big"}, {"role": "a", "budget_bytes": 9, "ceiling": True}],
+         ("unknown", "absent", 2, "absent", 2, 0)),
+        ("bytes AT the ceiling", [{"role": "a", "bytes": 6144, "ceiling": 6144}], ("measured", 0, 1, 1, 0, 0)),
+        ("bytes ONE beyond the ceiling", [{"role": "a", "bytes": 6145, "ceiling": 6144}], ("measured", 1, 1, 1, 0, 0)),
+        ("a bool size is unreadable, a ceiling alone does not rescue it", [old, {"role": "b", "budget_bytes": True, "ceiling": 1}],
+         ("measured", 0, 1, 1, 0, 1)),
+    ]
+    for case, rows, want in b1_cases:
+        write_state(troot, "brief-sizes.jsonl", rows)
+        b1 = counted(troot)["B1"]
+        got = (b1["state"], b1.get("over", "absent"), b1["n"], b1.get("judged_rows", "absent"), b1["no_ceiling_rows"], b1["unreadable_rows"])
+        check_eq(f"B1 {case}", got, want)
+    write_state(troot, "brief-sizes.jsonl", [old, {"role": "a", "budget_bytes": 6145, "ceiling": 6144}, {"role": "b", "bytes": 7}])
     b1 = counted(troot)["B1"]
-    check_eq("B1 AT the ceiling is not over, BEYOND (6145) is", (b1["by_role"]["a"]["n"], b1["by_role"]["a"]["over"]), (2, 1))
-    check_eq("B1 mean and max of the budget bytes per role", (b1["by_role"]["a"]["mean_budget_bytes"], b1["by_role"]["a"]["max_budget_bytes"]), (6144.5, 6145))
-    check_eq("B1 rows with no ceiling or a bool size are counted aside", b1["unreadable_rows"], 2)
+    check_eq("B1 mean and max of the sizes per role (a row with no ceiling is a size, not a verdict)",
+             (b1["by_role"]["a"]["mean_budget_bytes"], b1["by_role"]["a"]["max_budget_bytes"], b1["by_role"]["b"]["n"], b1["by_role"]["b"]["over"]),
+             (6144.5, 6145, 1, 0))
     check_eq("B1 no record: unknown", counted(project()[2])["B1"]["state"], "unknown")
     # a dry run: counts stay, nothing is written
     write_state(troot, "driver-runs.jsonl", [p_start(0, run_class="dry"), role_row(5, 5, session="stub-S1-x-1-1", resumed=True, resume_kind="refusal_resume", checks=["exit_gate:scoped"]), p_end(0, 9, run_class="dry")])
@@ -879,6 +974,7 @@ def main() -> None:
     run_counters_friction_and_money()
     run_counters_one_road_and_cli()
     the_retro_prints_the_knowledge_table_beside_the_question_count()
+    test_fv19_retro_lists_merged_questions()
     the_resumes_add_up_per_stage()
     the_unknown_and_the_empty_are_not_the_same()
     the_class_of_a_gate_block_has_one_reader()

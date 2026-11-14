@@ -18,7 +18,7 @@ A plan that finds the bugs of this change at the lowest cost: every requirement 
 <!-- kind: process -->
 ## Good outcome
 
-The acceptor reads each item against its witness; what you tried is the `tried` table of your handoff form.
+Before you stop, read each item against its witness yourself: no critic judges the plan; the person reads it at gate A. What you tried is the `tried` table of your handoff form.
 
 1. **Every requirement placed.** Each register id is a plan row or a `not_planned` entry with a reason. Witness: `work/test-plan.json`.
 2. **Every row has a hypothesis.** A defect class at a place, an impact, an observable with its source. Witness: the row's hypothesis and observable.
@@ -30,6 +30,7 @@ The acceptor reads each item against its witness; what you tried is the `tried` 
 ## Where bugs hide at this stage
 
 - **The changed branches of the diff.** New conditions, new early returns, a moved check: each changed branch is a place the old behaviour can break.
+- **A changed branch no row walks.** Before you stop, lay the diff's changed branches beside the rows: a branch with no row and no `not_planned` reason is a hole in the plan, however good the rows read.
 - **Seams between features.** Where the changed code hands data to code it did not change: a new field the old consumer ignores, a format the reader does not expect.
 - **Shared mutable state.** Caches, singletons, counters, a record two screens edit: the bug appears only when two paths touch it.
 - **Permissions and roles.** A new action is checked for the role that asked for it and forgotten for the others; the refusal path is the test. Your brief lists the product's roles known so far, not a limit: check an access rule per role it distinguishes, as parameters of one check where enough. Every role the requirements name, listed or not, goes into the optional `product_roles` section (role, sign_in, where); `[]` or no section when no role matters. Never invent a role from the code.

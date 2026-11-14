@@ -25,7 +25,7 @@ from test_first_look_wiring import STAND, TICKET, WALK, Project  # noqa: E402
 MARK = brief_pack.S3_ROSTER_MARK
 FILE = "work/first-look.yaml"
 FORBIDDEN = ("EXPECTED-VAL", "THEN-VAL", "SHOULD-VAL", "PATH-EXPECTED", "SAMPLE-EXPECTED")
-PAIRS = (("S3", "qa-test-strategist"), ("S3", "qa-case-critic"), ("S4", "qa-case-designer"), ("S4", "qa-case-critic"),
+PAIRS = (("S3", "qa-test-strategist"), ("S4", "qa-case-designer"), ("S4", "qa-case-critic"),
          ("S5", "qa-automator"), ("S5", "qa-code-critic"), ("S6", "qa-runner"), ("S7", "qa-failure-analyst"))
 
 
@@ -68,7 +68,7 @@ def test_s3_lines_count_and_red_rows():
     with tempfile.TemporaryDirectory() as tmp:
         p = Project(tmp, sides={"product": {"reality": "substituted"}})
         write_record(p)
-        for role in ("qa-test-strategist", "qa-case-critic"):
+        for role in ("qa-test-strategist",):          # S3 has no critic since the stage critics were removed
             got = lines(p, "S3", role)
             text = "\n".join(got)
             check_in(f"s3_lines_count_and_red_rows: the {role} head says 5 requirements", "5 requirement(s)", text)
@@ -143,7 +143,9 @@ def test_s5_lines_locators_routes_data_before_discovery():
         check_in("s5_lines_locators_routes_data_before_discovery: a locator the walker did not see", "locator discount field: input#code (seen no)", text)
         check_in("s5_lines_locators_routes_data_before_discovery: the route", "api GET /api/cart", text)
         check_in("s5_lines_locators_routes_data_before_discovery: the data, prefixed seen", "data seen: 12 EUR", text)
-        check_not_in("s5_lines_locators_routes_data_before_discovery: the steps are S4's", "open the cart", text)
+        check_in("s5_lines_locators_routes_data_before_discovery: the screen and the steps are S5's too (FV1-28: the walker's path, one line per item)",
+                 "- R-1 confirms: step open the cart [first-look:R-1]", text)
+        check_in("s5_lines_locators_routes_data_before_discovery: the screen", "- R-1 confirms: screen /cart [first-look:R-1]", text)
 
 
 def test_s5_critic_lines_path_and_rule():
@@ -191,8 +193,9 @@ def test_no_record_one_line():
         p = Project(tmp, walk=False)
         for stage, role in PAIRS:
             got = lines(p, stage, role)
-            check_eq(f"no_record_one_line: {role} at {stage} gets exactly the one line", got, [brief_pack.FIRST_LOOK_NONE])
-        check_in("no_record_one_line: it says there was no first look", "there was no first look", brief_pack.FIRST_LOOK_NONE)
+            check(f"no_record_one_line: {role} at {stage} gets exactly one line, a GAP and never `no stand` as a fact",
+                  len(got) == 1 and got[0].startswith("First look: a GAP - ") and "no record was written" in got[0]
+                  and "it is not a fact that there is no stand" in got[0], str(got))
 
 
 def test_null_record_reason_line():
@@ -203,7 +206,7 @@ def test_null_record_reason_line():
         for stage, role in PAIRS:
             got = lines(p, stage, role)
             check(f"null_record_reason_line: {role} at {stage} gets one line with the reason",
-                  len(got) == 1 and "there was no first look" in got[0] and "no stand" in got[0], str(got))
+                  len(got) == 1 and "a GAP" in got[0] and "the stand was not walked: no stand" in got[0], str(got))
 
 
 def test_unreadable_record_line():
@@ -213,7 +216,7 @@ def test_unreadable_record_line():
         for stage, role in PAIRS:
             got = lines(p, stage, role)
             check(f"unreadable_record_line: {role} at {stage} gets one line with the reason, never a pass",
-                  len(got) == 1 and "cannot be read" in got[0] and "treat the stand as not walked" in got[0], str(got))
+                  len(got) == 1 and "a GAP" in got[0] and "cannot be read" in got[0] and "not a fact that there is no stand" in got[0], str(got))
 
 
 def test_stale_record_one_line():
@@ -303,17 +306,11 @@ def test_plan_critic_lines_only_when_s3_reviewer_exists():
         p = Project(tmp)
         write_record(p)
         stages = brief_pack._stages()
-        check("plan_critic_lines_only_when_s3_reviewer_exists: S3 names a reviewer in stages.json today (the report line `S3 has no plan critic` does not apply)",
-              "qa-case-critic" in stages["S3"]["roles"], str(stages["S3"]["roles"]))
-        check("plan_critic_lines_only_when_s3_reviewer_exists: the reviewer gets lines", bool(lines(p, "S3", "qa-case-critic")))
-        original = brief_pack._stages
-        try:
-            brief_pack._stages = lambda: {**original(), "S3": {**original()["S3"], "roles": ["qa-test-strategist"]}}
-            check_eq("plan_critic_lines_only_when_s3_reviewer_exists: with no reviewer at S3 the critic gets none (nothing is invented)",
-                     lines(p, "S3", "qa-case-critic"), [])
-            check("plan_critic_lines_only_when_s3_reviewer_exists: the strategist still does", bool(lines(p, "S3", "qa-test-strategist")))
-        finally:
-            brief_pack._stages = original
+        check("plan_critic_lines_only_when_s3_reviewer_exists: S3 names no reviewer in stages.json (the stage critics were removed)",
+              "qa-case-critic" not in stages["S3"]["roles"], str(stages["S3"]["roles"]))
+        check_eq("plan_critic_lines_only_when_s3_reviewer_exists: with no reviewer at S3 the critic gets none (nothing is invented)",
+                 lines(p, "S3", "qa-case-critic"), [])
+        check("plan_critic_lines_only_when_s3_reviewer_exists: the strategist still does", bool(lines(p, "S3", "qa-test-strategist")))
         check_eq("plan_critic_lines_only_when_s3_reviewer_exists: other pairs get none (a scout at S1, a tester at S2, a critic at S9)",
                  [lines(p, "S1", "qa-scout"), lines(p, "S2", "qa-requirements-tester"), lines(p, "S9", "qa-case-critic")], [[], [], []])
 
@@ -436,7 +433,7 @@ def test_one_reader_of_the_record_state():
         try:
             FL.state = lambda task_root: {"kind": "absent", "got": FL.read(task_root), "error": ""}
             check_eq("one_reader_of_the_record_state: the brief follows the classifier (absent although a file exists)",
-                     lines(p, "S3", "qa-test-strategist"), [brief_pack.FIRST_LOOK_NONE])
+                     lines(p, "S3", "qa-test-strategist"), [brief_pack._fl_gap("no record was written", "s3")])
             check_eq("one_reader_of_the_record_state: the card follows it too", AC._first_look(p.task), ([], ["there was no first look"]))
             FL.state = lambda task_root: {"kind": "error", "got": {}, "error": "ValueError"}
             check("one_reader_of_the_record_state: an error kind is one courtesy line in the brief",
@@ -469,6 +466,236 @@ def test_roster_audience_is_a_parameter_not_a_filter():
                   not [x for x in composed if "composed" in x or "product_roles" in x], str(composed))
         finally:
             brief_pack.S3_ROSTER_NAME = original
+
+
+def s5_window_lines(p, scope=("TC-001",)):
+    return brief_pack.first_look_lines(p.task, "S5", "qa-automator", scope=list(scope), s5_kind="window")
+
+
+def write_case(p, name, requirements):
+    import contract
+    root = contract.cases_root(p.task)
+    root.mkdir(parents=True, exist_ok=True)
+    line = "" if requirements is None else f"Requirements: {requirements}\n"       # None: a case with no requirement line at all
+    (root / f"{name}.md").write_text(f"---\nid: {name}\ntask: {TICKET}\n---\nTitle: a case\n{line}", encoding="utf-8")
+
+
+def window_rows(step=None):
+    """R-1 is in the window; R-2 (own locator `input#code`) is not."""
+    first = {"req": "R-1", "status": "confirms", "why": "w", "evidence": ["work/evidence/manual/survey-R-1/a1/001.txt"], "quote": "Pay",
+             "path": {"url": "/cart", "steps": [step or "open the cart"], "locators": [{"what": "Pay button", "selector": "button#pay", "seen": "yes"}]}}
+    second = {"req": "R-2", "status": "missing", "blocked_by": "product", "why": "w",
+              "path": {"locators": [{"what": "discount field", "selector": "input#code", "seen": "no"}]}}
+    return [first, second]
+
+
+def test_s5_window_brief_holds_the_windows_substance():
+    """The join from the finding's `Test` line: a non-empty record -> the S5 WINDOW brief holds the url, a step and the locator of a window
+    requirement, one line per item, not those of an out-of-window requirement, and names what it left out (FR-49, AR-21)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        p = Project(tmp)
+        write_record(p, rows=window_rows())
+        write_case(p, "TC-001", "R-1")
+        got = s5_window_lines(p)
+        text = "\n".join(got)
+        for what, item in (("the url", "screen /cart"), ("a step", "step open the cart"), ("the locator", "locator Pay button: button#pay (seen yes)")):
+            check_in(f"s5_window_brief: {what} of the window requirement is ONE line of its own", f"- R-1 confirms: {item} [first-look:R-1]", text)
+        check_not_in("s5_window_brief: nothing of the out-of-window requirement", "input#code", text)
+        check_eq("s5_window_brief: the outside line names the count and the record", got[-1],
+                 f"+1 requirement(s) of the record outside this window: {FILE}")
+        # the real build: a window dispatch of the controller holds the same lines (the call line passes `scope` and `s5_kind`)
+        check_eq("s5_window_brief: control - the same record through a plan-kind call has the merged-line shape and no outside line",
+                 [x for x in brief_pack.first_look_lines(p.task, "S5", "qa-automator", scope=["TC-001"], s5_kind="plan") if "outside this window" in x], [])
+
+
+def test_s5_window_edges():
+    with tempfile.TemporaryDirectory() as tmp:
+        p = Project(tmp)
+        write_record(p, rows=window_rows())
+        # EMPTY: a window none of whose cases names a requirement -> every row, said (error direction: more)
+        write_case(p, "TC-001", "none yet")
+        text = "\n".join(s5_window_lines(p))
+        check_in("s5_window_edges: no case names a requirement: the note", "no case of this window names a requirement: every row is shown", text)
+        check("s5_window_edges: ... and every row is shown, no outside line", "input#code" in text and "button#pay" in text and "outside this window" not in text, text)
+        # an R-n of the case that is not in the record is ignored; the other one stays
+        write_case(p, "TC-001", "R-1, R-9")
+        text = "\n".join(s5_window_lines(p))
+        check("s5_window_edges: an R-n not in the record is ignored", "button#pay" in text and "input#code" not in text and "1 requirement(s) of the record outside" in text, text)
+        # a case of the scope that cannot be resolved -> every row, said
+        text = "\n".join(s5_window_lines(p, scope=("TC-001", "TC-404")))
+        check("s5_window_edges: an unresolved case shows every row and says so",
+              "could not be read: every row is shown" in text and "input#code" in text, text)
+        # a case with no requirement line contributes nothing; another one still filters
+        write_case(p, "TC-002", None)
+        text = "\n".join(s5_window_lines(p, scope=("TC-001", "TC-002")))
+        check("s5_window_edges: a case with no requirement line contributes nothing", "button#pay" in text and "input#code" not in text, text)
+        # no count cap in the window: 30 requirements in the window, 30 x items lines, no `+N more`
+        many = [dict(window_rows()[0], req=f"R-{n}", path={"locators": [{"what": f"w{n}", "selector": f"#s{n}", "seen": "yes"}]}) for n in range(1, 31)]
+        write_record(p, rows=many)
+        write_case(p, "TC-001", ", ".join(f"R-{n}" for n in range(1, 31)))
+        got = s5_window_lines(p)
+        check("s5_window_edges: 30 window requirements -> 30 item lines and no `+N more`",
+              len([x for x in got if x.startswith("- R-")]) == 30 and not [x for x in got if " more: " in x], str(len(got)))
+        # a stale record with a window: the one stale line wins
+        write_record(p, rows=window_rows(), source_head={"product": "b" * 40})
+        got = s5_window_lines(p)
+        check("s5_window_edges: a stale record -> one STALE line, no item line", len(got) == 1 and "STALE" in got[0], str(got))
+
+
+def test_s5_item_clip_and_plan_kind():
+    """LIMITS: an item at 400 characters is whole, at 401 clipped with `...` and the block ends `whole:`; plan kind keeps the cap and `+N more`."""
+    with tempfile.TemporaryDirectory() as tmp:
+        p = Project(tmp)
+        write_case(p, "TC-001", "R-1")
+        for size, clipped in ((400, False), (401, True)):
+            step = "s" * (size - len("step "))
+            write_record(p, rows=window_rows(step))
+            got = s5_window_lines(p)
+            line = next(x for x in got if x.startswith("- R-1 confirms: step "))
+            body = line[len("- R-1 confirms: "):-len(" [first-look:R-1]")]
+            check_eq(f"s5_item_clip: item_{size} - the item text is {size if not clipped else 400} characters", len(body), 400)
+            check_eq(f"s5_item_clip: item_{size} - clipped with `...` only beyond the bound", body.endswith("..."), clipped)
+            check_eq(f"s5_item_clip: item_{size} - the block ends naming the record only when something was cut", f"whole: {FILE}" in got, clipped)
+            check(f"s5_item_clip: item_{size} - the marker survives", line.endswith("[first-look:R-1]"), line)
+        # plan kind: the 12-line cap and `+N more` are kept
+        many = [dict(window_rows()[0], req=f"R-{n}", path={"locators": [{"what": f"w{n}", "selector": f"#s{n}", "seen": "yes"}]}) for n in range(1, 21)]
+        write_record(p, rows=many)
+        got = brief_pack.first_look_lines(p.task, "S5", "qa-automator", scope=["TC-001"], s5_kind="plan")
+        check_eq("s5_item_clip: plan_kind - 12 lines and the pointer", (len(got), got[-1]), (13, f"+9 more: {FILE}"))
+        got = brief_pack.first_look_lines(p.task, "S5", "qa-automator")
+        check_eq("s5_item_clip: no keywords (every other caller) - the same cap", (len(got), got[-1]), (13, f"+9 more: {FILE}"))
+
+
+def test_missing_first_look_is_a_gap_for_every_reader():
+    """The live defect: a `null: no_stand` record said "no stand" as a fact. One gap sentence for S3-S7, the clause is the reader's."""
+    look, name = brief_pack.FIRST_LOOK_GAP_CLAUSE["s6"], brief_pack.FIRST_LOOK_GAP_CLAUSE["s3"]
+    readers = (("s3", "S3", "qa-test-strategist", name), ("s4", "S4", "qa-case-designer", name), ("s5", "S5", "qa-automator", name),
+               ("s6", "S6", "qa-runner", look), ("s7", "S7", "qa-failure-analyst", look))
+    with tempfile.TemporaryDirectory() as tmp:
+        p = Project(tmp, walk=False)
+        check("gap: the two clauses differ (else the per-reader data proves nothing)", look != name and look.startswith("Where your work needs"))
+        done = FL.put(p.task, None, "no_stand")
+        check("gap: a null record is written", done["written"], str(done))
+        for reader, stage, role, clause in readers:
+            got = lines(p, stage, role)
+            check(f"gap: {reader} - a GAP, the reason, `not a fact`, then that reader's clause",
+                  len(got) == 1 and got[0].startswith("First look: a GAP - what the stand shows is not known for this story (the stand was not walked: no stand); "
+                                                      "it is not a fact that there is no stand. ") and got[0].endswith(clause), str(got))
+            check_not_in(f"gap: {reader} - no script is named", ".py", got[0])
+            check_not_in(f"gap: {reader} - the old wording that said no stand as a fact is gone", "there was no first look", got[0])
+        line = brief_pack.first_look_input_line(p.task, "work/first-look.yaml", "1 B")
+        check("gap: the file line is a GAP too and names no script",
+              line == "- work/first-look.yaml: a GAP - no first look was written for this story (the stand was not walked: no stand); it is not a fact that there is no stand",
+              line)
+        (p.task / "work" / "first-look.yaml").unlink()
+        check_in("gap: the file line of an absent record", "a GAP - no first look was written for this story (the record does not exist)",
+                 brief_pack.first_look_input_line(p.task, "work/first-look.yaml", ""))
+        write_record(p, source_head={"product": "b" * 40})
+        check("gap: a stale record keeps its meaning and gains the clause", lines(p, "S6", "qa-runner")[0].endswith(look)
+              and "STALE" in lines(p, "S6", "qa-runner")[0], str(lines(p, "S6", "qa-runner")))
+
+
+def test_runner_brief_says_the_probe_is_a_guess():
+    with tempfile.TemporaryDirectory() as tmp:
+        p = Project(tmp)
+        check_not_in("runner_pending: control - no pending flag, no such line", "guess of code", p.first_look_brief())
+        pipeline = json.loads((p.task / "pipeline.json").read_text(encoding="utf-8"))
+        (p.task / "pipeline.json").write_text(json.dumps(dict(pipeline, environment_pending=True)), encoding="utf-8")
+        text = p.first_look_brief()
+        check_in("runner_pending: the factory's own check is a guess of code, not a fact", "that is a guess of code, not a fact. Find the way in yourself", text)
+        check_in("runner_pending: the way out for the role is named", "every requirement is `unreachable` with `blocked_by: access`", text)
+
+
+def access_rows(*, blocked="access"):
+    return [{"req": "R-1", "status": "unreachable", "blocked_by": blocked, "why": "no account opens the admin screen"},
+            {"req": "R-2", "status": "unreachable", "blocked_by": blocked, "why": "the sign-in page timed out twice"}]
+
+
+def test_all_access_rows_are_one_line():
+    """Item 5: every row shown unreachable for want of a way in -> ONE line with each why, whole; the closed words are the data file's."""
+    lead = "First look: the walker could not reach these requirements (access): R-1: no account opens the admin screen; R-2: the sign-in page timed out twice; "
+    with tempfile.TemporaryDirectory() as tmp:
+        p = Project(tmp)
+        write_record(p, rows=access_rows())
+        for kind, stage, role, tail in (("s5", "S5", "qa-automator", "a gap you close with your own look"), ("s4", "S4", "qa-case-designer", "name it as a gap")):
+            got = "\n".join(lines(p, stage, role))
+            check_in(f"all_access: {kind} - the one line, each why whole", lead + tail, got)
+            check_not_in(f"all_access: {kind} - instead of the 'no row names such a path' line", "no row of the record names such a path", got)
+        write_record(p, rows=access_rows()[:1] + [dict(access_rows()[1], blocked_by="product")])
+        check_in("all_access: variant one_row_product - today's text stands", "no row of the record names such a path", "\n".join(lines(p, "S5", "qa-automator")))
+        write_record(p, rows=access_rows())
+        for label, changes in (("key_absent", {"gap_rows": None}), ("empty_lists", {"gap_rows": {"status": [], "blocked_by": []}}),
+                               ("one_list_empty", {"gap_rows": {"status": ["unreachable"], "blocked_by": []}})):
+            restore = _with_data(**changes)
+            try:
+                check_in(f"all_access: variant {label} - the line is never printed, today's text stands", "no row of the record names such a path",
+                         "\n".join(lines(p, "S5", "qa-automator")))
+            finally:
+                restore()
+
+
+def sign_in_of(*, steps=None, url="/login", surface="ui", **extra):
+    base = {"surface": surface, "actor": "default", "url": url, "steps": steps or ["opened the sign-in page", "pressed Sign in"],
+            "evidence": ["work/evidence/x.txt"], "quote": "q", "req": "R-1", "why": "WHY-TEXT landed"}
+    if surface == "ui":
+        base.update(fields={"user": "#email", "secret": "#password", "submit": "button[type=submit]"}, landed={"url_not": ["/login-LANDED"]})
+    else:
+        base.update(access={"kind": "local_login", "url": "/api/login", "user_key": "AUTH_USERNAME", "secret_key": "AUTH_PASSWORD"})
+    base.update(extra)
+    return base
+
+
+def test_own_way_in_join():
+    """Join row (3): A1's `put` with a `sign_in` -> `first_look.read` -> the S5 and S6 brief line (and S3, S7)."""
+    import test_first_look as TFL
+    with tempfile.TemporaryDirectory() as tmp:
+        s = TFL.Story(tmp)
+        caps = s.ready()
+        done = s.put(s.rows(caps), sign_in=TFL._good_ui(caps))
+        check("own_way_in: A1's put writes the way in", done["written"], str(done))
+        want = ("Way in found by this story's first look (walk S3-first-look, ui, as default): url /login; fields user #email, secret #password, "
+                "submit button[type=submit]; steps: opened the sign-in page; typed the account and pressed Sign in; it worked then - if it fails "
+                "now, find the way yourself and record it.")
+        for stage, role in (("S5", "qa-automator"), ("S6", "qa-runner"), ("S3", "qa-test-strategist"), ("S7", "qa-failure-analyst")):
+            check_eq(f"own_way_in: {role} reads the line", brief_pack.sign_in_lines(s.task, stage, role), [want])
+        check_eq("own_way_in: a role outside the first look's readers gets none", brief_pack.sign_in_lines(s.task, "S9", "qa-retro-analyst"), [])
+        text = "\n".join(brief_pack.sign_in_lines(s.task, "S5", "qa-automator"))
+        for hidden in ("Signed in through the page", "Pay button", "work/evidence"):
+            check_not_in(f"own_way_in: the line prints no `why`, quote or evidence ({hidden})", hidden, text)
+        s.put(s.rows(caps), sign_in=TFL._good_http(caps))
+        check_in("own_way_in: http line shape", "access local_login at /api/login, key names AUTH_USERNAME/AUTH_PASSWORD",
+                 "\n".join(brief_pack.sign_in_lines(s.task, "S5", "qa-automator")))
+        s.put(s.rows(caps))
+        check_eq("own_way_in: a record with no sign_in -> no line (today's brief)", brief_pack.sign_in_lines(s.task, "S5", "qa-automator"), [])
+
+
+def test_own_way_in_edges():
+    with tempfile.TemporaryDirectory() as tmp:
+        p = Project(tmp)
+        for label, value in (("absent", None), ("empty", {}), ("not_a_dict", "logged in"), ("a_list", ["x"])):
+            write_record(p, **({} if value is None else {"sign_in": value}))
+            check_eq(f"own_way_in_edges: {label} -> no line", brief_pack.sign_in_lines(p.task, "S5", "qa-automator"), [])
+        write_record(p, sign_in=sign_in_of(), source_head={"product": "b" * 40})
+        check_eq("own_way_in_edges: a stale record -> no sign-in line (the stale single line wins)", brief_pack.sign_in_lines(p.task, "S5", "qa-automator"), [])
+        write_record(p, rows=[], null="no_stand", sign_in=sign_in_of())
+        check_eq("own_way_in_edges: a null record -> no line", brief_pack.sign_in_lines(p.task, "S5", "qa-automator"), [])
+        # LIMITS: 600 whole, 601 and beyond cut AT the limit with `...`, followed by `whole:`
+        write_record(p, sign_in=sign_in_of(steps=["a"]))
+        base = len(brief_pack.sign_in_lines(p.task, "S5", "qa-automator")[0])
+        for size, cut in ((600, False), (601, True), (2000, True)):
+            write_record(p, sign_in=sign_in_of(steps=["a" * (size - base + 1)]))
+            got = brief_pack.sign_in_lines(p.task, "S5", "qa-automator")
+            check_eq(f"own_way_in_edges: line_{size} - {'cut at the limit with the record named' if cut else 'whole'}",
+                     (len(got[0]), got[1:], got[0].endswith("...") if cut else got[0].endswith("record it.")),
+                     (600, [f"whole: {FILE}"] if cut else [], True))
+        # INVARIANT: a secret-looking value of a hand-edited record is scrubbed, whatever the guard at put did
+        write_record(p, sign_in=sign_in_of(steps=["typed password: hunter2hunter2 in the box"]))
+        check_not_in("own_way_in_edges: a password pair in a step is scrubbed", "hunter2hunter2", "\n".join(brief_pack.sign_in_lines(p.task, "S5", "qa-automator")))
+        # the walker's own brief: the record is current -> the line follows
+        write_record(p, sign_in=sign_in_of())
+        check_in("own_way_in_edges: the walker's brief holds the way found by the last walk", "Way in found by this story's first look", p.first_look_brief())
+        write_record(p)
+        check_not_in("own_way_in_edges: control - no sign_in, none in the walker's brief", "Way in found by this story's first look", p.first_look_brief())
 
 
 def main():

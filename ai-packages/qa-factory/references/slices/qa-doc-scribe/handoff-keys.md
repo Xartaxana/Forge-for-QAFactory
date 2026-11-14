@@ -22,6 +22,7 @@ Contract `s8-scribe-to-gate-b` (fill `work/handoffs/<dispatch>.yaml`; `handoff_c
 - `inputs_read[].rows` (required) - n
 - `header.window` (required) - TICKET
 - `header.verdict` (required) - one of vocabulary.header_verdicts
+- `stage_acceptance.verdict` (required) - accept|return
 - `stage_acceptance.failure_class` (required) - spec|capability|data|tooling
 - `stage_acceptance.quote` (required) - the analyst's own words, with path#anchor
 - `stage_acceptance.witness_paths[]` (optional) - task-relative path the verdict rests on, or omit when none

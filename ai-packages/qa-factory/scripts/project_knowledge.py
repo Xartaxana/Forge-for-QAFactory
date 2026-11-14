@@ -60,6 +60,16 @@ SIDE_KEYS = (SIDES_KEY, STAND_SIDES_KEY, REFERENCE_KEY)
 LESSONS_KEY = "environments.stand_lessons"
 LESSON_SUBJECT_MAX = 80
 LESSON_WAIT_MAX_S = 86400
+# FV1-28 C1: the way in a first look found. Stand scope; the element is the SURFACE word (`ui` / `http`, `first_look.data()
+# ["sign_in_surfaces"]`); `value` is the walker's `sign_in` without what only the record needs (`evidence`, `quote`, `req`, `why`:
+# the `why` is the row's words). The ONE writer is `first_look.record_sign_in` through `record`; the ONE reader is `sign_in`.
+SIGN_IN_KEY = "environments.sign_in"
+SIGN_IN_NOT_KEPT = ("evidence", "quote", "req", "why")
+# THE ORDER in which the ways in a stand has are tried (the ONE statement; amendment 11): "recorded" - the way a first look found
+# and recorded on this stand (`sign_in`); then "project" - the project's config (`environment.access` for an http reader,
+# `manual_capture.login.ui` for a ui reader); then "factory_default". A role-recorded way ranks above the onboarding config ON
+# PURPOSE (finding item 3: a probe's guess never overrides this record); a stale recorded way has ONE exit, `revoke`.
+SIGN_IN_PRECEDENCE = ("recorded", "project", "factory_default")
 
 # S15 / phase 1: the catalogue (references/config-keys.json, section `knowledge`) is the ONE table of project facts, read through
 # `config_contract.config_keys()` (AR-13). `KEYS` is DERIVED from its registry rows, once, at import: the comparator a row names compares
@@ -479,6 +489,39 @@ def lessons(root, stand) -> dict:
     return out
 
 
+def sign_in(root, stand) -> dict:
+    """`{"ways": [{"surface", "value", "story", "at", "id"}], "precedence": SIGN_IN_PRECEDENCE, "problem": str, "no_stand": bool}`: the
+    way in a first look recorded on the stand `stand` (EXACT name), the newest live row per surface, sorted by surface. PURE: writes
+    nothing, never raises. `precedence` is `SIGN_IN_PRECEDENCE`, the ONE statement of the order: a recorded way, then the project's
+    config, then the factory default (a recorded way ranks above the onboarding config on purpose; a stale one is taken back with
+    `revoke`). No stand chosen (empty or the placeholder) is `no_stand` True with no problem. An unreadable registry or a catalogue
+    without the row is `problem`, never "no way" (FR-59); an absent registry file is `ways: []` with no problem."""
+    out = {"ways": [], "precedence": SIGN_IN_PRECEDENCE, "problem": "", "no_stand": False}
+    try:
+        stand = str(stand or "")
+        if not stand.strip() or stand == PLACEHOLDER_STAND:
+            out["no_stand"] = True
+            return out
+        if SIGN_IN_KEY not in KEYS:
+            out["problem"] = CATALOGUE_PROBLEM or _cut(f"the catalogue has no row for {SIGN_IN_KEY}")
+            return out
+        rows, problem = load(root)
+        if problem:
+            out["problem"] = problem
+            return out
+        surfaces = sorted({row["element"] for row in rows if _usable(row) and row["key"] == SIGN_IN_KEY and row["environment"] == stand})
+        for surface in surfaces:
+            row = _latest(rows, SIGN_IN_KEY, stand, surface)
+            if row is None:
+                continue
+            provenance = row.get("provenance") if isinstance(row.get("provenance"), dict) else {}
+            out["ways"].append({"surface": row["element"], "value": copy.deepcopy(row.get("value")), "story": provenance.get("story", ""),
+                                "at": row.get("at", ""), "id": row.get("id")})
+    except Exception as exc:    # a reader never stops a gate: what it could not read is a problem, not "no way in"
+        out.update(ways=[], problem=f"the record of project knowledge could not be read ({type(exc).__name__})")
+    return out
+
+
 def roster(root, cfg, stand) -> dict:
     """`{"elements": [...], "removed": [...], "problem"}`: the product's roles. PURE: writes nothing, never raises.
 
@@ -608,6 +651,53 @@ def _lesson_value_faults(element, value) -> list:
     return out
 
 
+# part of the record_problems unit (shape of a recorded way in); not a unit of its own
+def _sign_in_value_faults(element, value) -> list:
+    """The shape of a recorded way in: its surface (the element) and its `value`, by the rules of the walker's own record
+    (`first_look`'s shape checks: one set of rules) and by the one secret guard (`first_look.sign_in_secret_faults`, AR-15). Form
+    only (AR-29): whether the way is right is the walker's. No refusal text echoes a value."""
+    import first_look as FL
+    surfaces = FL.data().get("sign_in_surfaces")
+    if not isinstance(surfaces, list) or not surfaces:
+        return ["the surface words of references/first-look-statuses.json cannot be read, so a way in cannot be checked; restore that "
+                "file and run the same command again; nothing was recorded"]
+    surfaces = [str(s) for s in surfaces]
+    text = str(element or "")
+    if text not in surfaces:
+        return [f"the element of {SIGN_IN_KEY} is the surface of the way in, one of: {', '.join(surfaces)}; got "
+                f"{FL._shown(text, [])!r}; nothing was recorded"]
+    if not isinstance(value, dict) or not value:
+        return [f"{SIGN_IN_KEY} carries the way in as a mapping (surface, actor, url, steps and the surface's own keys); nothing was recorded"]
+    out = FL._unknown_keys("value", value, [k for k in FL._words("sign_in_keys") if k not in SIGN_IN_NOT_KEPT], [])
+    if value.get("surface") != text:
+        out.append(f"`value.surface` is the element, `{text}`; nothing was recorded")
+    for name in ("url", "actor"):
+        if not FL._text_of(value.get(name)):
+            out.append(f"`value.{name}` is text; nothing was recorded")
+    if value.get("actor") == FL.WS.GUEST:
+        out.append(f"`value.actor` names an account, never `{FL.WS.GUEST}`; nothing was recorded")
+    out += FL._text_limit_faults(value.get("url"), FL.SIGN_IN_TEXT_MAX, "`value.url`")
+    steps = value.get("steps")
+    step_faults = FL._list_faults(steps, "`value.steps`")
+    out += step_faults
+    if isinstance(steps, list) and not step_faults:
+        if len(steps) > FL.SIGN_IN_STEPS_MAX:
+            out.append(f"`value.steps` holds {len(steps)} lines; at most {FL.SIGN_IN_STEPS_MAX} (the limit); nothing was recorded")
+        for n, line in enumerate(steps):
+            out += FL._text_limit_faults(line, FL.SIGN_IN_LINE_MAX, f"`value.steps[{n}]`")
+    own = FL._surface_keys()
+    out += [f"`value.{k}` belongs to the other surface, not to `{text}`; nothing was recorded"
+            for other, keys in own.items() if other != text for k in keys if value.get(k) not in (None, "")]
+    if text == FL.SIGN_IN_UI:
+        out += FL._sign_in_fields_faults(value.get("fields"), [])
+        out += FL._sign_in_landed_faults(value.get("landed"), [])
+    elif text == FL.SIGN_IN_HTTP:
+        for k in own.get(FL.SIGN_IN_HTTP, []):
+            out += (FL._sign_in_access_faults(k, value.get(k), []) if value.get(k) not in (None, "")
+                    else [f"`value.{k}` is required for surface `http`; nothing was recorded"])
+    return out + FL.sign_in_secret_faults(value, [])
+
+
 def record_problems(key, environment, element, state, scope, words, source, by, load_problem="", value=None) -> list:
     """The reasons a row may not be written, as sentences with their door; `[]` when it may. Form and presence only (AR-29): a bad
     key, a state or a scope the key does not take, an empty stand or element, an element the decision registry cannot carry, empty
@@ -643,6 +733,11 @@ def record_problems(key, environment, element, state, scope, words, source, by, 
                        "of the story's record (`sides.<name>.<attribute>=<value>`); nothing was recorded")
     elif key == LESSONS_KEY:     # BEFORE the role rules: a lesson subject never meets them, and a role key never skips them
         out += _lesson_value_faults(element, value)
+    elif key == SIGN_IN_KEY:     # BEFORE the role rules: a surface word never meets them, and a role key never skips them
+        try:
+            out += _sign_in_value_faults(element, value)
+        except Exception as exc:    # noqa: BLE001 - a check that could not run is a refusal, never a pass (FR-59)
+            out.append(f"the way in could not be checked ({type(exc).__name__}); nothing was recorded")
     elif not text.strip():
         out.append("the element (the role) is empty; name it; nothing was recorded")
     elif _unsafe_role(text):
@@ -668,8 +763,13 @@ def record_problems(key, environment, element, state, scope, words, source, by, 
     return out
 
 
-def record(root, *, key, environment, element, state, scope, value, words, source, story, by, where="", task_root=None) -> tuple:
+def record(root, *, key, environment, element, state, scope, value, words, source, story, by, where="", task_root=None, only_if_latest=None) -> tuple:
     """`(row, problem, created)`: ONE fact put in the registry, with the person's words whole.
+
+    `only_if_latest` (default None: no guard) is a tuple of states: the write happens only when the subject has no live row or its
+    latest state is one of them, checked HERE under the lock with the other checks (a caller's earlier read is not a check). When
+    the latest state is any other, nothing is written and the result is `(None, "", False)`: no row, an EMPTY problem (not an error),
+    nothing created. A caller that passes no guard is never refused by it.
 
     Under the lock it LOADS, checks (`record_problems`, `_refuse_no_trace`), numbers (`next_id`) and writes, so two stories never
     lose a row. Refused, nothing written, `row` None and `problem` says why and the door. The same live state AND value for the same
@@ -684,6 +784,8 @@ def record(root, *, key, environment, element, state, scope, value, words, sourc
         if reason:
             return None, reason, False
         held = _latest(rows, key, environment, element)
+        if only_if_latest is not None and held is not None and held.get("state") not in only_if_latest:
+            return None, "", False                      # already decided by a later answer: not an error, not a write
         if held is not None and held.get("state") == state and held.get("value") == value:     # a changed value is the person's new word
             if key == LESSONS_KEY:       # a lesson's words ARE its payload: a corrected lesson is never "already recorded"
                 held_prov = held.get("provenance") if isinstance(held.get("provenance"), dict) else {}
@@ -766,7 +868,9 @@ def notice_from_handoff(root, task_root, story) -> list:
                 continue
             row, problem, created = record(root, key=ROLES_KEY, environment="", element=item["role"], state=NOTICED, scope="project",
                                            value={"sign_in": item["sign_in"]}, words="", source="role", story=story, by="driver",
-                                           where=item["where"], task_root=task_root)
+                                           where=item["where"], task_root=task_root, only_if_latest=(NOTICED,))
+            if row is None and not problem:             # a person's answer landed after the roster was read: already decided
+                continue
             if row is None:
                 print(f"project_knowledge: the role {item['role']!r} the strategist named was not recorded as noticed ({problem})",
                       file=sys.stderr)

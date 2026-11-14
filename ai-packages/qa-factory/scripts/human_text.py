@@ -131,11 +131,18 @@ def _unexplained(item: dict, body: str) -> list:
 ONBOARDING_NOTE = "The onboarding step that records a stand: `/qa-factory:qa-onboarding`."
 
 
-def onboarding_note(environment, stands) -> str:
+ONBOARDING_LOGIN_NOTE = "The onboarding, which asks how the project signs in: `/qa-factory:qa-onboarding`."
+
+
+def onboarding_note(environment, stands, *, login_door: bool = False) -> str:
     """The line for the ANSWER BLOCK of a stand question (`Person.answer_note`, t-373 F7: ONE shape for `stand_check` and
     the three `s1_review` sites): the plugin's command is something to type (human-questions.md rule 5), so it never
-    stands in the body. It is given only in the case whose body says "the onboarding step named below": no stand named
-    and none recorded. Lives here, with the rule that forbids the command in a body, so the text has one source."""
+    stands in the body. It is given in the case whose body says "the onboarding step named below": no stand named
+    and none recorded - and, with `login_door` (FV1-15 D5: the stand answers, a search of every way in this story found
+    none), as the onboarding that asks how the project signs in, whatever the stands. Lives here, with the rule that
+    forbids the command in a body, so the text has one source."""
+    if login_door:
+        return ONBOARDING_LOGIN_NOTE
     return ONBOARDING_NOTE if not environment and not stands else ""
 
 

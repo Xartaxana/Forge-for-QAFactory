@@ -1668,3 +1668,80 @@ def test_id_band_a_refused_band_never_enters_the_state_and_a_foreign_bad_band_is
     assert "id_band" in jv.FORM_FIELDS
     assert [f for f, _t in jv._line_form_violations(json.loads(_line(id_band="junk", event="decomposable")), "T")] == ["id_band"]
     assert jv._line_form_violations(json.loads(_line(event="decomposable", id_band=None)), "T") == []
+
+
+# ---- rule 19 (FG7-32): the order-known door, ONE table ----
+# HEAD holds t-001 @08:00. Each case is (new lines, seed_text, expected code, [texts the violations must hold],
+# [texts the WARN list must hold], declared count). The defects: an id out of order (t-005, next is t-002), a ts
+# earlier than HEAD's last line, a repeated delegated by one agent with no attempt.
+_D = "2026-07-10T"
+
+
+def _tok(ts, at, notes=None):
+    return _line(event="dispatch_skipped", ts=_D + at, notes=notes or f"order-known:{_D}{ts}")
+
+
+def _id_bad(ts="09:00:00", tid="t-005", **kw):
+    return _line(task_id=tid, model="sonnet", ts=_D + ts, **kw)
+
+
+_TS_BAD = _line(task_id="t-002", model="sonnet", ts=_D + "07:00:00")
+_DUP_OK = _line(task_id="t-002", model="sonnet", ts=_D + "09:00:00")
+_DUP_BAD = _line(task_id="t-002", model="sonnet", ts=_D + "10:00:00")
+_DEFECTS = {
+    "id": ([_id_bad()], "09:00:00", "t-005", "10:30:00"),
+    "ts": ([_TS_BAD], "07:00:00", "t-002", "09:00:00"),
+    "dup": ([_DUP_OK, _DUP_BAD], "10:00:00", "t-002", "10:30:00"),
+}
+_CASES = {}
+for _name, (_lines, _dts, _tid, _later) in _DEFECTS.items():
+    _tk = f"order-known:{_D}{_dts}"
+    _CASES[f"{_name}-not-declared"] = (_lines, None, 1, [_tk, _tid], [], 0)
+    _CASES[f"{_name}-declared-by-later-line"] = (_lines + [_tok(_dts, _later)], None, 0, [], [], 1)
+    _CASES[f"{_name}-declared-with-ts-naming-no-line"] = (
+        _lines + [_tok("11:11:11", _later)], None, 1, [_tk, "names no line", f"order-known:{_D}11:11:11"], [], 0)
+_CASES["edge4-token-before-the-line-does-not-count"] = (
+    [_tok("09:00:00", "08:30:00"), _id_bad()], None, 1,
+    [f"order-known:{_D}09:00:00", "names no line"], [], 0)
+_CASES["edge4-token-naming-a-clean-line-is-a-warn"] = (
+    [_tok("08:00:00", "09:00:00")], None, 0, [],
+    ["names a line already in HEAD; HEAD lines are not judged, so nothing was declared"], 0)
+_CASES["f1-prose-ts-placeholder-is-a-warn-and-code-0"] = (
+    [_line(event="dispatch_skipped", ts=_D + "09:00:00", notes="the form is order-known:<ts> in prose")], None, 0, [],
+    ["is not a ts", "order-known:<ts>"], 0)
+_CASES["f1-prose-ts-placeholder-never-declares-the-defect-stays-refused"] = (
+    [_id_bad(), _tok("09:00:00", "10:30:00", "the form is order-known:<ts>)")], None, 1,
+    [f"order-known:{_D}09:00:00", "task_id novelty"], ["is not a ts"], 0)
+_CASES["f1-ts-shaped-typo-still-names-no-line"] = (
+    [_id_bad(), _tok("09:00:01", "10:30:00")], None, 1,
+    [f"order-known:{_D}09:00:01", "names no line"], [], 0)
+_CASES["f2-one-token-over-a-line-with-two-defects-counts-1"] = (
+    [_id_bad(ts="07:00:00"), _tok("07:00:00", "10:30:00")], None, 0, [], [], 1)
+_CASES["f3-order-defect-and-missing-worker-ref-and-token-stays-refused"] = (
+    [_id_bad(worker_ref=None), _tok("09:00:00", "10:30:00")], None, 1, ["worker_ref"], [], 1)
+_CASES["edge4-two-lines-with-one-ts-both-covered"] = (
+    [_id_bad(), _id_bad(tid="t-009"), _tok("09:00:00", "10:30:00")], None, 0, [], [], 2)
+_CASES["edge4-token-on-the-defective-line-itself-does-not-count"] = (
+    [_id_bad(notes=f"order-known:{_D}09:00:00")], None, 1, [f"order-known:{_D}09:00:00"], [], 0)
+_CASES["edge5-empty-token-is-ignored-and-warned"] = (
+    [_id_bad(), _tok("09:00:00", "10:30:00", "order-known: nothing")], None, 1,
+    [f"order-known:{_D}09:00:00"], ["nothing after the colon"], 0)
+_CASES["edge6-a-token-of-another-file-declares-nothing"] = (
+    [_id_bad()], _tok("09:00:00", "09:30:00") + "\n", 1, [f"order-known:{_D}09:00:00"], [], 0)
+
+
+@pytest.mark.parametrize("case", sorted(_CASES))
+def test_order_known_door_table(case):
+    lines, seed, code_want, viol_want, warn_want, declared_want = _CASES[case]
+    code, violations, warnings = jv.decide_with_warnings(_staged(*lines), HEAD_TEXT, NOW, known=set(), seed_text=seed)
+    assert code == code_want, (violations, warnings)
+    joined = "\n".join(violations)
+    for text in viol_want:
+        assert text in joined, (text, violations)
+    wjoined = "\n".join(warnings)
+    for text in warn_want:
+        assert text in wjoined, (text, warnings)
+    if declared_want:
+        assert f"order-known: {declared_want} declared" in wjoined
+    else:
+        assert not any(w.startswith("order-known: ") for w in warnings)

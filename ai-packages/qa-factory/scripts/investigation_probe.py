@@ -426,7 +426,8 @@ def run_http(task: Path, args) -> int:
         # THE one non-GET call of this tool: manual_capture's own recipe, to the address http_login_source names, never to --url;
         # it is not a probe and is not counted. No token is kept.
         try:
-            headers["Authorization"] = "Bearer " + MC._http_login(client, env, login, spec_data, cfg, timeout_s, project)
+            name, value = MC._http_auth(client, env, login, spec_data, cfg, timeout_s, project)
+            headers[name] = value
         except MC.EnvBlocked as exc:     # EP1-31: the project's sign-in is not a request the factory knows
             raise ValueError(f"{exc}; no probe was sent. Say so in your findings")
         except (MC.StepTimeout, MC.StepFailed) as exc:

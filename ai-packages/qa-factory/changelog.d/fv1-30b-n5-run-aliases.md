@@ -1,0 +1,1 @@
+- The window record finds an instance's run under any spelling of its id, the same spellings the S5 exit check accepts.

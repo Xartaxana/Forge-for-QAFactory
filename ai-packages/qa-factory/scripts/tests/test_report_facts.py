@@ -27,6 +27,7 @@ import contract as C  # noqa: E402
 import exploratory_findings as EF  # noqa: E402
 import gate_brief as GB  # noqa: E402
 import grammar as G  # noqa: E402
+import question_register as QR  # noqa: E402
 import report_facts as RF  # noqa: E402
 import traceability as T  # noqa: E402
 import validate_artifacts as V  # noqa: E402
@@ -182,7 +183,7 @@ def one_source_per_count() -> None:
         check_eq("the facts carry their own keys", sorted(facts), sorted(
             ["task", "unknown", "bugs", "requirements", "manual", "cases", "tests", "changes", "probe_debt", "person_build", "ledger",
              "questions", "delivery", "gate_a", "gate_b", "size", "where", "not_proven", "skipped", "regression", "verdict",
-             "over_cap_windows", "collect_gaps", "quality_not_run", "exploratory", "integrations", "owed_rework", "branches", "attachments", "grounding", "passed_over", "word_passed", "reference_runs"]))   # passed_over: TR1-9, the work a code close passed over (report_facts.py `_passed_over_gap`); word_passed: FV1-30b, what a recorded word passed at S5 (`_word_passed_gap`)
+             "over_cap_windows", "collect_gaps", "quality_not_run", "exploratory", "integrations", "owed_rework", "branches", "attachments", "grounding", "passed_over", "word_passed", "reference_runs", "case_remarks_left"]))   # passed_over: TR1-9, the work a code close passed over (report_facts.py `_passed_over_gap`); word_passed: FV1-30b, what a recorded word passed at S5 (`_word_passed_gap`)
         check_eq("a story with every source has no unknown entry", facts["unknown"], {})
         blocks = RF.render(facts)
         # (a) the bug count is the bug reader's: the ledger of this story has no failed row at all, and the
@@ -529,6 +530,32 @@ def open_questions() -> None:
         facts = RF.build(task)
         check_in("no register at all is unknown, not `none` (FR-41)", "no question register", facts["unknown"].get("questions", ""))
         check_in("and the block says unknown", "## Open questions \u2014 unknown", RF.render(facts)["open-questions"])
+    finally:
+        cleanup(task.parents[2])
+
+
+def fv19_report_lists_target_once() -> None:
+    """FV1-9 T15: a hidden repeat is not listed and its target says it covers both; an unresolved repeat is listed under its own text."""
+    task = story()
+    try:
+        rows = [dict(r) for r in READINESS["open_questions"]] + [
+            {"id": "Q3", "question": "Is money refunded after cancelling?", "owner_role": "po_ba", "severity": "major"}]
+        write(task / "work" / "requirements-readiness.json", {"open_questions": rows})
+        QR.declare_repeat(task, "Q3", "Q1", "both ask about the refund", by="driver", declared_by="qa-case-designer", stage="S4")
+        body = render_all(task)["open-questions"]
+        check_in("fv19_report_lists_target_once: the count is the questions asked, the merged twin not counted", "## Open questions — 2", body)
+        check_not_in("fv19_report_lists_target_once: the hidden twin's text is absent", "Is money refunded", body)
+        check_in("fv19_report_lists_target_once: the target carries the note",
+                 "Is a refund due after cancelling? (raised twice in this story; this one question covers both)", body)
+        check_eq("fv19_report_lists_target_once: only the target carries it", body.count("raised twice"), 1)
+        rows[0]["question"] = "Is a refund owed after a cancel?"
+        write(task / "work" / "requirements-readiness.json", {"open_questions": rows})
+        body = render_all(task)["open-questions"]
+        check_in("fv19_report_lists_target_once: the target changed -> the repeat is unresolved and listed under its own text",
+                 "Is money refunded after cancelling?", body)
+        check_not_in("fv19_report_lists_target_once: and nothing claims a merge, nor a stale-answer note on a repeat", "raised twice", body)
+        check_not_in("fv19_report_lists_target_once: an unresolved repeat has no `your answer was given` note",
+                     "your answer was given to an earlier wording", body.split("Is money refunded")[1])
     finally:
         cleanup(task.parents[2])
 
@@ -4533,6 +4560,7 @@ def main() -> None:
     expectation_change_words()
     probe_debt_line()
     open_questions()
+    fv19_report_lists_target_once()
     not_proven_items()
     answered_suffix()
     gate_blocks()
@@ -4570,7 +4598,140 @@ def main() -> None:
     exploratory_words_of_codes_and_formal_split_n7_n9f()
     w2_decisions_b_c()
     ep1_37_a_tool_gap_is_the_factorys()
+    fv16_case_remarks_left()
     finish("report_facts")
+
+
+def fv16_case_remarks_left() -> None:
+    """FV1-6 N3, rows P1-P10: the still-rejected remarks of the S4 case critic that the automator did not act on reach the report's
+    review-gaps block and the gate B packet through one renderer. KILLS: an `applied` row listed; a missing or unreadable answer
+    read as acted on; a second merge of the answers; a sub-section with nothing to list; the packet and the report saying two things;
+    an unknown shown as nothing left; more than GAP_TESTS_MAX items with no overflow line."""
+    import controller as CT
+    import s5_plan as SP
+    heading = "### Case review remarks the automation did not act on"
+    packet = "## Case review remarks the automation did not act on"
+
+    def remark(n, case="TC-001", problem="the Then reads the wrong flag"):
+        return {"id": f"CR-{case}" if n == 1 else f"CR-{case}.{n}", "case": case, "problem": problem, "still_rejected": True}
+
+    def answered(task, rows, raw=None):
+        write(task / "work" / "automation-manifest.json", raw if raw is not None else dict(MANIFEST, plan_remarks=rows))
+
+    task = story()
+    saved = SP.concern_report, CT.Controller.state
+    try:
+        write(task / "state" / "controller.json", {})
+        CT.Controller.state = lambda self: {}
+        box = {"concerns": []}
+        SP.concern_report = lambda root, state: {"concerns": box["concerns"], "rounds": 1, "silent": []}
+
+        def left_of(remarks, rows=None, raw=None):
+            box["concerns"] = remarks
+            answered(task, rows if rows is not None else [], raw)
+            return RF.case_remarks_left(task)
+
+        # P1 not-applicable-listed, with the writer's reason
+        got = left_of([remark(1)], [{"id": "CR-TC-001", "row": "not_applicable", "reason": "the flag is gone"}])
+        check_eq("P1 not-applicable-listed: one item with the writer's reason",
+                 [(i["id"], i["case"], i["reason"]) for i in got["items"]], [("CR-TC-001", "TC-001", "the flag is gone")])
+        check_eq("P1 not-applicable-listed: no problem", got["problem"], "")
+        facts = RF.build(task)
+        body = RF.render(facts)["review-gaps"]
+        check_in("P1 not-applicable-listed: the sub-section with its count", f"{heading} — 1\n\n", body)
+        check_in("P1 not-applicable-listed: the case, both voices named",
+                 "TC-001 — the case reviewer: the Then reads the wrong flag — the test writer: the flag is gone", body)
+        check_eq("P1 not-applicable-listed: the report passes its own forbidden-spelling check (no work/ path)",
+                 __import__("validate_artifacts").report_id_shape_hit(body), "")
+        check_in("P1 not-applicable-listed: the block's own heading and none-line stay", "None: the code critic left no test rejected.", body)
+        check_eq("P1 not-applicable-listed: the verdict is not touched by the sub-section",
+                 RF.render(dict(facts, case_remarks_left=None))["verdict"], RF.render(facts)["verdict"])
+        # a row with an unknown row word is not an answer; two case-less remarks stay two lines (never merged)
+        got = left_of([remark(1), remark(2, case="TC-002")], [{"id": "CR-TC-001", "row": "maybe", "reason": "x"},
+                                                              {"id": "CR-TC-002.2", "row": "applied", "reason": ""}])
+        check_eq("an unknown row word: listed as unread; the other id is answered applied: not listed",
+                 [(i["id"], i["reason"]) for i in got["items"]], [("CR-TC-001", "the test writer's answer could not be read")])
+        got = left_of([dict(remark(1, case="x"), id="CR-global", case=None, problem="(plan row TS-1) a"),
+                       dict(remark(1, case="x"), id="CR-global.2", case=None, problem="(plan row TS-2) b")],
+                      [{"id": "CR-global", "row": "applied", "reason": ""}])
+        check_eq("case-less remarks: each by its own id (CR-global applied, CR-global.2 not answered)",
+                 [(i["id"], i["reason"]) for i in got["items"]], [("CR-global.2", "no answer recorded")])
+        check_in("a remark with no case is named so, never a guessed path",
+                 "a remark on no one case — the case reviewer: (plan row TS-2) b — the test writer: no answer recorded",
+                 RF.case_remark_lines(got))
+        # P2 applied-not-listed [the R-c row]
+        got = left_of([remark(1)], [{"id": "CR-TC-001", "row": "applied", "reason": ""}])
+        check_eq("P2 applied-not-listed: a remark acted on is not reported as left", got["items"], [])
+        check_not_in("P2 applied-not-listed: no sub-section", heading, RF.render(RF.build(task))["review-gaps"])
+        # P3 no-row-listed
+        got = left_of([remark(1)], [{"id": "CR-OTHER", "row": "not_applicable", "reason": "x"}])
+        check_eq("P3 no-row-listed", [i["reason"] for i in got["items"]], ["no answer recorded"])
+        got = left_of([remark(1)], raw={"tests": []})
+        check_eq("P3 no-row-listed: a manifest with no `plan_remarks` key is no answer", [i["reason"] for i in got["items"]], ["no answer recorded"])
+        # P4 manifest-unreadable-listed
+        for label, raw in (("not an object", "[1, 2]"), ("not JSON", "{broken"), ("plan_remarks not a list", {"plan_remarks": "applied"}),
+                           ("plan_remarks null", {"plan_remarks": None})):
+            got = left_of([remark(1)], raw=raw)
+            check_eq(f"P4 manifest-unreadable-listed ({label}): listed, never acted on",
+                     [i["reason"] for i in got["items"]], [RF.ANSWERS_UNREADABLE])
+        # P5 no-still-rejected-empty: no sub-section, the block as it was
+        got = left_of([], [])
+        check_eq("P5 no-still-rejected-empty: no item, no problem", (got["items"], got["problem"]), ([], ""))
+        facts = RF.build(task)
+        check_eq("P5 no-still-rejected-empty: the block is byte-identical to a facts dict with no key",
+                 RF.render(facts)["review-gaps"], RF.render({k: v for k, v in facts.items() if k != "case_remarks_left"})["review-gaps"])
+        # E-N3-11: a facts dict built by hand has no key and no sub-section
+        check_not_in("E-N3-11 a facts dict without the key", heading, RF.render({k: v for k, v in facts.items() if k != "case_remarks_left"})["review-gaps"])
+        # P6 at-gap-max, P7 beyond-gap-max
+        many = [remark(n) for n in range(1, RF.GAP_TESTS_MAX + 2)]
+        got = left_of(many[:RF.GAP_TESTS_MAX])
+        lines = RF.case_remark_lines(got)
+        check_eq("P6 at-gap-max: GAP_TESTS_MAX items, no overflow line", (len(lines), any("more in the factory" in x for x in lines)),
+                 (RF.GAP_TESTS_MAX, False))
+        got = left_of(many)
+        lines = RF.case_remark_lines(got)
+        check_eq("P7 beyond-gap-max: GAP_TESTS_MAX items and the overflow line", (len(lines), lines[-1]),
+                 (RF.GAP_TESTS_MAX + 1, "(+1 more in the factory's record of the checks)"))
+        check_in("P7 beyond-gap-max: the heading counts all of them", f"{heading} — {len(many)}\n", RF.render(RF.build(task))["review-gaps"])
+        # the critic's and the writer's words go through the report's cut: a forbidden spelling is left out and marked
+        got = left_of([remark(1, problem="read work/secret.json then fail")], [{"id": "CR-TC-001", "row": "not_applicable", "reason": "cv_abc123 is gone"}])
+        shown = "\n".join(RF.case_remark_lines(got))
+        check_not_in("E-N3-8 the cut: no work/ path in the report", "work/secret", shown)
+        check_in("E-N3-8 the cut: marked as shortened", RF.SHORTENED, shown)
+        # P8 packet-equals-report
+        got = left_of([remark(1), remark(2, case="TC-002")], [{"id": "CR-TC-001", "row": "not_applicable", "reason": "r"}])
+        report = RF.render(RF.build(task))["review-gaps"].split(f"{heading} — 2\n\n", 1)[1].split("\n\n", 1)[0].strip().split("\n")
+        ledger_dict = {"repair_windows_problem": "the ledger cannot be read"}
+        gate = RF.gate_b_gap_lines(ledger_dict, got)
+        at = gate.index(f"{packet} (2)")
+        check_eq("P8 packet-equals-report: the packet holds the report's item lines", gate[at + 1:], report)
+        check_eq("P8 packet-equals-report: left=None is byte-identical to today", RF.gate_b_gap_lines(ledger_dict), RF.gate_b_gap_lines(ledger_dict, None))
+        check_not_in("P8 packet-equals-report: left=None has no section", packet, RF.gate_b_gap_lines(ledger_dict))
+        check_not_in("P8 packet-equals-report: an empty left has no section", packet, RF.gate_b_gap_lines(ledger_dict, left_of([])))
+        # P9 state-unreadable-unknown-line
+        def boom(root, state):
+            raise SP.PlanUnreadable("the review chain cannot be read")
+        SP.concern_report = boom
+        got = RF.case_remarks_left(task)
+        check_eq("P9 state-unreadable-unknown-line: no item, the problem said", (got["items"], got["problem"]), ([], RF.CASE_REMARKS_UNREADABLE))
+        check_in("P9 state-unreadable-unknown-line: an Unknown line in the report", f"{heading} — 0\n\nUnknown — {RF.CASE_REMARKS_UNREADABLE}.",
+                 RF.render(RF.build(task))["review-gaps"])
+        check_in("P9 state-unreadable-unknown-line: and in the packet", f"{packet} (0)", RF.gate_b_gap_lines(ledger_dict, got))
+        SP.concern_report = saved[0]
+        CT.Controller.state = lambda self: (_ for _ in ()).throw(OSError("locked"))
+        check_eq("P9 state-unreadable-unknown-line: the state read fails the same way", RF.case_remarks_left(task)["problem"], RF.CASE_REMARKS_UNREADABLE)
+        CT.Controller.state = lambda self: {}
+        SP.concern_report = lambda root, state: {"concerns": [remark(1)], "rounds": 1, "silent": []}
+        # P10 no-manifest-empty
+        (task / "work" / "automation-manifest.json").unlink()
+        check_eq("P10 no-manifest-empty: nothing was automated, nothing is claimed", RF.case_remarks_left(task)["items"], [])
+        # E-N3-2: no state
+        (task / "state" / "controller.json").unlink()
+        answered(task, [])
+        check_eq("E-N3-2 no controller state: no item, no problem", RF.case_remarks_left(task)["items"] + [RF.case_remarks_left(task)["problem"]], [""])
+    finally:
+        SP.concern_report, CT.Controller.state = saved
+        cleanup(task.parents[2])
 
 
 def ep1_37_a_tool_gap_is_the_factorys() -> None:

@@ -382,6 +382,24 @@ def more(root: Path, base: Path) -> None:
           code == 0 and "Traceback" not in printed and "file absent: pipeline.json" in printed
           and "file absent: work/retro-numbers.json" in printed
           and int(re.search(r"MISS=(\d+)", printed).group(1)) > 0, printed[-400:])
+    prov_task = root / "prov-task"
+    (prov_task / "work").mkdir(parents=True)
+    (prov_task / "evidence").mkdir()
+    (prov_task / "work" / "automation-manifest.json").write_text('{"tests": []}', encoding="utf-8")
+    (prov_task / "evidence" / "runtime-provenance-a.json").write_text('{"result": "matched"}', encoding="utf-8-sig")
+    (prov_task / "evidence" / "runtime-provenance-b.json").write_text('{"result": "not_applicable"}', encoding="utf-8")
+    (prov_task / "evidence" / "runtime-provenance-c.json").write_text('[1]', encoding="utf-8")
+    code, printed = run_main(check_all_contracts, ["--task-dir", str(prov_task)])
+    check("check_all_contracts counts provenance records per result, a non-object file as unreadable",
+          code == 0 and "3 provenance records exist" in printed and "matched 1" in printed
+          and "not_applicable 1" in printed and "unreadable 1" in printed
+          and "only matched and person_confirmed identify a build" in printed, printed[-600:])
+    (prov_task / "evidence" / "runtime-provenance-a.json").unlink()
+    (prov_task / "evidence" / "runtime-provenance-b.json").unlink()
+    (prov_task / "evidence" / "runtime-provenance-c.json").unlink()
+    code, printed = run_main(check_all_contracts, ["--task-dir", str(prov_task)])
+    check("check_all_contracts with no provenance files says 0 records, no traceback",
+          code == 0 and "0 provenance records exist" in printed and "Traceback" not in printed, printed[-600:])
     code, printed = run_main(check_all_contracts, ["--task-dir", str(root / "no-such-folder")])
     check("a task folder that does not exist is refused by name, with the form to pass",
           code == 2 and "task folder not found" in printed and "--task-dir" in printed, printed)
@@ -1647,6 +1665,1792 @@ def verdict_word_tests() -> None:
           Path(stage_compare.__file__).read_text(encoding="utf-8"))
 
 
+# --- the run scoreboard (P1-v N6): one table per behaviour, the case id names the row ------------------------------
+# The same tables run two ways: `python -m pytest experiments/measurers/test_measurers.py` (one parameterised test per table, the
+# parameter id is the case) and `python -B experiments/measurers/test_measurers.py` (the self-running list above, `check` per case).
+try:
+    import pytest
+except ImportError:                                  # the self-running form needs no pytest
+    pytest = None
+
+
+def _parametrize(cases):
+    if pytest is None:
+        return lambda function: function
+    return pytest.mark.parametrize("case", cases, ids=[c[0] for c in cases])
+
+
+def _sb():
+    import scoreboard
+    return scoreboard
+
+
+def sb_cli(*argv):
+    """(code, stdout, stderr) of `scoreboard.main(argv)`."""
+    import io
+    import contextlib
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        try:
+            code = _sb().main([str(a) for a in argv])
+        except SystemExit as stop:
+            code = stop.code
+    return code, out.getvalue(), err.getvalue()
+
+
+def sb_run(tmp: Path, name="run", start="2026-11-01T10:00:00+00:00", run_class="live", role_s=300, questions=0,
+           cumulative=False, process=True) -> Path:
+    """A story folder (qa-factory/artifacts/QA-9) with the carriers run_counters reads: one process window of 20 minutes, one first-pass
+    role call of `role_s` seconds and one resumed call of 100 s that names a check; `questions` rows of driver-questions.jsonl."""
+    from datetime import datetime, timedelta
+    t0 = datetime.fromisoformat(start)
+    at = lambda minutes: (t0 + timedelta(minutes=minutes)).isoformat()  # noqa: E731
+    task = tmp / name / "qa-factory" / "artifacts" / "QA-9"
+    (task / "state").mkdir(parents=True)
+    sid = "stub-S1-qa-scout-1-1" if run_class != "live" else "sess-1"
+    rows = []
+    if process:
+        rows.append({"kind": "process", "event": "end", "since": at(0), "ts": at(20), "package": "p1", "config_sha": None,
+                     "answer_file": False, "run_class": run_class, "process_code": 0, "question_kind": None})
+    rows.append({"kind": "role", "role": "qa-scout", "stage": "S1", "dispatch": "S1-qa-scout-1", "session_id": sid, "ts": at(5),
+                 "wall_ms": role_s * 1000, "duration_ms": role_s * 1000 - 5000, "resumed": False, "is_error": False,
+                 **({"total_cost_usd": 0.424} if cumulative else {})})
+    rows.append({"kind": "role", "role": "qa-scout", "stage": "S1", "dispatch": "S1-qa-scout-1", "session_id": sid, "ts": at(8),
+                 "wall_ms": 100000, "duration_ms": 95000, "resumed": True, "resume_kind": "refusal_resume",
+                 "checks": ["s5_precheck:manifest"], "checks_n": {"s5_precheck:manifest": 2}, "is_error": False,
+                 **({"total_cost_usd": 0.455} if cumulative else {})})
+    (task / "state" / "driver-runs.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    if questions:
+        (task / "state" / "driver-questions.jsonl").write_text(
+            "\n".join(json.dumps({"ts": at(3), "kind": "k", "stage": "S1", "source": "driver", "why_person": "x"}) for _ in range(questions)) + "\n",
+            encoding="utf-8")
+    return task
+
+
+def sb_assemble(task: Path, out: Path, *extra, arm="factory", version="9.9.9"):
+    return sb_cli("assemble", "--task-root", task, "--stand", "mybooks", "--story", "add-to-cart", "--arm", arm, "--version", version,
+                  "--out-root", out, *extra)
+
+
+def sb_files(out: Path) -> list:
+    return sorted((out / "mybooks" / "add-to-cart").glob("*.yaml")) if (out / "mybooks" / "add-to-cart").is_dir() else []
+
+
+def sb_yaml(path):
+    import yaml
+    return yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+
+
+def sb_truth(path: Path, ids=(1, 2, 3)) -> Path:
+    import yaml
+    path.write_text(yaml.safe_dump({"schema": "truth/1", "versions": [{"id": "v1", "cards": [{"id": i, "class": "bug"} for i in ids]},
+                                                                       {"id": "v2", "cards": [{"id": i, "class": "bug"} for i in ids]}]}), encoding="utf-8")
+    return path
+
+
+def sb_judgment(path: Path, rows) -> Path:
+    import yaml
+    if isinstance(rows, bytes):
+        path.write_bytes(rows)
+    elif isinstance(rows, str):
+        path.write_text(rows, encoding="utf-8")
+    else:
+        path.write_text(yaml.safe_dump({"schema": "judgment/1", "evaluated_against_version": "v1",
+                                        "key": {"X": {"arm": "free"}, "Y": {"arm": "factory"}}, "card_rows": rows}, allow_unicode=True), encoding="utf-8")
+    return path
+
+
+def sb_good_rows(ids=(1, 2, 3)) -> list:
+    return [{"card": i, "arm": arm, "verdict": "found" if (arm == "Y" and i == 1) else "missed", "unsure": arm == "Y" and i == 3}
+            for arm in ("X", "Y") for i in ids]
+
+
+def sb_rows_file(tmp: Path) -> Path:
+    """A copy of rows.json that declares a verdict vocabulary and the categories of QA1 (the shipped file declares none)."""
+    doc = json.loads((HERE.parent / "scoreboards" / "rows.json").read_text(encoding="utf-8"))
+    doc["verdicts"] = {"found": "found", "missed": "missed"}
+    doc["rows"]["QA1"]["quality"]["categories"] = ["found"]
+    path = tmp / "rows-vocabulary.json"
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    return path
+
+
+def _dup(rows):
+    return rows + [dict(rows[-1])]
+
+
+SB_JUDGMENT_CASES = [
+    # (case id, how the judgment rows are changed -> rows | text | bytes, the refusal's words or None when the file is accepted)
+    ("AT: exactly the truth's card count", lambda r: r, None),
+    ("BEYOND: one extra card", lambda r: r + [{"card": 4, "arm": "Y", "verdict": "found"}], "card 4 is not in truth version v1"),
+    ("a card listed twice", _dup, "listed twice"),
+    ("a card of the truth with no row", lambda r: [x for x in r if not (x["card"] == 2 and x["arm"] == "Y")], "card 2 of truth version v1 has no verdict row"),
+    ("a verdict word outside the vocabulary", lambda r: [dict(r[0], arm="Y", verdict="maybe")] + r[1:], "verdict word 'maybe'"),
+    ("a list where the card id is a scalar", lambda r: r + [{"card": [1, 2], "arm": "Y", "verdict": "found"}], "`card` must be a scalar"),
+    ("a mapping where the verdict is a text", lambda r: [dict(x, verdict={"a": 1}) if x["arm"] == "Y" and x["card"] == 1 else x for x in r], "`verdict` must be a non-empty text"),
+    ("an empty file", lambda r: "", "is empty"),
+    ("non-UTF-8 bytes", lambda r: b"card_rows: \xff\xfe\n", "is not UTF-8 text"),
+    ("10,000 rows", lambda r: [{"card": n, "arm": "Y", "verdict": "found"} for n in range(10000)], "and 9"),
+    ("a truth version the truth file lacks", lambda r: r, "has no version v9"),
+]
+
+
+def sb_judgment_case(tmp: Path, case) -> None:
+    name, mutate, want = case
+    task, out, truth = sb_run(tmp), tmp / "out", sb_truth(tmp / "truth.yaml")
+    rows = mutate(sb_good_rows())
+    judgment = sb_judgment(tmp / "judgment.yaml", rows)
+    extra = ["--truth", truth, "--judgment", judgment, "--rows", sb_rows_file(tmp)]
+    if name.startswith("a truth version"):
+        extra += ["--truth-version", "v9"]
+    code, printed, err = sb_assemble(task, out, *extra)
+    if want is None:
+        assert code == 0, err
+        doc = sb_yaml(sb_files(out)[0])
+        assert doc["run"]["truth_version"] == "v1"
+        assert (doc["rows"]["QA1"]["state"], doc["rows"]["QA1"]["value"]) == ("measured", 1), doc["rows"]["QA1"]
+        assert "1 unsure card(s)" in doc["rows"]["QA2"]["why"] or doc["rows"]["QA2"]["state"] == "unknown"
+    else:
+        assert code == 2 and want in err, (code, err[:400])
+        assert "RED" in err and str(judgment) in err or "truth" in err
+        assert sb_files(out) == [], "a refused judgment wrote a file"
+        assert len(err) < 4000, "the refusal is not bounded"
+
+
+SB_MONEY_CASES = [
+    ("agreement: the value of task_price", {"status": "agrees", "price_low_usd": 0.455, "price_high_usd": 0.455}, "live", True, "measured", 0.455),
+    ("a journal whose session totals rise is NOT summed (0.424 then 0.455 stays task_price's 0.455)",
+     {"status": "agrees", "price_low_usd": 0.455, "price_high_usd": 0.455}, "live", True, "measured", 0.455),
+    ("differs: the state range, the value {low, high, note}", {"status": "differs", "finding": "A and B differ", "price_low_usd": 2.0, "price_high_usd": 3.5},
+     "live", False, "range", {"low": 2.0, "high": 3.5, "note": "A and B differ"}),
+    ("incomplete: the state at_least, the value {at_least, note}", {"status": "incomplete", "finding": "a session has no record", "price_low_usd": 1.0,
+                                                                     "price_high_usd": 1.0}, "live", False, "at_least",
+     {"at_least": 1.0, "note": "a session has no record"}),
+    ("not_cross_checked: the state one_source, the value {value, note: one source}",
+     {"status": "not_cross_checked", "price_low_usd": 0.4, "price_high_usd": 0.4}, "live", False, "one_source", {"value": 0.4, "note": "one source"}),
+    ("a status task_price does not define: unknown naming it, never measured", {"status": "mystery", "price_low_usd": 0.4, "price_high_usd": 0.4},
+     "live", False, "unknown", None),
+    ("agrees but the ends differ: a range, not a scalar", {"status": "agrees", "price_low_usd": 1.0, "price_high_usd": 2.0}, "live", False, "range",
+     {"low": 1.0, "high": 2.0, "note": "task_price status agrees but the low and high ends differ"}),
+    ("no price at all", {"status": "incomplete", "finding": "No session of this task has a record."}, "live", False, "unknown", None),
+    ("task_price raises", RuntimeError("boom"), "live", False, "unknown", None),
+    ("a dry run has no money", {"status": "agrees", "price_low_usd": 9.0, "price_high_usd": 9.0}, "dry", False, "n/a", None),
+]
+
+
+def sb_money_case(tmp: Path, case) -> None:
+    import contextlib
+    name, answer, run_class, cumulative, state, value = case
+    scoreboard = _sb()
+
+    def fake(root, task):
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+    saved, scoreboard.TP.task_price = scoreboard.TP.task_price, fake
+    try:
+        code, _printed, err = sb_assemble(sb_run(tmp, run_class=run_class, cumulative=cumulative), tmp / "out")
+    finally:
+        scoreboard.TP.task_price = saved
+    assert code == 0, err
+    row = sb_yaml(sb_files(tmp / "out")[0])["rows"]["X1"]
+    assert (row["state"], row["value"]) == (state, value), row
+    assert row["unit"] == "usd"
+    if name.startswith("a status task_price does not define"):
+        assert "mystery" in row["why"], row
+
+
+def _m(value):
+    return {"state": "measured", "value": value}
+
+
+_U = {"state": "unknown", "value": None, "why": "not recorded"}
+
+
+def _bar(value, truth="v1", row="T1"):
+    return {"run": {"truth_version": truth}, "rows": {row: _m(value), "QA1": _m(value)}}
+
+
+SB_NORM_CASES = [
+    # (case id, norm, rows, run class, bar, truth version, verdict)
+    ("N-questions AT the norm (40)", "N-questions", {"Q1": _m(40)}, "live", None, None, "green"),
+    ("N-questions BEYOND the norm (41)", "N-questions", {"Q1": _m(41)}, "live", None, None, "red"),
+    ("an unknown row is never green", "N-questions", {"Q1": _U}, "live", None, None, "unknown"),
+    ("N-gate within the norm, no unknown check", "N-gate", {"G1": _m(16), "G1u": _m(0)}, "live", None, None, "green"),
+    ("N-gate within the norm but the unknown check is above it: unknown (AR-28)", "N-gate", {"G1": _m(3), "G1u": _m(17)}, "live", None, None, "unknown"),
+    ("N-gate beyond the norm is red whatever the unknown count", "N-gate", {"G1": _m(17), "G1u": _m(17)}, "live", None, None, "red"),
+    ("N-wall with no bar is unknown (7.5)", "N-wall", {"T1x": _m(357)}, "live", None, None, "unknown"),
+    ("N-wall ratio AT the norm (357 / 10 = 35.7)", "N-wall", {"T1x": _m(357)}, "live", _bar(10), None, "green"),
+    ("N-wall ratio BEYOND the norm (358 / 10 = 35.8)", "N-wall", {"T1x": _m(358)}, "live", _bar(10), None, "red"),
+    ("N-wall with a bar of 0 is unknown, never a ratio", "N-wall", {"T1x": _m(358)}, "live", _bar(0), None, "unknown"),
+    ("N-brief: the norm value is not set, so unknown even when measured", "N-brief", {"B1": _m(0)}, "live", None, None, "unknown"),
+    ("a dry run judges no norm (K7)", "N-questions", {"Q1": _m(1)}, "dry", None, None, "unknown"),
+    ("an unknown run class judges no norm (K7)", "N-questions", {"Q1": _m(1)}, "unknown", None, None, "unknown"),
+    ("quality worse than the bar of the same truth version: red", "N-quality-QA1", {"QA1": _m(1)}, "live", _bar(2), "v1", "red"),
+    ("quality equal to the bar: green", "N-quality-QA1", {"QA1": _m(2)}, "live", _bar(2), "v1", "green"),
+    ("quality against a bar of another truth version: unknown", "N-quality-QA1", {"QA1": _m(9)}, "live", _bar(2, "v2"), "v1", "unknown"),
+    ("quality against no bar: unknown", "N-quality-QA1", {"QA1": _m(9)}, "live", None, "v1", "unknown"),
+    ("a quality row with no declared direction is not decided", "N-quality-QA3", {"QA3": _m(1)}, "live", _bar(2, row="QA3"), "v1", "unknown"),
+]
+
+
+def sb_norm_case(tmp: Path, case) -> None:
+    _name, norm, rows, run_class, bar, truth, want = case
+    scoreboard = _sb()
+    judged = scoreboard.judge_norms(scoreboard.load_norms(), rows, run_class, bar, truth, scoreboard.load_rows())
+    assert judged[norm]["verdict"] == want, judged[norm]
+
+
+def _norms():
+    """The shipped norms.json (norms/2) as the K2/K5 view `load_norms` returns: {norms: {id: ...}, raises: [...], rows, bar_changes}."""
+    return _sb().load_norms(HERE.parent / "scoreboards" / "norms.json")
+
+
+def _edit(doc, fn):
+    fn(doc)
+    return doc
+
+
+RAISE = {"norm": "N-questions", "from": 40, "to": 50, "raised_by": "Lead", "reason": "the story grew", "word": "owner, 14.11.2026"}
+
+
+def _set_value(nid, value):
+    return lambda d: d["norms"][nid].update(value=value)
+
+
+SB_RATCHET_CASES = [
+    # (case id, edit of the new file, edit of the old file or None (then no --against), words of the problem or None when green)
+    ("the shipped file is green", lambda d: None, None, None),
+    ("a looser value with no raise row", _set_value("N-questions", 50), None, "looser than its baseline"),
+    ("a tighter value is green", _set_value("N-questions", 30), None, None),
+    ("a raise with raised_by, reason and the owner's word is green",
+     lambda d: (d["raises"].append(dict(RAISE)), d["norms"]["N-questions"].update(value=50)), None, None),
+    ("a raise without the owner's word", lambda d: (d["raises"].append({k: v for k, v in RAISE.items() if k != "word"}), d["norms"]["N-questions"].update(value=50)),
+     None, "needs `norm`, `raised_by`, `reason`"),
+    ("a raise without raised_by", lambda d: (d["raises"].append({k: v for k, v in RAISE.items() if k != "raised_by"}), d["norms"]["N-questions"].update(value=50)),
+     None, "needs `norm`, `raised_by`, `reason`"),
+    ("a raise with an empty reason", lambda d: (d["raises"].append(dict(RAISE, reason=" ")), d["norms"]["N-questions"].update(value=50)), None, "needs `norm`"),
+    ("a 'raise' to a stricter value", lambda d: (d["raises"].append(dict(RAISE, to=30)), d["norms"]["N-questions"].update(value=30)), None, "is not looser"),
+    ("a raise that starts from a wrong baseline", lambda d: (d["raises"].append(dict(RAISE, **{"from": 35})), d["norms"]["N-questions"].update(value=50)),
+     None, "the baseline is 40"),
+    ("a norm the raise row does not name stays refused", lambda d: (d["raises"].append(dict(RAISE)), d["norms"]["N-gate"].update(value=20)), None, "norm N-gate"),
+    ("against: `initial` rewritten", _set_value("N-questions", 40), lambda o: o["norms"]["N-questions"].update(initial=30, value=30), "`initial` changed"),
+    ("against: a norm dropped", lambda d: d["norms"].pop("N-gate"), lambda o: None, "was dropped"),
+    ("against: looser than before with no new raise row", lambda d: (d["norms"]["N-questions"].update(value=35)),
+     lambda o: o["norms"]["N-questions"].update(value=30), "no new raise row"),
+    ("against: looser than before WITH a new raise row is green",
+     lambda d: (d["raises"].append(dict(RAISE, **{"from": 40, "to": 45})), d["norms"]["N-questions"].update(value=45)),
+     lambda o: o["norms"]["N-questions"].update(value=30), None),
+    ("against: an earlier raise row removed", lambda d: None, lambda o: o["raises"].append(dict(RAISE)), "may only be appended"),
+    ("against: an unset norm may be set once", lambda d: d["norms"]["N-brief"].update(value=12, initial=12), lambda o: None, None),
+]
+
+
+def sb_ratchet_case(tmp: Path, case) -> None:
+    _name, edit, old_edit, want = case
+    scoreboard = _sb()
+    new, old = _norms(), _norms()
+    edit(new)
+    if old_edit is not None:
+        old_edit(old)
+    problems = scoreboard.check_norms(new, old if old_edit is not None else None)
+    if want is None:
+        assert problems == [], problems
+    else:
+        assert any(want in p for p in problems), problems
+
+
+def _doc(run_class="live", arm="factory", truth="v1", **rows):
+    return {"run": {"run_class": run_class, "arm": arm, "truth_version": truth},
+            "rows": {k: (v if isinstance(v, dict) else _m(v)) for k, v in rows.items()}}
+
+
+def _rg(low, high):
+    return {"state": "range", "value": {"low": low, "high": high, "note": "n"}}
+
+
+SB_COMPARE_CASES = [
+    # (case id, now doc, previous doc or None, row, expected entry fields or the not_comparable words)
+    ("a first run: previous none, no worse flag at all", _doc(Q1=5), None, "Q1", "first"),
+    ("a lower-is-better row that rose is worse", _doc(Q1=5), _doc(Q1=3), "Q1", {"was": 3, "now": 5, "worse": True}),
+    ("the same value is not worse", _doc(Q1=3), _doc(Q1=3), "Q1", {"worse": False}),
+    ("a row that fell is not worse", _doc(Q1=2), _doc(Q1=3), "Q1", {"worse": False}),
+    ("a higher-is-better row that fell is worse", _doc(QA1=1), _doc(QA1=2), "QA1", {"worse": True}),
+    ("unknown now, measured before: undecided, never a pass", _doc(Q1=_U), _doc(Q1=3), "Q1", {"worse": None, "now": "unknown"}),
+    ("measured now, unknown before: undecided", _doc(Q1=3), _doc(Q1=_U), "Q1", {"worse": None, "was": "unknown"}),
+    ("a row with no declared direction is never worse", _doc(Q2=9), _doc(Q2=1), "Q2", {"worse": None}),
+    ("a dry file against a live file: not comparable (K7)", _doc(run_class="dry", Q1=9), _doc(Q1=1), None, "run_class live vs dry"),
+    ("a live file against a dry file: not comparable (K7)", _doc(Q1=9), _doc(run_class="dry", Q1=1), None, "run_class dry vs live"),
+    ("a mixed run is not comparable", _doc(run_class="mixed", Q1=9), _doc(Q1=1), None, "run_class live vs mixed"),
+    ("an unknown run class is not comparable", _doc(run_class="unknown", Q1=9), _doc(Q1=1), None, "run_class live vs unknown"),
+    ("another arm is not comparable", _doc(arm="free", Q1=9), _doc(Q1=1), None, "arm factory vs free"),
+    ("a quality row across truth versions: not comparable (7.8)", _doc(truth="v2", QA1=2), _doc(truth="v1", QA1=1), "QA1", "truth v1 vs v2"),
+    ("a time row across truth versions is still compared", _doc(truth="v2", Q1=5), _doc(truth="v1", Q1=3), "Q1", {"worse": True}),
+    ("money ranges that do not overlap: worse", _doc(X1=_rg(5.0, 6.0)), _doc(X1=_rg(2.0, 3.0)), "X1", {"worse": True, "outcome": "worse"}),
+    ("money ranges that overlap: undecided", _doc(X1=_rg(2.5, 6.0)), _doc(X1=_rg(2.0, 3.0)), "X1", {"worse": None, "outcome": "not decided: range"}),
+    # B2: the three pairs of the critic's control run; `compare` and `compare --release` read them with ONE judge (lower is better)
+    ("B2 pair: was 10, now 10..12: not decided, not 'not worse'", _doc(Q1=_rg(10, 12)), _doc(Q1=10), "Q1", {"worse": None, "outcome": "not decided: range"}),
+    ("B2 pair: was 8..12, now 8..14: not decided", _doc(Q1=_rg(8, 14)), _doc(Q1=_rg(8, 12)), "Q1", {"worse": None, "outcome": "not decided: range"}),
+    ("B2 pair: was 10, now 7..10: not worse (the whole range is at or below)", _doc(Q1=_rg(7, 10)), _doc(Q1=10), "Q1", {"worse": False, "outcome": "not_worse"}),
+    ("one_source now above the previous scalar: worse, compared as a value", _doc(X1={"state": "one_source", "value": {"value": 5.0, "note": "one source"}}),
+     _doc(X1=3.0), "X1", {"worse": True, "outcome": "worse"}),
+    ("at_least now above the previous high end: worse", _doc(X1={"state": "at_least", "value": {"at_least": 5.0, "note": "n"}}), _doc(X1=3.0), "X1",
+     {"worse": True, "outcome": "worse"}),
+    ("at_least now below the previous value: not decided, never 'not worse'", _doc(X1={"state": "at_least", "value": {"at_least": 2.0, "note": "n"}}),
+     _doc(X1=3.0), "X1", {"worse": None, "outcome": "not decided: lower bound"}),
+    ("an at_least PREVIOUS value is not a price to compare with: unknown", _doc(X1=3.0), _doc(X1={"state": "at_least", "value": {"at_least": 2.0}}), "X1",
+     {"worse": None, "outcome": "unknown"}),
+]
+
+
+def sb_compare_case(tmp: Path, case) -> None:
+    _name, now, previous, row, want = case
+    scoreboard = _sb()
+    comp = scoreboard.build_compare(now, previous, "was.yaml" if previous else None, None, scoreboard.load_rows())
+    if want == "first":
+        assert comp["previous"] == "none" and "rows" not in comp and "not_comparable" not in comp, comp
+    elif row is None:
+        assert comp.get("not_comparable") == want and "rows" not in comp, comp
+    elif isinstance(want, str):
+        assert comp["rows"][row] == {"not_comparable": want}, comp["rows"][row]
+    else:
+        assert all(comp["rows"][row].get(k) == v for k, v in want.items()), comp["rows"][row]
+        if want.get("worse") is None:
+            assert "why" in comp["rows"][row]
+
+
+def sb_put(folder: Path, stamp: str, arm: str, run_class: str) -> Path:
+    import yaml
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{stamp}-1.0.0-{arm}.yaml"
+    path.write_text(yaml.safe_dump({"schema": "scoreboard/1", "run": {"arm": arm, "run_class": run_class}, "rows": {}}), encoding="utf-8")
+    return path
+
+
+SB_PREVIOUS_CASES = [
+    # (case id, files already in the folder as (stamp, arm, class), the file being compared, the expected previous or None)
+    ("the newest EARLIER live file of the same arm", [("20261101-1000", "factory", "live"), ("20261102-1000", "factory", "live")], ("20261103-1000", "factory"),
+     "20261102-1000-1.0.0-factory.yaml"),
+    ("a later file is not previous", [("20261105-1000", "factory", "live")], ("20261103-1000", "factory"), None),
+    ("another arm is not previous (7.7)", [("20261101-1000", "free", "live")], ("20261103-1000", "factory"), None),
+    ("a dry file is not previous of a live one", [("20261101-1000", "factory", "dry"), ("20261031-1000", "factory", "live")], ("20261103-1000", "factory"),
+     "20261031-1000-1.0.0-factory.yaml"),
+    ("only a dry file earlier: none", [("20261101-1000", "factory", "dry")], ("20261103-1000", "factory"), None),
+    ("no earlier file at all", [], ("20261103-1000", "factory"), None),
+]
+
+
+def sb_previous_case(tmp: Path, case) -> None:
+    _name, files, current, want = case
+    folder = tmp / "folder"
+    folder.mkdir()
+    for stamp, arm, run_class in files:
+        sb_put(folder, stamp, arm, run_class)
+    found, _doc_, notes = _sb().previous_of(folder / f"{current[0]}-1.0.0-{current[1]}.yaml")
+    assert (found.name if found else None) == want and notes == [], (found, notes)
+
+
+def sb_assemble_case(tmp: Path, case) -> None:
+    """The edges of 7.2-7.7 and the refusals, each through the command line."""
+    name = case[0]
+    scoreboard = _sb()
+    out = tmp / "out"
+    if name == "an empty run folder is refused naming the folder":
+        empty = tmp / "empty-run"
+        empty.mkdir()
+        code, _p, err = sb_assemble(empty, out)
+        assert code == 2 and str(empty) in err and "is empty" in err and sb_files(out) == [], err
+    elif name == "a run folder that does not exist is refused naming it":
+        code, _p, err = sb_assemble(tmp / "nowhere", out)
+        assert code == 2 and str(tmp / "nowhere") in err and sb_files(out) == [], err
+    elif name == "an absent rows file is a red line naming it":
+        code, _p, err = sb_assemble(sb_run(tmp), out, "--rows", tmp / "no-rows.json")
+        assert code == 2 and "RED" in err and str(tmp / "no-rows.json") in err and sb_files(out) == [], err
+    elif name == "a norms file that is not JSON is a red line naming it":
+        (tmp / "norms.json").write_text("{not json", encoding="utf-8")
+        code, _p, err = sb_assemble(sb_run(tmp), out, "--norms", tmp / "norms.json")
+        assert code == 2 and str(tmp / "norms.json") in err and sb_files(out) == [], err
+    elif name == "a norms file of non-UTF-8 bytes is a red line naming it":
+        (tmp / "norms.json").write_bytes(b"\xff\xfe{}")
+        code, _p, err = sb_assemble(sb_run(tmp), out, "--norms", tmp / "norms.json")
+        assert code == 2 and "not UTF-8" in err and str(tmp / "norms.json") in err, err
+    elif name == "compare reads no scoreboard from an unreadable norms file":
+        code, _p, _e = sb_assemble(sb_run(tmp), out)
+        (tmp / "norms.json").write_text("[]", encoding="utf-8")
+        code, printed, err = sb_cli("compare", sb_files(out)[0], "--norms", tmp / "norms.json")
+        assert code == 2 and printed == "" and str(tmp / "norms.json") in err, (printed, err)
+    elif name == "a stand name with a path separator is refused":
+        code, _p, err = sb_cli("assemble", "--task-root", sb_run(tmp), "--stand", "../x", "--story", "s", "--arm", "factory", "--version", "1", "--out-root", out)
+        assert code == 2 and "not a plain name" in err and not (tmp / "x").exists(), err
+    elif name == "the same input gives the same bytes":
+        task = sb_run(tmp)
+        assert sb_assemble(task, out)[0] == 0
+        first = sb_files(out)[0].read_bytes()
+        assert sb_assemble(task, out)[0] == 0
+        assert sb_files(out)[0].read_bytes() == first
+    elif name == "an old record: a counter it cannot know stays unknown in the row and the norm (7.6)":
+        code, _p, err = sb_assemble(sb_run(tmp, process=False), out)
+        doc = sb_yaml(sb_files(out)[0])
+        assert code == 0 and doc["rows"]["Q1"]["state"] == "unknown" and doc["rows"]["Q1"]["value"] is None, doc["rows"]["Q1"]
+        assert doc["rows"]["T6"]["value"] is None and doc["norms"]["N-questions"]["verdict"] == "unknown", doc["norms"]["N-questions"]
+        assert doc["run"]["run_class"] == "unknown" and all(n["verdict"] == "unknown" for n in doc["norms"].values())
+    elif name == "a counter key the run cannot give reads unknown in rows G1us and U1u, never 0":
+        task = sb_run(tmp)
+        runs = task / "state" / "driver-runs.jsonl"
+        stripped = [{k: v for k, v in json.loads(line).items() if k not in ("checks", "checks_n", "resume_kind")} for line in runs.read_text(encoding="utf-8").splitlines()]
+        runs.write_text("\n".join(json.dumps(r) for r in stripped) + "\n", encoding="utf-8")
+        code, _p, err = sb_assemble(task, out)
+        doc = sb_yaml(sb_files(out)[0])
+        assert code == 0, err
+        assert doc["rows"]["G1us"]["state"] == "unknown" and doc["rows"]["G1us"]["value"] is None, doc["rows"]["G1us"]
+        assert doc["rows"]["U1u"]["state"] == "measured" and doc["rows"]["U1u"]["value"] == 0, doc["rows"]["U1u"]
+    elif name == "a dry run: stub-role rows are n/a and no norm is judged (7.9)":
+        doc = (sb_assemble(sb_run(tmp, run_class="dry"), out), sb_yaml(sb_files(out)[0]))[1]
+        assert doc["run"]["run_class"] == "dry" and doc["rows"]["T9"]["state"] == "n/a" and doc["rows"]["R1r"]["state"] == "n/a"
+        assert all(n["verdict"] == "unknown" and "K7" in n["why"] for n in doc["norms"].values())
+    elif name == "a dry file next to a live file: compare says not comparable, no worse flag, no finding":
+        assert sb_assemble(sb_run(tmp, "live", questions=1), out)[0] == 0
+        assert sb_assemble(sb_run(tmp, "dry", start="2026-11-03T10:00:00+00:00", run_class="dry", questions=9), out)[0] == 0
+        dry = [f for f in sb_files(out) if f.name.startswith("20261103")][0]
+        code, printed, err = sb_cli("compare", dry, "--findings", "--findings-root", tmp / "piles")
+        assert code == 0 and "not comparable: run_class live vs dry" in printed and "worse" not in printed.replace("not comparable", ""), printed
+        assert not (tmp / "piles").exists(), "a finding was drafted for a non-comparable pair"
+    elif name == "the owner's word passes a red norm and is recorded (P13)":
+        code, printed, err = sb_assemble(sb_run(tmp, questions=41), out, "--pass", "N-questions", "owner", "14.11.2026")
+        doc = sb_yaml(sb_files(out)[0])
+        assert doc["norms"]["N-questions"]["verdict"] == "red" and doc["passes"] == [{"norm": "N-questions", "word": "owner", "date": "14.11.2026"}], doc
+        code, printed, err = sb_cli("compare", sb_files(out)[0])
+        assert "passed by the owner's word: owner, 14.11.2026" in printed and "release: warning -- red" not in printed, printed
+    elif name == "a pass for a norm that does not exist is refused":
+        code, _p, err = sb_assemble(sb_run(tmp), out, "--pass", "N-nope", "owner", "14.11.2026")
+        assert code == 2 and "N-nope" in err and sb_files(out) == [], err
+    elif name == "no run dir is touched: the run folder is read only":
+        task = sb_run(tmp)
+        before = sorted((str(p.relative_to(task)), p.read_bytes()) for p in task.rglob("*") if p.is_file())
+        sb_assemble(task, out)
+        assert before == sorted((str(p.relative_to(task)), p.read_bytes()) for p in task.rglob("*") if p.is_file())
+    else:
+        raise AssertionError("no such case: " + name)
+    del scoreboard
+
+
+SB_ASSEMBLE_CASES = [(n,) for n in (
+    "an empty run folder is refused naming the folder", "a run folder that does not exist is refused naming it",
+    "an absent rows file is a red line naming it", "a norms file that is not JSON is a red line naming it",
+    "a norms file of non-UTF-8 bytes is a red line naming it", "compare reads no scoreboard from an unreadable norms file",
+    "a stand name with a path separator is refused", "the same input gives the same bytes",
+    "an old record: a counter it cannot know stays unknown in the row and the norm (7.6)",
+    "a counter key the run cannot give reads unknown in rows G1us and U1u, never 0",
+    "a dry run: stub-role rows are n/a and no norm is judged (7.9)",
+    "a dry file next to a live file: compare says not comparable, no worse flag, no finding",
+    "the owner's word passes a red norm and is recorded (P13)", "a pass for a norm that does not exist is refused",
+    "no run dir is touched: the run folder is read only")]
+
+
+def sb_cli_case(tmp: Path, case) -> None:
+    name = case[0]
+    out = tmp / "out"
+    if name == "--help names assemble, compare and norms":
+        code, printed, _e = sb_cli("--help")
+        assert code == 0 and all(word in printed for word in ("assemble", "compare", "norms", "--findings", "--check")), printed
+    elif name == "norms --check is green on the shipped file":
+        code, printed, _e = sb_cli("norms", "--check")
+        assert code == 0 and printed.strip().endswith("norms: green"), printed
+    elif name == "norms --check exits 1 and names the norm when it loosened":
+        doc = _norms()
+        doc["norms"]["N-wall"]["value"] = 99
+        (tmp / "n.json").write_text(json.dumps(_sb().legacy_to_v2(doc)), encoding="utf-8")
+        code, printed, _e = sb_cli("norms", "--check", "--norms", tmp / "n.json")
+        assert code == 1 and "N-wall" in printed and printed.strip().endswith("norms: red"), printed
+    elif name == "compare names the previous file, the bar and 'can tighten' for a green norm":
+        assert sb_assemble(sb_run(tmp, "a", questions=3), out)[0] == 0
+        assert sb_assemble(sb_run(tmp, "b", start="2026-11-02T10:00:00+00:00", questions=2), out)[0] == 0
+        newest = sb_files(out)[-1]
+        code, printed, _e = sb_cli("compare", newest)
+        assert code == 0 and "previous: 20261101-1000-9.9.9-factory.yaml" in printed and "bar: none" in printed, printed
+        assert "Q1: was 3.0, now 2.0 questions -- not worse" in printed.replace("was 3,", "was 3.0,").replace("now 2 ", "now 2.0 ") or "Q1: was 3, now 2" in printed, printed
+        assert "can tighten: N-questions 40 -> 2" in printed, printed
+    elif name == "compare --findings writes ONE finding per worsened row, in the pile, quoting the row":
+        assert sb_assemble(sb_run(tmp, "a", questions=1), out)[0] == 0
+        assert sb_assemble(sb_run(tmp, "b", start="2026-11-02T10:00:00+00:00", questions=5), out)[0] == 0
+        newest = sb_files(out)[-1]
+        code, printed, _e = sb_cli("compare", newest, "--findings", "--findings-root", tmp / "piles")
+        found = sorted((tmp / "piles").rglob("*.md"))
+        assert code == 0 and [f.name for f in found] == ["20261102-scoreboard-q1-factory.md"] and found[0].parent == tmp / "piles" / "live-runs" / "findings", found
+        text = found[0].read_text(encoding="utf-8")
+        assert "Q1" in text and "было 1" in text and "стало 5" in text and "sha256" in text and "Решение владельца нужно: нет" in text, text
+        assert "card row, pile live-runs" in printed
+        again = [f.read_bytes() for f in found]
+        sb_cli("compare", newest, "--findings", "--findings-root", tmp / "piles")
+        assert [f.read_bytes() for f in sorted((tmp / "piles").rglob("*.md"))] == again, "the finding is not deterministic"
+    elif name == "compare --findings on a first run writes nothing":
+        assert sb_assemble(sb_run(tmp, "a", questions=1), out)[0] == 0
+        code, printed, _e = sb_cli("compare", sb_files(out)[0], "--findings", "--findings-root", tmp / "piles")
+        assert code == 0 and "previous: none" in printed and not (tmp / "piles").exists(), printed
+    elif name == "the scoreboard file carries no absolute path of this machine (AR-4)":
+        assert sb_assemble(sb_run(tmp), out)[0] == 0
+        text = sb_files(out)[0].read_text(encoding="utf-8")
+        assert str(tmp) not in text and re.search(r"[A-Za-z]:\\", text) is None, text[:400]
+    else:
+        raise AssertionError("no such case: " + name)
+
+
+SB_CLI_CASES = [(n,) for n in (
+    "--help names assemble, compare and norms", "norms --check is green on the shipped file",
+    "norms --check exits 1 and names the norm when it loosened",
+    "compare names the previous file, the bar and 'can tighten' for a green norm",
+    "compare --findings writes ONE finding per worsened row, in the pile, quoting the row",
+    "compare --findings on a first run writes nothing",
+    "the scoreboard file carries no absolute path of this machine (AR-4)")]
+
+# --- P1-v N7: the free arm's bar price (spec 3 item 2) and the release check (K3, F7, OQ2) ---------------------------------------------
+# Catalogue control (references/model-rates.json, per 1M tokens): claude-sonnet-5-5 input 2, output 10, cache_read 0.1, cache_write_5m 2.5.
+# Session A, one request, hand-priced: 1,000,000 in x 2 + 100,000 out x 10 + 2,000,000 read x 0.1 + 400,000 write x 2.5 = 4,200,000 / 1e6 = 4.2 usd.
+# Session B, one request: 500,000 in x 2 + 50,000 out x 10 = 1,500,000 / 1e6 = 1.5 usd. A resume is A + B = 5.7 usd. The host's figure is 6.1234.
+BAR_MODEL = "claude-sonnet-5-5"
+BAR_A, BAR_B, BAR_SUM, BAR_HOST = 4.2, 1.5, 5.7, 6.1234
+
+
+def _sbb():
+    import scoreboard_bar
+    return scoreboard_bar
+
+
+def bar_transcript(path: Path, requests, model=BAR_MODEL) -> Path:
+    """A `free-N` session transcript: one assistant line per request (message id, model, usage); `requests` = [(id, usage dict)]."""
+    path.write_text("\n".join(json.dumps({"type": "assistant", "uuid": f"u-{mid}", "timestamp": "2026-11-01T10:00:00Z",
+                                          "message": {"id": mid, "model": model, "usage": usage, "content": []}}) for mid, usage in requests) + "\n",
+                    encoding="utf-8")
+    return path
+
+
+BAR_USAGE_A = {"input_tokens": 1000000, "output_tokens": 100000, "cache_read_input_tokens": 2000000,
+               "cache_creation": {"ephemeral_5m_input_tokens": 400000, "ephemeral_1h_input_tokens": 0}}
+BAR_USAGE_B = {"input_tokens": 500000, "output_tokens": 50000}
+
+
+def bar_result(path: Path, total=BAR_HOST) -> Path:
+    """A free-N.log: a line of text, then the host's result object with its own total_cost_usd."""
+    path.write_text("starting the free agent\n" + json.dumps({"type": "result", "num_turns": 7, "total_cost_usd": total}) + "\n", encoding="utf-8")
+    return path
+
+
+def sb_bar_case(tmp: Path, case) -> None:
+    name, bar = case[0], _sbb()
+    a = bar_transcript(tmp / "a.jsonl", [("m1", BAR_USAGE_A)])
+    b = bar_transcript(tmp / "b.jsonl", [("m2", BAR_USAGE_B)])
+    log = bar_result(tmp / "free-1.log")
+    if name == "one session: the re-priced value equals the hand re-pricing of the same row by the catalogue, 4.2 usd":
+        got = bar.bar_price([a], None)
+        assert (got["state"], got["value"]) == ("measured", BAR_A), got
+    elif name == "two sessions (a resume): the sum of the re-priced sessions, 5.7 usd":
+        got = bar.bar_price([a, b], None)
+        assert (got["state"], got["value"]) == ("measured", BAR_SUM), got
+    elif name == "a transcript that cannot be read (not UTF-8): unknown, not 0 and not the host's total_cost_usd":
+        (tmp / "bad.jsonl").write_bytes(b"\xff\xfe\x00 not a transcript\n")
+        got = bar.bar_price([tmp / "bad.jsonl"], None, [log])
+        assert got["state"] == "unknown" and got["value"] is None and "not recomputed" in got["why"], got
+        assert got["value"] != BAR_HOST and got["host_total_usd"] == BAR_HOST, got
+    elif name == "the host's total_cost_usd 6.1234 is printed next to the value 4.2 and is not part of it":
+        got = bar.bar_price([a], None, [log])
+        line = bar.price_line(got)
+        assert got["value"] == BAR_A and got["host_total_usd"] == BAR_HOST, got
+        assert f"bar price: {BAR_A} usd" in line and f"host total_cost_usd: {BAR_HOST}" in line and "not part of the value" in line, line
+    elif name == "a missing transcript: unknown, never a bar of zeros":
+        got = bar.bar_price([tmp / "gone.jsonl"], None)
+        assert got["state"] == "unknown" and got["value"] is None and "gone.jsonl" in got["why"] and str(tmp) not in got["why"], got
+    elif name == "an empty transcript list: unknown":
+        for empty in ([], (), None):
+            got = bar.bar_price(empty, None, [log])
+            assert got["state"] == "unknown" and got["value"] is None and got["host_total_usd"] == BAR_HOST, got
+    elif name == "one of two sessions missing: unknown, not the other session's sum":
+        got = bar.bar_price([a, tmp / "gone.jsonl"], None)
+        assert got["state"] == "unknown" and got["value"] is None, got
+    elif name == "a model the catalogue does not know: unknown, the unpriced request is counted":
+        got = bar.bar_price([bar_transcript(tmp / "x.jsonl", [("m1", BAR_USAGE_A)], model="claude-unheard-9")], None)
+        assert got["state"] == "unknown" and got["value"] is None and got["unpriced"] == 1, got
+    elif name == "a transcript with no usage block: unknown":
+        (tmp / "n.jsonl").write_text(json.dumps({"type": "user", "message": {"content": "hi"}}) + "\nnot json at all\n", encoding="utf-8")
+        got = bar.bar_price([tmp / "n.jsonl"], None)
+        assert got["state"] == "unknown" and got["value"] is None, got
+    elif name == "the same message id twice in one transcript is one request":
+        got = bar.bar_price([bar_transcript(tmp / "d.jsonl", [("m1", BAR_USAGE_A), ("m1", BAR_USAGE_A)])], None)
+        assert got["value"] == BAR_A, got
+    elif name == "cfg rate_overrides price the model before the catalogue (B1-E6): every rate 1 gives 3.5 usd":
+        rates = {k: 1 for k in ("input", "output", "cache_read", "cache_write_5m", "cache_write_1h")}
+        got = bar.bar_price([a], {"rate_overrides": [{"model_id": BAR_MODEL, "rates": rates}]})
+        assert got["value"] == 3.5, got
+    elif name == "a result file with no total_cost_usd: the host figure is not given, the value is untouched":
+        (tmp / "free-2.log").write_text("died\n", encoding="utf-8")
+        got = bar.bar_price([a], None, [tmp / "free-2.log"])
+        assert got["value"] == BAR_A and got["host_total_usd"] is None and "host total_cost_usd: not given" in bar.price_line(got), got
+    elif name == "the line of an unknown value names the reason and still prints the host figure":
+        line = bar.price_line(bar.bar_price([tmp / "gone.jsonl"], None, [log]))
+        assert line.startswith("bar price: unknown: ") and f"host total_cost_usd: {BAR_HOST}" in line and "bar price: 0" not in line, line
+    elif name == "price command line: two transcripts and a result file print the sum and the host figure":
+        code = bar.main(["price", "--transcript", str(a), "--transcript", str(b), "--result", str(log)])
+        assert code == 0
+    elif name == "F5: a long-context request (terra, 300,000 input) is valued by the package's value_usage, 1.218 usd, not the short rate 0.612":
+        # hand: 300,000 x 4 / 1e6 + 1,000 x 18 / 1e6 = 1.2 + 0.018 (long band, threshold 272,000); the short rates give 0.6 + 0.012 = 0.612
+        long_t = bar_transcript(tmp / "long.jsonl", [("m1", {"input_tokens": 300000, "output_tokens": 1000})], model="gpt-5.6-terra")
+        got = bar.bar_price([long_t], None)
+        assert (got["state"], got["value"]) == ("measured", 1.218), got
+    elif name == "F5: a request just under the long-context threshold is valued at the short rates":
+        short_t = bar_transcript(tmp / "short.jsonl", [("m1", {"input_tokens": 272000, "output_tokens": 1000})], model="gpt-5.6-terra")
+        assert bar.bar_price([short_t], None)["value"] == 0.556, bar.bar_price([short_t], None)       # 272,000 x 2 / 1e6 + 1,000 x 12 / 1e6
+    elif name == "F5: a request dated before the catalogue window of its model is unpriced, not valued at a later entry":
+        old = tmp / "old.jsonl"
+        old.write_text(json.dumps({"type": "assistant", "timestamp": "2026-01-01T10:00:00Z", "message": {
+            "id": "m1", "model": "gpt-5.6-terra", "usage": {"input_tokens": 1000}, "content": []}}) + "\n", encoding="utf-8")
+        got = bar.bar_price([old], None)
+        assert got["state"] == "unknown" and got["value"] is None and got["unpriced"] == 1, got
+    elif name == "F7: the line prints the gap host - re-priced when both are known, and no gap when one is unknown":
+        line = bar.price_line(bar.bar_price([a], None, [log]))
+        assert f"gap: {round(BAR_HOST - BAR_A, 4)} (host - re-priced)" in line, line
+        assert "gap:" not in bar.price_line(bar.bar_price([a], None)), "a gap was printed with no host figure"
+        assert "gap:" not in bar.price_line(bar.bar_price([tmp / "gone.jsonl"], None, [log]))
+    else:
+        raise AssertionError("no such case: " + name)
+
+
+SB_BAR_CASES = [(n,) for n in (
+    "one session: the re-priced value equals the hand re-pricing of the same row by the catalogue, 4.2 usd",
+    "two sessions (a resume): the sum of the re-priced sessions, 5.7 usd",
+    "a transcript that cannot be read (not UTF-8): unknown, not 0 and not the host's total_cost_usd",
+    "the host's total_cost_usd 6.1234 is printed next to the value 4.2 and is not part of it",
+    "a missing transcript: unknown, never a bar of zeros", "an empty transcript list: unknown",
+    "one of two sessions missing: unknown, not the other session's sum",
+    "a model the catalogue does not know: unknown, the unpriced request is counted", "a transcript with no usage block: unknown",
+    "the same message id twice in one transcript is one request",
+    "cfg rate_overrides price the model before the catalogue (B1-E6): every rate 1 gives 3.5 usd",
+    "a result file with no total_cost_usd: the host figure is not given, the value is untouched",
+    "the line of an unknown value names the reason and still prints the host figure",
+    "price command line: two transcripts and a result file print the sum and the host figure",
+    "F5: a long-context request (terra, 300,000 input) is valued by the package's value_usage, 1.218 usd, not the short rate 0.612",
+    "F5: a request just under the long-context threshold is valued at the short rates",
+    "F5: a request dated before the catalogue window of its model is unpriced, not valued at a later entry",
+    "F7: the line prints the gap host - re-priced when both are known, and no gap when one is unknown")]
+
+# --- P1-v N9: the writer of the free arm's bar file (`scoreboard_bar.py bar`; spec 20261114-p1v-n8-carriers-draft.md 7(a)) -----------------
+# Hand figures: transcript 1 = events 10:00:00 and 10:05:00 (T1 300 s), one request of BAR_USAGE_B (1.5 usd), two tool calls (Read, Bash),
+# the Bash one refused (is_error) with its result 300 s after the call (T10 300 s). Transcript 2 = 10:10:00 .. 10:20:00, BAR_USAGE_A (4.2 usd).
+# Two transcripts: T1 = 10:00 .. 10:20 = 1200 s, X1 = 1.5 + 4.2 = 5.7 usd, T10 = 300 + 600 s.
+def bf_transcript(path: Path, start="10:00:00", end="10:05:00", usage=BAR_USAGE_B, mid="m1", model=BAR_MODEL, stamps=True) -> Path:
+    ts = (lambda t: {"timestamp": f"2026-11-01T{t}Z"}) if stamps else (lambda t: {})
+    rows = [{"type": "assistant", "uuid": f"u-{mid}", **ts(start), "message": {"id": mid, "model": model, "usage": usage, "content": [
+                {"type": "tool_use", "id": f"{mid}-r", "name": "Read", "input": {"file_path": "x.txt"}},
+                {"type": "tool_use", "id": f"{mid}-b", "name": "Bash", "input": {"command": "ls"}}]}},
+            {"type": "user", "uuid": f"r-{mid}", **ts(end), "message": {"content": [
+                {"type": "tool_result", "tool_use_id": f"{mid}-r", "content": "ok"},
+                {"type": "tool_result", "tool_use_id": f"{mid}-b", "content": "denied", "is_error": True}]}}]
+    path.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    return path
+
+
+def bf_cli(*argv):
+    """(code, stdout, stderr) of `scoreboard_bar.main(argv)`."""
+    import io
+    import contextlib
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        try:
+            code = _sbb().main([str(a) for a in argv])
+        except SystemExit as stop:
+            code = stop.code
+    return code, out.getvalue(), err.getvalue()
+
+
+def bf_bar(tmp: Path, *extra, model=BAR_MODEL, stand="mybooks", story="add-to-cart"):
+    """The command line `bar` into tmp/out; returns (code, stdout, stderr)."""
+    return bf_cli("bar", "--stand", stand, "--story", story, "--model", model, "--out-root", tmp / "out", *extra)
+
+
+def bf_file(tmp: Path, model=BAR_MODEL) -> Path:
+    return tmp / "out" / "mybooks" / "add-to-cart" / f"bar-{model}.yaml"
+
+
+def bf_written(tmp: Path) -> list:
+    return sorted(str(p) for p in (tmp / "out").rglob("*") if p.is_file()) if (tmp / "out").exists() else []
+
+
+def bf_judgment_pair(tmp: Path, free_found=(2,)) -> tuple:
+    """(truth, judgment): arm X is the free arm (key), it found the cards in `free_found`; the verdict vocabulary is declared by `sb_rows_file`."""
+    rows = [{"card": i, "arm": arm, "verdict": "found" if (arm == "X" and i in free_found) else "missed", "unsure": False}
+            for arm in ("X", "Y") for i in (1, 2, 3)]
+    return sb_truth(tmp / "truth.yaml"), sb_judgment(tmp / "judgment.yaml", rows)
+
+
+SB_BAR_FILE_CASES = [(n,) for n in (
+    "one session: X1 1.5 re-priced, T1 300 s, T10 300 s, turns 7, tool calls by name, the host figure beside and not in X1, no machine path",
+    "two transcripts are summed: X1 5.7, T1 from the first event of the earliest to the last of the latest 1200 s, T10 900 s",
+    "a transcript that is absent: X1 and T1 and T10 unknown with the reason, the file is still written, the model is not verified",
+    "an empty transcript: X1 and T1 unknown, the file is still written",
+    "a transcript that cannot be read (not UTF-8): unknown, never 0, the file is still written",
+    "one of two transcripts absent: unknown, not the other transcript's figures",
+    "no transcript given at all: unknown rows, the file says the model was not verified",
+    "a result with no total_cost_usd: the host figure is unknown, X1 and turns are untouched",
+    "a result with no num_turns, or a result file that is absent: turns unknown, X1 untouched",
+    "no readable timestamp: T1 unknown, never 0, X1 still measured",
+    "the model id is not a message.model of the transcript: refused naming both, nothing written",
+    "--model with a slash, a backslash, .. or empty: refused as not a plain name, nothing written",
+    "--stand or --story with a slash, .. or empty: refused, nothing written",
+    "--truth without --judgment, or the reverse: refused naming the missing one, nothing written",
+    "a judgment that K1 refuses: its text passed through, nothing written",
+    "a judgment of the free arm: truth_version and the QA rows come through read_judgment and quality_rows",
+    "no judgment: the QA rows are unknown and truth_version is null",
+    "every row the free arm has no part for is n/a with the reason, never 0",
+    "an existing bar file is replaced by the same write, the line says replaced, no second file",
+    "the written file is read back by assemble --bar and compare --release (_bars) without refusal")]
+
+
+def sb_bar_file_case(tmp: Path, case) -> None:
+    name = case[0]
+    a = bf_transcript(tmp / "a.jsonl")
+    b = bf_transcript(tmp / "b.jsonl", "10:10:00", "10:20:00", BAR_USAGE_A, "m2")
+    log = bar_result(tmp / "free-1.log")
+    rows_doc = _sb().load_rows()
+
+    def written(*extra, **kw):
+        code, printed, err = bf_bar(tmp, *extra, **kw)
+        assert code == 0, (code, printed, err)
+        return sb_yaml(bf_file(tmp, kw.get("model", BAR_MODEL)))
+
+    def refused(words, *extra, **kw):
+        code, printed, err = bf_bar(tmp, *extra, **kw)
+        assert code == 2 and "RED:" in err and words in err, (code, printed, err[:300])
+        assert bf_written(tmp) == [], ("a refusal wrote", bf_written(tmp))
+
+    if name.startswith("one session"):
+        doc = written("--transcript", a, "--result", log)
+        assert doc["schema"] == "scoreboard/1" and doc["run"]["arm"] == "free" and doc["run"]["run_class"] == "live", doc["run"]
+        assert doc["run"]["models"] == [BAR_MODEL] and doc["run"]["model_verified"] is True, doc["run"]
+        r = doc["rows"]
+        assert (r["X1"]["state"], r["X1"]["value"]) == ("measured", BAR_B), r["X1"]
+        assert (r["T1"]["state"], r["T1"]["value"]) == ("measured", 300.0), r["T1"]
+        assert (r["T10"]["state"], r["T10"]["value"]) == ("measured", 300.0), r["T10"]
+        free = doc["free"]
+        assert free["turns"]["value"] == 7 and free["tool_calls"]["by_name"] == {"Bash": 1, "Read": 1}, free
+        assert free["refused_calls"]["n"] == 1 and free["host_total_usd"] == BAR_HOST, free
+        assert r["X1"]["value"] != BAR_HOST
+        assert str(tmp) not in bf_file(tmp).read_text(encoding="utf-8"), "a machine path was written (AR-4)"
+    elif name.startswith("two transcripts"):
+        doc = written("--transcript", a, "--transcript", b)
+        r = doc["rows"]
+        assert (r["X1"]["state"], r["X1"]["value"]) == ("measured", BAR_SUM), r["X1"]
+        assert r["T1"]["value"] == 1200.0 and r["T10"]["value"] == 900.0, (r["T1"], r["T10"])
+        assert doc["free"]["tool_calls"]["by_name"] == {"Bash": 2, "Read": 2}, doc["free"]
+    elif name.startswith("a transcript that is absent"):
+        doc = written("--transcript", tmp / "gone.jsonl")
+        r = doc["rows"]
+        for rid in ("X1", "T1", "T10"):
+            assert r[rid]["state"] == "unknown" and r[rid]["value"] is None and "absent" in r[rid]["why"], (rid, r[rid])
+        assert doc["run"]["model_verified"] is False and "not verified" in r["X1"]["why"], doc["run"]
+        assert doc["free"]["tool_calls"]["state"] == "unknown" and doc["free"]["refused_calls"]["n"] is None
+    elif name.startswith("an empty transcript"):
+        (tmp / "empty.jsonl").write_text("", encoding="utf-8")
+        r = written("--transcript", tmp / "empty.jsonl")["rows"]
+        assert r["X1"]["state"] == "unknown" and r["T1"]["state"] == "unknown" and r["T1"]["value"] is None, r
+    elif name.startswith("a transcript that cannot be read"):
+        (tmp / "bad.jsonl").write_bytes(b"\xff\xfe\x00 not a transcript\n")
+        r = written("--transcript", tmp / "bad.jsonl", "--result", log)["rows"]
+        assert r["X1"]["state"] == "unknown" and r["X1"]["value"] is None and r["T10"]["value"] is None, r
+    elif name.startswith("one of two transcripts absent"):
+        doc = written("--transcript", a, "--transcript", tmp / "gone.jsonl")
+        r = doc["rows"]
+        assert r["X1"]["state"] == "unknown" and r["T1"]["state"] == "unknown" and r["T10"]["state"] == "unknown", r
+        assert doc["free"]["tool_calls"]["by_name"] is None, doc["free"]
+    elif name.startswith("no transcript given"):
+        doc = written()
+        assert doc["run"]["model_verified"] is False and "not verified" in doc["run"]["model_note"], doc["run"]
+        assert doc["rows"]["X1"]["state"] == "unknown" and "not verified" in doc["rows"]["X1"]["why"], doc["rows"]["X1"]
+    elif name.startswith("a result with no total_cost_usd"):
+        (tmp / "free-2.log").write_text(json.dumps({"type": "result", "num_turns": 4}) + "\n", encoding="utf-8")
+        doc = written("--transcript", a, "--result", tmp / "free-2.log")
+        assert doc["free"]["host_total_usd"] == "unknown" and doc["free"]["turns"]["value"] == 4, doc["free"]
+        assert doc["rows"]["X1"]["value"] == BAR_B, doc["rows"]["X1"]
+    elif name.startswith("a result with no num_turns"):
+        (tmp / "free-2.log").write_text(json.dumps({"type": "result", "total_cost_usd": 2.0}) + "\n", encoding="utf-8")
+        for result in (tmp / "free-2.log", tmp / "no-such.log"):
+            doc = written("--transcript", a, "--result", result)
+            assert doc["free"]["turns"]["state"] == "unknown" and doc["free"]["turns"]["value"] is None, doc["free"]
+            assert doc["rows"]["X1"]["value"] == BAR_B, doc["rows"]["X1"]
+    elif name.startswith("no readable timestamp"):
+        bf_transcript(tmp / "nots.jsonl", stamps=False)
+        r = written("--transcript", tmp / "nots.jsonl")["rows"]
+        assert r["T1"]["state"] == "unknown" and r["T1"]["value"] is None and "timestamp" in r["T1"]["why"], r["T1"]
+        assert r["X1"]["state"] == "measured", r["X1"]
+    elif name.startswith("the model id is not"):
+        refused("claude-opus-5", "--transcript", a, model="claude-opus-5")
+        code, _o, err = bf_bar(tmp, "--transcript", a, model="claude-opus-5")
+        assert "claude-opus-5" in err and BAR_MODEL in err, err
+    elif name.startswith("--model with"):
+        for bad in ("a/b", "a\\b", "..", "a..b", ""):
+            refused("not a plain name", "--transcript", a, model=bad)
+    elif name.startswith("--stand or --story"):
+        for bad in ("a/b", "..", ""):
+            refused("not a plain name", "--transcript", a, stand=bad)
+            refused("not a plain name", "--transcript", a, story=bad)
+    elif name.startswith("--truth without"):
+        truth, judgment = bf_judgment_pair(tmp)
+        refused("--judgment is missing", "--transcript", a, "--truth", truth)
+        refused("--truth is missing", "--transcript", a, "--judgment", judgment)
+    elif name.startswith("a judgment that K1 refuses"):
+        truth, _j = bf_judgment_pair(tmp)
+        judgment = sb_judgment(tmp / "bad-judgment.yaml", sb_good_rows()[:-1] + [{"card": 9, "arm": "X", "verdict": "found"}])
+        refused("card 9 is not in truth version v1", "--transcript", a, "--truth", truth, "--judgment", judgment)
+    elif name.startswith("a judgment of the free arm"):
+        truth, judgment = bf_judgment_pair(tmp)
+        path, text, _notes = _sbb().bar_doc("mybooks", "add-to-cart", BAR_MODEL, [a], [], None, truth, judgment, None, sb_rows_file(tmp), tmp / "out")
+        doc = _sb().yaml.safe_load(text)
+        assert doc["run"]["truth_version"] == "v1", doc["run"]
+        sb = _sb()
+        want = sb.quality_rows(sb.load_rows(sb_rows_file(tmp)), sb.read_judgment(judgment, truth, "free", {"found": "found", "missed": "missed"}), "")
+        assert doc["rows"]["QA1"]["state"] == "measured" and doc["rows"]["QA1"]["value"] == want["QA1"]["value"] == 1, (doc["rows"]["QA1"], want)
+        assert path == bf_file(tmp), path
+    elif name.startswith("no judgment"):
+        doc = written("--transcript", a)
+        assert doc["run"]["truth_version"] is None and doc["rows"]["QA1"]["state"] == "unknown" and doc["rows"]["QA1"]["value"] is None, doc["rows"]["QA1"]
+    elif name.startswith("every row the free arm"):
+        doc = written("--transcript", a)
+        assert list(doc["rows"]) == list(rows_doc["rows"]), "a row of rows.json is missing from the bar file"
+        own = {"X1", "T1", "T10"} | {rid for rid, s in rows_doc["rows"].items() if "quality" in s}
+        for rid, row in doc["rows"].items():
+            if rid not in own:
+                assert row == {"name": rows_doc["rows"][rid]["name"], "value": None, "unit": rows_doc["rows"][rid]["unit"], "source": "none",
+                               "state": "n/a", "why": "no such part in a free agent"}, (rid, row)
+    elif name.startswith("an existing bar file"):
+        code, first, _e = bf_bar(tmp, "--transcript", a)
+        assert code == 0 and first.startswith("wrote "), first
+        before = bf_file(tmp).read_text(encoding="utf-8")
+        code, second, _e = bf_bar(tmp, "--transcript", a, "--transcript", b)
+        assert code == 0 and second.startswith("replaced "), second
+        assert bf_file(tmp).read_text(encoding="utf-8") != before and len(bf_written(tmp)) == 1, bf_written(tmp)
+    elif name.startswith("the written file is read back"):
+        written("--transcript", a, "--result", log)
+        task = sb_run(tmp)
+        code, printed, err = sb_cli("assemble", "--task-root", task, "--stand", "mybooks", "--story", "add-to-cart", "--arm", "factory",
+                                    "--version", "9.9.9", "--bar", bf_file(tmp), "--out-root", tmp / "out2")
+        assert code == 0 and "RED" not in err, (code, printed, err)
+        notes = []
+        found = _sbb()._bars(tmp / "out", "mybooks", "add-to-cart", notes)
+        assert [(label, model) for label, model, _doc in found] == [(f"mybooks/add-to-cart/bar-{BAR_MODEL}.yaml", BAR_MODEL)] and notes == [], (found, notes)
+        lines = _sbb().release_lines("9.9.9", _sb().load_norms(), tmp / "out")
+        assert not any("note" in line for line in lines), lines
+    else:
+        raise AssertionError("no such case: " + name)
+
+
+RC_VERSION, RC_PAIR = "1.1.0", "claude-sonnet-5-5/add-to-cart"
+RC_OK = "release: ok -- Q1 " + RC_PAIR + " not worse"
+RC_NEED = f"release: owner's word needed -- Q1 {RC_PAIR} was 1 (1.0.0) now 3 (1.1.0)"
+RC_BAR = "mybooks/add-to-cart/bar-claude-opus-5.yaml"
+RC_OQ2 = f"release: owner's word needed -- Q1 ratcheted, new bar {RC_BAR} is better than the factory"
+
+
+def rc_norms(tmp: Path, rows=None, bar_changes=None, raw=None, schema="norms/2") -> Path:
+    doc = {"schema": schema, "rows": rows if rows is not None else {}}
+    if bar_changes is not None:
+        doc["bar_changes"] = bar_changes
+    path = tmp / "norms.json"
+    path.write_text(raw if raw is not None else json.dumps(doc), encoding="utf-8")
+    return path
+
+
+def rc_pass(row="Q1", version=RC_VERSION, pair=RC_PAIR, word="owner, 14.11.2026"):
+    return {row: {"worsened_passes": [{"version": version, "pair": pair, "word": word, "quote": "ship it"}]}}
+
+
+def rc_run(tmp: Path, lines, norms, version=RC_VERSION):
+    code, printed = _sbb().release_check(lines, version, norms)
+    return code, "\n".join(printed)
+
+
+def sb_release_case(tmp: Path, case) -> None:
+    name, bar = case[0], _sbb()
+    absent = tmp / "none.json"
+    if name == "all lines ok: exit 0":
+        code, text = rc_run(tmp, [RC_OK, RC_OK.replace("Q1", "Q2")], absent)
+        assert code == 0 and text.endswith("release-check: ok"), text
+    elif name == "one owner's-word-needed line with no worsened_passes: exit 1 with the list":
+        code, text = rc_run(tmp, [RC_OK, RC_NEED], rc_norms(tmp, rows={"Q1": {}}))
+        assert code == 1 and f"[Q1 {RC_PAIR} was 1" in text and "needed for 1 line(s)" in text, text
+    elif name == "worsened_passes of the same row, version and pair: exit 0":
+        code, text = rc_run(tmp, [RC_NEED], rc_norms(tmp, rows=rc_pass()))
+        assert code == 0 and "owner's word recorded" in text and "owner, 14.11.2026" in text, text
+    elif name == "worsened_passes of ANOTHER pair: exit 1":
+        code, text = rc_run(tmp, [RC_NEED], rc_norms(tmp, rows=rc_pass(pair="claude-opus-5/add-to-cart")))
+        assert code == 1, text
+    elif name == "worsened_passes of the same pair for ANOTHER version: exit 1":
+        code, text = rc_run(tmp, [RC_NEED], rc_norms(tmp, rows=rc_pass(version="1.0.9")))
+        assert code == 1, text
+    elif name == "worsened_passes with an empty word: exit 1":
+        code, text = rc_run(tmp, [RC_NEED], rc_norms(tmp, rows=rc_pass(word="  ")))
+        assert code == 1, text
+    elif name == "worsened_passes of ANOTHER row, same version and pair: exit 1":
+        code, text = rc_run(tmp, [RC_NEED], rc_norms(tmp, rows=rc_pass(row="Q2")))
+        assert code == 1, text
+    elif name == "two needed lines, only one has its pass: exit 1 naming the other":
+        other = RC_NEED.replace("Q1", "Q2")
+        code, text = rc_run(tmp, [RC_NEED, other], rc_norms(tmp, rows=rc_pass()))
+        assert code == 1 and "[Q2 " in text and "[Q1 " not in text.split("release-check:")[1], text
+    elif name == "a warning line alone: exit 0 and the warning is printed":
+        warn = "release: warning -- Q3 red: 9 against norm 5"
+        code, text = rc_run(tmp, [warn, RC_OK], absent)
+        assert code == 0 and warn in text, text
+    elif name == "'no previous release' alone: exit 0 (no ratcheted row exists)":
+        code, text = rc_run(tmp, ["release: no previous release -- ratchet not judged"], absent)
+        assert code == 0, text
+    elif name == "no lines at all: a named error, never a pass":
+        for empty in ([], ["", "  "]):
+            try:
+                bar.release_check(empty, RC_VERSION, absent)
+            except _sb().Refusal as exc:
+                assert "no `release:` line" in str(exc), exc
+            else:
+                raise AssertionError("an empty input passed")
+    elif name == "a needed line whose shape cannot be matched stays open: exit 1":
+        code, text = rc_run(tmp, ["release: owner's word needed -- something unexpected"], rc_norms(tmp, rows=rc_pass()))
+        assert code == 1, text
+    elif name == "OQ2: a new bar strictly better than the factory (lower is better) gives the line":
+        assert bar.bar_better_line("Q1", RC_BAR, "lower", 10.0, 7.0) == RC_OQ2
+        assert bar.bar_better_line("Q1", RC_BAR, "higher", 3, 4) == RC_OQ2
+        assert bar.bar_better_line("X1", RC_BAR, "lower", {"low": 5.0, "high": 6.0}, 4.0) == RC_OQ2.replace("Q1", "X1")
+    elif name == "OQ2: a new bar equal to or worse than the factory gives no line; an overlapping range is not decided and gives the line":
+        assert bar.bar_better_line("Q1", RC_BAR, "lower", 10.0, 10.0) is None
+        assert bar.bar_better_line("Q1", RC_BAR, "lower", 10.0, 12.0) is None
+        assert bar.bar_better_line("X1", RC_BAR, "lower", {"low": 5.0, "high": 6.0}, {"low": 7.0, "high": 8.0}) is None
+        assert bar.bar_better_line("X1", RC_BAR, "lower", {"low": 5.0, "high": 6.0}, {"low": 5.5, "high": 7.0}, "range") == RC_OQ2.replace("Q1", "X1")
+        assert bar.bar_better_line("X1", RC_BAR, "lower", {"value": 6.0, "note": "one source"}, 3.0, "one_source") == RC_OQ2.replace("Q1", "X1")
+    elif name == "OQ2: a value that is not a number, or no direction, is a named refusal, never 'not better'":
+        for args in (("lower", None, 3), ("lower", 3, "x"), (None, 3, 4), ("lower", True, 4)):
+            try:
+                bar.bar_better_line("Q1", RC_BAR, *args)
+            except _sb().Refusal as exc:
+                assert "Q1" in str(exc), exc
+            else:
+                raise AssertionError(f"{args} passed")
+    elif name == "OQ2: the line alone and no answer in norms.json: exit 1":
+        code, text = rc_run(tmp, [RC_OQ2], rc_norms(tmp, bar_changes=[]))
+        assert code == 1 and "ratcheted, new bar" in text, text
+    elif name == "OQ2: bar_changes decision keep for that bar: exit 0":
+        code, text = rc_run(tmp, [RC_OQ2], rc_norms(tmp, bar_changes=[{"bar": RC_BAR, "word": "owner, 14.11.2026", "decision": "keep"}]))
+        assert code == 0 and "owner's word recorded" in text, text
+    elif name == "OQ2: bar_changes decision lift for that bar: exit 0":
+        code, text = rc_run(tmp, [RC_OQ2], rc_norms(tmp, bar_changes=[{"bar": RC_BAR, "word": "owner, 14.11.2026", "decision": "lift"}]))
+        assert code == 0, text
+    elif name == "OQ2: bar_changes decision 'maybe' is ignored and named: exit 1":
+        code, text = rc_run(tmp, [RC_OQ2], rc_norms(tmp, bar_changes=[{"bar": RC_BAR, "word": "owner", "decision": "maybe"}]))
+        assert code == 1 and "bar_changes entry 0 ignored" in text, text
+    elif name == "OQ2: bar_changes without a word is ignored and named: exit 1":
+        code, text = rc_run(tmp, [RC_OQ2], rc_norms(tmp, bar_changes=[{"bar": RC_BAR, "word": "", "decision": "keep"}]))
+        assert code == 1 and "bar_changes entry 0 ignored" in text, text
+    elif name == "OQ2: bar_changes for ANOTHER bar file: exit 1":
+        code, text = rc_run(tmp, [RC_OQ2], rc_norms(tmp, bar_changes=[{"bar": "mybooks/add-to-cart/bar-other.yaml", "word": "owner", "decision": "keep"}]))
+        assert code == 1, text
+    elif name == "norms.json absent: the keys are read as empty, exit 1 on a needed line":
+        code, text = rc_run(tmp, [RC_NEED, RC_OQ2], absent)
+        assert code == 1, text
+    elif name == "norms.json of the older shape (no bar_changes, no rows): read as empty, exit 1":
+        code, text = rc_run(tmp, [RC_OQ2], rc_norms(tmp))
+        assert code == 1, text
+    elif name == "norms.json that is not JSON: a named error, never exit 0":
+        for raw in ("{not json", "[]", ""):
+            try:
+                bar.release_check([RC_OK], RC_VERSION, rc_norms(tmp, raw=raw))
+            except _sb().Refusal as exc:
+                assert "norms file" in str(exc), exc
+            else:
+                raise AssertionError(f"{raw!r} passed")
+    elif name == "norms.json whose bar_changes is not a list: a named error":
+        try:
+            bar.release_check([RC_OK], RC_VERSION, rc_norms(tmp, raw=json.dumps({"schema": "norms/2", "rows": {}, "bar_changes": {}})))
+        except _sb().Refusal as exc:
+            assert "bar_changes" in str(exc), exc
+        else:
+            raise AssertionError("a bad bar_changes passed")
+    elif name == "limit: 20 open lines are all named":
+        code, text = rc_run(tmp, [RC_NEED.replace("Q1", f"Q{i}") for i in range(20)], absent)
+        assert code == 1 and "more" not in text.split("release-check:")[-1] and "[Q19 " in text.split("release-check:")[-1], text
+    elif name == "limit: 21 open lines name 20 and count one more":
+        code, text = rc_run(tmp, [RC_NEED.replace("Q1", f"Q{i}") for i in range(21)], absent)
+        tail = text.split("release-check:")[-1]
+        assert code == 1 and "21 line(s)" in tail and "... and 1 more" in tail and "[Q20 " not in tail, text
+    elif name == "10,000 ok lines: exit 0":
+        code, text = rc_run(tmp, [RC_OK] * 10000 + ["release: warning -- é" * 3], absent)
+        assert code == 0, text[-200:]
+    elif name == "command line: exit codes 0, 1 and 2 through scoreboard.py release-check":
+        ok, need = tmp / "ok.txt", tmp / "need.txt"
+        ok.write_text(RC_OK + "\n", encoding="utf-8")
+        need.write_text(RC_OK + "\n" + RC_NEED + "\n", encoding="utf-8")
+        norms = rc_norms(tmp, rows=rc_pass())
+        assert sb_cli("release-check", "--version", RC_VERSION, "--lines", ok, "--norms", absent)[0] == 0
+        code, printed, _e = sb_cli("release-check", "--version", "1.0.9", "--lines", need, "--norms", norms)
+        assert code == 1 and "owner's word needed for 1 line(s)" in printed, printed
+        assert sb_cli("release-check", "--version", RC_VERSION, "--lines", need, "--norms", norms)[0] == 0
+        code, _o, err = sb_cli("release-check", "--version", RC_VERSION, "--lines", tmp / "no-such.txt", "--norms", norms)
+        assert code == 2 and "RED:" in err, err
+    else:
+        raise AssertionError("no such case: " + name)
+
+
+def _sb_names(*names):
+    return [(n,) for n in names]
+
+
+SB_RELEASE_CASES = _sb_names(
+    "all lines ok: exit 0", "one owner's-word-needed line with no worsened_passes: exit 1 with the list",
+    "worsened_passes of the same row, version and pair: exit 0", "worsened_passes of ANOTHER pair: exit 1",
+    "worsened_passes of the same pair for ANOTHER version: exit 1", "worsened_passes with an empty word: exit 1",
+    "worsened_passes of ANOTHER row, same version and pair: exit 1", "two needed lines, only one has its pass: exit 1 naming the other",
+    "a warning line alone: exit 0 and the warning is printed", "'no previous release' alone: exit 0 (no ratcheted row exists)",
+    "no lines at all: a named error, never a pass", "a needed line whose shape cannot be matched stays open: exit 1",
+    "norms.json absent: the keys are read as empty, exit 1 on a needed line",
+    "norms.json of the older shape (no bar_changes, no rows): read as empty, exit 1", "norms.json that is not JSON: a named error, never exit 0",
+    "norms.json whose bar_changes is not a list: a named error", "limit: 20 open lines are all named",
+    "limit: 21 open lines name 20 and count one more", "10,000 ok lines: exit 0",
+    "command line: exit codes 0, 1 and 2 through scoreboard.py release-check")
+
+SB_OQ2_CASES = _sb_names(
+    "OQ2: a new bar strictly better than the factory (lower is better) gives the line",
+    "OQ2: a new bar equal to or worse than the factory gives no line; an overlapping range is not decided and gives the line",
+    "OQ2: a value that is not a number, or no direction, is a named refusal, never 'not better'",
+    "OQ2: the line alone and no answer in norms.json: exit 1", "OQ2: bar_changes decision keep for that bar: exit 0",
+    "OQ2: bar_changes decision lift for that bar: exit 0", "OQ2: bar_changes decision 'maybe' is ignored and named: exit 1",
+    "OQ2: bar_changes without a word is ignored and named: exit 1", "OQ2: bar_changes for ANOTHER bar file: exit 1")
+
+
+# --- P1-v N6b: norms/2, the ratchet check (K5), `compare --release` (B2) and the direct road of release-check ----------------------------
+REL_VER, REL_FM, REL_STAND, REL_STORY = "1.1.0", "factory-model-a", "mybooks", "add-to-cart"
+REL_BAR1 = f"{REL_STAND}/{REL_STORY}/bar-claude-sonnet-5-5.yaml"
+REL_BAR2 = f"{REL_STAND}/{REL_STORY}/bar-claude-opus-5.yaml"
+REL_OQ2 = f"release: owner's word needed -- Q1 ratcheted, new bar {REL_BAR2} is better than the factory"
+REL_PAIR2 = f"claude-opus-5/{REL_STORY}"
+
+
+def rel_el(value=10, factory_model=REL_FM, since="1.0.0", pair=RC_PAIR, bar=REL_BAR1):
+    return {"pair": pair, "factory_model": factory_model, "since": since, "value": value, "bar": bar}
+
+
+def rel_board(tmp: Path, row=None, version=REL_VER, models=(REL_FM,), run_class="live", norms=None, passes=None, rows=None, stamp="20261110-1000"):
+    import yaml
+    folder = tmp / "sb" / REL_STAND / REL_STORY
+    folder.mkdir(parents=True, exist_ok=True)
+    doc = {"schema": "scoreboard/1", "run": {"run_class": run_class, "arm": "factory", "models": list(models)},
+           "rows": rows if rows is not None else ({"Q1": row} if row is not None else {}), "norms": norms or {}, "passes": passes or []}
+    (folder / f"{stamp}-{version}-factory.yaml").write_text(yaml.safe_dump(doc), encoding="utf-8")
+
+
+def rel_bar(tmp: Path, model: str, value, state="measured"):
+    import yaml
+    folder = tmp / "sb" / REL_STAND / REL_STORY
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"bar-{model}.yaml").write_text(yaml.safe_dump({"schema": "scoreboard/1", "run": {"arm": "free"},
+                                                              "rows": {"Q1": {"state": state, "value": value}}}), encoding="utf-8")
+
+
+def rel_norms(tmp: Path, ratchets=(), better="lower", raises=(), bar_changes=(), passes=(), name="norms.json", row_extra=None) -> Path:
+    row = {"norm": 40, "unit": "questions", "better": better, "ratchets": list(ratchets), "raises": list(raises), "worsened_passes": list(passes)}
+    row.update(row_extra or {})
+    path = tmp / name
+    path.write_text(json.dumps({"schema": "norms/2", "rows": {"Q1": row}, "bar_changes": list(bar_changes)}), encoding="utf-8")
+    return path
+
+
+def rel_lines(tmp: Path, norms: Path, version=REL_VER):
+    return _sbb().release_lines(version, _sb().load_norms(norms), tmp / "sb")
+
+
+def _need(text, factory_model=REL_FM):
+    return f"release: owner's word needed -- Q1 {RC_PAIR} {text} [factory model {factory_model}]"
+
+
+REL_NOLIVE = f"release: warning -- no live factory scoreboard of {REL_VER}: nothing judged"
+
+
+def _m(value):
+    return {"state": "measured", "value": value}
+
+
+RNG = lambda low, high: {"low": low, "high": high}      # noqa: E731
+SB_REL_JUDGE_CASES = [
+    # (case id, the scoreboard row of the release, the ratchet's value, better, the ONE line expected)
+    ("worse: a measured value above the ratchet (lower is better)", _m(12), 10, "lower", _need("was 10 (1.0.0) now 12 (1.1.0)")),
+    ("not worse: equal to the ratchet", _m(10), 10, "lower", RC_OK),
+    ("not worse: better than the ratchet", _m(8), 10, "lower", RC_OK),
+    ("higher is better: below the ratchet is worse", _m(8), 10, "higher", _need("was 10 (1.0.0) now 8 (1.1.0)")),
+    ("higher is better: above the ratchet is not worse", _m(11), 10, "higher", RC_OK),
+    ("range now overlapping the ratchet: not decided: range", _m(RNG(9, 11)), 10, "lower", _need("not decided: range (9..11)")),
+    ("range now with low_now > high_prev: worse", _m(RNG(11, 13)), 10, "lower", _need("was 10 (1.0.0) now 11..13 (1.1.0)")),
+    ("range now with high_now <= low_prev: not worse", _m(RNG(7, 10)), 10, "lower", RC_OK),
+    ("previous range, now above its high end: worse", _m(13), RNG(8, 12), "lower", _need("was 8..12 (1.0.0) now 13 (1.1.0)")),
+    ("previous range, now at its low end: not worse", _m(8), RNG(8, 12), "lower", RC_OK),
+    ("previous range, now inside it: not decided: range", _m(10), RNG(8, 12), "lower", _need("not decided: range (10)")),
+    ("ranges that overlap at the edge: not decided: range", _m(RNG(12, 14)), RNG(8, 12), "lower", _need("not decided: range (12..14)")),
+    ("range against range, now wholly above: worse", _m(RNG(13, 15)), RNG(8, 12), "lower", _need("was 8..12 (1.0.0) now 13..15 (1.1.0)")),
+    ("range against range, now wholly below: not worse", _m(RNG(5, 8)), RNG(8, 12), "lower", RC_OK),
+    ("one_source above the ratchet: worse, compared as a value", {"state": "one_source", "value": 12}, 10, "lower", _need("was 10 (1.0.0) now 12 (1.1.0)")),
+    ("at_least above the ratchet: worse", {"state": "at_least", "value": 11}, 10, "lower", _need("was 10 (1.0.0) now at least 11 (1.1.0)")),
+    # the shapes `assemble` writes (amendment B1): {at_least, note}, {low, high, note}, {value, note}
+    ("X1 at_least {at_least, note} above the ratchet: worse", {"state": "at_least", "value": {"at_least": 11, "note": "n"}}, 10, "lower",
+     _need("was 10 (1.0.0) now at least 11 (1.1.0)")),
+    ("X1 at_least {at_least, note} below the ratchet: not decided: lower bound", {"state": "at_least", "value": {"at_least": 9, "note": "n"}}, 10, "lower",
+     _need("not decided: lower bound (9)")),
+    ("X1 range {low, high, note} overlapping the ratchet: not decided: range", {"state": "range", "value": {"low": 9, "high": 11, "note": "n"}}, 10, "lower",
+     _need("not decided: range (9..11)")),
+    ("X1 range {low, high, note} wholly above the ratchet: worse", {"state": "range", "value": {"low": 11, "high": 13, "note": "n"}}, 10, "lower",
+     _need("was 10 (1.0.0) now 11..13 (1.1.0)")),
+    ("X1 one_source {value, note} below the ratchet: not worse, compared as a value", {"state": "one_source", "value": {"value": 8, "note": "one source"}}, 10,
+     "lower", RC_OK),
+    ("X1 one_source {value, note} above the ratchet: worse", {"state": "one_source", "value": {"value": 12, "note": "one source"}}, 10, "lower",
+     _need("was 10 (1.0.0) now 12 (1.1.0)")),
+    ("at_least below the ratchet: not decided: lower bound", {"state": "at_least", "value": 9}, 10, "lower", _need("not decided: lower bound (9)")),
+    ("at_least when higher is better: never decided", {"state": "at_least", "value": 20}, 10, "higher", _need("not decided: lower bound (20)")),
+    ("state unknown: unknown: <why>", {"state": "unknown", "value": None, "why": "no price"}, 10, "lower", _need("unknown: no price")),
+    ("state n/a: unknown with the reason", {"state": "n/a", "value": None, "why": "stub roles"}, 10, "lower", _need("unknown: stub roles")),
+    ("the scoreboard has no such row: unknown", None, 10, "lower", _need("unknown: the scoreboard has no row Q1")),
+    ("a value that is not a number: unknown", _m("x"), 10, "lower", _need("unknown: the value of Q1 is not a number")),
+]
+
+
+def sb_rel_judge_case(tmp: Path, case) -> None:
+    _name, row, prev, better, want = case
+    rel_board(tmp, rows={"Q1": row} if row is not None else {})
+    assert rel_lines(tmp, rel_norms(tmp, [rel_el(prev)], better)) == [want]
+
+
+def _cli_release(tmp, *extra, norms=None, version=REL_VER):
+    return sb_cli("compare", "--release", version, "--norms", norms or rel_norms(tmp, [rel_el()]), "--root", tmp / "sb", *extra)
+
+
+def _check_release(tmp, norms, *extra, version=REL_VER):
+    return sb_cli("release-check", "--release", version, "--norms", norms, "--root", tmp / "sb", *extra)
+
+
+def sb_rel_case(tmp: Path, case) -> None:
+    name = case[0]
+    if name == "no scoreboard for the pair: no value in this release":
+        assert rel_lines(tmp, rel_norms(tmp, [rel_el()])) == [REL_NOLIVE, _need("no value in this release (no scoreboard for the pair)")]
+    elif name == "a scoreboard of ANOTHER version only: no value in this release":
+        rel_board(tmp, _m(1), version="1.0.9")
+        assert rel_lines(tmp, rel_norms(tmp, [rel_el()])) == [REL_NOLIVE, _need("no value in this release (no scoreboard for the pair)")]
+    elif name == "factory model differs: no comparable measurement":
+        rel_board(tmp, _m(1), models=("factory-model-b",))
+        assert rel_lines(tmp, rel_norms(tmp, [rel_el()])) == [_need("no comparable measurement (factory model factory-model-a vs factory-model-b)")]
+    elif name == "a dry run: no comparable measurement":
+        rel_board(tmp, _m(1), run_class="dry")
+        assert rel_lines(tmp, rel_norms(tmp, [rel_el()])) == [REL_NOLIVE, _need("no comparable measurement (run class dry vs live)")]
+    elif name == "two ratchet elements print exactly two element lines":
+        rel_board(tmp, _m(1))
+        lines = rel_lines(tmp, rel_norms(tmp, [rel_el(), rel_el(pair=REL_PAIR2, bar=REL_BAR2)]))
+        assert lines == [RC_OK, f"release: ok -- Q1 {REL_PAIR2} not worse"], lines
+    elif name == "no ratchet and no earlier release: 'no previous release', nothing else":
+        assert rel_lines(tmp, rel_norms(tmp)) == ["release: no previous release -- ratchet not judged", REL_NOLIVE]
+    elif name == "empty ratchets and a previous release: only warnings, release-check exit 0":
+        rel_board(tmp, _m(9), norms={"N-q": {"norm": {"kind": "limit", "row": "Q1", "op": "<=", "value": 5}, "verdict": "red"}})
+        rel_board(tmp, _m(3), version="1.0.9", stamp="20261001-1000")
+        norms = rel_norms(tmp)
+        assert rel_lines(tmp, norms) == ["release: warning -- Q1 red: 9 against norm 5"]
+        code, printed, _e = _check_release(tmp, norms)
+        assert code == 0 and "release: warning -- Q1 red: 9 against norm 5" in printed and printed.strip().endswith("release-check: ok"), printed
+    elif name == "a previous release and nothing to say: no line, release-check exit 0":
+        rel_board(tmp, _m(3), version="1.0.9", stamp="20261001-1000")
+        rel_board(tmp, _m(3))
+        assert rel_lines(tmp, rel_norms(tmp)) == []
+        assert _check_release(tmp, rel_norms(tmp))[0] == 0
+    elif name == "a red row that is ratcheted gets its element line, not a warning":
+        rel_board(tmp, _m(9), norms={"N-q": {"norm": {"kind": "limit", "row": "Q1", "op": "<=", "value": 5}, "verdict": "red"}})
+        assert rel_lines(tmp, rel_norms(tmp, [rel_el(10)])) == [RC_OK]
+    elif name == "a red norm the owner passed gives no warning":
+        rel_board(tmp, _m(9), norms={"N-q": {"norm": {"kind": "limit", "row": "Q1", "op": "<=", "value": 5}, "verdict": "red"}},
+                  passes=[{"norm": "N-q", "word": "owner", "date": "14.11.2026"}])
+        assert rel_lines(tmp, rel_norms(tmp)) == ["release: no previous release -- ratchet not judged"]
+    elif name == "a measured row better than its bar: can ratchet, with the bar file and its value":
+        rel_board(tmp, _m(4))
+        rel_bar(tmp, "claude-sonnet-5-5", 10)
+        assert rel_lines(tmp, rel_norms(tmp)) == ["release: no previous release -- ratchet not judged",
+                                                  f"can ratchet: Q1 {RC_PAIR} 4 better than bar {REL_BAR1} (10)"]
+    elif name == "a row equal to or worse than its bar is not proposed":
+        for value in (10, 12):
+            rel_board(tmp, _m(value))
+            rel_bar(tmp, "claude-sonnet-5-5", 10)
+            assert not [x for x in rel_lines(tmp, rel_norms(tmp)) if x.startswith("can ratchet")], value
+    elif name == "a row in the state one_source, range, at_least or unknown is never proposed":
+        rel_bar(tmp, "claude-sonnet-5-5", 10)
+        for row in ({"state": "one_source", "value": 4}, _m(RNG(3, 4)), {"state": "at_least", "value": 4}, {"state": "unknown", "value": None}):
+            rel_board(tmp, row)
+            assert not [x for x in rel_lines(tmp, rel_norms(tmp)) if x.startswith("can ratchet")], row
+    elif name == "a row already ratcheted for that pair is not proposed again":
+        rel_board(tmp, _m(4))
+        rel_bar(tmp, "claude-sonnet-5-5", 10)
+        assert not [x for x in rel_lines(tmp, rel_norms(tmp, [rel_el(10)])) if x.startswith("can ratchet")]
+    elif name == "a bar whose row is not measured is never beaten":
+        rel_board(tmp, _m(4))
+        rel_bar(tmp, "claude-sonnet-5-5", None, state="unknown")
+        assert not [x for x in rel_lines(tmp, rel_norms(tmp)) if x.startswith("can ratchet")]
+    elif name == "OQ2: a new bar better than the factory on a ratcheted row prints the line; release-check exit 1, with bar_changes exit 0":
+        rel_board(tmp, _m(6))
+        rel_bar(tmp, "claude-opus-5", 3)
+        norms = rel_norms(tmp, [rel_el(10)])
+        assert rel_lines(tmp, norms) == [RC_OK, REL_OQ2]
+        assert _check_release(tmp, norms)[0] == 1
+        answered = rel_norms(tmp, [rel_el(10)], bar_changes=[{"bar": REL_BAR2, "word": "owner, 14.11.2026", "decision": "keep"}], name="n2.json")
+        assert _check_release(tmp, answered)[0] == 0
+    elif name == "OQ2: a new bar worse than the factory gives no line":
+        rel_board(tmp, _m(6))
+        rel_bar(tmp, "claude-opus-5", 8)
+        assert REL_OQ2 not in rel_lines(tmp, rel_norms(tmp, [rel_el(10)]))
+    elif name == "compare --release exits 0 even when a line needs the owner's word":
+        rel_board(tmp, _m(12))
+        code, printed, _e = _cli_release(tmp)
+        assert code == 0 and printed.strip() == _need("was 10 (1.0.0) now 12 (1.1.0)"), printed
+    elif name == "release-check --release: a worse row without worsened_passes exit 1, with the same row, version and pair exit 0":
+        rel_board(tmp, _m(12))
+        code, printed, _e = _check_release(tmp, rel_norms(tmp, [rel_el()]))
+        assert code == 1 and "owner's word needed for 1 line(s)" in printed, printed
+        word = {"version": REL_VER, "pair": RC_PAIR, "word": "owner, 14.11.2026", "quote": "ship it"}
+        assert _check_release(tmp, rel_norms(tmp, [rel_el()], passes=[word], name="p.json"))[0] == 0
+    elif name == "release-check --release: a worsened_passes entry of another pair or another version does not cover the line":
+        rel_board(tmp, _m(12))
+        for change in ({"pair": REL_PAIR2}, {"version": "1.0.9"}, {"word": " "}):
+            word = dict({"version": REL_VER, "pair": RC_PAIR, "word": "owner, 14.11.2026", "quote": "x"}, **change)
+            assert _check_release(tmp, rel_norms(tmp, [rel_el()], passes=[word], name="p.json"))[0] == 1, change
+    elif name == "release-check --release: all ratchets not worse: exit 0":
+        rel_board(tmp, _m(9))
+        code, printed, _e = _check_release(tmp, rel_norms(tmp, [rel_el()]))
+        assert code == 0 and printed.strip().endswith("release-check: ok"), printed
+    elif name == "norms.json absent: compare --release and release-check --release exit 2 naming the path":
+        absent = tmp / "none.json"
+        for code, _o, err in (sb_cli("compare", "--release", REL_VER, "--norms", absent, "--root", tmp / "sb"), _check_release(tmp, absent)):
+            assert code == 2 and str(absent) in err, err
+    elif name == "norms.json that is not JSON: exit 2 naming the path":
+        bad = tmp / "bad.json"
+        bad.write_text("{not json", encoding="utf-8")
+        for code, _o, err in (_cli_release(tmp, norms=bad), _check_release(tmp, bad)):
+            assert code == 2 and str(bad) in err, err
+    elif name == "norms.json whose rows is a list: exit 2 naming the path":
+        bad = tmp / "list.json"
+        bad.write_text(json.dumps({"schema": "norms/2", "rows": []}), encoding="utf-8")
+        for code, _o, err in (_cli_release(tmp, norms=bad), _check_release(tmp, bad)):
+            assert code == 2 and str(bad) in err and "rows" in err, err
+    elif name == "a version that is empty or has path separators: exit 2, nothing read":
+        for version in ("", "../x", "a/b", "a\\b", ".."):
+            for code, printed, err in (_cli_release(tmp, version=version), _check_release(tmp, rel_norms(tmp), version=version)):
+                assert code == 2 and "version" in err and printed == "", (version, err)
+    elif name == "release-check takes exactly one input: both or neither is exit 2":
+        norms = rel_norms(tmp)
+        assert sb_cli("release-check", "--release", REL_VER, "--lines", tmp / "x.txt", "--norms", norms)[0] == 2
+        assert sb_cli("release-check", "--norms", norms)[0] == 2
+        assert sb_cli("release-check", "--lines", tmp / "x.txt", "--norms", norms)[0] == 2
+    elif name == "compare takes a scoreboard or --release, not both and not neither":
+        assert sb_cli("compare", "--norms", rel_norms(tmp))[0] == 2
+        assert sb_cli("compare", str(tmp / "x.yaml"), "--release", REL_VER, "--norms", rel_norms(tmp))[0] == 2
+    else:
+        sb_rel_fix_case(tmp, name)
+
+
+def _rel_two_rows_norms(tmp: Path) -> Path:
+    """Two ratcheted rows (Q1, Q2) whose ratchets name the same bar file."""
+    rows = {rid: {"norm": 40, "unit": "questions", "better": "lower", "ratchets": [rel_el(10)], "raises": [], "worsened_passes": []} for rid in ("Q1", "Q2")}
+    path = tmp / "two.json"
+    path.write_text(json.dumps({"schema": "norms/2", "rows": rows, "bar_changes": []}), encoding="utf-8")
+    return path
+
+
+def sb_rel_fix_case(tmp: Path, name: str) -> None:
+    """The fix round t-714: F2, F3, F4, F6, and W16 of the topic critic's worlds (each a row of SB_REL_CASES)."""
+    import yaml
+    other = "release: warning -- Q1 unknown: row Q1: not recorded"
+    unknown_norm = {"N-q": {"norm": {"kind": "limit", "row": "Q1", "op": "<=", "value": 5}, "verdict": "unknown", "why": "row Q1: not recorded"}}
+    if name == "W9: an older live board of the ratchet's factory model is judged, a newer board of another model does not hide it":
+        rel_board(tmp, _m(9), models=("factory-model-a",), stamp="20261105-1000")
+        rel_board(tmp, _m(99), models=("factory-model-b",), stamp="20261110-1000")
+        assert rel_lines(tmp, rel_norms(tmp, [rel_el()])) == [RC_OK]
+    elif name == "W9b: no live board holds the factory model: the line still names the model mismatch":
+        rel_board(tmp, _m(9), models=("factory-model-b",), stamp="20261105-1000")
+        rel_board(tmp, _m(9), models=("factory-model-c",), stamp="20261110-1000")
+        assert rel_lines(tmp, rel_norms(tmp, [rel_el()])) == [_need("no comparable measurement (factory model factory-model-a vs factory-model-c)")]
+    elif name == "W10: a newer dry board does not hide an older live one":
+        rel_board(tmp, _m(9), stamp="20261105-1000")
+        rel_board(tmp, _m(99), run_class="dry", stamp="20261110-1000")
+        assert rel_lines(tmp, rel_norms(tmp, [rel_el()])) == [RC_OK]
+    elif name == "W11: an unratcheted row whose norm verdict is unknown gets a warning; release-check exit 0":
+        rel_board(tmp, _m(3), norms=unknown_norm)
+        rel_board(tmp, _m(3), version="1.0.9", stamp="20261001-1000")
+        norms = rel_norms(tmp)
+        assert rel_lines(tmp, norms) == [other]
+        code, printed, _e = _check_release(tmp, norms)
+        assert code == 0 and other in printed and printed.strip().endswith("release-check: ok"), printed
+    elif name == "W11b: a ratcheted row with an unknown norm verdict gets no warning (its element line speaks)":
+        rel_board(tmp, _m(3), norms=unknown_norm)
+        assert rel_lines(tmp, rel_norms(tmp, [rel_el()])) == [RC_OK]
+    elif name == "W12: no live factory scoreboard of the version, an older release exists: a warning, release-check exit 0":
+        rel_board(tmp, _m(3), version="1.0.9", stamp="20261001-1000")
+        norms = rel_norms(tmp)
+        assert rel_lines(tmp, norms) == [REL_NOLIVE]
+        code, printed, _e = _check_release(tmp, norms)
+        assert code == 0 and REL_NOLIVE in printed, printed
+    elif name == "W13: the factory value one_source or a range, a better new bar: the OQ2 line, release-check exit 1":
+        rel_bar(tmp, "claude-opus-5", 3)
+        for row in ({"state": "one_source", "value": {"value": 6, "note": "one source"}}, {"state": "range", "value": {"low": 2, "high": 8, "note": "n"}}):
+            rel_board(tmp, row)
+            norms = rel_norms(tmp, [rel_el(10)])
+            assert REL_OQ2 in rel_lines(tmp, norms), row
+            assert _check_release(tmp, norms)[0] == 1, row
+    elif name == "W13b: a measured factory value that is no worse than the new bar gives no OQ2 line":
+        rel_bar(tmp, "claude-opus-5", 6)
+        rel_board(tmp, _m(6))
+        assert REL_OQ2 not in rel_lines(tmp, rel_norms(tmp, [rel_el(10)]))
+    elif name == "OQ2 is keyed by (row, bar): a second ratcheted row beaten by the same bar gets its own line":
+        rel_board(tmp, rows={"Q1": _m(6), "Q2": _m(6)})
+        folder = tmp / "sb" / REL_STAND / REL_STORY
+        (folder / "bar-claude-opus-5.yaml").write_text(yaml.safe_dump({"schema": "scoreboard/1", "run": {"arm": "free"}, "rows": {
+            "Q1": _m(3), "Q2": _m(3)}}), encoding="utf-8")
+        lines = [x for x in rel_lines(tmp, _rel_two_rows_norms(tmp)) if "new bar" in x]
+        assert lines == [REL_OQ2, REL_OQ2.replace("Q1", "Q2")], lines
+    elif name == "W16: one worsened_passes entry clears the element of ITS factory model only":
+        rel_board(tmp, _m(12), models=("factory-model-a", "factory-model-b"))
+        els = [rel_el(10, factory_model="factory-model-a"), rel_el(10, factory_model="factory-model-b")]
+        word = {"version": REL_VER, "pair": RC_PAIR, "word": "owner, 14.11.2026", "quote": "x", "factory_model": "factory-model-a"}
+        code, printed, _e = _check_release(tmp, rel_norms(tmp, els, passes=[word]))
+        tail = printed.split("release-check:")[-1]
+        assert code == 1 and printed.count("owner's word recorded") == 1 and "factory-model-b" in tail and "factory-model-a" not in tail, printed
+        both = [word, dict(word, factory_model="factory-model-b")]
+        assert _check_release(tmp, rel_norms(tmp, els, passes=both, name="b.json"))[0] == 0
+    elif name == "W16b: a worsened_passes entry with no factory_model (an old entry) is read as before: it clears both":
+        rel_board(tmp, _m(12), models=("factory-model-a", "factory-model-b"))
+        els = [rel_el(10, factory_model="factory-model-a"), rel_el(10, factory_model="factory-model-b")]
+        word = {"version": REL_VER, "pair": RC_PAIR, "word": "owner, 14.11.2026", "quote": "x"}
+        code, printed, _e = _check_release(tmp, rel_norms(tmp, els, passes=[word]))
+        assert code == 0 and printed.count("owner's word recorded") == 2, printed
+    elif name == "release: a scoreboard built by `assemble` with one_source X1 is never proposed by `can ratchet:`; the same with agrees is":
+        _release_assembled_case(tmp)
+    else:
+        raise AssertionError("no such case: " + name)
+
+
+def _release_assembled_case(tmp: Path) -> None:
+    """B1 end to end: `assemble` writes the X1 state; `compare --release` reads that very file (positive control: `agrees` is proposed)."""
+    import yaml
+    scoreboard = _sb()
+    folder = tmp / "sb" / REL_STAND / REL_STORY
+    folder.mkdir(parents=True)
+    (folder / "bar-claude-sonnet-5-5.yaml").write_text(yaml.safe_dump({"schema": "scoreboard/1", "run": {"arm": "free"}, "rows": {"X1": _m(5.0)}}), encoding="utf-8")
+    norms = tmp / "x1.json"
+    norms.write_text(json.dumps({"schema": "norms/2", "rows": {"X1": {"norm": None, "unit": "usd", "better": "lower", "ratchets": [], "raises": [],
+                                                                       "worsened_passes": []}}}), encoding="utf-8")
+    saved = scoreboard.TP.task_price
+    try:
+        for status, proposed in (("agrees", True), ("not_cross_checked", False), ("differs", False), ("incomplete", False)):
+            scoreboard.TP.task_price = lambda root, task, status=status: {"status": status, "price_low_usd": 2.0, "price_high_usd": 2.0}
+            task = sb_run(tmp / f"r-{status}", run_class="live")
+            for old in folder.glob("*-factory.yaml"):
+                old.unlink()
+            code, _p, err = sb_cli("assemble", "--task-root", task, "--stand", REL_STAND, "--story", REL_STORY, "--arm", "factory", "--version", REL_VER,
+                                   "--model", REL_FM, "--out-root", tmp / "sb")
+            assert code == 0, err
+            lines = _sbb().release_lines(REL_VER, scoreboard.load_norms(norms), tmp / "sb")
+            got = [x for x in lines if x.startswith("can ratchet: X1")]
+            assert bool(got) == proposed, (status, lines)
+    finally:
+        scoreboard.TP.task_price = saved
+
+
+SB_REL_FIX_NAMES = (
+    "W9: an older live board of the ratchet's factory model is judged, a newer board of another model does not hide it",
+    "W9b: no live board holds the factory model: the line still names the model mismatch",
+    "W10: a newer dry board does not hide an older live one",
+    "W11: an unratcheted row whose norm verdict is unknown gets a warning; release-check exit 0",
+    "W11b: a ratcheted row with an unknown norm verdict gets no warning (its element line speaks)",
+    "W12: no live factory scoreboard of the version, an older release exists: a warning, release-check exit 0",
+    "W13: the factory value one_source or a range, a better new bar: the OQ2 line, release-check exit 1",
+    "W13b: a measured factory value that is no worse than the new bar gives no OQ2 line",
+    "OQ2 is keyed by (row, bar): a second ratcheted row beaten by the same bar gets its own line",
+    "W16: one worsened_passes entry clears the element of ITS factory model only",
+    "W16b: a worsened_passes entry with no factory_model (an old entry) is read as before: it clears both",
+    "release: a scoreboard built by `assemble` with one_source X1 is never proposed by `can ratchet:`; the same with agrees is")
+
+SB_REL_CASES = _sb_names(*SB_REL_FIX_NAMES,
+    "no scoreboard for the pair: no value in this release", "a scoreboard of ANOTHER version only: no value in this release",
+    "factory model differs: no comparable measurement", "a dry run: no comparable measurement",
+    "two ratchet elements print exactly two element lines", "no ratchet and no earlier release: 'no previous release', nothing else",
+    "empty ratchets and a previous release: only warnings, release-check exit 0", "a previous release and nothing to say: no line, release-check exit 0",
+    "a red row that is ratcheted gets its element line, not a warning", "a red norm the owner passed gives no warning",
+    "a measured row better than its bar: can ratchet, with the bar file and its value", "a row equal to or worse than its bar is not proposed",
+    "a row in the state one_source, range, at_least or unknown is never proposed", "a row already ratcheted for that pair is not proposed again",
+    "a bar whose row is not measured is never beaten",
+    "OQ2: a new bar better than the factory on a ratcheted row prints the line; release-check exit 1, with bar_changes exit 0",
+    "OQ2: a new bar worse than the factory gives no line", "compare --release exits 0 even when a line needs the owner's word",
+    "release-check --release: a worse row without worsened_passes exit 1, with the same row, version and pair exit 0",
+    "release-check --release: a worsened_passes entry of another pair or another version does not cover the line",
+    "release-check --release: all ratchets not worse: exit 0",
+    "norms.json absent: compare --release and release-check --release exit 2 naming the path", "norms.json that is not JSON: exit 2 naming the path",
+    "norms.json whose rows is a list: exit 2 naming the path", "a version that is empty or has path separators: exit 2, nothing read",
+    "release-check takes exactly one input: both or neither is exit 2", "compare takes a scoreboard or --release, not both and not neither")
+
+# K5 for a ratchet element: (case id, old ratchets, new ratchets, new raises, better, words of the problem or None when green)
+WORD = {"ratchet": f"{RC_PAIR}@{REL_FM}", "raised_by": "Lead", "reason": "the story grew", "word": "owner, 14.11.2026"}
+SB_RATCHET_ELEMENT_CASES = [
+    ("a ratchet element unchanged is green", [rel_el(10)], [rel_el(10)], [], "lower", None),
+    ("a ratchet element removed with no raise: refused", [rel_el(10)], [], [], "lower", "was removed"),
+    ("a ratchet element removed with a raise carrying the word: green", [rel_el(10)], [], [WORD], "lower", None),
+    ("a ratchet value worsened (lower is better): refused", [rel_el(10)], [rel_el(11)], [], "lower", "worsened from 10 to 11"),
+    ("a ratchet value worsened with a raise carrying the word: green", [rel_el(10)], [rel_el(11)], [WORD], "lower", None),
+    ("a ratchet value worsened with a raise whose word is empty: refused", [rel_el(10)], [rel_el(11)], [dict(WORD, word=" ")], "lower", "worsened"),
+    ("a ratchet value improved is green", [rel_el(10)], [rel_el(8)], [], "lower", None),
+    ("higher is better: a lower ratchet value is refused", [rel_el(10)], [rel_el(9)], [], "higher", "worsened from 10 to 9"),
+    ("higher is better: a higher ratchet value is green", [rel_el(10)], [rel_el(11)], [], "higher", None),
+    ("a range ratchet whose high end grew: refused", [rel_el(RNG(5, 8))], [rel_el(RNG(5, 9))], [], "lower", "worsened"),
+    ("a ratchet element added is green", [], [rel_el(10)], [], "lower", None),
+    ("only the other element removed: refused naming the pair", [rel_el(10), rel_el(7, pair=REL_PAIR2, bar=REL_BAR2)], [rel_el(10)], [], "lower", REL_PAIR2),
+]
+
+
+KIND = {"id": "N-q", "kind": "limit", "op": "<=", "norm": 40, "initial": 40}      # a row WITH a norm (every row of the shipped file has one)
+NORM_RAISE = {"raised_by": "Lead", "reason": "the norm moved", "word": "owner, 14.11.2026", "from": 40, "to": 41}
+PASS = {"version": REL_VER, "pair": RC_PAIR, "word": "owner, 14.11.2026", "quote": "x"}
+# B3 / Q-b: (case id, extra keys of the old row, of the new row, old ratchets, new ratchets, old raises, new raises, old passes, new passes, `--against`, words or None)
+SB_RAISE_SCOPE_CASES = [
+    ("K5 on a row WITH a kind: a worsened ratchet and a ratchet raise {ratchet, raised_by, reason, word} is green", KIND, KIND, [rel_el(10)], [rel_el(11)], [], [WORD],
+     [], [], True, None),
+    ("K6 on a row with a kind: the same raise carrying from=to=40 is green (from and to are not read for a ratchet raise)", KIND, KIND, [rel_el(10)], [rel_el(11)],
+     [], [dict(WORD, **{"from": 40, "to": 40})], [], [], True, None),
+    ("K7 on a row with a kind: a NORM raise 40 -> 41 legalises no ratchet change", KIND, KIND, [rel_el(10)], [rel_el(11)], [], [NORM_RAISE], [], [], True, "worsened"),
+    ("a ratchet raise legalises no norm change: the norm loosened to 45 with no norm raise", KIND, dict(KIND, norm=45), [rel_el(10)], [rel_el(11)], [], [WORD],
+     [], [], True, "looser"),
+    ("a ratchet raise for ANOTHER factory model does not clear this element", KIND, KIND, [rel_el(10)], [rel_el(11)], [],
+     [dict(WORD, ratchet=f"{RC_PAIR}@factory-model-b")], [], [], True, "worsened"),
+    ("a ratchet raise missing its reason is refused on a row with a kind", KIND, KIND, [rel_el(10)], [rel_el(11)], [], [{k: v for k, v in WORD.items() if k != "reason"}],
+     [], [], True, "raises[0]"),
+    ("a raise {word} alone on a row with no kind is refused (K8b)", {}, {}, [], [], [], [{"word": "x"}], [], [], True, "raises[0]"),
+    ("a ratchet raise whose `ratchet` is not <pair>@<model>: refused", KIND, KIND, [], [], [], [dict(WORD, ratchet="nonsense")], [], [], True, "`ratchet` is"),
+    ("an earlier ratchet raise kept: green", KIND, KIND, [rel_el(10)], [rel_el(10)], [WORD], [WORD], [], [], True, None),
+    ("an earlier ratchet raise removed: refused", KIND, KIND, [rel_el(10)], [rel_el(10)], [WORD], [], [], [], True, "may only be appended"),
+    ("a NEW worsened_passes entry without factory_model: refused", KIND, KIND, [], [], [], [], [], [PASS], True, "needs the `factory_model`"),
+    ("a NEW worsened_passes entry with factory_model: green", KIND, KIND, [], [], [], [], [], [dict(PASS, factory_model=REL_FM)], True, None),
+    ("a worsened_passes entry already in the base file without factory_model: read as before, green", KIND, KIND, [], [], [], [], [PASS], [PASS], True, None),
+    ("no --against: an entry without factory_model is refused (every entry is new)", KIND, KIND, [], [], [], [], [], [PASS], False, "needs the `factory_model`"),
+    ("a worsened_passes factory_model that is blank: refused", KIND, KIND, [], [], [], [], [], [dict(PASS, factory_model=" ")], True, "needs the `factory_model`"),
+]
+
+
+def sb_raise_scope_case(tmp: Path, case) -> None:
+    _name, old_extra, new_extra, old_r, new_r, old_raises, new_raises, old_passes, new_passes, against, want = case
+    scoreboard = _sb()
+    old_file = rel_norms(tmp, old_r, "lower", raises=old_raises, passes=old_passes, name="old.json", row_extra=old_extra)
+    new_file = rel_norms(tmp, new_r, "lower", raises=new_raises, passes=new_passes, name="new.json", row_extra=new_extra)
+    problems = scoreboard.check_norms(scoreboard.load_norms(new_file), scoreboard.load_old_norms(old_file) if against else None)
+    if want is None:
+        assert problems == [], problems
+    else:
+        assert any(want in p for p in problems), problems
+        argv = ["norms", "--check", "--norms", new_file] + (["--against", old_file] if against else [])
+        code, printed, _e = sb_cli(*argv)
+        assert code == 1 and printed.strip().endswith("norms: red"), printed
+
+
+def sb_ratchet_element_case(tmp: Path, case) -> None:
+    _name, old, new, raises, better, want = case
+    old_file = rel_norms(tmp, old, better, name="old.json")
+    new_file = rel_norms(tmp, new, better, raises=raises, name="new.json")
+    scoreboard = _sb()
+    problems = scoreboard.check_norms(scoreboard.load_norms(new_file), scoreboard.load_old_norms(old_file))
+    if want is None:
+        assert problems == [], problems
+    else:
+        assert any(want in p for p in problems), problems
+        code, printed, _e = sb_cli("norms", "--check", "--norms", new_file, "--against", old_file)
+        assert code == 1 and printed.strip().endswith("norms: red"), printed
+
+
+def _v1_of(view: dict) -> dict:
+    return {"schema": "norms/1", "norms": view["norms"], "raises": view["raises"]}
+
+
+def sb_norms2_case(tmp: Path, case) -> None:
+    name, scoreboard = case[0], _sb()
+    view = _norms()
+    if name == "a norms/1 file is refused by load_norms with what is wrong, what is expected and how to convert":
+        old = tmp / "old.json"
+        old.write_text(json.dumps(_v1_of(view)), encoding="utf-8")
+        try:
+            scoreboard.load_norms(old)
+        except scoreboard.Refusal as exc:
+            assert all(word in str(exc) for word in ("norms/1", "norms/2", "--convert", str(old))), exc
+        else:
+            raise AssertionError("a norms/1 file was read")
+        assert sb_cli("norms", "--check", "--norms", old)[0] == 2
+    elif name == "round trip: norms/1 -> norms/2 -> the same K2/K5 view, every norm key kept":
+        v2 = scoreboard.legacy_to_v2(_v1_of(view))
+        path = tmp / "v2.json"
+        path.write_text(json.dumps(v2), encoding="utf-8")
+        again = scoreboard.load_norms(path)
+        assert again["norms"] == view["norms"] and again["raises"] == view["raises"], (again["norms"], view["norms"])
+        assert set(v2["rows"]) == {n["row"] for n in view["norms"].values()} and all(r["id"] in view["norms"] for r in v2["rows"].values())
+        for rid, row in v2["rows"].items():
+            assert {"norm", "unit", "better", "ratchets", "raises", "worsened_passes", "id", "kind"} <= set(row) or row["kind"] == "not_worse_than_bar", rid
+    elif name == "round trip: the K5 verdicts of today's rows are unchanged through a norms/1 file read as --against":
+        old = _v1_of(view)
+        old["norms"]["N-questions"]["value"] = 30
+        old["norms"]["N-questions"]["initial"] = 30
+        (tmp / "old.json").write_text(json.dumps(old), encoding="utf-8")
+        code, printed, _e = sb_cli("norms", "--check", "--norms", HERE.parent / "scoreboards" / "norms.json", "--against", tmp / "old.json")
+        assert code == 1 and "`initial` changed" in printed, printed
+        old["norms"]["N-questions"]["initial"] = 40
+        old["norms"]["N-questions"]["value"] = 40
+        (tmp / "old.json").write_text(json.dumps(old), encoding="utf-8")
+        code, printed, _e = sb_cli("norms", "--check", "--norms", HERE.parent / "scoreboards" / "norms.json", "--against", tmp / "old.json")
+        assert code == 0 and printed.strip().endswith("norms: green"), printed
+    elif name == "norms --convert prints a norms/2 file that load_norms reads":
+        old = tmp / "old.json"
+        old.write_text(json.dumps(_v1_of(view)), encoding="utf-8")
+        code, printed, _e = sb_cli("norms", "--convert", old)
+        (tmp / "new.json").write_text(printed, encoding="utf-8")
+        assert code == 0 and scoreboard.load_norms(tmp / "new.json")["norms"] == view["norms"]
+    elif name == "two norms pointing at ONE row are refused naming both ids, never merged":
+        v1 = {"norms": {"N-a": {"kind": "limit", "row": "Q1", "op": "<=", "value": 1}, "N-b": {"kind": "limit", "row": "Q1", "op": "<=", "value": 2}}, "raises": []}
+        try:
+            scoreboard.legacy_to_v2(v1)
+        except scoreboard.Refusal as exc:
+            assert "N-a" in str(exc) and "N-b" in str(exc) and "Q1" in str(exc), exc
+        else:
+            raise AssertionError("two norms of one row were merged")
+    elif name == "a raise naming an unknown norm is refused at conversion":
+        try:
+            scoreboard.legacy_to_v2({"norms": {}, "raises": [dict(RAISE)]})
+        except scoreboard.Refusal as exc:
+            assert "unknown norm N-questions" in str(exc), exc
+        else:
+            raise AssertionError("an orphan raise was dropped")
+    elif name == "a norm id carried by two rows is refused":
+        row = {"id": "N-a", "kind": "limit", "op": "<=", "norm": 1, "better": "lower"}
+        (tmp / "d.json").write_text(json.dumps({"schema": "norms/2", "rows": {"Q1": row, "Q3": dict(row)}}), encoding="utf-8")
+        try:
+            scoreboard.load_norms(tmp / "d.json")
+        except scoreboard.Refusal as exc:
+            assert "N-a" in str(exc) and "Q1" in str(exc) and "Q3" in str(exc), exc
+        else:
+            raise AssertionError("a duplicate id was read")
+    elif name == "`op` and `better` that disagree are refused":
+        row = {"id": "N-a", "kind": "limit", "op": "<=", "norm": 1, "better": "higher"}
+        (tmp / "d.json").write_text(json.dumps({"schema": "norms/2", "rows": {"Q1": row}}), encoding="utf-8")
+        try:
+            scoreboard.load_norms(tmp / "d.json")
+        except scoreboard.Refusal as exc:
+            assert "disagree" in str(exc), exc
+        else:
+            raise AssertionError("op and better disagreed silently")
+    elif name == "a norm whose row is absent from rows.json keeps the refusal of K2 (unknown row: not green)":
+        view["norms"]["N-ghost"] = {"kind": "limit", "row": "ZZ9", "op": "<=", "value": 1, "unit": "x"}
+        judged = scoreboard.judge_norms(view, {"Q1": {"state": "measured", "value": 1}}, "live", None, None, scoreboard.load_rows())
+        assert judged["N-ghost"]["verdict"] == "unknown", judged["N-ghost"]
+    elif name == "a norms/2 file of another schema is refused naming the schema":
+        (tmp / "d.json").write_text(json.dumps({"schema": "norms/3", "rows": {}}), encoding="utf-8")
+        try:
+            scoreboard.load_norms(tmp / "d.json")
+        except scoreboard.Refusal as exc:
+            assert "norms/3" in str(exc) and "norms/2" in str(exc), exc
+        else:
+            raise AssertionError("an unknown schema was read")
+    elif name == "the shipped norms.json is norms/2 with empty ratchets and worsened_passes and every norm key of norms/1":
+        doc = json.loads((HERE.parent / "scoreboards" / "norms.json").read_text(encoding="utf-8"))
+        assert doc["schema"] == "norms/2" and doc["bar_changes"] == []
+        for row in doc["rows"].values():
+            assert row["ratchets"] == [] and row["worsened_passes"] == [] and row["raises"] == [], row
+            assert {"id", "kind", "norm", "unit", "better", "carrier", "ratcheted_since"} <= set(row) and ("initial" in row or row["kind"] == "not_worse_than_bar"), row
+        assert {r["id"] for r in doc["rows"].values()} == {"N-rework", "N-gate", "N-questions", "N-wall", "N-brief"} | {f"N-quality-QA{i}" for i in range(1, 7)}
+        assert doc["rows"]["G1"]["unknown_row"] == "G1u" and doc["rows"]["T1x"]["bar_row"] == "T1"
+    else:
+        raise AssertionError("no such case: " + name)
+
+
+SB_NORMS2_CASES = _sb_names(
+    "a norms/1 file is refused by load_norms with what is wrong, what is expected and how to convert",
+    "round trip: norms/1 -> norms/2 -> the same K2/K5 view, every norm key kept",
+    "round trip: the K5 verdicts of today's rows are unchanged through a norms/1 file read as --against",
+    "norms --convert prints a norms/2 file that load_norms reads",
+    "two norms pointing at ONE row are refused naming both ids, never merged", "a raise naming an unknown norm is refused at conversion",
+    "a norm id carried by two rows is refused", "`op` and `better` that disagree are refused",
+    "a norm whose row is absent from rows.json keeps the refusal of K2 (unknown row: not green)",
+    "a norms/2 file of another schema is refused naming the schema",
+    "the shipped norms.json is norms/2 with empty ratchets and worsened_passes and every norm key of norms/1")
+
+# a ratchet element that is itself malformed is refused at load (outside input: a norms file)
+BAD_RATCHETS = [
+    ("a pair with a space", rel_el(pair="claude sonnet/add-to-cart"), "pair"), ("a pair with no story", rel_el(pair="claude-sonnet-5-5"), "pair"),
+    ("a bar with `..` in it", rel_el(bar="mybooks/../bar-x.yaml"), "bar"), ("a bar of another story than the pair", rel_el(bar="mybooks/other/bar-x.yaml"), "bar"),
+    ("a bar that is an absolute path", rel_el(bar="/etc/bar-x.yaml"), "bar"), ("a value that is not a number", rel_el(value="ten"), "value"),
+    ("an empty factory model", rel_el(factory_model=" "), "factory_model"), ("a missing since", {k: v for k, v in rel_el().items() if k != "since"}, "since"),
+    ("an element that is not an object", "x", "ratchets[0]"),
+]
+SB_BAD_RATCHET_CASES = [(f"a ratchet element with {n} is refused naming the key", e, k) for n, e, k in BAD_RATCHETS] + [
+    ("a ratchet on a row with no direction is refused", rel_el(), "better")]
+
+
+def sb_bad_ratchet_case(tmp: Path, case) -> None:
+    name, element, key = case
+    scoreboard = _sb()
+    path = rel_norms(tmp, [element], better=None if "no direction" in name else "lower")
+    try:
+        scoreboard.load_norms(path)
+    except scoreboard.Refusal as exc:
+        assert key in str(exc) and str(path) in str(exc), exc
+    else:
+        raise AssertionError("a malformed ratchet was read")
+
+
+BOM = b"\xef\xbb\xbf"
+# B4, outside input: a saved `compare --release` output (Windows PowerShell 5.1 `Out-File -Encoding utf8` writes the BOM). (case id, file bytes, exit code, words in the output)
+SB_LINES_CASES = [
+    ("a needed line with no pass: exit 1 (the control the BOM rows are read against)", (RC_OK + "\n" + RC_NEED + "\n").encode(), 1, "owner's word needed for 1 line(s)"),
+    ("a UTF-8 BOM before the same needed line: still exit 1, never ok", BOM + (RC_OK + "\n" + RC_NEED + "\n").encode(), 1, "owner's word needed for 1 line(s)"),
+    ("a UTF-8 BOM before ok lines: exit 0", BOM + (RC_OK + "\n").encode(), 0, "release-check: ok"),
+    ("a leading-space needed line: exit 1", ("  " + RC_NEED + "\n").encode(), 1, "owner's word needed for 1 line(s)"),
+    ("blank lines and a can ratchet line between release lines: exit 0", (RC_OK + "\n\n   \ncan ratchet: Q1 a/b 4 better than bar x (10)\n").encode(), 0, "release-check: ok"),
+    ("a text file that is no release output: exit 2 naming line 1 and the line", b"hello world\nnot a release line\n", 2, "line 1"),
+    ("a wrong line after good ones: exit 2 naming line 3", (RC_OK + "\n\nsomething else\n").encode(), 2, "line 3"),
+    ("the prefix in upper case: exit 2", ("Release: owner's word needed -- Q1 a/b was 1 (1.0.0) now 3 (1.1.0)\n").encode(), 2, "line 1"),
+    ("no space after the prefix: exit 2", b"release:ok -- Q1 a/b not worse\n", 2, "line 1"),
+    ("an empty file: exit 2, never ok", b"", 2, "no lines"),
+    ("a BOM and nothing else: exit 2", BOM, 2, "no lines"),
+    ("blank lines only: exit 2", b"\n  \n\n", 2, "no lines"),
+    ("UTF-16 text: exit 2", (RC_OK + "\n").encode("utf-16"), 2, "RED"),
+    ("10,000 lines with a wrong one at the end: exit 2 naming line 10001", ((RC_OK + "\n") * 10000 + "oops\n").encode(), 2, "line 10001"),
+]
+
+
+def sb_lines_case(tmp: Path, case) -> None:
+    _name, data, want_code, words = case
+    lines_file = tmp / "lines.txt"
+    lines_file.write_bytes(data)
+    code, printed, err = sb_cli("release-check", "--version", RC_VERSION, "--lines", lines_file, "--norms", tmp / "none.json")
+    assert code == want_code and words in printed + err, (code, printed[-300:], err[:300])
+    assert len(err) < 1000, "the refusal is not bounded"
+
+
+SB_GROUPS =(("judgment shape (K1, 7.4, 7.10)", SB_JUDGMENT_CASES, sb_judgment_case), ("money row (X1)", SB_MONEY_CASES, sb_money_case),
+             ("norm verdict (K2, 7.5)", SB_NORM_CASES, sb_norm_case), ("norms only tighten (K5)", SB_RATCHET_CASES, sb_ratchet_case),
+             ("comparison (K7, 7.5, 7.7-7.9)", SB_COMPARE_CASES, sb_compare_case), ("previous file (K7, 7.7)", SB_PREVIOUS_CASES, sb_previous_case),
+             ("assemble edges", SB_ASSEMBLE_CASES, sb_assemble_case), ("command line and findings (K4)", SB_CLI_CASES, sb_cli_case),
+             ("bar price (N7, B1-E5/E6)", SB_BAR_CASES, sb_bar_case), ("release-check (K3, F7)", SB_RELEASE_CASES, sb_release_case),
+             ("release-check OQ2 (ratcheted row, new bar)", SB_OQ2_CASES, sb_release_case),
+             ("compare --release, one element one line (B1 table, range against range)", SB_REL_JUDGE_CASES, sb_rel_judge_case),
+             ("compare --release, edges B2-E1..E9 and the direct road", SB_REL_CASES, sb_rel_case),
+             ("norms only tighten: ratchet elements (K5)", SB_RATCHET_ELEMENT_CASES, sb_ratchet_element_case),
+             ("norms/2 shape and conversion", SB_NORMS2_CASES, sb_norms2_case),
+             ("a malformed ratchet element", SB_BAD_RATCHET_CASES, sb_bad_ratchet_case),
+             ("a ratchet raise is scoped to its element; a pass to its factory model (B3, Q-b)", SB_RAISE_SCOPE_CASES, sb_raise_scope_case),
+             ("release-check --lines is outside input (B4)", SB_LINES_CASES, sb_lines_case),
+             ("the free arm's bar file writer (N9)", SB_BAR_FILE_CASES, sb_bar_file_case))
+
+
+@_parametrize(SB_JUDGMENT_CASES)
+def test_scoreboard_judgment_shape(tmp_path, case):
+    sb_judgment_case(tmp_path, case)
+
+
+@_parametrize(SB_MONEY_CASES)
+def test_scoreboard_money_row(tmp_path, case):
+    sb_money_case(tmp_path, case)
+
+
+@_parametrize(SB_NORM_CASES)
+def test_scoreboard_norm_verdict(tmp_path, case):
+    sb_norm_case(tmp_path, case)
+
+
+@_parametrize(SB_RATCHET_CASES)
+def test_scoreboard_norms_only_tighten(tmp_path, case):
+    sb_ratchet_case(tmp_path, case)
+
+
+@_parametrize(SB_COMPARE_CASES)
+def test_scoreboard_comparison(tmp_path, case):
+    sb_compare_case(tmp_path, case)
+
+
+@_parametrize(SB_PREVIOUS_CASES)
+def test_scoreboard_previous_file(tmp_path, case):
+    sb_previous_case(tmp_path, case)
+
+
+@_parametrize(SB_ASSEMBLE_CASES)
+def test_scoreboard_assemble_edges(tmp_path, case):
+    sb_assemble_case(tmp_path, case)
+
+
+@_parametrize(SB_CLI_CASES)
+def test_scoreboard_command_line(tmp_path, case):
+    sb_cli_case(tmp_path, case)
+
+
+@_parametrize(SB_BAR_CASES)
+def test_scoreboard_bar_price(tmp_path, case):
+    sb_bar_case(tmp_path, case)
+
+
+@_parametrize(SB_RELEASE_CASES)
+def test_scoreboard_release_check(tmp_path, case):
+    sb_release_case(tmp_path, case)
+
+
+@_parametrize(SB_OQ2_CASES)
+def test_scoreboard_release_check_oq2(tmp_path, case):
+    sb_release_case(tmp_path, case)
+
+
+@_parametrize(SB_REL_JUDGE_CASES)
+def test_scoreboard_release_judge(tmp_path, case):
+    sb_rel_judge_case(tmp_path, case)
+
+
+@_parametrize(SB_REL_CASES)
+def test_scoreboard_release_edges(tmp_path, case):
+    sb_rel_case(tmp_path, case)
+
+
+@_parametrize(SB_RATCHET_ELEMENT_CASES)
+def test_scoreboard_ratchet_elements(tmp_path, case):
+    sb_ratchet_element_case(tmp_path, case)
+
+
+@_parametrize(SB_NORMS2_CASES)
+def test_scoreboard_norms2(tmp_path, case):
+    sb_norms2_case(tmp_path, case)
+
+
+@_parametrize(SB_BAD_RATCHET_CASES)
+def test_scoreboard_bad_ratchet(tmp_path, case):
+    sb_bad_ratchet_case(tmp_path, case)
+
+
+@_parametrize(SB_RAISE_SCOPE_CASES)
+def test_scoreboard_raise_scope(tmp_path, case):
+    sb_raise_scope_case(tmp_path, case)
+
+
+@_parametrize(SB_LINES_CASES)
+def test_scoreboard_release_lines_file(tmp_path, case):
+    sb_lines_case(tmp_path, case)
+
+
+@_parametrize(SB_BAR_FILE_CASES)
+def test_scoreboard_bar_file(tmp_path, case):
+    sb_bar_file_case(tmp_path, case)
+
+
+def scoreboard_tests(root: Path) -> None:
+    """The self-running form of the scoreboard tables: every case in its own folder, one `check` line each."""
+    for number, (group, cases, runner) in enumerate(SB_GROUPS):
+        for index, case in enumerate(cases):
+            folder = root / f"sb-{number}-{index}"
+            folder.mkdir(parents=True)
+            try:
+                runner(folder, case)
+                check(f"scoreboard, {group}: {case[0]}", True)
+            except Exception as exc:  # noqa: BLE001 - a failing case is a FAIL line, not a crash
+                check(f"scoreboard, {group}: {case[0]}", False, f"{type(exc).__name__}: {str(exc)[:300]}")
+
+
 def types_module(module, name):
     """A stand-in module whose main() is `module.<name>` with the shared argv - for run_main."""
     import types
@@ -1790,6 +3594,7 @@ def main() -> int:
         b267_tests(root)
         runs_table_tests(root)
         verdict_word_tests()
+        scoreboard_tests(root)
     finally:
         shutil.rmtree(root, ignore_errors=True)
 

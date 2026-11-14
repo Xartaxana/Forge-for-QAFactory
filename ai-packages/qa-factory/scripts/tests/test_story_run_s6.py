@@ -2044,7 +2044,7 @@ def c16b_fix_round_one_words_door_one_token_table() -> None:
        (person_words.door(command), person_words.door(command, for_person=True)),
        (command + " --words-file <file>", command + " --words-file <file with your words>"))
     eq("B-F3: the seam's own tokens are NM.TOKEN_MOVES, whole", {t: m for t, m in story_run.Driver.SITE_MOVES.items() if t in NM.TOKEN_MOVES}, NM.TOKEN_MOVES)
-    eq("B-F3: ...and the site adds only its two words", sorted(set(story_run.Driver.SITE_MOVES) - set(NM.TOKEN_MOVES)), ["by hand", "reapprove"])
+    eq("B-F3: ...and the site adds only its three words", sorted(set(story_run.Driver.SITE_MOVES) - set(NM.TOKEN_MOVES)), ["by hand", "find the way in", "reapprove"])
     table_lines = [part.split("\n", 1)[0] for part in harness.driver_text().split("SITE_MOVES = ")[1:]]      # every assignment of the table, in the whole driver set
     check("B-F3: the table is built from NM.TOKEN_MOVES, not copied", len(table_lines) >= 1 and all("{**NM.TOKEN_MOVES," in line for line in table_lines), str(table_lines))
 

@@ -403,7 +403,7 @@ def template(contract_id: str) -> Doc:
     return _read(path)
 
 
-AUTHOR_TOKEN = "<the author's dispatch>"          # the ONE token of the contracts that review a dispatch: S2-S4 stage critics, S7/S8 consumers (AR-15)
+AUTHOR_TOKEN = "<the author's dispatch>"          # the ONE token of the contracts that review a dispatch: the S4 stage critic, S7/S8 consumers (AR-15)
 
 
 def only_template(value) -> bool:
@@ -451,7 +451,8 @@ def _spec_of_value(path: str, value) -> FieldSpec:
 # sending role fills. A check that refuses them refuses the contract for being a contract.
 CONTRACT_OWNED = ("schema_version", "contract", "stage", "gate", "kind", "from_role", "to_role",
                   "inputs", "expected_of_the_receiver", "rules", "not_shown", "message_sections",
-                  "common_shape", "handoffs", "escalation", "judged_row", "judged", "null_outcome", "required_when", "rows_owed_when")
+                  "common_shape", "handoffs", "escalation", "judged_row", "judged", "null_outcome", "required_when", "rows_owed_when",
+                  "acceptance_verdict_at")
 # Every contract's item list. It is the one list a role may not leave empty: a handover with no
 # items is not a handover. Every other list may legitimately be empty (`unresolved` above all).
 # One contract may name its own exception: a `null_outcome` block (see `null_outcomes` below).
@@ -530,6 +531,23 @@ def null_outcomes(contract_id: str) -> dict:
     except FileNotFoundError:
         return {}
     return null_outcome_entries(block)
+
+
+ACCEPTANCE_PATH = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+$")
+
+
+def acceptance_verdict_path(contract_id: str) -> str:
+    """THE reader of where the acceptance word is (AR-13): the dotted path in the form at which a consumer role writes its
+    `accept|return` word on the handoff it reviews. A contract names it in its top-level `acceptance_verdict_at`; a
+    contract with no such key, an unreadable template or a malformed value (not a string, empty, no dot, spaces) reads
+    `header.verdict`, the verdict of the handoff itself. Never raises."""
+    try:
+        value = template(contract_id).data.get("acceptance_verdict_at")
+        if isinstance(value, str) and ACCEPTANCE_PATH.match(value.strip()):
+            return value.strip()
+    except Exception:
+        pass
+    return "header.verdict"
 
 
 def relaxed_sections(contract_id: str, header_value) -> set:

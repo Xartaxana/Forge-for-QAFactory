@@ -523,21 +523,22 @@ class DriverS0:
                 break
             if mine:
                 return False
-            roles = [d.get("role") for d in dispatches.values() if d.get("stage") == stage and d.get("status") == "accepted"
-                     and (stage != "S3" or d.get("role") == "qa-test-strategist")    # a first look accepted after the strategist is not the author
-                     # B2 (critic t-2548): the S1 twin - the reference window's runner, accepted after the scout, is not the author either; the
-                     # scout is reworked and `rework` re-enters the window. A story with no reference has only the scout here: as before
-                     and (stage != "S1" or d.get("role") == (self.stages().get("S1", {}).get("roles") or [""])[0])]
-            if roles and stage == "S3":
+            # ONE rule for every stage (AR-13, P31): the author is the stage row's `roles[0]` (`stages.json`), so a first look
+            # accepted after the strategist, the reference window's runner after the scout, or a stage critic a 0.11.0 story left accepted
+            # last at S2 is never re-run. A stage whose `roles` is empty re-runs nothing (the "no accepted work" line below).
+            author = (self.stages().get(stage, {}).get("roles") or [""])[0]
+            authors = [d.get("role") for d in dispatches.values()
+                       if d.get("stage") == stage and d.get("status") == "accepted" and d.get("role") == author]
+            if authors and stage == "S3":
                 # G1-11: ONE paid dispatch labels and plans (a rework of S3 is never two); the table is prepared first
                 # (a pre-node S3 with no table gets it built), and the dispatch closes through the one S3 completion.
                 self.s3_prepare()
-                self.rework(stage, str(roles[-1]), [], str(pending.get("words") or ""), cause="ticket_changed",
+                self.rework(stage, str(authors[-1]), [], str(pending.get("words") or ""), cause="ticket_changed",
                             complete=self.s3_ticket_completion(),
                             extra=self.s3_strategist_lines({"repair_cause": "ticket_changed"}))
                 return True
-            if roles:
-                self.rework(stage, str(roles[-1]), [], str(pending.get("words") or ""), cause="ticket_changed", complete=True)
+            if authors:
+                self.rework(stage, str(authors[-1]), [], str(pending.get("words") or ""), cause="ticket_changed", complete=True)
                 return True
             print(f"{self.task}: {stage} has no accepted work to make again; skipped")
             stages.pop(0)
@@ -2431,7 +2432,7 @@ class DriverS0:
                 # stand yet). Any exit but 0 leaves it unconfirmed - a crashed probe confirms
                 # nothing (FR-41). The name stays, so the check before the tests probes THIS stand.
                 warnings.append(
-                    f"stand {environment}: it did not answer the check ({self.probe_reason(out)}); "
+                    f"stand {environment}: it did not pass the check ({self.probe_reason(out)}); "
                     "the story goes on and the stand is checked again before tests run")
                 print(f"stand `{environment}` did not pass the check; the probe said:\n{out}")
             warnings += [line.strip() for line in out.splitlines()

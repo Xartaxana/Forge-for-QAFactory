@@ -829,8 +829,10 @@ def expectation_lines() -> None:
 
 PROOF_START = "Live checks the predicate requires"
 CANNOT_START = "The live checks the predicate requires could not be listed: "
-PROOF_TAIL = (". Each needs a receipt: run its check and record it, or leave it in work/probe-debt/S5-qa-code-critic-1.json "
-              "for the conductor.")
+PROOF_TAIL = (". Each needs a receipt: enter each check in work/probe-models/S5-qa-code-critic-1.json and run probe_by_code.py. "
+              "A probe the tool or stand stopped is `critic_verdict: unverified` "
+              "with `sensitivity_proof_missing_reason` on that row via manifest_put.py; "
+              "work/probe-debt/S5-qa-code-critic-1.json is the factory's, not yours.")
 
 
 def proof_name(i: int, word: str = "") -> str:
@@ -1084,6 +1086,48 @@ def proof_lines() -> None:
         before = tree_hash(task)
         critic_brief()
         check_eq("building the brief writes nothing into the story (FR-45)", tree_hash(task), before)
+
+        # FV1-20 B-1: the closing sentence names only the doors the exit accepts (one table, a row per case)
+        import probe_debt
+        real_debt_rel = probe_debt.debt_rel
+
+        def debt_rel_fails(dispatch):
+            raise ImportError("probe_debt is not importable")
+        placeholder = "<your dispatch id>"
+        tail_rows = []
+        for n_owed in (0, 8, 9):
+            seed_proof_rows(task, root, n_owed)
+            tail_rows.append((f"{n_owed} owed", brief_pack.proof_required_lines(task, "qa-code-critic", CRITIC), n_owed))
+        seed_proof_rows(task, root, 1)
+        for label, dispatch, fail in (("named id", CRITIC, False), ("blank id", "", False), ("None id", None, False),
+                                      ("spaces id", "   ", False), ("debt_rel import failing", CRITIC, True)):
+            if fail:
+                probe_debt.debt_rel = debt_rel_fails
+            try:
+                tail_rows.append((label, brief_pack.proof_required_lines(task, "qa-code-critic", dispatch), 1))
+            finally:
+                probe_debt.debt_rel = real_debt_rel
+        for label, lines, n_owed in tail_rows:
+            if n_owed == 0:
+                check_eq(f"B-1 {label}: no instance owed, no line", lines, [])
+                continue
+            text = lines[0]
+            check_not_in(f"B-1 {label}: no 'for the conductor' door", "for the conductor", text)
+            check_in(f"B-1 {label}: names sensitivity_proof_missing_reason", "`sensitivity_proof_missing_reason` on that row via manifest_put.py", text)
+            check_in(f"B-1 {label}: the new sentence", "Each needs a receipt: enter each check in work/probe-models/", text)
+            check_in(f"B-1 {label}: the debt file is the factory's", " is the factory's, not yours.", text)
+            check_not_in(f"B-1 {label}: never the empty-id model file", "probe-models/.json", text)
+            check_not_in(f"B-1 {label}: never the legacy single debt file", "work/probe-debt.json", text)
+            if label in ("blank id", "None id", "spaces id"):
+                check_in(f"B-1 {label}: the models path prints the placeholder",
+                         f"work/probe-models/{placeholder}.json and run probe_by_code.py.", text)
+            if label in ("blank id", "None id", "spaces id", "debt_rel import failing"):
+                check_in(f"B-1 {label}: the debt path prints the placeholder", f"work/probe-debt/{placeholder}.json is the factory's", text)
+            if label in ("0 owed", "8 owed", "9 owed", "named id"):
+                check(f"B-1 {label}: the sentence is the same text as the pinned tail", text.endswith(PROOF_TAIL), text[-200:])
+        # the TOOLING card of the critic carries the same door
+        check_in("B-1 the TOOLING card: `incomplete` is tooling, say so and record the reason on the row",
+                 "(say so in your digest, record `sensitivity_proof_missing_reason` on the row)", " ".join(brief_pack.TOOLING["qa-code-critic"]))
 
         # its place: the head, right after the changed-test line, before the first section
         seed_proof_rows(task, root, 2)
@@ -2361,8 +2405,11 @@ def p1v_n3_brief_size_record() -> None:
 # `RATCHET ROLE_BRIEF_BYTES_MAX <role> <n>`, write n here with a named raise line, and re-run green.
 # FV1-4 N1 (AR-20): re-based from the runtime ceiling BRIEF_MAX_BYTES (6144 budget B) to normalised bytes (harness.normalised_bytes);
 # measured 2026-11-13 on Windows (the helper makes the number machine-independent).
+# RAISE (AR-20, t-654 fix round of node A1a, Lead 2026-11-14): qa-case-critic 6130 -> 6580 (+450 B), measured. The S4 critic brief grows by
+# design: with the S2/S3 stage critics removed it reads the S2 outputs and advice (stages.json S4 `acceptance_reads`) and names the
+# S2 tester / S3 strategist forms in TRIED_READERS. The brief is not compacted.
 ROLE_BRIEF_BYTES_MAX = {
-    "qa-automator": 6863, "qa-bug-reporter": 4880, "qa-case-critic": 6130, "qa-case-designer": 5606, "qa-code-critic": 7189,
+    "qa-automator": 6863, "qa-bug-reporter": 4880, "qa-case-critic": 6580, "qa-case-designer": 5606, "qa-code-critic": 7189,
     "qa-doc-scribe": 4910, "qa-failure-analyst": 6442, "qa-requirements-tester": 5510, "qa-retro-analyst": 4404, "qa-runner": 5670,
     "qa-scout": 6416, "qa-test-strategist": 6375,
 }
@@ -2916,7 +2963,7 @@ def n2_summaries_name_their_whole() -> None:
                     bad = brief_pack.prior_retro_lines(task, root)
                 check_in(f"prior_retro_lines: a {size}-character unreadable-form reason is whole", f"cannot be read ({text});", "\n".join(bad))
             with patched(FL_MOD := __import__("first_look"), read=lambda tr, _t=text: {"problem": _t, "rows": [], "null": None, "stale": False}):
-                check_in(f"first_look_input_line: a {size}-character problem is whole", f"no first look - {text}", brief_pack.first_look_input_line(task, "d", "1 B"))
+                check_in(f"first_look_input_line: a {size}-character problem is whole", f"a GAP - no first look was written for this story ({text}); it is not a fact that there is no stand", brief_pack.first_look_input_line(task, "d", "1 B"))
             with patched(FL_MOD, walk_actors=lambda *a, _t=text: {"accounts": [], "none": [], "problem": _t}), patched(WS, data=lambda: {"max_actors": 3}):
                 check_in(f"_first_look_accounts: a {size}-character problem is whole", f"cannot be read ({text}):", brief_pack._first_look_accounts(task, "s", []))
             with patched(FL_MOD, read_attempt=lambda tr: {"walk": "w", "env": "s"}, register_ids=lambda tr, _t=text: ([], _t)), \
@@ -2947,7 +2994,7 @@ def n2_summaries_name_their_whole() -> None:
         with patched(FL, state=lambda task_root, _p=problem: {"kind": "unreadable", "got": {"problem": _p}, "error": ""}):
             state, got = brief_pack._fl_state(Path("."))
         check_eq(f"first look, an unreadable record's {size}-character problem is whole", (state, got),
-                 ("line", [f"First look: the record cannot be read ({problem}); treat the stand as not walked."]))
+                 ("line", [f"First look: a GAP - what the stand shows is not known for this story (the record cannot be read: {problem}); it is not a fact that there is no stand."]))
     row = {"req": "R-1", "status": "missing"}
     short_line = brief_pack._fl_line(row, "b")
     clipped_line = brief_pack._fl_line(row, "b" * 600)
@@ -3745,7 +3792,7 @@ def main() -> None:
                  "{verdict intended_failure|no_failure|wrong_location|incomplete,", critic)
         check_in("incomplete and a data-gap or unresolved-copy refusal are tooling, never a verdict on the test",
                  "`incomplete`, and a refusal that names a factory data gap or a killed probe's unresolved copy, is "
-                 "`tooling` (say so in your digest), never a verdict on the test", critic)
+                 "`tooling` (say so in your digest, record `sensitivity_proof_missing_reason` on the row), never a verdict on the test", critic)
         check_in("--release-copy is named with the one condition under which it may be used",
                  "`--release-copy <file>` alone drops that copy, only after the test's author has settled the file", critic)
         check_in("and the critic reads the window's test file", "tests/coupon/test_coupon.py (", critic)
@@ -3761,7 +3808,7 @@ def main() -> None:
                  "red_sandbox.py --probe --request <mutations.json> --task-root", critic)
         check_in("and the line says when: only when you doubt", "only when you doubt the check looks at the product", critic)
         check_not_in("nothing calls probe_by_code the only probe any more", "the ONLY probe", critic)
-        check_in("run budget: a repeat of a probe is answered already_probed", "a repeat on the same bytes and entries is answered already_probed", critic)
+        check_in("run budget: a repeat of a probe is answered already_probed", "a repeat on the same bytes and entries gets already_probed", critic)
         check_in("t-2064 P7: red_sandbox proves the one check it names, named by a `product` entry, the others stay owed",
                  "it proves the one check it names, you name it with a `product` entry in the model file, the others stay owed", critic)
         check_in("run budget: the critic has the stand door too", "stand_health.py --probe --env <name>", critic)

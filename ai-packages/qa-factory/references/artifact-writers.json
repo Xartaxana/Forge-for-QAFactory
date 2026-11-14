@@ -177,6 +177,10 @@
       "writer": "red_sandbox.py",
       "why": "the output of the failure analyst's ONE diagnostic run of a test without the asserts of the Thens behind its red one (`red_sandbox.py --diagnostic`) is the tool's own record: the analyst cites it from the triage row's `diagnostic` block and never writes it, and a repeat over the same test bytes is answered from it"
     },
+    "evidence/runtime-provenance-*.json": {
+      "writer": "runtime_probe.py",
+      "why": "the runtime probe's record of every non-rehearsal answer (matched, mismatched, person_confirmed, not_applicable, unknown) is the tool's own record: one file per answer, never rewritten; no role writes it"
+    },
     "work/run-report.json": {
       "writer": "finalize_task.py",
       "why": "reduced from immutable run blocks; never hand-written"

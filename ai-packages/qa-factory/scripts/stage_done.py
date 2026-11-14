@@ -958,7 +958,7 @@ def reviewed_author_dispatch(form, state, stage_def) -> str:
 def record_acceptance(task: str, stage: str, form: str, acceptor: str = "", verdict: str = "", quote: str = "") -> int:
     """`--acceptance <the stage critic's handoff form>`: append ONE round to `pipeline.json` `acceptance[<stage>]` (X2-5; THE writer, AR-14).
     Not a stage transition: the record is a fact the stage's close reads (`controller.validate`, `acceptance.stage_acceptance_refusal`).
-    The record is built from the form's header verdict word and its `stage_acceptance` section, or, with `--acceptor driver --verdict
+    The record is built from the verdict word read at the path `handoff.acceptance_verdict_path` names and the form's `stage_acceptance` section, or, with `--acceptor driver --verdict
     accept --quote <the gap>`, from the conductor's own word; it is checked by `acceptance.stage_acceptance_errors` before it is written
     (form and binding only - what the verdict means is the critic's, never read here). The same record again writes nothing."""
     require_project("stage_done")
@@ -972,7 +972,7 @@ def record_acceptance(task: str, stage: str, form: str, acceptor: str = "", verd
     from controller import Controller
     stage_def = acceptance.stage_def_of(stage)
     if not stage_def.get("roles"):
-        print(f"stage_done: {stage} has no roles in references/stages.json; a stage acceptance is recorded for a stage with `acceptance_by` (S2, S3, S4, S6)",
+        print(f"stage_done: {stage} has no roles in references/stages.json; a stage acceptance is recorded for a stage with `acceptance_by` (S4, S6, S7)",
               file=sys.stderr)
         return EXIT_BAD_ARGS
     form_path = Path(form)
@@ -1534,7 +1534,7 @@ def main(argv=None) -> int:
                     help="append one line to pipeline.json warnings[], repeatable; a line "
                          "already there is not repeated")
     ap.add_argument("--acceptance", default="", metavar="FORM",
-                    help="record the stage critic's verdict on --stage (S2-S4) from its handoff form work/handoffs/<dispatch>.yaml; "
+                    help="record the stage critic's verdict on --stage (S4, S6, S7) from its handoff form work/handoffs/<dispatch>.yaml; "
                          "writes pipeline.json `acceptance`, no stage transition")
     ap.add_argument("--acceptor", default="", help="with --acceptance: `driver` records the conductor's accept-with-a-gap instead of the critic's word")
     ap.add_argument("--verdict", default="", help="with --acceptance --acceptor driver: `accept`")
@@ -1548,7 +1548,7 @@ def main(argv=None) -> int:
         return EXIT_BAD_ARGS
     if args.acceptance:
         if not args.stage:
-            print("stage_done.py: --acceptance needs --stage (S2, S3 or S4)", file=sys.stderr)
+            print("stage_done.py: --acceptance needs --stage (S4, S6 or S7)", file=sys.stderr)
             return EXIT_BAD_ARGS
         return record_acceptance(args.task, args.stage, args.acceptance, args.acceptor, args.verdict, args.quote)
     if args.acceptor or args.verdict or args.quote:

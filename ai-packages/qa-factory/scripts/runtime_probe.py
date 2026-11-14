@@ -19,7 +19,8 @@ does not apply to the profile, which is not a mismatch (t-238 W1, W4; t-279 K-NA
 THE LADDER (t-300, `build_identity`; every caller reaches it through this argv). The build a stand
 runs is read in this order, and the first rung that answers decides:
 
-  0. not applicable: a recorded diff that touches no file of the checkout. No rung, no write.
+  0. not applicable: a recorded diff that touches no file of the checkout. No rung; the answer is recorded
+     like every other one (it compared nothing).
   1. which stand: the story's (`pipeline.json` `environment`) wins over `--environment`; docker rungs
      only when they agree AND `--container` is named.
   2. the registry row of this stand and profile (qa-factory/records/stand-identity.json, written by
@@ -47,8 +48,9 @@ runs is read in this order, and the first rung that answers decides:
      commit and the image; a `deployed` or `test_deployed` word never lifts it.
   8. nothing answered: `unknown`, what was tried, `asks_person: how` and the remedy - unless docker
      simply did not answer, which is not a question for a person.
-  9. writes, only without `--no-evidence`: the evidence file, and ONE `probe discovered` registry row
-     when a default rung read a commit and no row is in force.
+  9. writes, only without `--no-evidence`: the evidence file for EVERY answer (`write_record`, one file per
+     answer, never rewritten), and ONE `probe discovered` registry row, only for matched/mismatched, when a
+     default rung read a commit and no row is in force.
 
 `--no-evidence` is the rehearsal's way (gate A, the S6 freshness read, the build check): it compares and
 prints, writes nothing, and says so - `observed_without_evidence: true` - so that only a reader that
@@ -1276,6 +1278,7 @@ class Reading:
         result = record.get("result")
         if result == "unknown":
             self.finish_unknown()
+            write_record(self.task_root, ns.profile, self.now, record, no_evidence=ns.no_evidence, soft=True)
         elif result in ("matched", "mismatched", "person_confirmed"):
             self.write_evidence()
             if self.discover and result in ("matched", "mismatched") and not ns.no_evidence:
@@ -1322,16 +1325,7 @@ class Reading:
             warn(f"{record['error']}. {record['remedy']}.")
 
     def write_evidence(self) -> None:
-        record, ns = self.record, self.ns
-        if ns.no_evidence:
-            record["evidence_refs"] = []
-            record["observed_without_evidence"] = True
-            return
-        stamp = self.now.replace(":", "").replace("-", "").replace("+0000", "Z")
-        evidence = self.task_root / "evidence" / f"runtime-provenance-{ns.profile}-{stamp}.json"
-        record["evidence_refs"] = [evidence.as_posix()]
-        evidence.parent.mkdir(parents=True, exist_ok=True)
-        evidence.write_text(json.dumps(record, indent=2), encoding="utf-8")
+        write_record(self.task_root, self.ns.profile, self.now, self.record, no_evidence=self.ns.no_evidence, soft=False)
 
     def write_discovered(self) -> None:
         """Rung 9: ONE `probe discovered` row when a default rung read a commit and the registry has no word for this
@@ -1562,6 +1556,46 @@ def do_suggest(ns) -> int:
     return 0
 
 
+MAX_RECORDS_PER_SECOND = 99
+
+
+def write_record(task_root, profile, now, record, *, no_evidence, soft) -> None:
+    """The ONE writer of `evidence/runtime-provenance-<profile>-<stamp>[_NN].json`: the record of every non-rehearsal answer
+    (matched, mismatched, person_confirmed, not_applicable, unknown). `task_root` is always set by the caller (the story the driver
+    resolved). Exclusive create: a record on disk is never rewritten, two records of one profile in one second both survive
+    (`_02` .. `_99` before `.json`; `_` sorts after `.`, so name order is write order). `record["evidence_refs"]` is set to the
+    file's own path before serialisation, so the file equals what is printed. `no_evidence` (a rehearsal) writes nothing; the
+    `observed_without_evidence` marker is added only when `not soft` (the matched-family answers, read by
+    `profile_contract.rehearsal_view`). `soft` (not_applicable / unknown answers): a failed write is ONE warn line, the record is
+    printed with `evidence_refs: []`, never a pass; not `soft`: the OSError propagates, and beyond `_99` a FileExistsError."""
+    if no_evidence:
+        record["evidence_refs"] = []
+        if not soft:
+            record["observed_without_evidence"] = True
+        return
+    stamp = now.replace(":", "").replace("-", "").replace("+0000", "Z")
+    folder = Path(task_root) / "evidence"
+    base = f"runtime-provenance-{profile}-{stamp}"
+    names = [f"{base}.json"] + [f"{base}_{n:02d}.json" for n in range(2, MAX_RECORDS_PER_SECOND + 1)]
+    try:
+        for name in names:
+            path = folder / name
+            record["evidence_refs"] = [path.as_posix()]
+            folder.mkdir(parents=True, exist_ok=True)
+            try:
+                with path.open("x", encoding="utf-8") as handle:
+                    handle.write(json.dumps(record, indent=2))
+            except FileExistsError:
+                continue
+            return
+        raise FileExistsError(f"{folder} holds {MAX_RECORDS_PER_SECOND} records of this profile in this second")
+    except OSError as exc:
+        if not soft:
+            raise
+        record["evidence_refs"] = []
+        warn(f"the probe's record could not be written into {folder}: {exc}")
+
+
 REFERENCE_REASON = "a reference stand: the old version runs here by design, its build is not asked"   # the probe's words for a skipped stand
 
 
@@ -1571,7 +1605,8 @@ def reference_skip(ns, task_root) -> dict:
     code): the story's code does not run on this stand, so there is no build identity to verify - the gates that read the code
     (profile_contract) already pass it on any stand kind and need no new word. POSITION INVARIANT: after the story is resolved (its
     record names the references) and before anything is read or run (git, docker, the checkout): nothing was observed. The story's OWN
-    stand is never skipped, even when a record names it twice (`pipeline.environment`): the safe direction is to ask. Never raises."""
+    stand is never skipped, even when a record names it twice (`pipeline.environment`): the safe direction is to ask. Never raises.
+    A reference stand's answer is a sample, never story evidence (owner's word W1, docs/SIBLING_MAP.md): it is printed and never written."""
     try:
         name = str(getattr(ns, "environment", "") or "")
         if not name or task_root is None:
@@ -1660,17 +1695,19 @@ def main() -> int:
     if has_diff and not compared_files(files, checkout):
         # The story's diff does not touch this checkout, so what this stand runs cannot be
         # compared with it and the probe does not apply to the profile: not `mismatched` (0 of 0
-        # files differ is no difference) and not a question (t-238 W4). Nothing was observed, so
-        # there is no evidence file either.
+        # files differ is no difference) and not a question (t-238 W4). The answer is recorded like every
+        # other one and says it compared nothing (`not_applicable`, never `matched`).
         record.update({"result": "not_applicable", "reason": NOT_APPLICABLE_REASON,
                        "reason_code": NO_CHANGED_FILE,
                        "comparisons": [], "container": ns.container, "checkout": str(checkout)})
+        write_record(task_root, ns.profile, now, record, no_evidence=ns.no_evidence, soft=True)
         print(json.dumps(record))
         return 0
     if not expected:
         record["error"] = "no expected revision"
         record["reason_code"] = NO_EXPECTED_REVISION       # a FIELD for the capture's refusal (FR-12), never the words
         record["checkout"] = str(checkout)
+        write_record(task_root, ns.profile, now, record, no_evidence=ns.no_evidence, soft=True)
         print(json.dumps(record))
         return 0
     # No diff recorded is NOT "nothing changed" (FR-41), and it is no longer an early `unknown` either (E15): the sha

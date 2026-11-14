@@ -18,7 +18,7 @@ evidence.
 | route | blocks | what it means |
 |---|---|---|
 | `person` | 17 | their recorded words pass it: `waiver.py --stage <S> --block "<part of the line>" --words-file <file>` |
-| `command` | 219 | a factory command clears it. The person decides, the command records; the message names it |
+| `command` | 221 | a factory command clears it. The person decides, the command records; the message names it |
 | `caller` | 102 | the call was built wrong. Whoever built it fixes it, and no person is involved |
 | `unpassable` | 13 | no word passes it, and the reason is here. These are invariants of the record itself: passing one would destroy what the block protects |
 
@@ -324,9 +324,9 @@ every edit above it. Rows are in source order.
 | `_s5_v2_collect` | `StateConflict` | coverage v2 S5 completion requires distinct accepted author and active critic for the same window | `command` | dispatch the missing half of the author/critic pair |
 | `_s5_v2_collect` | `StateConflict` | ( StateConflict, "; ".join(blocking) + ". Only the active qa-code-crit | `person` | raised from the list `_passed_by_person` has already filtered |
 | `_s5_v2_collect` | `ValueError` | coverage v2 instance requires unique obligation_refs with exact hashes | `command` | `manifest_put.py --fragment` binds the obligations |
-| `_s5_v2_collect` | `ValueError` | coverage v2 instance requires unique obligation_refs with exact hashes | `command` | `manifest_put.py --fragment` binds the obligations (the second site, the per-instance loop) |
 | `_s5_v2_collect` | `ValueError` | coverage v2 instance requires execution_fingerprint | `command` | `execution_fingerprint.py` writes it into the run block |
-| `_s5_v2_collect` | `ValueError` | coverage v2 instance requires execution_fingerprint | `command` | `execution_fingerprint.py` writes it into the run block (the second site, the per-instance loop) |
+| `_s5_v2_collect` | `ValueError` | coverage v2 instance requires unique obligation_refs with exact hashes | `command` | `manifest_put.py --fragment` binds the obligations |
+| `_s5_v2_collect` | `ValueError` | coverage v2 instance requires execution_fingerprint | `command` | `execution_fingerprint.py` writes it into the run block |
 | `_s5_v2_collect` | `StateConflict` | instance obligation_refs do not match the current approved plan | `command` | `manifest_put.py --fragment` re-binds them, or the plan is revised |
 | `_s5_v2_collect` | `ValueError` | instance obligation IDs must match obligation_refs | `command` | `manifest_put.py --fragment` re-binds them |
 | `_s5_v2_collect` | `ValueError` | instance obligation_hash must bind exact obligation_refs | `command` | `manifest_put.py --fragment` recomputes the hash |
@@ -337,7 +337,7 @@ every edit above it. Rows are in source order.
 | `_s5_gap_problems` | `StateConflict` | this window holds red tests the requirement contradicts ( | `command` | accept it as `unresolved` naming `contradicts_requirement`; `story_step.py finish` derives that pair from the window record |
 | `_s5_gap_problems` | `StateConflict` | unresolved window: | `command` | the role resolves them, or the accept names them `unresolved` with a reason |
 | `_s5_gap_problems` | `StateConflict` | a completed process with gaps cannot be passed_green | `command` | name the gaps in the accept instead of claiming green |
-| `_s3_completion_gate` | `StateConflict` | a window-1 (labelling) dispatch of S3 cannot close the stage; it is accepted with | `command` | the driver accepts window 1 with `story_step.py finish --not-complete --unresolved plan_pending`; the stage is closed by the exit window |
+| `_s3_completion_gate` | `StateConflict` | a window-1 (labelling) dispatch of S3 cannot close the stage; it is accepted with | `command` | the driver accepts window 1 with `story_step.py finish --task <T> --dispatch-id <id> --digest "<digest>" --not-complete --unresolved plan_pending --reason "<words>"`; the stage is closed by the exit window |
 | `_s3_completion_gate` | `ValueError` | structured test plan rows must be a list | `unpassable` | the same: a shape nothing can read carries no decision, so passing it would only move the failure further down |
 | `_s3_completion_gate` | `StateConflict` | S3 structured test plan invalid: | `person` | reads `stage_overrides[]` through `_passed_by_person` |
 | `_s3_completion_gate` | `StateConflict` | S3 grounding: | `person` | raised from the list `_passed_by_person` has already filtered |

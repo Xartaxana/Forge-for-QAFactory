@@ -404,7 +404,132 @@ def test_b6_a_candidate_defect_rests_on_a_declared_question() -> None:
     check_eq("B-6: register_fence takes the virtual questions", sig, ("task_root", "rows", "extra_questions"))
 
 
+# --- FV1-9 N4: the planner's reword carrier ----------------------------------------------------------------------------------
+
+def show_questions(task: Path, *ids) -> None:
+    """Record, as the question stop does, that the person was shown `ids` on their current bytes."""
+    hashes = {q["id"]: q["row_hash"] for q in QR.load(task)["questions"] if q["id"] in ids}
+    (task / "state" / "driver-state.json").write_text(json.dumps({"question_stop": {"stage": "S3", "at": "t", "shown": hashes}}), encoding="utf-8")
+
+
+def register(task: Path) -> dict:
+    return {q["id"]: q for q in json.loads((task / "work" / "requirements-readiness.json").read_text(encoding="utf-8"))["open_questions"]}
+
+
+def approve(task: Path) -> None:
+    pipeline = json.loads((task / "pipeline.json").read_text(encoding="utf-8"))
+    pipeline["gates"] = {"A": {"gate": "A", "status": "approved", "decision": "approved"}}
+    (task / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
+
+
+def reword_entry(question="Q1", **extra):
+    return {"question": question, "text": f"Which of the two applies to {question}?", "why": "the earlier words did not say what the two are", **extra}
+
+
+def test_fv19_plan_reword_entry() -> None:
+    cases = {
+        "an entry rewords Q1 and leaves the row": ([reword_entry("Q1")], True, ["Q1"], 0),
+        "two entries, both done": ([reword_entry("Q1"), reword_entry("Q2")], True, ["Q1", "Q2"], 0),
+        "an unknown question id stays with a line": ([reword_entry("Q99")], False, [], 1),
+        "an unshown question stays with a line": ([reword_entry("Q3")], False, [], 1),
+        "an empty wording stays with a line": ([reword_entry("Q1", text="  ")], False, [], 1),
+        "a missing why stays with a line": ([{"question": "Q1", "text": "Which one?"}], False, [], 1),
+        "an entry that is no object stays with a line": (["Q1"], False, [], 1),
+        "readings that are no list stay with a line": ([reword_entry("Q1", readings="a, b")], False, [], 1),
+        "a refused entry does not stop the next one": ([reword_entry("Q99"), reword_entry("Q1")], True, ["Q1"], 1),
+    }
+    for name, (entries, wrote, reworded, lines) in cases.items():
+        row = plan_row("TS-1", question_refs=["Q1", "Q2", "Q3"], reword_questions=entries)
+        project, task = story("qa-fv19-n4-", [row, plan_row("TS-2")])
+        try:
+            show_questions(task, "Q1", "Q2")
+            done = PC.project_plan(task)
+            kept = {r["id"]: r for r in plan_rows(task)}["TS-1"].get("reword_questions")
+            now = register(task)
+            check_eq(f"fv19_plan_reword_entry [{name}]: the plan is written (the mark was owed), no problem, one note per refused entry",
+                     (done.wrote, done.problems, len(done.notes)), (True, [], lines))
+            check_eq(f"fv19_plan_reword_entry [{name}]: the questions reworded (id kept, one `reworded` record by the planner)",
+                     [qid for qid in ("Q1", "Q2", "Q3") if now[qid].get("reworded")], reworded)
+            check_eq(f"fv19_plan_reword_entry [{name}]: entries left on the row = the refused ones",
+                     len(kept or []), len(entries) - len(reworded))
+            check_eq(f"fv19_plan_reword_entry [{name}]: every other question is byte for byte as it was",
+                     [now[qid] for qid in ("Q4", "Q5", "Q6")], [question(n) for n in (4, 5, 6)])
+            for qid in reworded:
+                check_eq(f"fv19_plan_reword_entry [{name}]: {qid} reworded by role, driver, stage",
+                         (now[qid]["reworded"][0]["role"], now[qid]["reworded"][0]["by"], now[qid]["reworded"][0]["stage"]),
+                         ("qa-test-strategist", "driver", "S3"))
+        finally:
+            cleanup(project)
+
+
+def test_fv19_plan_reword_other_edges() -> None:
+    # a plan with no key is not written (the K-1.1 second call, restated for a stamped plan)
+    project, task = story("qa-fv19-n4-nokey-", [plan_row("TS-1", coverage_contract_revision=WANT)])
+    try:
+        held = sha(task / "work" / "test-plan.json")
+        done = PC.project_plan(task)
+        check_eq("fv19_plan_reword_entry [no key]: nothing written, no note", (done.wrote, done.problems, done.notes, sha(task / "work" / "test-plan.json")),
+                 (False, [], [], held))
+    finally:
+        cleanup(project)
+    # the key is no list / an empty list: a line each, the key kept, the plan not written when nothing else is owed
+    for name, value in {"a text": "Q1", "an empty list": [], "null": None, "an object": {"question": "Q1"}}.items():
+        project, task = story("qa-fv19-n4-shape-", [plan_row("TS-1", coverage_contract_revision=WANT, reword_questions=value)])
+        try:
+            show_questions(task, "Q1")
+            held = (sha(task / "work" / "test-plan.json"), sha(task / "work" / "requirements-readiness.json"))
+            done = PC.project_plan(task)
+            check_eq(f"fv19_plan_reword_entry [{name}]: one line naming the row, nothing written",
+                     (done.wrote, done.problems, len(done.notes), "TS-1" in " ".join(done.notes),
+                      (sha(task / "work" / "test-plan.json"), sha(task / "work" / "requirements-readiness.json"))), (False, [], 1, True, held))
+        finally:
+            cleanup(project)
+    # an approved plan executes nothing and notes it; a stamp or a new question owed still stops with a problem
+    project, task = story("qa-fv19-n4-approved-", [plan_row("TS-1", coverage_contract_revision=WANT, question_refs=["Q1"], reword_questions=[reword_entry("Q1")])])
+    try:
+        show_questions(task, "Q1")
+        approve(task)
+        held = (sha(task / "work" / "test-plan.json"), sha(task / "work" / "requirements-readiness.json"))
+        done = PC.project_plan(task)
+        check_eq("fv19_plan_reword_entry [approved plan]: nothing executed, one note, no problem",
+                 (done.wrote, done.problems, len(done.notes), (sha(task / "work" / "test-plan.json"), sha(task / "work" / "requirements-readiness.json"))),
+                 (False, [], 1, held))
+        reopened = PC.project_plan(task, reopening=True)
+        check_eq("fv19_plan_reword_entry [reopening]: the ticket re-run executes it", (reopened.wrote, bool(register(task)["Q1"].get("reworded"))), (True, True))
+    finally:
+        cleanup(project)
+    project, task = story("qa-fv19-n4-approved2-", [plan_row("TS-1", question_refs=["Q1"], reword_questions=[reword_entry("Q1")])])
+    try:
+        show_questions(task, "Q1")
+        approve(task)
+        done = PC.project_plan(task)
+        check_eq("fv19_plan_reword_entry [approved, mark owed]: the ban's problem line as before, nothing executed",
+                 (done.wrote, len(done.problems), bool(register(task)["Q1"].get("reworded"))), (False, 1, False))
+    finally:
+        cleanup(project)
+    # an unreadable register: the entry stays with a line, the plan is still written for the mark
+    project, task = story("qa-fv19-n4-register-", [plan_row("TS-1", question_refs=["Q1"], reword_questions=[reword_entry("Q1")])])
+    try:
+        (task / "work" / "requirements-readiness.json").write_text("{not json", encoding="utf-8")
+        done = PC.project_plan(task)
+        check_eq("fv19_plan_reword_entry [unreadable register]: the mark is written, the entry stays with a line",
+                 (done.wrote, done.problems, len(done.notes), len(plan_rows(task)[0].get("reword_questions", []))), (True, [], 1, 1))
+    finally:
+        cleanup(project)
+    # a reword of a question the row does not cite is refused (the planner rewords what its own plan rests on)
+    project, task = story("qa-fv19-n4-who-", [plan_row("TS-1", question_refs=["Q1"], reword_questions=[reword_entry("Q2")])])
+    try:
+        show_questions(task, "Q1", "Q2")
+        done = PC.project_plan(task)
+        check_eq("fv19_plan_reword_entry [not cited]: Q2 is refused, named, and not reworded",
+                 (len(done.notes), "Q2" in " ".join(done.notes), bool(register(task)["Q2"].get("reworded"))), (1, True, False))
+    finally:
+        cleanup(project)
+
+
 def main() -> None:
+    test_fv19_plan_reword_entry()
+    test_fv19_plan_reword_other_edges()
     test_k1_the_mark()
     test_k14_legacy_and_the_one_predicate()
     test_k2_the_exit_refuses_branches()

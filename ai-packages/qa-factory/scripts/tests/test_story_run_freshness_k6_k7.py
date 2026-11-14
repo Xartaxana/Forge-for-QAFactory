@@ -46,6 +46,17 @@ def strategist_closed_s3(controller, task_root: Path) -> None:
                                 "evidence_refs": [{"path": evidence.name, "sha256": hashlib.sha256(evidence.read_bytes()).hexdigest()}]})
 
 
+def tester_closed_s2(controller, task_root: Path) -> None:
+    """The S2 twin of `strategist_closed_s3`: the ticket re-run goes back over the work of the stage's author (`stages.json` `roles[0]` for
+    every stage, A1a), and `BASE.accept_stage` closes S2 with a `qa-worker` dispatch - give S2 the tester's accepted work."""
+    controller.apply("dispatch", {"id": "dS2-tester", "stage": "S2", "role": "qa-requirements-tester", "scope": ["TC-1"], "input_hash": "S2",
+                                  "budget": {}, "known_paths": {}, "idempotency_key": "dispatch-S2-tester"})
+    evidence = task_root / "S2-tester.txt"
+    evidence.write_text("S2-tester", encoding="utf-8")
+    controller.apply("accept", {"id": "dS2-tester", "status": "accepted", "stage_complete": False, "idempotency_key": "accept-S2-tester",
+                                "evidence_refs": [{"path": evidence.name, "sha256": hashlib.sha256(evidence.read_bytes()).hexdigest()}]})
+
+
 def staged_driver(root: Path, env: dict, task_root: Path, accept: dict):
     """A driver whose roles are recorded, not run: `accept["on"]` says whether the stub closes the dispatch it was sent to."""
     driver = driver_for(root, env, KEY, max_boundaries=12)
@@ -87,6 +98,7 @@ def state_of(task_root: Path) -> dict:
 def k6_k7_new_text_reworks_s2_then_s3_then_reopens_gate_a() -> None:
     root, task_root, env, ticket, controller = gate_a_story(decided=True, late=True)
     try:
+        tester_closed_s2(controller, task_root)
         strategist_closed_s3(controller, task_root)
         driver, _person = asked_driver(root, env, task_root, ticket)
         accept = {"on": False}
@@ -171,6 +183,7 @@ def k6_k7_new_text_reworks_s2_then_s3_then_reopens_gate_a() -> None:
 def k7b_gate_a_not_decided_is_not_reopened() -> None:
     root, task_root, env, ticket, controller = gate_a_story(decided=False)
     try:
+        tester_closed_s2(controller, task_root)
         strategist_closed_s3(controller, task_root)
         driver, _ = asked_driver(root, env, task_root, ticket)
         accept = {"on": True}
@@ -327,6 +340,7 @@ def k7e_a_ticket_rework_finished_through_the_restart_route_is_complete() -> None
     re-run of S2/S3 must close COMPLETE there too (the plan baseline is re-captured), while every other rework still does not."""
     root, task_root, env, ticket, _controller = gate_a_story(decided=True)
     try:
+        tester_closed_s2(_controller, task_root)
         driver, _ = asked_driver(root, env, task_root, ticket)
         accept = {"on": False}
         stub = staged_driver(root, env, task_root, accept)
@@ -341,23 +355,49 @@ def k7e_a_ticket_rework_finished_through_the_restart_route_is_complete() -> None
         fresh.run_role = lambda stage, role, **kw: seen.append((stage, kw.get("complete"), (kw.get("rework") or {}).get("id"))) or ("", None)
         with contextlib.redirect_stdout(io.StringIO()):
             fresh.dispatch_action({"action": "wait_existing_job", "dispatch_id": dispatch_id})
-        # X2-7: S2 has an acceptor (`acceptance_by`), so the author's re-run does not close the stage (None, never True: the controller refuses an
-        # author's closing accept without the critic's record); the closing is the critic route's, which the loop enters next (checked below)
-        check_eq("F4: finished through the restart route, the ticket re-run of S2 leaves the closing to the stage critic", seen, [("S2", None, dispatch_id)])
-        # the stage stays `completed` from its first run, so no turn of the loop enters S2 again: the restart route itself runs the critic
-        # route over the accepted re-run (`ticket_rerun_critic`, AR-25/AR-28) - and only over an accepted one, once
-        seen.clear()
-        with contextlib.redirect_stdout(io.StringIO()):
-            fresh.ticket_rerun_critic(dispatch_id)
-            check_eq("F4: a re-run still running gets no critic yet", seen, [])
-            accept_dispatch(task_root, dispatch_id, False)
-            fresh.ticket_rerun_critic(dispatch_id)
-            fresh.ticket_rerun_critic("no-such-dispatch")
-        check_eq("F4: the accepted re-run of S2 is followed by the stage critic's route (one critic call, whose finish closes)",
-                 [(stage, callable(done), rework) for stage, done, rework in seen], [("S2", True, None)])
+        # S2 has no acceptor (`acceptance_by` left with the stage critics), so the author's re-run closes the stage: True, as before X2-7
+        check_eq("F4: finished through the restart route, the ticket re-run of S2 closes COMPLETE (no acceptor)", seen, [("S2", True, dispatch_id)])
         record = state_of(task_root)["dispatches"][dispatch_id]
         check_eq("F4 control: any other rework record still answers False (the `rework_of` rule is unchanged)",
                  (fresh.completion_for("S2", record["role"], dict(record, repair_cause=None)), fresh.completion_for("S4", "qa-case-designer", {"rework_of": "x", "repair_cause": "ticket_changed"})), (False, False))
+    finally:
+        harness.cleanup(root)
+
+
+def t4_ticket_rerun_picks_roles0() -> None:
+    """T4 ticket-rerun-picks-roles0 (A.5, B-4a, P31): the stage's author for a ticket re-run is `stages.json` `roles[0]` for EVERY stage:
+    a 0.11.0 S2 whose critic was accepted last re-runs the TESTER; S3 (strategist, then the first-look runner) re-runs the strategist; S1
+    (scout, then the reference runner) re-runs the scout. A stage whose accepted dispatches name no author re-runs nothing."""
+    root, task_root, env, _ticket = freshness_project()
+    try:
+        driver = driver_for(root, env, KEY)
+        (task_root / "state").mkdir(exist_ok=True)
+        (task_root / "state" / "controller.json").write_text("{}", encoding="utf-8")
+        calls = []
+        driver.rework = lambda stage, role, cases, reason, **kw: calls.append((stage, role))
+        driver.s3_prepare = lambda: None
+        driver.s3_ticket_completion = lambda: True
+        driver.s3_strategist_lines = lambda extra=None: []
+        driver.ticket_reopen_gate_a = lambda pending: None
+        holder = {"dispatches": {}, "stages": {}}
+        driver.controller_state = lambda: holder
+        for label, stage, order, want in (
+                ("S2 tester then qa-case-critic", "S2", ["qa-requirements-tester", "qa-case-critic"], ("S2", "qa-requirements-tester")),
+                ("S3 strategist then the first-look runner", "S3", ["qa-test-strategist", "qa-runner"], ("S3", "qa-test-strategist")),
+                ("S1 scout then the reference runner", "S1", ["qa-scout", "qa-runner"], ("S1", "qa-scout"))):
+            holder["dispatches"] = {f"{stage}-{role}-{n}": {"id": f"{stage}-{role}-{n}", "stage": stage, "role": role, "status": "accepted"}
+                                    for n, role in enumerate(order, 1)}
+            driver.state["ticket_rework"] = {"stages": [stage], "words": "new text", "at": "t", "before": []}
+            calls.clear()
+            with contextlib.redirect_stdout(io.StringIO()):
+                moved = driver.ticket_rework_step()
+            check_eq(f"T4 ticket-rerun-picks-roles0: {label}: the author is re-run, nobody else", (moved, calls), (True, [want]))
+        holder["dispatches"] = {"S2-qa-case-critic-1": {"id": "S2-qa-case-critic-1", "stage": "S2", "role": "qa-case-critic", "status": "accepted"}}
+        driver.state["ticket_rework"] = {"stages": ["S2"], "words": "new text", "at": "t", "before": []}
+        calls.clear()
+        with contextlib.redirect_stdout(io.StringIO()):
+            driver.ticket_rework_step()
+        check_eq("T4 ticket-rerun-picks-roles0: S2 with only a critic accepted: no author, nothing is re-run", calls, [])
     finally:
         harness.cleanup(root)
 
@@ -368,6 +408,7 @@ SCENARIOS = [
     k7c_the_reworks_own_edges,
     k7d_the_reopen_sets_aside_the_late_work_and_names_what_it_cannot,
     k7e_a_ticket_rework_finished_through_the_restart_route_is_complete,
+    t4_ticket_rerun_picks_roles0,
 ]
 
 

@@ -1091,8 +1091,33 @@ class _Sink:
         self.task = Path(task_root).resolve()
         self.rows = []
 
-    def probe(self, when, profile, command, value):
-        self.rows.append({"at": MC._now(), "when": when, "profile": profile, "command": command, "probe": value})
+    def probe(self, when, profile, command, value, taken=""):
+        row = {"at": MC._now(), "when": when, "profile": profile, "command": command, "probe": value}
+        if taken:       # FV1-28 A2: `not_established` = a survey walk opened on a build the probe could not read or tie; absent = as before
+            row["taken"] = taken
+        self.rows.append(row)
+
+
+def survey_opens_on(record) -> bool:
+    """Whether a SURVEY walk may open on this probe answer (FV1-28 A2): only when the build is NOT ESTABLISHED - `asks_person` set means no rung could
+    read the build or tie it to a revision; the stand may or may not answer (a stand with no container named, or a failing registry
+    command, lands here too), and the survey walk then opens and is recorded `taken: not_established`. The answer is `unknown` both
+    as declared and as the validator reads it, and nothing proves another build, no device halt, no checkout without a commit. Read
+    from FIELDS (FR-12). Pure, never raises. ERROR DIRECTION: only toward False (today's refusal): a False costs one walk not opened;
+    a True on a provably other build would put a false observation in the record."""
+    try:
+        import profile_contract
+        import runtime_probe
+        if not isinstance(record, dict) or record.get("result") != "unknown":
+            return False
+        if profile_contract.validate_runtime_provenance(record)["result"] != "unknown" or profile_contract.stand_runs_other_build(record):
+            return False
+        asks = record.get("asks_person")
+        if not isinstance(asks, str) or not asks.strip():
+            return False
+        return record.get("reason_code") not in (runtime_probe.DEVICE_UNREADY, runtime_probe.NO_EXPECTED_REVISION)
+    except Exception:  # noqa: BLE001 - a record that cannot be read is not an opening
+        return False
 
 
 class Walk:
@@ -1246,7 +1271,13 @@ class Walk:
         try:
             MC.stand_probe(self.sink, self.cfg, self.project_root, self.profile, "start", self.surface, self.stand)
         except MC.EnvBlocked as exc:
-            raise ServerDead(f"{exc.row['probe_line']}. {exc.row['remedy']}") from None
+            # position invariant: the survey test comes FIRST and alone; a case, settle or control walk never opens on an unknown build
+            record = getattr(exc, "provenance", None)
+            if not (self.place == SURVEY and survey_opens_on(record)):
+                raise ServerDead(f"{exc.row['probe_line']}. {exc.row['remedy']}") from None
+            self.sink.probe("start", self.profile, self.surface, record, taken="not_established")
+            self.notes.append(f"the build on the stand is not established (runtime probe: unknown, {record['asks_person']}); "
+                              "the first look walks the stand as it is")
         base = walk_dir(self.task_root, self.walk) / "sessions"
         for actor in self.actors:
             number = 1 + max([int(m.group(1)) for p in base.glob(f"{MC.actor_slug(actor)}-*") if (m := re.search(r"-([0-9]+)$", p.name))] or [0])
@@ -1338,7 +1369,10 @@ class Walk:
                 try:
                     MC.stand_probe(self.sink, self.cfg, self.project_root, self.profile, "end", self.surface, self.stand)
                 except MC.EnvBlocked as exc:
-                    end_failed = exc
+                    if self.place == SURVEY and survey_opens_on(getattr(exc, "provenance", None)):
+                        self.sink.probe("end", self.profile, self.surface, exc.provenance, taken="not_established")
+                    else:
+                        end_failed = exc
                 ends = [r for r in self.sink.rows if r["when"] == "end"]
                 for item, rec in self.item_rec.items():
                     if end_failed:
