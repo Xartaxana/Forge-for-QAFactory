@@ -1,0 +1,2734 @@
+diff --git a/tools/calibration_counts.py b/tools/calibration_counts.py
+index 6b101417..c01529b4 100644
+--- a/tools/calibration_counts.py
++++ b/tools/calibration_counts.py
+@@ -81,8 +81,8 @@ if streams:
+ DEFAULT_BY_SINCE = "1970-01-01T00:00:00"
+ LEGACY_CUTOFF = "1970-01-01T00:00:00"
+ 
+-MODEL_REQUIRED_EVENTS = {"delegated", "escalated", "accepted", "rejected"}
+-TASK_ID_REQUIRED_EVENTS = {"delegated", "accepted", "rejected", "escalated", "defect_found"}
++MODEL_REQUIRED_EVENTS = {"delegated", "escalated", "accepted", "rejected", "returned"}
++TASK_ID_REQUIRED_EVENTS = {"delegated", "accepted", "rejected", "escalated", "defect_found", "returned"}
+ FAILURE_CLASSES = {"spec", "capability", "recon", "tooling"}
+ LIFECYCLE_EVENTS = {"delegated", "accepted", "rejected", "escalated"}
+ ALWAYS_REQUIRED_FIELDS = ("agent", "category", "notes")
+@@ -102,7 +102,7 @@ ALWAYS_REQUIRED_FIELDS = ("agent", "category", "notes")
+ # tokenizer is journal_keys.closes_tokens; this regex is the fallback copy for a failed import of
+ # journal_keys (a test pins its pattern equal to journal_keys.CLOSES_RE). A token whose `@...` is
+ # not a valid label closes NOTHING (t-525 F1).
+-CLOSES_RE = re.compile(r"(?<!\w)closes:(t-\d+)(@[A-Za-z0-9_-]*)?")
++CLOSES_RE = re.compile(r"(?<!\w)closes:(t-[0-9]{3,9}[a-z]{0,2})(?![0-9A-Za-z]|[^\x00-\x7f])(@[A-Za-z0-9_-]*)?")
+ _LABEL_RE = re.compile(r"^[a-z0-9-]{1,24}$")
+ 
+ 
+@@ -373,6 +373,11 @@ def _field_violations(in_window: List[ParsedLine]) -> Tuple[list, list]:
+             if not isinstance(ref, str) or not ref.strip():
+                 missing.append("ref")
+ 
++        if ev == "returned":                    # the end of a dispatch: the worker handle is its whole point
++            w = d.get("worker_ref")
++            if not isinstance(w, str) or not w.strip():
++                missing.append("worker_ref")
++
+         if not missing:
+             continue
+ 
+diff --git a/tools/compact_snapshot.py b/tools/compact_snapshot.py
+index 13868a16..f3188f4a 100644
+--- a/tools/compact_snapshot.py
++++ b/tools/compact_snapshot.py
+@@ -68,7 +68,6 @@ _deadline_at = None  # time.monotonic() at which collect_git stops asking; None
+ _STDIN_STATE = {"hit": False}  # the stdin deadline passed: a reader thread may still be blocked (see the bottom)
+ 
+ _SKIP_DIRS = {"__pycache__", ".git", "node_modules"}
+-_TID_RE = re.compile(r"^t-(\d+)$")
+ 
+ REMINDER = (
+     "After the compact: read CURRENT_CONTEXT.md, then the newest hand-written narrative of "
+@@ -304,31 +303,8 @@ def open_dispatches(events: list) -> list:
+     return open_dispatches_with_source(events)[0]
+ 
+ 
+-def next_free_id(events: list) -> str:
+-    """The next id of the file's own sequence (rule 9e: journal_keys.next_ids -- a closed band is skipped, an open
+-    band raises the max). When journal_keys cannot be imported: max + 1 over the plain ids, as before."""
+-    try:
+-        import journal_keys
+-
+-        return "t-%03d" % journal_keys.next_ids(events).main
+-    except Exception:
+-        pass
+-    top = 0
+-    for e in events:
+-        m = _TID_RE.match(str(e.get("task_id") or ""))
+-        if m:
+-            top = max(top, int(m.group(1)))
+-    return f"t-{top + 1:03d}"  # the journal's own width: t-008, t-318
+-
+-
+-def band_lines_of(events: list) -> list:
+-    """The `band t-A..t-B: next t-N` lines of the fallback path (rule 9e): [] when journal_keys cannot be imported."""
+-    try:
+-        import journal_keys
+-
+-        return journal_keys.band_lines(journal_keys.next_ids(events))
+-    except Exception:
+-        return []
++# offload B0 (S-5): the snapshot no longer computes a next id (max+1 races between sessions); it names the one road
++NEXT_ID_DOOR = "from python -B tools/journal_write.py next (the clone counter)"
+ 
+ 
+ # -- carriers ----------------------------------------------------------
+@@ -528,23 +504,17 @@ def build_snapshot(root: Path, source: str, now: datetime.datetime, session=None
+ 
+     out += ["", "## 3. OPEN DISPATCHES", ""]
+     if jerr:
+-        out.append(f"journal {jerr} -- open dispatches and next free id NOT computed")
++        out.append(f"journal {jerr} -- open dispatches and next id NOT computed")
+         n_open, nxt = None, None
+     else:
+         opens, fallback = open_dispatches_with_source(events, journal)
+         n_open = len(opens)
+-        band_ls: list = []
+-        if journal is None:
+-            nxt, nxt_label = next_free_id(events), "NEXT FREE ID"
+-            band_ls = band_lines_of(events)
+-        elif not switched:
+-            nxt, nxt_label = journal.next_free_id(""), "NEXT FREE ID"
+-            band_ls = jk.band_lines(journal.band_state(""))
+-        elif cur_rel is None:
+-            nxt, nxt_label = "unknown -- no developer slug", "NEXT FREE ID"
++        # offload B0: ids are issued by the clone counter, never read off the journal's max -- no band lines either
++        if journal is not None and switched and cur_rel is None:
++            nxt = "unknown -- no developer slug"
+         else:
+-            nxt, nxt_label = journal.next_free_id(own_label), f"NEXT FREE ID ({cur_rel})"
+-            band_ls = jk.band_lines(journal.band_state(own_label))
++            nxt = NEXT_ID_DOOR
++        nxt_label = "next id"
+         if fallback:
+             out.append("(note: session_context could not be imported, so this list was computed by the plain "
+                        "fallback rule - a `closes:t-NNN` marker is NOT honoured here: a dispatch closed that way "
+@@ -553,19 +523,23 @@ def build_snapshot(root: Path, source: str, now: datetime.datetime, session=None
+             out.append(f"(note: {bad} malformed journal line(s) skipped)")
+         if not opens:
+             out.append("none")
++        # a `returned` never closes a task (rule 9f): the dispatch stays listed, marked as RESULT PENDING
++        returned = {(e.get("task_id"), e.get("worker_ref")): e.get("ts")
++                    for e in events if e.get("event") == "returned"}
+         for e in opens:
+             shown_id = e.get("task_id")
++            back = returned.get((shown_id, e.get("worker_ref")))
++            pending = f" RESULT PENDING (returned {back})" if back else ""
+             if jk is not None and not fallback:
+                 key = jk.task_key(e, journal.segments)      # B-454: the key on the screen, t-NNN@label for a labelled task
+                 shown_id = jk.display(key) if key is not None else shown_id
+             out.append(
+                 f"- {shown_id} agent={e.get('agent')} model={e.get('model')} "
+                 f"ts={e.get('ts')} worker_ref={e.get('worker_ref')} | "
+-                f"{one_line(e.get('notes'), NOTE_CAP_DISPATCH)}"
++                f"{one_line(e.get('notes'), NOTE_CAP_DISPATCH)}{pending}"
+             )
+         out.append("")
+         out.append(f"{nxt_label}: {nxt}")
+-        out.extend(band_ls)        # rule 9e: the bands with a free id, so a session keeps its band across /compact
+ 
+     out += ["", f"## 4. Last {JOURNAL_TAIL} journal events", ""]
+     if jerr:
+@@ -703,7 +677,7 @@ def write_snapshot(root: Path, source: str, now: datetime.datetime = None, sessi
+         f"COMPACT SNAPSHOT: {rel} {dash} open dispatches "
+         f"{'?' if facts['open'] is None else facts['open']}, uncommitted package "
+         f"{'?' if facts['pkg'] is None else facts['pkg']} / forge "
+-        f"{'?' if facts['forge'] is None else facts['forge']}, next free id "
++        f"{'?' if facts['forge'] is None else facts['forge']}, next id "
+         f"{facts['next'] or '?'}"
+     )
+     return summary, folder
+diff --git a/tools/dispatch_manifest.py b/tools/dispatch_manifest.py
+index 676b487b..f0f2171c 100644
+--- a/tools/dispatch_manifest.py
++++ b/tools/dispatch_manifest.py
+@@ -741,7 +741,16 @@ _WORD_CHAR_RE = re.compile(r"\w")
+ _REL_PATH_RE = re.compile(
+     r"(?<![\w./\\-])(?:[\w.-]+/)+(?:[\w-][\w.-]*\.[A-Za-z0-9]{1,10}(?![\w/])|(?![\w.-]))")
+ _DESIGNER_SKIP_RE = re.compile(r"\s*skip\s*(?:" + _SEP + r")\s*(\S.*)$", re.IGNORECASE)
+-_DESIGNER_RESUBMISSION_RE = re.compile(r"\s*resubmission\s+t-\d+\b", re.IGNORECASE)
++# the task id is the journal's read grammar (journal_keys.ID_RE, lower-case letter included); IGNORECASE only for the word
++_DESIGNER_RESUBMISSION_RE = re.compile(
++    r"\s*(?i:resubmission)\s+t-[0-9]{3,9}[a-z]{0,2}(?![0-9A-Za-z]|[^\x00-\x7f])")     # the case-fold is for the word only
++# The header lines of the offload spec (F-B2-1 (a)): `task: t-NNN`, `node: <slug>/<N>/<id>`, `feature: Fnn`, each on its
++# own line outside a fence or quote, read by header_ids (the one reader). Not manifest ITEMS: nothing is refused for
++# their absence. The fallback for the task: the first `Task t-NNN` within the first TASK_FALLBACK_CHARS of the prompt.
++_IDS_HEADER_RE = re.compile(r"^[ \t]*(?:[-*•][ \t]+)?(?:\*\*)?(task|node|feature)(?:\*\*)?[ \t]*:[ \t]*(.*)$", re.IGNORECASE)
++_FEATURE_RE = re.compile(r"F[0-9]{2,3}\Z")
++TASK_FALLBACK_CHARS = 200
++_TASK_FALLBACK_RE = re.compile(r"\bTask[ \t]+(t-[0-9]{3,9}[a-z]{0,2})(?![0-9A-Za-z]|[^\x00-\x7f])")
+ 
+ 
+ def _extent_lines(cut: DispatchCut, sec: Section):
+@@ -800,6 +809,53 @@ def _designer_state(cut: DispatchCut):
+     return state, None
+ 
+ 
++def designer_skip_reason(cut):
++    """The reason of a `designer: skip -- <reason>` line of `cut`, or None (offload B0): the ONE cut-based reader the
++    DESIGNER-SKIP note (check_cut) and the dispatch-record hook both ask. None for no cut, a degraded cut, a dispatch
++    under the designer threshold (the line is not required there, so it is not read) and a designer line that is
++    not a skip (a path, a resubmission, or absent)."""
++    if cut is None or cut.degraded:
++        return None
++    if max(designer_threshold(cut)) < DESIGNER_THRESHOLD:
++        return None
++    return _designer_state(cut)[1]
++
++
++def header_ids(cut) -> dict:
++    """{"task": "t-NNN[a-z]", "node": "<slug>/<N>/<id>", "feature": "Fnn"} -- only the keys found and well-formed -- of the
++    header lines `task:` / `node:` / `feature:` of `cut` (offload B0, F-B2-1 (a)). A line inside a fence or quote is not a
++    header; the FIRST well-formed line of a key wins; a value outside its grammar (journal_keys.ID_RE, NODE_RE,
++    Fnn) is skipped, never repaired. Without a task header the fallback is the first `Task t-NNN` in the first
++    TASK_FALLBACK_CHARS characters of the prompt. {} for no cut. Pure; a degraded cut reads the fallback only
++    (every line is prose there)."""
++    if cut is None:
++        return {}
++    tools_dir = str(Path(__file__).resolve().parent)
++    if tools_dir not in sys.path:
++        sys.path.insert(0, tools_dir)
++    import journal_keys as jk      # stdlib + dev_config only; lazy like the other sibling imports
++    out: dict = {}
++    if not cut.degraded:
++        for li, line in enumerate(cut.lines):
++            if cut.quoted[li]:
++                continue
++            m = _IDS_HEADER_RE.match(line)
++            if m is None:
++                continue
++            key, value = m.group(1).lower(), m.group(2).strip().strip("`*_ \t")
++            if key in out:
++                continue
++            ok = (jk.ID_RE.match(value) if key == "task" else jk.NODE_RE.match(value) if key == "node"
++                  else _FEATURE_RE.match(value))
++            if ok:
++                out[key] = value
++    if "task" not in out:
++        fb = _TASK_FALLBACK_RE.search(cut.text[:TASK_FALLBACK_CHARS])
++        if fb:
++            out["task"] = fb.group(1)
++    return out
++
++
+ def designer_threshold(cut: DispatchCut):
+     """(owns_count, items_count): the owned paths (the one reader) and the unquoted numbered lines
+     (`^\\s*\\d+[.)]\\s`) lying in no extent of a section of ITEM_EXCLUDED_SECTIONS. Because extents end at
+diff --git a/tools/forge_metrics.py b/tools/forge_metrics.py
+index 6b4f1d9f..e61bdde9 100644
+--- a/tools/forge_metrics.py
++++ b/tools/forge_metrics.py
+@@ -77,7 +77,10 @@ PROCESS_DOC_PREFIXES = ("docs/", "plans/")   # "F19 docs" of the process-tax met
+ # (single source: tools/journal_validator.py).
+ FEATURE_EVENTS = set(getattr(_jv, "FEATURE_WARN_EVENTS", {"delegated", "accepted", "defect_found"}))
+ FEATURE_FROM = getattr(_jv, "FEATURE_WARN_FROM", "2026-10-02")
+-TASK_EVENTS = {"delegated", "accepted", "rejected", "escalated", "defect_found"}
++TASK_EVENTS = {"delegated", "accepted", "rejected", "escalated", "defect_found", "returned"}
++# `returned` (offload B0) is the END of a dispatch: it joins its task's instance (so it inherits the feature) but is not a
++# work event -- it never carries `feature` itself, so it is neither counted in the window nor listed as unclassified.
++UNCOUNTED_EVENTS = {"returned"}
+ 
+ EXPECTED_SHAPE = (
+     '{"schema_version": 1, "features": [{"id": "F01", "name": "...", "root": "package"|"repo", '
+@@ -856,7 +859,7 @@ def compute(root=ROOT, window=DEFAULT_WINDOW, use_seed=True, features=None, regi
+               "task ids are read as one task", file=sys.stderr)
+     win_day = _since(window)[:10]
+     evs = [e for e in attribute_events(events, features, index, segments, journal=journal)
+-           if e["event"] in TASK_EVENTS and e["ts"][:10] >= win_day]
++           if e["event"] in TASK_EVENTS and e["event"] not in UNCOUNTED_EVENTS and e["ts"][:10] >= win_day]
+ 
+     # --- git ---
+     pkg_commits = collect_commits(root, window, [PACKAGE])
+diff --git a/tools/hygiene_gate.py b/tools/hygiene_gate.py
+index 9c49553f..7d9ebb46 100644
+--- a/tools/hygiene_gate.py
++++ b/tools/hygiene_gate.py
+@@ -80,8 +80,8 @@ MSG_MUTATION = (
+     "a script under the scratchpad (python -B <path>). A reading role: Edit/Write your handoff file."
+ )
+ MSG_JOURNAL_BLOCK = (
+-    "the journal is written only through Edit/Write at the file's tail (journal_echo checks the line). "
+-    "Reading it with grep, cat or tail is fine."
++    "the journal is written by `python -B tools/journal_write.py <event> ...` (the hooks write delegated/returned "
++    "themselves); a redirect, tee or sed -i onto it is refused. Reading it with grep, cat or tail is fine."
+ )
+ MSG_ROLLBACK = (
+     "{n} path(s) under {dir} have uncommitted changes that may be another session's, and this command would discard "
+@@ -1557,6 +1557,42 @@ def _decide_command(tool_name: str, command: str, payload: dict):
+     return 0, None
+ 
+ 
++RUN_COMMAND_MAX = 65_536     # run_allowed: a command longer than this is never judged, it is refused (AR-1: a data row)
++
++
++# run_allowed only: a command word that is not known until the shell runs it ($(...), backticks, $var), in command position
++# (start, or after ; & | ( newline, past leading NAME=value assignments). The live gate does not see it; the --run road does.
++_DYNAMIC_COMMAND_WORD_RE = re.compile(
++    r"(?:^|[;&|(\n])\s*(?:[A-Za-z_]\w*=(?:\"[^\"]*\"|'[^']*'|\S)*\s+)*(?:\$|`)")
++
++
++def run_allowed(cmd, cwd) -> tuple[bool, list[str]]:
++    """(ok, reasons) -- may the command text `cmd` be RUN (journal_write accept --run) from `cwd`? Offload B0, X-1/X-9.
++    The same judgment as the live gate (`_decide_command` as a Bash call), but the ERROR DIRECTION is the opposite of
++    decide(): this is the only check before an unhooked subprocess, so it REFUSES on doubt. ok is True only for the gate's
++    plain allow (no answer at all); a deny, a WARN-class or note answer (an unresolvable payload, an unmeasured
++    rollback), an exception, a NUL byte, a non-string, an empty command or one over RUN_COMMAND_MAX is (False, reasons).
++    The refusal classes of the live gate are unchanged."""
++    try:
++        if not isinstance(cmd, str) or not cmd.strip():
++            return False, ["the command is empty or not text"]
++        if "\x00" in cmd:
++            return False, ["the command holds a NUL byte"]
++        if len(cmd) > RUN_COMMAND_MAX:
++            return False, [f"the command is {len(cmd)} characters; the gate judges at most {RUN_COMMAND_MAX}"]
++        if _DYNAMIC_COMMAND_WORD_RE.search(cmd):
++            return False, ["the command word is dynamic ($(...), backticks or a variable in command position), so the gate cannot "
++                           "know what runs; write the command out literally, or put it in a file and pass it with --witness-file"]
++        _code, out = _decide_command("Bash", cmd, {"cwd": cwd})
++        if out is None:
++            return True, []
++        hso = out.get("hookSpecificOutput", {}) if isinstance(out, dict) else {}
++        reason = hso.get("permissionDecisionReason") or hso.get("additionalContext") or "the gate did not give a plain allow"
++        return False, [str(reason)]
++    except Exception as exc:  # noqa: BLE001 -- fail CLOSED: an exception is a doubt
++        return False, [f"hygiene_gate could not judge the command ({type(exc).__name__}); refused"]
++
++
+ def decide(payload: dict) -> tuple[int, dict | None]:
+     """Entry point: a silent pass on empty or malformed input, else the classification. exit_code is ALWAYS 0 (a
+     refusal is `permissionDecision: "deny"` on stdout). Any exception while classifying fails open VISIBLY."""
+diff --git a/tools/journal_echo.py b/tools/journal_echo.py
+index bd2398d8..97875487 100644
+--- a/tools/journal_echo.py
++++ b/tools/journal_echo.py
+@@ -899,9 +899,8 @@ def combine_context(violations: list, tier_events: list, witness_events: list =
+     return "; ".join(parts)
+ 
+ 
+-# --- PEER NOTE at write time (rule 9e, F6-58) ----------------------------
+-# Trigger: a NEW `delegated` line (echo_new_lines) while the journal file holds no closed band with a free id (once one
+-# writer has a band the writers are separated and the note stops: stateless) AND another main session of this project
++# --- PEER NOTE at write time (F6-58; offload B0: bands retired, the note says ids come from the clone counter) ------
++# Trigger: a NEW `delegated` line (echo_new_lines) AND another main session of this project
+ # wrote its transcript within transcripts.PEER_WINDOW_S (axis 14: transcripts.peer_main_sessions, from the payload's
+ # `transcript_path`). The text is journal_keys.peer_note. A NOTE, never a refusal: it does not change decide()'s
+ # verdict and it errs toward SILENCE (any exception, no import, no peer -> "").
+@@ -916,15 +915,8 @@ def _peer_note_text(payload: dict, echo_new_lines: list, seed_lines: list, stage
+         if not any(isinstance(o, dict) and o.get("event") == "delegated"
+                    for o in map(journal_validator._try_parse_obj, echo_new_lines)):
+             return ""
+-        state = jk.BandState()
+-        for line in list(seed_lines) + list(staged_lines):
+-            obj = journal_validator._try_parse_obj(line)
+-            if obj is not None:
+-                state.add(obj)
+-        if jk.free_bands(state):
+-            return ""
+         peers = transcripts.peer_main_sessions(payload.get("transcript_path"), time.time())
+-        return jk.peer_note(peers, state)
++        return jk.peer_note(peers)
+     except Exception:
+         return ""
+ 
+@@ -1965,7 +1957,7 @@ CRITIC_SKIP_RE = re.compile(r"critic\s*:\s*skipped", re.IGNORECASE)
+ # whitespace around the colon) matches; no free-form wording ("critic:
+ # skip", "no critic", "critic waived" -- do NOT match, see battery 3 in
+ # test_journal_echo_r3.py).
+-CRITIC_TOKEN_RE = re.compile(r"\bcritic:(t-\d{3,})\b")
++CRITIC_TOKEN_RE = re.compile(r"\bcritic:(t-[0-9]{3,9}[a-z]{0,2})\b")      # the id grammar of journal_keys.ID_RE (offload B0)
+ # Case-sensitive literal (NOT ignorecase, symmetric with
+ # journal_validator's replaces_worker/closes token) -- a machine
+ # structural token, not free prose, unlike CRITIC_SKIP_RE above. Group
+@@ -2329,6 +2321,70 @@ _STDIN_DEADLINE_MSG = "stdin deadline exceeded -- fail-open, payload discarded"
+ _STDIN_DEADLINE_STATE = {"hit": False}
+ 
+ 
++def _skip_run_witness(witness_events: list, new_lines: list, base_lines: list) -> list:
++    """The witness events minus those of an `accepted` line with `witness_by: run` (offload B0, X-7): the writer RAN
++    the command itself (journal_write accept --run), so the cross-check of the witness text against the session's own
++    track has nothing to say about it. Line numbers are those the collector used (len(base) + index + 1)."""
++    skip = set()
++    for idx, line in enumerate(new_lines):
++        obj = journal_validator._try_parse_obj(line)
++        if obj is not None and obj.get("witness_by") == "run":
++            skip.add(len(base_lines) + idx + 1)
++    return [e for e in witness_events if not (len(e) > 1 and e[1] in skip)]
++
++
++def _echo_parts(echo_new_lines: list, echo_base_lines: list, payload, now, used_fallback: bool) -> dict:
++    """The echo collectors (tier MISMATCH, witness, ts drift, escalation, notes length, R3) over given lines -- the ONE
++    place the hook and `echo_for_lines` take them from. Each beyond the tier collector fails open in its own try."""
++    parts = {"tier": _collect_tier_events(echo_new_lines, echo_base_lines)}
++    try:
++        parts["witness"] = _skip_run_witness(
++            _collect_witness_events(echo_new_lines, echo_base_lines, payload), echo_new_lines, echo_base_lines)
++    except Exception:
++        parts["witness"] = []
++    for name, fn, args in (("ts_drift", _collect_ts_drift_events, (echo_new_lines, echo_base_lines, now)),
++                           ("escalation", _collect_escalation_events, (echo_new_lines, echo_base_lines)),
++                           # NOTES LEN is fully off when the echo base fell back to the whole uncommitted tail
++                           ("notes_len", _collect_notes_len_events, (echo_new_lines, echo_base_lines)),
++                           # R3 MIRROR runs unconditionally, also in the fallback (critic input does not age)
++                           ("r3", _collect_r3_events, (echo_new_lines, echo_base_lines))):
++        if name == "notes_len" and used_fallback:
++            parts[name] = []
++            continue
++        try:
++            parts[name] = fn(*args)
++        except Exception:
++            parts[name] = []
++    return parts
++
++
++def _echo_visible(parts: dict, violations: list, peer_note_text: str) -> bool:
++    """Is there anything to print? ("note" witness events never make a line visible.)"""
++    return bool(violations or parts["tier"] or any(e[0] != "note" for e in parts["witness"])
++                or parts["ts_drift"] or parts["escalation"] or parts["notes_len"] or parts["r3"] or peer_note_text)
++
++
++def _echo_context(parts: dict, violations: list, fallback_marker: str, peer_note_text: str, ascii_only: bool) -> str:
++    """The ONE assembly of the echo text: main() builds both channels with it and echo_for_lines the stdout form."""
++    return combine_context(violations, parts["tier"], parts["witness"], parts["ts_drift"], parts["escalation"],
++                           fallback_marker, notes_len_events=parts["notes_len"], r3_events=parts["r3"],
++                           peer_note=peer_note_text, ascii_only=ascii_only)
++
++
++def echo_for_lines(new_lines: list, base_lines: list, *, payload=None) -> str:
++    """The text the PostToolUse hook would print for `new_lines` written after `base_lines` (offload B0, X-7; read by
++    journal_write after its own write, F-B1-2 (a)): tier MISMATCH, notes length, escalation, R3, ts drift and the
++    witness cross-check (skipped for an `accepted` line with `witness_by: run`). "" when there is nothing to say.
++    No validation (the writer validated), no peer note (that needs a transcript path), no fallback marker. Never
++    raises: any failure is ""."""
++    try:
++        parts = _echo_parts(list(new_lines), list(base_lines), payload if isinstance(payload, dict) else {},
++                            datetime.datetime.now(), False)
++        return _echo_context(parts, [], "", "", False) if _echo_visible(parts, [], "") else ""
++    except Exception:
++        return ""
++
++
+ def main() -> int:
+     _reconfigure_streams_utf8()
+     try:
+@@ -2387,83 +2443,18 @@ def main() -> int:
+ 
+         if transcripts is None and _TRANSCRIPTS_OFF_LINE:  # t-859: ONE line per call, whatever the worker_refs
+             sys.stderr.write(_TRANSCRIPTS_OFF_LINE + "\n")
+-        tier_events = _collect_tier_events(echo_new_lines, echo_base_lines)
+-
+-        # WITNESS ECHO at write time (this port's second extension --
+-        # see the module docstring): the SAME payload-scoped base as
+-        # TIER ECHO above. A second, outer try/except here (on top of
+-        # the per-line one inside _collect_witness_events itself) means
+-        # a failure in this cross-check can never take down JOURNAL
+-        # ECHO/TIER ECHO.
+-        try:
+-            witness_events = _collect_witness_events(echo_new_lines, echo_base_lines, payload)
+-        except Exception:
+-            witness_events = []
+-        # "note" events (retro / empty track) never make a line visible
+-        # -- only warn_loud/warn_soft/warn_stale trigger printing.
+-        witness_visible = any(e[0] != "note" for e in witness_events)
+-
+-        # TS DRIFT ECHO at write time: the
+-        # SAME payload-scoped base as TIER ECHO/WITNESS ECHO above --
+-        # `now` is the SAME variable already computed above for
+-        # decide()/_get_head_text, not recomputed. Warn-only, always
+-        # visible (no "note" branch, unlike WITNESS ECHO).
+-        try:
+-            ts_drift_events = _collect_ts_drift_events(echo_new_lines, echo_base_lines, now)
+-        except Exception:
+-            ts_drift_events = []
+-
+-        # ESCALATION ECHO (a machine guard mirroring the escalation
+-        # rule): the SAME payload-scoped base as
+-        # TIER/WITNESS/TS DRIFT above (see the "ESCALATION ECHO at write
+-        # time" section for how base_lines is used as history for
+-        # CONTEXT while the trigger stays on echo_new_lines). Fails open
+-        # as a second layer on top of the per-line try/except already
+-        # inside _collect_escalation_events itself -- the same pattern
+-        # as WITNESS ECHO/TS DRIFT ECHO above.
+-        try:
+-            escalation_events = _collect_escalation_events(echo_new_lines, echo_base_lines)
+-        except Exception:
+-            escalation_events = []
+-
+-        # NOTES LEN ECHO: the SAME payload-scoped base as TIER/WITNESS/
+-        # TS-DRIFT/ESCALATION above -- but fully disabled when
+-        # used_fallback == True (see the "NOTES LEN ECHO" section above
+-        # for the motive: otherwise it would re-evaluate the WHOLE
+-        # uncommitted journal tail on every write). Fails open as a
+-        # second layer on top of the per-line try/except already inside
+-        # _collect_notes_len_events itself.
+-        if used_fallback:
+-            notes_len_events = []
+-        else:
+-            try:
+-                notes_len_events = _collect_notes_len_events(echo_new_lines, echo_base_lines)
+-            except Exception:
+-                notes_len_events = []
+-
+-        # R3 MIRROR: the SAME payload-scoped base as TIER/WITNESS/
+-        # ESCALATION above -- this layer runs UNCONDITIONALLY, including
+-        # when used_fallback == True (see the "R3 MIRROR" section above:
+-        # critic input/basis/notes do not depend on how much time
+-        # passed since an unrelated commit -- the same "noisy but not
+-        # correctness-false" class TIER/WITNESS/ESCALATION already are,
+-        # NOT the class NOTES-LEN/TS-DRIFT belong to). Fails open as a
+-        # second layer on top of the per-line try/except already inside
+-        # _collect_r3_events itself.
+-        try:
+-            r3_events = _collect_r3_events(echo_new_lines, echo_base_lines)
+-        except Exception:
+-            r3_events = []
++        # ECHO collectors (TIER / WITNESS / TS DRIFT / ESCALATION / NOTES LEN / R3 MIRROR): one payload-scoped base,
++        # taken by `_echo_parts` -- the same function `echo_for_lines` (journal_write's echo) calls (offload B0, X-7).
++        # Each carries its own fail-open and its own rule (see the sections above); NOTES LEN is off in the fallback.
++        parts = _echo_parts(echo_new_lines, echo_base_lines, payload, now, used_fallback)
+ 
+-        # PEER NOTE (rule 9e): beside TS DRIFT, in its own try; a note, so it never changes `violations`
++        # PEER NOTE: beside TS DRIFT, in its own try; a note, so it never changes `violations`
+         try:
+             peer_note_text = _peer_note_text(payload, echo_new_lines, journal_validator.split_lines(seed_text), staged_lines)
+         except Exception:
+             peer_note_text = ""
+ 
+-        if (not violations and not tier_events and not witness_visible
+-                and not ts_drift_events and not escalation_events
+-                and not notes_len_events and not r3_events and not peer_note_text):
++        if not _echo_visible(parts, violations, peer_note_text):
+             return 0
+ 
+         # Fallback marker: visible ONLY when we're already
+@@ -2471,14 +2462,8 @@ def main() -> int:
+         # silent even in fallback (see the section docstring above).
+         fallback_marker = FALLBACK_MARKER_TEXT if used_fallback else ""
+ 
+-        context_for_stdout = combine_context(violations, tier_events, witness_events, ts_drift_events,
+-                                              escalation_events, fallback_marker,
+-                                              notes_len_events=notes_len_events, r3_events=r3_events,
+-                                              peer_note=peer_note_text, ascii_only=False)
+-        context_for_stderr = combine_context(violations, tier_events, witness_events, ts_drift_events,
+-                                              escalation_events, fallback_marker,
+-                                              notes_len_events=notes_len_events, r3_events=r3_events,
+-                                              peer_note=peer_note_text, ascii_only=True)
++        context_for_stdout = _echo_context(parts, violations, fallback_marker, peer_note_text, False)
++        context_for_stderr = _echo_context(parts, violations, fallback_marker, peer_note_text, True)
+ 
+         sys.stderr.write(context_for_stderr + "\n")
+         output = {
+diff --git a/tools/journal_keys.py b/tools/journal_keys.py
+index c12f23d3..b9fab485 100644
+--- a/tools/journal_keys.py
++++ b/tools/journal_keys.py
+@@ -72,7 +72,16 @@ SLUG_RE = dev_config.SLUG_RE
+ _TS_SHAPE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$")
+ IDENTITY_FIELDS = ("ts", "task_id", "event", "agent", "worker_ref")
+ LABEL_RE = re.compile(r"^[a-z0-9-]{1,24}$")
+-REF_RE = re.compile(r"^(t-\d{3,})(?:@([a-z0-9-]{1,24}))?$")
++# THE ONE ID GRAMMAR (offload B0, owner 14.11.2026 "Number 123 and 123A"): a task id is `t-` + 3 to 9 ASCII digits + an
++# optional clone LETTER of 0-2 lower-case ASCII letters (`t-123`, `t-123a`, `t-123ab`). `[0-9]` / `[a-z]`, never `\d` /
++# `\w`: a fullwidth digit, a Cyrillic or an upper-case letter is not an id. `\Z`, not `$`. READING is permissive about
++# spelling (a legacy `t-0123` is a readable string) and keys by the STRING (task_key = (label, id)), never by a
++# normalised number: `t-123` and `t-123a` are two tasks. ISSUING is narrower (is_canonical).
++ID_RE = re.compile(r"^t-([0-9]{3,9})([a-z]{0,2})\Z")
++ID_PATTERN = r"t-[0-9]{3,9}[a-z]{0,2}"
++ID_JUMP_MAX = 1000            # rule 9a'': a brand-new id is at most this far above the max number of its letter
++JOURNAL_WRITE_DOOR = "python -B tools/journal_write.py next"
++REF_RE = re.compile(r"^(" + ID_PATTERN + r")(?:@([a-z0-9-]{1,24}))?\Z")
+ # The `closes:` token of a journal line's notes: `closes:t-NNN` or `closes:t-NNN@label`. The
+ # `(?<!\w)` boundary keeps `discloses:t-001` out. The label part is captured WIDER than a valid
+ # label (any run of [A-Za-z0-9_-]) on purpose: a token whose `@...` is not a valid label closes
+@@ -80,7 +89,10 @@ REF_RE = re.compile(r"^(t-\d{3,})(?:@([a-z0-9-]{1,24}))?$")
+ # close the OTHER clone's instance, the false close this module exists to prevent. The readers
+ # (session_context, calibration_counts) keep a fallback copy of this regex for the case that this
+ # module cannot be imported; a test in each pins their pattern equal to this one.
+-CLOSES_RE = re.compile(r"(?<!\w)closes:(t-\d+)(@[A-Za-z0-9_-]*)?")
++# The id of a token ends at a boundary: an ASCII letter or digit (or any non-ASCII character) right after it makes it
++# NOT an id (`closes:t-123A`, `closes:t-123abc`, `closes:t-123` + a Cyrillic letter close nothing -- never the bare
++# `t-123`, K4's false close); the optional `@label` follows the boundary.
++CLOSES_RE = re.compile(r"(?<!\w)closes:(" + ID_PATTERN + r")(?![0-9A-Za-z]|[^\x00-\x7f])(@[A-Za-z0-9_-]*)?")
+ # The NODE of a `delegated` line (t-797 F5-2, M5): the pile node the work belongs to, ONE form everywhere --
+ # the `node` field, the hop_metrics `--node` argument and the normalized notes token: `<slug>/<N>/<id>`
+ # (`forge/5/F5-2`, `conductor/2/C2-1`, `forge/4/D9`). A bare id (`F5-2`) is never a node: ids repeat between
+@@ -100,7 +112,7 @@ MAX_PROBLEMS_SHOWN = 3
+ # never reached on a long run). `\Z`, not `$`: `t-500..\n` is not a band. The id regex of the next-id readers
+ # (ID_NUM_RE) is the same ASCII class, kept here because journal_validator imports this module, not the reverse.
+ BAND_RE = re.compile(r"^t-([0-9]{3,9})\.\.(?:t-([0-9]{3,9}))?\Z")
+-ID_NUM_RE = re.compile(r"^t-([0-9]{3,9})$")
++ID_NUM_RE = ID_RE         # kept name: group(1) the digits, group(2) the clone letter (rebuilt on the read grammar)
+ BAND_MAX_SIZE = 1000      # ids in a closed band
+ BAND_JUMP_MAX = 10000     # a band may start at most this far above `top`
+ BAND_GAP_MIN = 50         # a closed band starts at least this far above `top` (it protects by DISTANCE)
+@@ -141,6 +153,45 @@ def identity(obj: dict) -> tuple:
+     return tuple(obj.get(k) if isinstance(obj.get(k), str) else "" for k in IDENTITY_FIELDS)
+ 
+ 
++def parse_id(s):
++    """(digits_text, letter) of a task id in the READ grammar (`t-123` -> ("123", ""), `t-123a` -> ("123", "a")), else
++    None. A non-string is None. Pure, never raises."""
++    m = ID_RE.match(s) if isinstance(s, str) else None
++    return (m.group(1), m.group(2)) if m else None
++
++
++def is_canonical(s) -> bool:
++    """The ISSUE grammar: an id a writer may issue anew. The number is 001..999 zero-padded to 3 digits, or 4-9 digits
++    with no leading zero; number >= 1; the letter part is as the read grammar allows. `t-0123`, `t-000`, `t-0001`
++    read fine as strings but are never issued."""
++    parsed = parse_id(s)
++    if parsed is None:
++        return False
++    digits, _letter = parsed
++    if int(digits) < 1:
++        return False
++    return len(digits) == 3 or digits[0] != "0"
++
++
++def id_number(s):
++    """The number of a task id in the read grammar as an int (the letter ignored), else None."""
++    parsed = parse_id(s)
++    return int(parsed[0]) if parsed else None
++
++
++def max_by_letter(objs) -> dict:
++    """{letter: highest number seen} over the `task_id` of every journal line object in `objs` (ids of the read
++    grammar only; an id with no letter is under ""). Rule 9a'' reads its jump cap from this. Never raises."""
++    out: dict = {}
++    for obj in objs:
++        parsed = parse_id(obj.get("task_id")) if isinstance(obj, dict) else None
++        if parsed is not None:
++            n = int(parsed[0])
++            if n > out.get(parsed[1], 0):
++                out[parsed[1]] = n
++    return out
++
++
+ def split_lines(text: str | None) -> list[str]:
+     if not text:
+         return []
+@@ -300,8 +351,8 @@ class BandState:
+             if band is not None:
+                 self.add_band(band)
+         tid = obj.get("task_id") if isinstance(obj, dict) else None
+-        m = ID_NUM_RE.match(tid) if isinstance(tid, str) else None
+-        if m:
++        m = ID_RE.match(tid) if isinstance(tid, str) else None
++        if m and not m.group(2):         # a lettered id belongs to another clone's counter, not to this sequence
+             self.ids.add(int(m.group(1)))
+ 
+     def issuable(self):
+@@ -384,24 +435,22 @@ def band_lines(state) -> list:
+ PEER_CLEAR_SUFFIX = " (possibly this session before /clear)"
+ 
+ 
+-def peer_note(peers, state, cleared: bool = False) -> str:
++def peer_note(peers, cleared: bool = False) -> str:
+     """The PARALLEL SESSION note (a note, never a refusal): "" with no `peers` ([(stem, age_s)], youngest first,
+     transcripts.peer_main_sessions), else one line that tells the session another main session of this project
+-    is live and how to open a band. At most 3 stems are shown. `state`: a BandState or a NextIds (its `top`).
+-    `cleared` (SessionStart source "clear"): the youngest file may be this very session's pre-/clear transcript, so
+-    the note ends with PEER_CLEAR_SUFFIX -- no peer is dropped (an unknown is never hidden)."""
++    is live. Ids come from the clone counter (JOURNAL_WRITE_DOOR), so nobody opens a band: the note says there is
++    nothing to do. At most 3 stems are shown. `cleared` (SessionStart source "clear"): the youngest file may be
++    this very session's pre-/clear transcript, so the note ends with PEER_CLEAR_SUFFIX -- no peer is dropped (an
++    unknown is never hidden)."""
+     if not peers:
+         return ""
+-    s = suggested_band(state.top)
+     shown = ", ".join(str(stem)[:8] for stem, _age in peers[:3])
+     if len(peers) > 3:
+         shown += f", +{len(peers) - 3} more"
+     return (
+         "PARALLEL SESSION (a note, nothing is blocked): another main session of this project wrote its "
+-        f"transcript {int(peers[0][1]) // 60} min ago ({shown}). Two sessions issuing task ids into one journal "
+-        "file collide on max+1 (13.11, t-347..t-356); one of you opens a band before its next id: "
+-        f'id_band: "t-{s:03d}..t-{s + 49:03d}" on every journal line you issue from it (python tools/journal_keys.py '
+-        "where prints the next ids; CLAUDE.md, Routing log)."
++        f"transcript {int(peers[0][1]) // 60} min ago ({shown}). Task ids come from the clone counter "
++        f"({JOURNAL_WRITE_DOOR}); nothing to do."
+         + (PEER_CLEAR_SUFFIX if cleared else "")
+     )
+ 
+@@ -844,15 +893,15 @@ class Journal:
+         skipped."""
+         return [r.obj for r in (self.rows if rows is None else rows) if r.obj is not None]
+ 
+-    def next_free_id(self, label) -> str:
+-        """t-NNN = the next id of the file's own sequence of the logical journal `label`, in the journal's own
+-        width: max(t-NNN) + 1, where an open band raises the max and a closed band is skipped (rule 9e;
+-        `next_ids`). With no band in the journal it is max + 1, as before."""
+-        return f"t-{next_ids(r.obj for r in self.logical(label) if r.obj is not None).main:03d}"
++    def max_ids(self, label) -> dict:
++        """{letter: highest number} of the logical journal `label` (see max_by_letter). Ids are NOT issued from
++        this: the one road is JOURNAL_WRITE_DOOR (the clone counter); this is what `where` shows and what rule
++        9a'' measures a jump against."""
++        return max_by_letter(r.obj for r in self.logical(label) if r.obj is not None)
+ 
+     def band_state(self, label) -> BandState:
+-        """The BandState of the logical journal `label` (what next_free_id reads), for the readers that also
+-        print the bands (compact_snapshot)."""
++        """The BandState of the logical journal `label` -- READ-ONLY: bands are retired for new lines, but the
++        old lines' bands still feed `BandState.top`."""
+         state = BandState()
+         for r in self.logical(label):
+             if r.obj is not None:
+@@ -1137,11 +1186,10 @@ def cmd_check(journal_path: Path, segments_path: Path) -> int:
+ 
+ 
+ def cmd_where(root: Path) -> int:
+-    """Prints the file this clone writes its journal lines to, the next free task id and the last
+-    ts of that writer's logical journal -- from current_path(), the function the hooks use -- then
+-    (rule 9e) a line `band t-A..t-B: next t-N` for each of the latest 3 closed bands that still have a
+-    free id, and LAST, always, the band a second writer would open. Exit 1 with the door when there is
+-    no path to write."""
++    """Prints the file this clone writes its journal lines to, the highest task number PER LETTER of that
++    writer's logical journal and its last ts -- from current_path(), the function the hooks use -- and the one
++    road that issues an id (JOURNAL_WRITE_DOOR: the clone counter; bands are retired). Exit 1 with the door when
++    there is no path to write."""
+     rel, why = current_path(root)
+     if rel is None:
+         print(f"journal_keys where: there is no file to write to -- {why}", file=sys.stderr)
+@@ -1149,20 +1197,13 @@ def cmd_where(root: Path) -> int:
+     j = load_all(root)
+     label = "" if rel == HISTORY_REL else Path(rel).stem
+     print(f"write to: {rel}")
+-    if rel != HISTORY_REL and not (root / rel).exists():
+-        print(f"next free id: t-001 (the file does not exist yet; with `continues` on line 1 it continues the history: "
+-              f"{j.next_free_id('')})")
+-        print("last ts: -")
+-        s, e = j.band_state("").suggested()      # the file continues the history: its top is the history's
+-        print(f"suggested band (for a second writer): t-{s:03d}..t-{e:03d}")
+-        return 0
+-    state = j.band_state(label)
+-    print(f"next free id: t-{state.issuable()[0]:03d}")
+-    print(f"last ts: {j.last_ts(label) or '-'}")
+-    for line in band_lines(state):
+-        print(line)
+-    s, e = state.suggested()
+-    print(f"suggested band (for a second writer): t-{s:03d}..t-{e:03d}")
++    # a file that does not exist yet continues the history (`continues` on line 1): its maxima are the history's
++    maxima = j.max_ids("" if rel != HISTORY_REL and not (root / rel).exists() else label)
++    shown = ", ".join(f"{letter or '(none)'}: t-{n:03d}{letter}" for letter, n in sorted(maxima.items())) or "-"
++    print(f"max id per letter: {shown}")
++    print(f"ids are issued by `{JOURNAL_WRITE_DOOR}` (the clone counter); do not take max+1 by hand")
++    exists = rel == HISTORY_REL or (root / rel).exists()
++    print(f"last ts: {(j.last_ts(label) if exists else None) or '-'}")
+     return 0
+ 
+ 
+@@ -1171,7 +1212,7 @@ def main(argv: list[str] | None = None) -> int:
+     ap.add_argument("--journal", default=None, help="the journal path (default logs/routing-log.jsonl of this repository)")
+     ap.add_argument("--root", default=None, help="`where`: the repository root (default: the repository of this file)")
+     sub = ap.add_subparsers(dest="cmd", required=True)
+-    sub.add_parser("where", help="print the file this clone writes to, the next free id and the last ts")
++    sub.add_parser("where", help="print the file this clone writes to, the max id per letter and the last ts")
+     d = sub.add_parser("declare", help="declare the lines A-B of the journal as a foreign instance")
+     d.add_argument("--label", required=True)
+     d.add_argument("--lines", required=True, help="A-B, 1-based, inclusive")
+diff --git a/tools/journal_validator.py b/tools/journal_validator.py
+index 13e81109..79b5bc19 100644
+--- a/tools/journal_validator.py
++++ b/tools/journal_validator.py
+@@ -31,10 +31,18 @@ log" section):
+     showed "strictly max+1" would forbid a legal critic entry into
+     acceptance, and a legal retry after rejected). For a NEW
+     delegated:
+-    a) task_id == max(all t-NNN in the file so far)+1 -- always legal
+-       (a brand-new task); with ID BANDS (rule 9e) the legal new ids are the
+-       file's own next id (max+1, past every closed band) and the next id
+-       of each closed band that is not used up;
++    a) RULE 9a'' (offload B0, owner 14.11.2026 "Number 123 and 123A"; it
++       replaces "exactly max+1"): a brand-new id is legal when (i) the full
++       id, clone letter included, was NEVER SEEN in the logical journal
++       (seed + file), (ii) it is canonical (journal_keys.is_canonical:
++       001..999 zero-padded, or 4-9 digits with no leading zero) and (iii)
++       its number is at most ID_JUMP_MAX = 1000 above the max number seen
++       WITH THE SAME LETTER (none yet: at most 1000, so the first id of a
++       new letter is t-001a). Gaps and out-of-order numbers are legal (ids
++       reserved by `journal_write.py next --n 3` land in any order). A seen
++       id is judged by (b)-(d), keyed by the FULL id: t-123 and t-123a are
++       two tasks. "Issued by this clone's counter" is the WRITER's check
++       (the validator cannot see the counter);
+     b) task_id already exists in the file AND the task is still OPEN
+        (no accepted for this task_id earlier in the file) AND the new
+        line's agent differs from every earlier delegated agent for
+@@ -83,7 +91,11 @@ log" section):
+        agent, no attempt, no rejected, no valid replaces_worker; and
+        delegated on a CLOSED task -- reopening is forbidden, a
+        collision counts as two tasks).
+-    e) ID BANDS (F6-58) -- the door of (a) for a second writer of one file
++    e) RETIRED for NEW lines (offload B0): a new line carrying `id_band` is
++       a `band_retired` violation naming `python -B tools/journal_write.py
++       next`; old lines' bands still feed BandState.top (read-only). The
++       text below is the history of the retired rule.
++       ID BANDS (F6-58) -- the door of (a) for a second writer of one file
+        (a second session of the same developer) and for a branch whose ids
+        will meet another's at a merge. The optional `id_band` field of ANY
+        line: closed "t-A..t-B" reserves the ids A..B (at most
+@@ -115,6 +127,13 @@ log" section):
+        had issued. The state is journal_keys.BandState: the gate,
+        `journal_keys.py where` and compact_snapshot read the next id from
+        it.
++    f) `returned` (the end of a dispatch): needs task_id, worker_ref, model;
++       the task must have an open `delegated` with the SAME worker_ref
++       earlier in the logical journal (not closed by an accepted), at most
++       one `returned` per (task, worker_ref); it is not novelty-issuing and
++       never opens, reopens or closes a task. Optional fields on any event
++       (rule 20): `via` (hook|cli), `session` (1-16 of [A-Za-z0-9-]),
++       `witness_by` (run|file|text).
+     For a new accepted/rejected/escalated/defect_found -- it must
+     reference a task_id already seen earlier in the file (in HEAD or
+     earlier in this same commit); unchanged otherwise.
+@@ -312,10 +331,16 @@ NODE_WARN_EVENTS = {"delegated"}
+ EVENTS = {
+     "delegated", "accepted", "rejected", "escalated", "decomposable",
+     "dispatch_skipped", "defect_found", "lead_degraded", "lead_restored",
+-    "journal_created", "calibrated",
++    "journal_created", "calibrated", "returned",
+ }
+-MODEL_REQUIRED_EVENTS = {"delegated", "escalated", "accepted", "rejected"}
+-TASK_ID_REQUIRED_EVENTS = {"delegated", "accepted", "rejected", "escalated", "defect_found"}
++MODEL_REQUIRED_EVENTS = {"delegated", "escalated", "accepted", "rejected", "returned"}
++TASK_ID_REQUIRED_EVENTS = {"delegated", "accepted", "rejected", "escalated", "defect_found", "returned"}
++# the optional fields of the offload spec (B0 item 4), judged by VALUE when present: `via` (who wrote the line),
++# `session` (a short session id), `witness_by` (how an `accepted` witness was produced)
++VIA_VALUES = ("hook", "cli")
++WITNESS_BY_VALUES = ("run", "file", "text")
++SESSION_RE = re.compile(r"^[A-Za-z0-9-]{1,16}\Z")
++RETURNED_DOOR = "python -B tools/journal_write.py returned --task <id> --worker <worker_ref>"
+ FAILURE_CLASSES = {"spec", "capability", "recon", "tooling"}
+ TIER_ORDER = {"haiku": 0, "sonnet": 1, "opus": 2, "fable": 3}
+ AGENT_TIER = {
+@@ -352,7 +377,7 @@ JUDGE_BASIS_VALUE = "judge"
+ # implementation to a written spec".
+ LEAF_CATEGORIES = {"recon", "implementation"}
+ 
+-TASK_ID_RE = re.compile(r"^t-(\d{3,})$")
++TASK_ID_RE = _jk.ID_RE      # the ONE read grammar of a task id (journal_keys.ID_RE): t-NNN[a-z]{0,2}, ASCII only
+ # Dead-worker replacement marker (rule 9c2): the literal substring
+ # "replaces_worker:" plus a non-empty handle = the first non-whitespace
+ # token right after the colon (matches the shape of existing worker_ref
+@@ -794,7 +819,8 @@ def _matrix_d0058_violation(event: str, agent, by: str, obj: dict) -> str | None
+ # read, plus "line" for a line that does not parse into one object. `merge-accepts:<n>:<field>`
+ # (merge mode) names fields from this set; nothing else is accepted as a field.
+ FORM_FIELDS = ("line", "ts", "event", "agent", "category", "notes", "model", "task_id", "attempt",
+-               "failure_class", "witness", "worker_ref", "ref", "by", "node", "id_band")
++               "failure_class", "witness", "worker_ref", "ref", "by", "node", "id_band", "via", "session",
++               "witness_by")
+ # the reasons journal_keys.node_of gives to a PRESENT `node` that is not a node (a field that is absent or null is not here)
+ NODE_BAD_REASONS = ("node_not_string", "node_not_form")
+ 
+@@ -887,10 +913,11 @@ def _line_form_violations(obj: dict, tag: str) -> list[tuple[str, str]]:
+         elif not TASK_ID_RE.match(task_id):
+             out.append(("task_id",
+                 f"{tag}: task_id {task_id!r} does not match the t-NNN "
+-                "format (3+ digits) -- a non-standard id is invisible "
+-                "to the novelty/max+1 check and to the earlier-in-file "
++                "format (3-9 ASCII digits, then an optional clone letter of 0-2 lower-case "
++                "ASCII letters, e.g. t-123 or t-123a) -- a non-standard id is invisible "
++                "to the novelty check and to the earlier-in-file "
+                 "existence lookup, inviting numbering collisions -- "
+-                "set an id shaped like t-NNN (rule 5)"
++                f"take an id from `{_jk.JOURNAL_WRITE_DOOR}` (rule 5)"
+             ))
+ 
+     if event == "rejected":
+@@ -924,12 +951,12 @@ def _line_form_violations(obj: dict, tag: str) -> list[tuple[str, str]]:
+                 "proof -- set witness (rule 7)"
+             ))
+ 
+-    if event == "delegated":
++    if event in ("delegated", "returned"):
+         worker_ref = obj.get("worker_ref")
+         if not isinstance(worker_ref, str) or not worker_ref.strip():
+             out.append(("worker_ref",
+                 f"{tag}: 'worker_ref' is required (non-empty string) "
+-                "for delegated -- without it, no handle exists by "
++                f"for {event} -- without it, no handle exists by "
+                 "which a later session can find the worker or its "
+                 "result, and a launch that never actually happened "
+                 "goes undetected -- set worker_ref to the launch's "
+@@ -962,6 +989,24 @@ def _line_form_violations(obj: dict, tag: str) -> list[tuple[str, str]]:
+             if mv:
+                 out.append(("by", f"{tag}: {mv}"))
+ 
++    # rule 20 (offload B0): the optional `via` / `session` / `witness_by` of any event. Absent or null is never a
++    # violation; a PRESENT value outside its set is (the writer and the hooks stamp them, a typo would hide the origin).
++    via = obj.get("via")
++    if via is not None and via not in VIA_VALUES:
++        out.append(("via", f"{tag}: `via` = {via!r} is not one of {list(VIA_VALUES)} -- the field says who wrote the "
++                           "line (a hook or the CLI), and calibration check 48 counts by it -- fix the value, or leave "
++                           "the field out (it is optional) (rule 20)"))
++    session = obj.get("session")
++    if session is not None and not (isinstance(session, str) and SESSION_RE.match(session)):
++        shown = repr(session)[:60]
++        out.append(("session", f"{tag}: `session` = {shown} is not 1-16 characters of [A-Za-z0-9-] -- it is a short "
++                               "session id, not prose -- fix the value, or leave the field out (it is optional) "
++                               "(rule 20)"))
++    witness_by = obj.get("witness_by")
++    if witness_by is not None and witness_by not in WITNESS_BY_VALUES:
++        out.append(("witness_by", f"{tag}: `witness_by` = {witness_by!r} is not one of {list(WITNESS_BY_VALUES)} -- it "
++                                  "says how the witness was produced (a run of the command, a file, a pasted text) "
++                                  "-- fix the value, or leave the field out (it is optional) (rule 20)"))
+     # rule 18: the optional `node` of any event (delegated writes it; accepted/rejected may carry it too). Absent is never a
+     # violation; a PRESENT value is judged by journal_keys.node_of -- the one reader of the form, not a second regex here.
+     if "node" in obj and _jk.node_of(obj)[1] in NODE_BAD_REASONS:
+@@ -1052,12 +1097,21 @@ def validate_new_lines(new_lines: list[str], head_lines: list[str],
+ 
+     state_lines = list(seed_lines) + list(head_lines)
+     seen_task_ids = extract_task_ids(state_lines)
+-    # the next-id state (rule 9a/9e): HEAD and seed lines contribute their ids and their form-valid bands, never judged
++    # the id state (rule 9a''): HEAD and seed lines contribute their ids (the max number PER LETTER) and, read-only,
++    # their old bands (BandState.top, letter ""); none of them is judged. `returned_pairs`: (task, worker_ref) that
++    # already have a `returned` (rule 9f: one per pair).
+     band_state = _jk.BandState()
++    state_objs = []
++    returned_pairs: set = set()
+     for state_line in state_lines:
+         state_obj = _try_parse_obj(state_line)
+         if state_obj is not None:
+             band_state.add(state_obj)
++            state_objs.append(state_obj)
++            if state_obj.get("event") == "returned":
++                returned_pairs.add(_returned_pair(state_obj))
++    letter_max = _jk.max_by_letter(state_objs)
++    letter_max[""] = max(letter_max.get("", 0), band_state.top)
+     if ts_anchor is _ANCHOR_FROM_HEAD:
+         last_ts = _last_head_ts(head_lines) if head_lines else _last_head_ts(list(seed_lines))
+     else:
+@@ -1100,27 +1154,45 @@ def validate_new_lines(new_lines: list[str], head_lines: list[str],
+         # the merge mode; the texts come back in exactly the order they were appended here before
+         violations.extend(text for _field, text in _line_form_violations(obj, tag))
+ 
+-        # rule 9e (i): the PLACE of a form-valid band on this line, against everything issued or reserved before it.
+-        # A refused band does not enter the state, so it can never make this line's own id legal (position invariant).
+-        band, _band_reason = _jk.id_band_of(obj)
+-        band_kind = None
+-        if band is not None and not band_state.has_closed(band):     # a repeated declared band is a reference
+-            band_kind = band_state.check_band(band)
+-            if band_kind is None:
+-                band_state.add_band(band)
+-            else:
+-                violations.append(_band_place_text(tag, band, band_kind, band_state.top))
++        # rule 9e is RETIRED for new lines (offload B0): ids come from the clone counter, so a band on a NEW line is a
++        # violation naming the writer. Old lines' bands still feed `band_state.top` above (read-only, temporal); a
++        # band here never enters the state, so it cannot make this line's own id legal.
++        band_retired = obj.get("id_band") is not None
++        if band_retired:
++            violations.append(
++                f"{tag}: band_retired -- `id_band` is retired: ids are issued by the clone counter, so no line "
++                f"reserves a range any more, and the field would only confuse every reader of the next id -- take "
++                f"ids from `{_jk.JOURNAL_WRITE_DOOR}` and leave `id_band` out (rule 9e retired)")
+ 
+         valid_tid = isinstance(task_id, str) and TASK_ID_RE.match(task_id)
+-        if event == "delegated" and valid_tid:
++        if event == "returned" and valid_tid:
++            # rule 9f: a `returned` never opens, reopens or closes a task: it needs an OPEN `delegated` with the SAME
++            # worker_ref earlier in the logical journal, and is written once per (task, worker_ref)
++            wref = obj.get("worker_ref")
++            wref = wref.strip() if isinstance(wref, str) else ""
++            if task_id in closed_tasks:
++                why = f"{task_id} is already closed (an accepted exists above)"
++            elif wref and wref not in task_worker_refs.get(task_id, set()):
++                why = (f"no earlier open delegated of {task_id} carries worker_ref {wref!r}" if task_id in seen_task_ids
++                       else f"{task_id} has no delegated earlier in this journal")
++            elif wref and (task_id, wref) in returned_pairs:
++                why = f"{task_id} already has a returned for worker_ref {wref!r}"
++            else:
++                why = None
++            if why is not None:
++                violations.append(
++                    f"{tag}: a returned needs an open delegated with the same worker_ref -- {why}; a returned "
++                    "only marks the end of a dispatch and never opens, reopens or closes a task -- write it with "
++                    f"`{RETURNED_DOOR}` (rule 9f)")
++            returned_pairs.add((task_id, wref))
++        elif event == "delegated" and valid_tid:
+             if task_id not in seen_task_ids:
+-                # (a) a brand-new task -- (ii) the file's own next id, or the next id of a closed band that is not
+-                # used up (rule 9e). The band of THIS line, when accepted above, is already in the state.
+-                # the band counts only when it is in the state (a refused band never entered it)
+-                own_band = band if band is not None and band_kind is None else None
+-                m_id = _jk.ID_NUM_RE.match(task_id)      # more than 9 digits: never issuable
+-                if m_id is None or not band_state.may_issue(int(m_id.group(1)), own_band):
+-                    violations.append(_novelty_text(tag, task_id, band_state, own_band))
++                # (a) a brand-new task -- rule 9a'': the full id (letter included) was never seen, it is canonical,
++                # and its number is at most ID_JUMP_MAX above the max number of ITS letter. Gaps and out-of-order
++                # numbers are legal (reserved ids land in any order); the clone counter is the writer's check.
++                reason = _novelty_reason(task_id, letter_max)
++                if reason is not None:
++                    violations.append(_novelty_text(tag, task_id, reason))
+                     _mark("task id issued out of order", line_no - 1, ts, task_id)
+             elif task_id in closed_tasks:
+                 # (d) reopen forbidden -- a collision counts as two tasks.
+@@ -1256,52 +1328,43 @@ def validate_new_lines(new_lines: list[str], head_lines: list[str],
+                 )
+             last_ts = parsed_ts
+ 
+-        # (iii) the line enters the state: its band only when it was not refused, then its id
+-        band_state.add(obj, band_ok=(band_kind is None))
++        # (iii) the line enters the state: its id (never its band: retired for new lines)
+         if valid_tid:
+             seen_task_ids.add(task_id)
++            n_id, letter_id = int(valid_tid.group(1)), valid_tid.group(2)
++            if n_id > letter_max.get(letter_id, 0):
++                letter_max[letter_id] = n_id
+ 
+     return _resolve_order_known(violations, order_marks, file_ts, tokens, len(head_lines), order_report)
+ 
+ 
+-def _band_place_text(tag: str, band, kind: str, top: int) -> str:
+-    """The refusal of a band that is well formed but placed wrong: BELOW, NEAR or JUMP (rule 9e)."""
+-    s = _jk.suggested_band(top)
+-    gap = band.lo - top
+-    if kind == "below":
+-        return (f"{tag}: id_band {band.raw} starts at or below t-{top:03d}, the highest id or band already in this "
+-                "journal -- a band may only start above everything issued or reserved, or it could hand out an id "
+-                f"twice; start it at t-{s:03d} (rule 9e)")
+-    if kind == "near":
+-        return (f"{tag}: id_band {band.raw} starts {gap} ids above t-{top:03d}; a closed band starts at least "
+-                f"{_jk.BAND_GAP_MIN} ids above, or the other writer's next id can land on its first id before this "
+-                f"line is written -- start it at t-{s:03d} (rule 9e)")
+-    return (f"{tag}: id_band {band.raw} starts {gap} ids above t-{top:03d}; at most {_jk.BAND_JUMP_MAX} -- start it "
+-            f"nearer, at t-{s:03d} (rule 9e)")
+-
+-
+-def _novelty_text(tag: str, task_id, state, own_band=None) -> str:
+-    """The refusal of a brand-new delegated whose id is neither the file's next id nor the next of the band the
+-    line carries (rules 9a, 9e): names every next id the writer may use, the door when the id lies inside a band
+-    the line does not carry, and a used-up band with the door."""
+-    main, _bands = state.issuable()
+-    s = _jk.suggested_band(state.top)
+-    text = f"{tag}: task_id novelty violated -- got {task_id}; the next new id is t-{main:03d} (this journal's sequence)"
+-    for band, nxt in _jk.free_bands(state)[-_jk.BAND_SHOW_MAX:]:
+-        text += f" or t-{nxt:03d} (band {band.label})"
+-    m_id = _jk.ID_NUM_RE.match(task_id) if isinstance(task_id, str) else None
+-    around = state.band_around(int(m_id.group(1))) if m_id else None
+-    if around is not None and (own_band is None or (own_band.lo, own_band.hi) != (around.lo, around.hi)):
+-        text += (f"; {task_id} lies in the id band {around.label} of another writer; a line issued from a band "
+-                 f'carries "id_band":"{around.label}"')
+-    used = _jk.used_up_bands(state)[-_jk.BAND_SHOW_MAX:]
+-    for band in used:
+-        text += f"; band {band.label} is used up"
+-    if used:
+-        text += f" -- open a new band at t-{s:03d}"
+-    return (text + " -- re-read the tail right before writing (python tools/journal_keys.py where prints every next "
+-            "id); a second writer of this file opens its own band: "
+-            f'id_band: "t-{s:03d}..t-{s + 49:03d}" on its first line (rules 9a, 9e)')
++def _returned_pair(obj: dict) -> tuple:
++    """(task_id, worker_ref) of a `returned` line object -- the key of "at most one returned per pair" (rule 9f)."""
++    wref = obj.get("worker_ref")
++    return (obj.get("task_id"), wref.strip() if isinstance(wref, str) else "")
++
++
++def _novelty_reason(task_id: str, letter_max: dict):
++    """None when the never-seen id `task_id` (a read-grammar match) may be issued, else why not (rule 9a''): "not
++    canonical" (an id a writer never issues: t-0123, t-000), or "jumps" (its number is more than ID_JUMP_MAX above
++    the max number of its letter; with no id of that letter yet, above 0). Out-of-order numbers and gaps are legal."""
++    if not _jk.is_canonical(task_id):
++        return "is not canonical (3-digit zero-padded number 001..999, or 4-9 digits with no leading zero)"
++    digits, letter = _jk.parse_id(task_id)
++    base = letter_max.get(letter, 0)
++    if int(digits) > base + _jk.ID_JUMP_MAX:
++        which = f"the highest t-NNN{letter} is {base}" if base else f"no id with letter {letter!r} exists yet" if letter \
++            else "no id exists yet"
++        return f"jumps more than {_jk.ID_JUMP_MAX} above the sequence ({which})"
++    return None
++
++
++def _novelty_text(tag: str, task_id, reason: str) -> str:
++    """The refusal of a brand-new delegated (rule 9a''): the id was already used / is not canonical / jumps -- with
++    the ONE road that issues ids (the clone counter, `journal_write.py next`); no band advice (bands are retired)."""
++    return (f"{tag}: task_id novelty violated -- got {task_id}; it {reason} -- a task id that is not issued by the "
++            "counter can collide with another session's id and is read as the same task there -- "
++            f"take an id from `{_jk.JOURNAL_WRITE_DOOR}` (rule 9a'')")
+ 
+ 
+ def decide(staged_text: str | None, head_text: str | None,
+@@ -1700,7 +1763,7 @@ def _collision_warning(staged_lines: list[str], consumed_h: set, consumed_o: set
+         if band is not None and band.hi is not None:
+             head_bands.append((band, i + 1))
+     for tid in uncovered[:MAX_COLLISION_IDS]:
+-        num = int(tid[2:]) if _jk.ID_NUM_RE.match(tid) else None
++        num = _jk.id_number(tid) if _jk.parse_id(tid)[1] == "" else None      # a band holds letterless ids only
+         for band, n in head_bands:
+             if num is not None and band.lo <= num <= band.hi:
+                 text += (f" -- {tid} lies inside band {band.label} declared on this clone (line {n}): the band "
+diff --git a/tools/piles.py b/tools/piles.py
+index 06480517..7b9b34a8 100644
+--- a/tools/piles.py
++++ b/tools/piles.py
+@@ -2684,7 +2684,7 @@ CLOSE_FORMS = ('`close <slug> <N> --hash <h> [--url <https://…>]` or '
+ 
+ # ---- the carry-over gate of `close <slug> <N>`: a batch is closed by finishing, not by carrying over (08.10.2026) ----
+ 
+-LEFTOVER_DONE_RE = re.compile(r"[0-9a-f]{7,40}|t-\d+")
++LEFTOVER_DONE_RE = re.compile(r"[0-9a-f]{7,40}|" + journal_keys.ID_PATTERN)     # the t- branch: the journal's read grammar (offload B0)
+ LEFTOVER_TARGET_RE = re.compile(r"findings/[^/\s]+\.md|пачка\s+\d{1,3}|[a-z0-9][a-z0-9-]*/findings/[^/\s]+\.md")
+ # A `подтвердил:` / `обоснование:` value that is only one of these (trimmed, lower case) is EMPTY: the gate exists for a person's
+ # signature and a reason. A dash with text ("— Иванов, 09.10") is not one of them. Data, not code (FR-13).
+@@ -2999,7 +2999,7 @@ def check_leftovers(text: str, rel: str, *, root=None, pile=None, view=None, del
+ PROOF_SECTION = "живые доказательства"
+ # `сделано:` of a proof row: a commit (7-40 hex), a task (t-nnn) or a log / notebook path (a `/` and a file extension; a bare
+ # "да/нет" is not one). A `перенос:` target is free text -- where the proof goes is for the person who confirms it to judge.
+-PROOF_DONE_RE = re.compile(r"[0-9a-f]{7,40}|t-\d+|(?:[\w.-]+/)+[\w-]+(?:\.[\w-]+)+(?:[#:][\w.-]+)?")
++PROOF_DONE_RE = re.compile(r"[0-9a-f]{7,40}|" + journal_keys.ID_PATTERN + r"|(?:[\w.-]+/)+[\w-]+(?:\.[\w-]+)+(?:[#:][\w.-]+)?")
+ PROOF_TARGET_RE = re.compile(r"(?!(?:%s)$)\S.*" % "|".join(re.escape(w) for w in LEFTOVER_EMPTY_WORDS))
+ PROOF_RULE = DoneCarryRule(PROOF_DONE_RE, "7-40 hex characters nor t-nnn nor a log/notebook path (dir/file.ext)",
+                            PROOF_TARGET_RE, "a place (text that is not empty or a placeholder word)")
+@@ -3220,7 +3220,7 @@ def cmd_close(args, root) -> int:
+ 
+ STATUS_NODE_WORDS = ("в работе", "сдано", "принято", "отклонено")     # what `status` writes into a node's Статус cell
+ STATUS_BATCH_WORDS = ("сдано", "принято")                              # `в работе` is `take`'s, `закрыта` is `close`'s
+-TASK_RE = re.compile(r"t-\d{1,6}")
++TASK_RE = re.compile(journal_keys.ID_PATTERN)       # the journal's one read grammar (offload B0); used with fullmatch
+ NODE_ID_MAX = 40
+ HAND_EDIT = "edit the cell by hand (a taken batch allows it: (в) masks every Статус cell)"
+ 
+@@ -3254,7 +3254,7 @@ def _status_evidence(root, args, word: str, node_level: bool) -> str:
+         raise Refused('--hash and --task go with a node set to принято (`принято: <hash> (t-NNN)`); "%s" is written as the bare word'
+                       % word)
+     if has_t and not TASK_RE.fullmatch(args.task):
+-        raise Refused('--task "%s": expected a task id t-NNN (1-6 digits)' % printable(_shorten(args.task, 40)))
++        raise Refused('--task "%s": expected a task id t-NNN (3-9 digits, optional lower-case letter)' % printable(_shorten(args.task, 40)))
+     if has_h:
+         check_hash(root, args.hash)
+     if node_level and word == "принято":
+diff --git a/tools/piles_testkit.py b/tools/piles_testkit.py
+index 2a58695d..779dc58e 100644
+--- a/tools/piles_testkit.py
++++ b/tools/piles_testkit.py
+@@ -74,9 +74,9 @@ BACKLOG = """# Бэклог фабрики
+ 
+ FEATURES = '{"schema_version": 1, "features": []}\n'
+ 
+-LEFTOVER_OK = "- x | сделано: t-1"           # the default «Остатки» line of batch_text: finished, so `close` may pass
++LEFTOVER_OK = "- x | сделано: t-001"          # the default «Остатки» line of batch_text: finished, so `close` may pass
+ PROOF_WAITING = "ждёт фазы 1"                 # the default «Статус» cell of batch_text's proof row: waiting, so `close` refuses (F5-5)
+-PROOF_DONE = "сделано: t-1"                   # a finished proof row; accept_batch1 and batch2 put it there
++PROOF_DONE = "сделано: t-001"                  # a finished proof row; accept_batch1 and batch2 put it there
+ 
+ 
+ def card_text(slug, name, rows=(), feats="F19"):
+diff --git a/tools/session_context.py b/tools/session_context.py
+index fcc046ca..01e1e5d7 100644
+--- a/tools/session_context.py
++++ b/tools/session_context.py
+@@ -258,7 +258,7 @@ _OPEN_LIFECYCLE_EVENTS = {"delegated", "accepted", "rejected", "escalated", "dec
+ # would close the other clone's instance (t-525 F1). The tokenizer is journal_keys.closes_tokens;
+ # _CLOSES_RE below is only the fallback copy for a failed import of journal_keys (a test pins its
+ # pattern equal to journal_keys.CLOSES_RE).
+-_CLOSES_RE = re.compile(r"(?<!\w)closes:(t-\d+)(@[A-Za-z0-9_-]*)?")
++_CLOSES_RE = re.compile(r"(?<!\w)closes:(t-[0-9]{3,9}[a-z]{0,2})(?![0-9A-Za-z]|[^\x00-\x7f])(@[A-Za-z0-9_-]*)?")
+ _LABEL_RE = re.compile(r"^[a-z0-9-]{1,24}$")
+ 
+ 
+@@ -566,13 +566,26 @@ def open_dispatch_lines(events: list, segments=None, *, journal=None, own_label=
+         own = [e for e in opens if (_task_key(e, segments) or (None,))[0] == own_label]
+         own_ids = {id(e) for e in own}
+         opens = own + [e for e in opens if id(e) not in own_ids]
++    # a `returned` NEVER closes a task (offload B0, rule 9f): it only says the worker ended. An open `delegated` whose
++    # (task key, worker_ref) has a later `returned` is shown as RESULT PENDING (same 3-line cut), else OPEN DISPATCH.
++    returned_ts = {}
++    for e in events:
++        if e.get("event") == "returned" and isinstance(e.get("worker_ref"), str):
++            rkey = _task_key(e, segments)
++            if rkey is not None:
++                returned_ts[(rkey, e["worker_ref"].strip())] = str(e.get("ts") or "-")
+     lines = []
+     for e in opens[:3]:
+         key = _task_key(e, segments)
+         tid = _ascii_sanitize(_display_key(key) if key is not None else "-")
+         agent = _ascii_sanitize(str(e.get("agent") or "-"))
+         ts = _ascii_sanitize(str(e.get("ts") or "-"))
+-        lines.append(f"OPEN DISPATCH: {tid} agent={agent} since {ts}")
++        wref = e.get("worker_ref")
++        back = returned_ts.get((key, wref.strip())) if key is not None and isinstance(wref, str) else None
++        if back is not None:
++            lines.append(f"RESULT PENDING: {tid} agent={agent} returned {_ascii_sanitize(back)}")
++        else:
++            lines.append(f"OPEN DISPATCH: {tid} agent={agent} since {ts}")
+     if len(opens) > 3:
+         lines.append(f"OPEN DISPATCHES: {len(opens)} total, {len(opens) - 3} more not shown")
+     return lines
+@@ -2224,9 +2237,9 @@ def build_context_lines(
+ 
+ 
+ def peer_note_lines(root: Path, stdin_payload, now_epoch: float = None) -> list:
+-    """The PARALLEL SESSION note (rule 9e, F6-58) as a list of 0 or 1 line: another main session of this project
+-    wrote its transcript within PEER_WINDOW_S, so two sessions may be issuing task ids into one journal file. From
+-    the payload's `transcript_path` and the band state of the journal file `journal_keys.py where` names. A note,
++    """The PARALLEL SESSION note (F6-58; since offload B0 it says ids come from the clone counter) as a list of 0 or
++    1 line: another main session of this project wrote its transcript within PEER_WINDOW_S. From the payload's
++    `transcript_path`. A note,
+     never a refusal; it errs toward SILENCE -- any exception, an absent `transcript_path`, no peer -> []."""
+     try:
+         if _jk is None or _transcripts is None or not isinstance(stdin_payload, dict):
+@@ -2235,12 +2248,8 @@ def peer_note_lines(root: Path, stdin_payload, now_epoch: float = None) -> list:
+             stdin_payload.get("transcript_path"), time.time() if now_epoch is None else now_epoch)
+         if not peers:
+             return []
+-        root = Path(root)
+-        rel, _why = _jk.current_path(root)
+-        label = "" if rel in (None, _jk.HISTORY_REL) else Path(rel).stem
+         # source "clear": the pre-/clear transcript of THIS person is among the peers (a new file starts at a clear)
+-        note = _jk.peer_note(peers, _jk.load_all(root).band_state(label),
+-                             cleared=extract_source(stdin_payload) == "clear")
++        note = _jk.peer_note(peers, cleared=extract_source(stdin_payload) == "clear")
+         return [note] if note else []
+     except Exception:  # noqa: BLE001
+         return []
+diff --git a/tools/test_calibration_counts.py b/tools/test_calibration_counts.py
+index c2500a2d..782d9bad 100644
+--- a/tools/test_calibration_counts.py
++++ b/tools/test_calibration_counts.py
+@@ -101,6 +101,44 @@ def test_accepted_builder_missing_witness_is_violation(tmp_path):
+     assert "witness" in viol[0]["missing_fields"]
+ 
+ 
++# ---------------------------------------------------------------------
++# offload B0 item 6 (axis 6): `returned` is a typed event -- task_id, model and worker_ref are required
++# ---------------------------------------------------------------------
++@pytest.mark.parametrize("drop,missing", [(None, None), ("worker_ref", "worker_ref"), ("task_id", "task_id"), ("model", "model")])
++def test_returned_required_fields_are_violations(tmp_path, drop, missing):
++    p = tmp_path / "j.jsonl"
++    returned = dict(task_id="t-001", model="sonnet", worker_ref="agent:a", agent="builder", category="implementation", notes="n")
++    if drop:
++        del returned[drop]
++    write_journal(p, [
++        ev("2026-07-09T00:00:00", "delegated", agent="builder", model="sonnet", task_id="t-001",
++           worker_ref="agent:a", category="implementation", notes="n"),
++        ev("2026-07-09T00:10:00", "returned", **returned),
++    ])
++    report = analyze_journal(str(p), None, None, parse_ts("2026-07-10T13:14:00"))
++    viol = [v for v in report["field_violations"] if v["event"] == "returned"]
++    if missing is None:
++        assert viol == []
++    else:
++        assert len(viol) == 1 and missing in viol[0]["missing_fields"]
++
++
++def test_returned_blank_worker_ref_is_a_violation(tmp_path):
++    p = tmp_path / "j.jsonl"
++    write_journal(p, [
++        ev("2026-07-09T00:10:00", "returned", task_id="t-001", model="sonnet", worker_ref="  ", agent="builder",
++           category="implementation", notes="n"),
++    ])
++    report = analyze_journal(str(p), None, None, parse_ts("2026-07-10T13:14:00"))
++    assert [v["missing_fields"] for v in report["field_violations"] if v["event"] == "returned"] == [["worker_ref"]]
++
++
++def test_the_fallback_closes_regex_is_pinned_equal_to_journal_keys():
++    import calibration_counts as cc
++    import journal_keys as jk
++    assert cc.CLOSES_RE.pattern == jk.CLOSES_RE.pattern
++
++
+ # ---------------------------------------------------------------------
+ # 5. missing 'by' after the cutoff vs. legal before it
+ # ---------------------------------------------------------------------
+diff --git a/tools/test_compact_snapshot.py b/tools/test_compact_snapshot.py
+index 08728f52..e3e62f75 100644
+--- a/tools/test_compact_snapshot.py
++++ b/tools/test_compact_snapshot.py
+@@ -110,7 +110,10 @@ def test_exactly_60_entries_no_more_line(tmp_path):
+     assert "and 0 more" not in text and " more" not in text.split("## 3.")[0]
+ 
+ 
+-def test_open_dispatches_and_next_free_id(tmp_path):
++_DOOR = "from python -B tools/journal_write.py next (the clone counter)"       # offload B0: no id is computed from the journal
++
++
++def test_open_dispatches_and_the_next_id_door(tmp_path):
+     _init_repo(tmp_path)
+     _journal(tmp_path, [
+         _ev("delegated", "t-001", worker_ref="agent:aaa", model="m1"),
+@@ -121,8 +124,8 @@ def test_open_dispatches_and_next_free_id(tmp_path):
+         _ev("delegated", "t-310", worker_ref="agent:ddd", ts="2026-10-02T10:07:00"),
+     ])
+     text, facts = cs.build_snapshot(tmp_path, "manual", NOW)
+-    assert facts["open"] == 2 and facts["next"] == "t-311"
+-    assert "NEXT FREE ID: t-311" in text
++    assert facts["open"] == 2 and facts["next"] == _DOOR
++    assert f"next id: {_DOOR}" in text and "NEXT FREE ID" not in text
+     block = text.split("## 3. OPEN DISPATCHES")[1].split("## 4.")[0]
+     assert "t-002 agent=builder model=m2" in block and "worker_ref=agent:bbb" in block
+     assert "t-310" in block and "t-001" not in block and "t-003" not in block
+@@ -155,7 +158,7 @@ def test_journal_malformed_lines_skipped_and_counted(tmp_path):
+         f.write("[1, 2]\n")
+     text, facts = cs.build_snapshot(tmp_path, "manual", NOW)
+     assert "2 malformed journal line(s) skipped" in text
+-    assert facts["open"] == 1 and facts["next"] == "t-008"
++    assert facts["open"] == 1 and facts["next"] == _DOOR
+ 
+ 
+ def test_journal_unreadable_is_stated(tmp_path, monkeypatch):
+@@ -304,7 +307,7 @@ def test_backlog_rows_counts_the_leftovers_without_an_executor_and_the_counter_s
+     _frozen_tree(tmp_path, {f"pile-number-{i:02d}": {"20261008-a.md": _h()} for i in range(40)})
+     assert cs.backlog_rows(tmp_path / "plans" / "BACKLOG.md", tmp_path).endswith(", 0 leftovers without an executor")
+     (tmp_path / "plans/piles/pile-number-00/batch-1-x.md").write_text(
+-        batch_text("pile-number-00", 1, "ожидает", [node("F0-1")], pre="## Бриф\n", leftovers="- bare\n- ok | сделано: t-1\n- node | узел: F0-1"),
++        batch_text("pile-number-00", 1, "ожидает", [node("F0-1")], pre="## Бриф\n", leftovers="- bare\n- ok | сделано: t-001\n- node | узел: F0-1"),
+         encoding="utf-8")
+     text = cs.backlog_rows(tmp_path / "plans" / "BACKLOG.md", tmp_path)
+     assert text.endswith(", 1 leftovers without an executor") and " more]" in text, text
+@@ -338,7 +341,7 @@ def test_summary_line_format(tmp_path):
+     line = cs.run(tmp_path, "auto", NOW)
+     assert line == (
+         "COMPACT SNAPSHOT: docs/tasks/compact-snapshots/2026-10-02-1331-auto.md — "
+-        "open dispatches 1, uncommitted package 0 / forge 0, next free id t-318"
++        f"open dispatches 1, uncommitted package 0 / forge 0, next id {_DOOR}"
+     )
+ 
+ 
+@@ -705,27 +708,29 @@ def _k13(tmp_path, slug, dev2_extra=(), dev1_extra=()):
+     return cs.build_snapshot(root, "manual", NOW)
+ 
+ 
+-def test_k13_the_owner_next_id_is_the_max_of_the_history_and_her_file_plus_one(tmp_path):
++def test_k13_the_owner_gets_the_door_and_the_open_list_is_unchanged(tmp_path):
++    # REWRITTEN (offload B0): the snapshot used to print the writer's max+1; it prints the one road that issues an id
+     text, facts = _k13(tmp_path, "dev1")
+-    assert "NEXT FREE ID (logs/journal/dev1.jsonl): t-004" in text and facts["next"] == "t-004"
++    assert f"next id: {_DOOR}" in text and facts["next"] == _DOOR
++    assert "NEXT FREE ID" not in text and "t-004" not in text.split("next id:")[1].splitlines()[0]
+ 
+ 
+-def test_k13_another_writers_next_id_is_by_her_own_file(tmp_path):
++def test_k13_another_writer_gets_the_same_door(tmp_path):
+     text, facts = _k13(tmp_path, "dev2")
+-    assert "NEXT FREE ID (logs/journal/dev2.jsonl): t-003" in text and facts["next"] == "t-003"
++    assert f"next id: {_DOOR}" in text and facts["next"] == _DOOR
+ 
+ 
+ def test_k13_without_a_slug_the_next_id_is_unknown_not_a_guess(tmp_path):
+     root = _root13(tmp_path, history=_jt13(*_HIST13), files={DEV1: _jt13(M_CREATED), DEV2: _jt13(N_CREATED)})
+     text, facts = cs.build_snapshot(root, "manual", NOW)
+-    assert "NEXT FREE ID: unknown -- no developer slug" in text and facts["next"] == "unknown -- no developer slug"
+-    assert "t-00" not in text.split("NEXT FREE ID:")[1].splitlines()[0]
++    assert "next id: unknown -- no developer slug" in text and facts["next"] == "unknown -- no developer slug"
++    assert "t-00" not in text.split("next id:")[1].splitlines()[0] and "journal_write.py" not in text.split("next id:")[1].splitlines()[0]
+ 
+ 
+-def test_k13_before_the_switch_the_label_is_the_old_one(tmp_path):
++def test_k13_before_the_switch_it_is_the_same_door(tmp_path):
+     root = _root13(tmp_path, history=_jt13(*_HIST13))
+     text, facts = cs.build_snapshot(root, "manual", NOW)
+-    assert "NEXT FREE ID: t-003" in text and "NEXT FREE ID (" not in text and facts["next"] == "t-003"
++    assert f"next id: {_DOOR}" in text and "next id (" not in text and facts["next"] == _DOOR
+ 
+ 
+ def test_k13_open_tasks_are_shown_by_their_key_and_a_labelled_close_removes_the_other_writers(tmp_path):
+@@ -747,26 +752,35 @@ def test_k13_the_last_events_are_the_writers_own_logical_journal(tmp_path):
+     assert "DEV2-LATE" in dev2.split("journal events", 1)[1]
+ 
+ 
+-# ---- F6-58 (rule 9e): the bands in the snapshot ----
++# ---- F6-58 (rule 9e) RETIRED by offload B0: no band line in the snapshot, whatever the journal holds; RESULT PENDING ----
+ 
+-def test_s1_the_fallback_next_free_id_skips_a_band_and_the_band_lines_follow(tmp_path):
+-    events = [_ev("delegated", "t-399"), _ev("decomposable", None, id_band="t-400..t-449")]
+-    assert cs.next_free_id(events) == "t-450"                       # main reached the band: B+1
+-    assert cs.band_lines_of(events) == ["band t-400..t-449: next t-400"]
+-    assert cs.next_free_id([_ev("delegated", "t-399")]) == "t-400" and cs.band_lines_of([_ev("delegated", "t-399")]) == []
++def test_s1_the_snapshot_has_no_next_id_computation_and_no_band_helpers_any_more():
++    assert not hasattr(cs, "next_free_id") and not hasattr(cs, "band_lines_of")
++    assert cs.NEXT_ID_DOOR == _DOOR
+ 
+ 
+-def test_s2_the_main_path_prints_the_band_lines_after_next_free_id_and_nothing_without_a_band(tmp_path):
++def test_s2_the_main_path_prints_no_band_line_even_for_a_journal_with_an_old_band(tmp_path):
+     _init_repo(tmp_path)
+     _journal(tmp_path, [_ev("delegated", "t-310", worker_ref="agent:aaa"),
+                         _ev("delegated", "t-450", worker_ref="agent:bbb", ts="2026-10-02T10:01:00", id_band="t-450..t-499")])
+     text, facts = cs.build_snapshot(tmp_path, "manual", NOW)
+     lines = text.splitlines()
+-    i = lines.index("NEXT FREE ID: t-311")
+-    assert lines[i + 1] == "band t-450..t-499: next t-451" and facts["next"] == "t-311"
+-    plain = tmp_path / "plain"
+-    plain.mkdir()
+-    _init_repo(plain)
+-    _journal(plain, [_ev("delegated", "t-310", worker_ref="agent:aaa")])
+-    lines = cs.build_snapshot(plain, "manual", NOW)[0].splitlines()
+-    assert lines[lines.index("NEXT FREE ID: t-311") + 1] == "" and not any(l.startswith("band t-") for l in lines)
++    i = lines.index(f"next id: {_DOOR}")
++    assert lines[i + 1] == "" and facts["next"] == _DOOR
++    assert not any(l.startswith("band t-") for l in lines)
++
++
++def test_the_open_list_marks_a_dispatch_whose_worker_returned_and_a_returned_never_closes_it(tmp_path):
++    _init_repo(tmp_path)
++    _journal(tmp_path, [
++        _ev("delegated", "t-001", worker_ref="agent:aaa"),
++        _ev("delegated", "t-002", worker_ref="agent:bbb", ts="2026-10-02T10:01:00"),
++        _ev("returned", "t-001", worker_ref="agent:aaa", ts="2026-10-02T10:30:00"),
++        _ev("returned", "t-002", worker_ref="agent:other", ts="2026-10-02T10:31:00"),      # another worker's handle: not a match
++    ])
++    text, facts = cs.build_snapshot(tmp_path, "manual", NOW)
++    block = text.split("## 3. OPEN DISPATCHES")[1].split("## 4.")[0]
++    rows = [l for l in block.splitlines() if l.startswith("- t-")]
++    assert facts["open"] == 2 and len(rows) == 2                               # the returned closed nothing
++    assert "RESULT PENDING (returned 2026-10-02T10:30:00)" in rows[0] and rows[0].startswith("- t-001 ")
++    assert "RESULT PENDING" not in rows[1] and rows[1].startswith("- t-002 ")
+diff --git a/tools/test_dispatch_manifest.py b/tools/test_dispatch_manifest.py
+index 92af7b73..0d7abbcf 100644
+--- a/tools/test_dispatch_manifest.py
++++ b/tools/test_dispatch_manifest.py
+@@ -134,7 +134,7 @@ def test_K7_t091_written_in_the_form_passes_unchanged():
+     # K7 predates the siblings line: it is refused for that line alone, and passes with one appended
+     # (K7 also carries 3+ numbered items, so the designer line is owed too)
+     assert missing_names(run(_fixture("K7"))[1]) == ["siblings", "designer"]
+-    assert run(_fixture("K7") + "\nsiblings: none -- a standalone tool\ndesigner: resubmission t-91\n") == (0, "", "")
++    assert run(_fixture("K7") + "\nsiblings: none -- a standalone tool\ndesigner: resubmission t-091\n") == (0, "", "")
+ 
+ 
+ def test_K8_critic_prompt_with_numbered_owns_overlap_is_not_checked():
+@@ -487,7 +487,7 @@ def test_owns_continuation_limit_40_passes_41_is_unreadable():
+     def owns(n):
+         return "owns:\n" + "\n".join("- C:\\work\\f%d.py" % i for i in range(n))
+ 
+-    assert run(build(owns=owns(40), designer="designer: resubmission t-1")) == (0, "", "")
++    assert run(build(owns=owns(40), designer="designer: resubmission t-001")) == (0, "", "")
+     code, msg, note = run(build(owns=owns(41)))
+     assert code == 2 and missing_text(msg) == "owns (no absolute path could be read)"
+ 
+@@ -1108,7 +1108,17 @@ FORM_ROWS = [
+     ("des-3-owns-skip-emdash", build(owns=OWNS3, designer="designer: skip \u2014 tiny edit"), []),
+     ("des-3-owns-skip-no-reason", build(owns=OWNS3, designer="designer: skip"), ["designer"]),
+     ("des-3-owns-skip-empty-reason", build(owns=OWNS3, designer="designer: skip --"), ["designer"]),
+-    ("des-3-owns-resubmission", build(owns=OWNS3, designer="designer: resubmission t-97"), []),
++    ("des-3-owns-resubmission", build(owns=OWNS3, designer="designer: resubmission t-097"), []),
++    # offload B0 (E-B0-1): the id of a resubmission is the journal's read grammar (letter included, ASCII only)
++    ("des-3-owns-resubmission-letter", build(owns=OWNS3, designer="designer: resubmission t-123a"), []),
++    ("des-3-owns-resubmission-two-letters", build(owns=OWNS3, designer="designer: resubmission t-123ab"), []),
++    ("des-3-owns-resubmission-word-any-case", build(owns=OWNS3, designer="designer: Resubmission t-123"), []),
++    ("des-3-owns-resubmission-short-id", build(owns=OWNS3, designer="designer: resubmission t-97"), ["designer"]),
++    ("des-3-owns-resubmission-upper-letter", build(owns=OWNS3, designer="designer: resubmission t-123A"), ["designer"]),
++    ("des-3-owns-resubmission-three-letters", build(owns=OWNS3, designer="designer: resubmission t-123abc"), ["designer"]),
++    ("des-3-owns-resubmission-cyrillic-letter", build(owns=OWNS3, designer="designer: resubmission t-123а"), ["designer"]),
++    ("des-3-owns-resubmission-fullwidth", build(owns=OWNS3, designer="designer: resubmission t-１２３"), ["designer"]),
++    ("des-3-owns-resubmission-ten-digits", build(owns=OWNS3, designer="designer: resubmission t-1234567890"), ["designer"]),
+     ("des-3-owns-resubmission-no-id", build(owns=OWNS3, designer="designer: resubmission"), ["designer"]),
+     ("des-3-owns-path", build(owns=OWNS3, designer="designer: C:\\x\\draft.md"), []),
+     ("des-3-owns-path-backticked", build(owns=OWNS3, designer="designer: `C:\\x y\\draft.md`"), []),
+@@ -1156,7 +1166,32 @@ def test_designer_skip_goes_out_with_the_owed_event_in_the_note():
+     code, msg, note = run(build(owns=OWNS3, designer="designer: skip -- tiny edit"))
+     assert (code, msg) == (0, "")
+     assert "dispatch_skipped" in note and "tiny edit" in note and "rule 2" in note
+-    assert run(build(owns=OWNS3, designer="designer: resubmission t-5"))[2] == ""
++    assert run(build(owns=OWNS3, designer="designer: resubmission t-005"))[2] == ""
++
++
++# offload B0 item 8: designer_skip_reason(cut) and header_ids(cut) read the ONE cut
++def _cut_of(prompt):
++    return dm.cut_payload(payload(prompt))[1]
++
++
++def test_designer_skip_reason_and_header_ids_are_pure_readers_of_the_cut():
++    cut =_cut_of(build(owns=OWNS3, designer="designer: skip -- tiny edit"))
++    assert dm.designer_skip_reason(cut) == "tiny edit"
++    assert dm.designer_skip_reason(_cut_of(build(owns=OWNS3, designer="designer: resubmission t-123a"))) is None
++    assert dm.designer_skip_reason(_cut_of(build(owns=OWNS3, designer=None))) is None
++    assert dm.designer_skip_reason(None) == None  # noqa: E711 -- no cut, no reason
++    assert dm.header_ids(None) == {}
++    head = "task: t-123a\nnode: forge/5/F5-2\nfeature: F19\n"
++    assert dm.header_ids(_cut_of(head + build())) == {"task": "t-123a", "node": "forge/5/F5-2", "feature": "F19"}
++    # a malformed value is skipped (never repaired), the first well-formed line of a key wins, a fenced line is no header
++    ids = dm.header_ids(_cut_of("task: t-12\ntask: t-124\nnode: forge/5\nfeature: F1\n" + build()))
++    assert ids == {"task": "t-124"}
++    assert dm.header_ids(_cut_of("```\ntask: t-777\n```\n" + build())) == {}
++    assert dm.header_ids(_cut_of("> task: t-777\n" + build())) == {}
++    # the fallback: the first `Task t-NNN` within the first 200 characters of the prompt
++    assert dm.header_ids(_cut_of("Task t-555 is the one\n" + build())) == {"task": "t-555"}
++    assert dm.header_ids(_cut_of("x" * 195 + " Task t-555 late\n" + build())) == {}
++    assert dm.header_ids(_cut_of("Task t-123а x\n" + build())) == {}
+ 
+ 
+ def test_degraded_cut_is_unchecked_note_never_a_refusal_for_the_new_items():
+diff --git a/tools/test_forge_metrics.py b/tools/test_forge_metrics.py
+index c367ec59..591c95dc 100644
+--- a/tools/test_forge_metrics.py
++++ b/tools/test_forge_metrics.py
+@@ -340,6 +340,21 @@ def test_k4_journal_attribution(tmp_path):
+     assert by_line[4]["key"] == by_line[2]["key"] == ("", "t-002")             # B-402: the key is (label, task_id)
+ 
+ 
++def test_offload_b0_a_returned_joins_its_task_inherits_the_feature_and_is_not_counted(tmp_path):
++    # axis 6: `returned` is the END of a dispatch -- it joins the task instance (feature inherited, by "task") but is
++    # a work event of no kind: it is not in the window count and not in the unclassified list
++    feats, index = _two(tmp_path)
++    lines = [ev_line("2026-10-02T10:00:00", "t-123a", feature="F06"),
++             ev_line("2026-10-02T10:30:00", "t-123a", event="returned", notes="back", worker_ref="cli:2026-10-02T10:00:00")]
++    events, skipped = fm.parse_journal_text("\n".join(lines).encode("utf-8"))
++    assert skipped == []
++    by_line = {e["line"]: e for e in fm.attribute_events(events, feats, index)}
++    assert (by_line[2]["feature"], by_line[2]["by"]) == ("F06", "task") and by_line[2]["key"] == ("", "t-123a")
++    assert "returned" in fm.TASK_EVENTS and fm.UNCOUNTED_EVENTS == {"returned"}
++    assert "returned" not in {e["event"] for e in fm.attribute_events(events, feats, index)
++                              if e["event"] in fm.TASK_EVENTS and e["event"] not in fm.UNCOUNTED_EVENTS}
++
++
+ def _collision_lines():
+     return [
+         ev_line("2026-10-02T10:01:00", "t-002", notes="fix `controller.py` after the run"),             # 1: F05 by files
+@@ -544,7 +559,7 @@ def test_k6_the_shipped_registry_ids_are_what_the_validator_loads():
+ 
+ 
+ def test_k6_a_real_failure_still_fails_and_keeps_its_warning_channel_separate():
+-    bad = ev_line("2026-10-02T09:00:00", "t-009")                 # task id novelty violated -> a real FAIL
++    bad = ev_line("2026-10-02T09:00:00", "t-2009")                # task id novelty violated (a jump over the cap) -> a real FAIL
+     code, violations, warnings = _decide(bad)
+     assert code == 1 and any("novelty" in v for v in violations)
+     assert len(warnings) == 1 and all("WARN" not in v for v in violations)
+diff --git a/tools/test_hygiene_gate.py b/tools/test_hygiene_gate.py
+index 84507ad5..b2cc6918 100644
+--- a/tools/test_hygiene_gate.py
++++ b/tools/test_hygiene_gate.py
+@@ -561,3 +561,79 @@ def test_perf_100kb_1mb_is_roughly_linear(world):
+     small, big = best(100_000, 3), best(1_000_000, 2)
+     print(f"hygiene_gate decide: 100KB {small:.4f}s, 1MB {big:.4f}s, ratio {big / max(small, 1e-6):.1f}")
+     assert big / max(small, 1e-6) < 40 and big < 30.0
++
++
++# ---- offload B0 item 9 / E-B0-10: run_allowed(cmd, cwd) -- the gate as the ONLY check before an unhooked run ----
++# (row, command, cwd world key, ok). The error direction is the OPPOSITE of decide(): refuse on doubt.
++_PAD = hg.RUN_COMMAND_MAX - len("echo ")
++RUN_ALLOWED_ROWS = [
++    ("pytest-is-allowed", "python -m pytest tools/test_x.py -q", "clean", True),
++    ("echo-is-allowed", "echo hello", "clean", True),
++    ("redirect-onto-the-journal", f"echo x >> {JNL}", "clean", False),
++    ("redirect-backslash-form", "echo x >> logs\\journal\\dev1.jsonl", "clean", False),
++    ("python-c-appends-to-the-journal", "python -c \"open('logs/journal/dev1.jsonl','a').write('x')\"", "clean", False),
++    ("git-checkout-on-a-dirty-tree", "git checkout -- .", "repo", False),
++    ("cd-then-pytest", "cd tools && pytest", "clean", False),
++    ("command-substitution-cd", "$(echo cd) x", "clean", False),
++    ("unresolvable-payload-is-a-warn-so-refused", 'python -c "print($X)"', "clean", False),
++    ("python-parse-failure-warn-refused", 'python -c "def ("', "clean", False),
++    ("size-cap-at-the-limit-is-judged", "echo " + "x" * _PAD, "clean", True),
++    ("size-cap-one-over-is-refused", "echo " + "x" * (_PAD + 1), "clean", False),
++    ("seventy-kb", "echo " + "x" * 70_000, "clean", False),
++    ("nul-byte", "echo a\x00b", "clean", False),
++    ("nul-byte-alone", "\x00", "clean", False),
++    ("empty", "", "clean", False),
++    ("whitespace-only", "  \n\t ", "clean", False),
++    ("not-text-none", None, "clean", False),
++    ("not-text-int", 5, "clean", False),
++    ("not-text-bytes", b"echo x", "clean", False),
++]
++
++
++# Lead decision 2 (t-850 r3): the live gate gives a plain allow to a dynamic command word, but the --run road is stricter:
++# run_allowed refuses `$(...)`, a backtick or a variable in command position, naming the --witness-file door.
++RUN_ALLOWED_ROWS += [
++    ("backtick-command-word", "`echo cd` x", "clean", False),
++    ("variable-command-word", "x=cd; $x tools", "clean", False),
++    ("dynamic-word-after-a-pipe", "echo a | $(echo cat)", "clean", False),
++    ("dynamic-word-after-an-assignment", "FOO=1 $(echo pytest) -q", "clean", False),
++    ("variable-as-an-argument-is-allowed", "echo $HOME", "clean", True),
++    ("substitution-as-an-argument-is-allowed", "echo $(date)", "clean", True),
++    ("assignment-with-substitution-then-literal-word", "FOO=$(date) echo hi", "clean", True),
++]
++
++
++@pytest.mark.parametrize("row,cmd,cwd_key,ok", RUN_ALLOWED_ROWS, ids=[r[0] for r in RUN_ALLOWED_ROWS])
++def test_run_allowed_battery(world, row, cmd, cwd_key, ok):
++    got_ok, reasons = hg.run_allowed(cmd, world[cwd_key])
++    assert got_ok is ok, (row, reasons)
++    assert isinstance(reasons, list) and all(isinstance(r, str) and r for r in reasons)
++    assert (reasons == []) is ok                                  # a refusal always carries its reason
++    if row == "redirect-onto-the-journal":
++        assert "journal_write.py" in reasons[0]                   # the door is named, not a bare "no"
++    if row.endswith("command-word") or row in ("command-substitution-cd", "dynamic-word-after-a-pipe", "dynamic-word-after-an-assignment"):
++        assert "--witness-file" in reasons[0]                     # the door is named
++    if row == "size-cap-one-over-is-refused":
++        assert str(hg.RUN_COMMAND_MAX) in reasons[0]
++
++
++def test_run_allowed_an_exception_inside_the_gate_is_a_refusal_with_the_class_named(world, monkeypatch):
++    def boom(*a, **k):
++        raise RuntimeError("injected")
++    monkeypatch.setattr(hg, "_decide_command", boom)
++    ok, reasons = hg.run_allowed("echo hello", world["clean"])
++    assert ok is False and len(reasons) == 1 and "RuntimeError" in reasons[0] and "refused" in reasons[0]
++    monkeypatch.setattr(hg, "_decide_command", lambda *a, **k: (0, {"hookSpecificOutput": {"additionalContext": "WARN x"}}))
++    assert hg.run_allowed("echo hello", world["clean"]) == (False, ["WARN x"])           # a WARN-class answer is not a plain allow
++    monkeypatch.setattr(hg, "_decide_command", lambda *a, **k: (0, "not a dict"))
++    ok, reasons = hg.run_allowed("echo hello", world["clean"])
++    assert ok is False and reasons
++
++
++def test_run_allowed_keeps_the_refusal_classes_of_the_live_gate(world):
++    # the same judgment as decide(): whatever decide() denies for a Bash call, run_allowed refuses (parity on the rows above)
++    for cmd in (f"echo x >> {JNL}", "git reset --hard", "cd x; echo y > docs/a.md"):
++        _code, out = _decide(cmd, B, world["repo"])
++        assert _kind(out) == "deny"
++        assert hg.run_allowed(cmd, world["repo"])[0] is False
++    assert hg.RUN_COMMAND_MAX == 65_536                           # Lead decision 1 of t-850: the cap stays 65536
+diff --git a/tools/test_journal_echo.py b/tools/test_journal_echo.py
+index b7d3caef..c90ec0fc 100644
+--- a/tools/test_journal_echo.py
++++ b/tools/test_journal_echo.py
+@@ -1358,15 +1358,20 @@ def test_q2_a_delegated_with_a_live_peer_and_no_band_gets_the_peer_note_and_the_
+     assert result.stdout == "" and result.stderr == ""
+ 
+ 
+-def test_q3_no_peer_note_once_the_file_holds_a_closed_band_with_a_free_id_or_for_a_line_that_is_not_delegated(tmp_path):
++def test_q3_the_peer_note_is_stateless_now_an_old_band_does_not_silence_it_and_a_non_delegated_line_gets_none(tmp_path):
++    # REWRITTEN (offload B0): bands are retired, so the note no longer stops once the file holds a closed band with a
++    # free id; it says ids come from the clone counter, whatever the file holds
+     banded = HEAD_TEXT + _line(event="delegated", ts="2026-07-10T08:05:00", task_id="t-450", model="sonnet",
+                                notes="band", id_band="t-450..t-499") + "\n"
+     journal_path = _seed_committed_journal(tmp_path, banded)
+     new_line = _line(event="delegated", ts=_fresh_ts(), task_id="t-002", model="sonnet", notes="second task")
+     journal_path.write_text(banded + new_line + "\n", encoding="utf-8")
+     result = _run_hook(_peer_payload(journal_path, tmp_path))
+-    assert result.returncode == 0 and "PARALLEL SESSION" not in result.stdout + result.stderr
+-    # not a delegated: no note even with a peer and no band
++    assert result.returncode == 0
++    ctx = _parse_stdout_json(result.stdout)["additionalContext"]
++    assert "Task ids come from the clone counter (python -B tools/journal_write.py next); nothing to do." in ctx
++    assert "id_band" not in ctx and "open a band" not in ctx
++    # not a delegated: no note even with a peer
+     other = tmp_path / "other"
+     other.mkdir()
+     journal_path = _seed_committed_journal(other)
+@@ -1374,3 +1379,53 @@ def test_q3_no_peer_note_once_the_file_holds_a_closed_band_with_a_free_id_or_for
+                                               notes="split") + "\n", encoding="utf-8")
+     result = _run_hook(_peer_payload(journal_path, other))
+     assert result.returncode == 0 and "PARALLEL SESSION" not in result.stdout + result.stderr
++
++
++# ---------------------------------------------------------------------
++# offload B0 item 10 (X-7): echo_for_lines is the hook's own assembly, not a second one
++# ---------------------------------------------------------------------
++
++
++def test_echo_for_lines_gives_the_text_main_prints_on_one_sample(tmp_path):
++    long_notes = "n" * 400                                                   # over the 300-char NOTES LEN threshold
++    new_line = _line(event="delegated", ts=_fresh_ts(), task_id="t-002", model="sonnet", notes=long_notes)
++    journal_path = _seed_committed_journal(tmp_path)
++    journal_path.write_text(HEAD_TEXT + new_line + "\n", encoding="utf-8")
++    result = _run_hook(_post_tool_use_payload(journal_path, original_file=HEAD_TEXT))      # payload-scoped base: NOTES LEN is on
++    assert result.returncode == 0
++    hook_ctx = _parse_stdout_json(result.stdout)["additionalContext"]
++    assert "NOTES LEN: line 2 event=delegated notes 400 chars > threshold 300" in hook_ctx
++    assert journal_echo.echo_for_lines([new_line], [HEAD_LINE]) == hook_ctx             # the same text, one assembly
++    # the clean sample: nothing to say, an empty string (never None, never raises)
++    clean = _line(event="delegated", ts=_fresh_ts(), task_id="t-002", model="sonnet", notes="short")
++    assert journal_echo.echo_for_lines([clean], [HEAD_LINE]) == ""
++
++
++@pytest.mark.parametrize("new_lines,base_lines", [
++    ([], []), (["{not json"], []), (["[1, 2]"], ["{not json"]), ([None], []), ([5, 6], [None]),
++    (["\x00"], ["\ud800"]),
++])
++def test_echo_for_lines_never_raises_on_junk(new_lines, base_lines):
++    assert journal_echo.echo_for_lines(new_lines, base_lines) == ""
++    assert journal_echo.echo_for_lines(new_lines, base_lines, payload="not a dict") == ""
++
++
++def test_the_witness_segment_is_skipped_only_for_an_accepted_line_with_witness_by_run():
++    base = [HEAD_LINE]
++    ran = _line(event="accepted", ts=_fresh_ts(), task_id="t-001", model="sonnet", by="opus", witness="w", witness_by="run")
++    pasted = _line(event="accepted", ts=_fresh_ts(), task_id="t-001", model="sonnet", by="opus", witness="w", witness_by="text")
++    plain = _line(event="accepted", ts=_fresh_ts(), task_id="t-001", model="sonnet", by="opus", witness="w")
++    events = [("warn_loud", 2, "pytest", "ts"), ("warn_loud", 3, "pytest", "ts"), ("warn_soft", 4)]
++    kept = journal_echo._skip_run_witness(events, [ran, pasted, plain], base)
++    assert kept == [("warn_loud", 3, "pytest", "ts"), ("warn_soft", 4)]               # line 2 (the run) is gone, 3 and 4 stay
++    assert journal_echo._skip_run_witness(events, [pasted, plain, plain], base) == events
++    assert journal_echo._skip_run_witness(events, ["{not json", ran], base) == [e for e in events if e[1] != 3]
++    assert journal_echo._skip_run_witness([], [ran], base) == []
++
++
++def test_critic_token_reads_the_one_id_grammar():
++    assert journal_echo.CRITIC_TOKEN_RE.search("critic:t-123a").group(1) == "t-123a"
++    assert journal_echo.CRITIC_TOKEN_RE.search("critic:t-123").group(1) == "t-123"
++    assert journal_echo.CRITIC_TOKEN_RE.search("critic:t-123ab").group(1) == "t-123ab"
++    for bad in ("critic:t-12", "critic:t-123A", "critic:t-123abc", "critic:t-1234567890", "critic:t-１２３"):
++        assert journal_echo.CRITIC_TOKEN_RE.search(bad) is None, bad
+diff --git a/tools/test_journal_keys.py b/tools/test_journal_keys.py
+index 5a0206fc..2f53927c 100644
+--- a/tools/test_journal_keys.py
++++ b/tools/test_journal_keys.py
+@@ -372,7 +372,7 @@ def test_closes_tokens_shapes():
+     assert jk.closes_tokens("closes:t-050,closes:t-051;") == ["t-050", "t-051"]
+     assert jk.closes_tokens("discloses:t-050 encloses:t-051") == []          # the (?<!\w) boundary
+     assert jk.closes_tokens("closes: t-050") == [] and jk.closes_tokens(None) == [] and jk.closes_tokens(5) == []
+-    assert jk.closes_tokens("closes:t-5") == ["t-5"]                          # a legacy short id stays a token (ref_key refuses it)
++    assert jk.closes_tokens("closes:t-5") == []                               # 3-9 digits: a short id is no token of the one grammar
+     assert jk.closes_tokens("closes:t-050@a closes:t-050@" + "a" * 24) == ["t-050@a", "t-050@" + "a" * 24]
+ 
+ 
+@@ -526,7 +526,7 @@ def test_k4_an_empty_root_and_an_empty_developer_file(tmp_path):
+     root = make_root(tmp_path / "e", history=None, files={DEV2: ""})
+     j = jk.load_all(root)
+     assert j.rows == [] and j.problems == [] and [f.slug for f in j.files] == ["dev2"]
+-    assert j.next_free_id("dev2") == "t-001" and j.last_ts("dev2") is None
++    assert j.max_ids("dev2") == {} and j.last_ts("dev2") is None
+     assert j.successor_slug is None                     # an empty file has no line 1: it cannot continue the history
+ 
+ 
+@@ -534,13 +534,13 @@ def test_k4_the_successor_continues_the_numbers_of_the_history_and_an_empty_file
+     root = _two_files(tmp_path)
+     j = jk.load_all(root)
+     assert j.successor_slug == "dev1" and j.aliases == frozenset({"main", "dev1"})
+-    assert j.next_free_id("") == "t-004" and j.next_free_id("main") == "t-004" and j.next_free_id("dev1") == "t-004"
+-    assert j.next_free_id("dev2") == "t-003"
++    assert j.max_ids("") == {"": 3} and j.max_ids("main") == {"": 3} and j.max_ids("dev1") == {"": 3}
++    assert j.max_ids("dev2") == {"": 2}
+     assert [r.line_no for r in j.logical("")] == [1, 2, 3, 1, 2]        # the history followed by the successor
+     assert j.last_ts("") == "2026-10-02T08:30:00" and j.last_ts("dev2") == "2026-10-02T09:10:00"
+     # a successor with only its line 1: the ids still go on from the history
+     only = make_root(tmp_path / "o", files={DEV1: jtext(M_CREATED)})
+-    assert jk.load_all(only).next_free_id("") == "t-003"
++    assert jk.load_all(only).max_ids("") == {"": 2}
+ 
+ 
+ def test_k4_two_successors_and_a_misplaced_continues_are_problems_and_none_is_a_successor(tmp_path):
+@@ -660,20 +660,26 @@ def _where(root, capsys):
+     return rc, out.out, out.err
+ 
+ 
++_DOOR_LINE = "ids are issued by `python -B tools/journal_write.py next` (the clone counter); do not take max+1 by hand"
++
++
+ def test_k17_before_the_switch_it_is_the_history(tmp_path, capsys):
+     rc, out, err = _where(make_root(tmp_path), capsys)
+     assert rc == 0 and err == ""
+-    assert out.splitlines() == ["write to: logs/routing-log.jsonl", "next free id: t-003", "last ts: 2026-10-01T10:00:00", "suggested band (for a second writer): t-100..t-149"]
++    assert out.splitlines() == ["write to: logs/routing-log.jsonl", "max id per letter: (none): t-002", _DOOR_LINE,
++                                "last ts: 2026-10-01T10:00:00"]
+ 
+ 
+ def test_k17_after_the_switch_with_a_slug(tmp_path, capsys):
+     rc, out, err = _where(_two_files(tmp_path), capsys)
+     assert rc == 0 and err == ""
+-    assert out.splitlines() == ["write to: logs/journal/dev1.jsonl", "next free id: t-004", "last ts: 2026-10-02T08:30:00", "suggested band (for a second writer): t-100..t-149"]
++    assert out.splitlines() == ["write to: logs/journal/dev1.jsonl", "max id per letter: (none): t-003", _DOOR_LINE,
++                                "last ts: 2026-10-02T08:30:00"]
+     other = _two_files(tmp_path / "n")
+     write(other, jk.DEV_CONFIG_REL, "developer: dev2\n")
+     rc, out, err = _where(other, capsys)
+-    assert rc == 0 and out.splitlines() == ["write to: logs/journal/dev2.jsonl", "next free id: t-003", "last ts: 2026-10-02T09:10:00", "suggested band (for a second writer): t-100..t-149"]
++    assert rc == 0 and out.splitlines() == ["write to: logs/journal/dev2.jsonl", "max id per letter: (none): t-002", _DOOR_LINE,
++                                            "last ts: 2026-10-02T09:10:00"]
+ 
+ 
+ def test_k17_after_the_switch_with_a_slug_whose_file_does_not_exist_yet(tmp_path, capsys):
+@@ -681,9 +687,7 @@ def test_k17_after_the_switch_with_a_slug_whose_file_does_not_exist_yet(tmp_path
+     write(root, jk.DEV_CONFIG_REL, "developer: dev4\n")
+     rc, out, err = _where(root, capsys)
+     assert rc == 0
+-    assert out.splitlines()[0] == "write to: logs/journal/dev4.jsonl"
+-    assert "next free id: t-001 (the file does not exist yet" in out and "continues the history: t-004" in out
+-    assert "last ts: -" in out
++    assert out.splitlines() == ["write to: logs/journal/dev4.jsonl", "max id per letter: (none): t-003", _DOOR_LINE, "last ts: -"]
+ 
+ 
+ def test_k17_after_the_switch_without_a_slug_exits_1_with_the_door(tmp_path, capsys):
+@@ -807,41 +811,39 @@ def _band_where(tmp_path, capsys, dev1_lines):
+ 
+ 
+ def _bd(tid, ts, band=None, **kw):
+-    """A delegated line of the dev1 file, optionally carrying `id_band`."""
++    """A delegated line of the dev1 file, optionally carrying `id_band` (an OLD line: bands are retired for new ones)."""
+     return delegated(tid, ts, **({"id_band": band} if band else {}), **kw)
+ 
+ 
+-def test_k1_where_prints_the_band_with_free_ids_and_the_suggested_band_last(tmp_path, capsys):
++# F6-58 rows k1-k3 REWRITTEN to the retired answer (offload B0): `where` prints the max per letter and the door, never a
++# band line and never a suggested band; an old band line is still READ (BandState.top), it is just not advertised.
++def test_k1_where_prints_the_max_per_letter_and_the_door_and_no_band_line(tmp_path, capsys):
+     out = _band_where(tmp_path, capsys, [_bd("t-003", "2026-10-02T08:30:00"),
+-                                         _bd("t-450", "2026-10-02T08:40:00", "t-450..t-499")])
+-    assert out[:3] == ["write to: logs/journal/dev1.jsonl", "next free id: t-004", "last ts: 2026-10-02T08:40:00"]
+-    assert out[3:] == ["band t-450..t-499: next t-451", "suggested band (for a second writer): t-550..t-599"]
++                                         _bd("t-450", "2026-10-02T08:40:00", "t-450..t-499"),
++                                         _bd("t-005a", "2026-10-02T08:50:00")])
++    assert out == ["write to: logs/journal/dev1.jsonl", "max id per letter: (none): t-450, a: t-005a", _DOOR_LINE,
++                   "last ts: 2026-10-02T08:50:00"]
++    assert not any(l.startswith(("band ", "suggested band", "next free id")) for l in out)
+ 
+ 
+-def test_k2_where_shows_the_latest_three_bands_with_a_free_id_and_never_a_used_up_one(tmp_path, capsys):
++def test_k2_where_with_many_old_bands_still_prints_one_max_line_and_no_band_lines(tmp_path, capsys):
+     lines = [_bd("t-003", "2026-10-02T08:30:00")]
+     top = 3
+-    for i in range(7):                       # 5 bands with a free id, 2 used up (a band of 3 ids, all issued)
++    for i in range(7):
+         lo = jk.suggested_band(top)
+-        used = i in (1, 4)
+-        hi = lo + (2 if used else 9)
+-        lines.append(_bd(f"t-{lo}", f"2026-10-02T09:{i:02d}:00", f"t-{lo}..t-{hi}"))
+-        if used:
+-            lines += [_bd(f"t-{lo + k}", f"2026-10-02T09:{i:02d}:{k:02d}") for k in (1, 2)]
+-        top = hi
++        lines.append(_bd(f"t-{lo}", f"2026-10-02T09:{i:02d}:00", f"t-{lo}..t-{lo + 9}"))
++        top = lo + 9
+     out = _band_where(tmp_path, capsys, lines)
+-    band_lines = [l for l in out if l.startswith("band ")]
+-    assert len(band_lines) == 3 and len([l for l in out if l.startswith("suggested band")]) == 1
+-    expect = [(b, n) for b, n in jk.free_bands(jk.next_ids(json.loads(l) for l in jtext(*lines).splitlines()))]
+-    assert len(expect) == 5 and band_lines == [f"band {b.label}: next t-{n:03d}" for b, n in expect[-3:]]
++    assert len(out) == 4 and out[1].startswith("max id per letter: (none): t-") and out[2] == _DOOR_LINE
++    assert not any("band" in l for l in out)
+ 
+ 
+-def test_k3_where_with_every_band_used_up_prints_no_band_line_but_the_suggestion(tmp_path, capsys):
++def test_k3_where_with_a_used_up_band_prints_the_same_four_lines(tmp_path, capsys):
+     lines = [_bd("t-003", "2026-10-02T08:30:00"), _bd("t-100", "2026-10-02T08:40:00", "t-100..t-101"),
+              _bd("t-101", "2026-10-02T08:41:00")]
+     out = _band_where(tmp_path, capsys, lines)
+-    assert out == ["write to: logs/journal/dev1.jsonl", "next free id: t-004", "last ts: 2026-10-02T08:41:00",
+-                   "suggested band (for a second writer): t-200..t-249"]
++    assert out == ["write to: logs/journal/dev1.jsonl", "max id per letter: (none): t-101", _DOOR_LINE,
++                   "last ts: 2026-10-02T08:41:00"]
+ 
+ 
+ @pytest.mark.parametrize("value,reason", [
+@@ -883,10 +885,99 @@ def test_the_band_state_is_the_one_next_id_rule():
+     assert jk.next_ids([{"task_id": "t-399"}, {"id_band": "t-400..t-449"}, {"id_band": "t-450..t-499"}]).main == 500
+     assert jk.next_ids([{"task_id": "t-433"}, {"id_band": "t-500.."}]).main == 500
+     assert jk.next_ids([]).main == 1 and jk.next_ids([{"task_id": "t-1234567890"}]).main == 1
+-    assert jk.peer_note([], jk.BandState()) == "" and jk.peer_note([], jk.BandState(), cleared=True) == ""
+-    assert "on every journal line you issue from it" in jk.peer_note([("abcdefghij", 125)], jk.BandState())
+-    plain = jk.peer_note([("abcdefghij", 125)], jk.BandState())
+-    assert jk.peer_note([("abcdefghij", 125)], jk.BandState(), cleared=True) == plain + " (possibly this session before /clear)"
+-    note = jk.peer_note([(f"abcdefghij{i}", 125) for i in range(5)], jk.BandState())
+-    assert "2 min ago (abcdefgh, abcdefgh, abcdefgh, +2 more)" in note and 'id_band: "t-050..t-099"' in note
++    assert jk.peer_note([]) == "" and jk.peer_note([], cleared=True) == ""
++    plain = jk.peer_note([("abcdefghij", 125)])
++    assert "Task ids come from the clone counter (python -B tools/journal_write.py next); nothing to do." in plain
++    assert "id_band" not in plain and "open a band" not in plain and "band" not in plain
++    assert jk.peer_note([("abcdefghij", 125)], cleared=True) == plain + " (possibly this session before /clear)"
++    note = jk.peer_note([(f"abcdefghij{i}", 125) for i in range(5)])
++    assert "2 min ago (abcdefgh, abcdefgh, abcdefgh, +2 more)" in note and "id_band" not in note
++
++
++# ================ the ONE id grammar (offload B0, E-B0-1 / E-B0-2): `t-123`, `t-123a`, ASCII only ================
++
++_FULLWIDTH = "t-１２３"
++_CYRILLIC_A = "t-123а"
++# (value, parse_id, is_canonical): None = not an id of the READ grammar at all
++ID_GRAMMAR_ROWS = [
++    ("t-123", ("123", ""), True), ("t-123a", ("123", "a"), True), ("t-123ab", ("123", "ab"), True),
++    ("t-001", ("001", ""), True), ("t-999", ("999", ""), True), ("t-010", ("010", ""), True),
++    ("t-1000", ("1000", ""), True), ("t-123456789", ("123456789", ""), True), ("t-001a", ("001", "a"), True),
++    # readable as strings, never ISSUED (E-B0-1)
++    ("t-0123", ("0123", ""), False), ("t-000", ("000", ""), False), ("t-0001", ("0001", ""), False),
++    ("t-000a", ("000", "a"), False), ("t-0000000001", None, False),
++    # not ids at all: upper-case, Cyrillic, fullwidth, 3-letter, too short, too long, trailing junk
++    ("t-123A", None, False), (_CYRILLIC_A, None, False), (_FULLWIDTH, None, False), ("t-123abc", None, False),
++    ("t-12", None, False), ("t-1234567890", None, False), ("t-123\n", None, False), ("t-123 ", None, False),
++    (" t-123", None, False), ("T-123", None, False), ("t-", None, False), ("", None, False), ("t-123@", None, False),
++    (None, None, False), (123, None, False), (["t-123"], None, False),
++]
++
++
++@pytest.mark.parametrize("value,parsed,canonical", ID_GRAMMAR_ROWS,
++                         ids=[f"{i}-{str(r[0])[:14]!r}" for i, r in enumerate(ID_GRAMMAR_ROWS)])
++def test_the_id_grammar_read_and_issue(value, parsed, canonical):
++    assert jk.parse_id(value) == parsed
++    assert jk.is_canonical(value) is canonical
++    if parsed is not None:
++        assert jk.id_number(value) == int(parsed[0])
++        assert bool(jk.REF_RE.match(value)) and bool(jk.REF_RE.match(value + "@codex"))
++        assert jk.ID_NUM_RE.match(value).groups() == parsed
++    else:
++        assert jk.id_number(value) is None
++        assert not (isinstance(value, str) and jk.ID_RE.match(value))
++        assert not jk.REF_RE.match(value if isinstance(value, str) else "")
++
++
++def test_one_pattern_text_feeds_the_regexes_and_the_validator_imports_it():
++    assert jk.ID_PATTERN == "t-[0-9]{3,9}[a-z]{0,2}"
++    assert jk.ID_PATTERN in jk.CLOSES_RE.pattern and jk.ID_PATTERN in jk.REF_RE.pattern
++    assert jk.ID_JUMP_MAX == 1000 and jk.JOURNAL_WRITE_DOOR == "python -B tools/journal_write.py next"
++    import journal_validator as jv
++    assert jv.TASK_ID_RE is jk.ID_RE
++
++
++# E-B0-2: a token closes exactly the id it spells; E-B0-1: no non-ASCII / upper-case / long id is ever closed
++@pytest.mark.parametrize("notes,tokens", [
++    ("closes:t-123a", ["t-123a"]), ("closes:t-123", ["t-123"]), ("closes:t-123ab@codex", ["t-123ab@codex"]),
++    ("closes:t-123,closes:t-123a;", ["t-123", "t-123a"]), ("closes:t-123a.", ["t-123a"]),
++    ("closes:t-123@codex-fixes", ["t-123@codex-fixes"]), ("closes:t-123A", []), ("closes:t-123abc", []),
++    ("closes:t-123а", []), ("closes:" + _FULLWIDTH, []),
++    ("closes:t-12", []), ("closes:t-1234567890", []), ("closes:t-123456789", ["t-123456789"]),
++    ("closes:t-123—next", []),                          # decision 2: an id glued to a non-ASCII character closes nothing
++    ("closes:t-123 а", ["t-123"]),                      # a space ends the token: the next word is not part of it
++    ("closes:t-0123", ["t-0123"]),                           # a legacy spelling is READABLE: it closes exactly that string
++    ("closes:t-123abc@codex", []), ("closes:T-123", []), ("closes:t-", []),
++])
++def test_closes_tokens_the_one_grammar_and_the_adversarial_ids(notes, tokens):
++    assert jk.closes_tokens(notes) == tokens
++
++
++def test_a_token_of_the_bare_id_never_resolves_to_the_lettered_task_and_back():
++    segs = jk.NO_SEGMENTS
++    carrier = _ev("2026-10-02T10:00:00", None, "dispatch_skipped")
++    assert jk.ref_key("t-123", carrier, segs) == ("", "t-123")
++    assert jk.ref_key("t-123a", carrier, segs) == ("", "t-123a")
++    assert jk.ref_key("t-123ab@codex", carrier, segs) == ("codex", "t-123ab")
++    assert jk.ref_key("t-123", carrier, segs) != jk.ref_key("t-123a", carrier, segs)
++    for bad in ("t-123A", "t-123abc", _CYRILLIC_A, _FULLWIDTH, "t-12", "t-1234567890", "t-123abc@codex", "t-123a@"):
++        assert jk.ref_key(bad, carrier, segs) is None, bad
++    assert jk.task_key(_ev("2026-10-02T10:00:00", "t-123a"), segs) == ("", "t-123a")      # identity stays the string
++
++
++def test_max_by_letter_and_the_band_state_count_letterless_ids_only():
++    objs = [{"task_id": "t-100"}, {"task_id": "t-102a"}, {"task_id": "t-101a"}, {"task_id": "t-0123"},
++            {"task_id": "t-9"}, {"task_id": None}, "not an object", {"task_id": "t-999999999ab"}]
++    assert jk.max_by_letter(objs) == {"": 123, "a": 102, "ab": 999999999}      # t-0123 is readable: number 123
++    st = jk.BandState()
++    for o in objs:
++        if isinstance(o, dict):
++            st.add(o)
++    assert st.ids == {100, 123}                                                # a lettered id is another counter's
++
+ 
++def test_where_prints_a_lettered_max_beside_the_letterless_one(tmp_path, capsys):
++    root = make_root(tmp_path, files={DEV1: jtext(M_CREATED, delegated("t-003", "2026-10-02T08:30:00"),
++                                                  delegated("t-001a", "2026-10-02T08:31:00"))}, slug="dev1")
++    rc, out, _err = _where(root, capsys)
++    assert rc == 0 and out.splitlines()[1] == "max id per letter: (none): t-003, a: t-001a"
+diff --git a/tools/test_journal_validator.py b/tools/test_journal_validator.py
+index a4db56cb..c2b0798d 100644
+--- a/tools/test_journal_validator.py
++++ b/tools/test_journal_validator.py
+@@ -253,12 +253,21 @@ def test_defect_found_missing_ref_fails():
+ 
+ # ---- 9. task_id novelty / reference ----
+ 
+-def test_delegated_novelty_violation_wrong_number():
++def test_delegated_novelty_violation_jump_beyond_the_cap():
++    # REWRITTEN (offload B0, rule 9a''): "t-005 after t-001" used to be the max+1 violation; a gap is legal now, a
++    # jump of more than ID_JUMP_MAX above the max is the refusal
+     staged = _staged(_line(event="delegated", ts="2026-07-10T08:10:00", model="sonnet",
+-                            task_id="t-005", notes="skipped ahead"))
++                            task_id="t-1500", notes="skipped far ahead"))
+     code, violations = jv.decide(staged, HEAD_TEXT, NOW)
+     assert code == 1
+-    assert any("task_id novelty" in v for v in violations)
++    assert any("task_id novelty" in v and "jumps more than 1000" in v for v in violations)
++    assert any("python -B tools/journal_write.py next" in v and "band" not in v for v in violations)
++
++
++def test_delegated_novelty_a_gap_of_a_few_is_legal():
++    staged = _staged(_line(event="delegated", ts="2026-07-10T08:10:00", model="sonnet",
++                            task_id="t-005", notes="a reserved id, gap"))
++    assert jv.decide(staged, HEAD_TEXT, NOW) == (0, [])
+ 
+ 
+ def test_delegated_novelty_correct_max_plus_one_passes():
+@@ -988,6 +997,9 @@ def test_form_fields_vocabulary_and_pairs_cover_every_check():
+         {"ts": "2026-07-10T08:00:00", "event": "defect_found", "agent": "a", "category": "c", "notes": "n"},
+         {"ts": "2026-07-10T08:00:00", "event": "accepted", "agent": "a", "category": "c", "notes": "n", "node": "F5-2"},   # t-814: rule 18
+         {"ts": "2026-07-10T08:00:00", "event": "accepted", "agent": "a", "category": "c", "notes": "n", "id_band": "x"},  # F6-58: rule 9e
++        {"ts": "2026-07-10T08:00:00", "event": "accepted", "agent": "a", "category": "c", "notes": "n", "via": "pigeon"},   # rule 20
++        {"ts": "2026-07-10T08:00:00", "event": "accepted", "agent": "a", "category": "c", "notes": "n", "session": "x" * 17},
++        {"ts": "2026-07-10T08:00:00", "event": "accepted", "agent": "a", "category": "c", "notes": "n", "witness_by": "memory"},
+     ]
+     seen = set()
+     for obj in cases:
+@@ -1145,7 +1157,7 @@ def test_main_exits_one_on_real_staged_violation(tmp_path, capsys, monkeypatch):
+     (root / "logs" / "routing-log.jsonl").write_text(HEAD_TEXT, encoding="utf-8")
+     _git(root, "add", "logs/routing-log.jsonl")
+     _git(root, "commit", "-q", "-m", "seed journal")
+-    bad_line = _line(event="delegated", ts="2026-07-10T08:10:00", task_id="t-999", model="sonnet",
++    bad_line = _line(event="delegated", ts="2026-07-10T08:10:00", task_id="t-9999", model="sonnet",
+                       notes="wrong novelty")
+     (root / "logs" / "routing-log.jsonl").write_text(_staged(bad_line), encoding="utf-8")
+     _git(root, "add", "logs/routing-log.jsonl")
+@@ -1493,21 +1505,25 @@ def _k8(*objs, seed=HISTORY_TEXT, head=None):
+     return jv.decide(_jtext(*objs), head, _NOW8, seed_text=seed)
+ 
+ 
+-def test_k8_the_next_id_is_the_max_of_the_history_plus_one_and_only_that():
+-    ok = _k8(M_CREATED, _deleg("t-003", "2026-10-02T08:30:00"))
+-    assert ok == (0, [])
+-    for wrong in ("t-002", "t-004", "t-009"):                # +0 (a repeat of an open task), +2 and beyond
+-        code, violations = _k8(M_CREATED, _deleg(wrong, "2026-10-02T08:30:00"))
+-        assert code == 1 and violations, wrong
+-    code, violations = _k8(M_CREATED, _deleg("t-004", "2026-10-02T08:30:00"))
+-    assert any("got t-004; the next new id is t-003" in v for v in violations)
++def test_k8_the_history_is_the_seen_set_and_the_jump_base_of_the_file():
++    # REWRITTEN (offload B0, rule 9a''): "the next id is the max of the history + 1 and only that" is retired; a gap
++    # (t-004, t-009) is legal, a seen id is a repeat (9b-9d), a jump over 1000 above the history's max is refused
++    assert _k8(M_CREATED, _deleg("t-003", "2026-10-02T08:30:00")) == (0, [])
++    for gap in ("t-004", "t-009", "t-1002"):                 # +1, +6 and exactly the cap above the history's t-002
++        assert _k8(M_CREATED, _deleg(gap, "2026-10-02T08:30:00")) == (0, []), gap
++    code, violations = _k8(M_CREATED, _deleg("t-002", "2026-10-02T08:30:00"))
++    assert code == 1 and any("repeated delegated" in v for v in violations)     # t-002 of the history is a SEEN open task
++    code, violations = _k8(M_CREATED, _deleg("t-1003", "2026-10-02T08:30:00"))
++    assert code == 1 and any("jumps more than 1000 above the sequence (the highest t-NNN is 2)" in v for v in violations)
+     code, violations = _k8(M_CREATED, _deleg("t-001", "2026-10-02T08:30:00"))
+     assert any("CLOSED task" in v for v in violations)      # t-001 is accepted in the history
+ 
+ 
+-def test_k8_without_the_seed_the_same_file_starts_at_t_001():
+-    code, violations = _k8(M_CREATED, _deleg("t-003", "2026-10-02T08:30:00"), seed=None)
+-    assert code == 1 and any("got t-003; the next new id is t-001" in v for v in violations)
++def test_k8_without_the_seed_the_jump_is_measured_from_zero():
++    assert _k8(M_CREATED, _deleg("t-003", "2026-10-02T08:30:00"), seed=None) == (0, [])
++    assert _k8(M_CREATED, _deleg("t-1000", "2026-10-02T08:30:00"), seed=None) == (0, [])
++    code, violations = _k8(M_CREATED, _deleg("t-1002", "2026-10-02T08:30:00"), seed=None)      # legal WITH the seed (above)
++    assert code == 1 and any("no id exists yet" in v for v in violations)
+     assert _k8(_created("2026-10-02T08:00:00"), _deleg("t-001", "2026-10-02T08:30:00"), seed=None) == (0, [])
+ 
+ 
+@@ -1524,7 +1540,7 @@ def test_k8_the_ts_of_the_first_line_is_anchored_on_the_history():
+ 
+ 
+ def test_k8_line_numbers_in_the_messages_are_those_of_the_file_not_of_the_seed():
+-    code, violations = _k8(M_CREATED, _deleg("t-009", "2026-10-02T08:30:00"))
++    code, violations = _k8(M_CREATED, _deleg("t-2500", "2026-10-02T08:30:00"))
+     assert code == 1 and violations[0].startswith("line 2 ")
+ 
+ 
+@@ -1558,9 +1574,12 @@ def test_k8_the_merge_mode_passes_the_seed_too():
+     assert (code, violations) == (0, [])
+ 
+ 
+-# ================================ id bands (F6-58, rule 9e): rows j1-j18 ================================
+-# A spec is ("d", id[, band]) for a delegated line or ("x", None[, band]) for a decomposable line that carries only a
+-# band; a 3rd element, even None, writes the `id_band` field. HEAD specs are state (never judged), NEW specs are judged.
++# ================ rule 9a'' (offload B0, BL-1): the id of a NEW delegated; rule 9e (bands) RETIRED ================
++# REWRITTEN group (the F6-58 rows j1-j18 + S1/P10/edge/j10/j11 band rows): a new line carrying `id_band` is a
++# `band_retired` violation, an old band in HEAD still feeds the jump base (TEMPORAL, read-only), and the id of a new
++# line is judged by "never seen + canonical + at most 1000 above the max of its letter". A spec is ("d", id[, band]) for a
++# delegated line or ("x", None[, band]) for a decomposable line that carries only a band; a 3rd element, even None,
++# writes the `id_band` field. HEAD specs are state (never judged), NEW specs are judged.
+ 
+ def _band_lines(specs, base_hour):
+     out = []
+@@ -1582,69 +1601,65 @@ def _ids(a, b):
+     return [("d", f"t-{n}") for n in range(a, b + 1)]
+ 
+ 
+-_B450 = ("d", "t-450", "t-450..t-499")
+-_J1 = [_B450, ("d", "t-357"), ("d", "t-451", "t-450..t-499"), ("d", "t-358")]   # every band line carries its band
+-_FILLED_400 = [("x", None, "t-400..t-449")] + _ids(341, 399) + [("d", "t-400", "t-400..t-449")]
+-_DOOR_451 = 't-451 lies in the id band t-450..t-499 of another writer; a line issued from a band carries "id_band":"t-450..t-499"'
+-_EDGE_400 = [("d", "t-340"), ("x", None, "t-400..t-449")] + _ids(341, 399)
+ _HUGE = "t-" + "9" * 5000 + ".."
+ _FORM_VALUES = ["t-5..t-9", "500..", "t-500 .. t-510", "t-500–t-510", "", ["t-1"], {"from": "t-1"}, 500,
+                 "t-４００..t-４４９", "t-1234567890..", _HUGE]
++_RETIRED = ("band_retired", "`id_band` is retired", "python -B tools/journal_write.py next")
+ 
+ # (row, head specs, new specs, needles that must ALL appear in the violations; () = no violation at all)
+ ID_BAND_ROWS = [
+-    ("j1", [("d", "t-356")], _J1, ()),
+-    ("j2", [("d", "t-356")], _J1 + [("d", "t-455", "t-450..t-499")],
+-     ("task_id novelty violated", "got t-455", "t-452 (band t-450..t-499)")),
+-    # F1 (t-402): a band's next id is issuable only by a line that carries that band in its own id_band
+-    ("S1-naive-max-plus-1", [("d", "t-356")], [_B450, ("d", "t-451")],
+-     ("task_id novelty violated", "got t-451", "the next new id is t-357", _DOOR_451)),
+-    ("S1-band-owner-with-field", [("d", "t-356")], [_B450, ("d", "t-451", "t-450..t-499")], ()),
+-    ("P10-plain-id-at-a-band-first-id", [("d", "t-356"), ("x", None, "t-500..t-549")], [("d", "t-500")],
+-     ("got t-500", "the next new id is t-357",
+-      't-500 lies in the id band t-500..t-549 of another writer; a line issued from a band carries "id_band":"t-500..t-549"')),
+-    ("edge-main-at-a-band-edge-takes-the-next-after-it", _EDGE_400, [("d", "t-450")], ()),
+-    ("edge-main-at-a-band-edge-plain-first-id-refused", _EDGE_400, [("d", "t-400")],
+-     ("got t-400", "the next new id is t-450", "t-400 lies in the id band t-400..t-449")),
+-    ("band-never-declared-opens-on-its-own-line-and-its-id-is-judged", [("d", "t-356")], [("d", "t-455", "t-450..t-499")],
+-     ("got t-455", "or t-450 (band t-450..t-499)")),
+-    ("a-line-carries-another-bands-field", [("d", "t-356"), _B450, ("x", None, "t-600..t-649")],
+-     [("d", "t-600", "t-450..t-499")], ("got t-600", "lies in the id band t-600..t-649")),
+-    ("a-band-line-without-a-new-id-needs-no-field-for-9d", [("d", "t-356"), _B450], [("d", "t-450")],
+-     ("repeated delegated by the same agent",)),
+-    ("j3", [("d", "t-356")], [("x", None, "t-300..t-310")], ("starts at or below t-356", "start it at t-450", "(rule 9e)")),
+-    ("j4", [("d", "t-356"), _B450], [("x", None, "t-470..t-480")], ("starts at or below t-499", "start it at t-550")),
+-    ("j5a-jump", [("d", "t-356")], [("x", None, "t-999999999..")], ("starts 999999643 ids above t-356", "at most 10000")),
+-    ("j5a-nine-digits-parse", [("d", "t-999999000")], [("x", None, "t-999999100..")], ()),
+-    ("j6", [("d", "t-356")], [("x", None, "t-500..t-499")], ("ends below its start", "(rule 9e)")),
+-    ("j7-1000", [("d", "t-356")], [("x", None, "t-500..t-1499")], ()),
+-    ("j7-1001", [("d", "t-356")], [("x", None, "t-500..t-1500")], ("holds 1001 ids", "at most 1000")),
+-    ("j8-pass", [("d", "t-433")], [("x", None, "t-500.."), ("d", "t-500")], ()),
+-    ("j8-novelty", [("d", "t-433")], [("x", None, "t-500.."), ("d", "t-500"), ("d", "t-434")],
+-     ("task_id novelty violated", "got t-434", "the next new id is t-501")),
+-    ("j9-10000", [("d", "t-100")], [("x", None, "t-10100..")], ()),
+-    ("j9-10001", [("d", "t-100")], [("x", None, "t-10101..")], ("starts 10001 ids above t-100", "start it nearer, at t-150")),
+-    ("j10-pass", [("d", "t-340")], _FILLED_400 + [("d", "t-450")], ()),
+-    ("j10-skip-in-band", [("d", "t-340")], _FILLED_400 + [("d", "t-402")],
+-     ("got t-402", "the next new id is t-450", "or t-401 (band t-400..t-449)")),
+-    ("j10-skip-in-band-with-field", [("d", "t-340")], _FILLED_400 + [("d", "t-402", "t-400..t-449")],
+-     ("got t-402", "or t-401 (band t-400..t-449)")),
+-    ("j10-reuse",[("d", "t-340")], _FILLED_400 + [("d", "t-400")], ("repeated delegated by the same agent",)),
+-    ("j11", [("d", "t-340")],
+-     [("x", None, "t-400..t-402")] + _ids(341, 360) + [("d", f"t-{n}", "t-400..t-402") for n in (400, 401, 402)] + [("d", "t-403")],
+-     ("got t-403", "the next new id is t-361", "band t-400..t-402 is used up -- open a new band at t-500")),
+-    ("j12", [("d", "t-356", "junk")], [("d", "t-357")], ()),
+-    ("j13", [("d", "t-356")], [("x", None, None), ("d", "t-357", None)], ()),
+-    ("j15-near", [("d", "t-356")], [("x", None, "t-405..t-410")], ("starts 49 ids above t-356", "at least 50", "start it at t-450")),
+-    ("j15-gap-50", [("d", "t-356")], [("x", None, "t-406..t-410")], ()),
+-    ("j16", [("d", "t-356")], [("x", None, "t-357.."), ("d", "t-357")], ()),
+-    ("j17", [("d", "t-356")], [("d", "t-300", "t-300..t-310")],
+-     ("starts at or below t-356", "task_id novelty violated", "got t-300")),
+-    ("j18", [("d", "t-356")], [("x", None, "t-450..t-499"), ("d", "t-450", "t-450..t-499")], ()),
+-    ("j14-no-band-old-reading", [("d", "t-356")], [("d", "t-357"), ("d", "t-358")], ()),
+-    ("j14-no-band-gap", [("d", "t-356")], [("d", "t-358")], ("got t-358", "the next new id is t-357")),
+-] + [(f"j5-form-{i}", [("d", "t-356")], [("x", None, v)], ("is not \"t-A..t-B\"", "(rule 9e)"))
+-     for i, v in enumerate(_FORM_VALUES)]
++    # --- the retired road: a band on a NEW line is refused, whatever it holds, and names the writer ---
++    ("j1-band-on-a-new-delegated", [("d", "t-356")], [("d", "t-357", "t-450..t-499")], _RETIRED),
++    ("j1-band-on-a-new-decomposable", [("d", "t-356")], [("x", None, "t-450..t-499")], _RETIRED),
++    ("j1-open-band", [("d", "t-356")], [("x", None, "t-450..")], _RETIRED),
++    ("j1-band-with-its-first-id", [("d", "t-356")], [("d", "t-450", "t-450..t-499")], _RETIRED),
++    ("j3-band-below-the-sequence", [("d", "t-356")], [("x", None, "t-300..t-310")], _RETIRED),
++    ("j6-reversed-band", [("d", "t-356")], [("x", None, "t-500..t-499")], _RETIRED),
++    ("j7-1001-band", [("d", "t-356")], [("x", None, "t-500..t-1500")], _RETIRED),
++    # the band never makes an id legal: an id far above the sequence stays a jump, the band is a second violation
++    ("j17-band-never-legalises-an-id", [("d", "t-356")], [("x", None, "t-5000..t-5010"), ("d", "t-5000", "t-5000..t-5010")],
++     _RETIRED + ("got t-5000", "jumps more than 1000 above the sequence (the highest t-NNN is 356)")),
++    # --- null and absent bands are not bands; a junk band of an OLD line is never judged (temporal) ---
++    ("j13-null-band-is-no-band", [("d", "t-356")], [("x", None, None), ("d", "t-357", None)], ()),
++    ("j12-old-junk-band-in-head-is-not-judged", [("d", "t-356", "junk")], [("d", "t-357")], ()),
++    # --- rule 9a'': gaps and out-of-order are legal; the jump cap is 1000 above the max of the letter ---
++    ("j14-no-band-in-order", [("d", "t-356")], [("d", "t-357"), ("d", "t-358")], ()),
++    ("j14-gap-of-one-is-legal", [("d", "t-356")], [("d", "t-358")], ()),
++    ("e3-jump-at-1000-is-legal", [("d", "t-356")], [("d", "t-1356")], ()),
++    ("e3-jump-at-1001-is-refused", [("d", "t-356")], [("d", "t-1357")],
++     ("task_id novelty violated", "got t-1357", "jumps more than 1000 above the sequence (the highest t-NNN is 356)")),
++    ("e8-reserved-lower-id-after-a-higher-one", [("d", "t-356")], [("d", "t-358"), ("d", "t-357"), ("d", "t-359")], ()),
++    ("e8-next-n3-written-in-the-reverse-order", [("d", "t-899")], [("d", "t-902"), ("d", "t-900"), ("d", "t-901")], ()),
++    ("e8-t901-then-t900", [("d", "t-899")], [("d", "t-901"), ("d", "t-900")], ()),
++    ("e3-the-jump-base-follows-the-highest-new-line", [("d", "t-356")], [("d", "t-1356"), ("d", "t-2356"), ("d", "t-2357")], ()),
++    ("e3-the-jump-base-follows-the-highest-new-line-beyond", [("d", "t-356")], [("d", "t-1356"), ("d", "t-2357")],
++     ("got t-2357", "highest t-NNN is 1356")),
++    # --- E-B0-4: an id issued twice is a SEEN id, judged as a repeat (9b-9d), never as a new one ---
++    ("e4-same-id-twice-same-agent", [("d", "t-356")], [("d", "t-357"), ("d", "t-357")], ("repeated delegated by the same agent",)),
++    ("e4-reused-id-of-head", [("d", "t-356")], [("d", "t-356")], ("repeated delegated by the same agent",)),
++    # --- E-B0-1: an id the issue grammar refuses (readable as a string, never issued) ---
++    ("e1-leading-zero", [("d", "t-356")], [("d", "t-0357")], ("got t-0357", "is not canonical")),
++    ("e1-000", [("d", "t-356")], [("d", "t-000")], ("got t-000", "is not canonical")),
++    ("e1-0001", [("d", "t-356")], [("d", "t-0001")], ("got t-0001", "is not canonical")),
++    ("e1-4-digit-no-zero-is-canonical", [("d", "t-999")], [("d", "t-1000")], ()),
++    # --- the letter: t-123 and t-123a are two tasks, each with its own jump base ---
++    ("l1-first-id-of-a-letter", [("d", "t-356")], [("d", "t-001a")], ()),
++    ("l2-letter-at-1000-is-legal", [("d", "t-356")], [("d", "t-1000a")], ()),
++    ("l2-letter-at-1001-is-refused", [("d", "t-356")], [("d", "t-1001a")],
++     ("got t-1001a", "jumps more than 1000 above the sequence (no id with letter 'a' exists yet)")),
++    ("l3-the-letter-has-its-own-base", [("d", "t-356"), ("d", "t-040a")], [("d", "t-1040a")], ()),
++    ("l3-the-letter-has-its-own-base-beyond", [("d", "t-356"), ("d", "t-040a")], [("d", "t-1041a")],
++     ("got t-1041a", "the highest t-NNNa is 40")),
++    ("l4-the-same-number-with-a-letter-is-a-new-id", [("d", "t-356")], [("d", "t-356a")], ()),
++    ("l4-the-bare-number-after-its-lettered-twin-is-new", [("d", "t-356a")], [("d", "t-356")], ()),
++    ("l5-two-letters", [("d", "t-356")], [("d", "t-001ab")], ()),
++    ("l6-a-lettered-id-twice-is-a-repeat", [("d", "t-356a")], [("d", "t-356a")], ("repeated delegated by the same agent",)),
++    # --- TEMPORAL: the old bands in HEAD still feed the base of the letterless sequence (both worlds on one row) ---
++    ("old-band-in-head-feeds-the-base-legal", [("d", "t-356"), ("x", None, "t-400..t-449")], [("d", "t-1449")], ()),
++    ("old-band-in-head-feeds-the-base-beyond", [("d", "t-356"), ("x", None, "t-400..t-449")], [("d", "t-1450")],
++     ("got t-1450", "the highest t-NNN is 449")),
++    ("old-band-in-head-does-not-reserve-its-ids", [("d", "t-356"), ("x", None, "t-400..t-449")], [("d", "t-357")], ()),
++] + [(f"j5-form-{i}", [("d", "t-356")], [("x", None, v)], _RETIRED) for i, v in enumerate(_FORM_VALUES)]
+ 
+ 
+ @pytest.mark.parametrize("row,head,new,needles", ID_BAND_ROWS, ids=[r[0] for r in ID_BAND_ROWS])
+@@ -1657,22 +1672,30 @@ def test_id_band(row, head, new, needles):
+     assert violations, row
+     for needle in needles:
+         assert needle in joined, (needle, violations)
+-    if row.startswith("j5-form"):
+-        assert len(violations) == 1 and "id_band" in violations[0]       # one text per bad value, nothing raised
++    assert not any("max+1" in v or "id band" in v or "open a band" in v for v in violations)       # no band advice left
+ 
+ 
+-def test_id_band_a_refused_band_never_enters_the_state_and_a_foreign_bad_band_is_clearable():
+-    # the refused band of j17 does not make t-301 issuable on the next line either
+-    v = _band_run([("d", "t-356")], [("x", None, "t-300..t-310"), ("d", "t-300")])
+-    assert any("task_id novelty violated" in x and "got t-300" in x for x in v)
++def test_id_band_a_band_on_a_new_line_never_enters_the_state_and_a_foreign_bad_band_is_clearable():
++    # the retired band of a NEW line does not make a later id issuable: t-5001 stays a jump
++    v = _band_run([("d", "t-356")], [("x", None, "t-5000..t-5010"), ("d", "t-5001")])
++    assert any("task_id novelty violated" in x and "got t-5001" in x for x in v)
+     assert "id_band" in jv.FORM_FIELDS
+     assert [f for f, _t in jv._line_form_violations(json.loads(_line(id_band="junk", event="decomposable")), "T")] == ["id_band"]
+     assert jv._line_form_violations(json.loads(_line(event="decomposable", id_band=None)), "T") == []
+ 
+ 
++def test_the_novelty_text_names_the_writer_and_gives_no_band_advice():
++    v = _band_run([("d", "t-356")], [("d", "t-0357"), ("d", "t-2357")])
++    assert len(v) == 2
++    for text in v:
++        assert "python -B tools/journal_write.py next" in text and "(rule 9a'')" in text
++        assert "band" not in text and "id_band" not in text and "journal_keys.py where" not in text
++    assert "is not canonical" in v[0] and "jumps more than 1000" in v[1]
++
++
+ # ---- rule 19 (FG7-32): the order-known door, ONE table ----
+ # HEAD holds t-001 @08:00. Each case is (new lines, seed_text, expected code, [texts the violations must hold],
+-# [texts the WARN list must hold], declared count). The defects: an id out of order (t-005, next is t-002), a ts
++# [texts the WARN list must hold], declared count). The defects: an id past the jump cap (t-2005, rule 9a''), a ts
+ # earlier than HEAD's last line, a repeated delegated by one agent with no attempt.
+ _D = "2026-07-10T"
+ 
+@@ -1681,7 +1704,7 @@ def _tok(ts, at, notes=None):
+     return _line(event="dispatch_skipped", ts=_D + at, notes=notes or f"order-known:{_D}{ts}")
+ 
+ 
+-def _id_bad(ts="09:00:00", tid="t-005", **kw):
++def _id_bad(ts="09:00:00", tid="t-2005", **kw):       # REWRITTEN: t-005 is a legal gap now; t-2005 jumps over the cap
+     return _line(task_id=tid, model="sonnet", ts=_D + ts, **kw)
+ 
+ 
+@@ -1689,7 +1712,7 @@ _TS_BAD = _line(task_id="t-002", model="sonnet", ts=_D + "07:00:00")
+ _DUP_OK = _line(task_id="t-002", model="sonnet", ts=_D + "09:00:00")
+ _DUP_BAD = _line(task_id="t-002", model="sonnet", ts=_D + "10:00:00")
+ _DEFECTS = {
+-    "id": ([_id_bad()], "09:00:00", "t-005", "10:30:00"),
++    "id": ([_id_bad()], "09:00:00", "t-2005", "10:30:00"),
+     "ts": ([_TS_BAD], "07:00:00", "t-002", "09:00:00"),
+     "dup": ([_DUP_OK, _DUP_BAD], "10:00:00", "t-002", "10:30:00"),
+ }
+@@ -1720,7 +1743,7 @@ _CASES["f2-one-token-over-a-line-with-two-defects-counts-1"] = (
+ _CASES["f3-order-defect-and-missing-worker-ref-and-token-stays-refused"] = (
+     [_id_bad(worker_ref=None), _tok("09:00:00", "10:30:00")], None, 1, ["worker_ref"], [], 1)
+ _CASES["edge4-two-lines-with-one-ts-both-covered"] = (
+-    [_id_bad(), _id_bad(tid="t-009"), _tok("09:00:00", "10:30:00")], None, 0, [], [], 2)
++    [_id_bad(), _id_bad(tid="t-3009"), _tok("09:00:00", "10:30:00")], None, 0, [], [], 2)
+ _CASES["edge4-token-on-the-defective-line-itself-does-not-count"] = (
+     [_id_bad(notes=f"order-known:{_D}09:00:00")], None, 1, [f"order-known:{_D}09:00:00"], [], 0)
+ _CASES["edge5-empty-token-is-ignored-and-warned"] = (
+@@ -1745,3 +1768,157 @@ def test_order_known_door_table(case):
+         assert f"order-known: {declared_want} declared" in wjoined
+     else:
+         assert not any(w.startswith("order-known: ") for w in warnings)
++
++
++# ================ offload B0: `returned` (rule 9f, E-B0-6), rule 20 fields, E-B0-1 form, E-B0-5 both worlds ================
++# HEAD holds t-001 delegated to builder with worker_ref cli:2026-07-10T08:00:00 (an OPEN task).
++_WREF = "cli:2026-07-10T08:00:00"
++
++
++def _ret(ts="2026-07-10T08:30:00", tid="t-001", wref=_WREF, **kw):
++    return _line(event="returned", ts=ts, agent="builder", model="sonnet", task_id=tid, worker_ref=wref,
++                 notes="the dispatch returned", **kw)
++
++
++_CLOSED_HEAD = HEAD_TEXT + _line(event="accepted", ts="2026-07-10T08:20:00", agent="builder", model="sonnet",
++                                 task_id="t-001", by="opus", witness="w", notes="closed") + "\n"
++_RETURNED_DOOR = "journal_write.py returned --task <id> --worker <worker_ref>"
++
++# (row, staged new lines, head text, code, [needles in the violations])
++RETURNED_ROWS = [
++    ("matching-open-delegated", [_ret()], HEAD_TEXT, 0, []),
++    ("matching-with-optional-fields", [_ret(via="hook", session="a1-B2", witness_by="run")], HEAD_TEXT, 0, []),
++    ("wrong-worker-ref", [_ret(wref="agent:other")], HEAD_TEXT, 1,
++     ["no earlier open delegated of t-001 carries worker_ref 'agent:other'", _RETURNED_DOOR, "(rule 9f)"]),
++    ("closed-task", [_ret(ts="2026-07-10T08:30:00")], _CLOSED_HEAD, 1, ["t-001 is already closed", _RETURNED_DOOR]),
++    ("no-task-at-all", [_ret(tid="t-077")], HEAD_TEXT, 1, ["t-077 has no delegated earlier in this journal", _RETURNED_DOOR]),
++    ("twice-for-one-pair", [_ret(), _ret(ts="2026-07-10T08:31:00")], HEAD_TEXT, 1,
++     ["t-001 already has a returned for worker_ref"]),
++    ("two-workers-two-returned", [_line(event="delegated", ts="2026-07-10T08:10:00", agent="critic", model="opus",
++                                        task_id="t-001", worker_ref="agent:crit", notes="critic entry"),
++                                  _ret(), _ret(ts="2026-07-10T08:31:00", wref="agent:crit")], HEAD_TEXT, 0, []),
++    ("returned-after-its-delegated-in-the-same-commit",
++     [_line(event="delegated", ts="2026-07-10T08:10:00", model="sonnet", task_id="t-002", worker_ref="agent:new", notes="d"),
++      _ret(ts="2026-07-10T08:20:00", tid="t-002", wref="agent:new")], HEAD_TEXT, 0, []),
++    ("returned-before-its-delegated-never-opens-the-task",
++     [_ret(tid="t-002", wref="agent:new"),
++      _line(event="delegated", ts="2026-07-10T08:40:00", model="sonnet", task_id="t-002", worker_ref="agent:new", notes="d")],
++     HEAD_TEXT, 1, ["t-002 has no delegated earlier in this journal"]),
++    ("missing-worker-ref", [_ret(wref=None)], HEAD_TEXT, 1, ["'worker_ref' is required (non-empty string) for returned"]),
++    ("blank-worker-ref", [_ret(wref="  ")], HEAD_TEXT, 1, ["'worker_ref' is required (non-empty string) for returned"]),
++    ("missing-task-id", [_line(event="returned", ts="2026-07-10T08:30:00", model="sonnet", notes="n")], HEAD_TEXT, 1, ["'task_id'"]),
++    ("missing-model", [_line(event="returned", ts="2026-07-10T08:30:00", task_id="t-001", notes="n")], HEAD_TEXT, 1,
++     ["'model' is required for event=returned"]),
++    ("a-returned-is-not-novelty-issuing-an-unseen-far-id-names-the-door-only",
++     [_ret(tid="t-5000")], HEAD_TEXT, 1, ["t-5000 has no delegated earlier", _RETURNED_DOOR]),
++]
++
++
++@pytest.mark.parametrize("row,new,head,code_want,needles", RETURNED_ROWS, ids=[r[0] for r in RETURNED_ROWS])
++def test_returned_rule_9f(row, new, head, code_want, needles):
++    code, violations = jv.decide(head + "".join(l + "\n" for l in new), head, NOW)
++    assert code == code_want, violations
++    joined = "\n".join(violations)
++    for needle in needles:
++        assert needle in joined, (needle, violations)
++    assert "task_id novelty" not in joined                      # a returned never goes through the id check
++
++
++def test_a_returned_never_closes_or_reopens_a_task_the_critic_entry_and_the_accept_still_work():
++    staged = _staged(
++        _ret(),
++        _line(event="delegated", ts="2026-07-10T08:40:00", agent="critic", model="opus", task_id="t-001",
++              worker_ref="agent:crit", notes="critic entry after the builder returned"),
++        _line(event="accepted", ts="2026-07-10T08:50:00", agent="builder", model="sonnet", task_id="t-001", by="opus",
++              witness="w", notes="accept"))
++    assert jv.decide(staged, HEAD_TEXT, NOW) == (0, [])
++    # after the accept the task is closed: a returned is refused, a reopening delegated stays refused too
++    code, violations = jv.decide(_staged(*(staged.splitlines()[1:])) + _ret(ts="2026-07-10T09:00:00") + "\n", HEAD_TEXT, NOW)
++    assert code == 1 and any("t-001 is already closed" in v for v in violations)
++
++
++def test_returned_is_in_the_event_set_and_the_required_field_sets():
++    assert "returned" in jv.EVENTS
++    for needed in (jv.MODEL_REQUIRED_EVENTS, jv.TASK_ID_REQUIRED_EVENTS):
++        assert "returned" in needed
++    assert "returned" not in {"delegated"}                       # novelty is `delegated` only (the loop reads that event)
++
++
++# rule 20: `via` / `session` / `witness_by`: absent or null is never a violation, a present bad value is
++@pytest.mark.parametrize("kw,named", [
++    ({}, None), ({"via": None, "session": None, "witness_by": None}, None),
++    ({"via": "hook"}, None), ({"via": "cli"}, None), ({"via": "Hook"}, "via"), ({"via": ""}, "via"), ({"via": 1}, "via"),
++    ({"via": ["hook"]}, "via"),
++    ({"session": "a" * 16}, None), ({"session": "a" * 17}, "session"), ({"session": ""}, "session"),
++    ({"session": "ab cd"}, "session"), ({"session": "аbc"}, "session"), ({"session": 5}, "session"),
++    ({"session": "x\n"}, "session"), ({"session": "a-B-9"}, None),
++    ({"witness_by": "run"}, None), ({"witness_by": "file"}, None), ({"witness_by": "text"}, None),
++    ({"witness_by": "RUN"}, "witness_by"), ({"witness_by": True}, "witness_by"), ({"witness_by": {"a": 1}}, "witness_by"),
++])
++def test_rule_20_optional_fields_are_judged_by_value(kw, named):
++    code, violations = jv.decide(_staged(_line(event="dispatch_skipped", ts="2026-07-10T08:10:00", **kw)), HEAD_TEXT, NOW)
++    if named is None:
++        assert (code, violations) == (0, [])
++    else:
++        assert code == 1 and len(violations) == 1 and f"`{named}` = " in violations[0] and "(rule 20)" in violations[0], violations
++
++
++# E-B0-1 on a NEW line: an id outside the read grammar is a form violation for every event that carries one
++_BAD_IDS = ["t-123A", "t-123а", "t-１２３", "t-123abc", "t-12", "t-1234567890", "T-123", "t-123 ", "t-", ""]
++
++
++@pytest.mark.parametrize("bad", _BAD_IDS, ids=[repr(b) for b in _BAD_IDS])
++@pytest.mark.parametrize("event", ["delegated", "accepted", "returned"])
++def test_e_b0_1_an_id_outside_the_read_grammar_is_a_form_violation_on_a_new_line(event, bad):
++    extra = {"by": "opus", "witness": "w"} if event == "accepted" else {}
++    code, violations = jv.decide(_staged(_line(event=event, ts="2026-07-10T08:10:00", agent="builder", model="sonnet",
++                                               task_id=bad, **extra)), HEAD_TEXT, NOW)
++    assert code == 1 and violations
++    if bad:
++        assert any("does not match the t-NNN format (3-9 ASCII digits" in v for v in violations), violations
++    assert not any("task_id novelty" in v for v in violations)          # never reaches the id check
++
++
++# E-B0-5 TEMPORAL: old journals (bare ids, bands, <id>@<label>, legacy spellings) are state, never judged; the first
++# new line after the switch with a gap is legal. Both worlds on ONE fixture.
++def test_e_b0_5_an_old_journal_validates_as_before_and_the_first_new_line_may_leave_a_gap():
++    old = [
++        _line(event="delegated", ts="2026-07-10T07:00:00", task_id="t-001", model="sonnet"),
++        _line(event="delegated", ts="2026-07-10T07:01:00", task_id="t-002", model="sonnet", id_band="t-100..t-149"),
++        _line(event="delegated", ts="2026-07-10T07:02:00", task_id="t-100", model="sonnet", id_band="t-100..t-149"),
++        _line(event="delegated", ts="2026-07-10T07:03:00", task_id="t-0123", model="sonnet"),             # legacy spelling
++        _line(event="dispatch_skipped", ts="2026-07-10T07:04:00", notes="closes:t-002@dev2 closes:t-100"),
++        _line(event="accepted", ts="2026-07-10T07:05:00", task_id="t-001", model="sonnet", by="opus", witness="w"),
++        _line(event="delegated", ts="2026-07-10T07:06:00", task_id="t-9", model="sonnet"),                  # an old short id
++    ]
++    head = "".join(l + "\n" for l in old)
++    # the old world: the head is never judged; an empty new tail is clean
++    assert jv.decide(head, head, NOW) == (0, [])
++    # the new world on the same head: a gap, an out-of-order id, a lettered id are legal (jump base: max(123, band top 149))
++    new = [_line(event="delegated", ts="2026-07-10T08:00:00", task_id="t-300", model="sonnet"),
++           _line(event="delegated", ts="2026-07-10T08:01:00", task_id="t-250", model="sonnet"),
++           _line(event="delegated", ts="2026-07-10T08:02:00", task_id="t-001a", model="sonnet")]
++    assert jv.decide(head + "".join(l + "\n" for l in new), head, NOW) == (0, [])
++    # ... and the band of the OLD lines is still the jump base: t-1149 is the cap (149 + 1000), t-1150 is refused
++    ok = _line(event="delegated", ts="2026-07-10T08:00:00", task_id="t-1149", model="sonnet")
++    bad = _line(event="delegated", ts="2026-07-10T08:00:00", task_id="t-1150", model="sonnet")
++    assert jv.decide(head + ok + "\n", head, NOW) == (0, [])
++    code, violations = jv.decide(head + bad + "\n", head, NOW)
++    assert code == 1 and any("the highest t-NNN is 149" in v for v in violations)
++    # a NEW line may not carry a band any more, the old ones stay readable
++    code, violations = jv.decide(head + _line(event="delegated", ts="2026-07-10T08:00:00", task_id="t-301", model="sonnet",
++                                              id_band="t-400..t-449") + "\n", head, NOW)
++    assert code == 1 and any("band_retired" in v for v in violations)
++
++
++def test_e_b0_5_the_live_dev1_journal_validates_with_no_new_violation():
++    live = Path(__file__).resolve().parent.parent / "logs" / "journal" / "dev1.jsonl"
++    if not live.exists():
++        pytest.skip("the developer journal is not in this clone")
++    text = live.read_text(encoding="utf-8")
++    now = jv.datetime.datetime(2099, 1, 1)
++    line = _line(event="delegated", ts="2098-12-31T00:00:00", task_id="t-1000001", model="sonnet")
++    # the live journal as head (never judged) plus one far-above line: only the jump rule fires, nothing about the old lines
++    code, violations = jv.decide(text + line + "\n", text, now)
++    assert code == 1 and len(violations) == 1 and "jumps more than 1000" in violations[0]
++    assert jv.decide(text, text, now) == (0, [])
+diff --git a/tools/test_journal_validator_merge.py b/tools/test_journal_validator_merge.py
+index acc81f68..7f42ff23 100644
+--- a/tools/test_journal_validator_merge.py
++++ b/tools/test_journal_validator_merge.py
+@@ -363,8 +363,11 @@ def test_new_tail_line_reusing_a_closed_id_today_rule_fires():
+ 
+ 
+ def test_new_tail_line_with_a_wrong_new_id_today_rule_fires():
+-    new = _dump(_obj(task_id="t-009", model="sonnet", ts="2026-07-10T11:00:00"))
+-    _assert_fails(_merge(_text(B1, H1, H2, O1, O2, new)), "task_id novelty")
++    # REWRITTEN (offload B0): t-009 is a legal gap now (rule 9a''); the wrong new id of today is a jump over the cap
++    new = _dump(_obj(task_id="t-2009", model="sonnet", ts="2026-07-10T11:00:00"))
++    _assert_fails(_merge(_text(B1, H1, H2, O1, O2, new)), "task_id novelty", "jumps more than 1000")
++    legal_gap = _dump(_obj(task_id="t-009", model="sonnet", ts="2026-07-10T11:00:00"))
++    assert _merge(_text(B1, H1, H2, O1, O2, legal_gap)) == (0, [], [])
+ 
+ 
+ def test_valid_new_tail_passes():
+@@ -437,8 +440,9 @@ def test_empty_staged_with_non_empty_parents_names_every_line():
+ def test_staged_lines_with_both_parents_empty_are_all_new_and_validated():
+     ok = _dump(_obj(task_id="t-001", model="sonnet"))
+     assert _merge(_text(ok), head="", other="") == (0, [], [])
+-    bad = _dump(_obj(task_id="t-005", model="sonnet"))
++    bad = _dump(_obj(task_id="t-2005", model="sonnet"))             # REWRITTEN: t-005 is a legal gap, t-2005 a jump
+     _assert_fails(_merge(_text(bad), head="", other=""), "task_id novelty")
++    assert _merge(_text(_dump(_obj(task_id="t-005", model="sonnet"))), head="", other="") == (0, [], [])
+ 
+ 
+ # ---- decide / decide_with_warnings are untouched: outside a merge append-only stands ----
+@@ -1370,14 +1374,50 @@ def test_m1_the_collision_warn_names_a_band_that_overlapped_an_id_the_other_clon
+     assert "lies inside band" not in _decide(staged, head, other, jk.NO_SEGMENTS)[2][0]
+ 
+ 
+-@pytest.mark.parametrize("tail_id,band,ok", [
+-    ("t-401", "t-400..t-449", True), ("t-501", "t-500..t-549", True), ("t-002", None, True), ("t-450", None, False),
+-    ("t-502", None, False), ("t-401", None, False), ("t-501", "t-400..t-449", False)])     # F1: a band's next id needs its band
+-def test_m2_two_parents_with_bands_of_their_own_the_tail_may_take_the_next_of_either(tail_id, band, ok):
++@pytest.mark.parametrize("tail_id,band,needle", [
++    # REWRITTEN group (offload B0): the old bands of the two parents are state (they feed the jump base, top t-549) but a
++    # tail line may not carry one; every tail id is judged by "never seen + canonical + within 1000 of the max"
++    ("t-401", None, None), ("t-501", None, None), ("t-002", None, None), ("t-450", None, None), ("t-502", None, None),
++    ("t-1549", None, None), ("t-1550", None, "jumps more than 1000 above the sequence (the highest t-NNN is 549)"),
++    ("t-401", "t-400..t-449", "band_retired"), ("t-501", "t-400..t-449", "band_retired"),
++    ("t-0401", None, "is not canonical")])
++def test_m2_two_parents_with_old_bands_the_tail_takes_any_unseen_id_within_the_cap_and_no_band(tail_id, band, needle):
+     h = [_band_obj("t-400", "2026-07-10T09:00:00", "t-400..t-449")]
+     o = [_band_obj("t-500", "2026-07-10T09:30:00", "t-500..t-549", agent="scout", category="recon")]
+     tail = _band_obj(tail_id, "2026-07-10T11:00:00", band)
+     code, violations, _w = _decide(_text(B1, *h, *o, tail), _text(B1, *h), _text(B1, *o), jk.NO_SEGMENTS)
+-    assert (code == 0) is ok, violations
+-    if not ok:
+-        assert any("task_id novelty violated" in v and f"got {tail_id}" in v for v in violations)
++    if needle is None:
++        assert (code, violations) == (0, []), violations
++    else:
++        assert code == 1 and any(needle in v for v in violations), violations
++
++
++# ---- offload B0, E-B0-7: two worktree copies with INTERLEAVED ids merge with no novelty violation ----
++
++def test_e_b0_7_interleaved_ids_of_two_worktree_copies_merge_with_no_novelty_violation():
++    here = [_dump(_obj(task_id="t-900", model="sonnet", ts="2026-07-10T09:00:00", notes="here t-900")),
++            _dump(_obj(task_id="t-902", model="sonnet", ts="2026-07-10T09:20:00", notes="here t-902"))]
++    there = [_dump(_obj(task_id="t-901", model="sonnet", ts="2026-07-10T09:10:00", agent="scout", category="recon",
++                        notes="there t-901")),
++             _dump(_obj(task_id="t-903", model="sonnet", ts="2026-07-10T09:30:00", agent="scout", category="recon",
++                        notes="there t-903"))]
++    staged = _text(B1, *here, *there)            # the union: ours first, then theirs (ts not interleaved: tail is judged only for NEW lines)
++    code, violations, warnings = _decide(staged, _text(B1, *here), _text(B1, *there), jk.NO_SEGMENTS)
++    assert (code, violations) == (0, []), violations
++    assert not any(COLLISION in w for w in warnings)
++    # the new tail line after the union may take any unseen id in the cap, never a seen one
++    tail_ok = _dump(_obj(task_id="t-905", model="sonnet", ts="2026-07-10T11:00:00"))
++    assert _decide(_text(B1, *here, *there, tail_ok), _text(B1, *here), _text(B1, *there), jk.NO_SEGMENTS)[:2] == (0, [])
++    tail_seen = _dump(_obj(task_id="t-901", model="sonnet", ts="2026-07-10T11:00:00", agent="scout", category="recon"))
++    code, violations, _w = _decide(_text(B1, *here, *there, tail_seen), _text(B1, *here), _text(B1, *there), jk.NO_SEGMENTS)
++    assert code == 1 and any("repeated delegated" in v for v in violations)       # a SEEN id is a repeat, never a new id
++    assert not any("task_id novelty" in v for v in violations)
++
++
++def test_e_b0_7_the_same_id_in_both_copies_with_different_content_is_still_the_collision_warn():
++    here = _dump(_obj(task_id="t-901", model="sonnet", ts="2026-07-10T09:00:00", notes="here t-901"))
++    there = _dump(_obj(task_id="t-901", model="sonnet", ts="2026-07-10T09:10:00", agent="scout", category="recon",
++                       notes="there t-901, other work"))
++    code, violations, warnings = _decide(_text(B1, here, there), _text(B1, here), _text(B1, there), jk.NO_SEGMENTS)
++    assert (code, violations) == (0, [])                          # today's handling: a WARN naming both clones, never a refusal
++    assert len(warnings) == 1 and COLLISION in warnings[0] and "t-901" in warnings[0]
+diff --git a/tools/test_piles_close_gate.py b/tools/test_piles_close_gate.py
+index ad1c535c..a1cbf740 100644
+--- a/tools/test_piles_close_gate.py
++++ b/tools/test_piles_close_gate.py
+@@ -38,7 +38,7 @@ def with_leftovers(tree, *lines):
+     ("- дело | сделано: T-5", "neither 7-40 hex characters nor t-nnn"),
+     ("- дело | Сделано: T-5", "neither 7-40 hex characters nor t-nnn"),                 # the key is case-free (m3), the value is strict
+     ("- дело | СДЕЛАНО: ABC1234", "`сделано: ABC1234` is neither"),                   # hex in lower case only, in both gates
+-    ("- дело | сделано: t-5 | перенос: пачка 2 | обоснование: р | подтвердил: М, 08.10", "carries both `сделано:` and `перенос:`"),
++    ("- дело | сделано: t-005 | перенос: пачка 2 | обоснование: р | подтвердил: М, 08.10", "carries both `сделано:` and `перенос:`"),
+     ("- дело | перенос: пачка 2 | обоснование: р", "`подтвердил:` is missing"),
+     ("- дело | перенос: пачка 2 | обоснование: р | подтвердил:", "`подтвердил:` is empty"),   # mutation (b): empty accepted
+     ("- дело | перенос: пачка 2 | обоснование: р | подтвердил:   ", "`подтвердил:` is empty"),
+@@ -76,7 +76,7 @@ def test_gate_refuses_a_line_that_is_neither_finished_nor_carried_with_a_person(
+ @needs_git
+ def test_gate_names_the_line_number_and_its_first_80_characters_and_lists_every_bad_line(tree, cli):
+     long_line = "- " + "д" * 120
+-    with_leftovers(tree, "- ok | сделано: t-1", long_line, "- и ещё одна")
++    with_leftovers(tree, "- ok | сделано: t-001", long_line, "- и ещё одна")
+     code, out = cli(tree, "close", "forge", "1", "--hash", head_hash(tree))
+     shown = long_line[:80]
+     assert code == 2 and (('"%s…"' % shown[:79]) in out or ('"%s"' % shown) in out), out
+@@ -92,13 +92,13 @@ def test_gate_names_the_line_number_and_its_first_80_characters_and_lists_every_
+     ("- дело | сделано: t-596",),
+     ("- сделано: t-596",),                                                              # the keys may come first
+     ("- дело | " + CARRY % "пачка 2",),                                                  # card row 2 of the fixture is "ожидает"
+-    ("- `a | b` дело | сделано: t-1",),                                                 # a pipe inside backticks is no separator
+-    ("- дело | сделано: t-1", "  продолжение строки без ключей"),                        # t-618 F-1: 2+ spaces = one more segment
+-    ("- дело", "  сделано: t-1"),                                                       # the keys may stand on the continuation line
++    ("- `a | b` дело | сделано: t-001",),                                                 # a pipe inside backticks is no separator
++    ("- дело | сделано: t-001", "  продолжение строки без ключей"),                        # t-618 F-1: 2+ spaces = one more segment
++    ("- дело", "  сделано: t-001"),                                                       # the keys may stand on the continuation line
+     ("- дело | перенос: пачка 2 | обоснование: нужен стенд", "  подтвердил: Dev1, 08.10"),   # a wrapped carry is one item
+-    ("- дело | сделано: t-1", "", "- и ещё | сделано: t-2"),                            # a blank line is no item
+-    ("<!-- - спрятано | в комментарии -->", "- дело | сделано: t-1"),                    # a comment holds no items
+-    ("<!-- a --><!-- b -->", "- дело | сделано: t-1"),                                  # nothing between two comments is no item
++    ("- дело | сделано: t-001", "", "- и ещё | сделано: t-002"),                            # a blank line is no item
++    ("<!-- - спрятано | в комментарии -->", "- дело | сделано: t-001"),                    # a comment holds no items
++    ("<!-- a --><!-- b -->", "- дело | сделано: t-001"),                                  # nothing between two comments is no item
+     (),                                                                                 # an empty section
+ ])
+ def test_gate_passes_a_finished_or_person_confirmed_carry_over_and_empty_sections(tree, cli, lines):
+@@ -129,15 +129,15 @@ def put_staged(tree, rel=X):
+ 
+ @needs_git
+ @pytest.mark.parametrize("lines,passes", [
+-    (("- дело | сделано: t-1", "  продолжение"), True),                    # 2 spaces: one more ' | ' segment of the item above
+-    (("- дело | сделано: t-1", "   три пробела", "  два пробела"), True),    # 3 and 2 spaces: both continue
+-    (("- дело | сделано: t-1", " один пробел"), False),                    # 1 space: an item of its own, no keys
+-    (("- дело | сделано: t-1", "\tтабуляция"), False),                      # a tab: an item of its own
+-    (("- дело | сделано: t-1", "  - под-пункт"), False),                   # an indented marker: an item of its own
+-    (("- дело", "  - под-пункт | сделано: t-2"), False),                   # ... and the parent keeps its own (empty) keys
+-    (("- дело | сделано: t-1", "  - под-пункт", "  сделано: t-2"), True),   # the continuation joins the NEAREST item above it
+-    (("- дело | сделано: t-1", "", "  продолжение после пустой строки"), True),   # a blank line does not end the item
+-    (("  начало без пункта выше", "  сделано: t-1"), True),                # an indented line with no item above is an item; the next joins it
++    (("- дело | сделано: t-001", "  продолжение"), True),                    # 2 spaces: one more ' | ' segment of the item above
++    (("- дело | сделано: t-001", "   три пробела", "  два пробела"), True),    # 3 and 2 spaces: both continue
++    (("- дело | сделано: t-001", " один пробел"), False),                    # 1 space: an item of its own, no keys
++    (("- дело | сделано: t-001", "\tтабуляция"), False),                      # a tab: an item of its own
++    (("- дело | сделано: t-001", "  - под-пункт"), False),                   # an indented marker: an item of its own
++    (("- дело", "  - под-пункт | сделано: t-002"), False),                   # ... and the parent keeps its own (empty) keys
++    (("- дело | сделано: t-001", "  - под-пункт", "  сделано: t-002"), True),   # the continuation joins the NEAREST item above it
++    (("- дело | сделано: t-001", "", "  продолжение после пустой строки"), True),   # a blank line does not end the item
++    (("  начало без пункта выше", "  сделано: t-001"), True),                # an indented line with no item above is an item; the next joins it
+ ])
+ def test_gate_continuation_boundaries_one_space_two_spaces_and_a_tab(tree, cli, lines, passes):
+     with_leftovers(tree, *lines)
+@@ -175,7 +175,7 @@ def test_an_inline_comment_opener_in_hod_cannot_hide_the_ostatki_heading(tree, c
+ 
+ @needs_git
+ def test_a_comment_around_the_heading_no_longer_hides_the_section(tree, cli):
+-    with_leftovers(tree, "- x | сделано: t-1", "-->")
++    with_leftovers(tree, "- x | сделано: t-001", "-->")
+     edit(tree, B1, "## Остатки", "<!--\n## Остатки")
+     code, out = run_close(tree, cli)
+     assert code == 2 and 'line' in out and '"-->": has neither' in out, out                # the stray `-->` is an item without keys
+@@ -183,7 +183,7 @@ def test_a_comment_around_the_heading_no_longer_hides_the_section(tree, cli):
+ 
+ @needs_git
+ def test_an_unclosed_comment_in_ostatki_is_refused_with_its_line_number(tree, cli):
+-    with_leftovers(tree, "- дело | сделано: t-1", "<!-- забыли закрыть", "- дело | сделано: t-2")
++    with_leftovers(tree, "- дело | сделано: t-001", "<!-- забыли закрыть", "- дело | сделано: t-002")
+     lineno = rd(tree, B1).split("\n").index("<!-- забыли закрыть") + 1
+     snap = tree_state(tree)
+     code, out = run_close(tree, cli)
+@@ -603,14 +603,19 @@ def test_k7_a_new_bare_item_is_red_with_the_three_forms_and_the_door_and_a_done_
+     assert code == 2 and len(reds) == 1 and "осталось дело" in reds[0], out
+     assert WHY in reds[0] and "сделано: <hash | t-nnn>" in reds[0] and "узел: <node id>" in reds[0] and "перенос: <target>" in reds[0]
+     assert "piles-skip: <item> -- <reason>" in out                                  # the door is named (FR-2)
+-    code, out, reds = left(tree, cli, LEFTOVER_OK, "- осталось дело | сделано: t-12", old=LEFTOVER_OK + "\n" + BARE)
++    code, out, reds = left(tree, cli, LEFTOVER_OK, "- осталось дело | сделано: t-012", old=LEFTOVER_OK + "\n" + BARE)
+     assert reds == [], out
+ 
+ 
+ @needs_git
+ @pytest.mark.parametrize("line,red", [
+-    ("- дело | сделано: t-12", False), ("- дело | сделано: abc1234", False), ("- дело | сделано: —", True),
+-    ("- дело | сделано: abcdef", True), ("- дело | сделано: t-12 (потом)", True),
++    ("- дело | сделано: t-012", False), ("- дело | сделано: abc1234", False), ("- дело | сделано: —", True),
++    ("- дело | сделано: abcdef", True), ("- дело | сделано: t-012 (потом)", True),
++    # offload B0 (X-4, E-B0-9): the t- branch is the journal's read grammar (3-9 digits, optional lower-case letter)
++    ("- дело | сделано: t-123a", False), ("- дело | сделано: t-123ab", False), ("- дело | сделано: t-123456789", False),
++    ("- дело | сделано: t-0123", False), ("- дело | сделано: t-1234", False),      # old world: 4-digit ids already in real pile files still read
++    ("- дело | сделано: t-123abc", True), ("- дело | сделано: t-123A", True), ("- дело | сделано: t-12", True),
++    ("- дело | сделано: t-1", True), ("- дело | сделано: t-1234567890", True), ("- дело | сделано: t-123а", True),
+ ])
+ def test_k8_the_done_form(tree, cli, line, red):
+     code, out, reds = left(tree, cli, line)
+@@ -645,10 +650,10 @@ def test_k9_the_node_form(tree, cli, value, needle):
+ @needs_git
+ def test_k9_a_node_item_may_later_be_closed_by_done_and_a_node_alone_is_refused_by_close_with_that_sentence(tree, cli):
+     other_batches(tree)
+-    code, out, reds = left(tree, cli, "- дело | узел: F0-3 | сделано: t-12")
++    code, out, reds = left(tree, cli, "- дело | узел: F0-3 | сделано: t-012")
+     assert reds == [], out
+     accept_batch1(tree)
+-    edit(tree, B1, "- дело | узел: F0-3 | сделано: t-12", "- дело | узел: F0-3")
++    edit(tree, B1, "- дело | узел: F0-3 | сделано: t-012", "- дело | узел: F0-3")
+     snap = tree_state(tree)
+     code, out = cli(tree, "close", "forge", "1", "--hash", head_hash(tree), "--today", "2026-10-08")
+     assert code == 2 and "a «узел:» item is closed by «сделано: <hash | t-nnn>» when the node merges, or carried" in out, out
+@@ -683,7 +688,7 @@ def test_k11_an_old_bare_item_stays_legal_and_counted_an_edited_one_is_red_and_t
+     edit(tree, B1, BARE + " уточнение\n" + BARE, BARE + "\n" + BARE + "\n" + BARE)   # a THIRD copy: one old copy does not legalize it
+     stage(tree, "plans/piles")
+     assert len(red_lines(cli(tree, "check")[1])) == 1
+-    edit(tree, B1, BARE + "\n" + BARE + "\n" + BARE, "- другое | сделано: t-1\n" + BARE + "\n" + BARE)   # moved lines, unchanged: old
++    edit(tree, B1, BARE + "\n" + BARE + "\n" + BARE, "- другое | сделано: t-001\n" + BARE + "\n" + BARE)   # moved lines, unchanged: old
+     stage(tree, "plans/piles")
+     assert red_lines(cli(tree, "check")[1]) == []
+ 
+@@ -713,7 +718,7 @@ def test_k13_a_file_absent_at_the_base_has_only_new_items_and_k16_an_unreadable_
+ @needs_git
+ def test_k14_the_summary_count_line_names_the_unowned_leftovers_zero_included(tree, cli):
+     assert "; остатков без исполнителя: 0" in cli(tree, "summary")[1]
+-    edit(tree, B1, LEFTOVER_OK, BARE + "\n- ok | сделано: t-1")
++    edit(tree, B1, LEFTOVER_OK, BARE + "\n- ok | сделано: t-001")
+     found = piles.leftovers_unowned(piles.load_tree(tree))
+     assert [(p, item) for p, _, item in found] == [(B1, BARE)], found
+     assert "; остатков без исполнителя: 1" in cli(tree, "summary")[1]
+diff --git a/tools/test_piles_take.py b/tools/test_piles_take.py
+index e962f9f7..382b6e80 100644
+--- a/tools/test_piles_take.py
++++ b/tools/test_piles_take.py
+@@ -291,7 +291,7 @@ BROKEN_TABLE = {                                # `load_pile` only appends a bat
+ def status_world(tree, cli, kind):
+     """Batch 2 of the mini tree in the state `kind`; the hash used is HEAD's short hash (nothing here moves HEAD)."""
+     h = head_hash(tree, short=True)
+-    rows = {"taken": ["ожидает"], "submitted-node": ["сдано"], "accepted-node": ["принято: %s (t-1)" % h],
++    rows = {"taken": ["ожидает"], "submitted-node": ["сдано"], "accepted-node": ["принято: %s (t-001)" % h],
+             "open-nodes": ["принято", "сдано"], "all-done": ["принято", "отклонено"], "dup": ["ожидает", "ожидает"],
+             "batch-accepted-fully": ["принято", "отклонено"]}.get(kind, ["ожидает"])
+     ids = ["F0-3 + F0-4"] if kind == "two-ids" else ["F0-3", "F0-3"] if kind == "dup" else ["Ф0-3", "F0-4"] if kind == "cyrillic-id" \
+@@ -333,8 +333,8 @@ STATUS_ROWS = [
+     ("backwards", "submitted-node", (*NODE_SET, "в работе"), 2, ('is "сдано" -- a status only goes forward', "edit the cell by hand"), "none", ""),
+     ("accepted-then-rejected", "accepted-node", (*NODE_SET, "отклонено"), 2, ("and final", "writes nothing any more", "edit the cell by hand"), "none", ""),
+     ("same-again", "submitted-node", (*NODE_SET, "сдано"), 0, ("forge/2 F0-3 is already сдано; nothing changed",), "none", ""),
+-    ("accepted-other-hash", "accepted-node", (*NODE_SET, "принято", "--hash", "{h}", "--task", "t-2"), 2, ('already accepted with "принято: {h} (t-1)"',), "none", ""),
+-    ("accepted-same-again", "accepted-node", (*NODE_SET, "принято", "--hash", "{h}", "--task", "t-1"), 0, ("is already принято; nothing changed",), "none", ""),
++    ("accepted-other-hash", "accepted-node", (*NODE_SET, "принято", "--hash", "{h}", "--task", "t-002"), 2, ('already accepted with "принято: {h} (t-001)"',), "none", ""),
++    ("accepted-same-again", "accepted-node", (*NODE_SET, "принято", "--hash", "{h}", "--task", "t-001"), 0, ("is already принято; nothing changed",), "none", ""),
+     ("accepted-no-evidence", "taken", (*NODE_SET, "принято"), 2, ("expected --hash <merge commit> and/or --task t-NNN",), "none", ""),
+     ("accepted-hash", "taken", (*NODE_SET, "принято", "--hash", "{h}"), 0, ("set to принято: {h}. Next:",), "node", "принято: {h}"),
+     ("accepted-task", "taken", (*NODE_SET, "принято", "--task", "t-415"), 0, ("set to принято (t-415)",), "node", "принято (t-415)"),
+@@ -357,13 +357,26 @@ STATUS_ROWS = [
+     ("bad-hash", "taken", (*NODE_SET, "принято", "--hash", "xyz1234"), 2, ('--hash "xyz1234": expected a commit hash (7-40 hex characters)',), "none", ""),
+     ("bad-hash-empty", "taken", (*NODE_SET, "принято", "--hash", ""), 2, ("expected a commit hash",), "none", ""),
+     ("bad-hash-not-a-commit", "taken", (*NODE_SET, "принято", "--hash", "deadbee"), 2, ("deadbee is not a commit in this repository",), "none", ""),
+-    ("bad-task-magnitude", "taken", (*NODE_SET, "принято", "--task", "t-1234567"), 2, ("expected a task id t-NNN (1-6 digits)",), "none", ""),
++    # offload B0 (X-4, E-B0-9): the task id is the journal's read grammar -- 3-9 digits, an optional lower-case letter(s);
++    # the rows `t-1` / `t-2` / `t-9` are REWRITTEN to t-001 / t-002 / t-009 above, and `t-1` is now a refused row below
++    ("bad-task-magnitude", "taken", (*NODE_SET, "принято", "--task", "t-1234567890"), 2, ("expected a task id t-NNN (3-9 digits, optional lower-case letter)",), "none", ""),
++    ("bad-task-nine-digits-ok", "taken", (*NODE_SET, "принято", "--task", "t-123456789"), 0, ("set to принято (t-123456789)",), "node", "принято (t-123456789)"),
++    ("task-with-a-letter", "taken", (*NODE_SET, "принято", "--task", "t-123a"), 0, ("set to принято (t-123a)",), "node", "принято (t-123a)"),
++    ("task-with-two-letters", "taken", (*NODE_SET, "принято", "--task", "t-123ab"), 0, ("set to принято (t-123ab)",), "node", "принято (t-123ab)"),
++    ("bad-task-three-letters", "taken", (*NODE_SET, "принято", "--task", "t-123abc"), 2, ("expected a task id t-NNN (3-9 digits, optional lower-case letter)",), "none", ""),
++    ("bad-task-upper-letter", "taken", (*NODE_SET, "принято", "--task", "t-123A"), 2, ("expected a task id t-NNN (3-9 digits",), "none", ""),
++    ("bad-task-cyrillic-letter", "taken", (*NODE_SET, "принято", "--task", "t-123а"), 2, ("expected a task id t-NNN (3-9 digits",), "none", ""),
++    ("bad-task-fullwidth", "taken", (*NODE_SET, "принято", "--task", "t-１２３"), 2, ("expected a task id t-NNN (3-9 digits",), "none", ""),
++    ("bad-task-one-digit", "taken", (*NODE_SET, "принято", "--task", "t-1"), 2, ("expected a task id t-NNN (3-9 digits",), "none", ""),
++    ("bad-task-two-digits", "taken", (*NODE_SET, "принято", "--task", "t-12"), 2, ("expected a task id t-NNN (3-9 digits",), "none", ""),
+     ("bad-task-empty", "taken", (*NODE_SET, "принято", "--task", ""), 2, ("expected a task id t-NNN",), "none", ""),
+     ("bad-task-pipe", "taken", (*NODE_SET, "принято", "--task", "t-1|x"), 2, ("expected a task id t-NNN",), "none", ""),
++    ("bad-task-pipe-3-digits", "taken", (*NODE_SET, "принято", "--task", "t-001|x"), 2, ("expected a task id t-NNN",), "none", ""),
+     ("bad-task-case", "taken", (*NODE_SET, "принято", "--task", "T-1"), 2, ("expected a task id t-NNN",), "none", ""),
+-    ("evidence-with-other-word", "taken", (*NODE_SET, "сдано", "--task", "t-1"), 2, ("--hash and --task go with a node set to принято",), "none", ""),
++    ("bad-task-trailing-newline", "taken", (*NODE_SET, "принято", "--task", "t-123\n"), 2, ("expected a task id t-NNN (3-9 digits",), "none", ""),
++    ("evidence-with-other-word", "taken", (*NODE_SET, "сдано", "--task", "t-001"), 2, ("--hash and --task go with a node set to принято",), "none", ""),
+     ("evidence-at-batch-level", "taken", ("--set", "сдано", "--hash", "{h}"), 2, ("--hash and --task go with a node set to принято",), "none", ""),
+-    ("word-in-another-case", "taken", (*NODE_SET, "ПРИНЯТО", "--task", "t-9"), 0, ("set to принято (t-9)",), "node", "принято (t-9)"),
++    ("word-in-another-case", "taken", (*NODE_SET, "ПРИНЯТО", "--task", "t-009"), 0, ("set to принято (t-009)",), "node", "принято (t-009)"),
+     ("word-with-extra-spaces", "taken", (*NODE_SET, "  В   работе "), 0, ("set to в работе",), "node", "в работе"),
+     ("word-unknown", "taken", (*NODE_SET, "готово"), 2, ('--set "готово": expected one of в работе, сдано, принято, отклонено for a node',), "none", ""),
+     ("word-waiting-on-a-node", "taken", (*NODE_SET, "ожидает"), 2, ("expected one of в работе, сдано, принято, отклонено for a node",), "none", ""),
+diff --git a/tools/test_session_context.py b/tools/test_session_context.py
+index bc534712..0cefbcbd 100644
+--- a/tools/test_session_context.py
++++ b/tools/test_session_context.py
+@@ -1540,6 +1540,43 @@ def test_open_dispatch_lines_cap_three_plus_summary():
+     assert lines[3] == "OPEN DISPATCHES: 5 total, 2 more not shown"
+ 
+ 
++# offload B0 item 5: a `returned` NEVER closes a task; delegated + a later matching returned = RESULT PENDING
++def _d(tid, wref, ts="2026-07-10T08:00:00", agent="builder"):
++    return _event("delegated", ts=ts, agent=agent, task_id=tid, worker_ref=wref, model="sonnet")
++
++
++def _r(tid, wref, ts="2026-07-10T09:00:00", agent="builder"):
++    return _event("returned", ts=ts, agent=agent, task_id=tid, worker_ref=wref, model="sonnet")
++
++
++@pytest.mark.parametrize("name,events,want", [
++    ("no-returned-is-open", [_d("t-001", "agent:a")], ["OPEN DISPATCH: t-001 agent=builder since 2026-07-10T08:00:00"]),
++    ("matching-returned-is-pending", [_d("t-001", "agent:a"), _r("t-001", "agent:a")],
++     ["RESULT PENDING: t-001 agent=builder returned 2026-07-10T09:00:00"]),
++    ("another-workers-returned-does-not-match", [_d("t-001", "agent:a"), _r("t-001", "agent:b")],
++     ["OPEN DISPATCH: t-001 agent=builder since 2026-07-10T08:00:00"]),
++    ("another-tasks-returned-does-not-match", [_d("t-001", "agent:a"), _r("t-002", "agent:a")],
++     ["OPEN DISPATCH: t-001 agent=builder since 2026-07-10T08:00:00"]),
++    ("returned-never-closes-the-task-it-is-in-the-list-not-gone", [_d("t-001", "agent:a"), _r("t-001", "agent:a")],
++     ["RESULT PENDING: t-001 agent=builder returned 2026-07-10T09:00:00"]),
++    ("an-accepted-closes-it-whatever-returned-says", [_d("t-001", "agent:a"), _r("t-001", "agent:a"),
++                                                       _event("accepted", ts="2026-07-10T10:00:00", agent="builder", task_id="t-001")], []),
++    ("two-workers-one-returned", [_d("t-001", "agent:a"), _d("t-001", "agent:c", ts="2026-07-10T08:10:00", agent="critic"),
++                                  _r("t-001", "agent:a")],
++     ["OPEN DISPATCH: t-001 agent=critic since 2026-07-10T08:10:00"]),                  # only the LAST delegated of a task is open
++    ("lettered-id", [_d("t-123a", "agent:a"), _r("t-123a", "agent:a")], ["RESULT PENDING: t-123a agent=builder returned 2026-07-10T09:00:00"]),
++    ("bare-and-lettered-are-two-tasks", [_d("t-123", "agent:a"), _d("t-123a", "agent:a"), _r("t-123a", "agent:a")],
++     ["OPEN DISPATCH: t-123 agent=builder since 2026-07-10T08:00:00",
++      "RESULT PENDING: t-123a agent=builder returned 2026-07-10T09:00:00"]),
++    ("a-returned-with-no-worker-ref-matches-nothing", [_d("t-001", "agent:a"), _event("returned", ts="2026-07-10T09:00:00", task_id="t-001")],
++     ["OPEN DISPATCH: t-001 agent=builder since 2026-07-10T08:00:00"]),
++    ("a-returned-alone-opens-nothing", [_r("t-001", "agent:a")], []),
++])
++def test_result_pending_and_the_returned_that_never_closes(name, events, want):
++    assert sc.open_dispatch_lines(events) == want
++    assert "returned" not in sc._OPEN_LIFECYCLE_EVENTS
++
++
+ def test_open_dispatch_lines_sanitizes_external_values():
+     events = [_event("delegated", ts="2026-07-10T08:00:00", agent="büilder",
+                      task_id="t-001")]
+@@ -2722,14 +2759,19 @@ def test_b402_closes_token_regex_shapes():
+     assert sc._closes_task_ids("closes:t-050 and closes:t-051@codex-fixes.") == ["t-050", "t-051@codex-fixes"]
+     assert sc._closes_task_ids("closes:t-050@Codex") == []                   # a malformed label closes nothing
+     assert sc._closes_task_ids("discloses:t-050") == [] and sc._closes_task_ids(None) == []
+-    assert sc._closes_task_ids("closes:t-5") == ["t-5"]                       # legacy short ids keep their old reading
+-    assert sc._closes_key("t-5", {}, jk.NO_SEGMENTS) == ("", "t-5")
++    assert sc._closes_task_ids("closes:t-5") == []                            # REWRITTEN (offload B0): the one grammar is 3-9 digits
++    assert sc._closes_task_ids("closes:t-123a closes:t-123") == ["t-123a", "t-123"]
++    assert sc._closes_task_ids("closes:t-123A closes:t-123abc closes:t-123а") == []     # E-B0-1/2: closes nothing
++    assert sc._closes_key("t-050", {}, jk.NO_SEGMENTS) == ("", "t-050")
+ 
+ 
+ def test_b402_fallback_regex_is_pinned_equal_to_journal_keys_and_reads_the_same(monkeypatch):
+     assert sc._CLOSES_RE.pattern == jk.CLOSES_RE.pattern
+     samples = ["closes:t-050 closes:t-051@codex-fixes.", "closes:t-050@Codex", "closes:t-050@", "discloses:t-050",
+-               "closes:t-050@codex_x closes:t-051", "closes:t-5", "closes:t-050@" + "a" * 25]
++               "closes:t-050@codex_x closes:t-051", "closes:t-5", "closes:t-050@" + "a" * 25,
++               # offload B0 (E-B0-1/2): the fallback copy reads the one grammar exactly like journal_keys
++               "closes:t-123a closes:t-123", "closes:t-123A", "closes:t-123abc", "closes:t-123а", "closes:t-12",
++               "closes:t-1234567890", "closes:t-123—x", "closes:t-123ab@codex", "closes:t-123,closes:t-123b."]
+     want = [jk.closes_tokens(s) for s in samples]
+     monkeypatch.setattr(sc, "_jk", None)
+     assert [sc._closes_task_ids(s) for s in samples] == want
+@@ -3192,7 +3234,9 @@ def test_q1_session_start_adds_one_parallel_session_line_when_a_peer_wrote_two_m
+     payload = {"transcript_path": _q1_transcripts(tmp_path, peer_age=125), "source": "startup"}
+     lines = _sc.peer_note_lines(root, payload)
+     assert len(lines) == 1 and lines[0].startswith("PARALLEL SESSION (a note, nothing is blocked)")
+-    assert "2 min ago (peer-ses)" in lines[0] and 'id_band: "t-100..t-149"' in lines[0]
++    assert "2 min ago (peer-ses)" in lines[0]
++    assert "Task ids come from the clone counter (python -B tools/journal_write.py next); nothing to do." in lines[0]
++    assert "id_band" not in lines[0] and "band" not in lines[0]               # REWRITTEN (offload B0): no band is opened
+     monkeypatch.setattr(_sc, "read_stdin_payload", lambda: payload)
+     assert _sc.main(root) == 0
+     out = capsys.readouterr().out.splitlines()
+diff --git a/tools/test_transcripts.py b/tools/test_transcripts.py
+index 65641b7d..c5583e3b 100644
+--- a/tools/test_transcripts.py
++++ b/tools/test_transcripts.py
+@@ -1541,8 +1541,10 @@ def test_peer_main_sessions_p4_a_thousand_peers_youngest_first_and_the_note_show
+     peers = transcripts.peer_main_sessions(str(own), now)
+     assert len(peers) == 1000 and [a for _s, a in peers] == sorted(a for _s, a in peers)
+     import journal_keys
+-    note = journal_keys.peer_note(peers, journal_keys.BandState())
++    note = journal_keys.peer_note(peers)            # offload B0: no band state any more
+     assert note.count("s0") == 3 and "+997 more" in note and note.startswith("PARALLEL SESSION (a note, nothing is blocked)")
++    assert note.endswith("Task ids come from the clone counter (python -B tools/journal_write.py next); nothing to do.")
++    assert "id_band" not in note and "band" not in note
+ 
+ 
+ def test_peer_main_sessions_p5_a_folder_with_spaces_and_cyrillic(tmp_path):
