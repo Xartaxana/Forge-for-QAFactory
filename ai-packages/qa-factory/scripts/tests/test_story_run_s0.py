@@ -1132,6 +1132,7 @@ def s0_fenced_decision_notice() -> None:
             encoding="utf-8")
         driver = driver_for(root, env, task)
         driver.py = lambda script, *a, **k: (0, "")
+        driver.unread = lambda *a, **k: "continue"       # FV1-3: words code could not read go to the conductor; this test judges what code prints
         printed = io.StringIO()
         with contextlib.redirect_stdout(printed):
             driver.take_question_answer("S3", "S3-qa-test-strategist-1", "```\nQ1: a\n```\n")

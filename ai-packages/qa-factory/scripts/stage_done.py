@@ -958,7 +958,7 @@ def reviewed_author_dispatch(form, state, stage_def) -> str:
 def record_acceptance(task: str, stage: str, form: str, acceptor: str = "", verdict: str = "", quote: str = "") -> int:
     """`--acceptance <the stage critic's handoff form>`: append ONE round to `pipeline.json` `acceptance[<stage>]` (X2-5; THE writer, AR-14).
     Not a stage transition: the record is a fact the stage's close reads (`controller.validate`, `acceptance.stage_acceptance_refusal`).
-    The record is built from the form's header verdict word and its `stage_acceptance` section, or, with `--acceptor driver --verdict
+    The record is built from the verdict word read at the path `handoff.acceptance_verdict_path` names and the form's `stage_acceptance` section, or, with `--acceptor driver --verdict
     accept --quote <the gap>`, from the conductor's own word; it is checked by `acceptance.stage_acceptance_errors` before it is written
     (form and binding only - what the verdict means is the critic's, never read here). The same record again writes nothing."""
     require_project("stage_done")

@@ -1970,11 +1970,13 @@ class Rehearsal:
         # record it set aside, is a note, and the question is then checked as it stands (the safe direction: toward asking).
         import question_register
         settled_rows = [False] * len(questions)
+        matched = [None] * len(questions)      # the register question each row is (FV1-9: hidden repeat, `on_card`); None = no match
         try:
             view = question_register.load(self.task_root)
             # B-12 F1: only the FIRST row of an id is the row the register's answer belongs to (`question_register.matches`,
             # the one rule, shared with gate_brief.still_open); a later row of the same id has no answer of its own.
-            settled_rows = [question_register.settled(m) for m in question_register.matches(questions, view)]
+            matched = question_register.matches(questions, view)
+            settled_rows = [question_register.settled(m) for m in matched]
             set_aside = sum(int(n or 0) for n in (view.get("skipped") or {}).values())
             if view.get("problems") or set_aside:
                 shown = [str(p) for p in view.get("problems") or []]
@@ -1983,6 +1985,7 @@ class Rehearsal:
                     shown[:2] + ([f"{set_aside} record(s) set aside"] if set_aside else [])) + more + "), so a question it does not "
                     "show as settled is checked as it stands")
         except Exception as exc:
+            matched = [None] * len(questions)
             settled_rows = [False] * len(questions)   # F-4: the note below must be true - nothing computed above stands (FR-59: toward asking)
             self.note(check, f"the status of the questions could not be read from the question register ({type(exc).__name__}), "
                              "so every question is checked as it stands")
@@ -1992,6 +1995,8 @@ class Rehearsal:
                 continue  # already answered: nothing left to ask, nothing to rewrite
             if settled_rows[index - 1]:
                 continue  # answered in the register (B-12): the same question is not shown again as one nobody can answer
+            if question_register.hidden_repeat(matched[index - 1]):
+                continue  # FV1-9 (P8): a declared repeat is not asked - its target's card is - so no defect line about a question nobody is shown
             problems = question_errors(question, norm_ids)
             qid = str(question.get("id") or question.get("ref") or f"Q-{index}").strip()
             # HF4-7 (B7-3): a before/now question that does not say which reading is the behaviour now is the tester's to
@@ -2019,7 +2024,11 @@ class Rehearsal:
                      "`qa-requirements-tester` rewrites it as what the source says plus the "
                      f"readings and where each comes from, before {role} is asked",
                      "the question packet goes back to qa-requirements-tester at S2, for the "
-                     "question packet only; " + self.waiver_command(qid))
+                     "question packet only; " + self.waiver_command(qid),
+                     # FV1-9 (P6, F2): which question this is about and whether gate A shows its card: the card list is
+                     # `gate_brief.still_open`, and a row that got past the skips above (answered, settled, hidden repeat) is in it
+                     # unless it is the conductor's (`driver_owned`, skipped there too). One reader, no second rule.
+                     question=qid, on_card=not question_register.driver_owned(question))
 
     def _branch_cases(self) -> list:
         """One dict per case of the story for `planning_contract.variant_errors`: its id, its

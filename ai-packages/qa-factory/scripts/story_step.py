@@ -2044,8 +2044,19 @@ def _gate_refusal(args, task_root: Path, dispatch: dict, blocking: list) -> str:
     if waiting:
         lines.append("  " + str(len(waiting)) + " finding(s) wait for the person's word their line names (`then handed: "
                      "<case>#<n>`), recorded by the conductor from the person's own words; `*` does not pass them.")
+    # an open expectation (`awaits_answer`) is settled only by the answer to its question: its line names the question and the
+    # author's way (bind the Then `expectation_unconfirmed`, or return the item), never a word door (FR-10, FR-2, AR-28)
+    awaiting = [r for r in refused if getattr(r, "refused", "") == detector_verdict.AWAITS_ANSWER]
+    refused = [r for r in refused if r not in awaiting]
+    if awaiting:
+        lines.append("  " + str(len(awaiting)) + " finding(s) wait for the answer to an expectation question "
+                     "(`awaits_answer`): no recorded word passes them, `*` included. Each line above names either the question and "
+                     "the command with which the conductor records the person's answer, or sends the case back to S4; until it is answered, the author "
+                     "binds that Then `expectation_unconfirmed` as the line says, or returns the item in its digest when "
+                     "the line sends the case back to S4.")
     if refused:
-        lines.append("  " + ("No recorded word passes these; they are the author's repair." if not (named or starred or waiting)
+        lines.append("  " + ("No recorded word passes these; they are the author's repair."
+                             if not (named or starred or waiting or awaiting)
                              else f"{len(refused)} finding(s) carry the source's `refused` tag: no recorded word "
                                   "passes them, `*` included; they are the author's repair."))
     lines.append(f"  {REPAIR_MARKER}.")
@@ -2540,6 +2551,15 @@ def finish(args) -> int:
                 # unchanged. `--not-complete` never reaches this block (`complete` is false: an open stage
                 # stays open, E14).
                 gaps = _window_gaps(loaded, task_root)
+                # FV1-30b N6 (F14, E32): the gaps a person's recorded word lets go are judged by the ONE predicate
+                # `window_record.word_let_go` over the LIVE index (`s5_precheck.live_word_index`, asked once here), BEFORE the
+                # "is every gap derivable" test below. INVARIANT: only the kept gaps reach `_derived_pair`, so a pair is never
+                # derived over a kept gap that is not derivable today; a let-go line is PRINTED as a note, never dropped
+                # silently; an index that cannot be built (None) or any exception lets nothing go: today's behaviour.
+                if gaps:
+                    import window_record
+                    gaps, let_go = window_record.word_kept(gaps, loaded, task_root, args.dispatch_id)
+                    decision_notes.extend(f"passed by the person's word: {line}" for line in let_go)
                 blocked_ids = _blocked_ids(gaps)
                 # t-721 (3.2): cases that list no instance and that the manifest carries as handed to the person.
                 # `empty_scope` is covered only when EVERY case of the scope is such a case (INVARIANT: the pair is

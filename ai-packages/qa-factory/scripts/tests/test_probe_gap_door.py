@@ -119,6 +119,8 @@ class StubController:
     def __init__(self, root):
         self.store = SimpleNamespace(root=root)
         self._noted = controller.Controller._noted
+        # FV1-30b: the finish reads the live word index through this one method (an index that cannot be built is None)
+        self._s5_word_index = lambda d: controller.Controller._s5_word_index(self, d)
 
     @staticmethod
     def _ticket():
@@ -286,6 +288,7 @@ def refusal_rig(root: Path, win: dict):
     d.refusal_lines = lambda refusal, items=None: list(items or [])
     d.question_from_refusal = lambda refusal, stage: "THE FALLBACK LEAD"
     d.probe_gap_lead = SR.Driver.probe_gap_lead
+    d.record_repeat = types.MethodType(SR.Driver.record_repeat, d)                     # N3: the stop writes its record first
     seen = []
 
     def no_move(state, moves=None):
@@ -353,6 +356,275 @@ def test_no_text_record_still_offered(tmp_path):
         with pytest.raises(RuntimeError, match="seam"):
             SR.Driver.window_round_gate(d, refusal, "S5")
         assert seen[0]["probe_gap_cases"] == ["CASE-A"], (status, seen[0])
+
+
+# --- FV1-22 N2: the conductor-round stop on every stage ----------------------------------------------------------------------------
+
+def fv122_gate_stub(boundary_dispatch=""):
+    """`window_round_gate` on a stub `self` with an EMPTY series: the key is `<stage>|<dispatch>` (`""` with no dispatch), the real
+    `refusal_dispatch` reads the refusal's field then the boundary's, and `no_move` raises so the stop is observable."""
+    d = SimpleNamespace(state={}, journal_rows=[], seen=[])
+    d.boundary_dispatch = lambda: boundary_dispatch
+    d.refusal_dispatch = types.MethodType(SR.Driver.refusal_dispatch, d)
+    d.window_key = lambda stage, dispatch: f"{stage}|{dispatch}" if dispatch else ""
+    d.save_state = lambda: None
+    d.journal_run = lambda record: d.journal_rows.append(record)
+    d.refusal_lines = lambda refusal, items=None: list(items or [])
+    d.question_from_refusal = lambda refusal, stage: "THE QUESTION"
+    d.record_repeat = types.MethodType(SR.Driver.record_repeat, d)                     # N3: the one writer, on the stub's journal
+
+    def no_move(state, moves=None):
+        d.seen.append(state)
+        raise RuntimeError("seam")
+
+    d.no_move = no_move
+    return d
+
+
+def fv122_rounds(d):
+    return [r for series in (d.state.get("window_rounds") or {}).values() for r in series]
+
+
+def test_fv122_s4_acceptance_refusal_through_the_real_raise(tmp_path):
+    import driver_core
+
+    def py(*args, **kw):
+        raise driver_core.gate_refusal("stage_done.py", 2, "the acceptance record has no class", "the acceptance recorded")
+
+    writer = SimpleNamespace(task_root=tmp_path, task="T", py=py, stage_acceptor=lambda stage: "qa-case-designer")
+    raised = []
+    for _ in range(2):
+        with pytest.raises(SR.Refusal) as caught:
+            SR.Driver.stage_acceptance_write(writer, "S4", "S4-qa-case-critic-1")
+        assert caught.value.dispatch == "S4-qa-case-critic-1"                        # the raiser knows the identity (FR-16)
+        raised.append(caught.value)
+    d = fv122_gate_stub()
+    SR.Driver.window_round_gate(d, raised[0], "S4")                                   # first: the conductor has it
+    assert [r["outcome"] for r in fv122_rounds(d)] == ["to_conductor"] and d.seen == []
+    with pytest.raises(RuntimeError, match="seam"):
+        SR.Driver.window_round_gate(d, raised[1], "S4")                               # second, the same set: the person's
+    assert d.seen[0]["call"] is False and d.seen[0]["kind"] == "refusal"
+    assert d.seen[0]["lead"].startswith("The factory's own checks refused this step again with the same reasons as round 1;")
+    assert "window" not in d.seen[0]["lead"].split("\n")[0]
+
+
+def test_fv122_two_different_sets_reach_the_conductor_then_the_person():
+    d = fv122_gate_stub()
+    for n, text in enumerate(("head\nset A one", "head\nset B one"), 1):             # AT the cap: both are different from every earlier round
+        SR.Driver.window_round_gate(d, SR.Refusal(text, dispatch="S8-qa-doc-scribe-1"), "S8")
+        assert len(fv122_rounds(d)) == n and d.seen == []
+    with pytest.raises(RuntimeError, match="seam"):                                    # BEYOND it: a third, different set is the person's
+        SR.Driver.window_round_gate(d, SR.Refusal("head\nset C one", dispatch="S8-qa-doc-scribe-1"), "S8")
+    assert d.seen[0]["call"] is False and d.seen[0]["lead"].startswith("The factory's own checks refused this step 2 times, and the driver does not hand it on again.")
+
+
+def test_fv122_no_identity_passes():
+    d = fv122_gate_stub(boundary_dispatch="")
+    SR.Driver.window_round_gate(d, SR.Refusal("head\nthe same lines", findings=["the same lines"]), "S7")      # bare boundary, no dispatch: no key
+    SR.Driver.window_round_gate(d, SR.Refusal("head\nthe same lines", findings=["the same lines"]), "S7")
+    assert d.state == {} and d.journal_rows == [] and d.seen == []
+    for text in ("", "   \n  "):                                                       # an empty text with a dispatch: an empty set is never recorded
+        SR.Driver.window_round_gate(d, SR.Refusal(text, dispatch="S7-qa-test-automator-1"), "S7")
+        SR.Driver.window_round_gate(d, SR.Refusal(text, dispatch="S7-qa-test-automator-1"), "S7")
+    assert fv122_rounds(d) == [] and d.journal_rows == [] and d.seen == []
+
+
+def test_fv122_another_field_named_is_another_set():
+    d = fv122_gate_stub()
+    for text in ("the step did not complete: failure_class is missing", "the step did not complete: inputs_read is missing"):
+        SR.Driver.window_round_gate(d, SR.Refusal(text, dispatch="S8-qa-doc-scribe-1"), "S8")
+    assert [r["outcome"] for r in fv122_rounds(d)] == ["to_conductor", "to_conductor"] and d.seen == []
+
+
+def test_fv122_stage_outside_the_table_is_gated():
+    d = fv122_gate_stub()
+    one_line = "the factory step stage_done.py did not complete (exit 2): expected X. The door: retry"
+    SR.Driver.window_round_gate(d, SR.Refusal(one_line, dispatch="S8-qa-doc-scribe-1"), "S8")
+    with pytest.raises(RuntimeError, match="seam"):
+        SR.Driver.window_round_gate(d, SR.Refusal(one_line, dispatch="S8-qa-doc-scribe-1"), "S8")
+    assert d.seen[0]["lead"].startswith("The factory's own checks refused this step again with the same reasons as round 1;")
+    assert d.seen[0]["call"] is False
+    assert [r["outcome"] for r in fv122_rounds(d)] == ["to_conductor", "same_set"]
+    gap = SR.Refusal("head\nwindow gap", dispatch="S8-qa-doc-scribe-1", window_findings=["window gap"])     # a window's own gaps stay S5's
+    stub = fv122_gate_stub()
+    SR.Driver.window_round_gate(stub, gap, "S8")
+    assert fv122_rounds(stub) == [] and stub.journal_rows == []
+
+
+def test_fv122_go_on_goes_to_the_conductor():
+    rig = Rig()
+    rig.choose("go_on_as_is", "go on", block="")
+    assert rig.passes == [] and len(rig.moves) == 1                                    # no pass is recorded; the words go to the conductor
+
+
+# --- FV1-22 N3: every repeat stop records the repeat through the one writer `record_repeat` -------------------------------------------
+
+def fv122_repeats(d):
+    return [r for r in d.journal_rows if r.get("kind") == "repeat_stop"]
+
+
+def test_fv122_n3a_conductor_round_stop_writes_one_repeat_row():
+    d = fv122_gate_stub()
+    one = SR.Refusal("head\nthe check named dispatch S8-qa-doc-scribe-1 failed", dispatch="S8-qa-doc-scribe-1")
+    SR.Driver.window_round_gate(d, one, "S8")
+    assert fv122_repeats(d) == []                                                      # a round that goes to the conductor is no repeat
+    for _ in range(2):                                                                 # the stop, then the person's `retry` meeting it again
+        with pytest.raises(RuntimeError, match="seam"):
+            SR.Driver.window_round_gate(d, one, "S8")
+    rows = fv122_repeats(d)
+    assert len(rows) == 1, rows                                                        # the stop's record is written once
+    assert (rows[0]["road"], rows[0]["stage"], rows[0]["outcome"]) == ("conductor_round", "S8", "same_set")
+    assert rows[0]["key"] == "S8|S8-qa-doc-scribe-1" and rows[0]["dispatch"] == "S8-qa-doc-scribe-1"
+    assert rows[0]["set"] == ["the check named dispatch <dispatch> failed"] and rows[0]["set_size"] == 1      # masked: compares across dispatches
+
+
+def test_fv122_n3b_role_resume_repeat_is_recorded_before_the_person():
+    key_lines = ["the form misses failure_class"]
+    import driver_core
+    record = {driver_core.finding_key(key_lines): "refusal"}
+    d = SimpleNamespace(journal_rows=[], order=[])
+    d.refusal_dispatch = lambda refusal: "S8-qa-doc-scribe-1"
+    d.refusal_sid = lambda dispatch: "sid-1"
+    d.close_by_doors = lambda refusal, stage, dispatch: ""
+    d.refusal_lines = lambda refusal, items=None: list(refusal.findings)
+    d.resume_record = lambda dispatch, sid: record
+    d.stand_probe = lambda dispatch: None
+    d.dispatch_role = lambda dispatch: "qa-doc-scribe"
+    d.journal_run = lambda row: (d.journal_rows.append(row), d.order.append("record"))
+    d.record_repeat = types.MethodType(SR.Driver.record_repeat, d)
+
+    def exit_limit(*args, **kw):
+        d.order.append("person")
+        raise RuntimeError("person")
+
+    d.exit_limit = exit_limit
+    refusal = SR.Refusal("head\nthe form misses failure_class", findings=key_lines, dispatch="S8-qa-doc-scribe-1")
+    with pytest.raises(RuntimeError, match="person"):
+        SR.Driver.resume_on_refusal(d, refusal, "S8", "S8-qa-doc-scribe-1")
+    rows = fv122_repeats(d)
+    assert len(rows) == 1 and (rows[0]["road"], rows[0]["outcome"], rows[0]["stage"]) == ("role_resume", "again", "S8"), rows
+    assert d.order == ["record", "person"]                                             # a stop leaves its record first
+
+
+@pytest.mark.parametrize("lines, shown, size", [
+    ([], [], 0),                                                                       # an empty set is never a repeat (FR-41)
+    (["   ", ""], [], 0),                                                              # blank lines are no findings either
+    ([f"line {n:02d} " + "x" * 400 for n in range(25)], 20, 25),                      # BEYOND both limits: 20 lines of 300, the count kept
+    ([f"line {n:02d} " + "x" * 400 for n in range(20)], 20, 20),                      # AT the line limit
+])
+def test_fv122_n3c_the_record_is_cut_and_keeps_the_count(lines, shown, size):
+    rows = []
+    d = SimpleNamespace(journal_run=rows.append)
+    SR.Driver.record_repeat(d, "S8", "role_resume", "k", "S8-qa-doc-scribe-1", lines, "again")
+    if not size:
+        assert rows == []
+        return
+    assert len(rows) == 1 and len(rows[0]["set"]) == shown and rows[0]["set_size"] == size
+    assert all(len(line) <= 300 for line in rows[0]["set"]) and max(len(line) for line in rows[0]["set"]) == 300
+
+
+def test_fv122_n3c_a_failed_journal_never_stops_the_factory(capsys):
+    def broken(row):
+        raise OSError("disk full")
+
+    SR.Driver.record_repeat(SimpleNamespace(journal_run=broken), "S8", "role_resume", "k", "d", ["a line"], "again")
+    assert "repeat record not written" in capsys.readouterr().err
+
+
+def test_fv122_n3d_gate_stop_writes_one_repeat_row_for_same_set_and_cap():
+    fixable = [{"check": "s5_reporter", "message": "no report"}, {"check": "rules", "message": "a rule failed"}]
+    for reason, outcome in (("same_set", "same_set"), ("cap", "cap"), ("no_move", None)):
+        d = SimpleNamespace(journal_rows=[], handed=[])
+        d.attempted_rounds = SR.Driver.attempted_rounds
+        d.finding_counts = lambda found: "n"
+        d.record_round = lambda gate, series, record: series["rounds"].append(record)
+        d.hand_to_conductor = lambda *args: d.handed.append(args) or {"ran": True, "top": ""}
+        d.journal_run = d.journal_rows.append
+        d.record_repeat = types.MethodType(SR.Driver.record_repeat, d)
+        series = {"rounds": [{"keys": [], "moves": [], "outcome": "repaired", "stop": ""}]}
+        SR.Driver.gate_stop(d, "gate_A", series, "S5", fixable, [], [["k", "m"]], reason, 0)
+        rows = fv122_repeats(d)
+        if outcome is None:
+            assert rows == []                                                          # `no_move` is not a repeat
+            continue
+        assert len(rows) == 1 and (rows[0]["road"], rows[0]["outcome"], rows[0]["key"]) == ("gate_repair", outcome, "gate_A"), rows
+        assert rows[0]["set_size"] == 2 and d.handed                                   # the stop's own move still happens
+
+
+@pytest.mark.parametrize("bought, rows", [({"granted": 1, "spent": 0}, 0),      # the arrival that SPENDS a round the person bought: no stop
+                                          ({"granted": 1, "spent": 1}, 1),      # the round is spent: this arrival is a stop again
+                                          (None, 1)])                           # nothing bought: a stop
+def test_fv122_n3b_paid_round_arrival_writes_no_row_even_without_an_earlier_record(bought, rows):
+    """F2 residue: a round was bought on a no-session question (nothing recorded), then the same set arrives WITH a session. The
+    caller asks `paid_round_open` before `record_repeat`; the state is a fresh one (no `repeat_recorded` mark)."""
+    import driver_core
+    key_lines = ["the form misses failure_class"]
+    record = {driver_core.finding_key(key_lines): "refusal"}
+    state = {"exit_limit": {"S8-qa-doc-scribe-1": {"rounds": {driver_core.finding_key(key_lines): bought}}}} if bought else {}
+    d = SimpleNamespace(journal_rows=[], state=state, save_state=lambda: None)
+    d.refusal_dispatch = lambda refusal: "S8-qa-doc-scribe-1"
+    d.refusal_sid = lambda dispatch: "sid-1"
+    d.close_by_doors = lambda refusal, stage, dispatch: ""
+    d.refusal_lines = lambda refusal, items=None: list(refusal.findings)
+    d.resume_record = lambda dispatch, sid: record
+    d.stand_probe = lambda dispatch: None
+    d.dispatch_role = lambda dispatch: "qa-doc-scribe"
+    d.journal_run = d.journal_rows.append
+    d.record_repeat = types.MethodType(SR.Driver.record_repeat, d)
+
+    def exit_limit(*args, **kw):
+        raise RuntimeError("person")
+
+    d.exit_limit = exit_limit
+    refusal = SR.Refusal("head\nthe form misses failure_class", findings=key_lines, dispatch="S8-qa-doc-scribe-1")
+    with pytest.raises(RuntimeError, match="person"):
+        SR.Driver.resume_on_refusal(d, refusal, "S8", "S8-qa-doc-scribe-1")
+    assert len(fv122_repeats(d)) == rows
+
+
+def test_fv122_n3b_second_arrival_of_the_same_set_writes_nothing():
+    """F2: ONCE per (road, key, finding_key, outcome) across relaunches - the mark is in the persisted state. A different outcome on
+    the same set is a new tuple. An older state (no mark, None, not a dict) reads as empty and never crashes."""
+    for older in ("absent", None, ["x"]):
+        state = {} if older == "absent" else {"repeat_recorded": older}
+        saved = []
+        d = SimpleNamespace(state=state, journal_rows=[], save_state=lambda: saved.append(1))
+        d.journal_run = d.journal_rows.append
+        args = ("S8", "role_resume", "k", "S8-qa-doc-scribe-1", ["the form misses failure_class"])
+        SR.Driver.record_repeat(d, *args, "again")
+        assert len(fv122_repeats(d)) == 1 and isinstance(state["repeat_recorded"], dict) and saved, older    # the mark is created and kept
+        SR.Driver.record_repeat(d, *args, "again")                                      # the arrival after the person's `round`/`retry`
+        assert len(fv122_repeats(d)) == 1, older
+        SR.Driver.record_repeat(d, *args, "same_set")                                   # another outcome: another tuple
+        assert [r["outcome"] for r in fv122_repeats(d)] == ["again", "same_set"], older
+        relaunched = SimpleNamespace(state=json.loads(json.dumps(state)), journal_rows=[], save_state=lambda: None)
+        relaunched.journal_run = relaunched.journal_rows.append
+        SR.Driver.record_repeat(relaunched, *args, "again")                             # a relaunch reads the same persisted mark
+        assert relaunched.journal_rows == [], older
+
+
+@pytest.mark.parametrize("spent, rows", [(False, 0), (True, 1)])
+def test_fv122_n3b_structured_resume_without_a_spent_resume_is_no_repeat(monkeypatch, spent, rows):
+    """F3: the first structured refusal with NO session resumed nothing - it records nothing; the refusal after a SPENT resume does."""
+    import driver_machine
+    monkeypatch.setattr(driver_machine, "route_known", lambda refusal: ("structured_artifact", "resume_structured"))
+    dispatch = "S8-qa-doc-scribe-1"
+    d = SimpleNamespace(boundary="S8:" + dispatch, state={"sessions": {}, "structured_resumes": {dispatch: 1} if spent else {}},
+                        journal_rows=[], order=[])
+    d.journal_conductor = lambda **kw: None
+    d.journal_run = d.journal_rows.append
+    d.refusal_lines = lambda refusal, items=None: list(refusal.findings)
+    d.dispatch_role = lambda name: "qa-doc-scribe"
+    d.record_repeat = types.MethodType(SR.Driver.record_repeat, d)
+
+    def exit_limit(*args, **kw):
+        raise RuntimeError("person")
+
+    d.exit_limit = exit_limit
+    refusal = SR.Refusal("head\nthe form misses failure_class", findings=["the form misses failure_class"], dispatch=dispatch)
+    with pytest.raises(RuntimeError, match="person"):
+        SR.Driver.handle_refusal(d, refusal)
+    assert len(fv122_repeats(d)) == rows
 
 
 if __name__ == "__main__": raise SystemExit(pytest.main([__file__, "-q", "-p", "no:cacheprovider"]))

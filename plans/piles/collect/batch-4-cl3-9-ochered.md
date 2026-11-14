@@ -23,6 +23,8 @@
 | Узел | Приоритет | Что | Исполнитель | Пишет в | Зависит от | Статус |
 |---|---|---|---|---|---|---|
 | CL4-1 | П3 | Очередь CL3-9: `_l_records` по функции на форму; одно отображение пары (stalled, looped) в слова; читатель `loop_ignored`; строка журнала драйвера `window_round` (носитель остатка B-6); страница КБ «stalled or looped stories» (`findings/20261102-cl3-9-ochered-vlozhennost-slova-petel-bez-chitatelya-i-zhurnal-raundov.md`; критик t-725 m-1, m-4, m-5; FR-12, FR-37; AR-13, AR-22, AR-28) | designer → builder → critic | `scripts/collect_stall.py`, `scripts/collect_pack.py`, `scripts/collect_intake.py`, `scripts/story_run.py` (запись строки при закрытии окна), `kb/04-onboarding-doctor.xhtml`, их тесты | CL3-9 (`release-next/1`, влит) | ожидает |
+| CL4-2 | П3 | Неизвестное зависание (`stalled: True` только с сигналом `unreadable`; исключение упаковщика) названо «stalled», хотя манифест говорит `stalled: null`: слова выбирать по состоянию элемента; пропущенный `looped` — одно чтение в упаковщике и `loop_state` (`findings/20261113-neizvestnoe-zavisanie-nazvano-stalled-pri-stalled-null.md`; критик темы CL4-1, Q1; FR-41, FR-10; AR-13, AR-28; байты закреплены — решает Lead) | designer → builder → critic | `scripts/collect_pack.py`, `scripts/collect_stall.py`, их тесты | CL4-1 | ожидает |
+| CL4-3 | П3 | Приём печатает `where`/`why` манифеста без `clean()` (перевод строки подделывает строки); список из одних не-словарей печатается как `loop ignored: 0` (`findings/20261113-priem-pechataet-where-why-bez-clean-i-spisok-bez-slovarej-kak-nol.md`; критик темы CL4-1, Q2; FR-41; AR-13, AR-28) | builder → critic | `tools/collect_intake.py`, `tools/test_collect_intake.py` | CL4-1 | ожидает |
 
 ## Ход
 
@@ -30,6 +32,7 @@
 
 - 02.11 — открыта пачка 4 под CL4-1 (очередь критиков CL3-9; t-770)
 - 13.11 — CL4-1: спека готова, билдер ждёт (статус остаётся «ожидает»).
+- 14.11 — CL4-1: слита только часть N4 (ветка `wip/cl4-1-n4`, коммит a6add6c, отчёт волны 4 `docs/tasks/specs/reports/20261113-wave4-integration-report.md`); слияния N1, N2, N3 отчёты волн 2–4 не называют; узел не закрыт, статус не тронут.
 
 ## Живые доказательства
 

@@ -1547,18 +1547,48 @@ def stage_acceptance_refusal(pipeline, dispatch, state, split, table=None) -> tu
             "or pass it with a person's word: `" + waiver + "`"), passed
 
 
+def acceptance_word(form) -> str:
+    """The acceptance word a form holds, stripped (case kept), `""` when it holds none (AR-13, AR-28): read at the path the
+    form's contract names (`handoff.acceptance_verdict_path`, default `header.verdict`), one key per dot over the plain dict.
+    A non-dict step, a missing key, a leaf that is not a string, or a form that is not a dict reads `""` - an unreadable word is
+    never an accept."""
+    if not isinstance(form, dict):
+        return ""
+    contract = form.get("contract")
+    try:
+        import handoff
+        path = handoff.acceptance_verdict_path(contract if isinstance(contract, str) else "")
+    except Exception:
+        path = "header.verdict"
+    node = form
+    for key in path.split("."):
+        if not isinstance(node, dict) or key not in node:
+            return ""
+        node = node[key]
+    return node.strip() if isinstance(node, str) else ""
+
+
 def stage_acceptance_from_form(form, *, stage, role, acceptor, reviewed_dispatch, witness_form, at) -> tuple:
-    """`(record | None, problems)` from the stage critic's handoff form (`handoff.parse(...).data`): the verdict WORD is the form's
-    `header.verdict` (the digest's verdict line), mapped by the table; the rest is the form's section `stage_acceptance`
-    (`failure_class`, `quote`, `witness_paths`). A word outside the table gives no record. An `accept` carries no `failure_class` whatever
-    the form says. Pure; form and transport only."""
+    """`(record | None, problems)` from the consumer's handoff form (`handoff.parse(...).data`): the verdict WORD is read by
+    `acceptance_word` - at the contract's `acceptance_verdict_at` (default `header.verdict`, the digest's verdict line) - and mapped
+    by the table; the rest is the form's section `stage_acceptance` (`failure_class`, `quote`, `witness_paths`). A word outside the
+    table gives no record. An `accept` carries no `failure_class` whatever the form says. Pure; form and transport only."""
     form = form if isinstance(form, dict) else {}
-    header = form.get("header") if isinstance(form.get("header"), dict) else {}
-    word = str(header.get("verdict") or "").strip()
+    word = acceptance_word(form)
     side = stage_acceptance_verdict(word)
     if not side:
         known = "|".join(stage_acceptance_table()) or "none readable"
-        return None, [f"{STAGE_ACCEPTANCE_PHRASE}: verdict word `{word}` is not one of {known}; the form must end its header with one of them"]
+        try:
+            import handoff
+            contract = form.get("contract")
+            at = ""
+            if isinstance(contract, str) and contract.strip():
+                handoff.template(contract)          # an unknown contract raises: the reader would only answer its default (FR-41)
+                at = handoff.acceptance_verdict_path(contract)
+        except Exception:
+            at = ""
+        where = f"write one of them at `{at}` of the form" if at else "the form must carry one of them as its verdict"
+        return None, [f"{STAGE_ACCEPTANCE_PHRASE}: verdict word `{word}` is not one of {known}; {where}"]
     section = form.get("stage_acceptance") if isinstance(form.get("stage_acceptance"), dict) else {}
     paths = section.get("witness_paths")
     failure = section.get("failure_class")

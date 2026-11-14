@@ -86,6 +86,8 @@ CL1-7 (сбор на копиях cmp2r и cmp3gb). Слова владельц�
 | `findings/20261030-test-priema-pustoe-utverzhdenie-srez-0.md` | находка | пустое утверждение в тесте приёма: `[:0]` всегда пусто | `tools/test_collect_intake.py` | пачка 3, CL3-12 | нет | — |
 | `findings/20261030-sbor-manifest-bez-mtime-istochnika.md` | находка | строки `files[]` без mtime источника: пересозданный файл не отличить | `scripts/collect_pack.py` | пачка 3, CL3-13 | нет | — |
 | `findings/20261102-cl3-9-ochered-vlozhennost-slova-petel-bez-chitatelya-i-zhurnal-raundov.md` | находка | очередь CL3-9: вложенность `_l_records`, три отображения слов, `loop_ignored` без читателя, раунды окна без носителя, страница КБ | `scripts/collect_stall.py`, `scripts/collect_pack.py`, `scripts/collect_intake.py`, `kb/04-onboarding-doctor.xhtml` | пачка 4, CL4-1 | нет | t-725 m-1, m-4, m-5; CL3-9 |
+| `findings/20261113-neizvestnoe-zavisanie-nazvano-stalled-pri-stalled-null.md` | находка, id — | неизвестное зависание (`unreadable` без активности, исключение упаковщика) названо «stalled», хотя манифест говорит `stalled: null` | `scripts/collect_pack.py`, `scripts/collect_stall.py` | пачка 4, CL4-2 | нет | критик темы CL4-1 (Q1); CL4-1 |
+| `findings/20261113-priem-pechataet-where-why-bez-clean-i-spisok-bez-slovarej-kak-nol.md` | находка, id — | приём печатает `where`/`why` без `clean()`; список из одних не-словарей читается как `loop ignored: 0` | `tools/collect_intake.py` | пачка 4, CL4-3 | нет | критик темы CL4-1 (Q2); CL4-1 |
 
 ## Входящие
 

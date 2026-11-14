@@ -340,38 +340,101 @@ def one_test_argv(profile, *, drop_placeholders: bool = False) -> tuple[list, st
     return words, (f"commands.one_test.{problem}" if problem else "")
 
 
-def selectors_verified(profile, root) -> bool:
-    """Does this profile's selector contract count as verified? The ONE answer (AR-13): the probe's shape check
-    (`probe_by_code.run_shape_checks`) and the typed run's request (`execution_request.build_mine_request`) both ask it.
+def selector_contract(profile, root, command=None) -> dict:
+    """`{"verified": bool, "state": <word>, "why": <one sentence>}`: is the runner's test selection proven for this command?
+    The ONE answer (AR-13, AR-15); `selectors_verified` is its bool view. `command` is the command that RUNS (a request's
+    `command` object); None judges the profile's `commands.one_test`. Pure, never raises, writes nothing.
 
-    The hand wins, in both directions: a literal `selectors.verified` of `false` is False, of `true` is True. With no literal
-    the profile's one-test command must be one the run-form table knows how to select a test with
-    (`launch_check.runner_identity(argv)["selection"]`) AND the onboarding's durable record must say THIS command was rehearsed
-    (`onboarding_probe.earlier_proof(root, profile_id, argv)["state"] == "same_command"`, with `argv` the one
-    `onboarding_probe._one_test_argv` reads). That record proves that **the command with this digest was rehearsed, not that the
-    selector selects**; it is enough for the gate only because a report row is bound by id (`red_sandbox.bind_row`): a selector
-    that selected nothing leaves `not_executed` and one that selected too much binds the same row, so a wrong True never
-    gives a pass. `root` is the PROJECT, never a sandbox clone (`--sandbox-root`): a clone holds no record, so it is False there.
+    States, in this order (the hand first, then the command, then the record): `no_command` (profile not an object; no root;
+    the command absent, argv empty or unreadable; a FOREIGN `env` on the judged command or on the profile's one_test - never a
+    match on the argv alone against an older row), `hand_unreadable` (`selectors` is not an object), `hand_false` / `hand_true`
+    (`selectors.verified` is exactly false / true; any other literal is "not said" and the order goes on), `node_id` (a run form whose
+    data row says `selection_by_node_id`, pytest today: the node id IS the selection), `no_selection_form` (the run-form table has no `selection` row for it),
+    `command_not_profile` (run road: argv words or `env` differ from the profile's one_test with placeholders dropped, or the
+    profile has none), then the record: `same_command` (True), `command_changed`, `none`, `unreadable`; `error` for any
+    exception. Only `hand_true`, `node_id` and `same_command` are verified.
 
-    Error direction: False (the gate refuses and names its door). Another argv than the record's, no record, a table or a
-    record that cannot be read, a `root` that is no directory, and any exception at all give False; nothing is written."""
+    The record is read with the identity every writer digests, `command_identity` of the PROFILE's one_test (argv words with
+    placeholders and `env`), never the bare words and never the run's command (its placeholders are dropped). It proves that the
+    command with this digest was rehearsed, not that the selector selects; a wrong True never gives a pass because a report row
+    is bound by exact id (`run_suite.build_run_block`, `red_sandbox.bind_row`). `root` is the PROJECT, never a sandbox clone.
+    Error direction: False when in doubt."""
+    def out(verified: bool, state: str, why: str) -> dict:
+        return {"verified": verified, "state": state, "why": why}
     try:
-        verified = (profile.get("selectors") or {}).get("verified") if isinstance(profile, dict) else None
+        if not isinstance(profile, dict):
+            return out(False, "no_command", "the profile is not an object, so it names no command")
+        selectors = profile.get("selectors")
+        if selectors is not None and not isinstance(selectors, dict):
+            return out(False, "hand_unreadable", "selectors in qa-factory/config.json is not an object")
+        verified = (selectors or {}).get("verified")
         if verified is False:
-            return False
+            return out(False, "hand_false", "selectors.verified in qa-factory/config.json is false")
         if verified is True:
-            return True
-        if not isinstance(profile, dict) or root is None:
-            return False
+            return out(True, "hand_true", "selectors.verified in qa-factory/config.json is true")
+        unread = ("; selectors.verified is not true or false and was not read"
+                  if isinstance(selectors, dict) and "verified" in selectors else "")
+
+        def result(verified_: bool, state: str, why: str) -> dict:
+            return out(verified_, state, why + unread)
+
         import launch_check
         import onboarding_probe
-        argv = onboarding_probe._one_test_argv(profile)
-        if not argv or not launch_check.runner_identity(argv)["selection"]:
-            return False
-        proof = onboarding_probe.earlier_proof(root, str(profile.get("profile_id") or ""), argv)
-        return proof.get("state") == "same_command"
-    except Exception:       # noqa: BLE001 - a gate that cannot tell says False, the safe side
-        return False
+        if root is None:
+            return result(False, "no_command", "there is no project root to read the rehearsal record from")
+        own_spec, own_problem = profile_command(profile, "one_test")
+        spec = command if command is not None else own_spec
+        if command is None and own_problem:
+            return result(False, "no_command", own_problem)
+        if not isinstance(spec, dict) or not spec:
+            return result(False, "no_command", "the run's command is absent or not an object" if command is not None
+                          else "commands.one_test is absent, so there is no command to judge")
+        words, problem = command_argv(spec)
+        if problem or not words:
+            return result(False, "no_command", problem or "the command has no argv words")
+        env, problem = command_env(spec)
+        if problem:
+            return result(False, "no_command", problem)
+        identity = launch_check.runner_identity(words)
+        if identity.get("node_id_selection") is True:
+            return result(True, "node_id", "this run form selects one test by the node id it is given (run-form data)")
+        if not identity.get("selection"):
+            return result(False, "no_selection_form",
+                          "this runner form has no selection row in the run-form data"
+                          + (f" ({identity['problem']})" if identity.get("problem") else ""))
+        if command is not None:
+            own_words, own_words_problem = command_argv(own_spec, drop_placeholders=True)
+            own_env, own_env_problem = command_env(own_spec)
+            if own_env_problem:
+                return result(False, "no_command", own_env_problem)
+            if own_problem or own_words_problem or not own_spec or words != own_words or env != own_env:
+                return result(False, "command_not_profile",
+                              "the run's command is not the profile's one_test command, and the record proves only that one")
+        proof = onboarding_probe.earlier_proof(root, str(profile.get("profile_id") or ""), command_identity(own_spec if command is not None else spec))
+        state = str(proof.get("state") or "")
+        if state == "same_command":
+            return result(True, "same_command", "the record proved this command of this profile")
+        if state == "command_changed":
+            return result(False, "command_changed",
+                          f"the record proved another command of this profile on {proof.get('at') or 'an earlier day'}")
+        if state == "unreadable":
+            return result(False, "unreadable", "the rehearsal record could not be read")
+        return result(False, "none", "no proven rehearsal of this command is on record")
+    except Exception as exc:       # noqa: BLE001 - a reader that cannot tell says False, the safe side
+        return out(False, "error", f"the selector contract could not be read ({type(exc).__name__})")
+
+
+def selectors_verified(profile, root) -> bool:
+    """Does this profile's selector contract count as verified? The bool view of `selector_contract(profile, root)` - the ONE
+    answer (AR-13): the probe's shape check (`probe_by_code.run_shape_checks`) and the run's SELECTORS note
+    (`run_suite.selector_note`) read the full answer; `build_mine_request` no longer asks it. The order of its states, in
+    short: the hand (`selectors` an object;
+    a literal `verified` of false or true wins, any other literal is not read), then the command (a foreign `env` or an
+    unreadable argv is False), a run form whose data row says `selection_by_node_id` (True), a run form with a `selection` row, and last the rehearsal record read
+    with `command_identity` (argv words AND `env`, the digest every writer uses) of the profile's one_test. Error direction:
+    False (the gate refuses and names its door); a `root` that is no directory, a record or table that cannot be read and any
+    exception give False; nothing is written."""
+    return selector_contract(profile, root)["verified"]
 
 
 def resolve_profile_command(profile: dict, command_name: str,

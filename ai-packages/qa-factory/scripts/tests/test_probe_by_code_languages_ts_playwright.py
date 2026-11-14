@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import copy  # noqa: E402
 import json  # noqa: E402
-from harness import SCRIPTS, check, check_eq, check_in, cleanup, finish, temp_dir  # noqa: E402
+from harness import SCRIPTS, check, check_eq, check_in, check_not_in, cleanup, finish, temp_dir  # noqa: E402
 import assertion_detectors as AD  # noqa: E402
 import probe_by_code as PBC  # noqa: E402
 import proof_level as PL  # noqa: E402
@@ -230,6 +230,8 @@ def ep1_36_shape() -> None:
     kind, said = shape(pw, rehearsed=False)
     check_eq("EP1-36 item 8: ...never rehearsed: the profile is not verified (the old refusal and door)", kind, "ToolRefusal")
     check_in("EP1-36 item 8: ...naming selectors.verified", "selector contract", said)
+    check_in("R-N3-1: ...and the door is the command that writes the proof, for this profile", "--probe-profiles --profile pw", said)
+    check_in("R-N3-1: ...and the reason is the `none` state's why of the one answer", "no proven rehearsal of this command is on record", said)
     kind, said = shape(pw, verified=False)
     check_eq("EP1-36 item 8: the literal False wins over a rehearsal on record", kind, "ToolRefusal")
     check_eq("EP1-36 item 8: ...and the literal True over none", shape(pw, rehearsed=False, verified=True)[0], "passed")
@@ -248,6 +250,62 @@ def ep1_36_shape() -> None:
         check("EP1-36 item 7: hand-written fields pass as before", True)
     except PBC.Refusal as exc:
         check("EP1-36 item 7: hand-written fields pass as before", False, str(exc)[:200])
+    finally:
+        cleanup(root)
+
+
+def fv1_18_two_sites_one_table() -> None:
+    """FV1-18 FIX-3: the SELECTORS note (`run_suite.selector_note`) and the probe's R6(a) sentence say the SAME words for the same
+    selector-contract state (`run_suite.selector_words`, one table), and the onboarding probe is the door ONLY for the record
+    states none / command_changed / unreadable."""
+    import onboarding_probe as OP
+    import profile_contract as PC
+    import run_suite
+    pw = ["npx", "playwright", "test", "--reporter=junit"]
+    jest = ["npx", "jest", "--ci"]
+
+    def both(argv, state, **kw) -> None:
+        root, cfg, manifest, spec, text = ts_profile_project(argv, **kw)
+        try:
+            if state == "unreadable":
+                (root / "qa-factory" / "state" / OP.G.REPORTER_REHEARSALS_FILE).write_text("{ not json", encoding="utf-8")
+            got = PC.selector_contract(cfg["profiles"][0], root)
+            check_eq(f"FIX-3 fixture reaches the state {state}", got["state"], state)
+            try:
+                PBC.run_shape_checks(cfg, manifest, "TC-1", manifest["tests"][0], spec, "adds", "", text, root)
+                said = ""
+            except PBC.Refusal as exc:
+                said = str(exc)
+            request = {"purpose": "initial", "profile_id": "pw", "command": {"argv": [w for w in argv if w != "<test-file>"]}}
+            note = run_suite.selector_note(request, cfg, root)
+            check("FIX-3 %s: both sites speak" % state, said != "" and note != "", f"{said[:80]!r} {note[:80]!r}")
+            meaning = run_suite.selector_words(got, "X")[0]
+            check_in(f"FIX-3 {state}: the probe sentence carries the table's meaning", meaning, said)
+            check_in(f"FIX-3 {state}: the note carries the table's meaning", meaning, note)
+            remedy = run_suite.selector_words(got, "X")[1].split(":")[0][1:]    # the note capitalises the first letter
+            check_in(f"FIX-3 {state}: the probe sentence carries the table's remedy", remedy, said)
+            check_in(f"FIX-3 {state}: ...the note too", remedy, note)
+            probe_door = state in ("none", "command_changed", "unreadable")
+            check_eq(f"FIX-3 {state}: the probe sentence names the onboarding probe command only for the record states",
+                     "--probe-profiles --profile pw" in said, probe_door)
+            check_eq(f"FIX-3 {state}: the note names the onboarding probe command only for the record states",
+                     "--probe-profiles --profile pw" in note, probe_door)
+            check_not_in(f"FIX-3 {state}: no internal state token in the sentence", state if "_" in state else "\0", said + note)
+        finally:
+            cleanup(root)
+
+    both(pw, "none", rehearsed=False)
+    both(["npx", "playwright", "test", "--reporter=line"], "command_changed", rehearsed=pw)
+    both(pw, "unreadable")
+    both(jest, "no_selection_form", rehearsed=jest)
+    both(pw, "hand_false", verified=False)
+    # command_not_profile exists on the run road only: the note's site (the probe judges the profile's own command)
+    root, cfg, _manifest, _spec, _text = ts_profile_project(pw, rehearsed=pw)
+    try:
+        note = run_suite.selector_note({"purpose": "initial", "profile_id": "pw",
+                                        "command": {"argv": pw + ["--grep", "x"]}}, cfg, root)
+        check_in("FIX-3 command_not_profile: the note says what it means", "only that one can be proven", note)
+        check_not_in("FIX-3 command_not_profile: the note does not send to the probe", "--probe-profiles", note)
     finally:
         cleanup(root)
 
@@ -580,6 +638,7 @@ def main() -> None:
     ep1_36_titles()
     ep1_36_rows()
     ep1_36_shape()
+    fv1_18_two_sites_one_table()
     rn1_8_playwright_report()
     stub_dir = temp_dir("qa-probe-lang-stub-")
     stub = stub_dir / "fake_lang_run_suite.py"

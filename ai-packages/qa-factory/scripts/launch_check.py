@@ -169,7 +169,7 @@ def load_data(path=None):
             return None, problem  # `problem` already starts with the file name and the row
         out["collect_forms"].append({"tool": row["tool"], "append": list(append),
                                      "ok_exits": list(exits), **extras})
-    out["selection_by_form"], out["selection_problems"] = _selection_rows(name, raw)
+    out["selection_by_form"], out["selection_problems"], out["node_id_by_form"] = _selection_rows(name, raw)
     return out, ""
 
 
@@ -178,12 +178,23 @@ def _selection_rows(name: str, raw: dict) -> tuple:
     own reader keeps `id, argv, diagnostics, negators` of a row and drops any other key, so this file is read here for
     the one key it does not (EP1-1, M-12). A row without `selection` states none and is not a problem. A `selection`
     of a wrong shape (not an object, a `classname` other than `file` / `file_suffix`, no `args`, `report_id` or
-    `title_join`) is left out of the map and named in `problems` as `{form id: words}`."""
+    `title_join`) is left out of the map and named in `problems` as `{form id: words}`. The same walk collects the optional
+    `selection_by_node_id` of a row (FV1-18 N4: "a node id given as an argument selects one test with this form") into
+    `node_id_by_form`, the third element: `true` lists the form, absent does not, any other value is a problem of the row."""
     run_forms = raw.get("run_forms")
     rows = run_forms.get("forms") if isinstance(run_forms, dict) else None
-    found, problems = {}, {}
+    found, problems, node_id = {}, {}, {}
     for index, row in enumerate(rows if isinstance(rows, list) else []):
-        if not isinstance(row, dict) or "selection" not in row or not isinstance(row.get("id"), str):
+        if not isinstance(row, dict) or not isinstance(row.get("id"), str):
+            continue
+        if "selection_by_node_id" in row:
+            if row["selection_by_node_id"] is True:
+                node_id[row["id"]] = True
+            else:
+                problems[row["id"]] = (f"{name} run_forms.forms[{index}] (`{row['id']}`) "
+                                       "`selection_by_node_id` must be true when present")
+                continue
+        if "selection" not in row:
             continue
         where, sel = f"{name} run_forms.forms[{index}] (`{row['id']}`) `selection`", row["selection"]
         if not isinstance(sel, dict):
@@ -201,7 +212,7 @@ def _selection_rows(name: str, raw: dict) -> tuple:
             problems[row["id"]] = f"{where} `escape_file` must be true or false"
         else:
             found[row["id"]] = dict(sel)
-    return found, problems
+    return found, problems, node_id
 
 
 def _runner_fields(where: str, row: dict) -> tuple:
@@ -700,14 +711,17 @@ def runner_row(argv) -> tuple:
 
 def runner_identity(argv) -> dict:
     """The ONE reader of "which runner is this command" for new callers (EP1-1, AR-13): `{form_id, collect_row,
-    selection, problem, no_direct_form}`. `collect_row` is `runner_row`'s; `form_id` the `id` of the `run_forms` row
+    selection, node_id_selection, problem, no_direct_form}`. `node_id_selection` is that row's `selection_by_node_id`
+    (True: a node id given as an argument selects one test; False when the key is absent, the argv matches no form, or
+    `problem` is set). `collect_row` is `runner_row`'s; `form_id` the `id` of the `run_forms` row
     `hooklib.direct_test_form` finds, or ""; `selection` that row's optional `selection` (None when the row states none:
     no selector is built for it). `problem` is a table or reader that could not be read, and then `selection` is None and
     `no_direct_form` is "": a problem of the table is not a fact about the runner (AR-28). `no_direct_form` is the words
     for a command that is no pytest and no known form (the project's own script: it is not read inside, so no selector
     is built, B-6); "" otherwise. Reports and never raises."""
     tokens = [str(a) for a in argv or []]
-    identity = {"form_id": "", "collect_row": None, "selection": None, "problem": "", "no_direct_form": ""}
+    identity = {"form_id": "", "collect_row": None, "selection": None, "node_id_selection": False,
+                "problem": "", "no_direct_form": ""}
     try:
         data, note = load_data()
         if data is None:
@@ -721,13 +735,15 @@ def runner_identity(argv) -> dict:
             identity["problem"] = data["selection_problems"][form_id]
         else:
             identity["selection"] = data["selection_by_form"].get(form_id) if form_id else None
+            identity["node_id_selection"] = bool(form_id and data["node_id_by_form"].get(form_id, False))
         if tokens and not identity["problem"] and not form_id and not _is_pytest(tokens):
             identity["no_direct_form"] = (f"this command starts {tokens[0]}, the project's own script; the factory "
                                           "does not read inside it, so it builds no selector for it")
     except _ShapeUnavailable as exc:
-        identity.update(selection=None, no_direct_form="", problem=f"the runner reader could not be loaded ({exc})")
+        identity.update(selection=None, node_id_selection=False, no_direct_form="",
+                        problem=f"the runner reader could not be loaded ({exc})")
     except Exception as exc:  # a reader's own defect is "cannot tell", not a crash
-        identity.update(selection=None, no_direct_form="",
+        identity.update(selection=None, node_id_selection=False, no_direct_form="",
                         problem=f"the runner reader failed ({type(exc).__name__}: {exc})"[:EVIDENCE_MAX])
     return identity
 

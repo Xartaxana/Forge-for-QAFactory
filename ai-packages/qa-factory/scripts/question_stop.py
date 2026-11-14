@@ -367,14 +367,18 @@ def _card_lines(render, question: dict, index: int) -> list:
     return lines
 
 
-def _with_note(question: dict) -> dict:
+def _with_note(question: dict, task_root=None, cache=None) -> dict:
     """The question as its card is rendered: a settled or deferred one that is asked again (its answer no longer holds)
     carries the gate's note saying why (`gate_brief.question_note`, the one writer of that text). A note that cannot be
-    made leaves the card as it was - the question is still shown."""
-    if question.get("status") in OPEN_STATUSES:
-        return question
+    made leaves the card as it was - the question is still shown. FV1-9: the requirement text the card prints (H5) is attached here
+    through `gate_brief.requirement_help`, the reader gate A's list uses too, so the two cards of one question print the same help;
+    nothing is attached when `task_root` is not given, there is no requirement id or the register cannot be read."""
     try:
         import gate_brief
+        found = gate_brief.requirement_help(question, task_root, cache if cache is not None else []) if task_root is not None else None
+        question = dict(question, requirement_help=found) if found else question
+        if question.get("status") in OPEN_STATUSES:
+            return question
         note = gate_brief.question_note(question)
     except Exception:
         return question
@@ -394,8 +398,9 @@ def open_cards(task_root, card=None) -> list:
         return []
     render = _renderer(card)
     out: list = []
+    register_text: list = []        # the requirements register, read once for all cards (H5)
     for index, question in enumerate((q for q in view["questions"] if QR.is_open(q)), 1):
-        out.extend(_card_lines(render, _with_note(question), index))
+        out.extend(_card_lines(render, _with_note(question, task_root, register_text), index))
         if question.get("status") == "named":
             stray = QR.stray_line(question.get("id"), question.get("words"))   # a line of the person's that is no token is told as that (FR-10, F-6 of t-596)
             out.append(f"  - you named this question in your earlier words, on a line the factory did not read as an answer: \"{stray}\"." if stray
@@ -461,8 +466,9 @@ def _reason_in_words(task_root, reason) -> list:
     return lines
 
 
-BLOCKING_NOTE = ("A question marked as blocking is settled only by a line with its id, or passed with `go on`; "
-                 "words alone go to the role, and the question is asked again.")
+BLOCKING_NOTE = ("A question marked as blocking is settled only by a recorded answer - a line with its id, or your own words "
+                 "once the assistant running this story has recorded them - or passed with `go on`; a blocking question "
+                 "nobody could record is asked again.")
 
 
 def batch_text(task_root, reason, card=None, previous_answer_at=None, priced: str = "") -> str:

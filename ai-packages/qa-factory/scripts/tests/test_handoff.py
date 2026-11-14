@@ -701,8 +701,64 @@ def a_section_owed_only_under_a_header_value_has_an_empty_outcome_otherwise() ->
                 check_in(f"G2 {contract} control: the other blanks are refused on ok too",
                          "review.outcome" if contract == forms[0] else "header.window",
                          [p.path for p in H.check(handoff.parse(with_verdict("ok")), contract, view, fix=False, use_judge=False)[2]])
+            # N1-c (FV1-22): the two CONSUMER forms keep their acceptance word at `stage_acceptance.verdict` (`acceptance_verdict_at`),
+            # and `header.verdict` stays the verdict of the handoff itself: the section is owed in full only under `return`.
+            for contract in ("s7-analyst-to-automator", "s8-scribe-to-gate-b"):
+                template = (CONTRACTS / f"{contract}.yaml").read_text(encoding="utf-8")
+
+                def with_word(word: str, header: str = "") -> str:
+                    text = template.replace("verdict: <accept|return>", f"verdict: {word}", 1)
+                    return text.replace("verdict: <one of vocabulary.header_verdicts>", f"verdict: {header}", 1) if header else text
+
+                def acceptance_paths(text: str) -> list:
+                    got = H.check(handoff.parse(text), contract, view, fix=False, use_judge=False)[2]
+                    return sorted({p.path for p in got if p.path.startswith("stage_acceptance")})
+
+                check_in(f"G3 {contract} control: the edit hit, the word is written", "verdict: accept", with_word("accept"))
+                check_eq(f"G3 {contract} accept: class, quote and witness are relaxed", acceptance_paths(with_word("accept")), [])
+                check_eq(f"G3 {contract} return: the same blanks ARE owed (same call, same form)", acceptance_paths(with_word("return")),
+                         ["stage_acceptance.failure_class", "stage_acceptance.quote"])
+                check_eq(f"G3 {contract} word missing: the word is owed with the rest (nothing is relaxed under a placeholder)",
+                         acceptance_paths(template),
+                         ["stage_acceptance.failure_class", "stage_acceptance.quote", "stage_acceptance.verdict"])
+                check_eq(f"G3 {contract} acept: refused as a word outside the choice", acceptance_paths(with_word("acept")),
+                         ["stage_acceptance.verdict"])
+                check_eq(f"G3 {contract} Accept: case is kept, so refused as well", acceptance_paths(with_word("Accept")),
+                         ["stage_acceptance.verdict"])
+                check_eq(f"G3 {contract} header concerns + accept: the handoff's own verdict decides nothing here",
+                         acceptance_paths(with_word("accept", header="concerns")), [])
         check_eq("G2 pure reader: a contract with no block relaxes nothing",
                  handoff.relaxed_sections("s1-scout-to-tester", "ok"), set())
+        # N1-c pure rows and N1-i: ONE reader of where the acceptance word is; every doubt reads `header.verdict`
+        for contract, want in (("s7-analyst-to-automator", "stage_acceptance.verdict"), ("s8-scribe-to-gate-b", "stage_acceptance.verdict"),
+                               ("s4-case-critic-to-designer", "header.verdict"), ("", "header.verdict"), ("no-such-contract", "header.verdict")):
+            check_eq(f"N1-c acceptance_verdict_path of `{contract}`", handoff.acceptance_verdict_path(contract), want)
+        real_template = handoff.template
+        try:
+            for label, value, want in (("not a string", 5, "header.verdict"), ("empty", "", "header.verdict"), ("none", None, "header.verdict"),
+                                       ("no dot", "stage_acceptance", "header.verdict"), ("spaces", "stage acceptance.verdict", "header.verdict"),
+                                       ("a list", ["a.b"], "header.verdict"), ("padded", " stage_acceptance.verdict ", "stage_acceptance.verdict")):
+                handoff.template = lambda _c, _v=value: type("T", (), {"data": {"acceptance_verdict_at": _v}})()
+                check_eq(f"N1-c malformed acceptance_verdict_at ({label}) reads the safe default", handoff.acceptance_verdict_path("x"), want)
+        finally:
+            handoff.template = real_template
+        check_eq("N1-i the key is the contract's own, never a field a role fills", handoff.owned_by_contract("acceptance_verdict_at"), True)
+        # N1-h: the skeleton of a dispatch that awaits nothing carries no acceptance section and no token row
+        import handoff_init as HI
+        text7 = (CONTRACTS / "s7-analyst-to-automator.yaml").read_text(encoding="utf-8")
+        dropped = HI.drop_unowed_acceptance(text7, "s7-analyst-to-automator", "")
+        check_eq("N1-h awaiting nothing: no stage_acceptance section", "stage_acceptance" in handoff.parse(dropped).data, False)
+        check_not_in("N1-h awaiting nothing: no token row", handoff.AUTHOR_TOKEN, dropped)
+        check_in("N1-h control: the same template holds both before", "stage_acceptance:", text7)
+        check_in("N1-h awaiting nothing: the other rows stay", "work/run-report.json", dropped)
+        check_eq("N1-h a dispatch that awaits one: unchanged", HI.drop_unowed_acceptance(text7, "s7-analyst-to-automator", "S6-qa-runner-2"), text7)
+        text4 = (CONTRACTS / "s4-case-critic-to-designer.yaml").read_text(encoding="utf-8")
+        check_eq("N1-h a contract that keeps the word at header.verdict: unchanged", HI.drop_unowed_acceptance(text4, "s4-case-critic-to-designer", ""), text4)
+        text8 = (CONTRACTS / "s8-scribe-to-gate-b.yaml").read_text(encoding="utf-8")
+        dropped8 = HI.drop_unowed_acceptance(text8, "s8-scribe-to-gate-b", "")
+        check_eq("N1-h S8 awaiting nothing: no section, no token row, the next section stays",
+                 ("stage_acceptance" in handoff.parse(dropped8).data, handoff.AUTHOR_TOKEN in dropped8, "delivery" in handoff.parse(dropped8).data),
+                 (False, False, True))
     finally:
         cleanup(root)
 

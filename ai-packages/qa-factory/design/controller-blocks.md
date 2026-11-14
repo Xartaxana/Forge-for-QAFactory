@@ -1,6 +1,6 @@
 # Every block in the controller, and the route through it
 
-`controller.py` refuses **351** times: 351 raises or collected `(Class, message)` problems (a request's problems are gathered and refused whole by `_raise_all`), as `DerivedViewStale`, `EventCommitted`, `IdempotencyKeyReused`, `ProjectionStale`, `StateConflict`, `ValueError` - two kinds that do not
+`controller.py` refuses **353** times: 353 raises or collected `(Class, message)` problems (a request's problems are gathered and refused whole by `_raise_all`), as `DerivedViewStale`, `EventCommitted`, `IdempotencyKeyReused`, `ProjectionStale`, `StateConflict`, `ValueError` - two kinds that do not
 mean the same thing. `StateConflict` says the request is fine and the story's recorded state is not
 ready for it (`DerivedViewStale`, a subclass of it, says the event IS committed and only what
 follows it failed); `ValueError` says the request itself is malformed and the story was never consulted. The
@@ -307,8 +307,8 @@ every edit above it. Rows are in source order.
 | `_plan_review_problems` | `StateConflict` | the plan changed after this review was stamped ({d['id']} saw other bytes than | `command` | the critic looks again at the current plan; the conductor returns the refusal whole |
 | `_plan_review_problems` | `StateConflict` | remark id(s) {', '.join(repeated)} repeat the ids of an earlier review of the plan: | `command` | the critic continues the numbering of the chain (PR-n); the conductor returns the refusal whole |
 | `_plan_review_problems` | `StateConflict` | (StateConflict, blocking[0] + ". " + then + end + " If a person decide | `person` | raised from the list `_passed_by_person` has already filtered |
-| `_s5_completion_problems` | `StateConflict` | (StateConflict, blocking[0]) | `person` | raised from the list `_passed_by_person` has already filtered |
-| `_s5_completion_problems` | `ValueError` | S5 window record is incomplete: | `command` | `window_record.py --task <T> --dispatch <ID>` writes every one of these from what is on disk |
+| `_s5_completion_tiers` | `StateConflict` | (StateConflict, blocking[0]) | `person` | raised from the list `_passed_by_person` has already filtered |
+| `_s5_completion_tiers` | `ValueError` | S5 window record is incomplete: | `command` | `window_record.py --task <T> --dispatch <ID>` writes every one of these from what is on disk |
 | `_open_windows_problems` | `ValueError` | open_windows requires a plain --not-complete, not unresolved: unresolved already says why | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
 | `_open_windows_problems` | `ValueError` | open_windows must be a non-empty list of case ids, one or more of each other window still open | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
 | `_open_windows_problems` | `ValueError` | open_windows requires cases of another window of {stage}; {named(bad, SCOPE_SHOWN)} | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
@@ -324,7 +324,9 @@ every edit above it. Rows are in source order.
 | `_s5_v2_collect` | `StateConflict` | coverage v2 S5 completion requires distinct accepted author and active critic for the same window | `command` | dispatch the missing half of the author/critic pair |
 | `_s5_v2_collect` | `StateConflict` | ( StateConflict, "; ".join(blocking) + ". Only the active qa-code-crit | `person` | raised from the list `_passed_by_person` has already filtered |
 | `_s5_v2_collect` | `ValueError` | coverage v2 instance requires unique obligation_refs with exact hashes | `command` | `manifest_put.py --fragment` binds the obligations |
+| `_s5_v2_collect` | `ValueError` | coverage v2 instance requires unique obligation_refs with exact hashes | `command` | `manifest_put.py --fragment` binds the obligations (the second site, the per-instance loop) |
 | `_s5_v2_collect` | `ValueError` | coverage v2 instance requires execution_fingerprint | `command` | `execution_fingerprint.py` writes it into the run block |
+| `_s5_v2_collect` | `ValueError` | coverage v2 instance requires execution_fingerprint | `command` | `execution_fingerprint.py` writes it into the run block (the second site, the per-instance loop) |
 | `_s5_v2_collect` | `StateConflict` | instance obligation_refs do not match the current approved plan | `command` | `manifest_put.py --fragment` re-binds them, or the plan is revised |
 | `_s5_v2_collect` | `ValueError` | instance obligation IDs must match obligation_refs | `command` | `manifest_put.py --fragment` re-binds them |
 | `_s5_v2_collect` | `ValueError` | instance obligation_hash must bind exact obligation_refs | `command` | `manifest_put.py --fragment` recomputes the hash |

@@ -279,6 +279,10 @@ def main() -> None:
                 errors.append("coverage-map receipt does not bind the current case facts")
         except (OSError, ValueError, AttributeError):
             errors.append("coverage-map receipt is unreadable")
+    else:
+        # FR-4 / FR-59 / FR-41: no receipt is an unknown, not a pass - say it was not checked and how a receipt comes to exist
+        warnings.append("the map-to-receipt binding was not checked because there is no coverage-map receipt; "
+                        "`check_coverage.py --write` writes the map and its receipt")
 
     for area, fact in sorted(areas.items()):
         sec = sections.get(area)

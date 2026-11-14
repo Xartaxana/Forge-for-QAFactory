@@ -1184,9 +1184,12 @@ def _f_check_plan(obj, w, value, row):
 
 
 def _accept_form(FF, row, w):
+    import handoff
     author = f"{row['stage']}-{row['author_role']}-1"
+    path = handoff.acceptance_verdict_path(row["contract"])      # the word sits where the contract says (AR-13): the reject is asked for there
+    asked = dict(verdict="concerns") if path == "header.verdict" else dict(verdict=None, overrides={path: "return"})
     filled = FF.fill_form(row["contract"], FF.FillContext(author_dispatch=author, dispatch_id=f"{row['contract']}-w1", cases=["TC-001"],
-                                                          cases_root=_world_cases_root(w.world, w.task)), verdict="concerns")
+                                                          cases_root=_world_cases_root(w.world, w.task)), **asked)
     if filled.unfillable:
         raise _Red(f"the form {row['contract']} cannot be filled: {[(u.path, u.why) for u in filled.unfillable][:2]}")
     return filled, author

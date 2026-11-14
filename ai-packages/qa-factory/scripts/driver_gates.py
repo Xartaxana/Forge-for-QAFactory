@@ -697,8 +697,16 @@ class DriverGates:
 
     def unrepaired_text(self, gate: str, fixable: list) -> str:
         """The block at the top of the gate packet (F5 b): what the factory could not repair, stated as its
-        own (FR-3) - the person is told, not asked. At most GATE_TOP_LIMIT lines; the rest is counted."""
+        own (FR-3) - the person is told, not asked. At most GATE_TOP_LIMIT lines; the rest is counted.
+
+        FV1-9 (P6): a finding of `open_questions` tagged `on_card` True is left out - the person answers that question on its
+        card, which carries the help lines, so a defect line about it at the top would tell them twice what the card says once
+        (FR-10). The filter runs BEFORE the dedupe and the sort. A finding without the tag (an older one) or with it False
+        (no card) is printed as before. Nothing left to print: no block at all (never a heading over nothing)."""
         seen, lines = set(), []
+        fixable = [f for f in fixable if not (f.get("check") == "open_questions" and f.get("on_card") is True)]
+        if not fixable:
+            return ""
         # what only a person's word passes (question branches) first: a long list must not cut it off
         for item in sorted(fixable, key=lambda f: f["check"] not in GATE_DIRECT_CHECKS):
             if item["message"] not in seen:
@@ -809,6 +817,16 @@ class DriverGates:
             out.append(line)
         if len(rest) > 20:
             out.append(f"- (and {len(rest) - 20} more: `gate_preflight.py --task {self.task} --gate {gate} --text`)")
+        if any(item.get("check") == "open_questions" for item in rest):
+            # T10 (FV1-9, P7): the helper's turn for a question the rework could not repair - what helps the person answer, in a
+            # note on the card, never a reading picked for them
+            out += ["", "For each `open_questions` finding above: when `controller.py --operation rework --stage S2 --role "
+                    "qa-requirements-tester` is refused by the repair cap, do not try again. Read the sources and write what helps "
+                    "the person answer that question - where each reading comes from, the source line, what each answer changes, "
+                    f"an answered question it rests on - with `question_register.py --task {self.task or '<T>'} --note <id> "
+                    "--words-file <file> --by conductor --where "
+                    "\"stage ran\"`. Do not say which reading is right: the person decides. Do not rewrite the question; its card "
+                    "shows your note."]
         out += ["", "Repair what you can with the factory's own commands (each finding's `fix` names its door), then "
                 "answer `continue`: the driver shows the gate once, with whatever is left stated at its top as the "
                 "factory's own. Answer `ask_person` only for a finding that needs a decision of theirs."]
@@ -996,6 +1014,8 @@ class DriverGates:
         record = {"at": _now(), "keys": keys, "moves": [], "outcome": "to_conductor" if rest else "shown",
                   "stop": reason}
         self.record_round(gate, series, record)
+        if reason in ("same_set", "cap"):      # N3: the stop's own record is written once per series (a stopped series returns early)
+            self.record_repeat(stage, "gate_repair", gate, "", [f"{f['check']}: {f['message']}" for f in fixable], reason)
         return self.hand_to_conductor(gate, stage, why, rest, direct, tried, fixable)
 
     def hand_to_conductor(self, gate: str, stage: str, why: str, rest: list, direct: list, tried: str,

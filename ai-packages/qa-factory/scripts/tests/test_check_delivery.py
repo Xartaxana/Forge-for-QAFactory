@@ -2126,6 +2126,54 @@ def a_diff_story_pending_implementation_is_not_the_awaiting_kind() -> None:
              ("no", "none"))
 
 
+def fv1_30b_n2_no_run_row_names_the_word() -> None:
+    """FV1-30b R4: the text of a `not_executed` `no` record ends with "; passed by the person's word at S5 (<ts>)" when the RECORD
+    names the row's instance under `not_run`. Text only: the kind and the verdict never change (E15). Without a record, with an
+    unreadable one, or for an instance the record does not name, the text is today's (E1, E2, E6)."""
+    import delivery_verdict as DV
+    root = temp_project("qa-fv130b-n2-ledger-")
+    try:
+        task = root / "QA-1"
+        (task / "state").mkdir(parents=True)
+        record = task / "state" / "passed-by-person.jsonl"
+        row = {"ref": "TS-1", "kind": "plan_row", "state": "not_executed", "detail": "no run row"}
+        manifest = {"tests": [{"instance_id": "A", "plan_row": "TS-1", "covers": ["TC-1"]},
+                              {"instance_id": "B", "plan_row": "TS-2", "covers": ["TC-2"]}]}
+        facts = {"artifacts": task, "dispositions": {}, "decisions": {}, "cfg": {}, "manifest": manifest, "triage": [], "plan": [],
+                 "index": {"TC-1": {"plan_row": "TS-1", "case_id": "TC-1"}, "TC-2": {"plan_row": "TS-2", "case_id": "TC-2"}}}
+        line = {"ts": "2026-11-13T10:00:00+00:00", "stage": "S5", "dispatch": "d1", "block": "run_mapping:-:no-row-A",
+                "finding_id": "run_mapping:-:no-row-A", "check": "run_mapping", "case": "", "tag": "no-row-A",
+                "subjects": [{"instance_id": "A"}], "decision": "go on", "word_at": "2026-11-13T09:59:00Z", "by": "human"}
+
+        def read(r) -> dict:
+            return D.ledger_records({"rows": [r]}, facts)[0]
+
+        plain = read(row)
+        check_eq("R4 control: no record -> today's text, kind `not_executed`, a `no`",
+                 (plain["text"], plain["kind"], DV.verdict_of_kind(plain["kind"])), ("ledger: TS-1 is `not_executed` (no run row)", "not_executed", "no"))
+        record.write_text(json.dumps(line) + "\n", encoding="utf-8")
+        named = read(row)
+        check_eq("R4: the record names instance A of the row -> the same text plus the word's suffix",
+                 named["text"], plain["text"] + "; passed by the person's word at S5 (2026-11-13T10:00:00+00:00)")
+        check_eq("R4: the kind is the same and still a `no` (the word passes the step, never the fact)",
+                 (named["kind"], DV.verdict_of_kind(named["kind"])), (plain["kind"], "no"))
+        check_eq("R4: a row of another plan row (instance B) -> today's text", read(dict(row, ref="TS-2"))["text"],
+                 plain["text"].replace("TS-1", "TS-2"))
+        check_eq("R4: a test row whose ref is the instance (an alias spelling) -> the suffix",
+                 read({"ref": "A", "kind": "test", "state": "not_executed", "detail": "no run row"})["text"].endswith(
+                     "; passed by the person's word at S5 (2026-11-13T10:00:00+00:00)"), True)
+        check_eq("R4: a `failed` row of the same instance carries no suffix (the fact must stand as `not_executed`)",
+                 "passed by the person's word" in read(dict(row, state="failed", detail="red"))["text"], False)
+        record.unlink()
+        record.mkdir()
+        check_eq("R4: record unreadable -> today's text", read(row)["text"], plain["text"])
+        check_eq("R4: no story folder in the facts -> today's text",
+                 D.ledger_records({"rows": [row]}, {k: v for k, v in facts.items() if k != "artifacts"})[0]["text"], plain["text"])
+    finally:
+        cleanup(root)
+
+
 if __name__ == "__main__":
     f5_unprepared_walk_is_a_left_item()
+    fv1_30b_n2_no_run_row_names_the_word()
     main()

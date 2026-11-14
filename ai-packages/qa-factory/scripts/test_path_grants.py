@@ -38,7 +38,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import hooklib  # noqa: E402
-from test_locations import (MARKERS_FILE, _grammar_problem, _match,  # noqa: E402,F401
+from test_locations import (MARKERS_FILE, _match, grammar_problem,  # noqa: E402,F401
                             _opens_boundary, _roots, _segments, _text, dir_marker, markers, name_marker)
 
 # `--block "protected test path: <p>"`: the key of a permission in `stage_overrides[]`.
@@ -113,7 +113,7 @@ def _judge(p, cfg, app_root, loaded: tuple) -> tuple:
     """(refusals, notes) for a pattern: the refusals stop a record, the notes only tell."""
     text = _text(p)
     shown = str(p if p is not None else "").strip()  # as the person's words named it, not normalised
-    problem = _grammar_problem(text)
+    problem = grammar_problem(text)
     table, why = loaded
     errors: list = []
     notes: list = []
