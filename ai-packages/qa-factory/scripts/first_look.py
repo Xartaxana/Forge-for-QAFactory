@@ -4,6 +4,7 @@
     python scripts/first_look.py end   --task-root <story> --outcome written|nothing_written|open_failed
     python scripts/first_look.py put   --task-root <story> --file <rows.yaml> | --null <reason>   (the walker: the record, once)
     python scripts/first_look.py show  --task-root <story> [--json]
+    python scripts/first_look.py record-sign-in --task-root <story>   (S3, after an ACCEPTED first look: keep the way in it found, once)
 
 WHAT THE FIRST LOOK IS. Before the plan is made, a walker looks at the stand once (the survey place of `walk_session.py`) and says, per
 requirement of the register, what the stand showed: `confirms`, `contradicts`, `missing` or `unreachable` (`references/first-look-statuses.json`),
@@ -22,7 +23,7 @@ requirement list the first look is about": `controller.py --operation first_look
 changed since the walk.
 
 Functions of the questions (all pure: they write nothing, FR-45): `current_keys`, `read`, `share`, `due`, `continued`, `asked`, `walk_actors`.
-Functions that write: `begin`, `end`, `put`, `mark_asked`. A refusal is a list of problems, each with its door (FR-1, FR-2); nothing here raises for a role's mistake.
+Functions that write: `begin`, `end`, `put`, `mark_asked`, and `record_sign_in` (into the project's registry, through `project_knowledge.record`; `accepted` is its pure gate). A refusal is a list of problems, each with its door (FR-1, FR-2); nothing here raises for a role's mistake.
 """
 from __future__ import annotations
 
@@ -48,7 +49,7 @@ import walk_session as WS  # noqa: E402
 from role_cli import RefusingParser, epilog, run_guarded  # noqa: E402
 
 SCRIPT = "first_look.py"
-SUBCOMMANDS = ("begin", "end", "put", "show")
+SUBCOMMANDS = ("begin", "end", "put", "show", "record-sign-in")
 DATA_PATH = hooklib.PLUGIN_ROOT / "references" / "first-look-statuses.json"
 RECORD_PARTS = ("work", "first-look.yaml")
 ATTEMPT_PARTS = ("state", "first-look-attempt.json")
@@ -846,13 +847,13 @@ def put(task_root, file, null_reason="") -> dict:
 # --- the questions (pure) ----------------------------------------------------------------------------------------------------
 
 def read(task_root) -> dict:
-    """THE reader of the record: `{rows, gaps, null, stale, stand_build, source_head, register_hash, walk, problem, absent, sign_in}` (`absent`: the file does not exist; `state` classifies). `source_head` is the
+    """THE reader of the record: `{rows, gaps, null, stale, stand_build, source_head, register_hash, walk, problem, absent, sign_in, stand}` (`absent`: the file does not exist; `state` classifies; `stand` is the stand the walk was on, `""` when the record has none). `source_head` is the
     record's map. `sign_in` is the way in the walker found (the mapping of `put`), `{}` when the record has none (an old record, a null
     record, a value that is no mapping) - an absent key reads as before. `stale` is true when the record's heads differ from the current heads (value by value; `unmeasured: ...` is a value) or its
     register hash from the current one, or the register cannot be read now. A record that is absent or cannot be read has `problem` and no
     rows; whether a stale record's rows are used is the caller's, and a stale record never confirms anything."""
     out = {"rows": [], "gaps": [], "null": "", "stale": False, "stand_build": "", "source_head": {}, "register_hash": "", "walk": "",
-           "problem": "", "absent": False, "sign_in": {}}
+           "problem": "", "absent": False, "sign_in": {}, "stand": ""}
     path = _record_path(task_root)
     if not path.is_file():
         out["absent"] = True
@@ -872,7 +873,7 @@ def read(task_root) -> dict:
     out.update(rows=rows, gaps=[str(g) for g in gaps] if isinstance(gaps, list) else [], null=str(doc.get("null") or ""),
                stand_build=str(doc.get("stand_build") or ""), source_head={str(k): str(v) for k, v in (heads or {}).items()},
                register_hash=str(doc.get("register_hash") or ""), walk=str(doc.get("walk") or ""),
-               sign_in=doc["sign_in"] if isinstance(doc.get("sign_in"), dict) else {})
+               stand=str(doc.get("stand") or ""), sign_in=doc["sign_in"] if isinstance(doc.get("sign_in"), dict) else {})
     text, reg_hash = current_keys(task_root)
     if not reg_hash:
         out["stale"], out["problem"] = True, "the register cannot be read now, so the record cannot be told current"
@@ -979,6 +980,80 @@ def continued(task_root, pipeline) -> bool:
     return bool(reg_hash) and word.get("source_head") == text and word.get("register_hash") == reg_hash
 
 
+def accepted(task_root, controller_state) -> bool:
+    """THE reader of "the first look of these heads was accepted" (AR-13; the driver's `_first_look_accepted` and `record_sign_in` both call
+    it): the attempt says `written`, the controller's dispatch of that attempt is `accepted` in `controller_state` (the controller's
+    projection, `{dispatches: {id: {status}}}`), and `read` gives a current, non-null, non-empty record of THAT walk. A record `put` wrote
+    under a dispatch that was not accepted is not accepted work. Pure. Anything unreadable: False (AR-28)."""
+    try:
+        attempt = read_attempt(task_root)
+        got = read(task_root)
+        state = ((controller_state or {}).get("dispatches") or {}).get(attempt.get("dispatch")) or {}
+        return bool(attempt.get("outcome") == "written" and state.get("status") == "accepted" and not got["problem"] and not got["null"]
+                    and not got["stale"] and got["rows"] and got["walk"] == attempt.get("dispatch"))
+    except Exception:  # noqa: BLE001 - an unreadable state is not an acceptance
+        return False
+
+
+def _not_recorded(why: str) -> dict:
+    return {"recorded": False, "id": "", "line": f"S3: first look: the way in was not recorded: {why}"}
+
+
+def record_sign_in(task_root, *, by, controller_state=None) -> dict:
+    """`{"recorded": bool, "id": str, "line": str}`: THE one write of the way in a first look found, to the project's registry
+    (`project_knowledge.record`, key `environments.sign_in`; the driver road and the skill road both call this, AR-19). Never raises, never
+    stops S3 (P1); `line` is what the caller prints ("" when there was nothing to record).
+
+    In this order: (1) `controller_state` None -> read through `controller.Controller(task_root).state()` (read-only: it reads the event
+    journal and the environment-job files and writes nothing); the first look not `accepted` -> no write. (2) the record has no `sign_in`
+    -> no write and NO line. (3) every row is blocked by a word of `gap_rows()["blocked_by"]` (data: `access`) -> no write: that way got the
+    walker nowhere. (4) the way's text is judged once more at the writer by the one secret guard against the walk's account values
+    (`sign_in_secret_faults`); a fault or an unreadable account -> no write. (5) `record`: the surface is the element, the way without
+    `evidence`/`quote`/`req`/`why` the value, the walker's `why` the words, the stand the attempt's. A line says created / already recorded /
+    refused. A story that leaves no trace refuses it (P8) and the line says the story's own briefs still show the way."""
+    try:
+        task = Path(task_root)
+        if controller_state is None:
+            import controller as CT
+            controller_state = CT.Controller(task).state()
+        if not accepted(task, controller_state):
+            return _not_recorded("the first look of these heads was not accepted")
+        got, attempt = read(task), read_attempt(task)
+        way = got["sign_in"]
+        if not way:
+            return {"recorded": False, "id": "", "line": ""}
+        blocked = gap_rows().get("blocked_by") or []
+        if not blocked:
+            return _not_recorded("the words of references/first-look-statuses.json cannot be read, so it cannot be told whether the rows were blocked")
+        if all(row.get("blocked_by") in blocked for row in got["rows"]):
+            return _not_recorded("every requirement of the record was blocked by access, so this way did not get the walker anywhere")
+        stand, walk = str(attempt.get("env") or ""), got["walk"]
+        actors = WS.read_record(task, walk).get("actors") if walk else None
+        secrets, problems = _account_secrets(task, stand, [str(a) for a in actors] if isinstance(actors, list) else [])
+        faults = problems + sign_in_secret_faults(way, secrets)
+        if faults:
+            return _not_recorded(f"{faults[0][:240]}")
+        import project_knowledge as PK
+        import runtime_paths
+        surface = str(way.get("surface") or "")
+        value = {k: v for k, v in way.items() if k not in PK.SIGN_IN_NOT_KEPT}
+        project = runtime_paths.project_for_task(task)
+        row, problem, created = PK.record(project, key=PK.SIGN_IN_KEY, environment=stand, element=surface, state=PK.KNOWN, scope="stand",
+                                          value=value, words=str(way.get("why") or ""), source="role", story=task.name, by=by,
+                                          where=f"first look {walk}", task_root=task)
+        named = f"the way in to `{stand}` ({surface})"
+        if row is None and problem == PK.NO_TRACE_WORDS:
+            return {"recorded": False, "id": "", "line": f"S3: first look: {named} was not recorded: this run leaves no trace (an experiment); "
+                                                         "this story's own briefs still show the way (B1)"}
+        if row is None:
+            return {"recorded": False, "id": "", "line": f"S3: first look: {named} was not recorded ({' '.join(problem.split())[:300]})"}
+        line = (f"S3: first look: recorded {named} as {row['id']} for later stories" if created
+                else f"S3: first look: {named} was already recorded as {row['id']}")
+        return {"recorded": True, "id": str(row["id"]), "line": line}
+    except Exception as exc:  # noqa: BLE001 - P1: a way in that could not be kept never stops S3
+        return _not_recorded(f"it could not be recorded now ({type(exc).__name__}: {' '.join(str(exc).split())[:160]})")
+
+
 # --- the command line --------------------------------------------------------------------------------------------------------
 
 def _command(argv) -> str:
@@ -1056,6 +1131,11 @@ def _cli(argv) -> int:
         if not done["written"]:
             return role_cli.refuse(command, " | ".join(done["problems"]))
         print(json.dumps(done, ensure_ascii=False))
+        return 0
+    if args.sub == "record-sign-in":
+        line = record_sign_in(task, by="conductor")["line"]     # a way not recorded is a fact, not a failure of the call: exit 0
+        if line:
+            print(line)
         return 0
     return _show(task, args.json)
 

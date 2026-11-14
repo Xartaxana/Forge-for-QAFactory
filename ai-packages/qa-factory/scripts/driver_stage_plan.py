@@ -231,15 +231,11 @@ class DriverStagePlan:
               + (f"; the record of that was not written ({(str(out).strip().splitlines() or ['no output'])[-1][:200]})" if code else ""))
 
     def _first_look_accepted(self, FL) -> bool:
-        """THE reader of "the first look of these heads was accepted" (AR-13): the attempt says `written`, the controller's dispatch of that
-        attempt is `accepted`, and `first_look.read` gives a current, non-null, non-empty record of THAT walk. A record `put` wrote under a
-        dispatch that was not accepted is not accepted work: it asks nothing and counts for nothing. Anything unreadable: False."""
+        """THE reader of "the first look of these heads was accepted" (AR-13): `first_look.accepted` over the controller's state - the one
+        condition, the skill road's `record-sign-in` reads the same. A record `put` wrote under a dispatch that was not accepted is not
+        accepted work: it asks nothing and counts for nothing. Anything unreadable: False."""
         try:
-            attempt = FL.read_attempt(self.task_root)
-            got = FL.read(self.task_root)
-            state = (self.controller_state().get("dispatches") or {}).get(attempt.get("dispatch")) or {}
-            return bool(attempt.get("outcome") == "written" and state.get("status") == "accepted" and not got["problem"] and not got["null"]
-                        and not got["stale"] and got["rows"] and got["walk"] == attempt.get("dispatch"))
+            return FL.accepted(self.task_root, self.controller_state())
         except Exception:  # noqa: BLE001 - an unreadable state is not an acceptance (AR-28)
             return False
 
@@ -325,6 +321,9 @@ class DriverStagePlan:
                                   "line": f"First look: survey walk {dispatch} on {stand} is open; your brief has the commands and the form."})
         launch()
         if self._first_look_accepted(FL):
+            line = FL.record_sign_in(T, by="driver", controller_state=self.controller_state())["line"]   # never raises, never stops S3 (P1)
+            if line:
+                print(line)
             return True
         if FL.read_attempt(T).get("outcome") == "walking":      # the role wrote nothing; a record `put` wrote keeps its `written` (B3)
             # remains: bookkeeping of an attempt that wrote nothing (P1): the line below says the plan is made without the look
