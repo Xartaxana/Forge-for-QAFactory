@@ -295,6 +295,80 @@ def test_pycache_and_non_py_are_skipped_and_roots_recurse(tmp_path, capsys):
     assert "__pycache__" not in out and "notes.txt" not in out
 
 
+PKG = "ai-packages/qa-factory/scripts"
+HAND_ROW = {"path": PKG + "/tests/test_a.py", "class": "HandReaderInput", "args": "RR-x", "count": 1}
+HAND_FILES = {
+    PKG + "/tests/fixtures/form-rounds.json": json.dumps({"hand_inputs": {"RR-x": ["Plan row:\\s*TS-\\d+"]}}),
+    PKG + "/tests/test-layers.json": json.dumps({"quarantine": {"test_q.py": {}}}),
+    PKG + "/tests/test_a.py": "x = 'Plan row: TS-1'\n",
+    PKG + "/tests/test_q.py": "x = 'Plan row: TS-2'\n",
+    PKG + "/tests/test_field_producers.py": "x = 'Plan row: TS-3'\n",
+}
+
+
+def _hand_go(tmp_path, capsys, files, rows, *flags, roots=(PKG,)):
+    make_repo(tmp_path, dict(HAND_FILES, **files))
+    baseline_file(tmp_path, rows)
+    return go(tmp_path, capsys, *flags, roots=roots)
+
+
+@pytest.mark.parametrize("case", [
+    "new hand literal -> exit 1 new finding",
+    "removed literal -> exit 1 stale",
+    "quarantined file not counted",
+    "bad regex -> exit 2",
+    "missing form-rounds.json -> exit 2",
+    "package root not among --root -> not run line",
+])
+def test_hand_input_line(tmp_path, capsys, case):
+    if case == "new hand literal -> exit 1 new finding":
+        rc, out = _hand_go(tmp_path, capsys, {}, [])
+        assert rc == 1 and "test_a.py:1: Plan row: TS-1  [HandReaderInput]" in out and "python tools/lint_ratchet.py --update" in out
+        rc, out = _hand_go(tmp_path, capsys, {}, [HAND_ROW])                       # twin: recorded -> green
+        assert rc == 0, out
+        rc, out = _hand_go(tmp_path, capsys, {PKG + "/tests/test_a.py": "a = 'Plan row: TS-1 Plan row: TS-2'\n"}, [HAND_ROW])
+        assert rc == 1 and "2 now, 1 in the baseline" in out                       # one finding per match, count per identity
+        rc, out = _hand_go(tmp_path, capsys, {}, [], "--update")
+        assert rc == 0 and f"added: {PKG}/tests/test_a.py: HandReaderInput RR-x  (0 -> 1)" in out
+    elif case == "removed literal -> exit 1 stale":
+        rc, out = _hand_go(tmp_path, capsys, {PKG + "/tests/test_a.py": "x = 1\n"}, [HAND_ROW])
+        assert rc == 1 and "stale baseline row(s):" in out and "HandReaderInput RR-x" in out and "--update" in out
+    elif case == "quarantined file not counted":
+        rc, out = _hand_go(tmp_path, capsys, {}, [HAND_ROW])
+        assert rc == 0 and "1 findings, 1 in the baseline" in out and "test_q.py" not in out and "test_field_producers" not in out
+        rc, out = _hand_go(tmp_path, capsys, {PKG + "/tests/test-layers.json": json.dumps({"quarantine": {}})}, [HAND_ROW])
+        assert rc == 1 and "test_q.py" in out                                      # twin: unquarantined -> counted
+    elif case == "bad regex -> exit 2":
+        bad = json.dumps({"hand_inputs": {"RR-x": ["(unclosed"]}})
+        rc, out = _hand_go(tmp_path, capsys, {PKG + "/tests/fixtures/form-rounds.json": bad}, [])
+        assert rc == 2 and "RR-x" in out and "(unclosed" in out and "cannot judge" in out
+        empty = json.dumps({"hand_inputs": {}})                                    # twin: no families -> zero findings, no error
+        rc, out = _hand_go(tmp_path, capsys, {PKG + "/tests/fixtures/form-rounds.json": empty}, [])
+        assert rc == 0, out
+        notobj = json.dumps({"hand_inputs": []})
+        rc, out = _hand_go(tmp_path, capsys, {PKG + "/tests/fixtures/form-rounds.json": notobj}, [])
+        assert rc == 2 and "hand_inputs" in out
+    elif case == "missing form-rounds.json -> exit 2":
+        make_repo(tmp_path, {k: v for k, v in HAND_FILES.items() if not k.endswith("form-rounds.json")})
+        baseline_file(tmp_path, [])
+        rc, out = go(tmp_path, capsys, roots=(PKG,))
+        assert rc == 2 and "cannot judge" in out and "form-rounds.json" in out
+        (tmp_path / PKG / "tests" / "fixtures").mkdir(parents=True)
+        (tmp_path / PKG / "tests" / "fixtures" / "form-rounds.json").write_text("{not json", encoding="utf-8")
+        rc, out = go(tmp_path, capsys, roots=(PKG,))
+        assert rc == 2 and "not JSON" in out
+        make_repo(tmp_path, HAND_FILES)
+        (tmp_path / PKG / "tests" / "test-layers.json").write_text("{not json", encoding="utf-8")
+        assert go(tmp_path, capsys, roots=(PKG,))[0] == 2                          # test-layers.json unreadable
+    else:
+        make_repo(tmp_path, dict(HAND_FILES, **{"src/a.py": CLEAN}))
+        baseline_file(tmp_path, [])
+        rc, out = go(tmp_path, capsys, roots=(PKG, "src"))                         # twin: root present -> judged (red: new literal)
+        assert rc == 1 and "hand-input line: not run" not in out
+        rc, out = go(tmp_path, capsys, roots=("src",))
+        assert rc == 0 and "hand-input line: not run (package scripts root not among --root)" in out
+
+
 def _package_tree_dirty() -> str:
     try:
         changes = DRT.status_changes(REPO, ["ai-packages"])       # the one git-status reader (B-455), not a second subprocess

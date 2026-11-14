@@ -1791,10 +1791,28 @@ def ep1_37_build_mine_request_role_wins() -> None:
                 (task / name).parent.mkdir(parents=True, exist_ok=True)
                 (task / name).write_text(json.dumps(value), encoding="utf-8")
             request = er.build_mine_request(work, ["TC-002"], cfg=cfg, task="K-1", probe=run_suite.probe_runtime)[0]
+            built["request"] = request
             iid = request["selected_instance_ids"][0]
             return request["command"]["selector_args"][iid], request["instance_contracts"][iid]
 
+        built: dict = {}
         args, contract = build(row)
+        # FV1-18 R-N2-2: a REAL `--mine` request carries no selector_contract_verified, and its note reads the record: with the
+        # hand silent and the profile's command proven it is "", without the proof it is the note (the control).
+        import onboarding_probe as OP
+        import profile_contract as PC
+        silent_cfg = {**cfg, "profiles": [{k: v for k, v in cfg["profiles"][0].items() if k != "selectors"}]}
+        check_not_in("R-N2-2: the built --mine command has no selector_contract_verified", "selector_contract_verified",
+                     built["request"]["command"])
+        check_in("R-N2-2 control: with no proof on record the built request gets the SELECTORS note", "SELECTORS (note)",
+                 run_suite.selector_note(built["request"], silent_cfg, work))
+        record = work / "qa-factory" / "state" / OP.G.REPORTER_REHEARSALS_FILE
+        record.write_text(json.dumps({"schema_version": 1, "rehearsals": {"k0": {
+            "profile_id": "web", "at": "2026-10-01T00:00:00",
+            "argv_digest": OP.argv_digest(PC.command_identity(silent_cfg["profiles"][0]["commands"]["one_test"]))}}}),
+            encoding="utf-8")
+        check_eq("R-N2-2: the built --mine request against a proven record: no note", run_suite.selector_note(
+            built["request"], silent_cfg, work), "")
         check_eq("no role value: the code builds the selector", args, ["/" + re.escape("tests/a.spec.ts") + ":1"])
         check_eq("no role value: the code builds the report id", contract["report_test_id"], "tests/a.spec.ts::TC-002 adds one")
         check_eq("no role value: file and join", (contract["file"], contract["classname_match"]), ("tests/a.spec.ts", "file_suffix"))
@@ -1867,7 +1885,255 @@ def pc9b_c8_a_reference_stand_run_is_a_sample() -> None:
         story.write_text(json.dumps({"ticket": "REQ-1"}), encoding="utf-8")
 
 
+def fv1_18_selector_contract() -> None:
+    """FV1-18 N1: `profile_contract.selector_contract` is the one answer to "is the runner's test selection proven for this
+    command"; it reads the command's identity (argv AND env) as every writer of the record digests it, and the command that
+    runs. Rows R-N1-1..R-N1-10 (the fixtures are built the way the rehearsal record is written, by this test's own helper)."""
+    import onboarding_probe as OP
+    import profile_contract as PC
+    pw =["npx", "playwright", "test", "--project", "chromium", "--reporter=junit", "<test-file>"]
+    pw_run = [w for w in pw if w != "<test-file>"]
+    env = {"PLAYWRIGHT_JUNIT_OUTPUT_NAME": "{report_path}"}
+    made, seen = [], []
+
+    def one_test(argv=pw, env_=env, **extra) -> dict:
+        spec = {"argv": list(argv) if isinstance(argv, list) else argv, "cwd": ".", **extra}
+        if env_ is not None:
+            spec["env"] = env_
+        return spec
+
+    def prof(spec=None, selectors=None, pid="pw") -> dict:
+        row = {"profile_id": pid, "commands": {"one_test": spec if spec is not None else one_test()}}
+        if selectors is not None:
+            row["selectors"] = selectors
+        return row
+
+    def root_with(rehearsals="absent") -> Path:
+        root = Path(tempfile.mkdtemp(prefix="qa-fv118-n1-"))
+        made.append(root)
+        path = root / "qa-factory" / "state" / OP.G.REPORTER_REHEARSALS_FILE
+        if rehearsals != "absent":
+            path.parent.mkdir(parents=True)
+            path.write_text(rehearsals if isinstance(rehearsals, str) else json.dumps(rehearsals), encoding="utf-8")
+        return root
+
+    def rows(*digests, pid="pw", **extra) -> dict:
+        return {"schema_version": 1, "rehearsals": {f"k{i}": {"profile_id": pid, "argv_digest": d, "at": "2026-10-01T00:00:00",
+                                                              **extra} for i, d in enumerate(digests)}}
+
+    def identity(spec) -> str:
+        return OP.argv_digest(PC.command_identity(spec))
+
+    def words_only(spec) -> str:
+        return OP.argv_digest(PC.command_argv(spec)[0])
+
+    def ask(name, want, profile, root, command=None) -> dict:
+        got = PC.selector_contract(profile, root, command)
+        seen.append(got)
+        check_eq(name, (got["verified"], got["state"]), want)
+        return got
+
+    try:
+        # R-N1-2 (the LR2-1 regression row; False on origin/main): a profile whose one_test sets env, proven by gate A's digest.
+        spec = one_test()
+        proven = root_with(rows(identity(spec)))
+        got = ask("R-N1-2: an env command with a row digested from its identity is verified (same_command)", (True, "same_command"), prof(), proven)
+        check_eq("R-N1-2: ...and selectors_verified is its bool view", PC.selectors_verified(prof(), proven), True)
+        check_in("R-N1-5: the why says the record proved this command", "record", got["why"])
+        ask("R-N1-3: the same profile, a row digested from the argv words only is another command (command_changed)", (False, "command_changed"),
+            prof(), root_with(rows(words_only(spec))))
+        ask("R-N1-4: a row of this command with no `tests` key counts as today (D1)", (True, "same_command"), prof(), proven)
+        ask("R-N1-4: ...and one with `tests: 0` (a hand edit) too", (True, "same_command"), prof(),
+            root_with(rows(identity(spec), tests=0)))
+        no_env = one_test(env_=None)
+        ask("TEMPORAL: a row written before the env existed (identity of a command with no env) keeps counting", (True, "same_command"),
+            prof(no_env), root_with(rows(OP.argv_digest(pw))))
+
+        # R-N1-1: every adversarial input of the error direction (False, its state named, never an exception).
+        ok_root = root_with(rows(identity(spec)))
+        gone = ok_root / "does-not-exist"
+        for name, args, want in (
+                ("profile None", (None, ok_root), (False, "no_command")),
+                ("profile a string", ("pw", ok_root), (False, "no_command")),
+                ("profile a list", ([], ok_root), (False, "no_command")),
+                ("profile with no commands", ({"profile_id": "pw"}, ok_root), (False, "no_command")),
+                ("commands a list", ({"profile_id": "pw", "commands": []}, ok_root), (False, "no_command")),
+                ("one_test absent", ({"profile_id": "pw", "commands": {}}, ok_root), (False, "no_command")),
+                ("one_test a string", ({"profile_id": "pw", "commands": {"one_test": "npx"}}, ok_root), (False, "no_command")),
+                ("one_test a list", ({"profile_id": "pw", "commands": {"one_test": []}}, ok_root), (False, "no_command")),
+                ("argv empty", (prof(one_test([])), ok_root), (False, "no_command")),
+                ("argv a string", (prof(one_test("npx playwright test")), ok_root), (False, "no_command")),
+                ("argv with a boolean word", (prof(one_test(["npx", True])), ok_root), (False, "no_command")),
+                ("root None", (prof(), None), (False, "no_command")),
+                ("root a number", (prof(), 5), (False, "error")),
+                ("root that does not exist", (prof(), gone), (False, "none")),
+                ("record file absent", (prof(), root_with()), (False, "none")),
+                ("record file empty", (prof(), root_with("")), (False, "unreadable")),
+                ("record not JSON", (prof(), root_with("{not json")), (False, "unreadable")),
+                ("record a list", (prof(), root_with("[]")), (False, "unreadable")),
+                ("rehearsals a list", (prof(), root_with({"rehearsals": []})), (False, "unreadable")),
+                ("rows that are not objects", (prof(), root_with({"rehearsals": {"a": 1, "b": "x", "c": None}})), (False, "none")),
+                ("a row with no digest", (prof(), root_with({"rehearsals": {"a": {"profile_id": "pw"}}})), (False, "none")),
+                ("a row of another profile", (prof(), root_with(rows(identity(spec), pid="other"))), (False, "none")),
+                ("same argv, another valid env", (prof(one_test(env_={"OTHER_NAME": "{report_path}"})), root_with(rows(identity(spec)))),
+                 (False, "command_changed")),
+                ("a wrapper script with its digest on record", (prof(one_test(["node", "run-e2e.mjs"])),
+                 root_with(rows(identity(one_test(["node", "run-e2e.mjs"]))))), (False, "no_selection_form")),
+                ("a form with no selection row (npx jest) with its digest on record", (prof(one_test(["npx", "jest"], env_=None)),
+                 root_with(rows(identity(one_test(["npx", "jest"], env_=None))))), (False, "no_selection_form")),
+                ("a hand false over a proven record", (prof(selectors={"verified": False}), ok_root), (False, "hand_false")),
+                ("selectors a string", (prof(selectors="yes"), ok_root), (False, "hand_unreadable")),
+                ("selectors a list", (prof(selectors=[]), ok_root), (False, "hand_unreadable")),
+                ("selectors an empty string (a falsy non-object used to fall through to the record)",
+                 (prof(selectors=""), ok_root), (False, "hand_unreadable"))):
+            ask(f"R-N1-1: {name} is not verified", want, *args)
+        ask("R-N1-1: a run command that is no object is not read as a command", (False, "no_command"), prof(), ok_root, "npx playwright test")
+
+        # R-N1-7: a FOREIGN env with the argv's digest on record is never a match on the argv alone (D5).
+        for shape, foreign in (("a string", "A={report_path}"), ("a bad name", {"1BAD NAME": "{report_path}"}),
+                               ("a value of its own", {"PLAYWRIGHT_JUNIT_OUTPUT_NAME": "/tmp/secret"})):
+            bad = one_test(env_=foreign)
+            digests = rows(words_only(bad), identity(bad), OP.argv_digest(pw))
+            ask(f"R-N1-7: env as {shape} on the profile's one_test is no_command (profile road)", (False, "no_command"), prof(bad), root_with(digests))
+            ask(f"R-N1-7: env as {shape} on the run's command is no_command (run road)", (False, "no_command"), prof(no_env),
+                root_with(digests), {"argv": pw_run, "env": foreign})
+
+        # R-N1-8: the run road compares the command that runs with the profile's one_test (F7 strict) before the record counts.
+        ask("R-N1-8: the run's command = the profile's argv with placeholders dropped + the same env: the record counts", (True, "same_command"),
+            prof(), proven, {"argv": pw_run, "env": dict(env)})
+        ask("R-N1-8: one argv word more is another command", (False, "command_not_profile"), prof(), proven,
+            {"argv": pw_run + ["--grep", "x"], "env": dict(env)})
+        ask("R-N1-8: the same argv with the env absent while the profile sets it is another command", (False, "command_not_profile"), prof(), proven,
+            {"argv": pw_run})
+        ask("R-N1-8: a profile with no one_test and a non-pytest run command: command_not_profile", (False, "command_not_profile"),
+            {"profile_id": "pw", "commands": {}}, proven, {"argv": pw_run, "env": dict(env)})
+        ask("R-N1-8: a profile whose one_test env is foreign, judged on the run road: no_command", (False, "no_command"),
+            prof(one_test(env_="x")), proven, {"argv": pw_run})
+        ask("R-N1-8: the hand false still wins on the run road", (False, "hand_false"), prof(selectors={"verified": False}), proven,
+            {"argv": pw_run, "env": dict(env)})
+        ask("R-N1-8: the hand true needs no command or root", (True, "hand_true"), prof(selectors={"verified": True}), None, {"argv": ["x"]})
+
+        # R-N1-6: a pytest command: the node id is the selection, on both roads.
+        py_prof = prof(one_test(["pytest", "<test-file>"], env_=None), pid="py")
+        ask("R-N1-6: a pytest one_test is verified by node id (profile road)", (True, "node_id"), py_prof, root_with())
+        ask("R-N1-6: a pytest run command is verified by node id whatever the profile's own command (run road)", (True, "node_id"),
+            prof(), root_with(), {"argv": ["python", "-m", "pytest", "tests/test_a.py::test_x"]})
+        ask("R-N1-6: ...but not with a foreign env on it (the order: env first)", (False, "no_command"), py_prof, root_with(),
+            {"argv": ["pytest", "x"], "env": "A=1"})
+        # FV1-18 N4 (R-N4-2): the same rows read the capability: the run-form data row, through runner_identity.
+        import launch_check as LCK
+        for argv_ in (["pytest", "<test-file>"], ["python", "-m", "pytest", "tests/test_a.py::test_x"]):
+            check_eq(f"R-N4-2: runner_identity({argv_})['node_id_selection'] is the data's True (the R-N1-6 rows' ground)",
+                     LCK.runner_identity(argv_)["node_id_selection"], True)
+        check_eq("R-N4-2: ...and a Playwright command has none", LCK.runner_identity(pw)["node_id_selection"], False)
+
+        # R-N1-9: the hand literal's shapes.
+        got = ask("R-N1-9: selectors.verified the string \"true\" with no record is not read as the hand: none", (False, "none"),
+                  prof(selectors={"verified": "true"}), root_with())
+        check_in("R-N1-9: ...and the why names the literal it did not read", "selectors.verified is not true or false", got["why"])
+        ask("R-N1-9: ...with a proof on record it is verified (the record road)", (True, "same_command"), prof(selectors={"verified": "true"}), proven)
+        ask("R-N1-9: selectors.verified null is not said either", (False, "none"), prof(selectors={"verified": None}), root_with())
+        ask("R-N1-9: selectors {} is not said (E2a)", (True, "same_command"), prof(selectors={}), proven)
+
+        # R-N1-10: the stated consequence of the probe's R6(a) (§2 item 6): a pytest-shaped one-test profile with no record is True.
+        check_eq("R-N1-10: a pytest-shaped one-test profile with NO record: selectors_verified is True (R6(a) now passes it)",
+                 PC.selectors_verified(py_prof, root_with()), True)
+        check_eq("R-N1-10: ...and a Playwright profile with no record stays False", PC.selectors_verified(prof(), root_with()), False)
+
+        # R-N1-5: every state's why is one non-empty English sentence; the states the rows above reached.
+        for got in seen:
+            check("R-N1-5: why of %s is non-empty, one line, no Cyrillic" % got["state"],
+                  got["why"].strip() != "" and "\n" not in got["why"] and not any(0x400 <= ord(ch) <= 0x4FF for ch in got["why"]), got["why"])
+        check_eq("R-N1-5: every state the function names was reached", {g["state"] for g in seen} >= {
+            "no_command", "hand_unreadable", "hand_false", "hand_true", "node_id", "no_selection_form", "command_not_profile",
+            "same_command", "command_changed", "none", "unreadable", "error"}, True)
+        # R-N1-1 (behaviour): runner_identity is handed argv WORDS, never the identity string (its env separator is no runner word):
+        # a proven-pytest command with an env still reads node_id.
+        ask("R-N1-1: a pytest command with an env is judged by its words (node_id)", (True, "node_id"),
+            prof(one_test(["pytest", "<test-file>"])), root_with())
+    finally:
+        for root in made:
+            shutil.rmtree(root, ignore_errors=True)
+
+
+def fv1_18_no_stop_one_note() -> None:
+    """FV1-18 N2: an unverified selector contract never STOPS a behavioural run; one `SELECTORS (note)` line says what was not
+    proven and the door. Rows R-N2-1..R-N2-5."""
+    import run_suite
+    import execution_request as er
+    pw_run = ["npx", "playwright", "test", "--project", "chromium", "--reporter=junit"]
+    env = {"PLAYWRIGHT_JUNIT_OUTPUT_NAME": "{report_path}"}
+    cfg = {"profiles": [{"profile_id": "pw", "commands": {"one_test": {"argv": pw_run + ["<test-file>"], "cwd": ".", "env": env}}}]}
+    root = Path(tempfile.mkdtemp(prefix="qa-fv118-n2-"))
+    try:
+        # R-N2-1: the refusal is gone (key absent, false, true); the other refusals still refuse.
+        absent = base_request("n2-absent")
+        del absent["command"]["selector_contract_verified"]
+        false = base_request("n2-false")
+        false["command"]["selector_contract_verified"] = False
+        check_eq("R-N2-1: a request with no selector_contract_verified resolves (was refused)", refusal(absent), "")
+        check_eq("R-N2-1: ...with false resolves (E8, an old request)", refusal(false), "")
+        check_eq("R-N2-1: ...with true resolves (E8)", refusal(base_request("n2-true")), "")
+        none_selected = base_request("n2-none")
+        none_selected["selected_instance_ids"] = []
+        check_in("R-N2-1 negative control: no selected instance is still refused", "must select at least one approved instance", refusal(none_selected))
+        missing_args = base_request("n2-args")
+        del missing_args["command"]["selector_args"]["case-0"]
+        check("R-N2-1 negative control: selector_args missing an instance is still refused", refusal(missing_args) != "", refusal(missing_args))
+        no_id = base_request("n2-id")
+        del no_id["instance_contracts"]["case-0"]["report_test_id"]
+        check("R-N2-1 negative control: no report_test_id is still refused", refusal(no_id) != "", refusal(no_id))
+        print("R-N2-1 still-refused messages:", refusal(none_selected), "|", refusal(missing_args), "|", refusal(no_id))
+
+        # R-N2-2 / R-N2-3: no new request carries the key; the template skeleton has none.
+        skeleton = [spec for name, _, spec in run_suite.REQUEST_TEMPLATE_FIELDS if name == "command"][0]
+        check_not_in("R-N2-2: the template's command skeleton has no selector_contract_verified", "selector_contract_verified", skeleton)
+        # (R-N2-2 on a real build_mine_request output: ep1_37_build_mine_request_role_wins)
+
+        # R-N2-4: the note.
+        request = {"purpose": "initial", "profile_id": "pw", "command": {"argv": pw_run, "env": dict(env)}}
+        line = run_suite.selector_note(request, cfg, root)
+        check_in("R-N2-4: the note starts with SELECTORS (note) and names the profile", "SELECTORS (note): profile pw:", line)
+        for word in ("not_run", "never passed", "--probe-profiles --profile pw", "no proven rehearsal of this command is on record"):
+            check_in(f"R-N2-4: the note carries {word!r}", word, line)
+        check_not_in("R-N2-4: the note never says not_executed", "not_executed", line)
+        check("R-N2-4: the note is ONE line", "\n" not in line and line.strip() != "", line)
+        print("R-N2-4 note:", line)
+        check_eq("R-N2-4: no profile_id says 'the selected profile'", "the selected profile" in run_suite.selector_note(
+            {**request, "profile_id": ""}, cfg, root), True)
+        check_eq("R-N2-4: a pytest command is verified: no note", run_suite.selector_note(
+            {**request, "command": {"argv": ["pytest", "tests/a.py::t"]}}, cfg, root), "")
+        check_eq("R-N2-4: purpose collect: no note", run_suite.selector_note({**request, "purpose": "collect"}, cfg, root), "")
+        check_in("R-N2-4: a command that differs from the profile's: the command_not_profile why", "not the profile's one_test command",
+                 run_suite.selector_note({**request, "command": {"argv": pw_run + ["--grep", "x"], "env": dict(env)}}, cfg, root))
+        check_eq("R-N2-4: cfg not a dict never raises: no note", run_suite.selector_note(request, "x", root), "")
+        check_eq("R-N2-4: root absent never raises: no note", run_suite.selector_note(request, cfg, None), "")
+        block = run_suite.build_run_block(
+            {"purpose": "initial", "selected_instance_ids": ["case-0"], "profile_id": "pw", "dispatch_id": "d1",
+             "instance_contracts": {"case-0": {"report_test_id": "x::case-0"}}, "command": {"argv": pw_run}},
+            {"execution_status": "passed", "results": []}, "attempt-1")
+        check_eq("R-N2-4 (AR-28): a selected instance with no report row is not_run, never passed",
+                 (block["results"][0]["status"], block["results"][0]["reason"]), ("not_run", "report row missing"))
+
+        # R-N2-5: request_profile, and executor_gap unchanged.
+        row = cfg["profiles"][0]
+        check_eq("R-N2-5: request_profile finds the row", run_suite.request_profile({"profile_id": "pw"}, cfg), row)
+        check_eq("R-N2-5: an absent id gives {}", run_suite.request_profile({"profile_id": "zz"}, cfg), {})
+        check_eq("R-N2-5: no id gives {}", run_suite.request_profile({}, cfg), {})
+        check_eq("R-N2-5: cfg without profiles gives {}", run_suite.request_profile({"profile_id": "pw"}, {}), {})
+        check_eq("R-N2-5: profiles not a list gives {}", run_suite.request_profile({"profile_id": "pw"}, {"profiles": 5}), {})
+        check_eq("R-N2-5: a non-dict row is skipped", run_suite.request_profile({"profile_id": "pw"}, {"profiles": ["pw", None, row]}), row)
+        check_eq("R-N2-5: executor_gap: a launcher that is not on PATH is a gap", (run_suite.executor_gap(
+            {"profile_id": "tests-e2e-ios", "built_by": {"cases": ["TC-001"]},
+             "command": {"argv": ["maestro-not-installed-anywhere"], "cwd": "."}}, {}) or {}).get("tool"), "maestro-not-installed-anywhere")
+        check_eq("R-N2-5: executor_gap: a launcher that resolves is never a refusal", run_suite.executor_gap(
+            {"profile_id": "p", "command": {"argv": [sys.executable], "cwd": "."}}, {}), None)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def main() -> None:
+    fv1_18_selector_contract()
     ep1_1_b371_instance_file_is_looked_for_in_the_run_directory_first()
     ep1_28_stand_probe_spec()
     rh1_9_same_instance_bytes_asks_the_one_comparator()
@@ -1913,6 +2179,7 @@ def main() -> None:
         check_eq("valid request resolves ten explicit selector instances",
                  len(validate_request(request, ROOT)["selected_instance_ids"]), 10)
         selector_join_checks()
+        fv1_18_no_stop_one_note()
         dependency_files_checks()
 
         bad = {**request, "purpose": "impact_regression", "idempotency_key": "bad-regression"}
