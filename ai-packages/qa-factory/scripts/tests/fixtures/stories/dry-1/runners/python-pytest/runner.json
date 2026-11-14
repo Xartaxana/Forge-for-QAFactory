@@ -1,0 +1,12 @@
+{
+ "id": "python-pytest",
+ "lang": "python",
+ "profile_id": "dry-pytest",
+ "command": "one_test",
+ "profile": {
+  "profile_id": "dry-pytest",
+  "commands": {
+   "one_test": {"argv": ["python", "-B", "-m", "pytest", "-q", "-p", "no:cacheprovider", "qa-factory/tests"], "cwd": "."}
+  }
+ }
+}

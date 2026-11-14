@@ -1,0 +1,11 @@
+{
+ "schema": 1,
+ "key": "DRY-1",
+ "requirements": ["R-1", "R-2"],
+ "cases": [
+  {"id": "TC-1", "channel": "auto"},
+  {"id": "TC-2", "channel": "manual"}
+ ],
+ "minted": {"R": ["R-1", "R-2"], "TC": ["TC-1", "TC-2"], "TS": ["TS-1", "TS-2"], "P": ["TS-1", "TS-2"]},
+ "runner": "python-pytest"
+}

@@ -60,17 +60,76 @@ def parse_moves(prompt: str) -> list:
     return moves
 
 
+STUB_ONLY = ("variant", "execute")        # keys of a row's `conductor` control the stub itself reads; they are never part of the verdict it prints
+
+
+def move_option(move: str, token: str) -> dict:
+    """One option of an `ask_person` answer for an open move, every line from the move's own row of conductor-actions.json (`says`, and the price lines
+    `factory` / `person` / `delivery` resolved by `no_move.price_row`, the one resolution): no text of the stub's own. A row that does not resolve is a
+    `KitError` naming the move."""
+    import hooklib
+    import no_move as NM
+    row = NM.move_rows().get(move)
+    if not row or not str(row.get("says") or "").strip():
+        raise KitError(f"references/conductor-actions.json: no move `{move}` with a `says`; the prompt offered it")
+    try:
+        priced = NM.price_row(NM.data(), (hooklib.load_ref_json(NM.VERDICTS_FILE) or {}).get("words") or {}, row, f"moves.{move}")
+    except NM.DataUnreadable as exc:
+        raise KitError(f"references/conductor-actions.json: the price row of `{move}` does not resolve ({exc})") from None
+    return {"token": token, "move": move, "says": str(row["says"]).strip(), "factory": priced["factory"], "person": priced["person"],
+            "story": {"delivery": str(row.get("delivery") or "")}}
+
+
 def conductor_verdict(prompt: str, control: dict) -> dict:
-    """The conductor stub, deterministic: the row's `conductor` control when it has one, else `ask_person` offering EVERY open move of the
-    prompt's own list, else `stop` naming that the prompt offered none."""
-    if control.get("conductor"):
-        return dict(control["conductor"])
+    """The conductor stub, deterministic. A row's `conductor` control that names an `action` other than `ask_person`, or carries its own `options`, is the
+    verdict as written (minus the keys the stub reads itself, `STUB_ONLY`). Otherwise `ask_person` offering EVERY open move of the prompt's own list, or
+    only those the row's `variant` names (a token, or a list of tokens; one the prompt does not offer is `stop` naming it, never an invented option),
+    each option priced from the move's row; `why_person`, `checked`, `question`, `did` come from the row, else from the defaults of RN1-9. No open move
+    in the prompt is `stop` naming that the prompt offered none."""
+    row = control.get("conductor") or {}
+    if row.get("options") or row.get("action") not in (None, "ask_person"):
+        return {k: v for k, v in row.items() if k not in STUB_ONLY}
+    if row.get("execute") and not row.get("action"):
+        return {"action": "continue", "did": f"stub: ran the move {row['execute'].get('move')}", "question": ""}
     moves = parse_moves(prompt)
     if not moves:
         return {"action": "stop", "did": "stub: the prompt lists no open move to offer", "question": ""}
-    return {"action": "ask_person", "did": "stub: offered every open move", "question": "Which of these should happen?",
-            "why_person": "access", "checked": "the refusal",
-            "options": [T.seam_option(token, move) for move, token in moves]}
+    wanted = row.get("variant")
+    if wanted is not None:
+        wanted = [wanted] if isinstance(wanted, str) else list(wanted)
+        absent = [w for w in wanted if w not in [token for _m, token in moves]]
+        if absent:
+            return {"action": "stop", "did": f"stub: the row's variant {absent} is not offered by the prompt (open: {[t for _m, t in moves]})", "question": ""}
+        moves = [(m, t) for m, t in moves if t in wanted]
+    return {"action": "ask_person", "did": row.get("did") or "stub: offered every open move",
+            "question": row.get("question") or "Which of these should happen?",
+            "why_person": row.get("why_person", DEFAULT_WHY), "checked": row.get("checked", DEFAULT_CHECKED),
+            "options": [move_option(move, token) for move, token in moves]}
+
+
+def conductor_execute(execute, project, task_dir, task: str, run=None) -> dict:
+    """The journal's account of the move a conductor row says to run (E3). `execute`: `{"move": <id>, "run": [[script, args...], ...]}` - exactly the
+    commands of the move (each script must be the one the move's own `run` text in conductor-actions.json starts with; `{task_root}` and `{task}` in an
+    argument are filled) - or `{"move": <id>, "executor": "conductor_judgment"}` for a move no command fills without judgment: nothing runs and the
+    row says so, so the case is judged by the later checks only, never counted as run (AR-29). A move or a script the data does not hold is `refused`."""
+    import no_move as NM
+    run = run or run_script
+    if not isinstance(execute, dict) or not execute.get("move"):
+        return {"refused": "`execute` names no move"}
+    move = str(execute["move"])
+    row = NM.move_rows().get(move)
+    if row is None:
+        return {"move": move, "refused": f"no move `{move}` in references/conductor-actions.json"}
+    if execute.get("executor") == "conductor_judgment":
+        return {"move": move, "executor": "conductor_judgment", "ran": []}
+    head = str(row.get("run") or "").split()[:1]
+    ran = []
+    for command in execute.get("run") or []:
+        if not isinstance(command, list) or not command or [command[0]] != head:
+            return {"move": move, "ran": ran, "refused": f"the command {command!r} is not the move's own (its `run` starts with {head})"}
+        code, text = run(project, command[0], [str(a).replace("{task_root}", str(task_dir)).replace("{task}", task) for a in command[1:]])
+        ran.append({"command": command, "exit": code, "text": cut(text)})
+    return {"move": move, "executor": "stub", "ran": ran}
 
 
 def source_key(item: dict) -> str:
@@ -127,6 +186,235 @@ def run_script(project: Path, script: str, args: list) -> tuple:
 def cut(text: str, limit: int = 400) -> str:
     """The head of a command's text on one line (a `live_only` carries it; the stub journal keeps the whole row)."""
     return " ".join(text.split())[:limit]
+
+
+# ------------------------------------------------------------------------------------------------ the story kit and the runner table (node N2)
+STORIES = HERE / "fixtures" / "stories"
+ABSENT_JSON = {"$absent": True}        # in a row's `overrides`: the field is left out (`form_filler.ABSENT`, which JSON cannot carry)
+DEFAULT_WHY, DEFAULT_CHECKED = "access", "the refusal"       # RN1-9: a question names a class and what was read; a row that wants another says so
+CHANNELS = ("auto", "manual")
+
+
+class Unfillable(Exception):
+    """An output or form the filler cannot fill: WHICH form or output, WHICH field and why. Never a text value, never a default: a role call that meets
+    it writes nothing for that output and the journal row says `live_only` with these words (E13)."""
+
+    def __init__(self, form: str, field: str, why: str):
+        super().__init__(f"{form}: cannot fill {field or 'the whole output'}: {why}")
+        self.form, self.field, self.why = form, field, why
+
+
+class KitError(ValueError):
+    """A story file (`story.json`, `kit.json`, a runner row) that cannot be used: the message names the file and what was expected (FR-1, FR-59)."""
+
+
+def read_json(path) -> dict:
+    """The JSON object at `path`, or a `KitError` naming the file: absent, empty, not JSON, or not an object. An unreadable file is a red line, never a skip."""
+    path = Path(path)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise KitError(f"{path}: cannot be read ({type(exc).__name__}); expected a JSON object") from None
+    if not text.strip():
+        raise KitError(f"{path}: the file is empty; expected a JSON object")
+    try:
+        found = json.loads(text)
+    except ValueError as exc:
+        raise KitError(f"{path}: not valid JSON ({exc}); expected a JSON object") from None
+    if not isinstance(found, dict):
+        raise KitError(f"{path}: holds {type(found).__name__}; expected a JSON object")
+    return found
+
+
+def load_kit(story_id: str, base=None) -> dict:
+    """The kit of a story (`kit.json`: the task key, the requirement ids, the cases with their channel, the ids other forms issue, the runner row it
+    walks) checked against its `story.json` (same task key). The ONE reader of the kit: the filler's context is built from it and from nothing else."""
+    folder = Path(base or STORIES) / story_id
+    story, kit = read_json(folder / "story.json"), read_json(folder / "kit.json")
+    problems = []
+    if not isinstance(kit.get("key"), str) or not kit["key"].strip():
+        problems.append("`key` is not a non-empty text")
+    if story.get("task") != kit.get("key"):
+        problems.append(f"`key` {kit.get('key')!r} is not the `task` {story.get('task')!r} of story.json")
+    reqs = kit.get("requirements")
+    if not isinstance(reqs, list) or not reqs or not all(isinstance(r, str) and r.strip() for r in reqs):
+        problems.append("`requirements` is not a non-empty list of ids")
+    cases = kit.get("cases")
+    if not isinstance(cases, list) or not cases or not all(isinstance(c, dict) and isinstance(c.get("id"), str) and c["id"].strip()
+                                                           and c.get("channel") in CHANNELS for c in cases):
+        problems.append(f"`cases` is not a non-empty list of {{id, channel in {list(CHANNELS)}}}")
+    elif len({c["id"] for c in cases}) != len(cases):
+        problems.append("`cases` names one id twice")
+    if not isinstance(kit.get("minted"), dict):
+        problems.append("`minted` is not an object (prefix -> the ids the world issues)")
+    if not isinstance(kit.get("runner"), str) or not kit["runner"].strip():
+        problems.append("`runner` is not the id of a row under runners/")
+    if problems:
+        raise KitError(f"{folder / 'kit.json'}: " + "; ".join(problems))
+    return kit
+
+
+def kit_context(kit: dict, dispatch: str = "", impl_diff: str = "", cases=None):
+    """The `FillContext` of the kit for ONE call: its ids (`cases` narrows them, a test file is one per case), the call's dispatch id."""
+    import form_filler as FF
+    ids = [c["id"] for c in kit["cases"]] if cases is None else list(cases)
+    return FF.FillContext(task_key=kit["key"], dispatch_id=dispatch, requirements=list(kit["requirements"]), cases=ids,
+                          minted={k: list(v) for k, v in kit["minted"].items()}, impl_diff=impl_diff)
+
+
+def runner_rows(story_id: str = "dry-1", base=None) -> list:
+    """The table of runners (F5): one row per folder `runners/<row>/runner.json` (`id` = the folder, `lang`, `profile` with its `profile_id` and `commands`).
+    An empty or absent `runners/` is a refusal naming the folder; so is a row folder with no `runner.json`."""
+    folder = Path(base or STORIES) / story_id / "runners"
+    dirs = sorted(d for d in folder.iterdir() if d.is_dir()) if folder.is_dir() else []
+    if not dirs:
+        raise KitError(f"{folder}: no runner row; expected runners/<row>/runner.json (the table of runners, F5)")
+    rows = []
+    for d in dirs:
+        row = read_json(d / "runner.json")
+        profile = row.get("profile")
+        if row.get("id") != d.name or not isinstance(row.get("lang"), str) or not row["lang"].strip() \
+                or not isinstance(profile, dict) or profile.get("profile_id") != row.get("profile_id") or not row.get("profile_id"):
+            raise KitError(f"{d / 'runner.json'}: expected `id` = {d.name!r}, a `lang`, and a `profile` whose `profile_id` is the row's `profile_id`")
+        rows.append(dict(row, dir=str(d)))
+    return rows
+
+
+def runner_row(row_id: str, story_id: str = "dry-1", base=None) -> dict:
+    rows = runner_rows(story_id, base)
+    found = [r for r in rows if r["id"] == row_id]
+    if not found:
+        raise KitError(f"{Path(base or STORIES) / story_id / 'runners'}: no runner row {row_id!r}; expected one of {[r['id'] for r in rows]}")
+    return found[0]
+
+
+def config_path(project) -> Path:
+    return Path(project) / "qa-factory" / "config.json"
+
+
+def install_runner(project, row: dict) -> None:
+    """Put a runner row into a world: the tiny project of the row (`<row>/project/`) beside the config, the row's profile into `config.profiles` (replacing
+    the one of the same id). The commands the automator stub runs are the ones the WORLD holds afterwards, read through `profile_contract`."""
+    src = Path(row["dir"]) / "project"
+    if src.is_dir():
+        shutil.copytree(src, project, dirs_exist_ok=True)
+    cfg = read_json(config_path(project))
+    cfg["profiles"] = [p for p in cfg.get("profiles") or [] if not (isinstance(p, dict) and p.get("profile_id") == row["profile_id"])] + [row["profile"]]
+    config_path(project).write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+
+
+def world_profile(project, profile_id: str):
+    """The profile row of the world's config with this id (the config's own `profiles`, read the way `config_contract._profile_slot` reads it), or None."""
+    rows = read_json(config_path(project)).get("profiles")
+    return next((p for p in rows if isinstance(p, dict) and str(p.get("profile_id")) == str(profile_id)), None) if isinstance(rows, list) else None
+
+
+def live_row(exc: Unfillable) -> dict:
+    """The `live_only` row of the journal for an `Unfillable`: the output or form, the field when there is one, the reason."""
+    return {"output": exc.form, **({"field": exc.field} if exc.field else {}), "why": exc.why[:240]}
+
+
+def decode_overrides(raw) -> dict:
+    """`{path: value | ABSENT}` of a row's overrides (`{path: value}`, a value `{"$absent": true}` meaning the field is left out)."""
+    import form_filler as FF
+    return {path: (FF.ABSENT if value == ABSENT_JSON else value) for path, value in (raw or {}).items()}
+
+
+def overrides_for(mine: dict, key: str, n: int) -> dict:
+    """The overrides of the row for form or output `key` on the `n`-th call of this dispatch (1-based): none from the call named by `repair_on_round` on
+    (the repair round fills clean). The row decides both; the stub holds no judgment of what to seed or when to repair."""
+    repair = mine.get("repair_on_round")
+    if isinstance(repair, int) and not isinstance(repair, bool) and n >= repair:
+        return {}
+    return decode_overrides((mine.get("overrides") or {}).get(key))
+
+
+def fill_output(output: str, ctx, overrides=None):
+    """The `FilledArtifact` of a role output, or `Unfillable` (the output, the field, why): an output code writes, one the filler has no kind for
+    (`not_covered`), one the tables cannot place, and a field no rule fills are all the same refusal - no text is ever put in their place (E13)."""
+    import form_filler as FF
+    try:
+        made = FF.fill_artifact(output, ctx, overrides=overrides)
+    except (FF.Unclassified, ValueError) as exc:
+        raise Unfillable(output, "", str(exc)) from None
+    if isinstance(made, FF.ByCode):
+        raise Unfillable(output, "", f"written by code ({made.writer}), not by the role")
+    if isinstance(made, FF.NotCovered):
+        raise Unfillable(output, "", f"no filler kind: {made.why}")
+    if made.unfillable:
+        first = made.unfillable[0]
+        raise Unfillable(output, first.path, first.why + (f" (and {len(made.unfillable) - 1} more)" if len(made.unfillable) > 1 else ""))
+    return made
+
+
+def fill_handover(contract: str, ctx, verdict=None, overrides=None):
+    """The `Filled` form of a contract, or `Unfillable` naming the contract and the first field no rule fills."""
+    import form_filler as FF
+    filled = FF.fill_form(contract, ctx, verdict=verdict, overrides=overrides)
+    if filled.unfillable:
+        first = filled.unfillable[0]
+        raise Unfillable(contract, first.path, first.why + (f" (and {len(filled.unfillable) - 1} more)" if len(filled.unfillable) > 1 else ""))
+    return filled
+
+
+def rel(project, path) -> str:
+    return str(Path(path).relative_to(project)).replace("\\", "/")
+
+
+def run_command(words: list, cwd, timeout: int = 120) -> tuple:
+    """`(exit code, text)` of ONE command of the profile as it stands (argv words, the project as cwd): a missing program is exit 127 and a command that
+    outlives the timeout is -9, each with its text - a failed command like any other, never a traceback."""
+    try:
+        done = subprocess.run(words, cwd=str(cwd), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
+                              env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"))
+    except FileNotFoundError:
+        return 127, f"{words[0]}: program not found"
+    except subprocess.TimeoutExpired:
+        return -9, f"{words[0]} did not finish within {timeout} s"
+    return done.returncode, (done.stdout + done.stderr)
+
+
+def automator_branch(project, task_dir, kit: dict, runner: dict, dispatch: str, run=run_script) -> dict:
+    """What the automator role does at S5, as the journal row's keys. The test file of each automated case is the `test_file:<lang>` of the runner row's
+    language, written by the filler; the command that runs the tests is the one the WORLD's profile holds (`profile_contract.profile_commands`, axis 30) -
+    nothing in this function reads the call's text; a profile with no command is `no_command` in the row and nothing is run. The manifest fragment of
+    each case is the filler's `manifest_row`, merged by `manifest_put.py` (the one writer of the manifest)."""
+    import form_filler as FF
+    import profile_contract as PC
+    out = {"wrote": [], "live_only": [], "ran": []}
+    cases = [c["id"] for c in kit["cases"] if c["channel"] == "auto"]
+    written = []
+    for case in cases:
+        try:
+            made = fill_output(f"test_file:{runner['lang']}", kit_context(kit, dispatch, cases=[case]))
+            out["wrote"] += [rel(project, p) for p in FF.write_outputs(task_dir, project, made)]
+            written.append(case)
+        except Unfillable as exc:
+            out["live_only"].append(dict(live_row(exc), case=case))
+    profile = world_profile(project, runner["profile_id"])
+    commands, problem = PC.profile_commands(profile)
+    name = runner.get("command") or "one_test"
+    spec = commands.get(name)
+    words, word_problem = PC.command_argv(spec)
+    if problem or word_problem or not words:
+        out["no_command"] = f"no command `{name}` in the profile {runner['profile_id']!r}: " + (problem or word_problem or "the profile holds none")
+        out["live_only"].append({"output": "the run of the tests", "why": out["no_command"]})
+    elif written:
+        code, text = run_command(words, Path(project) / str(spec.get("cwd") or "."))
+        out["ran"].append({"argv": words, "exit": code, "text": cut(text)})
+    for case in written:
+        try:
+            frag = task_dir / "state" / "dry-stub-fragments" / f"{dispatch}-{case}.json"
+            frag.parent.mkdir(parents=True, exist_ok=True)
+            frag.write_text(fill_output("manifest_row", kit_context(kit, dispatch, cases=[case])).files["work/automation-manifest.json"], encoding="utf-8")
+            code, text = run(project, "manifest_put.py", ["--task", kit["key"], "--fragment", str(frag)])
+            if code == 0:
+                out["wrote"].append("work/automation-manifest.json")
+            else:
+                out["live_only"].append({"output": "work/automation-manifest.json", "case": case, "why": f"manifest_put.py exit {code}: {cut(text)}"})
+        except Unfillable as exc:
+            out["live_only"].append(dict(live_row(exc), case=case))
+    return out
 
 
 def judge_sources(inventory: Path, declared: dict, runner) -> tuple:
@@ -225,11 +513,12 @@ def calls_before(task_dir: Path, key: str) -> int:
     return len([r for r in rows if (r.get("dispatch") or r.get("conductor")) == key])
 
 
-def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Path) -> tuple:
-    """`(dispatch, result text, journal row)` of one role call; see the module text."""
+def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Path, dispatch: str = "", n: int = 1) -> tuple:
+    """`(dispatch, result text, journal row)` of one role call; see the module text. `dispatch` names the call when the prompt does not (a repair resume);
+    `n` is the call's number within its dispatch (the row's `repair_on_round` reads it)."""
     import form_filler as FF
-    dispatch = re.search(r"Dispatch: (\S+)\.", prompt)
-    dispatch = dispatch.group(1) if dispatch else ""
+    found = re.search(r"Dispatch: (\S+)\.", prompt)
+    dispatch = found.group(1) if found else dispatch
     row = {"role": role, "wrote": [], "live_only": []}
     form = task_dir / "work" / "handoffs" / f"{dispatch}.yaml"
     text = form.read_text(encoding="utf-8") if form.is_file() else ""
@@ -239,17 +528,25 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
     mine = (control.get("stub") or {}).get(role) or {}
     task = control.get("task", "")
     import dry_world as W
-    ctx = FF.FillContext(task_key=task, dispatch_id=dispatch, impl_diff=W.mr_diff(W.type_row(control.get("type"))) if control.get("type") else "")
+    diff = W.mr_diff(W.type_row(control.get("type"))) if control.get("type") else ""
+    kit = load_kit(control["story"]) if control.get("story") else None
+    ctx = kit_context(kit, dispatch, diff) if kit else FF.FillContext(task_key=task, dispatch_id=dispatch, impl_diff=diff)
     if not contract:
         row["live_only"].append({"output": f"work/handoffs/{dispatch}.yaml", "why": "no form with a `contract:` line at that path"})
     else:
-        filled = FF.fill_form(contract.group(1), ctx, verdict=mine.get("verdict"))
-        if filled.unfillable:
-            first = filled.unfillable[0]
-            row["live_only"].append({"output": f"form {contract.group(1)}", "why": f"{first.path}: {first.why} (and {len(filled.unfillable) - 1} more)"})
-        else:
+        try:
+            filled = fill_handover(contract.group(1), ctx, mine.get("verdict"), overrides_for(mine, contract.group(1), n))
             form.write_bytes(filled.text.encode("utf-8"))
             row["wrote"].append(f"work/handoffs/{dispatch}.yaml")
+        except Unfillable as exc:
+            row["live_only"].append(dict(live_row(exc), output=f"form {contract.group(1)}"))
+    if kit and role == "qa-automator" and stage == "S5":
+        done = automator_branch(project, task_dir, kit, runner_row(kit["runner"]), dispatch)
+        row["wrote"] += done["wrote"]
+        row["live_only"] += done["live_only"]
+        row["ran"] = done["ran"]
+        if "no_command" in done:
+            row["no_command"] = done["no_command"]
     for out, script, args in ROLE_STEPS.get(role, []) if stage == "S1" else []:
         code, text = run_script(project, script, [a.format(task=task, task_root=str(task_dir)) for a in args])
         (row["wrote"] if code == 0 else row["live_only"]).append(out if code == 0 else {"output": out, "why": f"{script} exit {code}: {cut(text)}"})
@@ -265,18 +562,18 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
     for out, kind in role_plan(role, stage, FF):
         if kind == "fill":
             try:
-                FF.write_outputs(task_dir, project, FF.fill_artifact(out, ctx).require())
+                FF.write_outputs(task_dir, project, fill_output(out, ctx, overrides_for(mine, out, n)))
                 row["wrote"].append(out)
                 for where, why in (FF._row_of(out).get("synthetic") or {}).items():       # a value the row declares synthetic is named, not passed as a fact
                     row.setdefault("synthetic", []).append({"output": out, "field": where, "why": why[:120]})
-            except (FF.NotFillable, FF.Unclassified, ValueError) as exc:
-                row["live_only"].append({"output": out, "why": str(exc)[:240]})
+            except (Unfillable, FF.NotFillable, ValueError) as exc:
+                row["live_only"].append(live_row(exc) if isinstance(exc, Unfillable) else {"output": out, "why": str(exc)[:240]})
         elif kind.startswith("command:"):
             argv = [a.format(task_root=str(task_dir)) for a in COMMANDS[kind[8:]]]
             code, text = run_script(project, kind[8:], argv)
             (row["wrote"] if code == 0 else row["live_only"]).append(out if code == 0 else {"output": out, "why": f"{kind[8:]} exit {code}: {cut(text)}"})
         else:
-            row["live_only"].append({"output": out, "why": kind[len("live_only:"):]})
+            row["live_only"].append(live_row(Unfillable(out, "", kind[len("live_only:"):])))        # no filler kind: the same refusal, no text in its place
     default = f"{role} {stage} {task} - the stub filled the handover form of {dispatch}; nothing else to say"
     return dispatch, mine.get("result_text") or default, row
 
@@ -293,23 +590,32 @@ def claude_main(argv: list) -> int:
     agent, resume = opt("--agent"), opt("--resume")
     role = agent.split(":")[-1]
     if resume or agent:
-        dispatch = re.search(r"Dispatch: (\S+)\.", prompt)
-        key = dispatch.group(1) if dispatch else (opt("--resume") or role)
+        found = re.search(r"Dispatch: (\S+)\.", prompt)
+        derived = re.fullmatch(r"stub-(.+)-\d+", resume)      # a resume names the session the stub answered before: `stub-<dispatch>-<n>`
+        key = found.group(1) if found else (derived.group(1) if derived else (resume or role))
         n = calls_before(task_dir, key) + 1
-        if resume:        # a repair resume: the stub has no judgment to repair with, so it answers as before and writes nothing
+        repair = (control.get("stub") or {}).get(role, {}).get("repair_on_round")
+        if resume and not (isinstance(repair, int) and not isinstance(repair, bool) and n >= repair):
+            # a repair resume before the row's repair round: the stub has no judgment to repair with, so it answers as before and writes nothing
             result, row, session = (control.get("stub") or {}).get(role, {}).get("result_text") or "", {"role": role, "resume": True, "wrote": [], "live_only": []}, resume
             dispatch_id = key
-        else:
-            dispatch_id, result, row = fill_role(role, prompt, control, project, task_dir)
-            session = f"stub-{dispatch_id}-{n}"
+        else:         # a call, or the repair resume the row's `repair_on_round` names: the forms are filled again, now without the row's overrides
+            dispatch_id, result, row = fill_role(role, prompt, control, project, task_dir, dispatch=key, n=n)
+            session = resume if resume else f"stub-{dispatch_id}-{n}"
+            row = dict(row, resume=True) if resume else row
         journal(task_dir, dict(row, ts=now(), dispatch=dispatch_id, n=n, prompt_sha=hashlib.sha256(
             prompt.replace(dispatch_id, "<dispatch>").encode("utf-8")).hexdigest(), run_class=os.environ.get("STORY_RUN_CLASS", "")))
     else:
         n = calls_before(task_dir, "conductor") + 1
+        execute = (control.get("conductor") or {}).get("execute")
+        done = conductor_execute(execute, project, task_dir, control.get("task", "")) if execute else None
         verdict = conductor_verdict(prompt, control)
+        if done and done.get("refused"):
+            verdict = {"action": "stop", "did": f"stub: {done['refused']}", "question": ""}
         result, session = "I looked.\n" + json.dumps(verdict), f"stub-conductor-{n}"
-        journal(task_dir, {"ts": now(), "conductor": "conductor", "n": n, "role": "", "wrote": [], "live_only": [], "action": verdict.get("action"),
-                           "prompt_sha": hashlib.sha256(prompt.encode("utf-8")).hexdigest(), "run_class": os.environ.get("STORY_RUN_CLASS", "")})
+        journal(task_dir, dict({"ts": now(), "conductor": "conductor", "n": n, "role": "", "wrote": [], "live_only": [], "action": verdict.get("action"),
+                                "prompt_sha": hashlib.sha256(prompt.encode("utf-8")).hexdigest(), "run_class": os.environ.get("STORY_RUN_CLASS", "")},
+                               **({"executed": done} if done else {})))
     ns: dict = {}
     exec(T.RECEIPT, ns)
     ns["write_receipt"](session, None)
@@ -534,8 +840,11 @@ def selftest() -> int:
     # the conductor stub offers every open move the prompt lists, and stops when it lists none
     prompt = "x\n## Moves open here\n\nintro\n- `retry` — token `again`; option carries no \"args\"\n- `story_fact` — yours to run, never an option\n- `stop_here` — token `stop`; option carries no \"args\"\n\n## Other\n- `no` — token `no`;"
     check_eq("conductor: the open moves of the prompt, in order", parse_moves(prompt), [("retry", "again"), ("stop_here", "stop")])
-    verdict = conductor_verdict(prompt, {})
-    check_eq("conductor: ask_person with every open move as an option", (verdict["action"], [o["token"] for o in verdict["options"]]), ("ask_person", ["again", "stop"]))
+    import no_move as NM
+    real_prompt = NM.moves_section(NM.data(), ["approve_gate", "release_and_restart"], {})        # the prompt the driver prints, from the data
+    verdict = conductor_verdict(real_prompt, {})
+    check_eq("conductor: ask_person with every open move as an option", (verdict["action"], [o["move"] for o in verdict["options"]]),
+             ("ask_person", ["approve_gate", "release_and_restart"]))
     check_eq("conductor: no section, no move: stop", conductor_verdict("no section", {})["action"], "stop")
     # E18: the class the stub saw
     check("E18: dry as the first line passes", run_class_problem([{"first": True, "run_class": "dry"}]) == "")
@@ -562,9 +871,239 @@ def selftest() -> int:
     check("E16: a snapshot the main pass never made is named missing", "not found" in got, got)
     check_eq("gate: the numbers of the spec", (W.gate_verdict(100, 10, 15), W.gate_verdict(200, 10, 15), W.gate_verdict(100, 30, 40), W.gate_verdict(301, 5, 5), W.gate_verdict(10, 5, 61)),
              ("continue", "narrow", "narrow", "stop", "stop"))
+    selftest_n2(tmp)
     shutil.rmtree(tmp, ignore_errors=True)
     finish("dry_stub --selftest")
     return 0
+
+
+def selftest_n2(tmp: Path) -> None:
+    """The rows of node N2: the story kit and the runner table, the role branch (S2 through the filler, `Unfillable`, overrides and the repair round),
+    the automator (the world's profile commands, the manifest fragment), the conductor (every open move, the row's variant, the move's command,
+    `conductor_judgment`), the journal and the receipt, and `dry_driver.py`. The calls go through the stub as a PROCESS, the way the driver runs it."""
+    import harness as H
+    import dry_driver
+    import form_filler as FF
+    import no_move as NM
+    import scenario_walk as SW
+    from harness import check, check_eq
+    kit = load_kit("dry-1")
+    story = SW.load_story("dry-1")
+    check_eq("N2 item 6: scenario_walk.load_story reads dry-1: id, task, synthetic, the nine stages", (story.id, story.task, [e["stage"] for e in story.walk]),
+             ("dry-1", "DRY-1", [f"S{n}" for n in range(1, 10)]))
+    check_eq("N2 item 6: the kit holds two requirements, one automated case and one manual case, and names the first runner row",
+             ([c["id"] for c in kit["cases"] if c["channel"] == "auto"], [c["id"] for c in kit["cases"] if c["channel"] == "manual"], kit["requirements"],
+              [r["id"] for r in runner_rows()], kit["runner"]), (["TC-1"], ["TC-2"], ["R-1", "R-2"], ["python-pytest"], "python-pytest"))
+    # an unreadable story file is a red line naming the file; an empty runners folder is a refusal naming it
+    def broken(name, files):
+        folder = tmp / name
+        for rel_path, text in files.items():
+            (folder / rel_path).parent.mkdir(parents=True, exist_ok=True)
+            (folder / rel_path).write_text(text, encoding="utf-8")
+        return folder
+    good_story, good_kit = (STORIES / "dry-1" / "story.json").read_text(encoding="utf-8"), (STORIES / "dry-1" / "kit.json").read_text(encoding="utf-8")
+    for name, files, needle in (("n2-story-bad", {"s/story.json": "{nope", "s/kit.json": good_kit}, "story.json: not valid JSON"),
+                                ("n2-story-empty", {"s/story.json": "", "s/kit.json": good_kit}, "story.json: the file is empty"),
+                                ("n2-kit-missing", {"s/story.json": good_story}, "kit.json: cannot be read"),
+                                ("n2-kit-list", {"s/story.json": good_story, "s/kit.json": "[]"}, "kit.json: holds list"),
+                                ("n2-kit-other-task", {"s/story.json": good_story, "s/kit.json": good_kit.replace('"DRY-1"', '"DRY-2"')}, "is not the `task`"),
+                                ("n2-kit-no-case", {"s/story.json": good_story, "s/kit.json": good_kit.replace('"auto"', '"both"')}, "`cases` is not")):
+        try:
+            load_kit("s", broken(name, files))
+            got = "no refusal"
+        except KitError as exc:
+            got = str(exc)
+        check(f"N2 edge: {name} is red naming the file", needle in got and ("kit.json" in got or "story.json" in got), got)
+    for name, make in (("absent", lambda f: None), ("empty", lambda f: (f / "runners").mkdir(parents=True))):
+        folder = tmp / f"n2-runners-{name}"
+        make(folder / "s")
+        try:
+            runner_rows("s", folder)
+            got = "no refusal"
+        except KitError as exc:
+            got = str(exc)
+        check(f"N2 edge: a runners folder that is {name} is a refusal naming it", "no runner row" in got and "runners" in got, got)
+
+    def world(tag, commands=True):
+        project = H.temp_project(f"qa-dry-n2-{tag}-")
+        install_runner(project, runner_row(kit["runner"]))
+        if not commands:                      # a COPY of the profile without `commands`: the world's own config row, the packaged row stays as it is
+            cfg = read_json(config_path(project))
+            for profile in cfg["profiles"]:
+                profile.pop("commands", None)
+            config_path(project).write_text(json.dumps(cfg), encoding="utf-8")
+        task_dir = project / "qa-factory" / "artifacts" / "DRY-1"
+        (task_dir / "work").mkdir(parents=True)
+        return project, task_dir
+
+    def call(project, control, prompt, *argv, run_class="dry"):
+        control_file = project / "dry-stub-control.json"
+        control_file.write_text(json.dumps(control), encoding="utf-8")
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=str(project), DRY_STUB_CONTROL=str(control_file), PYTHONDONTWRITEBYTECODE="1")
+        env.pop("STORY_RUN_CLASS", None)
+        if run_class is not None:
+            env["STORY_RUN_CLASS"] = run_class
+        done = subprocess.run([sys.executable, "-B", str(Path(__file__).resolve()), *argv], input=prompt.encode("utf-8"), capture_output=True, env=env,
+                              cwd=str(project), timeout=300)
+        out = done.stdout.decode("utf-8", "replace").strip().splitlines()
+        return done.returncode, (json.loads(out[-1]) if out else {}), done.stderr.decode("utf-8", "replace")
+
+    def form(project, task_dir, stage, role, dispatch):
+        done = H.run_script("handoff_init.py", "--task", "DRY-1", "--stage", stage, "--role", role, "--dispatch", dispatch, "--task-root", str(task_dir), cwd=project)
+        return done.returncode, (done.stderr or done.stdout)[-300:]
+
+    def rows(task_dir):
+        path = task_dir / "state" / "dry-stub.jsonl"
+        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()] if path.is_file() else []
+
+    role_arg = ("-p", "--agent", "qa-factory:qa-requirements-tester")
+    control = {"task": "DRY-1", "story": "dry-1"}
+    # N2 (1), (3), (4), (5): the S2 role writes the register and the form through the filler; the same input gives the same bytes; the session id carries the dispatch
+    # and a counter per dispatch; the journal opens with the run class and every row carries it
+    saved = []
+    for tag in ("a", "b"):
+        project, task_dir = world(tag)
+        code, text = form(project, task_dir, "S2", "qa-requirements-tester", "D2")
+        check(f"N2 (1): handoff_init made the S2 form (world {tag})", code == 0, text)
+        prompt = f"Artifacts dir: {task_dir}\nDispatch: D2.\n"
+        template = (task_dir / "work" / "handoffs" / "D2.yaml").read_bytes()
+        rc, answer, err = call(project, control, prompt, *role_arg)
+        check_eq(f"N2 (1): the S2 call answers a result with the session `stub-D2-1` (world {tag})", (rc, answer.get("type"), answer.get("session_id")), (0, "result", "stub-D2-1"))
+        register = task_dir / "work" / "requirements-register.md"
+        handover = (task_dir / "work" / "handoffs" / "D2.yaml")
+        got = rows(task_dir)
+        left = FF.HINT.findall(handover.read_text(encoding="utf-8")) if handover.is_file() else ["no form"]
+        template_hints = FF.HINT.findall(template.decode("utf-8"))
+        check_eq(f"N2 (1): the register and the form are written by the filler (the form has fewer hints than the template; the rest are code's fields), no live_only (world {tag})",
+                 (register.is_file(), handover.is_file(), got[1]["live_only"], len(left) < len(template_hints)), (True, True, [], True))
+        saved.append((register.read_bytes(), handover.read_bytes()))
+        if tag == "a":
+            rc, second, err = call(project, control, prompt, *role_arg)
+            rc3, other, err = call(project, control, f"Artifacts dir: {task_dir}\nDispatch: D3.\n", *role_arg)
+            check_eq("N2 (4): the counter is per dispatch: D2 again is 2, D3 starts at 1", (second.get("session_id"), other.get("session_id")), ("stub-D2-2", "stub-D3-1"))
+            check_eq("N2 (5): the first line of the journal is the run class the stub saw, and every row carries it",
+                     (got[0].get("run_class"), all(r.get("run_class") == "dry" for r in rows(task_dir))), ("dry", True))
+            check_eq("N2 (5): the journal sits at state/dry-stub.jsonl of the task", (task_dir / "state" / "dry-stub.jsonl").is_file(), True)
+            rc, _a, _e = call(project, control, f"Artifacts dir: {task_dir}\nDispatch: D4.\n", *role_arg, run_class=None)
+            check_eq("N2 (5) / E18: with no class in the environment the row says so (the walker turns it red)", rows(task_dir)[-1].get("run_class"), "")
+    check_eq("N2 (3): the same input gives the same bytes: register and form of two worlds are identical", saved[0], saved[1])
+    # N2 (1): an output with no filler kind is an `Unfillable` naming the form and the field, never a text; the row it leaves is live_only
+    ctx = kit_context(kit, "D9")
+    for output, form_needle, field_needle in (("work/s5-plan.json", "work/s5-plan.json", ""), ("test_file:typescript", "test_file:typescript", "marker")):
+        try:
+            fill_output(output, ctx)
+            got = ("no refusal", "")
+        except Unfillable as exc:
+            got = (exc.form, exc.field)
+        check(f"N2 (1): {output} raises Unfillable with the form {form_needle!r} and the field {field_needle!r}", got == (form_needle, field_needle), f"{got}")
+    try:
+        fill_handover("references/no-such-contract.md", ctx)
+        got = "no refusal"
+    except Unfillable as exc:
+        got = exc.form
+    except Exception as exc:               # noqa: BLE001 - the filler itself names a contract it cannot read in its own words
+        got = f"{type(exc).__name__}"
+    check("N2 (1): a contract the filler cannot place is not a text either (an Unfillable or the filler's own refusal)", got != "no refusal", got)
+    # overrides and the repair round come from the row
+    check_eq("N2 row: overrides apply before the repair round and not from it", (overrides_for({"overrides": {"f": {"a.b": 1}}, "repair_on_round": 2}, "f", 1),
+             overrides_for({"overrides": {"f": {"a.b": 1}}, "repair_on_round": 2}, "f", 2), overrides_for({"overrides": {"f": {"a.b": ABSENT_JSON}}}, "f", 5)),
+             ({"a.b": 1}, {}, {"a.b": FF.ABSENT}))
+    contract = FORM_CONTRACT.search(template.decode("utf-8")).group(1)
+    base_form = fill_handover(contract, kit_context(kit, "D2"))
+    key = next(f.path for f in base_form.fills if f.rule not in ("verdict", "override") and isinstance(f.value, str))        # a field the rules filled with a text
+    seeded = fill_handover(contract, kit_context(kit, "D2"), overrides=overrides_for({"overrides": {contract: {key: "seeded-by-the-row"}}, "repair_on_round": 2}, contract, 1))
+    repaired = fill_handover(contract, kit_context(kit, "D2"), overrides=overrides_for({"overrides": {contract: {key: "seeded-by-the-row"}}, "repair_on_round": 2}, contract, 2))
+    check_eq("N2 row: an override of the row reaches the filled form on round 1 and is gone on the repair round (bytes equal to the clean fill)",
+             ("seeded-by-the-row" in seeded.text, seeded.text != base_form.text, repaired.text == base_form.text), (True, True, True))
+    # N2 (2), (6): the automator, the world's profile
+    for tag, commands in (("auto", True), ("nocmd", False)):
+        project, task_dir = world(tag, commands)
+        code, text = form(project, task_dir, "S5", "qa-automator", "A5")
+        check(f"N2 (6): handoff_init made the S5 form (world {tag})", code == 0, text)
+        decoy = "Run `python -m pytest decoy-from-the-brief` to prove the case.\n"
+        rc, answer, err = call(project, control, f"Artifacts dir: {task_dir}\nDispatch: A5.\n{decoy}", "-p", "--agent", "qa-factory:qa-automator")
+        row = rows(task_dir)[1]
+        check_eq(f"N2 (2): the automator call answers `stub-A5-1` (world {tag})", (rc, answer.get("session_id")), (0, "stub-A5-1"))
+        if commands:
+            check_eq("N2 (2): the test file of the automated case is written by the filler and the command is the profile's own (exit 0, not the brief's)",
+                     ([r["argv"] for r in row.get("ran", [])], [r["exit"] for r in row.get("ran", [])], (project / "qa-factory" / "tests" / "TC-1_test.py").is_file(),
+                      "decoy" in json.dumps(row)), ([["python", "-B", "-m", "pytest", "-q", "-p", "no:cacheprovider", "qa-factory/tests"]], [0], True, False))
+            check("N2 (2): the manifest fragment of the case was merged by manifest_put.py (exit 0)", "work/automation-manifest.json" in row["wrote"], json.dumps(row)[:600])
+        else:
+            check("N2 (6): a profile without `commands` is `no command` in the journal, nothing is run, and the brief's command is not looked for",
+                  "no command" in row.get("no_command", "") and row.get("ran") == [] and "decoy" not in json.dumps(row.get("ran")), json.dumps(row)[:600])
+    # N2 (2)-(3): the conductor
+    spec = NM.data()
+    offerable = [mid for mid, mrow in NM.move_rows(spec).items() if NM.move_columns(mrow, strict=False)[1] and NM.move_columns(mrow, strict=False)[0] is None
+                 and str(mrow.get("token") or "") not in ("", "—")][:3]
+    prompt = NM.moves_section(spec, offerable, {}) + "\n\nSomething refused.\n"
+    project, task_dir = world("cond")
+    rc, answer, err = call(project, control, prompt)
+    verdict = json.loads(answer["result"].split("\n", 1)[1]) if answer else {}
+    words = (NM.hooklib.load_ref_json(NM.VERDICTS_FILE) or {}).get("words") or {}
+    options, rule_text = NM.validate_options(verdict, offerable, spec, lambda s: s.strip().lower(), words)
+    check_eq("N2 (2): the conductor answers `ask_person` offering every open move, session `stub-conductor-1`",
+             (answer.get("session_id"), verdict.get("action"), [o["move"] for o in verdict.get("options", [])]), ("stub-conductor-1", "ask_person", offerable))
+    check("N2 item 3: the answer passes no_move.validate_options", options is not None and len(options) == len(offerable), rule_text)
+    first = NM.move_rows(spec)[offerable[0]]
+    check_eq("N2 item 3: every line of an option is the move's own row, no text of the stub's", (verdict["options"][0]["says"], verdict["options"][0]["token"]),
+             (first["says"].strip(), first["token"]))
+    tokens = [o["token"] for o in verdict["options"]]
+    rc, answer, err = call(project, dict(control, conductor={"variant": tokens[-1], "why_person": "decision", "checked": "the gate card"}), prompt)
+    verdict = json.loads(answer["result"].split("\n", 1)[1])
+    check_eq("N2 item 3: the row's variant narrows the offer and its why_person / checked are the row's; the counter runs on",
+             (answer["session_id"], [o["token"] for o in verdict["options"]], verdict["why_person"], verdict["checked"]), ("stub-conductor-2", [tokens[-1]], "decision", "the gate card"))
+    rc, answer, err = call(project, dict(control, conductor={"variant": "no-such-token"}), prompt)
+    verdict = json.loads(answer["result"].split("\n", 1)[1])
+    check("N2 edge: a variant the prompt does not offer is a `stop` naming it, never an invented option", verdict["action"] == "stop" and "no-such-token" in verdict["did"], str(verdict))
+    # E3: the move's own command, and the move no command fills without judgment
+    moves = NM.move_rows(spec)
+    ran = conductor_execute({"move": "rework_stage", "run": [["case_versions.py", "--all"]]}, project, task_dir, "DRY-1", run=lambda *a: (0, "never"))
+    check("E3: a command that is not the move's own is refused naming it and nothing runs", "is not the move's own" in ran.get("refused", "") and ran["ran"] == [], str(ran))
+    seen = []
+    ran = conductor_execute({"move": "rework_stage", "run": [["controller.py", "--task-root", "{task_root}", "--operation", "stage-scope"]]}, project, task_dir, "DRY-1",
+                            run=lambda p, s, a: (seen.append((s, a)) or (0, "ok")))
+    check_eq("E3: the move's own script runs with the row's arguments, `{task_root}` filled", seen, [("controller.py", ["--task-root", str(task_dir), "--operation", "stage-scope"])])
+    ran = conductor_execute({"move": "rework_stage", "executor": "conductor_judgment"}, project, task_dir, "DRY-1", run=lambda *a: (_ for _ in ()).throw(AssertionError("ran")))
+    check_eq("E3: a move that needs judgment is `executor: conductor_judgment`, nothing runs, never counted as run", (ran["executor"], ran["ran"]), ("conductor_judgment", []))
+    check("E3: a move the data does not hold is refused", "no move `nope`" in conductor_execute({"move": "nope"}, project, task_dir, "DRY-1").get("refused", ""))
+    rc, answer, err = call(project, dict(control, conductor={"execute": {"move": "rework_stage", "executor": "conductor_judgment"}}), prompt)
+    check_eq("E3: through the process: the journal row of the conductor carries `executed`, the answer is `continue`", (json.loads(answer["result"].split("\n", 1)[1])["action"],
+             rows(task_dir)[-1]["executed"]["executor"]), ("continue", "conductor_judgment"))
+    # E4: the counter is read from the journal, one file, so two dispatches never share an index (the stub never waits for anyone)
+    counted = rows_dir(tmp, "n2-count", [("D2", 2), ("D3", 1)])
+    check_eq("E4: the counters are per key in the journal (D2: 2 calls, D3: 1), never a shared index", (calls_before(counted, "D2"), calls_before(counted, "D3")), (2, 1))
+    # dry_driver.py: a spy that passes, and no attribute of the driver's class assigned (a grep over the owned files, with its positive control)
+    seen = []
+    spy = dry_driver.passing_spy(lambda key, options, *a, **k: (seen.append(key) or [{"token": None}]), tmp / "n2-priced" / "dry-priced.jsonl")
+    answered = spy("s1.gap", [{"answer": "go on"}, {"answer": "stop"}], {}, {})
+    check_eq("N2 item 5: the spy returns what the real function returned and records {key, answers}",
+             (answered, [json.loads(l) for l in (tmp / "n2-priced" / "dry-priced.jsonl").read_text(encoding="utf-8").splitlines()]),
+             ([{"token": None}], [{"key": "s1.gap", "answers": ["go on", "stop"]}]))
+    try:
+        dry_driver.passing_spy(lambda *a, **k: (_ for _ in ()).throw(ValueError("unreadable prices")), tmp / "n2-priced" / "never.jsonl")("k", [])
+        got = "no error"
+    except ValueError:
+        got = "raised"
+    check_eq("N2 item 5: a refusal of the real function passes through and nothing is recorded", (got, (tmp / "n2-priced" / "never.jsonl").exists()), ("raised", False))
+    check_eq("N2 item 5: the sink is the task's state folder of the call's own --project and --task",
+             dry_driver.sink_path(["--project", "P", "--task", "T", "--x"]), Path("P") / "qa-factory" / "artifacts" / "T" / "state" / "dry-priced.jsonl")
+    check("N2 edge: no --project or --task is None, the wrapper refuses naming them", dry_driver.sink_path(["--task", "T"]) is None)
+    pattern = re.compile(r"\bDri" + r"ver\.\w+\s*=[^=]")
+    owned = [Path(__file__).resolve(), Path(__file__).resolve().with_name("dry_driver.py")]
+    check("N2 item 5: positive control of the grep: the pattern finds an assignment to an attribute of the driver's class", pattern.search("Dri" + "ver.run = spy") is not None)
+    check("N2 item 5: positive control of the grep: it finds the assignment the wrapper does make (the one module attribute)",
+          re.search(r"\bno_move\.priced_options\s*=[^=]", owned[1].read_text(encoding="utf-8")) is not None)
+    check("N2 item 5: no owned file assigns an attribute of the driver's class", not [str(p) for p in owned if pattern.search(p.read_text(encoding="utf-8"))])
+
+
+def rows_dir(tmp: Path, name: str, calls: list) -> Path:
+    """A task folder whose stub journal holds one row per call of `calls` (`[(key, how many)]`)."""
+    folder = tmp / name
+    (folder / "state").mkdir(parents=True, exist_ok=True)
+    (folder / "state" / "dry-stub.jsonl").write_text("\n".join([json.dumps({"first": True, "run_class": "dry"})] + [json.dumps({"dispatch": k, "n": i + 1})
+                                                      for k, count in calls for i in range(count)]) + "\n", encoding="utf-8")
+    return folder
 
 
 def main(argv: list) -> int:
