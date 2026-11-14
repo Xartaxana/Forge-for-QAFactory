@@ -716,6 +716,10 @@ class DriverDispatch:
         if triage:
             lines += self.s7_place_lines(dispatch)         # E3b.1: the ONE site, before `extra`; fresh, scribe-reject and seam rework alike
             lines += self.s7_neighbour_lines(dispatch)     # t-2187 N6: the neighbourhood hint, beside the place lines, the same triage dispatches
+        # FV1-9 (P1): what code did not carry out of this role's earlier question entries; POSITION INVARIANT: before `extra`, so the
+        # "Plugin root" and form lines stay last. The lines leave the store only after a session's result with words is saved (below).
+        told = self.next_session_lines(stage, role)
+        lines += told
         lines += list(extra)
         import runtime_paths as RP
         lines.append(f"Plugin root: {self.plugin} — factory scripts are `{RP.script_command('<name>.py', self.plugin, must_exist=False)}`; "
@@ -729,6 +733,8 @@ class DriverDispatch:
                 result = self.run_claude("role", full_prompt, role=role, dispatch=dispatch, stage=stage,
                                          system_file=self.system_file(role, dispatch, scope))
                 _write_json(saved, result)
+                if str(result.get("result") or "").strip():      # a dead or empty result read nothing: the lines stay (the `resume_role` rule)
+                    self.forget_told(stage, role, told)
             else:
                 print(f"[{stage}] {dispatch}: reusing the saved result of session {result.get('session_id')}")
         finally:
@@ -1753,6 +1759,72 @@ class DriverDispatch:
                 f"continue your dispatch {dispatch} on them — do not ask them again. " + changed +
                 "Your final message is the handoff form only:\n" + HANDOFF_FORM)
 
+    @staticmethod
+    def told_from(out, keys, *, unknown: bool = True) -> list:
+        """FV1-9 (P1, AR-22): the lines a carrier command printed about the question entries code did NOT carry out. `out` is the command's
+        stdout+stderr; it holds one JSON object, read by the slice the driver reads such output with. Returns the text of the lists under
+        `keys`; an output that is no JSON object, or an object with an `errors` list, adds the ONE line saying it is not known whether the
+        entries were carried out (AR-28: an unknown is said, never taken as `nothing refused`). `unknown=False`: the keys' lines only."""
+        text = str(out or "")
+        try:
+            data = json.loads(text[text.index("{"):text.rindex("}") + 1])
+        except ValueError:
+            data = None
+        said = ("the factory could not read what this step reported, so whether your question entries were carried out is not known; "
+                "look at them in your work")
+        if not isinstance(data, dict):
+            return [said] if unknown else []
+        lines = [str(x) for key in keys for x in (data.get(key) if isinstance(data.get(key), list) else [])]
+        if unknown and isinstance(data.get("errors"), list) and data["errors"]:
+            lines.append(said)
+        return lines
+
+    def tell_next_session(self, stage: str, role: str, lines, tail: str) -> None:
+        """FV1-9 (P1, F-1 (b)): the lines code printed about question entries it did not carry out go to the role that wrote them, at ITS
+        NEXT session (`next:<stage>:<role>` in `question_pass_lines`; `run_role` reads them, `forget_told` removes them). Each line is
+        stored once (a replay stores nothing twice) with the carrier's `tail`, and printed as `note:` when new. An empty role stores
+        nothing (the `note:` lines are still printed); no new line, no save."""
+        key = f"next:{stage}:{role}"
+        store = self.state.get("question_pass_lines") or {}
+        stored = store.get(key) if isinstance(store.get(key), list) else []
+        fresh = []
+        for line in lines or []:
+            text = " ".join(str(line).split())
+            full = f"{text} ({tail})"
+            if text and full not in stored and full not in fresh:
+                fresh.append(full)
+                print(f"note: {stage} {role}: {text}")
+        if fresh and role:
+            self.state.setdefault("question_pass_lines", {})[key] = [*stored, *fresh]
+            self.save_state()
+
+    def next_session_lines(self, stage: str, role: str) -> list:
+        """The prompt lines for what `tell_next_session` stored for this role at this stage: `[]` when nothing is stored, else the heading
+        and the stored lines. Reads only; `forget_told` removes what was sent once the session's result is saved."""
+        stored = ((getattr(self, "state", None) or {}).get("question_pass_lines") or {}).get(f"next:{stage}:{role}")   # a driver with no state: nothing stored
+        if not isinstance(stored, list) or not stored:
+            return []
+        return ["Code did not carry out these question entries from your earlier work, or could not tell whether it did; each line says "
+                "which and why:", *(f"- {line}" for line in stored)]
+
+    def forget_told(self, stage: str, role: str, sent) -> None:
+        """Removes from the role's `next:` key exactly the stored lines that `next_session_lines` returned in `sent` (a line added
+        meanwhile stays), drops an emptied key and saves. Nothing sent or nothing removed: no write, no save."""
+        key = f"next:{stage}:{role}"
+        gone = {str(line)[2:] for line in sent or [] if str(line).startswith("- ")}
+        if not gone:
+            return
+        store = self.state.get("question_pass_lines") or {}
+        stored = store.get(key)
+        if not isinstance(stored, list) or not any(line in gone for line in stored):
+            return
+        left = [line for line in stored if line not in gone]
+        if left:
+            store[key] = left
+        else:
+            store.pop(key, None)
+        self.save_state()
+
     def question_rework(self, stage: str, role: str, dispatch: str, words: str, complete, why: str) -> tuple:
         """R17, FR-57: no session to resume (or it failed) - the SAME dispatch runs in a new session as a
         rework whose reason is the person's words, verbatim, and the role continues its interrupted
@@ -2745,6 +2817,9 @@ class DriverDispatch:
                 self.py("grounding_table.py", "--refresh", "--task", self.task, check=True)
         import planning_contract as PC
         planned = PC.project_plan(self.task_root, reopening=reopening)
+        # FV1-9 (P1): BEFORE the refusal below, so a projection problem never swallows the notes (the planner's next session reads them)
+        self.tell_next_session("S3", self.stages()["S3"]["roles"][0], getattr(planned, "notes", None),
+                               "it stays on your plan row and is tried again when S3 closes next; remove it if it no longer holds")
         if planned.problems:
             raise Refusal("S3 plan projection (planning_contract.project_plan): " + "\n".join(f"- {p}" for p in planned.problems),
                           dispatch=dispatch, retry=None)

@@ -569,9 +569,15 @@ class DriverStagePlan:
         names the entries, so no question is lost in silence; a form with no questions raises nothing; idempotent by `raised_from`)."""
         try:
             if (self.task_root / "work" / "handoffs" / f"{dispatch}.yaml").is_file():
-                self.py("question_register.py", "--task", self.task, "--raise", "--stage", stage, "--asked-by", self.stage_acceptor(stage),
-                        "--from-handoff", f"work/handoffs/{dispatch}.yaml", check=True,
-                        expect=f"the questions[] of work/handoffs/{dispatch}.yaml raised into the register (none when the form has none)")
+                _code, out = self.py("question_register.py", "--task", self.task, "--raise", "--stage", stage, "--asked-by", self.stage_acceptor(stage),
+                                     "--from-handoff", f"work/handoffs/{dispatch}.yaml", check=True,
+                                     expect=f"the questions[] of work/handoffs/{dispatch}.yaml raised into the register (none when the form has none)")
+                # FV1-9 (P1, A-1): the acceptor's lines are keyed by the stage ITS OWN session runs at (a consumer acceptor runs at the next
+                # stage: S7's scribe at S8), falling back to `stage`. INSIDE the try and BEFORE `stage_done --acceptance`: a refused write keeps them.
+                record = (self.controller_state().get("dispatches") or {}).get(dispatch)
+                at = str((record if isinstance(record, dict) else {}).get("stage") or stage)
+                self.tell_next_session(at, self.stage_acceptor(stage), self.told_from(out, ("reword_problems",)),
+                                       "an item of a handoff form is not tried again: write it again in your next form if it still holds")
             self.py("stage_done.py", "--task", self.task, "--stage", stage, "--acceptance", f"work/handoffs/{dispatch}.yaml", check=True,
                     expect=f"the stage acceptance of {stage} recorded in pipeline.json from work/handoffs/{dispatch}.yaml")
         except Refusal as exc:
@@ -658,10 +664,17 @@ class DriverStagePlan:
         # t-261 (O4, t-227): the same command also raises the questions the designer (no Bash) could only name - and it
         # does so with or without a findings file, so a pinned case that still says `raise` is reason enough to run it:
         # a critic who wrote `approve` otherwise left the Then with no question for gate A to show.
-        if fixes or self.unraised_cases():
+        # FV1-9 (F-4): a case that holds only `question_repeats` / `reword_questions` under `approve` runs the roll-call too
+        if fixes or self.unraised_cases() or self.cases_with_question_entries():
             # remains: R1 (C1-7b) - gate A's entry repair runs the same command when gate_preflight finds `unraised_questions` (GATE_REPAIRS -> `raise_move`, a failure -> `RepairFailed`), so no gate A packet is shown with a question this call could have raised
-            self.py("critic_rollcall.py", *([str(findings)] if findings else []), "--apply-fixes",
-                    "--task-root", str(self.task_root))
+            _code, out = self.py("critic_rollcall.py", *([str(findings)] if findings else []), "--apply-fixes",
+                                 "--task-root", str(self.task_root))
+            # FV1-9 (P1): the designer's refused entries and the planner's notes are told BEFORE `pin_cases` (which can raise) and `rework`:
+            # the round the critic sends back hears them in its first prompt. No `check` here: exit 1 stays legal.
+            self.tell_next_session("S4", "qa-case-designer", self.told_from(out, ("question_notes",)),
+                                   "it stays in your case and is tried again when S4 closes next; remove it if it no longer holds")
+            self.tell_next_session("S3", self.stages()["S3"]["roles"][0], self.told_from(out, ("plan_notes",), unknown=False),
+                                   "it stays on your plan row and is tried again when S3 closes next; remove it if it no longer holds")
             self.pin_cases()
         if verdict in ("concerns", "review") and not last_round and findings:
             reason = findings.read_text(encoding="utf-8", errors="replace")[:1200]
@@ -783,6 +796,25 @@ class DriverStagePlan:
                 entries, _why = contract.then_oracles_from_text(Path(path).read_text(encoding="utf-8", errors="replace"))
                 if any(isinstance(e, dict) and str(e.get("ref") or "").strip() == contract.RAISE_REF for e in entries or []):
                     found.append(Path(path).stem)
+            return found
+        except Exception:
+            return []
+
+    def cases_with_question_entries(self) -> list:
+        """FV1-9 (F-4): the case stems whose front matter carries a `question_repeats` or `reword_questions` line that parses to a
+        NON-EMPTY list, or is malformed (a malformed key makes a line in the roll-call's `question_notes`, so it runs too). A structural key
+        read through `contract.case_files` and `contract.front_line` (the reader `unraised_cases` uses), never a phrase (FR-12). [] when the
+        cases cannot be read: a reader that cannot read says nothing (P1)."""
+        try:
+            import contract
+            found = []
+            for path in contract.case_files(self.task_root):
+                text = Path(path).read_text(encoding="utf-8", errors="replace")
+                for key in ("question_repeats", "reword_questions"):
+                    entries, why = contract.parse_json_list(contract.front_line(text, key))   # the reader the exit's own steps use
+                    if entries or why:
+                        found.append(Path(path).stem)
+                        break
             return found
         except Exception:
             return []
