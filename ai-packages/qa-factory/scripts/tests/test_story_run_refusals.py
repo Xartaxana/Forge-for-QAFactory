@@ -1313,6 +1313,7 @@ def refusal_person_words_kept_whole() -> None:
 
         def answer(kind: str, stage: str, dispatch: str, text: str) -> None:
             driver.state["asked"] = {"kind": kind, "stage": stage, "dispatch": dispatch}
+            driver.conductor_calls = {}        # each answer is its own session: the per-boundary cap (3) is not what this scenario judges
             driver.state_dir.mkdir(parents=True, exist_ok=True)
             (driver.state_dir / "driver-question.md").write_text("---\nkind: " + kind + "\n---\nQuestion?\n", encoding="utf-8")
             sent = root / "answer.md"
