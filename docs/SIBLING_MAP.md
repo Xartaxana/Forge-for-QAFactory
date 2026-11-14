@@ -206,7 +206,7 @@ now (FR-60, t-304): every reader resolves through the resolver and notes a repla
 
 | Component | Path |
 |---|---|
-| The resolver (READ) | ai-packages/qa-factory/scripts/runtime_paths.py `project_for_task`, `contained`, `state_paths`, `known_paths`, `hint_note` (one containment predicate; the `..` climb guard; a UNC/drive mismatch never pays realpath) |
+| The resolver (READ) | ai-packages/qa-factory/scripts/runtime_paths.py `project_for_task`, `contained`, `state_paths`, `known_paths`, `hint_note` (one containment predicate; the `..` climb guard; a UNC/drive mismatch never pays realpath); `declared_place` + `declared_roots` (FV1-23: a locator inside the project or a declared `code_repos` root, stored in one normal posix form; read by `record-source` and by `source_inventory.document_place_lines`, both on `contained`) |
 | The resolver (RUN) | `runtime_paths.known_paths_for_dispatch` (the dispatch record's keys are a subset of the stored keys at every level; the same `contained` guard as READ — t-365) |
 | The standing-refusal record (C2-5s, t-835, 16.10) | `state/standing-refusal.json` `{stage, lines, doors}` — one writer `Driver.standing_refusal` (SR:3452, at the seam after the recursion guard), one reader `waiver.read_standing`, one eraser `drop_standing` on the exits E1–E4; resolved through the same `state_paths` as every state file, never by a stored absolute path; the doc carrier is the row in `design/state-exits.md` |
 | The six state readers | `contract.py` (delegations `_under`/`_same_place`), `dashboard_refresh.py`, `inject_context.py` (the packet), `story_run.system_file`, `controller.py` prepare fallback, the hook's dispatch record (`host_dispatch`/`telemetry_hook`) — each notes a replaced hint on stderr |

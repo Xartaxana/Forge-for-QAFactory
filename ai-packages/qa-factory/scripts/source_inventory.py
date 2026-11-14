@@ -1982,56 +1982,32 @@ def _reference_status_of(item: dict) -> str | None:
     return None
 
 
-def _settle_references(output: Path, items: list) -> None:
-    """The story's `ticket-references.json` (S0) says, per ticket row, whether the ticket was fetched or
-    why not (FR-41: a reference present in the text never vanishes). A source record that settles a
-    ticket row moves its status. No file (a story older than the file) means nothing to settle."""
-    path = Path(output).parent / "ticket-references.json"
+LINKED_DOCUMENT_KIND = "linked_document"      # a row for a document a recorded text links on disk (FV1-23 A-3)
+LINKED_DOCUMENT_STATUS = "not_fetched:linked document - a first look by the walk of references"
+LINK_CANDIDATES_LIMIT = 500                    # names of a text that are tried as paths; the rest are said, not tried
+
+
+def _reference_document(path: Path):
+    """The parsed `ticket-references.json` at `path` (a dict whose `rows` is a list), or None: no file (a story older than the
+    file), a file that cannot be read, or one of another shape. The ONE reader of the file for the writers below (AR-13)."""
     if not path.is_file():
-        return
+        return None
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return
-    rows = document.get("rows") if isinstance(document, dict) else None
-    if not isinstance(rows, list):
-        return
-    updates = {}
-    for item in items:
-        status = _reference_status_of(item)
-        if status and item.get("canonical_ref"):
-            updates[_key(item)] = status
-    changed = False
-    for row in rows:
-        if isinstance(row, dict) and row.get("kind") == "ticket" and row.get("ref") in updates \
-                and row.get("status") != updates[row["ref"]]:
-            row["status"] = updates[row["ref"]]
-            changed = True
-    if changed:
-        _atomic_write(path, json.dumps(document, indent=2, ensure_ascii=False).encode("utf-8") + b"\n")
+        return None
+    return document if isinstance(document, dict) and isinstance(document.get("rows"), list) else None
 
 
-def append_attachment_references(client, output: Path, key: str, snapshot: dict, named_texts: dict) -> None:
-    """S1 (C12): the text attachments just downloaded add reference rows to the story's
-    `ticket-references.json` - origins `mention:attachment:<name>` - and a row already there gains the
-    origin instead of a twin. No file (a story older than S0's file) or no text: nothing to add. A table
-    that cannot be read refuses (TableError), as everywhere else."""
-    path = Path(output).parent / "ticket-references.json"
-    if not named_texts or not path.is_file():
-        return
-    try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return
-    rows = document.get("rows") if isinstance(document, dict) else None
-    if not isinstance(rows, list):
-        return
-    context = getattr(client, "references_context", None) or {}
-    known = _known_prefixes(client, Path(output), key, snapshot, tuple(named_texts.values()))
-    fresh = TL.references(named_texts, known_prefixes=known, not_tracker_prefixes=not_tracker_prefixes(),
-                          reference_kinds=TL.load_reference_kinds(),
-                          known_hosts=list(context.get("known_hosts") or []) + [client.base_url],
-                          repos=context.get("repos") or [], seeded=[], own_key=key)
+def _merge_reference_rows(path: Path, fresh: list, scanned_word: str) -> bool:
+    """Merge `fresh` rows into the `ticket-references.json` at `path` by IDENTITY `(kind, ref, repo)`: a row already there gains
+    the origins instead of a twin and keeps its status; a new row is appended; `scanned_word` joins `scanned` and `S1`
+    joins `written_by`; written atomically. True when the file was written; no file or an unreadable one writes nothing (the
+    one survivor of attachments' and linked documents' rows, AR-15)."""
+    document = _reference_document(path)
+    if document is None:
+        return False
+    rows = document["rows"]
 
     def identity(row):
         return (row.get("kind"), row.get("ref"), row.get("repo_id") or row.get("repo"))
@@ -2046,11 +2022,54 @@ def append_attachment_references(client, output: Path, key: str, snapshot: dict,
             for origin in row.get("origins") or []:
                 if origin not in have.setdefault("origins", []):
                     have["origins"].append(origin)
-    if "attachments" not in document.setdefault("scanned", []):
-        document["scanned"].append("attachments")
+    if scanned_word not in document.setdefault("scanned", []):
+        document["scanned"].append(scanned_word)
     if "S1" not in document.setdefault("written_by", []):
         document["written_by"].append("S1")
     _atomic_write(path, json.dumps(document, indent=2, ensure_ascii=False).encode("utf-8") + b"\n")
+    return True
+
+
+def _settle_references(output: Path, items: list) -> None:
+    """The story's `ticket-references.json` (S0) says, per ticket row, whether the ticket was fetched or
+    why not (FR-41: a reference present in the text never vanishes). A source record that settles a
+    ticket row - or a `linked_document` row, by its path - moves its status. No file (a story older than the
+    file) means nothing to settle."""
+    path = Path(output).parent / "ticket-references.json"
+    document = _reference_document(path)
+    if document is None:
+        return
+    rows = document["rows"]
+    updates = {}
+    for item in items:
+        status = _reference_status_of(item)
+        if status and item.get("canonical_ref"):
+            updates[_key(item)] = status
+    changed = False
+    for row in rows:
+        if isinstance(row, dict) and row.get("kind") in ("ticket", LINKED_DOCUMENT_KIND) and row.get("ref") in updates \
+                and row.get("status") != updates[row["ref"]]:
+            row["status"] = updates[row["ref"]]
+            changed = True
+    if changed:
+        _atomic_write(path, json.dumps(document, indent=2, ensure_ascii=False).encode("utf-8") + b"\n")
+
+
+def append_attachment_references(client, output: Path, key: str, snapshot: dict, named_texts: dict) -> None:
+    """S1 (C12): the text attachments just downloaded add reference rows to the story's
+    `ticket-references.json` - origins `mention:attachment:<name>` - and a row already there gains the
+    origin instead of a twin. No file (a story older than S0's file) or no text: nothing to add. A table
+    that cannot be read refuses (TableError), as everywhere else."""
+    path = Path(output).parent / "ticket-references.json"
+    if not named_texts or _reference_document(path) is None:
+        return
+    context = getattr(client, "references_context", None) or {}
+    known = _known_prefixes(client, Path(output), key, snapshot, tuple(named_texts.values()))
+    fresh = TL.references(named_texts, known_prefixes=known, not_tracker_prefixes=not_tracker_prefixes(),
+                          reference_kinds=TL.load_reference_kinds(),
+                          known_hosts=list(context.get("known_hosts") or []) + [client.base_url],
+                          repos=context.get("repos") or [], seeded=[], own_key=key)
+    _merge_reference_rows(path, fresh, "attachments")
 
 
 def refresh_targets(inventory: dict) -> list:
@@ -2299,17 +2318,268 @@ def requirement_source_lines(cfg: dict, *, local: bool, by_role: bool = False) -
         elif route == "adapter":
             lines.append(f"{name} ({kind}): read through collect/peek, as the ticket")
         elif route == "grep":
-            # `--ref` is the locator only when it is shown WHOLE; a withheld or cut one is a placeholder, never a wrong ref (F-10b)
-            whole = locator if locator and locator == " ".join(str(row.get("locator") or "").split()) else "<locator>"
-            lines.append(f"{name}: search {locator} for the story's words with Grep; what you read is recorded with "
-                         f"ticket_adapter.py record-source --ref {whole} --file <file> --relation normative; it reaches the "
-                         "manifest from the inventory")
+            # `--ref` is a DOCUMENT's path, never the locator: a locator may be a folder or a whole repository, and `record-source`
+            # refuses a folder (one record per document, FV1-23 A-2); the placeholder serves a file row and a folder row alike
+            lines.append(f"{name}: search {locator} for the story's words with Grep; record each document you read on its own "
+                         "with ticket_adapter.py record-source --ref <that document's path, relative to the project> --file <file> "
+                         "--relation normative; it reaches the manifest from the inventory")
         else:
             lines.append(f"{name}: read it yourself if you can reach it: {locator}{own_route}; save what you read under work/raw/, "
                          "record it with ticket_adapter.py record-source; otherwise record it as a gap with the reason")
     if len(sources) > REQUIREMENT_SOURCE_LINE_LIMIT:
         lines.append(f"and {len(sources) - REQUIREMENT_SOURCE_LINE_LIMIT} more in config.json")
     return [] if lead is not None and lines == ["Requirement sources:"] else lines
+
+
+# FV1-23 A-2: the documents a FOLDER row of `requirements_sources` holds, listed to the scout one by one (a record names a
+# document, never a folder: `record-source` refuses a folder ref). Data only: which document matters is the scout's judgment.
+DOC_FILES_LIMIT = 25         # paths listed per row; the rest are ONE line `and <k> more under <locator>`
+DOC_FILES_TOTAL = 40         # paths listed over all rows; a later folder row says "the list is full"
+DOC_DEPTH = 3                # a file directly in the folder is depth 1; a folder at depth 3 is not entered
+DOC_ENTRIES_SCANNED = 2000   # directory entries examined per row (dot entries are not counted)
+DOC_SNIFF_BYTES = 4096       # the first bytes `text_file_problem` reads
+
+
+def text_file_problem(path) -> str:
+    """Why the file at `path` is not a text `record-source` would take, else "": `unreadable`, `empty` (size 0, or whitespace
+    only within the first DOC_SNIFF_BYTES when the file fits in them), `not_text` (a NUL byte, or bytes that are not UTF-8,
+    BOM allowed, within the first DOC_SNIFF_BYTES). The criteria of `record-source`'s whole-file test, applied to a slice: a file
+    whose first bad byte lies beyond the slice passes here and is refused there - the listing is advice, the refusal names its
+    door (the allowed error). A multibyte character cut by the end of the slice is tolerated."""
+    try:
+        size = Path(path).stat().st_size
+        with open(path, "rb") as handle:
+            data = handle.read(DOC_SNIFF_BYTES)
+    except (OSError, ValueError):
+        return "unreadable"
+    if size == 0 or (size <= DOC_SNIFF_BYTES and not data.strip()):
+        return "empty"
+    if b"\x00" in data:
+        return "not_text"
+    cut = size > len(data)
+    for drop in range(4 if cut else 1):
+        try:
+            data[:len(data) - drop].decode("utf-8-sig")
+            return ""
+        except UnicodeDecodeError:
+            continue
+    return "not_text"
+
+
+def _listable(project, cfg: dict, ref: str, live: list) -> tuple:
+    """The ONE predicate "this path may be listed to a role" (AR-13, AR-15): `(normal_ref, "")` when `ref` is a regular file the
+    declared places hold that `record-source` would take, else `(normal_ref or None, why)` with `why` one of `outside` (no
+    declared root holds it, link included), `missing` (not a regular file), `text` (`text_file_problem`), `withheld` (a
+    credential-like name), `long` (over REQUIREMENT_SOURCE_LOCATOR_LIMIT), `left` (the person left it out). Reads the disk."""
+    import runtime_paths
+    import source_exclusions
+    from config_contract import SECRET_QUERY_RE
+    normal, _why = runtime_paths.declared_place(project, cfg, ref)
+    if normal is None:
+        return None, "outside"
+    place = os.path.normpath(os.path.join(str(project), normal))
+    if not os.path.isfile(place):
+        return normal, "missing"
+    if text_file_problem(place):
+        return normal, "text"
+    if SECRET_QUERY_RE.search(normal):
+        return normal, "withheld"
+    if len(normal) > REQUIREMENT_SOURCE_LOCATOR_LIMIT:
+        return normal, "long"
+    if source_exclusions.first_ref_match(live, normal):
+        return normal, "left"
+    return normal, ""
+
+
+def _document_walk(base: str, ref: str, project, cfg: dict, live: list) -> dict:
+    """The files of the folder `base` (named `ref` from the project), sorted, links not followed, dot names skipped, as
+    `{"files": [(ref, size)], "text", "withheld", "long", "outside", "left": counts, "deep": folders not entered,
+    "linked": symlinked folders not entered, "stopped": bool}`. Each file passes `_listable` (the predicate `record-source`
+    applies: `declared_place`, text, credential, length, the person's exclusions); an OSError is the caller's."""
+    import posixpath
+    found = {"files": [], "text": 0, "withheld": 0, "long": 0, "outside": 0, "left": 0, "deep": 0, "linked": 0, "stopped": False}
+    scanned = 0
+
+    def walk(folder: str, prefix: str, level: int) -> bool:
+        nonlocal scanned
+        for name in sorted(os.listdir(folder)):
+            if name.startswith("."):
+                continue
+            if scanned >= DOC_ENTRIES_SCANNED:
+                found["stopped"] = True
+                return True
+            scanned += 1
+            path = os.path.join(folder, name)
+            entry = posixpath.normpath(prefix + "/" + name) if prefix != "." else name
+            if os.path.isdir(path):
+                if os.path.islink(path):
+                    found["linked"] += 1      # a link is not followed; the cut is counted and said
+                    continue
+                if level + 1 >= DOC_DEPTH:
+                    found["deep"] += 1
+                elif walk(path, entry, level + 1):
+                    return True
+                continue
+            if not os.path.isfile(path):
+                continue
+            normal, why = _listable(project, cfg, entry, live)
+            if not why:
+                found["files"].append((normal, os.path.getsize(path)))
+            elif why in found:
+                found[why] += 1
+        return False
+
+    walk(base, ref, 0)
+    return found
+
+
+def document_place_lines(cfg: dict, task_root) -> list:
+    """The scout's list of the DOCUMENTS under the folder rows of `cfg["requirements_sources"]` (the rows the kinds table routes
+    `grep`, status `verified`, no credential in the locator), one line per path, bounded: DOC_FILES_LIMIT per row, DOC_FILES_TOTAL
+    over the rows, DOC_DEPTH levels, DOC_ENTRIES_SCANNED entries per row; every cut is said with its place. Reads the disk,
+    writes nothing; the project is the one `record-source` derives (`runtime_paths.nearest_project(task_root)`), so a listed
+    path is a ref `record-source` accepts. A row naming a whole repository or a file adds nothing (its grep line stands);
+    a locator outside the declared roots, missing here or unreadable is a line with its reason. Nothing to list (no rows, a
+    kinds table that cannot be read, no project above `task_root`, an unreadable record of the person's exclusions - which
+    `left_out_lines` refuses next, naming the file) gives []."""
+    import runtime_paths
+    import source_exclusions
+    from config_contract import SECRET_QUERY_RE, requirement_source_kinds
+    sources = cfg.get("requirements_sources") if isinstance(cfg, dict) else None
+    if not isinstance(sources, list) or not sources:
+        return []
+    try:
+        kinds = requirement_source_kinds()["kinds"]
+    except ValueError:
+        return []
+    project = runtime_paths.nearest_project(task_root)
+    if project is None:
+        return []
+    try:
+        live = source_exclusions.live(task_root)
+    except source_exclusions.ExclusionRecordError:
+        return []
+    roots = runtime_paths.declared_roots(project, cfg)
+    cap, lines, total = size_limit_of(task_root), [], 0
+    for index, row in enumerate(sources[:REQUIREMENT_SOURCE_LINE_LIMIT]):
+        if not isinstance(row, dict) or row.get("status") != "verified" or not isinstance(row.get("kind"), str):
+            continue
+        if (kinds.get(row["kind"]) or {}).get("route") != "grep" or not isinstance(row.get("locator"), str):
+            continue
+        raw = " ".join(row["locator"].split())
+        if not raw or SECRET_QUERY_RE.search(raw):
+            continue
+        name = _shown(row.get("source_id") or row["kind"] or f"source {index + 1}", SECRET_QUERY_RE)
+        locator = raw[:REQUIREMENT_SOURCE_LOCATOR_LIMIT]
+        normal, _why = runtime_paths.declared_place(project, cfg, raw)
+        if normal is None:
+            lines.append(f"{name}: {locator} is outside the project's repositories: not listed")
+            continue
+        place = os.path.normpath(os.path.join(str(project), normal))
+        if any(runtime_paths._same_place(place, root) for root in roots):
+            continue      # a whole repository: today's grep line stands for it
+        if os.path.isfile(place):
+            continue      # one file: the grep line covers it
+        if not os.path.exists(place):
+            lines.append(f"{name}: {locator} is not on disk here: a gap with that reason, not a question")
+            continue
+        if not os.path.isdir(place):
+            continue
+        if total >= DOC_FILES_TOTAL:
+            lines.append(f"{name}: {locator}: not listed (the list is full); search it yourself")
+            continue
+        try:
+            found = _document_walk(place, normal, project, cfg, live)
+        except OSError as exc:
+            lines.append(f"{name}: {locator} could not be read here ({type(exc).__name__}): a gap with that reason")
+            continue
+        shown = found["files"][:min(DOC_FILES_LIMIT, DOC_FILES_TOTAL - total)]
+        more = len(found["files"]) - len(shown)
+        total += len(shown)
+        notes = []
+        if more:
+            notes.append(f"- and {more} more under {locator}: list them yourself")
+        for key, text in (("text", "not listed: not text or empty"), ("withheld", "withheld: a credential-like name"),
+                          ("long", "not listed: name too long"), ("outside", "not listed: outside the declared repositories")):
+            if found[key]:
+                notes.append(f"- {found[key]} file(s) {text}")
+        if found["left"]:
+            notes.append(f"- {found['left']} file(s) left out by the person's word")
+        if found["deep"]:
+            notes.append(f"- {found['deep']} folder(s) deeper than {DOC_DEPTH} levels not walked under {locator}: list them yourself")
+        if found["linked"]:
+            notes.append(f"- {found['linked']} linked folder(s) not walked under {locator}: list them yourself")
+        if found["stopped"]:
+            notes.append(f"- the walk stopped after {DOC_ENTRIES_SCANNED} entries under {locator}: list the rest yourself")
+        if shown:
+            lines.append(f"Documents under {locator} (record each one you read on its own: record-source --ref <the path as listed> "
+                         "--relation normative; a first look at each, charter: the walk of references):")
+            lines += [f"- {ref} ({size} B)" + (" over the read cap: read it with offset/limit" if cap > 0 and size > cap else "")
+                      for ref, size in shown]
+        else:
+            lines.append(f"{name}: no text file under {locator}")
+        lines += notes
+    return lines
+
+
+def linked_documents(project, cfg: dict, text_ref: str, text: str, task_root) -> dict:
+    """The documents the recorded `text` (held at `text_ref`) links on disk (FV1-23 A-3): `{"paths": [normal refs, at most
+    DOC_FILES_LIMIT], "sizes": {ref: bytes}, "more": the kept paths beyond them, "recorded": the kept paths already a `read`
+    source (counted, not listed), "checked_all": False when the text held more than LINK_CANDIDATES_LIMIT names, "rows": the
+    `ticket-references.json` rows to merge (EVERY kept path as not read, listed or not, the recorded ones as `fetched`)}`. Reads the disk,
+    writes nothing; data only - which linked document matters is the scout's judgment.
+
+    Nothing (the empty dict) unless `text_ref` resolves to an existing REGULAR file inside a declared root (no key or word test:
+    a ticket key, a URL and a task-relative `work/raw/...` ref list nothing). Each of the first LINK_CANDIDATES_LIMIT names
+    (`ticket_light.path_candidates`) is resolved against the folder of `text_ref`; a rooted one against the INNERMOST declared
+    root holding `text_ref`. Kept iff `_listable` accepts it (the one predicate of the folder walk) and it is not `text_ref`
+    (an unreadable record of the exclusions lists nothing). A link the code fails to see is the allowed error; a path outside the roots is never kept."""
+    import posixpath
+    import runtime_paths
+    import source_exclusions
+    nothing = {"paths": [], "sizes": {}, "more": 0, "recorded": 0, "checked_all": True, "rows": []}
+    if project is None or not isinstance(text, str):
+        return nothing
+    base, _why = runtime_paths.declared_place(project, cfg, text_ref)
+    here = os.path.normpath(os.path.join(str(project), base)) if base is not None else ""
+    if base is None or not os.path.isfile(here):
+        return nothing
+    holding = [root for root in runtime_paths.declared_roots(project, cfg) if runtime_paths.contained(here, root)]
+    if not holding:
+        return nothing
+    innermost = max(holding, key=lambda root: len(os.path.realpath(root)))
+    try:
+        live = source_exclusions.live(task_root)
+    except source_exclusions.ExclusionRecordError:
+        return nothing
+    try:
+        recorded_refs = {item.get("canonical_ref") for item in load_inventory(Path(task_root) / "work" / "source-inventory.json").get("sources", [])
+                         if isinstance(item, dict) and item.get("status") == "read"}
+    except (OSError, ValueError, AttributeError, TypeError):
+        recorded_refs = set()
+    candidates = TL.path_candidates(text)
+    folder, kept = posixpath.dirname(base), []
+    for name in candidates[:LINK_CANDIDATES_LIMIT]:
+        slashed = name.replace("\\", "/")
+        if slashed.startswith("/"):
+            try:
+                ref = os.path.relpath(os.path.join(innermost, slashed.lstrip("/")), str(project)).replace(os.sep, "/")
+            except ValueError:
+                continue
+        else:
+            ref = posixpath.join(folder, slashed) if folder else slashed
+        normal, why = _listable(project, cfg, ref, live)
+        if not why and normal != base and normal not in kept:
+            kept.append(normal)
+    unread = [ref for ref in kept if ref not in recorded_refs]
+    fetched = [ref for ref in kept if ref in recorded_refs]
+    paths = unread[:DOC_FILES_LIMIT]
+    origin = f"mention:document:{text_ref}"
+    rows = ([{"ref": ref, "kind": LINKED_DOCUMENT_KIND, "origins": [origin], "status": LINKED_DOCUMENT_STATUS} for ref in unread]
+            + [{"ref": ref, "kind": LINKED_DOCUMENT_KIND, "origins": [origin], "status": "fetched"} for ref in fetched])
+    return {"paths": paths, "sizes": {ref: os.path.getsize(os.path.join(str(project), ref)) for ref in paths},
+            "more": len(unread) - len(paths), "recorded": len(fetched), "checked_all": len(candidates) <= LINK_CANDIDATES_LIMIT,
+            "rows": rows}
 
 
 def refresh_relevant_sources(client: JiraClient, output: Path) -> dict:

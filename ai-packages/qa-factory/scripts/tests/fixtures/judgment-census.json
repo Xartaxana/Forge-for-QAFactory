@@ -1143,7 +1143,7 @@
   {"file": "test_repo_base.py", "function": "_record", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "test_repo_base.py", "function": "parse_status", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "test_repo_base.py", "function": "main", "class": "shape", "roles": ["conductor"], "owner": "data", "note": "T1a, F1 (a) step 4: conductor, parent 2.8 group G-free"},
-  {"file": "ticket_adapter.py", "function": "_record_source", "class": "shape", "roles": ["conductor"], "owner": "data"},
+  {"file": "ticket_adapter.py", "function": "_record_source", "class": "xref", "roles": ["conductor"], "owner": "data"},
   {"file": "ticket_adapter.py", "function": "_refuse_by_role", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "ticket_adapter.py", "function": "_refuse_local", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "ticket_adapter.py", "function": "check", "class": "shape", "roles": ["conductor"], "owner": "data"},
