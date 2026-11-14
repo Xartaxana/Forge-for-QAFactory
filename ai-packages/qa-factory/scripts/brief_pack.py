@@ -105,11 +105,14 @@ ROLE_FILES = {
     "qa-retro-analyst": ["work/retro-numbers.md", "work/retro-numbers.json", "work/context-manifest.json",
                          "project:strategy/test-strategy.md"],
 }
-# The readers of a `tried` table that are not a stage critic (t-1884 M-2, AR-22): (stage, role of the reader) -> ((stage, author), ...).
+# The readers of an EARLIER stage's `tried` table (t-1884 M-2, AR-22): (stage, role of the reader) -> ((stage, author), ...).
 # The retro analyst reads the last S8 forms of the scribe and the bug reporter; the scribe's form is also linked from the gate B
-# packet (`gate_brief`, "The long documents"). A form with no row here and no `acceptance_by` has no reader in the brief.
+# packet (`gate_brief`, "The long documents"). The S4 case critic reads the S2 tester's and the S3 strategist's last forms (S2 and S3
+# have no critic of their own; the S4 designer's brief is not changed: it has no row). A form with no row here and no
+# `acceptance_by` has no reader in the brief. RESIDUAL closed variety in code (AR-1): its move into `stages.json` is queued for the Lead.
 # The S9 form's `tried` is read by the NEXT story's retro (`prior_retro_lines`) and packed by qa-collect (collect-sets B16).
-TRIED_READERS = {("S9", "qa-retro-analyst"): (("S8", "qa-doc-scribe"), ("S8", "qa-bug-reporter"))}
+TRIED_READERS = {("S9", "qa-retro-analyst"): (("S8", "qa-doc-scribe"), ("S8", "qa-bug-reporter")),
+                 ("S4", "qa-case-critic"): (("S2", "qa-requirements-tester"), ("S3", "qa-test-strategist"))}
 # Inputs the stage declares that this role does NOT read whole: the brief names the slice
 # command instead of the file.
 SLICE_INSTEAD = {
@@ -236,15 +239,15 @@ TOOLING = {
         "probe_by_code.py --task <T> --dispatch <ID> --test \"<file>::<test name>\" --instance <IID> [--oracle <file>::<function>] [--at <line>] [--release-copy <file>] [--json] - "
         "the default probe, every check of every new/changed test, one call per instance: with no --at it walks every check, and each check needs an entry in "
         "work/probe-models/<ID>.json; --at and --oracle "
-        "select rows on the same road and need the entry too; --plan first: it prints the model file, the entry shape and the run count, and runs nothing; a plan of more than 3 rows runs in the background; "
+        "need the entry too; --plan first: prints the model file, entry shape and run count; runs nothing; a plan of more than 3 rows runs in the background; "
         "`plan_unfinished`: the same call continues it; the live receipt is written only when every owed check is proved. <test name> is [Class::]<func>[<param>] for pytest, "
         "the method or title in any other language with an `assertion_probes` entry. "
         "It mutates the check, restores the "
         "file, writes work/probes/<IID>.json {verdict intended_failure|no_failure|wrong_location|incomplete, "
         "location, reason, failure_kind, evidence_ref} with a row per check; "
-        "`incomplete`, and a refusal that names a factory data gap or a killed probe's unresolved copy, is `tooling` (say so in your digest), never a verdict on the test; "
+        "`incomplete`, and a refusal that names a factory data gap or a killed probe's unresolved copy, is `tooling` (say so in your digest, record `sensitivity_proof_missing_reason` on the row), never a verdict on the test; "
         "`--release-copy <file>` alone drops that copy, only after the test's author has settled the file; "
-        "a repeat on the same bytes and entries is answered already_probed and nothing runs",
+        "a repeat on the same bytes and entries gets already_probed, nothing runs",
         "red_sandbox.py --probe --request <mutations.json> --task-root <task root> --repo <root> [--dispatch <ID>] - only when you doubt the "
         "check looks at the product; it proves the one check it names, you name it with a `product` entry in the model file, "
         "the others stay owed; say why in the findings; "
@@ -781,7 +784,10 @@ def proof_required_lines(task_root: Path, role: str, dispatch_id: str) -> list:
     the same rule as `expectation_change_lines` (nothing is owed).
     A manifest that is absent or cannot be read, or a measurement that failed, gets ONE line saying
     so and why - never "none" (FR-41); the brief is built either way, because it is a courtesy and
-    never a refusal."""
+    never a refusal.
+    The closing sentence names only the doors `Controller._code_review_problems` accepts: a model entry plus the
+    probe, or `sensitivity_proof_missing_reason` on the row; the debt file is the factory's, never the role's (AR-14).
+    A blank dispatch id prints `<your dispatch id>` in both paths."""
     if role != PROOF_ROLE:
         return []
     cannot = "The live checks the predicate requires could not be listed: "
@@ -838,13 +844,19 @@ def proof_required_lines(task_root: Path, role: str, dispatch_id: str) -> list:
         line += f", and {count - PROOF_NAMES_SHOWN} more - the full list: {PROOF_LIST} (`novelty` per row)"
     elif any(clipped_names[:PROOF_NAMES_SHOWN]):   # a name clipped in the middle: where the whole is
         line += f" - the full list: {PROOF_LIST} (`novelty` per row)"
-    try:
-        import probe_debt
-        debt = probe_debt.debt_rel(dispatch_id)       # TR3-15: the debt file of THIS critic dispatch (the one spelling), never another window's
-    except Exception:   # a brief line never stops a brief
-        debt = "work/probe-debt/<your dispatch id>.json"
-    return [line + f". Each needs a receipt: run its check and record it, or leave it in {debt} "
-                   "for the conductor."]
+    ident = str(dispatch_id or "").strip()
+    models = f"work/probe-models/{ident or '<your dispatch id>'}.json"
+    debt = "work/probe-debt/<your dispatch id>.json"
+    if ident:   # a blank id has no file of its own: the placeholder, never the legacy single file
+        try:
+            import probe_debt
+            debt = probe_debt.debt_rel(ident)         # TR3-15: the debt file of THIS critic dispatch (the one spelling), never another window's
+        except Exception:   # a brief line never stops a brief
+            pass
+    return [line + f". Each needs a receipt: enter each check in {models} and run probe_by_code.py. "
+                   "A probe the tool or stand stopped is `critic_verdict: unverified` "
+                   "with `sensitivity_proof_missing_reason` on that row via manifest_put.py; "
+                   f"{debt} is the factory's, not yours."]
 
 
 # --- the sides of the story and what a test assumes about them (t-2181 PC-8, AR-10, AR-13) ------------------------------
@@ -2014,6 +2026,8 @@ def case_concern_lines(task_root: Path, dispatch_id: str, state, role: str, writ
         groups = [CR.parametrise_group(c.get("problem"), cfg) for c in shown]
         asked = {frozenset(g) for g in groups if len(g) >= 2}      # one ask per GROUP: the token sits on every case of it
         n, k = len(shown), len(asked)
+        r = sum(1 for c in shown if c.get("still_rejected"))
+        rej = f"{r} of them cases it still rejected when S4 went on; " if r else ""     # said apart, and only when there is one
         if not plan and author:
             elsewhere = sum(1 for g in asked if not all(C.names_case(scope, i, cfg) for i in g))
         if n:
@@ -2038,6 +2052,10 @@ def case_concern_lines(task_root: Path, dispatch_id: str, state, role: str, writ
                 text = (f"The case critic carried {n} concern(s) for the cases of this window: {rel}. The automator answers each in "
                         "`plan_remarks`; judge each answer (C12)")
             text = _short(text, HEAD_LINE_CHARS)
+            if rej:     # the clause goes into the cut text, so it never pushes the instruction out of the bound (AR-10)
+                mark = f"({k} ask"
+                text = (text.replace(mark, f"({rej}{k} ask", 1) if mark in text
+                        else text + f". {rej.rstrip('; ')}")
             if not plan and author:     # said whole, never cut off by the line's bound: they are the residual (K2-E12, E13)
                 if elsewhere:
                     text += (f"; {elsewhere} name a case of another window: they cannot be merged here, say so in the row")
@@ -2053,11 +2071,11 @@ def case_concern_lines(task_root: Path, dispatch_id: str, state, role: str, writ
         if report["silent"]:
             head.append(f"Case critic's concerns: {len(report['silent'])} findings file(s) gave none because a round could not be read "
                         "against the critic's receipt (the file changed after it, or its roll-call is broken); read the rows marked "
-                        f"`approve_with_concerns` there before you {verb}")
+                        f"`approve_with_concerns` and every reviewed row whose verdict is not an approving one there before you {verb}")
             files += [f"- {path} - case critic's findings that gave no concern (receipt): read it" for path in report["silent"]]
     except Exception as exc:  # noqa: BLE001 - the brief is built; the line says what could not be read
         return {"head": [f"Case critic's concerns: could not be read ({_text_whole(exc)}); read the rows marked `approve_with_concerns` "
-                         f"in work/test-cases/**/critic-findings.md before you {verb}"], "files": [], "sides": {}}
+                         f"and every reviewed row whose verdict is not an approving one in work/test-cases/**/critic-findings.md before you {verb}"], "files": [], "sides": {}}
     return {"head": head, "files": files, "sides": sides}
 
 
@@ -3650,22 +3668,51 @@ def stage_critic_names(stage_def: dict, role: str, task_root: Path) -> list:
     """X2-1: the extra files of the stage critic's brief, for the role that ACCEPTS the stage (`stage_def["acceptance_by"] == role`):
     the artifact under acceptance (the stage's `outputs`), the advice file of the stage (`work/advice-<stage>.json`, named whether or
     not it exists: an absent file prints the absence line of `file_lines`) and the handoff form of the author's last accepted dispatch
-    (where its `tried` table is). [] for any other role or a stage with no `acceptance_by`: that brief does not change."""
+    (where its `tried` table is). [] for any other role or a stage with no `acceptance_by`: that brief does not change.
+    The stage row's `acceptance_reads` (AR-1; `{earlier stage: [part, ...]}`, parts `outputs` and `advice`) adds what the acceptor is
+    given from EARLIER stages: `outputs` the earlier stage's outputs (no `project:` entries), `advice` its `work/advice-<stage>.json`
+    (named whether or not it exists). A key absent adds nothing; an unknown part word, an earlier stage not in the table or a value that
+    is not a list adds nothing for that entry and prints one line naming it (never a crash)."""
     if not role or stage_def.get("acceptance_by") != role:
         return []
     stage = str(stage_def.get("id") or "")
-    names = [n for n in (stage_def.get("outputs") or []) if isinstance(n, str) and not n.startswith("project:")]
-    names.append(f"work/advice-{stage}.json")
+    def parts_of(row: dict, stage_id: str, parts: tuple) -> list:
+        """The names of the given parts of one stage: `outputs` (no `project:` entries), `advice` (`work/advice-<stage>.json`)."""
+        found = []
+        for part in parts:
+            if part == "outputs":
+                found += [n for n in (row.get("outputs") or []) if isinstance(n, str) and not n.startswith("project:")]
+            elif part == "advice":
+                found.append(f"work/advice-{stage_id}.json")
+        return found
+
+    names = parts_of(stage_def, stage, ("outputs", "advice"))
     roles = stage_def.get("roles") or []
     form = last_accepted_form(task_root, stage, roles[0]) if roles else ""
     if form:
         names.append(form)
+    reads = stage_def.get("acceptance_reads")
+    if isinstance(reads, dict):
+        table = _stages()
+        for earlier, parts in reads.items():
+            if earlier not in table or not isinstance(parts, list):
+                print(f"brief_pack: acceptance_reads of {stage} names {earlier!r} that is not a stage with a list of parts; nothing is added for it",
+                      file=sys.stderr)
+                continue
+            for part in parts:
+                if part in ("outputs", "advice"):
+                    names += parts_of(table[earlier], earlier, (part,))
+                else:
+                    print(f"brief_pack: acceptance_reads of {stage} names the unknown part {part!r} of {earlier}; nothing is added for it",
+                          file=sys.stderr)
+    elif reads is not None:
+        print(f"brief_pack: acceptance_reads of {stage} is not a mapping; nothing is added", file=sys.stderr)
     return names
 
 
 def reviewed_dispatch(stage: str, role: str, state: dict, pipeline: dict) -> tuple:
     """TR4-12 (2), AR-13: THE reader of "which dispatch does `role` review at `stage`": `(target stage, author's dispatch id, stage_critic)`.
-    `("", "", False)` for a role that reviews nothing; `stage_critic` is True when the role judges its OWN stage's author (S2-S4), where
+    `("", "", False)` for a role that reviews nothing; `stage_critic` is True when the role judges its OWN stage's author (S4), where
     an empty id still gets the "none yet" brief line; for a consumer an empty id means nothing awaits it. The brief line and the form
     prefill (`story_step._author_argv`) both ask it, so they never name different dispatches. Reads only."""
     import acceptance
@@ -3708,7 +3755,7 @@ def reviewed_dispatch_lines(stage: str, role: str, state: dict, pipeline: dict) 
 
 def last_accepted_form(task_root: Path, stage: str, role: str) -> str:
     """`work/handoffs/<id>.yaml` of the LAST accepted dispatch of `role` at `stage` (where its `tried` table is), "" when there is none.
-    The one reader of that question (AR-13): the stage critic's brief, the readers of `TRIED_READERS` and the gate B packet ask it."""
+    The one reader of that question (AR-13): the S4 critic's own-stage line, the readers of `TRIED_READERS` and the gate B packet ask it."""
     state = _load(task_root / "state" / "controller.json")
     found = ""
     for d in ((state.get("dispatches") if isinstance(state, dict) else None) or {}).values():
@@ -3718,8 +3765,9 @@ def last_accepted_form(task_root: Path, stage: str, role: str) -> str:
 
 
 def tried_reader_names(stage_def: dict, role: str, task_root: Path) -> list:
-    """M-2 (t-1884): the forms whose `tried` table has a reader that is not a stage critic - the brief of `role` at that stage names the
-    last accepted form of each author in `TRIED_READERS`. [] for any other role."""
+    """M-2 (t-1884): the forms whose `tried` table is read by an EARLIER stage's reader (the retro analyst; the S4 case critic, which
+    reads the S2 tester's and the S3 strategist's) - the brief of `role` at that stage names the last accepted form of each author in
+    `TRIED_READERS`; an author with no accepted dispatch names nothing (no path is invented). [] for any other role."""
     names = []
     for stage, author in TRIED_READERS.get((str(stage_def.get("id") or ""), role), ()):
         form = last_accepted_form(task_root, stage, author)
@@ -3974,22 +4022,25 @@ FIRST_LOOK_AHEAD = "The record is checked by `first_look.py put` when you send i
 def first_look_input_line(task_root: Path, display: str, size: str = "") -> str:
     """The file line of `work/first-look.yaml` as an INPUT of S3-S7 and of the two critics' briefs (AR-21, AR-23). The record is read
     through `first_look.read` (the one reader); no record, an unreadable one and a `null` one are ONE reading, "no first look", with
-    the reason - never an empty line or a guess that the stand was walked. A stale record says so (it confirms nothing). No script is
-    named: the roles that read this line may have no shell."""
+    the reason - never an empty line or a guess that the stand was walked: it is a GAP of what the brief knows, and "it is not a fact that
+    there is no stand" (FR-41, AR-28). A stale record says so (it confirms nothing). No script is named: the roles that read this line may
+    have no shell."""
+    def gap(reason: str) -> str:
+        return f"- {display}: no first look ({reason})"
     try:
         import first_look as FL
         got = FL.read(task_root)
         if got["problem"] and not got["rows"] and not got["null"] and not got["stale"]:
-            return f"- {display}: no first look - {_text_whole(got['problem'])}"
+            return gap("the record does not exist" if got.get("absent") else _text_whole(got["problem"]))
         if got["null"]:
-            return f"- {display}: no first look - the stand was not walked ({got['null'].replace('_', ' ')})"
+            return gap(f"the stand was not walked: {got['null'].replace('_', ' ')}")
         if got["stale"]:
             return (f"- {display} ({size}): the first look is STALE - it was walked on other code or another register than the current "
                     "ones; it confirms nothing, read it as history")
         return (f"- {display} ({size}): the first look at the stand before the plan - per requirement what the walker saw "
                 "(status, where, a quoted capture); an observation, never an oracle")
     except Exception as exc:  # noqa: BLE001 - a courtesy line: the brief is always built
-        return f"- {display}: no first look - the record could not be read ({type(exc).__name__})"
+        return f"- {display}: no first look (the record could not be read: {type(exc).__name__})"
 
 
 def _first_look_accounts(task_root: Path, stand: str, opened: list) -> str:
@@ -4048,7 +4099,11 @@ def first_look_runner_lines(task_root) -> list:
                + ("; as an account actor you sign in with `--as <name>` (only these are open in this walk)" if [a for a in actors if a != "guest"]
                   else ""),
                _first_look_accounts(task_root, stand, actors)]
-        ids, why = FL.register_ids(task_root)       # the one reader of the ids and their order (AR-13); the texts come from the register reader
+        if _load(task_root / "pipeline.json").get("environment_pending"):
+            out.append("The factory's own check of the stand did not pass at the start: that is a guess of code, not a fact. Find the way in "
+                       "yourself; if you get in, record it under `sign_in` (the form names it); if you cannot, every requirement is "
+                       "`unreachable` with `blocked_by: access` and `why` says what you tried.")
+        ids, why = FL.register_ids(task_root)      # the one reader of the ids and their order (AR-13); the texts come from the register reader
         if ids:
             texts = GT.register_info(task_root).texts
             out.append(f"Requirements ({len(ids)}), the text of each in {base}/work/requirements-register.md (the `## Register` table); "
@@ -4067,6 +4122,7 @@ def first_look_runner_lines(task_root) -> list:
         out.append("Sides of the story that are not real: " + ", ".join(f"{name} ({reality})" for name, reality in met.items())
                    + " - code stamps them on the record; name them in `why` where a row speaks about one." if met
                    else "Sides of the story that are not real: none - every side is real.")
+        out += sign_in_lines(task_root, *FIRST_LOOK_WALKER)      # a re-walk sees the way the last walk found (a current record only)
         return out
     except Exception as exc:  # noqa: BLE001
         print(f"brief_pack: first_look_runner_lines failed ({type(exc).__name__}: {exc})", file=sys.stderr)
@@ -4082,10 +4138,19 @@ FIRST_LOOK_MARK = "[first-look:{}]"           # a DATA token on every line that 
 FIRST_LOOK_NONE = "First look: there was no first look at the stand for this story."
 # (stage, role) -> the kind of lines. Every closed word (the statuses, the red ones, the S7 `blocked_by` filter, the confirmed stand build)
 # is read from `references/first-look-statuses.json` through `first_look.py` (AR-1): none is held here.
-FIRST_LOOK_KIND = {("S3", "qa-test-strategist"): "s3", ("S3", "qa-case-critic"): "s3", ("S4", "qa-case-designer"): "s4",
+FIRST_LOOK_KIND = {("S3", "qa-test-strategist"): "s3", ("S4", "qa-case-designer"): "s4",
                    ("S4", "qa-case-critic"): "s4_critic", ("S5", "qa-automator"): "s5", ("S5", "qa-code-critic"): "s5_critic",
                    ("S6", "qa-runner"): "s6", ("S7", "qa-failure-analyst"): "s7"}
-FIRST_LOOK_AUTHOR_KINDS = {"s4": ("screen", "step", "api", "sample"), "s5": ("locator", "api", "sample", "data")}
+FIRST_LOOK_AUTHOR_KINDS = {"s4": ("screen", "step", "api", "sample"), "s5": ("screen", "step", "locator", "api", "sample", "data")}
+FIRST_LOOK_ITEM_CHARS = 400                   # one item line of the S5 block (the text of the item, before the marker); longer is clipped and the block ends `whole:`
+SIGN_IN_LINE_CHARS = 600                      # the one line of the way in the story's own first look found; longer is cut and followed by `whole:`
+# A missing first look is a GAP of this brief's knowledge, never the fact "there is no stand" (FR-41, FR-59, AR-28). One text for S3-S7 (AR-15);
+# the clause is the reader's: a role with a stand and tools looks itself, a role with no tool of the stand names the gap. FV1-29 flips `s5`.
+FIRST_LOOK_GAP = "First look: a GAP ({reason}); not a fact that there is no stand. {clause}"
+_CLAUSE_LOOK = "Where needed, look with your brief's tools."
+_CLAUSE_NAME = "Name it as a gap where you need the stand."
+FIRST_LOOK_GAP_CLAUSE = {"s3": _CLAUSE_NAME, "s4": _CLAUSE_NAME, "s4_critic": _CLAUSE_NAME, "s5": _CLAUSE_NAME, "s5_critic": _CLAUSE_NAME,
+                         "s6": _CLAUSE_LOOK, "s7": _CLAUSE_LOOK}
 FIRST_LOOK_HEADS = {
     "s3": "First look (work/first-look.yaml: the walker looked at the stand before this plan; an observation, never an expected value)",
     "s4": "First look - the paths the walker took on the stand, per requirement (an observation, never an expected value; a Then comes "
@@ -4121,26 +4186,35 @@ def _fl_line(row: dict, body: str) -> str:
     return _Clipped(text[:room - 3] + "..." + " " + mark)      # the type carries the fact: `first_look_lines` reads it, never the shape
 
 
-def _fl_state(task_root) -> tuple:
+def _fl_gap(reason: str, kind: str) -> str:
+    """The ONE gap sentence of S3-S7 (`FIRST_LOOK_GAP`), with the clause of the reader `kind` (data: `FIRST_LOOK_GAP_CLAUSE`)."""
+    return FIRST_LOOK_GAP.format(reason=reason, clause=FIRST_LOOK_GAP_CLAUSE.get(kind, "")).rstrip()
+
+
+def _fl_state(task_root, kind: str = "") -> tuple:
     """`("rows", record)` or `("line", [the one line saying why there is no usable record])`: no record, a `null` one (its reason), an
-    unreadable one (its reason) and a STALE one (it confirms nothing) are each ONE line, never silence (AR-23, AR-28)."""
+    unreadable one (its reason) and a STALE one (it confirms nothing) are each ONE line, never silence (AR-23, AR-28). `kind` is the
+    reader's kind (`FIRST_LOOK_KIND`): it picks the clause of the gap (`FIRST_LOOK_GAP_CLAUSE`). A missing look is a GAP, not the fact
+    "no stand" (FR-41)."""
+    clause = FIRST_LOOK_GAP_CLAUSE.get(kind, "")
     try:
         import first_look as FL
         state = FL.state(task_root)     # the one classification (AR-15); this function only words it
     except Exception as exc:  # noqa: BLE001 - a courtesy block: the brief is always built
-        return "line", [f"First look: the record could not be read ({type(exc).__name__}); treat the stand as not walked."]
-    kind, got = state["kind"], state["got"]
-    if kind == "error":
-        return "line", [f"First look: the record could not be read ({state['error']}); treat the stand as not walked."]
-    if kind == "null":
-        return "line", [f"First look: there was no first look - the stand was not walked ({got['null'].replace('_', ' ')})."]
-    if kind == "stale":
+        return "line", [_fl_gap(f"the record could not be read: {type(exc).__name__}", kind)]
+    rec, got = state["kind"], state["got"]
+    if rec == "error":
+        return "line", [_fl_gap(f"the record could not be read: {state['error']}", kind)]
+    if rec == "null":
+        return "line", [_fl_gap(f"the stand was not walked: {got['null'].replace('_', ' ')}", kind)]
+    if rec == "stale":
         return "line", [f"First look: STALE - walked on other code or another register than the current ones; it confirms nothing, read "
-                        f"{FIRST_LOOK_FILE} as history" + (f" ({_text_whole(got['problem'])})." if got["problem"] else ".")]
-    if kind == "absent":
-        return "line", [FIRST_LOOK_NONE]
-    if kind == "unreadable":
-        return "line", [f"First look: the record cannot be read ({_text_whole(got['problem'])}); treat the stand as not walked."]
+                        f"{FIRST_LOOK_FILE} as history" + (f" ({_text_whole(got['problem'])})." if got["problem"] else ".")
+                        + (f" {clause}" if clause else "")]
+    if rec == "absent":
+        return "line", [_fl_gap("no record", kind)]
+    if rec == "unreadable":
+        return "line", [_fl_gap(f"the record cannot be read: {_text_whole(got['problem'])}", kind)]
     return "rows", got
 
 
@@ -4161,9 +4235,66 @@ def _fl_red_rows(rows: list, kind: str) -> list:
             and not (kind == "s7" and r.get("status") in narrowed and str(r.get("blocked_by") or "") not in narrowed[r.get("status")])]
 
 
-def _fl_body(kind: str, task_root, got: dict) -> list:
+def _fl_item_line(row: dict, item: str) -> str:
+    """`- R-n <status>[ (blocked_by)]: <item text> [first-look:R-n]` - ONE item of a row per line (S5); the item text is clipped at
+    `FIRST_LOOK_ITEM_CHARS` with `...` and the line is then a `_Clipped` (the block ends naming the record); the marker is never clipped."""
+    import app_card as AC
+    clip = len(item) > FIRST_LOOK_ITEM_CHARS
+    text = item[:FIRST_LOOK_ITEM_CHARS - 3] + "..." if clip else item
+    line = f"- {AC.first_look_head(row)}: {text} {_fl_mark(row.get('req'))}"
+    return _Clipped(line) if clip else line
+
+
+def _fl_window(task_root, scope) -> tuple:
+    """`(requirement ids of the window's cases | None, a note line | "")` for the S5 window brief. The ids are the union of
+    `contract.case_requirements` over the cases of `scope` (`case_paths`). Used as a FILTER: it may err only toward MORE rows - a case that
+    cannot be resolved or read, a window none of whose cases names a requirement: `None` (every row) and a note that says so."""
+    note_none = "no case of this window names a requirement: every row is shown"
+    note_unread = "a case of this window could not be read: every row is shown"
+    try:
+        import contract
+        paths = case_paths(task_root, [str(c) for c in (scope or [])])
+        if len(paths) < len(scope or []):
+            return None, note_unread
+        reqs = set()
+        for rel in paths:
+            (task_root / rel).read_text(encoding="utf-8")       # `contract.read_text` swallows an unreadable file as empty: probe it here
+            reqs |= set(contract.case_requirements(task_root / rel))
+        return (reqs, "") if reqs else (None, note_none)
+    except Exception:  # noqa: BLE001 - a filter that cannot be built shows more, never fewer
+        return None, note_unread
+
+
+FIRST_LOOK_ALL_ACCESS_TAIL = {"s5": "a gap you close with your own look", "s4": "name it as a gap"}     # the end of the all-access line, per author kind
+
+
+def _fl_all_access_line(kind: str, rows: list) -> str:
+    """The one line of an author kind whose every row shown is a row the walker could not reach for want of a way in (the data key
+    `gap_rows`, read through `first_look.gap_rows`: no word is held here): each row's `why`, whole. `""` when there are no rows, one row
+    is anything else, or the data key is absent / empty (today's "no row ... names such a path" stands)."""
+    import app_card as AC
+    import first_look as FL
+    words = FL.gap_rows()
+    if not rows or not words or kind not in FIRST_LOOK_ALL_ACCESS_TAIL:
+        return ""
+    if not all(r.get("status") in words["status"] and str(r.get("blocked_by") or "") in words["blocked_by"] for r in rows):
+        return ""
+    whys = "; ".join(f"{str(r.get('req') or '?').strip()}: {AC.scrub(str(r.get('why') or '')) or 'no reason written'}" for r in rows)
+    return (f"First look: the walker could not reach these requirements ({', '.join(words['blocked_by'])}): {whys}; "
+            f"{FIRST_LOOK_ALL_ACCESS_TAIL[kind]}")
+
+
+def _fl_body(kind: str, task_root, got: dict, window: tuple | None = None) -> list:
+    """The lines of the block for the reader `kind`. `window` (S5 window dispatches only, from `_fl_window`) filters the rows of the author
+    kind `s5` to the window's requirements and names what it left out: `+N requirement(s) of the record outside this window`."""
     import app_card as AC
     rows, path = got["rows"], RP.story_text(task_root, FIRST_LOOK_FILE)
+    outside, note = 0, ""
+    if window is not None and kind == "s5":
+        keep, note = window
+        if keep is not None:
+            shown = [r for r in rows if str(r.get("req") or "").strip() in keep]
+            outside, rows = len(rows) - len(shown), shown
     if kind == "s6":
         return [f"First look: the width was walked on the stand ({len(rows)} requirement(s): {_fl_counts(rows)}); do not repeat the survey - "
                 f"go deep, starting from its observations in {path}. Your cases are still walked step by step: a first-look row is an "
@@ -4172,12 +4303,16 @@ def _fl_body(kind: str, task_root, got: dict) -> list:
         return [f"First look: the walker's record is {path} (an observation of the stand, never an expected value).",
                 FIRST_LOOK_CRITIC_RULES[kind]]
     if kind in FIRST_LOOK_AUTHOR_KINDS:
-        wanted, lines = FIRST_LOOK_AUTHOR_KINDS[kind], [FIRST_LOOK_HEADS[kind]]
+        wanted, lines = FIRST_LOOK_AUTHOR_KINDS[kind], [FIRST_LOOK_HEADS[kind]] + ([note] if note else [])
+        head_count = len(lines)
         for row in rows:
             items = [text for item_kind, text in AC.first_look_path_items(row) if item_kind in wanted]
-            if items:
+            if kind == "s5":        # S5 builds the test from each item: one line per item, none merged and cut at the line bound
+                lines += [_fl_item_line(row, item) for item in items]
+            elif items:
                 lines.append(_fl_line(row, "; ".join(items)))
-        return lines + ([] if len(lines) > 1 else ["- no row of the record names such a path."])
+        lines += [] if len(lines) > head_count else [_fl_all_access_line(kind, rows) or "- no row of the record names such a path."]
+        return lines + ([f"+{outside} requirement(s) of the record outside this window: {FIRST_LOOK_FILE}"] if outside else [])
     lines = [f"{FIRST_LOOK_HEADS[kind]}: {len(rows)} requirement(s) - {_fl_counts(rows)}." if kind == "s3" else FIRST_LOOK_HEADS[kind]]
     if kind == "s3":
         import first_look as FL
@@ -4196,13 +4331,13 @@ def _fl_body(kind: str, task_root, got: dict) -> list:
     return lines + ([] if red else [f"- no row has a red status ({', '.join(FL.red_statuses())})."])
 
 
-def first_look_lines(task_root, stage: str, role: str) -> list:
+def first_look_lines(task_root, stage: str, role: str, *, scope=None, s5_kind: str = "") -> list:
     """The head lines that carry the first look to the role that reads it at `stage` (t-2277 FL-4, AR-8, AR-10, AR-13, AR-21, AR-29):
-    S3 the strategist and the plan's reviewer (counts by status, the red rows with their reason, the sides that are not real, the stand
+    S3 the strategist (counts by status, the red rows with their reason, the sides that are not real, the stand
     build when it is not established), S4 the case designer (the path of each requirement) and the case critic (the record's path and the
     rule on a diverging step), S5 the automator (locators, routes and data seen, before its own discovery) and the code critic (the path
     and the rule on a rediscovered selector), S6 the runner (the width was walked) and S7 the failure analyst (the red rows). `[]` for any
-    other pair - and for S3 and the critics when `stages.json` names no such role at the stage (a reviewer is never invented).
+    other pair - and for the S3-S5 roles when `stages.json` names no such role at the stage (a reviewer is never invented).
 
     Read through `first_look.read` and `app_card.first_look_path_items` (the one reader and the one reading of a path). Data only: no
     line carries a value of the record as an expected one (FR-58, P20) - the record's `why`, quote and evidence are the walker's words, the
@@ -4213,17 +4348,64 @@ def first_look_lines(task_root, stage: str, role: str) -> list:
     try:
         if kind is None or role not in ((_stages().get(stage) or {}).get("roles") or []):
             return []
-        state, got = _fl_state(task_root)
+        state, got = _fl_state(task_root, kind)
         if state == "line":
             return list(got)
-        lines = _fl_body(kind, task_root, got)
-        clipped = any(isinstance(line, _Clipped) for line in lines[:FIRST_LOOK_LINES_MAX])
-        if len(lines) > FIRST_LOOK_LINES_MAX:
+        window = kind == "s5" and s5_kind == "window"       # only the S5 window dispatch: its own requirements, no count cap (FR-49)
+        lines = _fl_body(kind, task_root, got, _fl_window(task_root, scope) if window else None)
+        clipped = any(isinstance(line, _Clipped) for line in (lines if window else lines[:FIRST_LOOK_LINES_MAX]))
+        if len(lines) > FIRST_LOOK_LINES_MAX and not window:
             lines = lines[:FIRST_LOOK_LINES_MAX] + [f"+{len(lines) - FIRST_LOOK_LINES_MAX} more: {FIRST_LOOK_FILE}"]
         return lines + ([f"whole: {FIRST_LOOK_FILE}"] if clipped else [])      # a line `_fl_line` clipped: the block ends naming the record
     except Exception as exc:  # noqa: BLE001 - a courtesy block: the brief is always built
         print(f"brief_pack: first_look_lines failed ({type(exc).__name__}: {exc})", file=sys.stderr)
         return [f"First look: the lines could not be built ({type(exc).__name__}); read {FIRST_LOOK_FILE} if it exists."]
+
+
+FIRST_LOOK_WALKER = ("S3", "qa-runner")      # the first-look walker: the (stage, role) pair its own brief asks `sign_in_lines` with
+
+
+def sign_in_lines(task_root, stage: str, role: str) -> list:
+    """The way in this story's own first look found (the `sign_in` of `first_look.read`, A1), as ONE line for the roles of
+    `FIRST_LOOK_KIND` and the first-look walker (AR-13, AR-21). Only a current record with rows: a stale, null, absent or unreadable one gives
+    no line (a stale walk's way is history), and neither does a `sign_in` that is absent, empty or no mapping (today's brief). Data only
+    (AR-29): it prints the fields the put guard judged (surface, actor, url, the selectors, the steps, the access kind and key NAMES) and
+    never `why`, `landed`, `evidence` or `quote`; every value through `app_card.scrub(tokens=False)`. A line over `SIGN_IN_LINE_CHARS` is cut
+    at the limit and followed by `whole: work/first-look.yaml`. Never raises."""
+    if (stage, role) not in FIRST_LOOK_KIND and (stage, role) != FIRST_LOOK_WALKER:
+        return []
+    try:
+        import app_card as AC
+        import first_look as FL
+        state = FL.state(task_root)
+        sign_in = state["got"].get("sign_in") if state["kind"] == "ok" else None
+        if not isinstance(sign_in, dict) or not sign_in:
+            return []
+
+        def text(value) -> str:
+            return AC.scrub(str(value if value is not None else ""), tokens=False)
+        http_keys = (FL.data().get("sign_in_surface_keys") or {}).get(FL.SIGN_IN_HTTP) or []      # the http way's own key(s): data, not a literal here
+        fields, access = sign_in.get("fields"), next((sign_in[k] for k in http_keys if isinstance(sign_in.get(k), dict)), None)
+        steps = [text(s) for s in sign_in.get("steps") or []] if isinstance(sign_in.get("steps"), list) else []
+        parts = []
+        if isinstance(access, dict):
+            names = "/".join(text(access[k]) for k in ("user_key", "secret_key") if access.get(k))
+            parts.append(f"access {text(access.get('kind'))} at {text(access.get('url') or sign_in.get('url'))}" + (f", key names {names}" if names else ""))
+        elif sign_in.get("url"):
+            parts.append(f"url {text(sign_in['url'])}")
+        if isinstance(fields, dict) and fields:
+            parts.append("fields " + ", ".join(f"{k} {text(fields[k])}" for k in ("user", "secret", "submit") if fields.get(k)))
+        if steps:
+            parts.append("steps: " + "; ".join(steps))
+        walk, surface, actor = (text(state["got"].get("walk")), text(sign_in.get("surface")), text(sign_in.get("actor")))
+        line = (f"Way in found by this story's first look (walk {walk}, {surface}, as {actor}): " + "; ".join(parts)
+                + "; it worked then - if it fails now, find the way yourself and record it.")
+        if len(line) <= SIGN_IN_LINE_CHARS:
+            return [line]
+        return [line[:SIGN_IN_LINE_CHARS - 3] + "...", f"whole: {FIRST_LOOK_FILE}"]
+    except Exception as exc:  # noqa: BLE001 - a courtesy block: the brief is always built
+        print(f"brief_pack: sign_in_lines failed ({type(exc).__name__}: {exc})", file=sys.stderr)
+        return []
 
 
 def case_critic_roster_lines(task_root, pipeline) -> list:
@@ -4241,8 +4423,8 @@ def case_critic_roster_lines(task_root, pipeline) -> list:
 def _record_brief_size(task_root: Path, result: dict) -> None:
     """Append one line about the dispatched brief to `state/brief-sizes.jsonl`: a record for the forge's scoreboard
     (`run_counters`), never read inside a run and never compared with a size here. The line is exactly
-    `{ts, stage, role, dispatch, bytes}` (FV1-4; lines written before it carry extra keys, `budget_bytes`, `ceiling`, `over`,
-    which no reader in the package reads). A failure to write is one note on stderr: it never changes or fails the brief."""
+    `{ts, stage, role, dispatch, bytes}` (FV1-4; lines written before it carry extra keys, `budget_bytes`, `ceiling`, `over`;
+    `run_counters` reads either shape and judges only rows that carry a ceiling). A failure to write is one note on stderr: it never changes or fails the brief."""
     state = task_root / "state"
     try:
         if not state.is_dir():
@@ -4304,7 +4486,7 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         head += flow_request_lines(task_root, task, write and output is None)      # RN1-6: the head is never shrunk
         head.append(WALK_DATA_LINE)                                                # TR3-10 E: once, whatever the flow requests did
         head += walk_lines(task_root)                                              # RN1-6: a walk per function
-        if role == "qa-test-strategist":       # the stage critic stands on S3 too and gets no roster (FR-56, AR-11)
+        if role == "qa-test-strategist":       # the strategist alone gets the roster; no critic stands on S3 any more (FR-56, AR-11)
             head += s3_roster_lines(task_root, None, pipeline.get("environment"))  # PK0-2: the product's roles; the head is never shrunk
     if stage == "S2":
         head += user_path_failure_lines(task_root, write and output is None)       # G2-14: the head is never shrunk
@@ -4363,7 +4545,8 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         # reads it at this stage. [] for every other stage and role; the head is never shrunk, and every part is capped.
         if stage == "S4" and role == "qa-case-critic":
             head += case_critic_roster_lines(task_root, pipeline)
-        head += first_look_lines(task_root, stage, role)
+        head += first_look_lines(task_root, stage, role, scope=scope, s5_kind=s5_kind)
+        head += sign_in_lines(task_root, stage, role)       # right after the first-look block: this story's own way in (B1 item 6)
     # X9 (F-6 a): the project's last retro looked here. In the head; no other role or stage changes.
     if stage == "S9" and role == "qa-retro-analyst":
         head += prior_retro_lines(task_root, project)

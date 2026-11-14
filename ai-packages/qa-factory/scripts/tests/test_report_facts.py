@@ -27,6 +27,7 @@ import contract as C  # noqa: E402
 import exploratory_findings as EF  # noqa: E402
 import gate_brief as GB  # noqa: E402
 import grammar as G  # noqa: E402
+import question_register as QR  # noqa: E402
 import report_facts as RF  # noqa: E402
 import traceability as T  # noqa: E402
 import validate_artifacts as V  # noqa: E402
@@ -182,7 +183,7 @@ def one_source_per_count() -> None:
         check_eq("the facts carry their own keys", sorted(facts), sorted(
             ["task", "unknown", "bugs", "requirements", "manual", "cases", "tests", "changes", "probe_debt", "person_build", "ledger",
              "questions", "delivery", "gate_a", "gate_b", "size", "where", "not_proven", "skipped", "regression", "verdict",
-             "over_cap_windows", "collect_gaps", "quality_not_run", "exploratory", "integrations", "owed_rework", "branches", "attachments", "grounding", "passed_over", "reference_runs"]))   # passed_over: TR1-9, the work a code close passed over (report_facts.py `_passed_over_gap`)
+             "over_cap_windows", "collect_gaps", "quality_not_run", "exploratory", "integrations", "owed_rework", "branches", "attachments", "grounding", "passed_over", "word_passed", "reference_runs", "case_remarks_left"]))   # passed_over: TR1-9, the work a code close passed over (report_facts.py `_passed_over_gap`); word_passed: FV1-30b, what a recorded word passed at S5 (`_word_passed_gap`)
         check_eq("a story with every source has no unknown entry", facts["unknown"], {})
         blocks = RF.render(facts)
         # (a) the bug count is the bug reader's: the ledger of this story has no failed row at all, and the
@@ -529,6 +530,32 @@ def open_questions() -> None:
         facts = RF.build(task)
         check_in("no register at all is unknown, not `none` (FR-41)", "no question register", facts["unknown"].get("questions", ""))
         check_in("and the block says unknown", "## Open questions \u2014 unknown", RF.render(facts)["open-questions"])
+    finally:
+        cleanup(task.parents[2])
+
+
+def fv19_report_lists_target_once() -> None:
+    """FV1-9 T15: a hidden repeat is not listed and its target says it covers both; an unresolved repeat is listed under its own text."""
+    task = story()
+    try:
+        rows = [dict(r) for r in READINESS["open_questions"]] + [
+            {"id": "Q3", "question": "Is money refunded after cancelling?", "owner_role": "po_ba", "severity": "major"}]
+        write(task / "work" / "requirements-readiness.json", {"open_questions": rows})
+        QR.declare_repeat(task, "Q3", "Q1", "both ask about the refund", by="driver", declared_by="qa-case-designer", stage="S4")
+        body = render_all(task)["open-questions"]
+        check_in("fv19_report_lists_target_once: the count is the questions asked, the merged twin not counted", "## Open questions — 2", body)
+        check_not_in("fv19_report_lists_target_once: the hidden twin's text is absent", "Is money refunded", body)
+        check_in("fv19_report_lists_target_once: the target carries the note",
+                 "Is a refund due after cancelling? (raised twice in this story; this one question covers both)", body)
+        check_eq("fv19_report_lists_target_once: only the target carries it", body.count("raised twice"), 1)
+        rows[0]["question"] = "Is a refund owed after a cancel?"
+        write(task / "work" / "requirements-readiness.json", {"open_questions": rows})
+        body = render_all(task)["open-questions"]
+        check_in("fv19_report_lists_target_once: the target changed -> the repeat is unresolved and listed under its own text",
+                 "Is money refunded after cancelling?", body)
+        check_not_in("fv19_report_lists_target_once: and nothing claims a merge, nor a stale-answer note on a repeat", "raised twice", body)
+        check_not_in("fv19_report_lists_target_once: an unresolved repeat has no `your answer was given` note",
+                     "your answer was given to an earlier wording", body.split("Is money refunded")[1])
     finally:
         cleanup(task.parents[2])
 
@@ -1962,6 +1989,285 @@ def partly_proven_unconfirmed_then() -> None:
         check_eq("and checks clean with the partly line in it", RF.check(task), [])
     finally:
         cleanup(task.parents[2])
+
+
+# --- FV1-30b N3: a fact the person's recorded word passed at S5 is a named gap in the report ----------------------------------
+
+EM = chr(0x2014)
+WP_AT, WP_TS, WP_WORD = "2026-11-13T09:59:00Z", "2026-11-13T10:00:00+00:00", "go on, I take the risk of Then 2"
+THEN_NEEDED = "a test bound to it, or your check by hand"
+THEN_LINE = (f'- **TC-001, Then 2** (R-1) {EM} To check: Then not bound to a test {EM} passed by your word "{WP_WORD}" (human, {WP_TS}). '
+             f"Needed: {THEN_NEEDED}\n")
+
+
+def _wp_line(check="bindings", case="TC-001", tag="unbound-2", subjects=None, **over) -> dict:
+    """One line of `state/passed-by-person.jsonl` as the controller writes it (a `bindings` finding for Then 2 unless said)."""
+    line = {"ts": WP_TS, "stage": "S5", "dispatch": "d1", "check": check, "case": case, "tag": tag, "decision": WP_WORD,
+            "word_at": WP_AT, "by": "human",
+            "subjects": [{"case": "TC-001", "then": 2}] if subjects is None else subjects}
+    line.update(over)
+    line.setdefault("finding_id", f"{check}:{case or '-'}:{tag}")
+    line["block"] = line["finding_id"]
+    return line
+
+
+def _wp_record(task: Path, *lines, raw: str = "") -> None:
+    path = task / "state" / "passed-by-person.jsonl"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(raw + "".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
+
+
+def _wp_words(task: Path, *words) -> None:
+    """`stage_overrides` of the story: exactly the `(at, decision)` pairs given."""
+    pipeline = json.loads((task / "pipeline.json").read_text(encoding="utf-8"))
+    pipeline["stage_overrides"] = [{"stage": "S5", "match": "unbound-2", "decision": text, "at": at} for at, text in words]
+    write(task / "pipeline.json", pipeline)
+
+
+def _wp_story(then_2_bound: bool = False) -> Path:
+    """R-1 / TC-001 with two Thens: Then 1 bound to a green test, Then 2 bound to nothing (or to it, when said)."""
+    task = story(with_bug=False)
+    two = CASE.replace("1. The subscription reads cancelled.", "1. The subscription reads cancelled.\n2. The card is not charged again.")
+    write(task / "work" / "test-cases" / "billing" / "TC-001.md", two.format(cid="TC-001", title="Cancel", req="R-1", ts="TS-1"))
+    bindings = [{"case": "TC-001", "then": n, "instance_id": "test_a", "assertion_ref": "a", "status": "covered"}
+                for n in ((1, 2) if then_2_bound else (1,))]
+    write(task / "work" / "automation-manifest.json", dict(MANIFEST, then_bindings=bindings))
+    _wp_words(task, (WP_AT, WP_WORD))
+    return task
+
+
+def fv1_30b_n3_the_word_passed_gap_in_the_report() -> None:
+    """FV1-30b N3 (R1 report half, item 5 of the amendment): rows r1-r4, E1-E3, E5, E6/E8, E10, E11 and the conflict pair (one line per Then
+    even when two requirements hold it)."""
+    def r1(facts) -> dict:
+        return next(i for i in facts["requirements"]["items"] if i["id"] == "R-1")
+
+    task = _wp_story()
+    try:
+        none = RF.build(task)
+        blocks_before = RF.render(none)
+        check_eq("r2 / E1: no record file - R-1 reads proven as today, no word line, nothing unknown",
+                 (r1(none)["class"], r1(none)["partly"], none["word_passed"], "word_passes" in none["unknown"]), ("proven", [], "", False))
+        # r1 + item 5 (a): the record names the pair
+        _wp_record(task, _wp_line())
+        facts = RF.build(task)
+        check_eq("r1: R-1 waits (never proven) and the partly words name Then 2 and the time of the word",
+                 (r1(facts)["class"], r1(facts)["partly"], facts["requirements"]["counts"]["proven"]),
+                 ("wait", [f"Then 2 is not bound to a test, passed by your word ({WP_TS}) (TC-001)"], 0))
+        check_eq("item 5 (a): one line - the case and the Then, the requirement, the word whole, who and when, what is needed",
+                 facts["word_passed"], THEN_LINE)
+        blocks = RF.render(facts)
+        check_in("item 5 (a): the line stands in the regression block's gap lines", THEN_LINE.rstrip("\n"), blocks["regression"])
+        check_in("r1: the verdict says R-1 is partly proven, with the word-passed Then", f"R-1 is partly proven {EM} Then 2 is not bound to a test",
+                 blocks["verdict"])
+        # item 5 (c) / E1: the record goes away again - the report is byte-identical to the one before it was there
+        (task / "state" / "passed-by-person.jsonl").unlink()
+        check_eq("item 5 (c): no record - every block of the report is byte-identical to the one built before it", RF.render(RF.build(task)), blocks_before)
+        # item 5 (b) / E10: a 24 KB word is quoted whole, from stage_overrides by word_at, though the journal kept 1000
+        big = "w" * 24576
+        _wp_words(task, (WP_AT, big))
+        _wp_record(task, _wp_line(decision=big[:1000]))
+        line = RF.build(task)["word_passed"]
+        check_eq("item 5 (b) / E10: a 24 KB word - the whole of it, no ellipsis, and the line is still ONE line",
+                 (big in line, chr(0x2026) in line, line.count("\n")), (True, False, 1))
+        # E11: word_at names no word in stage_overrides -> the kept decision, said to be no longer in the record
+        _wp_words(task)
+        _wp_record(task, _wp_line())
+        check_in("E11: the word is gone from the story's record - the decision the journal kept, and the sentence that says so",
+                 f'passed by your word "{WP_WORD}" (the recorded word is no longer in the story\'s record) (human, {WP_TS})', RF.build(task)["word_passed"])
+        _wp_record(task, _wp_line(decision=""))
+        gone = RF.build(task)["word_passed"]
+        check_eq("E11: neither the word nor the decision is readable - the line is still there, with a sentence, no word invented",
+                 (gone.count("\n"), "(the word's text is not readable)" in gone, 'passed by your word "' in gone), (1, True, False))
+        _wp_record(task, _wp_line(word_at=""))
+        check_in("E10: a line with no word_at - the decision, with no 'no longer in the record' sentence (the E4 old-line rows: B1 below)", f'passed by your word "{WP_WORD}" (human',
+                 RF.build(task)["word_passed"])
+        # E5: two passes for one fact (two words, the later one stands) - one line
+        _wp_words(task, (WP_AT, "first word"), ("2026-11-13T11:30:00Z", "second word"))
+        _wp_record(task, _wp_line(decision="first word"), _wp_line(decision="second word", word_at="2026-11-13T11:30:00Z", ts="2026-11-13T11:31:00+00:00"))
+        line = RF.build(task)["word_passed"]
+        check_eq("E5: two passes of one Then - ONE line, the later word, its time", (line.count("\n"), '"second word" (human, 2026-11-13T11:31:00+00:00)' in line,
+                                                                                    "first word" in line), (1, True, False))
+        # E3: a torn line does not hide the good one
+        _wp_words(task, (WP_AT, WP_WORD))
+        _wp_record(task, _wp_line(), raw="{torn\n")
+        check_eq("E3: a torn line beside a good one - the good one is a line", RF.build(task)["word_passed"], THEN_LINE)
+        # r4 / E2: the record cannot be read (a folder where the file is) - today's class, ONE line that says so, and the unknown
+        (task / "state" / "passed-by-person.jsonl").unlink()
+        (task / "state" / "passed-by-person.jsonl").mkdir()
+        facts = RF.build(task)
+        said = "what the person's word passed could not be read"
+        check_eq("r4 / E2: an unreadable record - R-1 reads as today, ONE line says it could not be read, unknown carries the same words",
+                 (r1(facts)["class"], r1(facts)["partly"], facts["word_passed"], facts["unknown"].get("word_passes")),
+                 ("proven", [], f"- **passes recorded by your word** {EM} To check: {said}. Needed: someone who can read the story's record of passed words\n", said))
+        check_in("r4: the one line stands in the report", "passes recorded by your word", RF.render(facts)["regression"])
+    finally:
+        cleanup(task.parents[2])
+    # r3 / E8 / E24: the Then has a binding now - its own row reads, no word line, the requirement is as the binding says
+    task = _wp_story(then_2_bound=True)
+    try:
+        _wp_record(task, _wp_line())
+        facts = RF.build(task)
+        check_eq("r3 / E8: Then 2 has a binding now - no word line, no partly words, R-1 reads proven by its tests",
+                 (facts["word_passed"], r1(facts)["partly"], r1(facts)["class"]), ("", [], "proven"))
+    finally:
+        cleanup(task.parents[2])
+    # the conflict pair: one Then held by two requirements - ONE line naming both, and each requirement waits
+    rows = [{"requirement": r, "case": "TC-001", "then": [2], "result": "not run",
+             "word_passed": {"finding_id": "bindings:TC-001:unbound-2", "by": "human", "ts": WP_TS, "decision": WP_WORD}} for r in ("R-1", "R-2")]
+    entries = RF._word_entries({"rows": rows}, RF._key_fn(None))
+    check_eq("conflict pair: two requirements, one Then - ONE entry naming both", [(e["case"], e["then"], e["requirements"]) for e in entries],
+             [("TC-001", 2, ["R-1", "R-2"])])
+    check_eq("conflict pair: each requirement is handed the entry (each waits)",
+             [len(RF._held_thens([r], entries, RF._key_fn(None))) for r in rows], [1, 1])
+    root = temp_dir("qa-report-wp-")
+    try:
+        _wp_record(root, _wp_line())
+        check_in("conflict pair: and the one line names both requirements", "(R-1, R-2)",
+                 RF._word_passed_gap(root, entries, None, {}, {"stage_overrides": [{"at": WP_AT, "decision": WP_WORD}]}, {}))
+        check_eq("an entry with no requirement and a trace with no rows: nothing (no trace -> no entry)", (RF._word_entries(None, RF._key_fn(None)),
+                 RF._word_entries({"rows": [{"requirement": "R-1", "case": "TC-001", "then": [2], "result": "pass"}]}, RF._key_fn(None))), ([], []))
+    finally:
+        cleanup(root)
+
+
+def fv1_30b_n3_the_facts_the_ledger_and_the_coverage_show() -> None:
+    """FV1-30b N3: the not-run instance (a ledger row) and the obligation whose refs the coverage lacks (`word_passed`), the S5 plan not read and
+    any other finding - each only while a reader still finds the fact standing (E6, E8)."""
+    import ledger as L
+    word = {"stage_overrides": [{"at": WP_AT, "decision": WP_WORD}]}
+    no_run = _wp_line("run_mapping", "", "no-row-test_a", [{"instance_id": "test_a"}])
+    refs = _wp_line("manifest", "", "row-fields-missing", [{"instance_id": "test_b", "fields": ["obligation_refs"]}])
+    plan = _wp_line("plan", "", "plan-unreadable", [])
+    other = _wp_line("obligations", "TC-001", "obligation-id-O-1", [])
+    row = lambda state="not_executed", kind="test", ref="test_a": {"ref": ref, "kind": kind, "state": state, "detail": "-"}   # noqa: E731
+    manifest = {"tests": [{"instance_id": "test_a", "plan_row": "TS-1", "case": "TC-001", "covers": ["TC-001"], "file": "t.py"}]}
+    coverage = lambda *items: {"obligations": list(items)}   # noqa: E731
+    said = lambda needed, ref, words: (f'- **{ref}** {EM} To check: {words} {EM} passed by your word "{WP_WORD}" (human, {WP_TS}). '   # noqa: E731
+                                        f"Needed: {needed}\n")
+    run_line = said("a run of it", "test_a", "no run row")
+    cases = [
+        ("not run: a `not_executed` row of the instance", [no_run], {"rows": [row()]}, manifest, run_line),
+        ("not run: the row passed since (E6/E8) - no line", [no_run], {"rows": [row("passed_green")]}, manifest, ""),
+        ("not run: a handed row is not a run owed - no line", [no_run], {"rows": [row(L.HANDED_STATE)]}, manifest, ""),
+        ("not run: a pass for another instance - no line", [no_run], {"rows": [row(ref="test_z")]}, manifest, ""),
+        ("not run: a plan row stands for its manifest test", [no_run], {"rows": [row(kind="plan_row", ref="TS-1")]}, manifest, run_line),
+        ("not run: a plan row no manifest test belongs to - no line", [no_run], {"rows": [row(kind="plan_row", ref="TS-9")]}, manifest, ""),
+        ("not run: no ledger at all - no line", [no_run], None, manifest, ""),
+        ("not run: a ledger that is no object - no line", [no_run], ["rows"], manifest, ""),
+        ("refs: an obligation with `word_passed` naming the instance",
+         [refs], {"coverage": coverage({"instance_ids": ["test_b"], "word_passed": True})}, manifest,
+         said("the refs given, or your acceptance of the coverage gap", "test_b", "row fields not given (obligation_refs)")),
+        ("refs: the obligation carries no `word_passed` (the refs were repaired) - no line", [refs],
+         {"coverage": coverage({"instance_ids": ["test_b"]})}, manifest, ""),
+        ("refs: `word_passed` on an obligation whose instance the pass does not name - no line", [refs],
+         {"coverage": coverage({"instance_ids": ["test_c"], "word_passed": True})}, manifest, ""),
+        ("refs: no coverage in the ledger - no line", [refs], {"rows": []}, manifest, ""),
+        ("S5 plan not read: a line, nothing asked of a reader", [plan], None, {},
+         said("a readable S5 plan", "plan:-:plan-unreadable", "the S5 plan not read")),
+        ("any other finding: a line that names it, and the form's own words for what is needed", [other], None, {},
+         said("not named yet " + EM + " a factory gap", "obligations:TC-001:obligation-id-O-1", "the finding stays as it was")),
+        ("nothing recorded: no line", [], {"rows": [row()]}, manifest, ""),
+    ]
+    for label, lines, led, man, expected in cases:
+        root = temp_dir("qa-report-wp-")
+        try:
+            if lines:
+                _wp_record(root, *lines)
+            check_eq(f"FV1-30b N3 / {label}", RF._word_passed_gap(root, [], led, man, word, {}), expected)
+        finally:
+            cleanup(root)
+    root = temp_dir("qa-report-wp-")
+    try:
+        _wp_record(root, no_run)
+        check_in("E11 with a pipeline that is no object: the line is still there, from the decision", f'passed by your word "{WP_WORD}"',
+                 RF._word_passed_gap(root, [], {"rows": [row()]}, manifest, None, {}))
+    finally:
+        cleanup(root)
+
+
+def fv1_30b_n3_every_recorded_pass_has_a_line() -> None:
+    """FV1-30b N3 fix round. B1 (AR-27, AR-28): for every pass the record holds whose fact still stands the report has exactly ONE line -
+    over EVERY field of the facts table (the id of the case names the field), over an old line with no subjects (E4), and a field the table
+    gains later, with no code edit. F1: a taken-back word. F2: the word is the uncut `whole` of the one gap-line form."""
+    import waiver
+    fields = waiver.row_fields()[0]
+    word = {"stage_overrides": [{"at": WP_AT, "decision": WP_WORD}]}
+    manifest = lambda **given: {"tests": [dict({"instance_id": "test_a", "plan_row": "TS-1", "case": "TC-001", "covers": ["TC-001"], "file": "t.py"}, **given)]}  # noqa: E731
+    record = lambda field: _wp_line("manifest", "", "row-fields-missing", [{"instance_id": "test_a", "fields": [field]}])   # noqa: E731
+    line = lambda field, needed: (f'- **test_a** {EM} To check: row fields not given ({field}) {EM} passed by your word "{WP_WORD}" (human, {WP_TS}). '   # noqa: E731
+                                  f"Needed: {needed}\n")
+    cov = {"coverage": {"obligations": [{"instance_ids": ["test_a"], "word_passed": True}]}}
+
+    def run(lines, led=None, man=None, pipe=word, entries=()) -> str:
+        root = temp_dir("qa-report-wp-")
+        try:
+            _wp_record(root, *lines)
+            return RF._word_passed_gap(root, list(entries), led, man if man is not None else {}, pipe, {})
+        finally:
+            cleanup(root)
+
+    for field, row in fields.items():       # B1 (a): every field of the table, read from the data file
+        passes = row.get("pass") is True
+        refs = field == RF.OBLIGATION_REFS
+        needed = "the refs given, or your acceptance of the coverage gap" if refs else f"the {field} given in the test manifest"
+        led = cov if refs else None
+        check_eq(f"B1 (a) / field {field}: recorded, the manifest row still lacks it - {'ONE line' if passes else 'no line (the table never lets a word pass it)'}",
+                 run([record(field)], led, manifest()), line(field, needed) if passes else "")
+        check_eq(f"B1 (a) / field {field}: the field is given since (E8) - no line", run([record(field)], None, manifest(**{field: ["x"] if refs else "x"})), "")
+        if passes:
+            again = dict(record(field), decision="later word", word_at="2026-11-13T11:30:00Z", ts="2026-11-13T11:31:00+00:00")
+            twice = run([record(field), again], led, manifest(), {"stage_overrides": [{"at": WP_AT, "decision": WP_WORD}, {"at": again["word_at"], "decision": "later word"}]})
+            check_eq(f"B1 (a) / field {field}: a re-given word of the same subject and field - ONE line, the LATER word",
+                     (twice.count("\n"), '"later word"' in twice, WP_WORD in twice), (1, True, False))
+    # a field the data file gains later falls into the same branch, with no code edit: a copy of the table with one more passable field
+    grown, real = json.loads(json.dumps(waiver._fact_table()[0])), waiver._fact_table
+    grown["row_fields"]["synthetic_field"] = {"pass": True}
+    waiver._fact_table = lambda path=None: (grown, "")
+    try:
+        check_eq("B1 (a) / a field added to the table: its line, no code edit", run([record("synthetic_field")], None, manifest()),
+                 line("synthetic_field", "the synthetic_field given in the test manifest"))
+    finally:
+        waiver._fact_table = real
+    check_eq("B1 (a) / the same field with the real table: no row for it - never passed, no line", run([record("synthetic_field")], None, manifest()), "")
+    # B1 (b) / E4: an OLD record line (no check, no case, no tag, no subjects) - one line by its finding id, whatever its fact
+    old = lambda block, **over: dict({"ts": WP_TS, "stage": "S5", "dispatch": "d1", "block": block, "decision": WP_WORD, "word_at": WP_AT, "by": "human"}, **over)  # noqa: E731
+    bare = lambda ref, words, needed: f'- **{ref}** {EM} To check: {words} {EM} passed by your word "{WP_WORD}" (human, {WP_TS}). Needed: {needed}\n'  # noqa: E731
+    for label, block, expected in (
+            ("a Then not bound", "bindings:TC-001:unbound-2", bare("bindings:TC-001:unbound-2", "Then not bound to a test", THEN_NEEDED)),
+            ("a not-run instance", "run_mapping:-:no-row-test_a", bare("run_mapping:-:no-row-test_a", "no run row", "a run of it")),
+            ("row fields", "manifest:-:row-fields-missing", bare("manifest:-:row-fields-missing", "row fields not given",
+                                                                 "the refs given, or your acceptance of the coverage gap"))):
+        check_eq(f"B1 (b) / E4: an old line with no subjects - {label}: ONE line, no reader asked", run([old(block)]), expected)
+    check_eq("B1 (b) / E4: an old line with `subjects: []` is the same as one with none", run([old("bindings:TC-001:unbound-2", subjects=[])]),
+             bare("bindings:TC-001:unbound-2", "Then not bound to a test", THEN_NEEDED))
+    check_eq("B1 (b): a line WITH subjects whose fact was repaired (the Then has its binding) is NOT a bare line - no line", run([_wp_line()]), "")
+    check_eq("B1 (b) / E5: two words for one old finding - ONE line, the later word by ts",
+             run([old("bindings:TC-001:unbound-2"), old("bindings:TC-001:unbound-2", decision="later word", word_at="2026-11-13T11:30:00Z",
+                                                        ts="2026-11-13T11:31:00+00:00")], pipe={"stage_overrides": [{"at": "2026-11-13T11:30:00Z", "decision": "later word"}]}),
+             f'- **bindings:TC-001:unbound-2** {EM} To check: Then not bound to a test {EM} passed by your word "later word" (human, 2026-11-13T11:31:00+00:00). '
+             f"Needed: {THEN_NEEDED}\n")
+    # F1: a taken-back word - the line stays (the fact still stands), and it says the word was taken back
+    back = run([_wp_line("plan", "", "plan-unreadable", [])], pipe={"stage_overrides": [{"at": WP_AT, "decision": WP_WORD, "revoked_at": "2026-11-13T12:00:00Z"}]})
+    check_eq("F1: a revoked word - ONE line, the word quoted and said to be taken back, never as a word that still passes",
+             (back.count("\n"), f'passed by your word "{WP_WORD}" {RF.WORD_TAKEN_BACK} (human, {WP_TS})' in back), (1, True))
+    gone = run([_wp_line("plan", "", "plan-unreadable", [], decision="kept word")], pipe={"stage_overrides": [{"at": WP_AT, "decision": "", "revoked_at": "T9"}]})
+    check_in("F1: a revoked entry with no text - the kept decision, said to be taken back (not 'no longer in the record')", f'"kept word" {RF.WORD_TAKEN_BACK}', gone)
+    # F2: the word is the uncut `whole` of left_gap_line
+    check_eq("F2: a caller that passes no `whole` is byte-identical", RF.left_gap_line("R-1", "what", "need"), f"- **R-1** {EM} To check: what. Needed: need")
+    long_word = "w" * 450
+    cut = RF.left_gap_line("r" * 300, "x" * 300, "need", whole=f'"{long_word}"')
+    check_eq("F2: a ref and a what over the limit are cut, a word of 450 characters stays whole", (RF.ELLIPSIS in cut, long_word in cut, cut.count(RF.ELLIPSIS)), (True, True, 2))
+    check_eq("F2: a newline in the word collapses to one space (the escaping `_words` gives every part); a pipe and markdown stand",
+             RF.left_gap_line("r", "what", "need", whole='"a\n\nb | **c** `d`"'), f'- **r** {EM} To check: what "a b | **c** `d`". Needed: need')
+    sentinel = chr(0xE000)
+    check_eq("F2: a private-use character in the ref or the word is only text - the word appears once",
+             RF.left_gap_line(sentinel, "what" + sentinel, "need", whole="word").count("word"), 1)
+    check_eq("F2: an empty or blank `whole` adds nothing", (RF.left_gap_line("r", "what", "n", whole=""), RF.left_gap_line("r", "what", "n", whole=" \n ")),
+             (RF.left_gap_line("r", "what", "n"),) * 2)
+    big = "w" * 24576
+    plan = run([_wp_line("plan", "", "plan-unreadable", [])], pipe={"stage_overrides": [{"at": WP_AT, "decision": big}]})
+    check_eq("F2: through the report path a 24 KB word is whole, one line", (big in plan, plan.count("\n")), (True, 1))
 
 
 # --- t-305 N8: the third verdict in the report -------------------------------------------------------------------
@@ -4241,6 +4547,9 @@ def main() -> None:
     manual_checks_stand_blocked()
     manual_export_path_is_what_the_code_writes()
     partly_proven_unconfirmed_then()
+    fv1_30b_n3_the_word_passed_gap_in_the_report()
+    fv1_30b_n3_the_facts_the_ledger_and_the_coverage_show()
+    fv1_30b_n3_every_recorded_pass_has_a_line()
     unconfirmed_expectations()
     one_source_per_count()
     first_reason_order()
@@ -4251,6 +4560,7 @@ def main() -> None:
     expectation_change_words()
     probe_debt_line()
     open_questions()
+    fv19_report_lists_target_once()
     not_proven_items()
     answered_suffix()
     gate_blocks()
@@ -4288,7 +4598,142 @@ def main() -> None:
     exploratory_words_of_codes_and_formal_split_n7_n9f()
     w2_decisions_b_c()
     ep1_37_a_tool_gap_is_the_factorys()
+    fv16_case_remarks_left()
     finish("report_facts")
+
+
+def fv16_case_remarks_left() -> None:
+    """FV1-6 N3, rows P1-P10: the still-rejected remarks of the S4 case critic that the automator did not act on reach the report's
+    review-gaps block and the gate B packet through one renderer. KILLS: an `applied` row listed; a missing or unreadable answer
+    read as acted on; a second merge of the answers; a sub-section with nothing to list; the packet and the report saying two things;
+    an unknown shown as nothing left; more than GAP_TESTS_MAX items with no overflow line."""
+    import controller as CT
+    import s5_plan as SP
+    heading = "### Case review remarks the automation did not act on"
+    packet = "## Case review remarks the automation did not act on"
+
+    def remark(n, case="TC-001", problem="the Then reads the wrong flag"):
+        return {"id": f"CR-{case}" if n == 1 else f"CR-{case}.{n}", "case": case, "problem": problem, "still_rejected": True}
+
+    def answered(task, rows, raw=None):
+        write(task / "work" / "automation-manifest.json", raw if raw is not None else dict(MANIFEST, plan_remarks=rows))
+
+    task = story()
+    saved = SP.concern_report, CT.Controller.state
+    try:
+        write(task / "state" / "controller.json", {})
+        CT.Controller.state = lambda self: {}
+        box = {"concerns": []}
+        SP.concern_report = lambda root, state: {"concerns": box["concerns"], "rounds": 1, "silent": []}
+
+        def left_of(remarks, rows=None, raw=None):
+            box["concerns"] = remarks
+            answered(task, rows if rows is not None else [], raw)
+            return RF.case_remarks_left(task)
+
+        # P1 not-applicable-listed, with the writer's reason
+        got = left_of([remark(1)], [{"id": "CR-TC-001", "row": "not_applicable", "reason": "the flag is gone"}])
+        check_eq("P1 not-applicable-listed: one item with the writer's reason",
+                 [(i["id"], i["case"], i["reason"]) for i in got["items"]], [("CR-TC-001", "TC-001", "the flag is gone")])
+        check_eq("P1 not-applicable-listed: no problem", got["problem"], "")
+        facts = RF.build(task)
+        body = RF.render(facts)["review-gaps"]
+        check_in("P1 not-applicable-listed: the sub-section with its count", f"{heading} — 1\n\n", body)
+        check_in("P1 not-applicable-listed: the case, both voices named",
+                 "TC-001 — the case reviewer: the Then reads the wrong flag — the test writer: the flag is gone", body)
+        check_eq("P1 not-applicable-listed: the report passes its own forbidden-spelling check (no work/ path)",
+                 __import__("validate_artifacts").report_id_shape_hit(body), "")
+        check_in("P1 not-applicable-listed: the block's own heading and none-line stay", "None: the code critic left no test rejected.", body)
+        check_eq("P1 not-applicable-listed: the verdict is not touched by the sub-section",
+                 RF.render(dict(facts, case_remarks_left=None))["verdict"], RF.render(facts)["verdict"])
+        # a row with an unknown row word is not an answer; two case-less remarks stay two lines (never merged)
+        got = left_of([remark(1), remark(2, case="TC-002")], [{"id": "CR-TC-001", "row": "maybe", "reason": "x"},
+                                                              {"id": "CR-TC-002.2", "row": "applied", "reason": ""}])
+        check_eq("an unknown row word: listed as unread; the other id is answered applied: not listed",
+                 [(i["id"], i["reason"]) for i in got["items"]], [("CR-TC-001", "the test writer's answer could not be read")])
+        got = left_of([dict(remark(1, case="x"), id="CR-global", case=None, problem="(plan row TS-1) a"),
+                       dict(remark(1, case="x"), id="CR-global.2", case=None, problem="(plan row TS-2) b")],
+                      [{"id": "CR-global", "row": "applied", "reason": ""}])
+        check_eq("case-less remarks: each by its own id (CR-global applied, CR-global.2 not answered)",
+                 [(i["id"], i["reason"]) for i in got["items"]], [("CR-global.2", "no answer recorded")])
+        check_in("a remark with no case is named so, never a guessed path",
+                 "a remark on no one case — the case reviewer: (plan row TS-2) b — the test writer: no answer recorded",
+                 RF.case_remark_lines(got))
+        # P2 applied-not-listed [the R-c row]
+        got = left_of([remark(1)], [{"id": "CR-TC-001", "row": "applied", "reason": ""}])
+        check_eq("P2 applied-not-listed: a remark acted on is not reported as left", got["items"], [])
+        check_not_in("P2 applied-not-listed: no sub-section", heading, RF.render(RF.build(task))["review-gaps"])
+        # P3 no-row-listed
+        got = left_of([remark(1)], [{"id": "CR-OTHER", "row": "not_applicable", "reason": "x"}])
+        check_eq("P3 no-row-listed", [i["reason"] for i in got["items"]], ["no answer recorded"])
+        got = left_of([remark(1)], raw={"tests": []})
+        check_eq("P3 no-row-listed: a manifest with no `plan_remarks` key is no answer", [i["reason"] for i in got["items"]], ["no answer recorded"])
+        # P4 manifest-unreadable-listed
+        for label, raw in (("not an object", "[1, 2]"), ("not JSON", "{broken"), ("plan_remarks not a list", {"plan_remarks": "applied"}),
+                           ("plan_remarks null", {"plan_remarks": None})):
+            got = left_of([remark(1)], raw=raw)
+            check_eq(f"P4 manifest-unreadable-listed ({label}): listed, never acted on",
+                     [i["reason"] for i in got["items"]], [RF.ANSWERS_UNREADABLE])
+        # P5 no-still-rejected-empty: no sub-section, the block as it was
+        got = left_of([], [])
+        check_eq("P5 no-still-rejected-empty: no item, no problem", (got["items"], got["problem"]), ([], ""))
+        facts = RF.build(task)
+        check_eq("P5 no-still-rejected-empty: the block is byte-identical to a facts dict with no key",
+                 RF.render(facts)["review-gaps"], RF.render({k: v for k, v in facts.items() if k != "case_remarks_left"})["review-gaps"])
+        # E-N3-11: a facts dict built by hand has no key and no sub-section
+        check_not_in("E-N3-11 a facts dict without the key", heading, RF.render({k: v for k, v in facts.items() if k != "case_remarks_left"})["review-gaps"])
+        # P6 at-gap-max, P7 beyond-gap-max
+        many = [remark(n) for n in range(1, RF.GAP_TESTS_MAX + 2)]
+        got = left_of(many[:RF.GAP_TESTS_MAX])
+        lines = RF.case_remark_lines(got)
+        check_eq("P6 at-gap-max: GAP_TESTS_MAX items, no overflow line", (len(lines), any("more in the factory" in x for x in lines)),
+                 (RF.GAP_TESTS_MAX, False))
+        got = left_of(many)
+        lines = RF.case_remark_lines(got)
+        check_eq("P7 beyond-gap-max: GAP_TESTS_MAX items and the overflow line", (len(lines), lines[-1]),
+                 (RF.GAP_TESTS_MAX + 1, "(+1 more in the factory's record of the checks)"))
+        check_in("P7 beyond-gap-max: the heading counts all of them", f"{heading} — {len(many)}\n", RF.render(RF.build(task))["review-gaps"])
+        # the critic's and the writer's words go through the report's cut: a forbidden spelling is left out and marked
+        got = left_of([remark(1, problem="read work/secret.json then fail")], [{"id": "CR-TC-001", "row": "not_applicable", "reason": "cv_abc123 is gone"}])
+        shown = "\n".join(RF.case_remark_lines(got))
+        check_not_in("E-N3-8 the cut: no work/ path in the report", "work/secret", shown)
+        check_in("E-N3-8 the cut: marked as shortened", RF.SHORTENED, shown)
+        # P8 packet-equals-report
+        got = left_of([remark(1), remark(2, case="TC-002")], [{"id": "CR-TC-001", "row": "not_applicable", "reason": "r"}])
+        report = RF.render(RF.build(task))["review-gaps"].split(f"{heading} — 2\n\n", 1)[1].split("\n\n", 1)[0].strip().split("\n")
+        ledger_dict = {"repair_windows_problem": "the ledger cannot be read"}
+        gate = RF.gate_b_gap_lines(ledger_dict, got)
+        at = gate.index(f"{packet} (2)")
+        check_eq("P8 packet-equals-report: the packet holds the report's item lines", gate[at + 1:], report)
+        check_eq("P8 packet-equals-report: left=None is byte-identical to today", RF.gate_b_gap_lines(ledger_dict), RF.gate_b_gap_lines(ledger_dict, None))
+        check_not_in("P8 packet-equals-report: left=None has no section", packet, RF.gate_b_gap_lines(ledger_dict))
+        check_not_in("P8 packet-equals-report: an empty left has no section", packet, RF.gate_b_gap_lines(ledger_dict, left_of([])))
+        # P9 state-unreadable-unknown-line
+        def boom(root, state):
+            raise SP.PlanUnreadable("the review chain cannot be read")
+        SP.concern_report = boom
+        got = RF.case_remarks_left(task)
+        check_eq("P9 state-unreadable-unknown-line: no item, the problem said", (got["items"], got["problem"]), ([], RF.CASE_REMARKS_UNREADABLE))
+        check_in("P9 state-unreadable-unknown-line: an Unknown line in the report", f"{heading} — unknown\n\nUnknown — {RF.CASE_REMARKS_UNREADABLE}.",
+                 RF.render(RF.build(task))["review-gaps"])
+        check_in("P9 state-unreadable-unknown-line: and in the packet", f"{packet} (unknown)", RF.gate_b_gap_lines(ledger_dict, got))
+        check_not_in("P9 state-unreadable-unknown-line: the unknown is never a count of 0", f"{heading} — 0", RF.render(RF.build(task))["review-gaps"])
+        check_not_in("P9 state-unreadable-unknown-line: no machine path left in the facts", "task_root", str(got.keys()))
+        SP.concern_report = saved[0]
+        CT.Controller.state = lambda self: (_ for _ in ()).throw(OSError("locked"))
+        check_eq("P9 state-unreadable-unknown-line: the state read fails the same way", RF.case_remarks_left(task)["problem"], RF.CASE_REMARKS_UNREADABLE)
+        CT.Controller.state = lambda self: {}
+        SP.concern_report = lambda root, state: {"concerns": [remark(1)], "rounds": 1, "silent": []}
+        # P10 no-manifest-empty
+        (task / "work" / "automation-manifest.json").unlink()
+        check_eq("P10 no-manifest-empty: nothing was automated, nothing is claimed", RF.case_remarks_left(task)["items"], [])
+        # E-N3-2: no state
+        (task / "state" / "controller.json").unlink()
+        answered(task, [])
+        check_eq("E-N3-2 no controller state: no item, no problem", RF.case_remarks_left(task)["items"] + [RF.case_remarks_left(task)["problem"]], [""])
+    finally:
+        SP.concern_report, CT.Controller.state = saved
+        cleanup(task.parents[2])
 
 
 def ep1_37_a_tool_gap_is_the_factorys() -> None:

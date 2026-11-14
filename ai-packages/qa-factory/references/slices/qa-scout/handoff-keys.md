@@ -62,3 +62,33 @@ Contract `s1-scout-to-tester` (fill `work/handoffs/<dispatch>.yaml`; `handoff_ch
 - `blocked.data[]` (only when blocked) - path of anything the conductor needs to see
 
 Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): `inputs`, `inputs_read`, `header`, `scope`, `artifacts`, `claims`, `unresolved`, `blocked`.
+
+## What code will check of you
+
+`<T>` is your ticket, `<ID>` your dispatch id, `<home>` the project's qa-factory folder - all three stand in your prompt (`Ticket: ... Dispatch: ...`) and in your task packet.
+
+- [exit_gate:EG-digest-form] Your final message is the handoff form: a header `<role> <stage> <window> · ok|concerns|halt|impossible`; one line `<id> · <state> · <reason of at most 80 characters>` for every item of the dispatch's scope (a halting digest owes no scope lines); nothing but those lines between the header and the path; and, last, the task-relative path of what you wrote (a halting digest may omit it). Door: fix the digest line the refusal names, then end the dispatch again.
+- [exit_gate:EG-text-end] Your dispatch ends with the host's handback tool carrying your digest line, never with free text after it. Door: call the host's handback tool with your digest line.
+- [handoff_check:blocked_problem] A row in state `blocked` carries `blocked.problem`; `blocked_by_env` is used only where `options_for_role` offers it to this role. Door: write the problem, or pick a state the role is offered.
+- [handoff_check:claims] What the form claims is true is true on disk ("the form claims this is true, and it is not"). Door: fix the claim or make it true.
+- [handoff_check:cli] The call names an existing UTF-8 form with a `contract:` line and an existing values file; `--shorten` only with `--fix`. Door: the refusal's door; a non-UTF-8 form: run `handoff_init` again.
+- [handoff_check:field.blank] every `required` field of your handoff form (section `Handoff form` of this page). Door: write the value as a `path: value` line in the values file, then run the check again.
+- [handoff_check:field.max_len] every `required` field of your handoff form (section `Handoff form` of this page). Door: shorten it (`--shorten` with `--fix`) or rewrite.
+- [handoff_check:field.value] every `required` field of your handoff form (section `Handoff form` of this page). Door: write one of the listed words (or `new: <word> -- <why>` where the list is open).
+- [handoff_check:required_rows] A required list has one row per item in scope: the id, a state and a reason of at most 80 characters. Door: write the rows as index lines in the values file, then run this check again.
+- [handoff_check:required_rows.null_word] A list's null-outcome word (the declared empty outcome) stands only when the list has no rows; never both. Door: remove the word or remove the rows.
+- [handoff_check:required_rows.owed_by_verdict] When the verdict owes rows (the verdict word names work done on items), the list is not empty. Door: write the rows the verdict owes, or change the verdict.
+- [handoff_check:tried] In a contract that asks what was tried (TRIED_CONTRACTS), each tried entry states what was tried and the error it gave (TRIED_MEANING). Door: fill the tried entry with the attempt and its error.
+- [handoff_check:values_apply] Each path names a field of this contract, by its index where it is a list row, not a contract-owned path; a list field gets a list and a one-value field one value; rows open in order. Door: correct the path (the refusal suggests "did you mean").
+- [handoff_check:values_file] The values file is `path: value` lines (or a JSON object): valid JSON, an object not a list, each path given once, each key a field path, no nested value. Door: fix the line the refusal names (FILE_FIX).
+- [exit_gate:digest] Your final message has the digest form stated in the row [exit_gate:EG-digest-form] of this section. Door: fix the digest line the refusal names, then end the dispatch again.
+- [validate_artifacts:check_context_manifest_v0] Every `related[]` entry is an object with a `kind` from `RELATED_KINDS` and a `source`; every `implementations[]` entry is an object naming a `repo` once with a listed `source`; the list keys are arrays or absent. Door: edit the file and the field the refusal line names.
+- [validate_artifacts:check_phase_json.context-manifest.json] `context-manifest.json` carries the keys `ticket`, `acceptance_criteria`, `implementation`. Door: edit the file and the field the refusal line names.
+- [guard_pre_tool:*] 23 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
+- [stage_guard:*] 8 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
+- [host_adapter:*] 6 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
+- [role_cli:*] 1 checks of your commands are told in the refusal of the call, with what they expect and the door. Run `context_bundle.py --help` before you write an input file: it prints what each command of the script checks.
+
+### Not yet in rows
+
+work/context-manifest.json is read field by field: `ticket`, `acceptance_criteria` and `implementation` present; every `related[]` row is {key, kind, source}, kind one of implementation|blocker|bug|mention, `source` saying WHERE in this ticket the key was read; one `implementations[]` row per repository. `coverage_search[]` rows: repo, revision, changed_area, searched_paths, status complete|partial|unavailable, reason; nothing found is top-level `coverage_status: not_found`. `existing_test_candidates[]` rows: candidate_id, repo, revision, path, selector, parameter_ids, level, assertion_refs, candidate_requirement_refs, origin existing|added_in_change|unknown, result_candidate_refs. S1 closes on work/source-inventory.json: every required source retrieved and inspected, none `pending`, no material without receipts. A source you could not get: name it in your digest with its id and what is missing - recording a person's words is the orchestrator's door; you are resumed with their answer. Build with `context_bundle.py --manifest`, then `--validate`.

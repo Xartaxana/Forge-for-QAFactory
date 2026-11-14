@@ -2151,7 +2151,7 @@ def open_oracle_asserted_errs_toward_firing() -> None:
 
 def no_word_passes_the_open_oracle_gate() -> None:
     """K-WORD / M5: a stage-wide word (`*`), a word naming the tag and a word naming the family all leave the finding; `report()`
-    prints its WORDS_REFUSED_AT_SOURCE line (cause `family`)."""
+    prints its WORDS_REFUSED_AT_SOURCE line (cause `awaits_answer`)."""
     import waiver as W
     root = temp_project("qa-s5-oa-word-")
     try:
@@ -2165,7 +2165,8 @@ def no_word_passes_the_open_oracle_gate() -> None:
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             P.report(P.run(task))
-        check_in("report() prints the finding's refusal line, cause family", f"WORDS_REFUSED_AT_SOURCE: {finding_id} family", out.getvalue())
+        check_in("report() prints the finding's refusal line, cause awaits_answer", f"WORDS_REFUSED_AT_SOURCE: {finding_id} awaits_answer",
+                 out.getvalue())
     finally:
         cleanup(root)
 
@@ -3036,7 +3037,7 @@ def the_verdict_is_one_line_per_finding() -> None:
              (len(verdict["findings"]), verdict["defects"], verdict["unmigrated"], verdict["marker"], verdict["words"]),
              (3, [], "", "repair", "source"))
     check_eq("the families no word passes carry their line, the passable one does not",
-             verdict["refused"], ["", "family", "family"])
+             verdict["refused"], ["", "awaits_answer", "awaits_answer"])
     check("the refusal lines stand ABOVE the header", all(i < heads[0] for i, line in enumerate(lines)
           if line.startswith(DETV.WORDS_REFUSED_AT_SOURCE)) and out.count(DETV.WORDS_REFUSED_AT_SOURCE) == 2, out[:300])
     # FV1-30a (F1): the door is the finding's tag or its whole id; `*` is named only with its two exceptions
@@ -3056,9 +3057,9 @@ def the_verdict_is_one_line_per_finding() -> None:
     check_not_in("...and the door sentence is not printed (no finding is passable)", "--block", out)
     out_zero = printed({"ok": False, "findings": [], "hints": [], "notes": [], "cases": []})
     check_not_in("zero findings: no door either", "--block", out_zero)
-    check_eq("...and every finding has its family line", [line for line in out.splitlines()
+    check_eq("...and every finding has its awaits_answer line", [line for line in out.splitlines()
              if line.startswith(DETV.WORDS_REFUSED_AT_SOURCE)],
-             [f"{DETV.WORDS_REFUSED_AT_SOURCE} {f['id']} family" for f in only])
+             [f"{DETV.WORDS_REFUSED_AT_SOURCE} {f['id']} awaits_answer" for f in only])
     # the waiver cannot be imported: the passable finding is printed as it is (no verdict, no line), the other keeps its tag
     saved = sys.modules.get("waiver")
     sys.modules["waiver"] = None
@@ -3070,8 +3071,8 @@ def the_verdict_is_one_line_per_finding() -> None:
         else:
             sys.modules["waiver"] = saved
     out = printed({"ok": False, "findings": kept, "hints": [], "notes": [], "cases": []})
-    check_eq("no waiver: label there, the passable finding untagged, the other tagged `family`",
-             (DETV.WORDS_AT_SOURCE in out, DETV.parse(1, out, "")["refused"]), (True, ["", "family"]))
+    check_eq("no waiver: label there, the passable finding untagged, the other tagged `awaits_answer`",
+             (DETV.WORDS_AT_SOURCE in out, DETV.parse(1, out, "")["refused"]), (True, ["", "awaits_answer"]))
     empty = printed({"ok": False, "findings": [], "hints": [], "notes": [], "cases": []})
     parsed = DETV.parse(1, empty, "")
     with contextlib.redirect_stdout(io.StringIO()):
@@ -4883,7 +4884,7 @@ def one_road_selects_the_word_for_the_finding() -> None:
         left, passes = P._judge_words(root, [bound], [])
         check_eq("...and the pass carries the word's own `at` and decision", (left, passes),
                  ([], [{"finding_id": bound["id"], "check": "bindings", "case": case, "tag": "no-bindings",
-                        "decision": "go on", "at": "2020-01-01T00:00:00+00:00"}]))
+                        "decision": "go on", "at": "2020-01-01T00:00:00+00:00", "subjects": []}]))
     finally:
         cleanup(root)
     # a 24 KB word that equals nothing passes nothing (a long `match` is never a tag); a 24 KB DECISION on a word that equals the
@@ -4924,7 +4925,7 @@ def the_result_carries_the_word_passes_and_the_helper_reads_them() -> None:
         before = sorted((p.name, p.stat().st_size) for p in task.rglob("*") if p.is_file())
         result = P.run(task)
         expected = [{"finding_id": finding["id"], "check": finding["check"], "case": finding["case"], "tag": P._finding_tag(finding),
-                     "decision": "the person lets the test stand", "at": "2026-10-01T10:00:00+00:00"}]
+                     "decision": "the person lets the test stand", "at": "2026-10-01T10:00:00+00:00", "subjects": []}]
         check_eq("a word: the field holds the pass, and the finding left", (result["word_passes"], len(car(result))), (expected, 0))
         check_eq("the field and the notes are the same passes", len(result["word_passes"]),
                  "\n".join(result["notes"]).count("passed by the person's word"))
@@ -4967,7 +4968,99 @@ def the_result_carries_the_word_passes_and_the_helper_reads_them() -> None:
         cleanup(root)
 
 
+def fv1_30b_findings_carry_subjects() -> None:
+    """FV1-30b N0 rows (a)-(e), (j): a finding says WHICH instances or Thens it is about (`subjects`), only the producers the spec names
+    set it, every other finding is byte for byte as before, and the pass row copies the list (`[]` for a finding with none)."""
+    # (a) every finding dict without `subjects` is the six keys it always was, in the order it always was (the families of A:300-308)
+    plain = ("id", "check", "case", "message", "fix", "level")
+    for check_name, case, tag in (("manifest", "", "row-fields-missing"), ("bindings", "TC-1", "ghost-i1"), ("bindings", "TC-1", "contradicted-1"),
+                                  ("oracle", "TC-1", "dispute-unstated"), ("plan", "", "plan-unreadable"), ("sides", "TC-1", "sides-undeclared-i1"),
+                                  ("environment", "TC-1", "stand-login"), ("obligations", "TC-1", "obligation-id-TS-1-O1"),
+                                  ("oracle", "TC-1", "open-oracle-asserted-1"), ("bindings", "TC-1", "then-remainder-unrecorded-1")):
+        for make in (P._finding, P._hint):
+            found = make(check_name, case, "m", "f", tag)
+            check_eq(f"(a) {check_name}:{tag} via {make.__name__}: no `subjects` key, the keys as before", tuple(found), plain)
+    check_eq("(a) a plan finding is the same six keys", tuple(P._plan_finding("", "m", "f", "plan-unreadable")), plain)
+    check_eq("(a) `subjects=None` and `subjects` not given are the same finding",
+             P._finding("bindings", "TC-1", "m", "f", "t", subjects=None), P._finding("bindings", "TC-1", "m", "f", "t"))
+    check_eq("(a) a producer that gives `subjects` gets a COPY of the list",
+             P._finding("bindings", "TC-1", "m", "f", "t", subjects=[{"instance_id": "A"}])["subjects"], [{"instance_id": "A"}])
+    # (b) no-row-A and unmatched-A name the instance
+    entry = {"instance_id": "A", "case": "TC-1", "covers": ["TC-1"]}
+    found: list = []
+    P.check_run_mapping("TC-1", [entry], [], [], found)
+    check_eq("(b) `no-row-A` names instance A", [(P._finding_tag(f), f.get("subjects")) for f in found], [("no-row-A", [{"instance_id": "A"}])])
+    found = []
+    P.check_run_mapping("TC-1", [entry], [], [{"instance_id": "A", "report_matched": False, "status": "not_run", "block": "b1"}], found)
+    check_eq("(b) `unmatched-A` names instance A too (it is no fact of the table: `waiver` row (i))",
+             [(P._finding_tag(f), f.get("subjects")) for f in found], [("unmatched-A", [{"instance_id": "A"}])])
+    found = []
+    P.check_run_mapping("TC-1", [dict(entry, instance_id="A[neg]")], [], [], found)
+    check_eq("(b) a parameter label stays whole in the subject", [f.get("subjects") for f in found], [[{"instance_id": "A[neg]"}]])
+    # (c) row-fields-missing over two rows: two subjects, each with its fields
+    root = temp_project("qa-fv130b-n0-")
+    try:
+        found, _ = refs_finding(refs_story(root, [refs_row("r1", "TC-500", "TS-1"), refs_row("r2", "TC-500", "TS-1")]))
+        check_eq("(c) two rows missing their refs: two subjects, the instance and its fields",
+                 found.get("subjects") if found else None,
+                 [{"instance_id": "r1", "fields": ["obligation_refs"]}, {"instance_id": "r2", "fields": ["obligation_refs"]}])
+        check_eq("(c) the finding's other keys are the six it always had", [k for k in found if k != "subjects"], list(plain))
+        one, _ = refs_finding(refs_story(root, [refs_row("r1", "TC-500", "TS-1", obligation_refs=[]), refs_row("r3", "TC-500", "TS-1")]))
+        check_eq("(c) only the rows with a gap are subjects", [s["instance_id"] for s in (one or {}).get("subjects") or []], ["r1", "r3"])
+    finally:
+        cleanup(root)
+    # (d) no-bindings: one {case, then} per Then of the case; unbound-<n>: the one Then
+    text = "## Then\n1. the first\n2. the second\n3. the third\n"
+    found = []
+    P.check_bindings({"tests": [], "then_bindings": []}, "TC-1", text, [], [], found)
+    check_eq("(d) `no-bindings` over three Thens names all three",
+             [(P._finding_tag(f), f.get("subjects")) for f in found if P._finding_tag(f) == "no-bindings"],
+             [("no-bindings", [{"case": "TC-1", "then": 1}, {"case": "TC-1", "then": 2}, {"case": "TC-1", "then": 3}])])
+    found = []
+    P.check_bindings({"tests": [], "then_bindings": []}, "TC-1", "## Then\n1. the first\n3. the third\n", [], [], found)
+    check_eq("(d) `no-bindings` over Thens 1 and 3 names exactly those two",
+             [f.get("subjects") for f in found if P._finding_tag(f) == "no-bindings"], [[{"case": "TC-1", "then": 1}, {"case": "TC-1", "then": 3}]])
+    row = {"case": "TC-1", "then": 2, "instance_id": "A", "assertion_ref": "t.py:1", "status": "covered"}
+    found = []
+    P.check_bindings({"tests": [{"instance_id": "A", "covers": ["TC-1"]}], "then_bindings": [row]}, "TC-1", text, [], [], found)
+    check_eq("(d) `unbound-1` and `unbound-3` each name their one Then",
+             sorted((P._finding_tag(f), json.dumps(f.get("subjects"))) for f in found if P._finding_tag(f).startswith("unbound-")),
+             [("unbound-1", json.dumps([{"case": "TC-1", "then": 1}])), ("unbound-3", json.dumps([{"case": "TC-1", "then": 3}]))])
+    # (e) the pass row copies `subjects`; a finding with none gives `[]`, and the finding the word passed is not changed
+    subjects = [{"instance_id": "A"}, {"instance_id": "B"}]
+    finding = P._finding("run_mapping", "TC-1", "no run block", "run it", "no-row-A", subjects=subjects)
+    plain_finding = P._finding("bindings", "TC-1", "bindings missing", "add rows", "ghost-i1")
+    root = _with_words(("*", "go on"))
+    try:
+        left, passes = P._judge_words(root, [finding, plain_finding], [])
+        check_eq("(e) the pass row of a finding with subjects copies them; one without gives []",
+                 [(p["finding_id"], p["subjects"]) for p in passes], [(finding["id"], subjects), (plain_finding["id"], [])])
+        check_eq("(e) the pass holds the keys of 30a and `subjects`, nothing else",
+                 sorted(passes[0]), sorted(["finding_id", "check", "case", "tag", "decision", "at", "subjects"]))
+        check_eq("(e) the finding the word passed keeps its own subjects (a word never touches the data)", finding["subjects"], subjects)
+    finally:
+        cleanup(root)
+    # (j) §2.4 at the source: a word that does not NAME the finding passes nothing, so no subject is ever passed on a guess
+    run_a = P._finding("run_mapping", "TC-1", "no run block", "run it", "no-row-A[neg]", subjects=[{"instance_id": "A[neg]"}])
+    rf = P._finding("manifest", "", "rows miss fields", "fill", "row-fields-missing", subjects=[{"instance_id": "A", "fields": ["obligation_refs"]}])
+    waits = P._finding("oracle", "TC-1", "Then 1 is asserted open", "answer", "open-oracle-asserted-1")
+    revoked = {"stage": "S5", "match": "*", "decision": "go on", "at": "2026-10-01T10:00:00+00:00", "revoked_at": "2026-10-02T10:00:00+00:00"}
+    for label, words, findings, want in (
+            ("a word naming the CASE beside a row-fields finding", (("TC-1", "go on"),), [rf], 0),
+            ("a word for `no-row-A` when the instance is `A[neg]`", (("no-row-A", "go on"),), [run_a], 0),
+            ("a parameter label of the iid", (("neg", "go on"),), [run_a], 0),
+            ("`*` with an open-oracle finding", (("*", "go on"),), [waits], 0),
+            ("a revoked word", (revoked,), [rf, run_a], 0)):
+        root = _with_words(*words)
+        try:
+            check_eq(f"(j) {label}: nothing passed", len(P._judge_words(root, findings, [])[1]), want)
+        finally:
+            cleanup(root)
+    check_eq("(j) `pipeline.json` unreadable: nothing passes", P._judge_words(temp_dir("qa-fv130b-n0-none-"), [rf], [])[1], [])
+
+
 def main() -> None:
+    fv1_30b_findings_carry_subjects()
     fv1_19_obligation_refs_at_the_precheck()
     a_word_by_tag_passes_every_family_but_the_two_that_wait()
     one_road_selects_the_word_for_the_finding()

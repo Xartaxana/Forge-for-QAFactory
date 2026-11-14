@@ -165,7 +165,8 @@ one, which is what makes this rule a check rather than a hope.
    **Which access scheme is the one.** Offer phase 1's proposal and the alternatives it
       saw, and the harness's own login command **first** when one exists (if the project can
       log itself in, the factory calls it rather than reimplementing the protocol): `access.kind`
-      = `harness_command` · `local_login` · `oidc_password` · `bearer_env` · `none`, with the
+      = `harness_command` · `local_login` · `oidc_password` · `bearer_env` · `form_login` (a sign-in form of the
+      application's own login page) · `ui_only` (the tests sign in only through the UI) · `none`, with the
       key names each needs (`user_key`, `secret_key`, `client_id_key`, `realm_key`,
       `token_key`) and the command or URL; for `local_login` the proposal also shows the JSON body
       field names (`user_field`, `secret_field`); empty = the probe tries the pairs of
@@ -175,8 +176,9 @@ one, which is what makes this rule a check rather than a hope.
       (`access.unauth_status` — a redirect to an identity provider, a 401, a 200 without a
       token). A stand behind an identity provider answering 302 is healthy; the factory only
       knows that because somebody said so here. When phase 1 found no login site, or a scheme
-      the five kinds do not model, ask outright which of them applies — an access scheme this
-      version cannot record is a `[DEFERRED: …]` and its backlog row, not a guessed kind.
+      the seven kinds do not model, ask outright which of them applies — an access scheme this
+      version cannot record is a `[DEFERRED: …]` and its backlog row, not a guessed kind. A failed proof
+      sign-in goes through the roads command in phase 4 before any question.
       Ask one more thing when phase 1 printed `account_pairs` — **the accounts of the stand**, one
       question that shows the pairs by NAME: for each pair, **which role is this account on the stand**
       (an administrator, a plain user, ...), or "not an account of the stand". The login pair is offered as

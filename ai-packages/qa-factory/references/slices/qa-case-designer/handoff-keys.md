@@ -58,3 +58,33 @@ Contract `s4-designer-to-case-critic` (fill `work/handoffs/<dispatch>.yaml`; `ha
 - `blocked.data[]` (only when blocked) - path of anything the conductor needs to see
 
 Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): `inputs`, `inputs_read`, `header`, `scope`, `artifacts`, `claims`, `unresolved`, `blocked`.
+
+## What code will check of you
+
+`<T>` is your ticket, `<ID>` your dispatch id, `<home>` the project's qa-factory folder - all three stand in your prompt (`Ticket: ... Dispatch: ...`) and in your task packet.
+
+- [exit_gate:EG-digest-form] Your final message is the handoff form: a header `<role> <stage> <window> · ok|concerns|halt|impossible`; one line `<id> · <state> · <reason of at most 80 characters>` for every item of the dispatch's scope (a halting digest owes no scope lines); nothing but those lines between the header and the path; and, last, the task-relative path of what you wrote (a halting digest may omit it). Door: fix the digest line the refusal names, then end the dispatch again.
+- [exit_gate:EG-text-end] Your dispatch ends with the host's handback tool carrying your digest line, never with free text after it. Door: call the host's handback tool with your digest line.
+- [handoff_check:blocked_problem] A row in state `blocked` carries `blocked.problem`; `blocked_by_env` is used only where `options_for_role` offers it to this role. Door: write the problem, or pick a state the role is offered.
+- [handoff_check:claims] What the form claims is true is true on disk ("the form claims this is true, and it is not"). Door: fix the claim or make it true.
+- [handoff_check:cli] The call names an existing UTF-8 form with a `contract:` line and an existing values file; `--shorten` only with `--fix`. Door: the refusal's door; a non-UTF-8 form: run `handoff_init` again.
+- [handoff_check:field.blank] every `required` field of your handoff form (section `Handoff form` of this page). Door: write the value as a `path: value` line in the values file, then run the check again.
+- [handoff_check:field.max_len] every `required` field of your handoff form (section `Handoff form` of this page). Door: shorten it (`--shorten` with `--fix`) or rewrite.
+- [handoff_check:field.value] every `required` field of your handoff form (section `Handoff form` of this page). Door: write one of the listed words (or `new: <word> -- <why>` where the list is open).
+- [handoff_check:required_rows] A required list has one row per item in scope: the id, a state and a reason of at most 80 characters. Door: write the rows as index lines in the values file, then run this check again.
+- [handoff_check:required_rows.null_word] A list's null-outcome word (the declared empty outcome) stands only when the list has no rows; never both. Door: remove the word or remove the rows.
+- [handoff_check:required_rows.owed_by_verdict] When the verdict owes rows (the verdict word names work done on items), the list is not empty. Door: write the rows the verdict owes, or change the verdict.
+- [handoff_check:tried] In a contract that asks what was tried (TRIED_CONTRACTS), each tried entry states what was tried and the error it gave (TRIED_MEANING). Door: fill the tried entry with the attempt and its error.
+- [handoff_check:values_apply] Each path names a field of this contract, by its index where it is a list row, not a contract-owned path; a list field gets a list and a one-value field one value; rows open in order. Door: correct the path (the refusal suggests "did you mean").
+- [handoff_check:values_file] The values file is `path: value` lines (or a JSON object): valid JSON, an object not a list, each path given once, each key a field path, no nested value. Door: fix the line the refusal names (FILE_FIX).
+- [exit_gate:digest] Your final message has the digest form stated in the row [exit_gate:EG-digest-form] of this section. Door: fix the digest line the refusal names, then end the dispatch again.
+- [validate_artifacts:check_cell_counts] A table row never holds more cells than its header; a bar inside a cell is written as `|`. Door: edit the file and the field the refusal line names.
+- [validate_artifacts:check_case] A case file opens with YAML front matter that carries every required field, takes `status`, `priority`, `channel` and `reuse_decision` from their closed lists, carries `automated_by` (file::test) when `Automated`, a `red_lock` that names a BUG-NNN, passes the form checks, and covers register requirements (or legacy `covers_ac`). Door: edit the file and the field the refusal line names.
+- [validate_artifacts:check_case_form] `covers` names only register `R-n` ids of the task's register (or `legacy:<import reason>`), and the case inherits `defect_class` and `basis` from its plan row. Door: edit the file and the field the refusal line names.
+- [validate_artifacts:check_then_oracles] A case written on or after the oracle cutoff gives every Then an entry in `then_oracles` with a basis per the oracle grammar. Door: edit the file and the field the refusal line names.
+- [guard_pre_tool:*] 17 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
+- [host_adapter:*] 7 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
+
+### Not yet in rows
+
+A case file's `id` IS its file name, both in the form named on this brief's `Case id form:` line: `<case id>.md` declares `id: <case id>`. That is the factory's contract over any project note (a note naming another form is not read by code), and the exit gate refuses the handoff otherwise. Frontmatter every case owes: id, title, area, priority P0|P1|P2|P3, status (yours are Draft|Review|Approved - only the code critic moves a case to Automated, and only after a probe), channel auto|manual-agent|manual-human, reuse_decision new|updated|extend:<case id>|dedupe:<case id>, updated, task, covers: [R-n] that exist in that task's register (an R the register does not carry reads as invented), defect_class from the project's closed list (or smoke, or regression:BUG-NNN), and basis. defect_class and basis are inherited from your plan row, never reassigned. One case per plan row, an `unverifiable` row too; its Thens that wait on a question go in `question_thens` under that question's id as requirements-readiness.json has it (never `raise` once raised); a before/now question (a `raise` too) keys its texts `now` / `before`, never by letter.

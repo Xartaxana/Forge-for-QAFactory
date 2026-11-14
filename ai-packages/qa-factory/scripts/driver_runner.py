@@ -15,7 +15,7 @@ import human_text
 import no_move as NM
 import person_owned as PO
 import waiver
-from driver_core import EXIT_ERROR, InfraStop, JOURNAL_ROWS_BLOCK, Person, Priced, Refusal, Stop, _answer_note, _append_jsonl, _now, _read_answer, _read_json, _write_json, gate_refusal, recorded_earlier
+from driver_core import EXIT_ERROR, InfraStop, JOURNAL_ROWS_BLOCK, Person, Priced, Refusal, Stop, _answer_note, _append_jsonl, _now, _read_answer, _read_json, _write_json, finding_key, finding_lines, gate_refusal, recorded_earlier
 
 
 # What the person reads beside a Codex call's price (`cost_basis` of the journal row, the cost line, the dashboard card,
@@ -417,6 +417,37 @@ class DriverRunner:
             ended = str(row.get("dispatch") or row.get("kind") or "")
             for entry in [e for e in list(open_calls) if e[0] == ended]:
                 open_calls.discard(entry)
+
+    def record_repeat(self, stage: str, road: str, key: str, dispatch: str, lines, outcome: str) -> None:
+        """THE one writer of a repeat stop (FV1-22 N3): one `repeat_stop` row of `driver-runs.jsonl` that names the stage, the
+        road (`conductor_round`, `role_resume`, `structured_resume`, `handoff_resume`, `gate_repair`), the series key, the dispatch,
+        the outcome (`same_set`, `cap`, `again`) and the finding set as it is COMPARED (`finding_lines`: ids masked, sorted), cut to 20
+        lines of 300 characters with `set_size` keeping the true count. Data for the cause analysis (`collect-loops.json` L8); it
+        judges no cause (P27, AR-29). ONCE per (road, key, finding_key(lines), outcome) across relaunches: the mark lives in the
+        state file under `repeat_recorded` (absent, None or not a dict in an older state = empty), so the arrival after a person's
+        `retry` writes nothing, and neither does the arrival that spends a paid round the person bought on the set the first
+        arrival recorded (same tuple: the person's `round` is no new stop). A caller that records before `exit_limit` first asks
+        `driver_dispatch.paid_round_open` (the layer that owns the exit record): no row for a non-stop. An empty set writes no row (FR-41: an unknown is not a repeat).
+        Any failure is one stderr line and never stops the factory (P1)."""
+        try:
+            found = finding_lines(lines)
+            if not found:
+                return
+            has_state = isinstance(getattr(self, "state", None), dict)      # plain `self.state` below: the census map sees the key (L4)
+            ident = "|".join((road, key, finding_key(lines), outcome))
+            if has_state:
+                held = self.state.get("repeat_recorded")
+                if isinstance(held, dict) and held.get(ident):
+                    return
+            self.journal_run({"kind": "repeat_stop", "stage": stage, "road": road, "key": key, "dispatch": dispatch,
+                              "outcome": outcome, "set": [line[:300] for line in found][:20], "set_size": len(found)})
+            if has_state:
+                if not isinstance(self.state.get("repeat_recorded"), dict):
+                    self.state["repeat_recorded"] = {}
+                self.state["repeat_recorded"][ident] = 1
+                getattr(self, "save_state", lambda: None)()
+        except Exception as exc:
+            print(f"repeat record not written ({type(exc).__name__}: {' '.join(str(exc).split())[:160]})", file=sys.stderr)
 
     def journal_conductor(self, **record) -> None:
         _append_jsonl(self.state_dir / "conductor.jsonl", dict(ts=_now(), boundary=self.boundary, **record))
@@ -1268,8 +1299,9 @@ class DriverRunner:
 
     # The move each token of a SITE's closed question carries when the site raises it as a seam question (C1-6b, A7): `retry` /
     # `go on` / `stop` are the seam's own moves (`NM.TOKEN_MOVES`, the one table); `by hand` passes the same block as `go on` (its
-    # typed record is the site's); `reapprove` is a word only the site reads (`site_door`).
-    SITE_MOVES = {**NM.TOKEN_MOVES, "by hand": "go_on_as_is", "reapprove": NM.SITE_DOOR}
+    # typed record is the site's); `reapprove` and `find the way in` (FV1-15 D4: the stand question's search of every way in) are
+    # words only the site reads (`site_door`).
+    SITE_MOVES = {**NM.TOKEN_MOVES, "by hand": "go_on_as_is", "reapprove": NM.SITE_DOOR, "find the way in": NM.SITE_DOOR}
 
     def site_seam_person(self, kind: str, text: "Priced", stage: str, *, block: str = "", details: str = "", answer_note: str = "") -> "Person":
         """A site's own closed question (`text` from `closed_question`) as a SEAM question (A7): the Person carries the tokens the

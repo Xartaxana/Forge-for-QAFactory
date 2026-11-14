@@ -830,8 +830,63 @@ def k20_the_gate_refusal_names_the_remainder_door() -> None:
         check_in("K20 control: a finding only the source refused keeps the old sentence",
                  "No recorded word passes these; they are the author's repair.", alone)
         check_not_in("K20 control: ... and names no `then handed` door", "then handed", alone)
+        # FV1-30b N4: an open expectation (`awaits_answer`) has its own line, never a word door and never "the author's repair" alone
+        oracle = DV.Record("s5_precheck.py: [oracle oracle:TC-700:open-oracle-asserted-1] an open expectation - fix: bind it",
+                           script="s5_precheck.py", words="source", refused="awaits_answer")
+        wait_line = "1 finding(s) wait for the answer to an expectation question (`awaits_answer`)"
+        g1 = text([oracle])
+        check_in("K20 g1: an awaits_answer record alone gets its own line", wait_line, g1)
+        check_in("K20 g1: ... naming who records the person's answer", "the conductor records the person's answer", g1)
+        check_not_in("K20 g1: ... never the sentence of the author's repair alone",
+                     "No recorded word passes these; they are the author's repair.", g1)
+        check_not_in("K20 g1: ... and no word door", "--block", g1)
+        g2 = text([oracle, real])
+        check_in("K20 g2: beside a smell-1 record the new line is there", wait_line, g2)
+        check_in("K20 g2: ... and the smell-1 line keeps its sentence", "1 finding(s) carry the source's `refused` tag", g2)
+        g3 = text(list(waiting) + [oracle])
+        check("K20 g3: the `then handed` line comes before the new line",
+              0 <= g3.find("wait for the person's word") < g3.find(wait_line), g3)
+        family = DV.Record(str(real), script="s5_precheck.py", words="source", refused="family")
+        check_in("K20 g4: a `family` record alone keeps today's sentence", "No recorded word passes these; they are the author's repair.",
+                 text([family]))
+        check_not_in("K20 g4: ... and gets no awaits_answer line", "awaits_answer", text([family]))
+        check_not_in("K20 g5: the K20 inputs (waiting, smell-1) carry no awaits_answer line", "awaits_answer", mixed)
+        tail = g1.split("\n")[-2:]
+        check("K20 g6: the last two lines are the repair marker and the `checks:` line",
+              tail[0].strip() == f"{story_step.REPAIR_MARKER}." and tail[1].startswith(DV.CHECKS_LINE_PREFIX), tail)
     finally:
         cleanup(root)
+
+
+def k22_open_oracle_awaits_its_answer() -> None:
+    """FV1-30b N4: an `open-oracle-asserted-*` finding is refused at the source with the cause `awaits_answer`; the cause of every
+    other finding is what it was. Direction of error: an open expectation never reads `""` (that would let `*` pass it, P20)."""
+    def finding(tag, **extra):
+        out = P._finding("oracle", "TC-700", "an open expectation", "bind it", tag)
+        out.update(extra)
+        return out
+    rows = [("k22-1 open-oracle-asserted-1", finding("open-oracle-asserted-1"), "awaits_answer", False),
+            ("k22-2 upper case", finding("OPEN-ORACLE-ASSERTED-2"), "awaits_answer", False),
+            ("k22-3 no number", finding("open-oracle-asserted"), "awaits_answer", False),
+            ("k22-4 plus refused predating", finding("open-oracle-asserted-1", refused="predating"), "awaits_answer", False),
+            ("k22-5 environment", finding("stand-login"), "", True),
+            ("k22-5 no-bindings", finding("no-bindings"), "", True),
+            ("k22-5 predating", finding("changed-after-red-a.py:12", refused="predating"), "predating", True),
+            ("k22-7 upper-case waiting Then", finding("THEN-REMAINDER-UNRECORDED-1"), "", False),
+            ("k22-8 prefix elsewhere", finding("xopen-oracle-asserted-1"), "", True)]
+    for label, f, cause, passable in rows:
+        check_eq(f"{label}: the refusal cause", P.refusal_cause(f), cause)
+        check_eq(f"{label}: passable", P._passable(f), passable)
+    out = printed({"ok": False, "findings": [f for lab, f, _c, _p in rows if lab.startswith("k22-5")]})
+    check_not_in("k22-5: a result with no open-oracle finding prints no awaits_answer text", "awaits_answer", out)
+    env, oracle = finding("stand-login"), finding("open-oracle-asserted-1")
+    out = printed({"ok": False, "findings": [env, oracle]})
+    check_in("k22-6: the refusal line sits above the header", f"{DV.WORDS_REFUSED_AT_SOURCE} {oracle['id']} awaits_answer\n"
+             "REJECT", out)
+    check_eq("k22-6: the item-3 clause is printed once", out.count("waits for the answer to its expectation question"), 1)
+    check_in("k22-6: the star clause is still there", "`*` passes every finding", out)
+    v = DV.parse(1, out, "")
+    check_eq("k22-6: parse reads the cause and finds no defect", (v["refused"], v["defects"]), (["", "awaits_answer"], []))
 
 
 # --- K21: one reader of the Then number, one spelling of the waiting tag (HF2-2, AR-13, AR-15) --------------------------
@@ -993,7 +1048,155 @@ def k22_blocked_by_check() -> None:
           any(x.startswith("contract.py:") for x in control), str(control))
 
 
+# --- FV1-30b N2: a Then the person's word passed at S5 is visible in the trace table and in the delivery verdict ---------------
+
+def _record_pass(task: Path, then: int = 2, case: str = "TC-001", ts: str = "2026-11-13T10:00:00+00:00") -> None:
+    """One line of `state/passed-by-person.jsonl` as the controller writes it for `bindings:<case>:unbound-<then>`."""
+    line = {"ts": ts, "stage": "S5", "dispatch": "d1", "block": f"bindings:{case}:unbound-{then}",
+            "finding_id": f"bindings:{case}:unbound-{then}", "check": "bindings", "case": case, "tag": f"unbound-{then}",
+            "subjects": [{"case": case, "then": then}], "decision": "go on", "word_at": "2026-11-13T09:59:00Z", "by": "human"}
+    (task / "state").mkdir(exist_ok=True)
+    with (task / "state" / "passed-by-person.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(line) + NL)
+
+
+def _r1_records(task: Path) -> list:
+    return [r for r in CD.traceability_records(task) if "R-1" in (r.get("requirements") or [])]
+
+
+def fv1_30b_n2_trace_and_verdict() -> None:
+    import check_traceability as CT
+    import delivery_verdict as DVD
+    word = "word_passed:then_unbound"
+    task = story_copy()
+    try:
+        qa = task.parent
+        base_rows = T.build(qa, task)["rows"]
+        base_walk = CT.walk(task)
+        check("R1 (t2) control: no record - Then 2 has no row and no row carries word_passed",
+              not [r for r in base_rows if r.get("case") == "TC-001" and 2 in (r.get("then") or [])]
+              and not [r for r in base_rows if r.get("word_passed")], str(base_rows))
+        check_eq("R2 (v7) no record file: the walk reads exactly as before (no gap word)",
+                 [g for r in base_walk["rows"] for g in r["gaps"] if g.get("gap") == word], [])
+        check_eq("R2 (v1) control: with no record R-1 reaches a terminal outcome (the B3 case: the unbound Then is silent)",
+                 [r["outcome"] for r in base_walk["rows"] if r["requirement"] == "R-1"], ["executed_passed"])
+        check_eq("R2 (v1) control: and no traceability record is made for R-1", _r1_records(task), [])
+        # t1: one Then bound green, one unbound and word-passed
+        _record_pass(task)
+        rows = T.build(qa, task)["rows"]
+        mine = [r for r in rows if r.get("case") == "TC-001" and 2 in (r.get("then") or [])]
+        check("R1 (t1): the unbound word-passed Then reads `not run` with `word_passed` naming the finding and the time",
+              len(mine) == 1 and mine[0]["result"] == "not run" and mine[0]["word_passed"]["finding_id"] == "bindings:TC-001:unbound-2"
+              and mine[0]["word_passed"]["ts"] == "2026-11-13T10:00:00+00:00" and "passed by the person's word" in mine[0]["basis"], str(mine))
+        green = [r for r in rows if r.get("case") == "TC-001" and 1 in (r.get("then") or [])]
+        check("R1 (t1): Then 1 keeps its green row, never grouped with the word-passed one",
+              len(green) == 1 and green[0]["result"] == "pass" and "word_passed" not in green[0], str(green))
+        # v5 + v1: the case is terminal only for its own Thens; the walk makes the requirement's outcome empty and names the Then
+        walked = CT.walk(task)
+        r1 = [r for r in walked["rows"] if r["requirement"] == "R-1"][0]
+        check("R2 (v5): the case's other Then ran green, yet R-1 ends with no outcome and the gap names Then 2",
+              r1["outcome"] == "" and {"case": "TC-001", "gap": word, "then": 2} in r1["gaps"], str(r1))
+        recs = _r1_records(task)
+        check("R2 (v1): only that gap -> one record of kind chain_broken, a `no`",
+              len(recs) == 1 and recs[0]["kind"] == "chain_broken" and DVD.verdict_of_kind(recs[0]["kind"]) == "no", str(recs))
+        check_eq("R2 (v1): decide reads `no` for it", DVD.decide([r["kind"] for r in recs])[0], "no")
+        # F4 / E16 (topic critic): the reason names the word and its time OUTSIDE the 120-character cut of the case detail
+        mention = "; Then 2 of TC-001: passed by your word at S5 (2026-11-13T10:00:00+00:00)"
+        check("F4: the `no` record's text ends with the word, the Then and the time", recs[0]["text"].endswith(mention), recs[0]["text"])
+        real_walk = CT.walk
+
+        def with_detail(size):
+            def walk(*args, **kwargs):
+                result = real_walk(*args, **kwargs)
+                for row in result["rows"]:
+                    if row["requirement"] == "R-1":
+                        row["detail"] = "x" * size
+                return result
+            return walk
+        try:
+            for size in (120, 121, 400):
+                CT.walk = with_detail(size)
+                text = _r1_records(task)[0]["text"]
+                check(f"F4: a case detail of {size} characters is cut at 120 and the mention stays whole",
+                      ("x" * 120 + ")" + mention) in text and ("x" * 121) not in text, text)
+            (task / "state" / "passed-by-person.jsonl").unlink()
+            _record_pass(task, ts="")
+            check_eq("F4: a pass with no time -> the mention without the parenthesis, no invented time",
+                     _r1_records(task)[0]["text"].endswith("; Then 2 of TC-001: passed by your word at S5"), True)
+        finally:
+            CT.walk = real_walk
+            (task / "state" / "passed-by-person.jsonl").unlink()
+            _record_pass(task)
+        check_eq("R2 (v2): with a `red` kind beside it the word is still `no`", DVD.decide(["red", recs[0]["kind"]])[0], "no")
+        # v3: the kinds file without the row (temporal world 1): the unknown gap word is a `no`
+        real = CD.DV.load_kinds
+        doc = json.loads(CD.DV.kinds_path().read_text(encoding="utf-8"))
+        scratch = temp_dir("qa-kinds-")
+        try:
+            del doc["trace_gaps"][word]
+            without = scratch / "without.json"
+            without.write_text(json.dumps(doc), encoding="utf-8")
+            CD.DV.load_kinds = lambda path=None: real(without)
+            recs3 = _r1_records(task)
+            check("R2 (v3): the kinds file has no row -> `trace_gap:word_passed:then_unbound`, a `no`",
+                  len(recs3) == 1 and recs3[0]["kind"] == "trace_gap:" + word and DVD.decide([recs3[0]["kind"]], doc)[0] == "no", str(recs3))
+            # v4: the row set to the third verdict: the record is after_checks and carries the words
+            doc["trace_gaps"][word] = "unconfirmed_expectation"
+            switched = scratch / "switched.json"
+            switched.write_text(json.dumps(doc), encoding="utf-8")
+            CD.DV.load_kinds = lambda path=None: real(switched)
+            recs4 = _r1_records(task)
+            check("R2 (v4): with the row set to `unconfirmed_expectation` the record is after_checks with `to_check` and `how`",
+                  len(recs4) == 1 and recs4[0]["kind"] == "unconfirmed_expectation" and recs4[0]["to_check"].startswith("Then 2 of TC-001: ")
+                  and "passed by your word at S5 (2026-11-13T10:00:00+00:00): no test is bound to it" == recs4[0]["how"], str(recs4))
+            item = [i for i in CD.assess(task)["left_items"] if "R-1" in (i.get("requirements") or [])]
+            # the item builder (`_left_items`, not an N2 path) rewrites `to_check` of an `unconfirmed_expectation` item from the
+            # case's own question; the record's `how` reaches the item whole (reported to the Lead: the (b) switch needs one more edit)
+            check("R2 (v4): and the \"Left with you\" item carries the `how` and counts", bool(item) and item[0]["counts"]
+                  and "passed by your word at S5" in item[0]["how"], str(item))
+        finally:
+            CD.DV.load_kinds = real
+            cleanup(scratch)
+        # v6: the same requirement waived at gate A: the waiver's outcome, the gap stays beside it
+        pipeline = json.loads((task / "pipeline.json").read_text(encoding="utf-8"))
+        pipeline["gate_waivers"] = [{"requirement": "R-1", "gate": "A", "decision": "accept the gap"}]
+        (task / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
+        waived = [r for r in CT.walk(task)["rows"] if r["requirement"] == "R-1"][0]
+        check("R2 (v6)/E23: waived at gate A -> deferred_by_decision, the word-passed gap still visible",
+              waived["outcome"] == "deferred_by_decision" and any(g.get("gap") == word for g in waived["gaps"]), str(waived))
+        pipeline.pop("gate_waivers")
+        (task / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
+        # t3 / E24: Then 2 now has a binding row of its own: that row decides, nothing is annotated
+        edit_json(task, "work/automation-manifest.json", lambda m: m["then_bindings"].append(
+            {"case": "TC-001", "then": 2, "instance_id": m["then_bindings"][0]["instance_id"],
+             "assertion_ref": "tests/test_coupon.py:11", "status": "covered"}))
+        rows3 = T.build(qa, task)["rows"]
+        check("R1 (t3): the Then has a binding -> that binding's outcome, no `word_passed`",
+              not [r for r in rows3 if r.get("word_passed")] and any(r.get("case") == "TC-001" and 2 in (r.get("then") or [])
+                                                                    and r["result"] == "pass" for r in rows3), str(rows3))
+        check_eq("R2 (E24): a Then with a binding row is never annotated by the walk",
+                 [g for r in CT.walk(task)["rows"] for g in r["gaps"] if g.get("gap") == word], [])
+        # E8: the binding is gone again but the fact is repaired another way - an unbound Then of ANOTHER number is not named
+        edit_json(task, "work/automation-manifest.json", lambda m: m["then_bindings"].pop())
+        (task / "state" / "passed-by-person.jsonl").unlink()
+        _record_pass(task, then=7)
+        check_eq("R1/E8: a pass for a Then the case does not have names no row",
+                 [r for r in T.build(qa, task)["rows"] if r.get("word_passed")], [])
+        check_eq("R2/E8: and no gap", [g for r in CT.walk(task)["rows"] for g in r["gaps"] if g.get("gap") == word], [])
+        # t4 / E2: the record cannot be read -> today's rows (an unknown is never a pass, never a gap)
+        (task / "state" / "passed-by-person.jsonl").unlink()
+        (task / "state" / "passed-by-person.jsonl").mkdir()
+        check_eq("R1 (t4): record unreadable -> the trace rows are today's", T.build(qa, task)["rows"], base_rows)
+        check_eq("R2/E2: record unreadable -> the walk is today's", CT.walk(task)["rows"], base_walk["rows"])
+        # E22: a case whose file names no path: nothing is added and nothing raises
+        check_eq("R2/E22: _word_passed_thens of a case with no path adds nothing",
+                 CT._word_passed_thens("TC-001", {}, {}, object(), None), [])
+    finally:
+        cleanup(task.parent)
+
+
 def main() -> None:
+    fv1_30b_n2_trace_and_verdict()
     k22_blocked_by_check()
     k1_k2_k3_the_gate()
     k4_findings_name_their_door()
@@ -1012,6 +1215,7 @@ def main() -> None:
     k19_one_reader_of_the_persons_prefixed_words()
     k20_the_gate_refusal_names_the_remainder_door()
     k21_one_carrier()
+    k22_open_oracle_awaits_its_answer()
     finish("test_then_remainder")
 
 

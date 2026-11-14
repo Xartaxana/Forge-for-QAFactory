@@ -61,15 +61,7 @@ of `<dispatch>.values.yaml` (no Bash; while it waits, Edit of the form is refuse
 allowed values; `Write` over it is refused. A field you cannot fill: `blocked` + `handoff_help.py`;
 the conductor answers it, never the person.
 
-Your final message IS the digest, three parts, no prose:
-
-```
-<role> <stage> <window or scope> · ok|concerns|halt|impossible
-<id> · <state> · <reason ≤ 80 chars>
-<task-relative path of the artifact>
-```
-
-One row per item in your scope, the ones that went nowhere included. Code checks: the exit gate; the refusal names what is wrong and the way through. What the
+Code checks: the exit gate; the refusal names what is wrong and the way through. What the
 next role or the human needs is in the FILE or the FORM: chat does not survive the dispatch.
 
 ## Language

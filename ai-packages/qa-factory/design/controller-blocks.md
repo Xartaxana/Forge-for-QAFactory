@@ -1,6 +1,6 @@
 # Every block in the controller, and the route through it
 
-`controller.py` refuses **351** times: 351 raises or collected `(Class, message)` problems (a request's problems are gathered and refused whole by `_raise_all`), as `DerivedViewStale`, `EventCommitted`, `IdempotencyKeyReused`, `ProjectionStale`, `StateConflict`, `ValueError` - two kinds that do not
+`controller.py` refuses **353** times: 353 raises or collected `(Class, message)` problems (a request's problems are gathered and refused whole by `_raise_all`), as `DerivedViewStale`, `EventCommitted`, `IdempotencyKeyReused`, `ProjectionStale`, `StateConflict`, `ValueError` - two kinds that do not
 mean the same thing. `StateConflict` says the request is fine and the story's recorded state is not
 ready for it (`DerivedViewStale`, a subclass of it, says the event IS committed and only what
 follows it failed); `ValueError` says the request itself is malformed and the story was never consulted. The
@@ -18,7 +18,7 @@ evidence.
 | route | blocks | what it means |
 |---|---|---|
 | `person` | 17 | their recorded words pass it: `waiver.py --stage <S> --block "<part of the line>" --words-file <file>` |
-| `command` | 219 | a factory command clears it. The person decides, the command records; the message names it |
+| `command` | 221 | a factory command clears it. The person decides, the command records; the message names it |
 | `caller` | 102 | the call was built wrong. Whoever built it fixes it, and no person is involved |
 | `unpassable` | 13 | no word passes it, and the reason is here. These are invariants of the record itself: passing one would destroy what the block protects |
 
@@ -307,8 +307,8 @@ every edit above it. Rows are in source order.
 | `_plan_review_problems` | `StateConflict` | the plan changed after this review was stamped ({d['id']} saw other bytes than | `command` | the critic looks again at the current plan; the conductor returns the refusal whole |
 | `_plan_review_problems` | `StateConflict` | remark id(s) {', '.join(repeated)} repeat the ids of an earlier review of the plan: | `command` | the critic continues the numbering of the chain (PR-n); the conductor returns the refusal whole |
 | `_plan_review_problems` | `StateConflict` | (StateConflict, blocking[0] + ". " + then + end + " If a person decide | `person` | raised from the list `_passed_by_person` has already filtered |
-| `_s5_completion_problems` | `StateConflict` | (StateConflict, blocking[0]) | `person` | raised from the list `_passed_by_person` has already filtered |
-| `_s5_completion_problems` | `ValueError` | S5 window record is incomplete: | `command` | `window_record.py --task <T> --dispatch <ID>` writes every one of these from what is on disk |
+| `_s5_completion_tiers` | `StateConflict` | (StateConflict, blocking[0]) | `person` | raised from the list `_passed_by_person` has already filtered |
+| `_s5_completion_tiers` | `ValueError` | S5 window record is incomplete: | `command` | `window_record.py --task <T> --dispatch <ID>` writes every one of these from what is on disk |
 | `_open_windows_problems` | `ValueError` | open_windows requires a plain --not-complete, not unresolved: unresolved already says why | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
 | `_open_windows_problems` | `ValueError` | open_windows must be a non-empty list of case ids, one or more of each other window still open | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
 | `_open_windows_problems` | `ValueError` | open_windows requires cases of another window of {stage}; {named(bad, SCOPE_SHOWN)} | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
@@ -325,6 +325,8 @@ every edit above it. Rows are in source order.
 | `_s5_v2_collect` | `StateConflict` | ( StateConflict, "; ".join(blocking) + ". Only the active qa-code-crit | `person` | raised from the list `_passed_by_person` has already filtered |
 | `_s5_v2_collect` | `ValueError` | coverage v2 instance requires unique obligation_refs with exact hashes | `command` | `manifest_put.py --fragment` binds the obligations |
 | `_s5_v2_collect` | `ValueError` | coverage v2 instance requires execution_fingerprint | `command` | `execution_fingerprint.py` writes it into the run block |
+| `_s5_v2_collect` | `ValueError` | coverage v2 instance requires unique obligation_refs with exact hashes | `command` | `manifest_put.py --fragment` binds the obligations |
+| `_s5_v2_collect` | `ValueError` | coverage v2 instance requires execution_fingerprint | `command` | `execution_fingerprint.py` writes it into the run block |
 | `_s5_v2_collect` | `StateConflict` | instance obligation_refs do not match the current approved plan | `command` | `manifest_put.py --fragment` re-binds them, or the plan is revised |
 | `_s5_v2_collect` | `ValueError` | instance obligation IDs must match obligation_refs | `command` | `manifest_put.py --fragment` re-binds them |
 | `_s5_v2_collect` | `ValueError` | instance obligation_hash must bind exact obligation_refs | `command` | `manifest_put.py --fragment` recomputes the hash |
@@ -335,7 +337,7 @@ every edit above it. Rows are in source order.
 | `_s5_gap_problems` | `StateConflict` | this window holds red tests the requirement contradicts ( | `command` | accept it as `unresolved` naming `contradicts_requirement`; `story_step.py finish` derives that pair from the window record |
 | `_s5_gap_problems` | `StateConflict` | unresolved window: | `command` | the role resolves them, or the accept names them `unresolved` with a reason |
 | `_s5_gap_problems` | `StateConflict` | a completed process with gaps cannot be passed_green | `command` | name the gaps in the accept instead of claiming green |
-| `_s3_completion_gate` | `StateConflict` | a window-1 (labelling) dispatch of S3 cannot close the stage; it is accepted with | `command` | the driver accepts window 1 with `story_step.py finish --not-complete --unresolved plan_pending`; the stage is closed by the exit window |
+| `_s3_completion_gate` | `StateConflict` | a window-1 (labelling) dispatch of S3 cannot close the stage; it is accepted with | `command` | the driver accepts window 1 with `story_step.py finish --task <T> --dispatch-id <id> --digest "<digest>" --not-complete --unresolved plan_pending --reason "<words>"`; the stage is closed by the exit window |
 | `_s3_completion_gate` | `ValueError` | structured test plan rows must be a list | `unpassable` | the same: a shape nothing can read carries no decision, so passing it would only move the failure further down |
 | `_s3_completion_gate` | `StateConflict` | S3 structured test plan invalid: | `person` | reads `stage_overrides[]` through `_passed_by_person` |
 | `_s3_completion_gate` | `StateConflict` | S3 grounding: | `person` | raised from the list `_passed_by_person` has already filtered |

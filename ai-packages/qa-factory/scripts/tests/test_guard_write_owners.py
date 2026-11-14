@@ -830,7 +830,31 @@ def b220_the_probe_is_no_new_door_to_the_profile() -> None:
         cleanup(root)
 
 
+def k6_a_role_never_records_or_applies_an_approval() -> None:
+    """OF3-2 K6 (B-294 (a)): `config_contract.py --record-approval` / `--apply` (any argparse abbreviation, spaced or `=value`) and
+    `onboard_apply.py --apply` are the person's approval and its application: closed to a role, open to the main session; the read
+    and plan options stay open to a role."""
+    def word(command: str, role: str = ROLE):
+        return G._blocked(G.human_word_check, shell_event(command, role=role), {})
+    for command in ("python scripts/config_contract.py --root . --record-approval p.json",
+                    "python scripts/config_contract.py --root . --record p.json",
+                    "python scripts/config_contract.py --root . --re=p.json",
+                    "python scripts/config_contract.py --root . --apply p.json",
+                    "python scripts/config_contract.py --root . --appl p.json",
+                    "python scripts/onboard_apply.py --root . --apply",
+                    "python scripts/onboard_apply.py --root . --appl"):
+        check("K6: a role is refused " + command, bool(word(command)))
+    for command in ("python scripts/config_contract.py --root . --migration-plan",
+                    "python scripts/config_contract.py --root . --validate",
+                    "python scripts/config_contract.py --root . --approval-ref x",
+                    "python scripts/onboard_apply.py --root . --preflight"):
+        check_eq("K6: a role passes " + command, word(command), None)
+    check_eq("K6: the main session passes --record-approval",
+             word("python scripts/config_contract.py --root . --record-approval p.json", role=""), None)
+
+
 def main() -> None:
+    k6_a_role_never_records_or_applies_an_approval()
     onboarding_may_write_a_persons_words_under_the_project_state()
     onboarding_notes_pass_the_real_guard_before_any_config()
     a_role_never_writes_the_profile_through_a_file_tool()

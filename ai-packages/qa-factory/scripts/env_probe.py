@@ -93,6 +93,30 @@ import config_contract  # noqa: E402  the one reader of the `test_data` block (A
 SECRET_NAME = re.compile(r"(pass|secret|token|key|credential|auth)", re.IGNORECASE)
 HEALTH_TIMEOUT_S = 5
 LOGIN_TIMEOUT_S = 8
+
+# FV1-5: the fixed words each Layer-1 producer line in `probe()` starts (or, for the login key, ends) with, and the ONE
+# word each says about WHY the probe blocks (`blocked_by`). The producer lines below and `blocked_by_of` (the reader of
+# the probe's text) share these constants, so a line and its word cannot drift apart. The selection, env-file and device
+# lines carry no fixed prefix: `probe()` gives them their word directly, and the text reader calls them `unknown`.
+LAYER1 = {"stand_dead": "the stand does not answer: ",
+          "no_address": "the stand has no address: ",
+          # FV1-15 (E-P1): today's three members FIRST and unchanged, then one line per answer the probe now words; every member
+          # reads `login` in `_word_of_item` (a tuple: `startswith` takes each), and no member starts with another one.
+          "login": ("the login this project records was refused: ",
+                    "the login this project records did not finish in time: ",
+                    stand_access.LOGIN_FIELD_FIX,
+                    "the address recorded for signing in did not sign us in, and its answer does not look like a sign-in: ",
+                    "the sign-in recorded for this project came back with an answer that does not show whether a sign-in is there: ",
+                    "the login this project records got no answer: ",
+                    "the stand failed the sign-in with a server error: ",
+                    "the stand limits requests, so the sign-in was not judged: ",
+                    "the project's own sign-in command did not get in: "),
+          "login_key": " is not set, and the login needs it"}
+# FV1-15 (P1, P3): which answer of `stand_access.ANSWERS` each login Layer-1 prefix says - the ONE pairing, read by `probe()` to pick the
+# line and by `login_answer_of` to read it back. Built from the `LAYER1["login"]` constants, so a line and its answer cannot drift
+# apart. `command_missing` shares the line of `command_failed` (`_login_prefix` maps it).
+LOGIN_PREFIX_ANSWER = tuple(zip(LAYER1["login"], ("credentials_refused", "did_not_finish", "body_shape", "wrong_door", "unjudged",
+                                                  "no_answer", "stand_error", "throttled", "command_failed")))
 # Keys the FACTORY sets for its own runs, and switches of the machine's own client: found in
 # a project's `secret_keys` they are an inventory of the harness's code, not credentials of
 # the stand, and asking a person to "add these four keys" is asking for the wrong thing.
@@ -226,7 +250,7 @@ _UNREADABLE_ROW = {"id": "unreadable", "verdict": "dead", "means": "table_unread
 
 
 def _empty_stand_answers() -> dict:
-    return {"codes": [], "no_answer": [], "order": [], "login_remedies": [], "login_recheck": "", "remedy": {},
+    return {"codes": [], "no_answer": [], "order": [], "login_remedies": [], "login_answers": [], "login_recheck": "", "remedy": {},
             "texts": {}, "table": "unreadable"}
 
 
@@ -254,7 +278,7 @@ def stand_answers() -> dict:
             data = json.loads(Path(STAND_ANSWERS_PATH).read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 data = _expand_tokens(data)
-                for name in ("codes", "no_answer", "order", "login_remedies"):
+                for name in ("codes", "no_answer", "order", "login_remedies", "login_answers"):
                     if isinstance(data.get(name), list):
                         loaded[name] = [row for row in data[name] if isinstance(row, dict)]
                 for name in ("remedy", "texts"):
@@ -277,12 +301,18 @@ def reload_stand_answers() -> None:
     _stand_cache.clear()
 
 
-def _row_takes(row: dict, code, kind, outcome=None) -> bool:
-    """Does a table row take this answer: `any`, or a recorded `outcome` the row lists, or a code (`codes` / `from`..`to`)
-    whose `kinds` / `not_kinds` fit. The one matcher of the `codes` and `login_remedies` tables."""
+def _row_takes(row: dict, code, kind, outcome=None, *, road=None, answer=None) -> bool:
+    """Does a table row take this answer: `any`, or a recorded `outcome` / `answer` the row lists, or a code (`codes` /
+    `from`..`to`) whose `kinds` / `not_kinds` fit. The one matcher of the `codes`, `login_remedies` and `login_answers`
+    tables. A row with `roads` takes only an attempt of one of those road kinds - checked FIRST, so a road-scoped row can
+    never take another road's answer through `any`, `outcomes` or `answers` (a `roads` that is not a list takes nothing)."""
+    if "roads" in row and not (isinstance(row["roads"], list) and road in row["roads"]):
+        return False
     if row.get("any"):
         return True
     if outcome is not None and outcome in (row.get("outcomes") or []):
+        return True
+    if answer is not None and answer in (row.get("answers") or []):
         return True
     if isinstance(code, bool) or not isinstance(code, int):
         return False
@@ -516,8 +546,7 @@ def _derived_frontend(cfg: dict, block: dict, entry, values, root, texts: dict, 
     if read_frontend(block["frontend"] if "frontend" in block else NO_FRONTEND, "url_key", texts, scratch) or scratch:
         return None
     access = block.get("access") if isinstance(block.get("access"), dict) else {}
-    recorded = access.get("login_probe") if isinstance(access.get("login_probe"), dict) else {}
-    if access.get("kind") != "harness_command" or recorded.get("outcome") != "ok":
+    if access.get("kind") != "harness_command" or stand_access.recorded_login(access)["outcome"] != "ok":   # AR-13: the one reader
         return None
     try:
         import surfaces
@@ -917,6 +946,8 @@ def login_record(cfg: dict, access: dict, login_keys: list, receipt: dict):
         return None
     record = {"user_key": name, "status": receipt.get("code"), "outcome": receipt.get("status"),
               "checked_at": datetime.now().replace(microsecond=0).isoformat()}
+    if receipt.get("answer") in stand_access.ANSWERS:     # FV1-15 (P2): what the attempt came to, when the receipt says it
+        record["answer"] = receipt["answer"]
     fields = receipt.get("accepted_fields")
     if isinstance(fields, dict):
         for field in ("user_field", "secret_field"):
@@ -942,9 +973,11 @@ def _device_answer(full_cfg: dict, env_name: str):
     details: list = []
 
     def answer(verdict: str, line: str, failed: bool) -> dict:
-        skipped = {"status": "skipped", "code": None, "user_key": "", "why": "a device stand has no login by code"}
+        skipped = {"status": "skipped", "code": None, "user_key": "", "why": "a device stand has no login by code",
+                   "answer": "not_tried", "source": "access"}
         return {"liveness": {"verdict": verdict, "code": None, "url": "", "note": line, "address_source": "own"},
                 "login": skipped, "keys": {"verdict": "ok", "missing": []}, "layer1": [line] if failed else [],
+                "blocked_by": ["device"] if failed else [],
                 "details": details, "source": "", "address_source": "own"}
     try:
         import surfaces
@@ -975,6 +1008,15 @@ def _device_answer(full_cfg: dict, env_name: str):
     return answer("dead", line, True)
 
 
+def environment_login_keys(cfg) -> tuple:
+    """(user key name, secret key name) a stand block gives for the login when its access names none (AR-13, the ONE reader):
+    `user_key` and the first non-empty `secret_keys` entry, stripped, "" for one that is absent. `probe` and
+    `stand_access.try_roads` both read them here."""
+    cfg = cfg if isinstance(cfg, dict) else {}
+    return (str(cfg.get("user_key") or "").strip(),
+            next((str(k).strip() for k in cfg.get("secret_keys") or [] if str(k or "").strip()), ""))
+
+
 def probe(full_cfg: dict, env_name: str = "", task: str = "", root=None,
           obligation_ids=None, do_login: bool = True) -> dict:
     """The whole answer as data: the three verdicts, what is Layer 1, and the detail lines.
@@ -999,14 +1041,13 @@ def probe(full_cfg: dict, env_name: str = "", task: str = "", root=None,
         # A config written before the access block existed — or carrying the template's empty
         # one — still has ONE key without which no story can run: the account it was onboarded
         # with. Everything else belongs to an area, and blocks an area at most.
-        login_keys = [k for k in [str(cfg.get("user_key") or "").strip(),
-                                  next((str(k) for k in cfg.get("secret_keys") or [] if str(k or "").strip()), "")]
-                      if k]
+        login_keys = [k for k in environment_login_keys(cfg) if k]
     if fatal:
         # FR-10: the three lines name the REAL reason - the selection or the env file - not one shared phrase.
         why = ("the selected environment could not be probed" if selection_error
                else "the env file was not found")
-        fatal_login = {"status": "skipped", "code": None, "user_key": "", "why": f"{why}, so nothing was tried"}
+        fatal_login = {"status": "skipped", "code": None, "user_key": "", "why": f"{why}, so nothing was tried",
+                       "answer": "not_tried", "source": "access"}
         record = login_record(cfg, access, login_keys, fatal_login)
         if record:
             fatal_login["record"] = record
@@ -1014,7 +1055,8 @@ def probe(full_cfg: dict, env_name: str = "", task: str = "", root=None,
                              "address_source": address_source},
                 "login": fatal_login,
                 "keys": {"verdict": "unchecked", "missing": [], "why": why},
-                "layer1": [fatal], "details": details, "source": source, "address_source": address_source}
+                "layer1": [fatal], "blocked_by": ["selection" if selection_error else "env_file"],
+                "details": details, "source": source, "address_source": address_source}
 
     base_key = str(cfg.get("base_url_key") or "")
     # A stand with an address of its own is probed at THAT address; the env-file key answers for the block
@@ -1093,18 +1135,20 @@ def probe(full_cfg: dict, env_name: str = "", task: str = "", root=None,
         live["note"] = (f"no address: the environments[] entry {env_name!r} has none of its own{block_says}, "
                         f"so nothing was asked. Door: {SELECTION_DOOR}")
 
+    # FV1-15 (P2): a receipt `probe()` builds itself says nothing was sent (`not_tried`) and whose way it would have been (`access`)
     if not do_login:
         receipt = {"status": "skipped", "code": None, "user_key": "",
-                   "why": "not asked for (--no-login)"}
+                   "why": "not asked for (--no-login)", "answer": "not_tried", "source": "access"}
     elif live["verdict"] == "dead":
         receipt = {"status": "skipped", "code": None, "user_key": "",
-                   "why": "the stand is not answering, so no login was tried"}
+                   "why": "the stand is not answering, so no login was tried", "answer": "not_tried", "source": "access"}
     elif unchecked_under_env:
         receipt = {"status": "skipped", "code": None, "user_key": "",
-                   "why": "the stand has no address, so no login was tried"}
+                   "why": "the stand has no address, so no login was tried", "answer": "not_tried", "source": "access"}
     elif address_source == "own" and not base:
         receipt = {"status": "skipped", "code": None, "user_key": "",
-                   "why": "the stand has a health_url but no base address of its own, so no login was tried"}
+                   "why": "the stand has a health_url but no base address of its own, so no login was tried",
+                   "answer": "not_tried", "source": "access"}
     else:
         receipt = stand_access.login(access, env, base, LOGIN_TIMEOUT_S, health_url,
                                      Path(root or project_root()))
@@ -1122,26 +1166,28 @@ def probe(full_cfg: dict, env_name: str = "", task: str = "", root=None,
                         "login_key": key in login_keys})
     keys = {"verdict": "ok" if not missing else f"{len(missing)} missing", "missing": missing}
 
-    layer1 = []
+    layer1, blocked_by = [], []     # FV1-5: one word per line, appended in the same statement and order (exit 0 -> both empty)
     if live["verdict"] == "dead":
-        layer1.append("the stand does not answer: " + live["note"])
+        layer1.append(LAYER1["stand_dead"] + live["note"]); blocked_by.append("stand_dead")
     if unchecked_under_env:
         # An unknown stand is not a usable one: without --env `unchecked` stays a pass (the block names nothing to
         # ask - queued), with --env the person named a stand and a pass would confirm one nobody asked.
-        layer1.append("the stand has no address: " + live["note"])
+        layer1.append(LAYER1["no_address"] + live["note"]); blocked_by.append("no_address")
     if receipt["status"] == "failed":
         if receipt.get("refusal") == "body_shape":  # FB-3: the one-line fix FIRST, the why after it
-            layer1.append(str(receipt.get("fix") or "") + " - " + receipt["why"])
+            layer1.append(str(receipt.get("fix") or "") + " - " + receipt["why"]); blocked_by.append("login")
         elif receipt.get("refusal") == "timeout":   # RN1-3: a login that did not finish is not a login the stand refused
-            layer1.append("the login this project records did not finish in time: " + receipt["why"])
+            layer1.append(LAYER1["login"][1] + receipt["why"]); blocked_by.append("login")
         else:
-            layer1.append("the login this project records was refused: " + receipt["why"])
+            # FV1-15 (P1): the line says WHAT the attempt came to; `credentials_refused`, `fields_unconfirmed`, an absent or an
+            # unknown answer keep today's refused line (nothing is guessed, FR-41); the word stays `login` for every line
+            layer1.append(_login_prefix(receipt.get("answer")) + receipt["why"]); blocked_by.append("login")
     if receipt["status"] != "ok":
         # With a proven login a missing key cannot be the login's own, whatever a stale
         # config lists: the story was stopped over exactly that contradiction once.
         for item in missing:
             if item["login_key"]:
-                layer1.append(f"{item['key']} is not set, and the login needs it")
+                layer1.append(f"{item['key']}{LAYER1['login_key']}"); blocked_by.append("login_key")
 
     state, note = data_cleanup(full_cfg, env_name)
     details.append(f"  data_cleanup: {state} ({note})")
@@ -1150,7 +1196,7 @@ def probe(full_cfg: dict, env_name: str = "", task: str = "", root=None,
                        "tag and asserts only within that tag. No Then compares a global total "
                        "(TotalCount, list length, \"exactly one\"), and bulk data on this stand "
                        "is a decision for gate A, not a detail of a case.")
-    return {"liveness": live, "login": receipt, "keys": keys, "layer1": layer1,
+    return {"liveness": live, "login": receipt, "keys": keys, "layer1": layer1, "blocked_by": blocked_by,
             "details": details, "source": source, "address_source": address_source}
 
 
@@ -1183,6 +1229,66 @@ def verdict_lines(result: dict) -> list:
     return lines
 
 
+def blocked_by_of(out) -> list:
+    """The words of `blocked_by` (WHY the probe blocks) read from the probe's TEXT - the one reader of that shape for words,
+    beside the producer (AR-13); `driver_s0.probe_reason` stays the reader of the reason LINE. It reads our own output shape
+    only (the list under `THE ENVIRONMENT CANNOT BE USED`, the `ENVIRONMENT:` line, the three column-0 verdict lines), never
+    anybody's words (FR-12). ERROR DIRECTION (FR-41): toward `unknown` - text that is empty, None or not the probe's (a
+    crash, a traceback) is `["unknown"]`; a Layer-1 item whose fixed words match none is `unknown`; a probe text with no
+    block and no `ENVIRONMENT:` line is `[]`. The first word is the one a caller acts on (Layer-1 order puts the stand first)."""
+    lines = [line.strip() for line in str(out or "").splitlines()]
+    for index, line in enumerate(lines):
+        if line.startswith("THE ENVIRONMENT CANNOT BE USED"):
+            items = []
+            for item in lines[index + 1:]:
+                if not item.startswith("- "):
+                    break
+                items.append(item[2:])
+            return [_word_of_item(item) for item in items] or ["unknown"]
+    if any(line.startswith("ENVIRONMENT:") for line in lines):
+        return ["not_configured"] if any(line.startswith("ENVIRONMENT: not configured") for line in lines) else ["unknown"]
+    return [] if any(line.startswith("liveness: ") for line in lines) else ["unknown"]
+
+
+def _login_prefix(answer) -> str:
+    """The Layer-1 prefix of a failed login whose attempt came to `answer` (P1): the one `LOGIN_PREFIX_ANSWER` pairs with it;
+    `credentials_refused`, `fields_unconfirmed`, an absent, unknown or non-text answer (and `body_shape` / `did_not_finish`, which
+    `probe` words before this call) -> today's refused prefix. `command_missing` says what `command_failed` says."""
+    answer = "command_failed" if answer == "command_missing" else answer
+    return next((prefix for prefix, word in LOGIN_PREFIX_ANSWER if isinstance(answer, str) and word == answer), LAYER1["login"][0])
+
+
+def login_answer_of(out):
+    """The answer (a word of `stand_access.ANSWERS`) of the FIRST Layer-1 item of the probe's TEXT that `_word_of_item` reads as
+    `login`, by the longest matching prefix of `LOGIN_PREFIX_ANSWER` (P3); None when there is none - and for empty, None or crash
+    text. Reads our own output shape only (FR-12), beside `blocked_by_of`."""
+    lines = [line.strip() for line in str(out or "").splitlines()]
+    for index, line in enumerate(lines):
+        if not line.startswith("THE ENVIRONMENT CANNOT BE USED"):
+            continue
+        for item in lines[index + 1:]:
+            if not item.startswith("- "):
+                break
+            if _word_of_item(item[2:]) == "login":
+                hits = [(len(prefix), word) for prefix, word in LOGIN_PREFIX_ANSWER if item[2:].startswith(prefix)]
+                return max(hits)[1] if hits else None
+        return None
+    return None
+
+
+def _word_of_item(item: str) -> str:
+    """One Layer-1 item -> its word by the fixed words of `LAYER1`; no match -> `unknown`."""
+    if item.startswith(LAYER1["stand_dead"]):
+        return "stand_dead"
+    if item.startswith(LAYER1["no_address"]):
+        return "no_address"
+    if item.startswith(LAYER1["login"]):
+        return "login"
+    if item.endswith(LAYER1["login_key"]):
+        return "login_key"
+    return "unknown"
+
+
 def main() -> None:
     argv = sys.argv[1:]
 
@@ -1209,7 +1315,7 @@ def main() -> None:
 
     result = probe(full_cfg, env_name, task, root, obligation_ids, "--no-login" not in argv)
     if "--json" in argv:
-        print(json.dumps({k: result[k] for k in ("liveness", "login", "keys", "layer1")}, indent=2))
+        print(json.dumps({k: result[k] for k in ("liveness", "login", "keys", "layer1", "blocked_by")}, indent=2))
         sys.exit(1 if result["layer1"] else 0)
     print("\n".join(result["details"] + verdict_lines(result)))
     sys.stdout.flush()  # the block of facts must land before the error output

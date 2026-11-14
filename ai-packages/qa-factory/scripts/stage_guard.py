@@ -763,9 +763,11 @@ def journal_lines(event: dict | None = None) -> list:
 LAST_DENIAL: dict = {"message": "", "ticket": "", "stage": "", "role": ""}
 
 
-def deny(message: str) -> int:
-    LAST_DENIAL["message"] = message
-    print("STAGE GUARD: " + message, file=sys.stderr)
+def deny(message) -> int:
+    """`message` is a plain `str` or a `detector_verdict.refusal(...)` Record. `LAST_DENIAL` keeps the PROBLEM only (`str`), so
+    `BLOCK_MATCHES` / `block_match` and the readers of `LAST_DENIAL` never see the sentence or the door; the print is `spoken`."""
+    LAST_DENIAL["message"] = str(message)
+    print("STAGE GUARD: " + DV.spoken(message), file=sys.stderr)
     return DENY
 
 
@@ -3085,8 +3087,8 @@ def selftest() -> int:
     case("gate A sits after S4", ((model.get("gates") or {}).get("A") or {}).get("after"), "S4")
     case("gate B sits after S8", ((model.get("gates") or {}).get("B") or {}).get("after"), "S8")
     case("role lookup: qa-case-critic is an S4 role", (stage_of_role(model, "qa-case-critic") or {}).get("id"), "S4")
-    case("role lookup: qa-case-critic stands on the stages stages.json lists (S2, S3 and S4 since X2-7: the stage critic)",
-         [st.get("id") for st in stages_of_role(model, "qa-case-critic")], ["S2", "S3", "S4"])
+    case("role lookup: qa-case-critic stands on S4 only",
+         [st.get("id") for st in stages_of_role(model, "qa-case-critic")], ["S4"])
     case("role lookup: qa-bug-reporter is an S8 role",(stage_of_role(model, "qa-bug-reporter") or {}).get("id"), "S8")
     case("role lookup: a foreign agent has no stage", stage_of_role(model, "general-purpose"), None)
     case("command shape: git commit of a test file", command_shape("git commit -m x tests/test_a.py"), "commit")

@@ -177,9 +177,18 @@ def a_form_is_written_and_then_repaired_by_code() -> None:
             "links": [{"case_id": "TC-001", "version": "cv_new"}]}), encoding="utf-8")
         (art / "work" / "probes" / "test_one.json").write_text("{}", encoding="utf-8")
         (art / "work" / "test-code" / "critic-findings.md").write_text("#", encoding="utf-8")
-        (art / "evidence" / "runtime-provenance-api-20260101T000000Z.json").write_text(
+        record_file = art / "evidence" / "runtime-provenance-api-20260101T000000Z.json"
+        record_file.write_text(
             json.dumps({"profile_id": "api", "observed_runtime_identity": "verified_content:abc"}),
             encoding="utf-8")
+        # the form's own run: its block names the record (P1B-9 C3); a lone file no block names is never filled in
+        (art / "work" / "run-blocks").mkdir()
+        (art / "work" / "run-blocks" / "20260101T000000000000Z-a1.json").write_text(json.dumps({
+            "attempt_id": "a1", "block_id": "a1", "dispatch_id": "S5-qa-automator-1",
+            "attempt_started_at": "2026-01-01T00:00:00+00:00",
+            "runtime_provenance": {"profile_id": "api", "result": "matched",
+                                   "evidence_refs": [record_file.as_posix()]},
+            "results": []}), encoding="utf-8")
 
         form = art / "work" / "handoffs" / "S5-qa-automator-1.yaml"
         done = run_script("handoff_init.py", "--task", "QA-1", "--stage", "S5",
@@ -241,6 +250,182 @@ def a_form_is_written_and_then_repaired_by_code() -> None:
         check_in("and it says so", "is complete", done.stdout)
         text = form.read_text(encoding="utf-8")
         check_in("the comments of the contract survive every write", "# The head of the handoff", text)
+    finally:
+        cleanup(root)
+
+
+def _run_block(task: Path, name: str, dispatch: str, started: str, provenance, folder: str = "run-blocks") -> None:
+    target = task / "work" / folder
+    target.mkdir(parents=True, exist_ok=True)
+    data = {"attempt_id": name, "block_id": name, "dispatch_id": dispatch, "attempt_started_at": started, "results": []}
+    if provenance is not None:
+        data["runtime_provenance"] = provenance
+    (target / f"{name}.json").write_text(json.dumps(data), encoding="utf-8")
+
+
+def the_runtime_record_is_the_windows_own() -> None:
+    """P1B-9 C3 (B1): the S5 deriver names the record of THE FORM'S OWN run (the newest run block of its dispatch that carries one),
+    never a record chosen by file name. Every case that cannot be established is a named `unknown`: None and a reason."""
+    import handoff_check as H
+    D = "S5-qa-automator-1"
+    old, new = "2026-01-01T00:00:00+00:00", "2026-01-02T00:00:00+00:00"
+    root = Path(tempfile.mkdtemp(prefix="qa-handoff-c3-"))
+    try:
+        def story(name: str) -> Path:
+            task = root / name / "artifacts" / "QA-1"
+            (task / "evidence").mkdir(parents=True)
+            return task
+
+        def record(task: Path, name: str) -> str:
+            path = task / "evidence" / name
+            path.write_text("{}", encoding="utf-8")
+            return path.as_posix()
+
+        def own_record(task: Path, name: str = "runtime-provenance-api-a.json", result: str = "matched", started: str = old,
+                       block: str = "a1", dispatch: str = D) -> str:
+            ref = record(task, name)
+            _run_block(task, block, dispatch, started, {"profile_id": "api", "result": result, "evidence_refs": [ref]})
+            return ref
+
+        def derive(task: Path, dispatch: str = D, doc=None):
+            doc = doc or handoff.parse("header:\n  dispatch: ''\n")
+            return H._runtime_provenance(H.Artifacts(task, dispatch=dispatch), doc)
+
+        cases = []
+
+        task = story("own-matched")
+        own_record(task)
+        cases.append(("own-matched", derive(task), ("evidence/runtime-provenance-api-a.json",), ""))
+
+        task = story("own-not-applicable")
+        own_record(task, result="not_applicable")
+        cases.append(("own-not-applicable", derive(task), ("evidence/runtime-provenance-api-a.json",), ""))
+
+        task = story("other-dispatch-newer")
+        own_record(task, name="runtime-provenance-api-a.json")
+        own_record(task, name="runtime-provenance-api-b.json", started=new, block="b1", dispatch="S5-qa-automator-2")
+        record(task, "runtime-provenance-zzz-last.json")
+        got = derive(task)
+        cases.append(("other-dispatch-newer", got, ("evidence/runtime-provenance-api-a.json",), ""))
+        got = derive(task, dispatch="S5-qa-automator-3")
+        cases.append(("other-dispatch-only", got, (None,), "S5-qa-automator-3"))
+
+        task = story("two-own-blocks")
+        own_record(task, name="runtime-provenance-api-a.json", block="a1", started=old)
+        own_record(task, name="runtime-provenance-api-b.json", block="a2", started=new)
+        cases.append(("two-own-blocks", derive(task), ("evidence/runtime-provenance-api-b.json",), ""))
+
+        task = story("refs-empty")
+        _run_block(task, "a1", D, old, {"profile_id": "api", "result": "not_applicable", "evidence_refs": []})
+        record(task, "runtime-provenance-api-a.json")
+        got = derive(task)
+        cases.append(("refs-empty", got, (None,), "no evidence_refs"))
+
+        task = story("ref-missing-file")
+        _run_block(task, "a1", D, old, {"profile_id": "api", "result": "matched",
+                                         "evidence_refs": [(task / "evidence" / "gone.json").as_posix()]})
+        cases.append(("ref-missing-file", derive(task), (None,), "not a file of this story"))
+
+        task = story("ref-escapes")
+        (root / "ref-escapes" / "artifacts" / "X" / "evidence").mkdir(parents=True)
+        (root / "ref-escapes" / "artifacts" / "X" / "evidence" / "a.json").write_text("{}", encoding="utf-8")
+        _run_block(task, "a1", D, old, {"profile_id": "api", "result": "matched", "evidence_refs": ["../X/evidence/a.json"]})
+        cases.append(("ref-escapes", derive(task), (None,), "not a file of this story"))
+
+        task = story("ref-other-machine")
+        record(task, "runtime-provenance-api-a.json")
+        _run_block(task, "a1", D, old, {"profile_id": "api", "result": "matched",
+                                         "evidence_refs": ["C:/elsewhere/qa-factory/artifacts/QA-1/evidence/runtime-provenance-api-a.json"]})
+        cases.append(("ref-other-machine", derive(task), ("evidence/runtime-provenance-api-a.json",), ""))
+
+        task = story("no-dispatch")
+        own_record(task)
+        got = derive(task, dispatch="")
+        cases.append(("no-dispatch", got, (None,), "names no dispatch"))
+        got = derive(task, dispatch="", doc=handoff.parse(f"header:\n  dispatch: {D}\n"))
+        cases.append(("dispatch-from-the-header", got, ("evidence/runtime-provenance-api-a.json",), ""))
+
+        task = story("unreadable-block")
+        own_record(task)
+        (task / "work" / "run-blocks" / "bad.json").write_text("{", encoding="utf-8")
+        got = derive(task)
+        cases.append(("unreadable-block", got, (None,), "could not be read"))
+
+        task = story("no-blocks-folder")
+        record(task, "runtime-provenance-api-a.json")
+        got = derive(task)
+        cases.append(("no-blocks-folder", got, (None,), "carries a runtime_provenance record"))
+
+        task = story("reference-run-only")
+        ref = record(task, "runtime-provenance-api-a.json")
+        _run_block(task, "r1", D, old, {"profile_id": "api", "result": "matched", "evidence_refs": [ref]}, folder="reference-runs")
+        cases.append(("reference-run-only", derive(task), (None,), "carries a runtime_provenance record"))
+
+        for provenance in (None, {}, "text"):
+            task = story(f"no-record-{type(provenance).__name__}")
+            _run_block(task, "a1", D, old, provenance)
+            cases.append((f"record-{provenance!r}", derive(task), (None,), "carries a runtime_provenance record"))
+
+        for case, refs in (("refs-not-a-list", "evidence/x.json"), ("ref-not-a-string", [5])):
+            task = story(case)
+            record(task, "x.json")
+            _run_block(task, "a1", D, old, {"profile_id": "api", "result": "matched", "evidence_refs": refs})
+            cases.append((case, derive(task), (None,), "no evidence_refs"))
+
+        task = story("ref-absolute-other-story")
+        record(task, "runtime-provenance-api-a.json")
+        _run_block(task, "a1", D, old, {"profile_id": "api", "result": "matched",
+                                         "evidence_refs": ["D:/proj/artifacts/QA-8/evidence/runtime-provenance-api-a.json"]})
+        cases.append(("ref-absolute-other-story", derive(task), (None,), "not a file of this story"))
+
+        task = story("block-without-dispatch-id")
+        ref = record(task, "runtime-provenance-api-a.json")
+        _run_block(task, "a1", "", old, {"profile_id": "api", "result": "matched", "evidence_refs": [ref]})
+        cases.append(("block-without-dispatch-id", derive(task), (None,), "carries a runtime_provenance record"))
+
+        task = story("reparse-of-own-is-newest")
+        own_record(task, name="runtime-provenance-api-a.json", block="a1")
+        copied = record(task, "runtime-provenance-api-a-copy.json")
+        _run_block(task, "a1-reparse-h1", D, old, {"profile_id": "api", "result": "matched", "evidence_refs": [copied]})
+        reparse = task / "work" / "run-blocks" / "a1-reparse-h1.json"
+        data = json.loads(reparse.read_text(encoding="utf-8"))
+        data["supersedes_block_id"] = "a1"
+        reparse.write_text(json.dumps(data), encoding="utf-8")
+        cases.append(("reparse-of-own-is-newest", derive(task), ("evidence/runtime-provenance-api-a-copy.json",), ""))
+
+        for case, got, expected, said in cases:
+            check_eq(f"C3 {case}: the path", got[:1], expected)
+            if said:
+                check(f"C3 {case}: no path, and the reason says `{said}` and names the producer",
+                      len(got) == 3 and said in got[2] and "runtime_probe.py" in got[2], str(got))
+    finally:
+        cleanup(root)
+
+
+def the_blank_provenance_field_says_why_code_could_not_fill_it() -> None:
+    """P1B-9 C3: with no run block of the form's dispatch the field stays blank (never a pass) and the refusal names the dispatch."""
+    import handoff_check as H
+    import hooklib
+    root = temp_project("qa-handoff-c3b-")
+    try:
+        task = root / "qa-factory" / "artifacts" / "QA-1"
+        (task / "evidence").mkdir(parents=True)
+        (task / "evidence" / "runtime-provenance-api-20260101T000000Z.json").write_text("{}", encoding="utf-8")
+        _run_block(task, "b1", "S5-qa-automator-9", "2026-01-01T00:00:00+00:00",
+                   {"profile_id": "api", "result": "matched", "evidence_refs": []})
+        doc = handoff.parse(handoff.template("s5-automator-to-critic").text())
+        with hooklib.selftest_root_restored():
+            hooklib.pin_project_root(root)
+            out, _fixed, problems, _judged, _derived = H.check(
+                doc, "s5-automator-to-critic", H.Artifacts(task, dispatch="S5-qa-automator-1"), fix=True, task="QA-1",
+                use_judge=False)
+        mine = [p for p in problems if p.path == "artifacts.runtime_provenance"]
+        check("C3 check: the field is refused", len(mine) == 1 and mine[0].kind == "blank", str([p.path for p in problems])[:200])
+        text = mine[0].text if mine else ""
+        check("C3 check: the refusal says code could not fill it, and names the dispatch", "Code could not fill it:" in text
+              and "S5-qa-automator-1" in text, text)
+        check("C3 check: the field is still blank in the returned form", handoff.is_placeholder(out.get("artifacts.runtime_provenance")),
+              str(out.get("artifacts.runtime_provenance")))
     finally:
         cleanup(root)
 
@@ -662,12 +847,12 @@ def an_exited_s2_key_is_read_in_any_shape() -> None:
 
 
 def a_section_owed_only_under_a_header_value_has_an_empty_outcome_otherwise() -> None:
-    """t-1765 G2/G3 (AR-23, AR-28, AR-19): the three critic forms (S4, S2, S3) owe `stage_acceptance` and `questions` only when
+    """t-1765 G2/G3 (AR-23, AR-28, AR-19): the critic form (S4) owes `stage_acceptance` and `questions` only when
     `header.verdict` is `concerns` (each form's own `required_when:`). An `ok` review leaves both as the form has them and is not
     refused for it; a `concerns` review, or a form whose verdict is missing, is refused for them; a filled block is still checked."""
     import handoff_check as H
     import hooklib
-    forms = ("s4-case-critic-to-designer", "s2-stage-critic-to-tester", "s3-stage-critic-to-strategist")
+    forms = ("s4-case-critic-to-designer",)
     owed = ("stage_acceptance", "questions")
 
     def owed_problems(contract: str, text: str, view) -> list:
@@ -701,8 +886,64 @@ def a_section_owed_only_under_a_header_value_has_an_empty_outcome_otherwise() ->
                 check_in(f"G2 {contract} control: the other blanks are refused on ok too",
                          "review.outcome" if contract == forms[0] else "header.window",
                          [p.path for p in H.check(handoff.parse(with_verdict("ok")), contract, view, fix=False, use_judge=False)[2]])
+            # N1-c (FV1-22): the two CONSUMER forms keep their acceptance word at `stage_acceptance.verdict` (`acceptance_verdict_at`),
+            # and `header.verdict` stays the verdict of the handoff itself: the section is owed in full only under `return`.
+            for contract in ("s7-analyst-to-automator", "s8-scribe-to-gate-b"):
+                template = (CONTRACTS / f"{contract}.yaml").read_text(encoding="utf-8")
+
+                def with_word(word: str, header: str = "") -> str:
+                    text = template.replace("verdict: <accept|return>", f"verdict: {word}", 1)
+                    return text.replace("verdict: <one of vocabulary.header_verdicts>", f"verdict: {header}", 1) if header else text
+
+                def acceptance_paths(text: str) -> list:
+                    got = H.check(handoff.parse(text), contract, view, fix=False, use_judge=False)[2]
+                    return sorted({p.path for p in got if p.path.startswith("stage_acceptance")})
+
+                check_in(f"G3 {contract} control: the edit hit, the word is written", "verdict: accept", with_word("accept"))
+                check_eq(f"G3 {contract} accept: class, quote and witness are relaxed", acceptance_paths(with_word("accept")), [])
+                check_eq(f"G3 {contract} return: the same blanks ARE owed (same call, same form)", acceptance_paths(with_word("return")),
+                         ["stage_acceptance.failure_class", "stage_acceptance.quote"])
+                check_eq(f"G3 {contract} word missing: the word is owed with the rest (nothing is relaxed under a placeholder)",
+                         acceptance_paths(template),
+                         ["stage_acceptance.failure_class", "stage_acceptance.quote", "stage_acceptance.verdict"])
+                check_eq(f"G3 {contract} acept: refused as a word outside the choice", acceptance_paths(with_word("acept")),
+                         ["stage_acceptance.verdict"])
+                check_eq(f"G3 {contract} Accept: case is kept, so refused as well", acceptance_paths(with_word("Accept")),
+                         ["stage_acceptance.verdict"])
+                check_eq(f"G3 {contract} header concerns + accept: the handoff's own verdict decides nothing here",
+                         acceptance_paths(with_word("accept", header="concerns")), [])
         check_eq("G2 pure reader: a contract with no block relaxes nothing",
                  handoff.relaxed_sections("s1-scout-to-tester", "ok"), set())
+        # N1-c pure rows and N1-i: ONE reader of where the acceptance word is; every doubt reads `header.verdict`
+        for contract, want in (("s7-analyst-to-automator", "stage_acceptance.verdict"), ("s8-scribe-to-gate-b", "stage_acceptance.verdict"),
+                               ("s4-case-critic-to-designer", "header.verdict"), ("", "header.verdict"), ("no-such-contract", "header.verdict")):
+            check_eq(f"N1-c acceptance_verdict_path of `{contract}`", handoff.acceptance_verdict_path(contract), want)
+        real_template = handoff.template
+        try:
+            for label, value, want in (("not a string", 5, "header.verdict"), ("empty", "", "header.verdict"), ("none", None, "header.verdict"),
+                                       ("no dot", "stage_acceptance", "header.verdict"), ("spaces", "stage acceptance.verdict", "header.verdict"),
+                                       ("a list", ["a.b"], "header.verdict"), ("padded", " stage_acceptance.verdict ", "stage_acceptance.verdict")):
+                handoff.template = lambda _c, _v=value: type("T", (), {"data": {"acceptance_verdict_at": _v}})()
+                check_eq(f"N1-c malformed acceptance_verdict_at ({label}) reads the safe default", handoff.acceptance_verdict_path("x"), want)
+        finally:
+            handoff.template = real_template
+        check_eq("N1-i the key is the contract's own, never a field a role fills", handoff.owned_by_contract("acceptance_verdict_at"), True)
+        # N1-h: the skeleton of a dispatch that awaits nothing carries no acceptance section and no token row
+        import handoff_init as HI
+        text7 = (CONTRACTS / "s7-analyst-to-automator.yaml").read_text(encoding="utf-8")
+        dropped = HI.drop_unowed_acceptance(text7, "s7-analyst-to-automator", "")
+        check_eq("N1-h awaiting nothing: no stage_acceptance section", "stage_acceptance" in handoff.parse(dropped).data, False)
+        check_not_in("N1-h awaiting nothing: no token row", handoff.AUTHOR_TOKEN, dropped)
+        check_in("N1-h control: the same template holds both before", "stage_acceptance:", text7)
+        check_in("N1-h awaiting nothing: the other rows stay", "work/run-report.json", dropped)
+        check_eq("N1-h a dispatch that awaits one: unchanged", HI.drop_unowed_acceptance(text7, "s7-analyst-to-automator", "S6-qa-runner-2"), text7)
+        text4 = (CONTRACTS / "s4-case-critic-to-designer.yaml").read_text(encoding="utf-8")
+        check_eq("N1-h a contract that keeps the word at header.verdict: unchanged", HI.drop_unowed_acceptance(text4, "s4-case-critic-to-designer", ""), text4)
+        text8 = (CONTRACTS / "s8-scribe-to-gate-b.yaml").read_text(encoding="utf-8")
+        dropped8 = HI.drop_unowed_acceptance(text8, "s8-scribe-to-gate-b", "")
+        check_eq("N1-h S8 awaiting nothing: no section, no token row, the next section stays",
+                 ("stage_acceptance" in handoff.parse(dropped8).data, handoff.AUTHOR_TOKEN in dropped8, "delivery" in handoff.parse(dropped8).data),
+                 (False, False, True))
     finally:
         cleanup(root)
 
@@ -2008,7 +2249,7 @@ def the_null_outcome_audit_is_green_over_the_index_with_the_purpose_rows() -> No
              and r["carrier"] in (f"{PLAN_AUTHOR}:scope", f"{PLAN_CRITIC}:scope")]
     check_eq("each plan handover's item list has one never_empty home", sorted(r["carrier"] for r in homes),
              sorted([f"{PLAN_AUTHOR}:scope", f"{PLAN_CRITIC}:scope"]))
-    check_eq("the index counts twenty-three handovers", len(handoff.index()["handoffs"]), 23)
+    check_eq("the index counts twenty-one handovers", len(handoff.index()["handoffs"]), 21)
 
 
 def a_claim_code_measures_false_stays_open_with_the_door() -> None:
@@ -2409,6 +2650,8 @@ def main() -> None:
     the_schema_comes_from_the_contract()
     a_refusal_names_the_roles_own_words()
     a_form_is_written_and_then_repaired_by_code()
+    the_runtime_record_is_the_windows_own()
+    the_blank_provenance_field_says_why_code_could_not_fill_it()
     a_word_outside_the_list_is_refused_with_the_list()
     what_cannot_be_filled_goes_to_the_conductor()
     a_blocked_row_says_what_blocks_it()

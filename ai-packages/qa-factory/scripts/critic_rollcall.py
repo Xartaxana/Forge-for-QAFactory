@@ -403,12 +403,49 @@ def carried_concerns(data: bytes, sha256: str, receipts=(), artifacts=None, memo
     return _read_round(data, sha256, receipts, artifacts, memo, review, start)[1]
 
 
+REJECTED_NOTE = "the case critic rejected this case and wrote no note"
+
+
+def rejected_rows(rows: list, declared: str = "") -> list:
+    """THE predicate of "the case critic still rejects this case" (AR-13): one element per case of every `reviewed: yes` row of
+    `rows` (`parse_rollcall`'s) whose word is not an approving one, in the order of the rows.
+
+    The word is the row's `verdict` cell; a table with NO `verdict` column (`None`) takes the round's `declared` word (the
+    `scoped_verdict` rule). `reject`, `partial`, an unknown word, an empty cell and an empty declared word all list the row:
+    the error direction is over-list, a doubt is never read as approval (FR-59); a row not reviewed is skipped (it carries no
+    verdict it does not have). `{"case", "verdict" (as written, `unstated` when empty), "problem" (the row's `note` word for word,
+    REJECTED_NOTE when it wrote none), "fix", "plan_row"}`; a row that names no case has `case` `''`."""
+    declared = str(declared or "").strip().lower()
+    out = []
+    for row in rows:
+        if row.get("reviewed") is not True:
+            continue
+        if _row_outcome("", {"reviewed": True, "verdict": row.get("verdict")}, declared)[0] == "accepted":
+            continue      # THE rule "this row approves" is `_row_outcome`'s, not a second writing of it
+        word = row.get("verdict")
+        word = declared if word is None else str(word)
+        for case in [str(one) for one in row.get("ids") or [row.get("case") or ""]]:
+            out.append({"case": case, "verdict": word or "unstated", "problem": row.get("note") or REJECTED_NOTE,
+                        "fix": row.get("fix") or "", "plan_row": str(row.get("plan_row") or "")})
+    return out
+
+
+def current_rejected(data: bytes, artifacts=None):
+    """The rows the case critic's NEWEST round still rejects (`rejected_rows`), cut as the round's receipt will cut it at the
+    critic's finish: the whole file's hash, no older receipt. `None` when the round cannot be read (a doubt, no roll-call table)
+    or lists no reviewed case; `[]` when it lists some and approves them all. The one reader the question of the S4 repair limit
+    and `accepted_rounds` share (AR-13); `problem` is never cut here (FR-49)."""
+    listed, _concerns, rejected = _read_round(data, hashlib.sha256(data).hexdigest(), (), artifacts, None, "")
+    return rejected if listed else None
+
+
 def _read_round(data: bytes, sha256: str, receipts, artifacts, memo, review: str, start: int = 1) -> tuple:
-    """`(listed, concerns)` of ONE round, cut and parsed once: `listed` the cases of its `reviewed: yes` rows, `concerns` as
-    `carried_concerns` words them. At any doubt `(set(), [])` and one line on stderr says why."""
+    """`(listed, concerns, rejected)` of ONE round, cut and parsed once: `listed` the cases of its `reviewed: yes` rows, `concerns` as
+    `carried_concerns` words them, `rejected` as `rejected_rows` lists them (each with the `review` it came from). At any doubt
+    `(set(), [], [])` and one line on stderr says why."""
     def silent(reason: str) -> tuple:
         print(f"critic_rollcall: no concern carried from this round: {reason}", file=sys.stderr)
-        return set(), []
+        return set(), [], []
     try:
         text, doubt = _receipt_round(data, sha256, receipts, memo)
         if doubt:
@@ -428,7 +465,8 @@ def _read_round(data: bytes, sha256: str, receipts, artifacts, memo, review: str
                 found.append({"id": f"CC-{number}", "case": case, "kind": "remark", "problem": row.get("note") or NO_NOTE,
                               "fix": row.get("fix") or "", "review": review})
                 number += 1
-        return listed, found
+        rejected = [dict(item, review=review) for item in rejected_rows(rows, declared_verdict(text))]
+        return listed, found, rejected
     except Exception as exc:  # noqa: BLE001 - a reader of a role's file never stops the stage
         return silent(f"the roll-call could not be read ({type(exc).__name__})")
 
@@ -437,10 +475,10 @@ def accepted_rounds(data: bytes, rounds, artifacts=None) -> list:
     """The accepted rounds of ONE findings file, read once each (AR-13: THE reader of which cases a round lists and which
     concerns it carries; `s5_plan.case_concerns` uses only this). `rounds` is `[(sha256, review dispatch id)]` in the order
     the reviews were accepted; the receipts of the file's other rounds are the other hashes, one memo serves them all.
-    `[{"review", "listed": {case}, "concerns": [carried_concerns' elements]}]`, one per round, in the same order; a round in
-    doubt lists nothing and carries nothing (stderr says why)."""
+    `[{"review", "listed": {case}, "concerns": [carried_concerns' elements], "rejected": [rejected_rows' elements]}]`, one per
+    round, in the same order; a round in doubt lists nothing and carries nothing (stderr says why)."""
     memo, receipts = {}, [str(sha or "") for sha, _review in rounds]
-    return [dict(zip(("listed", "concerns"), _read_round(data, sha, receipts, artifacts, memo, str(review or ""))),
+    return [dict(zip(("listed", "concerns", "rejected"), _read_round(data, sha, receipts, artifacts, memo, str(review or ""))),
                  review=str(review or "")) for sha, review in rounds]
 
 
@@ -747,13 +785,19 @@ def raise_pending(task_root, *, store: Path | None = None) -> dict:
     the `raise_questions` entry dropped, and re-pins a new version - no designer dispatch. A case with no
     `raise` is never read past one substring test and never written. Returns {"raised": [{case, then,
     question}], "skipped": [{case_id, reason}], "plan_notes": [line]}: a Then that could not be raised keeps its `raise` and the
-    gate A rehearsal refuses it by name (`gate_preflight.check_unraised_questions`)."""
+    gate A rehearsal refuses it by name (`gate_preflight.check_unraised_questions`).
+
+    FV1-9: the same exit also executes the designer's `question_repeats` (`QR.repeats_for_case`: the question is declared a repeat of
+    an earlier one) and `reword_questions` (`QR.rewords_for_case`: an unanswered question is asked again in clearer words), per case
+    in that order, after the raise; a case is written and re-pinned ONCE when any of the three changed its text, and a case that holds
+    none of the three keys is never read past one substring test. Their results are `repeats` / `rewords` (what was done) and
+    `question_notes` (one line per entry that was refused or malformed: it stays in the case and says why)."""
     task_root = Path(task_root)
     import case_versions as V
     import contract as C
     import question_register as QR
     store = Path(store) if store is not None else V.store_root(task_root)
-    out: dict = {"raised": [], "skipped": [], "plan_notes": []}
+    out: dict = {"raised": [], "skipped": [], "plan_notes": [], "repeats": [], "rewords": [], "question_notes": []}
     for link in C.story_case_links(task_root):
         if not isinstance(link, dict):
             continue
@@ -765,14 +809,25 @@ def raise_pending(task_root, *, store: Path | None = None) -> dict:
             content = source.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        if C.RAISE_REF not in content:
+        if not any(key in content for key in (C.RAISE_REF, "question_repeats", "reword_questions")):
             continue
         result = QR.raise_for_case(task_root, content, case_id)
         out["plan_notes"].extend(result.get("plan_notes") or [])
         out["skipped"].extend({"case_id": case_id, "reason": problem} for problem in result["problems"])
-        if result["text"] is None:
+        text = result["text"] if result["text"] is not None else content
+        for name, step, done in (("repeats", QR.repeats_for_case, "recorded"), ("rewords", QR.rewords_for_case, "reworded")):
+            try:
+                step_result = step(task_root, text, case_id)
+            except Exception as exc:  # noqa: BLE001 - the case's own key never stops the exit (P1); it is said
+                out["question_notes"].append(f"{case_id}: {name} were not executed ({type(exc).__name__}: {' '.join(str(exc).split())[:160]})")
+                continue
+            out["question_notes"].extend(step_result["problems"])
+            out[name].extend(step_result[done])
+            if step_result["text"] is not None:
+                text = step_result["text"]
+        if text == content:
             continue
-        source.write_text(result["text"], encoding="utf-8", newline="\n")
+        source.write_text(text, encoding="utf-8", newline="\n")
         record = V.create_version(store, source)
         V.pin(task_root, record, expected_previous_version=link.get("version"))
         out["raised"].extend(result["raised"])
@@ -1176,6 +1231,9 @@ def main() -> int:
             result["skipped"].extend(raised["skipped"])
             if raised["plan_notes"]:
                 result["plan_notes"] = raised["plan_notes"]      # raised, but the plan row was not told: said, never dropped (FR-59)
+            for key in ("repeats", "rewords", "question_notes"):    # FV1-9: what the exit declared, asked again, or kept and why
+                if raised[key]:
+                    result[key] = raised[key]
         except Exception as exc:  # code informs, it never stops the factory on its own defect (P1)
             result.setdefault("errors", []).append(f"raise_questions: {type(exc).__name__}: {exc}")
         print(json.dumps(result, ensure_ascii=False, default=str))

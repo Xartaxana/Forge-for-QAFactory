@@ -675,6 +675,55 @@ def record_stand_account(root: Path, *, stand: str, role: str, user_key: str, se
     return result
 
 
+def record_stand_login(root: Path, *, stand: str = "", words: str) -> dict:
+    """Record, on a person's word (`find the way in`, FV1-15 D6), the way that signs in to the stand as `environment.access`: every way
+    the factory knows is tried (`stand_access.try_roads` - no command and no candidate, code composes none) and the FIRST road that
+    is `in`, in the fixed road order, is written together with its record (`login_probe`, which carries the `answer`). Every refusal
+    is a ValueError with its door and writes nothing (all checks come before `upsert`, so no open registry row is left): no stand
+    named or an ambiguous one (as every stand fact), no road in (the roads and their answers, names only), a way the contract
+    refuses. The recorded way already being the one that signs in is `unchanged`. Returns names only (the CLI prints it)."""
+    import config_contract as CC
+    import stand_access
+    root = Path(root)
+    config = _project_config(root, "the way the project signs in")
+    raw_rows = config.get("environments") if isinstance(config.get("environments"), list) else []
+    if any(isinstance(row, dict) for row in raw_rows):
+        stand = str(_stand_of(config, stand)[1].get("name") or "")      # the person's stand: the project's own row, or the refusal's door
+    else:
+        stand = ""                                                      # a project with one block and no `environments[]` row: no stand name
+    report = stand_access.try_roads(config, root, env_name=stand, with_access=True)
+    roads = report["roads"]
+    if report["first_in"] is None:
+        seen = "; ".join(f"{road['road']}: {road['answer']}" for road in roads) or "no road to try"
+        raise ValueError(f"no way in signed in ({seen}); the project's sign-in is unchanged and nothing was written: record how the "
+                         "project signs in with /qa-factory:qa-onboarding, or fix the account in its env file")
+    found = roads[report["first_in"]]
+    if found["road"] == "a":
+        return {"unchanged": True}
+    record = found.get("record")
+    if not isinstance(record, dict):
+        raise ValueError(f"the road {found['road']} signed in, but its record (the account's key names) could not be made, so it is "
+                         "not recorded; nothing was written")
+    environment = config.get("environment") if isinstance(config.get("environment"), dict) else {}
+    old = environment.get("access") if isinstance(environment.get("access"), dict) else {}
+    # B1: the new road replaces the whole block, so what the old one held that is no sign-in key of its own kind is carried
+    # (`unauth_status` is read by the liveness check; the new road's own keys win); M1: the road's REAL access, never the shown one
+    real = found.get("real_access")
+    if not isinstance(real, dict):
+        raise ValueError(f"the road {found['road']} signed in, but its access could not be read back, so it is not recorded; "
+                         "nothing was written")
+    sign_in = set(CC.ACCESS_KEY_FIELDS) | {"kind", "command", "url", "form", "login_probe", *CC.BODY_FIELD_KEYS}
+    new = {**{k: v for k, v in old.items() if k not in sign_in}, **real, "login_probe": record}
+    problems = CC.access_errors(new)
+    if problems:
+        raise ValueError(f"the way that signed in ({found['road']}) is not a valid environment.access: {problems[0]}; nothing was written")
+    row = upsert(root, field_refs=["/environment/access"], essence=f"how the project signs in to the stand {stand or '(the only one)'}",
+                 asked="stand check: the sign-in the project records did not get in; find the way in", scope="project", owner="user")
+    closed = resolve(root, row["id"], words, f"stand-login {stand or 'block'}", {"/environment/access": new})
+    return {"road": found["road"], "kind": found["kind"], "replaced": str(old.get("kind") or ""), "decision": closed["id"],
+            "tried": report["tried"]}
+
+
 def _record_stand_fact(action: str, args, record) -> dict:
     """The CLI of a stand fact (`stand-account`, `stand-frontend`): the person's words resolved first, then `record(root, words=...)`;
     a refusal is one stderr line and exit 2 (as `add-finding`). ONE wrapper for every stand fact."""
@@ -689,6 +738,11 @@ def _record_stand_account(args) -> dict:
     """The `stand-account` action."""
     return _record_stand_fact("stand-account", args, lambda root, words: record_stand_account(
         root, stand=args.stand, role=args.role, user_key=args.user_key, secret_key=args.secret_key, words=words, replace=args.replace))
+
+
+def _record_stand_login(args) -> dict:
+    """The `stand-login` action."""
+    return _record_stand_fact("stand-login", args, lambda root, words: record_stand_login(root, stand=args.stand, words=words))
 
 
 def _same_value(held, wanted) -> bool:
@@ -922,6 +976,10 @@ def _build_parser() -> argparse.ArgumentParser:
     front.add_argument("--api-path", default="", help="a path through the frontend whose answer is the API's own JSON, e.g. /api/v1/config")
     front.add_argument("--words-file", required=True, help="a file holding the person's own words as they were given (UTF-8)")
     front.add_argument("--replace", action="store_true", help="overwrite another address the project already records")
+    login = sub.add_parser("stand-login", help="find the way that signs in to the stand (every way the factory knows is tried) and record "
+                                                "it as environment.access in qa-factory/config.json, on a person's word")
+    login.add_argument("--stand", default="", help="the stand's name; may be left out when the project records exactly one or none")
+    login.add_argument("--words-file", required=True, help="a file holding the person's own words as they were given (UTF-8)")
     sub.add_parser("recover")
     return parser
 
@@ -947,6 +1005,7 @@ def main() -> None:
     elif args.action == "add-finding": result = _record_finding(args)
     elif args.action == "stand-account": result = _record_stand_account(args)
     elif args.action == "stand-frontend": result = _record_stand_frontend(args)
+    elif args.action == "stand-login": result = _record_stand_login(args)
     elif args.action == "resolve":
         result = _refusal_as_line("resolve", lambda: resolve(
             args.root.resolve(), args.id, decision, args.resolution_ref,

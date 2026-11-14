@@ -17,6 +17,7 @@ from hooklib import read_json as _read_json  # the package's one JSON reader: a 
 from profile_contract import (ACCEPTS, acceptable_provenance, command_env, no_changed_file, one_test_argv, probe_failed_text,
                               probe_not_json_text, profile_command, refusal_text, rehearsal_view, say_refusal,
                               selected_profiles, stand_runs_other_build, validate_runtime_provenance)
+from detector_verdict import refusal  # the one constructor of a refusal that tells its row (T2, AR-15); the id is a literal at each site
 from record_schema import validate_record
 from execution_fingerprint import verify_files
 from hooklib import sorted_paths, story_closure
@@ -28,7 +29,10 @@ REPORTERS = {"pytest", "junit-xml", "trx", "none"}
 
 
 class RequestError(ValueError):
-    pass
+    """A refused request. `records` is the refusals of this error that carry a check id (`detector_verdict.refusal` Records,
+    in the order they were found), `()` when none does: the reader that prints what each check expected reads them here, the
+    message stays the one `str(exc)` it always was."""
+    records: tuple = ()
 
 
 # --- how many selected instances become ONE selection ------------------------------------------
@@ -123,34 +127,34 @@ def validate_request(data: dict, project_root: Path, allow_exhausted_reuse: bool
     errors.extend(validate_managed_gate(data, project_root))
     purpose = data.get("purpose")
     if purpose == "impact_regression":
-        errors.append("impact_regression is recommendation-only and cannot be executed")
+        errors.append(refusal("execution_request:purpose", "impact_regression is recommendation-only and cannot be executed"))
     elif purpose not in PURPOSES:
-        errors.append(f"purpose must be one of {sorted(PURPOSES)}")
+        errors.append(refusal("execution_request:purpose", f"purpose must be one of {sorted(PURPOSES)}"))
     selected = data.get("selected_instance_ids")
     scope = data.get("current_scope_instance_ids")
     if not isinstance(selected, list) or any(not isinstance(x, str) or not x for x in selected):
-        errors.append("selected_instance_ids must be a string array")
+        errors.append(refusal("execution_request:selection", "selected_instance_ids must be a string array"))
         selected = []
     if not isinstance(scope, list) or any(not isinstance(x, str) or not x for x in scope):
-        errors.append("current_scope_instance_ids must be a string array")
+        errors.append(refusal("execution_request:selection", "current_scope_instance_ids must be a string array"))
         scope = []
     outside = sorted(set(selected) - set(scope))
     if outside:
-        errors.append("selected instances outside approved current scope: " + ", ".join(outside))
+        errors.append(refusal("execution_request:selection", "selected instances outside approved current scope: " + ", ".join(outside)))
     if not isinstance(data.get("remaining_budget"), (int, float)) or data.get("remaining_budget", -1) < 0:
-        errors.append("remaining_budget must be a non-negative number")
+        errors.append(refusal("execution_request:budget", "remaining_budget must be a non-negative number"))
     elif purpose in BEHAVIORAL and data["remaining_budget"] == 0 and not allow_exhausted_reuse:
-        errors.append("new behavioral execution requires remaining_budget greater than zero")
+        errors.append(refusal("execution_request:budget", "new behavioral execution requires remaining_budget greater than zero"))
     if data.get("freshness") != "fresh":
-        errors.append("freshness must be explicitly fresh; unknown/stale evidence cannot match")
+        errors.append(refusal("execution_request:freshness", "freshness must be explicitly fresh; unknown/stale evidence cannot match"))
     provenance = data.get("runtime_provenance")
     runtime_required = data.get("runtime_required", True)
     if not isinstance(provenance, dict):
-        errors.append("runtime_provenance is required")
+        errors.append(refusal("execution_request:runtime", "runtime_provenance is required"))
     else:
         checked = validate_runtime_provenance(provenance)
         if provenance.get("profile_id") != data.get("profile_id"):
-            errors.append("runtime provenance profile_id must match the selected profile")
+            errors.append(refusal("execution_request:runtime", "runtime provenance profile_id must match the selected profile"))
         # A probe that compared nothing because the story changes no file of this profile's checkout
         # (`reason_code: no_changed_file`, a FIELD - FR-12) is enough on ANY stand kind: the story's code
         # does not run through this checkout, so there is no runtime identity to verify (t-279 K-NA).
@@ -160,77 +164,81 @@ def validate_request(data: dict, project_root: Path, allow_exhausted_reuse: bool
         local_source = data.get("runtime_required") is False and data.get("target_kind") == "local_source"
         said_local = False
         if checked["result"] == "not_applicable" and not no_changed_file(provenance) and not local_source:
-            errors.append(say_refusal("not_applicable"))
+            errors.append(refusal("execution_request:runtime", say_refusal("not_applicable")))
             said_local = True
         if provenance.get("result") == "person_confirmed" and data.get("runtime_required") is False:
             # t-300 N2 X7: a person's word stands only where the probe re-reads the stand at launch (the pre-run and
             # post-run compare) - a request that skips the probe would run on a word nothing ever checks again
-            errors.append(say_refusal("person_runtime_off"))
+            errors.append(refusal("execution_request:runtime", say_refusal("person_runtime_off")))
         # ONE predicate (t-300 N2, FR-17): `matched`, a person's word bound to THIS story (X5), and the probe that
         # compared nothing (`no_changed_file`). The local_source `not_applicable` stays the one literal beside it (X3).
         taken = acceptable_provenance(provenance, ACCEPTS, task=data.get("task"))
         if not (taken or said_local or (checked["valid"] and checked["result"] == "not_applicable" and local_source)):
-            errors.append("runtime provenance must be valid matched, person_confirmed (the person's word, bound to "
-                          "this story) or not_applicable: " + refusal_text(provenance, task=data.get("task")))
+            errors.append(refusal("execution_request:runtime",
+                                  "runtime provenance must be valid matched, person_confirmed (the person's word, bound to "
+                                  "this story) or not_applicable: " + refusal_text(provenance, task=data.get("task"))))
     if isinstance(provenance, dict):
         # C8 (PC-9b, t-2277 W1): only the record's own contradiction (the story's stand named as its reference too) is refused here; a run on a
         # reference stand is a sample and goes (its block carries the mark). Read from the probe's own record (`environment_id`).
         reference = reference_target_problem(project_root, data.get("task"), provenance.get("environment_id"))
         if reference:
-            errors.append(reference)
+            errors.append(refusal("execution_request:stand.reference", reference))
     runtime_probe = data.get("runtime_probe")
     if runtime_required:
         if not isinstance(runtime_probe, dict):
-            errors.append("runtime-required request needs a read-only runtime_probe")
+            errors.append(refusal("execution_request:runtime", "runtime-required request needs a read-only runtime_probe"))
         else:
             probe_argv = runtime_probe.get("argv")
             if (not isinstance(probe_argv, list) or not probe_argv or
                     any(not isinstance(x, str) or not x for x in probe_argv)):
-                errors.append("runtime_probe.argv must be a non-empty string array")
+                errors.append(refusal("execution_request:runtime", "runtime_probe.argv must be a non-empty string array"))
             probe_cwd = Path(str(runtime_probe.get("cwd") or ""))
             probe_cwd = probe_cwd if probe_cwd.is_absolute() else project_root / probe_cwd
             if not probe_cwd.is_dir():
-                errors.append("runtime_probe.cwd must be an existing directory")
+                errors.append(refusal("execution_request:runtime", "runtime_probe.cwd must be an existing directory"))
             if not isinstance(runtime_probe.get("timeout_s"), (int, float)) or runtime_probe.get("timeout_s", 0) <= 0:
-                errors.append("runtime_probe.timeout_s must be positive")
+                errors.append(refusal("execution_request:runtime", "runtime_probe.timeout_s must be positive"))
     components = data.get("fingerprint_components")
     if not isinstance(components, dict) or any(not isinstance(components.get(k), str) or not components[k]
                                                for k in ("source_sha", "test_content_sha", "config_sha")):
-        errors.append("fingerprint_components requires immutable source_sha, test_content_sha, and config_sha")
+        errors.append(refusal("execution_request:fingerprint",
+                              "fingerprint_components requires immutable source_sha, test_content_sha, and config_sha"))
     try:
         verify_files(data.get("fingerprint_files"))
     except ValueError as exc:
-        errors.append(str(exc))
+        errors.append(refusal("execution_request:fingerprint", str(exc)))
 
     command = data.get("command")
     if not isinstance(command, dict):
-        errors.append("command must be an object")
+        errors.append(refusal("execution_request:command", "command must be an object"))
         command = {}
     argv = command.get("argv")
     if not isinstance(argv, list) or not argv or any(not isinstance(x, str) or not x for x in argv):
-        errors.append("command.argv must be a non-empty string array")
+        errors.append(refusal("execution_request:command", "command.argv must be a non-empty string array"))
     cwd_raw = command.get("cwd")
     if not isinstance(cwd_raw, str) or not cwd_raw:
-        errors.append("command.cwd is required")
+        errors.append(refusal("execution_request:command", "command.cwd is required"))
         cwd = project_root
     else:
         cwd = Path(cwd_raw)
         cwd = cwd if cwd.is_absolute() else project_root / cwd
         if not cwd.is_dir():
-            errors.append(f"command.cwd does not exist: {cwd}")
+            errors.append(refusal("execution_request:command", f"command.cwd does not exist: {cwd}"))
     reporter = command.get("reporter")
     if reporter not in REPORTERS:
-        errors.append(f"command.reporter must be one of {sorted(REPORTERS)}")
+        errors.append(refusal("execution_request:command", f"command.reporter must be one of {sorted(REPORTERS)}"))
     if purpose in BEHAVIORAL and command.get("scope") == "full_suite":
-        errors.append("behavioral RunRequest cannot execute a full_suite command")
+        errors.append(refusal("execution_request:command", "behavioral RunRequest cannot execute a full_suite command"))
     if purpose in {"build", "collect", "quality"}:
         if not isinstance(command.get("runs_tests"), bool):
-            errors.append(f"{purpose} command must declare runs_tests boolean")
+            errors.append(refusal("execution_request:command", f"{purpose} command must declare runs_tests boolean"))
         elif command["runs_tests"]:
-            errors.append(f"{purpose} command that runs tests is a hidden behavioral wrapper; split it into typed scoped requests")
+            errors.append(refusal("execution_request:command",
+                                  f"{purpose} command that runs tests is a hidden behavioral wrapper; split it into typed scoped requests"))
     report_template = command.get("report_path", "")
     if reporter in {"junit-xml", "trx"} and report_template != "{report_path}":
-        errors.append("external reporter command.report_path must be {report_path} for run-unique evidence")
+        errors.append(refusal("execution_request:command",
+                              "external reporter command.report_path must be {report_path} for run-unique evidence"))
     if reporter in {"junit-xml", "trx"}:
         # EXACTLY ONE argv token carries the placeholder, whole (`{report_path}`) or embedded (`trx;LogFileName=
         # {report_path}`): the runner substitutes inside the token (run_suite.main), as the gate's reporter probe does
@@ -242,74 +250,80 @@ def validate_request(data: dict, project_root: Path, allow_exhausted_reuse: bool
         env_values = [v for v in command["env"].values()] if isinstance(command.get("env"), dict) else []
         holders += [v for v in env_values if isinstance(v, str) and "{report_path}" in v]
         if not holders:
-            errors.append("external reporter command.argv must contain an explicit {report_path} token, or one value of "
-                          "command.env must be {report_path}")
+            errors.append(refusal("execution_request:command",
+                                  "external reporter command.argv must contain an explicit {report_path} token, or one value of "
+                                  "command.env must be {report_path}"))
         elif len(holders) > 1:
-            errors.append("external reporter command.argv must carry {report_path} in exactly one token, and "
-                          f"{len(holders)} do: " + ", ".join(repr(x) for x in holders)
-                          + " (the values of command.env count too)")
+            errors.append(refusal("execution_request:command",
+                                  "external reporter command.argv must carry {report_path} in exactly one token, and "
+                                  f"{len(holders)} do: " + ", ".join(repr(x) for x in holders)
+                                  + " (the values of command.env count too)"))
     if command.get("env") is not None:
         # a value of `env` is exactly `{report_path}` (a secret or a path of this machine is never written into a request
         # that is shared), and only an external reporter reads the file it names (a field nothing reads is a defect)
         _env, env_problem = command_env(command)
         if env_problem:
-            errors.append(f"command.{env_problem}")
+            errors.append(refusal("execution_request:command", f"command.{env_problem}"))
         elif _env and reporter not in {"junit-xml", "trx"}:
-            errors.append("command.env sets the report file, but nothing reads this report: the reporter is "
-                          f"{reporter!r}, and only junit-xml or trx is read from a file")
+            errors.append(refusal("execution_request:command",
+                                  "command.env sets the report file, but nothing reads this report: the reporter is "
+                                  f"{reporter!r}, and only junit-xml or trx is read from a file"))
     join = None
     if "selector_join" in command:
         problem = selector_join_problem(command["selector_join"])
         if problem:
-            errors.append(f"command.selector_join {problem}; expected {SELECTOR_JOIN_SHAPE} (`group` is "
-                          "optional). A `--mine` request takes it from `profiles[].selectors.join` in "
-                          "qa-factory/config.json; a hand-written one is corrected in the request "
-                          "(`run_suite.py --template request` shows one)")
+            errors.append(refusal("execution_request:command",
+                                  f"command.selector_join {problem}; expected {SELECTOR_JOIN_SHAPE} (`group` is "
+                                  "optional). A `--mine` request takes it from `profiles[].selectors.join` in "
+                                  "qa-factory/config.json; a hand-written one is corrected in the request "
+                                  "(`run_suite.py --template request` shows one)"))
         else:
             join = command["selector_join"]
     execution = data.get("execution")
     if execution is not None:
         if not isinstance(execution, dict) or execution.get("schema_version") != 1:
-            errors.append("execution.schema_version must equal integer 1")
+            errors.append(refusal("execution_request:execution", "execution.schema_version must equal integer 1"))
         else:
             report = execution.get("reporter") or {}
             isolated = (reporter == "none" or
                         isinstance(report.get("path_template"), str) and
                         "{report_path}" in report.get("path_template", ""))
             if report.get("format") != reporter or not isolated:
-                errors.append("execution.reporter must match command reporter and use a job-isolated {report_path}")
+                errors.append(refusal("execution_request:execution",
+                                      "execution.reporter must match command reporter and use a job-isolated {report_path}"))
             seed = execution.get("data_seed_contract")
             if seed is not None and (not isinstance(seed, dict) or
                     seed.get("result") not in {"matched", "mismatched", "unknown"} or
                     not isinstance(seed.get("evidence_refs"), list)):
-                errors.append("execution.data_seed_contract requires result and evidence_refs array")
+                errors.append(refusal("execution_request:execution",
+                                      "execution.data_seed_contract requires result and evidence_refs array"))
             selection = execution.get("selection")
             if selection is not None and (not isinstance(selection, dict) or
                     selection.get("reason") not in {"missing_fresh_evidence", "failed_or_invalidated",
                                                     "diagnostic", "collection_only"} or
                     not isinstance(selection.get("evidence_refs"), list) or
                     not selection.get("evidence_refs")):
-                errors.append("execution.selection requires a typed reason and non-empty evidence_refs")
+                errors.append(refusal("execution_request:execution",
+                                      "execution.selection requires a typed reason and non-empty evidence_refs"))
     selector_args = command.get("selector_args")
     if purpose in BEHAVIORAL:
-        if command.get("selector_contract_verified") is not True:
-            errors.append("behavioral command requires a verified adapter selector contract")
         if not selected:
-            errors.append("behavioral request must select at least one approved instance")
+            errors.append(refusal("execution_request:selection", "behavioral request must select at least one approved instance"))
         if not isinstance(selector_args, dict):
-            errors.append("behavioral command requires framework-specific selector_args mapping")
+            errors.append(refusal("execution_request:selector", "behavioral command requires framework-specific selector_args mapping"))
         else:
             unknown = [x for x in selected if x not in selector_args]
             if unknown:
-                errors.append("unsupported selector for instances: " + ", ".join(unknown))
+                errors.append(refusal("execution_request:selection", "unsupported selector for instances: " + ", ".join(unknown)))
             for key in selected:
                 value = selector_args.get(key)
                 if not isinstance(value, list) or not value or any(not isinstance(x, str) or not x for x in value):
-                    errors.append(f"command.selector_args.{key} must be a non-empty string array")
+                    errors.append(refusal("execution_request:selector", f"command.selector_args.{key} must be a non-empty string array"))
                 elif any("{report_path}" in x for x in value):
-                    errors.append(f"command.selector_args.{key} contains the {{report_path}} placeholder; a "
-                                  "selector is the identity of a test, not report plumbing - the "
-                                  "placeholder belongs in command.argv")
+                    errors.append(refusal("execution_request:selector",
+                                          f"command.selector_args.{key} contains the {{report_path}} placeholder; a "
+                                          "selector is the identity of a test, not report plumbing - the "
+                                          "placeholder belongs in command.argv"))
                 elif join and len(selected) >= 2 and not (len(value) == 2 and value[0] == join["option"]):
                     # The invariant: ONE valid selection that keeps every selected instance. A
                     # selector of another shape cannot be folded into the joined value, and leaving
@@ -325,36 +339,43 @@ def validate_request(data: dict, project_root: Path, allow_exhausted_reuse: bool
                                 "(`/qa-factory:qa-onboarding`, execution batch, corrects the profile). No "
                                 "waiver passes this: launching it would drop a selected test without a word")
                         if said not in errors:  # one sentence, not one per selected instance
-                            errors.append(said)
+                            errors.append(refusal("execution_request:selector", said))
                     else:
-                        errors.append(
+                        errors.append(refusal(
+                            "execution_request:selector",
                             f"command.selector_args.{key} is {value} but command.selector_join joins the "
                             f"instances through {join['option']}, so every selected instance needs exactly "
                             f"[{join['option']}, <value>]. Correct that instance's selector_args through "
                             "manifest_put.py. No waiver passes this: launching it would drop a selected test "
-                            "without a word")
+                            "without a word"))
         contracts = data.get("instance_contracts")
         if not isinstance(contracts, dict):
-            errors.append("behavioral request requires instance_contracts")
+            errors.append(refusal("execution_request:instance_contracts", "behavioral request requires instance_contracts"))
         else:
             report_ids = {}
             for key in selected:
                 contract = contracts.get(key)
                 if not isinstance(contract, dict) or not isinstance(contract.get("report_test_id"), str) or not contract["report_test_id"]:
-                    errors.append(f"instance_contracts.{key}.report_test_id is required")
+                    errors.append(refusal("execution_request:instance_contracts",
+                                          f"instance_contracts.{key}.report_test_id is required"))
                     continue
                 report_ids.setdefault(contract["report_test_id"], []).append(key)
                 if not isinstance(contract.get("parameters", {}), dict):
-                    errors.append(f"instance_contracts.{key}.parameters must be an object")
+                    errors.append(refusal("execution_request:instance_contracts",
+                                          f"instance_contracts.{key}.parameters must be an object"))
                 if reporter == "trx" and contract.get("report_id_source") not in {
                         "collection", "catalog", "machine_report"}:
-                    errors.append(f"instance_contracts.{key}.report_id_source must prove the exact TRX reporter ID")
+                    errors.append(refusal("execution_request:instance_contracts",
+                                          f"instance_contracts.{key}.report_id_source must prove the exact TRX reporter ID"))
             for report_id, instances in report_ids.items():
                 if len(instances) > 1:
-                    errors.append(f"report_test_id {report_id!r} maps ambiguously to instances: "
-                                  + ", ".join(instances))
+                    errors.append(refusal("execution_request:instance_contracts",
+                                          f"report_test_id {report_id!r} maps ambiguously to instances: "
+                                          + ", ".join(instances)))
     if errors:
-        raise RequestError("; ".join(errors))
+        exc = RequestError("; ".join(errors))
+        exc.records = tuple(e for e in errors if getattr(e, "check", ""))
+        raise exc
     try:
         validate_record("RunRequest", data)
     except ValueError as exc:
@@ -412,11 +433,14 @@ class JobStore:
         replace_file(tmp, path)
 
     def begin(self, request: dict) -> tuple[str, dict]:
-        existing = self.read(request["idempotency_key"])
+        try:
+            existing = self.read(request["idempotency_key"])
+        except RequestError as exc:     # `read` is shared (B3): its corrupt-file text stays bare there, this caller names its row
+            raise RequestError(refusal("run_suite:begin", str(exc))) from exc
         digest = request_digest(request)
         if existing:
             if existing.get("request_digest") != digest:
-                raise RequestError("idempotency_key was already used for a different request")
+                raise RequestError(refusal("run_suite:begin", "idempotency_key was already used for a different request"))
             # `reused`: a green result stands. `already_run`: it finished any other way and is
             # recorded (a red is not "a run still in flight"). `duplicate`: not finished.
             action = ("duplicate" if existing.get("status") != "completed" else
@@ -433,11 +457,14 @@ class JobStore:
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
         except FileExistsError:
             # Another process won the claim between read and create. Re-evaluate its durable job.
-            existing = self.read(request["idempotency_key"])
+            try:
+                existing = self.read(request["idempotency_key"])
+            except RequestError as exc:
+                raise RequestError(refusal("run_suite:begin", str(exc))) from exc
             if existing is None:
-                raise RequestError("idempotency claim exists but cannot be read")
+                raise RequestError(refusal("run_suite:begin", "idempotency claim exists but cannot be read"))
             if existing.get("request_digest") != digest:
-                raise RequestError("idempotency_key was concurrently used for a different request")
+                raise RequestError(refusal("run_suite:begin", "idempotency_key was concurrently used for a different request"))
             return "duplicate", existing
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             json.dump(job, stream, indent=2)
@@ -451,9 +478,12 @@ class JobStore:
 
     def recover(self, key: str, process_owned) -> dict:
         """Inspect a durable job once; never relaunch ambiguous or stopped work."""
-        job = self.read(key)
+        try:
+            job = self.read(key)
+        except RequestError as exc:     # `read` is shared (B3): this caller names its row
+            raise RequestError(refusal("run_suite:recover", str(exc))) from exc
         if not job:
-            raise RequestError("unknown execution job")
+            raise RequestError(refusal("run_suite:recover", "unknown execution job"))
         status = job.get("status")
         if status == "completed":
             return {"action": "reused" if job.get("execution_status") == "passed" else "complete",
@@ -1190,9 +1220,10 @@ def _entries_of_case(entries: list, case: str, readers: tuple, strict: bool, not
             areas = sorted({split(k)[0] for k in held} | set(stored(number) if stored else []))
             if len(areas) > 1:
                 spelled = [f"{a}/{number}" for a in areas]
-                raise MineRefusal(f"{case} is held under more than one area ({', '.join(spelled)}); name the "
-                                  f"one you mean: --mine {spelled[0]}"
-                                  " (if your dispatch was given the bare id, hand it back in your digest)")
+                raise MineRefusal(refusal("execution_request:case_entries",
+                                          f"{case} is held under more than one area ({', '.join(spelled)}); name the "
+                                          f"one you mean: --mine {spelled[0]}"
+                                          " (if your dispatch was given the bare id, hand it back in your digest)"))
         return hits
     if hits:
         return hits
@@ -1205,10 +1236,11 @@ def _entries_of_case(entries: list, case: str, readers: tuple, strict: bool, not
         if several:
             # The store holds the number under several areas: a row that names none is no evidence for any one.
             if strict:
-                raise MineRefusal(
+                raise MineRefusal(refusal(
+                    "execution_request:case_entries",
                     f"{case}: the manifest row names no area and the story holds {number} under "
                     f"{', '.join(several[:-1])} and {several[-1]}; "
-                    "correct the row's covers through manifest_put.py, or hand the case back in your digest")
+                    "correct the row's covers through manifest_put.py, or hand the case back in your digest"))
             return []
         # 0.7.x rows name no area anywhere: compatibility, said out loud (FR-41).
         if notes is not None:
@@ -1220,12 +1252,13 @@ def _entries_of_case(entries: list, case: str, readers: tuple, strict: bool, not
             # The asked area exists and its row is simply not there yet: the caller's "names no test" speaks.
             # Naming another area's correct row as the one to rewrite would credit it to the wrong case.
             return []
-        raise MineRefusal(
+        raise MineRefusal(refusal(
+            "execution_request:case_entries",
             f"{case}: the manifest holds {number} only under {', '.join(held)}; the dispatch scope and "
             "the manifest disagree on the area - correct the row's covers through manifest_put.py, or "
             "hand the case back in your digest"
             + (f" (a row of {number} that names no area is not run on a guess once another row names "
-               "one)" if unlabelled else ""))
+               "one)" if unlabelled else "")))
     return []
 
 
@@ -1630,7 +1663,7 @@ def profiles_owning(cfg: dict, rel_path) -> list:
     profiles share that deepest root - a tie the path cannot break and no caller may break by taking the first.
     The one predicate of "which profiles own this path" (`_profile_for`, `probe_by_code._profile_cwd`,
     `gate_preflight.Rehearsal._profiles_sharing_root`), with one normalisation (`_path_key`). A root the one reader of
-    test places ignores - empty or absolute (`test_locations._grammar_problem`), or folded by `_path_key` to a place
+    test places ignores - empty or absolute (`test_locations.grammar_problem`), or folded by `_path_key` to a place
     above the project (`..`, `../x`); `.` is already no key - owns nothing, like `probe_by_code._in_test_root`
     (OF4-6: a root `/tests` is not the project's `tests`)."""
     import test_locations as TL
@@ -1639,7 +1672,7 @@ def profiles_owning(cfg: dict, rel_path) -> list:
     for profile in selected_profiles(cfg):
         raw = str((profile.get("roots") or {}).get("test") or "").replace("\\", "/").strip()
         root = _path_key(raw)
-        if TL._grammar_problem(raw) in ("empty", "an absolute path") or root == ".." or root.startswith("../"):
+        if TL.grammar_problem(raw) in ("empty", "an absolute path") or root == ".." or root.startswith("../"):
             continue    # `tests/ui/..` is folded by `_path_key` to `tests` and stays a root; only a root that ends above the project goes
         if not path_under(key, root):
             continue
@@ -2604,7 +2637,7 @@ def attempt_identity(selector_args: dict, input_fingerprint: str, purpose: str, 
 
 
 def _sandbox_refusal(what: str, door: str) -> MineRefusal:
-    return MineRefusal(f"{what}. {door}")
+    return MineRefusal(refusal("execution_request:sandbox", f"{what}. {door}"))
 
 
 def sandbox_run_directory(project_root: Path, sandbox_root, profile_doc: dict,
@@ -2676,10 +2709,11 @@ def _place_rows(rows: list, run_cwd: Path, project_root: Path) -> None:
         file = row["node"].split("::")[0]
         path = next((p for p in (run_cwd / file, project_root / file) if p.is_file()), None)
         if path is None:
-            raise MineRefusal(
+            raise MineRefusal(refusal(
+                "execution_request:place_rows",
                 f"{row['case']}: the manifest names {file}, and no such file is under {run_cwd}. "
                 "Correct `file` through manifest_put.py (a path relative to the project root), "
-                "or pass --cwd when the test lives in a sandbox.")
+                "or pass --cwd when the test lives in a sandbox."))
         row["path"] = path.resolve()
         if row["path"].is_relative_to(run_cwd):
             row["node"] = row["path"].relative_to(run_cwd).as_posix() + row["node"][len(file):]
@@ -2824,7 +2858,7 @@ def _observe_precedent(runtime_precedent: dict, policy, purpose: str, probe, pro
             except Exception as exc:  # a stand that cannot be looked at: the stand's gap, not the test's
                 unseen = _stand_refusal(policy, exc, str(old_view.get("environment_id") or "<environment>"))
                 if not evidence_only:
-                    raise MineRefusal(unseen) from exc
+                    raise MineRefusal(refusal("execution_request:stand", unseen)) from exc
                 notes.append(unseen)  # a question about evidence, not a run: unknown, said as such
                 runtime["runtime_observed"] = False
                 seen = None
@@ -2858,7 +2892,8 @@ def _observe_stand(cfg: dict, profile: str, policy, purpose: str, probe, probe_e
                                   evidence_only, notes, now)
     spec = registered_probe(cfg, profile)
     if not (spec is not None and probe is not None):
-        raise MineRefusal(_probe_refusal(cfg, profile, spec, evidence_only, task_root, project_root))
+        raise MineRefusal(refusal("execution_request:stand.probe",
+                                  _probe_refusal(cfg, profile, spec, evidence_only, task_root, project_root)))
     try:
         observed = probe({**spec, "cwd": _probe_cwd(spec, project_root), **probe_extra})
     except ProvenanceRefused as exc:
@@ -2868,13 +2903,13 @@ def _observe_stand(cfg: dict, profile: str, policy, purpose: str, probe, probe_e
         # (`evidence_only`) keeps today's raise: its caller answers "not decided" (K33, FR-41).
         if evidence_only:
             raise
-        raise MineRefusal(_stand_refusal(policy, exc)) from exc
+        raise MineRefusal(refusal("execution_request:stand", _stand_refusal(policy, exc))) from exc
     if task_root and not evidence_only:
         # C8 (PC-9b, t-2277 W1): the contradiction is refused HERE, before the collect and before a request file is written; a `--mine` aimed at a
         # reference stand goes on (a sample)
         reference = reference_target_problem(project_root, Path(task_root).name, (observed or {}).get("environment_id"))
         if reference:
-            raise MineRefusal(reference)
+            raise MineRefusal(refusal("execution_request:stand.reference", reference))
     return {"runtime_required": True, "runtime_probe": spec, "runtime_provenance": observed}
 
 
@@ -3223,11 +3258,13 @@ def build_mine_request(project_root: Path, cases: list, *, cfg: dict | None = No
         # The id is spelled in the project's own form (`case_id_form`), never as a `TC-` literal:
         # a project whose cases are `TP1-13797_TC_001` was told to type an id nothing accepts.
         import case_forms
-        raise MineRefusal("--mine needs at least one case id: --mine "
-                          + case_forms.example(task, cfg, 1) + "[," + case_forms.example(task, cfg, 2) + "]")
+        raise MineRefusal(refusal("execution_request:mine_call",
+                                  "--mine needs at least one case id: --mine "
+                                  + case_forms.example(task, cfg, 1) + "[," + case_forms.example(task, cfg, 2) + "]"))
     if purpose and purpose not in MINE_PURPOSES:
-        raise MineRefusal(f"--purpose is one of {', '.join(MINE_PURPOSES)}; any other purpose is "
-                          "not the ordinary run and goes through --request (--template request)")
+        raise MineRefusal(refusal("execution_request:mine_call",
+                                  f"--purpose is one of {', '.join(MINE_PURPOSES)}; any other purpose is "
+                                  "not the ordinary run and goes through --request (--template request)"))
     if s6_close:
         # The S6 close context (HF3-6) is a different CALL from "the dispatch's run": a call that names a dispatch or
         # a freshness read, or that asks for anything but the red probe, is a wrong call (no result of the product
@@ -3263,8 +3300,11 @@ def build_mine_request(project_root: Path, cases: list, *, cfg: dict | None = No
         controller = _read_json(_artifact_root(root=project_root) / task / "state" / "controller.json") or {}
         dispatch = {"id": "fresh-evidence", "stage": "S6", "scope": list(cases), "budget": {}}
     else:
-        task, controller, dispatch = find_active_dispatch(_artifact_root(root=project_root), task,
-                                                          dispatch_id, cases, notes)
+        try:
+            task, controller, dispatch = find_active_dispatch(_artifact_root(root=project_root), task,
+                                                              dispatch_id, cases, notes)
+        except MineRefusal as exc:      # a helper with several callers (B3): its text stays bare there, this caller names its row
+            raise MineRefusal(refusal("execution_request:active_dispatch", str(exc))) from exc
     task_root = _artifact_root(root=project_root) / task
     # `evidence_only` only LOOKS at the stand (D0): the strict reader the runner injects (`run_suite.probe_runtime`)
     # would raise on a `matched` printed under `--no-evidence` and lose t-043 D1, and it would write evidence on a
@@ -3295,7 +3335,7 @@ def build_mine_request(project_root: Path, cases: list, *, cfg: dict | None = No
             message = scope_refusal(outside, dispatch.get("id"), scope, stage)
             word = person_passed(task_root, stage, message)
             if not word:
-                raise MineRefusal(message)
+                raise MineRefusal(refusal("execution_request:scope", message))
             notes.append(f"{', '.join(outside)} is {SCOPE_BLOCK} of {dispatch.get('id')}; passed on a "
                          f"person's word: {word}")
             scope = scope + outside
@@ -3313,7 +3353,7 @@ def build_mine_request(project_root: Path, cases: list, *, cfg: dict | None = No
             bare_files[case] = files
     if node_ids:
         if len(cases) != 1:
-            raise MineRefusal("--node-id names the tests of ONE case; pass one case with it")
+            raise MineRefusal(refusal("execution_request:mine_call", "--node-id names the tests of ONE case; pass one case with it"))
         # The rows are replaced by the ids asked for, but the PROFILE the manifest rows of the same case and file
         # name travels with each id (and nothing else of the row: its instance name, spelling and contract stay
         # the ids', F-A1): without it a root two profiles share refuses a test the row had already placed (EP1-16).
@@ -3330,7 +3370,7 @@ def build_mine_request(project_root: Path, cases: list, *, cfg: dict | None = No
     # below is still refused, and a case that has a row or a file still reaches `_profile_for`.
     for case, files in bare_files.items():
         if not files:
-            raise MineRefusal(_no_test_refusal(case, files))
+            raise MineRefusal(refusal("execution_request:no_test", _no_test_refusal(case, files)))
 
     # The command comes before the collect fallback: it is what collects.
     files_hint = sorted({r["node"].split("::")[0] for r in rows}
@@ -3339,9 +3379,12 @@ def build_mine_request(project_root: Path, cases: list, *, cfg: dict | None = No
     # for a red probe alike (see ordinary_precedent): a probe's own job holds a clone's path.
     ordinary = [j for j in jobs if j["request"].get("purpose") in BEHAVIORAL
                 and j["request"].get("purpose") != "red_probe"]
-    profile = _profile_for(cfg, files_hint, profile_id, [r["entry"] for r in rows],
-                           ordinary or [j for j in jobs if j["request"].get("purpose") != "red_probe"],
-                           cases, profile_door=profile_door, notes=notes)
+    try:
+        profile = _profile_for(cfg, files_hint, profile_id, [r["entry"] for r in rows],
+                               ordinary or [j for j in jobs if j["request"].get("purpose") != "red_probe"],
+                               cases, profile_door=profile_door, notes=notes)
+    except MineRefusal as exc:          # a helper with several callers (B3): its text stays bare there, this caller names its row
+        raise MineRefusal(refusal("execution_request:profile", str(exc))) from exc
     # `precedent` is the story's newest ORDINARY typed run on the profile, whatever it did: the
     # fingerprint file list and the source revision are read from it. Only the COMMAND is chosen
     # among the jobs that ran a test (`command_job`): a run that never ran one is no precedent for
@@ -3402,7 +3445,7 @@ def build_mine_request(project_root: Path, cases: list, *, cfg: dict | None = No
                 "last typed run on the profile")
         else:
             command = {k: v for k, v in (command_job["request"].get("command") or {}).items()
-                       if k != "selector_args"}
+                       if k not in ("selector_args", "selector_contract_verified")}
             copied_from = command_job["request"]
             notes.append(
                 f"the command is that of typed run {command_job.get('job_id')}, the latest that ran "
@@ -3415,9 +3458,12 @@ def build_mine_request(project_root: Path, cases: list, *, cfg: dict | None = No
                              "typed run recorded no argv: the two commands were not compared, and "
                              "the typed run's was copied as it is")
     if command is None:
-        command = _command_from_profile(profile_doc or {"profile_id": profile},
-                                        [jid for jid, _state in skipped] if command_job is None
-                                        else None)
+        try:
+            command = _command_from_profile(profile_doc or {"profile_id": profile},
+                                            [jid for jid, _state in skipped] if command_job is None
+                                            else None)
+        except MineRefusal as exc:      # a helper with several callers (B3): its text stays bare there, this caller names its row
+            raise MineRefusal(refusal("execution_request:profile_command", str(exc))) from exc
         if skipped and command_job is None:
             notes.append(f"no typed run of this story on profile {profile} ran a test: the command "
                          "is the profile's (commands.one_test in qa-factory/config.json); the "
@@ -3432,20 +3478,22 @@ def build_mine_request(project_root: Path, cases: list, *, cfg: dict | None = No
         if isinstance(selectors, dict) and "join" in selectors:
             problem = selector_join_problem(selectors["join"])
             if problem:
-                raise MineRefusal(
+                raise MineRefusal(refusal(
+                    "execution_request:profile_command",
                     f"profiles[{profile}].selectors.join in qa-factory/config.json {problem}; expected "
                     f"{SELECTOR_JOIN_SHAPE} (`group` is optional). That is a gap of the onboarding, "
                     "not of your test: report it in your digest. To correct it: "
-                    "`/qa-factory:qa-onboarding` (execution batch).")
+                    "`/qa-factory:qa-onboarding` (execution batch)."))
             join = selectors["join"]
             command["selector_join"] = {"option": join["option"], "separator": join["separator"],
                                         **({"group": list(join["group"])} if "group" in join else {})}
         else:
             command.pop("selector_join", None)
     if cwd and sandbox_root:
-        raise MineRefusal("--cwd and --sandbox-root both say where the run happens: --cwd takes one "
-                          "directory as given, --sandbox-root takes a clone and works the directory "
-                          "out inside it. Pass one of them.")
+        raise MineRefusal(refusal("execution_request:mine_call",
+                                  "--cwd and --sandbox-root both say where the run happens: --cwd takes one "
+                                  "directory as given, --sandbox-root takes a clone and works the directory "
+                                  "out inside it. Pass one of them."))
     if cwd:
         command["cwd"] = cwd
     elif sandbox_root:
@@ -3456,10 +3504,11 @@ def build_mine_request(project_root: Path, cases: list, *, cfg: dict | None = No
     elif purpose == "red_probe":
         # Unconditional: a red-probe request resolves only to a directory its caller named (--cwd)
         # or one inside the named clone, never to the author's tree, whatever was copied.
-        raise MineRefusal("a red probe runs inside the sandbox red_sandbox.py prepared, never in "
-                          "the author's tree: pass --sandbox-root <the clone's root> (the profile's "
-                          "directory is worked out inside it) or --cwd <the exact sandbox directory>. "
-                          "`red_sandbox.py --probe` prepares the clone and passes it for you.")
+        raise MineRefusal(refusal("execution_request:mine_call",
+                                  "a red probe runs inside the sandbox red_sandbox.py prepared, never in "
+                                  "the author's tree: pass --sandbox-root <the clone's root> (the profile's "
+                                  "directory is worked out inside it) or --cwd <the exact sandbox directory>. "
+                                  "`red_sandbox.py --probe` prepares the clone and passes it for you."))
     run_cwd = Path(command.get("cwd") or ".")
     run_cwd = (run_cwd if run_cwd.is_absolute() else project_root / run_cwd).resolve()
     pytest_run = is_pytest_command(command.get("argv"))
@@ -3471,7 +3520,7 @@ def build_mine_request(project_root: Path, cases: list, *, cfg: dict | None = No
     #    other way round - only the place of the refusal moved.
     for case, files in bare_files.items():
         if not pytest_run or not files:
-            raise MineRefusal(_no_test_refusal(case, files))
+            raise MineRefusal(refusal("execution_request:no_test", _no_test_refusal(case, files)))
     if pytest_run:
         _place_rows(rows, run_cwd, project_root)
     runtime = _observe_stand(cfg, profile, policy, purpose, probe, probe_extra, project_root, runtime_precedent,
@@ -3496,11 +3545,12 @@ def build_mine_request(project_root: Path, cases: list, *, cfg: dict | None = No
             else:
                 chosen = [f"{file}::{name}" for name in wanted]
             if not chosen:
-                raise MineRefusal(
+                raise MineRefusal(refusal(
+                    "execution_request:no_test",
                     f"the manifest names {file} for {case} but no test in it, and no test there "
                     f"mentions {case} in a marker, comment or docstring. Name the test: "
                     f"--mine {case} --node-id {file}::<test function>, then record it through "
-                    "manifest_put.py so the next run needs no flag.")
+                    "manifest_put.py so the next run needs no flag."))
             notes.append(f"{case}: the manifest has no selector yet; ran what {file} marks with "
                          f"{case}: " + ", ".join(n.split("::", 1)[-1] for n in chosen))
             entry = next((e for e in (manifest.get("tests") or []) if isinstance(e, dict)
@@ -3582,13 +3632,14 @@ def build_mine_request(project_root: Path, cases: list, *, cfg: dict | None = No
                 if built is None:
                     import launch_check
                     no_form = launch_check.runner_identity(command.get("argv"))["no_direct_form"]
-                    raise MineRefusal(
+                    raise MineRefusal(refusal(
+                        "execution_request:selector_args",
                         f"{row['case']}: profile {profile} does not run pytest, and the factory builds a "
                         "selector by itself only for pytest node ids. Give the manifest entry "
                         "`selector_args` (the framework's own arguments) and `report_test_id` through "
                         "manifest_put.py once; until then this run goes through --template request."
                         + (f" {no_form}; a profile with a form from run_forms (for example the runner's own direct "
-                           "command) builds this by code" if no_form else ""))
+                           "command) builds this by code" if no_form else "")))
                 selector_args[row["instance_id"]] = built["selector_args"]
                 report_id = built["report_test_id"]
             # In a clone the file is looked up in the clone ONLY: a non-pytest test file used to be
@@ -3601,10 +3652,11 @@ def build_mine_request(project_root: Path, cases: list, *, cfg: dict | None = No
                 clone_file = (clone / named).resolve()
                 path = clone_file if named and clone_file.is_relative_to(clone) and clone_file.is_file() else None
                 if named and path is None:
-                    raise MineRefusal(
+                    raise MineRefusal(refusal(
+                        "execution_request:sandbox",
                         f"the test file {named} is not in the sandbox clone {sandbox_root} - a red probe "
                         "runs only on files the clone holds; add it to the repository or run the probe "
-                        "on a tracked copy")
+                        "on a tracked copy"))
             else:
                 path = next((p.resolve() for p in (run_cwd / named, project_root / named)
                              if named and p.is_file()), None)
@@ -3658,7 +3710,7 @@ def build_mine_request(project_root: Path, cases: list, *, cfg: dict | None = No
                 f"A person's word passes it (waiver.py, stage {stage}, block \"{WINDOW_BLOCK}\").")
             word = person_passed(task_root, stage, message)
             if not word:
-                raise WindowFirst(message, {
+                raise WindowFirst(refusal("execution_request:window_first", message), {
                     "status": "run_the_window_first", "command": command_line,
                     "never_ran": [n["instance_id"] for n in missing],
                     "cases": wanted, "selected": selected})
@@ -3666,11 +3718,6 @@ def build_mine_request(project_root: Path, cases: list, *, cfg: dict | None = No
                          f"a person's word: {word}")
 
     command["selector_args"] = selector_args
-    if pytest_run:
-        command["selector_contract_verified"] = True  # a node id as an argument IS pytest's contract
-    elif "selector_contract_verified" not in command:
-        import profile_contract   # the ONE answer to "is this profile's selector contract verified" (the probe asks it too)
-        command["selector_contract_verified"] = profile_contract.selectors_verified(profile_doc, project_root)   # the project, not a clone
 
     scope_ids = list(selected)
     for case in scope:

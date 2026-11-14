@@ -5,6 +5,7 @@ ledger, the traceability check and the delivery aggregator cannot drift apart â€
 copied into four scripts is four vocabularies. Nothing here writes; nothing here exits.
 """
 import datetime
+import errno
 import json
 import hashlib
 import re
@@ -5930,26 +5931,55 @@ def evidence_ref_issue(task_root, ref, what: str = "evidence", require_hash: boo
     raw_text = str(ref.get("path") or "").strip()
     if not raw_text:
         return f"{what} reference has no path (task root {root})"
+    try:
+        return _judge_measured_ref(root, ref, raw_text, what, require_hash, under)
+    except (ValueError, OSError) as exc:
+        if not name_cannot_exist(exc):      # a real file that cannot be read keeps its error (FR-46)
+            raise
+        return unmeasurable_path_issue(what, raw_text, root)
+
+
+EVIDENCE_PATH_SHOWN = 80     # characters of an evidence path echoed in a sentence; a longer path is cut with "..."
+_NO_SUCH_NAME = (errno.ENAMETOOLONG, errno.EINVAL, errno.ENOENT, errno.ENOTDIR)
+
+
+def name_cannot_exist(exc: Exception) -> bool:
+    """True for what the OS says of a NAME that cannot exist (embedded NUL, too long, invalid): the same on every OS.
+    An OSError about a file that is there but unreadable (permission, I/O) is not this class."""
+    return isinstance(exc, ValueError) or (isinstance(exc, OSError) and exc.errno in _NO_SUCH_NAME)
+
+
+def _path_shown(raw_text: str) -> str:
+    return raw_text if len(raw_text) <= EVIDENCE_PATH_SHOWN else raw_text[:EVIDENCE_PATH_SHOWN] + "..."
+
+
+def unmeasurable_path_issue(what: str, raw_text: str, root) -> str:
+    """The one factory sentence for an evidence path the OS cannot stat (P31: the same on every OS)."""
+    return f"{what} path {_path_shown(raw_text)!r} is not a file under the task root {root}: the path cannot be read as a file"
+
+
+def _judge_measured_ref(root, ref, raw_text: str, what: str, require_hash: bool, under: str) -> str:
+    shown = _path_shown(raw_text)
     raw = Path(raw_text)
     if raw.is_absolute():
         candidate = raw.resolve()
         if candidate.is_relative_to(root):
-            return (f"{what} path {raw_text} is absolute; the task-relative spelling is "
+            return (f"{what} path {shown} is absolute; the task-relative spelling is "
                     f"{candidate.relative_to(root).as_posix()} (task root {root})")
-        return f"{what} path {raw_text} is outside the task root {root}"
+        return f"{what} path {shown} is outside the task root {root}"
     path = (root / raw).resolve()
     if not path.is_relative_to(root):
-        return f"{what} path {raw_text} escapes the task root {root}"
+        return f"{what} path {shown} escapes the task root {root}"
     if under and not path.is_relative_to((root / under).resolve()):
-        return f"{what} path {raw_text} is not under {under}/ of the task root {root}"
+        return f"{what} path {shown} is not under {under}/ of the task root {root}"
     if not path.is_file():
-        return f"{what} path {raw_text} is not a file under the task root {root}"
+        return f"{what} path {shown} is not a file under the task root {root}"
     if not require_hash:
         return ""
     if not ref.get("sha256"):
-        return f"{what} path {raw_text} has no sha256 (task root {root})"
+        return f"{what} path {shown} has no sha256 (task root {root})"
     if hashlib.sha256(path.read_bytes()).hexdigest() != str(ref.get("sha256")):
-        return f"{what} path {raw_text} has changed since it was referenced (stale sha256, task root {root})"
+        return f"{what} path {shown} has changed since it was referenced (stale sha256, task root {root})"
     return ""
 
 

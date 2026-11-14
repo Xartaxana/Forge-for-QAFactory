@@ -1185,6 +1185,38 @@ def a_persons_word_is_not_asked_for_again():
         cleanup(project)
 
 
+def alias_manifest(*pairs):
+    return {"tests": [{"instance_id": instance, "covers": [case]} for instance, case in pairs]}
+
+
+ALIAS_MANIFEST_X = alias_manifest(("test_x", "TC-012"))
+# (label, manifest file content or None, [(run instance id, status)] in block order, {expected key: block suffix})
+ALIAS_ROWS = (
+    ("w1 an alias-spelled run is found under the canonical id too", ALIAS_MANIFEST_X, [("TC-012::test_x", "passed")],
+     {"TC-012::test_x": "b0", "test_x": "b0"}),
+    ("w2 two spellings of one instance, the later block wins (bare last)", ALIAS_MANIFEST_X,
+     [("TC-012::test_x", "failed"), ("test_x", "passed")], {"TC-012::test_x": "b1", "test_x": "b1"}),
+    ("w2 reverse clocks (prefixed last)", ALIAS_MANIFEST_X,
+     [("test_x", "passed"), ("TC-012::test_x", "failed")], {"TC-012::test_x": "b1", "test_x": "b1"}),
+    ("w3 a run of another parameter label never counts for a prefix entry",
+     alias_manifest(("test_a", "TC-1"), ("test_a[pos]", "TC-1")), [("test_a[neg]", "passed")], {"test_a[neg]": "b0"}),
+    ("w4 a bare spelling shared by two entries maps to nobody",
+     alias_manifest(("TC-1::test_x[eu]", "TC-1"), ("TC-2::test_x[eu]", "TC-2")), [("test_x[eu]", "passed")],
+     {"test_x[eu]": "b0"}),
+    ("w4b a shared bare spelling, the run spelled with one entry's prefix: the bare spelling gets no run",
+     alias_manifest(("TC-1::test_x[eu]", "TC-1"), ("TC-2::test_x[eu]", "TC-2")), [("TC-1::test_x[eu]", "failed")],
+     {"TC-1::test_x[eu]": "b0"}),
+    ("w4c a bare name that is one entry's canonical and another's alias: the run of the other gives it no run",
+     alias_manifest(("test_x", "TC-5"), ("TC-9::test_x", "TC-9")), [("TC-9::test_x", "failed")],
+     {"TC-9::test_x": "b0"}),
+    ("w5 no manifest file", None, [("TC-012::test_x", "passed")], {"TC-012::test_x": "b0"}),
+    ("w5 a manifest that is not JSON", "not json", [("TC-012::test_x", "passed")], {"TC-012::test_x": "b0"}),
+    ("w5 a manifest whose tests is a string", {"tests": "x"}, [("TC-012::test_x", "passed")], {"TC-012::test_x": "b0"}),
+    ("w5 a manifest whose tests is a number", {"tests": 5}, [("TC-012::test_x", "passed")], {"TC-012::test_x": "b0"}),
+    ("w6 an alias-spelled skipped row is no key", ALIAS_MANIFEST_X, [("TC-012::test_x", "skipped")], {}),
+)
+
+
 def a_terminal_run_is_the_latest_by_the_clock():
     """F-order: `_terminal_runs` reads the blocks in the story's one order (the block's own clock, a reparse
     right after the block it supersedes), not in file-name order: the reparse of an OLD attempt whose id starts
@@ -1224,6 +1256,55 @@ def a_terminal_run_is_the_latest_by_the_clock():
                  WR._terminal_runs(root)["i1"][2].name, "aaaa-reparse-9999.json")
     finally:
         cleanup(root)
+    # FV1-30b N5: a run is found under every spelling of its instance (the manifest entry's aliases), by whole-spelling equality
+    for label, entries, runs_in, expect in ALIAS_ROWS:
+        root = temp_dir("qa-window-alias-")
+        try:
+            runs = root / "work" / "run-blocks"
+            runs.mkdir(parents=True)
+            if entries is not None:
+                (root / "work" / "automation-manifest.json").write_text(
+                    entries if isinstance(entries, str) else json.dumps(entries), encoding="utf-8")
+            for number, (instance, status) in enumerate(runs_in):
+                stamp = f"202610{number + 1:02d}T050000000000Z-b{number}"
+                (runs / (stamp + ".json")).write_text(json.dumps({
+                    "block_id": stamp, "attempt_id": stamp, "attempt_started_at": f"2026-10-{number + 1:02d}T05:00:00+00:00",
+                    "results": [{"instance_id": instance, "status": status}]}), encoding="utf-8")
+            found = WR._terminal_runs(root)
+            check_eq(label + ": the keys", sorted(found), sorted(expect))
+            check_eq(label + ": the block each key holds",
+                     {key: found[key][1]["attempt_id"][-2:] for key in found}, {key: expect[key] for key in expect})
+        finally:
+            cleanup(root)
+    # w7 (N5-E2): a config that cannot be read leaves today's exact map
+    root = temp_dir("qa-window-alias-cfg-")
+    real = C.case_config
+    try:
+        runs = root / "work" / "run-blocks"
+        runs.mkdir(parents=True)
+        (root / "work" / "automation-manifest.json").write_text(json.dumps(ALIAS_MANIFEST_X), encoding="utf-8")
+        (runs / "20260930T050000000000Z-b0.json").write_text(json.dumps({
+            "block_id": "b0", "attempt_id": "b0", "attempt_started_at": "2026-09-30T05:00:00+00:00",
+            "results": [{"instance_id": "TC-012::test_x", "status": "passed"}]}), encoding="utf-8")
+        check_eq("w7 control: the alias is found while the config reads", sorted(WR._terminal_runs(root)),
+                 ["TC-012::test_x", "test_x"])
+        C.case_config = lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("no config"))
+        check_eq("w7: case_config raises -> only the exact id is a key", sorted(WR._terminal_runs(root)), ["TC-012::test_x"])
+    finally:
+        C.case_config = real
+        cleanup(root)
+    # w1 (build): the window item of an instance whose only run is spelled with its case prefix has its outcome and fingerprint
+    project = temp_project("qa-window-alias-build-")
+    use_project(project)
+    try:
+        task, _ = a_story_at_s5(project)
+        run_block(task, "20260924T090000000000Z-b1.json", "TC-1::test_a[x]", "fp-a", "fingerprint-a")
+        window, _notes = WR.build(task, CRITIC)
+        item = next(i for i in window["instances"] if i["instance_id"] == "test_a[x]")
+        check_eq("w1 build: an alias-spelled run gives the item its outcome and fingerprint",
+                 (item.get("outcome"), item.get("execution_fingerprint")), ("passed", "fp-a"))
+    finally:
+        cleanup(project)
 
 
 # ---- t-134 R8 (P5-G): a window item carries the novelty its row had, RESOLVED at build time ---------------
@@ -1634,6 +1715,156 @@ def built_items_of(task: Path) -> tuple:
     finally:
         CONTROLLER.Controller = real
     return window, {item["instance_id"]: item for item in window["instances"]}
+
+
+def fv1_30b_the_window_carries_the_word_it_was_given():
+    """FV1-30b N1 (R3 window record): `build` keeps the `window_keys` of a passable field the LIVE index names (empty), lists it in the
+    item's `word_passed`, deletes a field the table does not pass as before, and writes `word_passed` on the no-run item; the
+    index is built once per call, and a reader that raises changes nothing."""
+    project = temp_project("qa-window-fv130b-")
+    use_project(project)
+    real = s5_precheck.word_passes
+    calls: list = []
+    try:
+        task = project / "qa-factory" / "artifacts" / TICKET
+        (task / "work").mkdir(parents=True)
+        test_file(project, "TC-1", "test_a")
+
+        def word(*fields, fact="fields", at="t1"):
+            if fact == "not_run":
+                return {"finding_id": "run_mapping:TC-1:no-row-test_a[x]", "check": "run_mapping", "case": "TC-1",
+                        "tag": "no-row-test_a[x]", "decision": "go on", "at": at, "subjects": [{"instance_id": "test_a[x]"}]}
+            return {"finding_id": "manifest:-:row-fields-missing", "check": "manifest", "case": "", "tag": "row-fields-missing",
+                    "decision": "go on", "at": at, "subjects": [{"instance_id": "test_a[x]", "fields": list(fields)}]}
+
+        def built(rows, **over):
+            def fake(*args, **_kw):
+                calls.append(args)
+                if isinstance(rows, Exception):
+                    raise rows
+                return list(rows)
+            s5_precheck.word_passes = fake
+            del calls[:]
+            write(task / "work/automation-manifest.json", {"schema_version": 2, "tests": [novelty_row("test_a[x]", **over)]})
+            return built_items_of(task)[1]["test_a[x]"]
+
+        keys = ("obligation_refs", "obligation_ids", "obligation_hash")
+        item = built([])
+        check_eq("no word: the three obligation keys, assertion_id and defect_location are deleted, as today",
+                 [k for k in (*keys, "assertion_id", "defect_location") if k in item], [])
+        check_eq("...and no `word_passed`", "word_passed" in item, False)
+        item = built([word("obligation_refs", "change_disposition")])
+        check_eq("a refs word: the three keys stay, EMPTY", [item.get(k) for k in keys], [[], [], ""])
+        check_eq("...assertion_id (not named) is deleted", "assertion_id" in item, False)
+        check_eq("...`word_passed` names the passed field only (change_disposition is not passable and is present)",
+                 item.get("word_passed"), [{"finding_id": "manifest:-:row-fields-missing", "fields": ["obligation_refs"], "at": "t1"}])
+        item = built([word("obligation_refs", "assertion_id", "defect_location")])
+        check_eq("refs + assertion_id + defect_location: all five keys stay empty",
+                 [item.get(k, "ABSENT") for k in (*keys, "assertion_id", "defect_location")], [[], [], "", "", ""])
+        check_eq("...listed once, in the order named", [x["fields"] for x in item["word_passed"]],
+                 [["obligation_refs", "assertion_id", "defect_location"]])
+        item = built([word("obligation_refs", "change_basis_ref")], change_basis_ref="")
+        check_eq("a not passable field (change_basis_ref, `pass: false`) is deleted as today", "change_basis_ref" in item, False)
+        check_eq("...and is not listed", [x["fields"] for x in item["word_passed"]], [["obligation_refs"]])
+        item = built([word("profile_id")])
+        check_eq("a profile_id word keeps no key and (the obligation keys being empty) lists profile_id",
+                 ("obligation_refs" in item, [x["fields"] for x in item.get("word_passed", [])]), (False, [["profile_id"]]))
+        refs = [{"obligation_id": "OB-1", "obligation_hash": "oh-1"}]
+        item = built([word("obligation_refs")], obligation_refs=refs)
+        check_eq("(F1) a word for refs the row HAS (a stale ref is still the field the person passed): the entry is written, the keys are the row's",
+                 ([x["fields"] for x in item["word_passed"]], item["obligation_ids"]), ([["obligation_refs"]], ["OB-1"]))
+        item = built([word("obligation_refs", "assertion_id")], obligation_refs=refs, assertion_id="A-1")
+        check_eq("(F1) every passed field is listed, though only the empty one keeps a key",
+                 ([x["fields"] for x in item["word_passed"]], item["assertion_id"]), ([["obligation_refs", "assertion_id"]], "A-1"))
+        item = built([word("obligation_refs", "input_hash")])
+        check_eq("input_hash is never kept empty: it is the measured hash of the file", bool(item.get("input_hash")), True)
+        # the no-run item (no run block on disk): nothing invented, the word listed
+        item = built([word(fact="not_run")])
+        check_eq("a not_run word: no outcome, no fingerprint, evidence_refs [] - the shape of the writer's no-run branch",
+                 ("outcome" in item, "execution_fingerprint" in item, item["evidence_refs"]), (False, False, []))
+        check_eq("...`word_passed` says the fact", item["word_passed"], [{"finding_id": "run_mapping:TC-1:no-row-test_a[x]", "fact": "not_run", "at": "t1"}])
+        item = built([word("obligation_refs"), word(fact="not_run", at="t2")])
+        check_eq("named under BOTH facts: one list, the two entries", [("fields" in x, x.get("fact")) for x in item["word_passed"]],
+                 [(True, None), (False, "not_run")])
+        check_eq("...the live index was built ONCE for the whole call", len(calls), 1)
+        other = dict(word(fact="not_run"), subjects=[{"instance_id": "test_zz"}])
+        item = built([other])
+        check_eq("a not_run word for another instance: nothing listed", "word_passed" in item, False)
+        item = built(RuntimeError("boom"))
+        check_eq("word_passes raises: nothing kept, nothing listed (today's window)",
+                 ("word_passed" in item, "obligation_refs" in item), (False, False))
+    finally:
+        s5_precheck.word_passes = real
+        cleanup(project)
+
+
+def fv1_30b_word_let_go_is_the_one_predicate():
+    """FV1-30b N1 (m), E29, E30: `window_record.word_let_go` over its inputs: a line is let go only for an instance the index names, by
+    the table's kinds, and a `not_run` line only for an item with the no-run shape; every other line, an index of None, a table row
+    that is off or an absent `not_run` section keeps every line."""
+    import waiver
+    run = {"finding_id": "run_mapping:TC-1:no-row-i", "check": "run_mapping", "case": "TC-1", "tag": "no-row-i", "at": "t",
+           "subjects": [{"instance_id": "i"}]}
+    refs = {"finding_id": "manifest:-:row-fields-missing", "check": "manifest", "case": "", "tag": "row-fields-missing", "at": "t",
+            "subjects": [{"instance_id": "i", "fields": ["obligation_refs", "change_basis_ref"]}]}
+    no_run = {"instance_id": "i", "evidence_refs": []}
+    ran = {"instance_id": "i", "outcome": "passed", "evidence_refs": [{"path": "p", "sha256": "s"}]}
+    window = lambda item: {"instances": [item]}  # noqa: E731
+    probe_line = f"i: {C.PROBE_MISSING_ERROR}"
+    shape = ["i: outcome is missing", "i: execution_fingerprint is missing", probe_line]
+    gaps = ["product:i", "evidence:i", "obligation_binding:i", "obligation_hash:i", "sensitivity:i", "semantic_sensitivity:i",
+            "review:i", "stale_review:i", "stale_run:i", "malformed_instance:i", "change_basis:i", "probe_evidence:i"]
+    everything = shape + gaps + ["i: input_hash is missing", "i: outcome must be one of passed"]
+    lets = {"not_run": waiver.not_run_lets_go()[0], "row_fields": waiver.row_fields()[0]}
+    only = lambda index, win, lines=everything, lg=None: WR.word_let_go(lines, win, index, lg)  # noqa: E731
+    index = waiver.word_passed_index([run])
+    kept, gone = only(index, window(no_run))
+    check_eq("not_run on the no-run shape: the two shape lines, the probe line, `product:` and `evidence:` go",
+             gone, shape + ["product:i", "evidence:i"])
+    check_eq("...every other line is kept, in order", kept, [g for g in everything if g not in gone])
+    check_eq("(E29) an item that shows a run: nothing goes", only(index, window(ran)), (everything, []))
+    check_eq("(E29) an outcome alone is enough to keep the lines", only(index, window({**no_run, "outcome": "passed"}))[1], [])
+    check_eq("(E29) a fingerprint alone too", only(index, window({**no_run, "execution_fingerprint": "fp"}))[1], [])
+    check_eq("(E29) so does cited evidence", only(index, window({**no_run, "evidence_refs": [{"path": "p"}]}))[1], [])
+    check_eq("an instance the index does not name: nothing goes", only(waiver.word_passed_index([dict(run, subjects=[{"instance_id": "zz"}])]), window(no_run))[1], [])
+    check_eq("a parameter-label sibling is not the instance", only(waiver.word_passed_index([run]), window({**no_run, "instance_id": "i[neg]"}),
+             ["product:i[neg]"])[1], [])
+    check_eq("an index of None lets nothing go", only(None, window(no_run)), (everything, []))
+    check_eq("(E30) the not_run section absent: nothing goes (30a's `product:` included)",
+             only(index, window(no_run), everything, {"not_run": {}, "row_fields": lets["row_fields"]}), (everything, []))
+    check_eq("a section that is no object: nothing goes", only(index, window(no_run), everything, {"not_run": ["product"], "row_fields": {}})[1], [])
+    check_eq("the section's own lists decide: only `product` listed", only(index, window(no_run), everything,
+             {"not_run": {"tier4_gaps": ["product"]}, "row_fields": {}})[1], ["product:i"])
+    check_eq("a probe line goes only when `shape_probe_missing` is true", only(index, window(no_run), [probe_line],
+             {"not_run": {"shape_missing": ["outcome"], "shape_probe_missing": "yes"}, "row_fields": {}})[1], [])
+    check_eq("the lets_go None reads the table files (the same answer as the explicit table)",
+             only(index, window(no_run)), only(index, window(no_run), everything, lets))
+    # row_fields_unestablished: the kinds of the PASSED fields only
+    index = waiver.word_passed_index([refs])
+    kept, gone = only(index, window(ran))
+    check_eq("a refs pass: `obligation_binding:` and `obligation_hash:` go (the run does not matter)", gone, ["obligation_binding:i", "obligation_hash:i"])
+    check_eq("a field not passable (change_basis_ref): `change_basis:` kept", "change_basis:i" in kept, True)
+    check_eq("semantic_sensitivity, sensitivity, review, stale_*, malformed_instance, probe_*: kept",
+             [g for g in ("semantic_sensitivity:i", "sensitivity:i", "review:i", "stale_review:i", "stale_run:i", "malformed_instance:i",
+                          "probe_evidence:i") if g in kept], ["semantic_sensitivity:i", "sensitivity:i", "review:i", "stale_review:i",
+                                                              "stale_run:i", "malformed_instance:i", "probe_evidence:i"])
+    off = {"not_run": lets["not_run"], "row_fields": {"obligation_refs": {"pass": False, "tier4_gaps": ["obligation_binding"]}}}
+    check_eq("a row with `pass: false` lets nothing go", only(index, window(ran), everything, off)[1], [])
+    check_eq("no row for the field lets nothing go", only(index, window(ran), everything, {"not_run": lets["not_run"], "row_fields": {}})[1], [])
+    both = waiver.word_passed_index([run, refs])
+    check_eq("both facts: each lets go its own kinds, the union", only(both, window(no_run))[1],
+             shape + ["product:i", "evidence:i", "obligation_binding:i", "obligation_hash:i"])
+    # never raises
+    check_eq("lines that are no list: nothing, nothing", WR.word_let_go(None, window(no_run), index), ([], []))
+    check_eq("a window that is no object", only(index, "x"), (everything, []))
+    check_eq("items that are no objects, or carry no id, are passed over", only(index, {"instances": ["x", {}, None, no_run]})[1],
+             ["obligation_binding:i", "obligation_hash:i"])
+    check_eq("a line that is no string is kept", WR.word_let_go([7, "product:i"], window(no_run), waiver.word_passed_index([run])), ([7], ["product:i"]))
+
+    class Broken:
+        def instance(self, *_a, **_k):
+            raise RuntimeError("boom")
+    check_eq("an index that raises: every line kept", only(Broken(), window(no_run)), (everything, []))
 
 
 def sensitivity_gaps(window: dict, task: Path) -> list:
@@ -2172,7 +2403,206 @@ def the_item_carries_the_identity_the_run_recorded():
         cleanup(project)
 
 
+def fv1_30b_n6_the_three_judges_read_the_one_survivor():
+    """FV1-30b N6 (F14; E12, E29, E30, E32, E33): `story_step.finish`, `window_record.run` and `Driver.window_gap` judge only the gaps
+    `word_let_go` keeps, over `s5_precheck.live_word_index`. The gap lists, the build and the index are the stand-ins; the window, the
+    words and the predicate are real. Rows n1 (finish), n2 (run), n3 (window_gap), n4 (the index raising or None, per site)."""
+    import argparse
+    import contextlib
+    import io
+    import story_run
+    import story_step
+    import waiver
+    import acceptance
+    run_word = {"finding_id": "run_mapping:TC-1:no-row-b", "check": "run_mapping", "case": "TC-1", "tag": "no-row-b", "at": "t",
+                "subjects": [{"instance_id": "B"}]}
+    refs_word = {"finding_id": "manifest:-:row-fields-missing", "check": "manifest", "case": "", "tag": "row-fields-missing", "at": "t",
+                 "subjects": [{"instance_id": "A", "fields": ["obligation_refs"]}]}
+    ran = lambda iid: {"instance_id": iid, "outcome": "passed", "evidence_refs": [{"path": "p", "sha256": "s"}]}  # noqa: E731
+    no_run = lambda iid: {"instance_id": iid, "evidence_refs": []}  # noqa: E731
+    asked: list = []
+
+    def index_of(rows):
+        def live(task_root, scope=None, dispatch_id=None):
+            asked.append((scope, dispatch_id))
+            return waiver.word_passed_index(rows)
+        return live
+
+    def raising(*_a, **_k):
+        raise RuntimeError("boom")
+    real_live, real_gaps, real_valid = s5_precheck.live_word_index, story_step._window_gaps, acceptance.validate_window
+    tmp = temp_dir("qa-n6-")
+    try:
+        # n1: finish over [obligation_binding:A, probe_gap:B], A refs-passed -> the probe_gap pair; the line is printed
+        window = {"scope_instances": {"TC-1": ["A", "B"]}, "instances": [ran("A"), ran("B")]}
+        wpath = tmp / "work" / "windows" / "d1.json"
+        write(wpath, window)
+
+        class Stop(Exception):
+            pass
+
+        def finish_options(live, gaps, succeed=False):
+            seen: list = []
+
+            class Recorder:
+                def __init__(self, _root, wait_seconds=0.0):
+                    pass
+
+                def state(self):
+                    return {"dispatches": {"d1": {"stage": "S5", "role": "qa-code-critic"}}}
+
+                def prepare(self, options):
+                    seen.append(dict(options))
+                    if succeed:
+                        return {"accept_request": {"evidence_refs": []}}
+                    raise Stop()
+
+                def apply(self, _kind, _request):
+                    return None
+            stub_names = ("Controller", "_task_root", "_stages", "_handoff_check", "_evidence", "_role_receipts")
+            if succeed:   # the tail of `finish` after `apply`: the stand-ins say nothing, so the output holds only the let-go notes
+                stub_names += ("_release_binding", "_no_change_note", "config_finding", "_post_work", "_next", "_judge_line", "_run")
+            saved = {n: getattr(story_step, n) for n in stub_names}
+            if succeed:
+                story_step._run = lambda *_a: (0, "")
+                story_step._release_binding, story_step._no_change_note = lambda *_a: None, lambda *_a: None
+                story_step.config_finding, story_step._post_work = lambda *_a: [], lambda *_a: []
+                story_step._next, story_step._judge_line = lambda *_a: {}, lambda *_a: ""
+            story_step.Controller, story_step._task_root = Recorder, lambda _t: tmp
+            story_step._stages = lambda: {"S5": {"roles": ["qa-automator", "qa-code-critic"]}}
+            story_step._handoff_check = lambda *_a: ("green", "", "")
+            story_step._evidence, story_step._role_receipts = lambda *_a: ["work/x.json"], lambda *_a: []
+            story_step._window_gaps = lambda _w, _r: list(gaps)
+            s5_precheck.live_word_index = live
+            printed = io.StringIO()
+            try:
+                ns = argparse.Namespace(task=TICKET, dispatch_id="d1", digest="d", output=None, not_complete=False, complete=True,
+                                        ignore_handoff=False, window=None, unresolved=None, reason=None)
+                try:
+                    with contextlib.redirect_stdout(printed):
+                        story_step.finish(ns)
+                except Stop:
+                    pass
+            finally:
+                for name, value in saved.items():
+                    setattr(story_step, name, value)
+                s5_precheck.live_word_index = real_live
+            return (seen[0] if seen else {}), printed.getvalue()
+        mixed = ["obligation_binding:A", "probe_gap:B"]
+        asked.clear()
+        options, _ = finish_options(index_of([refs_word]), mixed)
+        check_eq("n1: finish, A refs-passed: the probe_gap pair is derived over the kept gap", options.get("unresolved"), "probe_gap")
+        check_in("n1: ... and the reason names the kept gap", "probe_gap:B", options.get("reason") or "")
+        check_not_in("n1: ... and not the let-go one", "obligation_binding:A", options.get("reason") or "")
+        check_eq("n1: the index is asked once, for the window's cases and the dispatch", asked, [(["TC-1"], "d1")])
+        options, _ = finish_options(index_of([]), mixed)
+        check_not_in("n1: no word: no pair (today)", "unresolved", options)
+        options, _ = finish_options(index_of([refs_word]), ["obligation_binding:A", "product:C"])
+        check_not_in("n1 (E32 invariant): a kept gap that is not derivable: no pair, the let-go gap does not make it so", "unresolved", options)
+        options, _ = finish_options(index_of([refs_word]), ["obligation_binding:A"])
+        check_not_in("n1: every gap let go: no pair, nothing left to derive", "unresolved", options)
+        for label, live in (("raising", raising), ("None", lambda *_a, **_k: None)):
+            options, _ = finish_options(live, mixed)
+            check_not_in(f"n4 (finish): an index that is {label}: nothing is let go, no pair (today)", "unresolved", options)
+        options, _ = finish_options(index_of([refs_word]), [])
+        check_not_in("a window with no gap: no pair (today)", "unresolved", options)
+        _, said = finish_options(index_of([refs_word]), mixed, succeed=True)
+        check_in("f4: finish, prepare and apply succeed: the let-go line is printed as a note",
+                 "note: passed by the person's word: obligation_binding:A", said)
+        check_not_in("f4: ... and only the let-go line, not the kept gap", "passed by the person's word: probe_gap:B", said)
+        _, said = finish_options(index_of([]), mixed, succeed=True)
+        check_not_in("f4: no word: no let-go note", "passed by the person's word", said)
+
+        # the shared helper `word_kept`: input order, never raises, None and empty
+        word = {"scope_instances": {"TC-1": ["A", "B"]}, "instances": [ran("A"), ran("B")]}
+        real_live_kept = s5_precheck.live_word_index
+        try:
+            s5_precheck.live_word_index = index_of([refs_word])
+            check_eq("word_kept: the let-go line leaves, the order of the rest is kept",
+                     WR.word_kept(["probe_gap:B", "obligation_binding:A", "review:A"], word, tmp, "d1"),
+                     (["probe_gap:B", "review:A"], ["obligation_binding:A"]))
+            check_eq("word_kept: empty input: nothing, nothing", WR.word_kept([], word, tmp, "d1"), ([], []))
+            for label, live in (("raising", raising), ("None", lambda *_a, **_k: None)):
+                s5_precheck.live_word_index = live
+                check_eq(f"word_kept: an index that is {label}: every line kept, none let go",
+                         WR.word_kept(["obligation_binding:A", "x"], word, tmp, "d1"), (["obligation_binding:A", "x"], []))
+            s5_precheck.live_word_index = index_of([refs_word])
+            check_eq("word_kept: a window that is no dict: every line kept", WR.word_kept(["obligation_binding:A"], None, tmp, "d1"),
+                     (["obligation_binding:A"], []))
+        finally:
+            s5_precheck.live_word_index = real_live_kept
+
+        # n2: window_record.run
+        def run_with(live, gaps):
+            win = {"scope_instances": {"TC-1": ["A", "B"]}, "instances": [ran("A"), no_run("B")]}
+            saved = {n: getattr(WR, n) for n in ("require_project", "artifacts_dir", "build", "verdict", "_handed_empty_cases")}
+            WR.require_project, WR.artifacts_dir = lambda *_a: None, lambda _t: tmp
+            WR.build, WR.verdict = lambda _r, _d: (win, []), lambda _r, _w, _n, _i=None: list(gaps)
+            WR._handed_empty_cases = lambda *_a: set()
+            s5_precheck.live_word_index = live
+            out = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(out):
+                    code = WR.run(TICKET, "d1")
+            finally:
+                for name, value in saved.items():
+                    setattr(WR, name, value)
+                s5_precheck.live_word_index = real_live
+            return code, out.getvalue()
+        word_note = "note: passed by the person's word: obligation_binding:A"
+        asked.clear()
+        code, out = run_with(index_of([refs_word]), ["obligation_binding:A", "obligation_hash:A"])
+        check_eq("n2: a window whose only gaps are word-passed: exit 0", code, 0)
+        check_in("n2: ... one note per let-go line", word_note, out)
+        check_in("n2: ... the second line too", "note: passed by the person's word: obligation_hash:A", out)
+        check_in("n2: ... and the window is acceptable", "the window is acceptable", out)
+        check_not_in("n2: ... not 'NOT acceptable'", "NOT acceptable", out)
+        check_eq("n2: the index is asked once, for the window's cases and the dispatch", asked, [(["TC-1"], "d1")])
+        code, out = run_with(index_of([refs_word]), ["obligation_binding:A", "review:A"])
+        check_eq("n2: one more unpassed gap: today's exit 1", code, 1)
+        check_in("n2: ... today's listing, with the kept gap only", "  - review:A", out)
+        check_not_in("n2: ... the let-go line is not listed as a gap", "  - obligation_binding:A", out)
+        check_in("n2: ... and still printed as a note", word_note, out)
+        code, out = run_with(index_of([run_word]), ["probe_gap:B"])
+        check_eq("n2: a derivable kept gap stays derivable: exit 0 and the finish derives the pair", (code, "it derives the `unresolved` pair" in out), (0, True))
+        for label, live in (("raising", raising), ("None", lambda *_a, **_k: None)):
+            code, out = run_with(live, ["obligation_binding:A"])
+            check_eq(f"n4 (run): an index that is {label}: today's exit 1", code, 1)
+            check_in(f"n4 (run): {label}: today's listing", "  - obligation_binding:A", out)
+            check_not_in(f"n4 (run): {label}: nothing is let go", "passed by the person's word", out)
+        code, out = run_with(index_of([refs_word]), [])
+        check_eq("a window with no gap: exit 0 and no let-go note (today)", (code, "passed by the person's word" in out), (0, False))
+
+        # n3: Driver.window_gap
+        record = {"scope_instances": {"TC-1": ["A", "B"]}, "instances": [dict(ran("A"), outcome="handed_to_person"), no_run("B")]}
+        rpath = write(tmp / "work" / "windows" / "d1.json", record)
+        gaps_now = ["handed_to_person:A", "product:B"]
+
+        def gap_with(live, gaps=None):
+            asked.clear()
+            acceptance.validate_window = lambda _w, _r: list(gaps or gaps_now)
+            s5_precheck.live_word_index = live
+            try:
+                return story_run.Driver.window_gap(rpath, tmp)
+            finally:
+                acceptance.validate_window = real_valid
+                s5_precheck.live_word_index = real_live
+        check_eq("n3 (today): [handed:A, product:B], no word: no pair", gap_with(index_of([])), ())
+        pair = gap_with(index_of([run_word]))
+        check_eq("n3: B `not_run`-passed: the handed pair is derived", pair, ("handed_to_person", "handed_to_person: handed_to_person:A"))
+        check_eq("n3: the index is asked once, the dispatch is the record's file stem", asked, [(["TC-1"], "d1")])
+        check_eq("n3 (invariant): a kept gap that is not handed: no pair", gap_with(index_of([run_word]), ["handed_to_person:A", "product:B", "review:B"]), ())
+        for label, live in (("raising", raising), ("None", lambda *_a, **_k: None)):
+            check_eq(f"n4 (window_gap): an index that is {label}: today's `()`", gap_with(live), ())
+    finally:
+        s5_precheck.live_word_index, story_step._window_gaps, acceptance.validate_window = real_live, real_gaps, real_valid
+        cleanup(tmp)
+
+
 def pure_group():
+    fv1_30b_n6_the_three_judges_read_the_one_survivor()
+    fv1_30b_word_let_go_is_the_one_predicate()
+    fv1_30b_the_window_carries_the_word_it_was_given()
     the_item_carries_the_identity_the_run_recorded()
     the_review_receipt_bytes_did_not_change_with_the_extraction()
     the_owed_pairs_are_copied_from_the_real_detector()

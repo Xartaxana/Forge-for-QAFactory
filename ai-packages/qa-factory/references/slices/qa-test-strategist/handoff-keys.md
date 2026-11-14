@@ -88,3 +88,25 @@ Contract `s3-strategist-to-designer` (fill `work/handoffs/<dispatch>.yaml`; `han
 - `blocked.data[]` (only when blocked) - path of anything the conductor needs to see
 
 Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): `inputs`, `inputs_read`, `header`, `scope`, `artifacts`, `claims`, `unresolved`, `blocked`.
+
+## What code will check of you
+
+`<T>` is your ticket, `<ID>` your dispatch id, `<home>` the project's qa-factory folder - all three stand in your prompt (`Ticket: ... Dispatch: ...`) and in your task packet.
+
+- [exit_gate:EG-digest-form] Your final message is the handoff form: a header `<role> <stage> <window> · ok|concerns|halt|impossible`; one line `<id> · <state> · <reason of at most 80 characters>` for every item of the dispatch's scope (a halting digest owes no scope lines); nothing but those lines between the header and the path; and, last, the task-relative path of what you wrote (a halting digest may omit it). Door: fix the digest line the refusal names, then end the dispatch again.
+- [exit_gate:EG-text-end] Your dispatch ends with the host's handback tool carrying your digest line, never with free text after it. Door: call the host's handback tool with your digest line.
+- [handoff_check:blocked_problem] A row in state `blocked` carries `blocked.problem`; `blocked_by_env` is used only where `options_for_role` offers it to this role. Door: write the problem, or pick a state the role is offered.
+- [handoff_check:claims] What the form claims is true is true on disk ("the form claims this is true, and it is not"). Door: fix the claim or make it true.
+- [handoff_check:cli] The call names an existing UTF-8 form with a `contract:` line and an existing values file; `--shorten` only with `--fix`. Door: the refusal's door; a non-UTF-8 form: run `handoff_init` again.
+- [handoff_check:field.blank] every `required` field of your handoff form (section `Handoff form` of this page). Door: write the value as a `path: value` line in the values file, then run the check again.
+- [handoff_check:field.max_len] every `required` field of your handoff form (section `Handoff form` of this page). Door: shorten it (`--shorten` with `--fix`) or rewrite.
+- [handoff_check:field.value] every `required` field of your handoff form (section `Handoff form` of this page). Door: write one of the listed words (or `new: <word> -- <why>` where the list is open).
+- [handoff_check:required_rows] A required list has one row per item in scope: the id, a state and a reason of at most 80 characters. Door: write the rows as index lines in the values file, then run this check again.
+- [handoff_check:required_rows.null_word] A list's null-outcome word (the declared empty outcome) stands only when the list has no rows; never both. Door: remove the word or remove the rows.
+- [handoff_check:required_rows.owed_by_verdict] When the verdict owes rows (the verdict word names work done on items), the list is not empty. Door: write the rows the verdict owes, or change the verdict.
+- [handoff_check:tried] In a contract that asks what was tried (TRIED_CONTRACTS), each tried entry states what was tried and the error it gave (TRIED_MEANING). Door: fill the tried entry with the attempt and its error.
+- [handoff_check:values_apply] Each path names a field of this contract, by its index where it is a list row, not a contract-owned path; a list field gets a list and a one-value field one value; rows open in order. Door: correct the path (the refusal suggests "did you mean").
+- [handoff_check:values_file] The values file is `path: value` lines (or a JSON object): valid JSON, an object not a list, each path given once, each key a field path, no nested value. Door: fix the line the refusal names (FILE_FIX).
+- [exit_gate:digest] Your final message has the digest form stated in the row [exit_gate:EG-digest-form] of this section. Door: fix the digest line the refusal names, then end the dispatch again.
+- [controller:s3_plan] When your exit window claims S3 complete, the structured test plan passes its contract with no blocking problem (the refusal lists them). Door: repair the rows the refusal names, change nothing else.
+- [coverage_contract:obligations] Each obligation in the plan names its requirement, its coverage and a known state, per the messages of validate_obligations. Door: fix the obligation entry.

@@ -116,6 +116,39 @@ AUTHOR_TOKEN = handoff.AUTHOR_TOKEN
 AUTHOR_NOTE = ("# inputs_read[0] names the author's form the driver handed you; change it if you reviewed another")
 
 
+def drop_unowed_acceptance(text: str, contract: str, author_dispatch: str) -> str:
+    """The skeleton of a consumer form for a dispatch that awaits nothing (AR-23, AR-28; FR-59: an acceptance nobody reads is not
+    demanded, and one that is read is never guessed). When `author_dispatch` is empty AND the contract keeps its acceptance word
+    away from `header.verdict` (`handoff.acceptance_verdict_path`), the text comes back without (i) the top-level section the path's
+    head names, with the comment block directly above it, and (ii) the `inputs_read` row that holds `AUTHOR_TOKEN`. Any other case,
+    and any exception, returns the text unchanged. Shapes the skeleton only; it checks and raises nothing."""
+    try:
+        path = handoff.acceptance_verdict_path(contract)
+        if author_dispatch or path == "header.verdict":
+            return text
+        lines = text.split("\n")
+        head = path.split(".")[0]
+        at = next((n for n, line in enumerate(lines) if line.startswith(f"{head}:")), None)
+        if at is not None:
+            end = at + 1
+            while end < len(lines) and (not lines[end].strip() or lines[end][0] in " \t"):
+                end += 1
+            start = at
+            while start > 0 and lines[start - 1].lstrip().startswith("#"):
+                start -= 1
+            del lines[start:end]
+        row = next((n for n, line in enumerate(lines) if AUTHOR_TOKEN in line and line.lstrip().startswith("- ")), None)
+        if row is not None:
+            indent = len(lines[row]) - len(lines[row].lstrip())
+            end = row + 1
+            while end < len(lines) and lines[end].strip() and (len(lines[end]) - len(lines[end].lstrip())) > indent:
+                end += 1
+            del lines[row:end]
+        return "\n".join(lines)
+    except Exception:
+        return text
+
+
 def fill_head(text: str, *, task: str, dispatch: str, role: str, stage: str, scope: str, form: str = "",
               author_dispatch: str = "") -> str:
     """The values code knows before the role starts. Everything else stays a placeholder. `form`: where the form is
@@ -149,9 +182,9 @@ def fill_head(text: str, *, task: str, dispatch: str, role: str, stage: str, sco
 
 # F1 (b): the sections whose template rows are emptied in the role's copy, by contract. The contract files stay the schema.
 EMPTIED = {
-    "questions": ("s2-stage-critic-to-tester", "s3-stage-critic-to-strategist", "s4-case-critic-to-designer"),
-    "findings": ("s2-stage-critic-to-tester", "s3-stage-critic-to-strategist", "s4-case-critic-to-designer",
-                 "s5-critic-to-automator"),
+    "questions": ("s4-case-critic-to-designer",),
+    "findings": ("s4-case-critic-to-designer", "s5-critic-to-automator"),
+    "register_gaps": ("s4-case-critic-to-designer",),
 }
 
 
@@ -433,7 +466,7 @@ def main() -> int:
                     help="comma-separated plan row ids the dispatch was sent for (S3 rework): written as `scope[i].id` of the "
                          "form and recorded under `derived:`; nothing else of a row is written")
     ap.add_argument("--author-dispatch", default="",
-                    help="a stage critic's form (S2-S4): the id of the author's last accepted dispatch; fills the token "
+                    help="the stage critic's form (S4): the id of the author's last accepted dispatch; fills the token "
                          "`<the author's dispatch>` of the contract (the critic may change the row)")
     args = (hooklib.exact_options(ap) if hooklib else ap).parse_args()
     try:                                              # the story is decided first: before the contract, before `--out`
@@ -479,6 +512,7 @@ def main() -> int:
                         stage=args.stage, scope=args.scope,
                         form=Path(args.out).as_posix() if args.out else "",
                         author_dispatch=args.author_dispatch.strip())
+    written = drop_unowed_acceptance(written, contract, args.author_dispatch.strip())
     carry_note = ""
     if args.carry_from:                               # a repair dispatch: the accepted parent's whole-stage answers (HF9-2)
         written, carry_note = carry_from_parent(written, contract, Path(args.carry_from))

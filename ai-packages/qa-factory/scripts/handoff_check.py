@@ -169,6 +169,13 @@ def _review_receipt(art, doc, row=None):
     return (rel, "window_record.py wrote it for this dispatch") if (art.root / rel).is_file() else None
 
 
+def _form_dispatch(art, doc) -> str:
+    """The dispatch id of THIS form: `art.form_dispatch` (the file stem), else `header.dispatch`, else `dispatch`.
+    The one reader for the derivers that follow the form's own name (AR-13); `_review_receipt` keeps its own order."""
+    return (str(getattr(art, "form_dispatch", "") or "").strip()
+            or str(doc.get("header.dispatch") or "").strip() or str(doc.get("dispatch") or "").strip())
+
+
 def _findings_file(art, doc, row=None):
     """The findings file of THIS form's dispatch: `work/test-code/critic-findings-<dispatch>.md` (the registry row
     `critic-findings-*.md`, one file per critic dispatch, so a window's handoff never points at another window's findings).
@@ -176,7 +183,7 @@ def _findings_file(art, doc, row=None):
     writes it). Never "the newest on disk": that was another window's file when two ran. The S4 case critic's file
     (`work/test-cases/`) answers an S4 form ONLY; an S5 form whose own file is missing gets None (t-2098 F2, AR-19)."""
     import findings_path
-    dispatch = str(getattr(art, "form_dispatch", "") or doc.get("header.dispatch") or doc.get("dispatch") or "").strip()
+    dispatch = _form_dispatch(art, doc)
     stage = _form_stage(art, dispatch)
     if stage == "S4":
         for rel in findings_path.s4_files(art.root, nested=False):
@@ -511,11 +518,71 @@ def _tests_list(art, doc, row=None):
     return (files, "automation-manifest.tests[].file") if files else None
 
 
+_RECORD_PRODUCER = "the record is written by runtime_probe.py when run_suite runs this dispatch's tests"
+
+
+def window_runtime_record(task_root, dispatch) -> tuple:
+    """The ONE reader of "the record of a dispatch's run" (AR-13): `(story-relative path, source)` or `(None, why)`.
+
+    The record is `runtime_provenance.evidence_refs[0]` of the NEWEST run block of THIS dispatch that carries one
+    (`work/run-blocks/`, the order of `run_history.read_run_blocks`); never a record chosen by file name, never another
+    dispatch's, never a file outside the story. Anything that cannot be established is a named `unknown` (FR-59, AR-28):
+    the field stays blank and the refusal says why. Never raises."""
+    from pathlib import PurePosixPath
+    dispatch = str(dispatch or "").strip()
+    if not dispatch:
+        return None, f"the form names no dispatch, so its own run cannot be found; {_RECORD_PRODUCER}"
+    try:
+        import run_history
+        blocks, bad = run_history.read_run_blocks(Path(task_root))
+    except Exception as exc:
+        return None, f"the run blocks could not be read ({type(exc).__name__}); {_RECORD_PRODUCER}"
+    if bad:
+        return None, (f"{len(bad)} run block(s) under work/run-blocks/ could not be read, and one of them may be this "
+                      f"dispatch's run; {_RECORD_PRODUCER}")
+    own = []
+    for block in blocks:
+        data = block.get("data") if isinstance(block, dict) else None
+        if not isinstance(data, dict) or str(data.get("dispatch_id") or "").strip() != dispatch:
+            continue
+        if isinstance(data.get("runtime_provenance"), dict) and data["runtime_provenance"]:
+            own.append(block)
+    if not own:
+        return None, (f"no run block of dispatch {dispatch} under work/run-blocks/ carries a runtime_provenance record: "
+                      f"this dispatch ran no test through run_suite, or its run was refused before it started; "
+                      f"{_RECORD_PRODUCER}")
+    newest = own[-1]
+    name = newest.get("name", "")
+    refs = newest["data"]["runtime_provenance"].get("evidence_refs")
+    ref = refs[0] if isinstance(refs, list) and refs else None
+    if not isinstance(ref, str) or not ref.strip():
+        return None, (f"the newest run of dispatch {dispatch} (work/run-blocks/{name}) carries a runtime_provenance record "
+                      f"with no evidence_refs: the probe wrote no file for it (a rehearsal, a failed write, or a record "
+                      f"from before P1B-9); {_RECORD_PRODUCER}")
+    ref = ref.strip()
+    root = Path(task_root)
+    parts = PurePosixPath(ref.replace("\\", "/")).parts
+    if root.name in parts:
+        # the tail after the LAST part that is the story folder: a record written on another machine still resolves (AR-4)
+        tail = parts[len(parts) - 1 - parts[::-1].index(root.name) + 1:]
+        candidate = "/".join(tail)
+    else:
+        candidate = ref
+    rel = _story_relative(candidate)
+    try:
+        is_file = bool(rel) and (root / rel).is_file()
+    except OSError:
+        is_file = False
+    if not is_file:
+        return None, (f"the run block work/run-blocks/{name} names {ref}, which is not a file of this story; "
+                      f"{_RECORD_PRODUCER}")
+    return rel, f"the runtime_provenance of run block work/run-blocks/{name} (dispatch {dispatch})"
+
+
 def _runtime_provenance(art, doc, row=None):
-    records = sorted_paths((art.root / "evidence").glob("runtime-provenance-*.json"))
-    if not records:
-        return None
-    return f"evidence/{records[-1].name}", f"the newest of {len(records)} provenance records"
+    dispatch = _form_dispatch(art, doc)
+    path, why = window_runtime_record(art.root, dispatch)
+    return (path, why) if path else (None, "", why)
 
 
 def _story_relative(value) -> str:
@@ -1466,7 +1533,7 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
     role = str(doc.get("header.role") or doc.get("from_role") or "")
     vocab = handoff.vocabulary()
     # sections the form owes only under a header value (`required_when:`), not owed under the value this form holds
-    relaxed = handoff.relaxed_sections(contract, doc.get("header.verdict"))
+    relaxed = handoff.relaxed_sections(contract, doc.get(handoff.acceptance_verdict_path(contract)))
     fixed, problems, judged, derived = [], [], [], []
     if fix:
         for section, deriver in LIST_DERIVERS.items():
@@ -1555,6 +1622,7 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
             continue                                  # a value the role added: never refused
         value = doc.get(path)
         blank = handoff.is_placeholder(value)
+        underived = ""
         if blank and fix and path.startswith("claims.") and path[len("claims."):] in CLAIMS:
             continue            # a claim with a verifier is filled (or left open with a reason) by `_fill_claims`, after this loop
         if blank and fix:
@@ -1567,6 +1635,8 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
             # some contracts is keyed by contract and path in `BY_PATH` (FV2-2).
             deriver = DERIVERS.get(generic) or _by_path(contract, generic)
             got = deriver(art, doc, _row_of(doc, path)) if deriver else None
+            # a deriver may say WHY it filled nothing (a third element); it only extends the refusal below
+            underived = got[2] if got and len(got) > 2 and got[0] in (None, "", []) else ""
             if got and got[0] not in (None, "", []):
                 handoff.set_value(doc, path, got[0])
                 fixed.append(f"{path} = {got[0]} (from {got[1]})")
@@ -1589,7 +1659,8 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
                 continue
             options = handoff.options_for_role(field, role, vocab) if path.endswith(".state") else field.options
             problems.append(Problem(path, f"not filled. {field.hint}"
-                                    + (f" One of: {', '.join(options)}" if options else ""), kind="blank"))
+                                    + (f" One of: {', '.join(options)}" if options else "")
+                                    + (f" Code could not fill it: {underived}" if underived else ""), kind="blank"))
             continue
         # `true` read back from the file is a Python bool: compare in the form's own spelling
         text = "true" if value is True else "false" if value is False else str(value)

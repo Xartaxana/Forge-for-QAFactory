@@ -1,0 +1,1 @@
+- The runtime probe records its not_applicable and unknown answers too (one file per answer, never rewritten); the S5 form names the record of its own run.

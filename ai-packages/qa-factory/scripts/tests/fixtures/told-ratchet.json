@@ -1,7 +1,7 @@
 {
  "schema_version": 1,
  "note": "T1c baselines of the told-before-work counters that need the census (FR-44); read only by test_stage_joints.py. rowless is dense (red above AND below it); untold and every unit's bare/tagged are ceilings.",
- "rowless": 55,
+ "rowless": 25,
  "untold": 253,
  "units": {
   "artifact_producer.py::main": {
@@ -61,7 +61,7 @@
    "tagged": 0
   },
   "check_coverage.py::main": {
-   "bare": 12,
+   "bare": 13,
    "tagged": 0
   },
   "check_delivery.py::main": {

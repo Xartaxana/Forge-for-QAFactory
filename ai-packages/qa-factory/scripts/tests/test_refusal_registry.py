@@ -492,7 +492,11 @@ def part_wide_states() -> None:
     check_in("and the walk error says what to do", "name the check with a literal", rep["check_arg_errors"][0]["why"])
     rep = _wide("def refusal(check, problem):\n    return with_check(problem, check)\n",
                 files={"detector_verdict.py": "def refusal(check, problem):\n    return with_check(problem, check)\n"})
-    check_eq("inside detector_verdict the bare names count (a parameter pass-through is a walk error of T2 to settle)",
+    check_eq("inside detector_verdict the bare names count; the listed constructor `refusal` (T2: CHECK_PASSTHROUGH) passes its parameter on, no walk error",
+             len(rep["check_arg_errors"]), 0)
+    rep = _wide("def build(check, problem):\n    return with_check(problem, check)\n",
+                files={"detector_verdict.py": "def build(check, problem):\n    return with_check(problem, check)\n"})
+    check_eq("inside detector_verdict an UNLISTED def that passes its parameter on stays a walk error",
              len(rep["check_arg_errors"]), 1)
 
 
@@ -667,6 +671,81 @@ def part_passthrough() -> None:
     check_eq("pass/real-tree: exit_gate.py has no check_arg walk error (its `own` is listed)", real["check_arg_errors"], [])
 
 
+DV_CONSTRUCTOR = ("def with_check(record, check):\n    return record\n\n\n"
+                  "def refusal(check, problem, *, fill=None):\n    return with_check(problem, check)\n")
+
+
+def part_refusal_constructor() -> None:
+    """told-before-work T2 (T2-8, T2-9, T2-11): the constructor `detector_verdict.refusal` is a listed pass-through whose call sites
+    are read in THEIR files: every call the file binds to detector_verdict gives its literal as a `check_id` record (a scan fact,
+    no site, no unit); a non-literal is a `check_arg` walk error; the constructor line with no call site is no error. Error
+    direction: a call the scan cannot bind (a local `def refusal`, a comment, a string, `getattr`) gives no id, never a wrong one."""
+    def scan(files: dict) -> tuple:
+        root = _wide_package({"detector_verdict.py": DV_CONSTRUCTOR, **files})
+        names = sorted(files) + ["detector_verdict.py"]
+        try:
+            found = RR.sites(root, names, raises=RR.raise_family(root, names, wide=True))
+            rep = RR.wide_report(root, names)
+        finally:
+            cleanup(root)
+        return sorted(s["check"] for s in found if s["transport"] == "check_id"), rep
+
+    ids, rep = scan({})
+    check_eq("refusal-zero-sites/no-error: the listed constructor with no call site anywhere is no walk error and gives no id",
+             (ids, rep["check_arg_errors"], rep["walk_errors"]), ([], [], []))
+    ids, rep = scan({"a.py": "from detector_verdict import refusal\n\n\ndef f():\n    r = refusal('x:y', 'p')\n    return r\n",
+                     "b.py": "import detector_verdict as DV\n\n\ndef g():\n    return DV.refusal('c:d', 'p')\n",
+                     "c.py": "from detector_verdict import refusal as make\n\n\ndef h():\n    return make('e:f', 'p')\n"})
+    check_eq("refusal-crossfile/ok: the literal of a call bound to detector_verdict (from-import, module alias, import alias) is its id",
+             (ids, rep["check_arg_errors"]), (["c:d", "e:f", "x:y"], []))
+    check_eq("refusal-crossfile/ok: a check_id record is no site and no unit", (rep["totals"]["sites"], rep["units"]), (0, []))
+    ids, rep = scan({"a.py": "from detector_verdict import refusal\n\n\ndef f():\n    r = refusal('x:y', 'p')\n    return block(r)\n"})
+    check_eq("assigned-first-refusal/sited: `r = refusal('x:y', ...)` then `block(r)` - the id is sited though the call is not in the transport",
+             ids.count("x:y") >= 1, True)
+    ids, rep = scan({"a.py": "from detector_verdict import refusal\nK = 'k:v'\n\n\ndef f(name):\n    return [refusal(K, 'p'), refusal(name, 'q')]\n"})
+    check_eq("refusal-nonliteral/walk-error: a module constant is read, a variable is a `check_arg` walk error at the call",
+             (ids, [(w["transport"], w["file"], w["line"]) for w in rep["check_arg_errors"]]), (["k:v"], [("check_arg", "a.py", 6)]))
+    check_in("refusal-nonliteral/walk-error: and it says the check of refusal() must be a literal", "the check of refusal() must be a literal",
+             rep["check_arg_errors"][0]["why"])
+    for label, body in (("local-def", "def refusal(check, problem):\n    return problem\n\n\ndef f():\n    return refusal('x:y', 'p')\n"),
+                        ("comment-and-string", "def f():\n    # refusal('x:y', 'p')\n    s = \"refusal('x:y', 'p')\"\n    return s\n"),
+                        ("getattr", "import detector_verdict as DV\n\n\ndef f():\n    return getattr(DV, 'refusal')('x:y', 'p')\n"),
+                        ("attribute-of-other-module", "import other\n\n\ndef f():\n    return other.refusal('x:y', 'p')\n"),
+                        ("import-of-other-module", "from session_identity import refusal\n\n\ndef f():\n    return refusal('x:y', 'p')\n")):
+        ids, rep = scan({"a.py": body})
+        check_eq(f"refusal-unbound/{label}: no id and no walk error (never toward sited)", (ids, rep["check_arg_errors"]), ([], []))
+    real = RR.wide_report(PLUGIN_ROOT, ["detector_verdict.py"])
+    check_eq("refusal-real-tree: detector_verdict.py (the listed constructor) has no walk error",
+             (real["check_arg_errors"], real["walk_errors"]), ([], []))
+    check_eq("T2-11 row i: the sinks that carry a Record are the four, unchanged",
+             RR.RECORD_SINKS, ("block", "deny", "refuse", "run_guarded"))
+    check_eq("T2-9: the constructor is listed at position 0", RR.CHECK_PASSTHROUGH[("detector_verdict.py", "refusal")], 0)
+
+
+def part_sited_role_cli() -> None:
+    """T2-10: `sited_ids` takes `role_cli:<key>` for every key of role-commands.json (read through `role_cli.registry`); an
+    unreadable registry adds nothing, names itself in `errors` and never crashes."""
+    import role_cli
+    import stage_joints as SJ
+    keys = set(role_cli.registry())
+    check("sited/role-cli-real: the real registry has commands", bool(keys))
+    got = SJ.sited_ids({}, ids=())
+    check_eq("sited/role-cli: every `role_cli:<key>` is sited", {f"role_cli:{k}" for k in keys} <= got, True)
+    check_eq("sited/role-cli: the sub-id rule covers a dot-extension of one, not a prefix without a dot",
+             (SJ._is_sited(f"role_cli:{sorted(keys)[0]}.x", got), SJ._is_sited(f"role_cli:{sorted(keys)[0]}x", got)), (True, False))
+    saved = role_cli.registry
+    try:
+        for label, fake in (("empty", lambda: {}), ("raises", lambda: (_ for _ in ()).throw(RuntimeError("x"))), ("not a dict", lambda: [1])):
+            role_cli.registry = fake
+            errors = []
+            got = SJ.sited_ids({}, ids=(), errors=errors)
+            check_eq(f"sited/role-cli-{label}: no `role_cli:` id is sited, no crash, the audit sentence names the file",
+                     (any(i.startswith("role_cli:") for i in got), len(errors), "role-commands.json" in " ".join(errors)), (False, 1, True))
+            check_eq(f"sited/role-cli-{label}: with no `errors` list there is no crash either", SJ.sited_ids({}, ids=()) == got, True)
+    finally:
+        role_cli.registry = saved
+
+
 def part_check_of() -> None:
     """`check_of(entry)` is `<file stem>:<id>`, the one namespace of a check; one id per A24 entry, never two the same."""
     check_eq("check_of: the stem of the file, a colon, the id", RR.check_of({"file": "scripts/manifest_put.py", "id": "X-y"}),
@@ -681,6 +760,8 @@ def part_check_of() -> None:
 def main() -> None:
     part_check_of()
     part_passthrough()
+    part_refusal_constructor()
+    part_sited_role_cli()
     part_wide_defaults()
     part_wide_transports()
     part_wide_states()

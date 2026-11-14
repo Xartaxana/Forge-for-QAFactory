@@ -27,7 +27,7 @@ import shutil
 import stat
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import paths
 
@@ -198,7 +198,8 @@ def start_lines(project, plugin, ticket, name, runs=None) -> list:
     `-PassThru` prints the pid the start line of the notebook needs. The interactive session is the same form
     without the redirects. The default `<runs>` is `runs_dir` of the runs table, else `<BASE>/runs` - never this
     folder, which travels with the repository and must not collect run logs."""
-    runs = Path(runs) if runs else (paths.table_path("runs_dir") or paths.BASE / "runs")
+    # the lines are PowerShell for a Windows operator: the log paths are Windows paths whatever OS renders them
+    runs = PureWindowsPath(str(runs if runs else (paths.table_path("runs_dir") or paths.BASE / "runs")))
     log, err = runs / f"{name}-1.log", runs / f"{name}-1.err"
     scripts = f"{plugin}/scripts/story_run.py"
     driver = ",".join(f'"{x}"' for x in (scripts, "--task", ticket, "--env", "localhost", "--model", "sonnet",

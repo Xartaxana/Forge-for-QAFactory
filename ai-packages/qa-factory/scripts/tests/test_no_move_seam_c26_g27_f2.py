@@ -259,8 +259,8 @@ def c26_fix_round_t873() -> None:
         # ... and the other way: the person's rework of S2 is not the ticket re-run's own, so the owed re-run still starts
         driver.state["ticket_rework"] = {"stages": ["S2"], "words": "new text", "at": "then", "before": []}
         driver.controller_state = lambda: {"dispatches": {
-            "S2-qa-analyst-1": {"stage": "S2", "role": "qa-analyst", "status": "accepted"},
-            "S2-qa-analyst-2": {"stage": "S2", "role": "qa-analyst", "repair_cause": "ticket_changed", "status": "accepted", "person_words": True}}}
+            "S2-qa-requirements-tester-1": {"stage": "S2", "role": "qa-requirements-tester", "status": "accepted"},
+            "S2-qa-requirements-tester-2": {"stage": "S2", "role": "qa-requirements-tester", "repair_cause": "ticket_changed", "status": "accepted", "person_words": True}}}
         calls.clear()
         with contextlib.redirect_stdout(io.StringIO()):
             moved = driver.ticket_rework_step()

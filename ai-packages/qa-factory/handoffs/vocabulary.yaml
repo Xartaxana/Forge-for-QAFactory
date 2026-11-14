@@ -118,10 +118,10 @@ result_status: [passed, failed, error, skipped, not_run]
 # What a review dispatch concludes as a whole.
 critic_verdicts: [approved, approved_with_fixes, rejected, unverified]
 
-# What the verdict word of the stage critic (S2-S4) means for the stage acceptance record (`acceptance.stage_acceptance_verdict`,
+# What the verdict word of the stage acceptor (S4, S6, S7) means for the stage acceptance record (`acceptance.stage_acceptance_verdict`,
 # written by `stage_done.py --acceptance`). The word is the critic's; this table only says which side of `accept|reject` it falls
 # on. A word outside the table gives NO record, and a missing table reads as no word known: the direction of error is never `accept`.
-stage_acceptance_verdicts: {approve: accept, approve_with_fixes: accept, concerns: reject, review: reject, ok: accept}
+stage_acceptance_verdicts: {approve: accept, approve_with_fixes: accept, concerns: reject, review: reject, ok: accept, accept: accept, return: reject}
 
 # Why a repair was dispatched.
 repair_causes: [test_defect, mechanical, environment, tooling, reviewer_error]

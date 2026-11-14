@@ -636,3 +636,18 @@ both rows. None of the spec's options A/B/C is this; the FV1-9 design is re-draw
 
 F-8: the owner asked what moment this is («это про какой момент? Когда у нас есть переделка вопросов?»); explained in chat, no
 decision yet.
+
+### Second round of the owner's words (14.11.2026, verbatim)
+
+F-7, on "with no answer yet, the person sees the pair once":
+«вопрос на который не ответили можно задать ещё раз в другой, более понятный формулировке, но два одинаковых вопроса в один момент
+конечно не надо задавать»
+Requirement: (1) two questions that ask the same thing are never shown to the person at the same moment; (2) a question that got
+no answer MAY be asked again later in another, clearer wording (a re-ask in new words is legal, not a repeat to suppress); (3) from
+the first round: when the earlier question HAS an answer, the role settles the repeat itself from that answer.
+
+F-8, on option (A) "shown with one plain line naming the defect":
+«надо не просто сказать что не так с вопросом, а что-то что поможет человеку на вопрос ответить»
+Requirement: the question the rehearsal could not get reworked is shown WITH what helps the person answer it — not a line about the
+question's defect. What that help is made of (what code already holds: the cited sources, before/now, the related open or answered
+questions) is the FV1-9 design; a scout pass over the available data comes first (t-657).

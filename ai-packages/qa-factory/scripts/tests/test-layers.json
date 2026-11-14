@@ -1656,6 +1656,7 @@
    ],
    "replaced_by": null,
    "covers": [
+    "driver_stage_plan.py",
     "env_probe.py",
     "exploratory_findings.py",
     "investigation_probe.py",
@@ -1699,9 +1700,7 @@
     "handoffs/role-to-conductor.yaml",
     "handoffs/s0-setup-to-scout.yaml",
     "handoffs/s1-scout-to-tester.yaml",
-    "handoffs/s2-stage-critic-to-tester.yaml",
     "handoffs/s2-tester-to-strategist.yaml",
-    "handoffs/s3-stage-critic-to-strategist.yaml",
     "handoffs/s3-strategist-to-designer.yaml",
     "handoffs/s4-case-critic-to-designer.yaml",
     "handoffs/s4-designer-to-case-critic.yaml",
@@ -2516,11 +2515,16 @@
   },
   "test_http_client.py": {
    "layer": "table",
-   "why": "table (B.2 criterion 5): HTTP client refusals",
+   "why": "table (B.2 criterion 5): HTTP client refusals and the sign-in answers built on them",
    "covers": [
     "http_client.py",
     "story_version.py",
-    "tests/harness.py"
+    "tests/harness.py",
+    "stand_access.py",
+    "references/login-roads.json",
+    "references/stand-answers.json",
+    "project_decisions.py",
+    "stand_health.py"
    ]
   },
   "test_human_questions.py": {
@@ -3815,8 +3819,12 @@
   },
   "test_probe_gap_door.py": {
    "layer": "data_join",
-   "why": "held by import: test_probe_not_proved.py imports it; leaves the canon when the import is cut (TD-15.8)",
+   "why": "FV1-22 N2/N3 rows judge the real window_round_gate, stage_acceptance_write, record_repeat, gate_stop and resume_on_refusal (one case table per stop road, AT and BEYOND the caps); also held by import: test_probe_not_proved.py imports its helpers",
    "covers": [
+    "driver_gates.py",
+    "driver_machine.py",
+    "driver_runner.py",
+    "driver_stage_plan.py",
     "tests/harness.py",
     "tests/story_run_common.py"
    ]
@@ -5379,7 +5387,9 @@
     "agents/qa-runner.md",
     "references/slices/qa-automator/artifact-contract-automation.md",
     "references/slices/qa-runner/common-rules.md",
-    "tests/harness.py"
+    "scripts/tests/fixtures/told-ratchet.json",
+    "tests/harness.py",
+    "tests/test_judgment_census.py"
    ]
   },
   "test_stage_joints_12586.py": {
@@ -7015,6 +7025,7 @@
     "window_record.py",
     "handoffs/vocabulary.yaml",
     "references/verification-levels.json",
+    "references/word-passed-facts.json",
     "tests/harness.py",
     "tests/test_controller_rework_scope.py",
     "tests/test_controller_state.py",
@@ -7087,6 +7098,7 @@
     "waiver.py",
     "worker_lifecycle.py",
     "references/conductor-actions.json",
+    "references/word-passed-facts.json",
     "skills/qa-story/phases/s5.md",
     "tests/harness.py",
     "tests/test_controller_gate_decision.py",

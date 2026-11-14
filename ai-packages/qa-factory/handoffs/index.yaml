@@ -41,10 +41,6 @@ handoffs:
   - {stage: S1, from: qa-scout,              to: qa-requirements-tester, contract: s1-scout-to-tester,      kind: produce}
   - {stage: S2, from: qa-requirements-tester, to: qa-test-strategist,   contract: s2-tester-to-strategist,  kind: produce}
   - {stage: S3, from: qa-test-strategist,    to: qa-case-designer,      contract: s3-strategist-to-designer, kind: produce}
-  - {stage: S2, from: qa-case-critic,        to: qa-requirements-tester, contract: s2-stage-critic-to-tester, kind: review,
-     note: "the stage critic's verdict on S2; the same file closes S2 when the verdict is `ok`"}
-  - {stage: S3, from: qa-case-critic,        to: qa-test-strategist,    contract: s3-stage-critic-to-strategist, kind: review,
-     note: "the stage critic's verdict on S3; the same file closes S3 when the verdict is `ok`"}
   - {stage: S4, from: qa-case-designer,     to: qa-case-critic,        contract: s4-designer-to-case-critic, kind: produce}
   - {stage: S4, from: qa-case-critic,        to: qa-case-designer,      contract: s4-case-critic-to-designer, kind: review,
      note: "the same file closes S4 when the verdict is `approved`"}

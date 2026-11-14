@@ -368,6 +368,86 @@ def test_quote_across_escaped_char_refused():
         must("a quote past the cut part is refused and the reason says it is beyond", why != "" and "beyond the stored part" in why, why)
 
 
+# --- FV1-28 A2: a survey walk opens on a build that is not established ---------------------------
+
+def _unknown(asks="how", **extra):
+    rec = {**P.S.probe(result="unknown"), "error": "the build could not be read"}
+    if asks is not None:
+        rec["asks_person"] = asks
+    rec.update(extra)
+    return rec
+
+
+def _other_story_word():
+    rec = P.S.probe(result="person_confirmed")
+    rec["provenance"] = {"technical_verification": False, "identity_kind": "person_confirmed"}
+    rec["person_confirmation"] = {"words": "yes, it is there", "at": "2026-10-01T10:00:00+00:00", "task": "OTHER-STORY", "kind": "deployed",
+                                  "revision": rec["expected_source_revision"]}
+    return rec
+
+
+def _revisions_differ():
+    rec = _unknown()
+    rec["provenance"] = {**rec["provenance"], "deployed_source_revision": "other-sha"}
+    return rec
+
+
+def test_survey_open_on_probe():
+    """ONE row: (id, place, the start probe answer, opens?). The invariant: only a survey walk, only an `unknown` that asks the person."""
+    table = (
+        ("unknown_asks_how", "survey", _unknown("how"), True),
+        ("unknown_asks_confirm", "survey", _unknown("confirm"), True),
+        ("mismatched", "survey", P.S.probe(result="mismatched"), False),
+        ("unknown_docker_down", "survey", _unknown(None), False),
+        ("unknown_empty_asks", "survey", _unknown(""), False),
+        ("unknown_but_revisions_differ", "survey", _revisions_differ(), False),
+        ("other_story_word", "survey", _other_story_word(), False),
+        ("device_unready", "survey", _unknown("how", reason_code="device_unready"), False),
+        ("no_expected_revision", "survey", _unknown("how", reason_code="no_expected_revision"), False),
+        ("matched_with_asks_invalid", "survey", {**P.S.probe(), "asks_person": "how", "evidence_refs": []}, False),
+        ("result_upper_case", "survey", _unknown("how", result="UNKNOWN"), False),
+        ("case_place_unknown_asks", "case", _unknown("how"), False),
+        ("settle_place_unknown_asks", "settle", _unknown("how"), False),
+    )
+    for name, place, answer, opens in table:
+        item = ITEM if place == "survey" else W.CASE if place == "case" else "p1"
+        with survey(items=(item,), place=place, actors=("guest",), start=False) as rig:
+            MC.PROBE = lambda spec, answer=answer: dict(answer)
+            try:
+                rig.walk.start()
+                got = "opened"
+            except WS.ServerDead:
+                got = "dead"
+            must_eq(f"{name}: the walk {'opens' if opens else 'is refused before any page'}", got, "opened" if opens else "dead")
+            if opens:
+                must("the walk note says the build is not established",
+                     any("build on the stand is not established" in n and "unknown, " + answer["asks_person"] in n for n in rig.walk.notes), str(rig.walk.notes))
+                rig.step(GO, item=item)
+                rows = MC.jsonl_rows(rig.walk.item_rec[item]["attempt"].dir / "probes.jsonl")
+                must_eq(f"{name}: the start row says not_established and holds the record whole",
+                        [(r["when"], r.get("taken"), r["probe"]["result"]) for r in rows], [("start", "not_established", "unknown")])
+            else:
+                must(f"{name}: no page was opened", not rig.made)
+    # the semantics of a record is read as data: a non-dict is no opening, and the function never raises
+    for junk in (None, [], "unknown", 3, {}, {"result": "unknown"}):
+        must_eq(f"survey_opens_on({junk!r}) is False", WS.survey_opens_on(junk), False)
+
+
+def test_survey_end_probe_unknown_asks():
+    """end_probe_unknown_asks: a survey close whose end probe cannot establish the build writes no `env_blocked`; another place still does."""
+    for place, item, writes in (("survey", ITEM, False), ("case", W.CASE, True)):
+        with survey(items=(item,), place=place, actors=("guest",)) as rig:
+            rig.step(GO, item=item)
+            MC.PROBE = lambda spec: _unknown("how")
+            rig.walk._shutdown("closed", "test", probe=True)
+            attempt = rig.walk.item_rec[item]["attempt"]
+            rows = MC.jsonl_rows(attempt.dir / "probes.jsonl")
+            blocked = list(attempt.dir.glob("env_blocked*"))
+            must_eq(f"{place}: env_blocked written", bool(blocked), writes)
+            ends = [r.get("taken") for r in rows if r["when"] == "end"]
+            must_eq(f"{place}: the end row", ends, ["not_established"] if not writes else [])
+
+
 def main():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

@@ -18,7 +18,8 @@ from pathlib import Path
 import shutil
 import sys
 
-from execution_request import validate_request
+from detector_verdict import Record
+from execution_request import RequestError, validate_request
 from hooklib import project_root, story_cli
 import stand_identity as SI
 from run_suite import build_run_block, block_folder, PROOF_STAMP_KEYS
@@ -256,8 +257,24 @@ def validate_import_block(task: Path, block: dict) -> list[str]:
     return sorted(set(errors))
 
 
+def _told_request_error(exc: RequestError) -> RequestError:
+    """`exc` as the text road `role_cli.run_guarded` prints it: the same message, byte for byte, as the `args[0]` of a `Record`
+    that carries the row sentence and door of the first check that refused (`refuse` prints them as `expected:` / `door:` lines
+    and the check as the last line). An error nobody sited (`records == ()`) is returned as it is. The checks after the first
+    stay in `records` of the error that is raised."""
+    if not exc.records:
+        return exc
+    first = exc.records[0]
+    told = RequestError(Record(str(exc), check=first.check, expected=first.expected, door=first.door))
+    told.records = tuple(exc.records)
+    return told
+
+
 def import_receipt(request: dict, receipt: dict, root: Path, output: Path) -> dict:
-    checked = validate_request(request, root, allow_exhausted_reuse=True)
+    try:
+        checked = validate_request(request, root, allow_exhausted_reuse=True)
+    except RequestError as exc:
+        raise _told_request_error(exc) from exc
     trusted = _trusted_producer(root, checked["profile_id"])
     summary, digest = validate_receipt(checked, receipt, trusted)
     evidence_root = Path(output).resolve().parent

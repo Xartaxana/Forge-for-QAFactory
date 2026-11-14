@@ -26,12 +26,15 @@
 | TR4-17 | П3 | Остатки цепочки проб t-2064: одиннадцать пунктов находки `findings/20261111-proby-ostatki-cepochki.md` | builder | `scripts/manifest_put.py`, `scripts/proof_level.py`, `scripts/probe_by_code.py`, `scripts/planning_contract.py`, `scripts/check_witness.py`, `scripts/tests/test_probe_by_code_languages.py`, `scripts/tests/test_brief_pack.py` | слияние цепочки проб (TR2-14) | ожидает |
 | TR6-1 | П3 | Остатки TR3-9 (критик t-096, канон 43208727152): сборка строк промпта вынесена из `run_manual_lane`; одно тело для `_window_beside_running` / `_lane_beside_running` и для `parallel_windows` / `walkers`; мёртвое слагаемое в `run_complete`; строка об известном остатке отчёта; причина одного нестабильного пина `test_walk_lanes_parallel` разобрана. Пять пунктов раздела «Что именно менять» находки `findings/20261112-tr3-9-ostatki-dorozhek-ruchnogo-prohoda.md` | scout (п. 5) → builder → critic | `scripts/driver_stage_s6.py (run_manual_lane, run_complete)`, `scripts/controller.py (_window_beside_running, _lane_beside_running)`, `scripts/config_contract.py (parallel_windows, walkers)`, `design/state-exits.md`, `scripts/tests/test_walk_lanes_parallel.py` | — | ожидает |
 | TR6-2 | П3 | Нестабильный тест `test_controller_rework_repair_binding` (FR-31, красный один раз на каноне 43342086225, не воспроизведён): первый шаг — печатать `repr` исключения в падающей проверке «a recorded id under a fresh key is refused» (`findings/20261113-test-controller-rework-repair-binding-krasnyj-odin-raz-fr-31.md`; t-247 Red 2) | builder | `scripts/tests/test_controller_rework_repair_binding.py` | — | принято: 7da38c2 (t-436) |
+| TR6-3 | П3 | CL-NS: детектор «роль без shell перечислена на карточке команды, которую никто ей не велит запускать» — соединение данных в быстром тесте (кандидат `test_ahead_cards.py`): каждая роль записи `role-commands.json` имеет `host_adapter.role_has_bash` истинным, кроме записи с явным ключом данных `no_shell_road`; четыре строки дрейфа исправляются в том же узле (`findings/20261114-cl-ns-detektor-roli-bez-shell-na-karte-komand.md`; критик кода A2/A3/F7-пересборки, Q5; FR-56, FR-12; AR-11, AR-29) | designer → builder → critic | `ai-packages/qa-factory/scripts/tests/test_ahead_cards.py`, `ai-packages/qa-factory/references/role-commands.json`, `ai-packages/qa-factory/scripts/host_adapter.py` | — | ожидает |
 
 ## Ход
 
 Журнал передачи Lead пачки, новые записи в конец: `<дата время> — <что сделано, диспатчи t-nnn, хэши>`.
 
 - 12.11.2026 — пачка открыта словом владельца: хвосты П3 пачек 1, 2 и 4 вынесены из них, чтобы те закрывались по узлам П1 и П2 (t-097).
+
+- 14.11 — TR6-2: второе наблюдение той же красной строки (канон 43515748054 волны 3, первая попытка shard 1, зелёный на перезапуске) дописано в находку `findings/20261113-test-controller-rework-repair-binding-krasnyj-odin-raz-fr-31.md`; отдельной находки в `live-run-fvf` нет (дубль не заводился).
 
 ## Живые доказательства
 

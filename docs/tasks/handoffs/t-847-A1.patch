@@ -1,0 +1,45 @@
+diff --git a/.claude/agents/builder.md b/.claude/agents/builder.md
+index 7935d48a..35d74cb6 100644
+--- a/.claude/agents/builder.md
++++ b/.claude/agents/builder.md
+@@ -89,3 +89,11 @@ You receive a spec and implement it. The coordinator writes the spec — not you
+    never lost, never shortened, and the cap does not apply.
+    An empty or truncated final message counts as work not delivered,
+    no matter how much was actually done.
++8. Tests are written by `docs/TESTING.md` — read it before your first
++   test; its section «Как писать эффективный тест на нашем проекте» is
++   the how-to. The test volume rule is TESTING.md «Бюджет / Объём»;
++   when your diff goes over it, name the reason in one line of your
++   report AND in a line `tests-over: <reason>` of the commit message
++   (the commit-msg hook WARNs without it, it never refuses). A new case
++   is a row of an existing scenario, table or junction, not a new file
++   (the one exception: «Бюджет / Файлы»).
+diff --git a/.claude/agents/critic.md b/.claude/agents/critic.md
+index 81c8b09d..2a99b601 100644
+--- a/.claude/agents/critic.md
++++ b/.claude/agents/critic.md
+@@ -169,3 +169,9 @@ Your job is to find what's wrong and prove it.
+    leaves your verdict as a fix of this round or as a proposed node with its
+    owner, never as a line for somebody to pass on; the coordinator of the
+    proper tier opens the node (rule 6).
++20. Tests, on every diff gate, with their own verdict line: the
++   question is docs/tasks/critic-diff-brief.md question 5 (the rule
++   text is docs/TESTING.md «Бюджет»). A diff over the volume rule with
++   no reason named — in the report and in the commit's `tests-over:`
++   line — is a finding; a named reason that does not hold is a finding
++   too.
+diff --git a/plans/builder-rules.md b/plans/builder-rules.md
+index e10b32af..ded07f93 100644
+--- a/plans/builder-rules.md
++++ b/plans/builder-rules.md
+@@ -54,8 +54,8 @@
+    (до его появления — существующий пин остаётся, новый отдельный файл-пин не создаётся). НЕ пишутся и при встрече удаляются: пин исходника
+    (`read_text()` своего `.py`, `inspect.getsource`, счёт вхождений); пин измеренной константы; проверка-квитанция на
+    каждый ключ DoD, ребро или мутацию; тест «как раньше»; отрицательный контроль внутри теста; тест строк CHANGELOG,
+-   пачки, отчёта. Свидетель наличия ключей в тексте — вывод в отчёте, в репозиторий не коммитится. Бюджет: строк теста в
+-   диффе не больше строк продукта (больше — причина строкой отчёта); новый тестовый файл не создаётся: случай — строка
++   пачки, отчёта. Свидетель наличия ключей в тексте — вывод в отчёте, в репозиторий не коммитится. Бюджет: объём тестов — `docs/TESTING.md`
++   «Бюджет / Объём»; больше — причина строкой отчёта и строкой `tests-over:` в сообщении коммита; новый тестовый файл не создаётся: случай — строка
+    `variants.json` истории (`scripts/tests/fixtures/stories/<id>/`) или строка таблицы/стыка своего слоя; файл у нового
+    скрипта — только со строкой `keep` в `scripts/tests/test-layers.json` (слой и причина, их судит критик) и
+    не дольше 10 с; мир драйвера строится один раз на файл. Покрасневший пин удаляется, а не чинится. Файл карантина не

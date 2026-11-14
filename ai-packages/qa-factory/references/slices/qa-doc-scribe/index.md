@@ -9,4 +9,3 @@ names. A rule you did not read is still a rule the exit gate checks.
 - `references/slices/qa-doc-scribe/artifact-contract.md` (4,410 B) — Where artifacts live, Project-level files, Where the working files sit, Versioned lifecycle records
 - `references/slices/qa-doc-scribe/coverage-design.md` (619 B) — Evidence freshness
 - `references/slices/qa-doc-scribe/vocabularies.md` (2,981 B) — Disposition, `unresolved[]` reason, `remedy`, `execution_status`, Triage verdict and FLAKY mechanism, Checks-ledger state…
-- `references/slices/qa-doc-scribe/handoff-keys.md` (3,460 B) — Outputs, Witness, Handoff form

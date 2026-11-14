@@ -1555,25 +1555,31 @@ def _stand_blocked(profile, when, record, said, story="", other_profile=None) ->
     line = f"{profile} {when}: {said}"
     asks = isinstance(record, dict) and bool(record.get("asks_person"))
     where = _registry_where()
+
+    def tagged(exc):
+        # FV1-28 A2: the record this refusal judged rides on the exception (NOT in `row`, which is persisted), so a survey walk can
+        # read its FIELDS; None for a non-dict. Every EnvBlocked built elsewhere has no such attribute (`getattr(exc, "provenance", None)`)
+        exc.provenance = record if isinstance(record, dict) else None
+        return exc
     if stand_runs_other_build(record):
         key = "remedy_other_content" if content_differs(record) else "remedy_other_build"
-        return EnvBlocked(line, say_refusal(key), "user", do_not_retry=True, cause="build")
+        return tagged(EnvBlocked(line, say_refusal(key), "user", do_not_retry=True, cause="build"))
     if isinstance(record, dict):
         import runtime_probe
         if record.get("reason_code") == runtime_probe.NO_EXPECTED_REVISION:
             # a checkout that names no commit (EP1-28 H-4): no build can be named, so "capture again" is no door
-            return EnvBlocked(line, say_refusal("remedy_no_revision", checkout=str(record.get("checkout") or "the checkout")),
-                              "user", do_not_retry=True, cause="build")
+            return tagged(EnvBlocked(line, say_refusal("remedy_no_revision", checkout=str(record.get("checkout") or "the checkout")),
+                                     "user", do_not_retry=True, cause="build"))
         if record.get("reason_code") == runtime_probe.DEVICE_UNREADY:
             # a device stand whose build could not be read (no device, a tool that fails, two devices, a broken table): the
             # device's own halt, never "capture again" - the same device answers again (F-2, AR-25)
-            return EnvBlocked(line, say_refusal("door_device"), "user", do_not_retry=True, cause="device")
+            return tagged(EnvBlocked(line, say_refusal("door_device"), "user", do_not_retry=True, cause="device"))
     if story and person_confirmed(record) and not person_confirmed(record, story):
-        return EnvBlocked(line, say_refusal("remedy_other_story", registry=where), "user", do_not_retry=True, cause="build")
+        return tagged(EnvBlocked(line, say_refusal("remedy_other_story", registry=where), "user", do_not_retry=True, cause="build"))
     if asks:
         text = other_profile() if other_profile is not None else None
-        return EnvBlocked(line, text or say_refusal("remedy_unknown_asks", registry=where), "user", do_not_retry=True, cause="build")
-    return EnvBlocked(line, say_refusal("remedy_retry"), "user")
+        return tagged(EnvBlocked(line, text or say_refusal("remedy_unknown_asks", registry=where), "user", do_not_retry=True, cause="build"))
+    return tagged(EnvBlocked(line, say_refusal("remedy_retry"), "user"))
 
 
 def stand_probe(attempt: Attempt, cfg, project_root, profile, when, command, stand=None) -> dict:
@@ -4971,6 +4977,8 @@ def http_login_source(cfg: dict, spec_data: dict, env: dict, root=None) -> tuple
     kind = str((access or {}).get("kind") or "").strip()
     if not kind:
         return recipe, "factory_default"
+    if kind == "form_login":
+        return {}, "access"      # the form road (`stand_access.form_session`) reads its own address and rows; `_http_auth` runs it
     if kind == "local_login":
         import stand_access
         values = {}
@@ -5003,10 +5011,45 @@ def _pairs_login(post, cfg, creds: Credentials, secrets: tuple) -> list:
     return stand_access.try_body_pairs(config_contract.body_field_candidates(access), send, secrets)
 
 
+def _is_form_stand(cfg: dict, source: str) -> bool:
+    """True when the sign-in the project recorded is the form road (`environment.access.kind` form_login, taken from the
+    access record - a project's own `manual_capture.login.http` recipe is a token sign-in whatever the access says)."""
+    return source == "access" and str((_access_of(cfg) or {}).get("kind") or "").strip() == "form_login"
+
+
+def _http_auth(client, env, creds: Credentials, spec_data, cfg, timeout_s, root=None) -> tuple:
+    """(header name, header value) of the HTTP sign-in - the ONE implementation (FV1-17b): `("Authorization", "Bearer
+    <token>")` for the token kinds (`_http_login`), `("Cookie", <cookie header>)` for `form_login` (`stand_access.form_session`).
+    A receipt that is not `in` refuses with its why (a ValueError, as the token road refuses); nothing else is sent. The
+    value is a secret: the caller sets it in memory and never prints or stores it."""
+    recipe, source = http_login_source(cfg, spec_data, env, root)      # EnvBlocked here: nothing has been sent
+    if not _is_form_stand(cfg, source):
+        return "Authorization", "Bearer " + _http_login(client, env, creds, spec_data, cfg, timeout_s, root)
+    import stand_access
+    access = _access_of(cfg) or {}
+    values = {}
+    if root is not None:
+        import gate_preflight
+        files, _how = gate_preflight.configured_env_files(cfg.get("environment"), root)
+        values = gate_preflight.env_values(files)
+    for key, value in ((access.get("user_key"), creds.username), (access.get("secret_key"), creds.password)):
+        if isinstance(key, str) and key.strip():
+            values[key.strip()] = value
+    receipt, cookie = stand_access.form_session(access, values, str((env or {}).get("base_url") or ""), timeout_s)
+    if cookie is None:
+        raise ValueError(f"login by code ({_login_words(spec_data)['source_access']}, a sign-in form) did not get in: "
+                         f"{receipt.get('why')}; say so in your findings")
+    return "Cookie", cookie
+
+
 def _http_login(client, env, creds: Credentials, spec_data, cfg, timeout_s, root=None) -> str:
     import stand_access
     recipe, source = http_login_source(cfg, spec_data, env, root)      # EnvBlocked here: nothing has been sent
     words = _login_words(spec_data)
+    if _is_form_stand(cfg, source):
+        # this caller takes a token and sets a Bearer header: a cookie is never put there; the walker is still token-only
+        raise ValueError("this caller signs in by token only, and the sign-in form road (environment.access.kind "
+                         "form_login) is not wired for it: nothing was sent; say so in your findings")
     whence = words["source_" + source]
     own_url = recipe.get("url") if source == "access" else None      # only the address the access record names
     url = own_url.strip() if isinstance(own_url, str) and own_url.strip() else (
@@ -5405,7 +5448,8 @@ def _run_http(args, spec_data, passthrough, closers) -> int:
                                          _detail(f"signed in through the browser ({result['proof']})")))
     if login is not None and not any(k.lower() == "authorization" for k in headers):
         try:
-            headers["Authorization"] = "Bearer " + _http_login(client, env, login, spec_data, cfg, timeout_s, project_root)
+            name, value = _http_auth(client, env, login, spec_data, cfg, timeout_s, project_root)
+            headers[name] = value
         except EnvBlocked as exc:     # the project's sign-in is not a request the factory knows: nothing was sent
             return _blocked(attempt, args.case, exc)
         if login.label:      # the line shows who signed in, only when `--as` or the case's own account chose it (K6)

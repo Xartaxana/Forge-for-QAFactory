@@ -19,10 +19,14 @@ Your witness artifact (stages.json `witness`): `work/triage.json`.
 
 Contract `s7-analyst-to-automator` (fill `work/handoffs/<dispatch>.yaml`; `handoff_check.py` reads it):
 
-- `inputs_read[].version` (required) - the report the triage was taken from
+- `inputs_read[].version` (required) - its window id
 - `inputs_read[].failures` (required) - how many rows were triaged
 - `header.window` (required) - the instance ids handed for repair
 - `header.verdict` (required) - one of vocabulary.header_verdicts
+- `stage_acceptance.verdict` (required) - accept|return
+- `stage_acceptance.failure_class` (required) - spec|capability|data|tooling
+- `stage_acceptance.quote` (required) - the runner's own words, with path#anchor
+- `stage_acceptance.witness_paths[]` (optional) - task-relative path the verdict rests on, or omit when none
 - `scope[].id` (required) - instance id
 - `scope[].state` (required) - TEST_BUG|TEST_BUG:collection|FLAKY|reorder
 - `scope[].reason` (required) - a verdict of at most 80 characters - the explanation lives in the artifact
@@ -54,3 +58,35 @@ Contract `s7-analyst-to-automator` (fill `work/handoffs/<dispatch>.yaml`; `hando
 - `blocked.data[]` (only when blocked) - path of anything the conductor needs to see
 
 Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): `inputs`, `inputs_read`, `header`, `scope`, `artifacts`, `claims`, `unresolved`, `blocked`.
+
+## What code will check of you
+
+`<T>` is your ticket, `<ID>` your dispatch id, `<home>` the project's qa-factory folder - all three stand in your prompt (`Ticket: ... Dispatch: ...`) and in your task packet.
+
+- [exit_gate:EG-digest-form] Your final message is the handoff form: a header `<role> <stage> <window> · ok|concerns|halt|impossible`; one line `<id> · <state> · <reason of at most 80 characters>` for every item of the dispatch's scope (a halting digest owes no scope lines); nothing but those lines between the header and the path; and, last, the task-relative path of what you wrote (a halting digest may omit it). Door: fix the digest line the refusal names, then end the dispatch again.
+- [exit_gate:EG-text-end] Your dispatch ends with the host's handback tool carrying your digest line, never with free text after it. Door: call the host's handback tool with your digest line.
+- [handoff_check:blocked_problem] A row in state `blocked` carries `blocked.problem`; `blocked_by_env` is used only where `options_for_role` offers it to this role. Door: write the problem, or pick a state the role is offered.
+- [handoff_check:claims] What the form claims is true is true on disk ("the form claims this is true, and it is not"). Door: fix the claim or make it true.
+- [handoff_check:cli] The call names an existing UTF-8 form with a `contract:` line and an existing values file; `--shorten` only with `--fix`. Door: the refusal's door; a non-UTF-8 form: run `handoff_init` again.
+- [handoff_check:field.blank] every `required` field of your handoff form (section `Handoff form` of this page). Door: write the value as a `path: value` line in the values file, then run the check again.
+- [handoff_check:field.max_len] every `required` field of your handoff form (section `Handoff form` of this page). Door: shorten it (`--shorten` with `--fix`) or rewrite.
+- [handoff_check:field.value] every `required` field of your handoff form (section `Handoff form` of this page). Door: write one of the listed words (or `new: <word> -- <why>` where the list is open).
+- [handoff_check:null_outcome.failures] Each shown failure has a triage row. Door: triage it once.
+- [handoff_check:null_outcome.listing] Everything named in `listed_in` exists, and nothing extra stands. Door: list exactly what exists.
+- [handoff_check:null_outcome.names] Every row has a name. Door: name the row.
+- [handoff_check:null_outcome.repairs] No repair is pending when the null outcome is claimed. Door: finish or record the repair.
+- [handoff_check:null_outcome.report] The run report is readable. Door: rerun / point at the readable report.
+- [handoff_check:null_outcome.verdict] The triage verdict is a known word. Door: write a known verdict.
+- [handoff_check:required_rows] A required list has one row per item in scope: the id, a state and a reason of at most 80 characters. Door: write the rows as index lines in the values file, then run this check again.
+- [handoff_check:required_rows.null_word] A list's null-outcome word (the declared empty outcome) stands only when the list has no rows; never both. Door: remove the word or remove the rows.
+- [handoff_check:required_rows.owed_by_verdict] When the verdict owes rows (the verdict word names work done on items), the list is not empty. Door: write the rows the verdict owes, or change the verdict.
+- [handoff_check:tried] In a contract that asks what was tried (TRIED_CONTRACTS), each tried entry states what was tried and the error it gave (TRIED_MEANING). Door: fill the tried entry with the attempt and its error.
+- [handoff_check:values_apply] Each path names a field of this contract, by its index where it is a list row, not a contract-owned path; a list field gets a list and a one-value field one value; rows open in order. Door: correct the path (the refusal suggests "did you mean").
+- [handoff_check:values_file] The values file is `path: value` lines (or a JSON object): valid JSON, an object not a list, each path given once, each key a field path, no nested value. Door: fix the line the refusal names (FILE_FIX).
+- [exit_gate:digest] Your final message has the digest form stated in the row [exit_gate:EG-digest-form] of this section. Door: fix the digest line the refusal names, then end the dispatch again.
+- [execution_request:active_dispatch] A `--mine` call belongs to exactly one running dispatch: the controller of the story has one open (with `--dispatch ID`, that running dispatch or one it resumes through `parent_retry`); when several are open, `--dispatch ID` (and `--task TICKET` across stories) names yours. Door: pass `--dispatch <your prompt's Dispatch id>` (and `--task <T>`); when none is open, name it in your digest (the conductor opens dispatches).
+- [execution_request:case_entries] An asked case id names one case: a bare id the story holds under more than one area is asked with its area (`<area>/<id>`), and the manifest row's `covers` names the same area as the dispatch scope (a row that names no area is not run for a qualified id when the story holds the number under several areas, or once another row names one). Door: `--mine <area>/<id>`; or correct the row's `covers` through `manifest_put.py`; or hand the case back in your digest.
+- [execution_request:mine_call] A `--mine` call names at least one case id (in the project's case-id form), a `--purpose` of `initial`, `repair_verify` or `red_probe` (any other purpose goes through `--request`), `--node-id` only with ONE case, at most one of `--cwd` and `--sandbox-root`, and a red probe always one of them (never the author's tree). Door: correct the call as the refusal names (`--template request` for another purpose; `red_sandbox.py --probe` prepares and passes the sandbox).
+- [execution_request:no_test] Every asked case has a test to run: a manifest row with file and selector, or (pytest only) a file the manifest names whose tests mention the case in a marker, comment or docstring. Door: put the test in the manifest through `manifest_put.py` (file + selector), or name it for this run: `--mine <case> --node-id <file>::<test function>`.
+- [execution_request:place_rows] Every test file the manifest names for an asked case exists under the run directory or the project root (a path relative to the project root). Door: correct `file` through `manifest_put.py` (path relative to the project root), or pass `--cwd` when the test lives in a sandbox.
+- [execution_request:profile] The execution profile of the run is known without a guess: a profile named by `--profile` or a manifest row's `profile_id` is one `qa-factory/config.json` holds; the asked cases run under one profile; a row that names no profile and whose file lies under another profile's test root, or a root several profiles share, names its `profile_id`; when nothing else tells, `--profile` names it. Door: `profile_id` on the manifest row through `manifest_put.py --fragment`, or `--profile ID` (only where the caller takes it: `run_suite --mine`, never `probe_by_code`); cases of two profiles: one `--mine` per profile.

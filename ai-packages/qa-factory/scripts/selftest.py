@@ -355,7 +355,8 @@ def cmd_control_bytes() -> bool:
 SKILL_MD_MAX_BYTES = 19_000
 SKILL_MD_MAX_LINES = 500
 AGENT_MD_MAX_BYTES = 9_000
-REFERENCE_MD_MAX_BYTES = 12_000
+import contract_slices as _contract_slices  # noqa: E402 - the ONE literal of the slice cap is `SLICE_MAX_BYTES`, read here and by the partition (AR-13)
+REFERENCE_MD_MAX_BYTES = _contract_slices.SLICE_MAX_BYTES
 
 
 def cmd_limits() -> bool:

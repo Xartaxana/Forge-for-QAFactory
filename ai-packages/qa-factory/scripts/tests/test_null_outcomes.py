@@ -34,7 +34,7 @@ S7 = "s7-analyst-to-automator"
 SCRIPTS = PLUGIN_ROOT / "scripts"
 # The walk sizes. A change of any of them is a change of the factory's contracts, and the Lead's question:
 # the detector is not adjusted to agree with the tree (t-305 N0 step 0).
-PINS = {"scope": 19, "other": 4, "outputs": 16, "tool_fields": 27, "conditional": 11, "validator": 16, "registry": 12}
+PINS = {"scope": 17, "other": 4, "outputs": 16, "tool_fields": 27, "conditional": 11, "validator": 16, "registry": 12}
 
 REAL_INDEX = handoff.index()["handoffs"]
 OLD_EMPTY_SCOPE = "no rows. One row per item in scope: the id, a state and a reason of at most 80 characters."
@@ -146,14 +146,14 @@ def the_real_tree_is_green_and_the_line_is_printed() -> None:
     check_eq("the detector over the real package finds nothing wrong", REAL.problems, [])
     print(REAL.line())                      # never silent: the default rule's count is on every run (FR-41)
     c = REAL.counts
-    check_eq("K0.4: the walk sizes AT their pins (19 scope contracts, 4 others, 16 outputs, 27 tool fields, 11 "
+    check_eq("K0.4: the walk sizes AT their pins (17 scope contracts, 4 others, 16 outputs, 27 tool fields, 11 "
 "conditional, 16 validator rows, 12 conditions)",
              (c["scope"], c["other"], c["outputs"], c["tool_fields"], c["conditional"], c["validator"],
-              len(NO.CONDITIONS)), (19, 4, 16, 27, 11, 16, 12))
-    check_eq("homes: one declared, 20 never_empty (+16 validator), 52 pending",
-             (c["declared"], c["never_empty"], c["pending"]), (1, 20, 52))
+              len(NO.CONDITIONS)), (17, 4, 16, 27, 11, 16, 12))
+    check_eq("homes: one declared, 18 never_empty (+16 validator), 52 pending",
+             (c["declared"], c["never_empty"], c["pending"]), (1, 18, 52))
     check_in("K0.8: the summary line says what was walked and what each home holds",
-             "walked scope 19, outputs 16, tool fields 27, conditional 11 | declared 1, never_empty 20 (+16 validator), "
+             "walked scope 17, outputs 16, tool fields 27, conditional 11 | declared 1, never_empty 18 (+16 validator), "
              "pending 52 of which by default ", REAL.line())
     defaults = [r for r in REAL_DATA["pending"] if r["default"] is True]
     check_eq("K0.8: Z in the line is COMPUTED - it is the count of `default: true` rows", c["default"], len(defaults))
@@ -280,12 +280,12 @@ def the_registry_and_the_declaration_shape() -> None:
 def the_walk_sizes_AT_and_BEYOND() -> None:
     check_eq("K0.4: AT the pins - the real tree is green", REAL.problems, [])
     short = audit(index=[r for r in REAL_INDEX if r["contract"] != "s9-retro-to-project"])
-    check_in("K0.4 negative: a stubbed index minus one scope contract", "scope contracts: 18, pinned 19", " | ".join(short.problems))
+    check_in("K0.4 negative: a stubbed index minus one scope contract", "scope contracts: 16, pinned 17", " | ".join(short.problems))
     SYN["syn"] = syn_doc(VALID)
     extra = {"stage": "S7", "from": "a", "to": "b", "contract": "syn", "kind": "review"}
     plus = NO.audit(index=REAL_INDEX + [extra], spec_of=s_spec, sections_of=s_sections, raw=s_raw, reader=s_reader,
                     pins=PINS)
-    check_in("K0.4 negative: plus one scope contract - the size is red", "scope contracts: 20, pinned 19", " | ".join(plus.problems))
+    check_in("K0.4 negative: plus one scope contract - the size is red", "scope contracts: 18, pinned 17", " | ".join(plus.problems))
     SYN["syn"] = syn_doc("")            # the same new contract, declaring nothing: it has no home, and is named
     unhomed = NO.audit(index=REAL_INDEX + [extra], spec_of=s_spec, sections_of=s_sections, raw=s_raw, reader=s_reader,
                        pins=PINS)
@@ -367,7 +367,7 @@ def the_never_empty_rows() -> None:
           "NE6" not in ids and "NE8" not in ids, str(ids))
     check_eq("K0.6: the row ids are the 22 the plan lists and the two of the S5 plan handovers (NE25, NE26), NE27 (gate B orders), NE28 (the register evidence ref), NE29 (the Then quotes) and NE30, NE31 (the register's branches and source obligations, G2-11) and NE32 (the register's pictures) and NE33 (the bug reporter's scope, HF8-21)",
              sorted(ids, key=lambda i: int(i[2:])),
-             [f"NE{n}" for n in (1, 2, 3, 4, 5, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38)])
+             [f"NE{n}" for n in (1, 2, 3, 4, 5, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 36, 37, 38)])
     row = next(r for r in rows if r["id"] == "NE37")
     check_eq("K0.6: NE37 (the first look's rows, t-2277 FL-2) is guarded by its one validator",
              (row["kind"], row["guard"]), ("validator", "first_look.py::put_problems"))
@@ -511,7 +511,7 @@ def undeclared_contracts_refuse_as_before() -> None:
     task = temp_dir("qa-null-k012-")
     try:
         scope_contracts = [r for r in REAL_INDEX if r["kind"] in NO.SCOPE_KINDS and r["contract"] != S7]
-        check_eq("K0.12: eighteen undeclared contracts carry a scope", len(scope_contracts), 18)
+        check_eq("K0.12: sixteen undeclared contracts carry a scope", len(scope_contracts), 16)
 
         def problems_of(contract: str, row: dict) -> list:
             text = (handoff.CONTRACTS / f"{contract}.yaml").read_text(encoding="utf-8")

@@ -72,7 +72,9 @@ def k1_real_tree() -> None:
     check_eq("K1: the real tree is green (every leg, every direction)", report.problems, [])
     print(report.line())
     check_in("K1: the summary line names the walk, the rows, the gaps by leg, the joints and the stages with no detector",
-            "walked exit 8, detector 5, window 27 | rows 40, gaps ", report.line())
+            f"walked exit 8, detector 5, window 27 | rows {len(REAL['joints'])}, gaps ", report.line())
+    check_eq("K1: the rows file holds 267 rows (40 of T1 + 227 landed by T1r); a change is a named change of the file",
+             len(REAL["joints"]), 267)
     check_in("K1/E5: a stage with no detector is reported, not invented",
              "stages with no detector: S0, S1, S6, S7, S9", report.line())
     check_eq("K1: no walk error on the real tree", UNI[1], [])
@@ -111,12 +113,13 @@ def k4_k5_directions() -> None:
     check_in("K4/E2: a check in code with no row is red, naming the key", "exit_gate:new is a check in code", out)
     check_in("K4: naming where the code meets it", "(exit_gate.py::all_errors:1)", out)
     check_in("K4: and saying what to add", "has no row in references/stage-joints.json", out)
-    stale = text_of(audit(data=mutated(lambda d: d["joints"].append(
-        {**copy.deepcopy(row_of(d, "acceptance:review")), "check": "exit_gate:gone"}))))
+    stale = text_of(audit(data=mutated(lambda d: (d["joints"].append(
+        {**copy.deepcopy(row_of(d, "acceptance:review")), "check": "exit_gate:gone"}), d["told_ratchet"].update(unsited=0)))))
     check_in("K5/E3: a row whose check the walk does not meet is stale", "row exit_gate:gone: stale", stale)
     two = text_of(audit(data=mutated(lambda d: d["joints"].append(copy.deepcopy(d["joints"][0])))))
     check_in("K5/E4: two rows for one check", "exit_gate:scoped has two rows", two)
-    old = text_of(audit(data=mutated(lambda d: row_of(d, "exit_gate:scoped").update(check="exit:scoped_errors"))))
+    old = text_of(audit(data=mutated(lambda d: (row_of(d, "exit_gate:scoped").update(check="exit:scoped_errors"),
+                                                d["told_ratchet"].update(unsited=0)))))
     check_in("rename/old-prefix-key: a row in the old prefix form is stale, never matched to its family", "row exit:scoped_errors: stale", old)
     check_in("rename/old-prefix-key: and the family has no row", "exit_gate:scoped is a check in code", old)
 
@@ -505,8 +508,10 @@ def lookups() -> None:
               [r["check"] for r in SJ.rows_for(runner, ["S5"], {"plan": False}, data=unknown)],
               [r["check"] for r in SJ.rows_for(runner, ["S5"], {"plan": True}, data=unknown)]),
              (["u:zz", "u:plan"], ["u:zz", "u:plan"], ["u:zz"], ["u:zz", "u:plan"]))
-    check_eq("rows-for/real: the 40 rows of today state no requirement, so no receiver is told one by this reader yet",
-             [SJ.rows_for(role, ["*"]) for role in (runner, "conductor")], [[], []])
+    real_rows = SJ.rows_for(runner, ["*"])
+    check_eq("rows-for/real: since T1r the runner is told rows (114 today), each stating a requirement; no row names the conductor yet (T9c)",
+             (len(real_rows), all(r.get("requirement") or r.get("requirement_from") for r in real_rows), SJ.rows_for("conductor", ["*"])),
+             (114, True, []))
 
 
 def renderers() -> None:
@@ -528,8 +533,8 @@ def renderers() -> None:
              fields, "; ".join(f"`{n}`: {s.what}" for n, s in window_record.REQUIRED_ROW_FIELDS.items()))
     command = next(name for name, found in role_cli.registry().items() if found.get("input") and found.get("verify"))
     said = SJ.told_text({"check": "a:x", "requirement_from": "role-commands.json", "carrier_key": command})[0]
-    check_eq("told-text/role-commands.json: the command's `input` and `verify`",
-             said, f"{role_cli.entry(command)['input']}; how to prove it: {role_cli.entry(command)['verify']}")
+    check_eq("told-text/role-commands.json: a command row is told as a pointer to its card (T1r-pages: the card itself is `--help` and the refusal)",
+             said, SJ.COMMANDS_TEXT.format(command=command, script=command.split()[0]))
     for label, row in (("an unknown carrier", {"check": "a:x", "requirement_from": "my.table"}),
                        ("a carrier key that names nothing", {"check": "a:x", "requirement_from": "validate_artifacts.PHASE_JSON_KEYS", "carrier_key": "no-such"}),
                        ("a command that names nothing", {"check": "a:x", "requirement_from": "role-commands.json", "carrier_key": "no such command"}),
@@ -538,6 +543,15 @@ def renderers() -> None:
         check(f"told-text/unreadable: {label} reads as a sentence saying so, never an exception or an empty text",
               "could not be read" in text and "this is a factory defect" in text and door == "", text)
     check_eq("told-line/form: `- [<check>] <expected> Door: <door>.`", SJ.told_line(own), "- [a:x] Say it. Door: edit <ID> in <home>.")
+    for label, said, line in (("no final stop: the stop is added", "carried x", "- [a:x] carried x. Door: d."),
+                              ("ends in a backtick: the stop follows it", "keys `a`", "- [a:x] keys `a`. Door: d."),
+                              ("ends in a closing bracket: the stop follows it", "keys (a)", "- [a:x] keys (a). Door: d."),
+                              ("ends in `!` or `?`: no second stop", "stop!", "- [a:x] stop! Door: d."),
+                              ("ends in `.` after trailing blanks: no second stop", "stop.  ", "- [a:x] stop. Door: d.")):
+        check_eq(f"told-line/stop: {label}", SJ.told_line({"check": "a:x", "requirement": said, "door": "d"}), line)
+    carrier = {"check": "a:x", "requirement_from": "validate_artifacts.PHASE_JSON_KEYS", "carrier_key": artifact, "door": "d"}
+    check_eq("told-line/stop: a carrier row (no final stop of its own) renders `...x. Door: d.`", SJ.told_line(carrier),
+             f"- [a:x] `{artifact}` carries the keys " + ", ".join(f"`{k}`" for k in keys) + ". Door: d.")
     check_eq("told-line/form: `fill` is applied when values are given", SJ.told_line(own, {"ID": "d-1", "home": "/q"}),
              "- [a:x] Say it. Door: edit d-1 in /q.")
     check_eq("fill/missing-value-kept: a missing, empty or None value leaves its placeholder; other angle words stay",
@@ -574,8 +588,9 @@ def rename() -> None:
         "exit_gate:scoped", "exit_gate:text_end_after_handback", "exit_gate:witness_errors"])
     check_eq("rename/pins: the 5 detector keys", kind_keys("detector"),
              ["branch_accounting:*", "check_coverage:*", "critic_rollcall:*", "planning_contract:*", "s5_precheck:*"])
-    check_eq("rename/pins: every row of the file is a key of the universe and the other way round",
-             sorted(r["check"] for r in REAL["joints"]), sorted(UNI[0]))
+    check_eq("rename/pins: every key of the universe has a row (the file also holds the 227 rows of T1r for sites outside the universe)",
+             sorted(set(UNI[0]) - {r["check"] for r in REAL["joints"]}), [])
+    check_eq("rename/pins: no row key is used twice", len({r["check"] for r in REAL["joints"]}), len(REAL["joints"]))
     check_eq("rename/pins: AT the pins nothing is red, ±1 is (all three kinds)", [SJ._pins(UNI[0], PINS)] + [
         len(SJ._pins(UNI[0], {**PINS, k: PINS[k] + d})) for k in PINS for d in (-1, 1)], [[], 1, 1, 1, 1, 1, 1])
     only = {"foo:*": member("detector", stages=["S2"])}
@@ -598,8 +613,10 @@ def merges() -> None:
     check_eq("merge/branch-accounting: one row, four producers (one per stage the script runs at), stages S2-S5, joint null",
              (len(rows), [p["roles"] for p in rows[0]["producers"]], rows[0]["stages"], rows[0]["joint"]),
              (1, [["qa-requirements-tester"], ["qa-test-strategist"], ["qa-case-critic"], ["qa-automator"]], ["S2", "S3", "S4", "S5"], None))
-    check_eq("merge/branch-accounting: its one gap (F6-51/4, the case critic) survived the merge",
-             [p["gap"]["ref"] for p in rows[0]["producers"] if p.get("gap")], ["F6-51/4"])
+    check_eq("merge/branch-accounting: since T1r its case-critic leg is told by the key page, so gap F6-51/4 is gone and no gap is left",
+             ([p["gap"]["ref"] for p in rows[0]["producers"] if p.get("gap")],
+              [t for p in rows[0]["producers"] for t in p.get("told", [])]),
+             ([], [{"path": "references/slices/<role>/handoff-keys.md", "anchor": "## Outputs"}] * 5))
     check_eq("merge/stages-from-model: the real rows are green", audit(pins=PINS).problems, [])
     short = text_of(audit(data=mutated(lambda d: row_of(d, "branch_accounting:*").update(stages=["S2", "S3", "S5"]))))
     check_in("merge/stages-from-model: with S4 removed from the row it is red, naming the stages the model gives",
@@ -733,13 +750,34 @@ def measure_untold(units: dict, rows: dict, found: list) -> int:
     return count
 
 
+def KEY_PAGE_ROLES(row: dict) -> list:
+    """The roles a row's producers name literally (a `*` is expanded by the caller's mapped set, not here)."""
+    return [r for e in row.get("producers") or [] if isinstance(e, dict) and isinstance(e.get("roles"), list) for r in e["roles"] if r != SJ.ANY]
+
+
+def row_counts(row: dict, role: str, mapped: set) -> bool:
+    """K5 (T1r-pages P-8): a row counts for a role when a producer names the role AND the row tells it: it states a requirement
+    (page or call: a call-told row is a row that states one), or it is a sentence-less row whose leg for that role is the role's
+    OWN key page (`references/slices/<role>/handoff-keys.md`, the `<role>` placeholder expanded for this role). Another role's page,
+    an unexpanded placeholder and a leg with no path do not count (the error direction is toward NOT counting)."""
+    if not SJ._row_names(row, role, lambda: mapped):
+        return False
+    if SJ._states_requirement(row):
+        return True
+    own = SJ.KEY_PAGE.format(role=role)
+    return any(isinstance(e, dict) and isinstance(e.get("roles"), list) and (role in e["roles"] or SJ.ANY in e["roles"])
+               and any(isinstance(t, dict) and isinstance(t.get("path"), str) and SJ._expand(t["path"], role) == own
+                       for t in e.get("told") or [])
+               for e in row.get("producers") or [])
+
+
 def k5_problems(unit_roles: dict, unit_rows: dict, mapped: set) -> list:
     """K5: the roles of a unit (census roles minus the conductor) are each named by a told row of it (`SJ._row_names`: `*` is
     every mapped role, never the conductor)."""
     out = []
     for unit, rows in sorted(unit_rows.items()):
         missing = {r for r in set(unit_roles.get(unit) or []) - {"conductor"}
-                   if not any(SJ._row_names(row, r, lambda: mapped) for row in rows)}
+                   if not any(row_counts(row, r, mapped) for row in rows)}
         if missing:
             out.append(f"{unit[0]}::{unit[1]} is met by {', '.join(sorted(missing))}, which no row of it names")
     return out
@@ -750,7 +788,7 @@ def told_unit_rows(ids: dict, data: dict) -> dict:
     cover: the row's own id, a `<stem>:*` row for every id of that stem, a sub-id row `<id>.<part>` for its parent id."""
     out = {}
     for row in data["joints"]:
-        if not SJ._states_requirement(row):
+        if not SJ._states_requirement(row) and not any(row_counts(row, r, {r}) for r in KEY_PAGE_ROLES(row)):
             continue
         check = str(row.get("check"))
         stem = check.split(":", 1)[0]
@@ -790,6 +828,9 @@ def told_world() -> dict:
     joined = rep["units"]
     ids = {RR.check_of(e): (Path(e["file"]).name, e["function"]) for e in RR.REGISTRY}
     ids.update({i: (f, fn) for i, (f, fn, _line) in SJ.check_ids().items()})
+    # the literal `exit_gate:required_outputs` is the family `required_outputs_errors` collects (`own(..., "exit_gate:required_outputs")`
+    # in `all_errors`); the walk maps every literal to `all_errors`, this join gives that one literal its own unit (t-722 Q1)
+    ids["exit_gate:required_outputs"] = ("exit_gate.py", "required_outputs_errors")
     unit_roles = {k: r.get("roles") for k, r in rows.items()}
     _WORLD.update(
         rep=rep, rows=rows, units=units, ids=ids, unit_roles=unit_roles,
@@ -816,8 +857,8 @@ def told_real() -> None:
     check_eq("K1: no check argument the scanner cannot read (`own` is a listed pass-through)", totals["check_arg_errors"], 0)
     check_eq("K1-A24/at-baseline: the A24 and literal ids a role can meet and no row covers equal the baseline",
              rowless_problems(world["rowless"], told["rowless"]), [])
-    check_in("K1-lit/adviser-counted: `exit_gate:adviser` (a literal id of a role-reachable unit, no row yet) is counted until T1r",
-             "exit_gate:adviser", " ".join(world["rowless"]))
+    check_eq("K1-lit/adviser-rowed: `exit_gate:adviser` (a literal id of a role-reachable unit) has its row since T1r and is not counted",
+             ("exit_gate:adviser" in world["rowless"], SJ.row_for("exit_gate:adviser", REAL)[0] is not None), (False, True))
     check_eq("K6/untold-counted: the blocking units with a role and no sourced/tagged site are at their baseline",
              untold_problems(world["untold"], told["untold"]), [])
     check_eq("K4/at-baseline: bare/tagged of every role-reachable unit at or under its baseline",
@@ -852,34 +893,63 @@ def told_variants() -> None:
     missing = text_of(audit(data=mutated(lambda d: d["joints"].remove(row_of(d, "exit_gate:digest")))))
     check_in("K1/missing-row: a v1-derived check (an exit family) with no row is red, naming it and where code meets it",
              "exit_gate:digest is a check in code (exit_gate.py::all_errors:", missing)
-    fallback = text_of(audit(data=mutated(lambda d: d["joints"].append({**copy.deepcopy(row_of(d, "acceptance:review")), "check": "exit_gate:unlabelled"}))))
+    fallback = text_of(audit(data=mutated(lambda d: (d["joints"].append({**copy.deepcopy(row_of(d, "acceptance:review")), "check": "exit_gate:unlabelled"}),
+                                                     d["told_ratchet"].update(unsited=0)))))
     check_in("K1-lit/fallback-no-row: a row keyed by a fallback id is not sited by it (E5)", "row exit_gate:unlabelled: stale", fallback)
     first = RR.check_of(RR.REGISTRY[0])
     check_eq("B/row-keyed-by-any-entry-not-stale: a row keyed by the check id of an A24 entry has a site",
              audit(data=mutated(lambda d: d["joints"].append({**copy.deepcopy(row_of(d, "acceptance:review")), "check": first}))).problems, [])
+    def swap_adviser(d):
+        """The real file holds one row for the literal (since T1r): the world replaces it by a copy of another row under the literal."""
+        d["joints"].remove(row_of(d, "exit_gate:adviser"))
+        d["joints"].append({**copy.deepcopy(row_of(d, "acceptance:review")), "check": "exit_gate:adviser"})
     check_eq("B/row-keyed-by-literal-not-stale: a row keyed by a literal id of the scanner (`exit_gate:adviser`) has a site",
-             audit(data=mutated(lambda d: d["joints"].append({**copy.deepcopy(row_of(d, "acceptance:review")), "check": "exit_gate:adviser"}))).problems, [])
+             audit(data=mutated(swap_adviser)).problems, [])
     check_eq("B/row-keyed-by-literal-not-stale: and a sub-id of a sited id too",
              audit(data=mutated(lambda d: d["joints"].append({**copy.deepcopy(row_of(d, "acceptance:review")), "check": f"{first}.part"}))).problems, [])
     gone = lambda d: d["joints"].append({**copy.deepcopy(row_of(d, "acceptance:review")), "check": "exit_gate:gone"})
+    # Each synthetic world states its own baseline: `base` is the measured real number (the tree's own cap), never inherited silently.
+    base = REAL["told_ratchet"]["unsited"]
     check_in("E11/stale-when-baseline-0: an unsited row with the baseline at 0 is a stale row, red", "row exit_gate:gone: stale",
-             text_of(audit(data=mutated(gone))))
-    one = lambda d: (gone(d), d["told_ratchet"].update(unsited=1))
-    check_eq("E11/unsited-at-baseline: AT the baseline (1 row, baseline 1) is green", audit(data=mutated(one)).problems, [])
-    two = lambda d: (gone(d), d["joints"].append({**copy.deepcopy(row_of(d, "acceptance:review")), "check": "exit_gate:gone2"}), d["told_ratchet"].update(unsited=1))
-    check_in("E11/unsited-over: over the baseline is red naming the counter, both numbers and the rows",
-             "told_ratchet.unsited is 1 but 2 rows have no site in code (exit_gate:gone, exit_gate:gone2)", text_of(audit(data=mutated(two))))
-    check_eq("K12/unsited-cap: the real tree measures the stored number; a cap above the measurement is allowed (<=)",
-             (audit().counts["unsited"], REAL["told_ratchet"]["unsited"], audit(data=mutated(lambda d: d["told_ratchet"].update(unsited=3))).problems),
-             (0, 0, []))
+             text_of(audit(data=mutated(lambda d: (gone(d), d["told_ratchet"].update(unsited=0))))))
+    one = lambda d: (gone(d), d["told_ratchet"].update(unsited=base + 1))
+    check_eq(f"E11/unsited-at-baseline: AT the baseline (one more row than the real {base}, baseline {base + 1}) is green",
+             audit(data=mutated(one)).problems, [])
+    two = lambda d: (gone(d), d["joints"].append({**copy.deepcopy(row_of(d, "acceptance:review")), "check": "exit_gate:gone2"}),
+                     d["told_ratchet"].update(unsited=base + 1))
+    check_in("E11/unsited-over: over the baseline is red naming the counter, both numbers and the two rows",
+             f"told_ratchet.unsited is {base + 1} but {base + 2} rows have no site in code", text_of(audit(data=mutated(two))))
+    check_in("E11/unsited-over: and the new rows close the listed ids", "exit_gate:gone, exit_gate:gone2)", text_of(audit(data=mutated(two))))
+    # K12: the cap is a NAMED number. raised_by: t-693 (T1r landed 227 rows whose sites are written later). It shrinks as the siting nodes
+    # land: T9a (controller 6), T5 (s5_precheck 11, execution_request 10 rows, manifest_put 14, run_suite 7), T5b (execution_request --mine 14),
+    # T6 (handoff_check 21), T7a-1..8 (validate_artifacts 42), T7b (planning_contract 12), T7c (coverage_contract 2), T3b (first_look 11).
+    # lowered 150 -> 119 by T1r-sites (S-1a + S-1b sited 31 rows; the ratchet follows the measure).
+    UNSITED_CAP = 119
+    check_eq("K12/unsited-cap: the real tree measures the named cap (a cap above the measurement is allowed (<=), one below is red)",
+             (audit().counts["unsited"], REAL["told_ratchet"]["unsited"], UNSITED_CAP,
+              audit(data=mutated(lambda d: d["told_ratchet"].update(unsited=UNSITED_CAP + 3))).problems,
+              len(audit(data=mutated(lambda d: d["told_ratchet"].update(unsited=UNSITED_CAP - 1))).problems) > 0),
+             (119, 119, 119, [], True))
+
+    def extra_leg(d):
+        """One more legacy told leg: a role entry told by a path other than its key page."""
+        entry = next(p for r in d["joints"] for p in r["producers"] if not p.get("code") and isinstance(p.get("told"), list))
+        entry["told"].append({"path": "agents/qa-runner.md"})
     for counter, up, down in (("hand_cards", True, True), ("legacy_legs", True, False)):
         stored = REAL["told_ratchet"][counter]
         dash = counter.replace("_", "-")
         report = audit()
         check_eq(f"told/{dash}-at-baseline: the walk counts the stored number and is green", (report.counts[counter], report.problems), (stored, []))
-        check_in(f"told/{dash}-plus-one: one more than the stored number is red naming the counter, the measured and the stored value",
-                 f"told_ratchet.{counter} is {stored - 1} but the walk counts {stored}", text_of(audit(data=mutated(
-                     lambda d, counter=counter: d["told_ratchet"].update({counter: stored - 1})))))
+        if counter == "legacy_legs":
+            check_eq("told/legacy-legs-floor: the stored number is 0, the floor of a count", stored, 0)
+            check_in("told/legacy-legs-plus-one: one more legacy leg than the stored 0 is red naming the counter, the measured and the stored value",
+                     "told_ratchet.legacy_legs is 0 but the walk counts 1", text_of(audit(data=mutated(extra_leg))))
+            check_in("told/legacy-legs-negative: a stored -1 is no count, red by the shape check",
+                     "a count (an integer, 0 or more) is expected", text_of(audit(data=mutated(lambda d: d["told_ratchet"].update(legacy_legs=-1)))))
+        else:
+            check_in(f"told/{dash}-plus-one: one more than the stored number is red naming the counter, the measured and the stored value",
+                     f"told_ratchet.{counter} is {stored - 1} but the walk counts {stored}", text_of(audit(data=mutated(
+                         lambda d, counter=counter: d["told_ratchet"].update({counter: stored - 1})))))
         low = text_of(audit(data=mutated(lambda d, counter=counter: d["told_ratchet"].update({counter: stored + 1}))))
         check_eq(f"told/{dash}-minus-one: {'dense: below is red, saying what to lower it to' if down else 'not dense (the table says audit only): below is green'}",
                  f"lower told_ratchet.{counter} to {stored}" in low, down)
@@ -907,7 +977,7 @@ def told_variants() -> None:
              "an overridden and a non-blocking unit are not counted",
              [measure_untold(units, rows, found) for found in ([site("bare")], [site("sourced")], [site("tagged")], [])], [1, 0, 0, 1])
     check_eq("K5/roles-subset: a unit's roles minus the conductor must all be named by its rows (`*` is every mapped role)",
-             [k5_problems({u: r}, {u: [a_row("x:y", roles=rr)]}, {"qa-runner", "qa-scout"}) for r, rr in (
+             [k5_problems({u: r}, {u: [a_row("x:y", roles=rr, requirement="r")]}, {"qa-runner", "qa-scout"}) for r, rr in (
                  (["qa-runner", "conductor"], ("qa-runner",)), (["qa-runner", "qa-scout"], ("qa-runner",)), (["qa-runner", "qa-scout"], ("*",)))],
              [[], ["f.py::g is met by qa-scout, which no row of it names"], []])
     stub = a_rows_file(a_row("x:one", roles=("qa-runner",), requirement="a requirement"), a_row("y:*", roles=("qa-scout",), requirement="r"),
@@ -978,27 +1048,44 @@ def told_leg_and_rows() -> None:
              text_of(audit(data=mutated(lambda d: d["joints"].append(copy.deepcopy(row_of(d, "exit_gate:scoped")))))))
     check_in("E7/two-star-rows: two `<stem>:*` rows for one stem are red", "branch_accounting:* has two rows",
              text_of(audit(data=mutated(lambda d: d["joints"].append(copy.deepcopy(row_of(d, "branch_accounting:*")))))))
+    # T1r: the `*` stage line and the page branch of the demands leg (the invariants: a mixed or unknown stage and a path entry with
+    # no demands stay red; a page entry's tokens are still checked)
+    one_row = lambda stages: SJ._row_problems(a_row("a:x", stages=stages, requirement="Say it.", door="d"), ENV, stage_ids, {}, kinds)[0]
+    check_eq("stages-star/ok: the single item `*` (every stage) is green", [p for p in one_row(["*"]) if "stages" in p], [])
+    check_in("stages-star/mixed-red: `*` beside a stage id is red", "`*` stands alone", " ".join(one_row(["*", "S3"])))
+    check_in("stages-empty/red: an empty stage list stays red", "`stages` is empty", " ".join(one_row([])))
+    check_in("stages-star/unknown-red: an unknown stage id stays red", "which are no stage of stages.json", " ".join(one_row(["S99"])))
+    page = {"roles": ["qa-runner"], "field": "a field", "told": [{"page": True}], "demands": []}
+    check_eq("demands-page/empty-ok: a page entry with no demands is no finding (the page carries the sentence)",
+             SJ._demands_leg("a:x", page, ENV), [])
+    check_in("demands-page/token-missing-red: a page entry's token is looked up on the key page and a missing one is red",
+             "qa-runner is not told `zz_not_a_token_zz`", " ".join(SJ._demands_leg("a:x", {**page, "demands": ["zz_not_a_token_zz"]}, ENV)))
+    check_eq("demands-page/token-present-ok: a token the key page holds is green", SJ._demands_leg("a:x", {**page, "demands": ["## Outputs"]}, ENV), [])
+    check_in("demands-path/empty-red: a path entry with no demands stays red",
+             "the demands leg is missing for qa-runner", " ".join(SJ._demands_leg("a:x", {
+                 **page, "told": [{"path": "references/slices/<role>/handoff-keys.md", "anchor": "## Outputs"}]}, ENV)))
     # K2: the page leg is gated on the renderer
     env = copy.copy(ENV)
     env.load_map = {"common": [], "roles": {"qa-runner": [f"plugin:{SJ.KEY_PAGE.format(role='qa-runner')}"], "qa-scout": []}}
     row = a_row("a:x", roles=("qa-runner", "qa-scout"), requirement="Say it.", door="d")
     entry = row["producers"][0]
-    check_in("K2/gated-off: while `contract_slices` has no `requirement_section` a page item is refused", "the page renderer is not present",
-             " ".join(SJ._told_leg(entry, env, row)))
-    check_in("K2/gated-off: through the audit of a whole row", "the page renderer is not present", " ".join(SJ._row_problems(row, env, stage_ids, {}, kinds)[0]))
-    check_eq("K2/gated-off: the attribute is absent in the real package today", hasattr(contract_slices, SJ.PAGE_RENDERER), False)
-    setattr(contract_slices, SJ.PAGE_RENDERER, lambda *a, **k: "")
+    check_eq("K2/gated-on: T3a's renderer is present in the real package", callable(getattr(contract_slices, SJ.PAGE_RENDERER, None)), True)
+    real_renderer = getattr(contract_slices, SJ.PAGE_RENDERER)
+    delattr(contract_slices, SJ.PAGE_RENDERER)                  # the gate both ways: the attribute taken away, then put back
     try:
-        said = " ".join(SJ._told_leg(entry, env, row))
-        check_in("K2/gated-on: with the renderer present the leg is real: a role whose list lacks its key page is red", "qa-scout does not receive", said)
-        check_eq("K2/gated-on: and the role whose list holds it is green", "qa-runner" in said, False)
-        check_eq("K2/gated-on: a role whose capability the row's `when` does not admit owes no page",
-                 SJ._told_leg({**entry, "roles": ["qa-case-critic"]}, env, {**row, "when": ["shell"]}), [])
-        check_in("K2/gated-on: the conductor's section needs `conductor_answer` or a `move:<id>` in `when`", "selected by `conductor_answer`",
-                 " ".join(SJ._told_leg({**entry, "roles": ["conductor"]}, env, {**row, "when": ["always"]})))
-        check_eq("K2/gated-on: and holds with it", SJ._told_leg({**entry, "roles": ["conductor"]}, env, {**row, "when": ["conductor_answer"], "stages": ["*"]}), [])
+        check_in("K2/gated-off: while `contract_slices` has no `requirement_section` a page item is refused", "the page renderer is not present",
+                 " ".join(SJ._told_leg(entry, env, row)))
+        check_in("K2/gated-off: through the audit of a whole row", "the page renderer is not present", " ".join(SJ._row_problems(row, env, stage_ids, {}, kinds)[0]))
     finally:
-        delattr(contract_slices, SJ.PAGE_RENDERER)
+        setattr(contract_slices, SJ.PAGE_RENDERER, real_renderer)
+    said = " ".join(SJ._told_leg(entry, env, row))
+    check_in("K2/gated-on: with the renderer present the leg is real: a role whose list lacks its key page is red", "qa-scout does not receive", said)
+    check_eq("K2/gated-on: and the role whose list holds it is green", "qa-runner" in said, False)
+    check_eq("K2/gated-on: a role whose capability the row's `when` does not admit owes no page",
+             SJ._told_leg({**entry, "roles": ["qa-case-critic"]}, env, {**row, "when": ["shell"]}), [])
+    check_in("K2/gated-on: the conductor's section needs `conductor_answer` or a `move:<id>` in `when`", "selected by `conductor_answer`",
+             " ".join(SJ._told_leg({**entry, "roles": ["conductor"]}, env, {**row, "when": ["always"]})))
+    check_eq("K2/gated-on: and holds with it", SJ._told_leg({**entry, "roles": ["conductor"]}, env, {**row, "when": ["conductor_answer"], "stages": ["*"]}), [])
     check_in("K2/gated-off: a code producer is not told by a page", "a code producer is told where it is CALLED",
              " ".join(SJ._told_leg({"code": "x.py::f", "told": [{"page": True}]}, env, row)))
     check_in("K2: `page: 1` is no page item", "a told entry is not an object of path and anchor", " ".join(SJ._told_leg({**entry, "told": [{"page": 1}]}, env, row)))
@@ -1026,6 +1113,91 @@ def told_leg_and_rows() -> None:
              ([p for p in opened if "judgment-census" in p or "told-ratchet" in p], shaped.problems), ([], []))
 
 
+def t1rp() -> None:
+    """T1r-pages: the pointer for a command row, the call marker (K2), the one decision `call_told`, the shape of the family list, K5's legs."""
+    import io
+    import role_cli
+    key = next(k for k, f in role_cli.registry().items() if f.get("input") and f.get("verify"))
+    row_of_cmd = lambda k: {"check": "role_cli:x", "requirement_from": "role-commands.json", "carrier_key": k, "door": "d"}
+    check_eq("T1rp/role-cli-pointer/real: a real key reads as the pointer, with the `--help` clause and the script = first token",
+             SJ._carrier_expected(row_of_cmd(key)), (SJ.COMMANDS_TEXT.format(command=key, script=key.split()[0]), ""))
+    check_in("T1rp/role-cli-pointer/subcommand: the script is the first token of the key", f"`{key.split()[0]} --help`", SJ._carrier_expected(row_of_cmd(key))[0])
+    check_eq("T1rp/role-cli-pointer/absent: a key with no command is the defect text (no pointer to nothing)",
+             SJ._carrier_expected(row_of_cmd("no such command")), ("", "no command `no such command`"))
+    real_registry = role_cli.registry
+    role_cli.registry = lambda: {"zz.py a": {"roles": ["qa-runner"]}}
+    try:
+        check_eq("T1rp/role-cli-pointer/empty-card: a command with neither `input` nor `verify` is the defect text",
+                 SJ._carrier_expected(row_of_cmd("zz.py a")), ("", "command `zz.py a` has no card"))
+    finally:
+        role_cli.registry = real_registry
+    out = io.StringIO()
+    role_cli.refuse(key, "it is wrong", out)
+    check_in("T1rp/refusal-keeps-card: the refusal still prints the card's `input`", f"what to write: {role_cli.entry(key)['input']}", out.getvalue())
+    # the call marker (K2)
+    env = copy.copy(ENV)
+    env.load_map = {"common": [], "roles": {"qa-runner": [f"plugin:{SJ.KEY_PAGE.format(role='qa-runner')}"]}}
+    row = a_row("t:one", requirement="Say it.", door="d")
+    entry = row["producers"][0]
+    entry["told"] = [{"page": True, "call": True}]
+
+    def leg(families, sited, the_row=row, the_entry=entry):
+        env.call_families, env.sited = families, sited
+        return SJ._told_leg(the_entry, env, the_row)
+    check_eq("T1rp/call-leg/listed-ok: the family listed, the row stating a requirement and sited: the marker is green", leg(["t"], {"t:one"}), [])
+    check_eq("T1rp/call-leg/family-not-listed-dormant: the family not listed: the marker sleeps, K2 is green and the row is page-told",
+             (leg([], {"t:one"}), SJ.call_told(row, "qa-runner", [], {"t:one"})), ([], False))
+    check_in("T1rp/call-leg/no-requirement-red: a marker on a row that states no requirement is refused, naming the row",
+             "t:one states no requirement", " ".join(SJ._call_leg(entry, {**row, "requirement": ""}, (setattr(env, "call_families", ["t"]), env)[1])))
+    check_in("T1rp/call-leg/unsited-red: a marker on a row with no site in code is refused, the page item stands",
+             "t:one has no site in code", " ".join(leg(["t"], set())))
+    check_in("T1rp/call-leg/call-1-red: `call: 1` is no marker", "a told entry is not an object",
+             " ".join(leg(["t"], {"t:one"}, row, {**entry, "told": [{"page": True, "call": 1}]})))
+    check_eq("T1rp/call-leg/legacy-still-0: a call marker is no legacy leg, and the real file counts none", SJ._legacy_legs(REAL["joints"]), 0)
+    split = {**row, "producers": [entry, {**entry, "roles": ["qa-scout"], "told": [{"page": True}]}]}
+    check_eq("T1rp/call-told/decision: listed + sited + stating + every entry naming the role marked is True; an unmarked entry, an unsited row, "
+             "an unnamed role, a code-less doubt are False",
+             [SJ.call_told(row, "qa-runner", ["t"], {"t:one"}), SJ.call_told(split, "qa-scout", ["t"], {"t:one"}),
+              SJ.call_told(split, "qa-runner", ["t"], {"t:one"}), SJ.call_told(row, "qa-runner", ["t"], set()),
+              SJ.call_told(row, "qa-scout", ["t"], {"t:one"}), SJ.call_told(row, "qa-runner", "t", {"t:one"})],
+             [True, False, True, False, False, False])
+    # the family list: shape, reversibility
+    check_eq("T1rp/call-families/real: the real file lists the six families and the real audit is clean with them",
+             (SJ.call_families(REAL), audit().problems),
+             (["guard_pre_tool", "stage_guard", "host_adapter", "execution_request", "run_suite", "role_cli"], []))
+    check_eq("T1rp/call-families/empty-green: an EMPTY list is green (no row is told at the call; every row is page-told)",
+             audit(data=mutated(lambda d: d.update(call_told_families=[], call_index_wording={}))).problems, [])
+    for label, change, said in (("unknown family", lambda d: d["call_told_families"].append("zz_nope"), "names `zz_nope`, which is the family of no row"),
+                                ("not a list", lambda d: d.update(call_told_families="role_cli"), "is not a list of distinct family names"),
+                                ("a repeat", lambda d: d["call_told_families"].append("role_cli"), "is not a list of distinct family names"),
+                                ("absent", lambda d: d.pop("call_told_families"), "lacks `call_told_families`")):
+        check_in(f"T1rp/call-families/{label.replace(' ', '-')}-red", said, text_of(audit(data=mutated(change))))
+    # the wording of each family's index line is data too: one per listed family
+    check_eq("T1rp/call-wording/real: one wording per listed family, the real audit is clean with them",
+             sorted(SJ.call_wording(REAL)), sorted(SJ.call_families(REAL)))
+    check_eq("T1rp/call-wording/unusable-sleeps: a listed family with no usable wording is not told at the call (its rows stay on the page)",
+             SJ.call_families({**REAL, "call_index_wording": {k: v for k, v in REAL["call_index_wording"].items() if k != "role_cli"}}),
+             [f for f in SJ.call_families(REAL) if f != "role_cli"])
+    for label, change, said in (("missing", lambda d: d["call_index_wording"].pop("role_cli"), "has no wording for the listed family `role_cli`"),
+                                ("unlisted", lambda d: d["call_index_wording"].update(zz_nope="x"), "has a wording for `zz_nope`, which `call_told_families` does not list"),
+                                ("empty", lambda d: d["call_index_wording"].update(role_cli="  "), "wording of `role_cli` is not a non-empty text"),
+                                ("not-text", lambda d: d["call_index_wording"].update(role_cli=7), "wording of `role_cli` is not a non-empty text"),
+                                ("not-object", lambda d: d.update(call_index_wording=["role_cli"]), "is not an object of one wording per listed family"),
+                                ("absent", lambda d: d.pop("call_index_wording"), "lacks `call_index_wording`")):
+        check_in(f"T1rp/call-wording/{label}-red", said, text_of(audit(data=mutated(change))))
+    # K5 (P-8)
+    page_row = lambda path, roles=("qa-runner",): {"check": "t:x", "producers": [{"roles": list(roles), "field": "f", "demands": [],
+                                                                                  "told": [{"path": path, "anchor": "## Outputs"}]}]}
+    check_eq("K5/key-page-leg-counts: a sentence-less row whose leg is the role's own key page (placeholder expanded) counts for it",
+             row_counts(page_row("references/slices/<role>/handoff-keys.md"), "qa-runner", {"qa-runner"}), True)
+    check_eq("K5/other-role-page-not-counted: another role's page, a leg with no path and a bare sentence-less row do not count",
+             [row_counts(page_row("references/slices/qa-scout/handoff-keys.md"), "qa-runner", {"qa-runner"}),
+              row_counts({**page_row("x"), "producers": [{"roles": ["qa-runner"], "told": [{"page": True}]}]}, "qa-runner", {"qa-runner"}),
+              row_counts(page_row("references/slices/<role>/handoff-keys.md", ("qa-scout",)), "qa-runner", {"qa-runner"})], [False, False, False])
+    check_eq("K5/call-told-counts: a row that states a requirement and carries the call marker counts for the roles it names",
+             row_counts(row, "qa-runner", {"qa-runner"}), True)
+
+
 def main() -> None:
     k1_real_tree()
     k2_k3_pins()
@@ -1048,6 +1220,7 @@ def main() -> None:
     exit_gate_sites()
     told_variants()
     told_leg_and_rows()
+    t1rp()
     told_real()
     finish("test_stage_joints")
 

@@ -155,6 +155,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import assertion_detectors as AD  # noqa: E402
 import contract as C  # noqa: E402
+from detector_verdict import refusal, told_fields  # noqa: E402
 import proof_level  # noqa: E402
 import reporters  # noqa: E402
 from red_sandbox import held_ids, matching_rows  # noqa: E402,F401  (the one matcher, HF4-12; red_sandbox never imports this module)
@@ -202,7 +203,14 @@ _FRAME = re.compile(r"^(?P<path>[^\s:]+?\.py):(?P<line>\d+)(?::|\s|$)")
 
 
 class Refusal(ValueError):
-    """A problem with what was asked — answered before any file is touched."""
+    """A problem with what was asked — answered before any file is touched. `records` is the `detector_verdict.refusal` Records
+    of the checks this refusal carries (`()` when none): the one-JSON printers add what each expected (`told_fields`); the message
+    is never changed by them."""
+    records: tuple = ()
+
+    def __init__(self, message: str = "", *records):
+        super().__init__(message)
+        self.records = tuple(records)
 
 
 class ToolRefusal(Refusal):
@@ -2685,7 +2693,9 @@ def _profile_of(cfg: dict, rows: list, case: str) -> dict:
         # This tool takes no `--profile`: the refusal names only the manifest-row door (FR-2).
         wanted = ER._profile_for(cfg, files, "", [r["entry"] for r in rows], [], [case], profile_door=False)
     except ER.MineRefusal as exc:
-        raise Refusal(f"probe_by_code: {str(exc).rstrip('. ')}. Nothing was changed.") from exc
+        # `_profile_for` has several callers: the row is named here, where this tool's role asked the question (B3)
+        raise Refusal(f"probe_by_code: {str(exc).rstrip('. ')}. Nothing was changed.",
+                      refusal("execution_request:profile", str(exc))) from exc
     return next((p for p in cfg.get("profiles") or [] if isinstance(p, dict) and p.get("profile_id") == wanted), {})
 
 
@@ -2773,7 +2783,8 @@ def run_shape_checks(cfg: dict, manifest: dict, case: str, entry_row: dict, spec
         if lacks and _code_built(cfg, row["entry"], argv, root) is None:
             offenders += [f"{row['instance_id']} (no `{name}`)" for name in lacks]
     offenders += [f"{file} (names no test)" for file in bare]
-    verified = PC.selectors_verified(profile, root)
+    contract = PC.selector_contract(profile, root)      # computed once: the answer never raises
+    verified = contract["verified"]
     if offenders or not verified:
         no_form = str(launch_check.runner_identity(argv)["no_direct_form"] or "") if offenders else ""
         if no_form:
@@ -2785,8 +2796,12 @@ def run_shape_checks(cfg: dict, manifest: dict, case: str, entry_row: dict, spec
             problems.append(f"{len(offenders)} instance(s) of {case} that the run would select have no selector of "
                             f"their own: {_capped(offenders)}")
         if not verified:
-            problems.append(f"profile {profile.get('profile_id') or '(none found)'} does not say its selector contract "
-                            "is verified (selectors.verified in qa-factory/config.json: the onboarding's gap)")
+            pid = profile.get("profile_id") or "(none found)"
+            import run_suite   # the ONE state-to-words table (`selector_words`), shared with the run's SELECTORS note
+            meaning, remedy = run_suite.selector_words(
+                contract, f"onboarding_probe.py --root <project> --probe-profiles --profile {pid} "
+                          "--proposals-dir <a temporary folder outside the project>")
+            problems.append(f"profile {pid} does not say its selector contract is verified ({meaning}; {remedy})")
         raise ToolRefusal("probe_by_code: " + "; ".join(problems) + ". A non-pytest runner runs the whole case, and the "
                           "factory binds one report row by the report id the manifest records; the automator records "
                           "them once through `manifest_put.py --task <TICKET> --fragment <file>` "
@@ -2884,8 +2899,8 @@ def _profile_cwd(cfg: dict, file: str, profile_id: str = "") -> str:
     import execution_request as ER
     profiles = {str(p.get("profile_id")): p for p in cfg.get("profiles") or [] if isinstance(p, dict)}
     if profile_id and not ER.known_profile(cfg, profile_id):
-        raise Refusal("probe_by_code: " + ER.unknown_profile_refusal(cfg, profile_id, ER.NAMED_BY_ROW)
-                      + ". Nothing was changed.")
+        unknown = ER.unknown_profile_refusal(cfg, profile_id, ER.NAMED_BY_ROW)
+        raise Refusal("probe_by_code: " + unknown + ". Nothing was changed.", refusal("execution_request:profile", unknown))
     owners = [profile_id] if profile_id else ER.profiles_owning(cfg, file)
     import profile_contract as PC     # the ONE reader of the `commands` shape (OH3-27, AR-13)
     # a profile whose commands cannot be read names no directory (as one with no `cwd`): the run is refused earlier, where the
@@ -4677,6 +4692,7 @@ def _run_and_judge(ctx: ProbeCtx, record: dict, oracle_path: Path, mutated_sha: 
                        [instance_id, C.test_instance_id(entry) or instance_id], judge_row=judge_row)
     except Exception as exc:  # the record says what happened; the bytes go back regardless
         notes.append(f"{type(exc).__name__}: {exc}")
+        record.update(told_fields(exc))     # a refused request (`build_mine_request`): what its check expected, beside the note
 
 
 def _proved_standing(path: Path, record: dict):
@@ -4761,7 +4777,7 @@ def _dispatch_context(root: Path, task: str, task_root: Path, dispatch: str, cas
             f"probe_by_code: {head}the probe runs only under the dispatch your brief names. Nothing was read or "
             f"changed. Check the id in your brief; if it is that one, report the probe as cause: tooling "
             f"(dispatch not open), repeated under tooling_findings; the instance stays unverified. "
-            f"Detail: {reason}.") from exc
+            f"Detail: {reason}.", refusal("execution_request:active_dispatch", detail)) from exc
     return dispatch, ""
 
 
@@ -6247,6 +6263,7 @@ def _walk_attempt(ctx: ProbeCtx, plan: dict, group: list, picked: list, flags: l
         import execution_request as ER
         if isinstance(exc, ER.MineRefusal):     # NV-1: the request was refused (a check outside its scope): the row never ran, and says why
             ran["request_refused"] = str(exc).strip()
+            ran["request_refused_told"] = told_fields(exc)      # the row sentences of the refusal, beside its words (the outcome carries them)
     finally:
         try:
             got["restore"] = restore(target, original, original_sha, stat, copy=copy["orig"])
@@ -6277,7 +6294,8 @@ def _walk_attempt(ctx: ProbeCtx, plan: dict, group: list, picked: list, flags: l
         return got
     if ran.get("request_refused"):      # NV-1: a refused request (no row, nothing ran): the refusal's own words are the row's note, never "report status None"
         words = ran["request_refused"]      # an empty refusal text never reaches here: the old road's note stands for it
-        got["outcomes"] = {key: _walk_stamp(_row_answer({"status": None, "message_head": ""}, "not_executed", words, mismatches=[words]), key)
+        got["outcomes"] = {key: _walk_stamp(_row_answer({"status": None, "message_head": ""}, "not_executed", words, mismatches=[words]), key,
+                                            **ran.get("request_refused_told", {}))
                            for key in group}
         return got
     kinds ={key: [one.get("probe_kind") for one in details if one.get("key") == key] for key in group}
@@ -8263,7 +8281,7 @@ def _plan_cli(args) -> None:
         report = {"checks": checks, "plan": plan, "notes": notes, "plan_runs": len(plan),
                   "model_file": f"work/probe-models/{args.dispatch or '<dispatch id>'}.json", "models_shape": MODELS_SHAPE}
     except Refusal as exc:
-        print(json.dumps({"status": "refused", "error": str(exc)}, ensure_ascii=False))
+        print(json.dumps({"status": "refused", "error": str(exc), **told_fields(exc)}, ensure_ascii=False))
         sys.exit(2)
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=1))
@@ -8346,12 +8364,12 @@ def main() -> None:
     except ToolRefusal as exc:
         # BEFORE `Refusal`: the same one JSON and exit 2, and the record `refused: tool` beside them (the producer of the field);
         # an alternative probe leaves none: that record's path is the INVERT probe's
-        print(json.dumps({"status": "refused", "error": str(exc)}, ensure_ascii=False))
+        print(json.dumps({"status": "refused", "error": str(exc), **told_fields(exc)}, ensure_ascii=False))
         if not args.alternative:
             _record_tool_refusal(args, root, exc)
         sys.exit(2)
     except Refusal as exc:
-        print(json.dumps({"status": "refused", "error": str(exc)}, ensure_ascii=False))
+        print(json.dumps({"status": "refused", "error": str(exc), **told_fields(exc)}, ensure_ascii=False))
         sys.exit(2)
     if record.get("verdict") == "already_probed":
         # Answered, not probed: before `publish_binding` and before the restore check, because nothing

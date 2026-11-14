@@ -384,6 +384,10 @@ class DriverStageS6:
         if record.get("reviewed_dispatch") != awaiting and done:
             if not mine:
                 return False
+            form_mine = f"work/handoffs/{mine}.yaml"
+            if not self.stage_verdict_known(form_mine):         # the guard its sibling `consumer_completion` has: an unreadable word is no accept
+                self.stage_review_exhausted(stage, route["author"], mine, None, form_mine, unreadable=True)
+                return True
             self.stage_acceptance_write(stage, mine)
             record = acceptance.stage_acceptance(self.pipeline(), stage) or {}
         if record.get("reviewed_dispatch") != awaiting:

@@ -445,7 +445,9 @@ def fill_form(contract: str, ctx: FillContext, *, verdict=None, variant: str = V
         unfillable.append(Unfillable("header.verdict", "", f"the form has no header.verdict, and the verdict `{verdict}` was asked for"))
         word = None
     word_text = word if isinstance(word, str) else None
-    dropped = set(handoff.relaxed_sections(contract, word_text)) & set(survey.tmpl.data) if word_text else set()
+    path = handoff.acceptance_verdict_path(contract)           # the acceptance word is read where the contract says (AR-13)
+    key_word = word_text if path == "header.verdict" else (overrides.get(path) if isinstance(overrides.get(path), str) else None)
+    dropped = set(handoff.relaxed_sections(contract, key_word)) & set(survey.tmpl.data) if key_word else set()
     emptied = set()
     if variant == EMPTY_LISTS:
         emptied = set(survey.emptiable(word_text)) - dropped

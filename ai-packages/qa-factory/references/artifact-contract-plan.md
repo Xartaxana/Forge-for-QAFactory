@@ -124,15 +124,19 @@ Each row is planned on `coverage-observation-v1` and carries `schema_version: 2`
 - `planned_instance_ids`: unique strings; `executable_instances_after` equals their number.
 
 `observation_contract` (on each obligation):
+- `surfaces`: `id` (unique), `boundary`, `status` (`planned | observed | gap`); `assertion_ref`
+  unless `gap`; `gap_reason` only on a `gap`.
+- A ref (`assertion_ref`, each of `controls`, `completion_ref`, every other `*_ref` of the observation contract) names an existing
+  check of this obligation: a `planned_check_refs` entry, an `applicable_scenarios` id, a
+  `coverage_links` assertion ref, `candidate_id` or `test_ref`, or a `parts[].part_id`.
+
+<!-- roles: -->
+### observation_contract fields the S3 row states
+
 - `claim_kind`: array from `state_unchanged | no_write_attempt | response_parity | no_leak |
   rendered_behavior | ordinary`.
 - `oracle_ref`: an id of `requirement_refs` with its `revision`, or of
   `source_conflict_refs`.
-- `surfaces`: `id` (unique), `boundary`, `status` (`planned | observed | gap`); `assertion_ref`
-  unless `gap`; `gap_reason` only on a `gap`.
-- A ref (`assertion_ref`, each of `controls`, `completion_ref`, the refs below) names an existing
-  check of this obligation: a `planned_check_refs` entry, an `applicable_scenarios` id, a
-  `coverage_links` assertion ref, `candidate_id` or `test_ref`, or a `parts[].part_id`.
 - `independent_expectations`: `[]` or `{partition_ref, expected_ref, attribution_assertion_ref}`;
   `response_parity` needs two or more, partitions unique. `source_conflicts`: `[]` or ids of
   `source_conflict_refs`.
@@ -140,6 +144,9 @@ Each row is planned on `coverage-observation-v1` and carries `schema_version: 2`
   `before_read`, `action`, `completion`, `after_read`; `positive_control_ref`, a mutating check
   outside the sequence; `reachability_assertion_ref`.
 - `no_leak`: `payload_assertion_ref`, the check reading the denied payload.
+
+<!-- roles: qa-test-strategist -->
+### Example of one obligation
 
 ```json
 {"schema_version": 2, "coverage_obligations": [{"obligation_id": "OB-1", "requirement_refs": [{"ref": "R-4", "revision": "r1"}],

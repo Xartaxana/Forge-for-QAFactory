@@ -97,6 +97,17 @@ def test_option_before_subcommand_sibling_scripts():
     assert _word("python stand_identity.py --task X confirm") is not None      # the mandatory case
 
 
+def test_role_running_remember_and_kind_is_blocked():
+    """OF3-2 K6: `remember` and `kind` store what the person said; `show --contents` and `lessons` stay open."""
+    for sub in ("remember", "kind"):
+        for command in (f"python project_knowledge.py {sub} --task T",
+                        f"python -c \"import subprocess; subprocess.run(['project_knowledge.py','{sub}'])\""):
+            assert _word(command) is not None, command
+            assert _word(command, who={}) is None, command
+    assert _word("python project_knowledge.py show --contents") is None
+    assert _word("python project_knowledge.py lessons") is None
+
+
 def test_show_stays_open():
     assert _word("python project_knowledge.py show") is None
     assert _word("python -c \"import subprocess; subprocess.run(['project_knowledge.py', 'show'])\"") is None
@@ -142,7 +153,7 @@ def test_role_write_to_project_knowledge_json_blocked():
 
 def test_message_names_show_as_open():
     message = _word("python project_knowledge.py role --task T") or ""
-    assert "`project_knowledge.py account`, `role` and `revoke`" in message
+    assert "`project_knowledge.py account`, `role`, `revoke`, `remember` and `kind`" in message
     assert "(`show` is open to you)" in message.split("project_knowledge.py account", 1)[1]
 
 
