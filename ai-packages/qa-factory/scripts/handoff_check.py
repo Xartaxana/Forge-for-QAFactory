@@ -1466,7 +1466,7 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
     role = str(doc.get("header.role") or doc.get("from_role") or "")
     vocab = handoff.vocabulary()
     # sections the form owes only under a header value (`required_when:`), not owed under the value this form holds
-    relaxed = handoff.relaxed_sections(contract, doc.get("header.verdict"))
+    relaxed = handoff.relaxed_sections(contract, doc.get(handoff.acceptance_verdict_path(contract)))
     fixed, problems, judged, derived = [], [], [], []
     if fix:
         for section, deriver in LIST_DERIVERS.items():

@@ -684,12 +684,13 @@ class DriverStagePlan:
         return complete
 
     def stage_verdict_known(self, form: str) -> bool:
-        """True when the form's `header.verdict` is a word of the acceptance table (`vocabulary.stage_acceptance_verdicts`). Reads only."""
+        """True when the form's ACCEPTANCE word - read by `acceptance.acceptance_word`, at the contract's `acceptance_verdict_at` (default
+        `header.verdict`) - is a word of the acceptance table (`vocabulary.stage_acceptance_verdicts`). Reads only."""
         import acceptance
         import handoff
         try:
             data = handoff.parse((self.task_root / form).read_text(encoding="utf-8")).data
-            return bool(acceptance.stage_acceptance_verdict(((data or {}).get("header") or {}).get("verdict")))
+            return bool(acceptance.stage_acceptance_verdict(acceptance.acceptance_word(data or {})))
         except (OSError, ValueError, AttributeError):
             return False
 
