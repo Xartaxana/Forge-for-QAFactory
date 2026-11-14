@@ -1107,7 +1107,7 @@
       "stages": [
         "*"
       ],
-      "requirement": "Your final message is the handoff form: a header `<role> <stage> <window> · ok|concerns|halt|impossible`; one line `<id> · <state> · <reason of at most 80 characters>` for every item of the dispatch's scope (a halting digest owes no scope lines); nothing but those lines between the header and the path; and, last, the task-relative path of what you wrote (a halting digest may omit it). A verdict or a state word outside the form's list is advice, not a refusal; a reason over 80 characters, an absolute path under the task root, prose before the header and a missing path the witness names are mended by code when mending makes the form pass.",
+      "requirement": "Your final message is the handoff form: a header `<role> <stage> <window> · ok|concerns|halt|impossible`; one line `<id> · <state> · <reason of at most 80 characters>` for every item of the dispatch's scope (a halting digest owes no scope lines); nothing but those lines between the header and the path; and, last, the task-relative path of what you wrote (a halting digest may omit it).",
       "door": "fix the digest line the refusal names, then end the dispatch again",
       "when": [
         "always"
@@ -2895,19 +2895,19 @@
     {
       "check": "controller:s5_plan_gaps.rework_rows",
       "stages": [
-        "S3"
+        "S5"
       ],
       "requirement": "A plan rework changes only blocker rows, new cases and test neighbours of new or dropped cases; the plan and the review stay readable.",
       "door": "keep the rework to those rows",
       "when": [
-        "always"
+        "plan"
       ],
       "producers": [
         {
           "roles": [
-            "qa-test-strategist"
+            "qa-automator"
           ],
-          "field": "the reworked plan rows",
+          "field": "the reworked rows of `work/s5-plan.json`",
           "told": [
             {
               "page": true
@@ -5321,9 +5321,7 @@
           "roles": [
             "qa-automator",
             "qa-bug-reporter",
-            "qa-case-critic",
             "qa-case-designer",
-            "qa-code-critic",
             "qa-doc-scribe",
             "qa-failure-analyst",
             "qa-requirements-tester",
@@ -5393,18 +5391,7 @@
       "producers": [
         {
           "roles": [
-            "qa-automator",
-            "qa-bug-reporter",
-            "qa-case-critic",
-            "qa-case-designer",
-            "qa-code-critic",
-            "qa-doc-scribe",
-            "qa-failure-analyst",
-            "qa-requirements-tester",
-            "qa-retro-analyst",
-            "qa-runner",
-            "qa-scout",
-            "qa-test-strategist"
+            "qa-code-critic"
           ],
           "field": "the handover form of the dispatch",
           "told": [
@@ -5467,18 +5454,7 @@
       "producers": [
         {
           "roles": [
-            "qa-automator",
-            "qa-bug-reporter",
-            "qa-case-critic",
-            "qa-case-designer",
-            "qa-code-critic",
-            "qa-doc-scribe",
-            "qa-failure-analyst",
-            "qa-requirements-tester",
-            "qa-retro-analyst",
-            "qa-runner",
-            "qa-scout",
-            "qa-test-strategist"
+            "qa-failure-analyst"
           ],
           "field": "the handover form of the dispatch",
           "told": [
@@ -5504,18 +5480,7 @@
       "producers": [
         {
           "roles": [
-            "qa-automator",
-            "qa-bug-reporter",
-            "qa-case-critic",
-            "qa-case-designer",
-            "qa-code-critic",
-            "qa-doc-scribe",
-            "qa-failure-analyst",
-            "qa-requirements-tester",
-            "qa-retro-analyst",
-            "qa-runner",
-            "qa-scout",
-            "qa-test-strategist"
+            "qa-failure-analyst"
           ],
           "field": "the handover form of the dispatch",
           "told": [
@@ -5541,18 +5506,7 @@
       "producers": [
         {
           "roles": [
-            "qa-automator",
-            "qa-bug-reporter",
-            "qa-case-critic",
-            "qa-case-designer",
-            "qa-code-critic",
-            "qa-doc-scribe",
-            "qa-failure-analyst",
-            "qa-requirements-tester",
-            "qa-retro-analyst",
-            "qa-runner",
-            "qa-scout",
-            "qa-test-strategist"
+            "qa-failure-analyst"
           ],
           "field": "the handover form of the dispatch",
           "told": [
@@ -5578,18 +5532,7 @@
       "producers": [
         {
           "roles": [
-            "qa-automator",
-            "qa-bug-reporter",
-            "qa-case-critic",
-            "qa-case-designer",
-            "qa-code-critic",
-            "qa-doc-scribe",
-            "qa-failure-analyst",
-            "qa-requirements-tester",
-            "qa-retro-analyst",
-            "qa-runner",
-            "qa-scout",
-            "qa-test-strategist"
+            "qa-failure-analyst"
           ],
           "field": "the handover form of the dispatch",
           "told": [
@@ -5615,18 +5558,7 @@
       "producers": [
         {
           "roles": [
-            "qa-automator",
-            "qa-bug-reporter",
-            "qa-case-critic",
-            "qa-case-designer",
-            "qa-code-critic",
-            "qa-doc-scribe",
-            "qa-failure-analyst",
-            "qa-requirements-tester",
-            "qa-retro-analyst",
-            "qa-runner",
-            "qa-scout",
-            "qa-test-strategist"
+            "qa-failure-analyst"
           ],
           "field": "the handover form of the dispatch",
           "told": [
@@ -5652,18 +5584,7 @@
       "producers": [
         {
           "roles": [
-            "qa-automator",
-            "qa-bug-reporter",
-            "qa-case-critic",
-            "qa-case-designer",
-            "qa-code-critic",
-            "qa-doc-scribe",
-            "qa-failure-analyst",
-            "qa-requirements-tester",
-            "qa-retro-analyst",
-            "qa-runner",
-            "qa-scout",
-            "qa-test-strategist"
+            "qa-failure-analyst"
           ],
           "field": "the handover form of the dispatch",
           "told": [

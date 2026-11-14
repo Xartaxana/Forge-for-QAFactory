@@ -698,7 +698,7 @@ def _page_text(lines: list) -> str:
 def _section_lines(page: int, units: list, earlier: set, exclusive, total: int) -> list:
     """The lines of the section on page `page` (1-based) holding `units`; `earlier` is the set of groups whose rows already
     stood on a page before this one (their heading repeats with ` (continued)`); `total` is how many units the role has."""
-    lines = [SECTION_HEAD if page == 1 else f"{SECTION_HEAD} (continued from {page_name(page - 1)})", "", SECTION_LEGEND]
+    lines = [SECTION_HEAD, "", SECTION_LEGEND] if page == 1 else [f"{SECTION_HEAD} (continued from {page_name(page - 1)})"]
     if not units:
         return lines + ["", NONE_ROLE if total == 0 else (ROWS_LATER if page == 1 else NONE_CONTINUED)]
     current = "-"
@@ -727,8 +727,8 @@ def requirement_section(plugin_root: Path, role: str, head=(), model=None, pages
     units, exclusive, why = _told_units(plugin_root, role, model)
     if why:
         unknown = f"NOT KNOWN: the rows of what code checks could not be read ({why})."
-        return [[SECTION_HEAD if n == 1 else f"{SECTION_HEAD} (continued from {page_name(n - 1)})", "", SECTION_LEGEND, "", unknown]
-                for n in range(1, max(1, pages) + 1)]
+        return [([SECTION_HEAD, "", SECTION_LEGEND] if n == 1 else [f"{SECTION_HEAD} (continued from {page_name(n - 1)})"])
+                + ["", unknown] for n in range(1, max(1, pages) + 1)]
     _limit, width = size_limits()
     placed = [[] for _ in range(max(1, pages))]
     where = 0

@@ -2,12 +2,8 @@
 
 ## What code will check of you (continued from handoff-keys-2.md)
 
-`<T>` is your ticket, `<ID>` your dispatch id, `<home>` the project's qa-factory folder - all three stand in your prompt (`Ticket: ... Dispatch: ...`) and in your task packet.
-
 ### Only in a window (replaced by "Only in a plan dispatch") (continued)
 
-- [s5_precheck:plan] On a plan-form S5, the window's tests match its slice of the plan, unless a `deviations[]` row of the window's form declares the difference. Door: match the slice, or declare the deviation.
-- [s5_precheck:sides.declared] Each test declares its sides. Door: declare them.
 - [s5_precheck:sides.placeholders] Every id a test names in `provisional` is a row of `provisional[]`; an open first-look accounting row (a `placeholder_locator` assumed from `first_look:<R-n>`, on a real side) stands only while the current, fresh first-look record holds that requirement missing or unreachable because of the product; and every test linked to such a row declares it in `provisional`, sits in no `blocked_by_env` unresolved row, is not handed to the person, and has a passed or failed run row. Door: the finding's `fix`: drop or send the id / row through `manifest_put.py --fragment`; retract the row (`status: retracted`) or ask the conductor for a new first look; take the test out of the env row or the hand-off; run it once (`run_suite.py --mine <case>`).
 - [s5_precheck:sides.settled] A provisional row whose side is now real is not left open (unless it is a first-look accounting row): it is settled in the bind round, retracted, or kept by decision citing the person's word `substitute kept: <side>`; a settled row (`settled_matched` / `settled_edited`) cites in `evidence.run` a run block that is not a collect and whose stamp says its side was real, keeps the comment `qa-provisional: <id>` on its home line, and its status agrees with that line: `settled_matched` when the line is unchanged since `home_hash`, `settled_edited` when it changed and stands as the tool recorded in `evidence.home_hash_after`. Door: run the test on the real side, then send the row with `status` and `evidence: {run: <block id>}` through `manifest_put.py --fragment` (the tool records the hashes itself); or retract it.
 

@@ -2,14 +2,6 @@
 
 ## What code will check of you (continued from handoff-keys.md)
 
-`<T>` is your ticket, `<ID>` your dispatch id, `<home>` the project's qa-factory folder - all three stand in your prompt (`Ticket: ... Dispatch: ...`) and in your task packet.
-
-- [validate_artifacts:check_run_report_coverage] Every case S5 automated and every manual-agent plan row is accounted for in the run report. Door: edit the file and the field the refusal line names.
-- [validate_artifacts:check_run_report_empty] A run with zero tests carries `env_preflight: blocked`, or names its environment-blocked, manual-check or manual-skipped rows. Door: edit the file and the field the refusal line names.
-- [validate_artifacts:check_run_report_head] The run report carries a non-empty `head`. Door: edit the file and the field the refusal line names.
-- [validate_artifacts:check_run_report_v0] The run report carries an `execution_status` from its list, computed from the run's own evidence, and `blocked` when `env_preflight` is blocked. Door: edit the file and the field the refusal line names.
-- [guard_pre_tool:*] 23 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
-- [stage_guard:*] 8 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
 - [host_adapter:*] 6 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
 - [execution_request:*] 10 checks of your test-run calls (`run_suite.py`, `red_sandbox.py`, `probe_by_code.py`) are told in the refusal of the call, with what they expect and the door; a refused call launches no test. Write a request file from `run_suite.py --template request`, never from memory.
 - [run_suite:*] 3 checks of your commands are told in the refusal of the call, with what they expect and the door.

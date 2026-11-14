@@ -725,7 +725,8 @@ def test_told_section_size_and_split() -> None:
             check("T3a (e): the rows keep their order across the pages (the window rows run w1..w6, page 1 first)",
                   "- [t:w1] " in pages[0] and pages[0].index("- [t:a1] ") < pages[0].index("- [t:w1] ") and "- [t:w1] " not in pages[1])
             check_in("T3a (e): a continuation page opens with the continued heading", "## What code will check of you (continued from handoff-keys.md)", pages[1])
-            check_in("T3a (e): and the legend", "`<T>` is your ticket", pages[1])
+            check_in("T3a (e): page 1 carries the legend", "`<T>` is your ticket", pages[0])
+            check_not_in("T3a (e): a continuation page does not repeat the legend (K10p L5)", "`<T>` is your ticket", pages[1])
             check_in("T3a (e): a group whose rows continue repeats its heading with `(continued)`",
                      '### Only in a window (replaced by "Only in a plan dispatch") (continued)', pages[1])
             check_not_in("T3a (e): page 1 does not carry the `(continued)` text", "(continued)", pages[0].replace("(continued from", ""))
@@ -1038,11 +1039,99 @@ def test_t1rs() -> None:
              ("- [execution_request:*] " in auto, [f"- [{k}] " in auto for k in sorted(manifest)]), (True, [True] * 5))
 
 
+def _writers(predicate) -> list:
+    """The roles that WRITE a contract the predicate holds of: every `from` of a row of `handoffs/index.yaml` (secondary and purpose
+    rows included, read through `handoff.index()`), restricted to the stems of `agents/*.md`. Never a role-name list (AR-1)."""
+    import handoff as HO
+    stems = {p.stem for p in (PLUGIN_ROOT / "agents").glob("*.md")}
+    return sorted({r["from"] for r in HO.index()["handoffs"] if r["from"] in stems and predicate(r["contract"])})
+
+
+def test_k10p_k2() -> None:
+    """K10 pay-down K2: a requirement row is told to the roles whose contract a check of that row can judge, one statement per
+    requirement, the continuation pages carry no legend, and the S5 plan rework row stands on the automator's pages."""
+    import re
+    import handoff as HO
+    import handoff_check as HC
+    import stage_joints as SJ
+    from stage_guard import stages_of_role
+    data, why = SJ.load_rows()
+    check_eq("K10p/rows-readable: stage-joints.json is read", why, "")
+    by_check = {r["check"]: r for r in data["joints"]}
+    roles_of = lambda row: sorted({x for p in row["producers"] for x in p["roles"]})
+    has_null = lambda c: bool(HO.null_outcomes(c))
+    has_cause = lambda c: "findings[].cause" in HO.spec(c)
+    in_tried = lambda c: c in HC.TRIED_CONTRACTS
+    narrowed = [(f"handoff_check:null_outcome.{n}", has_null) for n in ("repairs", "verdict", "names", "report", "failures", "listing")]
+    narrowed += [("handoff_check:findings_tooling", has_cause), ("handoff_check:tried", in_tried)]
+    for check_id, predicate in narrowed:
+        want = _writers(predicate)
+        check(f"K10p/narrowed-by-contract/{check_id}: a predicate with a writer is never read as no writers ({want})", bool(want))
+        check_eq(f"K10p/narrowed-by-contract/{check_id}: roles are the writers of the contracts the check can judge",
+                 roles_of(by_check[check_id]), want)
+    check_in("K10p/secondary-writer: the analyst reaches `tried` through the secondary row only",
+             "qa-failure-analyst", roles_of(by_check["handoff_check:tried"]))
+    check("K10p/secondary-writer: its own stage contract is not a tried contract",
+          HO.contract_of("S7", "qa-failure-analyst") != "s7-analyst-to-scribe")
+    check_not_in("K10p/narrowed-tried: the case critic writes no tried contract", "qa-case-critic", " ".join(roles_of(by_check["handoff_check:tried"])))
+    # the universal rows are not narrowed
+    for universal in ("handoff_check:blocked_problem", "handoff_check:claims"):
+        check_eq(f"K10p/universal-row-kept/{universal}: every role", len(roles_of(by_check[universal])), 12)
+    # continuation pages: no legend after page 1
+    for pages in (1, 2, 3):
+        out = CS._section_lines(1, [], set(), [], 0), CS._section_lines(2, [], {None}, [], 0), CS._section_lines(3, [], {None}, [], 0)
+        check_eq(f"K10p/continuation-no-legend/{pages} pages: the legend is on page 1 only",
+                 [CS.SECTION_LEGEND in lines for lines in out[:pages]], [True] + [False] * (pages - 1))
+    unreadable = CS.requirement_section(PLUGIN_ROOT.parent / "no-such-plugin", "qa-x", model={}, pages=3)
+    check_eq("K10p/continuation-no-legend/unreadable: the legend is on page 1 only, the unknown is said on every page",
+             ([CS.SECTION_LEGEND in "\n".join(p) for p in unreadable], all("NOT KNOWN" in "\n".join(p) for p in unreadable)), ([True, False, False], True))
+    # the digest block: on the page (the row), not in the slice, for every role whose page holds EG-digest-form
+    model = json.loads((PLUGIN_ROOT / "references" / "stages.json").read_text(encoding="utf-8"))
+    block = "Your final message IS the digest"
+    form = "a header `<role> <stage> <window>"
+    for role in sorted(json.loads((PLUGIN_ROOT / "references" / "inject-map.json").read_text(encoding="utf-8"))["roles"]):
+        ids = [str(s.get("id")) for s in stages_of_role(model, role)]
+        holds = "exit_gate:EG-digest-form" in {r["check"] for r in SJ.rows_for(role, ids, None, data=data)}
+        check_eq(f"K10p/digest-block-on-page-only/{role}: the slice lacks the digest block iff the page holds the row",
+                 (block in slice_of(role), form in "\n".join(CS.handoff_keys_pages(PLUGIN_ROOT, role))), (not holds, holds))
+    check_in("K10p/digest-block-on-page-only/qa-test-strategist: named", "exit_gate:EG-digest-form",
+             " ".join(r["check"] for r in SJ.rows_for("qa-test-strategist", ["S3"], None, data=data)))
+    source = COMMON_SOURCE.read_text(encoding="utf-8")
+    check_in("K10p/digest-block-on-page-only/source: the source keeps the block for whole-file readers", block, source)
+    doctored = source.replace("<!-- roles: -->\n### The digest line", "### The digest line")
+    check("K10p/digest-block-on-page-only/control: the doctored source differs", doctored != source)
+    check_in("K10p/digest-block-on-page-only/negative: the marker removed, the strategist slice has the block", block,
+             CS.render("common-rules.md", "qa-test-strategist", doctored))
+    # the observation contract: moved bullets leave the strategist slice, `surfaces` and the example stay
+    plan_slice = (PLUGIN_ROOT / "references" / "slices" / "qa-test-strategist" / "artifact-contract-plan.md").read_text(encoding="utf-8")
+    moved = ("- `claim_kind`:", "- `oracle_ref`:", "- `independent_expectations`:", "- No-write (", "- `no_leak`:")
+    for bullet in moved:
+        check_not_in(f"K10p/observation-bullets-moved: the slice lacks `{bullet}`", bullet, plan_slice)
+    check_in("K10p/observation-bullets-moved: `surfaces` stays with its gap clause", "`gap_reason` only on a `gap`", plan_slice)
+    check_in("K10p/observation-bullets-moved: the ref bullet stays", "- A ref (", plan_slice)
+    check_in("K10p/observation-bullets-moved: the example stays", "### Example of one obligation", plan_slice)
+    check_in("K10p/observation-bullets-moved: the JSON example stays", '"coverage_obligations"', plan_slice)
+    row = by_check["coverage_contract:obligations.observation"]["requirement"]
+    for token in ("claim_kind", "oracle_ref", "independent_expectations", "source_conflicts", "no_leak"):
+        check_in(f"K10p/observation-bullets-moved: the row `coverage_contract:obligations.observation` holds `{token}`", token, row)
+    # the plan rework row is the automator's
+    rework = by_check["controller:s5_plan_gaps.rework_rows"]
+    auto_ids = [str(s.get("id")) for s in stages_of_role(model, "qa-automator")]
+    strat_ids = [str(s.get("id")) for s in stages_of_role(model, "qa-test-strategist")]
+    check_eq("K10p/rework-rows-on-automator: the row is on the automator's pages and not on the strategist's",
+             ("controller:s5_plan_gaps.rework_rows" in {r["check"] for r in SJ.rows_for("qa-automator", auto_ids, None, data=data)},
+              "controller:s5_plan_gaps.rework_rows" in {r["check"] for r in SJ.rows_for("qa-test-strategist", strat_ids, None, data=data)}),
+             (True, False))
+    check_eq("K10p/rework-rows-on-automator: stages S5, dispatch plan, one producer", (rework["stages"], rework["when"], roles_of(rework)),
+             (["S5"], ["plan"], ["qa-automator"]))
+
+
 test_rendering()
 test_told_section_rows()
 test_told_section_size_and_split()
 test_t1rp()
 test_t1rs()
+test_k10p_k2()
 test_pages_carry_no_code_line_number()
 test_inline_set()
 test_native_headroom()

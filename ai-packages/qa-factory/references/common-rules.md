@@ -75,6 +75,12 @@ of `<dispatch>.values.yaml` (no Bash; while it waits, Edit of the form is refuse
 allowed values; `Write` over it is refused. A field you cannot fill: `blocked` + `handoff_help.py`;
 the conductor answers it, never the person.
 
+Code checks: the exit gate; the refusal names what is wrong and the way through. What the
+next role or the human needs is in the FILE or the FORM: chat does not survive the dispatch.
+
+<!-- roles: -->
+### The digest line
+
 Your final message IS the digest, three parts, no prose:
 
 ```
@@ -83,8 +89,7 @@ Your final message IS the digest, three parts, no prose:
 <task-relative path of the artifact>
 ```
 
-One row per item in your scope, the ones that went nowhere included. Code checks: the exit gate; the refusal names what is wrong and the way through. What the
-next role or the human needs is in the FILE or the FORM: chat does not survive the dispatch.
+One row per item in your scope, the ones that went nowhere included.
 
 <!-- roles: qa-scout, qa-requirements-tester, qa-code-critic, qa-runner, qa-failure-analyst, qa-bug-reporter, qa-doc-scribe, qa-retro-analyst -->
 ## No writes to external systems

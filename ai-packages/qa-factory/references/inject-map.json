@@ -110,7 +110,6 @@
     "qa-doc-scribe": [
       "plugin:references/slices/qa-doc-scribe/common-rules.md",
       "plugin:references/slices/qa-doc-scribe/handoff-keys.md",
-      "plugin:references/slices/qa-doc-scribe/handoff-keys-2.md",
       "plugin:references/slices/qa-doc-scribe/artifact-contract.md",
       "plugin:references/slices/qa-doc-scribe/artifact-contract-results.md",
       "plugin:references/slices/qa-doc-scribe/coverage-design.md",

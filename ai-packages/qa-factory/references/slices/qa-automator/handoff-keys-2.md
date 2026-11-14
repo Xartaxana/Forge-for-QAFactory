@@ -2,10 +2,6 @@
 
 ## What code will check of you (continued from handoff-keys.md)
 
-`<T>` is your ticket, `<ID>` your dispatch id, `<home>` the project's qa-factory folder - all three stand in your prompt (`Ticket: ... Dispatch: ...`) and in your task packet.
-
-- [execution_request:place_rows] Every test file the manifest names for an asked case exists under the run directory or the project root (a path relative to the project root). Door: correct `file` through `manifest_put.py` (path relative to the project root), or pass `--cwd` when the test lives in a sandbox.
-- [execution_request:profile] The execution profile of the run is known without a guess: a profile named by `--profile` or a manifest row's `profile_id` is one `qa-factory/config.json` holds; the asked cases run under one profile; a row that names no profile and whose file lies under another profile's test root, or a root several profiles share, names its `profile_id`; when nothing else tells, `--profile` names it. Door: `profile_id` on the manifest row through `manifest_put.py --fragment`, or `--profile ID` (only where the caller takes it: `run_suite --mine`, never `probe_by_code`); cases of two profiles: one `--mine` per profile.
 - [execution_request:purpose] `purpose` is one of `PURPOSES` and never `impact_regression`. Door: `run_suite.py --template request`, or `run_suite.py --mine <CASE>`.
 - [execution_request:runtime] `runtime_provenance` is present, its `profile_id` matches the selected profile and it is matched or person_confirmed; a runtime-required request carries a read-only `runtime_probe` with a non-empty argv, an existing cwd and a positive timeout. Door: `run_suite.py --template request`, or `run_suite.py --mine <CASE>`.
 - [execution_request:selection] `selected_instance_ids` and `current_scope_instance_ids` are string arrays, every selected instance is in the approved current scope, a behavioural request selects at least one, and only supported selectors are used. Door: `run_suite.py --template request`, or `run_suite.py --mine <CASE>`.
@@ -50,8 +46,11 @@
 
 - [controller:s5_plan_accept] A plan dispatch never closes S5: it is accepted without `stage_complete` (no `--complete`). Door: finish the plan dispatch without `--complete`.
 - [controller:s5_plan_gaps] Your plan has no gap the plan check names (the refusal lists up to six). Door: repair the named rows of `work/s5-plan.json`.
+- [controller:s5_plan_gaps.rework_rows] A plan rework changes only blocker rows, new cases and test neighbours of new or dropped cases; the plan and the review stay readable. Door: keep the rework to those rows.
 - [exit_gate:EG-s5-plan-outputs] Before you end an S5 dispatch, every output the S5 plan names for your role is written. Door: write the output the refusal names before you end the dispatch.
 
 ### Only in a window (replaced by "Only in a plan dispatch")
 
 - [manifest_put:expectation_changes] An expectation change names its function(s), red_attempt, green_attempt (or null), then_refs as `[{case, then: int}]`, what_changed, and a reason for a new row; the patch verdict joins; critic_verdict is a list, critic_note a string, and a note stands for each NOTE_REQUIRED_VERDICTS verdict. Door: fix the entry the refusal names.
+- [s5_precheck:plan] On a plan-form S5, the window's tests match its slice of the plan, unless a `deviations[]` row of the window's form declares the difference. Door: match the slice, or declare the deviation.
+- [s5_precheck:sides.declared] Each test declares its sides. Door: declare them.

@@ -2,11 +2,6 @@
 
 ## What code will check of you (continued from handoff-keys.md)
 
-`<T>` is your ticket, `<ID>` your dispatch id, `<home>` the project's qa-factory folder - all three stand in your prompt (`Ticket: ... Dispatch: ...`) and in your task packet.
-
-- [host_adapter:*] 6 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
-- [role_cli:*] 2 checks of your commands are told in the refusal of the call, with what they expect and the door. Run `artifact_producer.py --help` before you write an input file: it prints what each command of the script checks.
-
 ### Not yet in rows
 
 Three artifacts, three checks. work/requirements-register.md: `ids` non-empty and all R-n, `by_source` within ac|story|feature|discussion|assumption|derived, `confidence` high|low - a register of AC alone while a parent feature exists must be `low`; every row's observable prefixed diff:|current-code:|expected-contract: or the word `none`; every `derived` row naming what it was derived from; `impact` from config.json impact_scale. Every production module work/impl-diff*.txt CREATES has to be cited by a `derived` row - the exit gate compares them, so read every hunk, limits, rejected inputs and guards included; a `derived` row only the diff speaks to also gets its `## Behaviour claims` row. work/requirements-readiness.json: `verdict` ready|blocked agreeing with the facts, `goal_summary` >= 30 characters in your own words, `aspects` non-empty with status ready|blocked|n/a and a reason on every n/a, `open_questions[]` each with question, severity blocker|major|minor and owner_role po_ba|dev_arch|qa. understanding.md: at most 40 lines, its five sections in order, and every register R named in a 'What we verify' or 'What we do not verify' line.

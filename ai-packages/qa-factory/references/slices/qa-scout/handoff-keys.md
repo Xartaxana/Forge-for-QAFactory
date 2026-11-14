@@ -67,7 +67,7 @@ Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): 
 
 `<T>` is your ticket, `<ID>` your dispatch id, `<home>` the project's qa-factory folder - all three stand in your prompt (`Ticket: ... Dispatch: ...`) and in your task packet.
 
-- [exit_gate:EG-digest-form] Your final message is the handoff form: a header `<role> <stage> <window> · ok|concerns|halt|impossible`; one line `<id> · <state> · <reason of at most 80 characters>` for every item of the dispatch's scope (a halting digest owes no scope lines); nothing but those lines between the header and the path; and, last, the task-relative path of what you wrote (a halting digest may omit it). A verdict or a state word outside the form's list is advice, not a refusal; a reason over 80 characters, an absolute path under the task root, prose before the header and a missing path the witness names are mended by code when mending makes the form pass. Door: fix the digest line the refusal names, then end the dispatch again.
+- [exit_gate:EG-digest-form] Your final message is the handoff form: a header `<role> <stage> <window> · ok|concerns|halt|impossible`; one line `<id> · <state> · <reason of at most 80 characters>` for every item of the dispatch's scope (a halting digest owes no scope lines); nothing but those lines between the header and the path; and, last, the task-relative path of what you wrote (a halting digest may omit it). Door: fix the digest line the refusal names, then end the dispatch again.
 - [exit_gate:EG-text-end] Your dispatch ends with the host's handback tool carrying your digest line, never with free text after it. Door: call the host's handback tool with your digest line.
 - [handoff_check:blocked_problem] A row in state `blocked` carries `blocked.problem`; `blocked_by_env` is used only where `options_for_role` offers it to this role. Door: write the problem, or pick a state the role is offered.
 - [handoff_check:claims] What the form claims is true is true on disk ("the form claims this is true, and it is not"). Door: fix the claim or make it true.
@@ -75,13 +75,6 @@ Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): 
 - [handoff_check:field.blank] every `required` field of your handoff form (section `Handoff form` of this page). Door: write the value as a `path: value` line in the values file, then run the check again.
 - [handoff_check:field.max_len] every `required` field of your handoff form (section `Handoff form` of this page). Door: shorten it (`--shorten` with `--fix`) or rewrite.
 - [handoff_check:field.value] every `required` field of your handoff form (section `Handoff form` of this page). Door: write one of the listed words (or `new: <word> -- <why>` where the list is open).
-- [handoff_check:findings_tooling] A finding whose cause is `tooling` is repeated in `tooling_findings`. Door: add it to `tooling_findings`.
-- [handoff_check:null_outcome.failures] Each shown failure has a triage row. Door: triage it once.
-- [handoff_check:null_outcome.listing] Everything named in `listed_in` exists, and nothing extra stands. Door: list exactly what exists.
-- [handoff_check:null_outcome.names] Every row has a name. Door: name the row.
-- [handoff_check:null_outcome.repairs] No repair is pending when the null outcome is claimed. Door: finish or record the repair.
-- [handoff_check:null_outcome.report] The run report is readable. Door: rerun / point at the readable report.
-- [handoff_check:null_outcome.verdict] The triage verdict is a known word. Door: write a known verdict.
 - [handoff_check:required_rows] A required list has one row per item in scope: the id, a state and a reason of at most 80 characters. Door: write the rows as index lines in the values file, then run this check again.
 - [handoff_check:required_rows.null_word] A list's null-outcome word (the declared empty outcome) stands only when the list has no rows; never both. Door: remove the word or remove the rows.
 - [handoff_check:required_rows.owed_by_verdict] When the verdict owes rows (the verdict word names work done on items), the list is not empty. Door: write the rows the verdict owes, or change the verdict.
