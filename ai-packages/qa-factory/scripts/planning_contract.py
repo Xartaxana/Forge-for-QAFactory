@@ -3348,6 +3348,51 @@ def _rename_new_refs(rows: list, made: dict) -> tuple:
     return out, renames
 
 
+def _reword_plan_entries(root: Path, rows: list) -> tuple:
+    """`(rows, notes)`: execute the `reword_questions` entries of `rows` (FV1-9, D4), the test planner's way to ask an unanswered
+    question again in clearer words. An entry is `{"question": "Q<n>", "text": "<clearer words>", "readings": [...]?, "why":
+    "<one line>"}` and goes through `question_register.reword` (the ONE writer; role `qa-test-strategist`, by `driver`, stage S3).
+    A done entry leaves its row (the key goes when none is left); a refused or malformed one STAYS on the row and is one line in
+    `notes` naming the row and the entry, and never stops the other entries or rows. A key that is no list, or an empty one, is
+    a line and is kept. A row with no `reword_questions` is returned as it was. Pure on `rows` (a copy is returned); never raises."""
+    import question_register as QR
+    REWORD_ENTRY_FORM = ('{"question": "Q<n>", "text": "<the question in clearer words>", "readings": ["<text>", ...] (optional), '
+                         '"why": "<one line>"}')
+    out, notes = copy.deepcopy(rows), []
+    for index, row in enumerate(out):
+        if not isinstance(row, dict) or "reword_questions" not in row:
+            continue
+        rid = str(row.get("id") or f"row[{index}]")
+        entries = row["reword_questions"]
+        if not isinstance(entries, list) or not entries:
+            notes.append(f"{rid}: reword_questions must be a list of entries and holds {'none' if isinstance(entries, list) else 'no list'}. "
+                         f"Expected: {REWORD_ENTRY_FORM}")
+            continue
+        left = []
+        for position, item in enumerate(entries):
+            label = f"{rid}: reword_questions[{position}]"
+            if not isinstance(item, dict):
+                notes.append(f"{label} is not an object. Expected: {REWORD_ENTRY_FORM}")
+                left.append(item)
+                continue
+            qid, text, why, readings = (item.get(k) for k in ("question", "text", "why", "readings"))
+            if not all(isinstance(x, str) and x.strip() for x in (qid, text, why)) or not (readings is None or isinstance(readings, list)):
+                notes.append(f"{label} needs `question`, `text` and `why` as texts (`readings` a list when given). Expected: {REWORD_ENTRY_FORM}")
+                left.append(item)
+                continue
+            spec = {"question": text, "why": why, **({"readings": readings} if readings is not None else {})}
+            try:
+                QR.reword(root, qid, spec, role="qa-test-strategist", by="driver", stage="S3")
+            except Exception as exc:  # noqa: BLE001 - a refusal of the writer, or anything else: the entry stays, the rest go on
+                notes.append(f"{label} ({qid.strip()}) was not asked again: {' '.join(str(exc).split())}")
+                left.append(item)
+        if left:
+            row["reword_questions"] = left
+        else:
+            row.pop("reword_questions", None)
+    return out, notes
+
+
 def project_plan(task_root, reopening: bool = False) -> types.SimpleNamespace:
     """Write what code owes the S3 plan when S3 closes (RN1-2): the revision mark (`stamp_revision`) and the register
     questions the rows declared as `new:<n>`. `SimpleNamespace(wrote, problems)`; never raises. `reopening`: the TICKET re-run of
@@ -3361,7 +3406,7 @@ def project_plan(task_root, reopening: bool = False) -> types.SimpleNamespace:
     `new:<n>` without its entry, a register that cannot be read or written: a PROBLEM line and nothing is written - never a plan
     that S4 reads with a `new:` ref (FR-59, AR-28). Order: register first, plan second, the human view last: a crash in between
     leaves a question no row names, never a row naming a missing question; a rerun converges (`raised_for`)."""
-    out = types.SimpleNamespace(wrote=False, problems=[])
+    out = types.SimpleNamespace(wrote=False, problems=[], notes=[])
     try:
         root = Path(task_root)
         path, document, rows, problem = _plan_state(root)
@@ -3373,9 +3418,15 @@ def project_plan(task_root, reopening: bool = False) -> types.SimpleNamespace:
         mode, _version = story_contract_mode(root)
         stamped = stamp_revision(rows, mode)
         declared = _declares_new(rows)
-        if not declared and stamped == rows:
+        rewording = any(isinstance(row, dict) and "reword_questions" in row for row in rows)
+        if not declared and not rewording and stamped == rows:
             return out
         approved, why = _gate_a_state(root)
+        if not why and approved and not reopening and not declared and stamped == rows:
+            # only asking again in other words is owed: the approved plan is left as it is and the planner is told, never refused
+            out.notes.append("gate A is approved: code does not change the plan the person approved, so the `reword_questions` of its rows "
+                             "were not executed. Door: the person sends the plan back at gate A, and they are executed when S3 closes again")
+            return out
         if why or (approved and not reopening):
             out.problems.append(why or "gate A is approved: code does not change the plan the person approved (the revision mark "
                                        "or a new question is owed). Door: the person sends the plan back at gate A (a rework of S3 with "
@@ -3404,6 +3455,11 @@ def project_plan(task_root, reopening: bool = False) -> types.SimpleNamespace:
                 out.problems.extend(problems)
                 return out
             stamped, renames = _rename_new_refs(stamped, made)
+        if rewording:
+            stamped, notes = _reword_plan_entries(root, stamped)
+            out.notes.extend(notes)
+        if not declared and stamped == rows:
+            return out     # every entry was refused and nothing else is owed: the plan is not written
         _write_plan_rows(path, document, stamped)
         out.wrote = True
         if renames:
