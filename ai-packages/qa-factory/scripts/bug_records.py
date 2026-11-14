@@ -964,10 +964,31 @@ def _current_red_problem(draft, report) -> tuple:
     return ()
 
 
-def _walk_has_no_run(draft, report) -> bool:
-    """Is a draft one with no `current_results` row by construction: a code-reading draft, or a triage key that names a failure of
-    kind `manual` / `observation` (F6)? An unreadable report or key is False (the red-now fact then stays on)."""
-    if is_code_reading(draft):
+def no_run_target(draft, report) -> bool:
+    """True when the draft speaks for no execution of this run: a place the analyst walked (a case the runner did not run, a
+    register contradiction), so its `walk` record is its only evidence. True ONLY when the report is a readable non-empty object,
+    the draft's triage instance is non-empty, and that instance matches NO id the report holds in ANY attempt and ANY spelling
+    (`contract.id_spellings`: a result row's instance / test ids, and every name of a `triage_failures` entry). The error goes
+    toward "is a target": an unreadable or empty report, no instance, or any exception is False, and the draft then keeps both
+    draft-wide facts (AR-28, FR-59). Public: the ONE reader of this fact (AR-13); `reproduction_problems` computes it once per draft."""
+    try:
+        instance = draft_triage_key(draft)[0]
+        if not instance or not (isinstance(report, dict) and report):
+            return False
+        wanted = C.id_spellings(instance)
+        held = set(C.instance_results(report)) | set(C.current_instance_results(report))
+        for got in C.triage_failures(report)[0].values():
+            held.update(str(name) for name in (got.get("names") or []))
+        return not any(wanted & C.id_spellings(name) for name in held)
+    except Exception:  # noqa: BLE001 - an unknown never lifts
+        return False
+
+
+def _walk_has_no_run(draft, report, no_run: bool = False) -> bool:
+    """Is a draft one with no `current_results` row by construction: a code-reading draft, a draft with no run target (`no_run`, the
+    value of `no_run_target` the caller computed once), or a triage key that names a failure of kind `manual` / `observation` (F6)?
+    An unreadable report or key is False (the red-now fact then stays on)."""
+    if is_code_reading(draft) or no_run:
         return True
     instance = draft_triage_key(draft)[0]
     if not instance or not isinstance(report, dict):
@@ -1007,17 +1028,19 @@ def reproduction_problems(task, draft, rows, report) -> tuple:
         except Exception:
             report_ok = False
     # The two draft-wide facts, per entry kind (t-1991 §3.3 POSITION). Every non-walk entry is judged by BOTH, exactly as before;
-    # a `walk` entry skips the APP_BUG fact only for a code-reading draft (no triage row by construction) and the red-now fact
-    # only for a draft with no current result by construction (code-reading, or a manual check / observation).
+    # a `walk` entry skips the APP_BUG fact only for a code-reading draft (no triage row by construction) or a draft with no run
+    # target (`no_run_target`: the analyst's own triage row of a place the runner never ran is archived by finalize), and the red-now
+    # fact only for a draft with no current result by construction (code-reading, no run target, or a manual check / observation).
     wide = _app_bug_problem(draft, rows) or _current_red_problem(draft, report)
     has_walk = any(isinstance(e, dict) and str(e.get("kind") or "").strip() == "walk" for e in entries)
     if wide and not has_walk:
         return [], [wide]
     walk_wide = ()
     if has_walk:
+        no_run = no_run_target(draft, report)      # once per draft: both decisions below read this one value (AR-13)
         no_report = () if (report_ok or is_code_reading(draft)) else (R_NO_REPORT, "run-report.json cannot be read")   # an unknown never lifts
-        walk_wide = (() if is_code_reading(draft) else _app_bug_problem(draft, rows)) or no_report \
-            or (() if _walk_has_no_run(draft, report) else _current_red_problem(draft, report))
+        walk_wide = (() if (is_code_reading(draft) or no_run) else _app_bug_problem(draft, rows)) or no_report \
+            or (() if _walk_has_no_run(draft, report, no_run) else _current_red_problem(draft, report))
     valid: list = []
     problems: list = []
     wide_said = False
