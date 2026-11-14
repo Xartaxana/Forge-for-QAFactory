@@ -696,7 +696,7 @@ class DriverStagePlan:
 
         def complete(digest: str):
             # X2-7 (a): the acceptance record is written FIRST, from the critic's own form, before the controller accepts the critic (E-X2-7d)
-            dispatch = str(getattr(self, "last_dispatch", "") or "") if dispatch_id is None else str(dispatch_id or "")      # F1, as the S2/S3 rule
+            dispatch = str(getattr(self, "last_dispatch", "") or "") if dispatch_id is None else str(dispatch_id or "")      # F1
             form = f"work/handoffs/{dispatch}.yaml" if dispatch else ""
             if self.stage_acceptor("S4"):
                 if not dispatch:

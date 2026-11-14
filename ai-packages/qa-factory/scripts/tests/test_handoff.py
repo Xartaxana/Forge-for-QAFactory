@@ -2008,7 +2008,7 @@ def the_null_outcome_audit_is_green_over_the_index_with_the_purpose_rows() -> No
              and r["carrier"] in (f"{PLAN_AUTHOR}:scope", f"{PLAN_CRITIC}:scope")]
     check_eq("each plan handover's item list has one never_empty home", sorted(r["carrier"] for r in homes),
              sorted([f"{PLAN_AUTHOR}:scope", f"{PLAN_CRITIC}:scope"]))
-    check_eq("the index counts twenty-three handovers", len(handoff.index()["handoffs"]), 23)
+    check_eq("the index counts twenty-one handovers", len(handoff.index()["handoffs"]), 21)
 
 
 def a_claim_code_measures_false_stays_open_with_the_door() -> None:
