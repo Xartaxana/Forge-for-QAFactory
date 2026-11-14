@@ -242,7 +242,7 @@ TOOLING = {
         "It mutates the check, restores the "
         "file, writes work/probes/<IID>.json {verdict intended_failure|no_failure|wrong_location|incomplete, "
         "location, reason, failure_kind, evidence_ref} with a row per check; "
-        "`incomplete`, and a refusal that names a factory data gap or a killed probe's unresolved copy, is `tooling` (say so in your digest), never a verdict on the test; "
+        "`incomplete`, and a refusal that names a factory data gap or a killed probe's unresolved copy, is `tooling` (say so in your digest and record `sensitivity_proof_missing_reason` on the row), never a verdict on the test; "
         "`--release-copy <file>` alone drops that copy, only after the test's author has settled the file; "
         "a repeat on the same bytes and entries is answered already_probed and nothing runs",
         "red_sandbox.py --probe --request <mutations.json> --task-root <task root> --repo <root> [--dispatch <ID>] - only when you doubt the "
@@ -781,7 +781,10 @@ def proof_required_lines(task_root: Path, role: str, dispatch_id: str) -> list:
     the same rule as `expectation_change_lines` (nothing is owed).
     A manifest that is absent or cannot be read, or a measurement that failed, gets ONE line saying
     so and why - never "none" (FR-41); the brief is built either way, because it is a courtesy and
-    never a refusal."""
+    never a refusal.
+    The closing sentence names only the doors `Controller._code_review_problems` accepts: a model entry plus the
+    probe, or `sensitivity_proof_missing_reason` on the row; the debt file is the factory's, never the role's (AR-14).
+    A blank dispatch id prints `<your dispatch id>` in both paths."""
     if role != PROOF_ROLE:
         return []
     cannot = "The live checks the predicate requires could not be listed: "
@@ -838,13 +841,19 @@ def proof_required_lines(task_root: Path, role: str, dispatch_id: str) -> list:
         line += f", and {count - PROOF_NAMES_SHOWN} more - the full list: {PROOF_LIST} (`novelty` per row)"
     elif any(clipped_names[:PROOF_NAMES_SHOWN]):   # a name clipped in the middle: where the whole is
         line += f" - the full list: {PROOF_LIST} (`novelty` per row)"
-    try:
-        import probe_debt
-        debt = probe_debt.debt_rel(dispatch_id)       # TR3-15: the debt file of THIS critic dispatch (the one spelling), never another window's
-    except Exception:   # a brief line never stops a brief
-        debt = "work/probe-debt/<your dispatch id>.json"
-    return [line + f". Each needs a receipt: run its check and record it, or leave it in {debt} "
-                   "for the conductor."]
+    ident = str(dispatch_id or "").strip()
+    models = f"work/probe-models/{ident or '<your dispatch id>'}.json"
+    debt = "work/probe-debt/<your dispatch id>.json"
+    if ident:   # a blank id has no file of its own: the placeholder, never the legacy single file
+        try:
+            import probe_debt
+            debt = probe_debt.debt_rel(ident)         # TR3-15: the debt file of THIS critic dispatch (the one spelling), never another window's
+        except Exception:   # a brief line never stops a brief
+            pass
+    return [line + f". Each needs a receipt: write each check's entry in {models} and run probe_by_code.py "
+                   "for the instance (the card). A probe the tool or the stand stopped is `critic_verdict: unverified` "
+                   "with `sensitivity_proof_missing_reason` on that row through manifest_put.py; "
+                   f"{debt} is the factory's file, never yours to write."]
 
 
 # --- the sides of the story and what a test assumes about them (t-2181 PC-8, AR-10, AR-13) ------------------------------
