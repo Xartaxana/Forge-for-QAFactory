@@ -2522,7 +2522,9 @@
     "tests/harness.py",
     "stand_access.py",
     "references/login-roads.json",
-    "references/stand-answers.json"
+    "references/stand-answers.json",
+    "project_decisions.py",
+    "stand_health.py"
    ]
   },
   "test_human_questions.py": {

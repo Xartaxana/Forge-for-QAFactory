@@ -298,10 +298,228 @@ def the_stand_check_words() -> None:
         harness.cleanup(root)
 
 
+# --- FV1-15: the probe words the answer; a recorded sign-in that is not the stand's way in has a way out (`find the way in`) ---------------
+# Expected from the card (docs/tasks/specs/20261114-fv1-17-15-cards-redraft-spec.md, FV1-15 P1, D2, D5), quoted here as literals:
+# the prefix each Layer-1 login line starts with and the answer it says; never taken from the constants they check.
+PREFIX_ANSWER_ROWS = (
+    ("prefix-credentials_refused", "the login this project records was refused: ", "credentials_refused"),
+    ("prefix-did_not_finish", "the login this project records did not finish in time: ", "did_not_finish"),
+    ("prefix-body_shape", "login field name unknown: write the body field names the login endpoint expects into "
+                          "environment.access.user_field / secret_field (qa-factory/config.json)", "body_shape"),
+    ("prefix-wrong_door", "the address recorded for signing in did not sign us in, and its answer does not look like a sign-in: ", "wrong_door"),
+    ("prefix-unjudged", "the sign-in recorded for this project came back with an answer that does not show whether a sign-in is there: ", "unjudged"),
+    ("prefix-no_answer", "the login this project records got no answer: ", "no_answer"),
+    ("prefix-stand_error", "the stand failed the sign-in with a server error: ", "stand_error"),
+    ("prefix-throttled", "the stand limits requests, so the sign-in was not judged: ", "throttled"),
+    ("prefix-command_failed", "the project's own sign-in command did not get in: ", "command_failed"),
+)
+WAY_WRONG = "the address recorded for signing in did not sign us in, and its answer does not look like a sign-in. "
+WAY_UNJUDGED = "the address recorded for signing in did not sign us in, and its answer does not show whether a sign-in is there. "
+STAND_SIDE = "answers its health check, but its sign-in failed with a server error or gave no answer. "
+WAIT_SAYS = "limits requests, so I could not check the sign-in just now. "
+FIND_WAY = "find the way in"
+SEARCHED_SAYS = "I already tried every way in I know for this stand in this story and none signed in"
+WAY_RETRY = "fix the sign-in the project records, or name the way the project signs in; I check again"
+STAND_RETRY = "look at the stand (its sign-in failed on its side), then I check again"
+WAIT_RETRY = "wait a few minutes; I check again"
+# (id, answer given to the question, searched, the class sentence, the retry words)
+STAND_LOGIN_CLASS_ROWS = (
+    ("class-way-wrong", "wrong_door", False, WAY_WRONG, WAY_RETRY),
+    ("class-way-unjudged", "unjudged", False, WAY_UNJUDGED, WAY_RETRY),
+    ("class-way-wrong-searched", "wrong_door", True, WAY_WRONG, WAY_RETRY),
+    ("class-way-unjudged-searched", "unjudged", True, WAY_UNJUDGED, WAY_RETRY),
+    ("class-stand-error", "stand_error", False, STAND_SIDE, STAND_RETRY),
+    ("class-stand-no-answer", "no_answer", False, STAND_SIDE, STAND_RETRY),
+    ("class-wait", "throttled", False, WAIT_SAYS, WAIT_RETRY),
+    ("class-account-refused", "credentials_refused", False, LOGIN_SAYS, LOGIN_RETRY),
+    ("class-account-fields", "fields_unconfirmed", False, LOGIN_SAYS, LOGIN_RETRY),
+    ("class-account-body-shape", "body_shape", False, LOGIN_SAYS, LOGIN_RETRY),
+    ("class-account-command", "command_failed", False, LOGIN_SAYS, LOGIN_RETRY),
+    ("answer-none", None, False, LOGIN_SAYS, LOGIN_RETRY),
+    ("answer-unknown-word", "maybe", False, LOGIN_SAYS, LOGIN_RETRY),
+    ("answer-not-text", 7, False, LOGIN_SAYS, LOGIN_RETRY),
+)
+
+
+def the_stand_login_words() -> None:
+    from unittest.mock import patch
+    import env_probe
+    import driver_core
+    root, task_root, env = seed("QA-9")
+    try:
+        driver = driver_for(root, "QA-9")
+        # (1) every Layer-1 login prefix: one word for the question (`login`), one answer for the new reader
+        members = list(env_probe.LAYER1["login"])
+        check_eq("FV1-15 E-P1: today's three members come FIRST and unchanged", members[:3], [row[1] for row in PREFIX_ANSWER_ROWS[:3]])
+        check_eq("FV1-15 E-P1: no member starts with another (the longest-prefix read is unambiguous)",
+                 [(a, b) for a in members for b in members if a != b and a.startswith(b)], [])
+        check_eq("FV1-15 P1: LOGIN_PREFIX_ANSWER pairs every member with its answer, in the card's order",
+                 [(p, a) for p, a in env_probe.LOGIN_PREFIX_ANSWER], [(row[1], row[2]) for row in PREFIX_ANSWER_ROWS])
+        for label, prefix, answer in PREFIX_ANSWER_ROWS:
+            text = "liveness: alive - x\nTHE ENVIRONMENT CANNOT BE USED:\n- " + prefix + "POST /login -> HTTP 405\nLayer 1 is these three lines only."
+            check_eq(f"FV1-15 {label}: the word of the line", env_probe.blocked_by_of(text), ["login"])
+            check_eq(f"FV1-15 {label}: the answer read back", env_probe.login_answer_of(text), answer)
+        for label, text, want in (
+                ("out-empty", "", None), ("out-none", None, None), ("out-blanks", "  \n\n", None), ("out-traceback", TRACEBACK, None),
+                ("out-passing-probe", STAND_DETAILS.replace("failed HTTP 405 - POST http://localhost:3000/login -> HTTP 405", "ok as QA_USER - fine"), None),
+                ("out-dead-stand", "THE ENVIRONMENT CANNOT BE USED:\n- the stand does not answer: x\n", None),
+                ("out-login-key", "THE ENVIRONMENT CANNOT BE USED:\n- QA_PASSWORD is not set, and the login needs it\n", None),
+                ("out-first-login-item-wins",
+                 "THE ENVIRONMENT CANNOT BE USED:\n- the stand limits requests, so the sign-in was not judged: x\n"
+                 "- the login this project records was refused: y\n", "throttled"),
+                ("out-dead-then-login-item",
+                 "THE ENVIRONMENT CANNOT BE USED:\n- the stand does not answer: x\n- the login this project records got no answer: y\n", "no_answer")):
+            check_eq(f"FV1-15 {label}: login_answer_of", env_probe.login_answer_of(text), want)
+        # (2) the probe's own lines by the receipt's answer, through `probe` (the producer): the line says what the attempt came to
+        cfg = {"environment": {"access": {"kind": "none"}},
+               "environments": [{"name": "Local", "base_url": "http://localhost:3000", "api_base_url": "http://localhost:3000"}]}
+        alive = {"verdict": "alive", "code": 200, "url": "http://localhost:3000", "note": "HTTP 200"}
+        for label, receipt_extra, want in (
+                ("probe-wrong_door", {"answer": "wrong_door"}, "wrong_door"), ("probe-unjudged", {"answer": "unjudged"}, "unjudged"),
+                ("probe-no_answer", {"answer": "no_answer"}, "no_answer"), ("probe-stand_error", {"answer": "stand_error"}, "stand_error"),
+                ("probe-throttled", {"answer": "throttled"}, "throttled"), ("probe-command_failed", {"answer": "command_failed"}, "command_failed"),
+                ("probe-command_missing-says-command", {"answer": "command_missing"}, "command_failed"),
+                ("probe-credentials_refused", {"answer": "credentials_refused"}, "credentials_refused"),
+                ("probe-fields_unconfirmed-keeps-refused", {"answer": "fields_unconfirmed"}, "credentials_refused"),
+                ("probe-no-answer-key", {}, "credentials_refused"), ("probe-unknown-answer", {"answer": "maybe"}, "credentials_refused"),
+                ("probe-answer-not-text", {"answer": ["x"]}, "credentials_refused"),
+                ("probe-did_not_finish-as-today", {"answer": "did_not_finish", "refusal": "timeout"}, "did_not_finish"),
+                ("probe-body_shape-as-today", {"answer": "body_shape", "refusal": "body_shape", "fix": env_probe.stand_access.LOGIN_FIELD_FIX}, "body_shape")):
+            receipt = {"status": "failed", "code": 405, "user_key": "QA_USER", "why": "POST http://localhost:3000/login -> HTTP 405", **receipt_extra}
+            with patch.object(env_probe, "liveness", return_value=dict(alive)), patch.object(env_probe.stand_access, "login", return_value=receipt):
+                result = env_probe.probe(json.loads(json.dumps(cfg)), "Local", root=root)
+            text = probe_text(result)
+            check_eq(f"FV1-15 {label}: blocked_by stays `login` (FV1-5's set does not grow)", result["blocked_by"], ["login"])
+            check_eq(f"FV1-15 {label}: the text reader gives the answer back", env_probe.login_answer_of(text), want)
+        # P2: the receipts `probe` builds itself say `not_tried` / `access`, and the record carries the answer
+        dead = {"verdict": "dead", "code": None, "url": "http://localhost:3000", "note": "connection refused"}
+        keyed = {"environment": {"user_key": "FV15_USER", "secret_keys": ["FV15_SECRET"],
+                                 "access": {"kind": "local_login", "user_key": "FV15_USER", "secret_key": "FV15_SECRET", "url": "/login"}},
+                 "environments": cfg["environments"]}
+        with patch.object(env_probe, "liveness", return_value=dict(dead)):
+            skipped = env_probe.probe(json.loads(json.dumps(keyed)), "Local", root=root)["login"]
+        check_eq("FV1-15 P2: a skipped receipt of the probe says nothing was sent, by the access",
+                 (skipped["status"], skipped["answer"], skipped["source"], skipped.get("record", {}).get("answer")),
+                 ("skipped", "not_tried", "access", "not_tried"))
+        check_eq("FV1-15 P2: login_record copies a word of ANSWERS and nothing else",
+                 [env_probe.login_record(keyed["environment"], keyed["environment"]["access"], ["FV15_USER"], {"code": 405, "status": "failed", "answer": a}).get("answer")
+                  for a in ("wrong_door", "maybe", None, 7)], ["wrong_door", None, None, None])
+        # (3) the question: the class by the answer, its sentence, its retry words, its options, its priced key - each through the one form
+        for label, answer, searched, says, retry in STAND_LOGIN_CLASS_ROWS:
+            text = driver.stand_question_text("S5", "Local", ["Local", "Staging"], "", ["login"], answer, searched)
+            way = answer in ("wrong_door", "unjudged")
+            check_in(f"FV1-15 {label}: the sentence", says, text)
+            check_in(f"FV1-15 {label}: the retry words", retry, text)
+            check_eq(f"FV1-15 {label}: the text passes human_text.problems",
+                     [p["rule"] for p in human_text.problems(str(text) + STAND_TAIL)], [])
+            check_eq(f"FV1-15 {label}: `find the way in` is offered only for the way class, when no search ran",
+                     FIND_WAY in text.priced, way and not searched)
+            check_eq(f"FV1-15 {label}: `find the way in` is the FIRST option when offered",
+                     (text.priced[0] == FIND_WAY) if FIND_WAY in text.priced else True, True)
+            check_eq(f"FV1-15 {label}: a search that ran is said in the body, for the way class only",
+                     SEARCHED_SAYS in text, way and searched)
+            check_eq(f"FV1-15 {label}: the other options are untouched (retry, stand name, go on)",
+                     [t for t in text.priced if t != FIND_WAY], ["retry", "go on"])
+            check_eq(f"FV1-15 {label}: `did not answer` is never said of a stand that answered", "did not answer" in text, False)
+        for label, args, want in (("no-name-with-answer", ("S6", "", ["Local", "Staging"]), "no stand has been chosen"),
+                                  ("no-stand-with-answer", ("S5", "", []), "records no stand")):
+            text = driver.stand_question_text(*args, "", ["login"], "wrong_door", False)
+            check_in(f"FV1-15 {label}: the answer is unused when no stand is named", want, text)
+            check_eq(f"FV1-15 {label}: no search option", FIND_WAY in text.priced, False)
+        check_eq("FV1-15 answer-with-other-reason: the answer is read for the reason `login` only",
+                 FIND_WAY in driver.stand_question_text("S5", "Local", ["Local"], "", ["stand_dead"], "wrong_door", False).priced, False)
+        # (4) D5: the onboarding note
+        check_eq("FV1-15 D5: login_door gives the login note whatever the stands",
+                 (human_text.onboarding_note("Local", ["Local"], login_door=True), human_text.onboarding_note("", [], login_door=True)),
+                 (human_text.ONBOARDING_LOGIN_NOTE, human_text.ONBOARDING_LOGIN_NOTE))
+        check_eq("FV1-15 D5: without it today's rule, byte for byte",
+                 (human_text.onboarding_note("Local", ["Local"]), human_text.onboarding_note("", []), human_text.onboarding_note("", ["A"])),
+                 ("", human_text.ONBOARDING_NOTE, ""))
+        check_not_in("FV1-15 D5: the command is never in a body (rule 5)", "/qa-factory:", driver.stand_question_text(
+            "S5", "Local", ["Local"], "", ["login"], "wrong_door", True))
+        # (5) D1: `stand_check` carries the answer and the search state into the question and its answer block
+        (task_root / "pipeline.json").write_text(json.dumps(
+            {"ticket": "QA-9", "size": "S", "environment": "Local", "environment_pending": True,
+             "stages": {"S0": {"status": "done"}}, "gates": {}, "halts": []}), encoding="utf-8")
+        wrong = ("liveness: alive - x\nlogin: failed HTTP 405 - x\nTHE ENVIRONMENT CANNOT BE USED:\n- " + PREFIX_ANSWER_ROWS[3][1] + "POST /login -> HTTP 405\n")
+        for label, out, searched_state, want_offered, want_note in (
+                ("check-way-first-time", wrong, None, True, ""),
+                ("check-way-searched", wrong, {"Local": {"at": "2026-11-14T10:00:00", "exit": 2}}, False, human_text.ONBOARDING_LOGIN_NOTE),
+                ("check-way-searched-other-stand", wrong, {"Staging": {"at": "2026-11-14T10:00:00", "exit": 2}}, True, ""),
+                ("check-way-search-record-not-a-table", wrong, "Local", True, ""),
+                ("check-account-searched", "liveness: alive - x\nTHE ENVIRONMENT CANNOT BE USED:\n- " + PREFIX_ANSWER_ROWS[0][1] + "x\n",
+                 {"Local": {"at": "2026-11-14T10:00:00", "exit": 2}}, False, ""),
+                ("check-out-empty", "", None, False, "")):
+            driver.state.pop("login_search", None)
+            if searched_state is not None:
+                driver.state["login_search"] = searched_state
+            with patch.object(driver, "py", return_value=(1, out)), patch.object(driver, "stand_names", return_value=["Local", "Staging"]):
+                try:
+                    driver.stand_check("S5")
+                    raised = None
+                except driver_core.Person as person:
+                    raised = person
+            check("FV1-15 " + label + ": the question is raised", raised is not None)
+            if raised is not None:
+                check_eq(f"FV1-15 {label}: `find the way in` offered", FIND_WAY in raised.offered, want_offered)
+                check_eq(f"FV1-15 {label}: the answer block's onboarding note", raised.answer_note, want_note)
+        # (6) D4: the token is executed only when THIS question offered it; a stand named so keeps its road
+        driver.state.pop("login_search", None)
+        calls: list = []
+
+        def fake_py(script, *args, **kwargs):
+            calls.append((script, args))
+            return (2, "project_decisions: stand-login refused - no way in signed in (a: wrong_door; b:x: wrong_door)\nsecond line") \
+                if script == "project_decisions.py" else (0, "")
+        offered = {"offered": (FIND_WAY, "retry", "go on"), "options": [{"token": FIND_WAY, "move": "site_door"}, {"token": "retry", "move": "person_does"},
+                                                                       {"token": "go on", "move": "go_on_as_is"}], "block": "stand not confirmed"}
+        with patch.object(driver, "py", side_effect=fake_py), patch.object(driver, "stand_names", return_value=["Local", "Staging"]):
+            driver.state["asked"] = offered
+            taken = driver._take_stand_answer("environment", "S5", "", "q", "  Find   the way IN ")
+            search_calls = [c for c in calls if c[0] == "project_decisions.py"]
+            check_eq("FV1-15 find-way-token-executed (exit 2): taken, one stand-login call naming the stand",
+                     (taken, len(search_calls), search_calls[0][1][2:5] if search_calls else None), (True, 1, ("stand-login", "--stand", "Local")))
+            check_eq("FV1-15 find-way-token-executed (exit 2): the search is recorded whatever the exit",
+                     driver.state.get("login_search", {}).get("Local", {}).get("exit"), 2)
+            calls.clear()
+            driver.state.pop("login_search", None)
+            with patch.object(driver, "py", side_effect=lambda script, *args, **kwargs: (calls.append((script, args)), (0, ""))[1]):
+                check_eq("FV1-15 find-way-token-executed (exit 0): taken, recorded with exit 0",
+                         (driver._take_find_way_in("S6", FIND_WAY), driver.state["login_search"]["Local"]["exit"]), (True, 0))
+            # the token is NOT offered by this question: it is not executed (E-D1 invariant) - the words go the old road
+            calls.clear()
+            driver.state.pop("login_search", None)
+            driver.state["asked"] = {"offered": ("retry", "go on"), "options": [{"token": "retry", "move": "person_does"}, {"token": "go on", "move": "go_on_as_is"}],
+                                     "block": "stand not confirmed"}
+            unread: list = []
+            with patch.object(driver, "unread", side_effect=lambda *a, **k: unread.append(a)):
+                taken = driver._take_stand_answer("environment", "S5", "", "q", FIND_WAY)
+            check_eq("FV1-15 find-way-token-not-offered: no search, the words go to the conductor",
+                     (taken, [c for c in calls if c[0] == "project_decisions.py"], len(unread), "login_search" in driver.state), (False, [], 1, False))
+            # a stand literally named so keeps its road (the name branch is first)
+            calls.clear()
+            driver.state["asked"] = offered
+            with patch.object(driver, "stand_names", return_value=[FIND_WAY, "Staging"]):
+                taken = driver._take_stand_answer("environment", "S5", "", "q", FIND_WAY)
+            check_eq("FV1-15 stand-named-find-the-way-in: the stand name wins, nothing is searched",
+                     (taken, [c[0] for c in calls if c[0] == "project_decisions.py"], "login_search" in driver.state,
+                      any(c[0] == "stage_done.py" for c in calls)), (True, [], False, True))
+        # D3/D4: the priced row and the site's move exist for the token
+        prices = json.loads((harness.PLUGIN_ROOT / "references" / "question-prices.json").read_text(encoding="utf-8"))["questions"]
+        check_eq("FV1-15 D3: s6.stand_confirm.login = find the way in + the three rows of s6.stand_confirm verbatim",
+                 prices["s6.stand_confirm.login"][1:], prices["s6.stand_confirm"])
+        check_eq("FV1-15 D3: the first row is the search: a factory command, nothing of the person's, delivery unchanged",
+                 prices["s6.stand_confirm.login"][0], {"answer": FIND_WAY, "factory": "command", "person": "none", "delivery": "unchanged"})
+        check_eq("FV1-15 D4: SITE_MOVES gives the token the site door", story_run.Driver.SITE_MOVES.get(FIND_WAY), "site_door")
+    finally:
+        harness.cleanup(root)
+
+
 def main() -> None:
     the_sixth_element_and_its_example()
     the_example_at_a_gate()
     the_stand_check_words()
+    the_stand_login_words()
     task = "QA-9"
 
     # --- the checker ------------------------------------------------------------------------

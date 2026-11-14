@@ -11,6 +11,13 @@ from driver_dialog import ANSWER_BLOCK_RE, QUESTION_HEAD_RE
 from driver_conductor import MOVES_RULE, OWN_TOKEN_RULE
 
 
+# FV1-15 (D2, A5): the sentence class a sign-in `answer` (`env_probe.login_answer_of`) puts the stand question in. ONE closed mapping, shared
+# by `stand_question_text` (the words) and `stand_check` (the onboarding note); `way` = the recorded way in is not the stand's way in;
+# `stand` = the stand failed on its side; `wait` = the stand limits requests; every other answer, and None, is `account` (today's words).
+LOGIN_ANSWER_CLASS = {"wrong_door": "way", "unjudged": "way", "stand_error": "stand", "no_answer": "stand", "throttled": "wait"}
+FIND_WAY_IN = "find the way in"
+
+
 class DriverStageBuild:
     # --- the stand: asked ONCE, before anything runs on it (t-017 D2: B-005, owner D-0014) ----------
 
@@ -28,13 +35,18 @@ class DriverStageBuild:
                    "manual": "carrying out the manual checks",
                    "both": "running the automated tests and carrying out the manual checks"}
 
-    def stand_question_text(self, stage: str, environment: str, names: list, kind: str = "", why=None) -> str:
+    def stand_question_text(self, stage: str, environment: str, names: list, kind: str = "", why=None, answer=None,
+                            searched: bool = False) -> str:
         """The question (references/human-questions.md): what was done, why the stand cannot be
         derived, one question, the closed answers. Nothing in it is the probe's own vocabulary -
         that goes in the details file. `kind` is what the stage is about to do on the stand
         (S6: automation, manual, or both) - a manual-only S6 must not say "automated tests".
         `why` is the probe's `blocked_by` list: it decides which of four sentences names the named stand
-        (dead / answers but the login did not get in / could not be checked / unknown); None or empty is `unknown`."""
+        (dead / answers but the login did not get in / could not be checked / unknown); None or empty is `unknown`.
+        `answer` (FV1-15 D2) is what the sign-in came to (`env_probe.login_answer_of`), for the reason `login` only: it picks the class
+        of the sentence (`LOGIN_ANSWER_CLASS`; None or an unknown word is today's words). In the class `way`, `searched` = a search of
+        every way in already ran for this stand in this story: not searched -> the first option is `find the way in` (its own priced
+        key); searched -> no such option, and the body says so."""
         task = self.task
         # FV1-5: the probe's `blocked_by` words (env_probe.blocked_by_of) -> the sentence class a person reads. ONE closed mapping;
         # the FIRST word decides; a word nobody here knows (a future one) and an empty list are the `unknown` class (FR-41).
@@ -43,13 +55,26 @@ class DriverStageBuild:
                    "selection": "config", "env_file": "config", "no_address": "config", "not_configured": "config"}
         first = why[0] if isinstance(why, (list, tuple)) and why else ""
         reason = classes.get(first, "unknown") if isinstance(first, str) else "unknown"
+        login_class = LOGIN_ANSWER_CLASS.get(answer, "account") if reason == "login" and isinstance(answer, str) else "account"
         step = self.STAND_STEPS["S5" if stage == "S5" else (kind if kind in self.STAND_STEPS else "automation")]
         head = (f"The requirements, the test plan and the test cases for {task} are done. The next "
                 f"step is {step}, and for that I need a stand I can trust. I could not confirm one: ")
         if environment:
+            # FV1-15 D2: the sentence of the class `login_class` (the answer of the sign-in); `account` is today's, byte for byte
+            login_says = {
+                "account": (f"the stand `{environment}` answers, but the login recorded for this project did not get in "
+                            "when I checked it just now. "),
+                "stand": (f"the stand `{environment}` answers its health check, but its sign-in failed with a server error "
+                          "or gave no answer. "),
+                "wait": f"the stand `{environment}` limits requests, so I could not check the sign-in just now. ",
+                "way": (f"the stand `{environment}` answers, but the address recorded for signing in did not sign us in, and its "
+                        + ("answer does not show whether a sign-in is there. " if answer == "unjudged"
+                           else "answer does not look like a sign-in. "))}[login_class]
+            if login_class == "way" and searched:
+                login_says += ("I already tried every way in I know for this stand in this story and none signed in; the "
+                               "onboarding, which asks you how the project signs in, is named below. ")
             head += {"dead": f"the stand `{environment}` did not answer when I checked it just now. ",
-                     "login": (f"the stand `{environment}` answers, but the login recorded for this project did not get in "
-                               "when I checked it just now. "),
+                     "login": login_says,
                      "config": (f"the stand `{environment}` could not be checked: its setting in the project's config is "
                                 "missing or broken. "),
                      "unknown": f"I could not check the stand `{environment}`. "}[reason]
@@ -60,11 +85,25 @@ class DriverStageBuild:
         head += ("I have not run anything on a stand and I have not switched to another one on my "
                  "own: which stand the tests may touch is your decision.")
         options = []
+        offers_search = False
         if environment and reason == "login":
-            options.append({"answer": "retry", "token": "retry",
-                            "slots": {"what": "fix the login the project records, or name the way the project signs in"},
-                            "says": ("fix the login the project records (the details name what came back), or name the way "
-                                     "the project signs in; I check again")})
+            what, says = {
+                "account": ("fix the login the project records, or name the way the project signs in",
+                            "fix the login the project records (the details name what came back), or name the way "
+                            "the project signs in; I check again"),
+                "way": ("fix the sign-in the project records, or name the way the project signs in",
+                        "fix the sign-in the project records, or name the way the project signs in; I check again"),
+                "stand": ("look at the stand (its sign-in failed on its side)",
+                          "look at the stand (its sign-in failed on its side), then I check again"),
+                "wait": ("wait a few minutes", "wait a few minutes; I check again")}[login_class]
+            if login_class == "way" and not searched:
+                # FV1-15 D2-D4: the way out of a recorded sign-in that is not the stand's way in - the person's word, which the driver
+                # executes (`_take_find_way_in`): every way in the factory knows is tried, the one that signs in is recorded
+                options.append({"answer": FIND_WAY_IN, "token": FIND_WAY_IN,
+                                "says": ("I try every way in I know, record the one that signs in in place of the recorded one, and "
+                                         "check the stand again")})
+                offers_search = True
+            options.append({"answer": "retry", "token": "retry", "slots": {"what": what}, "says": says})
         elif environment and reason == "config":
             options.append({"answer": "retry", "token": "retry", "slots": {"what": "fix the stand's setting in the project's config"},
                             "says": f"fix the stand's setting in the project's config; I check `{environment}` again"})
@@ -88,8 +127,11 @@ class DriverStageBuild:
                         "says": "go on without a stand" + ("; the tests are still written, but none is run on a stand" if stage == "S5" else "")
                                 + ", and the story carries a line saying it was your decision"})
         # C1-6b (S6, A7): the priced section replaces the lettered list; the site's own words stay in `says`, the three price lines are
-        # the data row of `s6.stand_confirm`
-        return self.closed_question("s6.stand_confirm", head + "\n\nWhat I need from you is one of these:", options)
+        # the data row of `s6.stand_confirm` (`s6.stand_confirm.login` when the question offers `find the way in`)
+        lead = head + "\n\nWhat I need from you is one of these:"
+        if offers_search:       # the keys stay literals at the call: the census (`QUESTION_SITE_RE`) reads them there
+            return self.closed_question("s6.stand_confirm.login", lead, options)
+        return self.closed_question("s6.stand_confirm", lead, options)
 
     def stand_check(self, stage: str, kind: str = "") -> None:
         """Before S5/S6 puts anything on a stand: is one confirmed for this story?
@@ -130,6 +172,7 @@ class DriverStageBuild:
                 return
         details = "no stand is recorded for this story (environment: none)"
         why: list = []                  # FV1-5: the probe's `blocked_by` words; empty = the question says "I could not check"
+        answer, searched = None, False  # FV1-15: the sign-in's answer (None = today's words) and whether the search already ran
         if environment:
             code, out = self.py("env_probe.py", "--env", environment, "--task", self.task)
             if code == 0:
@@ -139,12 +182,21 @@ class DriverStageBuild:
             details = out or "the probe printed nothing"
             import env_probe            # the one reader of the probe's text for words (AR-13); a crash or empty text is `unknown`
             why = env_probe.blocked_by_of(out)
+            # FV1-15 D1: what the sign-in came to (the probe's own words, read back by the one reader) and whether the search of
+            # every way in already ran for THIS stand in THIS story (`login_search`, set by `_take_find_way_in`; a new story has its own state)
+            if why and why[0] == "login":
+                answer = env_probe.login_answer_of(out)
+            held = self.state.get("login_search")
+            searched = isinstance(held, dict) and environment in held
+        # D5: the onboarding that asks how the project signs in is named only after a search found no way in (`way` class AND searched)
+        login_door = searched and LOGIN_ANSWER_CLASS.get(answer) == "way" if isinstance(answer, str) else False
         # A7 (C1-6b): a seam question - `retry` / `go on` carry the seam's own moves (`person_does`, `go_on_as_is` + the block), so
         # `take_seam_answer` executes them; the stand's NAME is the site's own door (`_take_stand_answer`)
         # remains: the stand question is a seam question (priced, `offered`): retry / go on run the seam's executors, the name has its own, other words go to the seam
-        person = self.site_seam_person("environment", self.stand_question_text(stage, environment, self.stand_names(), kind, why), stage,
+        person = self.site_seam_person("environment", self.stand_question_text(stage, environment, self.stand_names(), kind, why,
+                                                                               answer, searched), stage,
                                        block=waiver.STAND_NOT_CONFIRMED_BLOCK, details=details,
-                                       answer_note=human_text.onboarding_note(environment, self.stand_names()))
+                                       answer_note=human_text.onboarding_note(environment, self.stand_names(), login_door=login_door))
         person.stand_stage = stage       # read by `ask()`, which sets the flag - and clears it for every other Person
         raise person
 

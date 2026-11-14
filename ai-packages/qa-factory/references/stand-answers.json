@@ -105,6 +105,8 @@
      "words": "{name} did not give an answer that this check can place: {note}"}
   ],
   "login_remedies": [
+    {"id": "L0", "answers": ["wrong_door"],
+     "remedy": "The address recorded for signing in did not sign us in and its answer does not look like a sign-in: answer `find the way in` at the stand question, or run the onboarding again."},
     {"id": "L1", "codes": [400, 422],
      "remedy": "Check the body field names environment.access.user_field / secret_field (the endpoint may want other fields), or the account in {user_key}."},
     {"id": "L2", "codes": [401, 403],
