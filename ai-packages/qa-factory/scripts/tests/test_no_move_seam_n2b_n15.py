@@ -458,6 +458,334 @@ def n15_a_gave_up_stop_files_the_free_answer_for_its_dispatch() -> None:
             harness.cleanup(root)
 
 
+S4_CRITIC, S4_DESIGNER = "S4-qa-case-critic-1", "S4-qa-case-designer-1"
+S4_BUDGET = {"counted": 2, "cap": 2, "passes": {"qa-case-designer": "round pass 3 for qa-case-designer on S4:aaa",
+                                                 "qa-case-critic": "round pass 3 for qa-case-critic on S4:bbb"}}
+S4_HEAD = "# Critic findings — round 3\n\nVerdict: reject\n\n## Roll-call\n\n| plan row | case | reviewed | verdict | note | fix |\n|---|---|---|---|---|---|\n"
+
+
+def _s4_findings(*rows: str, verdict: str = "reject") -> str:
+    return S4_HEAD.replace("Verdict: reject", f"Verdict: {verdict}") + "".join(row + "\n" for row in rows)
+
+
+S4_THREE = _s4_findings("| TS-1 | TC-3 | yes | reject | the expected file name is taken from the code | |",
+                        "| TS-2 | TC-5 | yes | partial | the empty-list case checks only the status | |",
+                        "| TS-3 | TC-8 | yes | reject |  | |",
+                        "| TS-4 | TC-4 | yes | approve_with_concerns | ok | |")
+S4_ONE = _s4_findings("| TS-1 | TC-3 | yes | reject | <note> | |", "| TS-2 | TC-4 | yes | approve_with_concerns | ok | |")
+
+
+def _s4_rig(findings=None, dispatches="default", store=None):
+    """A driver at the last S4 round: the findings file written, the case files of TC-3 / TC-5 / TC-8 on disk (not TC-7), the controller's
+    records stubbed, the conductor seam a recorder (`seam`: one `(args, kwargs)` per call, answering None)."""
+    root, task_root, driver = logged_rig()
+    cases = driver.task_root / "work" / "test-cases"
+    cases.mkdir(parents=True, exist_ok=True)
+    for name in ("TC-3", "TC-5", "TC-8"):
+        (cases / f"{name}.md").write_text(f"# {name}\n", encoding="utf-8")
+    if findings is not None:
+        (cases / "critic-findings.md").write_text(findings, encoding="utf-8")
+    records = ({S4_DESIGNER: {"id": S4_DESIGNER, "stage": "S4", "role": "qa-case-designer", "status": "accepted"},
+                S4_CRITIC: {"id": S4_CRITIC, "stage": "S4", "role": "qa-case-critic", "status": "accepted"}}
+               if dispatches == "default" else dispatches)
+    driver.controller_state = lambda: {"dispatches": records}
+    driver.pipeline = lambda: {}
+    if store is not None:
+        driver.state["repair_limit_s4"] = store
+    seam = []
+    driver.stage_review_exhausted = lambda *a, **k: seam.append((a, k)) or None
+    return root, driver, seam
+
+
+def _s4_limit(driver, counted=2, cap=2, budget=S4_BUDGET, dispatch=S4_CRITIC):
+    """`(the finish's result, the Person it raised)`."""
+    try:
+        return driver.s4_review_limit(dispatch, f"work/handoffs/{dispatch}.yaml", counted, cap, budget), None
+    except story_run.Person as person:
+        return None, person
+
+
+def _s4_entry(token, dispatch=S4_CRITIC, words_file="", at="2026-11-14T10:00:00"):
+    return {dispatch: {"dispatch": dispatch, "token": token, "cases": ["TC-3", "TC-5", "TC-8"], "key": "s4.repair_limit", "at": at,
+                       "words_file": words_file, "cause": "", "reason": "", "executed": False}}
+
+
+def fv16_s4_review_limit() -> None:
+    """FV1-6 N1: the S4 critic sends cases back on the last round - the person's question, its answers, the round it buys, and the
+    conductor seam for every unknown. One row per input (the id names it); the findings are a real round."""
+    import critic_rollcall
+    # F0 no findings file: False (one resume of the critic), no question, no seam
+    root, driver, seam = _s4_rig()
+    try:
+        got, person = _s4_limit(driver)
+        check_eq("F0 no-findings-no-question: False, no Person, no seam", (got, person, seam), (False, None, []))
+    finally:
+        harness.cleanup(root)
+    # the seam rows: (id, findings, counted, expected unreadable, a word of the text)
+    for label, findings, counted, unreadable, word in (
+            ("K1 unknown-count-seam", S4_ONE, None, True, "repair count"),
+            ("U1 rollcall-unreadable-seam", "the cases say too little\n", 2, True, "roll-call could not be read"),
+            ("E1 empty-rejected-seam", _s4_findings("| TS-2 | TC-4 | yes | approve_with_concerns | ok | |", verdict="approve_with_concerns"),
+             2, False, "names no case it still rejects"),
+            ("E2 partial-round-seam (critic Q1)", _s4_findings("| TS-2 | TC-4 | yes | approve_with_concerns | ok | |"),
+             2, True, "approves every case it reviewed")):
+        root, driver, seam = _s4_rig(findings)
+        try:
+            got, person = _s4_limit(driver, counted=counted)
+            (args, kwargs), = seam
+            check_eq(f"{label}: the seam is asked once with S4, nothing returned, no question", (args[0], got, person), ("S4", None, None))
+            check_eq(f"{label}: unreadable flag", bool(kwargs.get("unreadable")), unreadable)
+            check_in(f"{label}: the text", word, kwargs.get("text") or "")
+            if label.startswith("K1"):
+                check("K1 unknown-count-seam: no digit in the text", not any(ch.isdigit() for ch in kwargs["text"]), kwargs["text"])
+        finally:
+            harness.cleanup(root)
+    # U2 the unknown verdict word of the form and S1 a stage with no acceptor, through the real finish
+    root, driver, seam = _s4_rig(S4_ONE)
+    try:
+        driver.last_dispatch = S4_CRITIC
+        driver.register_gaps_write = lambda stage, dispatch: None
+        driver.stage_acceptance_write = lambda stage, dispatch: None
+        digest = "qa-case-critic S4 TC-3 · concerns\nTC-3 · rejected · weak Then\nwork/test-cases/critic-findings.md"
+        driver.stage_verdict_known = lambda form: False
+        got = driver.s4_critic_completion(["TC-3"], 2, 2, budget=S4_BUDGET)(digest)
+        check_eq("U2 unknown-word-seam-unchanged: the seam first, unreadable, no text of the question",
+                 (got, [(a[0], bool(k.get("unreadable")), k.get("text")) for a, k in seam]), (None, [("S4", True, None)]))
+        seam.clear()
+        driver.stage_verdict_known = lambda form: True
+        driver.stage_acceptor = lambda stage: ""
+        got = driver.s4_critic_completion(["TC-3"], 2, 2, budget=S4_BUDGET)(digest)
+        check_eq("S1 no-acceptor-none: a stage with no acceptor closes as today", (got, seam), (None, []))
+    finally:
+        harness.cleanup(root)
+    # Q1 the first ask (three rejecting rows, counted 2 of 2), L1 the list is the carrier's, Q3 no dispatch id
+    root, driver, seam = _s4_rig(S4_THREE)
+    try:
+        got, person = _s4_limit(driver)
+        text = str(person.text)
+        check_eq("Q1 first-ask-text: a Person of kind repair_limit for S4, nothing in the seam", (person.kind, person.stage, got, seam), ("repair_limit", "S4", None, []))
+        check_in("Q1 first-ask-text: the corrected account", "The case designer has reworked the test cases 2 times after the case reviewer sent them back; "
+                 "the factory's limit for that is 2 rounds, and it is used up.", text)
+        check_in("Q1 first-ask-text: the count of cases", "The reviewer still rejects 3 cases:", text)
+        check_in("Q1 first-ask-text: the reviewer's words", "- [TC-3](", text)
+        check_in("Q1 first-ask-text: a row with no note", "the reviewer wrote no reason for this case", text)
+        check_in("Q1 first-ask-text: the one question", "The factory does not decide on its own whether one more round is worth it. Which of these should happen?", text)
+        for token in ("round", "go on", "stop"):
+            check_in(f"Q1 first-ask-text: the answer {token}", f"`{token}`", text)
+        check_eq("Q1 first-ask-text: three price labels per token", [text.count(label) for label in ("the factory:", "you:", "the story:")], [3, 3, 3])
+        check_not_in("Q1 first-ask-text: no role-and-number id", "S4-qa-case-critic", text)
+        check("Q1 first-ask-text: no TC- id without a link on its line",
+              all("](" in line for line in text.splitlines() if "TC-" in line and line.startswith("- ")), text)
+        check_eq("Q1 first-ask-text: human_text.price_problems is empty", human_text.price_problems(text, ["round", "go on", "stop"], human_text.rules()), [])
+        check_not_in("Q3 no-dispatch-id-in-text: the critic's dispatch id is not shown", S4_CRITIC, text)
+        carrier = critic_rollcall.current_rejected((driver.task_root / "work" / "test-cases" / "critic-findings.md").read_bytes(), driver.task_root)
+        check_eq("L1 list-equals-carrier: the question's cases are current_rejected's, TC-4 (approve_with_concerns) is absent",
+                 (driver.state["repair_ask"]["cases"], [r["case"] for r in carrier], "TC-4" in text), (["TC-3", "TC-5", "TC-8"], ["TC-3", "TC-5", "TC-8"], False))
+        check_eq("Q1 first-ask-text: the facts kept for the answer",
+                 (driver.state["repair_ask"]["key"], driver.state["repair_ask"]["offer"], driver.state["repair_ask"]["waiver_stage"]),
+                 ("s4.repair_limit", ["round", "go on", "stop"], "S4"))
+        first_text = text
+        # H1 no answer: the same finish raises the Person again and records nothing
+        got2, person2 = _s4_limit(driver)
+        check_eq("H1 no-answer-holds: the Person comes again, nothing is stored", (person2 is not None, "repair_limit_s4" in driver.state), (True, False))
+    finally:
+        harness.cleanup(root)
+    # Q2 the second ask: one earlier accepted `round` entry (the critic of that round is accepted) adds the paragraph; a stale record does not
+    for label, status, paragraph in (("Q2 second-ask-differs", "accepted", True), ("Q2b second-ask-stale-record-does-not-count", "stale", False)):
+        records = {S4_DESIGNER: {"id": S4_DESIGNER, "stage": "S4", "role": "qa-case-designer", "status": "accepted"},
+                   S4_CRITIC: {"id": S4_CRITIC, "stage": "S4", "role": "qa-case-critic", "status": status},
+                   "S4-qa-case-critic-2": {"id": "S4-qa-case-critic-2", "stage": "S4", "role": "qa-case-critic", "status": "accepted"}}
+        root, driver, seam = _s4_rig(S4_THREE, dispatches=records, store=_s4_entry("round"))
+        try:
+            _got, person = _s4_limit(driver, counted=3, cap=2, dispatch="S4-qa-case-critic-2")
+            text = str(person.text)
+            check_eq(f"{label}: the earlier-answer paragraph", "was then given" in text, paragraph)
+            if paragraph:
+                check_in(f"{label}: the earlier answer, once", "You chose one more round 1 time for these cases", text)
+                check_in(f"{label}: the new count and round number", "has reworked the test cases 3 times", text)
+                check_in(f"{label}: the round number grows", "this is repair round 4 and the factory's limit is 2", text)
+                check("Q2 second-ask-differs: the text differs from the first ask's", text != first_text)
+        finally:
+            harness.cleanup(root)
+    # Q4a / Q4b the critic's note AT and BEYOND 300; Q6 counted 0; Q7 a row with no case and a case with no file
+    for label, note, shown in (("Q4a note-at-300", "n" * 300, "n" * 300), ("Q4b note-at-301", "n" * 301, "n" * 299 + "…")):
+        root, driver, seam = _s4_rig(S4_ONE.replace("<note>", note))
+        try:
+            _got, person = _s4_limit(driver)
+            check_in(f"{label}: the note as shown", f"— {shown}\n", str(person.text) + "\n")
+            check_eq(f"{label}: the whole note stays in the findings file", note in (driver.task_root / "work" / "test-cases" / "critic-findings.md").read_text(encoding="utf-8"), True)
+            check_eq(f"{label}: and the carrier holds it whole",
+                     [r["problem"] for r in critic_rollcall.current_rejected((driver.task_root / "work" / "test-cases" / "critic-findings.md").read_bytes(), driver.task_root)], [note])
+        finally:
+            harness.cleanup(root)
+    root, driver, seam = _s4_rig(S4_ONE.replace("<note>", "x"))
+    try:
+        _got, person = _s4_limit(driver, counted=0, cap=0)
+        check_in("Q6 counted-zero-text: the zero sentence", "The case reviewer sent the test cases back; the factory's limit for repair rounds is 0, so none is left.", str(person.text))
+        check_not_in("Q6 counted-zero-text: no false count", "reworked", str(person.text))
+    finally:
+        harness.cleanup(root)
+    root, driver, seam = _s4_rig(_s4_findings("| TS-1 | TC-7 | yes | reject | a | |", "| TS-9 | none | yes | reject | b | |"))
+    try:
+        _got, person = _s4_limit(driver)
+        check_in("Q7 no-file: a case with no file is named bare with the reason", "- TC-7 (its file could not be found) — a", str(person.text))
+        check_in("Q7 no-id: a row with no case is named by its plan row", "- a case the reviewer did not name (plan row TS-9) — b", str(person.text))
+        check_eq("Q7 no-id: and is not among the cases", driver.state["repair_ask"]["cases"], ["TC-7"])
+    finally:
+        harness.cleanup(root)
+    # the answers: R1 round, R2 go on, R3 stop, Q5 free words
+    for label, words, kind in (("R1 round-records-two-passes", "round", "round"), ("R2 go-on-entry", "go on", "go on")):
+        root, driver, seam = _s4_rig(S4_THREE)
+        try:
+            _s4_limit(driver)
+            calls = []
+            driver.py = lambda script, *a, **k: calls.append((script, [str(x) for x in a])) or (0, "")
+            driver.answer_row = lambda *a, **k: None
+            driver.answer_file = lambda: "state/words/answer-1.md"
+            driver._answer_repair_limit(words, "", "S4", S4_CRITIC)
+            waivers = [c for c in calls if c[0] == "waiver.py"]
+            entry = driver.state["repair_limit_s4"][S4_CRITIC]
+            if kind == "round":
+                check_eq(f"{label}: two waiver calls, the S4 pair's keys, --stage S4",
+                         [(c[1][c[1].index("--stage") + 1], c[1][c[1].index("--block") + 1]) for c in waivers],
+                         [("S4", S4_BUDGET["passes"]["qa-case-designer"]), ("S4", S4_BUDGET["passes"]["qa-case-critic"])])
+            else:
+                check_eq(f"{label}: no waiver call", waivers, [])
+            check_eq(f"{label}: the entry is in the S4 store under the critic dispatch, token {kind}; no S5 store written",
+                     (entry["token"], entry["dispatch"], "repair_limit" in driver.state), (kind, S4_CRITIC, False))
+        finally:
+            harness.cleanup(root)
+    root, driver, seam = _s4_rig(S4_THREE)
+    try:
+        _s4_limit(driver)
+        driver.answer_row = lambda *a, **k: None
+        driver.answer_file = lambda: "state/words/answer-1.md"
+        try:
+            driver._answer_repair_limit("stop", "", "S4", S4_CRITIC)
+            held = None
+        except story_run.Person as person:
+            held = person
+        check_eq("R3 stop-holds: a held question, nothing stored", (held is not None, "repair_limit_s4" in driver.state), (True, False))
+        seen = []
+        driver.unread = lambda *a, **k: seen.append((a, k))
+        driver._answer_repair_limit("please just go ahead and do it", "q", "S4", S4_CRITIC)
+        check_eq("Q5 free-words-unread: the words go to `unread` with kind repair_limit for S4, nothing stored",
+                 ([(a[0], a[1]) for a, _k in seen], "repair_limit_s4" in driver.state), ([("repair_limit", "S4")], False))
+    finally:
+        harness.cleanup(root)
+    # R4 the S5 key is unchanged; R5 the store names; R6 the older controller
+    root, driver, seam = _s4_rig()
+    try:
+        ask = {"stage": "S5", "dispatch": "S5-qa-code-critic-1", "cases": ["TC-1"], "key": "s5.repair_limit", "offer": ["round", "debt", "fixed", "stop"],
+               "code": "cap", "lead": "x", "cause": "", "reason": "", "by_cause": {}, "counted": 2, "cap": 2, "round_counted": 2, "round_cap": 2,
+               "passes": {"qa-automator": "a-key", "qa-code-critic": "c-key"}}
+        driver.state["repair_ask"] = ask
+        calls = []
+        driver.py = lambda script, *a, **k: calls.append((script, [str(x) for x in a])) or (0, "")
+        driver.answer_row = lambda *a, **k: None
+        driver.answer_file = lambda: "state/words/answer-1.md"
+        driver._answer_repair_limit("round", "", "S5", "S5-qa-code-critic-1")
+        check_eq("R4 s5-key-unchanged: --stage S5 with both S5 keys; the S5 store, slot by the cases",
+                 ([(c[1][c[1].index("--stage") + 1], c[1][c[1].index("--block") + 1]) for c in calls if c[0] == "waiver.py"],
+                  list(driver.state["repair_limit"]), "repair_limit_s4" in driver.state),
+                 ([("S5", "a-key"), ("S5", "c-key")], [driver.repair_key(["TC-1"])], False))
+        check_eq("R4 s5-key-unchanged: repair_passes(budget) with the default roles",
+                 (driver.repair_passes({"passes": {"qa-automator": "a", "qa-code-critic": "c"}}), driver.repair_passes({"passes": {"qa-automator": "a"}}),
+                  driver.repair_passes(S4_BUDGET)), ({"qa-automator": "a", "qa-code-critic": "c"}, None, None))
+        check_eq("R5 store-name: S4, S7 and S5", [driver.repair_store_name(s) for s in ("S4", "S7", "S5")], ["repair_limit_s4", "repair_limit_s7", "repair_limit"])
+        states = []
+        driver.no_move = lambda state, moves=None: states.append(state)
+        driver.repair_older_controller("S5", "D", {}, "were sent back")
+        check_eq("R6 older-controller-s4-words: the S5 call's lead and text are byte-identical",
+                 (states[-1]["lead"], states[-1]["text"]),
+                 ("The tests of this step were sent back and the factory cannot say how many more rounds they may have: its controller does not report them. "
+                  "Which of these should happen?", "controller prepare for S5 qa-automator carries no repair_budget.passes: {}"))
+    finally:
+        harness.cleanup(root)
+    root, driver, seam = _s4_rig(S4_THREE)
+    try:
+        states = []
+        driver.no_move = lambda state, moves=None: states.append(state)
+        _got, _person = _s4_limit(driver, budget={"counted": 2, "cap": 2})
+        check_in("R6 older-controller-s4-words: no passes -> the refusal names the test cases", "The test cases of this story were sent back by the case reviewer", states[0]["lead"])
+        check_in("R6 older-controller-s4-words: and the S4 designer's prepare", "controller prepare for S4 qa-case-designer", states[0]["text"])
+    finally:
+        harness.cleanup(root)
+    # G1-G4 the stored answers at the next finish
+    root, driver, seam = _s4_rig(S4_THREE, store=_s4_entry("go on", words_file="state/words/answer-1.md"))
+    try:
+        words = driver.task_root / "state" / "words"
+        words.mkdir(parents=True, exist_ok=True)
+        (words / "answer-1.md").write_text("take them as they are\n", encoding="utf-8")
+        passes, findings_written = [], []
+        driver.person_pass = lambda stage, author, line, answer="", since="": passes.append((stage, author, answer)) or {"decision": answer, "at": ""}
+        driver.review_pass_finding = lambda *a: findings_written.append(a[:2])
+        got, person = _s4_limit(driver)
+        check_eq("G1 finish-go-on-closes: the person's pass is recorded with the words, one finding, None",
+                 (got, person, passes, findings_written, seam), (None, None, [("S4", S4_DESIGNER, "take them as they are")], [("S4", S4_CRITIC)], []))
+        driver.dry = True
+        passes.clear()
+        got, person = _s4_limit(driver)
+        check_eq("G3 go-on-dry-run-false: False and nothing recorded", (got, person, passes), (False, None, []))
+    finally:
+        harness.cleanup(root)
+    root, driver, seam = _s4_rig(S4_THREE, store=_s4_entry("round"))
+    try:
+        got, person = _s4_limit(driver)
+        check_eq("G2 finish-round-openwork: OpenWork cases_in_repair, no question, no seam",
+                 (type(got).__name__, getattr(got, "unresolved", None), person, seam), ("OpenWork", "cases_in_repair", None, []))
+    finally:
+        harness.cleanup(root)
+    root, driver, seam = _s4_rig(S4_THREE, dispatches={S4_CRITIC: {"id": S4_CRITIC, "stage": "S4", "role": "qa-case-critic", "status": "accepted"}},
+                                 store=_s4_entry("go on"))
+    try:
+        got, person = _s4_limit(driver)
+        (args, kwargs), = seam
+        check_eq("G4 go-on-no-author-seam: the seam, unreadable, the cannot-be-recorded text",
+                 (got, person, args[0], bool(kwargs.get("unreadable")), "your answer `go on` cannot be recorded" in kwargs.get("text", "")), (None, None, "S4", True, True))
+    finally:
+        harness.cleanup(root)
+    # B1-B3 the bought round starts from the data, never a new critic
+    def s4_loop(dispatches, store, live="qa-case-critic S4 TC-3 · ok\nx.md"):
+        root, task_root, env = seed("QA-9")
+        try:
+            driver = driver_for(root, env, "QA-9")
+            findings_file = driver.task_root / "work" / "test-cases" / "critic-findings.md"
+            findings_file.parent.mkdir(parents=True, exist_ok=True)
+            findings_file.write_text(S4_THREE, encoding="utf-8")
+            roles, rework = [], []
+            driver.py = lambda script, *a, **k: (0, "")
+            driver.controller_state = lambda: {"dispatches": dispatches}
+            driver.run_role = lambda stage, role, **k: roles.append(role) or (live, None)
+            driver.rework = lambda stage, role, cases, reason, **k: rework.append((role, list(cases), k.get("extra")))
+            driver.pin_cases = lambda: None
+            driver.revise_plan = lambda: None
+            driver.render_appendix = lambda: None
+            driver.critic_scope = lambda: ["TC-3", "TC-5", "TC-8"]
+            driver.budget_or_none = lambda *a, **k: {"counted": 2, "cap": 2}
+            driver.newest = lambda pattern: findings_file
+            driver.unraised_cases = lambda: False
+            driver.state["repair_limit_s4"] = store
+            with contextlib.redirect_stdout(io.StringIO()):
+                driver.stage_S4()
+            return roles, rework
+        finally:
+            harness.cleanup(root)
+    base = {S4_DESIGNER: {"id": S4_DESIGNER, "stage": "S4", "role": "qa-case-designer", "status": "accepted"}}
+    owed = {**base, S4_CRITIC: {"id": S4_CRITIC, "stage": "S4", "role": "qa-case-critic", "status": "accepted", "unresolved": "cases_in_repair"}}
+    roles, rework = s4_loop(owed, _s4_entry("round"))
+    check_eq("B1 owed-bought-round-starts: no critic is dispatched, the designer's round is registered", (roles, [(r[0], r[1]) for r in rework]),
+             ([], [("qa-case-designer", ["TC-3", "TC-5", "TC-8"])]))
+    check_eq("B3 bought-extra-line: the round the person chose, counted past the limit",
+             rework[0][2], ["Repair round 3: one more round the person chose (the factory's limit is 2); the critic's findings are in "
+                            "work/test-cases/critic-findings.md; change only what they name."])
+    roles, rework = s4_loop(owed, {})
+    check_eq("B1 owed-bought-round-starts: with no `round` entry the last round runs a critic as today", (roles, rework), (["qa-case-critic"], []))
+    later = {**owed, "S4-qa-case-designer-2": {"id": "S4-qa-case-designer-2", "stage": "S4", "role": "qa-case-designer", "status": "running"}}
+    roles, rework = s4_loop(later, _s4_entry("round"))
+    check_eq("B2 registered-round-not-again: a designer dispatch after the critic -> the critic runs, no second round", (roles, rework), (["qa-case-critic"], []))
+
+
 def main() -> None:
     for scenario in (
         n2b_the_facts_are_read_from_the_project,
@@ -476,6 +804,7 @@ def main() -> None:
         n8b_the_lead_is_shown_only_when_the_prose_drops_a_kept_fact,
         n14_price_labels_that_cannot_be_read,
         n15_a_gave_up_stop_files_the_free_answer_for_its_dispatch,
+        fv16_s4_review_limit,
     ):
         scenario()
     harness.finish("no_move seam_n2b_n15")

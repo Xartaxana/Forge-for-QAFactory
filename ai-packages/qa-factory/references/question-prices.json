@@ -158,6 +158,11 @@
       {"answer": "fixed", "factory": "role_round", "person": "your_work", "delivery": "waits"},
       {"answer": "stop", "factory": "nothing", "person": "none", "delivery": "no"}
     ],
+    "s4.repair_limit": [
+      {"answer": "round", "factory": "role_round", "person": "answer", "delivery": "waits"},
+      {"answer": "go on", "factory": "record", "person": "none", "delivery": "not_known", "unverified": "the cases the case reviewer still rejects; its words go to the test writer, and each it does not act on is listed in the test report"},
+      {"answer": "stop", "factory": "nothing", "person": "none", "delivery": "no"}
+    ],
     "s5.nobody_review": [
       {"answer": "review", "factory": "role_round", "person": "answer", "delivery": "waits"},
       {"answer": "debt", "factory": "record", "person": "none", "delivery": "no", "unverified": "whether the tests the critic sent back are really wrong; each is listed in the report with what the critic asked"},

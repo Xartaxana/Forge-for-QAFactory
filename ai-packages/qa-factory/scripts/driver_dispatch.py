@@ -3246,11 +3246,12 @@ class DriverDispatch:
         return isinstance(budget, dict) and isinstance(budget.get("counted"), int) and isinstance(budget.get("cap"), int)
 
     @staticmethod
-    def repair_passes(budget):
-        """{role: key} of `repair_budget.passes`, or None when the budget does not carry both keys (an older controller, A3)."""
+    def repair_passes(budget, roles=("qa-automator", "qa-code-critic")):
+        """{role: key} of `repair_budget.passes`, or None when the budget does not carry the key of each of `roles` (an older controller,
+        A3). `roles` is the loop's pair: S5's by default, S4's `("qa-case-designer", "qa-case-critic")` from `s4_review_limit`."""
         passes = budget.get("passes") if isinstance(budget, dict) else None
-        ok = isinstance(passes, dict) and all(isinstance(passes.get(r), str) and passes[r] for r in ("qa-automator", "qa-code-critic"))
-        return {r: passes[r] for r in ("qa-automator", "qa-code-critic")} if ok else None
+        ok = isinstance(passes, dict) and all(isinstance(passes.get(r), str) and passes[r] for r in roles)
+        return {r: passes[r] for r in roles} if ok else None
 
     def repair_limit_gate(self, stage: str, role: str, dispatch: str, digest: str, scope=None, *, budget=READ_BUDGET,
                           recovering: bool = False) -> None:
@@ -3279,13 +3280,15 @@ class DriverDispatch:
             self.repair_older_controller("S5", dispatch, budget, "were sent back")
         self.repair_limit_raise(self.repair_limit_facts(dispatch, cases, route, form, budget))
 
-    def repair_older_controller(self, stage: str, dispatch: str, budget, said: str) -> None:
+    def repair_older_controller(self, stage: str, dispatch: str, budget, said: str, what: str = "The tests of this step",
+                                prepare: str = "S5 qa-automator") -> None:
         """An older controller: the keys a `round` needs are not in its record, and the driver never rebuilds them (A3) - the question
-        of `stage` is a refusal naming the missing key, never a `round` the driver could not record. Always raises (the seam)."""
+        of `stage` is a refusal naming the missing key, never a `round` the driver could not record. Always raises (the seam).
+        `what` and `prepare` name the loop in the person's words and in the controller call (S5's by default; S4's from `s4_review_limit`)."""
         self.no_move({"why": "threshold", "kind": "refusal", "call": False, "stage": stage, "dispatch": dispatch,
-                      "lead": f"The tests of this step {said} and the factory cannot say how many more rounds they "
+                      "lead": f"{what} {said} and the factory cannot say how many more rounds they "
                               "may have: its controller does not report them. Which of these should happen?",
-                      "text": f"controller prepare for S5 qa-automator carries no repair_budget.passes: {json.dumps(budget)[:400]}"})
+                      "text": f"controller prepare for {prepare} carries no repair_budget.passes: {json.dumps(budget)[:400]}"})
 
     def repair_limit_facts(self, dispatch: str, cases: list, route: dict, form, budget) -> dict:
         """The facts of the question, kept in the driver's state while it is open (the answer reads them): which key, which answers
@@ -3368,10 +3371,14 @@ class DriverDispatch:
                 "review": ("the critic reviews the window again; this round spends none of the repair limit", {"role": "the critic"})}
         if ask["key"] == "s7.repair_limit":
             says = self.s7_says(ask)
+        elif ask["key"] == "s4.repair_limit":
+            says = self.s4_says(ask)
         options = [dict(self.STOP_OPTION) if a == "stop" else
                    {"answer": a, "token": a, "says": says[a][0], "slots": says[a][1]} for a in ask["offer"]]
         if ask["key"] == "s7.repair_limit":
             text = self.closed_question("s7.repair_limit", lead, options)
+        elif ask["key"] == "s4.repair_limit":
+            text = self.closed_question("s4.repair_limit", lead, options)
         elif ask["key"] == "s5.nobody_review":
             text = self.closed_question("s5.nobody_review", lead, options)
         elif ask["key"] == "s5.nobody_environment":
@@ -3394,10 +3401,23 @@ class DriverDispatch:
                           "not yet listed in the report"), {})}
 
     @staticmethod
+    def s4_says(ask: dict) -> dict:
+        """The code-side words of the S4 answers (the price lines come from the data): `round` is the case designer's one more session and
+        the case critic's review of it; `go on` leaves the cases as they are, and the reviewer's words go to the test writer."""
+        return {"round": (f"the case designer reworks the cases the reviewer still rejects, then the reviewer looks at them again; this is "
+                          f"repair round {(ask.get('round_counted') or 0) + 1} and the factory's limit is {ask.get('round_cap')}",
+                          {"role": "the case designer"}),
+                "go on": ("the cases stay as they are; the reviewer's words on each go to the test writer, who takes them into account when "
+                          "it automates the cases, and each one it does not act on is listed in the test report", {})}
+
+    @staticmethod
     def repair_pass_keys(token: str, ask: dict, stage: str) -> list:
         """The waiver keys an answer records, from the controller's own `passes` (never rebuilt): `round` the author's and, at S5, the
-        critic's (an S7 repair has no critic); `fixed` the critic's only, and only for the cap question; every other token none."""
+        critic's (an S7 repair has no critic); at S4 both roles' of the case loop; `fixed` the critic's only, and only for the cap
+        question; every other token none."""
         passes = ask["passes"]
+        if token == "round" and ask["key"] == "s4.repair_limit":
+            return list(passes.values())
         if token == "round":
             return [passes["qa-automator"]] + ([] if stage == "S7" else [passes["qa-code-critic"]])
         return [passes["qa-code-critic"]] if token == "fixed" and ask["key"] == "s5.repair_limit" else []
@@ -3433,7 +3453,7 @@ class DriverDispatch:
                                      "recorded and nothing was passed.")
         file = self.answer_file()
         for key in self.repair_pass_keys(token, ask, stage):
-            code, out = self.py("waiver.py", "--task", self.task, "--stage", "S5", "--block", key, "--words-file", str(self.task_root / file),
+            code, out = self.py("waiver.py", "--task", self.task, "--stage", ask.get("waiver_stage") or "S5", "--block", key, "--words-file", str(self.task_root / file),
                                 *self.waiver_road())
             if code:
                 print(f"{stage}: the pass was not recorded ({out[-300:]}); the question comes back")
@@ -3441,7 +3461,7 @@ class DriverDispatch:
         if token == "debt" and not self.record_repair_debt(ask, file):
             raise self.held_question("Your choice could not be recorded: the record of the earlier answers of this kind cannot be read, "
                                      "so the window stays open and nothing is closed.")
-        slot = dispatch if stage == "S7" else self.repair_key(ask["cases"])      # S7: one record per test and count, the dispatch IS the slot
+        slot = dispatch if stage in ("S4", "S7") else self.repair_key(ask["cases"])      # S7: one record per test and count, the dispatch IS the slot; S4: one per critic dispatch
         before = kept.get(slot) or {}
         # t-733: a `debt` to the question of an OWED round (the round of this very critic dispatch) consumes it: `stage_S5` completes the finish
         consumed = before.get("token") if token == "debt" and before.get("dispatch") == dispatch and before.get("token") in ("round", "route") else ""
@@ -3456,8 +3476,9 @@ class DriverDispatch:
     @staticmethod
     def repair_store_name(stage: str) -> str:
         """The driver-state key that keeps the answers of the repair-limit question: the S5 windows' (`repair_limit`, matched by their
-        cases) and the S7 tests' (`repair_limit_s7`, one per test and count) are two stores, so no S5 reader meets an S7 record."""
-        return "repair_limit_s7" if stage == "S7" else "repair_limit"
+        cases), the S7 tests' (`repair_limit_s7`, one per test and count) and the S4 case reviews' (`repair_limit_s4`, one per critic
+        dispatch) are three stores, so no S5 reader meets an S7 or an S4 record."""
+        return "repair_limit_s7" if stage == "S7" else "repair_limit_s4" if stage == "S4" else "repair_limit"
 
     def record_repair_debt(self, ask: dict, words_file: str) -> bool:
         """The window as a review debt, through THE writer (`ledger.write_review_debt`); False when the writer could not record it.
