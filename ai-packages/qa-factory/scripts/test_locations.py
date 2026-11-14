@@ -158,7 +158,7 @@ def _segments(text: str) -> list:
     return parts
 
 
-def _grammar_problem(text: str) -> str:
+def grammar_problem(text: str) -> str:
     """What is wrong with the pattern as written, in the words of the refusal; "" when nothing."""
     if not text.strip():
         return "empty"
@@ -303,7 +303,7 @@ class _Ctx:
             found = []
             value = self.cfg.get(CONFIG_KEY)
             for item in value if isinstance(value, list) else []:
-                if not isinstance(item, str) or not item.strip() or _grammar_problem(_text(item)):
+                if not isinstance(item, str) or not item.strip() or grammar_problem(_text(item)):
                     continue
                 segs = tuple(_effective(_text(item)))
                 covered = [(shown, rsegs) for shown, rsegs in self.roots
@@ -654,7 +654,7 @@ def location_problems(cfg, root=None) -> list:
             if not isinstance(item, str) or not item.strip():
                 out.append(f"test_locations[{i}] is not a non-empty text, so it opens nothing")
                 continue
-            why = _grammar_problem(_text(item))
+            why = grammar_problem(_text(item))
             if why:
                 out.append(f"test_locations[{i}] '{item.strip()}' is {why}, so it opens nothing; write it the "
                            'way protected_app_paths are written, relative to app_root, for example "src/tests/"')
@@ -834,7 +834,7 @@ def check(cfg, root, max_files: int = DEFAULT_MAX_FILES, candidates=()) -> dict:
         if not isinstance(item, str) or not item.strip():
             row["problem"] = "not a non-empty text, so it opens nothing"
         else:
-            problem = _grammar_problem(_text(item))
+            problem = grammar_problem(_text(item))
             if problem:
                 row["problem"] = f"is {problem}, so it opens nothing"
                 if _index is None:

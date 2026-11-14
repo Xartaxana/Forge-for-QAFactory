@@ -20,6 +20,9 @@ stage: S8
 from_role: qa-doc-scribe
 to_role: person
 
+# Where the acceptance word of the analyst's handoff is read; `header.verdict` stays the verdict of THIS handoff.
+acceptance_verdict_at: stage_acceptance.verdict
+
 inputs:
   - path: work/handoffs/<dispatch>.yaml
     what: this file
@@ -42,12 +45,11 @@ inputs_read:
     version: <hash>
     rows: <n>
 
-# The analyst's handoff is ACCEPTED by this role (X7-6b, stage S7 `acceptance_by`): the verdict word below is read for it. `ok` accepts it (no
-# quote needed); `concerns` sends it back to the analyst for one repair round and makes the report written from it stale - then the section
-# `stage_acceptance` is owed (see `required_when`). The analyst's form is named in `inputs_read` above. A concern about your own REPORT
-# belongs in `unresolved`, not in the verdict word: only a `concerns` with a `stage_acceptance` section reopens S7.
+# Your word on the analyst's handoff: `accept` when you can rely on the triage - your doubts and your own report's gaps do not make it a
+# return; `return` sends the triage back to the analyst for one repair round and owes the class and the analyst's own words that show why.
+# This section is absent when no analyst's handoff awaits your word.
 required_when:
-  concerns: [stage_acceptance]
+  return: [stage_acceptance]
 
 header:
   role: qa-doc-scribe
@@ -55,9 +57,11 @@ header:
   window: <TICKET>
   verdict: <one of vocabulary.header_verdicts>
 
-# Acceptance of the analyst's handoff (X7-6b), owed on `header.verdict: concerns`: the failure class and a verbatim quote (path#anchor, at
-# most 300 characters) of the analyst's artifact; the driver records it with `stage_done.py --acceptance`.
+# Your word on the analyst's handoff: `accept` when you can rely on the triage - your doubts and your own report's gaps do not make it a
+# return; `return` sends the triage back to the analyst for one repair round and owes the class and the analyst's own words that show why.
+# This section is absent when no analyst's handoff awaits your word.
 stage_acceptance:
+  verdict: <accept|return>
   failure_class: <spec|capability|data|tooling>
   quote: "<the analyst's own words, with path#anchor>"
   witness_paths:

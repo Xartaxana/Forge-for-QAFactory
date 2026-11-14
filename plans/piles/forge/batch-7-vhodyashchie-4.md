@@ -54,6 +54,8 @@
 | FG7-31 | П3 | Правило гигиены п. 4 доходит до билдера лишь текстом диспатча: два нарушения 13.11 (`sed -i` по `form-rounds.json`, heredoc-`python` по тесту), строка калибровки и проверка, стоит ли `hygiene_gate` на пути билдеров (`findings/20261113-pravilo-pt4-gigieny-dohodit-do-bildera-tolko-tekstom-v-diszpatche.md`) | builder → critic | `tools/hygiene_gate.py` (носитель строки калибровки — по взятии) | нет | ожидает |
 | FG7-32 | П1 | Валидатор журнала на pre-commit отказывает из-за СТАРЫХ строк того же писателя с дефектами порядка (id не по порядку, немонотонный `ts`, повторный `delegated` без `attempt`), отказ двери не называет: нужна дверь для уже записанных своих строк (поздняя строка называет и заявляет дефектную, по образцу `closes:`) и счёт для калибровки; как коммитится журнал `dev1` до двери — решение владельца (`findings/20261114-zhurnal-starye-stroki-s-defektami-poryadka-bez-dveri.md`; слово Lead t-661; FR-1, FR-2, FR-57; AR-9, AR-25) | builder → critic | `tools/journal_validator.py`, `PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md` | нет | ожидает |
 
+| FG7-33 | П2 | Opus-координатор точечно вызывает Fable субагентом для вопросов лида (приёмка спеки и вердикта критика, развилки, коммит механизма); не строим сейчас; первый шаг — один опыт: Fable-субагент из Opus-сессии, модель по транскрипту (`findings/20261114-opus-koordinator-vyzyvaet-fable-subagentom-dlya-voprosov-lida.md`; слово владельца 14.11.2026; «Role ≠ tier», «Lead degradation» `CLAUDE.md`) | designer → builder → critic | `CLAUDE.md`, `delegation.config.yaml`, `.claude/agents/`, `tools/journal_validator.py` | слово владельца (вводит новую роль) | ожидает |
+
 ## Ход
 
 Журнал передачи Lead пачки, новые записи в конец: `<дата время> — <что сделано, диспатчи t-nnn, хэши>`.

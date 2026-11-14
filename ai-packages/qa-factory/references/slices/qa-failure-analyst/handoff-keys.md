@@ -19,10 +19,14 @@ Your witness artifact (stages.json `witness`): `work/triage.json`.
 
 Contract `s7-analyst-to-automator` (fill `work/handoffs/<dispatch>.yaml`; `handoff_check.py` reads it):
 
-- `inputs_read[].version` (required) - the report the triage was taken from
+- `inputs_read[].version` (required) - its window id
 - `inputs_read[].failures` (required) - how many rows were triaged
 - `header.window` (required) - the instance ids handed for repair
 - `header.verdict` (required) - one of vocabulary.header_verdicts
+- `stage_acceptance.verdict` (required) - accept|return
+- `stage_acceptance.failure_class` (required) - spec|capability|data|tooling
+- `stage_acceptance.quote` (required) - the runner's own words, with path#anchor
+- `stage_acceptance.witness_paths[]` (optional) - task-relative path the verdict rests on, or omit when none
 - `scope[].id` (required) - instance id
 - `scope[].state` (required) - TEST_BUG|TEST_BUG:collection|FLAKY|reorder
 - `scope[].reason` (required) - a verdict of at most 80 characters - the explanation lives in the artifact
