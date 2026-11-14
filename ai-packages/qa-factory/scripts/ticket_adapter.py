@@ -2291,6 +2291,16 @@ def _record_source(args, emit=None) -> int:
                           file=sys.stderr)
         except Exception as exc:  # noqa: BLE001 - advice must never change the verdict
             print(f"ticket_adapter: links of {ref} could not be listed ({type(exc).__name__})", file=sys.stderr)
+        # FV1-23 A-5 (a): the keys, URLs and merge requests of the text, through the reader and the merge attachments use
+        try:
+            adapter = ((config or {}).get("adapters") or {}).get("ticket") or {}
+            direct = adapter.get("direct_api") if isinstance(adapter.get("direct_api"), dict) else {}
+            keys = adapter.get("project_keys")
+            SI.append_document_references(Path(args.output), ref, text, context=references_context(config or {}),
+                                          project_keys=keys if isinstance(keys, list) else (),
+                                          base_url=direct.get("base_url") if isinstance(direct.get("base_url"), str) else None)
+        except Exception as exc:  # noqa: BLE001 - advice must never change the verdict
+            print(f"ticket_adapter: references of {ref} could not be read ({type(exc).__name__})", file=sys.stderr)
         return 0
     except ValueError as exc:      # the call's fault, not the factory's (FR-46): the inventory is untouched
         print(f"ticket_adapter: {exc}", file=sys.stderr)
