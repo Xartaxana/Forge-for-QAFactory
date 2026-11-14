@@ -1,7 +1,7 @@
 {
   "generated_by": "python tools/lint_ratchet.py --update (pyflakes; identity = path + class + arguments, no line)",
   "pyflakes_version": "3.2.0",
-  "total": 36,
+  "total": 76,
   "rows": [
     {
       "path": "ai-packages/qa-factory/scripts/driver_dialog.py",
@@ -163,6 +163,132 @@
       "path": "ai-packages/qa-factory/scripts/tests/story_run_common.py",
       "class": "UnusedImport",
       "args": "harness.check_not_in",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/test_blocked_by_env_window.py",
+      "class": "HandReaderInput",
+      "args": "RR-plan-row",
+      "count": 4
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/test_case_id_form.py",
+      "class": "HandReaderInput",
+      "args": "RR-plan-row",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/test_case_key_identity_join.py",
+      "class": "HandReaderInput",
+      "args": "RR-plan-row",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/test_case_store.py",
+      "class": "HandReaderInput",
+      "args": "RR-plan-row",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/test_check_delivery.py",
+      "class": "HandReaderInput",
+      "args": "RR-plan-row",
+      "count": 7
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/test_controller_gate_decision.py",
+      "class": "HandReaderInput",
+      "args": "RR-plan-row",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/test_controller_state.py",
+      "class": "HandReaderInput",
+      "args": "RR-plan-row",
+      "count": 2
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/test_critic_rollcall_apply_fixes.py",
+      "class": "HandReaderInput",
+      "args": "RR-plan-row",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/test_delivery_ownership.py",
+      "class": "HandReaderInput",
+      "args": "RR-plan-row",
+      "count": 4
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/test_execution_request.py",
+      "class": "UnusedImport",
+      "args": "execution_request as er",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/test_handed_to_person.py",
+      "class": "HandReaderInput",
+      "args": "RR-plan-row",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/test_handoff.py",
+      "class": "HandReaderInput",
+      "args": "RR-plan-row",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/test_manifest_put_keep_unsent.py",
+      "class": "HandReaderInput",
+      "args": "RR-plan-row",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/test_oracle_provenance.py",
+      "class": "HandReaderInput",
+      "args": "RR-plan-row",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/test_report_facts.py",
+      "class": "HandReaderInput",
+      "args": "RR-plan-row",
+      "count": 3
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/test_role_commands.py",
+      "class": "HandReaderInput",
+      "args": "RR-plan-row",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/test_s5_precheck.py",
+      "class": "HandReaderInput",
+      "args": "RR-plan-row",
+      "count": 2
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/test_story_run_s6.py",
+      "class": "HandReaderInput",
+      "args": "RR-plan-row",
+      "count": 2
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/test_third_verdict.py",
+      "class": "HandReaderInput",
+      "args": "RR-plan-row",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/test_validators.py",
+      "class": "HandReaderInput",
+      "args": "RR-plan-row",
+      "count": 3
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/test_whole_list_sites.py",
+      "class": "HandReaderInput",
+      "args": "RR-plan-row",
       "count": 1
     }
   ]

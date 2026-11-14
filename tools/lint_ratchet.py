@@ -5,6 +5,15 @@ What it protects: a syntax error or an undefined name never reaches main unseen,
 the other findings (unused import / variable, redefinition, f-string without placeholders ...) only
 goes down. No formatter, no style rule, no type checker.
 
+A second line, same baseline and same doors: the number of hand-written reader inputs in the package
+tests (the writer -> reader round layer P1-a) only goes down. The patterns are the `hand_inputs` section
+of ai-packages/qa-factory/scripts/tests/fixtures/form-rounds.json (family -> regular expressions); they
+are searched in scripts/tests/test_*.py except the quarantined files (`quarantine` of test-layers.json)
+and test_field_producers.py. Class `HandReaderInput`, identity (path, class, family), one finding per
+match. The line runs only when the package scripts root is among the roots; otherwise one output line
+says `hand-input line: not run (package scripts root not among --root)`. A data file it cannot read
+or a pattern that does not compile is exit 2 (cannot judge).
+
 Modes:
   python tools/lint_ratchet.py --check     (default) compare the live findings with tools/lint-baseline.json
   python tools/lint_ratchet.py --update    rewrite the baseline from the live findings (a deliberate act:
@@ -27,7 +36,8 @@ Exit codes (stdout carries the report; stderr only crashes):
   0  --check: no new finding and no stale row; --update: baseline written
   1  --check: a new finding, a higher count, a stale baseline row, or a file that does not parse;
      --update: refused because a file does not parse
-  2  the tool cannot judge: pyflakes is not installed, a root does not exist, the baseline is missing
+  2  the tool cannot judge: pyflakes is not installed, a root does not exist, form-rounds.json /
+     test-layers.json cannot be read or a hand-input pattern does not compile, the baseline is missing
      or malformed, or it was generated with another pyflakes version than the one running (a version
      drift must not read as new findings; the header key is `pyflakes_version`; an unknown is never a pass)
 """
@@ -36,6 +46,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import warnings
 from pathlib import Path
@@ -53,6 +64,13 @@ DOOR_NEW = ("fix it, or -- when the finding is deliberate -- record it with "
             "`python tools/lint_ratchet.py --update` and say why in the commit")
 DOOR_STALE = "stale baseline row(s) -- the finding is gone: run `python tools/lint_ratchet.py --update` to shrink the baseline"
 PIP_SENTENCE = "pyflakes is not installed: pip install pyflakes"      # `==<baseline version>` is appended when known
+PACKAGE_SCRIPTS_ROOT = "ai-packages/qa-factory/scripts"
+HAND_TESTS_DIR = PACKAGE_SCRIPTS_ROOT + "/tests"
+FORM_ROUNDS_REL = HAND_TESTS_DIR + "/fixtures/form-rounds.json"
+TEST_LAYERS_REL = HAND_TESTS_DIR + "/test-layers.json"
+HAND_CLASS = "HandReaderInput"
+HAND_SELF_FILE = "test_field_producers.py"                    # the layer itself, never scanned
+HAND_NOT_RUN = "hand-input line: not run (package scripts root not among --root)"
 DOOR_PARSE = ("fix the file so it parses; a deliberately unparsable fixture is kept under a non-.py name "
               "or written by its test into a temp dir")
 
@@ -117,6 +135,62 @@ def lint_tree(repo: Path, roots, checkpath) -> list:
                 warnings.simplefilter("ignore")
                 checkpath(str(f), col)
             findings.extend(col.found)
+    return findings
+
+
+class CannotJudge(Exception):
+    """The hand-input line cannot be judged (exit 2): the message names the path or the pattern."""
+
+
+def _read_json_object(path: Path, what: str) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise CannotJudge(f"cannot judge: {what} {path.as_posix()} cannot be read ({exc})") from exc
+    except ValueError as exc:                       # JSONDecodeError and UnicodeDecodeError
+        raise CannotJudge(f"cannot judge: {what} {path.as_posix()} is not JSON ({exc})") from exc
+    return data
+
+
+def hand_input_findings(repo: Path) -> list:
+    """One Finding per match of a `hand_inputs` pattern in the package test files (class HandReaderInput)."""
+    rounds_path = repo / FORM_ROUNDS_REL
+    data = _read_json_object(rounds_path, "the round registry")
+    hand = data.get("hand_inputs") if isinstance(data, dict) else None
+    if not isinstance(hand, dict):
+        raise CannotJudge(f"cannot judge: `hand_inputs` in {rounds_path.as_posix()} is missing or not an object")
+    compiled = []
+    for family in sorted(hand):
+        pats = hand[family]
+        if not isinstance(pats, list) or not all(isinstance(p, str) for p in pats):
+            raise CannotJudge(f"cannot judge: family `{family}` in {rounds_path.as_posix()} is not a list of pattern strings")
+        for text in pats:
+            try:
+                compiled.append((family, re.compile(text)))
+            except re.error as exc:
+                raise CannotJudge(f"cannot judge: family `{family}` has a pattern that does not compile: {text!r} ({exc})") from exc
+    layers_path = repo / TEST_LAYERS_REL
+    layers = _read_json_object(layers_path, "the test layers file")
+    quarantine = layers.get("quarantine") if isinstance(layers, dict) else None
+    if not isinstance(quarantine, (dict, list)):
+        raise CannotJudge(f"cannot judge: `quarantine` in {layers_path.as_posix()} is missing or not a dict or list")
+    skip = set(quarantine) | {HAND_SELF_FILE}
+    findings: list = []
+    if not compiled:
+        return findings
+    tests = repo / HAND_TESTS_DIR
+    for f in sorted(tests.glob("test_*.py"), key=lambda p: p.name) if tests.is_dir() else []:
+        if f.name in skip:
+            continue
+        rel = f"{HAND_TESTS_DIR}/{f.name}"
+        try:
+            lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError as exc:
+            raise CannotJudge(f"cannot judge: test file {rel} cannot be read ({exc})") from exc
+        for no, line in enumerate(lines, 1):
+            for family, rx in compiled:
+                for m in rx.finditer(line):
+                    findings.append(Finding(rel, no, HAND_CLASS, (family,), m.group(0)))
     return findings
 
 
@@ -188,6 +262,14 @@ def run(argv=None) -> int:
             return 2
 
     findings = lint_tree(repo, roots, pyflakes_api.checkPath)
+    if PACKAGE_SCRIPTS_ROOT in {Path(r).as_posix().strip("/") for r in roots}:
+        try:
+            findings.extend(hand_input_findings(repo))     # non-fatal: mixed in before counts, like pyflakes findings
+        except CannotJudge as exc:
+            print(f"lint ratchet: {exc}")
+            return 2
+    else:
+        print(HAND_NOT_RUN)
     fatal = [f for f in findings if f.cls in FATAL_CLASSES]
     live = counts([f for f in findings if f.cls not in FATAL_CLASSES])
 

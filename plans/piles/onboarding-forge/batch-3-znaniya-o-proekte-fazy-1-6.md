@@ -34,6 +34,8 @@
 ## Ход
 
 - 12.11 — собрана по слову владельца 12.11.2026 («все фазы хранилища знаний сложи в кучку онбординга»); разведка t-125
+- 14.11 (t-669) — OF3-1 остаётся «ожидает»: из шести частей спеки t-129 в main a (e61efb8, e20c3a2), b (6c5a8a3), d (86510cb), e (2bbfce4) — слиты в ветку пачки 041bb5e / 684de7e / 27ff9fc и в main PR #3 (0ae2810); c (6fbeb28, 38de220, aefde8b) — 166d4be в `conv/accepted-nodes`, в main PR #5 (b0d6c3a); f (`knowledge-read-baseline.json`, `changelog.d/t-129-of3-1f.md`) в main нет. OF3-2: ветка `wip/of3-2-k6` (e02ee1f) в main не слита; OF3-3…OF3-6 — ни коммита в main.
+- 14.11 (t-672) — волна 7: OF3-2 остаётся «ожидает»: часть K6 (охрана закрывает `remember`/`kind`, `config_contract --record-approval/--apply`, `onboard_apply --apply`) слита 665fb82 (`wip/of3-2-k6`, e02ee1f); остальные части узла (K1…K5, K7, K8) в main нет. Отчёт `docs/tasks/specs/reports/20261114-wave7-integration-report.md`.
 
 ## Живые доказательства
 

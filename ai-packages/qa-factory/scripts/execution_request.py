@@ -292,8 +292,6 @@ def validate_request(data: dict, project_root: Path, allow_exhausted_reuse: bool
                 errors.append("execution.selection requires a typed reason and non-empty evidence_refs")
     selector_args = command.get("selector_args")
     if purpose in BEHAVIORAL:
-        if command.get("selector_contract_verified") is not True:
-            errors.append("behavioral command requires a verified adapter selector contract")
         if not selected:
             errors.append("behavioral request must select at least one approved instance")
         if not isinstance(selector_args, dict):
@@ -1630,7 +1628,7 @@ def profiles_owning(cfg: dict, rel_path) -> list:
     profiles share that deepest root - a tie the path cannot break and no caller may break by taking the first.
     The one predicate of "which profiles own this path" (`_profile_for`, `probe_by_code._profile_cwd`,
     `gate_preflight.Rehearsal._profiles_sharing_root`), with one normalisation (`_path_key`). A root the one reader of
-    test places ignores - empty or absolute (`test_locations._grammar_problem`), or folded by `_path_key` to a place
+    test places ignores - empty or absolute (`test_locations.grammar_problem`), or folded by `_path_key` to a place
     above the project (`..`, `../x`); `.` is already no key - owns nothing, like `probe_by_code._in_test_root`
     (OF4-6: a root `/tests` is not the project's `tests`)."""
     import test_locations as TL
@@ -1639,7 +1637,7 @@ def profiles_owning(cfg: dict, rel_path) -> list:
     for profile in selected_profiles(cfg):
         raw = str((profile.get("roots") or {}).get("test") or "").replace("\\", "/").strip()
         root = _path_key(raw)
-        if TL._grammar_problem(raw) in ("empty", "an absolute path") or root == ".." or root.startswith("../"):
+        if TL.grammar_problem(raw) in ("empty", "an absolute path") or root == ".." or root.startswith("../"):
             continue    # `tests/ui/..` is folded by `_path_key` to `tests` and stays a root; only a root that ends above the project goes
         if not path_under(key, root):
             continue
@@ -3402,7 +3400,7 @@ def build_mine_request(project_root: Path, cases: list, *, cfg: dict | None = No
                 "last typed run on the profile")
         else:
             command = {k: v for k, v in (command_job["request"].get("command") or {}).items()
-                       if k != "selector_args"}
+                       if k not in ("selector_args", "selector_contract_verified")}
             copied_from = command_job["request"]
             notes.append(
                 f"the command is that of typed run {command_job.get('job_id')}, the latest that ran "
@@ -3666,11 +3664,6 @@ def build_mine_request(project_root: Path, cases: list, *, cfg: dict | None = No
                          f"a person's word: {word}")
 
     command["selector_args"] = selector_args
-    if pytest_run:
-        command["selector_contract_verified"] = True  # a node id as an argument IS pytest's contract
-    elif "selector_contract_verified" not in command:
-        import profile_contract   # the ONE answer to "is this profile's selector contract verified" (the probe asks it too)
-        command["selector_contract_verified"] = profile_contract.selectors_verified(profile_doc, project_root)   # the project, not a clone
 
     scope_ids = list(selected)
     for case in scope:
