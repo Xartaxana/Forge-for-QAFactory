@@ -74,4 +74,4 @@ Slow files NOT run here, judged by the one CI run: `test_driver_layers.py` (B1 a
 
 ## Pushed commit and CI
 
-(filled below after the push)
+Fix commit pushed to `wip/fv1-22r-fix`: `01563f1960848c3769bec22eab2060e53e86dc5f`. CI run started once (canon.yml, `python -B tools/ci_read.py start --ref wip/fv1-22r-fix`): run id `43534916929`; NOT read - the Lead's correction says do not wait. The slow files named above are judged by the batch canon after the merge.
