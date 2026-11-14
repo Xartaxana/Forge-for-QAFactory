@@ -1083,7 +1083,8 @@ def remarks_of(task_root, state) -> list:
     rows of the LAST review only - an earlier blocker was either mended (and accepted at the re-look) or repeated in the last
     review, so it stays out (M8). Order: the chain's, then the review's. A chain with a review that cannot be read is
     `PlanUnreadable`, never a shorter list (E28, AR-28); no review, no remarks. After them come the concerns the S4 case
-    critic carried (`case_concerns`): the automator answers them like any remark."""
+    critic carried and the cases it still rejected when S4 went on (`case_concerns`: `CC-n` and `CR-<case>`): the automator
+    answers them like any remark."""
     chain = reviews(task_root, state)
     broken = [f"{element['dispatch']}: {element['unreadable']}" for element in chain if element["unreadable"]]
     if broken:
@@ -1111,16 +1112,21 @@ def _case_critic_files(state) -> dict:
     return files
 
 
-def _concern_remark(number, case, check, problem, expected, fix, review) -> dict:
-    """A concern as a remark of the chain's shape (nine keys, no `test` / `then`)."""
-    return {"id": f"CC-{number}", "case": case, "test": None, "then": None, "kind": "remark", "check": check,
+def _concern_remark(number, case, check, problem, expected, fix, review, ident=None) -> dict:
+    """A concern as a remark of the chain's shape (nine keys, no `test` / `then`); `ident` is the id of a remark that is not a
+    numbered concern (`CR-<case>`), `CC-<number>` when it is None."""
+    return {"id": ident or f"CC-{number}", "case": case, "test": None, "then": None, "kind": "remark", "check": check,
             "problem": problem, "expected": expected, "fix": fix, "review": review}
 
 
 def _file_concerns(key, rounds, root, number) -> tuple:
-    """`(remarks, silent)` of ONE findings file, numbered from `number`. Per case, the LATEST accepted round that lists it decides
-    (AR-21): a later round over fewer cases never drops the concerns of a case only an earlier round reviewed, and a later
-    round that lists the case with no concern supersedes the earlier one's. An unreadable file is a global remark (FR-59:
+    """`(remarks, silent)` of ONE findings file; the concerns are numbered from `number` (`CC-n` counts concerns only). Per case,
+    the LATEST accepted round that lists it decides (AR-21): a later round over fewer cases never drops the concerns of a case
+    only an earlier round reviewed, and a later round that lists the case with no concern supersedes the earlier one's. The
+    same round also decides the case's still-rejected rows (`rejected`: a reviewed row whose word is not approving): each is a
+    remark with `still_rejected: True`, id `CR-<case>` (`CR-global` for a row with no case: case None, `problem` led by its plan
+    row; a case no longer in the story's pinned set, when there is one, is led by "(case removed since the review) "); the ids are made unique by
+    `concern_report`. An unreadable file is a global remark (FR-59:
     nobody reads stderr; case None goes to every window; `silent` False, the file already has its remark). `silent` is True when
     the file was read and no accepted round of it listed a case (the receipt measured other bytes, no roll-call): the brief
     names such a file, it is never "none carried" (FR-41)."""
@@ -1138,14 +1144,37 @@ def _file_concerns(key, rounds, root, number) -> tuple:
                                 "", rounds[-1][1])], False
     read = CR.accepted_rounds(data, rounds, root)
     latest = {case: position for position, one in enumerate(read) for case in one["listed"]}
-    out = []
+    out, pinned = [], None
     for position, one in enumerate(read):
         for item in one["concerns"]:
             if latest.get(str(item["case"])) == position:
                 out.append(_concern_remark(
-                    number + len(out), _ref(item["case"]), "case critic, S4", item["problem"],
+                    number + sum(1 for r in out if not r.get("still_rejected")), _ref(item["case"]), "case critic, S4",
+                    item["problem"],
                     f"the case critic's full finding is in {where}, round {item['review']}; take it into account when the case "
                     "is automated, or say in `plan_remarks` why it does not apply", item["fix"], item["review"]))
+        for item in one["rejected"]:
+            if latest.get(str(item["case"])) != position:
+                continue
+            case, problem = _ref(item["case"]), item["problem"]
+            if case is None:
+                case_key, problem = "global", f"(plan row {item['plan_row']}) {problem}"
+            else:
+                case_key = case
+                if pinned is None:      # the story's pinned case set; empty (a legacy story, unreadable) skips the test
+                    try:
+                        pinned = {str(link.get("case_id")) for link in C.story_case_links(root)}
+                    except Exception:  # noqa: BLE001 - a remark is never lost for want of this test (AR-28)
+                        pinned = set()
+                if pinned and case not in pinned and case.rsplit("/", 1)[-1] not in pinned:
+                    problem = "(case removed since the review) " + problem
+            remark = _concern_remark(
+                0, case, "case critic, S4 - still rejected", problem,
+                f"the case critic still rejected this case in its round {item['review']} (its full finding is in {where}); S4 "
+                "went on without another round: take its words into account when the case is automated, or say in "
+                "`plan_remarks` why they do not apply", item["fix"], item["review"], ident=f"CR-{case_key}")
+            remark["still_rejected"] = True
+            out.append(remark)
     return out, not any(one["listed"] for one in read)
 
 
@@ -1158,10 +1187,18 @@ def concern_report(task_root, state) -> dict:
     root, out, silent = Path(task_root).resolve(), [], []
     files = _case_critic_files(state)
     for key, rounds in files.items():
-        remarks, quiet = _file_concerns(key, rounds, root, len(out) + 1)
+        remarks, quiet = _file_concerns(key, rounds, root, sum(1 for r in out if not r.get("still_rejected")) + 1)
         out.extend(remarks)
         if quiet:
             silent.append("/".join(key))
+    used = {r["id"] for r in out if not r.get("still_rejected")}
+    for remark in out:      # the still-rejected ids name a case: a second use of one gets `.2`, `.3`, ... in collection order
+        if remark.get("still_rejected"):
+            base, count = remark["id"], 1
+            while remark["id"] in used:
+                count += 1
+                remark["id"] = f"{base}.{count}"
+            used.add(remark["id"])
     read = sum(len(rounds) for key, rounds in files.items() if "/".join(key) not in silent)
     return {"concerns": out, "rounds": read, "silent": silent}
 
@@ -1174,7 +1211,10 @@ def case_concerns(task_root, state) -> list:
     Nine keys like any remark (`kind: remark`, the case it names, no `test` / `then`), so `_placement` puts it in the window of
     its case and C12 asks the automator for a `plan_remarks` row (`applied` / `not_applicable`). `expected` names the findings
     file and the round (the full finding is there); `fix` is the critic's own `fix` cell of the row, '' when it wrote none.
-    `CC-n` is numbered across the files in the order the dispatches were accepted. A file that cannot be read becomes a global
+    `CC-n` is numbered across the files in the order the dispatches were accepted (concerns only: a still-rejected remark
+    never moves one). The same round also carries the case critic's still-rejecting rows (`critic_rollcall.rejected_rows`) as
+    remarks with `still_rejected: True` and the id `CR-<case>` (`CR-global` for a row with no case), so a review that went on
+    without another round does not lose them. A file that cannot be read becomes a global
     remark naming it (never a concern from bytes the receipt did not measure; a round whose receipt does not match carries
     nothing and stderr says why). Gate A's line "Concerns carried to automation" reads this too."""
     return concern_report(task_root, state)["concerns"]

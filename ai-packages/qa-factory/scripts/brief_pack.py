@@ -2014,6 +2014,8 @@ def case_concern_lines(task_root: Path, dispatch_id: str, state, role: str, writ
         groups = [CR.parametrise_group(c.get("problem"), cfg) for c in shown]
         asked = {frozenset(g) for g in groups if len(g) >= 2}      # one ask per GROUP: the token sits on every case of it
         n, k = len(shown), len(asked)
+        r = sum(1 for c in shown if c.get("still_rejected"))
+        rej = f"{r} of them cases it still rejected when S4 went on; " if r else ""     # said apart, and only when there is one
         if not plan and author:
             elsewhere = sum(1 for g in asked if not all(C.names_case(scope, i, cfg) for i in g))
         if n:
@@ -2024,14 +2026,14 @@ def case_concern_lines(task_root: Path, dispatch_id: str, state, role: str, writ
                          + ("; the windows get the same lines" if plan else " for the cases of this window"))
             token = CR.PARAMETRISE_TOKEN
             if plan and author:
-                text = (f"The case critic carried {n} concern(s) to automation ({k} ask to parametrise cases into one test): {rel}. "
-                        f"Answer each in the plan: a `{token}` concern is one parameterized test over its cases, or each test that "
+                text = (f"The case critic carried {n} concern(s) to automation ({rej}{k} ask to parametrise cases into one test): {rel}. "
+                        f"Answer each in the plan:a `{token}` concern is one parameterized test over its cases, or each test that "
                         "holds them says why in `apart_reason`")
             elif plan:
-                text = (f"The case critic carried {n} concern(s) to automation ({k} ask to parametrise cases into one test): {rel}. "
+                text = (f"The case critic carried {n} concern(s) to automation ({rej}{k} ask to parametrise cases into one test): {rel}. "
                         "Judge whether the plan answers each (rubric «On the plan»)")
             elif author:
-                text = (f"The case critic carried {n} concern(s) for the cases of this window ({k} ask to parametrise cases into one "
+                text = (f"The case critic carried {n} concern(s) for the cases of this window ({rej}{k} ask to parametrise cases into one "
                         f"test): {rel}. Answer each in `plan_remarks` (applied / not_applicable with why); a `{token}` concern is "
                         "one parameterized test over its cases")
             else:
