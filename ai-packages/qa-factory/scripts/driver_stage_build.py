@@ -38,9 +38,9 @@ class DriverStageBuild:
         task = self.task
         # FV1-5: the probe's `blocked_by` words (env_probe.blocked_by_of) -> the sentence class a person reads. ONE closed mapping;
         # the FIRST word decides; a word nobody here knows (a future one) and an empty list are the `unknown` class (FR-41).
-        # "did not answer" is said ONLY for the three words that are the probe's evidence of a dead stand.
-        classes = {"stand_dead": "dead", "no_address": "dead", "device": "dead", "login": "login", "login_key": "login",
-                   "selection": "config", "env_file": "config", "not_configured": "config"}
+        # "did not answer" is said ONLY for `stand_dead` and `device`; a stand never asked (`no_address`) is a config fault (FR-41, AR-28).
+        classes = {"stand_dead": "dead", "device": "dead", "login": "login", "login_key": "login",
+                   "selection": "config", "env_file": "config", "no_address": "config", "not_configured": "config"}
         first = why[0] if isinstance(why, (list, tuple)) and why else ""
         reason = classes.get(first, "unknown") if isinstance(first, str) else "unknown"
         step = self.STAND_STEPS["S5" if stage == "S5" else (kind if kind in self.STAND_STEPS else "automation")]
@@ -65,6 +65,9 @@ class DriverStageBuild:
                             "slots": {"what": "fix the login the project records, or name the way the project signs in"},
                             "says": ("fix the login the project records (the details name what came back), or name the way "
                                      "the project signs in; I check again")})
+        elif environment and reason == "config":
+            options.append({"answer": "retry", "token": "retry", "slots": {"what": "fix the stand's setting in the project's config"},
+                            "says": f"fix the stand's setting in the project's config; I check `{environment}` again"})
         elif environment:
             options.append({"answer": "retry", "token": "retry", "slots": {"what": f"bring `{environment}` up, or fix what stops it answering"},
                             "says": f"bring `{environment}` up, or fix what stops it answering; I check it again"})

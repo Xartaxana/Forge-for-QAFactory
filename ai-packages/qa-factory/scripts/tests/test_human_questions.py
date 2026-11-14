@@ -175,15 +175,19 @@ LOGIN_SAYS = "answers, but the login recorded for this project did not get in wh
 CONFIG_SAYS = "could not be checked: its setting in the project's config is missing or broken"
 UNKNOWN_SAYS = "I could not check the stand `Local`"
 LOGIN_RETRY = "fix the login the project records (the details name what came back), or name the way the project signs in; I check again"
+CONFIG_RETRY = "fix the stand's setting in the project's config; I check `Local` again"
+DEAD_RETRY = "bring `Local` up, or fix what stops it answering; I check it again"
 # (id, the `why` the question gets, the sentence it must carry)
 STAND_WHY_ROWS = (
-    ("stand_dead", ["stand_dead"], DEAD_SAYS), ("no_address", ["no_address"], DEAD_SAYS), ("device", ["device"], DEAD_SAYS),
+    ("stand_dead", ["stand_dead"], DEAD_SAYS), ("no_address", ["no_address"], CONFIG_SAYS), ("device", ["device"], DEAD_SAYS),
     ("login", ["login"], LOGIN_SAYS), ("login_key", ["login_key"], LOGIN_SAYS),
     ("selection", ["selection"], CONFIG_SAYS), ("env_file", ["env_file"], CONFIG_SAYS), ("not_configured", ["not_configured"], CONFIG_SAYS),
     ("unknown", ["unknown"], UNKNOWN_SAYS), ("empty list", [], UNKNOWN_SAYS), ("None", None, UNKNOWN_SAYS),
     ("a future word", ["wrong_door"], UNKNOWN_SAYS), ("a non-text word", [7], UNKNOWN_SAYS),
     ("the first word decides: dead then login", ["stand_dead", "login_key"], DEAD_SAYS),
     ("the first word decides: login then dead", ["login", "stand_dead"], LOGIN_SAYS),
+    ("the first word decides: no address then dead", ["no_address", "stand_dead"], CONFIG_SAYS),
+    ("the first word decides: dead then no address", ["stand_dead", "no_address"], DEAD_SAYS),
 )
 STAND_DETAILS = ("  base_url (Local): http://localhost:3000\n  QA_PASSWORD: present (8 chars)\n"
                  "liveness: alive - HTTP 200\nlogin: failed HTTP 405 - POST http://localhost:3000/login -> HTTP 405\n"
@@ -217,6 +221,10 @@ def the_stand_check_words() -> None:
                      "did not answer" in text, says == DEAD_SAYS)
             check_eq(f"FV1-5 words `{label}`: the retry option is the login one only for the login words",
                      LOGIN_RETRY in text, says == LOGIN_SAYS)
+            check_eq(f"FV1-5 words `{label}`: the retry option is the config one only for the config words",
+                     CONFIG_RETRY in text, says == CONFIG_SAYS)
+            check_eq(f"FV1-5 words `{label}`: the dead-stand retry option only for the dead and unknown words",
+                     DEAD_RETRY in text, says in (DEAD_SAYS, UNKNOWN_SAYS))
         plain = driver.stand_question_text("S5", "Local", ["Local"])
         check_in("FV1-5 words: a call with no `why` (the old signature) is `unknown`", UNKNOWN_SAYS, plain)
         for label, args in (("no name, stands", ("S6", "", ["Local", "Staging"])), ("no name, none", ("S5", "", []))):
