@@ -4424,8 +4424,8 @@ def case_critic_roster_lines(task_root, pipeline) -> list:
 def _record_brief_size(task_root: Path, result: dict) -> None:
     """Append one line about the dispatched brief to `state/brief-sizes.jsonl`: a record for the forge's scoreboard
     (`run_counters`), never read inside a run and never compared with a size here. The line is exactly
-    `{ts, stage, role, dispatch, bytes}` (FV1-4; lines written before it carry extra keys, `budget_bytes`, `ceiling`, `over`,
-    which no reader in the package reads). A failure to write is one note on stderr: it never changes or fails the brief."""
+    `{ts, stage, role, dispatch, bytes}` (FV1-4; lines written before it carry extra keys, `budget_bytes`, `ceiling`, `over`;
+    `run_counters` reads either shape and judges only rows that carry a ceiling). A failure to write is one note on stderr: it never changes or fails the brief."""
     state = task_root / "state"
     try:
         if not state.is_dir():

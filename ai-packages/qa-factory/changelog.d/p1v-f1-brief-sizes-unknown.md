@@ -1,0 +1,1 @@
+- run counter B1 (`scripts/run_counters.py`, `_briefs`): the size of a brief row is `budget_bytes` or, as the writer records it, `bytes`; a row with no ceiling is counted in `no_ceiling_rows` and in the per-role sizes but never judged, and a record in which no row carries a ceiling is `unknown` with no `over` (it used to read `measured`, `over: 0` over rows it could not judge)
