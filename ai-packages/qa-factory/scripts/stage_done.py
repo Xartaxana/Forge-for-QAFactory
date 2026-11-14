@@ -972,7 +972,7 @@ def record_acceptance(task: str, stage: str, form: str, acceptor: str = "", verd
     from controller import Controller
     stage_def = acceptance.stage_def_of(stage)
     if not stage_def.get("roles"):
-        print(f"stage_done: {stage} has no roles in references/stages.json; a stage acceptance is recorded for a stage with `acceptance_by` (S2, S3, S4, S6)",
+        print(f"stage_done: {stage} has no roles in references/stages.json; a stage acceptance is recorded for a stage with `acceptance_by` (S4, S6, S7)",
               file=sys.stderr)
         return EXIT_BAD_ARGS
     form_path = Path(form)
@@ -1534,7 +1534,7 @@ def main(argv=None) -> int:
                     help="append one line to pipeline.json warnings[], repeatable; a line "
                          "already there is not repeated")
     ap.add_argument("--acceptance", default="", metavar="FORM",
-                    help="record the stage critic's verdict on --stage (S2-S4) from its handoff form work/handoffs/<dispatch>.yaml; "
+                    help="record the stage critic's verdict on --stage (S4, S6, S7) from its handoff form work/handoffs/<dispatch>.yaml; "
                          "writes pipeline.json `acceptance`, no stage transition")
     ap.add_argument("--acceptor", default="", help="with --acceptance: `driver` records the conductor's accept-with-a-gap instead of the critic's word")
     ap.add_argument("--verdict", default="", help="with --acceptance --acceptor driver: `accept`")
@@ -1548,7 +1548,7 @@ def main(argv=None) -> int:
         return EXIT_BAD_ARGS
     if args.acceptance:
         if not args.stage:
-            print("stage_done.py: --acceptance needs --stage (S2, S3 or S4)", file=sys.stderr)
+            print("stage_done.py: --acceptance needs --stage (S4, S6 or S7)", file=sys.stderr)
             return EXIT_BAD_ARGS
         return record_acceptance(args.task, args.stage, args.acceptance, args.acceptor, args.verdict, args.quote)
     if args.acceptor or args.verdict or args.quote:

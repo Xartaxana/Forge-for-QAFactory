@@ -167,9 +167,141 @@ def the_example_at_a_gate() -> None:
     check_not_in("HQ6-gate: the sentence that promised the section is gone", OLD_GATE_SENTENCE, text)
 
 
+# --- FV1-5: the stand question says WHY the probe blocked (the probe's `blocked_by` words), and "did not answer" only for a dead stand ---
+# The expectations come from the card (docs/tasks/specs/20261113-fv1-17-5-15-stand-login-spec.md, FV1-5, 2.3), not from the code's output.
+STAND_TAIL = "\n---\nAnswer: write your words to a file and run\n  python story_run.py --task QA-9 --answer <file>\n"
+DEAD_SAYS = "did not answer when I checked it just now"
+LOGIN_SAYS = "answers, but the login recorded for this project did not get in when I checked it just now"
+CONFIG_SAYS = "could not be checked: its setting in the project's config is missing or broken"
+UNKNOWN_SAYS = "I could not check the stand `Local`"
+LOGIN_RETRY = "fix the login the project records (the details name what came back), or name the way the project signs in; I check again"
+CONFIG_RETRY = "fix the stand's setting in the project's config; I check `Local` again"
+DEAD_RETRY = "bring `Local` up, or fix what stops it answering; I check it again"
+# (id, the `why` the question gets, the sentence it must carry)
+STAND_WHY_ROWS = (
+    ("stand_dead", ["stand_dead"], DEAD_SAYS), ("no_address", ["no_address"], CONFIG_SAYS), ("device", ["device"], DEAD_SAYS),
+    ("login", ["login"], LOGIN_SAYS), ("login_key", ["login_key"], LOGIN_SAYS),
+    ("selection", ["selection"], CONFIG_SAYS), ("env_file", ["env_file"], CONFIG_SAYS), ("not_configured", ["not_configured"], CONFIG_SAYS),
+    ("unknown", ["unknown"], UNKNOWN_SAYS), ("empty list", [], UNKNOWN_SAYS), ("None", None, UNKNOWN_SAYS),
+    ("a future word", ["wrong_door"], UNKNOWN_SAYS), ("a non-text word", [7], UNKNOWN_SAYS),
+    ("the first word decides: dead then login", ["stand_dead", "login_key"], DEAD_SAYS),
+    ("the first word decides: login then dead", ["login", "stand_dead"], LOGIN_SAYS),
+    ("the first word decides: no address then dead", ["no_address", "stand_dead"], CONFIG_SAYS),
+    ("the first word decides: dead then no address", ["stand_dead", "no_address"], DEAD_SAYS),
+)
+STAND_DETAILS = ("  base_url (Local): http://localhost:3000\n  QA_PASSWORD: present (8 chars)\n"
+                 "liveness: alive - HTTP 200\nlogin: failed HTTP 405 - POST http://localhost:3000/login -> HTTP 405\n"
+                 "keys: ok - every key the config declares is set\n")
+TRACEBACK = ("Traceback (most recent call last):\n  File \"env_probe.py\", line 1, in <module>\n"
+             "KeyError: 'environment'\n")
+
+
+def probe_text(result: dict) -> str:
+    """What `env_probe.main` prints for a result: the details and verdict lines, then the Layer-1 block (stderr, merged by the driver)."""
+    import env_probe
+    text = "\n".join(result["details"] + env_probe.verdict_lines(result))
+    if result["layer1"]:
+        text += "\n\nTHE ENVIRONMENT CANNOT BE USED:\n- " + "\n- ".join(result["layer1"]) + "\nLayer 1 is these three lines only."
+    return text
+
+
+def the_stand_check_words() -> None:
+    from unittest.mock import patch
+    import env_probe
+    root, task_root, env = seed("QA-9")
+    try:
+        driver = driver_for(root, "QA-9")
+        # (1) the four sentence classes, each through the question form
+        for label, why, says in STAND_WHY_ROWS:
+            text = driver.stand_question_text("S5", "Local", ["Local", "Staging"], "", why)
+            check_in(f"FV1-5 words `{label}`: the sentence", says, text)
+            check_eq(f"FV1-5 words `{label}`: the text passes human_text.problems",
+                     [p["rule"] for p in human_text.problems(str(text) + STAND_TAIL)], [])
+            check_eq(f"FV1-5 words `{label}`: `did not answer` only for the dead-stand words",
+                     "did not answer" in text, says == DEAD_SAYS)
+            check_eq(f"FV1-5 words `{label}`: the retry option is the login one only for the login words",
+                     LOGIN_RETRY in text, says == LOGIN_SAYS)
+            check_eq(f"FV1-5 words `{label}`: the retry option is the config one only for the config words",
+                     CONFIG_RETRY in text, says == CONFIG_SAYS)
+            check_eq(f"FV1-5 words `{label}`: the dead-stand retry option only for the dead and unknown words",
+                     DEAD_RETRY in text, says in (DEAD_SAYS, UNKNOWN_SAYS))
+        plain = driver.stand_question_text("S5", "Local", ["Local"])
+        check_in("FV1-5 words: a call with no `why` (the old signature) is `unknown`", UNKNOWN_SAYS, plain)
+        for label, args in (("no name, stands", ("S6", "", ["Local", "Staging"])), ("no name, none", ("S5", "", []))):
+            check_not_in(f"FV1-5 words `{label}`: `why` is unused when no stand is named", "could not check the stand",
+                         driver.stand_question_text(*args, "", ["login"]))
+        # (2) the probe's text -> the words (the one reader), one parameterised table
+        shapes = {
+            "stand_dead": ("liveness: dead - x\nTHE ENVIRONMENT CANNOT BE USED:\n- the stand does not answer: connection refused\nLayer 1 is", ["stand_dead"]),
+            "no_address": ("THE ENVIRONMENT CANNOT BE USED:\n- the stand has no address: the entry has none\n", ["no_address"]),
+            "login refused": ("THE ENVIRONMENT CANNOT BE USED:\n- the login this project records was refused: POST /login -> HTTP 405\n", ["login"]),
+            "login did not finish": ("THE ENVIRONMENT CANNOT BE USED:\n- the login this project records did not finish in time: 8 s\n", ["login"]),
+            "login body shape": ("THE ENVIRONMENT CANNOT BE USED:\n- " + env_probe.stand_access.LOGIN_FIELD_FIX + " - the endpoint asked for email\n", ["login"]),
+            "login key": ("THE ENVIRONMENT CANNOT BE USED:\n- QA_PASSWORD is not set, and the login needs it\n", ["login_key"]),
+            "several, stand first": ("THE ENVIRONMENT CANNOT BE USED:\n- the stand does not answer: x\n- QA_PASSWORD is not set, and the login needs it\n",
+                                     ["stand_dead", "login_key"]),
+            "an item no word matches": ("THE ENVIRONMENT CANNOT BE USED:\n- the device stand 'p' gave no verdict\n", ["unknown"]),
+            "a block with no item": ("THE ENVIRONMENT CANNOT BE USED:\n", ["unknown"]),
+            "not configured": ("ENVIRONMENT: not configured - the environment block is empty\n", ["not_configured"]),
+            "another ENVIRONMENT line": ("ENVIRONMENT: something else\n", ["unknown"]),
+            "a passing probe": (STAND_DETAILS.replace("failed HTTP 405 - POST http://localhost:3000/login -> HTTP 405", "ok as QA_USER - fine"), []),
+            "empty string": ("", ["unknown"]), "only blanks": ("  \n\n", ["unknown"]), "None": (None, ["unknown"]),
+            "a traceback": (TRACEBACK, ["unknown"]),
+            "a traceback after the verdict lines is still not a block": ("liveness: alive - x\n" + TRACEBACK, []),
+        }
+        for label, (text, words) in shapes.items():
+            check_eq(f"FV1-5 reader `{label}`", env_probe.blocked_by_of(text), words)
+        # (3) the E3/E4 shape: liveness 200, login failed 405 -> `login`, and the sentence "answers, but the login ... did not get in"
+        cfg = {"environment": {"access": {"kind": "none"}},
+               "environments": [{"name": "Local", "base_url": "http://localhost:3000", "api_base_url": "http://localhost:3000"}]}
+        alive = {"verdict": "alive", "code": 200, "url": "http://localhost:3000", "note": "HTTP 200"}
+        dead = {"verdict": "dead", "code": None, "url": "http://localhost:3000", "note": "connection refused"}
+        refused = {"status": "failed", "code": 405, "user_key": "QA_USER", "why": "POST http://localhost:3000/login -> HTTP 405"}
+        for label, live, receipt, words in (("E3/E4: alive 200, login 405", alive, refused, ["login"]),
+                                            ("a dead stand", dead, refused, ["stand_dead"]),
+                                            ("an alive stand and a login that got in", alive, {"status": "ok", "code": 200, "user_key": "QA_USER", "why": "in"}, []),
+                                            ("a login that did not finish", alive, {"status": "failed", "code": None, "user_key": "QA_USER",
+                                                                                     "why": "no answer in 8 s", "refusal": "timeout"}, ["login"]),
+                                            ("a login the body shape refused", alive, {"status": "failed", "code": 400, "user_key": "QA_USER", "why": "asked for email",
+                                                                                        "refusal": "body_shape", "fix": env_probe.stand_access.LOGIN_FIELD_FIX}, ["login"])):
+            with patch.object(env_probe, "liveness", return_value=dict(live)), patch.object(env_probe.stand_access, "login", return_value=dict(receipt)):
+                result = env_probe.probe(json.loads(json.dumps(cfg)), "Local", root=root)
+            text = probe_text(result)
+            check_eq(f"FV1-5 probe `{label}`: blocked_by", result["blocked_by"], words)
+            check_eq(f"FV1-5 probe `{label}`: the text reader gives the producer's words back",
+                     env_probe.blocked_by_of(text), words)
+            check_eq(f"FV1-5 probe `{label}`: one word per Layer-1 line, and none with exit 0",
+                     (len(result["blocked_by"]) == len(result["layer1"]), bool(result["blocked_by"]) == bool(result["layer1"])), (True, True))
+            if label.startswith("E3/E4"):
+                check_in("FV1-5 E3/E4: the person reads that the stand answers and the login did not get in", LOGIN_SAYS,
+                         driver.stand_question_text("S5", "Local", ["Local"], "", env_probe.blocked_by_of(text)))
+        # a missing login key, a stand with no address under --env, a selection that cannot be made
+        keyed = json.loads(json.dumps(cfg))
+        keyed["environment"] = {"user_key": "FV15_USER_KEY", "secret_keys": ["FV15_SECRET_KEY"],
+                                "access": {"kind": "local_login", "user_key": "FV15_USER_KEY", "secret_key": "FV15_SECRET_KEY", "url": "/login"}}
+        with patch.object(env_probe, "liveness", return_value=dict(alive)), \
+                patch.object(env_probe.stand_access, "login", return_value={"status": "skipped", "code": None, "user_key": "", "why": "no key"}):
+            keyed_result = env_probe.probe(keyed, "Local", root=root)
+        check_eq("FV1-5 probe: a login key that is not set -> `login_key`", keyed_result["blocked_by"], ["login_key"] * len(keyed_result["layer1"]))
+        check("FV1-5 probe: ...and there is at least one such line", bool(keyed_result["layer1"]), str(keyed_result["layer1"]))
+        nobody = json.loads(json.dumps(cfg))
+        nobody["environments"] = [{"name": "Local"}]
+        nobody["environment"] = {"access": {"kind": "none"}}
+        with patch.object(env_probe, "_fetch", return_value=200):
+            unnamed = env_probe.probe(nobody, "Local", root=root)
+            missing = env_probe.probe(nobody, "Nowhere", root=root)
+        check_eq("FV1-5 probe: a named stand with no address -> `no_address`", unnamed["blocked_by"], ["no_address"] * len(unnamed["layer1"]))
+        check_eq("FV1-5 probe: a selection that cannot be made -> `selection`", missing["blocked_by"], ["selection"])
+        check_eq("FV1-5 reader: the selection line has no fixed words, so a person reads `I could not check`",
+                 env_probe.blocked_by_of(probe_text(missing)), ["unknown"])
+    finally:
+        harness.cleanup(root)
+
+
 def main() -> None:
     the_sixth_element_and_its_example()
     the_example_at_a_gate()
+    the_stand_check_words()
     task = "QA-9"
 
     # --- the checker ------------------------------------------------------------------------

@@ -406,6 +406,19 @@ for the period, and diffs to DECISIONS.md.
     `by` (an acknowledged acceptance pair) is a finding unless its
     notes name the Lead's decision. An empty window gets the explicit
     line "no merge acknowledgements".
+    (m) ORDER-KNOWN DECLARATIONS (FG7-32). The persisted carrier is a
+    case-insensitive search for `order-known:` over logs/journal/*.jsonl,
+    with a positive control of the same form; the validator's summary line
+    `order-known: N declared` is its at-commit echo (stderr only, not
+    persisted). Both count ONE quantity: the number of distinct defective
+    LINES of the writer's own journal declared by a later line (id out of
+    order, ts not monotone, repeated delegated). A value that is not a ts
+    (prose such as `order-known:<ts>`) declares nothing: it shows in the
+    grep but not in N; read the grep hits by eye. Per week: that number,
+    per developer file, against the previous week; growth is a finding (the
+    door is for old lines that cannot be rewritten, not for new careless
+    ones). An empty window gets the explicit line "no order-known
+    declarations".
 14. **A golden set for recon, and a regression rule for prompt
     edits.** (a) Git log for the window on `.claude/agents/*.md`:
     every edit to a tier's role file that has an exam set (scout —

@@ -4834,6 +4834,51 @@ def test_g1_9_the_rehearsal_reads_the_drafts_through_the_one_reader() -> None:
         cleanup(root)
 
 
+def test_fv1_24_k1g_gate_b_reads_the_one_no_run_target_predicate() -> None:
+    """FV1-24 K1g: gate B does not raise the two verdict findings ("without a triage verdict" / "without an APP_BUG verdict") for a draft
+    for which `bug_records.no_run_target` is True (a place the runner never ran); every other finding stays, and a draft that names an id
+    the report holds, a missing report, or a predicate that raises keeps both. Mutation (named, not run): the predicate call removed ->
+    the place-born row."""
+    import bug_records
+    import test_bug_records as K1       # its `_k1_world` builds the ARM-shaped story (a real walk record, the report, the triage list)
+    walk = {"kind": "walk", "evidence": "evidence/place-answer-req-R-1.json", "observed": "erase + type 3 -> 13"}
+    other = [{"instance_id": "TC-9", "attempt_id": "a1", "status": "failed"}]
+    held = [{"instance_id": "TC-1", "attempt_id": "a1", "status": "failed"}]
+    app_bug = [{"instance_id": "TC-1", "attempt_id": "a1", "case": "TC-1", "verdict": "APP_BUG"}]
+
+    real, calls = bug_records.no_run_target, []
+
+    def boom(*a, **k):          # raises on gate B's own call (the first); `reproduction_problems` (bug_records' own, not this check's) gets the real one
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("probe")
+        return real(*a, **k)
+    rows = [  # id, triage_ref, triage rows, current rows, drop the report, predicate, expected verdict findings
+        ("place-born draft with a walk record: no verdict finding", "TC-8#obs1@a1", [], other, False, None, []),
+        ("the same draft naming a held id: the finding as today", "TC-1@a1", [], held, False, None, ["without a triage verdict"]),
+        ("a red run with its APP_BUG row: unchanged, no finding", "TC-1@a1", app_bug, held, False, None, []),
+        ("no report: the finding as today", "TC-8#obs1@a1", [], other, True, None, ["without a triage verdict"]),
+        ("the predicate raises: the finding as today", "TC-8#obs1@a1", [], other, False, boom, ["without a triage verdict"]),
+    ]
+    for name, ref, triage, current, drop_report, predicate, want in rows:
+        task = K1._k1_world(ref, [walk], triage, current)
+        original = bug_records.no_run_target
+        try:
+            if drop_report:
+                (task / "work" / "run-report.json").unlink()
+            if predicate:
+                bug_records.no_run_target = predicate
+            r = gate_preflight.Rehearsal(task, "B")
+            r.check_bug_drafts()
+            said = [f["message"] for f in r.findings]
+        finally:
+            bug_records.no_run_target = original
+            cleanup(task.parents[2])
+        got = [phrase for phrase in ("without a triage verdict", "without an APP_BUG verdict") if any(phrase in m for m in said)]
+        check_eq(f"K1g {name}", got, want)
+        check(f"K1g {name}: the other findings of the draft stay (its red test)", any("without its red test" in m for m in said), str(said)[:300])
+
+
 def _template(node) -> str:
     """The text of a message or block expression with every value left as `{<its source>}`."""
     import ast
@@ -6199,6 +6244,7 @@ if __name__ == "__main__":
     test_c3_a_code_reading_draft_is_judged_by_its_own_checker()
     test_t2187_n2_the_rehearsal_reads_the_manifestations_and_the_cause()
     test_g1_9_the_rehearsal_reads_the_drafts_through_the_one_reader()
+    test_fv1_24_k1g_gate_b_reads_the_one_no_run_target_predicate()
     test_w2_every_card_that_offers_a_word_contains_its_block()
     test_t357_the_door_of_a_finding_is_a_line_in_words_never_a_command()
     test_b220_p2_the_reporter_card_carries_what_it_offers_and_whose_command_it_is()

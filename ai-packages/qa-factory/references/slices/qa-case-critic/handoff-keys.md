@@ -48,7 +48,7 @@ Contract `s4-case-critic-to-designer` (fill `work/handoffs/<dispatch>.yaml`; `ha
 - `stage_acceptance.witness_paths[]` (optional) - task-relative path the verdict rests on, or omit when the acceptor cited no evidence paths
 - `not_looked[].where` (required) - path or area
 - `not_looked[].why` (required) - one sentence
-- `advice_read` (optional) - work/advice-S4.json, or a dash and the reason it was absent
+- `advice_read` (optional) - each advice file the brief names - work/advice-S4.json, work/advice-S2.json, work/advice-S3.json - read, or a dash and the reason it was absent
 - `advice_rejected[].script` (required) - the adviser
 - `advice_rejected[].why` (required) - one sentence: why its remark is not a defect
 - `questions[].question` (required) - the question, in plain words
@@ -59,6 +59,10 @@ Contract `s4-case-critic-to-designer` (fill `work/handoffs/<dispatch>.yaml`; `ha
 - `questions[].severity` (required) - blocker|major|minor
 - `questions[].owner_role` (required) - the role the answer concerns
 - `questions[].why_person` (optional) - the class of person-owned.json, or omit when none
+- `register_gaps[].title` (required) - the gap in one line
+- `register_gaps[].statement` (required) - the register line and what no requirement holds
+- `register_gaps[].refs[]` (optional) - R-n or TC-n the gap stands against, or omit
+- `register_gaps[].missing_prerequisite` (required) - what would close it: a requirement or an answer
 - `claims.every_case_of_the_review_scope_has_a_row` (required) - true|false
 - `claims.every_finding_names_expected_and_check` (required) - true|false
 - `claims.the_verdict_was_computed_by_rollcall_not_typed` (required) - true|false
@@ -78,10 +82,10 @@ Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): 
 - [exit_gate:EG-text-end] Your dispatch ends with the host's handback tool carrying your digest line, never with free text after it. Door: call the host's handback tool with your digest line.
 - [handoff_check:blocked_problem] A row in state `blocked` carries `blocked.problem`; `blocked_by_env` is used only where `options_for_role` offers it to this role. Door: write the problem, or pick a state the role is offered.
 - [handoff_check:claims] What the form claims is true is true on disk ("the form claims this is true, and it is not"). Door: fix the claim or make it true.
-- [handoff_check:cli] The call names an existing UTF-8 form with a `contract:` line and an existing values file; `--shorten` only with `--fix`. Door: the refusal's door; a non-UTF-8 form: run `handoff_init` again (:3040-3041).
-- [handoff_check:field.blank] every `required` field of your handoff form (section `Handoff form` of this page) Door: write the value as a `path: value` line in the values file, then run the check again.
-- [handoff_check:field.max_len] every `required` field of your handoff form (section `Handoff form` of this page) Door: shorten it (`--shorten` with `--fix`) or rewrite.
-- [handoff_check:field.value] every `required` field of your handoff form (section `Handoff form` of this page) Door: write one of the listed words (or `new: <word> -- <why>` where the list is open).
+- [handoff_check:cli] The call names an existing UTF-8 form with a `contract:` line and an existing values file; `--shorten` only with `--fix`. Door: the refusal's door; a non-UTF-8 form: run `handoff_init` again.
+- [handoff_check:field.blank] every `required` field of your handoff form (section `Handoff form` of this page). Door: write the value as a `path: value` line in the values file, then run the check again.
+- [handoff_check:field.max_len] every `required` field of your handoff form (section `Handoff form` of this page). Door: shorten it (`--shorten` with `--fix`) or rewrite.
+- [handoff_check:field.value] every `required` field of your handoff form (section `Handoff form` of this page). Door: write one of the listed words (or `new: <word> -- <why>` where the list is open).
 - [handoff_check:findings_tooling] A finding whose cause is `tooling` is repeated in `tooling_findings`. Door: add it to `tooling_findings`.
 - [handoff_check:null_outcome.failures] Each shown failure has a triage row. Door: triage it once.
 - [handoff_check:null_outcome.listing] Everything named in `listed_in` exists, and nothing extra stands. Door: list exactly what exists.

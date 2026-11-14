@@ -6,5 +6,3 @@ names. A rule you did not read is still a rule the exit gate checks.
 
 - `references/slices/qa-requirements-tester/artifact-contract.md` (3,755 B) — Where artifacts live, `## Behaviour claims` of the register
 - `references/slices/qa-requirements-tester/vocabularies.md` (902 B) — Observable source, Oracle basis
-- `references/slices/qa-requirements-tester/handoff-keys.md` (11,879 B) — Outputs, Witness, Handoff form, What code will check of you
-- `references/slices/qa-requirements-tester/handoff-keys-2.md` (1,999 B) — What code will check of you (continued from handoff-keys.md), Not yet in rows

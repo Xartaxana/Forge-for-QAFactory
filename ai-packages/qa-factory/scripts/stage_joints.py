@@ -603,7 +603,8 @@ def fill(text, values) -> str:
 def told_line(row, values=None) -> str:
     """THE line renderer: `- [<check>] <expected> Door: <door>.`; `fill` is applied when `values` is given."""
     expected, door = told_text(row)
-    line = f"- [{row.get('check') if isinstance(row, dict) else None}] {expected} Door: {door}."
+    stop = "." if expected.rstrip() and not expected.rstrip().endswith((".", "!", "?")) else ""    # a carrier text has no final stop
+    line = f"- [{row.get('check') if isinstance(row, dict) else None}] {expected}{stop} Door: {door}."
     return line if values is None else fill(line, values)
 
 

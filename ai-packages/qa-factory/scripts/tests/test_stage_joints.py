@@ -543,6 +543,15 @@ def renderers() -> None:
         check(f"told-text/unreadable: {label} reads as a sentence saying so, never an exception or an empty text",
               "could not be read" in text and "this is a factory defect" in text and door == "", text)
     check_eq("told-line/form: `- [<check>] <expected> Door: <door>.`", SJ.told_line(own), "- [a:x] Say it. Door: edit <ID> in <home>.")
+    for label, said, line in (("no final stop: the stop is added", "carried x", "- [a:x] carried x. Door: d."),
+                              ("ends in a backtick: the stop follows it", "keys `a`", "- [a:x] keys `a`. Door: d."),
+                              ("ends in a closing bracket: the stop follows it", "keys (a)", "- [a:x] keys (a). Door: d."),
+                              ("ends in `!` or `?`: no second stop", "stop!", "- [a:x] stop! Door: d."),
+                              ("ends in `.` after trailing blanks: no second stop", "stop.  ", "- [a:x] stop. Door: d.")):
+        check_eq(f"told-line/stop: {label}", SJ.told_line({"check": "a:x", "requirement": said, "door": "d"}), line)
+    carrier = {"check": "a:x", "requirement_from": "validate_artifacts.PHASE_JSON_KEYS", "carrier_key": artifact, "door": "d"}
+    check_eq("told-line/stop: a carrier row (no final stop of its own) renders `...x. Door: d.`", SJ.told_line(carrier),
+             f"- [a:x] `{artifact}` carries the keys " + ", ".join(f"`{k}`" for k in keys) + ". Door: d.")
     check_eq("told-line/form: `fill` is applied when values are given", SJ.told_line(own, {"ID": "d-1", "home": "/q"}),
              "- [a:x] Say it. Door: edit d-1 in /q.")
     check_eq("fill/missing-value-kept: a missing, empty or None value leaves its placeholder; other angle words stay",

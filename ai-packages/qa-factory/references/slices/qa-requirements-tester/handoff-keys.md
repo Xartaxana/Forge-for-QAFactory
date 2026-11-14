@@ -78,10 +78,10 @@ Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): 
 - [exit_gate:EG-text-end] Your dispatch ends with the host's handback tool carrying your digest line, never with free text after it. Door: call the host's handback tool with your digest line.
 - [handoff_check:blocked_problem] A row in state `blocked` carries `blocked.problem`; `blocked_by_env` is used only where `options_for_role` offers it to this role. Door: write the problem, or pick a state the role is offered.
 - [handoff_check:claims] What the form claims is true is true on disk ("the form claims this is true, and it is not"). Door: fix the claim or make it true.
-- [handoff_check:cli] The call names an existing UTF-8 form with a `contract:` line and an existing values file; `--shorten` only with `--fix`. Door: the refusal's door; a non-UTF-8 form: run `handoff_init` again (:3040-3041).
-- [handoff_check:field.blank] every `required` field of your handoff form (section `Handoff form` of this page) Door: write the value as a `path: value` line in the values file, then run the check again.
-- [handoff_check:field.max_len] every `required` field of your handoff form (section `Handoff form` of this page) Door: shorten it (`--shorten` with `--fix`) or rewrite.
-- [handoff_check:field.value] every `required` field of your handoff form (section `Handoff form` of this page) Door: write one of the listed words (or `new: <word> -- <why>` where the list is open).
+- [handoff_check:cli] The call names an existing UTF-8 form with a `contract:` line and an existing values file; `--shorten` only with `--fix`. Door: the refusal's door; a non-UTF-8 form: run `handoff_init` again.
+- [handoff_check:field.blank] every `required` field of your handoff form (section `Handoff form` of this page). Door: write the value as a `path: value` line in the values file, then run the check again.
+- [handoff_check:field.max_len] every `required` field of your handoff form (section `Handoff form` of this page). Door: shorten it (`--shorten` with `--fix`) or rewrite.
+- [handoff_check:field.value] every `required` field of your handoff form (section `Handoff form` of this page). Door: write one of the listed words (or `new: <word> -- <why>` where the list is open).
 - [handoff_check:findings_tooling] A finding whose cause is `tooling` is repeated in `tooling_findings`. Door: add it to `tooling_findings`.
 - [handoff_check:null_outcome.failures] Each shown failure has a triage row. Door: triage it once.
 - [handoff_check:null_outcome.listing] Everything named in `listed_in` exists, and nothing extra stands. Door: list exactly what exists.

@@ -27,6 +27,7 @@ import contract as C  # noqa: E402
 import exploratory_findings as EF  # noqa: E402
 import gate_brief as GB  # noqa: E402
 import grammar as G  # noqa: E402
+import question_register as QR  # noqa: E402
 import report_facts as RF  # noqa: E402
 import traceability as T  # noqa: E402
 import validate_artifacts as V  # noqa: E402
@@ -529,6 +530,32 @@ def open_questions() -> None:
         facts = RF.build(task)
         check_in("no register at all is unknown, not `none` (FR-41)", "no question register", facts["unknown"].get("questions", ""))
         check_in("and the block says unknown", "## Open questions \u2014 unknown", RF.render(facts)["open-questions"])
+    finally:
+        cleanup(task.parents[2])
+
+
+def fv19_report_lists_target_once() -> None:
+    """FV1-9 T15: a hidden repeat is not listed and its target says it covers both; an unresolved repeat is listed under its own text."""
+    task = story()
+    try:
+        rows = [dict(r) for r in READINESS["open_questions"]] + [
+            {"id": "Q3", "question": "Is money refunded after cancelling?", "owner_role": "po_ba", "severity": "major"}]
+        write(task / "work" / "requirements-readiness.json", {"open_questions": rows})
+        QR.declare_repeat(task, "Q3", "Q1", "both ask about the refund", by="driver", declared_by="qa-case-designer", stage="S4")
+        body = render_all(task)["open-questions"]
+        check_in("fv19_report_lists_target_once: the count is the questions asked, the merged twin not counted", "## Open questions — 2", body)
+        check_not_in("fv19_report_lists_target_once: the hidden twin's text is absent", "Is money refunded", body)
+        check_in("fv19_report_lists_target_once: the target carries the note",
+                 "Is a refund due after cancelling? (raised twice in this story; this one question covers both)", body)
+        check_eq("fv19_report_lists_target_once: only the target carries it", body.count("raised twice"), 1)
+        rows[0]["question"] = "Is a refund owed after a cancel?"
+        write(task / "work" / "requirements-readiness.json", {"open_questions": rows})
+        body = render_all(task)["open-questions"]
+        check_in("fv19_report_lists_target_once: the target changed -> the repeat is unresolved and listed under its own text",
+                 "Is money refunded after cancelling?", body)
+        check_not_in("fv19_report_lists_target_once: and nothing claims a merge, nor a stale-answer note on a repeat", "raised twice", body)
+        check_not_in("fv19_report_lists_target_once: an unresolved repeat has no `your answer was given` note",
+                     "your answer was given to an earlier wording", body.split("Is money refunded")[1])
     finally:
         cleanup(task.parents[2])
 
@@ -4533,6 +4560,7 @@ def main() -> None:
     expectation_change_words()
     probe_debt_line()
     open_questions()
+    fv19_report_lists_target_once()
     not_proven_items()
     answered_suffix()
     gate_blocks()

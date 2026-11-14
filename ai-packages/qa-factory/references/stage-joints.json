@@ -3751,7 +3751,9 @@
     {
       "check": "run_suite:phantom_story",
       "stages": [
-        "S5"
+        "S5",
+        "S6",
+        "S7"
       ],
       "requirement": "`--task` names a story that exists (for `--detail`, `--wait` and the untyped run).",
       "door": "the task id of your prompt",
@@ -3762,13 +3764,27 @@
       "producers": [
         {
           "roles": [
-            "qa-automator"
+            "qa-automator",
+            "qa-runner"
           ],
           "field": "the run_suite.py call",
           "told": [
             {
               "page": true,
               "call": true
+            }
+          ],
+          "demands": []
+        },
+        {
+          "roles": [
+            "qa-code-critic",
+            "qa-failure-analyst"
+          ],
+          "field": "the run_suite.py call",
+          "told": [
+            {
+              "page": true
             }
           ],
           "demands": []
@@ -5740,7 +5756,7 @@
         "*"
       ],
       "requirement": "The call names an existing UTF-8 form with a `contract:` line and an existing values file; `--shorten` only with `--fix`.",
-      "door": "the refusal's door; a non-UTF-8 form: run `handoff_init` again (:3040-3041)",
+      "door": "the refusal's door; a non-UTF-8 form: run `handoff_init` again",
       "when": [
         "always"
       ],
@@ -5880,7 +5896,7 @@
       "stages": [
         "S3"
       ],
-      "requirement": "Every question branch kind of S3_EXIT_KINDS is accounted for (the messages :1786-2035 name what each kind expects).",
+      "requirement": "Every question branch kind of S3_EXIT_KINDS is accounted for (the messages name what each kind expects).",
       "door": "write the branch the block names",
       "when": [
         "always"
@@ -6356,7 +6372,7 @@
         "S7"
       ],
       "requirement": "The execution profile of the run is known without a guess: a profile named by `--profile` or a manifest row's `profile_id` is one `qa-factory/config.json` holds; the asked cases run under one profile; a row that names no profile and whose file lies under another profile's test root, or a root several profiles share, names its `profile_id`; when nothing else tells, `--profile` names it.",
-      "door": "`profile_id` on the manifest row through `manifest_put.py --fragment`, or `--profile ID` (only where the caller takes it: `run_suite --mine`, never `probe_by_code`, :1707-1708, :1728); cases of two profiles: one `--mine` per profile",
+      "door": "`profile_id` on the manifest row through `manifest_put.py --fragment`, or `--profile ID` (only where the caller takes it: `run_suite --mine`, never `probe_by_code`); cases of two profiles: one `--mine` per profile",
       "door_needs": "shell",
       "when": [
         "shell"
@@ -6760,7 +6776,7 @@
         "S7"
       ],
       "requirement": "`--recover <KEY> --task <T>` names the idempotency key of a job recorded in that story's job store, and the job's file is readable JSON.",
-      "door": "the `idempotency_key` the earlier answer printed (the not-launched answer names `--recover <idempotency_key> --task <task>`, `run_suite.py:3026-3027`) and your prompt's task; a job file that cannot be read is the factory's: name it in your digest",
+      "door": "the `idempotency_key` the earlier answer printed (the not-launched answer names `--recover <idempotency_key> --task <task>`) and your prompt's task; a job file that cannot be read is the factory's: name it in your digest",
       "door_needs": "shell",
       "when": [
         "shell"

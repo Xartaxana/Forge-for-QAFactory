@@ -670,6 +670,88 @@ def k6_story_text() -> None:
         check(f"K6 never raises on {odd!r}", ok)
 
 
+# --- K7: `declared_place`, the one predicate "inside the project or a declared repository" (FV1-23 A-2) -----------------------
+
+def k7_declared_place() -> None:
+    """One table, one answer per row on every OS (B-1: both dialects are read, `\\` is a separator, posix normalisation before the
+    project is met). Mutation: let a backslash ref through `posixpath` alone, or read a drive with the native splitdrive."""
+    base = scratch()
+    proj = mark(base / "proj")
+    repo = base / "repo" / "docs"
+    repo.mkdir(parents=True)
+    (repo / "a.md").write_text("x\n", encoding="utf-8")
+    outside = base / "outside"
+    outside.mkdir()
+    cfg = {"code_repos": [{"name": "sib", "path": "../repo"}]}
+    accent = "caf" + chr(0xE9) + " notes/my doc.md"
+    long_ref = "d/" * 150 + "x.md"
+    rows = [
+        ("k7 a dotdot into a code_repos root is accepted", proj, cfg, "../repo/docs/a.md", ("../repo/docs/a.md", "")),
+        ("k7 mixed slashes give the one normal ref on every OS", proj, cfg, "..\\repo/docs\\a.md", ("../repo/docs/a.md", "")),
+        ("k7 dot segments collapse", proj, cfg, "./docs/./a.md", ("docs/a.md", "")),
+        ("k7 a name inside the project that does not exist is accepted", proj, cfg, "docs/nope.md", ("docs/nope.md", "")),
+        ("k7 docs/../../x leaves the project", proj, cfg, "docs/../../x", (None, "outside")),
+        ("k7 ../../.. leaves the project", proj, cfg, "../../..", (None, "outside")),
+        ("k7 a backslash escape docs\\..\\..\\x.md is refused (B-1)", proj, cfg, "docs\\..\\..\\x.md", (None, "outside")),
+        ("k7 a dotdot to a folder that is no declared root", proj, cfg, "../outside/a.md", (None, "outside")),
+        ("k7 a drive with a backslash", proj, cfg, "C:\\x\\y.md", (None, "not_relative")),
+        ("k7 a drive taken for a scheme (C://)", proj, cfg, "C://Users/dev7/x.md", (None, "not_relative")),
+        ("k7 a rooted posix path", proj, cfg, "/etc/x", (None, "not_relative")),
+        ("k7 a UNC share", proj, cfg, "\\\\server\\share\\x", (None, "not_relative")),
+        ("k7 a file: URL", proj, cfg, "file:///x", (None, "not_relative")),
+        ("k7 FILE: in capitals", proj, cfg, "FILE:///x", (None, "not_relative")),
+        ("k7 a URL is no relative path", proj, cfg, "https://host.example/x", (None, "not_relative")),
+        ("k7 an empty ref", proj, cfg, "", (None, "not_relative")),
+        ("k7 a blank ref", proj, cfg, "  \t", (None, "not_relative")),
+        ("k7 a ref that is no text", proj, cfg, 12, (None, "not_relative")),
+        ("k7 a ref that is None", proj, cfg, None, (None, "not_relative")),
+        ("k7 a NUL inside the ref", proj, cfg, "a\0b.md", (None, "not_relative")),
+        ("k7 the project itself", proj, cfg, ".", (".", "")),
+        ("k7 a ref that climbs back to the project", proj, cfg, "docs/..", (".", "")),
+        ("k7 a 300 character ref inside the project", proj, cfg, long_ref, (long_ref, "")),
+        ("k7 non-ASCII and a space in a name", proj, cfg, accent, (accent, "")),
+        ("k7 no project and no dotdot keeps the lexical rule", None, cfg, "docs\\a.md", ("docs/a.md", "")),
+        ("k7 no project and a dotdot is refused (FR-59)", None, cfg, "../x.md", (None, "no_project")),
+        ("k7 no project and a backslash dotdot is refused", None, cfg, "docs\\..\\..\\x.md", (None, "no_project")),
+        ("k7 no project and a drive is refused", None, cfg, "C:\\x\\y.md", (None, "not_relative")),
+        ("k7 no config: the project alone", proj, None, "../repo/docs/a.md", (None, "outside")),
+        ("k7 an empty config: the project alone", proj, {}, "../repo/docs/a.md", (None, "outside")),
+        ("k7 code_repos that is no list: the project alone", proj, {"code_repos": "../repo"}, "../repo/docs/a.md", (None, "outside")),
+        ("k7 a code_repos path that is a number is skipped", proj, {"code_repos": [{"path": 123}, {"path": "../repo"}]},
+         "../repo/docs/a.md", ("../repo/docs/a.md", "")),
+        ("k7 a code_repos path that is empty is skipped", proj, {"code_repos": [{"path": ""}, {"path": "../repo"}]},
+         "../repo/docs/a.md", ("../repo/docs/a.md", "")),
+        ("k7 a code_repos path with a NUL is skipped", proj, {"code_repos": [{"path": "a\0b"}, {"path": "../repo"}]},
+         "../repo/docs/a.md", ("../repo/docs/a.md", "")),
+        ("k7 a code_repos entry that is no dict or a list path is skipped", proj, {"code_repos": ["../repo", {"path": ["x"]}, None]},
+         "../repo/docs/a.md", (None, "outside")),
+        ("k7 a code_repos path that does not exist holds a lexically inside ref", proj, {"code_repos": [{"path": "../nowhere"}]},
+         "../nowhere/x.md", ("../nowhere/x.md", "")),
+        ("k7 an absolute code_repos path is a root too", proj, {"code_repos": [{"path": str(base / "repo")}]},
+         "../repo/docs/a.md", ("../repo/docs/a.md", "")),
+    ]
+    for name, project, config, ref, expected in rows:
+        got = RP.declared_place(project, config, ref)
+        check(f"{name}: {got!r:.70}", got == expected, f"expected {expected!r:.70}")
+    # a link inside the repository that leads out of every root
+    if link(outside, repo / "out"):
+        (outside / "x.md").write_text("x\n", encoding="utf-8")
+        got = RP.declared_place(proj, cfg, "../repo/docs/out/x.md")
+        check("k7 a link inside a repository that points outside is outside", got == (None, "outside"), repr(got))
+    else:
+        skipped("k7 link out of a repository", "the OS refused to make a directory link")
+    # a repository root on another drive can never hold a relative ref
+    other = next((d for d in "DEFGH" if os.name == "nt" and os.path.exists(d + ":\\") and
+                  os.path.splitdrive(str(proj))[0].upper() != d + ":"), None)
+    if other:
+        got = RP.declared_place(proj, {"code_repos": [{"path": other + ":\\repo"}]}, "../repo/docs/a.md")
+        check("k7 a repository on another drive holds nothing", got == (None, "outside"), repr(got))
+    else:
+        skipped("k7 repository on another drive", "no second drive on this machine")
+    check("k7 declared_roots: the project then the readable repositories",
+          RP.declared_roots(proj, {"code_repos": [{"path": 5}, {"path": "../repo"}]}) == [str(proj), str((proj / "../repo").resolve())])
+
+
 def main() -> None:
     if len(sys.argv) == 3 and sys.argv[1] == "--census":
         found = census(sys.argv[2])
@@ -692,6 +774,7 @@ def main() -> None:
         k5_script_command()
         k5_expand_script_tokens()
         k6_story_text()
+        k7_declared_place()
     finally:
         os.chdir(CWD0)
         for base in CLEAN:

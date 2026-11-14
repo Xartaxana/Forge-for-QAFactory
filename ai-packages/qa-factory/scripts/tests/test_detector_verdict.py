@@ -110,7 +110,11 @@ def tag_cases() -> None:
         v = DV.parse(1, "\n".join([line, head] + lines), "")
         check_eq(f"a refusal line with {name}: the finding stays refused and one defect says so",
                  (v["refused"], len(v["defects"])), (["", "unreadable", ""], 1))
-        check_in(f"...the defect names the line ({name})", "gives no known cause (family or predating)", v["defects"][0])
+        check_in(f"...the defect names the line ({name}) and the three known causes",
+                 "gives no known cause (family or predating or awaits_answer)", v["defects"][0])
+    v = DV.parse(1, "\n".join([tag("oracle:TC-1:c", "awaits_answer"), head] + lines), "")
+    check_eq("d1: a refusal line with the cause awaits_answer: that finding is refused with it, no defect",
+             (v["refused"], v["defects"]), (["", "", "awaits_answer"], []))
     v = DV.parse(1, "\n".join([tag("nothing:here", "family"), head] + lines), "")
     check_eq("a refusal line naming an id that is not printed: a defect, no finding refused",
              (v["refused"], len(v["defects"])), (["", "", ""], 1))

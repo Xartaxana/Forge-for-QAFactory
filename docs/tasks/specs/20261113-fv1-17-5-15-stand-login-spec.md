@@ -375,6 +375,11 @@ output shape gains one key, its reader in the same commit), AR-22 (`blocked_by` 
 Checks and owners: `blocked_by_of` — data, `shape` (reads our own output form, FR-14; never a person's words);
 whether to retry, go on or name another stand — intent (the person's answer), unchanged.
 
+Amendment (Lead, 14.11.2026, after critic t-752 F1): `no_address` maps to the CONFIG sentence, not to "did not answer" (item 3 changed).
+INVARIANT now: a person reads "did not answer" ONLY when `blocked_by` holds `stand_dead` or `device`; a stand that was never asked (no
+address), a crashed or empty probe never reads "did not answer" and never "answers" (FR-41, AR-28). The `config` class gets its own retry
+option text (fix the stand's setting in the project's config; the factory checks again); the dead-stand and login retry texts are unchanged.
+
 ### FV1-15 — a recorded login has a way out; the probe says "wrong door" (designer -> builder -> critic; after FV1-5 and FV1-17)
 
 given: this spec; `design/factory-rules.md` whole; `plans/builder-rules.md`; the finding

@@ -41,8 +41,7 @@ def the_first_look_registered_by_the_real_controller_is_read_back():
               record)
         d = FLS.SR.Driver.__new__(FLS.SR.Driver)
         d.controller_state = real.state      # the readers of the driver, over the real record
-        check_eq("a first look not yet accepted (running) leaves S3's window as `w1` and no author done", (d.s3_window(), d.s3_author_done()),
-                 ("w1", False))
+        check_eq("a first look not yet accepted (running) leaves S3's window as `w1`", d.s3_window(), "w1")
 
 
 def main():

@@ -1270,7 +1270,7 @@ def validate_window(window, root):
 
 
 # --------------------------------------------------------------------------------------------
-# The stage acceptance record (X2-5, t-1765): the stage critic's verdict on S2-S4, kept in `pipeline.json` `acceptance`.
+# The stage acceptance record (X2-5, t-1765): the acceptor's verdict on S4, S6 and S7, kept in `pipeline.json` `acceptance`.
 # Code owns the DATA - the record's keys, its form, its binding to the author's last accepted dispatch, its transport; the
 # MEANING of the verdict is the critic's (AR-29). ONE reader (`stage_acceptance`), ONE writer (`stage_done.py --acceptance`).
 # --------------------------------------------------------------------------------------------
@@ -1510,15 +1510,6 @@ def consumer_close_refusal(pipeline, state, stage, table=None) -> str:
     ticket = (pipeline.get("ticket") if isinstance(pipeline, dict) else None) or "<T>"
     return (f"{stage} is closed by the {STAGE_ACCEPTANCE_PHRASE} of {consumer}, and none stands for {author}. Dispatch {consumer} (it is let in "
             f"while {stage} awaits) and record its verdict: `stage_done.py --task {ticket} --stage {stage} --acceptance work/handoffs/<its dispatch>.yaml`.")
-
-
-def author_exit_owes_plan(dispatch, table=None) -> bool:
-    """True when `dispatch` is the AUTHOR of a stage that has an acceptor (`acceptance_by`): its exit window is no longer the closing one,
-    and S3's plan check must still run on it (E-X2-5f). False for every stage without `acceptance_by` (the world before X2-7)."""
-    d = dispatch if isinstance(dispatch, dict) else {}
-    stage_def = stage_def_of(d.get("stage"), table)
-    roles = stage_def.get("roles") or []
-    return bool(stage_def.get("acceptance_by") and roles and d.get("role") == roles[0])
 
 
 def stage_acceptance_refusal(pipeline, dispatch, state, split, table=None) -> tuple:

@@ -933,12 +933,8 @@ def catalogue(plugin_root: Path, role: str) -> str:
         lines.append(f"- `{rel}` ({content_bytes(t['slice']):,} B) — "
                      + (", ".join(heads[:6]) + ("…" if len(heads) > 6 else "")
                         if heads else "one subject, no sections"))
-    for _role, _entry, page in keys_targets(plugin_root):
-        if _role == role and page.exists():
-            heads = [HEADING.match(ln).group(2).strip() for ln in page.read_text(encoding="utf-8").split("\n")
-                     if HEADING.match(ln)]
-            lines.append(f"- `{page.relative_to(plugin_root).as_posix()}` ({content_bytes(page):,} B) — "
-                         + ", ".join(heads))
+    # The key pages are injected inline in every mode (`inline_subject`), so they are in the prompt and never named here
+    # (the same skip as the common-layer subjects above).
     return "\n".join(lines) + "\n"
 
 

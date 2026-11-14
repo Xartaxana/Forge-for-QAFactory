@@ -12,7 +12,7 @@
 - [stage_guard:*] 8 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
 - [host_adapter:*] 6 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
 - [execution_request:*] 10 checks of your test-run calls (`run_suite.py`, `red_sandbox.py`, `probe_by_code.py`) are told in the refusal of the call, with what they expect and the door; a refused call launches no test. Write a request file from `run_suite.py --template request`, never from memory.
-- [run_suite:*] 2 checks of your commands are told in the refusal of the call, with what they expect and the door.
+- [run_suite:*] 3 checks of your commands are told in the refusal of the call, with what they expect and the door.
 - [role_cli:*] 22 checks of your commands are told in the refusal of the call, with what they expect and the door. Run `execution_fingerprint.py --help`, `first_look.py --help`, `manual_capture.py --help`, `manual_evidence.py --help`, `reference_snapshot.py --help`, `walk_session.py --help` before you write an input file: it prints what each command of the script checks.
 
 ### Only in a first look (replaces "Not in a first look")

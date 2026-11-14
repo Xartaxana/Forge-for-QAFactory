@@ -6,4 +6,3 @@ names. A rule you did not read is still a rule the exit gate checks.
 
 - `references/slices/qa-bug-reporter/artifact-contract.md` (3,854 B) — Where artifacts live, Project-level files, Where the working files sit
 - `references/slices/qa-bug-reporter/vocabularies.md` (1,621 B) — Triage verdict and FLAKY mechanism, Bug confirmation
-- `references/slices/qa-bug-reporter/handoff-keys.md` (10,996 B) — Outputs, Witness, Handoff form, What code will check of you, Not yet in rows

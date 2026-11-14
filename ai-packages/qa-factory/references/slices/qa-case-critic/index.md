@@ -8,4 +8,3 @@ names. A rule you did not read is still a rule the exit gate checks.
 - `references/slices/qa-case-critic/case-lifecycle.md` (3,899 B) — `state/story-case-links.json`, `test-cases/<area>/critic-findings.md`, Who pins a case version, A fix that needs no second review round
 - `references/slices/qa-case-critic/coverage-design.md` (8,398 B) — Coverage obligations, The obligation record, Evidence freshness, Levels by execution boundary, The oracle, Observation contract…
 - `references/slices/qa-case-critic/vocabularies.md` (1,443 B) — Disposition, Observable source, Oracle basis, A case's basis
-- `references/slices/qa-case-critic/handoff-keys.md` (10,992 B) — Outputs, Witness, Handoff form, What code will check of you, Not yet in rows

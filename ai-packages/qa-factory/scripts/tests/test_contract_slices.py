@@ -473,7 +473,8 @@ def test_handoff_keys_pages() -> None:
              (PLUGIN_ROOT / "references" / "slices" / "qa-case-designer" / CS.KEYS_NAME).read_text(encoding="utf-8"))
     check_in("X1-7: the tester's page carries the token the grounding gate demands", "derived",
              (PLUGIN_ROOT / "references" / "slices" / "qa-requirements-tester" / CS.KEYS_NAME).read_text(encoding="utf-8"))
-    check_in("X1-7: the catalogue names the key page", CS.KEYS_NAME, CS.catalogue(PLUGIN_ROOT, "qa-scout"))
+    check_not_in("X1-7: the catalogue does not name the key page (it is in the prompt, inline)", CS.KEYS_NAME,
+                 CS.catalogue(PLUGIN_ROOT, "qa-scout"))
     unknown = CS.handoff_keys_page(PLUGIN_ROOT, "qa-nobody")
     check_in("X1-7 AR-28: a role in no stage is declared NOT KNOWN on its page, not given an empty one", "NOT KNOWN", unknown)
     tmp = temp_dir("qa-factory-keys-")
@@ -942,6 +943,17 @@ def test_t1rp() -> None:
                  (len(pages), len(pages), True))
 
 
+def test_pages_carry_no_code_line_number() -> None:
+    """T1r F1: a role cannot use a line number of our code and the number goes stale, so no generated key page carries one."""
+    import re
+    pattern = re.compile(r":\d{3,4}")
+    hits = [f"{page.relative_to(PLUGIN_ROOT).as_posix()}:{n}: {ln.strip()[:120]}"
+            for _r, _e, page in CS.keys_targets(PLUGIN_ROOT) if page.exists()
+            for n, ln in enumerate(page.read_text(encoding="utf-8").split("\n"), 1) if pattern.search(ln)]
+    check_eq("T1r/no-code-line-number: no generated key page matches `:\\d{3,4}` (named by page and line)", hits, [])
+    check("T1r/no-code-line-number control: the pattern finds a line number", pattern.search("door (:3040-3041)") is not None)
+
+
 def test_t1rs() -> None:
     """T1r-sites S-2: which `execution_request` / `run_suite` rows are told at the call, per role, is DATA joined to PROOF. A producer
     entry carries the call marker for role R only when the row is proved on EVERY road R uses (`<id>` x `road`); a road that cannot be
@@ -1005,7 +1017,7 @@ def test_t1rs() -> None:
                  [False, key not in unproved_site, False, False])
     # the page: one index line per family, the count of the role's call-told rows; the page-told rows stay whole lines
     model = json.loads((PLUGIN_ROOT / "references" / "stages.json").read_text(encoding="utf-8"))
-    counted = {"qa-automator": (5, 5), "qa-runner": (10, 2), "qa-code-critic": (0, 0), "qa-failure-analyst": (0, 0)}   # measured
+    counted = {"qa-automator": (5, 5), "qa-runner": (10, 3), "qa-code-critic": (0, 0), "qa-failure-analyst": (0, 0)}   # measured
     for role, (n_er, n_rs) in counted.items():
         text = "\n".join(CS.handoff_keys_pages(PLUGIN_ROOT, role))
         stages = [str(s.get("id")) for s in stages_of_role(model, role)]
@@ -1031,6 +1043,7 @@ test_told_section_rows()
 test_told_section_size_and_split()
 test_t1rp()
 test_t1rs()
+test_pages_carry_no_code_line_number()
 test_inline_set()
 test_native_headroom()
 test_handoff_keys_pages()
