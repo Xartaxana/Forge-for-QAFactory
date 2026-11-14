@@ -94,6 +94,18 @@ jobs:
         run: python tools/install_parity.py --check
       # the quarantine history check moved to nightly.yml job quarantine-check (owner's word 13.11.2026: it walks the whole history and outlived this job)
       - run: python -m pytest tools/ -q
+      - name: measurers (run scoreboard tables)
+        run: python -B experiments/measurers/test_measurers.py
+      - name: scoreboard norms only tighten
+        env:
+          BASE: ${{ steps.base.outputs.base }}
+        run: |
+          if git show "$BASE":experiments/scoreboards/norms.json > "$RUNNER_TEMP/norms-base.json" 2>/dev/null; then
+            python -B experiments/measurers/scoreboard.py norms --check --against "$RUNNER_TEMP/norms-base.json"
+          else
+            echo "base has no experiments/scoreboards/norms.json: checking the file against itself only"
+            python -B experiments/measurers/scoreboard.py norms --check
+          fi
       - uses: actions/upload-artifact@v7
         if: always()
         with:

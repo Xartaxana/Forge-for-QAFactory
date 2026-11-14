@@ -2076,6 +2076,16 @@ def sb_assemble_case(tmp: Path, case) -> None:
         assert code == 0 and doc["rows"]["Q1"]["state"] == "unknown" and doc["rows"]["Q1"]["value"] is None, doc["rows"]["Q1"]
         assert doc["rows"]["T6"]["value"] is None and doc["norms"]["N-questions"]["verdict"] == "unknown", doc["norms"]["N-questions"]
         assert doc["run"]["run_class"] == "unknown" and all(n["verdict"] == "unknown" for n in doc["norms"].values())
+    elif name == "a counter key the run cannot give reads unknown in rows G1us and U1u, never 0":
+        task = sb_run(tmp)
+        runs = task / "state" / "driver-runs.jsonl"
+        stripped = [{k: v for k, v in json.loads(line).items() if k not in ("checks", "checks_n", "resume_kind")} for line in runs.read_text(encoding="utf-8").splitlines()]
+        runs.write_text("\n".join(json.dumps(r) for r in stripped) + "\n", encoding="utf-8")
+        code, _p, err = sb_assemble(task, out)
+        doc = sb_yaml(sb_files(out)[0])
+        assert code == 0, err
+        assert doc["rows"]["G1us"]["state"] == "unknown" and doc["rows"]["G1us"]["value"] is None, doc["rows"]["G1us"]
+        assert doc["rows"]["U1u"]["state"] == "measured" and doc["rows"]["U1u"]["value"] == 0, doc["rows"]["U1u"]
     elif name == "a dry run: stub-role rows are n/a and no norm is judged (7.9)":
         doc = (sb_assemble(sb_run(tmp, run_class="dry"), out), sb_yaml(sb_files(out)[0]))[1]
         assert doc["run"]["run_class"] == "dry" and doc["rows"]["T9"]["state"] == "n/a" and doc["rows"]["R1r"]["state"] == "n/a"
@@ -2112,6 +2122,7 @@ SB_ASSEMBLE_CASES = [(n,) for n in (
     "a norms file of non-UTF-8 bytes is a red line naming it", "compare reads no scoreboard from an unreadable norms file",
     "a stand name with a path separator is refused", "the same input gives the same bytes",
     "an old record: a counter it cannot know stays unknown in the row and the norm (7.6)",
+    "a counter key the run cannot give reads unknown in rows G1us and U1u, never 0",
     "a dry run: stub-role rows are n/a and no norm is judged (7.9)",
     "a dry file next to a live file: compare says not comparable, no worse flag, no finding",
     "the owner's word passes a red norm and is recorded (P13)", "a pass for a norm that does not exist is refused",
