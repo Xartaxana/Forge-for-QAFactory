@@ -191,7 +191,7 @@ def test_e1_exact_id(tmp):
 def test_e2_load(tmp):
     vocab = QR.vocabulary()
     check_eq("E2 the statuses are the closed list of the data file",
-             vocab["statuses"], ["open", "answered", "not_needed", "with_designer", "named", "deferred_to_report"])
+             vocab["statuses"], ["open", "answered", "not_needed", "with_designer", "named", "deferred_to_report", "repeat"])
     check("E2 `named` is never a recordable status", "named" not in vocab["recorded_statuses"])
     # HF2-7 P5a (t-108, accepted): `S4 stop` joined the closed list (and `where_words`) - the S4 stop is a place a person answers
     check_eq("E2 the where-values are the owner's closed list",
@@ -2032,7 +2032,698 @@ def test_answers_lock_busy_names_the_holder(tmp=None):
         assert "has held" not in text and "try again in a moment" not in text and "holder" not in text, text
 
 
-TESTS = [test_gw1_47_stray_line_starts_with_an_open_register_id, test_answers_lock_busy_names_the_holder, test_placeholder_question_row_dropped, test_x2_6_role_questions,test_g1_13_question_row_keys_never_meet_and_the_readiness_writer_keeps_its_bytes, test_e1_exact_id, test_e2_load, test_e3_answers_file, test_e4_register, test_e5_parser, test_e6_cli,
+# ------------------------------------------------------------------------------------------------
+# FV1-9 N1: a question asked once - `repeat`, `reword`, `note`, `dependants`, the brief list, the S4 exit, the form item
+# ------------------------------------------------------------------------------------------------
+
+def fv_row(qid, text=None, n=2, **extra):
+    """A register row that passes `contract.question_errors` (quotes, readings with `from` and `if_chosen`)."""
+    row = {"id": qid, "question": text or f"What does {qid} ask about the limit?", "source_says": [{"quote": "the limit is 100", "where": "R-1"}],
+           "readings": [{"reading": f"reading {i}", "from": "code", "if_chosen": "x"} for i in range(n)],
+           "severity": "major", "owner_role": "po_ba"}
+    row.update(extra)
+    return row
+
+
+def fv_story(tmp, name, rows=None, answers=None):
+    return write_story(tmp / name, rows if rows is not None else [fv_row("Q7"), fv_row("Q16")], answers=answers)
+
+
+def declare(root, qid="Q16", target="Q7", why="both ask the limit", by="driver", declared_by="qa-case-designer", stage="S4"):
+    return QR.declare_repeat(root, qid, target, why, by=by, declared_by=declared_by, stage=stage)
+
+
+def refusal(fn, *args, **kwargs):
+    """The text of the `Refused` the call raises, or None when it returned."""
+    try:
+        fn(*args, **kwargs)
+    except QR.Refused as exc:
+        return str(exc)
+    return None
+
+
+def state_shown(root, **hashes):
+    """The driver's saved last question stop: what it showed, with the hash of each row as shown."""
+    (root / "state").mkdir(parents=True, exist_ok=True)
+    (root / "state" / "driver-state.json").write_text(
+        json.dumps({"question_stop": {"stage": "S4", "at": "2026-11-14T10:00:00+00:00", "shown": hashes}}), encoding="utf-8")
+
+
+def show_now(root, *ids):
+    state_shown(root, **{i: row_hash_of(root, i) for i in ids})
+
+
+def write_plan(root, rows, approved=False):
+    (root / "work").mkdir(parents=True, exist_ok=True)
+    (root / "work" / "test-plan.json").write_text(json.dumps({"rows": rows}), encoding="utf-8")
+    if approved:
+        (root / "pipeline.json").write_text(json.dumps({"gates": {"A": {"gate": "A", "status": "approved", "decision": "approved"}}}), encoding="utf-8")
+
+
+def write_case(root, name, **front):
+    folder = root / "work" / "test-cases"
+    folder.mkdir(parents=True, exist_ok=True)
+    lines = [f"id: {name}"] + [f"{key}: {value}" for key, value in front.items()]
+    (folder / f"{name}.md").write_text("---\n" + "\n".join(lines) + "\n---\n## Then\n1. x\n", encoding="utf-8")
+    return folder / f"{name}.md"
+
+
+def repeat_line(qid, same_as, target_hash, row_hash, **extra):
+    """A raw `repeat` record as the answers file holds it (a test may leave a key out with None)."""
+    base = {"kind": "question", "id": qid, "status": "repeat", "words": "same", "by": "driver", "where": "stage ran", "at": "2026-11-14T10:00:00+00:00",
+            "row_hash": row_hash, "same_as": same_as, "declared_by": "qa-case-designer", "target_hash": target_hash, "stage": "S4"}
+    base.update(extra)
+    return json.dumps({k: v for k, v in base.items() if v is not None})
+
+
+def test_fv19_repeat_hidden_while_target_resolves(tmp):
+    root = fv_story(tmp, "fv19-hidden")
+    rec = declare(root)
+    view = QR.load(root)
+    q16, q7 = row_of(view, "Q16"), row_of(view, "Q7")
+    check_eq("fv19_repeat_hidden_while_target_resolves: Q16 is a repeat of Q7: not open, Q7 lists it, the record is the retro's",
+             (q16["status"], QR.is_open(q16), QR.hidden_repeat(q16), q7["repeated_by"], QR.is_open(q7), rec["texts"]["same_as_question"], rec["declared_by"]),
+             ("repeat", False, True, ["Q16"], True, q7["question"], "qa-case-designer"))
+    check_eq("fv19_repeat_hidden_while_target_resolves: a hidden repeat is no blocker and is counted nowhere as open",
+             (QR.open_blocker(q16), [x["id"] for x in view["questions"] if QR.is_open(x)]), (False, ["Q7"]))
+    put(root, "Q7", "answered", "a", hash_from=HASH, reading="a")      # answered on other bytes than the row's: the answer is stale
+    stale = QR.load(root)
+    check_eq("fv19_repeat_hidden_while_target_resolves (m8): the target's ANSWER went stale - Q7 is asked again, Q16 stays hidden behind it",
+             (row_of(stale, "Q7")["changed_since_answer"], QR.is_open(row_of(stale, "Q7")), QR.hidden_repeat(row_of(stale, "Q16"))), (True, True, True))
+    moved = write_story(tmp / "fv19-hidden-moved", [fv_row("Q7"), fv_row("Q16")])
+    declare(moved)
+    (moved / "work" / "requirements-readiness.json").write_text(
+        json.dumps({"open_questions": [fv_row("Q7", "What does Q7 ask in other words?"), fv_row("Q16")]}), encoding="utf-8")
+    after = QR.load(moved)
+    check_eq("fv19_repeat_hidden_while_target_resolves (m3): the target's ROW changed - Q16 is shown again, `target_changed`, Q7 lists nobody",
+             (QR.is_open(row_of(after, "Q16")), row_of(after, "Q16")["repeat_problem"], "repeated_by" in row_of(after, "Q7")), (True, "target_changed", False))
+    chain = fv_story(tmp, "fv19-chain", [fv_row("Q7"), fv_row("Q15"), fv_row("Q16")])
+    declare(chain, "Q15", "Q7")
+    declare(chain, "Q16", "Q15")
+    both = QR.load(chain)
+    check_eq("fv19_repeat_hidden_while_target_resolves: a repeat of a repeat resolves to the end; the last target lists both",
+             (row_of(both, "Q7")["repeated_by"], QR.is_open(row_of(both, "Q16")), QR.is_open(row_of(both, "Q15"))), (["Q15", "Q16"], False, False))
+    published = QR.statuses_for(root, [fv_row("Q7"), fv_row("Q16")])
+    check_eq("fv19_repeat_hidden_while_target_resolves: statuses_for (the publish twin of load) resolves the repeat too",
+             (published[1]["status"], QR.hidden_repeat(published[1]), published[0].get("repeated_by")), ("repeat", True, ["Q16"]))
+
+
+def test_fv19_repeat_of_settled_listed_for_brief(tmp):
+    root = fv_story(tmp, "fv19-settled")
+    put(root, "Q7", "answered", "Q7: a", reading="a")
+    declare(root)
+    brief = QR.asked_for_brief(root)
+    check_eq("fv19_repeat_of_settled_listed_for_brief: the repeat of an answered question is listed with its target settled and who declared it",
+             (brief["repeats"], [x["id"] for x in brief["open"]]), ([{"id": "Q16", "same_as": "Q7", "target_settled": True, "declared_by": "qa-case-designer"}], []))
+
+
+def test_fv19_repeat_unresolved_shown(tmp):
+    rows = [fv_row("Q7"), fv_row("Q16"), fv_row("Q17"), fv_row("Q18")]
+    base = fv_story(tmp, "fv19-hash", rows)
+    h = {i: row_hash_of(base, i) for i in ("Q7", "Q16", "Q17", "Q18")}
+    table = [
+        ("same_as gone", [repeat_line("Q16", "Q99", h["Q7"], h["Q16"])]),
+        ("2-cycle", [repeat_line("Q16", "Q17", h["Q17"], h["Q16"]), repeat_line("Q17", "Q16", h["Q16"], h["Q17"])]),
+        ("3-cycle", [repeat_line("Q16", "Q17", h["Q17"], h["Q16"]), repeat_line("Q17", "Q18", h["Q18"], h["Q17"]),
+                     repeat_line("Q18", "Q16", h["Q16"], h["Q18"])]),
+        ("own row changed since", [repeat_line("Q16", "Q7", h["Q7"], HASH)]),
+        ("record with no row hash", [repeat_line("Q16", "Q7", h["Q7"], None)]),
+        ("record with no target_hash", [repeat_line("Q16", "Q7", None, h["Q16"])]),
+        ("non-string same_as", [repeat_line("Q16", 7, h["Q7"], h["Q16"])]),
+        ("a repeat of itself", [repeat_line("Q16", "Q16", h["Q16"], h["Q16"])]),
+        ("same_as with blanks resolves, so it is the one control that hides",
+         [repeat_line("Q16", " Q7 ", h["Q7"], h["Q16"])]),
+    ]
+    for label, lines in table:
+        root = fv_story(tmp, "fv19-unres-" + str(abs(hash(label)) % 10**6), rows, answers=lines)
+        q16 = row_of(QR.load(root), "Q16")
+        want_open = not label.startswith("same_as with blanks")
+        check_eq(f"fv19_repeat_unresolved_shown: {label}", (QR.is_open(q16), QR.hidden_repeat(q16)), (want_open, not want_open))
+    check_eq("fv19_repeat_unresolved_shown: a dict built outside `load` (no `follows`) is open; so is a row that is no object",
+             (QR.is_open({"id": "Q16", "status": "repeat", "changed_since_answer": False, "same_as": "Q7"}), QR.is_open(None)), (True, True))
+    old_package = fv_story(tmp, "fv19-old", rows, answers=[repeat_line("Q16", "Q7", h["Q7"], h["Q16"], status="repeated")])
+    check_eq("fv19_repeat_unresolved_shown: a record with a status the vocabulary does not know is set aside and the row is shown",
+             (QR.is_open(row_of(QR.load(old_package), "Q16")), QR.load(old_package)["skipped"]["invalid"]), (True, 1))
+
+
+def test_fv19_repeat_write_refusals(tmp):
+    root = fv_story(tmp, "fv19-refuse", [fv_row("Q7"), fv_row("Q16"), fv_row("Q17"), fv_row("Q18"), fv_row("Q19")])
+    put(root, "Q17", "answered", "Q17: a", reading="a")
+    put(root, "Q18", "deferred_to_report", "Q18: until the report")
+    before = snapshot(root)
+    declare(root, "Q19", "Q16")                      # Q19 -> Q16, so Q16 -> Q19 is a cycle
+    table = [
+        ("no same_as", dict(target=""), "`same_as` is missing"),
+        ("self", dict(target="Q16"), "cannot be marked as a repeat of itself"),
+        ("unknown id", dict(target="Q99"), "is no id of the register"),
+        ("unknown question", dict(qid="Q98"), "no question with id 'Q98'"),
+        ("cycle", dict(qid="Q16", target="Q19"), "a cycle"),
+        ("settled row", dict(qid="Q17"), "Q17 is answered"),
+        ("deferred row", dict(qid="Q18"), "Q18 is deferred_to_report"),
+        ("blank why", dict(why="  "), "`why` is blank"),
+    ]
+    for label, kwargs, expected in table:
+        text = refusal(declare, root, **kwargs)
+        check(f"fv19_repeat_write_refusals: {label} is refused with what was expected ({expected})", text is not None and expected in text, str(text))
+    check_eq("fv19_repeat_write_refusals: only the control declaration wrote anything (one record)",
+             len((root / "work" / "question-answers.jsonl").read_text(encoding="utf-8").splitlines()) - 2, 1)
+    check("fv19_repeat_write_refusals: nothing else of the story changed", all(snapshot(root).get(k) == v for k, v in before.items()
+                                                                            if not k.endswith("question-answers.jsonl")))
+    bad = write_story(tmp / "fv19-unreadable", readiness_raw="{ not json")
+    text = refusal(declare, bad)
+    check("fv19_repeat_write_refusals: a register that cannot be read is refused, naming it, and no answers file is made",
+          text is not None and "not valid JSON" in text and not (bad / "work" / "question-answers.jsonl").exists(), str(text))
+    nothing = tmp / "fv19-no-register"
+    check("fv19_repeat_write_refusals: no register at all is refused too", "no work/requirements-readiness.json" in str(refusal(declare, nothing)))
+
+
+def test_fv19_repeat_refused_with_dependants(tmp):
+    def story(name, **parts):
+        root = fv_story(tmp, name)
+        if "plan" in parts:
+            write_plan(root, parts["plan"], approved=parts.get("approved", False))
+        for case_name, front in parts.get("cases", {}).items():
+            write_case(root, case_name, **front)
+        return root
+    branch = {"id": "TS-3", "question_refs": ["Q16"], "if_answered": {"Q16": {"a": {"disposition": "automate"}}}, "reason": "per Q16"}
+    table = [
+        ("a plan row keys its answers by Q16", dict(plan=[branch]), ("plan row TS-3 (its answers branch)",)),
+        ("another case names it as an unknown oracle", dict(cases={"TC_9": {"then_oracles": json.dumps([{"then": 2, "source": "unknown", "ref": "Q16"}])}}),
+         ("case TC_9 (Then 2)",)),
+        ("a question_thens entry names it", dict(cases={"TC_8": {"question_thens": json.dumps([{"question": "Q16", "then": 1, "readings": {"a": "x"}}])}}),
+         ("case TC_8 (Then 1)",)),
+        ("a person oracle names it", dict(cases={"TC_7": {"then_oracles": json.dumps([{"then": 1, "source": "person", "ref": "Q16"}])}}),
+         ("case TC_7 (Then 1)",)),
+        ("a plan row that only names it in its reason", dict(plan=[{"id": "TS-4", "reason": "see Q16"}]), ("plan row TS-4 (its reason)",)),
+        ("a case that cannot be read", dict(cases={"TC_6": {"question_thens": "{ not a list"}}), ("per-answer Then texts could not be read",)),
+        ("a plan that cannot be read", dict(plan=None), ("could not be read",)),
+        ("an approved plan with a bare ref", dict(plan=[{"id": "TS-5", "question_refs": ["Q16"], "reason": "r"}], approved=True), ("plan row TS-5 (its question_refs)",)),
+    ]
+    for label, parts, needles in table:
+        if parts.get("plan", 1) is None:
+            root = story("fv19-dep-" + str(abs(hash(label)) % 10**6))
+            (root / "work").mkdir(exist_ok=True)
+            (root / "work" / "test-plan.json").write_text("{ not json", encoding="utf-8")
+        else:
+            root = story("fv19-dep-" + str(abs(hash(label)) % 10**6), **parts)
+        plan_before = (root / "work" / "test-plan.json").read_bytes() if (root / "work" / "test-plan.json").exists() else b""
+        text = refusal(declare, root)
+        check(f"fv19_repeat_refused_with_dependants: {label} -> refused, naming it and the door", text is not None and all(n in text for n in needles)
+              and "Expected: repoint them first" in text, str(text))
+        check_eq(f"fv19_repeat_refused_with_dependants: {label} -> nothing recorded, row stays open",
+                 (QR.is_open(row_of(QR.load(root), "Q16")), (root / "work" / "question-answers.jsonl").exists()), (True, False))
+        if label.startswith("an approved"):
+            check_eq("fv19_repeat_refused_with_dependants: the approved plan is byte for byte as the person saw it",
+                     (root / "work" / "test-plan.json").read_bytes(), plan_before)
+    bare = story("fv19-dep-bare", plan=[{"id": "TS-3", "question_refs": ["Q1", "Q16"], "reason": "r"}, {"id": "TS-4", "question_refs": ["Q16", "Q7"], "reason": "r"}])
+    rec = declare(bare)
+    plan = {r["id"]: r for r in json.loads((bare / "work" / "test-plan.json").read_text(encoding="utf-8"))["rows"]}
+    check_eq("fv19_repeat_refused_with_dependants: bare question_refs are moved to Q7 (once, no duplicate) and the repeat is declared",
+             (plan["TS-3"]["question_refs"], plan["TS-4"]["question_refs"], rec["same_as"], QR.hidden_repeat(row_of(QR.load(bare), "Q16"))),
+             (["Q1", "Q7"], ["Q7"], "Q7", True))
+    check_eq("fv19_repeat_refused_with_dependants: no letter is mapped - the rows kept every other key",
+             {k: v for k, v in plan["TS-3"].items() if k != "question_refs"}, {"id": "TS-3", "reason": "r"})
+
+
+def test_fv19_repeat_replay_noop(tmp):
+    root = fv_story(tmp, "fv19-replay")
+    first = declare(root)
+    before = (root / "work" / "question-answers.jsonl").read_bytes()
+    again = declare(root, why="another words")
+    check_eq("fv19_repeat_replay_noop: the same declaration returns its record and writes nothing", (again == first, (root / "work" / "question-answers.jsonl").read_bytes() == before), (True, True))
+
+
+def test_fv19_person_answer_beats_repeat(tmp):
+    root = fv_story(tmp, "fv19-person")
+    declare(root)
+    done = QR.record_answers(root, "Q16: b\n", "S4 stop", "person")
+    q16 = row_of(QR.load(root), "Q16")
+    check_eq("fv19_person_answer_beats_repeat: the person's word to the hidden id is recorded and wins (last record)",
+             (done["recorded"], q16["status"], q16["reading"], QR.is_open(q16), QR.hidden_repeat(q16)), (["Q16: b"], "answered", "b", False, False))
+
+
+def test_fv19_reopen_undoes_repeat(tmp):
+    proj = temp_project("qa-question-register-fv19-reopen-")
+    try:
+        use_project(proj)
+        root = write_story(proj / "qa-factory" / "artifacts" / "QA-9", [fv_row("Q7"), fv_row("Q16")])
+        declare(root)
+        code, out, err = cli("--task", "QA-9", "--reopen", "Q16", "--words", "ask it", "--where", "conductor", "--by", "conductor")
+        q16 = row_of(QR.load(root), "Q16")
+        check_eq("fv19_reopen_undoes_repeat: --reopen puts a hidden repeat back to open; the target lists nobody",
+                 (code, q16["status"], QR.is_open(q16), "repeated_by" in row_of(QR.load(root), "Q7")), (0, "open", True, False))
+    finally:
+        cleanup(proj)
+
+
+def test_fv19_repeat_records_history(tmp):
+    proj = temp_project("qa-question-register-fv19-")
+    try:
+        use_project(proj)
+        root = write_story(proj / "qa-factory" / "artifacts" / "QA-9", [fv_row("Q7"), fv_row("Q16"), fv_row("Q17")])
+        declare(root, "Q16", "Q7")
+        show_now(root, "Q7")
+        QR.reword(root, "Q7", {"question": "What is the limit of the filter?", "why": "clearer"}, role="conductor", by="conductor", stage="")
+        declare(root, "Q17", "Q7")
+        QR.record_answers(root, "Q17: a\n", "S4 stop", "person")
+        history = QR.repeat_records(root)
+        got = [(r["id"], r["same_as"], r["standing"], r["by"], r["declared_by"]) for r in history["records"]]
+        check_eq("fv19_repeat_records_history: three records in file order - the first replaced by the carried one, Q17 undone by the person's answer",
+                 got, [("Q16", "Q7", "replaced by a later merge", "driver", "qa-case-designer"), ("Q16", "Q7", "merged", "conductor", "qa-case-designer"),
+                       ("Q17", "Q7", "answered by the person", "driver", "qa-case-designer")])
+        check_eq("fv19_repeat_records_history: the texts are as they stood - the first before the reword, the carried one and Q17's after it",
+                 [r["texts"]["same_as_question"] for r in history["records"]],
+                 ["What does Q7 ask about the limit?", "What is the limit of the filter?", "What is the limit of the filter?"])
+        check_eq("fv19_repeat_records_history: nothing unreadable; the why is the record's words", (history["unreadable"], history["records"][0]["why"]),
+                 (False, "both ask the limit"))
+        code, out, err = cli("--task", "QA-9", "--reopen", "Q16", "--words", "ask it", "--where", "conductor", "--by", "conductor")
+        check_eq("fv19_repeat_records_history: after a reopen the same record reads `reopened`",
+                 QR.repeat_records(root)["records"][1]["standing"], "reopened")
+        (root / "work" / "question-answers.jsonl").write_text((root / "work" / "question-answers.jsonl").read_text(encoding="utf-8") + "{ broken\n", encoding="utf-8")
+        check_eq("fv19_repeat_records_history: a broken line makes the answer `unreadable`, never an empty history", QR.repeat_records(root)["unreadable"], True)
+        check_eq("fv19_repeat_records_history: no answers file -> no records, readable", QR.repeat_records(tmp / "nowhere"), {"records": [], "unreadable": False})
+    finally:
+        cleanup(proj)
+
+
+def rw(root, qid="Q7", role="conductor", **spec):
+    """`QR.reword` as the conductor by default: `(row, refusal text)`."""
+    spec = dict({"question": "What is the exact limit of the import?", "why": "the first words did not say which limit"}, **spec)
+    try:
+        return QR.reword(root, qid, spec, role=role, by="conductor", stage="S4"), None
+    except QR.Refused as exc:
+        return None, str(exc)
+
+
+def rw_story(tmp, name, rows=None, **parts):
+    root = fv_story(tmp, name, rows)
+    if "plan" in parts:
+        write_plan(root, parts["plan"])
+    for case_name, front in parts.get("cases", {}).items():
+        write_case(root, case_name, **front)
+    show_now(root, *[r["id"] for r in QR.load(root)["questions"]])
+    return root
+
+
+def test_fv19_reword_keeps_id(tmp):
+    root = rw_story(tmp, "fv19-reword")
+    old_hash = row_hash_of(root, "Q7")
+    row, why = rw(root, readings=["the limit is 100 files", "the limit is 1000 files"])
+    check_eq("fv19_reword_keeps_id: the id stays and no second row stands; the hash moved; no answer record so nothing changed since",
+             (why, row["id"], len(QR.load(root)["questions"]), row["row_hash"] != old_hash, row["changed_since_answer"], row["question"]),
+             (None, "Q7", 2, True, False, "What is the exact limit of the import?"))
+    entry = row["reworded"][0]
+    check_eq("fv19_reword_keeps_id: the earlier wording is kept whole, with who, when and why", (entry["was"], entry["was_readings"], entry["role"], entry["by"], entry["stage"], entry["why"]),
+             ("What does Q7 ask about the limit?", ["reading 0", "reading 1"], "conductor", "conductor", "S4", "the first words did not say which limit"))
+    check_eq("fv19_reword_keeps_id: the readings' facts are the producer's (`from`, `if_chosen` untouched)",
+             [(r["reading"], r["from"], r["if_chosen"]) for r in row["readings"]], [("the limit is 100 files", "code", "x"), ("the limit is 1000 files", "code", "x")])
+    other = rw_story(tmp, "fv19-reword-question-only")
+    row2, _ = rw(other)
+    check_eq("fv19_reword_keeps_id: a reword of the question alone has no `was_readings`", ("was_readings" in row2["reworded"][0], row2["readings"][0]["reading"]), (False, "reading 0"))
+    # an answer typed against the OLD card carries the old shown hash: it reads changed-since and the question is asked again
+    stale = rw_story(tmp, "fv19-reword-stale")
+    old = row_hash_of(stale, "Q7")
+    rw(stale)
+    QR.record_answers(stale, "Q7: a\n", "S4 stop", "person", shown={"Q7": old})
+    check_eq("fv19_reword_keeps_id: an answer given on the old words is asked again with the new ones",
+             (QR.is_open(row_of(QR.load(stale), "Q7")), row_of(QR.load(stale), "Q7")["changed_since_answer"]), (True, True))
+
+
+def test_fv19_reword_refusals(tmp):
+    def story(label, rows=None):
+        return rw_story(tmp, "fv19-rr-" + str(abs(hash(label)) % 10**6), rows)
+    def after_status(status):
+        def make(label):
+            root = story(label)
+            put(root, "Q7", status, "Q7: a" if status != "deferred_to_report" else "Q7: until the report", reading="a" if status == "answered" else "")
+            return root
+        return make
+    def repeat_of_q16(label):
+        root = story(label)
+        declare(root, "Q7", "Q16")
+        return root
+    def not_shown(label):
+        root = story(label)
+        (root / "state" / "driver-state.json").unlink()
+        return root
+    def shown_other(label):
+        root = story(label)
+        state_shown(root, Q7=HASH)
+        return root
+    def twice(label):
+        root = story(label)
+        rw(root)
+        return root
+    broken = lambda label: write_story(tmp / ("fv19-rr-" + str(abs(hash(label)) % 10**6)), readiness_raw="{ not json")
+    table = [
+        ("answered", after_status("answered"), {}, "Q7 is answered"),
+        ("not_needed", after_status("not_needed"), {}, "Q7 is not_needed"),
+        ("deferred", after_status("deferred_to_report"), {}, "Q7 is deferred_to_report"),
+        ("with_designer", after_status("with_designer"), {}, "Q7 is with_designer"),
+        ("repeat", repeat_of_q16, {}, "Q7 is repeat"),
+        ("not shown at the last stop", not_shown, {}, "was not shown to the person in these words"),
+        ("shown on other bytes", shown_other, {}, "was not shown to the person in these words"),
+        ("second reword before a new showing", twice, {}, "was not shown to the person in these words"),
+        ("readings count", story, {"readings": ["only one"]}, "must be 2 texts"),
+        ("blank reading", story, {"readings": ["x", "  "]}, "none blank"),
+        ("readings not a list", story, {"readings": "x"}, "must be 2 texts"),
+        ("unchanged text", story, {"question": "  What does Q7 ask   about the limit? "}, "nothing changed"),
+        ("blank question", story, {"question": " "}, "`question` is blank"),
+        ("blank why", story, {"why": " "}, "`why` is blank"),
+        ("question_errors fails", lambda label: story(label, [fv_row("Q7", source_says=[])]), {}, "does not pass the shape check"),
+        ("register unreadable", broken, {}, "not valid JSON"),
+    ]
+    for label, make, spec, expected in table:
+        root = make(label)
+        before = {k: v for k, v in snapshot(root).items()} if root.exists() else {}
+        row, why = rw(root, **spec)
+        check(f"fv19_reword_refusals: {label} -> refused ({expected}), nothing written", why is not None and expected in why
+              and (label == "second reword before a new showing" or snapshot(root) == before), str(why))
+    check_eq("fv19_reword_refusals: an unknown id is refused naming the ids", "no question with id 'Q98'" in str(rw(story("unknown"), qid="Q98")[1]), True)
+
+
+def test_fv19_reword_who_may(tmp):
+    case = {"TC_9": {"then_oracles": json.dumps([{"then": 1, "source": "unknown", "ref": "Q7"}])}}
+    plan = [{"id": "TS-3", "question_refs": ["Q7"], "reason": "r"}]
+    table = [
+        ("conductor", dict(), "conductor", True),
+        ("case designer, a case cites Q7", dict(cases=case), "qa-case-designer", True),
+        ("case designer, no case cites Q7", dict(), "qa-case-designer", False),
+        ("case designer, the row was raised for its case", dict(rows=[fv_row("Q7", raised_for={"case": "TC_1", "then": 1})]), "qa-case-designer", True),
+        ("planner, a plan row cites Q7", dict(plan=plan), "qa-test-strategist", True),
+        ("planner, nothing cites Q7", dict(), "qa-test-strategist", False),
+        ("planner, the row was raised at S3", dict(rows=[fv_row("Q7", raised_for={"claim": "R-1", "origin": "S3-plan"})]), "qa-test-strategist", True),
+        ("acceptor that asked Q7", dict(rows=[fv_row("Q7", asked_by="qa-case-critic")]), "qa-case-critic", True),
+        ("acceptor that did not ask Q7", dict(rows=[fv_row("Q7", asked_by="qa-scout")]), "qa-case-critic", False),
+        ("a role that is blank", dict(), "", False),
+    ]
+    for label, parts, role, allowed in table:
+        root = rw_story(tmp, "fv19-who-" + str(abs(hash(label)) % 10**6), **parts)
+        row, why = rw(root, role=role)
+        check(f"fv19_reword_who_may: {label} -> {'allowed' if allowed else 'refused with the door'}",
+              (why is None) if allowed else (why is not None and "does not cite Q7 in its own work" in why and "raise a question of your own" in why), str(why))
+
+
+def test_fv19_reword_readings_frozen(tmp):
+    readings = ["the limit is 100 files", "the limit is 1000 files"]
+    branch = [{"id": "TS-3", "question_refs": ["Q7"], "if_answered": {"Q7": {"a": {"disposition": "automate"}}}, "reason": "r"}]
+    letters = {"TC_9": {"question_thens": json.dumps([{"question": "Q7", "then": 1, "readings": {"a": "x"}}])}}
+    table = [
+        ("designer: a plan row answers by letter -> readings refused", dict(plan=branch), "qa-case-designer", True, "answer by letter", None),
+        ("designer: the question text alone is accepted", dict(plan=branch, cases={"TC_5": {"then_oracles": json.dumps([{"then": 1, "source": "unknown", "ref": "Q7"}])}}), "qa-case-designer", False, None, True),
+        ("planner: a case answers by letter -> readings refused", dict(cases=letters), "qa-test-strategist", True, "TC_9", None),
+        ("planner: its own plan row's branch is its own -> readings accepted", dict(plan=branch), "qa-test-strategist", True, None, True),
+        ("conductor: any letter-keyed dependant -> readings refused", dict(plan=branch), "conductor", True, "TS-3", None),
+        ("dependants unknown (the plan cannot be read) -> readings refused", dict(), "conductor", True, "could not be read", None),
+    ]
+    for label, parts, role, with_readings, needle, ok in table:
+        root = rw_story(tmp, "fv19-fz-" + str(abs(hash(label)) % 10**6), **({k: v for k, v in parts.items()} if parts else {}))
+        if label.startswith("dependants unknown"):
+            (root / "work").mkdir(exist_ok=True)
+            (root / "work" / "test-plan.json").write_text("{ not json", encoding="utf-8")
+        row, why = rw(root, role=role, **({"readings": readings} if with_readings else {}))
+        if needle:
+            check(f"fv19_reword_readings_frozen: {label}", why is not None and needle in why, str(why))
+        else:
+            check(f"fv19_reword_readings_frozen: {label}", why is None, str(why))
+        if needle and why:
+            check(f"fv19_reword_readings_frozen: {label} - the row was not touched", row_of(QR.load(root), "Q7")["question"] == "What does Q7 ask about the limit?")
+
+
+def test_fv19_reword_carries_repeats(tmp):
+    root = fv_story(tmp, "fv19-carry")
+    declare(root)
+    show_now(root, "Q7")
+    row, why = rw(root)
+    view = QR.load(root)
+    q16 = row_of(view, "Q16")
+    check_eq("fv19_reword_carries_repeats: the target was reworded - Q16 is still hidden behind it, with a new record on the new hash",
+             (why, QR.hidden_repeat(q16), row_of(view, "Q7")["repeated_by"], q16["target_hash"] == row["row_hash"]), (None, True, ["Q16"], True))
+    lines = [json.loads(x) for x in (root / "work" / "question-answers.jsonl").read_text(encoding="utf-8").splitlines()]
+    check_eq("fv19_reword_carries_repeats: two repeat records, the second carried over by the reword's executor, the declarer kept",
+             [(x["by"], x["declared_by"], x["words"].startswith("carried over")) for x in lines],
+             [("driver", "qa-case-designer", False), ("conductor", "qa-case-designer", True)])
+    republished = fv_story(tmp, "fv19-carry-republish")
+    declare(republished)
+    (republished / "work" / "requirements-readiness.json").write_text(json.dumps({"open_questions": [fv_row("Q7", "Another tester's words?"), fv_row("Q16")]}), encoding="utf-8")
+    check_eq("fv19_reword_carries_repeats: a tester's republish is NOT carried - the repeat shows again",
+             row_of(QR.load(republished), "Q16")["repeat_problem"], "target_changed")
+
+
+def test_fv19_reword_after_reopen_allowed(tmp):
+    root = rw_story(tmp, "fv19-reopen-reword")
+    put(root, "Q7", "answered", "Q7: a", reading="a")
+    check("fv19_reword_after_reopen_allowed: while the answer stands the reword is refused", "Q7 is answered" in str(rw(root)[1]))
+    put(root, "Q7", "open", "the person asks again", hash_from="")
+    row, why = rw(root)
+    check_eq("fv19_reword_after_reopen_allowed: after a reopen record the row is open again and may be reworded (it was shown on these bytes)",
+             (why, row["question"] if row else None), (None, "What is the exact limit of the import?"))
+
+
+def test_fv19_note_bound_to_bytes(tmp):
+    root = fv_story(tmp, "fv19-note")
+    rec = QR.record_note(root, "Q7", "The ticket says 100 in the description.", by="conductor", where="stage ran")
+    row = row_of(QR.load(root), "Q7")
+    check_eq("fv19_note_bound_to_bytes: a note shows on the same bytes (words, who, when) and is no skipped line",
+             (row["note"]["words"], row["note"]["by"], row["note"]["at"] == rec["at"], QR.load(root)["skipped"]), ("The ticket says 100 in the description.", "conductor", True,
+                                                                                                                       {"broken_lines": 0, "non_object_lines": 0, "unknown_id": 0, "invalid": 0, "unreadable_file": 0}))
+    check_eq("fv19_note_bound_to_bytes: a note is no answer - the row stays open, and a later note supersedes",
+             (QR.is_open(row), row["status"]), (True, "open"))
+    QR.record_note(root, "Q7", "A later note.", by="conductor", where="stage ran")
+    check_eq("fv19_note_bound_to_bytes: the latest note on these bytes wins", row_of(QR.load(root), "Q7")["note"]["words"], "A later note.")
+    (root / "work" / "requirements-readiness.json").write_text(json.dumps({"open_questions": [fv_row("Q7", "Other words?"), fv_row("Q16")]}), encoding="utf-8")
+    check_eq("fv19_note_bound_to_bytes: a note measured on other bytes is dropped after a row change", "note" in row_of(QR.load(root), "Q7"), False)
+    ok = QR.record_note(root, "Q16", "x" * QR.NOTE_MAX, by="conductor", where="stage ran")
+    check_eq("fv19_note_bound_to_bytes: AT 2000 characters is accepted", len(ok["words"]), 2000)
+    check("fv19_note_bound_to_bytes: BEYOND, 2001 characters, is refused", "2001 characters" in str(refusal(QR.record_note, root, "Q16", "x" * 2001, by="conductor", where="stage ran")))
+    for label, words, expected in (("blank", "   ", "words are blank"), ("a plugin path", "See ${CLAUDE_PLUGIN_ROOT}/scripts/x.py for it", "plugin_path"),
+                                   ("a form field name", "person.review_recorded is set", "form_field")):
+        check(f"fv19_note_bound_to_bytes: {label} is refused", expected in str(refusal(QR.record_note, root, "Q16", words, by="conductor", where="stage ran")))
+    check("fv19_note_bound_to_bytes: an unknown id and a `by` or `where` the vocabulary lacks are refused",
+          all(x is not None for x in (refusal(QR.record_note, root, "Q99", "fine words", by="conductor", where="stage ran"),
+                                      refusal(QR.record_note, root, "Q16", "fine words", by="nobody", where="stage ran"),
+                                      refusal(QR.record_note, root, "Q16", "fine words", by="conductor", where="nowhere"))))
+    stray = fv_story(tmp, "fv19-note-stray", answers=[json.dumps({"kind": "note", "id": "Q99", "words": "w"}), json.dumps({"kind": "note", "id": "Q7", "words": " "})])
+    check_eq("fv19_note_bound_to_bytes: a note of an id the register lacks, and a blank one, are counted as skipped lines (nothing is lost silently)",
+             (QR.load(stray)["skipped"]["unknown_id"], QR.load(stray)["skipped"]["invalid"]), (1, 1))
+
+
+def test_fv19_asked_for_brief_empty_and_unreadable(tmp):
+    check_eq("fv19_asked_for_brief_empty_and_unreadable: no register file -> nothing asked, not present, not unreadable",
+             QR.asked_for_brief(tmp / "fv19-none"), {"open": [], "repeats": [], "unreadable": False, "present": False})
+    empty = write_story(tmp / "fv19-empty", [])
+    check_eq("fv19_asked_for_brief_empty_and_unreadable: an empty register -> present, nothing asked", (QR.asked_for_brief(empty)["present"], QR.asked_for_brief(empty)["open"]), (True, []))
+    bad = write_story(tmp / "fv19-bad", readiness_raw="{ not json")
+    check_eq("fv19_asked_for_brief_empty_and_unreadable: a register that cannot be read -> unreadable, so the list may be incomplete", QR.asked_for_brief(bad)["unreadable"], True)
+    root = fv_story(tmp, "fv19-brief", [fv_row("Q7"), fv_row("Q8"), fv_row("Q16")])
+    declare(root, "Q16", "Q7")
+    show_now(root, "Q7")
+    brief = QR.asked_for_brief(root)
+    check_eq("fv19_asked_for_brief_empty_and_unreadable: the open rows in register order with repeated_by, shown_at_last_stop and the reword count",
+             [(x["id"], x["repeated_by"], x["shown_at_last_stop"], x["reworded"]) for x in brief["open"]], [("Q7", ["Q16"], True, 0), ("Q8", [], False, 0)])
+    check_eq("fv19_asked_for_brief_empty_and_unreadable: the repeat of an open row is listed with its target unsettled", brief["repeats"],
+             [{"id": "Q16", "same_as": "Q7", "target_settled": False, "declared_by": "qa-case-designer"}])
+    rw(root)
+    check_eq("fv19_asked_for_brief_empty_and_unreadable: after a reword the row is no longer 'shown on its bytes' and counts one reword",
+             [(x["id"], x["shown_at_last_stop"], x["reworded"]) for x in QR.asked_for_brief(root)["open"]][0], ("Q7", False, 1))
+    no_state = fv_story(tmp, "fv19-brief-nostate")
+    check_eq("fv19_asked_for_brief_empty_and_unreadable: no driver state -> shown_at_last_stop False, readable",
+             ([x["shown_at_last_stop"] for x in QR.asked_for_brief(no_state)["open"]], QR.last_stop_shown(no_state)), ([False, False], {"shown": {}}))
+    (no_state / "state").mkdir()
+    for label, text in (("not json", "{ nope"), ("shown not a dict", json.dumps({"question_stop": {"shown": [1]}})), ("no key", "{}")):
+        (no_state / "state" / "driver-state.json").write_text(text, encoding="utf-8")
+        check_eq(f"fv19_asked_for_brief_empty_and_unreadable: driver state {label} -> shown is empty, no raise", QR.last_stop_shown(no_state), {"shown": {}})
+    (no_state / "state" / "driver-state.json").write_text(json.dumps({"question_stop": {"stage": "S2", "at": "t", "shown": {"Q7": "h", "Q8": 5}}}), encoding="utf-8")
+    check_eq("fv19_asked_for_brief_empty_and_unreadable: an entry whose hash is no text is left out", QR.last_stop_shown(no_state), {"stage": "S2", "at": "t", "shown": {"Q7": "h"}})
+
+
+class _Pins:
+    """`critic_rollcall.raise_pending` on a story with no real case store: the three seams it uses are replaced and restored."""
+    def __init__(self, source):
+        self.source, self.pinned = source, []
+
+    def __enter__(self):
+        import case_versions as V
+        import contract as C
+        import critic_rollcall as CR
+        self.mods = (V, C, CR)
+        self.saved = (V.store_root, V.create_version, V.pin, C.story_case_links, CR._resolve_source)
+        V.store_root = lambda root: Path(root) / "store"
+        V.create_version = lambda store, source: {"id": "cv_new"}
+        V.pin = lambda root, record, expected_previous_version=None: self.pinned.append(record["id"])
+        C.story_case_links = lambda root: [{"case_id": self.source.stem, "version": "cv_old"}]
+        CR._resolve_source = lambda root, link: self.source
+        return self
+
+    def __exit__(self, *exc):
+        V, C, CR = self.mods
+        V.store_root, V.create_version, V.pin, C.story_case_links, CR._resolve_source = self.saved
+
+
+def test_fv19_raise_pending_records_repeats(tmp):
+    import critic_rollcall as CR
+    root = fv_story(tmp, "fv19-rp")
+    entries = [{"question": "Q16", "same_as": "Q7", "why": "both ask the limit"}]
+    source = write_case(root, "TC_1", question_repeats=json.dumps(entries))
+    with _Pins(source) as pins:
+        out = CR.raise_pending(root)
+    check_eq("fv19_raise_pending_records_repeats: a case with only `question_repeats` is read: recorded, key dropped, re-pinned once",
+             (out["repeats"], out["question_notes"], "question_repeats" in source.read_text(encoding="utf-8"), pins.pinned, QR.hidden_repeat(row_of(QR.load(root), "Q16"))),
+             ([{"question": "Q16", "same_as": "Q7"}], [], False, ["cv_new"], True))
+    refused = fv_story(tmp, "fv19-rp-refused")
+    bad = [{"question": "Q16", "same_as": "Q99", "why": "w"}, {"question": "Q16", "same_as": "raise", "why": "w"}, {"question": "Q16", "same_as": "Q7"}]
+    source = write_case(refused, "TC_1", question_repeats=json.dumps(bad))
+    before = source.read_bytes()
+    with _Pins(source) as pins:
+        out = CR.raise_pending(refused)
+    check_eq("fv19_raise_pending_records_repeats: refused and malformed entries keep the key and say why, one line each; nothing is written or pinned",
+             (len(out["question_notes"]), out["repeats"], source.read_bytes() == before, pins.pinned), (3, [], True, []))
+    check("fv19_raise_pending_records_repeats: the lines name the entry and the register's own reason",
+          "no id of the register" in out["question_notes"][0] and "`raise`" in out["question_notes"][1] and "needs `question`, `same_as` and `why`" in out["question_notes"][2])
+    mixed = fv_story(tmp, "fv19-rp-mixed")
+    source = write_case(mixed, "TC_1", question_repeats=json.dumps([entries[0], bad[0]]))
+    with _Pins(source):
+        out = CR.raise_pending(mixed)
+    check_eq("fv19_raise_pending_records_repeats: a done entry leaves the key, a refused one stays beside it",
+             (len(out["repeats"]), json.loads(source.read_text(encoding="utf-8").split("question_repeats: ")[1].splitlines()[0])), (1, [bad[0]]))
+    malformed = fv_story(tmp, "fv19-rp-malformed")
+    source = write_case(malformed, "TC_1", question_repeats="{ not a list")
+    with _Pins(source):
+        out = CR.raise_pending(malformed)
+    check("fv19_raise_pending_records_repeats: a key that is not one line of JSON is one note and is kept", len(out["question_notes"]) == 1 and "was not read" in out["question_notes"][0])
+    plain = fv_story(tmp, "fv19-rp-none")
+    source = write_case(plain, "TC_1", title="no keys of ours here")
+    stamp = os.stat(source).st_mtime_ns
+    with _Pins(source) as pins:
+        out = CR.raise_pending(plain)
+    check_eq("fv19_raise_pending_records_repeats: a case with none of the three keys is not written (mtime unchanged) and nothing is pinned",
+             (os.stat(source).st_mtime_ns == stamp, pins.pinned, out["question_notes"]), (True, [], []))
+    replay = fv_story(tmp, "fv19-rp-replay")
+    declare(replay)
+    source = write_case(replay, "TC_1", question_repeats=json.dumps(entries))
+    with _Pins(source):
+        out = CR.raise_pending(replay)
+    check_eq("fv19_raise_pending_records_repeats: a replay of a standing declaration is a no-op that still drops the key",
+             (len(out["repeats"]), "question_repeats" in source.read_text(encoding="utf-8"), len((replay / "work" / "question-answers.jsonl").read_text(encoding="utf-8").splitlines())), (1, False, 1))
+
+
+def test_fv19_raise_pending_rewords(tmp):
+    import critic_rollcall as CR
+    root = rw_story(tmp, "fv19-rpw", [fv_row("Q7")], cases={})
+    entry = {"question": "Q7", "text": "What is the exact limit of the import?", "why": "the first words did not say"}
+    source = write_case(root, "TC_1", then_oracles=json.dumps([{"then": 1, "source": "unknown", "ref": "Q7"}]), reword_questions=json.dumps([entry]))
+    with _Pins(source) as pins:
+        out = CR.raise_pending(root)
+    row = row_of(QR.load(root), "Q7")
+    check_eq("fv19_raise_pending_rewords: `reword_questions` is executed (role the designer, by driver, S4) and the entry is dropped; the case is re-pinned",
+             (out["rewords"], row["question"], row["reworded"][0]["role"], row["reworded"][0]["by"], "reword_questions" in source.read_text(encoding="utf-8"), pins.pinned),
+             ([{"question": "Q7"}], "What is the exact limit of the import?", "qa-case-designer", "driver", False, ["cv_new"]))
+    again = rw_story(tmp, "fv19-rpw-refused", [fv_row("Q7")])
+    source = write_case(again, "TC_9", reword_questions=json.dumps([entry]))        # no case cites Q7: the designer may not
+    before = source.read_bytes()
+    with _Pins(source) as pins:
+        out = CR.raise_pending(again)
+    check_eq("fv19_raise_pending_rewords: a refused entry is kept with a line that says why; nothing is written", (len(out["question_notes"]), source.read_bytes() == before, pins.pinned),
+             (1, True, []))
+    check("fv19_raise_pending_rewords: ...in the register's words", "does not cite Q7 in its own work" in out["question_notes"][0])
+
+
+def test_fv19_handoff_rewords_item(tmp):
+    proj = temp_project("qa-question-register-fv19-form-")
+    try:
+        use_project(proj)
+        root = write_story(proj / "qa-factory" / "artifacts" / "QA-9", [fv_row("Q7", asked_by="qa-case-critic")])
+        show_now(root, "Q7")
+        forms = root / "work" / "handoffs"
+        forms.mkdir(parents=True)
+        new = {"question": "Is the import limit 100 or 1000?", "read": ["work/requirements-register.md#R-7"], "recommendation": "plan on 100",
+               "options": [{"reading": "100", "if_chosen": "the plan checks 100"}, {"reading": "1000", "if_chosen": "the plan checks 1000"}],
+               "severity": "blocker", "owner_role": "po_ba", "why_person": "requirement_intent"}
+        item = {"rewords": "Q7", "question": "What is the exact limit of the import?", "why": "unclear first words"}
+        def form(name, *entries):
+            lines = ["header: {role: qa-case-critic, stage: S2, window_or_scope: S2, verdict: ok}", "questions:"] + ["  - " + json.dumps(e) for e in entries]
+            path = forms / (name + ".yaml")
+            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            return path
+        done = QR.raise_from_handoff(root, form("S2-qa-case-critic-1", new, item), stage="S2", asked_by="qa-case-critic")
+        view = QR.load(root)
+        check_eq("fv19_handoff_rewords_item: a `rewords` item asks Q7 again (role = the form's asker), the other entry is raised, the index stays the form's own",
+                 (done["rewords"], done["reword_problems"], row_of(view, "Q7")["question"], row_of(view, "Q7")["reworded"][0]["role"],
+                  done["raised"][0]["raised_from"]["row"]), (["Q7"], [], "What is the exact limit of the import?", "qa-case-critic", "questions[0]"))
+        refused = QR.raise_from_handoff(root, form("S2-qa-case-critic-2", new, item), stage="S2", asked_by="qa-case-critic")
+        check("fv19_handoff_rewords_item: a refused reword (not shown since it was last worded) is a `reword_problems` line and the form is not refused",
+              len(refused["reword_problems"]) == 1 and "was not shown to the person" in refused["reword_problems"][0] and len(refused["already"]) == 0, str(refused))
+        odd = QR.raise_from_handoff(root, form("S2-qa-case-critic-3", {"rewords": 5, "question": "x"}, {"rewords": "Q99", "question": "y", "why": "z"}),
+                                    stage="S2", asked_by="qa-case-critic")
+        check_eq("fv19_handoff_rewords_item: a malformed item (and an unknown id) never refuses the form; each is a line", (odd["raised"], len(odd["reword_problems"])), ([], 2))
+        none = QR.raise_from_handoff(root, form("S2-qa-case-critic-4", new), stage="S2", asked_by="qa-case-critic")
+        check_eq("fv19_handoff_rewords_item: a form with no `rewords` item has the result it always had (no new key)", sorted(none), ["already", "dispatch", "raised"])
+        other = QR.raise_from_handoff(root, form("S2-qa-case-critic-5", {"rewords": "Q7", "question": "z", "why": "w"}), stage="S2", asked_by="qa-scout")
+        check("fv19_handoff_rewords_item: a role that did not ask the question may not reword it - a line, not a refusal", "does not cite Q7" in other["reword_problems"][0])
+    finally:
+        cleanup(proj)
+
+
+def test_fv19_origin_words_unknown_default(tmp):
+    table = [("acceptance_criteria", "the acceptance criteria"), ("parent_ticket", "the parent ticket"), ("claim", "the change under test (before / now)"),
+             ("person", "what you said earlier"), ("comment:TP-1", "a comment on the ticket"), ("not-an-origin", ""), ("", ""), (None, ""), ("  attachment ", "an attachment")]
+    for word, want in table:
+        check_eq(f"fv19_origin_words_unknown_default: {word!r}", QR.origin_words(word), want)
+    import contract as C
+    check_eq("fv19_origin_words_unknown_default: every origin word of the contract has its words in the data file",
+             [w for w in C.READING_ORIGINS if not QR.origin_words(w)], [])
+
+
+def test_fv19_cli_repeat_reword_note(tmp):
+    proj = temp_project("qa-question-register-fv19-cli-")
+    try:
+        use_project(proj)
+        root = write_story(proj / "qa-factory" / "artifacts" / "QA-9", [fv_row("Q7"), fv_row("Q16")])
+        base = ["--where", "stage ran", "--by", "conductor"]
+        why = proj / "why.txt"
+        why.write_text("both ask the limit", encoding="utf-8")
+        code, out, err = cli("--task", "QA-9", "--repeat", "Q16", "--same-as", "Q7", "--words-file", str(why), *base)
+        check_eq("fv19_cli_repeat_reword_note: --repeat exits 0 and records it", (code, json.loads(out)["recorded"]["same_as"], QR.hidden_repeat(row_of(QR.load(root), "Q16"))), (0, "Q7", True))
+        code, out, err = cli("--task", "QA-9", "--repeat", "Q7", "--same-as", "Q16", "--words", "w", *base)
+        check("fv19_cli_repeat_reword_note: --repeat that the register refuses (a cycle) exits 2 with its text", code == 2 and "a cycle" in err, err)
+        code, out, err = cli("--task", "QA-9", "--repeat", "Q7", "--words", "w", *base)
+        check("fv19_cli_repeat_reword_note: --repeat without --same-as is refused naming it", code == 2 and "--repeat needs --same-as" in err, err)
+        code, out, err = cli("--task", "QA-9", "--reopen", "Q16", "--same-as", "Q7", "--words", "w", *base)
+        check("fv19_cli_repeat_reword_note: --same-as without --repeat is refused", code == 2 and "--same-as goes with --repeat only" in err, err)
+        show_now(root, "Q7")
+        spec = proj / "q.json"
+        spec.write_text(json.dumps({"question": "What is the exact limit of the import?", "why": "unclear"}), encoding="utf-8")
+        code, out, err = cli("--task", "QA-9", "--reword", "Q7", "--question-file", str(spec), *base)
+        check_eq("fv19_cli_repeat_reword_note: --reword exits 0, the conductor is the role, the id stays", (code, json.loads(out)["reworded"]["id"], row_of(QR.load(root), "Q7")["reworded"][0]["role"]), (0, "Q7", "conductor"))
+        code, out, err = cli("--task", "QA-9", "--reword", "Q7", "--question-file", str(spec), *base)
+        check("fv19_cli_repeat_reword_note: a second --reword before a new showing exits 2", code == 2 and "was not shown to the person" in err, err)
+        code, out, err = cli("--task", "QA-9", "--reword", "Q7", *base)
+        check("fv19_cli_repeat_reword_note: --reword needs --question-file", code == 2 and "--reword needs --question-file" in err, err)
+        words = proj / "note.txt"
+        words.write_text("The ticket says 100 in its description.", encoding="utf-8")
+        code, out, err = cli("--task", "QA-9", "--note", "Q16", "--words-file", str(words), *base)
+        check_eq("fv19_cli_repeat_reword_note: --note exits 0 and the card data carries it", (code, json.loads(out)["recorded"]["kind"], row_of(QR.load(root), "Q16").get("note", {}).get("words")),
+                 (0, "note", "The ticket says 100 in its description."))
+        code, out, err = cli("--task", "QA-9", "--note", "Q16", "--words", "x" * 2001, *base)
+        check("fv19_cli_repeat_reword_note: --note beyond 2000 characters exits 2", code == 2 and "2001 characters" in err, err)
+        code, out, err = cli("--task", "QA-9", "--note", "Q16", "--words", "fine words", "--where", "nowhere", "--by", "conductor")
+        check("fv19_cli_repeat_reword_note: a `where` outside the vocabulary exits 2", code == 2 and "not a known value" in err, err)
+        code, out, err = cli("--task", "QA-9", "--note", "Q16", "--reword", "Q7", "--words", "w", *base)
+        check("fv19_cli_repeat_reword_note: the exactly-one-operation rule names the three new operations",
+              code == 2 and all(x in err for x in ("--repeat QID", "--reword QID", "--note QID")) and "got 2" in err, err)
+        code, out, err = cli("--task", "QA-9", "--note", "Q16", "--words", "w", "--question-file", "x.json", *base)
+        check("fv19_cli_repeat_reword_note: a flag with no meaning for the operation is refused", code == 2 and "--question-file has no meaning with --note" in err, err)
+    finally:
+        cleanup(proj)
+
+
+TESTS = [test_fv19_repeat_hidden_while_target_resolves, test_fv19_repeat_of_settled_listed_for_brief, test_fv19_repeat_unresolved_shown,
+         test_fv19_repeat_write_refusals, test_fv19_repeat_refused_with_dependants, test_fv19_repeat_replay_noop, test_fv19_person_answer_beats_repeat,
+         test_fv19_reopen_undoes_repeat, test_fv19_repeat_records_history, test_fv19_reword_keeps_id, test_fv19_reword_refusals, test_fv19_reword_who_may,
+         test_fv19_reword_readings_frozen, test_fv19_reword_carries_repeats, test_fv19_reword_after_reopen_allowed, test_fv19_note_bound_to_bytes,
+         test_fv19_asked_for_brief_empty_and_unreadable, test_fv19_raise_pending_records_repeats, test_fv19_raise_pending_rewords,
+         test_fv19_handoff_rewords_item, test_fv19_origin_words_unknown_default, test_fv19_cli_repeat_reword_note,
+         test_gw1_47_stray_line_starts_with_an_open_register_id, test_answers_lock_busy_names_the_holder, test_placeholder_question_row_dropped, test_x2_6_role_questions,test_g1_13_question_row_keys_never_meet_and_the_readiness_writer_keeps_its_bytes, test_e1_exact_id, test_e2_load, test_e3_answers_file, test_e4_register, test_e5_parser, test_e6_cli,
          test_e6_cli_subprocess, test_e7_battery, test_edge2_fence_and_quote, test_edge3_row_hash, test_edge4_where_by,
          test_edge5_case_decisions, test_edge5_case_cli, test_edge6_words_file, test_edge7_lock, test_edge8_named,
          test_cmp1, test_t256_o6_accept_as_blocked_is_a_whole_line_case_token, test_t256_o4_raise_for_case_is_keyed_by_case_and_then,

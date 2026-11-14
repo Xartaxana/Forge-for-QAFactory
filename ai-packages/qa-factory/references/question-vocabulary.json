@@ -1,6 +1,7 @@
 {
-  "statuses": ["open", "answered", "not_needed", "with_designer", "named", "deferred_to_report"],
-  "recorded_statuses": ["open", "answered", "not_needed", "with_designer", "deferred_to_report"],
+  "statuses": ["open", "answered", "not_needed", "with_designer", "named", "deferred_to_report", "repeat"],
+  "recorded_statuses": ["open", "answered", "not_needed", "with_designer", "deferred_to_report", "repeat"],
+  "repeat_note": "`repeat` is the status of a question declared to ask what an earlier question of the register asks (question_register.declare_repeat, FV1-9): it is hidden while its target stands unchanged and nothing is left to reach it, and asked again the moment that stops being true (question_register.hidden_repeat is the one reader). A `repeat` record written by a package older than this row is set aside by the reader and the question is shown.",
   "where": ["gate A", "gate B", "S2 stop", "S3 stop", "S4 stop", "waiver", "remark", "conductor", "stage ran"],
   "where_words_note": "How a person reads each `where` value, as the end of a phrase (`on your word <words>`, `answered <words>`), read by question_register.where_words (FR-13). Every value of `where` has a row in `where_words`; a value this file does not know is read as `earlier`. `gate A` and `gate B` keep the form they have always had on the gate cards (`at gate A`). The `S4 stop` row is added together with the `S4 stop` value of `where` (HF2-7 part P5a).",
   "where_words": {
@@ -15,6 +16,21 @@
     "stage ran": "while the stage ran"
   },
   "by": ["person", "conductor", "driver", "orchestrator"],
+  "reading_origin_words_note": "How a person reads the origin of a reading (`from` of a register reading, the part before any `:`), as the end of `(from <words>)`, read by question_register.origin_words (FR-13, FR-6). A word this file does not know has no row here: origin_words gives \"\" for it and the card prints it plainly as `(from: <word>)`. The words are those of contract.READING_ORIGINS.",
+  "reading_origin_words": {
+    "acceptance_criteria": "the acceptance criteria",
+    "description": "the ticket's description",
+    "comment": "a comment on the ticket",
+    "parent_ticket": "the parent ticket",
+    "code": "the code",
+    "test": "an existing test",
+    "precedent": "an earlier confirmed behaviour",
+    "person": "what you said earlier",
+    "claim": "the change under test (before / now)",
+    "attachment": "an attachment"
+  },
+  "reword_own_artifacts_note": "The role whose OWN artifact kind may name a question it asks again in clearer words (question_register.reword, who may): `cases` - a case of the story names the id, or the row was raised for a case; `plan_rows` - a plan row names the id, or the row was raised at S3. A role not listed here may reword only a question it asked itself (`asked_by`); the conductor may always. Default for an absent role: none.",
+  "reword_own_artifacts": {"qa-case-designer": "cases", "qa-test-strategist": "plan_rows"},
   "risk_word": "deliver with known gaps",
   "risk_word_note": "The one word of gate B that orders a delivery over a verdict that is not yes: read by question_register.risk_reason_of ONLY as a whole line of its own, the word alone or followed by `:` and the person's reason (FR-12, FR-13). Any other form is the conductor's reading, never a phrase search in code.",
   "case_decisions": ["manual", "automate"],
