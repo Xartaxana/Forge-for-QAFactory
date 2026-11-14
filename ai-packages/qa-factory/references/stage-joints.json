@@ -3767,7 +3767,8 @@
           "field": "the run_suite.py call",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -3794,7 +3795,8 @@
           "field": "the run_suite.py call",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -3821,7 +3823,8 @@
           "field": "the run_suite.py call",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -3847,7 +3850,8 @@
           "field": "the run_suite.py call",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -6228,8 +6232,20 @@
       "producers": [
         {
           "roles": [
+            "qa-runner"
+          ],
+          "field": "the manifest rows' test files",
+          "told": [
+            {
+              "page": true,
+              "call": true
+            }
+          ],
+          "demands": []
+        },
+        {
+          "roles": [
             "qa-automator",
-            "qa-runner",
             "qa-code-critic",
             "qa-failure-analyst"
           ],
@@ -6261,7 +6277,19 @@
         {
           "roles": [
             "qa-automator",
-            "qa-runner",
+            "qa-runner"
+          ],
+          "field": "the `--mine` call and its manifest rows",
+          "told": [
+            {
+              "page": true,
+              "call": true
+            }
+          ],
+          "demands": []
+        },
+        {
+          "roles": [
             "qa-code-critic",
             "qa-failure-analyst"
           ],
@@ -6292,8 +6320,20 @@
       "producers": [
         {
           "roles": [
+            "qa-runner"
+          ],
+          "field": "the `--mine` call and its manifest rows",
+          "told": [
+            {
+              "page": true,
+              "call": true
+            }
+          ],
+          "demands": []
+        },
+        {
+          "roles": [
             "qa-automator",
-            "qa-runner",
             "qa-code-critic",
             "qa-failure-analyst"
           ],
@@ -6324,8 +6364,20 @@
       "producers": [
         {
           "roles": [
+            "qa-runner"
+          ],
+          "field": "the `--mine` call and its manifest rows",
+          "told": [
+            {
+              "page": true,
+              "call": true
+            }
+          ],
+          "demands": []
+        },
+        {
+          "roles": [
             "qa-automator",
-            "qa-runner",
             "qa-code-critic",
             "qa-failure-analyst"
           ],
@@ -6357,7 +6409,19 @@
         {
           "roles": [
             "qa-automator",
-            "qa-runner",
+            "qa-runner"
+          ],
+          "field": "the `--mine` call and its manifest rows",
+          "told": [
+            {
+              "page": true,
+              "call": true
+            }
+          ],
+          "demands": []
+        },
+        {
+          "roles": [
             "qa-code-critic",
             "qa-failure-analyst"
           ],
@@ -6421,7 +6485,19 @@
         {
           "roles": [
             "qa-automator",
-            "qa-runner",
+            "qa-runner"
+          ],
+          "field": "the `--mine` call and its manifest rows",
+          "told": [
+            {
+              "page": true,
+              "call": true
+            }
+          ],
+          "demands": []
+        },
+        {
+          "roles": [
             "qa-code-critic",
             "qa-failure-analyst"
           ],
@@ -6452,8 +6528,20 @@
       "producers": [
         {
           "roles": [
+            "qa-runner"
+          ],
+          "field": "the `--mine` call and its manifest rows",
+          "told": [
+            {
+              "page": true,
+              "call": true
+            }
+          ],
+          "demands": []
+        },
+        {
+          "roles": [
             "qa-automator",
-            "qa-runner",
             "qa-code-critic",
             "qa-failure-analyst"
           ],
@@ -6485,7 +6573,19 @@
         {
           "roles": [
             "qa-automator",
-            "qa-runner",
+            "qa-runner"
+          ],
+          "field": "the `--mine` call and its manifest rows",
+          "told": [
+            {
+              "page": true,
+              "call": true
+            }
+          ],
+          "demands": []
+        },
+        {
+          "roles": [
             "qa-code-critic",
             "qa-failure-analyst"
           ],
@@ -6517,7 +6617,19 @@
         {
           "roles": [
             "qa-automator",
-            "qa-runner",
+            "qa-runner"
+          ],
+          "field": "the `--mine` call and its manifest rows",
+          "told": [
+            {
+              "page": true,
+              "call": true
+            }
+          ],
+          "demands": []
+        },
+        {
+          "roles": [
             "qa-code-critic",
             "qa-failure-analyst"
           ],
@@ -6548,8 +6660,20 @@
       "producers": [
         {
           "roles": [
+            "qa-runner"
+          ],
+          "field": "the `--mine` call and its manifest rows",
+          "told": [
+            {
+              "page": true,
+              "call": true
+            }
+          ],
+          "demands": []
+        },
+        {
+          "roles": [
             "qa-automator",
-            "qa-runner",
             "qa-code-critic",
             "qa-failure-analyst"
           ],
@@ -6645,7 +6769,19 @@
         {
           "roles": [
             "qa-runner",
-            "qa-automator",
+            "qa-automator"
+          ],
+          "field": "the run_suite.py call",
+          "told": [
+            {
+              "page": true,
+              "call": true
+            }
+          ],
+          "demands": []
+        },
+        {
+          "roles": [
             "qa-code-critic"
           ],
           "field": "the run_suite.py call",
@@ -6710,7 +6846,8 @@
           "field": "the run_suite.py call",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -8052,7 +8189,7 @@
   "told_ratchet": {
     "hand_cards": 12,
     "legacy_legs": 0,
-    "unsited": 150
+    "unsited": 119
   },
   "call_told_families": [
     "guard_pre_tool",
@@ -8066,7 +8203,7 @@
     "guard_pre_tool": "{n} checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.",
     "stage_guard": "{n} checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.",
     "host_adapter": "{n} checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.",
-    "execution_request": "{n} checks of your commands are told in the refusal of the call, with what they expect and the door.",
+    "execution_request": "{n} checks of your test-run calls (`run_suite.py`, `red_sandbox.py`, `probe_by_code.py`) are told in the refusal of the call, with what they expect and the door; a refused call launches no test. Write a request file from `run_suite.py --template request`, never from memory.",
     "run_suite": "{n} checks of your commands are told in the refusal of the call, with what they expect and the door.",
     "role_cli": "{n} checks of your commands are told in the refusal of the call, with what they expect and the door. Run {scripts} before you write an input file: it prints what each command of the script checks."
   }

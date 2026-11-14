@@ -4,26 +4,8 @@
 
 `<T>` is your ticket, `<ID>` your dispatch id, `<home>` the project's qa-factory folder - all three stand in your prompt (`Ticket: ... Dispatch: ...`) and in your task packet.
 
-- [s5_precheck:run_mapping] Every test of the scope has a reporter row in its run block. Door: `run_suite.py --reparse-block`, never a rerun.
-- [validate_artifacts:check_manifest_invariants] No two `tests[]` entries carry one instance id, no case is green in `tests[]` and present in `unresolved[]`, and no `self_fixes[]` entry repeats an earlier one byte for byte. Door: edit the file and the field the refusal line names.
-- [validate_artifacts:check_manifest_v0] Every `automate` case of the plan has a `tests[]` or `unresolved[]` row; a `tests[]` row names an existing file and a `marker` or a full content-bound trace; an `unresolved` reason is from its list; a critic verdict is from its list, with `fix_notes[]` only for `approved_with_fixes`. Door: edit the file and the field the refusal line names.
-- [validate_artifacts:check_marker_in_file] The marker a manifest row names stands in the test file it names. Door: edit the file and the field the refusal line names.
-- [validate_artifacts:check_remedy_rows] A row blocked on the environment carries a `remedy` that is the fix, and names no value of a credential key. Door: edit the file and the field the refusal line names.
-- [validate_artifacts:check_self_fixes] A `self_fixes[]` entry carries every required key and never drops a Then line's assertion that was there before. Door: edit the file and the field the refusal line names.
-- [guard_pre_tool:*] 24 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
-- [stage_guard:*] 7 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
-- [host_adapter:*] 6 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
-- [role_cli:*] 3 checks of your commands are told in the refusal of the call, with what they expect and the door. Run `case_versions.py --help`, `execution_fingerprint.py --help`, `manifest_put.py --help` before you write an input file: it prints what each command of the script checks.
+### Only in a window (replaced by "Only in a plan dispatch") (continued)
 
-### Only in a plan dispatch (replaces "Only in a window")
-
-- [controller:s5_plan_accept] A plan dispatch never closes S5: it is accepted without `stage_complete` (no `--complete`). Door: finish the plan dispatch without `--complete`.
-- [controller:s5_plan_gaps] Your plan has no gap the plan check names (the refusal lists up to six). Door: repair the named rows of `work/s5-plan.json`.
-- [exit_gate:EG-s5-plan-outputs] Before you end an S5 dispatch, every output the S5 plan names for your role is written. Door: write the output the refusal names before you end the dispatch.
-
-### Only in a window (replaced by "Only in a plan dispatch")
-
-- [manifest_put:expectation_changes] An expectation change names its function(s), red_attempt, green_attempt (or null), then_refs as `[{case, then: int}]`, what_changed, and a reason for a new row; the patch verdict joins; critic_verdict is a list, critic_note a string, and a note stands for each NOTE_REQUIRED_VERDICTS verdict. Door: fix the entry the refusal names.
 - [s5_precheck:plan] On a plan-form S5, the window's tests match its slice of the plan, unless a `deviations[]` row of the window's form declares the difference. Door: match the slice, or declare the deviation.
 - [s5_precheck:sides.declared] Each test declares its sides. Door: declare them.
 - [s5_precheck:sides.placeholders] Every id a test names in `provisional` is a row of `provisional[]`; an open first-look accounting row (a `placeholder_locator` assumed from `first_look:<R-n>`, on a real side) stands only while the current, fresh first-look record holds that requirement missing or unreachable because of the product; and every test linked to such a row declares it in `provisional`, sits in no `blocked_by_env` unresolved row, is not handed to the person, and has a passed or failed run row. Door: the finding's `fix`: drop or send the id / row through `manifest_put.py --fragment`; retract the row (`status: retracted`) or ask the conductor for a new first look; take the test out of the env row or the hand-off; run it once (`run_suite.py --mine <case>`).
