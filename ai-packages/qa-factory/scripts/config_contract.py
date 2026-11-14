@@ -57,6 +57,17 @@ RUNTIME_DEFAULTS = {
     "impact_scale": IMPACT_DEFAULTS,
 }
 SECRET_QUERY_RE = re.compile(r"(?i)(token|secret|password|key)=([^&#]*)")
+# the password of a URL's userinfo: `scheme://user:password@host` (the user name stays; an `@` after the first `/`, `?` or `#` is no userinfo)
+USERINFO_PASSWORD_RE = re.compile(r"(?i)([a-z][a-z0-9+.-]*://[^/\s:@?#]+:)[^/\s?#]*@")
+
+
+def mask_secret_ref(value):
+    """ONE masking of a stored reference: the `name=value` pairs of `SECRET_QUERY_RE` AND the userinfo password of a URL are replaced by
+    `<hidden>`. Idempotent; a non-string, an empty string or a text that is no URL comes back unchanged and nothing raises. Over-masking
+    (a harmless `monkey=` pair) is the allowed error; a percent-encoded `token%3D` is NOT handled."""
+    if not isinstance(value, str) or not value:
+        return value
+    return USERINFO_PASSWORD_RE.sub(r"\1<hidden>@", SECRET_QUERY_RE.sub(r"\1=<hidden>", value))
 # a value that is a PLACEHOLDER, never a secret: `{key}` or `$NAME` (the shape a route is written in, SS1-15 section 3.2)
 PLACEHOLDER_VALUE_RE = re.compile(r"^(\{[^{}]*\}|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?)$")
 
