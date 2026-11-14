@@ -166,7 +166,7 @@ def subprocess_examples(root: Path) -> None:
     # --- exploratory_findings.py add: a line written as the card says, with one evidence file under the story ---
     command = "exploratory_findings.py add"
     task_ef = story("QA-10")
-    (task_ef / "work" / "critic-findings.md").write_text("R-2 names no boundary\n", encoding="utf-8")
+    (task_ef / "work" / "runner-notes.md").write_text("R-2 names no boundary\n", encoding="utf-8")
     example = ["add", "--task-root", task_ef, "--by", "S6-qa-runner-1", "--kind", "coverage_gap", "--title", "R-2 boundary",
                "--statement", "R-2 names no boundary", "--why-not-a-bug", "the requirement is silent", "--refs", "R-2",
                "--missing-prerequisite", "the owner's word on the boundary", "--evidence", "work/runner-notes.md"]

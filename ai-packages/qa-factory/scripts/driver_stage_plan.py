@@ -652,12 +652,12 @@ class DriverStagePlan:
                 f"delete the row and keep the gap in `questions[]`; then retry the finish. Rows recorded already are not recorded again.")
         expected = f"Expected a list of rows {{{', '.join(fields)}}}, or [] for no gap."
 
-        def gap_refusal(text: str):
+        def refuse_gap(text: str):
             exc = Refusal(text, dispatch=dispatch)
             exc.known = False          # the sibling `questions[]` raise is a G refusal too: no phrase of this text routes it past the conductor
             return exc
         if problems:
-            raise gap_refusal(f"{stage}: the register_gaps of {form} were not recorded in the findings register, nothing was written: "
+            raise refuse_gap(f"{stage}: the register_gaps of {form} were not recorded in the findings register, nothing was written: "
                          + "; ".join(problems) + f". {expected} {door}")
         if not rows:
             return
@@ -665,7 +665,7 @@ class DriverStagePlan:
         try:
             active = list(EF.read(self.task_root)["active"].values())
         except OSError as exc:
-            raise gap_refusal(f"{stage}: the findings register {register_file} cannot be read ({exc}); the register gaps of {form} were "
+            raise refuse_gap(f"{stage}: the findings register {register_file} cannot be read ({exc}); the register gaps of {form} were "
                          "not recorded. Door (conductor): restore the file, then retry the finish.") from exc
         for i, line, ignored in rows:
             if ignored:
@@ -680,10 +680,10 @@ class DriverStagePlan:
                 ident = EF.append(self.task_root, dict(line, op="add", kind="coverage_gap", why_not_a_bug=REGISTER_GAP_WHY,
                                                        evidence_refs=[{"path": form}]), by=dispatch)
             except ValueError as exc:
-                raise gap_refusal(f"{stage}: register_gaps[{i}] of {form} was not recorded in the findings register: {exc}. {expected} "
+                raise refuse_gap(f"{stage}: register_gaps[{i}] of {form} was not recorded in the findings register: {exc}. {expected} "
                              f"(the writer's --title, --statement, --refs, --missing-prerequisite are these fields). {door}") from exc
             except OSError as exc:
-                raise gap_refusal(f"{stage}: the findings register {register_file} cannot be written ({exc}); register_gaps[{i}] of "
+                raise refuse_gap(f"{stage}: the findings register {register_file} cannot be written ({exc}); register_gaps[{i}] of "
                              f"{form} was not recorded. Door (conductor): restore the file, then retry the finish.") from exc
             print(f"{stage}: register_gaps[{i}] recorded in the findings register as {ident} (coverage gap; it reaches the test report)")
 

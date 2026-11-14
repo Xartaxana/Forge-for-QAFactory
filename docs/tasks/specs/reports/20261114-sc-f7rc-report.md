@@ -211,3 +211,31 @@ RESULT: failure (1 failed of 10)              rc=1
 - Within one form a duplicated row is recorded twice on the FIRST finish (`active` is read once before the loop); on a retry both are skipped. Duplicate allowed, loss never (D.4 error direction).
 - Commit gate: the `judgment:` line in the form the spec gave was refused (`judgment: <text>` needs ` -- <why>`); the commit carries `judgment: adds data check register_gaps_write -- <the spec's text>` and an `axes: not a mechanism (...)` line.
 - needed beyond the manifest: `scripts/handoff.py` (`is_placeholder`, parse of a bare `key:` as `{}`), `scripts/driver_core.py` (`Refusal`, `known`), `scripts/driver_machine.py` (`route_known`), `scripts/tests/test_judgment_census.py` (`units_of`, to see the unit set), `scripts/tests/test_driver_layers.py` (L1/L9 row shapes), `scripts/tests/harness.py`, `scripts/slow_tests.json`.
+
+## Fix round (t-738, attempt 2; fresh worker; findings B1, F2, F3, F4 of the code critic t-744)
+
+- **B1** `scripts/tests/test_role_commands.py` (card example of `exploratory_findings.py add`): the file written is now `work/runner-notes.md`, the path `--evidence` names. The file is slow, NOT run (judged by the batch canon). Proof by hand, the example's exact argv in a temp story (`work/` + `pipeline.json`, like `story("QA-10")`), script `exploratory_findings.py`:
+  - NEGATIVE (evidence file absent, the old shape): `exploratory_findings.py add: evidence path work/runner-notes.md is not a file under the task root ...` and `rc=2`.
+  - FIXED (`work/runner-notes.md` written first): `{"id": "EX-1", "path": "...\\work\\exploratory-findings.jsonl"}` and `rc=0`.
+- **F2** `scripts/driver_stage_plan.py` `Driver.register_gaps_write`: the nested helper `gap_refusal` is renamed `refuse_gap` (name and its 4 call sites only; no logic change). Row added in `scripts/tests/fixtures/judgment-census.json`: `{"file": "driver_stage_plan.py", "function": "refuse_gap", "class": "xref", "roles": ["qa-case-critic", "conductor"], "owner": "data"}` (+ a note). ONE row: the scan sees ONE unit (the helper, u1 via `_?refuse`); `register_gaps_write` / `register_gap_rows` are not census units by name, and a unit has one row (C1), the higher class wins and `xref` outranks `shape` (CLASS_ORDER), so the helper that carries both refusals (identity join, section judge) takes `xref`. `test_judgment_census.py` is in `slow_tests.json` (33.3 s): NOT run, judged by the batch canon. In-process, the unit scan of the package (`units_of(pkg, scan_files(pkg))`, then `_c1(census, units, probs)`): before the row `driver_stage_plan.py::refuse_gap is a check unit (u1) with no row in judgment-census.json: add a row {file, function, class, roles, owner}`; unit seen: `('driver_stage_plan.py', 'refuse_gap') ['u1'] False []` (blocks False: the raise goes through a factory call, the documented blind spot); after the row: C1 problems naming driver_stage_plan: `[]`. No ceiling moved: the unit does not block, class xref has no ratchet, `blocking_per_role` unchanged. `driver-layers.json`: no row carries the helper's name (grep `gap_refusal` over the worktree found only the code and this report), so no change.
+- **F3** `scripts/tests/test_exploratory_findings.py`: deleted `key_a3`, `critic_findings` and `gap_line` (`gap_line` was called only by `key_a3`; grep control over `ai-packages` shows no other caller of the three) and `key_a3` from the key list at the file's tail. J1 and K-M1-1 hold both behaviours. No docstring left saying the critic records. Count 299 -> 288 (the 11 X1/X2 checks).
+- **F4** `docs/SIBLING_MAP.md` axis 5 row "A role without Bash raises a before/now question": one clause appended, `register_gaps` section of the S4 case critic's form -> `Driver.register_gaps_write` -> `exploratory_findings.append`; the row's step `question_register._question_row` is not shared, because the register differs.
+- Not done: nothing. F5 and the queue lines are the Lead's.
+
+Witness (verbatim tails), `( cd .../sc-f7rc/ai-packages/qa-factory && ... )`:
+```
+=== test_exploratory_findings: 288/288 ok ===
+=== role_load (the one measure of a role's start load): 186/186 ok ===
+PASS limits: SKILL.md / agents / references within size caps
+PASS limits: every mandatory role rule of design/role-rules.json holds in its carrier
+=== qa-factory selftest: 4/4 ok ===
+```
+`scenario_walk.py --witness-for scripts/driver_stage_plan.py` printed 77 files; not in `slow_tests.json` (`files`) and not `test_story_run_*` / `test_controller_*` / `test_fixes_13797`: 21, each run alone once, all rc=0:
+```
+test_codex_tool_guidance 217/217 | test_dispatch_identity 114/114 | test_driver_stop_record 255/255 | test_exploratory_answers 107/107
+test_exploratory_findings 288/288 (run above) | test_first_look_code_look 127/127 | test_first_look_step 101/101 | test_gate_question_form 482/482
+test_human_questions 291/291 | test_login_need 33 passed | test_null_outcomes 327/327 | test_person_owned 82/82
+test_probe_gap_door 54 passed | test_probe_marker_judgment 46 passed | test_probe_not_proved 47 passed | test_reference_window 85/85
+test_s5_window_leftovers 148/148 | test_walk_account 190/190 | test_walk_lanes_parallel 196/196 | test_walk_supply 261/261 | test_whole_list_sites 292/292
+```
+The slow printed files (incl. `test_role_commands.py`, `test_judgment_census.py`, `test_driver_layers.py`) and `test_story_run_*`: judged by the batch canon.
