@@ -943,7 +943,7 @@ def told_variants() -> None:
         if counter == "legacy_legs":
             check_eq("told/legacy-legs-floor: the stored number is 0, the floor of a count", stored, 0)
             check_in("told/legacy-legs-plus-one: one more legacy leg than the stored 0 is red naming the counter, the measured and the stored value",
-                     f"told_ratchet.legacy_legs is 0 but the walk counts 1", text_of(audit(data=mutated(extra_leg))))
+                     "told_ratchet.legacy_legs is 0 but the walk counts 1", text_of(audit(data=mutated(extra_leg))))
             check_in("told/legacy-legs-negative: a stored -1 is no count, red by the shape check",
                      "a count (an integer, 0 or more) is expected", text_of(audit(data=mutated(lambda d: d["told_ratchet"].update(legacy_legs=-1)))))
         else:

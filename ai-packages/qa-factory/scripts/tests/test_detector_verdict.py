@@ -864,7 +864,6 @@ def t1rs_sites() -> None:
     text (a literal of `T1RS_OLD`), the Record of the row rides on the exception (`records` of a `validate_request` error,
     else `args[0]`) with `check == <id>`, and the row of that id states a sentence the refusal prints. Ids that need the
     stand's collect (`window_first`, `selector_args`) are not provoked here: they are written in test_execution_request.py."""
-    import contextlib
     import execution_request as ER
     import stage_joints as SJ
     from contract import entries_for_case, manifest_test_keys, split_case_key

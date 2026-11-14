@@ -1050,7 +1050,6 @@ def _writers(predicate) -> list:
 def test_k10p_k2() -> None:
     """K10 pay-down K2: a requirement row is told to the roles whose contract a check of that row can judge, one statement per
     requirement, the continuation pages carry no legend, and the S5 plan rework row stands on the automator's pages."""
-    import re
     import handoff as HO
     import handoff_check as HC
     import stage_joints as SJ
