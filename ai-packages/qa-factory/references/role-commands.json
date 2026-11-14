@@ -201,10 +201,9 @@
     "exploratory_findings.py add": {
       "roles": [
         "qa-runner",
-        "qa-failure-analyst",
-        "qa-case-critic"
+        "qa-failure-analyst"
       ],
-      "input": "no file: --task-root <T> --by <your dispatch id> --kind observation|unresolved_question|coverage_gap --title \"<t>\" --statement \"<what you saw, verbatim>\" --why-not-a-bug \"<why it is not a product bug>\" --evidence <a file under the story folder, task-relative; repeat the flag for more> [--refs R-1,TC-2] [--question \"<q>\" --owner-role \"<who answers>\"] (an unresolved_question needs both) [--missing-prerequisite \"<what is missing>\"] (a coverage_gap needs it). A requirement-register gap the case designer cannot close is a coverage_gap line whose evidence is your own findings file under work/test-cases/. Record it once, when you first find it; a line with no evidence file is refused, nothing is written.",
+      "input": "no file: --task-root <T> --by <your dispatch id> --kind observation|unresolved_question|coverage_gap --title \"<t>\" --statement \"<what you saw, verbatim>\" --why-not-a-bug \"<why it is not a product bug>\" --evidence <a file under the story folder, task-relative; repeat the flag for more> [--refs R-1,TC-2] [--question \"<q>\" --owner-role \"<who answers>\"] (an unresolved_question needs both) [--missing-prerequisite \"<what is missing>\"] (a coverage_gap needs it). A line with no evidence file is refused, nothing is written.",
       "verify": "the command prints one JSON object with the line's id (EX-n) and the register path; `exploratory_findings.py list --task-root <T>` shows the line among the active ones, and `exploratory_findings.py check --task-root <T>` prints ok: true."
     },
     "external_writes.py --record": {

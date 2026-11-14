@@ -1656,6 +1656,7 @@
    ],
    "replaced_by": null,
    "covers": [
+    "driver_stage_plan.py",
     "env_probe.py",
     "exploratory_findings.py",
     "investigation_probe.py",

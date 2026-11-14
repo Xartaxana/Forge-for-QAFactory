@@ -141,6 +141,14 @@ questions:
     owner_role: <the role the answer concerns>
     why_person: <the class of person-owned.json, or omit when none>
 
+# A register gap no case can carry, one row; the driver records it. `[]` (or no section) is a legal answer.
+register_gaps:
+  - title: "<the gap in one line>"
+    statement: "<the register line and what no requirement holds>"
+    refs:
+      - <R-n or TC-n the gap stands against, or omit>
+    missing_prerequisite: "<what would close it: a requirement or an answer>"
+
 claims:
   every_case_of_the_review_scope_has_a_row: <true|false>
   every_finding_names_expected_and_check: <true|false>

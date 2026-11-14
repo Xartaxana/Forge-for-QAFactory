@@ -167,9 +167,9 @@ def subprocess_examples(root: Path) -> None:
     command = "exploratory_findings.py add"
     task_ef = story("QA-10")
     (task_ef / "work" / "critic-findings.md").write_text("R-2 names no boundary\n", encoding="utf-8")
-    example = ["add", "--task-root", task_ef, "--by", "S4-qa-case-critic-1", "--kind", "coverage_gap", "--title", "R-2 boundary",
+    example = ["add", "--task-root", task_ef, "--by", "S6-qa-runner-1", "--kind", "coverage_gap", "--title", "R-2 boundary",
                "--statement", "R-2 names no boundary", "--why-not-a-bug", "the requirement is silent", "--refs", "R-2",
-               "--missing-prerequisite", "the owner's word on the boundary", "--evidence", "work/critic-findings.md"]
+               "--missing-prerequisite", "the owner's word on the boundary", "--evidence", "work/runner-notes.md"]
     accepted_example(command, *seen(run_script("exploratory_findings.py", *example, cwd=root)))
 
     # --- case_versions.py --pin: a case id and a version that already exists in the store ---------------------

@@ -184,6 +184,7 @@ def fill_head(text: str, *, task: str, dispatch: str, role: str, stage: str, sco
 EMPTIED = {
     "questions": ("s4-case-critic-to-designer",),
     "findings": ("s4-case-critic-to-designer", "s5-critic-to-automator"),
+    "register_gaps": ("s4-case-critic-to-designer",),
 }
 
 

@@ -79,7 +79,7 @@ The eight dimensions (S4), each `pass`/`concern`/`fail`:
 - **Mutation in the head.** Imagine the smallest wrong change of the code or the plan (a flipped condition, a dropped row) and ask whether this artifact would notice; if not, it is weak.
 - **Anti-duplicate.** Lay the rows or cases side by side by requirement and Given/When form; two that differ by one branch are one parametrised case (the tests behind it are the automator's call, P17).
 - **Read the oracle's source.** For each expected value, find where the requirements say it (`then_oracles` names the source); a value found only in the implementation is a claim to confirm, not a requirement.
-- **Register against the units of text.** Count the sentences, fields and branches of the sources and ask which requirement holds each (`branch_accounting --units` gives the list; the judgment of a missing one is yours).
+- **Register against the units of text.** Count the sentences, fields and branches of the sources you are given and ask which requirement holds each (the judgment of a missing one is yours).
 - **Try to refute the silence.** For an empty findings list, pick the riskiest requirement and look for the author's attempt to break it in `tried`; none found is your finding.
 - **Quote, do not paraphrase.** A return that cannot quote the artifact's line has not located the defect yet.
 - **Judge the level.** For a plan row or case on a high rung (e2e), ask what the lowest rung that sees the same behaviour would be; a row that names no reason for its rung is a finding.
@@ -93,7 +93,7 @@ The eight dimensions (S4), each `pass`/`concern`/`fail`:
 
 `Read`, `Grep` and `Glob` over the artifacts; your form is the only file you write. Your scope at S4 is the plan rows whose `design_review_required` is true (the dispatch names them); expand it only for a dependency or new risk, saying why. The register bullet is read once, on the first review round, over the whole register and its sources, whatever the row scope; a repair round does not repeat it. Resolve cases from task-local version pins, never from live authoring files; on a repair review look only at changed rows and their invalidated dependencies.
 
-A register gap the designer cannot close in the cases (no case can carry it, or only the person can settle it) is recorded once, when you first find it, with `exploratory_findings.py add --task-root <T> --by <your dispatch id> --kind coverage_gap --title ... --statement <the register line and what is missing> --why-not-a-bug <a gap in the requirements, not a product defect> --refs <R-n[,TC-n]> --missing-prerequisite <what would close it> --evidence <your findings file>`; it reaches the test report. A gap only the person can settle also goes in `questions[]`.
+A register gap no case can carry goes once, when you first find it, as a row of `register_gaps` in your form; it reaches the test report. A gap only the person can settle also goes in `questions[]`.
 
 At S4 write the roll-call under a `## Roll-call` heading, one row per dispatched plan row, with a
 `case` column naming every case id of the row, a `reviewed` column that is `yes` or `no`, and a

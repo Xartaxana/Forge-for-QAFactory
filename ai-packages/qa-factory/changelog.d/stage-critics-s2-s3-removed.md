@@ -5,4 +5,5 @@
   against four reminders before it stops. A ticket re-run always re-runs the stage's author (`driver_s0.ticket_rework_step`). A story
   paused under 0.11.0 in S2 or S3 re-runs that stage's author once, or is closed on the author's finished work; a dispatch of a role the
   stage does not declare never closes a stage (`driver_stage_plan.completion_for`). A register gap the case designer cannot close is
-  recorded by the case critic in the findings register and shown in the test report.
+  written by the case critic as a `register_gaps` row of its form; the driver records it in the findings register at the critic's
+  finish and it is shown in the test report.
