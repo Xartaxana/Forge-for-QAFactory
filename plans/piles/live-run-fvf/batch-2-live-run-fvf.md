@@ -117,6 +117,7 @@ FV2-1, FV2-2 имеют фиксированные id от Lead (строки р
 - 14.11 (t-838) — очередь вердикта критика темы P1B-9 (`docs/tasks/specs/reviews/20261114-p1b-9-topic-diff-critic.md`) заведена: Q-L1 → FV2-76, Q-3 → FV2-77, Q-4 → FV2-78 (три находки в `findings/` тем же ходом); Q-2 — узел FV2-67 сужен на месте (пачка не взята); Q-5 — в `package-ci` (PC3-6).
 - 14.11 (t-838) — слито без строки-узла: P1B-9 C1 4dfcd09c/fbef5a3a, C2 0d4932d1, C3 bbb21ff4/e18e622f, C4 b5c8dfeb (план P1B-9 живёт в спеке `docs/tasks/specs/20261114-p1b-9-runtime-provenance-null-outcome-spec-r2.md`; узлы FV2-66…FV2-69 — соседи по теме, но не эти карточки).
 - 14.11 (t-838) — слито без строки-узла: P1-в F-1 e98a4d2d, N8 5b1793c8/e8d9a669, N9 d0aa9161 (очереди критиков P1-в названы в первой строке «Хода»; N8 — `docs/tasks/specs/20261114-p1v-n8-carriers-draft.md`).
+- 14.11 (t-838) — слито без строки-узла: told-before-work K10 pay-down K1a 9c5db6f1, K2 442ae9de, KR 9116d50a и страницы T1r (t-830), всё в main 9198b363 (спека `docs/tasks/specs/20261114-told-before-work-k10-paydown-spec-r2.md`; дом — эта пачка: узлы FV2-24/26/41/43/44 и строка «Хода» t-756 названы узлом T1r / T1r-sites, отдельной строки у слитого нет).
 
 ## Живые доказательства
 

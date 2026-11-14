@@ -19,6 +19,7 @@ Edge 4 (already covered): grep of piles for `S5_PLAN_BRIEF_BYTES_MAX`, `249/250`
 - live-run-fvf batch-2: "14.11 (t-838) — очередь вердикта ... заведена" (Q-L1/Q-3/Q-4/Q-2/Q-5 carry line).
 - live-run-fvf batch-2: "слито без строки-узла: P1B-9 C1 4dfcd09c/fbef5a3a, C2 0d4932d1, C3 bbb21ff4/e18e622f, C4 b5c8dfeb" (home: spec `20261114-p1b-9-runtime-provenance-null-outcome-spec-r2.md` named in this pile's findings, sibling nodes FV2-66..69).
 - live-run-fvf batch-2: "слито без строки-узла: P1-в F-1 e98a4d2d, N8 5b1793c8/e8d9a669, N9 d0aa9161" (home: the batch's first «Ход» line names P1-v critic queues; N8 spec `20261114-p1v-n8-carriers-draft.md` is cited by pile findings).
+- live-run-fvf batch-2 (coordinator addition, second commit): "слито без строки-узла: told-before-work K10 pay-down K1a 9c5db6f1, K2 442ae9de, KR 9116d50a and T1r pages (t-830), in 9198b363" (home: this batch, which names T1r / T1r-sites in FV2-24/26/41/43/44 and a «Ход» line; judgment call, no batch owns the plan).
 - package-ci batch-3: "14.11 (t-838) — узел PC3-6 ..." (new node line).
 
 ## Left undone
