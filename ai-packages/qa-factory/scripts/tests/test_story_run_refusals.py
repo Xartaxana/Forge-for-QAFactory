@@ -3566,7 +3566,8 @@ def refusal_c2_4_s4_keeps_open_only_when_the_round_will_run():
         # X2-7 point 7: a critic that sends cases back on the LAST round (or with a count that is no number) goes to the conductor seam; here the seam
         # answers "no move needed" (a stub, as in test_repair_route), so the T18 expectations of those rows (None) stay what they were
         driver.pipeline = lambda: {}
-        driver.stage_review_exhausted = lambda stage, *a, **k: None
+        seam = []
+        driver.stage_review_exhausted = lambda stage, *a, **k: seam.append((stage, bool(k.get("unreadable")), k.get("text") or "")) or None
         digest = "qa-case-critic S4 TC-1 · concerns\nTC-1 · rejected · weak Then\nwork/test-cases/critic-findings.md"
         rule = driver.s4_critic_completion(["TC-1", "TC-2"], 0, 2)
         check_eq("F-3: concerns, a round left, NO findings file: the old False (one resume of the critic, no open stage)", rule(digest), False)
@@ -3582,8 +3583,13 @@ def refusal_c2_4_s4_keeps_open_only_when_the_round_will_run():
                  (no_rows.startswith("the case critic sent work back for repair; S4 was kept open"), any(ch.isdigit() for ch in no_rows.split(";")[0])), (True, False))
         check_not_in("T18: and is timeless (no 'round k of cap', no present tense)", " is kept", got.reason)
         check_eq("T18: approve -> None (the critic closes S4)", rule(digest.replace("concerns", "approve")), None)
-        check_eq("T18: the last round (counted == cap) -> None", driver.s4_critic_completion(["TC-1"], 2, 2)(digest), None)
-        check_eq("T18/edge 15: a cap or count that is no number -> None, as today", driver.s4_critic_completion(["TC-1"], None, "x")(digest), None)
+        check_eq("T18: the last round (counted == cap) with an unreadable roll-call -> the conductor seam",
+                 (driver.s4_critic_completion(["TC-1"], 2, 2)(digest), seam[-1][:2]), (None, ("S4", True)))
+        check_in("T18: the last round (counted == cap) with an unreadable roll-call -> the conductor seam: its text", "roll-call could not be read", seam[-1][2])
+        check_eq("T18/edge 15: a count that is no number -> the conductor seam, no number printed",
+                 (driver.s4_critic_completion(["TC-1"], None, "x")(digest), seam[-1][:2]), (None, ("S4", True)))
+        check_in("T18/edge 15: the seam's text names the repair count", "repair count", seam[-1][2])
+        check("T18/edge 15: and prints no digit", not any(ch.isdigit() for ch in seam[-1][2]), seam[-1][2])
         long_scope = [f"TC-{i:04d}" for i in range(80)]
         long_digest = "qa-case-critic S4 TC-0000 · concerns\n" + "".join(f"{c} · rejected · weak Then\n" for c in long_scope) + "work/test-cases/critic-findings.md"
         reason = driver.s4_critic_completion(long_scope, 0, 2)(long_digest).reason
