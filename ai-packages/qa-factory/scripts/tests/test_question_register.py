@@ -2718,12 +2718,96 @@ def test_fv19_cli_repeat_reword_note(tmp):
         cleanup(proj)
 
 
+def test_fv19_cli_stage_on_repeat_and_reword(tmp):
+    """`--stage` on `--repeat`, `--reword` and `--raise --from-handoff`: one value rule, one table (FV1-9 tail card C)."""
+    import acceptance
+    import null_outcomes
+    valid_list = "S0, S1, S2, S3, S4, S5, S6, S7, S8, S9"
+    wide = "S" + "9" * 299
+    bad = [("S99", "S99"), ("s3 lower case", "s3"), ("stage3", "stage3"), ("gate A", "gate A"), ("S10", "S10"), ("300 chars", wide),
+           ("non-ASCII look-alike of S", chr(1057) + "3"), ("inner newline", "S\n3"), ("inner tab", "S\t3")]
+    good = [("S3", "S3", "S3"), ("padded", " S3 ", "S3"), ("S4", "S4", "S4"), ("absent", None, ""), ("empty", "", ""), ("spaces", "   ", "")]
+    for op in ("repeat", "reword", "handoff"):
+        def run(stage, patched=False):
+            proj = temp_project("qa-question-register-fv19-stage-")
+            try:
+                use_project(proj)
+                root = write_story(proj / "qa-factory" / "artifacts" / "QA-9", [fv_row("Q7", asked_by="qa-case-critic"), fv_row("Q16")])
+                show_now(root, "Q7")
+                why = proj / "why.txt"
+                why.write_text("both ask the limit", encoding="utf-8")
+                spec = proj / "q.json"
+                spec.write_text(json.dumps({"question": "What is the exact limit of the import?", "why": "unclear"}), encoding="utf-8")
+                form = root / "work" / "handoffs" / "S2-qa-case-critic-1.yaml"
+                form.parent.mkdir(parents=True)
+                form.write_text("header: {role: qa-case-critic, stage: S2, window_or_scope: S2, verdict: ok}\nquestions:\n  - "
+                                + json.dumps({"rewords": "Q7", "question": "What is the exact limit of the import?", "why": "unclear"}) + "\n",
+                                encoding="utf-8")
+                args = {"repeat": ["--repeat", "Q16", "--same-as", "Q7", "--words-file", str(why), "--where", "stage ran", "--by", "conductor"],
+                        "reword": ["--reword", "Q7", "--question-file", str(spec), "--where", "stage ran", "--by", "conductor"],
+                        "handoff": ["--raise", "--from-handoff", str(form), "--asked-by", "qa-case-critic"]}[op]
+                if stage is not None:
+                    args += ["--stage", stage]
+                real = (acceptance.stage_def_of, null_outcomes.stage_ids)
+                if patched:
+                    acceptance.stage_def_of, null_outcomes.stage_ids = (lambda *a, **k: {}), (lambda: set())
+                try:
+                    code, out, err = cli("--task", "QA-9", *args)
+                finally:
+                    acceptance.stage_def_of, null_outcomes.stage_ids = real
+                view = QR.load(root)
+                q7, q16 = row_of(view, "Q7"), row_of(view, "Q16")
+                recorded = {"repeat": (q16.get("repeats") or q16.get("repeat") or {}), "reword": (q7.get("reworded") or [{}])[-1],
+                            "handoff": (q7.get("reworded") or [{}])[-1]}[op]
+                return code, out, err, recorded
+            finally:
+                cleanup(proj)
+        for label, given, want in good:
+            if op == "handoff" and not (given or "").strip():
+                code, out, err, _rec = run(given)
+                check(f"fv19_cli_stage_on_repeat_and_reword[{op}/{label}]: a blank --stage on --raise --from-handoff is still the missing flag",
+                      code == 2 and "needs --stage" in err, err)
+                continue
+            code, out, err, rec = run(given)
+            if op == "repeat":      # `record` drops an empty field: a blank stage is a record with no `stage` key
+                stage_seen = (json.loads(out).get("recorded") or {}).get("stage", "") if code == 0 else None
+            else:
+                stage_seen = rec.get("stage")
+            check_eq(f"fv19_cli_stage_on_repeat_and_reword[{op}/{label}]: accepted and recorded as {want!r}", (code, stage_seen), (0, want))
+        for label, given in bad:
+            code, out, err, _rec = run(given)
+            check(f"fv19_cli_stage_on_repeat_and_reword[{op}/{label}]: refused (exit 2), names the valid ids, nothing written",
+                  code == 2 and "is not a stage of the factory" in err and valid_list in err and out == "", f"{code} {err}")
+            if len(given) > 80:
+                check(f"fv19_cli_stage_on_repeat_and_reword[{op}/{label}]: the value is shown cut to 80 characters", wide not in err, err[:300])
+        code, out, err, _rec = run("S3", patched=True)
+        check(f"fv19_cli_stage_on_repeat_and_reword[{op}/unreadable table]: a non-blank --stage is refused saying the table could not be read",
+              code == 2 and "the stage table could not be read" in err, f"{code} {err}")
+        if op != "handoff":
+            code, out, err, _rec = run(None, patched=True)
+            check_eq(f"fv19_cli_stage_on_repeat_and_reword[{op}/unreadable table]: a blank --stage still succeeds", code, 0)
+    proj = temp_project("qa-question-register-fv19-stage-guard-")
+    try:
+        use_project(proj)
+        write_story(proj / "qa-factory" / "artifacts" / "QA-9", [fv_row("Q7"), fv_row("Q16")])
+        words = ["--words", "w", "--where", "stage ran", "--by", "conductor"]
+        for label, args, text in (("--note", ["--note", "Q16"], "--stage goes with --raise --from-handoff, --repeat or --reword only"),
+                                  ("--answer", ["--answer", "Q16", "--register-hash", "h"], "--stage goes with --raise --from-handoff, --repeat or --reword only"),
+                                  ("--show", ["--show"], "--stage goes with --raise --from-handoff, --repeat or --reword only"),
+                                  ("--raise alone", ["--raise", "--case-file", "c.md", "--then", "1", "--question-file", "q.json"], "--stage has no meaning with --raise")):
+            code, out, err = cli("--task", "QA-9", *args, *words, "--stage", "S3")
+            check(f"fv19_cli_stage_on_repeat_and_reword[guard/{label}]: refused with the guard's text", code == 2 and text in err, f"{code} {err}")
+    finally:
+        cleanup(proj)
+
+
 TESTS = [test_fv19_repeat_hidden_while_target_resolves, test_fv19_repeat_of_settled_listed_for_brief, test_fv19_repeat_unresolved_shown,
          test_fv19_repeat_write_refusals, test_fv19_repeat_refused_with_dependants, test_fv19_repeat_replay_noop, test_fv19_person_answer_beats_repeat,
          test_fv19_reopen_undoes_repeat, test_fv19_repeat_records_history, test_fv19_reword_keeps_id, test_fv19_reword_refusals, test_fv19_reword_who_may,
          test_fv19_reword_readings_frozen, test_fv19_reword_carries_repeats, test_fv19_reword_after_reopen_allowed, test_fv19_note_bound_to_bytes,
          test_fv19_asked_for_brief_empty_and_unreadable, test_fv19_raise_pending_records_repeats, test_fv19_raise_pending_rewords,
          test_fv19_handoff_rewords_item, test_fv19_origin_words_unknown_default, test_fv19_cli_repeat_reword_note,
+         test_fv19_cli_stage_on_repeat_and_reword,
          test_gw1_47_stray_line_starts_with_an_open_register_id, test_answers_lock_busy_names_the_holder, test_placeholder_question_row_dropped, test_x2_6_role_questions,test_g1_13_question_row_keys_never_meet_and_the_readiness_writer_keeps_its_bytes, test_e1_exact_id, test_e2_load, test_e3_answers_file, test_e4_register, test_e5_parser, test_e6_cli,
          test_e6_cli_subprocess, test_e7_battery, test_edge2_fence_and_quote, test_edge3_row_hash, test_edge4_where_by,
          test_edge5_case_decisions, test_edge5_case_cli, test_edge6_words_file, test_edge7_lock, test_edge8_named,

@@ -1861,18 +1861,24 @@ class DriverDispatch:
             hash_text = ("the --register-hash that --show prints" if not shown else
                          "--register-hash = the hash the person was SHOWN: `question_stop.shown` in "
                          f"{self.state_dir / 'driver-state.json'}; only for an id not there, the one --show prints")
+            script = f"python {self.scripts / 'question_register.py'}"     # named as the `--show` door below names it
             text += (" The factory read their lines against the register's questions by code - recorded by code: "
                      + (", ".join(recorded["recorded"] + [f"{q} (until the report)" for q in recorded["deferred"]]) or "nothing")
                      + "; do not record these again, and do not journal their words again (the driver did). "
                      + ("Not recorded by code (each line says why): " + "; ".join(recorded["unread"] + recorded["unknown_ids"]) + ". "
                         if recorded["unread"] or recorded["unknown_ids"] else "")
-                     + "An answer they gave to a question in other words is recorded with question_register.py "
-                     f"(--answer QID --reading <letter> | --not-needed QID | --defer QID, with --words-file, --where \"{stage} stop\", "
-                     f"--by conductor and {hash_text})."
+                     + f"An answer they gave to a question in other words is recorded with `{script}` "
+                     f"(--answer QID --reading <letter> | --not-needed QID | --defer QID, with --task {self.task}, --words-file, "
+                     f"--where \"{stage} stop\", --by conductor and {hash_text})."
                      " A question their words show they could not tell what it asks is reworded with "
-                     f"`question_register.py --reword QID --question-file <file> --by conductor --where \"{stage} stop\"`; "
+                     f"`{script} --task {self.task} --reword QID --question-file <file> --by conductor "
+                     f"--where \"{stage} stop\" --stage {stage}`; "
                      "the file is JSON with `question`, `why` and optionally `readings`."
-                     f" Read the questions whole with `python {self.scripts / 'question_register.py'} --task {self.task} --show`: "
+                     " When their words say two of these questions ask the same thing, the later one is merged into the earlier with "
+                     f"`{script} --task {self.task} --repeat QID --same-as QID --words-file <file> --by conductor "
+                     f"--where \"{stage} stop\" --stage {stage}` (the file holds one line: why both ask the same); the person is then "
+                     "asked once, under the earlier id, and the merge is refused while a plan row or a case still rests on the later id."
+                     f" Read the questions whole with `{script} --task {self.task} --show`: "
                      "the question text below may be cut.")
         # `s1_review` gets no options: `record_review` records ANY words as the S1 review before the conductor sees them (C1-3 owns that
         # text); a `halt` re-raises as a `halt` (C1-2, C1).
