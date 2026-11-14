@@ -2335,6 +2335,15 @@ def _proved_warnings(task_root: Path, warnings: list) -> tuple:
         return list(warnings), []
 
 
+def _pipeline_warnings(task_root: Path, pipeline: dict) -> tuple:
+    """`(warnings, proved_warnings, not_established)` of `pipeline["warnings"]` - the ONE reader `collect` (gate A) and `render_gate_b` share.
+    The selection runs BEFORE the render's cut to five lines, so a line that left frees its place (E24); `_not_established` runs after
+    `_proved_warnings` (a proved line is reported as proved, never as not established) and before the cut (OH1-11)."""
+    warnings, proved = _proved_warnings(task_root, [str(w) for w in (pipeline.get("warnings") or [])])
+    warnings, not_established = _not_established(warnings)
+    return warnings, proved, not_established
+
+
 def collect(task: str, root: Path | None = None) -> dict:
     task_root = Path(root) if root is not None else artifacts_dir(task)
     pipeline = read_json(task_root / "pipeline.json", {}) or {}
@@ -2359,9 +2368,7 @@ def collect(task: str, root: Path | None = None) -> dict:
         effects, effect_problems = {}, [f"what each answer changes could not be worked out "
                                         f"({type(exc).__name__}: {exc})"]
     # The selection runs BEFORE the render's cut to five lines, so a line that left frees its place (E24).
-    warnings, proved_warnings = _proved_warnings(task_root, [str(w) for w in (pipeline.get("warnings") or [])])
-    # After `_proved_warnings` (a proved line is reported as proved, never as not established), before the cut (OH1-11).
-    warnings, not_established = _not_established(warnings)
+    warnings, proved_warnings, not_established = _pipeline_warnings(task_root, pipeline)
     excluded = _excluded_by_words(task_root)
     reference = reference_facts(task_root)
     return {
@@ -3328,6 +3335,13 @@ def _unreachable_lines(data: dict) -> list:
     return lines
 
 
+def _warning_lines(warnings) -> list:
+    """The "Warnings the factory is carrying" block, the one text of gate A and gate B (no text filter, FR-12); no warnings, no block."""
+    if not warnings:
+        return []
+    return ["", "## Warnings the factory is carrying"] + ["- " + " ".join(str(w).split())[:180] for w in warnings[:5]]
+
+
 def _tail_sections(data: dict, judged: list) -> list:
     """The optional sections after the person's own decisions, in the order the packet prints them: sources
     found late, automation the plan did not justify, warnings, the judge block (`judged`, computed by
@@ -3348,12 +3362,7 @@ def _tail_sections(data: dict, judged: list) -> list:
                      + ": `automate` at e2e-ui, as written or after an answer to a question, while `impact`, `likelihood` and `verification_depth` do not say "
                        "highest risk. The strategist judged them so; this is no question to you, and a critic of "
                        "the plan reads the level. Say so in your answer if you want them changed.")
-    warnings = data.get("warnings") or []
-    if warnings:
-        lines.append("")
-        lines.append("## Warnings the factory is carrying")
-        for w in warnings[:5]:
-            lines.append("- " + " ".join(w.split())[:180])
+    lines.extend(_warning_lines(data.get("warnings") or []))
     if judged:
         lines.append("")
         lines.extend(judged)
@@ -5110,6 +5119,8 @@ def render_gate_b(task: str, root: Path | None = None) -> str:
     ledger = read_ledger(task_root)
     lines += gate_b_gap_lines(ledger if ledger is not None else {"repair_windows_problem": "the ledger cannot be read"},
                               left=case_remarks_left(task_root))
+    # B2g (AR-27): the warnings a stage closed with (the S7 gap among them) reach the person at gate B too - the reader `collect` uses
+    lines += _warning_lines(_pipeline_warnings(task_root, read_json(task_root / "pipeline.json", {}) or {})[0])
     lines.append("")
     lines.append(filing_line(task_root, config))
     size = sizing_line(task_root)

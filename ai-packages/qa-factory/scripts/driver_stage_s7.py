@@ -136,7 +136,8 @@ class DriverStageS7:
             self.run_role("S7", "qa-failure-analyst", complete=complete,
                           extra=self.role_lines("S7", "qa-failure-analyst") + told
                           + ([f"You also accept or return the runner's handoff ({awaiting}): your word on it is `{word_at}` of your form "
-                              "(`accept` or `return`), and `inputs_read` names the runner's form work/handoffs/" + awaiting + ".yaml."]
+                              "(`accept` or `return`), and `inputs_read` names the runner's form work/handoffs/" + awaiting + ".yaml.",
+                              self.consumer_round_line("S6", awaiting)]       # B2-2: the round state, told BEFORE the work (FR-38)
                              if awaiting else []))
             if awaiting:
                 self.consumer_settled("S6", self.controller_state(), awaiting, True, ran=True)
