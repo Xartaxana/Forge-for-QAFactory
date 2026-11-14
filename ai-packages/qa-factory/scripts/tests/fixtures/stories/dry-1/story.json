@@ -6,6 +6,7 @@
  "change": {"diff_file": "impl.diff"},
  "stub": {
   "qa-case-critic": {"verdict": "ok"},
+  "qa-case-critic@S2": {"result_text": "qa-case-critic S2 DRY-1 · ok\nR-1 · reviewed · the register row names its observable\nR-2 · reviewed · the register row names its observable\nwork/handoffs/S2-qa-case-critic-1.yaml"},
   "qa-requirements-tester": {
    "result_text": "qa-requirements-tester S2 DRY-1 · ok\nR-1 · found · the total is the sum of price times quantity of the lines\nR-2 · found · an empty cart shows zero and offers no checkout\nwork/requirements-register.md",
    "overrides": {

@@ -544,6 +544,12 @@ def calls_before(task_dir: Path, key: str) -> int:
     return len([r for r in rows if (r.get("dispatch") or r.get("conductor")) == key])
 
 
+def stub_control(control: dict, role: str, stage: str) -> dict:
+    """The ONE reader of a role's row in the control's `stub`: the row `<role>@<stage>` over the row `<role>` (the default for every stage of a role)."""
+    table = control.get("stub") or {}
+    return {**(table.get(role) or {}), **(table.get(f"{role}@{stage}") or {})}
+
+
 def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Path, dispatch: str = "", n: int = 1) -> tuple:
     """`(dispatch, result text, journal row)` of one role call; see the module text. `dispatch` names the call when the prompt does not (a repair resume);
     `n` is the call's number within its dispatch (the row's `repair_on_round` reads it)."""
@@ -556,7 +562,7 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
     contract, stage = FORM_CONTRACT.search(text), FORM_STAGE.search(text)
     stage = stage.group(1) if stage else ""
     row["stage"] = stage
-    mine = (control.get("stub") or {}).get(role) or {}
+    mine = stub_control(control, role, stage)
     task = control.get("task", "")
     import dry_world as W
     try:
