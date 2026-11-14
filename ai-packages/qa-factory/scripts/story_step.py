@@ -2050,8 +2050,8 @@ def _gate_refusal(args, task_root: Path, dispatch: dict, blocking: list) -> str:
     refused = [r for r in refused if r not in awaiting]
     if awaiting:
         lines.append("  " + str(len(awaiting)) + " finding(s) wait for the answer to an expectation question "
-                     "(`awaits_answer`): no recorded word passes them, `*` included. Each line above names the question and "
-                     "the command with which the conductor records the person's answer; until it is answered, the author "
+                     "(`awaits_answer`): no recorded word passes them, `*` included. Each line above names either the question and "
+                     "the command with which the conductor records the person's answer, or sends the case back to S4; until it is answered, the author "
                      "binds that Then `expectation_unconfirmed` as the line says, or returns the item in its digest when "
                      "the line sends the case back to S4.")
     if refused:

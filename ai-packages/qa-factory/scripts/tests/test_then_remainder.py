@@ -876,11 +876,9 @@ def k22_open_oracle_awaits_its_answer() -> None:
             ("k22-8 prefix elsewhere", finding("xopen-oracle-asserted-1"), "", True)]
     for label, f, cause, passable in rows:
         check_eq(f"{label}: the refusal cause", P.refusal_cause(f), cause)
-        if label.startswith(("k22-1", "k22-5 no-b", "k22-5 env")):
-            check_eq(f"{label}: passable", P._passable(f), passable)
-    for label in ("k22-5",):
-        out = printed({"ok": False, "findings": [f for lab, f, _c, _p in rows if lab.startswith(label)]})
-        check_not_in("k22-5: a result with no open-oracle finding prints no awaits_answer text", "awaits_answer", out)
+        check_eq(f"{label}: passable", P._passable(f), passable)
+    out = printed({"ok": False, "findings": [f for lab, f, _c, _p in rows if lab.startswith("k22-5")]})
+    check_not_in("k22-5: a result with no open-oracle finding prints no awaits_answer text", "awaits_answer", out)
     env, oracle = finding("stand-login"), finding("open-oracle-asserted-1")
     out = printed({"ok": False, "findings": [env, oracle]})
     check_in("k22-6: the refusal line sits above the header", f"{DV.WORDS_REFUSED_AT_SOURCE} {oracle['id']} awaits_answer\n"

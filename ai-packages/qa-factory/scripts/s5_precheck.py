@@ -4805,8 +4805,8 @@ def report(result: dict) -> int:
              "here except `open-oracle-asserted-*` (answer the expectation question) and a Then left with its owner."
              if any(_passable(f) for f in findings) else "")
           + (" A finding whose refusal line above says `awaits_answer` (`open-oracle-asserted-*`) waits for the answer to its "
-             "expectation question: no word passes it, `*` included; its own line names the author's repair and the "
-             "question the person settles by answering it."
+             "expectation question: no word passes it, `*` included; its own line names the author's repair and either the "
+             "question the person settles by answering it or the road back to S4."
              if any(refusal_cause(f) == DV.AWAITS_ANSWER for f in findings) else "")
           + (" A Then the person takes is the one exception: the orchestrator records their words under "
              f"`{C.THEN_HANDED_MATCH_PREFIX} <case>#<n>` (named in the finding); that block is read by NAME, "
