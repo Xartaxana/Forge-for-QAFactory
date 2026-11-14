@@ -767,6 +767,10 @@ def gate_ready(world: World, kind: str) -> tuple:
     red naming the command, never a pass (FR-59)."""
     gate = GATE_ASKS[kind]
     name = f"gate-{gate}"
+    again = 1
+    while (world.snaps / world.row["id"] / name).exists():       # a gate shown AGAIN after an answer (FV1-8) is rehearsed on its own copy, never over the first one
+        again += 1
+        name = f"gate-{gate}-{again}"
     snapshot(world, name)
     copy = from_snapshot(world, name)
     command = f"gate_preflight.py --task {world.task} --gate {gate}"
@@ -858,7 +862,7 @@ def main_pass(story_id: str = DEFAULT_STORY, label: str = "default", ledger_path
     world = build_story_world(story_id)
     started = time.monotonic()
     done_turns, spans, first_ref, stop, asked, answer = 0, {}, "", "", 0, world.root / "answer.md"
-    asks, gates, at_ask, class_seen = [], {}, None, False
+    asks, gates, at_ask, class_seen, unchanged = [], {}, None, False, 0
     try:
         for turn in range(MAX_TURNS):
             args = ["--max-boundaries", "60"] + (["--answer", str(answer)] if turn else [])
@@ -892,7 +896,16 @@ def main_pass(story_id: str = DEFAULT_STORY, label: str = "default", ledger_path
                 if turn == 0:
                     line("main/C3", "note", note)
             if turn and at_ask is not None and fingerprint == at_ask:
+                unchanged += 1
                 line(f"main/{asks[-1]['ask'].get('kind')}/C3", "fail", f"the answer changed nothing: the state fingerprint is the one it was asked at (C3)")
+                if unchanged == 1:       # what the question said, once: the evidence of WHY the answer was not taken (N2d: gate_A x approve)
+                    seen = world.task_root / "state" / "driver-question-details.md"
+                    line(f"main/{asks[-1]['ask'].get('kind')}/C3-details", "note", cut(seen.read_text(encoding="utf-8", errors="replace"), 2400) if seen.is_file() else "no details file")
+                if unchanged >= 3:       # the same answer, the same state, three times: the pass is a loop, not a walk (a run of 40 processes is 15 minutes of the same refusal)
+                    stop = f"the answer to {asks[-1]['ask'].get('kind')} changed nothing {unchanged} times running (C3)"
+                    break
+            else:
+                unchanged = 0
             if len(questions) <= asked:
                 stop = "" if state["S9"] == "done" else f"the driver ended (exit {run.rc}) with no new question and S9 not done"
                 break

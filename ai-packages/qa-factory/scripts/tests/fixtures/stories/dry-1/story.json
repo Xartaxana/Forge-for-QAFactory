@@ -8,7 +8,29 @@
   "qa-case-critic": {"verdict": "ok"},
   "qa-case-critic@S2": {"result_text": "qa-case-critic S2 DRY-1 · ok\nR-1 · reviewed · the register row names its observable\nR-2 · reviewed · the register row names its observable\nwork/handoffs/S2-qa-case-critic-1.yaml"},
   "qa-case-critic@S3": {"result_text": "qa-case-critic S3 DRY-1 · ok\nTS-1 · reviewed · the plan row names the requirement and its level\nTS-2 · reviewed · the plan row names the requirement and its level\nwork/handoffs/S3-qa-case-critic-1.yaml"},
-  "qa-case-critic@S4": {"result_text": "qa-case-critic S4 DRY-1 · ok\nTC-1 · reviewed · the case checks the total and names its plan row\nTC-2 · reviewed · the case checks the empty cart and names its plan row\nwork/handoffs/S4-qa-case-critic-1.yaml"},
+  "qa-case-critic@S4": {
+   "result_text": "qa-case-critic S4 DRY-1 · ok\nTC-1 · reviewed · the case checks the total and names its plan row\nTC-2 · reviewed · the case checks the empty cart and names its plan row\nwork/test-cases/critic-findings.md",
+   "files": {
+    "work/test-cases/critic-findings.md": [
+     "# Critic findings, S4, round 1",
+     "",
+     "Verdict: approve",
+     "",
+     "## Roll-call",
+     "",
+     "| plan row | case | reviewed | verdict | note |",
+     "|---|---|---|---|---|",
+     "| TS-1 | TC-1 | yes | approve | the Then reads the total through the cart page, an independent channel |",
+     "| TS-2 | TC-2 | yes | approve | the Then reads the empty cart's zero and the missing checkout offer |",
+     "",
+     "## Merge candidates",
+     "",
+     "| cases | verdict | reason |",
+     "|---|---|---|",
+     "| TC-1, TC-2 | keep | P16: the total of a cart with lines and the empty cart are two branches of the cart page; one parametrised red line would not name which branch failed (both cover R-1 only because the filler's register holds one row) |"
+    ]
+   }
+  },
   "qa-case-designer@S4": {
    "result_text": "qa-case-designer S4 DRY-1 · ok\nTC-1 · created · the case checks the cart total with a quantity\nwork/handoffs/S4-qa-case-designer-1.yaml",
    "overrides": {
@@ -51,7 +73,7 @@
   {"stage": "S1", "role": "qa-scout", "door": {"kind": "driver"}, "answers": {"s1_review": "go on"}},
   {"stage": "S2", "role": "qa-requirements-tester", "door": {"kind": "driver"}},
   {"stage": "S3", "role": "qa-test-strategist", "door": {"kind": "driver"}},
-  {"stage": "S4", "role": "qa-case-designer", "door": {"kind": "driver"}},
+  {"stage": "S4", "role": "qa-case-designer", "door": {"kind": "driver"}, "answers": {"gate_A": "approve"}},
   {"stage": "S5", "role": "qa-automator", "door": {"kind": "driver"}},
   {"stage": "S6", "role": "qa-runner", "door": {"kind": "driver"}},
   {"stage": "S7", "role": "qa-failure-analyst", "door": {"kind": "driver"}},

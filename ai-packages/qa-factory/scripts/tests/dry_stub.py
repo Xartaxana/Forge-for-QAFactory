@@ -630,6 +630,28 @@ def apply_grounding(task_dir: Path, data: dict, key: str) -> list:
     return wrote
 
 
+def write_files(task_dir: Path, data, key: str) -> list:
+    """The role's own files that no filler row and no tool writes (the S4 case critic's `work/test-cases/critic-findings.md` with its `## Roll-call`,
+    `agents/qa-case-critic.md` "Tools"), as story data: `data` = `{"<path under work/>": "<the file's text>" | ["<line>", ...]}`. The text is the ROLE's word
+    (its verdict, its rows); every number derived from it (`review.rollcall`, the roll-call claim) stays code's, computed by `handoff_check --fix` from this file.
+    A path outside `work/` (or climbing out of it), a value that is not text or a list of lines, or an empty text: `KitError` naming the key. Returns the paths written."""
+    if not isinstance(data, dict) or not data:
+        raise KitError(f"{key}: `files` is {data!r}; expected an object of `<path under work/>` -> text (or a list of lines)")
+    wrote = []
+    for path, body in data.items():
+        text = "\n".join(body) if isinstance(body, list) and all(isinstance(x, str) for x in body) else body
+        parts = str(path).replace("\\", "/").split("/")
+        if parts[0] != "work" or len(parts) < 2 or any(p in ("", ".", "..") for p in parts):
+            raise KitError(f"{key}: `files` names {path!r}; expected a path under work/ with no `..`")
+        if not isinstance(text, str) or not text.strip():
+            raise KitError(f"{key}: `files[{path!r}]` is empty or not text; expected the file's text or a list of lines")
+        target = task_dir.joinpath(*parts)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((text.rstrip("\n") + "\n").encode("utf-8"))
+        wrote.append("/".join(parts))
+    return wrote
+
+
 def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Path, dispatch: str = "", n: int = 1) -> tuple:
     """`(dispatch, result text, journal row)` of one role call; see the module text. `dispatch` names the call when the prompt does not (a repair resume);
     `n` is the call's number within its dispatch (the row's `repair_on_round` reads it)."""
@@ -687,6 +709,8 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
             raise KitError(f"story `stub` holds no `grounding` for `{role}@{stage}#{window}`; the labelling window's product is the story's data (rows, requirements)")
         row["wrote"] += [f"work/grounding.yaml: {', '.join(apply_grounding(task_dir, data, f'{role}@{stage}#{window}'))}"]
         row["live_only"] = [x for x in row["live_only"] if "no form with a `contract:` line" not in str(x.get("why"))]       # window 1 has no handover form: not a gap
+    if "files" in mine:       # the role's own files, as the story's data (before `--fix` below, which derives from them)
+        row["wrote"] += write_files(task_dir, mine["files"], f"{role}@{stage}")
     if kit and role == "qa-automator" and stage == "S5":
         done = automator_branch(project, task_dir, kit, runner_row(kit["runner"]), dispatch)
         row["wrote"] += done["wrote"]
@@ -1395,6 +1419,27 @@ def selftest_n2c(tmp: Path) -> None:
     except KitError as exc:
         got_text = str(exc)
     check("N2c edge 6: an absent table is a KitError naming the key and the problem", got_text.startswith("k: work/grounding.yaml cannot be read"), got_text)
+    # N2d: the role's own files as story data (`write_files`)
+    out = tmp / "n2d" / "T"
+    out.mkdir(parents=True)
+    check_eq("N2d: `files` writes the text (a list of lines is joined, one final newline) under work/ and names the paths",
+             (write_files(out, {"work/a/x.md": ["# h", "", "row"], "work/b.md": "text\n\n"}, "k"), (out / "work" / "a" / "x.md").read_bytes(), (out / "work" / "b.md").read_bytes()),
+             (["work/a/x.md", "work/b.md"], b"# h\n\nrow\n", b"text\n"))
+    for name, bad, needle in (("a path outside work/", {"state/x.md": "t"}, "a path under work/"), ("a path climbing out", {"work/../x.md": "t"}, "a path under work/"),
+                              ("a bare `work`", {"work": "t"}, "a path under work/"), ("an empty text", {"work/x.md": "  "}, "empty or not text"),
+                              ("a non-text value", {"work/x.md": 3}, "empty or not text"), ("an empty object", {}, "expected an object")):
+        try:
+            write_files(out, bad, "k")
+            got_text = "no error"
+        except KitError as exc:
+            got_text = str(exc)
+        check(f"N2d: `files` with {name} is a KitError naming the key", needle in got_text and got_text.startswith("k:"), got_text)
+    import critic_rollcall as CR
+    story_files = stub_control({"stub": story}, "qa-case-critic", "S4")["files"]
+    rows = CR.parse_rollcall("\n".join(story_files["work/test-cases/critic-findings.md"]))
+    check_eq("N2d: the story's S4 critic file reads through the product's roll-call reader and derives `2 of 2 reviewed`",
+             ([(r["plan_row"], r["ids"], r["reviewed"], r["verdict"]) for r in rows], CR.derive(rows)["digest"]),
+             ([("TS-1", ["TC-1"], True, "approve"), ("TS-2", ["TC-2"], True, "approve")], "2 of 2 reviewed"))
 
 
 def rows_dir(tmp: Path, name: str, calls: list) -> Path:
