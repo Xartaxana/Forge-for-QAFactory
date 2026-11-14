@@ -1,0 +1,3 @@
+- The question asked when the case reviewer still rejects cases after the last repair round no longer says "its file could not be found" about a case whose file exists: the earlier-round paragraph now looks up the files of the earlier cases too, and a failed lookup says "could not be read".
+- The report and the gate B packet print the count of case review remarks as "unknown" (not 0) when the remark list cannot be read.
+- The collect-time loop table now reads the S4 repair-limit answers (`repair_limit_s4`).

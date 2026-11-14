@@ -607,6 +607,51 @@ def fv16_s4_review_limit() -> None:
                 check("Q2 second-ask-differs: the text differs from the first ask's", text != first_text)
         finally:
             harness.cleanup(root)
+    # Q2c (critic N1-1) an earlier case the current round no longer rejects, whose file exists: a link, never "could not be found";
+    # an earlier case with no file keeps the words; a lookup that cannot read is "could not be read", not "not found" (FR-41)
+    records = {S4_DESIGNER: {"id": S4_DESIGNER, "stage": "S4", "role": "qa-case-designer", "status": "accepted"},
+               S4_CRITIC: {"id": S4_CRITIC, "stage": "S4", "role": "qa-case-critic", "status": "accepted"},
+               "S4-qa-case-critic-2": {"id": "S4-qa-case-critic-2", "stage": "S4", "role": "qa-case-critic", "status": "accepted"}}
+    for label, cases, broken, wanted, banned in (
+            ("Q2c earlier-case-not-rejected-now-gets-its-link", ["TC-3", "TC-5", "TC-8"], False,
+             ["[TC-5](", "[TC-8]("], ["could not be found"]),
+            ("Q2d earlier-case-with-no-file-keeps-the-words", ["TC-3", "TC-7"], False, ["TC-7 (its file could not be found)"], []),
+            ("Q2e unreadable-lookup-is-not-not-found", ["TC-3", "TC-5"], True, ["TC-5 (its file could not be read)"], ["could not be found"])):
+        root, driver, seam = _s4_rig(S4_ONE, dispatches=records, store=_s4_entry("round"))
+        try:
+            driver.state["repair_limit_s4"][S4_CRITIC]["cases"] = cases
+            import gate_brief
+            real = gate_brief.case_files
+            if broken:
+                def failing(*a, **k):
+                    raise OSError("unreadable")
+                gate_brief.case_files = failing
+            try:
+                _got, person = _s4_limit(driver, counted=3, cap=2, dispatch="S4-qa-case-critic-2")
+            finally:
+                gate_brief.case_files = real
+            for word in wanted:
+                check_in(f"{label}: the paragraph", word, str(person.text))
+            for word in banned:
+                check_not_in(f"{label}: no false words", word, str(person.text))
+        finally:
+            harness.cleanup(root)
+    # Q2f (critic N1-4) a store that is no mapping is read as empty, never an AttributeError
+    root, driver, seam = _s4_rig(S4_ONE, store=["x"])
+    try:
+        _got, person = _s4_limit(driver)
+        check_eq("Q2f non-mapping-store-is-empty: the first ask is raised", (person is not None, driver.s4_limit_store()), (True, {}))
+    finally:
+        harness.cleanup(root)
+    # Q1b (critic N1-6) a newest round with no `Verdict:` line: the seam text names the findings file, not a "last round" word
+    root, driver, seam = _s4_rig(_s4_findings("| TS-2 | TC-4 | yes | approve_with_concerns | ok | |").replace("Verdict: reject\n", ""))
+    try:
+        _got, person = _s4_limit(driver)
+        (args, kwargs), = seam
+        check_in("Q1b findings-file-marked: the text names the findings file", "the findings file work/test-cases/critic-findings.md is marked", kwargs.get("text") or "")
+        check_not_in("Q1b findings-file-marked: not 'last round'", "last round", kwargs.get("text") or "")
+    finally:
+        harness.cleanup(root)
     # Q4a / Q4b the critic's note AT and BEYOND 300; Q6 counted 0; Q7 a row with no case and a case with no file
     for label, note, shown in (("Q4a note-at-300", "n" * 300, "n" * 300), ("Q4b note-at-301", "n" * 301, "n" * 299 + "…")):
         root, driver, seam = _s4_rig(S4_ONE.replace("<note>", note))

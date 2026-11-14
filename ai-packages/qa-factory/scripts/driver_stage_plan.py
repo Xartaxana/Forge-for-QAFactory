@@ -768,98 +768,115 @@ class DriverStagePlan:
                      "--idempotency-key", f"stage-review-pass:{self.task}:{stage}:{critic_dispatch}",
                      what="the finding about the stage review you passed", stage=stage)
 
+    def s4_limit_store(self) -> dict:
+        """The S4 repair-limit store (slot = the critic dispatch) as a dict: `{}` for an absent store or a state that is no mapping.
+        ONE reader for `s4_round_bought` and `s4_review_limit`."""
+        store = self.state.get(self.repair_store_name("S4"))
+        return store if isinstance(store, dict) else {}
+
+    @staticmethod
+    def s4_critic_ids(dispatches, status: str = "") -> list:
+        """The ids of the S4 `qa-case-critic` dispatches in the controller's creation order (only those with `status` when it is given).
+        ONE filter for the newest-critic read and the accepted-rounds read."""
+        return [str(d.get("id") or name) for name, d in (dispatches.items() if isinstance(dispatches, dict) else [])
+                if isinstance(d, dict) and d.get("stage") == "S4" and d.get("role") == "qa-case-critic"
+                and (not status or d.get("status") == status)]
+
     def s4_round_bought(self, dispatches) -> bool:
         """True when the NEWEST S4 `qa-case-critic` dispatch (the controller's creation order, as `stage_repair_owed` reads it) has an
         answer `round` in the S4 repair-limit store (slot = the critic dispatch): the person bought one more round for the cases that
         review sent back. No critic, no store, a state that is no mapping -> False. ONE reader for `stage_S4` and `s4_after_critic`."""
-        rows = [str(d.get("id") or name) for name, d in (dispatches.items() if isinstance(dispatches, dict) else [])
-                if isinstance(d, dict) and d.get("stage") == "S4" and d.get("role") == "qa-case-critic"]
-        store = self.state.get(self.repair_store_name("S4"))
-        if not rows or not isinstance(store, dict):
+        rows = self.s4_critic_ids(dispatches)
+        if not rows:
             return False
-        newest = rows[-1]
-        entry = store.get(newest)
-        return bool(newest) and isinstance(entry, dict) and entry.get("token") == "round"
+        entry = self.s4_limit_store().get(rows[-1])
+        return bool(rows[-1]) and isinstance(entry, dict) and entry.get("token") == "round"
 
-    def s4_review_limit(self, dispatch: str, form: str, counted, cap, budget):
-        """The S4 critic sent cases back on the last round: the person's question (F1 (a)), the finish of the critic's `complete`. Steps in
-        this order: no findings file -> False (one resume of the critic, never a question); a repair count that is no pair of numbers, a
-        roll-call that cannot be read, or one that names a rejecting verdict over no rejected case -> the conductor seam with
-        `unreadable=True` (an unknown is never shown as "no case rejected", FR-59); a roll-call that names no case it still rejects under a
-        `concerns` header -> the seam with that text (code never closes S4 over a self-contradicting critic output); the person's stored
-        answer for THIS critic dispatch (`round` -> OpenWork, `go on` -> the person's pass recorded as the acceptance); else the question."""
+    def s4_limit_unknowns(self, dispatch: str, form: str, counted, cap, findings):
+        """The unknowns of the S4 limit question: `(rows, ())` when the roll-call is known and names rejected cases, else `(None, (what
+        the conductor seam returned,))`. Order: a repair count that is no pair of numbers, a roll-call that cannot be read, one that names
+        a rejecting word over no rejected case (the critic contradicts itself: the seam, never a list), one that names no case under a
+        `concerns` header -> the conductor seam (`unreadable=True` for an unknown, FR-59)."""
         import acceptance
-        import contract
-        import controller
         import critic_rollcall
-        import gate_brief
-        findings = self.s4_findings()
-        if findings is None:
-            return False
         path = findings.relative_to(self.task_root).as_posix()
         unknown = "S4", "qa-case-designer", dispatch, None, form
         if not (isinstance(counted, int) and isinstance(cap, int)):
-            return self.stage_review_exhausted(*unknown, unreadable=True, text="the repair count of the case designer could not be read")
+            return None, (self.stage_review_exhausted(*unknown, unreadable=True, text="the repair count of the case designer could not be read"),)
         try:
             data = findings.read_bytes()
         except OSError:
             data = None
         rows = None if data is None else critic_rollcall.current_rejected(data, self.task_root)
         if rows is None:
-            return self.stage_review_exhausted(*unknown, unreadable=True,
-                                               text=f"the case critic's roll-call could not be read from its findings file {path}")
+            return None, (self.stage_review_exhausted(*unknown, unreadable=True,
+                                                      text=f"the case critic's roll-call could not be read from its findings file {path}"),)
         declared = critic_rollcall.declared_verdict(data.decode("utf-8", errors="replace")).lower()
         if not rows and declared not in critic_rollcall.APPROVING_VERDICTS:
-            # the round says `reject` (or no readable word) over a table whose every row approves: a round the receipt reads as `partial`
-            # (`_round_word_rule`), not "nothing is rejected" - the critic's output contradicts itself and the person is not shown a list
-            return self.stage_review_exhausted(*unknown, unreadable=True,
-                                               text=f"the case critic's last round in {path} is marked "
-                                                    f"{'`' + declared + '`' if declared else 'with no verdict word'} while its roll-call "
-                                                    "approves every case it reviewed, so which cases it still rejects cannot be told")
-        record = acceptance.stage_acceptance(self.pipeline(), "S4") or {}
+            # the file says `reject` (or no readable word) over a table whose every row approves: a round the receipt reads as `partial`
+            # (`_round_word_rule`), not "nothing is rejected" - the critic's output contradicts itself and the person is not shown a list.
+            # The word is the file's first `Verdict:` line, not necessarily the newest round's: the text names the file, not a round.
+            return None, (self.stage_review_exhausted(*unknown, unreadable=True,
+                                                      text=f"the findings file {path} is marked "
+                                                           f"{'`' + declared + '`' if declared else 'with no verdict word'} while its roll-call "
+                                                           "approves every case it reviewed, so which cases it still rejects cannot be told"),)
         if not rows:
-            return self.stage_review_exhausted("S4", "qa-case-designer", dispatch, record, form,
-                                               text="the case critic sent the cases back on its last round and its roll-call names no case "
-                                                    "it still rejects")
-        entry = (self.state.get(self.repair_store_name("S4")) or {}).get(dispatch)
-        entry = entry if isinstance(entry, dict) else {}
+            record = acceptance.stage_acceptance(self.pipeline(), "S4") or {}
+            return None, (self.stage_review_exhausted("S4", "qa-case-designer", dispatch, record, form,
+                                                      text="the case critic sent the cases back on its last round and its roll-call names "
+                                                           "no case it still rejects"),)
+        return rows, ()
+
+    def s4_limit_answered(self, dispatch: str, form: str, entry: dict, path: str):
+        """The person's stored answer for THIS critic dispatch: `round` -> OpenWork, `go on` -> the person's pass recorded as the
+        acceptance of S4 (None), a dry run -> False."""
+        import acceptance
+        record = acceptance.stage_acceptance(self.pipeline(), "S4") or {}
         if entry.get("token") == "round":
             return OpenWork("cases_in_repair", open_work_reason("the person chose one more round for the case designer", f"… [list: {path}]"))
-        if entry.get("token") == "go on":
-            line = (f"{acceptance.STAGE_ACCEPTANCE_PHRASE}: the case critic rejected S4 and no repair round is left: "
-                    f"{record.get('quote') or ''}")
-            author_last = acceptance.stage_author_dispatch(self.controller_state(), acceptance.stage_def_of("S4"))
-            no_author = ("the case designer's accepted dispatch could not be found, so your answer `go on` cannot be recorded as the "
-                         "acceptance of S4")
-            if not author_last:
-                return self.stage_review_exhausted("S4", "qa-case-designer", dispatch, record, form, unreadable=True, text=no_author)
-            if getattr(self, "dry", False):
-                print("S4: dry run - the person's answer `go on` would be recorded as the acceptance of S4; nothing is recorded")
-                return False
-            try:
-                words = (self.task_root / str(entry.get("words_file") or "")).read_text(encoding="utf-8", errors="replace").strip()
-            except OSError:
-                words = ""
-            heard = self.person_pass("S4", author_last, line, answer=words or "go on")
-            if not heard:
-                return self.stage_review_exhausted("S4", "qa-case-designer", dispatch, record, form, unreadable=True, text=no_author)
-            self.review_pass_finding("S4", dispatch, line, heard)
-            return None
-        roles = next((p for p in controller.REPAIR_PAIRS if p[0] == "qa-case-designer"), None)
-        passes = self.repair_passes(budget, roles=roles) if roles else None
-        if passes is None:
-            self.repair_older_controller("S4", dispatch, budget, "were sent back by the case reviewer",
-                                         what="The test cases of this story", prepare="S4 qa-case-designer")
-        links = {"links": contract.story_case_links(self.task_root)}
-        wanted = [str(r["case"]).rsplit("/", 1)[-1] for r in rows if r["case"]]
-        files = gate_brief.case_files(self.task_root, links, wanted)
+        line = (f"{acceptance.STAGE_ACCEPTANCE_PHRASE}: the case critic rejected S4 and no repair round is left: "
+                f"{record.get('quote') or ''}")
+        author_last = acceptance.stage_author_dispatch(self.controller_state(), acceptance.stage_def_of("S4"))
+        no_author = ("the case designer's accepted dispatch could not be found, so your answer `go on` cannot be recorded as the "
+                     "acceptance of S4")
+        if not author_last:
+            return self.stage_review_exhausted("S4", "qa-case-designer", dispatch, record, form, unreadable=True, text=no_author)
+        if getattr(self, "dry", False):
+            print("S4: dry run - the person's answer `go on` would be recorded as the acceptance of S4; nothing is recorded")
+            return False
+        try:
+            words = (self.task_root / str(entry.get("words_file") or "")).read_text(encoding="utf-8", errors="replace").strip()
+        except OSError:
+            words = ""
+        heard = self.person_pass("S4", author_last, line, answer=words or "go on")
+        if not heard:
+            return self.stage_review_exhausted("S4", "qa-case-designer", dispatch, record, form, unreadable=True, text=no_author)
+        self.review_pass_finding("S4", dispatch, line, heard)
+        return None
+
+    def s4_limit_lead(self, rows, counted: int, cap: int, earlier: list) -> str:
+        """The lead of the S4 limit question: the earlier-round paragraph (FR-7, when the person already bought a round), the count line, the
+        rejected cases with the reviewer's words, the one question. Case files are looked up for the cases of THIS round and of the newest
+        earlier round: an existing file is a link, a case with no file says so, a failed lookup says it could not be read (FR-41)."""
+        import contract
+        import critic_rollcall
+        import gate_brief
+        newest = max(earlier, key=lambda e: str(e.get("at") or "")) if earlier else {}
+        seen = [c for c in newest.get("cases") or [] if isinstance(c, str)]
+        wanted = [str(c).rsplit("/", 1)[-1] for c in [*(r["case"] for r in rows if r["case"]), *seen]]
+        try:
+            files = gate_brief.case_files(self.task_root, {"links": contract.story_case_links(self.task_root)}, wanted)
+        except (OSError, ValueError):
+            files = None
 
         def plural(n: int, word: str) -> str:
             return f"{n} {word}" + ("" if n == 1 else "s")
 
         def named(case: str) -> str:
-            bare = str(case).rsplit("/", 1)[-1]
-            return gate_brief.case_ref(bare, files) + ("" if bare in files else " (its file could not be found)")
+            name = str(case).rsplit("/", 1)[-1]
+            if files is None:
+                return f"{name} (its file could not be read)"
+            return gate_brief.case_ref(name, files) + ("" if name in files else " (its file could not be found)")
         bullets = []
         for r in rows:
             note = " ".join(str(r["problem"]).split())
@@ -867,26 +884,45 @@ class DriverStagePlan:
                     else note[:299] + "…" if len(note) > 300 else note)
             who = named(r["case"]) if r["case"] else f"a case the reviewer did not name (plan row {r['plan_row']})"
             bullets.append(f"- {who} — {note}")
-        cases = list(dict.fromkeys(r["case"] for r in rows if r["case"]))
         first = (f"The case designer has reworked the test cases {plural(counted, 'time')} after the case reviewer sent them back; the "
                  f"factory's limit for that is {plural(cap, 'round')}, and it is used up." if counted else
                  f"The case reviewer sent the test cases back; the factory's limit for repair rounds is {cap}, so none is left.")
-        store = self.state.get(self.repair_store_name("S4"))
-        done = {str(d.get("id") or name) for name, d in ((self.controller_state() or {}).get("dispatches") or {}).items()
-                if isinstance(d, dict) and d.get("stage") == "S4" and d.get("role") == "qa-case-critic" and d.get("status") == "accepted"}
-        earlier = [e for e in (store.values() if isinstance(store, dict) else [])
-                   if isinstance(e, dict) and e.get("token") == "round" and str(e.get("dispatch")) in done]
         paragraph = []
         if earlier:
-            newest = max(earlier, key=lambda e: str(e.get("at") or ""))
-            seen = [c for c in newest.get("cases") or [] if isinstance(c, str)]
             refs = [named(c) for c in seen]
             listed = ", ".join(refs[:-1]) + (" and " if len(refs) > 1 else "") + refs[-1] if refs else "the cases"
             paragraph = [f"You chose one more round {plural(len(earlier), 'time')} for these "
                          f"cases; the case designer was then given the reviewer's findings on {listed} to rework, and the reviewer "
                          "looked again.", ""]
-        lead = "\n".join([*paragraph, first, f"The reviewer still rejects {plural(len(rows), 'case')}:", *bullets, "",
+        return "\n".join([*paragraph, first, f"The reviewer still rejects {plural(len(rows), 'case')}:", *bullets, "",
                           "The factory does not decide on its own whether one more round is worth it. Which of these should happen?"])
+
+    def s4_review_limit(self, dispatch: str, form: str, counted, cap, budget):
+        """The S4 critic sent cases back on the last round: the person's question (F1 (a)), the finish of the critic's `complete`. Steps in
+        this order: no findings file -> False (one resume of the critic, never a question); the unknowns (`s4_limit_unknowns`: the conductor
+        seam, never a list over an unknown); the person's stored answer for THIS critic dispatch (`s4_limit_answered`); else the question
+        (`s4_limit_lead`)."""
+        import controller
+        findings = self.s4_findings()
+        if findings is None:
+            return False
+        path = findings.relative_to(self.task_root).as_posix()
+        rows, early = self.s4_limit_unknowns(dispatch, form, counted, cap, findings)
+        if early:
+            return early[0]
+        entry = self.s4_limit_store().get(dispatch)
+        if isinstance(entry, dict) and entry.get("token") in ("round", "go on"):
+            return self.s4_limit_answered(dispatch, form, entry, path)
+        roles = next((p for p in controller.REPAIR_PAIRS if p[0] == "qa-case-designer"), None)
+        passes = self.repair_passes(budget, roles=roles) if roles else None
+        if passes is None:
+            self.repair_older_controller("S4", dispatch, budget, "were sent back by the case reviewer",
+                                         what="The test cases of this story", prepare="S4 qa-case-designer")
+        done = set(self.s4_critic_ids((self.controller_state() or {}).get("dispatches"), "accepted"))
+        earlier = [e for e in self.s4_limit_store().values()
+                   if isinstance(e, dict) and e.get("token") == "round" and str(e.get("dispatch")) in done]
+        cases = list(dict.fromkeys(r["case"] for r in rows if r["case"]))
+        lead = self.s4_limit_lead(rows, counted, cap, earlier)
         return self.repair_limit_raise({"stage": "S4", "waiver_stage": "S4", "dispatch": dispatch, "cases": cases, "key": "s4.repair_limit",
                                         "offer": ["round", "go on", "stop"], "code": "cap", "lead": lead, "cause": "", "reason": "",
                                         "by_cause": {}, "passes": passes, "counted": counted, "cap": cap, "round_counted": counted,
