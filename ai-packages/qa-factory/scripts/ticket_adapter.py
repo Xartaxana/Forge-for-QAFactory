@@ -1651,12 +1651,15 @@ def write_paste_references(path: Path, ticket_obj: dict, cfg: dict, key: str, wo
     if parent and form.strict.fullmatch(parent[0]):
         known |= prefix_set(parent[0])
         seeded.append({"ref": parent[0], "origins": ["field:parent"]})
-    rows = TL.references(paste_texts(path, ticket_obj), known_prefixes=known,
+    texts = paste_texts(path, ticket_obj)
+    rows = TL.references(texts, known_prefixes=known,
                          not_tracker_prefixes=SI.not_tracker_prefixes(), reference_kinds=kinds,
                          known_hosts=hosts, repos=context["repos"], seeded=seeded, own_key=key, key_form=form)
     for row in rows:
         if row.get("kind") == "ticket":
             row["status"], row["reason"] = "unproven", UNPROVEN_REASON
+    # FV1-23 A-5: the documents the pasted text links on disk (the REST leg's road, `text_link_rows`); every ref is masked before it is stored
+    rows = SI.mask_reference_rows(rows + SI.text_link_rows(work.parent, texts))
     document = {"schema_version": 1, "ticket": key, "written_by": ["S0"], "provenance": {"source": "person_pasted"},
                 "scanned": ["summary", "description"], "rows": rows}
     SI._atomic_write(work / "ticket-references.json",

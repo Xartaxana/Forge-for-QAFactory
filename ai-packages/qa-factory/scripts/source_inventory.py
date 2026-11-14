@@ -1102,16 +1102,34 @@ def _link_seeds(snapshot: dict) -> list:
     return seeds
 
 
+def _ticket_texts(snapshot) -> dict:
+    """The texts of a ticket snapshot by origin - summary, description, comments: the ONE set the key road (`build_references`) and
+    the link road (`_write_s0_files`) both read. An absent or None field contributes an empty text."""
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    texts = {"mention:summary": snapshot.get("title") or "", "mention:description": snapshot.get("description") or ""}
+    for comment in snapshot.get("comments") or []:
+        texts[f"mention:comment:{(comment or {}).get('id')}"] = (comment or {}).get("text") or ""
+    return texts
+
+
+def mask_reference_rows(rows: list) -> list:
+    """Every row's `ref` through `config_contract.mask_secret_ref`, in place: called BEFORE a row is stored and BEFORE its identity is
+    computed, by every writer of `ticket-references.json`. Returns `rows`."""
+    from config_contract import mask_secret_ref
+    for row in rows:
+        if isinstance(row, dict) and isinstance(row.get("ref"), str):
+            row["ref"] = mask_secret_ref(row["ref"])
+    return rows
+
+
 def build_references(client: "JiraClient", key: str, snapshot: dict, extra_texts: dict, *, known_prefixes,
                      kinds: dict, context: dict, seeded: list | None = None) -> list:
     """The reference rows `{ref, kind, origins[], status}` of the story's text and typed fields:
     `ticket_light.references` with the project's own repositories and hosts and the prefixes this run
     already knows (the per-prefix probe is S1's, and costs one request per unknown prefix)."""
     hosts = list(context.get("known_hosts") or []) + [client.base_url]
-    texts = {"mention:summary": snapshot.get("title") or "", "mention:description": snapshot.get("description") or ""}
-    for comment in snapshot.get("comments") or []:
-        texts[f"mention:comment:{comment.get('id')}"] = comment.get("text") or ""
-    urls = [row["url"] for row in (snapshot.get("links") or {}).get("remote_links") or [] if row.get("url")]
+    texts = _ticket_texts(snapshot)
+    urls =[row["url"] for row in (snapshot.get("links") or {}).get("remote_links") or [] if row.get("url")]
     if urls:
         texts["field:remotelink"] = "\n".join(urls)
     texts.update(extra_texts or {})
@@ -1129,10 +1147,7 @@ def _write_s0_files(client, key, snapshot, work: Path, catalog: dict, remote_lin
     # `scanned` says which texts the rows come from (S0 does not read attachments - C12; S1 `collect`
     # appends them and says so); `written_by` the stages that wrote to the file.
     # FV1-23 A-5: the documents the ticket's own text links on disk (no place of its own: each declared root is a base)
-    texts = {"mention:summary": snapshot.get("title") or "", "mention:description": snapshot.get("description") or ""}
-    for comment in snapshot.get("comments") or []:
-        texts[f"mention:comment:{comment.get('id')}"] = comment.get("text") or ""
-    rows = rows + text_link_rows(work.parent, texts)
+    rows = mask_reference_rows(rows + text_link_rows(work.parent, _ticket_texts(snapshot)))
     document = {"schema_version": 1, "ticket": key, "written_by": ["S0"],
                 "scanned": ["summary", "description", "comments", "remote links"], "rows": rows}
     _atomic_write(work / "ticket-references.json",
@@ -2009,29 +2024,31 @@ def _merge_reference_rows(path: Path, fresh: list, scanned_word: str) -> bool:
     the origins instead of a twin and keeps its status; a new row is appended; `scanned_word` joins `scanned` and `S1`
     joins `written_by`; written atomically. True when the file was written; no file or an unreadable one writes nothing (the
     one survivor of attachments' and linked documents' rows, AR-15). A credential-like value in a `ref` (`token=`, `secret=`,
-    `password=`, `key=` in a URL's query) is masked BEFORE the row is stored: the file never holds it (FV1-23 A-5)."""
-    from config_contract import SECRET_QUERY_RE
+    `password=`, `key=` in a URL's query, the password of a URL's userinfo) is masked BEFORE the row is stored and before its identity
+    is compared - the fresh rows AND the rows already in the file (a raw row of an older story and the new masked one join): the file
+    never holds it (FV1-23 A-5)."""
     document = _reference_document(path)
     if document is None:
         return False
-    rows = document["rows"]
-    for row in fresh:
-        if isinstance(row.get("ref"), str):
-            row["ref"] = SECRET_QUERY_RE.sub(r"\1=<hidden>", row["ref"])
 
     def identity(row):
         return (row.get("kind"), row.get("ref"), row.get("repo_id") or row.get("repo"))
 
-    index = {identity(row): row for row in rows if isinstance(row, dict)}
-    for row in fresh:
-        have = index.get(identity(row))
+    def join(have, row):
+        for origin in row.get("origins") or []:
+            if origin not in have.setdefault("origins", []):
+                have["origins"].append(origin)
+
+    index, rows = {}, []
+    for row in mask_reference_rows(document["rows"]) + mask_reference_rows(fresh):
+        have = index.get(identity(row)) if isinstance(row, dict) else None
         if have is None:
             rows.append(row)
-            index[identity(row)] = row
+            if isinstance(row, dict):
+                index[identity(row)] = row
         else:
-            for origin in row.get("origins") or []:
-                if origin not in have.setdefault("origins", []):
-                    have["origins"].append(origin)
+            join(have, row)
+    document["rows"] = rows
     if scanned_word not in document.setdefault("scanned", []):
         document["scanned"].append(scanned_word)
     if "S1" not in document.setdefault("written_by", []):
@@ -2675,8 +2692,8 @@ def append_document_references(output: Path, text_ref: str, text: str, *, contex
     if document is None or not isinstance(text, str) or not text.strip():
         return False
     own = document.get("ticket") if isinstance(document.get("ticket"), str) and document.get("ticket") else None
-    known = ({_prefix_of(own)} if own else set()) | {str(p).strip().upper() for p in project_keys or [] if str(p).strip()}
-    known |= _proven_prefixes(None, Path(output))
+    known = set(_known_prefixes(None, Path(output), own or "", {}, (text,))) - {""}    # "" is the prefix of no own key
+    known |={str(p).strip().upper() for p in project_keys or [] if str(p).strip()}
     fresh = TL.references({f"mention:document:{text_ref}": text}, known_prefixes=known, not_tracker_prefixes=not_tracker_prefixes(),
                           reference_kinds=TL.load_reference_kinds(),
                           known_hosts=list(context.get("known_hosts") or []) + ([base_url] if base_url else []),
