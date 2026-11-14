@@ -514,6 +514,9 @@ def sign_in_rows():
             ("H-403-csrf-json", jb({"message": "CSRF token missing"}, 403), "unjudged"),
             ("H-403-html", (403, [("Content-Type", "text/html")], b"<html><title>Denied</title></html>"), "unjudged"),
             ("H-400-sent-fields-service", jb({"detail": [{"loc": ["body", "email"], "msg": "bad"}]}, 400), "credentials_refused"),
+            ("H-400-no-field-named-s5", jb({"message": "Bad Request"}, 400), "unjudged"),
+            ("H-422-empty-s5", (422, [], b""), "unjudged"),
+            ("H-400-non-json-s5", (400, [("Content-Type", "text/plain")], b"bad request"), "unjudged"),
             ("H-400-unsent-field", jb({"detail": [{"loc": ["body", "login"], "msg": "required"}]}, 400), "body_shape"),
             ("H-429", (429, [], b""), "throttled"), ("H-503", (503, [], b""), "stand_error"),
             ("H-timeout", lambda r: (time.sleep(1.2), (200, [], b"{}"))[1], "no_answer"), ("H-stalled-2xx", "STALL", "no_answer"),
@@ -585,6 +588,9 @@ def the_sign_in_rows():
             EP.reload_stand_answers()
             cleanup(root)
         check_eq("table-control: the shipped table is read again", SA.answer_of(405, "", road="local_login"), "wrong_door")
+        check_eq("S5-oidc-keeps-LA8: a 400 on the oidc road is the account (invalid_grant); on local_login the table says unjudged",
+                 (SA.answer_of(400, '{"error": "invalid_grant"}', road="oidc_password"),
+                  SA.answer_of(400, '{"message": "Bad Request"}', road="local_login")), ("credentials_refused", "unjudged"))
         the_roads(stub)
         the_form_session_rows(stub)
         the_capture_auth_rows(stub)
@@ -690,9 +696,43 @@ def the_roads(stub):
             check_eq(f"{case}: the later road is not tried, nothing reaches the form routes",
                      (out["roads"][1]["answer"], want_b in out["roads"][1]["why"], out["spent"],
                       [r["path"] for r in stub.seen if r["path"].startswith("/api/auth")]), ("not_tried", True, spent, []))
-        out = SA.try_roads(cfg(), root)
-        check_eq("no-key-names: every road not_tried, tried 0",
-                 (answers(out), out["tried"], out["first_in"], "key names" in out["roads"][0]["why"]), (["not_tried"], 0, None, True))
+        no_names = {"environment": {"base_url_key": "SIGN_BASE", "health_path": "/health", "env_file": ""}}
+        out = SA.try_roads(no_names, root)
+        check_eq("no-key-names: every road not_tried, tried 0 (no names on the access, in the block or on the line: today's sentence)",
+                 (answers(out), out["tried"], out["first_in"], "no sign-in key names are recorded or given" in out["roads"][0]["why"]),
+                 (["not_tried"], 0, None, True))
+        # S3: no names on the access: the block's `user_key` / first `secret_keys` (the probe's own fallback, ONE reader) are used
+        fresh(forms=True)
+        out = SA.try_roads(cfg({"kind": "bearer_env", "token_key": "S"}), root)
+        check_eq("roads-s3-env-key-names: a bearer access with no key names still tries the form road with the block's names",
+                 (out["roads"][1]["road"], out["roads"][1]["answer"]), ("b:csrf-credentials-form", "in"))
+        # B1: the recorded norm `unauth_status` rides on every road the probe runs (`liveness` reads it from the access it is given)
+        seen_access = []
+        real_probe = EP.probe
+
+        def recording(full_cfg, env_name="", **kw):
+            seen_access.append(dict(full_cfg["environment"]["access"]))
+            return real_probe(full_cfg, env_name, **kw)
+        EP.probe = recording
+        try:
+            fresh((405, [], b""))
+            SA.try_roads(cfg(dict(LOCAL, unauth_status=[404])), root, command=f'"{sys.executable}" -c "pass"', candidates=["local_login=/c1"],
+                         negative=False)
+        finally:
+            EP.probe = real_probe
+        check_eq("roads-unauth-status-carried: roads a, b, c, d each hold the recorded norm; no old-road key (url, fields) rides along",
+                 ([a.get("unauth_status") for a in seen_access], [a["kind"] for a in seen_access],
+                  [("user_field" in a) for a in seen_access[1:]]),
+                 ([[404]] * 4, ["local_login", "form_login", "harness_command", "local_login"], [False] * 3))
+        # M1: the REAL access travels only when asked for, with no secret value in it; the shown one has its address through _safe
+        fresh(forms=False)
+        asked = SA.try_roads(cfg(), root, candidates=[f"local_login={stub.base}/c9?k=v"], with_access=True)
+        plain = SA.try_roads(cfg(), root, candidates=[f"local_login={stub.base}/c9?k=v"])
+        road_d = next(e for e in asked["roads"] if e["road"] == "d:1")
+        check_eq("roads-m1-real-access: real url kept for the writer, the shown one has no query, the default report has no real_access",
+                 (road_d["real_access"]["url"].endswith("/c9?k=v"), "?" in road_d["access"]["url"],
+                  any("real_access" in e for e in plain["roads"]),
+                  any(v in json.dumps(asked) for v in VALUES.values())), (True, False, False, False))
         # candidates: at the cap and beyond it (wrong doors do not spend)
         fresh(forms=False)
         for case, count, noted in (("candidates-5-at", 5, False), ("candidates-6-beyond", 6, True)):
@@ -790,6 +830,24 @@ def the_stand_login_joins():
         result = EP.probe(saved_config, "", root=root)
         check_eq("stand-login-e1: the probe that follows exits 0 (no Layer-1 line), login in", (result["layer1"], result["login"]["answer"]),
                  ([], "in"))
+        # B1: a key of the old access that is no sign-in key (`unauth_status`, a key no reader of ours knows) is carried; the old road's own
+        # keys (url, body fields) are not; the receipt's `before` (the decision row) still holds the whole old access
+        write_config(dict(named, unauth_status=[404], extra_note="kept"))
+        fresh((405, [], b""))
+        PD.record_stand_login(root, words="find the way in")
+        carried = json.loads(config_path.read_text(encoding="utf-8"))["environment"]["access"]
+        check_eq("stand-login-b1-carry: unauth_status and an unknown key ride; url and body fields of the old road do not; the form road wins",
+                 (carried.get("unauth_status"), carried.get("extra_note"), "url" in carried, "user_field" in carried, carried["kind"]),
+                 ([404], "kept", False, False, "form_login"))
+        for case, odd in (("stand-login-b1-old-not-a-table", "x"), ("stand-login-b1-old-empty", {})):
+            write_config(odd)
+            fresh((405, [], b""))
+            got = PD.record_stand_login(root, words="find the way in")
+            carried = json.loads(config_path.read_text(encoding="utf-8"))["environment"]["access"]
+            check_eq(f"{case}: nothing carried, no crash", (got["kind"], sorted(carried)), ("form_login", sorted(
+                ["kind", "form", "user_key", "secret_key", "login_probe"])))
+        write_config(named)
+        fresh((405, [], b""))
         # none in: refused, the config bytes unchanged, no registry row left open
         for case, route in (("stand-login-none-in-401-empty", (401, [], b"")), ("stand-login-none-in-429", (429, [], b""))):
             write_config(named)
@@ -839,6 +897,17 @@ def the_stand_login_joins():
         check_eq("stand-health-e5: status 0 is no code: proved by the project's login command",
                  (got["outcome"], "proved" in got["sentence"], "login command" in got["sentence"], "contradicts" in got["sentence"]),
                  ("proved", True, True, False))
+        # S1: a recorded code that is no HTTP code is a contradiction on every road that signs in over HTTP (only the command has none)
+        for case, kind, status, want in (("local-0", "local_login", 0, "unknown"), ("local-999", "local_login", 999, "unknown"),
+                                         ("form-0", "form_login", 0, "unknown"), ("command-0", "harness_command", 0, "proved"),
+                                         ("local-absent", "local_login", None, "proved")):
+            got = SH._login_receipt({"environment": {"access": {"kind": kind, "login_probe": dict(probe, status=status)}}})
+            check_eq(f"stand-health-s1-{case}: outcome", (got["outcome"], "login command" in got["sentence"],
+                                                           "contradicts" in got["sentence"]),
+                     (want, kind == "harness_command", want == "unknown"))
+        # S4: the status shown is the one the reader validated, never the raw record
+        check_eq("stand-health-s4-status: a hand-written 0 shows as no code", SH._login_receipt(
+            {"environment": {"access": {"kind": "harness_command", "login_probe": probe}}})["status"], None)
         failed = {"user_key": "SIGN_U", "outcome": "failed", "status": 405, "checked_at": "2026-11-12T10:00:00"}
         wrong = SH._login_receipt({"environment": {"access": {"kind": "local_login", "login_probe": dict(failed, answer="wrong_door")}}})["sentence"]
         old = SH._login_receipt({"environment": {"access": {"kind": "local_login", "login_probe": failed}}})["sentence"]

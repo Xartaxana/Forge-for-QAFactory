@@ -308,7 +308,7 @@ judge which is which), then run both commands again. (b) `liveness: dead` is a s
 problem: keep the block, write `login.record` whole as `login_probe` (its `outcome` says it failed and
 its `status` is the code that came back), and carry it into the phase-3 summary as a `[DEFERRED: …]`
 with its backlog row. Any other proof login whose `login.status` is not `ok` (a `failed` one, including a
-400/422 without `refusal`; a `skipped` or `not_recorded` one) says only that the way recorded did not sign in,
+400/422 without `refusal`; a `skipped` or `not_recorded` one, but never the skip of `access.kind` `none` or `ui_only`, which is the person's word) says only that the way recorded did not sign in,
 not that no way does: run every road before you ask the person anything. The command:
 
 ```

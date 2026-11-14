@@ -1008,6 +1008,15 @@ def _device_answer(full_cfg: dict, env_name: str):
     return answer("dead", line, True)
 
 
+def environment_login_keys(cfg) -> tuple:
+    """(user key name, secret key name) a stand block gives for the login when its access names none (AR-13, the ONE reader):
+    `user_key` and the first non-empty `secret_keys` entry, stripped, "" for one that is absent. `probe` and
+    `stand_access.try_roads` both read them here."""
+    cfg = cfg if isinstance(cfg, dict) else {}
+    return (str(cfg.get("user_key") or "").strip(),
+            next((str(k).strip() for k in cfg.get("secret_keys") or [] if str(k or "").strip()), ""))
+
+
 def probe(full_cfg: dict, env_name: str = "", task: str = "", root=None,
           obligation_ids=None, do_login: bool = True) -> dict:
     """The whole answer as data: the three verdicts, what is Layer 1, and the detail lines.
@@ -1032,9 +1041,7 @@ def probe(full_cfg: dict, env_name: str = "", task: str = "", root=None,
         # A config written before the access block existed — or carrying the template's empty
         # one — still has ONE key without which no story can run: the account it was onboarded
         # with. Everything else belongs to an area, and blocks an area at most.
-        login_keys = [k for k in [str(cfg.get("user_key") or "").strip(),
-                                  next((str(k) for k in cfg.get("secret_keys") or [] if str(k or "").strip()), "")]
-                      if k]
+        login_keys = [k for k in environment_login_keys(cfg) if k]
     if fatal:
         # FR-10: the three lines name the REAL reason - the selection or the env file - not one shared phrase.
         why = ("the selected environment could not be probed" if selection_error

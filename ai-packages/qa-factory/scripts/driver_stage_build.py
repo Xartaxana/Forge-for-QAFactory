@@ -36,7 +36,7 @@ class DriverStageBuild:
                    "both": "running the automated tests and carrying out the manual checks"}
 
     def stand_question_text(self, stage: str, environment: str, names: list, kind: str = "", why=None, answer=None,
-                            searched: bool = False) -> str:
+                            searched: bool = False, search_exit=None) -> str:
         """The question (references/human-questions.md): what was done, why the stand cannot be
         derived, one question, the closed answers. Nothing in it is the probe's own vocabulary -
         that goes in the details file. `kind` is what the stage is about to do on the stand
@@ -71,8 +71,11 @@ class DriverStageBuild:
                         + ("answer does not show whether a sign-in is there. " if answer == "unjudged"
                            else "answer does not look like a sign-in. "))}[login_class]
             if login_class == "way" and searched:
-                login_says += ("I already tried every way in I know for this stand in this story and none signed in; the "
-                               "onboarding, which asks you how the project signs in, is named below. ")
+                # S2: exit 0 = the search recorded a way (or found the recorded one in) and it did not sign in when checked again
+                login_says += (("I already searched in this story and recorded the way that signed in then; it did not sign in "
+                                "when I checked again. " if search_exit == 0 else
+                                "I already tried every way in I know for this stand in this story and none signed in. ")
+                               + "The onboarding, which asks you how the project signs in, is named below. ")
             head += {"dead": f"the stand `{environment}` did not answer when I checked it just now. ",
                      "login": login_says,
                      "config": (f"the stand `{environment}` could not be checked: its setting in the project's config is "
@@ -172,7 +175,7 @@ class DriverStageBuild:
                 return
         details = "no stand is recorded for this story (environment: none)"
         why: list = []                  # FV1-5: the probe's `blocked_by` words; empty = the question says "I could not check"
-        answer, searched = None, False  # FV1-15: the sign-in's answer (None = today's words) and whether the search already ran
+        answer, searched, search_exit = None, False, None  # FV1-15: the sign-in's answer (None = today's words), whether the search already ran, its exit
         if environment:
             code, out = self.py("env_probe.py", "--env", environment, "--task", self.task)
             if code == 0:
@@ -187,14 +190,16 @@ class DriverStageBuild:
             if why and why[0] == "login":
                 answer = env_probe.login_answer_of(out)
             held = self.state.get("login_search")
-            searched = isinstance(held, dict) and environment in held
+            run = held.get(environment) if isinstance(held, dict) else None      # S2: a search counts only with an exit recorded as such
+            searched = isinstance(run, dict) and isinstance(run.get("exit"), int) and not isinstance(run.get("exit"), bool)
+            search_exit = run["exit"] if searched else None
         # D5: the onboarding that asks how the project signs in is named only after a search found no way in (`way` class AND searched)
         login_door = searched and LOGIN_ANSWER_CLASS.get(answer) == "way" if isinstance(answer, str) else False
         # A7 (C1-6b): a seam question - `retry` / `go on` carry the seam's own moves (`person_does`, `go_on_as_is` + the block), so
         # `take_seam_answer` executes them; the stand's NAME is the site's own door (`_take_stand_answer`)
         # remains: the stand question is a seam question (priced, `offered`): retry / go on run the seam's executors, the name has its own, other words go to the seam
         person = self.site_seam_person("environment", self.stand_question_text(stage, environment, self.stand_names(), kind, why,
-                                                                               answer, searched), stage,
+                                                                               answer, searched, search_exit), stage,
                                        block=waiver.STAND_NOT_CONFIRMED_BLOCK, details=details,
                                        answer_note=human_text.onboarding_note(environment, self.stand_names(), login_door=login_door))
         person.stand_stage = stage       # read by `ask()`, which sets the flag - and clears it for every other Person

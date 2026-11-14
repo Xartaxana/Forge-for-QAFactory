@@ -691,7 +691,7 @@ def record_stand_login(root: Path, *, stand: str = "", words: str) -> dict:
         stand = str(_stand_of(config, stand)[1].get("name") or "")      # the person's stand: the project's own row, or the refusal's door
     else:
         stand = ""                                                      # a project with one block and no `environments[]` row: no stand name
-    report = stand_access.try_roads(config, root, env_name=stand)
+    report = stand_access.try_roads(config, root, env_name=stand, with_access=True)
     roads = report["roads"]
     if report["first_in"] is None:
         seen = "; ".join(f"{road['road']}: {road['answer']}" for road in roads) or "no road to try"
@@ -706,7 +706,14 @@ def record_stand_login(root: Path, *, stand: str = "", words: str) -> dict:
                          "not recorded; nothing was written")
     environment = config.get("environment") if isinstance(config.get("environment"), dict) else {}
     old = environment.get("access") if isinstance(environment.get("access"), dict) else {}
-    new = {**found["access"], "login_probe": record}
+    # B1: the new road replaces the whole block, so what the old one held that is no sign-in key of its own kind is carried
+    # (`unauth_status` is read by the liveness check; the new road's own keys win); M1: the road's REAL access, never the shown one
+    real = found.get("real_access")
+    if not isinstance(real, dict):
+        raise ValueError(f"the road {found['road']} signed in, but its access could not be read back, so it is not recorded; "
+                         "nothing was written")
+    sign_in = set(CC.ACCESS_KEY_FIELDS) | {"kind", "command", "url", "form", "login_probe", *CC.BODY_FIELD_KEYS}
+    new = {**{k: v for k, v in old.items() if k not in sign_in}, **real, "login_probe": record}
     problems = CC.access_errors(new)
     if problems:
         raise ValueError(f"the way that signed in ({found['road']}) is not a valid environment.access: {problems[0]}; nothing was written")

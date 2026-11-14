@@ -143,6 +143,12 @@ def _value(values: dict, key: str) -> str:
     return str((values or {}).get(str(key or ""), "") or "").strip()
 
 
+def _not_set_why(user_key: str, user: str, secret_key: str, secret: str) -> str:
+    """The why of a road that had no value to send: the NAME(s) of the key(s) whose value is empty (never a value)."""
+    missing = " and ".join(k for k, v in ((user_key, user), (secret_key, secret)) if not v)
+    return f"{missing or 'the login key'} is not set, so nothing was tried"
+
+
 def resolve_url(raw: str, values: dict, base_url: str = "") -> str:
     """A URL from config, from the key it names, or glued to the stand's address.
 
@@ -441,6 +447,8 @@ def _login_why(url: str, att: dict, secrets: tuple, road: str = "local_login", s
     if 200 <= code < 300 and _token_in(text):
         return "ok", "in", f"POST {_safe(url)} -> HTTP {code} with a session token"
     answer = "body_shape" if shape else answer_of(code, text, road=road)
+    if road == "local_login" and code in (400, 422) and answer == "unjudged" and att.get("complained"):
+        answer = "credentials_refused"   # S5: a 400/422 that names a field it was sent judged the account; one that names none is an unknown
     if 200 <= code < 300:
         return "failed", answer, (f"POST {_safe(url)} -> HTTP {code}, but the answer carries none of "
                                   f"{', '.join(TOKEN_FIELDS[:3])} - the endpoint in access.url may not "
@@ -468,9 +476,7 @@ def _local_login(access: dict, values: dict, base_url: str, timeout: float) -> d
         return _receipt("not_recorded", "access.url does not resolve to a login endpoint", None, user_key, answer="not_tried")
     user, secret = _value(values, user_key), _value(values, secret_key)
     if not user or not secret:
-        missing = " and ".join(k for k, v in ((user_key, user), (secret_key, secret)) if not v)
-        return _receipt("skipped", f"{missing or 'the login key'} is not set, so nothing was tried",
-                        None, user_key, answer="not_tried")
+        return _receipt("skipped", _not_set_why(user_key, user, secret_key, secret), None, user_key, answer="not_tried")
     refused = body_field_errors(access)
     if refused:
         # equal or malformed field names would send a body without the user while the login read `ok`: nothing is sent
@@ -520,9 +526,7 @@ def _oidc_password(access: dict, values: dict, base_url: str, timeout: float) ->
     client_id = _value(values, access.get("client_id_key")) if access.get("client_id_key") else ""
     user, secret = _value(values, user_key), _value(values, secret_key)
     if not user or not secret:
-        missing = " and ".join(k for k, v in ((user_key, user), (secret_key, secret)) if not v)
-        return _receipt("skipped", f"{missing or 'the login key'} is not set, so nothing was tried",
-                        None, user_key, answer="not_tried")
+        return _receipt("skipped", _not_set_why(user_key, user, secret_key, secret), None, user_key, answer="not_tried")
     form = {"grant_type": "password", "username": user, "password": secret}
     if client_id:
         form["client_id"] = client_id
@@ -641,8 +645,7 @@ def _form_run(access: dict, values: dict, base_url: str, timeout: float, out: di
         return not_tried("not_recorded", "there is no address to sign in at (access.url, or the stand's own base address)")
     user, secret = _value(values, user_key), _value(values, secret_key)
     if not user or not secret:
-        missing = " and ".join(k for k, v in ((user_key, user), (secret_key, secret)) if not v)
-        return not_tried("skipped", f"{missing or 'the login key'} is not set, so nothing was tried")
+        return not_tried("skipped", _not_set_why(user_key, user, secret_key, secret))
     refused = config_contract.body_field_errors(access)
     user_field = str(access.get("user_field") or "").strip() or row["fields"][0]
     secret_field = str(access.get("secret_field") or "").strip() or row["fields"][1]
@@ -799,11 +802,12 @@ def valid_status(value):
 
 def recorded_login(access) -> dict:
     """THE reader of `environment.access.login_probe` (AR-13): {recorded, user_key, outcome, answer, status, checked_at,
-    seconds, user_field, secret_field}. `recorded` = a `login_probe` object with a non-empty user_key; a string is stripped
-    and a non-string is ""; `outcome` / `answer` are a word of LOGIN_OUTCOMES / ANSWERS or None (a record that predates
-    `answer` reads None - never guessed); `status` through `valid_status`; `seconds` through `recorded_seconds`. Never raises."""
+    seconds, user_field, secret_field, status_invalid}. `recorded` = a `login_probe` object with a non-empty user_key; a string
+    is stripped and a non-string is ""; `outcome` / `answer` are a word of LOGIN_OUTCOMES / ANSWERS or None (a record that predates
+    `answer` reads None - never guessed); `status` through `valid_status`, and `status_invalid` is True when a status IS recorded
+    (not None) and `valid_status` rejects it; `seconds` through `recorded_seconds`. Never raises."""
     blank = {"recorded": False, "user_key": "", "outcome": None, "answer": None, "status": None, "checked_at": "",
-             "seconds": None, "user_field": "", "secret_field": ""}
+             "seconds": None, "user_field": "", "secret_field": "", "status_invalid": False}
     try:
         import config_contract  # lazy: it imports this module at load
         probe = access.get("login_probe") if isinstance(access, dict) else None
@@ -818,7 +822,8 @@ def recorded_login(access) -> dict:
                 "outcome": outcome if outcome in config_contract.LOGIN_OUTCOMES else None,
                 "answer": answer if answer in ANSWERS else None, "status": valid_status(probe.get("status")),
                 "checked_at": text("checked_at"), "seconds": recorded_seconds({"login_probe": probe}),
-                "user_field": text("user_field"), "secret_field": text("secret_field")}
+                "user_field": text("user_field"), "secret_field": text("secret_field"),
+                "status_invalid": probe.get("status") is not None and valid_status(probe.get("status")) is None}
     except Exception:  # noqa: BLE001 - a reader of a record never raises: an unreadable one is not recorded
         return blank
 
@@ -930,7 +935,7 @@ def _negative_control(access: dict, full_cfg: dict, env_name: str, root, secret_
 
 
 def try_roads(full_cfg, root, *, env_name: str = "", command: str = "", candidates=(), user_key: str = "",
-              secret_key: str = "", negative: bool = True) -> dict:
+              secret_key: str = "", negative: bool = True, with_access: bool = False) -> dict:
     """Run every road the project could sign in by, each THE PROBE'S way (a deep copy of the config whose
     `environment.access` is the road's, through `env_probe.probe`, whose `login` receipt is the road's), and report what
     each answered. Roads in this order: (a) the recorded access, (b) one form road per valid row of
@@ -948,6 +953,15 @@ def try_roads(full_cfg, root, *, env_name: str = "", command: str = "", candidat
     rec_url = str(recorded.get("url") or "").strip()
     user_name = str(recorded.get("user_key") or "").strip() or str(user_key or "").strip()
     secret_name = str(recorded.get("secret_key") or "").strip() or str(secret_key or "").strip()
+    if not (user_name and secret_name):
+        # S3: no names on the access or the command line - the ones the probe itself falls back to (ONE reader, AR-13)
+        try:
+            env_user, env_secret = env_probe.environment_login_keys(env_probe.selected_probe_config(full_cfg, env_name)[0])
+        except Exception:  # noqa: BLE001 - an unreadable block names no key: today's refusal sentence stands
+            env_user, env_secret = "", ""
+        user_name, secret_name = user_name or env_user, secret_name or env_secret
+    # B1: the recorded norm of the stand (`unauth_status`) is no sign-in key of the old road: every road the probe runs keeps it
+    norm = {"unauth_status": list(recorded["unauth_status"])} if isinstance(recorded.get("unauth_status"), list) else {}
     roads: list = []   # (road id, access or None)
     if rec_kind in KINDS and rec_kind not in ("none", "ui_only"):
         roads.append(("a", copy.deepcopy(recorded)))
@@ -956,18 +970,21 @@ def try_roads(full_cfg, root, *, env_name: str = "", command: str = "", candidat
                                              or (not str(recorded.get("form") or "").strip() and index == 0))
         if not same:
             roads.append((f"b:{row['id']}", {"kind": "form_login", "form": row["id"], "user_key": user_name,
-                                             "secret_key": secret_name}))
+                                             "secret_key": secret_name, **norm}))
     command = str(command or "").strip()
     if command and not (rec_kind == "harness_command" and str(recorded.get("command") or "").strip() == command):
-        roads.append(("c", {"kind": "harness_command", "command": command, "user_key": user_name, "secret_key": secret_name}))
+        roads.append(("c", {"kind": "harness_command", "command": command, "user_key": user_name, "secret_key": secret_name,
+                            **norm}))
     wanted = [parse_candidate(c) if isinstance(c, str) else (str(c[0]), str(c[1]).strip()) for c in candidates or ()]
     fresh = [(n, kind, url) for n, (kind, url) in enumerate(wanted, 1) if not (rec_kind == kind and rec_url == url)]
     for n, kind, url in fresh[:budget["candidates"]]:
-        roads.append((f"d:{n}", {"kind": kind, "url": url, "user_key": user_name, "secret_key": secret_name}))
+        roads.append((f"d:{n}", {"kind": kind, "url": url, "user_key": user_name, "secret_key": secret_name, **norm}))
     entries: list = []
     spent, stop, did_negative = 0, "", False
     for position, (road_id, access) in enumerate(roads, 1):
         entry = {"road": road_id, "kind": str(access["kind"]).strip(), "access": _shown_access(access)}
+        if with_access:
+            entry["real_access"] = copy.deepcopy(access)   # M1: for the one writer; never printed (`main` does not ask)
         if stop:
             entry.update(status="skipped", answer="not_tried", why=stop)
         elif road_id != "a" and not (user_name and secret_name):

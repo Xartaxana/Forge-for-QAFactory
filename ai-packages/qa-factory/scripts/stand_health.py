@@ -701,7 +701,6 @@ def _login_receipt(config: dict) -> dict:
     this one was answered once, at onboarding, by a real login."""
     access = (config.get("environment") or {}).get("access") if isinstance(config.get("environment"), dict) else {}
     access = access if isinstance(access, dict) else {}
-    receipt = access.get("login_probe") if isinstance(access.get("login_probe"), dict) else {}
     recorded = stand_access.recorded_login(access)        # AR-13: the one reader of the record (FV1-15 P4)
     user_key = recorded["user_key"]
     if not user_key:
@@ -723,7 +722,8 @@ def _login_receipt(config: dict) -> dict:
         word = None
     recheck = "re-check the login" + (f": {answers['login_recheck']}" if answers.get("login_recheck") else "")
     again = " " + recheck[0].upper() + recheck[1:] + "."
-    out = {"recorded": True, "user_key": user_key, "status": receipt.get("status"), "checked_at": at}
+    out = {"recorded": True, "user_key": user_key, "status": code, "checked_at": at}
+    command_road = str(access.get("kind") or "").strip() == "harness_command"   # only the project's own command has no HTTP code (E5)
 
     def remedy(for_code, for_outcome):
         return _login_remedy(answers, for_code, for_outcome, user_key, answer)
@@ -731,10 +731,14 @@ def _login_receipt(config: dict) -> dict:
         # the outcome says success and the code says otherwise: a contradiction never resolves toward success (E-L6)
         out.update(outcome="unknown", sentence=f"The login record as {user_key} contradicts itself (outcome ok, HTTP {code}); "
                                                f"{recheck}.")
+    elif word == "ok" and recorded["status_invalid"] and not command_road:
+        # S1: a code that is recorded but is no HTTP code, on a road that signs in over HTTP, is a contradiction (E-L6), not a proof
+        out.update(outcome="unknown", sentence=f"The login record as {user_key} contradicts itself (outcome ok, a recorded code that "
+                                               f"is no HTTP code); {recheck}.")
     elif word == "ok":
         user_field, secret_field = recorded["user_field"], recorded["secret_field"]   # FB-3: the body field the proof used, when stored
         what = (f"HTTP {code}" + (f", body field `{user_field}`" if user_field else "")) if code is not None \
-            else "the project's login command"
+            else "the project's login command" if command_road else "no HTTP code recorded"
         out.update(outcome="proved", sentence=f"Login was last proved as {user_key} ({what}){date}.")
         if user_field:
             out["user_field"] = user_field
