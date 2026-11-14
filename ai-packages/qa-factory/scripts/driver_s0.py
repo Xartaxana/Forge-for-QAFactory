@@ -2432,7 +2432,7 @@ class DriverS0:
                 # stand yet). Any exit but 0 leaves it unconfirmed - a crashed probe confirms
                 # nothing (FR-41). The name stays, so the check before the tests probes THIS stand.
                 warnings.append(
-                    f"stand {environment}: it did not answer the check ({self.probe_reason(out)}); "
+                    f"stand {environment}: it did not pass the check ({self.probe_reason(out)}); "
                     "the story goes on and the stand is checked again before tests run")
                 print(f"stand `{environment}` did not pass the check; the probe said:\n{out}")
             warnings += [line.strip() for line in out.splitlines()

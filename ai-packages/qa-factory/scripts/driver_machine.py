@@ -209,7 +209,7 @@ class DriverMachine:
         It applies only when the saved result's digest holds a row whose STATE is `blocked_by_env` (a closed
         vocabulary value, never prose - FR-12) and the story names a stand. The probe is `env_probe.py` - the tool
         `stand_check` already uses (FR-17). It answers only when it exits 0 AND prints something: a probe that fails,
-        crashes or prints nothing does not answer (FR-41). Nothing is written here."""
+        crashes or prints nothing does not pass (FR-41). Nothing is written here."""
         saved = _read_json(self.state_dir / "driver-runs" / f"{dispatch}.json")
         text = saved.get("result") if isinstance(saved, dict) else ""
         environment = str(self.pipeline().get("environment") or "")
@@ -312,7 +312,7 @@ class DriverMachine:
                 if not answers:
                     print("refusal: the role reported its work blocked by the stand and the stand does not answer; "
                           "the person is asked")
-                    return person("The stand did not answer when I looked at it just now, so what the role was "
+                    return person("The stand did not pass its check when I looked at it just now, so what the role was "
                                   "stopped by has not changed.\n\n",
                                   refusal.text + "\n\nWhat the probe of the stand printed:\n" + out, call=True)
                 self.note_resume(dispatch, sid, key, "stand")
