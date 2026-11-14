@@ -755,7 +755,7 @@ def cmd_norms(args) -> int:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter, prog="scoreboard.py")
-    sub = parser.add_subparsers(dest="command", required=True, metavar="{assemble,compare,norms}")
+    sub = parser.add_subparsers(dest="command", required=True, metavar="{assemble,compare,norms,release-check}")
     a = sub.add_parser("assemble", help="read one run's counters and write its scoreboard file (nothing is written on a refusal)")
     a.add_argument("--task-root", required=True, help="the story's folder, qa-factory/artifacts/<KEY> (outside the repo)")
     a.add_argument("--stand", required=True)
@@ -787,6 +787,9 @@ def main(argv=None) -> int:
     n.add_argument("--against", help="the norms file as it was before the edit (git show ...:norms.json)")
     n.add_argument("--norms")
     n.set_defaults(run=cmd_norms)
+    r = sub.add_parser("release-check", help="K3: exit 0 only when no `compare --release` line needs the owner's word, or each has it recorded")
+    import scoreboard_bar                       # here, not at the top: scoreboard_bar imports this module (release-check lives there, N7)
+    scoreboard_bar.add_release_check_arguments(r)
     args = parser.parse_args(argv)
     return args.run(args)
 

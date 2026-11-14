@@ -2150,10 +2150,296 @@ SB_CLI_CASES = [(n,) for n in (
     "compare --findings on a first run writes nothing",
     "the scoreboard file carries no absolute path of this machine (AR-4)")]
 
-SB_GROUPS = (("judgment shape (K1, 7.4, 7.10)", SB_JUDGMENT_CASES, sb_judgment_case), ("money row (X1)", SB_MONEY_CASES, sb_money_case),
+# --- P1-v N7: the free arm's bar price (spec 3 item 2) and the release check (K3, F7, OQ2) ---------------------------------------------
+# Catalogue control (references/model-rates.json, per 1M tokens): claude-sonnet-5-5 input 2, output 10, cache_read 0.1, cache_write_5m 2.5.
+# Session A, one request, hand-priced: 1,000,000 in x 2 + 100,000 out x 10 + 2,000,000 read x 0.1 + 400,000 write x 2.5 = 4,200,000 / 1e6 = 4.2 usd.
+# Session B, one request: 500,000 in x 2 + 50,000 out x 10 = 1,500,000 / 1e6 = 1.5 usd. A resume is A + B = 5.7 usd. The host's figure is 6.1234.
+BAR_MODEL = "claude-sonnet-5-5"
+BAR_A, BAR_B, BAR_SUM, BAR_HOST = 4.2, 1.5, 5.7, 6.1234
+
+
+def _sbb():
+    import scoreboard_bar
+    return scoreboard_bar
+
+
+def bar_transcript(path: Path, requests, model=BAR_MODEL) -> Path:
+    """A `free-N` session transcript: one assistant line per request (message id, model, usage); `requests` = [(id, usage dict)]."""
+    path.write_text("\n".join(json.dumps({"type": "assistant", "uuid": f"u-{mid}", "timestamp": "2026-11-01T10:00:00Z",
+                                          "message": {"id": mid, "model": model, "usage": usage, "content": []}}) for mid, usage in requests) + "\n",
+                    encoding="utf-8")
+    return path
+
+
+BAR_USAGE_A = {"input_tokens": 1000000, "output_tokens": 100000, "cache_read_input_tokens": 2000000,
+               "cache_creation": {"ephemeral_5m_input_tokens": 400000, "ephemeral_1h_input_tokens": 0}}
+BAR_USAGE_B = {"input_tokens": 500000, "output_tokens": 50000}
+
+
+def bar_result(path: Path, total=BAR_HOST) -> Path:
+    """A free-N.log: a line of text, then the host's result object with its own total_cost_usd."""
+    path.write_text("starting the free agent\n" + json.dumps({"type": "result", "num_turns": 7, "total_cost_usd": total}) + "\n", encoding="utf-8")
+    return path
+
+
+def sb_bar_case(tmp: Path, case) -> None:
+    name, bar = case[0], _sbb()
+    a = bar_transcript(tmp / "a.jsonl", [("m1", BAR_USAGE_A)])
+    b = bar_transcript(tmp / "b.jsonl", [("m2", BAR_USAGE_B)])
+    log = bar_result(tmp / "free-1.log")
+    if name == "one session: the re-priced value equals the hand re-pricing of the same row by the catalogue, 4.2 usd":
+        got = bar.bar_price([a], None)
+        assert (got["state"], got["value"]) == ("measured", BAR_A), got
+    elif name == "two sessions (a resume): the sum of the re-priced sessions, 5.7 usd":
+        got = bar.bar_price([a, b], None)
+        assert (got["state"], got["value"]) == ("measured", BAR_SUM), got
+    elif name == "a transcript that cannot be read (not UTF-8): unknown, not 0 and not the host's total_cost_usd":
+        (tmp / "bad.jsonl").write_bytes(b"\xff\xfe\x00 not a transcript\n")
+        got = bar.bar_price([tmp / "bad.jsonl"], None, [log])
+        assert got["state"] == "unknown" and got["value"] is None and "not recomputed" in got["why"], got
+        assert got["value"] != BAR_HOST and got["host_total_usd"] == BAR_HOST, got
+    elif name == "the host's total_cost_usd 6.1234 is printed next to the value 4.2 and is not part of it":
+        got = bar.bar_price([a], None, [log])
+        line = bar.price_line(got)
+        assert got["value"] == BAR_A and got["host_total_usd"] == BAR_HOST, got
+        assert f"bar price: {BAR_A} usd" in line and f"host total_cost_usd: {BAR_HOST}" in line and "not part of the value" in line, line
+    elif name == "a missing transcript: unknown, never a bar of zeros":
+        got = bar.bar_price([tmp / "gone.jsonl"], None)
+        assert got["state"] == "unknown" and got["value"] is None and "gone.jsonl" in got["why"] and str(tmp) not in got["why"], got
+    elif name == "an empty transcript list: unknown":
+        for empty in ([], (), None):
+            got = bar.bar_price(empty, None, [log])
+            assert got["state"] == "unknown" and got["value"] is None and got["host_total_usd"] == BAR_HOST, got
+    elif name == "one of two sessions missing: unknown, not the other session's sum":
+        got = bar.bar_price([a, tmp / "gone.jsonl"], None)
+        assert got["state"] == "unknown" and got["value"] is None, got
+    elif name == "a model the catalogue does not know: unknown, the unpriced request is counted":
+        got = bar.bar_price([bar_transcript(tmp / "x.jsonl", [("m1", BAR_USAGE_A)], model="claude-unheard-9")], None)
+        assert got["state"] == "unknown" and got["value"] is None and got["unpriced"] == 1, got
+    elif name == "a transcript with no usage block: unknown":
+        (tmp / "n.jsonl").write_text(json.dumps({"type": "user", "message": {"content": "hi"}}) + "\nnot json at all\n", encoding="utf-8")
+        got = bar.bar_price([tmp / "n.jsonl"], None)
+        assert got["state"] == "unknown" and got["value"] is None, got
+    elif name == "the same message id twice in one transcript is one request":
+        got = bar.bar_price([bar_transcript(tmp / "d.jsonl", [("m1", BAR_USAGE_A), ("m1", BAR_USAGE_A)])], None)
+        assert got["value"] == BAR_A, got
+    elif name == "cfg rate_overrides price the model before the catalogue (B1-E6): every rate 1 gives 3.5 usd":
+        rates = {k: 1 for k in ("input", "output", "cache_read", "cache_write_5m", "cache_write_1h")}
+        got = bar.bar_price([a], {"rate_overrides": [{"model_id": BAR_MODEL, "rates": rates}]})
+        assert got["value"] == 3.5, got
+    elif name == "a result file with no total_cost_usd: the host figure is not given, the value is untouched":
+        (tmp / "free-2.log").write_text("died\n", encoding="utf-8")
+        got = bar.bar_price([a], None, [tmp / "free-2.log"])
+        assert got["value"] == BAR_A and got["host_total_usd"] is None and "host total_cost_usd: not given" in bar.price_line(got), got
+    elif name == "the line of an unknown value names the reason and still prints the host figure":
+        line = bar.price_line(bar.bar_price([tmp / "gone.jsonl"], None, [log]))
+        assert line.startswith("bar price: unknown: ") and f"host total_cost_usd: {BAR_HOST}" in line and "bar price: 0" not in line, line
+    elif name == "price command line: two transcripts and a result file print the sum and the host figure":
+        code = bar.main(["price", "--transcript", str(a), "--transcript", str(b), "--result", str(log)])
+        assert code == 0
+    else:
+        raise AssertionError("no such case: " + name)
+
+
+SB_BAR_CASES = [(n,) for n in (
+    "one session: the re-priced value equals the hand re-pricing of the same row by the catalogue, 4.2 usd",
+    "two sessions (a resume): the sum of the re-priced sessions, 5.7 usd",
+    "a transcript that cannot be read (not UTF-8): unknown, not 0 and not the host's total_cost_usd",
+    "the host's total_cost_usd 6.1234 is printed next to the value 4.2 and is not part of it",
+    "a missing transcript: unknown, never a bar of zeros", "an empty transcript list: unknown",
+    "one of two sessions missing: unknown, not the other session's sum",
+    "a model the catalogue does not know: unknown, the unpriced request is counted", "a transcript with no usage block: unknown",
+    "the same message id twice in one transcript is one request",
+    "cfg rate_overrides price the model before the catalogue (B1-E6): every rate 1 gives 3.5 usd",
+    "a result file with no total_cost_usd: the host figure is not given, the value is untouched",
+    "the line of an unknown value names the reason and still prints the host figure",
+    "price command line: two transcripts and a result file print the sum and the host figure")]
+
+RC_VERSION, RC_PAIR = "1.1.0", "claude-sonnet-5-5/add-to-cart"
+RC_OK = "release: ok -- Q1 " + RC_PAIR + " not worse"
+RC_NEED = f"release: owner's word needed -- Q1 {RC_PAIR} was 1 (1.0.0) now 3 (1.1.0)"
+RC_BAR = "mybooks/add-to-cart/bar-claude-opus-5.yaml"
+RC_OQ2 = f"release: owner's word needed -- Q1 ratcheted, new bar {RC_BAR} is better than the factory"
+
+
+def rc_norms(tmp: Path, rows=None, bar_changes=None, raw=None, schema="norms/1") -> Path:
+    doc = {"schema": schema, "norms": {}, "raises": []}
+    if rows is not None:
+        doc["rows"] = rows
+    if bar_changes is not None:
+        doc["bar_changes"] = bar_changes
+    path = tmp / "norms.json"
+    path.write_text(raw if raw is not None else json.dumps(doc), encoding="utf-8")
+    return path
+
+
+def rc_pass(row="Q1", version=RC_VERSION, pair=RC_PAIR, word="owner, 14.11.2026"):
+    return {row: {"worsened_passes": [{"version": version, "pair": pair, "word": word, "quote": "ship it"}]}}
+
+
+def rc_run(tmp: Path, lines, norms, version=RC_VERSION):
+    code, printed = _sbb().release_check(lines, version, norms)
+    return code, "\n".join(printed)
+
+
+def sb_release_case(tmp: Path, case) -> None:
+    name, bar = case[0], _sbb()
+    absent = tmp / "none.json"
+    if name == "all lines ok: exit 0":
+        code, text = rc_run(tmp, [RC_OK, RC_OK.replace("Q1", "Q2")], absent)
+        assert code == 0 and text.endswith("release-check: ok"), text
+    elif name == "one owner's-word-needed line with no worsened_passes: exit 1 with the list":
+        code, text = rc_run(tmp, [RC_OK, RC_NEED], rc_norms(tmp, rows={"Q1": {}}))
+        assert code == 1 and f"[Q1 {RC_PAIR} was 1" in text and "needed for 1 line(s)" in text, text
+    elif name == "worsened_passes of the same row, version and pair: exit 0":
+        code, text = rc_run(tmp, [RC_NEED], rc_norms(tmp, rows=rc_pass()))
+        assert code == 0 and "owner's word recorded" in text and "owner, 14.11.2026" in text, text
+    elif name == "worsened_passes of ANOTHER pair: exit 1":
+        code, text = rc_run(tmp, [RC_NEED], rc_norms(tmp, rows=rc_pass(pair="claude-opus-5/add-to-cart")))
+        assert code == 1, text
+    elif name == "worsened_passes of the same pair for ANOTHER version: exit 1":
+        code, text = rc_run(tmp, [RC_NEED], rc_norms(tmp, rows=rc_pass(version="1.0.9")))
+        assert code == 1, text
+    elif name == "worsened_passes with an empty word: exit 1":
+        code, text = rc_run(tmp, [RC_NEED], rc_norms(tmp, rows=rc_pass(word="  ")))
+        assert code == 1, text
+    elif name == "worsened_passes of ANOTHER row, same version and pair: exit 1":
+        code, text = rc_run(tmp, [RC_NEED], rc_norms(tmp, rows=rc_pass(row="Q2")))
+        assert code == 1, text
+    elif name == "two needed lines, only one has its pass: exit 1 naming the other":
+        other = RC_NEED.replace("Q1", "Q2")
+        code, text = rc_run(tmp, [RC_NEED, other], rc_norms(tmp, rows=rc_pass()))
+        assert code == 1 and "[Q2 " in text and "[Q1 " not in text.split("release-check:")[1], text
+    elif name == "a warning line alone: exit 0 and the warning is printed":
+        warn = "release: warning -- Q3 red: 9 against norm 5"
+        code, text = rc_run(tmp, [warn, RC_OK], absent)
+        assert code == 0 and warn in text, text
+    elif name == "'no previous release' alone: exit 0 (no ratcheted row exists)":
+        code, text = rc_run(tmp, ["release: no previous release -- ratchet not judged"], absent)
+        assert code == 0, text
+    elif name == "no lines at all: a named error, never a pass":
+        for empty in ([], ["", "  "]):
+            try:
+                bar.release_check(empty, RC_VERSION, absent)
+            except _sb().Refusal as exc:
+                assert "no `release:` line" in str(exc), exc
+            else:
+                raise AssertionError("an empty input passed")
+    elif name == "a needed line whose shape cannot be matched stays open: exit 1":
+        code, text = rc_run(tmp, ["release: owner's word needed -- something unexpected"], rc_norms(tmp, rows=rc_pass()))
+        assert code == 1, text
+    elif name == "OQ2: a new bar strictly better than the factory (lower is better) gives the line":
+        assert bar.bar_better_line("Q1", RC_BAR, "lower", 10.0, 7.0) == RC_OQ2
+        assert bar.bar_better_line("Q1", RC_BAR, "higher", 3, 4) == RC_OQ2
+        assert bar.bar_better_line("X1", RC_BAR, "lower", {"low": 5.0, "high": 6.0}, 4.0) == RC_OQ2.replace("Q1", "X1")
+    elif name == "OQ2: a new bar equal to, worse than or overlapping the factory gives no line":
+        assert bar.bar_better_line("Q1", RC_BAR, "lower", 10.0, 10.0) is None
+        assert bar.bar_better_line("Q1", RC_BAR, "lower", 10.0, 12.0) is None
+        assert bar.bar_better_line("X1", RC_BAR, "lower", {"low": 5.0, "high": 6.0}, {"low": 5.5, "high": 7.0}) is None
+    elif name == "OQ2: a value that is not a number, or no direction, is a named refusal, never 'not better'":
+        for args in (("lower", None, 3), ("lower", 3, "x"), (None, 3, 4), ("lower", True, 4)):
+            try:
+                bar.bar_better_line("Q1", RC_BAR, *args)
+            except _sb().Refusal as exc:
+                assert "Q1" in str(exc), exc
+            else:
+                raise AssertionError(f"{args} passed")
+    elif name == "OQ2: the line alone and no answer in norms.json: exit 1":
+        code, text = rc_run(tmp, [RC_OQ2], rc_norms(tmp, bar_changes=[]))
+        assert code == 1 and "ratcheted, new bar" in text, text
+    elif name == "OQ2: bar_changes decision keep for that bar: exit 0":
+        code, text = rc_run(tmp, [RC_OQ2], rc_norms(tmp, bar_changes=[{"bar": RC_BAR, "word": "owner, 14.11.2026", "decision": "keep"}]))
+        assert code == 0 and "owner's word recorded" in text, text
+    elif name == "OQ2: bar_changes decision lift for that bar: exit 0":
+        code, text = rc_run(tmp, [RC_OQ2], rc_norms(tmp, bar_changes=[{"bar": RC_BAR, "word": "owner, 14.11.2026", "decision": "lift"}]))
+        assert code == 0, text
+    elif name == "OQ2: bar_changes decision 'maybe' is ignored and named: exit 1":
+        code, text = rc_run(tmp, [RC_OQ2], rc_norms(tmp, bar_changes=[{"bar": RC_BAR, "word": "owner", "decision": "maybe"}]))
+        assert code == 1 and "bar_changes entry 0 ignored" in text, text
+    elif name == "OQ2: bar_changes without a word is ignored and named: exit 1":
+        code, text = rc_run(tmp, [RC_OQ2], rc_norms(tmp, bar_changes=[{"bar": RC_BAR, "word": "", "decision": "keep"}]))
+        assert code == 1 and "bar_changes entry 0 ignored" in text, text
+    elif name == "OQ2: bar_changes for ANOTHER bar file: exit 1":
+        code, text = rc_run(tmp, [RC_OQ2], rc_norms(tmp, bar_changes=[{"bar": "mybooks/add-to-cart/bar-other.yaml", "word": "owner", "decision": "keep"}]))
+        assert code == 1, text
+    elif name == "norms.json absent: the keys are read as empty, exit 1 on a needed line":
+        code, text = rc_run(tmp, [RC_NEED, RC_OQ2], absent)
+        assert code == 1, text
+    elif name == "norms.json of the older shape (no bar_changes, no rows): read as empty, exit 1":
+        code, text = rc_run(tmp, [RC_OQ2], rc_norms(tmp))
+        assert code == 1, text
+    elif name == "norms.json that is not JSON: a named error, never exit 0":
+        for raw in ("{not json", "[]", ""):
+            try:
+                bar.release_check([RC_OK], RC_VERSION, rc_norms(tmp, raw=raw))
+            except _sb().Refusal as exc:
+                assert "norms file" in str(exc), exc
+            else:
+                raise AssertionError(f"{raw!r} passed")
+    elif name == "norms.json whose bar_changes is not a list: a named error":
+        try:
+            bar.release_check([RC_OK], RC_VERSION, rc_norms(tmp, raw=json.dumps({"schema": "norms/1", "norms": {}, "raises": [], "bar_changes": {}})))
+        except _sb().Refusal as exc:
+            assert "bar_changes" in str(exc), exc
+        else:
+            raise AssertionError("a bad bar_changes passed")
+    elif name == "limit: 20 open lines are all named":
+        code, text = rc_run(tmp, [RC_NEED.replace("Q1", f"Q{i}") for i in range(20)], absent)
+        assert code == 1 and "more" not in text.split("release-check:")[-1] and "[Q19 " in text.split("release-check:")[-1], text
+    elif name == "limit: 21 open lines name 20 and count one more":
+        code, text = rc_run(tmp, [RC_NEED.replace("Q1", f"Q{i}") for i in range(21)], absent)
+        tail = text.split("release-check:")[-1]
+        assert code == 1 and "21 line(s)" in tail and "... and 1 more" in tail and "[Q20 " not in tail, text
+    elif name == "10,000 ok lines: exit 0":
+        code, text = rc_run(tmp, [RC_OK] * 10000 + ["release: warning -- é" * 3], absent)
+        assert code == 0, text[-200:]
+    elif name == "command line: exit codes 0, 1 and 2 through scoreboard.py release-check":
+        ok, need = tmp / "ok.txt", tmp / "need.txt"
+        ok.write_text(RC_OK + "\n", encoding="utf-8")
+        need.write_text(RC_OK + "\n" + RC_NEED + "\n", encoding="utf-8")
+        norms = rc_norms(tmp, rows=rc_pass())
+        assert sb_cli("release-check", "--version", RC_VERSION, "--lines", ok, "--norms", absent)[0] == 0
+        code, printed, _e = sb_cli("release-check", "--version", "1.0.9", "--lines", need, "--norms", norms)
+        assert code == 1 and "owner's word needed for 1 line(s)" in printed, printed
+        assert sb_cli("release-check", "--version", RC_VERSION, "--lines", need, "--norms", norms)[0] == 0
+        code, _o, err = sb_cli("release-check", "--version", RC_VERSION, "--lines", tmp / "no-such.txt", "--norms", norms)
+        assert code == 2 and "RED:" in err, err
+    else:
+        raise AssertionError("no such case: " + name)
+
+
+def _sb_names(*names):
+    return [(n,) for n in names]
+
+
+SB_RELEASE_CASES = _sb_names(
+    "all lines ok: exit 0", "one owner's-word-needed line with no worsened_passes: exit 1 with the list",
+    "worsened_passes of the same row, version and pair: exit 0", "worsened_passes of ANOTHER pair: exit 1",
+    "worsened_passes of the same pair for ANOTHER version: exit 1", "worsened_passes with an empty word: exit 1",
+    "worsened_passes of ANOTHER row, same version and pair: exit 1", "two needed lines, only one has its pass: exit 1 naming the other",
+    "a warning line alone: exit 0 and the warning is printed", "'no previous release' alone: exit 0 (no ratcheted row exists)",
+    "no lines at all: a named error, never a pass", "a needed line whose shape cannot be matched stays open: exit 1",
+    "norms.json absent: the keys are read as empty, exit 1 on a needed line",
+    "norms.json of the older shape (no bar_changes, no rows): read as empty, exit 1", "norms.json that is not JSON: a named error, never exit 0",
+    "norms.json whose bar_changes is not a list: a named error", "limit: 20 open lines are all named",
+    "limit: 21 open lines name 20 and count one more", "10,000 ok lines: exit 0",
+    "command line: exit codes 0, 1 and 2 through scoreboard.py release-check")
+
+SB_OQ2_CASES = _sb_names(
+    "OQ2: a new bar strictly better than the factory (lower is better) gives the line",
+    "OQ2: a new bar equal to, worse than or overlapping the factory gives no line",
+    "OQ2: a value that is not a number, or no direction, is a named refusal, never 'not better'",
+    "OQ2: the line alone and no answer in norms.json: exit 1", "OQ2: bar_changes decision keep for that bar: exit 0",
+    "OQ2: bar_changes decision lift for that bar: exit 0", "OQ2: bar_changes decision 'maybe' is ignored and named: exit 1",
+    "OQ2: bar_changes without a word is ignored and named: exit 1", "OQ2: bar_changes for ANOTHER bar file: exit 1")
+
+
+SB_GROUPS =(("judgment shape (K1, 7.4, 7.10)", SB_JUDGMENT_CASES, sb_judgment_case), ("money row (X1)", SB_MONEY_CASES, sb_money_case),
              ("norm verdict (K2, 7.5)", SB_NORM_CASES, sb_norm_case), ("norms only tighten (K5)", SB_RATCHET_CASES, sb_ratchet_case),
              ("comparison (K7, 7.5, 7.7-7.9)", SB_COMPARE_CASES, sb_compare_case), ("previous file (K7, 7.7)", SB_PREVIOUS_CASES, sb_previous_case),
-             ("assemble edges", SB_ASSEMBLE_CASES, sb_assemble_case), ("command line and findings (K4)", SB_CLI_CASES, sb_cli_case))
+             ("assemble edges", SB_ASSEMBLE_CASES, sb_assemble_case), ("command line and findings (K4)", SB_CLI_CASES, sb_cli_case),
+             ("bar price (N7, B1-E5/E6)", SB_BAR_CASES, sb_bar_case), ("release-check (K3, F7)", SB_RELEASE_CASES, sb_release_case),
+             ("release-check OQ2 (ratcheted row, new bar)", SB_OQ2_CASES, sb_release_case))
 
 
 @_parametrize(SB_JUDGMENT_CASES)
@@ -2194,6 +2480,21 @@ def test_scoreboard_assemble_edges(tmp_path, case):
 @_parametrize(SB_CLI_CASES)
 def test_scoreboard_command_line(tmp_path, case):
     sb_cli_case(tmp_path, case)
+
+
+@_parametrize(SB_BAR_CASES)
+def test_scoreboard_bar_price(tmp_path, case):
+    sb_bar_case(tmp_path, case)
+
+
+@_parametrize(SB_RELEASE_CASES)
+def test_scoreboard_release_check(tmp_path, case):
+    sb_release_case(tmp_path, case)
+
+
+@_parametrize(SB_OQ2_CASES)
+def test_scoreboard_release_check_oq2(tmp_path, case):
+    sb_release_case(tmp_path, case)
 
 
 def scoreboard_tests(root: Path) -> None:
