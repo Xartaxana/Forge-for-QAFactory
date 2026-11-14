@@ -2123,11 +2123,11 @@ def test_t683_d8_render_is_byte_for_byte_what_it_was() -> None:
         ""])
     check_eq("D8: the packet with every section and no cut, byte for byte", gate_brief.render(golden_packet_data(True)), expected)
     cut = gate_brief.render(golden_packet_data(False))
-    check_eq("D8: the same packet, whole, is cut at the cap - its length", len(cut.splitlines()), 83)   # GW1-11: 77 + the approval line and its blank line; GW1-32: + the card's Answer lines and the open-item form (the cap grows by them)
+    check_eq("D8: the same packet, whole, is cut at the cap - its length", len(cut.splitlines()), 84)   # GW1-11: 77 + the approval line and its blank line; GW1-32: + the card's Answer lines and the open-item form (the cap grows by them); FV1-9 N2 T6: + the one line a card with nothing that helps carries (Q2; the cap grows by it)
     check_eq("D8: ... and says so on its last line", cut.splitlines()[-1],
-             "_(brief truncated at 83 lines; the documents above carry the rest)_")
+             "_(brief truncated at 84 lines; the documents above carry the rest)_")
     check_eq("D8: ... and the whole text is the one captured before the split (sha256)",
-             hashlib.sha256(cut.encode("utf-8")).hexdigest(), "3830de604286558041da236080335ac3e48945c16cc1c664aeae1397a7235dcf")   # GM2-2 O7 rewrite: recomputed through gate_brief.render, was 22f58b7a...; t-550 F9: "as written or after an answer"; was 31355e59... GW1-29: the e2e section text for information (was 1f21fa11...); GW1-11: + the approval line (was 05adcfc5...); RH1-6: + the A-AC7 line (t-1455: names every open item, count stated); GW1-32: one answer list (was a8421a13...)
+             hashlib.sha256(cut.encode("utf-8")).hexdigest(), "45da4c8b3fe58fd9dcb28dce38e33ad293a1f1a5b67f8fbacecdd35028088042")   # FV1-9 N2 T6: + the no-help line of Q2 (was 3830de60...); GM2-2 O7 rewrite: recomputed through gate_brief.render, was 22f58b7a...; t-550 F9: "as written or after an answer"; was 31355e59... GW1-29: the e2e section text for information (was 1f21fa11...); GW1-11: + the approval line (was 05adcfc5...); RH1-6: + the A-AC7 line (t-1455: names every open item, count stated); GW1-32: one answer list (was a8421a13...)
     # GW1-32: with no question at all, the open item still has its form, and the cap cuts the tail, never the answer block
     no_question = golden_packet_data(False)
     no_question["open_questions"] = []

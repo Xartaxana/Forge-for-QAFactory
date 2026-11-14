@@ -156,6 +156,8 @@ FORGE_CHECK_RUNS = [
     'python tools/install_parity.py --check --skip-from-commit-message "$(git log -1 --format=%B $HEAD_SHA)"',   # :107, pull request
     "python tools/install_parity.py --check",                                       # :107, push and canon
     "python -m pytest tools/ -q",                                                   # :109
+    "python -B experiments/measurers/test_measurers.py",                            # P1-v N8: run scoreboard tables
+    ("scoreboard.py norms --check --against", "scoreboard.py norms --check"),       # P1-v N8: norms only tighten
 ]
 
 

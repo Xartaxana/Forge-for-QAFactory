@@ -298,17 +298,17 @@ def test_no_record_reads_no_first_look():
         p = Project(tmp, walk=False)
         path = f"qa-factory/artifacts/{TICKET}/work/first-look.yaml"
         absent = brief_pack.file_lines(["work/first-look.yaml"], p.task, p.root)
-        check_eq("no_record_reads_no_first_look: no record is exactly one line, reading no first look", (len(absent), absent[0].startswith(f"- {path}: a GAP - no first look was written for this story (")),
+        check_eq("no_record_reads_no_first_look: no record is exactly one line, reading no first look", (len(absent), absent[0].startswith(f"- {path}: no first look (")),
                  (1, True))
         done = FL.put(p.task, None, "no_stand")
         check("no_record_reads_no_first_look: a null record is written", done["written"], str(done))
         null = brief_pack.file_lines(["work/first-look.yaml"], p.task, p.root)
         check_eq("no_record_reads_no_first_look: a null record reads no first look with its reason", null,
-                 [f"- {path}: a GAP - no first look was written for this story (the stand was not walked: no stand); it is not a fact that there is no stand"])
+                 [f"- {path}: no first look (the stand was not walked: no stand)"])
         (p.task / "work" / "first-look.yaml").write_text("garbage: [\n", encoding="utf-8")
         broken = brief_pack.file_lines(["work/first-look.yaml"], p.task, p.root)
         check("no_record_reads_no_first_look: an unreadable record also reads no first look, never a pass",
-              len(broken) == 1 and ": a GAP - no first look was written for this story (" in broken[0] and broken[0].endswith("; it is not a fact that there is no stand"), str(broken))
+              len(broken) == 1 and ": no first look (" in broken[0] and broken[0].endswith(")"), str(broken))
         (p.task / "work" / "first-look.yaml").unlink()
         p.open_walk()
         (p.task / "work" / "evidence" / "manual" / "survey-R-1" / "a1").mkdir(parents=True)
