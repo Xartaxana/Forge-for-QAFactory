@@ -2643,12 +2643,15 @@ def _questions(art: Path, unknown: dict, ledger=None):
         return None
     # HF2-6b (RD1-8): the one predicate is `QR.settled` - an answer on the bytes the person saw. A question the person
     # answered and whose row changed since, or one kept open until this report, is listed (before: by the raw status).
+    # FV1-9 (T15, AR-27): a declared repeat that stands (`QR.hidden_repeat`, the one predicate) is not listed - its target is, once,
+    # with `also` naming the ids merged into it; a repeat that does not stand is listed under its own id.
     listed = []
     for q in loaded.get("questions") or []:
-        if QR.settled(q):
+        if QR.settled(q) or QR.hidden_repeat(q):
             continue
         listed.append({"id": str(q.get("id") or ""), "status": q.get("status"), "where": str(q.get("where") or ""),
-                       "changed": q.get("changed_since_answer") is True,
+                       "changed": q.get("changed_since_answer") is True and q.get("status") != QR.REPEAT,
+                       "also": [str(i) for i in q.get("repeated_by") or []],
                        "stray": QR.stray_line(q.get("id"), q.get("words")) if q.get("status") == "named" else "",
                        "owner": _words(q.get("owner_role")), "text": _words(q.get("question"))})
     listed.sort(key=lambda q: T._numeric_key(q["id"]))
@@ -4163,6 +4166,8 @@ def _r_questions(facts: dict) -> str:
             note = " (kept on your word until this report)"
         elif c["changed"]:
             note = " (your answer was given to an earlier wording of this question)"
+        if c.get("also"):
+            note += " (raised twice in this story; this one question covers both)"
         cards.append(f"{c['owner'] or 'owner not named'} · {c['text'] or 'the question text is not recorded'}{note}")
     out.append(_quoted("\n".join(cards)))
     return "\n".join(out) + "\n"

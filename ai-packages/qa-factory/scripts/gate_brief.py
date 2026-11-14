@@ -2754,9 +2754,12 @@ def question_card(question: dict, index: int, effects: dict | None = None, no_di
     note = " ".join(str(question.get("status_note") or "").split())
     if note:
         lines.append(f"  - {note}.")
+    lines.extend(_help_lines(question, "notes"))
+    has_quote = False
     for quote in question.get("source_says") or []:
         if not isinstance(quote, dict):
             continue
+        has_quote = has_quote or bool(str(quote.get("quote") or "").strip())
         lines.append(f"  - the source says: \"{' '.join(str(quote.get('quote') or '').split())[:240]}\""
                      f" — {' '.join(str(quote.get('where') or '').split())[:120]}")
     # O3 (t-227, P20): a behaviour-claim question asks the person to choose between what the code did
@@ -2764,14 +2767,18 @@ def question_card(question: dict, index: int, effects: dict | None = None, no_di
     # question written before this field carries neither key and prints nothing extra.
     # RN1-11: on a no-diff story the before reading is rewritten and its "before the change" side line is not printed
     before_index = C.claim_reading_index(question, C.CLAIM_KEYS[1]) if no_diff and C.is_claim_question(question) else None
+    has_side = False
     for key, label in (("before", "before the change"), ("now", "now")):
         side = question.get(key)
         if key == "before" and before_index is not None:
             continue
         if isinstance(side, dict) and str(side.get("value") or "").strip():
+            has_side = True
             where = " ".join(str(side.get("where") or "").split())[:120]
             lines.append(f"  - {label}: {' '.join(str(side['value']).split())[:200]}" + (f" — {where}" if where else ""))
     readings = [r for r in (question.get("readings") or []) if isinstance(r, dict)]
+    helped = _help_lines(question, "mid", has_quote=has_quote)
+    lines.extend(helped)
     letters = _letters_for(len(readings))
     mine = (effects or {}).get(qid)
     if readings and not letters:
@@ -2783,15 +2790,15 @@ def question_card(question: dict, index: int, effects: dict | None = None, no_di
         for position, reading in enumerate(readings, start=1):
             lines.append(f"  - reading {position}: "
                          f"{' '.join(str(reading.get('reading') or '').split())[:200]}"
-                         f" (from {reading.get('from', '?')})")
+                         + _origin_part(reading))
+        lines.extend(_help_lines(question, "tail", has_quote=has_quote, has_side=has_side, helped=bool(helped)))
         lines.append(_answer_line(qid, []))
         return lines
     for position, (letter, reading) in enumerate(zip(letters, readings)):
         reading_text, chosen_text = str(reading.get("reading") or ""), str(reading.get("if_chosen") or "")
         if before_index is not None and position == before_index:
             reading_text, chosen_text = NO_DIFF_BEFORE_READING, NO_DIFF_BEFORE_CHOSEN
-        lines.append(f"  - {letter}) {' '.join(reading_text.split())[:200]}"
-                     f" (from {reading.get('from', '?')})")
+        lines.append(f"  - {letter}) {' '.join(reading_text.split())[:200]}" + _origin_part(reading))
         if chosen_text.strip():
             lines.append("    if chosen: "
                          + " ".join(chosen_text.split())[:200])
@@ -2821,8 +2828,82 @@ def question_card(question: dict, index: int, effects: dict | None = None, no_di
         # choose, so the card asks for the person's own words and offers nothing else.
         lines.append("  - No reading can be named for this one. Answer in your own words, or write "
                      f"`{qid}: {NOT_NEEDED}`.")
+    lines.extend(_help_lines(question, "tail", has_quote=has_quote, has_side=has_side, helped=bool(helped)))
     lines.append(_answer_line(qid, letters[:len(readings)]))
     return lines
+
+
+REPEATED_CARD_LINE = ("  - this question was raised twice in this story; it is asked once, here, and your answer is the answer "
+                      "to both.")
+REWORDED_OPEN_STATES = (None, "", "open", "named")
+NO_HELP_LINE = ("  - where these readings come from is not recorded, and the factory has found nothing more than what is shown "
+                "here; answer from what you know of the product, or in your own words.")
+NOTE_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _origin_part(reading) -> str:
+    """The origin of one reading as the card prints it (T7, AR-1): ` (from <the person's words for it>)` for a word the data file
+    knows (`question_register.origin_words`; a detail after a `:` is kept), ` (from: <the text>)` for one it does not, and
+    NOTHING for a blank or missing `from` - never `(from ?)`."""
+    import question_register as QR
+    raw = " ".join(str(reading.get("from") or "").split()) if isinstance(reading, dict) else ""
+    if not raw:
+        return ""
+    words = QR.origin_words(raw)
+    if not words:
+        return f" (from: {raw})"
+    detail = raw.split(":", 1)[1].strip() if ":" in raw else ""
+    return f" (from {words}" + (f": {detail}" if detail else "") + ")"
+
+
+def _help_lines(question: dict, part: str, has_quote: bool = False, has_side: bool = False, helped: bool = False) -> list:
+    """The lines of a card that tell the person something about THIS question beyond its readings, one builder (FV1-9 D5, AR-16).
+    `part` is where in the card they go: `notes` (right after the status note: T2 a twin was merged here, T3 asked again in
+    clearer words), `mid` (after before/now: H5 the requirement text, only when the card has no source quote, T5; H6 the
+    helper's note on today's bytes, T4), `tail` (after the readings: T6, only when NOTHING helps - no quote, no before/now, no
+    H5/H6 line, no reading whose origin the data file knows). Every field absent gives no line. Data only: the lines are what
+    the register and the readiness row hold, never a comparison of two rows (P27)."""
+    import question_register as QR
+    out: list = []
+    if part == "notes":
+        if question.get("repeated_by"):
+            out.append(REPEATED_CARD_LINE)
+        reworded = question.get("reworded")
+        reworded = [e for e in reworded if isinstance(e, dict)] if isinstance(reworded, list) else []
+        if reworded and question.get("status") in REWORDED_OPEN_STATES:
+            last = reworded[-1]
+            was = " ".join(str(last.get("was") or "").split())
+            line = "  - asked again in clearer words: this is the same question as before, which had no answer yet."
+            if was:
+                line += f" Earlier it read: \"{was[:240]}" + ("...\"" if len(was) > 240 else "\"")
+            out.append(line)
+            old = last.get("was_readings")
+            readings = [r for r in (question.get("readings") or []) if isinstance(r, dict)]
+            letters = _letters_for(len(readings))
+            for position, text in enumerate(old if isinstance(old, list) else []):
+                if position >= len(letters) or position >= len(readings):
+                    break
+                before = " ".join(str(text or "").split())
+                if before and before != " ".join(str(readings[position].get("reading") or "").split()):
+                    out.append(f"    earlier, reading {letters[position]} read: \"{before[:200]}\"")
+    elif part == "mid":
+        found = question.get("requirement_help")
+        text = " ".join(str(found.get("text") or "").split()) if isinstance(found, dict) else ""
+        if text and not has_quote:
+            cut = "...\"" if len(text) > 240 else "\""
+            out.append(f"  - the requirement it is about ({found.get('id')}): \"{text[:240]}{cut} — work/requirements-register.md")
+        note = question.get("note")
+        words = " ".join(str(note.get("words") or "").split()) if isinstance(note, dict) else ""
+        if words:
+            stamp = NOTE_DATE_RE.match(str(note.get("at") or "").strip())
+            written = f"written {stamp.group(0)}; " if stamp else ""
+            out.append("  - what may help you answer, from the factory's helper, who read the sources for it "
+                       f"({written}it does not say which answer is right - you decide): {words}")
+    elif part == "tail":
+        known = any(QR.origin_words(r.get("from")) for r in (question.get("readings") or []) if isinstance(r, dict))
+        if not (has_quote or has_side or helped or known):
+            out.append(NO_HELP_LINE)
+    return out
 
 
 def _answer_line(qid: str, letters) -> str:
@@ -4159,6 +4240,49 @@ def unmarked_value_note(question: dict) -> str:
         "the question does not say what the behaviour before the change was: say what it was")
 
 
+def requirement_help(question: dict, task_root, cache: list) -> dict | None:
+    """H5, the ONE reader (AR-13; gate A's `still_open` and the question stop's `question_stop._with_note` both call it, so a question's
+    two cards print the same help): `{"id": "R-8", "text": <requirement text>}` when `requirement`, `raised_for.requirement` or `ref` of
+    the question is an R id of the story's requirements register (exact match) and the question has no source quote of its own (the
+    card prints this line only then); else None - no id, no register, an unreadable one: no help line, never a raise (FR-41). `cache`
+    is a list the caller keeps for one pass, so the register is read once and only when a question names an R id."""
+    try:
+        raised = question.get("raised_for") if isinstance(question.get("raised_for"), dict) else {}
+        named = [str(v).strip() for v in (question.get("requirement"), raised.get("requirement"), question.get("ref"))
+                 if isinstance(v, str) and v.strip()]
+        if not named or any(str(q.get("quote") or "").strip() for q in (question.get("source_says") or []) if isinstance(q, dict)):
+            return None
+        if not cache:
+            import planning_contract
+            cache.append(planning_contract.story_register_text(task_root))
+        by_r = {r["r"]: r["requirement"] for r in C.register_rows(cache[0])}
+        found = next((r for r in named if by_r.get(r)), "")
+        return {"id": found, "text": by_r[found]} if found else None
+    except Exception:
+        return None
+
+
+def repeat_shown_note(question: dict) -> str:
+    """T14: why a question marked as a repeat is asked here after all - the target is gone, the chain loops back, the target's words
+    changed since the declaration, or its own words did. A repeat that is not shown (`QR.hidden_repeat`) has no note. Said as the
+    fact, never as a defect of the person's (FR-41); a state `load` would not produce says only that the mark could not be confirmed."""
+    import question_register as QR
+    if QR.hidden_repeat(question):
+        return ""
+    target = str(question.get("same_as") or "").strip() if isinstance(question.get("same_as"), str) else ""
+    marked = f"it was marked as the same question as {target}" if target else "it was marked as a repeat of another question"
+    problem = question.get("repeat_problem")
+    if problem == "gone":
+        return marked + ", which the factory no longer has, so it is asked here"
+    if problem == "cycle":
+        return "it was marked as the same question as another one that points back to it, so it is asked here"
+    if problem == "target_changed":
+        return marked + ", whose words have changed since, so it is asked here"
+    if question.get("changed_since_answer") is not False:
+        return marked + ", but its own words have changed since, so it is asked here"
+    return marked + ", but that could not be confirmed, so it is asked here"
+
+
 def question_note(question: dict) -> str:
     """The plain note a question carries when its status is not simply `open`, or "".
 
@@ -4185,6 +4309,8 @@ def question_note(question: dict) -> str:
         return NAMED_NOTE.format(where=where or "gate")
     if status == "with_designer":
         return "with the designer; no answer is recorded yet"
+    if status == QR.REPEAT:
+        return repeat_shown_note(question)      # a declared repeat that is asked after all says why (T14, FR-41)
     if question.get("changed_since_answer") is True:
         return "its text changed after your answer, so it is asked again" + suffix
     if status == QR.DEFERRED:
@@ -4208,6 +4334,9 @@ def still_open(rows, view, pipeline: dict, task_root) -> list:
     `with_designer`, a deferred one (with its note) and an answered one whose text changed ARE listed.
     A row the register cannot place (no id, a repeated id, or no register at all) is listed
     as it stands: the error direction is toward asking, never toward "answered" (FR-41).
+    A declared repeat that stands (`QR.hidden_repeat`, the one predicate) is not listed: the person is asked its target once, and the
+    target's item carries `repeated_by`; the helper's `note` of a row and the text of the requirement it is about
+    (`requirement_help`, from the register, H5) ride on the item for the card. A repeat that does not stand is listed with its note (T14).
     A row that itself carries an `answer`/`resolution` is decided by it, as before. An id that a
     waiver, a stage override or a kept remark names exactly (an exact token: not inside `Q10`,
     a URL or a path; the three records `_recorded_words` and `remarks` read) is NOT an answer
@@ -4218,6 +4347,7 @@ def still_open(rows, view, pipeline: dict, task_root) -> list:
     records = _recorded_words(pipeline or {}) + [(REMARK_WORDS, r["text"]) for r in remarks(task_root)]
     out = []
     dict_rows = [row for row in (rows if isinstance(rows, list) else []) if isinstance(row, dict)]
+    register_text: list = []        # the requirements register, read once and only when a listed row names an R id (H5)
     # Match over ALL dict rows first: the register's answer belongs to the FIRST row of an id (as `load` keeps it), even when that
     # row is itself answered or the conductor's; only then are the filters applied (B-12 F-1).
     for row, mine in zip(dict_rows, QR.matches(dict_rows, view)):   # the first-row-of-an-id rule: `question_register.matches` (AR-13)
@@ -4235,7 +4365,7 @@ def still_open(rows, view, pipeline: dict, task_root) -> list:
             # expected value missing, so it stays in this list; so does one whose row changed since. Both are
             # `QR.settled`'s test (HF2-7: the one definition the plan check, the stop and this list share), and
             # `question_note` says why. The error direction is toward asking (FR-41).
-            if QR.settled(mine):
+            if QR.hidden_repeat(mine) or QR.settled(mine):
                 continue
             item.update({"status": status, "where": mine.get("where", ""),
                          "changed_since_answer": mine.get("changed_since_answer"),
@@ -4244,10 +4374,19 @@ def still_open(rows, view, pipeline: dict, task_root) -> list:
                          # stored against: the row can change between the card and the answer.
                          "shown_hash": str(mine.get("row_hash") or "")})
             item["status_note"] = question_note(mine)
+            # FV1-9: what the register knows about the row that the card prints (T2, T4) - taken from the one merged question,
+            # never computed here; a row that carries such a key of its own does not keep it
+            for key in ("repeated_by", "note"):
+                item.pop(key, None)
+                if mine.get(key):
+                    item[key] = mine[key]
         kind = next((kind for kind, text in records if ident and _mentions(text, ident)), "")
         if kind and item.get("status") in (None, "", "open"):
             item.update({"status": "named", "where": kind})
             item["status_note"] = question_note(item)
+        found = requirement_help(item, task_root, register_text)
+        if found:
+            item["requirement_help"] = found
         out.append(item)
     return out
 
