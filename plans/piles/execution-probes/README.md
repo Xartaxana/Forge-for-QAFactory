@@ -25,6 +25,7 @@
 | 1 | проба «проверка живая» работает на любом языке и раннере, один предикат «это pytest», оракул — из требований, не из кода | B-369, B-371, B-432 | M | закрыта | — | — | `855d4e5c` |
 | 2 | `config_sha` считается по исполняемой конфигурации профиля: зелёный результат не выбрасывается из-за правки `qa-factory/config.json` там, где запуск теста ничего не читает (прогон TP1-14857 на 0.10.2: 31 запуск на 5 тестов) | `batch-2-config-sha-po-profilyu.md` | S (1 узел) | закрыта | dev2, 28.10.2026 | `pile/execution-probes/batch-2` | `f052c829` |
 | 3 | незнакомая библиотека проверок больше не приносит «не доказано» и вопрос человеку: проба узнаёт свой маркер или место отказа, остальное судит критик кода | `findings/20261105-mutacionnaya-proba-neznakomyj-tekst-otkaza-marker-i-kritik.md` | S | закрыта | — | — | `7d220a5` |
+| 4 | отказ запуска без двери для профиля без пробы среды; валидатор запроса `--diagnostic` отказывает по всем проблемам формы сразу | `findings/20261114-mine-refused-bez-dveri-dlya-profilya-bez-probi.md`, `findings/20261114-red-sandbox-diagnostic-otkazyvaet-po-pervoj-oshibke.md` | S | ожидает | — | — | — |
 
 Открытое перенесено 01.11.2026 → release-next/1, words-gates/1, driver-hosts/1, execution-report/1, execution-report/2, onboarding-forge/2.
 
@@ -151,6 +152,9 @@ M 5–9, L 10–15 (больше — две пачки). Взятая пачка
 | `findings/20261101-zavisimosti-python-testa-chitayutsya-neskolkimi-chitatelyami.md` | находка, id — | зависимости Python-теста (импорты и `conftest`) читаются несколькими читателями с разными границами; одна функция-выживший | `scripts/copy_detector.py`, `scripts/execution_request.py`, `scripts/manifest_from_tests.py`, `scripts/probe_by_code.py`, `scripts/s5_precheck.py` | пачка 1, EP1-49 | нет | t-1644 M2; EP1-48 |
 | **Находка 05.11.2026 (перегон плеча B, LOCAL-1)** | | | | | | |
 | `findings/20261105-mutacionnaya-proba-neznakomyj-tekst-otkaza-marker-i-kritik.md` | находка, id — | незнакомый текст отказа библиотеки проверок даёт «не доказано» и вопрос человеку; нужен свой маркер, место отказа, суждение критика | `scripts/probe_by_code.py`, `references/detectors.json`, `agents/qa-code-critic.md` | в пачке 3, EP3-1 | П1, 05.11.2026 | t-1953; t-1955 N1 |
+| **Находки 14.11.2026 (отчёт P1-b N2e, критик SC-N7)** | | | | | | |
+| `findings/20261114-mine-refused-bez-dveri-dlya-profilya-bez-probi.md` | находка, id — | `run_suite.py --mine` отказывает профилю без пробы среды без двери, доступной роли: кто и чем снимает пробел | `scripts/execution_request.py`, `scripts/tests/test_execution_request.py` | пачка 4, EP4-1 | нет | отчёт P1-b N2e (кандидат 6); FR-2, FR-38 |
+| `findings/20261114-red-sandbox-diagnostic-otkazyvaet-po-pervoj-oshibke.md` | находка, id — | `red_sandbox.py --diagnostic` отказывает запросу по первой ошибке формы; тот же класс, что SC-N7 | `scripts/red_sandbox.py`, `scripts/tests/test_red_sandbox_diagnostic.py`, `scripts/tests/test_validator_class.py` | пачка 4, EP4-2 | нет | критик диффа SC-N7; ряд переписи в `test_validator_class.py`; `live-run-fvf` FV2-40 (тот же класс) |
 
 ## Входящие
 
