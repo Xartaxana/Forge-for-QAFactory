@@ -1083,6 +1083,8 @@
   {"file": "stage_joints.py", "function": "check_ids", "class": "xref", "roles": ["conductor"], "owner": "data", "note": "T1c: the check ids the wide scan's records carry (K1 direction B); reads the scanner, judges nothing"},
   {"file": "stage_status.py", "function": "line", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "stage_status.py", "function": "main", "class": "shape", "roles": ["conductor"], "owner": "data", "note": "T1a, F1 (a) step 4: conductor, parent 2.8 group G-free"},
+  {"file": "stand_access.py", "function": "_refuse", "class": "shape", "roles": ["conductor"], "owner": "data", "note": "FV1-17a: the roads command refuses a malformed argument or an unreadable config before anything is sent"},
+  {"file": "stand_access.py", "function": "parse_candidate", "class": "shape", "roles": ["conductor"], "owner": "data", "note": "FV1-17a: a --candidate that is not <local_login|oidc_password>=<url or path>"},
   {"file": "stand_gaps.py", "function": "collect", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "stand_health.py", "function": "_api_check", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "stand_health.py", "function": "_similar_failure", "class": "meaning-proxy", "roles": ["conductor"], "owner": "judgment"},
