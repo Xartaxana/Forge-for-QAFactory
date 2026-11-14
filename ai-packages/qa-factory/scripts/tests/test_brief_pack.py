@@ -829,10 +829,10 @@ def expectation_lines() -> None:
 
 PROOF_START = "Live checks the predicate requires"
 CANNOT_START = "The live checks the predicate requires could not be listed: "
-PROOF_TAIL = (". Each needs a receipt: write each check's entry in work/probe-models/S5-qa-code-critic-1.json and run probe_by_code.py "
-              "for the instance (the card). A probe the tool or the stand stopped is `critic_verdict: unverified` "
-              "with `sensitivity_proof_missing_reason` on that row through manifest_put.py; "
-              "work/probe-debt/S5-qa-code-critic-1.json is the factory's file, never yours to write.")
+PROOF_TAIL = (". Each needs a receipt: enter each check in work/probe-models/S5-qa-code-critic-1.json and run probe_by_code.py. "
+              "A probe the tool or stand stopped is `critic_verdict: unverified` "
+              "with `sensitivity_proof_missing_reason` on that row via manifest_put.py; "
+              "work/probe-debt/S5-qa-code-critic-1.json is the factory's, not yours.")
 
 
 def proof_name(i: int, word: str = "") -> str:
@@ -1113,21 +1113,21 @@ def proof_lines() -> None:
                 continue
             text = lines[0]
             check_not_in(f"B-1 {label}: no 'for the conductor' door", "for the conductor", text)
-            check_in(f"B-1 {label}: names sensitivity_proof_missing_reason", "`sensitivity_proof_missing_reason` on that row through manifest_put.py", text)
-            check_in(f"B-1 {label}: the new sentence", "Each needs a receipt: write each check's entry in work/probe-models/", text)
-            check_in(f"B-1 {label}: the debt file is the factory's", " is the factory's file, never yours to write.", text)
+            check_in(f"B-1 {label}: names sensitivity_proof_missing_reason", "`sensitivity_proof_missing_reason` on that row via manifest_put.py", text)
+            check_in(f"B-1 {label}: the new sentence", "Each needs a receipt: enter each check in work/probe-models/", text)
+            check_in(f"B-1 {label}: the debt file is the factory's", " is the factory's, not yours.", text)
             check_not_in(f"B-1 {label}: never the empty-id model file", "probe-models/.json", text)
             check_not_in(f"B-1 {label}: never the legacy single debt file", "work/probe-debt.json", text)
             if label in ("blank id", "None id", "spaces id"):
                 check_in(f"B-1 {label}: the models path prints the placeholder",
-                         f"work/probe-models/{placeholder}.json and run probe_by_code.py", text)
+                         f"work/probe-models/{placeholder}.json and run probe_by_code.py.", text)
             if label in ("blank id", "None id", "spaces id", "debt_rel import failing"):
                 check_in(f"B-1 {label}: the debt path prints the placeholder", f"work/probe-debt/{placeholder}.json is the factory's", text)
             if label in ("0 owed", "8 owed", "9 owed", "named id"):
                 check(f"B-1 {label}: the sentence is the same text as the pinned tail", text.endswith(PROOF_TAIL), text[-200:])
         # the TOOLING card of the critic carries the same door
         check_in("B-1 the TOOLING card: `incomplete` is tooling, say so and record the reason on the row",
-                 "(say so in your digest and record `sensitivity_proof_missing_reason` on the row)", " ".join(brief_pack.TOOLING["qa-code-critic"]))
+                 "(say so in your digest, record `sensitivity_proof_missing_reason` on the row)", " ".join(brief_pack.TOOLING["qa-code-critic"]))
 
         # its place: the head, right after the changed-test line, before the first section
         seed_proof_rows(task, root, 2)
@@ -3789,7 +3789,7 @@ def main() -> None:
                  "{verdict intended_failure|no_failure|wrong_location|incomplete,", critic)
         check_in("incomplete and a data-gap or unresolved-copy refusal are tooling, never a verdict on the test",
                  "`incomplete`, and a refusal that names a factory data gap or a killed probe's unresolved copy, is "
-                 "`tooling` (say so in your digest and record `sensitivity_proof_missing_reason` on the row), never a verdict on the test", critic)
+                 "`tooling` (say so in your digest, record `sensitivity_proof_missing_reason` on the row), never a verdict on the test", critic)
         check_in("--release-copy is named with the one condition under which it may be used",
                  "`--release-copy <file>` alone drops that copy, only after the test's author has settled the file", critic)
         check_in("and the critic reads the window's test file", "tests/coupon/test_coupon.py (", critic)
@@ -3805,7 +3805,7 @@ def main() -> None:
                  "red_sandbox.py --probe --request <mutations.json> --task-root", critic)
         check_in("and the line says when: only when you doubt", "only when you doubt the check looks at the product", critic)
         check_not_in("nothing calls probe_by_code the only probe any more", "the ONLY probe", critic)
-        check_in("run budget: a repeat of a probe is answered already_probed", "a repeat on the same bytes and entries is answered already_probed", critic)
+        check_in("run budget: a repeat of a probe is answered already_probed", "a repeat on the same bytes and entries gets already_probed", critic)
         check_in("t-2064 P7: red_sandbox proves the one check it names, named by a `product` entry, the others stay owed",
                  "it proves the one check it names, you name it with a `product` entry in the model file, the others stay owed", critic)
         check_in("run budget: the critic has the stand door too", "stand_health.py --probe --env <name>", critic)

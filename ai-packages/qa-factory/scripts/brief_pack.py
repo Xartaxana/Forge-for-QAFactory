@@ -236,15 +236,15 @@ TOOLING = {
         "probe_by_code.py --task <T> --dispatch <ID> --test \"<file>::<test name>\" --instance <IID> [--oracle <file>::<function>] [--at <line>] [--release-copy <file>] [--json] - "
         "the default probe, every check of every new/changed test, one call per instance: with no --at it walks every check, and each check needs an entry in "
         "work/probe-models/<ID>.json; --at and --oracle "
-        "select rows on the same road and need the entry too; --plan first: it prints the model file, the entry shape and the run count, and runs nothing; a plan of more than 3 rows runs in the background; "
+        "need the entry too; --plan first: prints the model file, entry shape and run count; runs nothing; a plan of more than 3 rows runs in the background; "
         "`plan_unfinished`: the same call continues it; the live receipt is written only when every owed check is proved. <test name> is [Class::]<func>[<param>] for pytest, "
         "the method or title in any other language with an `assertion_probes` entry. "
         "It mutates the check, restores the "
         "file, writes work/probes/<IID>.json {verdict intended_failure|no_failure|wrong_location|incomplete, "
         "location, reason, failure_kind, evidence_ref} with a row per check; "
-        "`incomplete`, and a refusal that names a factory data gap or a killed probe's unresolved copy, is `tooling` (say so in your digest and record `sensitivity_proof_missing_reason` on the row), never a verdict on the test; "
+        "`incomplete`, and a refusal that names a factory data gap or a killed probe's unresolved copy, is `tooling` (say so in your digest, record `sensitivity_proof_missing_reason` on the row), never a verdict on the test; "
         "`--release-copy <file>` alone drops that copy, only after the test's author has settled the file; "
-        "a repeat on the same bytes and entries is answered already_probed and nothing runs",
+        "a repeat on the same bytes and entries gets already_probed, nothing runs",
         "red_sandbox.py --probe --request <mutations.json> --task-root <task root> --repo <root> [--dispatch <ID>] - only when you doubt the "
         "check looks at the product; it proves the one check it names, you name it with a `product` entry in the model file, "
         "the others stay owed; say why in the findings; "
@@ -850,10 +850,10 @@ def proof_required_lines(task_root: Path, role: str, dispatch_id: str) -> list:
             debt = probe_debt.debt_rel(ident)         # TR3-15: the debt file of THIS critic dispatch (the one spelling), never another window's
         except Exception:   # a brief line never stops a brief
             pass
-    return [line + f". Each needs a receipt: write each check's entry in {models} and run probe_by_code.py "
-                   "for the instance (the card). A probe the tool or the stand stopped is `critic_verdict: unverified` "
-                   "with `sensitivity_proof_missing_reason` on that row through manifest_put.py; "
-                   f"{debt} is the factory's file, never yours to write."]
+    return [line + f". Each needs a receipt: enter each check in {models} and run probe_by_code.py. "
+                   "A probe the tool or stand stopped is `critic_verdict: unverified` "
+                   "with `sensitivity_proof_missing_reason` on that row via manifest_put.py; "
+                   f"{debt} is the factory's, not yours."]
 
 
 # --- the sides of the story and what a test assumes about them (t-2181 PC-8, AR-10, AR-13) ------------------------------
