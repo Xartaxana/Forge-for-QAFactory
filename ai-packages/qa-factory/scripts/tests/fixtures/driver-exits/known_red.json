@@ -2,7 +2,8 @@
  "_about": "The label ledger of the dry walk, read ONLY by scripts/tests/known_red.py (P1-a spec 3.6): `known_red` holds one row per walk-row id (`<key|route|joint|kind>/<variant>`) that is red today because of a defect of main - `{node, raised_by[, note]}` - and `pins.known_red` is the number of rows (equality, both directions). Empty until the walk nodes (N3, N4) measure their first red rows; a raise is named in raised_by of the row.",
  "known_red": {
   "main/S5": {"node": "P1B-9", "raised_by": "Lead t-789: the S5 handover requires runtime_provenance and no record exists for a not_applicable probe (product gap, N2f report gap 9)"},
-  "kind:halt/free words": {"node": "N4S0-1", "raised_by": "Lead t-828 (N4:s0 report, t-824): the driver prints 'answer for halt' but records no answer row, does not resume the role and goes to the conductor; driver or stub: open"}
+  "kind:halt/free words": {"node": "N4S0-1", "raised_by": "Lead t-828 (N4:s0 report, t-824): the driver prints 'answer for halt' but records no answer row, does not resume the role and goes to the conductor; driver or stub: open"},
+  "s1.review/unavailable": {"node": "N4S14-1", "raised_by": "Lead t-827 (N4:s1-s4 report): C2 says the token 'unavailable' was not offered (offered agree, flip); a conditionally offered answer: walker condition or driver, open (same case as N4W-1 of the selftest ledger)"}
  },
- "pins": {"known_red": 2}
+ "pins": {"known_red": 3}
 }
