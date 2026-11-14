@@ -74,6 +74,8 @@ class FillContext:
     cases_root: str = ""         # what the token `<cases_root>` reads when the form has no plain `cases_root` field: the world's own case store, as the
                                  # product's reader (`contract.cases_root`) resolves it there; empty keeps the token unfillable (the caller names it)
 
+    task_root: str = ""          # the story's folder in the world: where a `world_list_tokens` row reads the files that exist (`<instance>`); empty keeps such a value unfillable
+
     channels: dict = field(default_factory=dict)   # case id -> `auto` | `manual`: the story kit's channel of each case (the one source in a dry world)
 
     plan_rows: dict = field(default_factory=dict)  # case id -> {"row": <plan row id>, "disposition": <word>}: the story kit's plan, one row per distinct id; empty = ONE row every case cites
@@ -311,6 +313,7 @@ class _Survey:
         self.items = []
         self.kept = []                      # (path, raw): contract-owned values that carry a hint no token names - the contract's, kept as written
         tokens = {**rules()["context_tokens"], **rules().get("form_field_tokens", {})}
+        world = rules().get("world_list_tokens", {})
         for path, node in sorted(self.tmpl.nodes.items(), key=lambda kv: kv[1].line):
             generic = ROW_INDEX.sub("[]", path)
             raw = "" if node.value is None else str(node.value)
@@ -332,7 +335,9 @@ class _Survey:
                 gen = _Gen([firsts], "hint-list") if len(firsts) == len(node.value) else None
                 self.items.append(_Item(path, generic, raw, node, fspec, "gen" if gen else "nogen", gen, why))
             elif not handoff.is_placeholder(node.value):
-                if any(tok in raw for tok in tokens):
+                if any(tok in raw for tok in world):
+                    kind = "world"                                                     # a value written once per file that exists in the world
+                elif any(tok in raw for tok in tokens):
                     kind = "code" if handoff_check._code_fills(path, self.contract) else "token"      # a value code fills is code's, token or not
                 elif HINT.search(raw) and _literal_text(raw) is None:
                     kind = "code" if handoff_check._code_fills(path, self.contract) else "embedded"   # a hint inside a value, named by no token and no literal-text row
@@ -439,6 +444,53 @@ def _finish_token(item, text: str, missing: list, ops: list, fills: list, unfill
     fills.append(Fill(item.path, item.raw, text, "token"))
 
 
+def world_list(token: str, ctx: FillContext) -> tuple:
+    """`(stems, why)`: the files that really exist for a `world_list_tokens` token, as the stems of the names sorted by file name. `stems` is None
+    (with `why`) when the context names no root to read; an absent folder or no matching file is an empty list, never a made-up name. The
+    filler names files, it never opens them (a file that is no valid JSON still counts)."""
+    row = rules()["world_list_tokens"][token]
+    root = getattr(ctx, row["root"], "")
+    if not root:
+        return None, f"the contract's token {token} reads the files under `{row['dir']}` of the world, and the context has no key `{row['root']}`"
+    folder = Path(root) / row["dir"]
+    return [p.stem for p in sorted((q for q in folder.glob(row["glob"]) if q.is_file()), key=lambda q: q.name)], ""
+
+
+def _spread_world_rows(text: str, items: list, ctx: FillContext, fills: list, unfillable: list) -> str:
+    """The form text with every list item that carries a world-list token written once per existing file (the token replaced by the file's stem).
+    No file: the item is `Unfillable` (no path is made up, and the contract's own `null_outcome` block keys whole sections, so it declares no empty
+    outcome for a nested list). A token in no list item has no single file to name: `Unfillable` too."""
+    tokens = rules()["world_list_tokens"]
+    groups = {}
+    for item in items:
+        last = list(ROW_INDEX.finditer(item.path))
+        groups.setdefault(item.path[:last[-1].end()] if last else None, []).append(item)
+    nodes = handoff.parse(text).nodes
+    spans = []
+    for row, group in groups.items():
+        found = sorted({t for item in group for t in tokens if t in item.raw})
+        if row is None or len(found) != 1:
+            unfillable.append(Unfillable(group[0].path, group[0].raw, "a world-list token sits outside a list item, or two of them in one item: "
+                                                                      "there is no single file to name"))
+            continue
+        names, why = world_list(found[0], ctx)
+        list_path = ROW_INDEX.sub("", row[:row.rindex("[")]) if "[" in row else row
+        if names is None:
+            unfillable.append(Unfillable(group[0].path, group[0].raw, why))
+        elif not names:
+            unfillable.append(Unfillable(group[0].path, group[0].raw, f"no probe record exists in {tokens[found[0]]['dir']}/ and the contract "
+                                                                      f"declares no empty outcome for {list_path}"))
+        else:
+            mine = [n for p, n in nodes.items() if p == row or p.startswith(row + ".") or p.startswith(row + "[")]
+            spans.append((min(n.line for n in mine), max(n.end_line for n in mine), found[0], names, group))
+    lines = text.split("\n")
+    for start, end, token, names, group in sorted(spans, key=lambda s: s[0], reverse=True):
+        block = lines[start:end + 1]
+        lines[start:end + 1] = [line.replace(token, name) for name in names for line in block]
+        fills.extend(Fill(item.path, item.raw, item.raw.replace(token, name), "world-list") for item in group for name in names)
+    return "\n".join(lines)
+
+
 def fill_form(contract: str, ctx: FillContext, *, verdict=None, variant: str = VARIANT_BASE, overrides=None) -> Filled:
     """The form of `contract` filled from its own hints: every field the role fills gets the value its hint says (the first
     alternative in the base variant), a field code fills stays as written, and a hint nothing fits is listed in `unfillable`.
@@ -495,7 +547,7 @@ def fill_form(contract: str, ctx: FillContext, *, verdict=None, variant: str = V
         if key not in matched:
             unfillable.append(Unfillable(key, "", f"override names no field of {contract}"))
     ops = []                                          # (node, "set" | "delete", value, path)
-    literal, deferred = [], []
+    literal, deferred, worlds = [], [], []
     for item in survey.items:
         head = item.path.split(".")[0].split("[")[0]
         found, value = _override_for(item.path, item.generic, overrides)
@@ -514,6 +566,9 @@ def fill_form(contract: str, ctx: FillContext, *, verdict=None, variant: str = V
             continue
         if item.kind == "literal":
             literal.append(item.path)
+            continue
+        if item.kind == "world":
+            worlds.append(item)                             # written once per existing file, after every other field has its value
             continue
         if item.kind == "token":
             text, missing = item.raw, []
@@ -598,7 +653,7 @@ def fill_form(contract: str, ctx: FillContext, *, verdict=None, variant: str = V
     spans = [(name, _section_span(doc.lines, name), name in dropped) for name in sorted(dropped | emptied)]
     for name, span, drop in sorted((s for s in spans if s[1]), key=lambda s: s[1][0], reverse=True):
         doc.lines[span[0]:span[1] + 1] = [] if drop else [f"{name}: []"]
-    text = doc.text()
+    text = _spread_world_rows(doc.text(), worlds, ctx, fills, unfillable) if worlds else doc.text()
     return Filled(contract, word_text, variant, text, handoff.parse(text).data, fills, unfillable, left, literal, list(survey.kept))
 
 
@@ -607,7 +662,7 @@ def write_dispatch_form(task_root, dispatch_id: str, contract: str, ctx: FillCon
     leave. Raises NotFillable (never writes a half-filled form) and ValueError for a dispatch id that is not one plain file name."""
     if not DISPATCH_ID.fullmatch(str(dispatch_id)):
         raise ValueError(f"dispatch id {dispatch_id!r} is not one plain file name (letters, digits, `.`, `_`, `-`)")
-    filled = fill_form(contract, replace(ctx, dispatch_id=str(dispatch_id)), verdict=verdict, overrides=overrides).require()
+    filled = fill_form(contract, replace(ctx, dispatch_id=str(dispatch_id), task_root=ctx.task_root or str(task_root)), verdict=verdict, overrides=overrides).require()
     path = Path(task_root) / "work" / "handoffs" / f"{dispatch_id}.yaml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(filled.text.encode("utf-8"))

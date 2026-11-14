@@ -337,13 +337,13 @@ def world_cases_root(task_dir) -> str:
         return str(root)
 
 
-def kit_context(kit: dict, dispatch: str = "", impl_diff: str = "", cases=None, author_dispatch: str = "", cases_root: str = ""):
+def kit_context(kit: dict, dispatch: str = "", impl_diff: str = "", cases=None, author_dispatch: str = "", cases_root: str = "", task_root: str = ""):
     """The `FillContext` of the kit for ONE call: its ids (`cases` narrows them, a test file is one per case), the call's dispatch id."""
     import form_filler as FF
     ids = [c["id"] for c in kit["cases"]] if cases is None else list(cases)
     return FF.FillContext(task_key=kit["key"], dispatch_id=dispatch, requirements=list(kit["requirements"]), cases=ids,
                           channels={c["id"]: c["channel"] for c in kit["cases"]}, plan_rows=dict(kit.get("plan_rows") or {}),
-                          minted={k: list(v) for k, v in kit["minted"].items()}, impl_diff=impl_diff, author_dispatch=author_dispatch, cases_root=cases_root)
+                          minted={k: list(v) for k, v in kit["minted"].items()}, impl_diff=impl_diff, author_dispatch=author_dispatch, cases_root=cases_root, task_root=task_root)
 
 
 def runner_rows(story_id: str = "dry-1", base=None) -> list:
@@ -758,7 +758,7 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
     except (OSError, ValueError, KeyError, TypeError) as exc:       # the product's reader refused the world's config: the token stays unfillable and the row says why
         store = ""
         row["live_only"].append({"output": "the world's case store", "why": cut(f"contract.cases_root: {type(exc).__name__}: {exc}", 240)})
-    ctx = kit_context(kit, dispatch, diff, author_dispatch=author, cases_root=store) if kit else FF.FillContext(task_key=task, dispatch_id=dispatch, impl_diff=diff, author_dispatch=author, cases_root=store)
+    ctx = kit_context(kit, dispatch, diff, author_dispatch=author, cases_root=store, task_root=str(task_dir)) if kit else FF.FillContext(task_key=task, dispatch_id=dispatch, impl_diff=diff, author_dispatch=author, cases_root=store, task_root=str(task_dir))
     if not contract:
         row["live_only"].append({"output": f"work/handoffs/{dispatch}.yaml", "why": "no form with a `contract:` line at that path"})
     else:
