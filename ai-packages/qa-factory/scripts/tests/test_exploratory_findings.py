@@ -250,6 +250,66 @@ def key_m1_1(root):
         denied = exc
     check("K-M1-1 an I/O error while hashing keeps its OSError", isinstance(denied, OSError) and denied.errno == errno.EIO, repr(denied))
     check("K-M1-1 patched rows restored the real calls", Path.is_file is real_is_file and EF.install_paths.sha256_file is real_sha)
+    # the judge itself (contract.evidence_ref_issue) holds the guard, so every caller gets the sentence, never a traceback
+    judge = EF.C.evidence_ref_issue
+    real_resolve, real_read = Path.resolve, Path.read_bytes
+    boom = lambda real: (lambda exc: (lambda self, *a, **k: (_ for _ in ()).throw(exc) if self.name.startswith("boom") else real(self, *a, **k)))
+
+    def judged(patch, exc, ref, **kw):      # patch in {"is_file", "resolve", "read"}; the judge's answer or its exception
+        saved = Path.is_file, Path.resolve, Path.read_bytes
+        try:
+            if patch == "is_file":
+                Path.is_file = boom(real_is_file)(exc)
+            elif patch == "resolve":
+                Path.resolve = boom(real_resolve)(exc)
+            else:
+                Path.read_bytes = boom(real_read)(exc)
+            return judge(troot, ref, "evidence", **kw)
+        except Exception as raised:
+            return raised
+        finally:
+            Path.is_file, Path.resolve, Path.read_bytes = saved
+
+    zeros = "0" * 64
+    for label, exc in (("ENAMETOOLONG", OSError(errno.ENAMETOOLONG, "x")), ("EINVAL", OSError(errno.EINVAL, "x")), ("ValueError", ValueError("x"))):
+        check_eq(f"K-M1-1 judge direct, is_file raises {label}: the sentence, no exception",
+                 judged("is_file", exc, {"path": "work/evidence/boom.txt"}), unreadable("work/evidence/boom.txt"))
+        check_eq(f"K-M1-1 judge direct, is_file raises {label}, with a sha256 (the road _judge_refs does not pre-guard)",
+                 judged("is_file", exc, {"path": "work/evidence/boom.txt", "sha256": zeros}), unreadable("work/evidence/boom.txt"))
+    check_eq("K-M1-1 judge direct, require_hash=False: the same sentence",
+             judged("is_file", ValueError("x"), {"path": "work/evidence/boom.txt"}, require_hash=False), unreadable("work/evidence/boom.txt"))
+    check_eq("K-M1-1 judge direct, `under` set and the path unmeasurable: the sentence, the prefix is not judged",
+             judged("resolve", ValueError("x"), {"path": "work/evidence/boom.txt"}, require_hash=False, under="elsewhere"),
+             unreadable("work/evidence/boom.txt"))
+    check_eq("K-M1-1 judge direct, resolve raises on a relative path: the sentence",
+             judged("resolve", ValueError("x"), {"path": "work/evidence/boom.txt"}), unreadable("work/evidence/boom.txt"))
+    absolute = str(troot / "work" / "evidence" / "boom.txt")
+    check_eq("K-M1-1 judge direct, absolute unmeasurable path: the sentence, not 'outside the task root'",
+             judged("resolve", ValueError("x"), {"path": absolute}), unreadable(absolute))
+    real_file = troot / "work" / "evidence" / "boom_hash.txt"       # a real file, so only the hash read can fail
+    real_file.write_bytes(b"x")
+    try:
+        check_eq("K-M1-1 judge direct, hash read raises ENAMETOOLONG: the sentence",
+                 judged("read", OSError(errno.ENAMETOOLONG, "x"), {"path": "work/evidence/boom_hash.txt", "sha256": zeros}),
+                 unreadable("work/evidence/boom_hash.txt"))
+    finally:
+        real_file.unlink()
+    denied = judged("is_file", PermissionError(errno.EACCES, "x"), {"path": "work/evidence/boom.txt"})
+    check("K-M1-1 judge direct, PermissionError: raised, never 'not a file' (FR-46)", isinstance(denied, PermissionError), repr(denied))
+    denied = judged("is_file", OSError(errno.EIO, "x"), {"path": "work/evidence/boom.txt"})
+    check("K-M1-1 judge direct, EIO: raised unchanged", isinstance(denied, OSError) and denied.errno == errno.EIO, repr(denied))
+    for length in (80, 81):     # AT the bound the path prints as written, one beyond it is cut: an existing sentence
+        raw = "../" + "a" * (length - 3)
+        shown = raw if length <= 80 else raw[:80] + "..."
+        check_eq(f"K-M1-1 judge direct, 'escapes' sentence for a path of {length} characters",
+                 judge(troot, {"path": raw}, "evidence"), f"evidence path {shown} escapes the task root {troot}")
+    check_eq("K-M1-1 judge direct, an ordinary path's existing sentence is unchanged",
+             judge(troot, {"path": "work/gone.json", "sha256": zeros}, "evidence"), f"evidence path work/gone.json is not a file under the task root {troot}")
+    two = judge(troot, {"path": "work/evidence/one.txt", "sha256": sha((troot / "work" / "evidence" / "one.txt").read_bytes())}, "evidence")
+    check("K-M1-1 control: a measurable ref yields no sentence (the judge alone, nothing written)", two == "", str(two))
+    got = with_patch(ValueError("x"), "is_file", ref_line("work/evidence/boom.txt")) or ""
+    check_eq("K-M1-1 one unmeasurable ref: exactly one sentence of its own (not one from _judge_refs and one from the judge)",
+             got.count("the path cannot be read as a file"), 1)
     for label, raw, others in (("real over-long evidence path", "work/evidence/" + "a" * 40000, {}),
                                ("real over-long evidence path with two other problems", "work/evidence/" + "a" * 40000, {"title": "", "statement": ""}),
                                ("real NUL evidence path", "work/evidence/o\x00ne.txt", {})):
