@@ -21,7 +21,7 @@
 | № | Что изменится для пользователя | Строки | Размер | Статус | Взял | Ветка | MR |
 |---|---|---|---|---|---|---|---|
 | 1 | фабрика доходит до тестов без ручной помощи оператора; слова человека доходят и исполняются | FV1-1…FV1-30 | L | ожидает | — | — | — |
-| 2 | читатели и носители, найденные критиками 13.11.2026: `_plan_row_of`, `BY_LEAF`, `py.test`, выходы без читателя и мелкие хвосты | FV2-1…FV2-44 | L | ожидает | — | — | — |
+| 2 | читатели и носители, найденные критиками 13.11.2026: `_plan_row_of`, `BY_LEAF`, `py.test`, выходы без читателя и мелкие хвосты | FV2-1…FV2-60 | L | ожидает | — | — | — |
 
 Статусы пачки: `ожидает` → `в работе` → `сдано` → `принято` → `закрыта`. Размер — по узлам: S ≤ 4 узлов,
 M 5–9, L 10–15 (больше — две пачки). Взятая пачка заморожена: её файл правит только взявший, новое
@@ -119,6 +119,13 @@ M 5–9, L 10–15 (больше — две пачки). Взятая пачка
 | `findings/20261114-zhivoj-schyot-otkazov-er-rs-po-id-na-progone.md` | находка, id — | PN-3: живой счёт отказов ER/RS по id на прогоне против `main`, сначала `window_first` | — | пачка 2, FV2-42 | нет | план-критик T1r-sites (PN-3); FR-33 |
 | `findings/20261114-bare-sajty-er-rs-bez-id-vne-uzla-s-1a.md` | находка, id — | голые сайты отказов ER/RS вне S-1a: классификация КОД или РОЛЬ, id на зовущем | `scripts/execution_request.py`, `scripts/probe_by_code.py`, `scripts/run_suite.py` | пачка 2, FV2-43 | нет | отчёт билдера S-1a (вопрос 2, аналоги); FR-38 |
 | `findings/20261114-pechat-otkaza-profilya-obhodit-refusal.md` | находка, id — | `window_record.py:267` и `probe_by_code.py:2892` печатают `unknown_profile_refusal` простым текстом мимо `refusal()` | `scripts/window_record.py`, `scripts/probe_by_code.py` | пачка 2, FV2-44 | нет | отчёт билдера S-1a (аналоги); AR-18 |
+| `findings/20261114-n-b-requirement-silent-stroka-ne-nesyot-vopros-pretenzii.md` | находка, id — | строка `requirement_silent` не несёт id вопроса-претензии своего R: человека спрашивают о R второй раз другой дорогой | `scripts/place_answers.py`, `scripts/report_facts.py`, `scripts/tests/test_place_of_draft_observation.py` | пачка 2, FV2-47 | нет | план-критик FV1-24 (ключ 5, 12; N-b); P31, FR-7 |
+| `findings/20261114-n-c-istochnik-ozhidaniya-ne-pokazan-v-pakete-gejta-b.md` | находка, id — | источник ожидания решённого `bug` виден только писцу S8, не человеку на гейте B; вопрос владельцу Q2 | `scripts/gate_brief.py`, `scripts/tests/test_gate_brief_and_retro.py` | пачка 2, FV2-48 | Q2: да (рекомендация взята) | план-критик FV1-24 (ключ 5; N-c); P26 |
+| `findings/20261114-a12-chernoviki-vne-hodoka-i-triage-app-bug-s-nepodtverzhdennym-r.md` | находка, id — | черновики не от ходока и строки `APP_BUG`, называющие неподтверждённое R, не охвачены правилом K2 | `scripts/bug_records.py`, `scripts/gate_preflight.py`, `scripts/tests/test_bug_records.py` | пачка 2, FV2-49 | нет | план-критик FV1-24 (A12); P31, FR-59 |
+| `findings/20261114-fv1-23-a7-odno-yadro-ssylok-dlya-linked-documents.md` | находка, id — | `linked_documents` и `linked_documents_of_texts` повторяют цикл кандидатов: одно ядро, вложенность не глубже трёх | `scripts/source_inventory.py`, `scripts/tests/test_local_keys.py` | пачка 2, FV2-50 | нет | критик диффа FV1-23 A-5 (F5, Q-a); FR-54 |
+| `findings/20261114-fv1-23-a8-kriterii-priyomki-v-s0-i-potolok-ssylok-na-tiket.md` | находка, id — | дорога REST S0 не читает критерии приёмки, дорога вставки читает; потолок ссылок на текст, не на тикет (вилка Lead) | `scripts/source_inventory.py`, `scripts/tests/test_local_keys.py` | пачка 2, FV2-51 | нет | критик диффа FV1-23 A-5 (вопрос 3, F6, Q-b); P31, AR-12 |
+| `findings/20261114-odin-tokenizator-url-chetyre-regexa-vne-ticket-light.md` | находка, id — | ссылки в тексте ищут пять разных регулярных выражений: один токенайзер `url_candidates` | `scripts/ticket_light.py`, `scripts/source_exclusions.py`, `scripts/source_inventory.py`, `scripts/device_stand.py` | пачка 2, FV2-52 | нет | критик диффа FV1-23 A-5 (Q-c); AR-15, FR-54 |
+| `findings/20261114-ssylka-maskiruetsya-odnim-pravilom-v-kazhdom-pisatele-i-chitatele.md` | находка, id — | маскировка ссылки: `_settle_references` не маскирует старые строки, `_record_source` с собственным правилом, `%3D` не маскируется | `scripts/source_inventory.py`, `scripts/ticket_adapter.py`, `scripts/config_contract.py` | пачка 2, FV2-53 | нет | отчёт исправления FV1-23 A-5 (аналоги); FR-41, AR-15 |
 
 ## Входящие
 
@@ -128,4 +135,12 @@ M 5–9, L 10–15 (больше — две пачки). Взятая пачка
 
 ## Вопросы владельцу
 
+- FV1-28, карточка A2 (развилка F-9, рекомендация взята до слова владельца): обход-обзор, когда для профиля НЕ зарегистрирована проба сборки (`stand_probe` отказывает «no runtime probe for profile …»). Вариант A (рекомендация): отказ как
+  сегодня, проект без пробы получает ту же дверь к человеку; вопрос — открывать ли обзор и при «пробы нет вовсе» как «сборка не установлена». Вариант B: открывать (цена: ещё одна строка и ветка без `provenance`; риск: проект без пробы
+  не называет сборку нигде). Узел FV2-55 исполним по варианту A; спека `docs/tasks/specs/20261114-fv1-28-cards-redraft-spec.md` §6.
+- FV1-28, карточка C1 (развилка F-10, рекомендация взята до слова владельца): вызов `record-sign-in` на дороге скилла держится на дисциплине дирижёра. Вариант A (рекомендация): оставить, детектор назван в §5a карточки (C1 (d)); в
+  код-гейт (`story_step.py finish` зовёт `record_sign_in`) — только после замеренной утечки. Вариант B: провести в `story_step.py finish` сразу (цена: третий файл в C1 на горячем `story_step.py`, второй вызывающий). Узел FV2-57 исполним по
+  варианту A.
+- FV1-24 (вопрос Lead, край K1, безопасное направление): после фикс-раунда K1 отчёт, не содержащий НИ ОДНОГО id (`bug_records.no_run_target` возвращает False), не поднимает рождённый местом черновик: стори с пустым отчётом S7, единственный баг
+  которой родился на обходе-обзоре, остаётся неподнятым. Рекомендация: оставить (неизвестное не уходит как факт, AR-28); поднимать ли такой черновик отдельным путём — решение Lead; в узлах не заведено (`docs/tasks/specs/reports/20261114-fv1-24-k1-fix-report.md`, «What changed», край 2).
 - FV1-12: что такое S2 по замыслу — «первый взгляд, смоук» или «реестр требований и размер»; нужен ли на S2 критик-приёмщик.

@@ -841,7 +841,7 @@ def linked_documents_rows() -> None:
                  [w for w in ("abc123", "passwd", "p.png", "\x00") if w in got.err], [])
         check_eq("links: the stdout carries no listing", "Linked" in got.out, False)
         check_eq("links: the rows are the listed paths, origin mention:document:<ref>, not read",
-                 sorted((r["ref"], r["kind"], r["origins"], r["status"]) for r in rows_of(work)),
+                 sorted((r["ref"], r["kind"], r["origins"], r["status"]) for r in rows_of(work) if r["kind"] == "linked_document"),
                  sorted((p, "linked_document", ["mention:document:README.md"], SI.LINKED_DOCUMENT_STATUS)
                         for p in ("docs/a.md", "docs/My Doc.md", "NOTES.md", f"../{sib.name}/docs/A.md")))
         before = rows_of(work)
@@ -925,11 +925,11 @@ def linked_documents_rows() -> None:
         client = SimpleNamespace(base_url="https://jira.example", references_context={}, project_keys=[])
         (work / "ticket-references.json").write_text(json.dumps({"rows": [{"kind": "url", "ref": "https://o.example/x", "origins": ["mention:description"], "status": "person"}], "scanned": [], "written_by": []}), encoding="utf-8")
         for _ in range(2):
-            SI.append_attachment_references(client, work / "source-inventory.json", "PROJ-1", {}, {"notes.txt": "see https://o.example/x"})
+            SI.append_attachment_references(client, work / "source-inventory.json", "PROJ-1", {}, {"mention:attachment:notes.txt": "see https://o.example/x"})
         document = json.loads((work / "ticket-references.json").read_text(encoding="utf-8"))
         check_eq("attachments refactor guard: the origin joins the existing row once, scanned and written_by are marked",
                  ([r["origins"] for r in document["rows"] if r["ref"] == "https://o.example/x"], document["scanned"], document["written_by"]),
-                 ([["mention:description", "notes.txt"]], ["attachments"], ["S1"]))
+                 ([["mention:description", "mention:attachment:notes.txt"]], ["attachments"], ["S1"]))
     finally:
         cleanup(sib)
         cleanup(root)
@@ -943,6 +943,187 @@ def linked_documents_rows() -> None:
                  (listed(got.err), "1 linked document(s) already recorded" in got.err), (["app/x.md"], True))
         check_eq("links: the document recorded before is born fetched", sorted((r["ref"], r["status"]) for r in rows_of(work)),
                  [("app/x.md", SI.LINKED_DOCUMENT_STATUS), ("docs/a.md", "fetched")])
+    finally:
+        cleanup(sib)
+        cleanup(root)
+    # -- FV1-23 A-5: every text the factory reads goes through the same road. (a) a recorded document's keys, URLs, MRs
+    root, sib, work = scenario()
+    try:
+        put(root, "docs/a.md"), put(root, "NOTES.md")
+        text = "see PROJ-9, https://h.example/x?token=abc123&a=1 and !12\n"
+        got = rec(root, work, "README.md", text, "--summary")
+        check_eq("A-5 (a): the exit code and the stdout shape are the record's own", (got.code, len(got.out.splitlines())), (0, 1))
+        rows = rows_of(work)
+        check_eq("A-5 (a): a recorded document naming PROJ-9 gives a ticket row, origin mention:document:<ref>",
+                 [(r["ref"], r["origins"]) for r in rows if r["kind"] == "ticket"], [("PROJ-9", ["mention:document:README.md"])])
+        check_eq("A-5 (a) F5: a credential in a URL's query is masked in the file and in every output",
+                 ("abc123" in (work / "ticket-references.json").read_text(encoding="utf-8"), "abc123" in got.out + got.err,
+                  [r["ref"] for r in rows if r["kind"] != "ticket" and "h.example" in r["ref"]]),
+                 (False, False, ["https://h.example/x?token=<hidden>&a=1"]))
+        before = rows_of(work)
+        rec(root, work, "README.md", text)
+        check_eq("A-5 (a): the same text recorded twice is the same rows, origins not doubled", rows_of(work), before)
+        check_eq("A-5 (a): the scanned word is documents", json.loads((work / "ticket-references.json").read_text(encoding="utf-8"))["scanned"], ["ticket", "documents"])
+        got = rec(root, work, "plain.md", "# nothing that names anything\n")
+        check_eq("A-5 (a): a text with no reference adds no row", (got.code, rows_of(work)), (0, before))
+        # a story older than S0's file: nothing is written, nothing fails
+        (work / "ticket-references.json").unlink()
+        got = rec(root, work, "README2.md", text)
+        check_eq("A-5 (a) TEMPORAL: no references file: exit 0, no file is born", (got.code, (work / "ticket-references.json").exists()), (0, False))
+        (work / "ticket-references.json").write_text(json.dumps({"rows": [], "scanned": ["ticket"], "written_by": ["S0"]}), encoding="utf-8")
+        real = SI.append_document_references
+        SI.append_document_references = lambda *a, **k: 1 / 0
+        try:
+            got = rec(root, work, "README3.md", text)
+        finally:
+            SI.append_document_references = real
+        check_eq("A-5 (a): a failure while reading the references is one stderr line and exit 0",
+                 (got.code, "references of README3.md could not be read (ZeroDivisionError)" in got.err), (0, True))
+        check_eq("A-5 (a): a URL text ref also gets its references", (rec(root, work, "https://wiki.example/p", "see ZED-3", on_disk=False).code,
+                 [r["origins"] for r in rows_of(work) if r["ref"] == "ZED-3"]), (0, [["mention:document:https://wiki.example/p"]]))
+    finally:
+        cleanup(sib)
+        cleanup(root)
+    # -- (b) the S0 ticket text and the attachment texts: the declared roots are the bases
+    root, sib, work = scenario()
+    try:
+        for rel in ("docs/a.md", "NOTES.md", "docs/token=abc.md", "docs/caf\u00e9.md"):
+            put(root, rel)
+        put(sib, "docs/a.md"), put(sib, "docs/only-sib.md")
+        (root / "docs" / "dir.md").mkdir()
+        cfg = _set_config(root)
+        sibn = sib.name
+
+        def of(text, origin="mention:description", config=None):
+            return {r["ref"]: r for r in SI.linked_documents_of_texts(root, cfg if config is None else config, {origin: text}, work.parent)["rows"]}
+
+        got = of("see docs/a.md")
+        check_eq("A-5 (b): a ticket text naming docs/a.md gives one row per declared root that holds it (two roots: two rows, never a guess)",
+                 sorted((ref, r["kind"], r["origins"], r["status"]) for ref, r in got.items()),
+                 sorted((ref, "linked_document", ["mention:description"], SI.LINKED_DOCUMENT_STATUS) for ref in ("docs/a.md", f"../{sibn}/docs/a.md")))
+        check_eq("A-5 (b): a path under one root only is one row", sorted(of("docs/only-sib.md")), [f"../{sibn}/docs/only-sib.md"])
+        check_eq("A-5 (b): a rooted link, a fence, a quote, a trailing dot or bracket, a backslash, CRLF, a query: the same one row",
+                 [sorted(of(text)) for text in ("/NOTES.md", "```\nNOTES.md\n```", "> NOTES.md", "(NOTES.md).", "[x](NOTES.md]", "NOTES.md\r\nx", "NOTES.md?a=1#b", "`NOTES.md`")],
+                 [["NOTES.md"]] * 8)
+        check_eq("A-5 (b): a backslash name and a non-ASCII name", (sorted(of("docs\\a.md")), sorted(of("docs/caf%C3%A9.md ./docs/caf\u00e9.md"))),
+                 (sorted(("docs/a.md", f"../{sibn}/docs/a.md")), ["docs/caf\u00e9.md"]))
+        check_eq("A-5 (b): nothing outside every declared root, no scheme, no drive, no home, no folder, no credential-like name, no NUL",
+                 of("../../../etc/passwd ../NOTES.md file:///NOTES.md C:\\x\\NOTES.md ~/NOTES.md https://h.example/NOTES.md docs/dir.md docs/token=abc.md a%00.md missing.md"), {})
+        check_eq("A-5 (b): the origin of each text is its own; one document named twice is one row with both origins",
+                 [r["origins"] for r in SI.linked_documents_of_texts(root, cfg, {"mention:description": "NOTES.md", "mention:comment:7": "NOTES.md", "mention:attachment:notes.txt": "x"}, work.parent)["rows"]],
+                 [["mention:description", "mention:comment:7"]])
+        check_eq("A-5 (b): empty, no link, no root at all, a text that is not text, a config with no code_repos",
+                 [SI.linked_documents_of_texts(*args)["rows"] for args in ((root, cfg, {"mention:description": ""}, work.parent), (root, cfg, {"mention:description": "no link here"}, work.parent),
+                                                                        (None, cfg, {"mention:description": "NOTES.md"}, work.parent), (root, cfg, {}, work.parent), (root, cfg, {"mention:description": None}, work.parent))],
+                 [[]] * 5)
+        check_eq("A-5 (b): a config without code_repos or with a code_repos that is no list is the project alone", (sorted(of("docs/a.md", config={})), sorted(of("docs/a.md", config={"code_repos": "x"}))), (["docs/a.md"], ["docs/a.md"]))
+        # AT and BEYOND the candidate bound: the 501st name is never tried and the cut is said with its count
+        put(root, "n/n000.md"), put(root, "n/n499.md"), put(root, "n/n500.md")
+        for count in (500, 501):
+            found = SI.linked_documents_of_texts(root, cfg, {"mention:description": " ".join(f"n/n{i:03d}.md" for i in range(count))}, work.parent)
+            check_eq(f"A-5 (b) AT/BEYOND 500 names: {count}", (sorted(r["ref"] for r in found["rows"]), found["cut"]),
+                     (["n/n000.md", "n/n499.md"], [("mention:description", 501)] if count == 501 else []))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rows = SI.text_link_rows(work.parent, {"mention:description": " ".join(f"n/n{i:03d}.md" for i in range(501))})
+        check_eq("A-5 (b): the cut is said on stderr, with its count", ("more than 500 names in mention:description (501): only the first 500 were checked" in err.getvalue(), len(rows)), (True, 2))
+        # a symlink inside a root that leads outside is no row; an unreadable exclusion record lists nothing; a recorded document is fetched
+        outside = root.parent / (root.name + "-outside.md")
+        outside.write_bytes(b"secret outside\n")
+        try:
+            os.symlink(outside, root / "docs" / "ln.md")
+            check_eq("A-5 (b): a link that leads outside every root is not a row", sorted(of("docs/ln.md NOTES.md")), ["NOTES.md"])
+        except OSError:
+            print("skipped: A-5 symlink pointing outside - the OS refused to make a file link")
+        finally:
+            outside.unlink()
+        rec(root, work, "NOTES.md", "alpha\n")
+        check_eq("A-5 (b): a document already recorded is born fetched", of("NOTES.md")["NOTES.md"]["status"], "fetched")
+        excl = work / "source-exclusions.json"
+        excl.write_text("not json", encoding="utf-8")
+        check_eq("A-5 (b): an unreadable exclusion record lists nothing", of("docs/a.md"), {})
+        excl.unlink()
+        # S0's writer and the attachments' merge, end to end
+        client = SimpleNamespace(base_url="https://jira.example", references_context={}, project_keys=[], reads_skipped=[])
+        snapshot = {"key": "PROJ-1", "title": "T docs/only-sib.md", "description": "see docs/a.md and PROJ-7", "comments": [{"id": "5", "text": "docs/a.md again"}],
+                    "acceptance_criteria": [], "type": "Story", "status": "Open"}
+        (work / "ticket-raw").mkdir()
+        SI._write_s0_files(client, "PROJ-1", snapshot, work, {"ids": None, "epic_link": None}, [], None, TL.load_reference_kinds(), {})
+        document = json.loads((work / "ticket-references.json").read_text(encoding="utf-8"))
+        check_eq("A-5 (b) S0: the ticket text's rows: its ticket key through TL, its linked documents with every origin, one row per root",
+                 (document["written_by"], sorted((r["ref"], r["origins"]) for r in document["rows"])),
+                 (["S0"], sorted([("PROJ-7", ["mention:description"]), ("docs/a.md", ["mention:description", "mention:comment:5"]),
+                                  (f"../{sibn}/docs/a.md", ["mention:description", "mention:comment:5"]), (f"../{sibn}/docs/only-sib.md", ["mention:summary"])])))
+        att = "mention:attachment:notes.txt"
+        SI.append_attachment_references(client, work / "source-inventory.json", "PROJ-1", {}, {att: "see docs/a.md, NOTES.md and https://o.example/x?secret=s3cr3t"})
+        document = json.loads((work / "ticket-references.json").read_text(encoding="utf-8"))
+        check_eq("A-5 (b) attachments: an attachment's links join the rows (origins merged, one row per document), its credential URL is masked",
+                 ([r["origins"] for r in document["rows"] if r["ref"] == "docs/a.md"], [r["origins"] for r in document["rows"] if r["ref"] == "NOTES.md"],
+                  "s3cr3t" in json.dumps(document), [r["ref"] for r in document["rows"] if "o.example" in r["ref"]]),
+                 ([["mention:description", "mention:comment:5", att]], [[att]], False, ["https://o.example/x?secret=<hidden>"]))
+        # F1: the same credential URL from S0 and from an attachment is ONE masked row with both origins, the raw value is nowhere on disk;
+        # a userinfo password is masked at the S0 writer and at the merge; a raw row of an older file joins the masked one
+        snap2 = dict(snapshot, title="", description="read https://w.example/p?token=abc123 and https://u:p4ss@w.example/q", comments=[])
+        SI._write_s0_files(client, "PROJ-1", snap2, work, {"ids": None, "epic_link": None}, [], None, TL.load_reference_kinds(), {})
+        path = work / "ticket-references.json"
+        s0_rows = sorted(r["ref"] for r in json.loads(path.read_text(encoding="utf-8"))["rows"] if "w.example" in r["ref"])
+        check_eq("F1 S0 writer: the token and the userinfo password are masked as the rows are stored",
+                 (s0_rows, "abc123" in path.read_text(encoding="utf-8"), "p4ss" in path.read_text(encoding="utf-8")),
+                 (["https://u:<hidden>@w.example/q", "https://w.example/p?token=<hidden>"], False, False))
+        SI.append_attachment_references(client, work / "source-inventory.json", "PROJ-1", {}, {att: "again https://w.example/p?token=abc123 and https://u:p4ss@w.example/q"})
+        text = path.read_text(encoding="utf-8")
+        check_eq("F1 merge: the same URL from S0 and from an attachment is ONE row, origins joined, no raw value on disk",
+                 (sorted((r["ref"], r["origins"]) for r in json.loads(text)["rows"] if "w.example" in r["ref"]), "abc123" in text, "p4ss" in text),
+                 (sorted([("https://u:<hidden>@w.example/q", ["mention:description", att]), ("https://w.example/p?token=<hidden>", ["mention:description", att])]), False, False))
+        document = json.loads(text)
+        document["rows"].append({"kind": "url", "ref": "https://w.example/p?token=abc123", "origins": ["mention:comment:9"], "status": "person"})
+        path.write_text(json.dumps(document), encoding="utf-8")
+        SI.append_attachment_references(client, work / "source-inventory.json", "PROJ-1", {}, {att: "https://w.example/p?token=abc123"})
+        text = path.read_text(encoding="utf-8")
+        check_eq("F1 TEMPORAL: a raw row already in the file is masked and joined with the masked one by the merge",
+                 ([r["origins"] for r in json.loads(text)["rows"] if r["ref"] == "https://w.example/p?token=<hidden>"], "abc123" in text),
+                 ([["mention:description", att, "mention:comment:9"]], False))
+        # F2/F1: the paste leg reads the pasted text with the same link road, and masks what it stores
+        pasted = work / "paste.md"
+        for label, body, expected in (
+                ("a document link and two credential URLs", "# T\n\nsee docs/a.md, https://p.example/x?password=pw1 and https://u:p4ss@p.example/y\n",
+                 sorted(["docs/a.md", f"../{sibn}/docs/a.md", "https://p.example/x?password=<hidden>", "https://u:<hidden>@p.example/y"])),
+                ("no link at all", "# T\n\nnothing to read here\n", []),
+                ("an empty paste", "", [])):
+            pasted.write_text(body, encoding="utf-8")
+            TA.write_paste_references(pasted, {"title": ""}, {}, "PROJ-1", work)
+            raw = (work / "ticket-references.json").read_text(encoding="utf-8")
+            check_eq(f"F2 paste leg: {label}", (sorted(r["ref"] for r in json.loads(raw)["rows"]), "pw1" in raw, "p4ss" in raw), (expected, False, False))
+        # the ONE masking helper, input from outside (a URL in a person's text): masked, idempotent, never raises, over-masks rather than under-masks
+        from config_contract import mask_secret_ref
+        for label, value, expected in (
+                ("a query token", "https://h.example/p?token=abc&x=1", "https://h.example/p?token=<hidden>&x=1"),
+                ("a userinfo password, the user stays", "https://u:p4ss@h.example/q", "https://u:<hidden>@h.example/q"),
+                ("both at once", "https://u:p4ss@h.example/q?Secret=s#key=k", "https://u:<hidden>@h.example/q?Secret=<hidden>#key=<hidden>"),
+                ("an empty string", "", ""),
+                ("not a URL", "plain text, no secret", "plain text, no secret"),
+                ("an at sign in the path is no userinfo", "https://h.example/a@b:c@d", "https://h.example/a@b:c@d"),
+                ("a user without a password has none to hide", "https://u@h.example/q", "https://u@h.example/q"),
+                ("a password holding an at sign is hidden whole", "https://u:p@ss@h.example/q", "https://u:<hidden>@h.example/q"),
+                ("a non-ASCII host", "https://u:p4ss@höst.example/q", "https://u:<hidden>@höst.example/q"),
+                ("a very long query", "https://h.example/p?token=" + "a" * 100000, "https://h.example/p?token=<hidden>"),
+                ("an already masked ref", "https://u:<hidden>@h.example/q?token=<hidden>", "https://u:<hidden>@h.example/q?token=<hidden>")):
+            once = mask_secret_ref(value)
+            check_eq(f"mask_secret_ref: {label}", (once, mask_secret_ref(once)), (expected, expected))
+        check_eq("mask_secret_ref: a value that is no string comes back unchanged", (mask_secret_ref(None), mask_secret_ref(5)), (None, 5))
+        # a story older than S0's file, a project with no declared root: no rows, no error
+        (work / "ticket-references.json").unlink()
+        SI.append_attachment_references(client, work / "source-inventory.json", "PROJ-1", {}, {att: "NOTES.md"})
+        check_eq("A-5 (b) TEMPORAL: attachments with no references file write none", (work / "ticket-references.json").exists(), False)
+        real = SI.linked_documents_of_texts
+        SI.linked_documents_of_texts = lambda *a, **k: 1 / 0
+        err = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(err):
+                rows = SI.text_link_rows(work.parent, {"mention:description": "NOTES.md"})
+        finally:
+            SI.linked_documents_of_texts = real
+        check_eq("A-5 (b): a failure of the scan is one stderr line and no rows", (rows, "could not be listed (ZeroDivisionError)" in err.getvalue()), ([], True))
     finally:
         cleanup(sib)
         cleanup(root)

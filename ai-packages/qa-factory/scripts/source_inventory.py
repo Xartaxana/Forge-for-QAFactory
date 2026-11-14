@@ -1102,16 +1102,34 @@ def _link_seeds(snapshot: dict) -> list:
     return seeds
 
 
+def _ticket_texts(snapshot) -> dict:
+    """The texts of a ticket snapshot by origin - summary, description, comments: the ONE set the key road (`build_references`) and
+    the link road (`_write_s0_files`) both read. An absent or None field contributes an empty text."""
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    texts = {"mention:summary": snapshot.get("title") or "", "mention:description": snapshot.get("description") or ""}
+    for comment in snapshot.get("comments") or []:
+        texts[f"mention:comment:{(comment or {}).get('id')}"] = (comment or {}).get("text") or ""
+    return texts
+
+
+def mask_reference_rows(rows: list) -> list:
+    """Every row's `ref` through `config_contract.mask_secret_ref`, in place: called BEFORE a row is stored and BEFORE its identity is
+    computed, by every writer of `ticket-references.json`. Returns `rows`."""
+    from config_contract import mask_secret_ref
+    for row in rows:
+        if isinstance(row, dict) and isinstance(row.get("ref"), str):
+            row["ref"] = mask_secret_ref(row["ref"])
+    return rows
+
+
 def build_references(client: "JiraClient", key: str, snapshot: dict, extra_texts: dict, *, known_prefixes,
                      kinds: dict, context: dict, seeded: list | None = None) -> list:
     """The reference rows `{ref, kind, origins[], status}` of the story's text and typed fields:
     `ticket_light.references` with the project's own repositories and hosts and the prefixes this run
     already knows (the per-prefix probe is S1's, and costs one request per unknown prefix)."""
     hosts = list(context.get("known_hosts") or []) + [client.base_url]
-    texts = {"mention:summary": snapshot.get("title") or "", "mention:description": snapshot.get("description") or ""}
-    for comment in snapshot.get("comments") or []:
-        texts[f"mention:comment:{comment.get('id')}"] = comment.get("text") or ""
-    urls = [row["url"] for row in (snapshot.get("links") or {}).get("remote_links") or [] if row.get("url")]
+    texts = _ticket_texts(snapshot)
+    urls =[row["url"] for row in (snapshot.get("links") or {}).get("remote_links") or [] if row.get("url")]
     if urls:
         texts["field:remotelink"] = "\n".join(urls)
     texts.update(extra_texts or {})
@@ -1128,6 +1146,8 @@ def _write_s0_files(client, key, snapshot, work: Path, catalog: dict, remote_lin
     _atomic_write(work / "ticket-view.md", ticket_view_text(snapshot).encode("utf-8"))
     # `scanned` says which texts the rows come from (S0 does not read attachments - C12; S1 `collect`
     # appends them and says so); `written_by` the stages that wrote to the file.
+    # FV1-23 A-5: the documents the ticket's own text links on disk (no place of its own: each declared root is a base)
+    rows = mask_reference_rows(rows + text_link_rows(work.parent, _ticket_texts(snapshot)))
     document = {"schema_version": 1, "ticket": key, "written_by": ["S0"],
                 "scanned": ["summary", "description", "comments", "remote links"], "rows": rows}
     _atomic_write(work / "ticket-references.json",
@@ -2003,25 +2023,32 @@ def _merge_reference_rows(path: Path, fresh: list, scanned_word: str) -> bool:
     """Merge `fresh` rows into the `ticket-references.json` at `path` by IDENTITY `(kind, ref, repo)`: a row already there gains
     the origins instead of a twin and keeps its status; a new row is appended; `scanned_word` joins `scanned` and `S1`
     joins `written_by`; written atomically. True when the file was written; no file or an unreadable one writes nothing (the
-    one survivor of attachments' and linked documents' rows, AR-15)."""
+    one survivor of attachments' and linked documents' rows, AR-15). A credential-like value in a `ref` (`token=`, `secret=`,
+    `password=`, `key=` in a URL's query, the password of a URL's userinfo) is masked BEFORE the row is stored and before its identity
+    is compared - the fresh rows AND the rows already in the file (a raw row of an older story and the new masked one join): the file
+    never holds it (FV1-23 A-5)."""
     document = _reference_document(path)
     if document is None:
         return False
-    rows = document["rows"]
 
     def identity(row):
         return (row.get("kind"), row.get("ref"), row.get("repo_id") or row.get("repo"))
 
-    index = {identity(row): row for row in rows if isinstance(row, dict)}
-    for row in fresh:
-        have = index.get(identity(row))
+    def join(have, row):
+        for origin in row.get("origins") or []:
+            if origin not in have.setdefault("origins", []):
+                have["origins"].append(origin)
+
+    index, rows = {}, []
+    for row in mask_reference_rows(document["rows"]) + mask_reference_rows(fresh):
+        have = index.get(identity(row)) if isinstance(row, dict) else None
         if have is None:
             rows.append(row)
-            index[identity(row)] = row
+            if isinstance(row, dict):
+                index[identity(row)] = row
         else:
-            for origin in row.get("origins") or []:
-                if origin not in have.setdefault("origins", []):
-                    have["origins"].append(origin)
+            join(have, row)
+    document["rows"] = rows
     if scanned_word not in document.setdefault("scanned", []):
         document["scanned"].append(scanned_word)
     if "S1" not in document.setdefault("written_by", []):
@@ -2069,6 +2096,8 @@ def append_attachment_references(client, output: Path, key: str, snapshot: dict,
                           reference_kinds=TL.load_reference_kinds(),
                           known_hosts=list(context.get("known_hosts") or []) + [client.base_url],
                           repos=context.get("repos") or [], seeded=[], own_key=key)
+    # FV1-23 A-5: the documents an attachment links on disk, against EACH declared root (an attachment has no place of its own)
+    fresh = fresh + text_link_rows(Path(output).resolve().parent.parent, named_texts)
     _merge_reference_rows(path, fresh, "attachments")
 
 
@@ -2580,6 +2609,96 @@ def linked_documents(project, cfg: dict, text_ref: str, text: str, task_root) ->
     return {"paths": paths, "sizes": {ref: os.path.getsize(os.path.join(str(project), ref)) for ref in paths},
             "more": len(unread) - len(paths), "recorded": len(fetched), "checked_all": len(candidates) <= LINK_CANDIDATES_LIMIT,
             "rows": rows}
+
+
+def _recorded_read_refs(task_root) -> set:
+    """The `canonical_ref` of every `read` source of the story's inventory; empty when there is none or it cannot be read."""
+    try:
+        return {item.get("canonical_ref") for item in load_inventory(Path(task_root) / "work" / "source-inventory.json").get("sources", [])
+                if isinstance(item, dict) and item.get("status") == "read"}
+    except (OSError, ValueError, AttributeError, TypeError):
+        return set()
+
+
+def linked_documents_of_texts(project, cfg: dict, texts: dict, task_root) -> dict:
+    """The documents the texts of a ticket (`{origin: text}`: S0's summary, description, comments; an attachment by its name) link
+    on disk (FV1-23 A-5): `{"rows": [the `linked_document` rows, one per document, every origin that names it kept], "cut":
+    [(origin, names in the text)] for the texts that held more than LINK_CANDIDATES_LIMIT names}`. Such a text has no place of its
+    own, so each of its first LINK_CANDIDATES_LIMIT names (`ticket_light.path_candidates`, a leading `/` dropped) is tried against
+    EACH declared root; a file under two roots is two rows (two refs), never a guess. Kept iff the name stays inside THAT root
+    (`contained`: a `..` or a link that leaves it is no row) and `_listable` accepts it, the one predicate of the folder walk
+    and of `linked_documents` (an unreadable record of the exclusions lists nothing). Reads the disk, writes nothing."""
+    import runtime_paths
+    import source_exclusions
+    nothing = {"rows": [], "cut": []}
+    if project is None or not isinstance(texts, dict) or not texts:
+        return nothing
+    try:
+        live = source_exclusions.live(task_root)
+    except source_exclusions.ExclusionRecordError:
+        return nothing
+    roots, recorded = runtime_paths.declared_roots(project, cfg), _recorded_read_refs(task_root)
+    rows, cut = {}, []
+    for origin, text in texts.items():
+        candidates = TL.path_candidates(text)
+        if len(candidates) > LINK_CANDIDATES_LIMIT:
+            cut.append((origin, len(candidates)))
+        for name in candidates[:LINK_CANDIDATES_LIMIT]:
+            slashed = name.replace("\\", "/").lstrip("/")
+            for root in roots if slashed else ():
+                try:
+                    place = os.path.normpath(os.path.join(root, slashed))
+                    if not runtime_paths.contained(place, root):
+                        continue
+                    normal, why = _listable(project, cfg, os.path.relpath(place, str(project)).replace(os.sep, "/"), live)
+                except (OSError, ValueError):
+                    continue
+                if why:
+                    continue
+                row = rows.setdefault(normal, {"ref": normal, "kind": LINKED_DOCUMENT_KIND, "origins": [],
+                                               "status": "fetched" if normal in recorded else LINKED_DOCUMENT_STATUS})
+                if origin not in row["origins"]:
+                    row["origins"].append(origin)
+    return {"rows": list(rows.values()), "cut": cut}
+
+
+def text_link_rows(task_root, texts: dict) -> list:
+    """The `linked_document` rows of a ticket's texts (`linked_documents_of_texts`) for the project above `task_root` and its
+    config: the ONE guarded call of S0's writer and of the attachments' merge. A cut is SAID on stderr with its count; the scan is
+    advice, so a failure is one stderr line and no rows, never a change of the caller's verdict (the same rule as `record-source`)."""
+    import runtime_paths
+    from config_contract import SECRET_QUERY_RE
+    try:
+        project = runtime_paths.nearest_project(task_root)
+        found = linked_documents_of_texts(project, runtime_paths._config_of(project) if project is not None else None, texts, task_root)
+    except Exception as exc:  # noqa: BLE001 - advice must never change the verdict
+        print(f"source_inventory: documents linked from the ticket's texts could not be listed ({type(exc).__name__})", file=sys.stderr)
+        return []
+    for origin, names in found["cut"]:
+        shown = SECRET_QUERY_RE.sub(r"\1=<hidden>", str(origin))
+        print(f"source_inventory: more than {LINK_CANDIDATES_LIMIT} names in {shown} ({names}): only the first "
+              f"{LINK_CANDIDATES_LIMIT} were checked for linked documents", file=sys.stderr)
+    return found["rows"]
+
+
+def append_document_references(output: Path, text_ref: str, text: str, *, context: dict, project_keys=(), base_url=None) -> bool:
+    """FV1-23 A-5 (a): the keys, URLs and merge requests of a recorded document text join the story's `ticket-references.json`
+    through `ticket_light.references` and `_merge_reference_rows` - the call shape of `append_attachment_references` - with the
+    origin `mention:document:<text_ref>`. The prefixes taken as known: the story's own, the project's `project_keys`, the ones
+    this inventory proved. True when the file was written; no file (a story older than S0's), an empty text or no reference
+    writes nothing."""
+    path = Path(output).parent / "ticket-references.json"
+    document = _reference_document(path)
+    if document is None or not isinstance(text, str) or not text.strip():
+        return False
+    own = document.get("ticket") if isinstance(document.get("ticket"), str) and document.get("ticket") else None
+    known = set(_known_prefixes(None, Path(output), own or "", {}, (text,))) - {""}    # "" is the prefix of no own key
+    known |={str(p).strip().upper() for p in project_keys or [] if str(p).strip()}
+    fresh = TL.references({f"mention:document:{text_ref}": text}, known_prefixes=known, not_tracker_prefixes=not_tracker_prefixes(),
+                          reference_kinds=TL.load_reference_kinds(),
+                          known_hosts=list(context.get("known_hosts") or []) + ([base_url] if base_url else []),
+                          repos=context.get("repos") or [], seeded=[], own_key=own)
+    return bool(fresh) and _merge_reference_rows(path, fresh, "documents")
 
 
 def refresh_relevant_sources(client: JiraClient, output: Path) -> dict:
