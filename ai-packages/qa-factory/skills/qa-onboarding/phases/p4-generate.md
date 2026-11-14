@@ -243,7 +243,7 @@ command is refused by code. The in-place launcher repair above is not changed by
 ### The `environment` block — only the keys the login actually used
 
 Write `environment.access` from topic 2's answer, as names and codes: `kind` (one of
-`harness_command` · `local_login` · `oidc_password` · `bearer_env` · `none`), `command` or
+`harness_command` · `local_login` · `oidc_password` · `bearer_env` · `form_login` · `ui_only` · `none`), `command` or
 `url`, the `*_key` names that kind needs, and `unauth_status` — the codes an unauthenticated
 request answers on a healthy stand. Every value here is a variable NAME or a URL; a secret
 value never enters `config.json`. For `local_login`, `access.user_field` / `access.secret_field`
@@ -349,6 +349,10 @@ story, rule 6 of that file):
   not repeat it, ask for the variable NAME. Record and prove it as the answer above.
 - "I do not know" - keep the block, copy `login.record` whole into `login_probe`, and carry a `[DEFERRED: …]`
   line into the phase-3 summary naming every road tried and its answer.
+
+With no person present nothing is asked and nothing is promised: record the sign-in as an open gap by name, each
+road tried and its answer verbatim from the roads output, as a named line of the onboarding result, and go on;
+the question is put the next time a person is present.
 
 When the person confirmed a variable of `frontend_candidates` as the stand's UI address in topic 2, write it as
 `environment.frontend.url_key` (its NAME, never the address); the `env_probe.py` line below is the re-check. When topic 2
