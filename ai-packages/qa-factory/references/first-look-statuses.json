@@ -10,6 +10,7 @@
   "attempt_settled": ["walking", "written", "nothing_written"],
   "red_statuses": ["contradicts", "missing", "unreachable"],
   "bug_candidate_blocked_by": {"unreachable": ["product"]},
+  "gap_rows": {"status": ["unreachable"], "blocked_by": ["access"]},
   "stand_build_confirmed": "confirmed",
   "null_reasons": ["no_code_yet", "empty_register", "register_unreadable", "no_stand", "no_reachable_surface", "profile_not_chosen", "walk_not_opened"],
   "open_retry_max": 1,

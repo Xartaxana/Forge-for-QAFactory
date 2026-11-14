@@ -104,6 +104,14 @@ def bug_candidate_blocked_by() -> dict:
     return {str(k): [str(w) for w in v] for k, v in value.items() if isinstance(v, list)} if isinstance(value, dict) else {}
 
 
+def gap_rows() -> dict:
+    """`{status: [...], blocked_by: [...]}`: the closed words of a row the walker could not reach for want of a way in (data: `gap_rows`);
+    `{}` when the key is absent or either list is empty, so no brief line is ever built on it."""
+    value = data().get("gap_rows")
+    out = {k: [str(w) for w in value[k]] for k in ("status", "blocked_by") if isinstance(value, dict) and isinstance(value.get(k), list)}
+    return out if len(out) == 2 and all(out.values()) else {}
+
+
 def stand_build_confirmed() -> str:
     """The `stand_build` word of a record whose deployed revision was confirmed (data); `""` when the file cannot be read, so nothing equals it."""
     return str(data().get("stand_build_confirmed") or "")
