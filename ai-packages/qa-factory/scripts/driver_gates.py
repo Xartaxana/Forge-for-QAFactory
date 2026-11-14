@@ -593,6 +593,9 @@ class DriverGates:
         or fixed" - it printed which, and the finding it leaves is judged again by the next rehearsal (the same set
         is a recorded stop, FR-4: nothing is repeated blindly). Anything else is a failed move."""
         code, out = self.py("critic_rollcall.py", "--apply-fixes", "--task-root", str(self.task_root))
+        # FV1-9 (P1, A-8): the same parse and tell as `s4_after_critic` (no `check` here: exit 1 stays legal). On exit 0/1 the object is read;
+        # on any other exit the output is not the object, so the ONE unknown line is told BEFORE `RepairFailed`.
+        self.tell_rollcall(out, code)
         if code not in (0, 1):
             record["moves"].append("critic_rollcall --apply-fixes (failed)")
             raise RepairFailed("critic_rollcall.py --apply-fixes", f"(exit {code})\n{out}")

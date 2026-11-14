@@ -1473,6 +1473,271 @@ def test_fv19_handover_names_the_doors() -> None:
              [w for w in ("--reword QID", "--repeat QID", "--answer QID", "--stage") if w in seen[0]], [])
 
 
+FV19_TR1 = ("Code did not carry out these question entries from your earlier work, or could not tell whether it did; each line says "
+            "which and why:")
+FV19_UNKNOWN = ("the factory could not read what this step reported, so whether your question entries were carried out is not known; "
+                "look at them in your work")
+FV19_S4_TAIL = "it stays in your case and is tried again when S4 closes next; remove it if it no longer holds"
+FV19_S3_TAIL = "it stays on your plan row and is tried again when S3 closes next; remove it if it no longer holds"
+FV19_PLAN_TAIL = "code could not write this onto your plan row and will not try again; add it to the row yourself if it still holds"
+FV19_ACC_TAIL = "an item of a handoff form is not tried again: write it again in your next form if it still holds"
+FV19_NOTE = "TC-1: a `question_repeats` entry needs `question`, `same_as` and `why`, each a text"
+
+
+def fv19_rig(dispatches=None, code=0, out="", stage_done=None):
+    """A `Driver.__new__` with what the carriers read: `py` records the scripts (and what the store held when `stage_done.py` ran) and answers
+    `(code, out)` for the roll-call / the form raiser; the store is the real `question_pass_lines` of `state`."""
+    import story_run
+    d = story_run.Driver.__new__(story_run.Driver)
+    d.state, d.told_saves, d.told_calls, d.told_at_done = {}, [], [], []
+    d.save_state = lambda: d.told_saves.append(json.dumps(d.state.get("question_pass_lines"), sort_keys=True))
+    d.task, d.task_root = "T-1", temp_dir("qa-fv19-told-")
+    d.controller_state = lambda: {"dispatches": dict(dispatches or {})}
+    d.pin_cases = lambda: d.told_calls.append("pin_cases")
+
+    def py(script, *args, **kw):
+        d.told_calls.append(script)
+        if script == "stage_done.py":
+            d.told_at_done.append(json.dumps(d.state.get("question_pass_lines"), sort_keys=True))
+            if stage_done is not None:
+                raise stage_done
+            return 0, ""
+        return code, out
+    d.py = py
+    return d
+
+
+def fv19_quiet(call):
+    """(the exception `call` raised or None, what it printed)."""
+    import contextlib
+    import io
+    printed = io.StringIO()
+    raised = None
+    with contextlib.redirect_stdout(printed):
+        try:
+            call()
+        except Exception as exc:  # noqa: BLE001 - the row asserts on it
+            raised = exc
+    return raised, printed.getvalue()
+
+
+def fv19_s4(d):
+    d.settle_role_questions = lambda stage: None
+    d.s4_findings = lambda: None
+    d.unraised_cases = lambda: ["TC-1"]
+    d.render_appendix = lambda: None
+    return lambda: d.s4_after_critic("approve", [], 0, 2, True)
+
+
+def fv19_raise_move(d):
+    return lambda: d.raise_move("A", [], {}, {"moves": []})
+
+
+def fv19_acceptance(stage, dispatch):
+    def build(d):
+        (d.task_root / "work" / "handoffs").mkdir(parents=True)
+        (d.task_root / "work" / "handoffs" / f"{dispatch}.yaml").write_text("questions: []\n", encoding="utf-8")
+        return lambda: d.stage_acceptance_write(stage, dispatch)
+    return build
+
+
+def fv19_s3(notes, problems):
+    def build(d):
+        import types
+        planning_contract.project_plan = lambda *a, **k: types.SimpleNamespace(wrote=False, problems=list(problems), notes=list(notes))
+        return lambda: d.s3_project(claims=False)
+    return build
+
+
+def test_fv19_carriers_tell() -> None:
+    """FV1-9 tail card A (P1): every carrier that drops what code did NOT carry out of a role's question entries tells it to the role that
+    wrote them - stored under `next:<receiving stage>:<role>`, read by `next_session_lines`, removed by `forget_told` - and the one
+    reader in `run_role` puts it in the next prompt. One table; the id of a row names the case. Each row asserts through
+    `next_session_lines(<receiving stage>, <role>)`, then `forget_told` empties the key."""
+    from driver_core import RepairFailed, Refusal
+    notes_out = json.dumps({"question_notes": [FV19_NOTE], "repeats": [], "rewords": []})
+    form_out = json.dumps({"dispatch": "D", "raised": [], "already": [], "rewords": [], "reword_problems": ["questions[0]: Q3 was not asked again: x"]}, indent=2)
+    acc = "S4-qa-case-critic-1"
+    planner, designer = "qa-test-strategist", "qa-case-designer"
+    # id, build(driver) -> call, code, out, kwargs of the rig, (stage, role) read, expected lines of that key, expected exception type
+    rows = [
+        ("s4_after_critic: question_notes -> the designer's S4 key", fv19_s4, 0, notes_out, {}, ("S4", designer), [f"{FV19_NOTE} ({FV19_S4_TAIL})"], None),
+        ("s4_after_critic: empty question_notes -> no key, no header", fv19_s4, 0, json.dumps({"question_notes": []}), {}, ("S4", designer), [], None),
+        ("s4_after_critic: output that is not JSON -> the one unknown line", fv19_s4, 0, "Traceback (most recent call last)", {}, ("S4", designer),
+         [f"{FV19_UNKNOWN} ({FV19_S4_TAIL})"], None),
+        ("s4_after_critic: exit 1 with an errors list (A-3) -> the unknown line", fv19_s4, 1, json.dumps({"errors": ["raise_questions: X"]}), {},
+         ("S4", designer), [f"{FV19_UNKNOWN} ({FV19_S4_TAIL})"], None),
+        ("s4_after_critic: plan_notes (item 13) -> the S3 planner's key, not the designer's", fv19_s4, 0,
+         json.dumps({"plan_notes": ["Q3 was raised, but the plan row was not told"]}), {}, ("S3", planner),
+         [f"Q3 was raised, but the plan row was not told ({FV19_PLAN_TAIL})"], None),
+        ("raise_move: plan_notes (exit 0) -> the S3 planner's key with the same true tail", fv19_raise_move, 0,
+         json.dumps({"plan_notes": ["Q3 was raised, but the plan row was not told"]}), {}, ("S3", planner),
+         [f"Q3 was raised, but the plan row was not told ({FV19_PLAN_TAIL})"], None),
+        ("s4_after_critic: plan_notes leave the designer's key empty", fv19_s4, 0, json.dumps({"plan_notes": ["x"]}), {}, ("S4", designer), [], None),
+        ("raise_move: exit 0 -> the designer's S4 key", fv19_raise_move, 0, notes_out, {}, ("S4", designer), [f"{FV19_NOTE} ({FV19_S4_TAIL})"], None),
+        ("raise_move: exit 1 stays legal and is told", fv19_raise_move, 1, notes_out, {}, ("S4", designer), [f"{FV19_NOTE} ({FV19_S4_TAIL})"], None),
+        ("raise_move: any other exit tells the unknown line BEFORE RepairFailed", fv19_raise_move, 2, "boom", {}, ("S4", designer),
+         [f"{FV19_UNKNOWN} ({FV19_S4_TAIL})"], RepairFailed),
+        ("stage_acceptance_write: reword_problems -> the acceptor's key at its own session's stage", fv19_acceptance("S4", acc), 0, form_out,
+         {"dispatches": {acc: {"id": acc, "stage": "S4"}}}, ("S4", "qa-case-critic"),
+         [f"questions[0]: Q3 was not asked again: x ({FV19_ACC_TAIL})"], None),
+        ("stage_acceptance_write: S7 accepted by the scribe -> read by its S8 session (A-1)", fv19_acceptance("S7", "S8-qa-doc-scribe-1"), 0, form_out,
+         {"dispatches": {"S8-qa-doc-scribe-1": {"id": "S8-qa-doc-scribe-1", "stage": "S8"}}}, ("S8", "qa-doc-scribe"),
+         [f"questions[0]: Q3 was not asked again: x ({FV19_ACC_TAIL})"], None),
+        ("stage_acceptance_write: no dispatch record -> the accepted stage", fv19_acceptance("S7", "S8-qa-doc-scribe-1"), 0, form_out, {},
+         ("S7", "qa-doc-scribe"), [f"questions[0]: Q3 was not asked again: x ({FV19_ACC_TAIL})"], None),
+        ("stage_acceptance_write: a form with no rewords has no reword_problems key -> nothing", fv19_acceptance("S4", acc), 0,
+         json.dumps({"dispatch": "D", "raised": [], "already": []}), {}, ("S4", "qa-case-critic"), [], None),
+        ("stage_acceptance_write: a refused acceptance write keeps the lines", fv19_acceptance("S4", acc), 0, form_out,
+         {"stage_done": Refusal("stage_done refused")}, ("S4", "qa-case-critic"), [f"questions[0]: Q3 was not asked again: x ({FV19_ACC_TAIL})"], Refusal),
+        ("s3_project: notes and problems -> the key is written, then the Refusal is raised", fv19_s3(["Q9 stays on row 2: x"], ["a problem"]), 0, "", {},
+         ("S3", planner), [f"Q9 stays on row 2: x ({FV19_S3_TAIL})"], Refusal),
+        ("s3_project: notes alone -> stored, no refusal", fv19_s3(["Q9 stays on row 2: x"], []), 0, "", {}, ("S3", planner),
+         [f"Q9 stays on row 2: x ({FV19_S3_TAIL})"], None),
+        ("s3_project: no notes -> no key", fv19_s3([], []), 0, "", {}, ("S3", planner), [], None),
+    ]
+    original = planning_contract.project_plan
+    try:
+        for name, build, code, out, rig_kw, (stage, role), expected, raises in rows:
+            label = f"fv19_carriers_tell[{name}]"
+            d = fv19_rig(rig_kw.get("dispatches"), code, out, rig_kw.get("stage_done"))
+            raised, _printed = fv19_quiet(build(d))
+            check_eq(f"{label}: the exception", type(raised) if raised else None, raises)
+            read = d.next_session_lines(stage, role)
+            check_eq(f"{label}: next_session_lines({stage}, {role})", read, ([FV19_TR1] + [f"- {l}" for l in expected]) if expected else [])
+            if expected:
+                check_eq(f"{label}: stored under the one key, saved once", (sorted(d.state.get("question_pass_lines") or {}), len(d.told_saves)),
+                         ([f"next:{stage}:{role}"], 1))
+                if d.told_at_done:
+                    check_in(f"{label}: written before stage_done.py ran", expected[0], d.told_at_done[0])
+                d.forget_told(stage, role, read)
+                check_eq(f"{label}: forget_told empties and drops the key", (d.next_session_lines(stage, role), d.state.get("question_pass_lines")), ([], {}))
+            else:
+                kept = d.state.get("question_pass_lines") or {}
+                check_eq(f"{label}: no key for this role, no header", f"next:{stage}:{role}" in kept, False)
+                check_eq(f"{label}: no save unless another role was told", not d.told_saves or bool(kept), True)
+    finally:
+        planning_contract.project_plan = original
+    # replay: the same line twice is stored once; two roles -> two keys; an empty role stores nothing but prints; nothing sent writes nothing
+    d = fv19_rig()
+    _r, printed = fv19_quiet(lambda: [d.tell_next_session("S4", designer, [FV19_NOTE, "  ", FV19_NOTE], "t") for _ in range(2)])
+    check_eq("fv19_carriers_tell[replay]: the line is stored once, printed once", (len((d.state.get("question_pass_lines") or {}).get("next:S4:qa-case-designer", [])),
+             printed.count("note: S4 qa-case-designer: "), len(d.told_saves)), (1, 1, 1))
+    fv19_quiet(lambda: d.tell_next_session("S3", planner, ["x"], "t"))
+    check_eq("fv19_carriers_tell[two roles]: two keys", sorted(d.state.get("question_pass_lines") or {}), ["next:S3:qa-test-strategist", "next:S4:qa-case-designer"])
+    check_eq("fv19_carriers_tell[another stage or role reads nothing]", (d.next_session_lines("S4", planner), d.next_session_lines("S5", designer)), ([], []))
+    saves = len(d.told_saves)
+    d.forget_told("S4", designer, [])
+    d.forget_told("S4", "qa-nobody", [f"- {FV19_NOTE} (t)"])
+    check_eq("fv19_carriers_tell[forget_told with nothing sent or nothing stored]: no save", len(d.told_saves), saves)
+    sent = d.next_session_lines("S4", designer)
+    fv19_quiet(lambda: d.tell_next_session("S4", designer, ["added after the read"], "t"))
+    d.forget_told("S4", designer, sent)
+    check_eq("fv19_carriers_tell[forget_told]: a line added after the read stays", d.next_session_lines("S4", designer),
+             [FV19_TR1, "- added after the read (t)"])
+    # the old world: a state with no `question_pass_lines` reads as nothing
+    check_eq("fv19_carriers_tell[old state]: no key at all -> no lines", fv19_rig().next_session_lines("S4", designer), [])
+    check_eq("fv19_carriers_tell[old state]: a dispatch key is no `next:` key", (lambda r: (r.state.update(question_pass_lines={"S4-qa-case-designer-1": ["x"]}),
+             r.next_session_lines("S4", designer))[1])(fv19_rig()), [])
+    # an empty role (a stage with no acceptor) stores nothing and prints the lines
+    d = fv19_rig()
+    _r, printed = fv19_quiet(lambda: d.tell_next_session("S2", "", ["a line"], "t"))
+    check_eq("fv19_carriers_tell[empty role]: nothing stored, nothing saved, the note printed", (d.state.get("question_pass_lines"), d.told_saves,
+             "note: S2 : a line" in printed), (None, [], True))
+    fv19_run_role_rows()
+    fv19_case_rows()
+
+
+def fv19_run_role_rig(saved=None, result=None, stored=None):
+    """`run_role` up to `bind`: `run_claude` records the prompt and answers `result`; the handoff raises `Stop` so the row ends there."""
+    import story_run
+
+    class Stop(Exception):
+        pass
+    d = story_run.Driver.__new__(story_run.Driver)
+    root = temp_dir("qa-fv19-run-")
+    (root / "state" / "driver-runs").mkdir(parents=True)
+    d.task_root, d.task, d.plugin, d.scripts, d.state_dir = root, "T-1", Path("C:/factory"), Path("C:/factory/scripts"), root / "state"
+    d.state = {"sessions": {}, "pending_words": {}, "question_pass_lines": stored or {}}
+    d.prompts, d.told_saves = [], []
+    d.save_state = lambda: d.told_saves.append(1)
+    d.controller_state = lambda: {"dispatches": {}}
+    d.pipeline = lambda: {}
+    d.progress_line = lambda: None
+    d.system_file = lambda role, dispatch, scope: None
+    d.walk_reopen = lambda dispatch, reopen=True: ([], "")
+    d.retire_infra_result = lambda *a, **k: False
+    d.step = lambda *a: "dispatched S4-qa-case-designer-1 (revision 1)\n--- Agent prompt, verbatim\nPROMPT\n--- the moment the Agent call returns"
+    d.py = lambda *a, **k: (0, "")
+    d.handoff = lambda *a, **k: (_ for _ in ()).throw(Stop("handoff"))
+    if saved:
+        (root / "state" / "driver-runs" / "S4-qa-case-designer-1.json").write_text(json.dumps(saved), encoding="utf-8")
+
+    def run_claude(kind, prompt, **kw):
+        d.prompts.append(prompt)
+        return dict(result)
+    d.run_claude = run_claude
+    return d, Stop
+
+
+def fv19_case_rows() -> None:
+    """Item 8 (F-4): `cases_with_question_entries` lists a case whose `question_repeats` / `reword_questions` front line parses to a
+    NON-EMPTY list or is malformed, read through `contract.case_files`; an empty list, an absent key and an unreadable store list none."""
+    entry = '[{"question": "Q16", "same_as": "Q7", "why": "same"}]'
+    rows = [("question_repeats with an entry", f"question_repeats: {entry}", ["c1"]),
+            ("reword_questions with an entry", f"reword_questions: {entry}", ["c1"]),
+            ("an empty list", "question_repeats: []", []),
+            ("a malformed key", "reword_questions: not json", ["c1"]),
+            ("a key with no value", "question_repeats:", ["c1"]),
+            ("neither key", "title: x", []),
+            ("a case file that is not text", None, [])]
+    original = contract.case_files
+    try:
+        for name, front, expected in rows:
+            d = fv19_rig()
+            path = d.task_root / "c1.md"
+            if front is None:
+                path.write_bytes(b"\xff\xfe\x00")
+            else:
+                path.write_text(f"---\n{front}\n---\nbody\n", encoding="utf-8")
+            contract.case_files = lambda root, path=path: [str(path)]
+            check_eq(f"fv19_carriers_tell[cases_with_question_entries: {name}]", d.cases_with_question_entries(), expected)
+        contract.case_files = lambda root: (_ for _ in ()).throw(OSError("unreadable"))
+        check_eq("fv19_carriers_tell[cases_with_question_entries: the store cannot be read]", fv19_rig().cases_with_question_entries(), [])
+    finally:
+        contract.case_files = original
+
+
+def fv19_run_role_rows() -> None:
+    """FV1-9 tail card A (P1, A-2, A-4): `run_role` is the one reader: the lines enter the prompt before `extra` and before the closing
+    lines, and leave the store only when the saved result carries words; a dead or empty result, a reused saved result and another role
+    leave them. (The S4 rework prompt through a whole story is judged by the batch canon.)"""
+    key = "next:S4:qa-case-designer"
+    stored = {key: [f"{FV19_NOTE} ({FV19_S4_TAIL})"], "S4-qa-case-designer-1": ["a dispatch key stays"]}
+    live = {"result": "the form is written", "session_id": "sid", "is_error": False}
+    dead = {"result": "", "session_id": "sid", "is_error": True}
+    blank = {"result": "  \n", "session_id": "sid", "is_error": False}
+    rows = [("a live result with words", "qa-case-designer", None, live, True, False),
+            ("a dead result (is_error, no words)", "qa-case-designer", None, dead, True, True),
+            ("an empty result", "qa-case-designer", None, blank, True, True),
+            ("a reused saved result (no session ran)", "qa-case-designer", live, dead, True, True),
+            ("another role at the same stage", "qa-case-critic", None, live, False, True)]
+    for name, role, saved, result, told, kept in rows:
+        label = f"fv19_run_role_tells_and_forgets[{name}]"
+        d, Stop = fv19_run_role_rig(saved, result, json.loads(json.dumps(stored)))
+        _raised, _printed = fv19_quiet(lambda: d.run_role("S4", role, extra=["EXTRA LINE"]))
+        if d.prompts:
+            prompt = d.prompts[0]
+            check_eq(f"{label}: the prompt holds the heading and the line {'once' if told else 'never'}",
+                     (FV19_TR1 in prompt, prompt.count(FV19_NOTE)), (True, 1) if told else (False, 0))
+            if told:
+                check("{}: heading, then the line, then `extra`, then the closing lines".format(label),
+                      prompt.index(FV19_TR1) < prompt.index(FV19_NOTE) < prompt.index("EXTRA LINE") < prompt.index("Plugin root"), prompt[:400])
+        left = d.state["question_pass_lines"]
+        check_eq(f"{label}: the key {'stays' if kept else 'is gone'}", key in left, kept)
+        check_eq(f"{label}: the dispatch key is never touched", left["S4-qa-case-designer-1"], ["a dispatch key stays"])
+
+
 if __name__ == "__main__":
     test_the_test_repository_question_offers_its_words_with_prices()
     test_the_words_are_offered_only_where_they_can_be_carried_out()
@@ -1512,4 +1777,5 @@ if __name__ == "__main__":
     test_fv19_human_text_passes()
     test_fv19_card_old_row_without_keys()
     test_fv19_handover_names_the_doors()
+    test_fv19_carriers_tell()
     finish("gate question form")
