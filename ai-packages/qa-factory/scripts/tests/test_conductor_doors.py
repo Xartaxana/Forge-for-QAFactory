@@ -642,6 +642,7 @@ PINNED_ELSEWHERE = {"package.copies": "test_package_generation.py (D3)", "s0.fla
                     "s5.repair_limit": "test_story_run_repair_limit.py (RL1-RL4, RL6)", "s5.nobody_review": "test_story_run_repair_limit.py (RL5)",
                     "s5.nobody_environment": "test_story_run_repair_limit.py (RL5)", "s5.nobody_tooling": "test_story_run_repair_limit.py (RL5)",
                     "exit.resume_limit": "test_story_run_exit_limit.py (EL1-EL7, EL10, EL14)", "s7.repair_limit": "test_story_run_repair_limit.py (RL8)",
+                    "s4.repair_limit": "test_no_move_seam_n2b_n15.py",
                     "exit.resume_limit_halted": "test_exit_limit_halt_answered.py (t-1955 N4: the halted variant of the exit-limit question)",
                     "s7.open_work": "test_story_run_s7_live.py (FX-2)",
                     "code_close.stage": "test_story_run_refusals.py (CC1, CC8)", "code_close.closed_story": "test_story_run_refusals.py (CC13)",
