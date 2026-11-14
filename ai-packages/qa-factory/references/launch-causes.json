@@ -27,7 +27,7 @@
   ],
   "run_forms": {
     "forms": [
-      {"id": "pytest", "argv": ["pytest"], "diagnostics": ["--collect-only", "--co", "--fixtures", "--fixtures-per-test", "--markers"]},
+      {"id": "pytest", "argv": ["pytest"], "diagnostics": ["--collect-only", "--co", "--fixtures", "--fixtures-per-test", "--markers"], "selection_by_node_id": true},
       {"id": "dotnet-test", "argv": ["dotnet", "test"], "diagnostics": ["--list-tests"], "negators": ["-o", "--output", "--project", "-n", "--name"]},
       {"id": "jest", "argv": ["jest"], "diagnostics": ["--listTests", "--showConfig"]},
       {"id": "vitest", "argv": ["vitest"], "diagnostics": ["list"]},

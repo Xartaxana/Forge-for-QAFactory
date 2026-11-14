@@ -167,6 +167,65 @@ def k4_reconciliation_untouched() -> None:
           and not verdict["unmigrated"] and not verdict["defects"], str(verdict)[:300])
 
 
+def k5_receipt_branch() -> None:
+    """OF4-3 (FR-4 / FR-59 / FR-41): a map with NO receipt is a named unknown - one WARN line, exit code and the rest as before;
+    a receipt that is present keeps today's behaviour (matching: no new line; not matching / unreadable / a directory: REJECT)."""
+    import json
+    import shutil
+    base = scratch()
+    root = project(base)
+    case = root / "qa-factory" / "artifacts" / "T-1" / "test-cases" / "area-a" / "TC-1.md"
+    case.parent.mkdir(parents=True)
+    case.write_text("---\nid: TC-1\narea: area-a\nstatus: Draft\nupdated: 2026-01-01\n---\nbody\n", encoding="utf-8")
+    ok_line = "OK: coverage-map agrees with 1 cases across 1 areas"
+    done = run("--root", root, "--write", cwd=base)
+    receipt = next((root / "qa-factory").rglob("coverage-map.receipt.json"))
+    good = receipt.read_bytes()
+
+    def put(kind: str) -> None:
+        if receipt.is_dir():
+            shutil.rmtree(receipt)
+        receipt.unlink(missing_ok=True)
+        if kind == "good":
+            receipt.write_bytes(good)
+        elif kind == "empty":
+            receipt.write_bytes(b"")
+        elif kind == "not-json":
+            receipt.write_text("not json", encoding="utf-8")
+        elif kind == "not-object":
+            receipt.write_text("[1, 2]", encoding="utf-8")
+        elif kind == "mismatch":
+            data = json.loads(good)
+            data["areas"]["area-a"]["total"] = 9
+            receipt.write_text(json.dumps(data), encoding="utf-8")
+        elif kind == "directory":
+            receipt.mkdir()
+
+    warn_text = "the map-to-receipt binding was not checked because there is no coverage-map receipt"
+    rows = [
+        ("A receipt absent", "absent", 0, True, ok_line),
+        ("B receipt present and matching", "good", 0, False, ok_line),
+        ("C receipt present, facts do not match", "mismatch", 1, False, "coverage-map receipt does not bind the current case facts"),
+        ("edge receipt empty (today: unreadable REJECT)", "empty", 1, False, "coverage-map receipt is unreadable"),
+        ("edge receipt not JSON (today: unreadable REJECT)", "not-json", 1, False, "coverage-map receipt is unreadable"),
+        ("edge receipt not an object (today: unreadable REJECT)", "not-object", 1, False, "coverage-map receipt is unreadable"),
+        ("edge receipt is a directory (today: unreadable REJECT)", "directory", 1, False, "coverage-map receipt is unreadable"),
+    ]
+    for label, kind, code, warned, want in rows:
+        put(kind)
+        done = run("--root", root, cwd=base)
+        warn_lines = [line for line in done.stdout.splitlines() if "receipt binding was not checked" in line]
+        check(f"K5 {label}: exit {code}, WARN line {'once' if warned else 'never'}, `{want[:40]}` on stdout",
+              done.returncode == code and len(warn_lines) == (1 if warned else 0) and (warn_text in done.stdout) == warned
+              and want in done.stdout and (not warned or done.stdout.startswith("WARN:\n- ")), f"{done.returncode} {done.stdout[:400]}")
+    put("absent")
+    (root / "qa-factory" / "records" / "coverage-map.md").unlink(missing_ok=True)
+    (root / "qa-factory" / "state" / "coverage-map.md").unlink(missing_ok=True)
+    done = run("--root", root, cwd=base)
+    check("K5 edge map absent: REJECT 'the map was never built', no receipt WARN",
+          done.returncode == 1 and "never built" in done.stdout and "receipt" not in done.stdout, f"{done.returncode} {done.stdout[:300]}")
+
+
 def a_k4_pinned_route_follows_instance_hold() -> None:
     """HF3-1 A-K4 (AR-13, FR-59): the coverage map counts a PINNED case automated only when `case_stamp.instance_hold` of a LIVE
     instance linking that exact version is empty - green in the manifest AND a green run row of its own, approved
@@ -224,6 +283,7 @@ def main() -> None:
         k2_default()
         k3_without_hooklib()
         k4_reconciliation_untouched()
+        k5_receipt_branch()
     finally:
         for base in CLEAN:
             cleanup(base)
