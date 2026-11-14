@@ -5922,11 +5922,20 @@ class Rehearsal:
                              "S7 completes the draft or withdraws it; " + self.waiver_command(block))
                 continue
             found = BR.draft_verdicts(draft, verdicts)
+            # FV1-24 K1g: a draft of a place the runner never ran has no triage row by construction (its walk record is its evidence), so the
+            # two verdict findings below are not raised for it. The ONE reader of that fact is bug_records.no_run_target (AR-13), fed the
+            # run report this check already read (`step_rows_report[1]`); an unknown or an exception is False and the findings stand (AR-28).
+            try:
+                no_run = bool(BR.no_run_target(draft, step_rows_report[1]))
+            except Exception:  # noqa: BLE001 - an unknown never lifts
+                no_run = False
             # Each message below opens with the block text its `fix` names as the door (`waives`): the
             # word is matched against the MESSAGE (`waiver.split_overridden`), and six of these
             # carried a different wording from their block, so the word the card offered passed
             # nothing (FR-4, t-238 W2). The sentence after the block is the one it always was.
-            if not found:
+            if no_run:
+                pass     # the draft rests on its walk record, checked by `BR.reproduction_problems` below; every other finding stays
+            elif not found:
                 block = f"{case} bug draft without a triage verdict"
                 self.add(check, FACTORY_FIXABLE,
                          f"{block} — {case} is red with no triage verdict behind its bug draft "

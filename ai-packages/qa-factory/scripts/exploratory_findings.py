@@ -18,6 +18,7 @@ duplicated id is detected by `read` (the id differs from the physical line numbe
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import sys
 from datetime import datetime, timezone
@@ -203,75 +204,112 @@ def _window(task_root) -> str:
     return "s5-s8"
 
 
-def _closed(field: str, value, allowed) -> None:
-    if value not in allowed:
-        shown = "missing" if value is None else repr(value) if not isinstance(value, str) else f"`{value}`"
-        raise ValueError(f"`{field}` is {shown}; expected one of {_list_text(allowed)}")
+# AR-9 / AR-18: `append` walks every independent check of a line and refuses ONCE with every problem found, each sentence
+# unchanged, joined by PROBLEM_JOIN in the walk's order. The helpers below ADD their sentences to `problems` and return
+# whether the value is usable by what depends on it; they raise nothing.
+PROBLEM_JOIN = "; "
 
 
-def _nested_keys(label: str, value, allowed) -> None:
+def _closed(problems: list, field: str, value, allowed) -> bool:
+    if value in allowed:
+        return True
+    shown = "missing" if value is None else repr(value) if not isinstance(value, str) else f"`{value}`"
+    problems.append(f"`{field}` is {shown}; expected one of {_list_text(allowed)}")
+    return False
+
+
+def _nested_keys(problems: list, label: str, value, allowed) -> None:
     for key in value:
-        if key not in allowed:
-            raise ValueError(f"`{key}` is not a field of the findings register; the fields of `{label}` are "
-                             f"{_list_text(allowed)}")
+        if key not in allowed and key not in EXCLUDED:     # an excluded key is reported once, by the excluded walk
+            problems.append(f"`{key}` is not a field of the findings register; the fields of `{label}` are "
+                            f"{_list_text(allowed)}")
 
 
-def _check_probe(probe) -> None:
+def _check_probe(problems: list, probe) -> None:
     if probe is None:
         return
     if not isinstance(probe, dict):
-        raise ValueError("`probe` is not an object; expected {method, runs, reproduced, environment, safe_to_break} or null")
-    _nested_keys("probe", probe, PROBE_FIELDS)
-    _closed("probe.method", probe.get("method"), METHODS)
+        problems.append("`probe` is not an object; expected {method, runs, reproduced, environment, safe_to_break} or null")
+        return
+    _nested_keys(problems, "probe", probe, PROBE_FIELDS)
+    _closed(problems, "probe.method", probe.get("method"), METHODS)
     for count in ("runs", "reproduced"):
         value = probe.get(count)
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-            raise ValueError(f"`probe.{count}` is {value!r}; expected a whole number of at least 0")
+            problems.append(f"`probe.{count}` is {value!r}; expected a whole number of at least 0")
     if probe.get("safe_to_break") is not None:
-        raise ValueError("`probe.safe_to_break` is set; expected null (the register never declares a probe safe)")
+        problems.append("`probe.safe_to_break` is set; expected null (the register never declares a probe safe)")
 
 
-def _judge_refs(task_root, refs) -> list:
+PATH_SHOWN = 80     # characters of an evidence path echoed in a sentence; a longer path is cut with "..."
+_NO_SUCH_NAME = (errno.ENAMETOOLONG, errno.EINVAL, errno.ENOENT, errno.ENOTDIR)
+
+
+def _name_cannot_exist(exc: Exception) -> bool:
+    """True for what the OS says of a NAME that cannot exist (embedded NUL, too long, invalid): the same on every OS.
+    An OSError about a file that is there but unreadable (permission, I/O) is not this class."""
+    return isinstance(exc, ValueError) or (isinstance(exc, OSError) and exc.errno in _NO_SUCH_NAME)
+
+
+def _unmeasurable_text(raw: str, root) -> str:
+    shown = raw if len(raw) <= PATH_SHOWN else raw[:PATH_SHOWN] + "..."
+    return f"evidence path {shown!r} is not a file under the task root {root}: the path cannot be read as a file"
+
+
+def _judge_refs(problems: list, task_root, refs) -> list:
     """Each evidence ref gets its sha256 measured now when it is missing and names a file under the root, then is judged
-    by `contract.evidence_ref_issue` - the one judge; its words are the refusal."""
+    by `contract.evidence_ref_issue` - the one judge; its words are the refusal. Every ref's problems are collected."""
     root = Path(task_root).resolve()
     out = []
     for ref in refs:
         if isinstance(ref, dict):
-            _nested_keys("evidence_refs[]", ref, REF_FIELDS)
+            _nested_keys(problems, "evidence_refs[]", ref, REF_FIELDS)
             ref = dict(ref)
             raw = _text(ref.get("path"))
             if raw and not ref.get("sha256") and not Path(raw).is_absolute():
-                candidate = (root / raw).resolve()
-                if candidate.is_relative_to(root) and candidate.is_file():
-                    ref["sha256"] = install_paths.sha256_file(candidate)
+                try:
+                    candidate = (root / raw).resolve()
+                    if candidate.is_relative_to(root) and candidate.is_file():
+                        ref["sha256"] = install_paths.sha256_file(candidate)
+                except (ValueError, OSError) as exc:
+                    if not _name_cannot_exist(exc):     # a real file that cannot be read keeps its error
+                        raise
+                    problems.append(_unmeasurable_text(raw, root))
+                    continue
         issue = C.evidence_ref_issue(task_root, ref, "evidence")
         if issue:
-            raise ValueError(issue)
+            problems.append(issue)
+            continue
         out.append({"path": ref["path"], "sha256": ref["sha256"]})
     return out
 
 
-def _link(line: dict, field: str, op: str) -> dict:
+def _link(problems: list, line: dict, field: str, op: str):
+    """The `{id, reason}` link of a correct / withdraw line, or None when it is not an object (its dependants are skipped)."""
     link = line.get(field)
     if not isinstance(link, dict):
-        raise ValueError(f"`{field}` is missing: a {op} line names the line it acts on, {{id, reason}}")
-    _nested_keys(field, link, LINK_FIELDS)
+        problems.append(f"`{field}` is missing: a {op} line names the line it acts on, {{id, reason}}")
+        return None
+    _nested_keys(problems, field, link, LINK_FIELDS)
     if not _text(link.get("reason")):
-        raise ValueError(f"--reason is required: say why the line is {'corrected' if op == 'correct' else 'withdrawn'}")
-    return {"id": _text(link.get("id")), "reason": link["reason"]}
+        problems.append(f"--reason is required: say why the line is {'corrected' if op == 'correct' else 'withdrawn'}")
+    return {"id": _text(link.get("id")), "reason": link.get("reason")}
 
 
-def _origin(line: dict):
+def _origin(problems: list, line: dict):
+    """(origin or None, usable): an origin that is present but broken is not usable, and the target checks that read it
+    are skipped (its own sentence is already in `problems`)."""
     origin = line.get("origin")
     if origin is None:
-        return None
+        return None, True
     if not isinstance(origin, dict):
-        raise ValueError("`origin` is not an object; expected {dispatch, target}")
-    _nested_keys("origin", origin, ORIGIN_FIELDS)
+        problems.append("`origin` is not an object; expected {dispatch, target}")
+        return None, False
+    _nested_keys(problems, "origin", origin, ORIGIN_FIELDS)
     if not _text(origin.get("dispatch")) or not _text(origin.get("target")):
-        raise ValueError("`origin` needs both `dispatch` and `target`: leave --target out for a finding that has none")
-    return {"dispatch": origin["dispatch"], "target": origin["target"]}
+        problems.append("`origin` needs both `dispatch` and `target`: leave --target out for a finding that has none")
+        return None, False
+    return {"dispatch": origin["dispatch"], "target": origin["target"]}, True
 
 
 def append(task_root, line: dict, *, by: str) -> str:
@@ -281,91 +319,113 @@ def append(task_root, line: dict, *, by: str) -> str:
     What the role still decides: kind, title, statement, why it is not a bug, refs, the question and its owner."""
     if not isinstance(line, dict):
         raise ValueError("a finding is an object; expected {kind, title, statement, why_not_a_bug, evidence_refs, ...}")
-    # 1. excluded keys at ANY depth, then keys outside the field list
+    # 0. the STOPPERS: a problem that makes every later check meaningless is refused alone, in this order. An unknown `op`
+    #    leaves no kind of line to judge; an empty `by` and an unreadable window are not about the line at all (and the
+    #    window needs a file the role cannot fix by editing the line), so they are not buried among its problems.
+    op = line.get("op")
+    stop: list = []
+    _closed(stop, "op", op, OPS)
+    if not stop and not _text(by):
+        stop.append(BY_TEXT)
+    if stop:
+        raise ValueError(stop[0])
+    window = _window(task_root)
+    problems: list = []
+    # 1. excluded keys at ANY depth (each once), then keys outside the field list
     found: list = []
     _walk_excluded(line, found)
-    if found:
-        raise ValueError(f"`{found[0]}` is not a field of the findings register: a product bug goes through S7 triage and "
-                         "gate B; record the finding without the field")
+    for key in dict.fromkeys(found):
+        problems.append(f"`{key}` is not a field of the findings register: a product bug goes through S7 triage and "
+                        "gate B; record the finding without the field")
     for key in line:
-        if key not in FIELDS:
-            raise ValueError(f"`{key}` is not a field of the findings register; its fields are {_list_text(FIELDS)}")
+        if key not in FIELDS and key not in found:
+            problems.append(f"`{key}` is not a field of the findings register; its fields are {_list_text(FIELDS)}")
     # 2. closed lists
-    op = line.get("op")
-    _closed("op", op, OPS)
+    kind_ok = True
     if op == "withdraw":
         for key in line:
-            if key not in WITHDRAW_FIELDS and key not in CODE_SET:
-                raise ValueError(f"`{key}` is not carried by a withdraw line: a withdraw names only the line it retracts "
-                                 "and the reason")
+            if key in FIELDS and key not in WITHDRAW_FIELDS and key not in CODE_SET:
+                problems.append(f"`{key}` is not carried by a withdraw line: a withdraw names only the line it retracts "
+                                "and the reason")
     else:
         for key in ("withdraws",) if op == "correct" else ("corrects", "withdraws"):
             if key in line:
-                raise ValueError(f"`{key}` does not belong to {'an' if op == 'add' else 'a'} {op} line")
-        _closed("kind", line.get("kind"), KINDS)
+                problems.append(f"`{key}` does not belong to {'an' if op == 'add' else 'a'} {op} line")
+        kind_ok = _closed(problems, "kind", line.get("kind"), KINDS)
         probe = line.get("probe")
-        _check_probe(probe)
+        _check_probe(problems, probe)
         status = line.get("verification_status", "unverified")
-        _closed("verification_status", status, STATUSES)
-        if probe is None and status not in CAPTURE_LESS_STATUSES:
-            raise ValueError(f"`verification_status` is `{status}`; a line with no probe may carry only "
-                             f"{_list_text(CAPTURE_LESS_STATUSES)}: a status above that comes from captures "
-                             "(`investigation_probe.py record`)")
-        oracle = line.get("oracle_status", ORACLE_DEFAULT[line["kind"]])
-        if oracle == "confirmed":
-            raise ValueError("a confirmed oracle is a case check: it goes through the case and S7, not this register")
-        _closed("oracle_status", oracle, ORACLES)
-        who_said = _text(by)
-        if oracle == PERSON_CONFIRMED and (op != "correct" or not (who_said == PERSON_BY or who_said.startswith(PERSON_BY + ":"))):
-            raise ValueError("`person_confirmed` is recorded only on a person's word at gate B, as a correction of the line they "
-                             f"answered, with `--by {PERSON_BY}`; a role records the oracle as `{ROLE_ORACLES[-1]}` and lets the "
-                             "person confirm it")
+        if _closed(problems, "verification_status", status, STATUSES) and probe is None and status not in CAPTURE_LESS_STATUSES:
+            problems.append(f"`verification_status` is `{status}`; a line with no probe may carry only "
+                            f"{_list_text(CAPTURE_LESS_STATUSES)}: a status above that comes from captures "
+                            "(`investigation_probe.py record`)")
+        # an unusable `kind` has no default oracle: the oracle is judged only when the line states it
+        oracle = line.get("oracle_status", ORACLE_DEFAULT[line["kind"]] if kind_ok else None)
+        if kind_ok or "oracle_status" in line:
+            if oracle == "confirmed":
+                problems.append("a confirmed oracle is a case check: it goes through the case and S7, not this register")
+            else:
+                _closed(problems, "oracle_status", oracle, ORACLES)
+            who_said = _text(by)
+            if oracle == PERSON_CONFIRMED and (op != "correct" or not (who_said == PERSON_BY or who_said.startswith(PERSON_BY + ":"))):
+                problems.append("`person_confirmed` is recorded only on a person's word at gate B, as a correction of the line they "
+                                f"answered, with `--by {PERSON_BY}`; a role records the oracle as `{ROLE_ORACLES[-1]}` and lets the "
+                                "person confirm it")
     # 3. per-op / per-kind required fields
     if op != "withdraw":
         for field in REQUIRED_TEXT:
             if not _text(line.get(field)):
-                raise ValueError(MISSING_TEXT[field])
-        if line["kind"] == "unresolved_question" and not (_text(line.get("question")) and _text(line.get("owner_role"))):
-            raise ValueError("an `unresolved_question` needs --question and --owner-role")
-        if line["kind"] == "coverage_gap" and not _text(line.get("missing_prerequisite")):
-            raise ValueError("a `coverage_gap` needs --missing-prerequisite")
+                problems.append(MISSING_TEXT[field])
+        if line.get("kind") == "unresolved_question" and not (_text(line.get("question")) and _text(line.get("owner_role"))):
+            problems.append("an `unresolved_question` needs --question and --owner-role")
+        if line.get("kind") == "coverage_gap" and not _text(line.get("missing_prerequisite")):
+            problems.append("a `coverage_gap` needs --missing-prerequisite")
         refs = line.get("refs", [])
         if not isinstance(refs, list) or not all(_text(item) for item in refs):
-            raise ValueError("`refs` is not a list of ids; expected requirement and case ids such as R-1, TC-2 (may be empty)")
+            problems.append("`refs` is not a list of ids; expected requirement and case ids such as R-1, TC-2 (may be empty)")
         if not isinstance(line.get("evidence_refs"), list) or not line["evidence_refs"]:
-            raise ValueError("--evidence is required: at least one file under the story folder")
-    # 4. evidence
-    evidence = _judge_refs(task_root, line["evidence_refs"]) if op != "withdraw" else []
-    # 5. the chain rule
-    scan = _scan(task_root)
-    origin = _origin(line)
+            problems.append("--evidence is required: at least one file under the story folder")
+    # 4. evidence (judged only when it is a list; every ref's problems are collected)
+    evidence = []
+    if op != "withdraw" and isinstance(line.get("evidence_refs"), list):
+        evidence = _judge_refs(problems, task_root, line["evidence_refs"])
+    # 5. the chain rule: reads the register; a line already refused for its shape still reports it, and an unreadable
+    #    register (OSError) stays the error it was when the line has no problem of its own
+    try:
+        scan = _scan(task_root)
+    except OSError:
+        if problems:
+            raise ValueError(PROBLEM_JOIN.join(problems)) from None
+        raise
+    origin, origin_ok = _origin(problems, line)
     target = origin["target"] if origin else ""
     link = None
     if op == "add":
         chain = scan["chains"].get(target) if target else None
         if chain is not None:
             current = chain["active"]["id"] if chain["active"] is not None else chain["ids"][-1]
-            raise ValueError(f"target {target} already has line {current}; use `correct` or `withdraw` of it "
-                             f"(`{SCRIPT} list --task-root {task_root}` shows the active ids)")
+            problems.append(f"target {target} already has line {current}; use `correct` or `withdraw` of it "
+                            f"(`{SCRIPT} list --task-root {task_root}` shows the active ids)")
     else:
-        link = _link(line, "corrects" if op == "correct" else "withdraws", op)
-        acted = scan["byid"].get(link["id"])
-        if acted is None or acted["_status"] != "active":
-            raise ValueError(f"{link['id'] or 'the named line'} is not an active line (unknown, superseded or withdrawn); "
-                             f"`{SCRIPT} list --task-root {task_root}` shows the active ids")
-        was = target_of(acted)
-        if was != target:
-            raise ValueError(f"{link['id']} belongs to target {was}; a correction keeps its target" if was else
-                             f"{link['id']} belongs to no target; a correction keeps that: leave --target out")
+        link = _link(problems, line, "corrects" if op == "correct" else "withdraws", op)
+        if link is not None:
+            acted = scan["byid"].get(link["id"])
+            if acted is None or acted["_status"] != "active":
+                problems.append(f"{link['id'] or 'the named line'} is not an active line (unknown, superseded or withdrawn); "
+                                f"`{SCRIPT} list --task-root {task_root}` shows the active ids")
+            elif origin_ok:
+                was = target_of(acted)
+                if was != target:
+                    problems.append(f"{link['id']} belongs to target {was}; a correction keeps its target" if was else
+                                    f"{link['id']} belongs to no target; a correction keeps that: leave --target out")
     # 6. the typed counts of a CLI caller are refused in `main`; a probe reaches here only in-process (C-4)
     # 7. what code sets
     for key in CODE_SET:
         if key in line:
-            raise ValueError(f"`{key}` is set by code; leave it out")
+            problems.append(f"`{key}` is set by code; leave it out")
+    if problems:
+        raise ValueError(PROBLEM_JOIN.join(problems))
     who = _text(by)
-    if not who:
-        raise ValueError(BY_TEXT)
-    window = _window(task_root)
     # 8. build, repair a torn tail, append ONE line
     path = register_path(task_root)
     raw = scan["raw"]
