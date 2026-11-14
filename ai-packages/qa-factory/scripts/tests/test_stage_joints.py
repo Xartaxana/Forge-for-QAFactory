@@ -72,7 +72,9 @@ def k1_real_tree() -> None:
     check_eq("K1: the real tree is green (every leg, every direction)", report.problems, [])
     print(report.line())
     check_in("K1: the summary line names the walk, the rows, the gaps by leg, the joints and the stages with no detector",
-            "walked exit 8, detector 5, window 27 | rows 40, gaps ", report.line())
+            f"walked exit 8, detector 5, window 27 | rows {len(REAL['joints'])}, gaps ", report.line())
+    check_eq("K1: the rows file holds 267 rows (40 of T1 + 227 landed by T1r); a change is a named change of the file",
+             len(REAL["joints"]), 267)
     check_in("K1/E5: a stage with no detector is reported, not invented",
              "stages with no detector: S0, S1, S6, S7, S9", report.line())
     check_eq("K1: no walk error on the real tree", UNI[1], [])
@@ -111,12 +113,13 @@ def k4_k5_directions() -> None:
     check_in("K4/E2: a check in code with no row is red, naming the key", "exit_gate:new is a check in code", out)
     check_in("K4: naming where the code meets it", "(exit_gate.py::all_errors:1)", out)
     check_in("K4: and saying what to add", "has no row in references/stage-joints.json", out)
-    stale = text_of(audit(data=mutated(lambda d: d["joints"].append(
-        {**copy.deepcopy(row_of(d, "acceptance:review")), "check": "exit_gate:gone"}))))
+    stale = text_of(audit(data=mutated(lambda d: (d["joints"].append(
+        {**copy.deepcopy(row_of(d, "acceptance:review")), "check": "exit_gate:gone"}), d["told_ratchet"].update(unsited=0)))))
     check_in("K5/E3: a row whose check the walk does not meet is stale", "row exit_gate:gone: stale", stale)
     two = text_of(audit(data=mutated(lambda d: d["joints"].append(copy.deepcopy(d["joints"][0])))))
     check_in("K5/E4: two rows for one check", "exit_gate:scoped has two rows", two)
-    old = text_of(audit(data=mutated(lambda d: row_of(d, "exit_gate:scoped").update(check="exit:scoped_errors"))))
+    old = text_of(audit(data=mutated(lambda d: (row_of(d, "exit_gate:scoped").update(check="exit:scoped_errors"),
+                                                d["told_ratchet"].update(unsited=0)))))
     check_in("rename/old-prefix-key: a row in the old prefix form is stale, never matched to its family", "row exit:scoped_errors: stale", old)
     check_in("rename/old-prefix-key: and the family has no row", "exit_gate:scoped is a check in code", old)
 
@@ -505,8 +508,10 @@ def lookups() -> None:
               [r["check"] for r in SJ.rows_for(runner, ["S5"], {"plan": False}, data=unknown)],
               [r["check"] for r in SJ.rows_for(runner, ["S5"], {"plan": True}, data=unknown)]),
              (["u:zz", "u:plan"], ["u:zz", "u:plan"], ["u:zz"], ["u:zz", "u:plan"]))
-    check_eq("rows-for/real: the 40 rows of today state no requirement, so no receiver is told one by this reader yet",
-             [SJ.rows_for(role, ["*"]) for role in (runner, "conductor")], [[], []])
+    real_rows = SJ.rows_for(runner, ["*"])
+    check_eq("rows-for/real: since T1r the runner is told rows (111 today), each stating a requirement; no row names the conductor yet (T9c)",
+             (len(real_rows), all(r.get("requirement") or r.get("requirement_from") for r in real_rows), SJ.rows_for("conductor", ["*"])),
+             (111, True, []))
 
 
 def renderers() -> None:
@@ -574,8 +579,9 @@ def rename() -> None:
         "exit_gate:scoped", "exit_gate:text_end_after_handback", "exit_gate:witness_errors"])
     check_eq("rename/pins: the 5 detector keys", kind_keys("detector"),
              ["branch_accounting:*", "check_coverage:*", "critic_rollcall:*", "planning_contract:*", "s5_precheck:*"])
-    check_eq("rename/pins: every row of the file is a key of the universe and the other way round",
-             sorted(r["check"] for r in REAL["joints"]), sorted(UNI[0]))
+    check_eq("rename/pins: every key of the universe has a row (the file also holds the 227 rows of T1r for sites outside the universe)",
+             sorted(set(UNI[0]) - {r["check"] for r in REAL["joints"]}), [])
+    check_eq("rename/pins: no row key is used twice", len({r["check"] for r in REAL["joints"]}), len(REAL["joints"]))
     check_eq("rename/pins: AT the pins nothing is red, ±1 is (all three kinds)", [SJ._pins(UNI[0], PINS)] + [
         len(SJ._pins(UNI[0], {**PINS, k: PINS[k] + d})) for k in PINS for d in (-1, 1)], [[], 1, 1, 1, 1, 1, 1])
     only = {"foo:*": member("detector", stages=["S2"])}
@@ -598,8 +604,10 @@ def merges() -> None:
     check_eq("merge/branch-accounting: one row, four producers (one per stage the script runs at), stages S2-S5, joint null",
              (len(rows), [p["roles"] for p in rows[0]["producers"]], rows[0]["stages"], rows[0]["joint"]),
              (1, [["qa-requirements-tester"], ["qa-test-strategist"], ["qa-case-critic"], ["qa-automator"]], ["S2", "S3", "S4", "S5"], None))
-    check_eq("merge/branch-accounting: its one gap (F6-51/4, the case critic) survived the merge",
-             [p["gap"]["ref"] for p in rows[0]["producers"] if p.get("gap")], ["F6-51/4"])
+    check_eq("merge/branch-accounting: since T1r its case-critic leg is told by the key page, so gap F6-51/4 is gone and no gap is left",
+             ([p["gap"]["ref"] for p in rows[0]["producers"] if p.get("gap")],
+              [t for p in rows[0]["producers"] for t in p.get("told", [])]),
+             ([], [{"path": "references/slices/<role>/handoff-keys.md", "anchor": "## Outputs"}] * 5))
     check_eq("merge/stages-from-model: the real rows are green", audit(pins=PINS).problems, [])
     short = text_of(audit(data=mutated(lambda d: row_of(d, "branch_accounting:*").update(stages=["S2", "S3", "S5"]))))
     check_in("merge/stages-from-model: with S4 removed from the row it is red, naming the stages the model gives",
@@ -852,34 +860,62 @@ def told_variants() -> None:
     missing = text_of(audit(data=mutated(lambda d: d["joints"].remove(row_of(d, "exit_gate:digest")))))
     check_in("K1/missing-row: a v1-derived check (an exit family) with no row is red, naming it and where code meets it",
              "exit_gate:digest is a check in code (exit_gate.py::all_errors:", missing)
-    fallback = text_of(audit(data=mutated(lambda d: d["joints"].append({**copy.deepcopy(row_of(d, "acceptance:review")), "check": "exit_gate:unlabelled"}))))
+    fallback = text_of(audit(data=mutated(lambda d: (d["joints"].append({**copy.deepcopy(row_of(d, "acceptance:review")), "check": "exit_gate:unlabelled"}),
+                                                     d["told_ratchet"].update(unsited=0)))))
     check_in("K1-lit/fallback-no-row: a row keyed by a fallback id is not sited by it (E5)", "row exit_gate:unlabelled: stale", fallback)
     first = RR.check_of(RR.REGISTRY[0])
     check_eq("B/row-keyed-by-any-entry-not-stale: a row keyed by the check id of an A24 entry has a site",
              audit(data=mutated(lambda d: d["joints"].append({**copy.deepcopy(row_of(d, "acceptance:review")), "check": first}))).problems, [])
+    def swap_adviser(d):
+        """The real file holds one row for the literal (since T1r): the world replaces it by a copy of another row under the literal."""
+        d["joints"].remove(row_of(d, "exit_gate:adviser"))
+        d["joints"].append({**copy.deepcopy(row_of(d, "acceptance:review")), "check": "exit_gate:adviser"})
     check_eq("B/row-keyed-by-literal-not-stale: a row keyed by a literal id of the scanner (`exit_gate:adviser`) has a site",
-             audit(data=mutated(lambda d: d["joints"].append({**copy.deepcopy(row_of(d, "acceptance:review")), "check": "exit_gate:adviser"}))).problems, [])
+             audit(data=mutated(swap_adviser)).problems, [])
     check_eq("B/row-keyed-by-literal-not-stale: and a sub-id of a sited id too",
              audit(data=mutated(lambda d: d["joints"].append({**copy.deepcopy(row_of(d, "acceptance:review")), "check": f"{first}.part"}))).problems, [])
     gone = lambda d: d["joints"].append({**copy.deepcopy(row_of(d, "acceptance:review")), "check": "exit_gate:gone"})
+    # Each synthetic world states its own baseline: `base` is the measured real number (the tree's own cap), never inherited silently.
+    base = REAL["told_ratchet"]["unsited"]
     check_in("E11/stale-when-baseline-0: an unsited row with the baseline at 0 is a stale row, red", "row exit_gate:gone: stale",
-             text_of(audit(data=mutated(gone))))
-    one = lambda d: (gone(d), d["told_ratchet"].update(unsited=1))
-    check_eq("E11/unsited-at-baseline: AT the baseline (1 row, baseline 1) is green", audit(data=mutated(one)).problems, [])
-    two = lambda d: (gone(d), d["joints"].append({**copy.deepcopy(row_of(d, "acceptance:review")), "check": "exit_gate:gone2"}), d["told_ratchet"].update(unsited=1))
-    check_in("E11/unsited-over: over the baseline is red naming the counter, both numbers and the rows",
-             "told_ratchet.unsited is 1 but 2 rows have no site in code (exit_gate:gone, exit_gate:gone2)", text_of(audit(data=mutated(two))))
-    check_eq("K12/unsited-cap: the real tree measures the stored number; a cap above the measurement is allowed (<=)",
-             (audit().counts["unsited"], REAL["told_ratchet"]["unsited"], audit(data=mutated(lambda d: d["told_ratchet"].update(unsited=3))).problems),
-             (150, 150, []))
+             text_of(audit(data=mutated(lambda d: (gone(d), d["told_ratchet"].update(unsited=0))))))
+    one = lambda d: (gone(d), d["told_ratchet"].update(unsited=base + 1))
+    check_eq(f"E11/unsited-at-baseline: AT the baseline (one more row than the real {base}, baseline {base + 1}) is green",
+             audit(data=mutated(one)).problems, [])
+    two = lambda d: (gone(d), d["joints"].append({**copy.deepcopy(row_of(d, "acceptance:review")), "check": "exit_gate:gone2"}),
+                     d["told_ratchet"].update(unsited=base + 1))
+    check_in("E11/unsited-over: over the baseline is red naming the counter, both numbers and the two rows",
+             f"told_ratchet.unsited is {base + 1} but {base + 2} rows have no site in code", text_of(audit(data=mutated(two))))
+    check_in("E11/unsited-over: and the new rows close the listed ids", "exit_gate:gone, exit_gate:gone2)", text_of(audit(data=mutated(two))))
+    # K12: the cap is a NAMED number. raised_by: t-693 (T1r landed 227 rows whose sites are written later). It shrinks as the siting nodes
+    # land: T9a (controller 6), T5 (s5_precheck 11, execution_request 10 rows, manifest_put 14, run_suite 7), T5b (execution_request --mine 14),
+    # T6 (handoff_check 21), T7a-1..8 (validate_artifacts 42), T7b (planning_contract 12), T7c (coverage_contract 2), T3b (first_look 11).
+    UNSITED_CAP = 150
+    check_eq("K12/unsited-cap: the real tree measures the named cap (a cap above the measurement is allowed (<=), one below is red)",
+             (audit().counts["unsited"], REAL["told_ratchet"]["unsited"], UNSITED_CAP,
+              audit(data=mutated(lambda d: d["told_ratchet"].update(unsited=UNSITED_CAP + 3))).problems,
+              len(audit(data=mutated(lambda d: d["told_ratchet"].update(unsited=UNSITED_CAP - 1))).problems) > 0),
+             (150, 150, 150, [], True))
+
+    def extra_leg(d):
+        """One more legacy told leg: a role entry told by a path other than its key page."""
+        entry = next(p for r in d["joints"] for p in r["producers"] if not p.get("code") and isinstance(p.get("told"), list))
+        entry["told"].append({"path": "agents/qa-runner.md"})
     for counter, up, down in (("hand_cards", True, True), ("legacy_legs", True, False)):
         stored = REAL["told_ratchet"][counter]
         dash = counter.replace("_", "-")
         report = audit()
         check_eq(f"told/{dash}-at-baseline: the walk counts the stored number and is green", (report.counts[counter], report.problems), (stored, []))
-        check_in(f"told/{dash}-plus-one: one more than the stored number is red naming the counter, the measured and the stored value",
-                 f"told_ratchet.{counter} is {stored - 1} but the walk counts {stored}", text_of(audit(data=mutated(
-                     lambda d, counter=counter: d["told_ratchet"].update({counter: stored - 1})))))
+        if counter == "legacy_legs":
+            check_eq("told/legacy-legs-floor: the stored number is 0, the floor of a count", stored, 0)
+            check_in("told/legacy-legs-plus-one: one more legacy leg than the stored 0 is red naming the counter, the measured and the stored value",
+                     f"told_ratchet.legacy_legs is 0 but the walk counts 1", text_of(audit(data=mutated(extra_leg))))
+            check_in("told/legacy-legs-negative: a stored -1 is no count, red by the shape check",
+                     "a count (an integer, 0 or more) is expected", text_of(audit(data=mutated(lambda d: d["told_ratchet"].update(legacy_legs=-1)))))
+        else:
+            check_in(f"told/{dash}-plus-one: one more than the stored number is red naming the counter, the measured and the stored value",
+                     f"told_ratchet.{counter} is {stored - 1} but the walk counts {stored}", text_of(audit(data=mutated(
+                         lambda d, counter=counter: d["told_ratchet"].update({counter: stored - 1})))))
         low = text_of(audit(data=mutated(lambda d, counter=counter: d["told_ratchet"].update({counter: stored + 1}))))
         check_eq(f"told/{dash}-minus-one: {'dense: below is red, saying what to lower it to' if down else 'not dense (the table says audit only): below is green'}",
                  f"lower told_ratchet.{counter} to {stored}" in low, down)
