@@ -224,17 +224,18 @@ index 1e7e4960..5419f4e9 100644
      """Strips EXACTLY one pair of surrounding quotes (single or
      double) from a captured token. YAML frontmatter legally writes
 diff --git a/tools/dod_gate.py b/tools/dod_gate.py
-index ca0c2864..d616c077 100644
+index ca0c2864..dcc9a473 100644
 --- a/tools/dod_gate.py
 +++ b/tools/dod_gate.py
-@@ -559,6 +559,21 @@ _STDIN_DEADLINE_MSG = "stdin deadline exceeded -- fail-open, payload discarded"
+@@ -559,6 +559,22 @@ _STDIN_DEADLINE_MSG = "stdin deadline exceeded -- fail-open, payload discarded"
  _STDIN_DEADLINE_STATE = {"hit": False}
  
  
 +def _record_returned(payload: dict) -> None:
 +    """The end of a dispatch (offload B23): every exit-0 decision of a SubagentStop that has a parsed payload (pass, doc-only
 +    exemption, safety-valve skip) tells the journal hook the worker returned. Its failure, in any form, never changes this
-+    gate's exit code or message (F-B3-1 (a)); its WARN lines go to stderr after the gate's own message."""
++    gate's exit code or message (F-B3-1 (a)); its WARN lines go to stderr after the gate's own message (unread on exit 0, so journal_hooks ALSO appends them to
++    <common>/forge-journal/warn.log for calibration check 48(c) and keeps a pending marker for a refused write)."""
 +    try:
 +        tools_dir = str(Path(__file__).resolve().parent)
 +        if tools_dir not in sys.path:
@@ -249,7 +250,7 @@ index ca0c2864..d616c077 100644
  def main() -> int:
      _reconfigure_stderr_utf8()
  
-@@ -606,6 +621,8 @@ def main() -> int:
+@@ -606,6 +622,8 @@ def main() -> int:
      if message:
          sys.stderr.write(message + "\n")
  
@@ -259,16 +260,19 @@ index ca0c2864..d616c077 100644
  
  
 diff --git a/tools/dod_track.py b/tools/dod_track.py
-index 2894fa12..3f8bf5f6 100644
+index 2894fa12..f84e19aa 100644
 --- a/tools/dod_track.py
 +++ b/tools/dod_track.py
-@@ -224,8 +224,25 @@ def is_edit_tool(tool_name) -> bool:
+@@ -224,8 +224,28 @@ def is_edit_tool(tool_name) -> bool:
      return tool_name in EDIT_TOOL_NAMES
  
  
 +# The journal writer (offload B23, S-12): `python [flags] tools/journal_write.py ...`. The FIRST `python` call with a
 +# program argument decides, so `python -m pytest ...; python tools/journal_write.py ...` is still a verification run.
-+_PYTHON_PROGRAM_RE = re.compile(r"""\bpython[\d.]*(?:\.exe)?\s+(?:-[A-Za-z]+\s+)*["']?([^\s"';|&]+)""", re.IGNORECASE)
++# Forms read: the `py` launcher (`py -3`), value-taking flags (`-X utf8`, `-W ignore`), a quoted program taken whole.
++_PYTHON_PROGRAM_RE = re.compile(
++    r"""(?:\bpython[\d.]*(?:\.exe)?|(?<![\w.])py(?:\.exe)?)\s+(?:-\d[\d.]*\s+)?(?:(?:-[XW]\s+\S+|-[A-Za-z]+)\s+)*"""
++    r"""(?:"([^"]+)"|'([^']+)'|([^\s"';|&]+))""", re.IGNORECASE)
 +
 +
 +def _is_journal_writer_call(command: str) -> bool:
@@ -277,7 +281,7 @@ index 2894fa12..3f8bf5f6 100644
 +    match = _PYTHON_PROGRAM_RE.search(command)
 +    if match is None:
 +        return False
-+    program = match.group(1).replace("\\", "/")
++    program = next((g for g in match.groups() if g), "").replace("\\", "/")
 +    return program == "tools/journal_write.py" or program.endswith("/tools/journal_write.py")
 +
 +
@@ -289,10 +293,67 @@ index 2894fa12..3f8bf5f6 100644
          return True
      if NODE_SCRIPT_RE.search(command):
 diff --git a/tools/hook_liveness_probe.py b/tools/hook_liveness_probe.py
-index b3c663ea..c7a609b9 100644
+index b3c663ea..de419bcf 100644
 --- a/tools/hook_liveness_probe.py
 +++ b/tools/hook_liveness_probe.py
-@@ -1334,7 +1334,7 @@ CASES = [
+@@ -69,7 +69,7 @@ a SECOND case ("2a") on the SAME script, exactly the same shape a
+ source deployment's own probe already uses for its own owns_gate.py:
+ CASES.script is not required to be unique, and the composition check
+ below operates on the SET of scripts, so one script backed by two cases
+-produces neither CASE-MISSING nor STALE-CASE. CASE COUNT: 20 cases: 18 over
++produces neither CASE-MISSING nor STALE-CASE. CASE COUNT: 21 cases (case 18, t-876: the dod_gate stop writes `returned` through tools/journal_hooks.py): 19 over
+ 15 distinct Claude-hook scripts (case 0: the cost gate tools/agent_budget.py, D-0035; cases 16 and 16a: the
+ PreToolUse Edit|Write hook tools/handoff_gate.py, forge/5 F5-1 -- a critic-kind worker writing a non-handoff path
+ is refused, and the control: its own handoff path passes) plus two GIT-hook cases
+@@ -1097,6 +1097,47 @@ def _check_search_ledger_artifact(extra: dict) -> tuple:
+     return False, f"no non-empty ledger file among {candidates}"
+ 
+ 
++_JH_SEED = ('{"ts":"2026-11-05T14:29:30","event":"journal_created","agent":"lead","category":"journal","feature":"F19",'
++            '"notes":"seed"}\n')
++
++
++def _journal_hooks_repo(label: str) -> str:
++    """A throwaway git repo with a one-line journal for slug probe (never the live logs/journal)."""
++    tmp = _mkdtemp(label)
++    for rel, text in (("tools/dev.config.yaml", "developer: probe\n"), ("logs/journal/probe.jsonl", _JH_SEED)):
++        _write_tmp(tmp, rel, text)
++    shutil.copy(os.path.join(REPO, "logs", "journal-letters.json"), os.path.join(tmp, "logs", "journal-letters.json"))
++    subprocess.run(["git", "-C", tmp, "init", "-q"], check=True, capture_output=True)
++    subprocess.run([sys.executable, os.path.join(REPO, "tools", "journal_write.py"), "clone", "--claim", "--repo", tmp],
++                   check=True, capture_output=True)
++    return tmp
++
++
++def _jh_rows(extra: dict) -> list:
++    path = os.path.join(extra["tmp"], "logs", "journal", "probe.jsonl")
++    return [json.loads(x) for x in Path(path).read_text(encoding="utf-8").splitlines()]
++
++
++def _case_18_journal_hooks_record_returned():
++    """The post-agent hook writes the delegated first (a probe-internal setup call), then a passing SubagentStop through
++    dod_gate must write `returned` (dod_gate is on the live SubagentStop path, so this case lands with B23)."""
++    tmp = _journal_hooks_repo("journal-hooks-returned")
++    launch = {"tool_name": "Agent", "cwd": tmp, "session_id": "probe0001-xxxx",
++              "tool_input": {"subagent_type": "scout", "description": "sonnet: liveness probe", "prompt": "probe"},
++              "tool_response": {"isAsync": True, "status": "async_launched", "agentId": "liveness-probe-agent"}}
++    setup = run_subprocess_case("tools/journal_hooks.py", launch, args=["post-agent"])
++    payload = {"session_id": "probe0001-xxxx", "cwd": tmp, "hook_event_name": "SubagentStop",
++               "agent_id": "liveness-probe-agent"}
++    return {"payload": payload, "env": None, "extra": {"tmp": tmp, "setup_rc": setup.get("returncode")}, "args": []}
++
++
++def _check_journal_hooks_returned(extra: dict) -> tuple:
++    kinds = [r.get("event") for r in _jh_rows(extra)]
++    if kinds.count("delegated") != 1 or kinds.count("returned") != 1 or kinds.index("returned") < kinds.index("delegated"):
++        return False, f"expected delegated then one returned, got {kinds!r}"
++    return True, "delegated, then returned, written once"
++
++
+ def _check_dod_gate_artifact(extra: dict) -> tuple:
+     track_path = Path(extra["track_path"])
+     if not track_path.exists():
+@@ -1334,7 +1375,7 @@ CASES = [
          "build": _case_11_hygiene_gate,
          "expected_exit": 0,
          "anchors": (
@@ -301,6 +362,24 @@ index b3c663ea..c7a609b9 100644
              '"permissionDecision": "deny"',
          ),
          "const_ref": ("hygiene_gate", "MSG_JOURNAL_BLOCK"),
+@@ -1401,6 +1442,17 @@ CASES = [
+         "expected_exit": 0,
+         "artifact_check": _check_handoff_gate_wrote_nothing,
+     },
++    # offload B23 (t-876, critic Q4): dod_gate is live on SubagentStop, so record_returned is live at landing. Cases 17
++    # (post-agent) and 19 (pre-edit) wait for the settings placement (stream L).
++    {
++        "name": "18-dod_gate-passing-stop-writes-returned",
++        "script": "tools/dod_gate.py",
++        "kind": "artifact",
++        "isolation": "subprocess",
++        "build": _case_18_journal_hooks_record_returned,
++        "expected_exit": 0,
++        "artifact_check": _check_journal_hooks_returned,
++    },
+ ]
+ 
+ 
 diff --git a/tools/hop_metrics.py b/tools/hop_metrics.py
 index 424b2efb..d1dbc1b4 100644
 --- a/tools/hop_metrics.py
@@ -316,10 +395,10 @@ index 424b2efb..d1dbc1b4 100644
  _PREFILTER = ("tool_use", "tool_result", "agent-message from=", "<task-id>", "agentId: ")
 diff --git a/tools/journal_hooks.py b/tools/journal_hooks.py
 new file mode 100644
-index 00000000..3e54c456
+index 00000000..590c7976
 --- /dev/null
 +++ b/tools/journal_hooks.py
-@@ -0,0 +1,451 @@
+@@ -0,0 +1,554 @@
 +#!/usr/bin/env python3
 +"""The journal hooks (offload spec r2, §3.B23): the dispatch record, the end-of-dispatch record, the by-hand-edit gate.
 +
@@ -336,7 +415,9 @@ index 00000000..3e54c456
 +The two stores that join a stop to its launch live in `<git common dir>/forge-journal/`: `open/<agent_id>` (the absolute
 +path of the journal copy that holds the `delegated`; written with it) and `pending-returns/<agent_id>` (a stop that found
 +no `delegated` yet; consumed by `post-agent`). Markers older than 24 h and index entries older than 7 days are pruned by the
-+next hook call, each prune a WARN line (calibration check 48).
++next hook call, each prune a WARN line (calibration check 48). The stop side runs inside dod_gate, whose stderr on exit 0
++reaches no reader: its WARN lines are ALSO appended to `<common>/forge-journal/warn.log` (check 48(c) reads it), and a
++refused `returned` leaves its pending marker, which the next `post-agent` for that agent retries.
 +
 +This file is a mechanism-chain link; its stdout is set by the one helper tools/streams.py (itself a link)."""
 +from __future__ import annotations
@@ -345,6 +426,7 @@ index 00000000..3e54c456
 +import os
 +import re
 +import sys
++import threading
 +import time
 +from pathlib import Path
 +
@@ -365,7 +447,7 @@ index 00000000..3e54c456
 +WRITER = "python -B tools/journal_write.py"
 +DELEGATED_DOOR = f"write it: {WRITER} delegated …"
 +EDIT_DOOR = (f"the writer is {WRITER} <event> … (event --json for a retro line)")
-+AGENT_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
++WARN_LOG = "warn.log"               # <common>/forge-journal/warn.log: the stop-side WARN lines, read by calibration check 48(c)
 +SESSION_RE = re.compile(r"^[A-Za-z0-9-]{1,16}$")
 +
 +
@@ -407,24 +489,13 @@ index 00000000..3e54c456
 +    return path
 +
 +
-+def _objs(text: str) -> list:
-+    out = []
-+    for line in text.splitlines():
-+        try:
-+            obj = json.loads(line)
-+        except ValueError:
-+            continue
-+        if isinstance(obj, dict):
-+            out.append(obj)
-+    return out
-+
-+
 +def _tail_objs(path: Path, lines: int = SCAN_LINES) -> list:
 +    try:
 +        text = path.read_bytes().decode("utf-8", errors="replace")
 +    except OSError:
 +        return []
-+    return _objs("\n".join(text.splitlines()[-lines:]))
++    import journal_write
++    return journal_write._objs(text.splitlines()[-lines:])       # the ONE line parser (critic F7)
 +
 +
 +def _journal_file(root) -> Path | None:
@@ -563,7 +634,10 @@ index 00000000..3e54c456
 +        return [_door("this repository has no journal file (journal_keys.current_path)")]
 +    lines = prune(root)
 +    objs = _tail_objs(journal, 10 ** 9)
-+    if _find_delegated(objs, ref)[0] is not None:        # E-B23-12: a completion event, a replay -- already recorded
++    known, returned = _find_delegated(objs, ref)
++    if known is not None:                                # E-B23-12: a completion event, a replay -- already recorded
++        if not returned:                                 # a stop whose `returned` was refused left its marker (F2): retry it now
++            lines.extend(_flush_pending(jw, root, journal, agent_id, known.get("task_id"), known.get("agent"), known.get("model")))
 +        return lines
 +    obj = {"event": "delegated", "agent": agent.strip(), "model": model, "worker_ref": ref,
 +           "category": jw._category(agent.strip())[0]}
@@ -632,6 +706,10 @@ index 00000000..3e54c456
 +        if marker is not None:
 +            _drop(marker)
 +        return [f"JOURNAL: returned {task} written ({res.path}:{res.line_no})"]
++    if _find_delegated(_tail_objs(journal_path), ref)[1]:   # F4: a lost race -- the other writer's `returned` is there
++        if marker is not None:
++            _drop(marker)
++        return []
 +    return [f"JOURNAL: returned NOT written for {ref} -- {one_line(' / '.join(res.messages), 400)}; "
 +            f"write it: {WRITER} returned --task {task} --worker {ref}"]
 +
@@ -641,36 +719,79 @@ index 00000000..3e54c456
 +def record_returned(payload, now: float | None = None) -> list:
 +    """The end of a dispatch (BL-5, X-8): find the `delegated` of this SubagentStop's agent and write `returned` into the
 +    SAME journal copy; none found -> a pending marker for `post-agent`. Returns the lines to show (WARNs). Never raises."""
++    root_box = []
 +    try:
-+        return _record_returned(payload, now)
-+    except Exception:  # noqa: BLE001 -- dod_gate's decision never depends on it (F-B3-1 (a))
-+        return []
++        lines = _record_returned(payload, now, root_box)
++    except Exception as exc:  # noqa: BLE001 -- dod_gate's decision never depends on it (F-B3-1 (a)); but never silent (F5)
++        who = one_line(payload.get("agent_id"), 60) if isinstance(payload, dict) else "?"
++        lines = [f"JOURNAL: returned NOT recorded for agent:{who} -- the hook failed ({type(exc).__name__})"]
++    _warn_log(root_box[0] if root_box else _guess_root(payload), lines)
++    return lines
 +
 +
-+def _record_returned(payload, now) -> list:
++def _guess_root(payload):
++    try:
++        import journal_write
++        return journal_write.repo_root((payload.get("cwd") if isinstance(payload, dict) else None) or os.getcwd())
++    except Exception:  # noqa: BLE001
++        return None
++
++
++def _warn_log(root, lines: list) -> None:
++    """F2: the stop path runs inside dod_gate, whose stderr on exit 0 reaches nobody. Every WARN line (anything but a
++    `written (` success) is also appended to <common>/forge-journal/warn.log, which calibration check 48(c) reads."""
++    warns = [x for x in lines if " written (" not in x or "NOT written" in x]
++    if not warns or root is None:
++        return
++    try:
++        stamp = time.strftime("%Y-%m-%dT%H:%M:%S")
++        with open(_forge_dir(root, "") / WARN_LOG, "a", encoding="utf-8") as handle:
++            handle.write("".join(f"{stamp} {one_line(x)}\n" for x in warns))
++    except Exception:  # noqa: BLE001 -- the log is a second channel, never a failure
++        pass
++
++
++def _any_journal(jw, jk, root) -> bool:
++    """True when some worktree of this clone (the stop's own included) has a journal file name."""
++    for tree in [root, *jw.worktrees_of(root)]:
++        rel, _why = jk.current_path(Path(tree))
++        if rel:
++            return True
++    return False
++
++
++def _ensure_marker(root, agent_id: str) -> Path:
++    marker = _forge_dir(root, PENDING_DIR) / agent_id
++    try:
++        fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
++        with os.fdopen(fd, "w", encoding="utf-8") as handle:
++            handle.write(time.strftime("%Y-%m-%dT%H:%M:%S"))
++    except FileExistsError:
++        pass
++    return marker
++
++
++def _record_returned(payload, now, root_box) -> list:
 +    if not isinstance(payload, dict):
 +        return []
 +    agent_id = payload.get("agent_id")
-+    if not isinstance(agent_id, str) or not AGENT_ID_RE.match(agent_id):
++    jw, jl, jk, transcripts = _imports()
++    if not isinstance(agent_id, str) or not transcripts.AGENT_ID_RE.match(agent_id):
 +        return []
-+    jw, jl, jk, _transcripts = _imports()
 +    try:
 +        root = jw.repo_root(payload.get("cwd") or os.getcwd())
-+    except jw.Refused:
-+        return []
-+    if _journal_file(root) is None:                       # a repository with no journal: nothing to record, nothing to lose
++    except jw.Refused as exc:
++        return [f"JOURNAL: returned NOT recorded for agent:{agent_id} -- {one_line(exc.text, 300)}"]
++    root_box.append(root)
++    # F1: the stop's own cwd may be a linked worktree with no tools/dev.config.yaml (untracked: none has one). The index
++    # and the markers live in the common dir, so the judgement is over EVERY worktree of the clone, after nothing else.
++    if not _any_journal(jw, jk, root):                    # no tree of this clone has a journal: nothing to record, nothing to lose
 +        return []
 +    lines = prune(root, now)
 +    ref = f"agent:{agent_id}"
 +    state = _locate(jw, jk, root, agent_id, ref)
 +    if state is None:                                      # (3) no delegated yet: the marker; one re-look for the race window
-+        marker = _forge_dir(root, PENDING_DIR) / agent_id
-+        try:
-+            fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-+                handle.write(time.strftime("%Y-%m-%dT%H:%M:%S"))
-+        except FileExistsError:
-+            pass
++        _ensure_marker(root, agent_id)
 +        state = _locate(jw, jk, root, agent_id, ref)
 +        if state is None:
 +            return lines
@@ -683,6 +804,8 @@ index 00000000..3e54c456
 +                          delegated.get("agent"), delegated.get("model"), copy)
 +    if out and out[0].startswith("JOURNAL: returned") and "NOT written" not in out[0]:
 +        _drop(_forge_dir(root, OPEN_DIR) / agent_id)
++    elif out:                                              # F2: refused -- keep a marker so the next post-agent retries it
++        _ensure_marker(root, agent_id)
 +    return lines + out
 +
 +
@@ -738,15 +861,61 @@ index 00000000..3e54c456
 +
 +# ---------------------------------------------------------------- the entry
 +
-+def _read_payload():
++# --- stdin deadline (P4 class; a LOCAL copy, as in negative_lint.py / dod_gate.py: no shared module -- critic F3)
++
++_STDIN_DEADLINE_DEFAULT = 10.0
++_STDIN_DEADLINE_MAX = 600.0
++_STDIN_DEADLINE_ENV = "OSLLM_STDIN_TIMEOUT"
++_STDIN_DEADLINE_STATE = {"hit": False}      # the __main__ path escalates to os._exit when a reader thread is still blocked
++
++
++def _stdin_deadline_seconds() -> float:
++    """Env override, else the default; invalid, <= 0 or > max fall back to the default (no "wait forever" mode)."""
 +    try:
-+        raw = sys.stdin.buffer.read()
++        value = float(os.environ.get(_STDIN_DEADLINE_ENV, ""))
++    except (TypeError, ValueError):
++        return _STDIN_DEADLINE_DEFAULT
++    return value if 0.0 < value <= _STDIN_DEADLINE_MAX else _STDIN_DEADLINE_DEFAULT
++
++
++def _read_stdin_bytes_deadline():
++    """(bytes, timed_out): stdin to EOF, but no longer than the deadline (a daemon thread does the blocking read)."""
++    stdin = getattr(sys, "stdin", None)
++    if stdin is None:
++        return b"", False
++    try:
++        if stdin.isatty():
++            return b"", False
 +    except Exception:  # noqa: BLE001
-+        return None
++        pass
++    stream = getattr(stdin, "buffer", stdin)
++    box = {}
++
++    def _reader():
++        try:
++            box["data"] = stream.read()
++        except Exception:  # noqa: BLE001
++            box["data"] = b""
++
++    thread = threading.Thread(target=_reader, name="stdin-deadline", daemon=True)
++    thread.start()
++    thread.join(_stdin_deadline_seconds())
++    if thread.is_alive():
++        return b"", True
++    data = box.get("data") or b""
++    return (data if isinstance(data, bytes) else str(data).encode("utf-8", "replace")), False
++
++
++def _read_payload():
++    """(payload or None, timed_out)."""
++    raw, timed_out = _read_stdin_bytes_deadline()
++    if timed_out:
++        _STDIN_DEADLINE_STATE["hit"] = True
++        return None, True
 +    try:
-+        return json.loads(raw.decode("utf-8", errors="replace"))
++        return json.loads(raw.decode("utf-8", errors="replace")), False
 +    except (ValueError, RecursionError):
-+        return None
++        return None, False
 +
 +
 +def main(argv=None) -> int:
@@ -754,7 +923,12 @@ index 00000000..3e54c456
 +    args = sys.argv[1:] if argv is None else list(argv)
 +    mode = args[0] if args else ""
 +    try:
-+        payload = _read_payload()
++        payload, timed_out = _read_payload()
++        if timed_out:           # post-agent says so with the door; pre-edit stays silent (it never blocks a tool)
++            if mode == "post-agent":
++                print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse",
++                                                         "additionalContext": _door("stdin deadline exceeded")}}))
++            return 0
 +        if mode == "post-agent":
 +            lines = post_agent(payload)
 +            if lines:
@@ -770,7 +944,15 @@ index 00000000..3e54c456
 +
 +
 +if __name__ == "__main__":
-+    sys.exit(main())
++    _rc = main()
++    if _STDIN_DEADLINE_STATE["hit"]:        # a reader thread may still be blocked in a read syscall: exit without joining it
++        for _stream in (sys.stdout, sys.stderr):
++            try:
++                _stream.flush()
++            except Exception:  # noqa: BLE001
++                pass
++        os._exit(_rc)
++    sys.exit(_rc)
 diff --git a/tools/mechanism_gate.py b/tools/mechanism_gate.py
 index 3943b5ce..04b4016d 100644
 --- a/tools/mechanism_gate.py
@@ -790,6 +972,27 @@ index 3943b5ce..04b4016d 100644
  )
  
  # Template dependency (toolkit transfer, empirically verified against
+diff --git a/tools/streams.py b/tools/streams.py
+index ed7e5c0f..ac8f3409 100644
+--- a/tools/streams.py
++++ b/tools/streams.py
+@@ -11,10 +11,12 @@ The twin for the release side is ai-packages/qa-factory/scripts/console_io.py `u
+ is a deliberate second copy: tools/ must not depend on the release package's layout, and the twin has no
+ `newline` parameter (adding one is a package edit).
+ 
+-RULE: a mechanism-chain link (a file in mechanism_gate.MECHANISM_PREFIXES under tools/) NEVER imports this
+-module, directly or through any chain of tools/ imports -- the links keep their own copies so that a
+-broken helper can never gate a hook. tools/test_streams.py checks both halves: S3 (no stream reconfigure
+-call outside the chain except here) and S4 (no link reaches this file). A link that must share it is brought
++RULE: a mechanism-chain link (a file in mechanism_gate.MECHANISM_PREFIXES under tools/) never imports this
++module, directly or through any chain of tools/ imports, EXCEPT the road named in
++tools/test_streams.py SANCTIONED_STREAMS_ROAD (journal_write, journal_hooks, dod_gate) -- the other links keep
++their own copies so that a broken helper can never gate a hook. This file is itself in MECHANISM_PREFIXES since
++B23. tools/test_streams.py checks both halves: S3 (no stream reconfigure call outside the chain except here)
++and S4 (no link outside the sanctioned road reaches this file). A further link that must share it is brought
+ into the net by the Lead with a mechanism commit, not by an import.
+ 
+ Error direction: the function may leave a stream exactly as it was (a StringIO, a capture, a closed
 diff --git a/tools/test_dispatch_gate.py b/tools/test_dispatch_gate.py
 index 6ceb925e..c6db4373 100644
 --- a/tools/test_dispatch_gate.py
@@ -887,10 +1090,10 @@ index 18e95bc9..bfaa50e9 100644
 +        assert dod_gate.main() == 0
 +    assert calls == []
 diff --git a/tools/test_dod_track.py b/tools/test_dod_track.py
-index 2175e757..5182b244 100644
+index 2175e757..e4d4623b 100644
 --- a/tools/test_dod_track.py
 +++ b/tools/test_dod_track.py
-@@ -943,3 +943,25 @@ def test_path_occupied_by_directory_stays_loud_fail_open_directory_untouched(
+@@ -943,3 +943,31 @@ def test_path_occupied_by_directory_stays_loud_fail_open_directory_untouched(
      assert track_path.is_dir(), "the directory must not vanish/become a file on failure"
      leftovers = list(track_path.parent.glob("*.tmp"))
      assert not leftovers, f"an orphaned .tmp fragment next to the (untouched) directory: {leftovers}"
@@ -906,7 +1109,13 @@ index 2175e757..5182b244 100644
 +    ("python -m pytest tools/test_x.py -q; python -B tools/journal_write.py accept --witness ok", True),
 +    ("python -m pytest tools/ -q", True),
 +    ("python -B tools/journal_write.py_test", True),
-+], ids=["witness_text", "run_pytest", "returned", "worktree_path", "pytest_first", "plain_pytest", "lookalike"])
++    ('python -X utf8 tools/journal_write.py accept --run "python -m pytest tools/x.py -q"', False),
++    ('python -W ignore -B tools/journal_write.py accept --run "python -m pytest tools/x.py -q"', False),
++    ('python -B "C:/my dir/tools/journal_write.py" accept --run "python -m pytest tools/x.py -q"', False),
++    ('py -3 tools/journal_write.py accept --run "python -m pytest tools/x.py -q"', False),
++    ("py -3 -m pytest tools/x.py -q", True),
++], ids=["witness_text", "run_pytest", "returned", "worktree_path", "pytest_first", "plain_pytest", "lookalike",
++        "flag_with_value_X", "flag_with_value_W", "quoted_path_with_space", "py_launcher", "py_launcher_pytest"])
 +def test_is_verification_command_never_counts_a_journal_writer_call(command, expected):
 +    assert dod_track.is_verification_command(command) is expected
 +
@@ -916,6 +1125,49 @@ index 2175e757..5182b244 100644
 +               "tool_input": {"command": 'python -B tools/journal_write.py accept --witness "12 passed" --task t-001'},
 +               "tool_response": {"stdout": "journal: accepted t-001 written", "returncode": 0}}
 +    assert dod_track.build_fact(payload) is None
+diff --git a/tools/test_hook_liveness_probe.py b/tools/test_hook_liveness_probe.py
+index 19be8204..d7fa8d3d 100644
+--- a/tools/test_hook_liveness_probe.py
++++ b/tools/test_hook_liveness_probe.py
+@@ -964,12 +964,12 @@ def test_full_probe_run_from_another_cwd_is_ok_on_the_post_merge_settings(tmp_pa
+         cwd=str(tmp_path), capture_output=True, timeout=300)
+     out = done.stdout.decode("utf-8", errors="replace")
+     assert done.returncode == 0, out
+-    assert "OVERALL: OK" in out and "20/20 alive" in out and "DOUBLE-RUN" not in out
++    assert "OVERALL: OK" in out and "21/21 alive" in out and "DOUBLE-RUN" not in out
+     assert "[OK] 10-dispatch_gate-in-process-critic-snapshot" in out
+ 
+ 
+ # --------------------------------------------------------------------
+-# INTEGRATION: live run of all 20 real cases against the real gates
++# INTEGRATION: live run of all 21 real cases against the real gates
+ # (real .claude/settings.json, never a fixture -- this is the one
+ # section legitimately exercising the live tree, and it is itself
+ # isolation-safe by construction, see hook_liveness_probe.py's own
+@@ -989,7 +989,7 @@ def test_live_run_of_all_cases_is_ok():
+ 
+         non_ok = [r for r in report["results"] if r["verdict"] != hlp.OK]
+         assert non_ok == [], non_ok
+-        assert len(report["results"]) == 20
++        assert len(report["results"]) == 21
+ 
+         assert hlp.overall_ok(report) is True
+     finally:
+@@ -1001,7 +1001,7 @@ def test_main_cli_exit_code_zero_on_live_gates(capsys):
+     captured = capsys.readouterr()
+     assert exit_code == 0
+     assert "OVERALL: OK" in captured.out
+-    assert "20/20" in captured.out
++    assert "21/21" in captured.out
+ 
+ 
+ def test_main_cli_json_flag_produces_parseable_json(capsys):
+@@ -1010,4 +1010,4 @@ def test_main_cli_json_flag_produces_parseable_json(capsys):
+     assert exit_code == 0
+     data = json.loads(captured.out)
+     assert data["no_cases"] is False
+-    assert len(data["results"]) == 20
++    assert len(data["results"]) == 21
 diff --git a/tools/test_hop_metrics.py b/tools/test_hop_metrics.py
 index 31c03ea7..5149c081 100644
 --- a/tools/test_hop_metrics.py
@@ -934,10 +1186,10 @@ index 31c03ea7..5149c081 100644
 +    assert hm._LAUNCH_RE.search("x\nagentId: abc-1_Z (internal)").group(1) == "abc-1_Z"
 diff --git a/tools/test_journal_hooks.py b/tools/test_journal_hooks.py
 new file mode 100644
-index 00000000..f726bfb5
+index 00000000..1dfa2536
 --- /dev/null
 +++ b/tools/test_journal_hooks.py
-@@ -0,0 +1,398 @@
+@@ -0,0 +1,509 @@
 +"""Tests of tools/journal_hooks.py (offload spec r2 §3.B23, F-T1): the payload table (E-B23-1..6/12), the order rows
 +(E-B23-7/8), the linked-worktree rows (E-B23-10), the pre-edit rows in both modes (E-B23-13), the stores and their prune.
 +Every row runs over a temp git repo with a seeded journal (never the real logs/journal). Row ids carry the E-B23-n."""
@@ -1241,6 +1493,117 @@ index 00000000..f726bfb5
 +    (jl.lock_dir(root) / "open/a1b2c3").unlink()
 +    jh.record_returned(stop(root))
 +    assert len(events(wt, "returned")) == 1 and not events(root, "returned")
++
++
++@pytest.mark.parametrize("index_gone", [False, True], ids=["through_the_index", "through_the_scan"])
++def test_f1_a_stop_from_a_linked_worktree_without_dev_config_still_writes_returned_into_the_root_copy(two_trees, index_gone):
++    root, wt = two_trees
++    (wt / "tools/dev.config.yaml").unlink()                           # the real case: dev.config is untracked, no linked tree has it
++    jh.post_agent(payload(root))
++    assert events(root, "delegated")
++    if index_gone:
++        (jl.lock_dir(root) / "open/a1b2c3").unlink()
++    assert not any("NOT" in x for x in jh.record_returned(stop(wt)))
++    assert len(events(root, "returned")) == 1
++    assert not (jl.lock_dir(root) / "pending-returns/a1b2c3").exists()
++
++
++# ------------------------------------------------------------------ F2 / F4 / F5: the stop side is loud, and never doubles
++
++class _Refused:
++    written, path, line_no, task_id = False, None, None, None
++
++    def __init__(self, text):
++        self.messages = [text]
++
++
++def _patch_returned(monkeypatch, behave):
++    real = jw.write_event
++
++    def fake(root, obj, **kw):
++        return behave(real, root, obj, kw) if obj.get("event") == "returned" else real(root, obj, **kw)
++    monkeypatch.setattr(jw, "write_event", fake)
++
++
++def test_f2_a_refused_returned_is_logged_for_check_48c_keeps_its_marker_and_the_next_post_agent_retries_it(repo, monkeypatch):
++    jh.post_agent(payload(repo))
++    _patch_returned(monkeypatch, lambda real, root, obj, kw: _Refused("lock busy"))
++    out = jh.record_returned(stop(repo))
++    assert len(out) == 1 and out[0].startswith("JOURNAL: returned NOT written for agent:a1b2c3 -- lock busy")
++    assert "NOT written for agent:a1b2c3" in (jl.lock_dir(repo) / "warn.log").read_text(encoding="utf-8")
++    marker = jl.lock_dir(repo) / "pending-returns/a1b2c3"
++    assert marker.is_file() and not events(repo, "returned")
++    monkeypatch.undo()
++    again = jh.post_agent(payload(repo, tool_response={"agentId": "a1b2c3", "status": "completed"}))
++    assert len(events(repo, "returned")) == 1 and not marker.exists() and any(x.startswith("JOURNAL: returned t-") for x in again)
++
++
++def test_f2_prune_warns_from_the_stop_path_reach_the_log_too(repo):
++    folder = jl.lock_dir(repo)
++    (folder / "pending-returns").mkdir(exist_ok=True)
++    stale = folder / "pending-returns/stale1"
++    stale.write_text("x")
++    old = time.time() - 25 * 3600
++    os.utime(stale, (old, old))
++    out = jh.record_returned(stop(repo, "other9"))
++    assert any("returned lost for agent:stale1" in x for x in out)
++    assert "returned lost for agent:stale1" in (folder / "warn.log").read_text(encoding="utf-8")
++
++
++def test_f4_a_lost_race_says_nothing_when_the_other_writer_already_wrote_returned(repo, monkeypatch):
++    jh.post_agent(payload(repo))
++
++    def other_writer_won(real, root, obj, kw):
++        real(root, obj, **kw)                                         # the competitor's line lands first ...
++        return _Refused("rule 9f: a second returned")                 # ... and ours is refused by the validator
++    _patch_returned(monkeypatch, other_writer_won)
++    assert jh.record_returned(stop(repo)) == []
++    assert len(events(repo, "returned")) == 1 and not (jl.lock_dir(repo) / "warn.log").exists()
++
++
++def test_f5_a_hook_failure_in_record_returned_is_one_line_not_silence(repo, monkeypatch):
++    jh.post_agent(payload(repo))
++
++    def boom(*a, **k):
++        raise RuntimeError("x")
++    monkeypatch.setattr(jh, "_locate", boom)
++    out = jh.record_returned(stop(repo))
++    assert out == ["JOURNAL: returned NOT recorded for agent:a1b2c3 -- the hook failed (RuntimeError)"]
++    assert "NOT recorded for agent:a1b2c3" in (jl.lock_dir(repo) / "warn.log").read_text(encoding="utf-8")
++
++
++# ------------------------------------------------------------------ F3: the stdin deadline
++
++class _Hung:
++    """A stdin with no EOF: read() blocks until released."""
++    def __init__(self):
++        self.release = threading.Event()
++        outer = self
++
++        class _Buf:
++            def read(self):
++                outer.release.wait(30)
++                return b""
++        self.buffer = _Buf()
++
++
++@pytest.mark.parametrize("mode,expect_door", [("post-agent", True), ("pre-edit", False)])
++def test_f3_a_stdin_with_no_eof_ends_at_the_deadline_with_the_door_or_silence(mode, expect_door, monkeypatch, capsys):
++    hung = _Hung()
++    monkeypatch.setattr(sys, "stdin", hung)
++    monkeypatch.setenv("OSLLM_STDIN_TIMEOUT", "0.3")
++    started = time.monotonic()
++    try:
++        code = jh.main([mode])
++    finally:
++        hung.release.set()
++        jh._STDIN_DEADLINE_STATE["hit"] = False
++    out = capsys.readouterr().out
++    assert code == 0 and time.monotonic() - started < 10
++    if expect_door:
++        assert DOOR in json.loads(out)["hookSpecificOutput"]["additionalContext"] and "stdin deadline" in out
++    else:
++        assert out == ""
 +
 +
 +# ------------------------------------------------------------------ E-B23-11: parallel sessions
