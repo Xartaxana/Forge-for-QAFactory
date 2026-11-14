@@ -7,6 +7,10 @@ pull a whole job log into its context (B-466, t-575; GitHub backend GM1-4, t-188
   python tools/ci_read.py artifact <run_id> <name>/<path> [--grep REGEX] [--tail N]   (no --grep: every line)
 (--tail N, default 200, keeps the LAST N lines AFTER the grep filter; the last output line is
 "(N of M lines)": N shown, M matched.)
+  python tools/ci_read.py why [<run_id>|latest] [--workflow canon.yml] [--branch B] [--tail N]
+      the failing job(s) of a run (latest = newest of the workflow, on --branch when given; --branch and --workflow
+      apply to `latest` only) and the last N lines (default 60, 1..500) of each failing step's log section; at most 3
+      jobs (+K more); green / unfinished / no failed job / log expired / step section not found each say so.
   python tools/ci_read.py start [--ref main] [--workflow canon.yml] [--var KEY=VALUE ...]
       dispatches the workflow (default canon.yml) with the input ref plus one input per --var (the GitLab reader's
       pipeline variables, same form); e.g. the test-redundancy measurement:
@@ -62,6 +66,8 @@ TOKEN_ENV = "GITHUB_TOKEN"      # the FALLBACK name: used when there is no tools
 TOKEN_KEY = "github_token_env"
 WORKFLOW = "canon.yml"
 MAX_PER_PAGE = 100
+FAILED = ("failure", "timed_out")     # the conclusions `why` reads
+WHY_MAX_JOBS = 3
 MAX_ARTIFACT_BYTES = 200 * 1024 * 1024
 REPO_DOOR = "QA_CI_REPO"
 WORKFLOW_RE = re.compile(r"^[\w.-]+\.ya?ml$", re.ASCII)   # it goes into a URL path segment
@@ -230,8 +236,63 @@ def make_commands(repo: str) -> dict:
         emit_own("dispatched %s for %s%s; find the run: ci_read.py pipelines" % (workflow, sanitize(args.ref),
                                                                               sanitize(shown)))
 
+    def cmd_why(args, token):
+        workflow = args.workflow or WORKFLOW
+        if args.run == "latest":
+            query = "per_page=1" + ("&branch=" + urllib.parse.quote(args.branch, safe="") if args.branch else "")
+            rows = _rows(_open("%s/actions/workflows/%s/runs?%s" % (base, workflow, query), token)[1],
+                         "workflow_runs")
+            if not rows:
+                emit("(no runs)")
+                return
+            run = rows[0]
+        else:
+            run = json.loads(_text(_open("%s/actions/runs/%d" % (base, args.run), token)[1]))
+            if not isinstance(run, dict):
+                raise Failure("unexpected answer: expected a JSON object describing the run")
+        run_id, conclusion = run.get("id"), run.get("conclusion")
+        head = "run %s %s %s %s" % (run_id, _done(run), run.get("display_title") or "-", str(run.get("head_sha") or "")[:8])
+        if run.get("status") != "completed":
+            emit(head)                                    # in progress / queued: that status, nothing to read yet
+            return
+        if conclusion == "success":
+            emit("run %s success: nothing failed" % run_id)
+            return
+        emit(head)
+        jobs = _rows(_open("%s/actions/runs/%s/jobs?per_page=100" % (base, run_id), token)[1], "jobs")
+        failed = sorted((j for j in jobs if j.get("conclusion") in FAILED),
+                        key=lambda j: j["id"] if isinstance(j.get("id"), int) else 0)
+        if not failed:
+            emit_own("%s: no failed job" % sanitize(str(conclusion)))
+            return
+        for job in failed[:WHY_MAX_JOBS]:
+            emit("job %s %s" % (job.get("id"), job.get("name")))
+            try:
+                log = _text(_open("%s/actions/jobs/%s/logs" % (base, job.get("id")), token)[1])
+            except urllib.error.HTTPError as exc:
+                if exc.code not in (404, 410):
+                    raise
+                emit_own("log expired")
+                continue
+            steps = [s for s in (job.get("steps") or []) if isinstance(s, dict)]
+            bad = [s for s in steps if s.get("conclusion") in FAILED]
+            whole_shown = False
+            for step in bad or [None]:
+                section = None
+                if step is not None:
+                    emit("step %s %s %s" % (step.get("number"), step.get("name"), step.get("conclusion")))
+                    section = common.step_section(log, step, steps)
+                if section is not None:
+                    _emit_tail(section, None, args.tail)
+                elif not whole_shown:
+                    emit_own("step section not found: job log tail")
+                    _emit_tail(log, None, args.tail)
+                    whole_shown = True
+        if len(failed) > WHY_MAX_JOBS:
+            emit_own("+%d more failed jobs" % (len(failed) - WHY_MAX_JOBS))
+
     return {"pipelines": cmd_pipelines, "jobs": cmd_jobs, "log": cmd_log, "artifact": cmd_artifact,
-            "start": cmd_start}
+            "start": cmd_start, "why": cmd_why}
 
 
 def _check(args) -> None:
@@ -245,6 +306,12 @@ def _check(args) -> None:
         name, _, member = args.path.partition("/")
         if not name or not member:
             raise Refusal("artifact needs <name>/<path inside the zip>, e.g. ci-out/report.txt")
+    if args.cmd == "why":
+        if not 1 <= args.tail <= common.WHY_MAX_TAIL:
+            raise Refusal("why --tail must be 1..%d, got %d" % (common.WHY_MAX_TAIL, args.tail))
+        if args.workflow is not None and not WORKFLOW_RE.fullmatch(args.workflow):
+            raise Refusal("--workflow expects a file name of .github/workflows, e.g. canon.yml "
+                          "(letters, digits, '_', '.', '-', ending .yml or .yaml)")
     if args.cmd == "start":
         if args.workflow is not None and not WORKFLOW_RE.fullmatch(args.workflow):
             raise Refusal("--workflow expects a file name of .github/workflows, e.g. quarantine-watch.yml "

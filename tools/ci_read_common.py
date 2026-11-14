@@ -111,6 +111,42 @@ def _emit_tail(text: str, regex, tail: int) -> None:
         emit("(the text has %d lines and none matched the grep, --grep '' prints them all)" % total)
 
 
+WHY_DEFAULT_TAIL = 60
+WHY_MAX_TAIL = 500
+_NOT_A_RUN_STEP = ("Set up job", "Complete job")
+
+
+def _group_head(line: str):
+    """The text after `##[group]` on a log line (the line may carry a timestamp before it), or None."""
+    _, sep, rest = line.partition("##[group]")
+    return rest if sep else None
+
+
+def _starts_a_step(head: str) -> bool:
+    return head.startswith("Run ") or head.startswith("Post ") or head.strip() == "Complete job"
+
+
+def step_section(text: str, step: dict, steps: list):
+    """The log lines of one step of a job (text of the section, or None when its boundary is not found). The start: a
+    `##[group]` line whose text is the step name, else the step's ordinal among the `##[group]Run ` lines when their
+    count equals the count of steps that open such a group (every step but `Set up job`, `Complete job`, `Post ...`);
+    the end: the next `##[group]Run ` / `Post ` / `Complete job` line, else the end of the log."""
+    lines = text.splitlines()
+    heads = [(i, _group_head(ln)) for i, ln in enumerate(lines)]
+    heads = [(i, h) for i, h in heads if h is not None]
+    start = next((i for i, h in heads if h.strip() == str(step.get("name"))), None)
+    if start is None:
+        run_starts = [i for i, h in heads if h.startswith("Run ")]
+        eligible = [s for s in steps if not (str(s.get("name")) in _NOT_A_RUN_STEP
+                                              or str(s.get("name")).startswith("Post "))]
+        if len(run_starts) == len(eligible) and step in eligible:
+            start = run_starts[eligible.index(step)]
+    if start is None:
+        return None
+    end = next((i for i, h in heads if i > start and _starts_a_step(h)), len(lines))
+    return "\n".join(lines[start:end])
+
+
 def _positive_int(text: str) -> int:
     value = int(text)
     if value < 1:
@@ -164,7 +200,25 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--var", action="append", default=[], metavar="KEY=VALUE")
     st.add_argument("--workflow", default=None, metavar="FILE",
                     help="the workflow file to dispatch (the backend's default when absent)")
+    wy = sub.add_parser("why")
+    wy.add_argument("run", nargs="?", type=_run_ref, default="latest", metavar="RUN_ID|latest")
+    wy.add_argument("--workflow", default=None, metavar="FILE")
+    wy.add_argument("--branch", default=None)
+    wy.add_argument("--tail", type=int, default=WHY_DEFAULT_TAIL)     # 1..WHY_MAX_TAIL: the backend's check refuses
     return ap
+
+
+def _run_ref(text: str):
+    """`latest` or a positive run id; anything else is argparse's refusal (exit 2)."""
+    if text == "latest":
+        return text
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError("expected a run id (a whole number) or 'latest'") from None
+    if value < 1:
+        raise argparse.ArgumentTypeError("expected a run id (a whole number) or 'latest'")
+    return value
 
 
 VAR_FORM = "--var expects KEY=VALUE (a non-empty KEY, e.g. --var TEST_REDUNDANCY=1)"

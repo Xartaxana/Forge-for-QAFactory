@@ -535,7 +535,7 @@ def test_a_redirect_is_followed_without_the_authorization_header(monkeypatch, se
 
 # ---- the token value and the interactive battery ------------------------------------------------------------------
 
-@pytest.mark.parametrize("argv", [["pipelines"], ["jobs", "1"], ["log", "1"], ["artifact", "1", "n/x"], ["start"]])
+@pytest.mark.parametrize("argv", [["pipelines"], ["jobs", "1"], ["log", "1"], ["artifact", "1", "n/x"], ["start"], ["why", "9"]])
 def test_the_token_is_never_printed_on_any_road(argv, net, capsys):
     for error in (http_error(401, "bad credentials"), urllib.error.URLError("no route"), None):
         net.error = error
@@ -610,6 +610,169 @@ def test_network_failure_and_a_bad_regex_exit_1_without_a_traceback(net, capsys)
     net.body = "x"
     assert ci_read.main(["log", "1", "--grep", "("]) == 1
     assert capsys.readouterr().out.startswith("request failed: error")
+
+
+# ---- why: the failing job(s) of a run and the failing lines of their logs (C2) ------------------------------------
+
+RUN = {"id": 9, "status": "completed", "conclusion": "failure", "display_title": "canon x", "head_sha": "abcdef0123456"}
+STEPS = [{"number": 1, "name": "Set up job", "conclusion": "success"},
+         {"number": 2, "name": "Run lint", "conclusion": "success"},
+         {"number": 3, "name": "Run tests", "conclusion": "failure"},
+         {"number": 4, "name": "Complete job", "conclusion": "success"}]
+LOG = ("T ##[group]Set up job\nsetup noise\nT ##[group]Run lint\nlint ok\nT ##[group]Run tests\nt1\nFAILED test_x\n"
+       "##[error]exit 1\nT ##[group]Complete job\ncleanup\n")
+SECTION = ["T ??[group]Run tests", "t1", "FAILED test_x", "??[error]exit 1"]
+
+
+def job(jid, name="pkg", conclusion="failure", steps=STEPS):
+    return {"id": jid, "name": name, "conclusion": conclusion, "steps": steps}
+
+
+def why_routes(net, run=RUN, jobs=(), logs=None):
+    net.routes = [("/actions/runs/9/jobs", json.dumps({"jobs": list(jobs)}))]
+    for jid, text in (logs or {}).items():
+        net.routes.append(("/actions/jobs/%s/logs" % jid, text))
+    net.routes.append(("/workflows/", runs_json(run) if run else runs_json()))
+    net.routes.append(("/actions/runs/9", json.dumps(run)))
+
+
+def test_why_a_failed_run_prints_run_job_step_and_only_that_step_section(net, capsys):      # E-C2 main path
+    why_routes(net, jobs=[job(11)], logs={11: LOG})
+    assert ci_read.main(["why", "9"]) == 0
+    assert capsys.readouterr().out.splitlines() == (
+        ["run 9 failure canon x abcdef01", "job 11 pkg", "step 3 Run tests failure"] + SECTION + ["(4 of 4 lines)"])
+    assert [r.full_url for r in net.requests] == [BASE + "/actions/runs/9", BASE + "/actions/runs/9/jobs?per_page=100",
+                                                  BASE + "/actions/jobs/11/logs"]
+
+
+def test_why_finds_a_step_without_its_name_in_the_log_by_its_place_among_the_run_groups(net, capsys):
+    steps = [STEPS[0], {"number": 2, "name": "lint", "conclusion": "success"},
+             {"number": 3, "name": "tests", "conclusion": "failure"}, STEPS[3]]
+    why_routes(net, jobs=[job(11, steps=steps)], logs={11: LOG})
+    ci_read.main(["why", "9"])
+    assert capsys.readouterr().out.splitlines()[3:] == SECTION + ["(4 of 4 lines)"]
+
+
+def test_why_E_C2_1_green_prints_one_line(net, capsys):
+    why_routes(net, run=dict(RUN, conclusion="success"))
+    assert ci_read.main(["why", "9"]) == 0
+    assert capsys.readouterr().out == "run 9 success: nothing failed\n"
+    assert len(net.requests) == 1
+
+
+@pytest.mark.parametrize("status", ["in_progress", "queued"])
+def test_why_E_C2_2_an_unfinished_run_prints_its_status_and_exits_0(status, net, capsys):
+    why_routes(net, run=dict(RUN, status=status, conclusion=None))
+    assert ci_read.main(["why", "9"]) == 0
+    assert capsys.readouterr().out == "run 9 %s canon x abcdef01\n" % status
+    assert len(net.requests) == 1
+
+
+def test_why_E_C2_3_a_red_run_with_no_failed_job_says_so(net, capsys):
+    why_routes(net, run=dict(RUN, conclusion="cancelled"), jobs=[job(11, conclusion="cancelled"), job(12, conclusion="success")])
+    assert ci_read.main(["why", "9"]) == 0
+    assert capsys.readouterr().out.splitlines() == ["run 9 cancelled canon x abcdef01", "cancelled: no failed job"]
+    why_routes(net, jobs=[])
+    ci_read.main(["why", "9"])
+    assert capsys.readouterr().out.splitlines()[-1] == "failure: no failed job"
+
+
+@pytest.mark.parametrize("steps, log", [
+    (STEPS, "plain log\nno groups at all\n"),                         # no boundary of that name, no groups
+    ([], "plain log\nno groups at all\n"),                            # the job has no steps[]
+    (STEPS, "T ##[group]Run a\nl\nT ##[group]Run b\no\nT ##[group]Run c\n"),   # name absent, count of groups does not fit
+], ids=["no-groups", "no-steps", "count-mismatch"])
+def test_why_E_C2_4_a_missing_step_boundary_prints_the_job_log_tail_never_nothing(steps, log, net, capsys):
+    why_routes(net, jobs=[job(11, steps=steps)], logs={11: log})
+    assert ci_read.main(["why", "9"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert "step section not found: job log tail" in lines
+    assert lines[lines.index("step section not found: job log tail") + 1:-1] == [ln.replace("#", "?") for ln in log.splitlines()]
+    assert lines[-1] == "(%d of %d lines)" % (len(log.splitlines()), len(log.splitlines()))
+
+
+def test_why_the_tail_is_applied_to_the_section_and_counts_what_matched(net, capsys):
+    why_routes(net, jobs=[job(11)], logs={11: LOG})
+    ci_read.main(["why", "9", "--tail", "2"])
+    assert capsys.readouterr().out.splitlines()[3:] == SECTION[2:] + ["(2 of 4 lines)"]
+
+
+@pytest.mark.parametrize("tail, code", [("500", 0), ("1", 0), ("501", 2), ("0", 2), ("-1", 2)])
+def test_why_E_C2_5_tail_is_1_to_500_and_a_bad_one_is_refused_before_any_request(tail, code, net, capsys):
+    why_routes(net, jobs=[job(11)], logs={11: LOG})
+    assert ci_read.main(["why", "9", "--tail", tail]) == code
+    if code == 2:
+        assert net.requests == [] and "--tail must be 1..500" in capsys.readouterr().out
+    else:
+        assert net.requests
+
+
+@pytest.mark.parametrize("ref", ["abc", "0", "-5", "1.5", "99999999999999999999x"])
+def test_why_E_C2_6_a_run_id_that_is_not_a_positive_whole_number_is_argparses_refusal(ref, net):
+    with pytest.raises(SystemExit) as exc:
+        ci_read.main(["why", ref])
+    assert exc.value.code == 2 and net.requests == []
+
+
+def test_why_E_C2_7_more_than_three_failed_jobs_show_the_first_three_by_id(net, capsys):
+    jobs = [job(15, "e"), job(12, "b"), job(14, "d"), job(11, "a"), job(13, "c"), job(20, "ok", "success")]
+    why_routes(net, jobs=jobs, logs={i: LOG for i in (11, 12, 13, 14, 15)})
+    ci_read.main(["why", "9"])
+    out = capsys.readouterr().out.splitlines()
+    assert [ln for ln in out if ln.startswith("job ")] == ["job 11 a", "job 12 b", "job 13 c"]
+    assert out[-1] == "+2 more failed jobs"
+    exactly_three = [j for j in jobs if j["id"] in (11, 12, 13)]
+    why_routes(net, jobs=exactly_three, logs={i: LOG for i in (11, 12, 13)})
+    ci_read.main(["why", "9"])
+    assert "more failed jobs" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("code", [404, 410])
+def test_why_E_C2_8_an_expired_log_says_so_for_that_job_and_the_next_job_is_still_read(code, net, capsys):
+    why_routes(net, jobs=[job(11, "a"), job(12, "b")], logs={11: http_error(code), 12: LOG})
+    assert ci_read.main(["why", "9"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[1:3] == ["job 11 a", "log expired"] and out[3] == "job 12 b" and SECTION[1] in out
+
+
+def test_why_E_C2_API_errors_are_the_readers_one_shape(net, capsys):
+    net.error = http_error(403, "rate limit")
+    assert ci_read.main(["why", "9"]) == 1
+    assert capsys.readouterr().out == "HTTP 403: rate limit\n"
+    net.error = None
+    why_routes(net, jobs=[job(11)], logs={11: http_error(500, "boom")})
+    assert ci_read.main(["why", "9"]) == 1                                 # a log error other than 404/410 is not "expired"
+    assert capsys.readouterr().out.splitlines()[-1] == "HTTP 500: boom"
+    net.error = None
+    net.routes = [("/actions/runs/9", "[]")]
+    assert ci_read.main(["why", "9"]) == 1
+    assert "unexpected answer" in capsys.readouterr().out
+
+
+def test_why_latest_asks_for_the_newest_run_of_the_workflow_on_the_branch(net, capsys):
+    why_routes(net, jobs=[job(11)], logs={11: LOG})
+    assert ci_read.main(["why", "--workflow", "nightly.yml", "--branch", "feat/x y"]) == 0
+    assert net.requests[0].full_url == BASE + "/actions/workflows/nightly.yml/runs?per_page=1&branch=feat%2Fx%20y"
+    assert capsys.readouterr().out.splitlines()[0] == "run 9 failure canon x abcdef01"
+    ci_read.main(["why", "latest"])
+    assert net.requests[-3].full_url == BASE + "/actions/workflows/canon.yml/runs?per_page=1"
+
+
+def test_why_latest_with_no_runs_says_so_and_a_bad_workflow_is_refused_before_a_request(net, capsys):
+    why_routes(net, run=None)
+    assert ci_read.main(["why"]) == 0
+    assert capsys.readouterr().out == "(no runs)\n"
+    net.requests.clear()
+    assert ci_read.main(["why", "--workflow", "../x"]) == 2 and net.requests == []
+
+
+def test_why_remote_text_is_sanitized(net, capsys):
+    why_routes(net, run=dict(RUN, display_title="ошибка\x1b[0m"),
+               jobs=[job(11, "pкг")], logs={11: LOG})
+    ci_read.main(["why", "9"])
+    out = capsys.readouterr().out
+    assert out.splitlines()[0] == "run 9 failure ???????[0m abcdef01" and "job 11 p??" in out
+    assert all(ch.isascii() for ch in out)
 
 
 def test_constants():
