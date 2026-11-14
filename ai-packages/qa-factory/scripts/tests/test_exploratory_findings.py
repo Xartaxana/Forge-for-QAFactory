@@ -478,8 +478,54 @@ def key_m1_h(root):
     check("K-M1-h `person:<name>` is a person too", code == 0, err[:300])
 
 
+def critic_findings(task: Path) -> str:
+    """The S4 case critic's findings file, a file under the story folder (the evidence a register-gap line cites)."""
+    folder = task / "work" / "test-cases" / "TP1-TEST"
+    folder.mkdir(parents=True)
+    (folder / "critic-findings.md").write_text("R-2: the register states no boundary; the designer cannot close it\n", encoding="utf-8")
+    return "work/test-cases/TP1-TEST/critic-findings.md"
+
+
+def gap_line(evidence):
+    return {"op": "add", "kind": "coverage_gap", "title": "R-2 has no boundary", "statement": "the register of R-2 names no boundary value",
+            "why_not_a_bug": "the requirement is silent; nothing in the product contradicts it", "refs": ["R-2"],
+            "missing_prerequisite": "the owner's word on the boundary of R-2", "evidence_refs": evidence}
+
+
+def key_a3(root):
+    """A3 (F3): the S4 case critic records a register remainder it found in the one findings register, and the test report's
+    exploratory block reads it. X1 `s4-register-gap-line-accepted`, X2 `s4-register-gap-no-evidence-refused`."""
+    import report_facts
+    command = "exploratory_findings.py add"
+    task = story(root / "x1", "gate-a-open")
+    evidence = critic_findings(task)
+    check_eq("X1 no register yet: the report reads none", report_facts._exploratory(task, {}), None)
+    code, err, ident = guarded(command, lambda: EF.append(task, gap_line([{"path": evidence}]), by="S4-qa-case-critic-1"))
+    check_eq("X1 s4-register-gap-line-accepted: an id", (code, ident), (0, "EX-1"))
+    written = json.loads(file_bytes(task).decode("utf-8").splitlines()[0])
+    check_eq("X1 the window comes from code: gate A unanswered -> pre-gate-a; recorded_by is the critic",
+             (written["window"], written["recorded_by"], written["kind"]), ("pre-gate-a", "S4-qa-case-critic-1", "coverage_gap"))
+    unknown: dict = {}
+    got = report_facts._exploratory(task, unknown)
+    check_eq("X1 the report's reader counts ONE gap and no finding", (got["formal"]["gaps"], got["formal"]["findings"], unknown), (1, 0, {}))
+    task2 = story(root / "x2", "gate-a-open")
+    critic_findings(task2)
+    for label, refs in (("absent", None), ("empty", [])):
+        line = gap_line(refs)
+        if refs is None:
+            del line["evidence_refs"]
+        code, err, _ = guarded(command, lambda line=line: EF.append(task2, line, by="S4-qa-case-critic-1"))
+        refused(f"X2 s4-register-gap-no-evidence-refused ({label})", task2, code, err, "--evidence")
+    try:
+        EF.append(task2, gap_line([]), by="S4-qa-case-critic-1")
+        raised = ""
+    except ValueError as exc:
+        raised = str(exc)
+    check("X2 the writer raises ValueError naming --evidence", "--evidence" in raised, raised)
+
+
 def main():
-    for key in (key_m1_1, key_m1_2, key_m1_2b, key_m1_3, key_m1_4, key_m1_4b, key_m1_4c, key_m1_smoke, key_fix1, key_m3, key_m1_h):
+    for key in (key_m1_1, key_m1_2, key_m1_2b, key_m1_3, key_m1_4, key_m1_4b, key_m1_4c, key_m1_smoke, key_fix1, key_m3, key_m1_h, key_a3):
         root = temp_project()
         try:
             key(root)

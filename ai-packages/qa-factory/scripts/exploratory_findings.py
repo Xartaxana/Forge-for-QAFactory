@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import contract as C
 import hooklib
 import install_paths
-from role_cli import RefusingParser, run_guarded
+from role_cli import RefusingParser, epilog, run_guarded
 
 SCRIPT = "exploratory_findings.py"
 SUBCOMMANDS = ("add", "correct", "withdraw", "list", "check")
@@ -409,7 +409,8 @@ def _command(argv) -> str:
 
 
 def _parser(command: str) -> argparse.ArgumentParser:
-    parser = RefusingParser(command=command, prog=SCRIPT, description=__doc__.split("\n\n")[0])
+    parser = RefusingParser(command=command, prog=SCRIPT, description=__doc__.split("\n\n")[0], epilog=epilog(SCRIPT),
+                            formatter_class=argparse.RawDescriptionHelpFormatter)
     subs = parser.add_subparsers(dest="sub", required=True, parser_class=RefusingParser)
     for name in SUBCOMMANDS:
         sub = subs.add_parser(name, command=f"{SCRIPT} {name}", help=f"{name} a finding" if name in OPS else name)
