@@ -733,7 +733,7 @@ class DriverSources:
         # case, the same reading `stand_check` gives it.
         environment = pipeline.get("environment")
         if environment and pipeline.get("environment_pending"):
-            lines.append(f"The stand `{environment}` did not answer when I checked it; planning goes "
+            lines.append(f"The stand `{environment}` did not pass its check at the start; planning goes "
                          "on, I check it again before the tests run; name another stand here if you "
                          "want one.")
         elif not environment and self.config.get("environments"):
