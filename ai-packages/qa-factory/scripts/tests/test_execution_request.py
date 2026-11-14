@@ -2132,6 +2132,81 @@ def fv1_18_no_stop_one_note() -> None:
         shutil.rmtree(root, ignore_errors=True)
 
 
+def t1rs_sites_after_the_probe() -> None:
+    """told-before-work T1r-sites S-1a: the two `--mine` refusals that sit behind the stand probe (`selector_args`) and the window
+    check (`window_first`) cannot be provoked in test_detector_verdict.py's in-process table (`t1rs_sites`). Same assertions
+    as there: the message is the old text, the Record of the row is `args[0]`, and its `check` is the row id. WRITTEN, NOT RUN
+    on the builder's machine (this file is in slow_tests.json): "judged by the batch canon". Until a pipeline shows it green
+    the two ids count UNPROVED (the pages keep their rows, F-4)."""
+    import execution_request as er
+    import stage_joints as SJ
+    from harness import use_project
+    work = Path(tempfile.mkdtemp(prefix="qa-t1rs-")).resolve()
+    saved = os.environ.get("CLAUDE_PROJECT_DIR")
+    try:
+        (work / "tests").mkdir()
+        (work / "tests" / "test_a.py").write_text("def test_one():\n    pass\n\n\ndef test_two():\n    pass\n", encoding="utf-8")
+        (work / "tests" / "a.spec.ts").write_text("test('TC-002 adds one', async () => {});\n", encoding="utf-8")
+        (work / "qa-factory" / "state").mkdir(parents=True)
+        task = work / "qa-factory" / "artifacts" / "K-1"
+        task.mkdir(parents=True)
+        use_project(work)
+        spec = {"argv": [sys.executable, "probe.py"], "cwd": ".", "timeout_s": 30}
+
+        def profile(argv):
+            return {"profile_id": "web", "selected": True, "roots": {"test": "tests"},
+                    "commands": {"one_test": {"argv": argv, "cwd": "."}}, "reporter": {"kind": "junit-xml"},
+                    "selectors": {"verified": True}}
+        probe = lambda _spec: {"result": "matched", "environment_id": "qa"}  # noqa: E731
+
+        def put(name, value):
+            (task / name).parent.mkdir(parents=True, exist_ok=True)
+            (task / name).write_text(json.dumps(value), encoding="utf-8")
+        put("state/controller.json", {"schema_version": "2", "revision": "1", "source_revision": "s", "dispatches": {
+            "S5-qa-automator-1": {"id": "S5-qa-automator-1", "stage": "S5", "role": "qa-automator", "status": "running",
+                                  "scope": ["TC-001", "TC-002"], "budget": {"requests": 150}}}})
+        put("pipeline.json", {"stages": {"S5": {"status": "running"}}})
+        # selector_args: a profile that is not pytest, a runner the factory builds no selector for, a row with no `selector_args`
+        put("work/automation-manifest.json", {"tests": [{"case": "TC-002", "file": "tests/a.spec.ts", "instance_id": "TC-002 adds one",
+                                                        "selector": "tests/a.spec.ts::TC-002 adds one"}]})
+        cfg = {"profiles": [profile(["custom-runner", "<test-file>"])], "execution": {"runtime_probes": {"web": spec}}}
+        try:
+            er.build_mine_request(work, ["TC-002"], cfg=cfg, task="K-1", probe=probe)
+            refused = None
+        except er.MineRefusal as exc:
+            refused = exc
+        check("T1rs selector_args: the refusal is raised", refused is not None, "no refusal")
+        if refused is not None:
+            check_eq("T1rs selector_args: the Record of the row is the message", (str(refused), getattr(refused.args[0], "check", "")),
+                     (str(refused.args[0]), "execution_request:selector_args"))
+            check_in("T1rs selector_args: the old text", "selector by itself only for pytest node ids", str(refused))
+            check("T1rs selector_args: its row states a sentence", bool(SJ.told_text(SJ.row_for("execution_request:selector_args")[0])[0]))
+        # window_first: two tests of one case in one file, one `--node-id`, no run of the other in this window
+        put("work/automation-manifest.json", {"tests": [
+            {"case": "TC-001", "file": "tests/test_a.py", "instance_id": "test_one", "selector": "test_one"},
+            {"case": "TC-002", "file": "tests/test_a.py", "instance_id": "test_two", "selector": "test_two"}]})
+        cfg = {"profiles": [{**profile(["pytest", "<test-file>"]), "reporter": {"kind": "junit-xml"}}],
+               "execution": {"runtime_probes": {"web": spec}}}
+        try:
+            er.build_mine_request(work, ["TC-001"], cfg=cfg, task="K-1", probe=probe, node_ids=["tests/test_a.py::test_one"],
+                                  collect=lambda argv, cwd, files: ["tests/test_a.py::test_one", "tests/test_a.py::test_two"])
+            refused = None
+        except er.WindowFirst as exc:
+            refused = exc
+        check("T1rs window_first: the refusal is raised", refused is not None, "no WindowFirst")
+        if refused is not None:
+            check_eq("T1rs window_first: the Record of the row is the message and the payload is unchanged",
+                     (str(refused), getattr(refused.args[0], "check", ""), refused.payload.get("status")),
+                     (str(refused.args[0]), "execution_request:window_first", "run_the_window_first"))
+            check("T1rs window_first: its row states a sentence", bool(SJ.told_text(SJ.row_for("execution_request:window_first")[0])[0]))
+    finally:
+        if saved is None:
+            os.environ.pop("CLAUDE_PROJECT_DIR", None)
+        else:
+            os.environ["CLAUDE_PROJECT_DIR"] = saved
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def main() -> None:
     fv1_18_selector_contract()
     ep1_1_b371_instance_file_is_looked_for_in_the_run_directory_first()
@@ -2419,6 +2494,7 @@ def main() -> None:
         shutil.rmtree(ROOT, ignore_errors=True)
     ep1_37_selection_from_the_file()
     ep1_37_build_mine_request_role_wins()
+    t1rs_sites_after_the_probe()
     finish("test_execution_request")
 
 
