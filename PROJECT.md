@@ -366,6 +366,7 @@ Code, пакет `ai-packages/qa-factory/`). Проекты, которые фа
 Шаг отпечатка (D-0052 (3), узел CL1-8, 20.10.2026): после копирования каталога и сборки CHANGELOG в релизной копии — `python -B scripts/release_fingerprint.py --write` (пишет `references/release-fingerprint.json`, исключённый из собственного отпечатка), затем `git add -A .`, и `--check` ПОСЛЕДНИМ перед коммитом релизной копии (выход 2 — список причин в RUNBOOK §4). Сборщик `qa-collect` сравнивает отпечаток установки с файлом и пишет `package_modified: yes|no|unknown` в манифест.
 
 Проверенная версия уходит в `Xartaxana/QAFactory`: копия каталога `ai-packages/qa-factory/` в его `qa-factory/` с удалением исчезнувших файлов (клон — `release_repo_root`); `selftest.py --hygiene` и `install_smoke.py` гоняет его CI; затем PR (сливает владелец), тег `vX.Y.Z` и GitHub Release с выдержкой CHANGELOG. Публикация — только по слову владельца.
+Перед PR: `scoreboard.py release-check --release X.Y.Z` даёт 0 (закреплённое хуже — словом владельца); сухая стори зелёная.
 Запись CHANGELOG собирается из фрагментов: `python scripts/changelog_assemble.py --version X.Y.Z --date
 YYYY-MM-DD --title "…"` вставляет секцию и удаляет `changelog.d/*.md`; после сборки в `changelog.d/`
 остаётся только `README.md` — релизный коммит с фрагментами не делается.
