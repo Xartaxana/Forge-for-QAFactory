@@ -2366,16 +2366,38 @@ def text_file_problem(path) -> str:
     return "not_text"
 
 
-def _document_walk(base: str, ref: str, project, cfg: dict, live: list) -> dict:
-    """The files of the folder `base` (named `ref` from the project), sorted, links not followed, dot names skipped, as
-    `{"files": [(ref, size)], "text", "withheld", "long", "outside", "left": counts, "deep": folders not entered,
-    "stopped": bool}`. Each file passes the predicate `record-source` applies (`declared_place`, text, credential, length,
-    the person's exclusions); an OSError is the caller's."""
-    import posixpath
+def _listable(project, cfg: dict, ref: str, live: list) -> tuple:
+    """The ONE predicate "this path may be listed to a role" (AR-13, AR-15): `(normal_ref, "")` when `ref` is a regular file the
+    declared places hold that `record-source` would take, else `(normal_ref or None, why)` with `why` one of `outside` (no
+    declared root holds it, link included), `missing` (not a regular file), `text` (`text_file_problem`), `withheld` (a
+    credential-like name), `long` (over REQUIREMENT_SOURCE_LOCATOR_LIMIT), `left` (the person left it out). Reads the disk."""
     import runtime_paths
     import source_exclusions
     from config_contract import SECRET_QUERY_RE
-    found = {"files": [], "text": 0, "withheld": 0, "long": 0, "outside": 0, "left": 0, "deep": 0, "stopped": False}
+    normal, _why = runtime_paths.declared_place(project, cfg, ref)
+    if normal is None:
+        return None, "outside"
+    place = os.path.normpath(os.path.join(str(project), normal))
+    if not os.path.isfile(place):
+        return normal, "missing"
+    if text_file_problem(place):
+        return normal, "text"
+    if SECRET_QUERY_RE.search(normal):
+        return normal, "withheld"
+    if len(normal) > REQUIREMENT_SOURCE_LOCATOR_LIMIT:
+        return normal, "long"
+    if source_exclusions.first_ref_match(live, normal):
+        return normal, "left"
+    return normal, ""
+
+
+def _document_walk(base: str, ref: str, project, cfg: dict, live: list) -> dict:
+    """The files of the folder `base` (named `ref` from the project), sorted, links not followed, dot names skipped, as
+    `{"files": [(ref, size)], "text", "withheld", "long", "outside", "left": counts, "deep": folders not entered,
+    "linked": symlinked folders not entered, "stopped": bool}`. Each file passes `_listable` (the predicate `record-source`
+    applies: `declared_place`, text, credential, length, the person's exclusions); an OSError is the caller's."""
+    import posixpath
+    found = {"files": [], "text": 0, "withheld": 0, "long": 0, "outside": 0, "left": 0, "deep": 0, "linked": 0, "stopped": False}
     scanned = 0
 
     def walk(folder: str, prefix: str, level: int) -> bool:
@@ -2391,6 +2413,7 @@ def _document_walk(base: str, ref: str, project, cfg: dict, live: list) -> dict:
             entry = posixpath.normpath(prefix + "/" + name) if prefix != "." else name
             if os.path.isdir(path):
                 if os.path.islink(path):
+                    found["linked"] += 1      # a link is not followed; the cut is counted and said
                     continue
                 if level + 1 >= DOC_DEPTH:
                     found["deep"] += 1
@@ -2399,19 +2422,11 @@ def _document_walk(base: str, ref: str, project, cfg: dict, live: list) -> dict:
                 continue
             if not os.path.isfile(path):
                 continue
-            normal, _why = runtime_paths.declared_place(project, cfg, entry)
-            if normal is None:
-                found["outside"] += 1
-            elif text_file_problem(path):
-                found["text"] += 1
-            elif SECRET_QUERY_RE.search(normal):
-                found["withheld"] += 1
-            elif len(normal) > REQUIREMENT_SOURCE_LOCATOR_LIMIT:
-                found["long"] += 1
-            elif source_exclusions.first_ref_match(live, normal):
-                found["left"] += 1
-            else:
+            normal, why = _listable(project, cfg, entry, live)
+            if not why:
                 found["files"].append((normal, os.path.getsize(path)))
+            elif why in found:
+                found[why] += 1
         return False
 
     walk(base, ref, 0)
@@ -2461,7 +2476,7 @@ def document_place_lines(cfg: dict, task_root) -> list:
             lines.append(f"{name}: {locator} is outside the project's repositories: not listed")
             continue
         place = os.path.normpath(os.path.join(str(project), normal))
-        if any(runtime_paths.contained(place, root) and runtime_paths.contained(root, place) for root in roots):
+        if any(runtime_paths._same_place(place, root) for root in roots):
             continue      # a whole repository: today's grep line stands for it
         if os.path.isfile(place):
             continue      # one file: the grep line covers it
@@ -2492,6 +2507,8 @@ def document_place_lines(cfg: dict, task_root) -> list:
             notes.append(f"- {found['left']} file(s) left out by the person's word")
         if found["deep"]:
             notes.append(f"- {found['deep']} folder(s) deeper than {DOC_DEPTH} levels not walked under {locator}: list them yourself")
+        if found["linked"]:
+            notes.append(f"- {found['linked']} linked folder(s) not walked under {locator}: list them yourself")
         if found["stopped"]:
             notes.append(f"- the walk stopped after {DOC_ENTRIES_SCANNED} entries under {locator}: list the rest yourself")
         if shown:
@@ -2509,19 +2526,17 @@ def linked_documents(project, cfg: dict, text_ref: str, text: str, task_root) ->
     """The documents the recorded `text` (held at `text_ref`) links on disk (FV1-23 A-3): `{"paths": [normal refs, at most
     DOC_FILES_LIMIT], "sizes": {ref: bytes}, "more": the kept paths beyond them, "recorded": the kept paths already a `read`
     source (counted, not listed), "checked_all": False when the text held more than LINK_CANDIDATES_LIMIT names, "rows": the
-    `ticket-references.json` rows to merge (the listed paths as not read, the recorded ones as `fetched`)}`. Reads the disk,
+    `ticket-references.json` rows to merge (EVERY kept path as not read, listed or not, the recorded ones as `fetched`)}`. Reads the disk,
     writes nothing; data only - which linked document matters is the scout's judgment.
 
     Nothing (the empty dict) unless `text_ref` resolves to an existing REGULAR file inside a declared root (no key or word test:
     a ticket key, a URL and a task-relative `work/raw/...` ref list nothing). Each of the first LINK_CANDIDATES_LIMIT names
     (`ticket_light.path_candidates`) is resolved against the folder of `text_ref`; a rooted one against the INNERMOST declared
-    root holding `text_ref`. Kept iff `declared_place` accepts it, it is an existing regular file other than `text_ref`,
-    `text_file_problem` is "", its name holds no credential and the person did not leave it out (an unreadable record of the
-    exclusions lists nothing). A link the code fails to see is the allowed error; a path outside the roots is never kept."""
+    root holding `text_ref`. Kept iff `_listable` accepts it (the one predicate of the folder walk) and it is not `text_ref`
+    (an unreadable record of the exclusions lists nothing). A link the code fails to see is the allowed error; a path outside the roots is never kept."""
     import posixpath
     import runtime_paths
     import source_exclusions
-    from config_contract import SECRET_QUERY_RE
     nothing = {"paths": [], "sizes": {}, "more": 0, "recorded": 0, "checked_all": True, "rows": []}
     if project is None or not isinstance(text, str):
         return nothing
@@ -2553,18 +2568,14 @@ def linked_documents(project, cfg: dict, text_ref: str, text: str, task_root) ->
                 continue
         else:
             ref = posixpath.join(folder, slashed) if folder else slashed
-        normal, _why = runtime_paths.declared_place(project, cfg, ref)
-        if normal is None or normal == base or normal in kept:
-            continue
-        place = os.path.normpath(os.path.join(str(project), normal))
-        if (os.path.isfile(place) and not text_file_problem(place) and not SECRET_QUERY_RE.search(normal)
-                and not source_exclusions.first_ref_match(live, normal)):
+        normal, why = _listable(project, cfg, ref, live)
+        if not why and normal != base and normal not in kept:
             kept.append(normal)
     unread = [ref for ref in kept if ref not in recorded_refs]
     fetched = [ref for ref in kept if ref in recorded_refs]
     paths = unread[:DOC_FILES_LIMIT]
     origin = f"mention:document:{text_ref}"
-    rows = ([{"ref": ref, "kind": LINKED_DOCUMENT_KIND, "origins": [origin], "status": LINKED_DOCUMENT_STATUS} for ref in paths]
+    rows = ([{"ref": ref, "kind": LINKED_DOCUMENT_KIND, "origins": [origin], "status": LINKED_DOCUMENT_STATUS} for ref in unread]
             + [{"ref": ref, "kind": LINKED_DOCUMENT_KIND, "origins": [origin], "status": "fetched"} for ref in fetched])
     return {"paths": paths, "sizes": {ref: os.path.getsize(os.path.join(str(project), ref)) for ref in paths},
             "more": len(unread) - len(paths), "recorded": len(fetched), "checked_all": len(candidates) <= LINK_CANDIDATES_LIMIT,

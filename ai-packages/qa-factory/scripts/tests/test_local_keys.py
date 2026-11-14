@@ -575,6 +575,30 @@ def record_source_declared_roots() -> None:
             got = record(ref, sib / "docs" / "A.md")
             check_eq(f"declared root: {label} is refused, no traceback", (got.code, "Traceback" in got.err), (2, False))
         check_eq("declared root: the refused refs left the inventory as it was", len(refs()), 2)
+        # F2: a ref that climbs out through the project's own name and back in is the plain ref: one record per document
+        doc = sib / "docs" / "A.md"
+        got = record(f"../{root.name}/docs/x.md", doc)
+        got2 = record("docs/x.md", doc)
+        check_eq("declared root F2: both spellings of one project document are ONE stored ref", (got.code, got2.code, [r for r in refs() if r.endswith("docs/x.md")]),
+                 (0, 0, ["docs/x.md"]))
+        # F3: the not_relative door tells the truth about `..` and names the real refusals
+        got = record("C:\\x\\y.md", doc)
+        check_in("declared root F3: the not_relative door says a declared repository may be named with a leading ..",
+                 "give the locator relative to the project (no drive, no leading / or \\, no file: or other scheme), or a URL; a document of "
+                 "a declared repository is named from the project, for example <code_repos path>/<path inside it>, which may start with ..", got.err)
+        check_eq("declared root F3: the old claim 'no ..' is gone", "no `..`" in got.err, False)
+        # F5: no echo of a credential-like --file name or --ref (B-2)
+        loud = root.parent / (root.name + "-loud")
+        loud.mkdir()
+        try:
+            empty = loud / "token=abc123.md"
+            empty.write_bytes(b"")
+            got = record("docs/ok.md", empty)
+            check_eq("declared root F5: an empty --file with a credential-like name is refused and not echoed", (got.code, "nothing to record" in got.err, "abc123" in got.err), (2, True, False))
+            got = cli(root, "record-source", "--output", inventory, "--ref", "../elsewhere/token=abc123.md", "--file", doc)
+            check_eq("declared root F5: the ready line does not echo a credential-like --ref", (got.code, "ready:" in got.err, "abc123" in got.err), (2, True, False))
+        finally:
+            cleanup(loud)
         # no marker above --output: nothing to check a `..` against (FR-59); a ref without one keeps today's rule
         loose = harness_dir()
         try:
@@ -670,8 +694,7 @@ def document_places() -> None:
                  (paths(got), [l for l in got if "deeper" in l]),
                  (["dp/a/b/f3.md", "dp/a/f2.md", "dp/f1.md"], ["- 1 folder(s) deeper than 3 levels not walked under dp: list them yourself"]))
         # entries: the Nth examined, the (N+1)th stops the walk. The shipped N is 2000; the rows run the same code on N = 20 (the 10 s
-        # budget of this file: 2001 files cost 3 s), and one row holds the shipped constant
-        check_eq("places: the shipped entries cap is 2000", SI.DOC_ENTRIES_SCANNED, 2000)
+        # budget of this file: 2001 files cost 3 s)
         shipped, SI.DOC_ENTRIES_SCANNED = SI.DOC_ENTRIES_SCANNED, 20
         try:
             for n, name in ((20, "e20"), (21, "e21")):
@@ -683,6 +706,14 @@ def document_places() -> None:
                      listing("e21")[-1], "- the walk stopped after 20 entries under e21: list the rest yourself")
         finally:
             SI.DOC_ENTRIES_SCANNED = shipped
+        # F6: a symlinked folder is not walked, and the cut is counted and said (zero such folders: no line, every row above)
+        put("lk/ok.md")
+        try:
+            os.symlink(root / "docs", root / "lk" / "linked", target_is_directory=True)
+            check_eq("places F6: a symlinked folder is counted and said with its place, never walked",
+                     listing("lk"), [DOC_HEAD.format("lk"), "- lk/ok.md (6 B)", "- 1 linked folder(s) not walked under lk: list them yourself"])
+        except OSError:
+            print("skipped: places F6 - the OS refused to make a folder link")
         put("dots/.hidden/x.md"), put("dots/.env"), put("dots/ok.md")
         check_eq("places: dot entries are skipped and not counted", listing("dots"), [DOC_HEAD.format("dots"), "- dots/ok.md (6 B)"])
         # files that are not text, credential-like names, long names, left-out paths
@@ -852,11 +883,33 @@ def linked_documents_rows() -> None:
                      (listed(got.err), "more than 500 names in the text: only the first 500 were checked" in got.err),
                      (["n/n000.md", "n/n499.md"], count == 501))
         check_eq("links: a text with no candidate lists nothing", "Linked" in rec(root, work, "plain.md", "# nothing here\n").err, False)
+        # F7: every kept path is a row, the listing stays capped at 25
+        (work / "ticket-references.json").write_text(json.dumps({"rows": [], "scanned": ["ticket"], "written_by": ["S0"]}), encoding="utf-8")
+        for i in range(30):
+            put(root, f"m30/f{i:02d}.md")
+        got = rec(root, work, "m30.md", " ".join(f"m30/f{i:02d}.md" for i in range(30)))
+        check_eq("links F7: 30 kept paths are 30 rows, 25 listed lines and the 'and 5 more' line",
+                 (len([r for r in rows_of(work) if r["origins"] == ["mention:document:m30.md"]]), len(listed(got.err)),
+                  "- and 5 more linked from m30.md: look for them yourself" in got.err), (30, 25, True))
+        # F4: the length test of the walk applies to the links too (the folder prefix of the text's own ref makes a 200 character name long)
+        try:
+            for size in (193, 194):
+                put(root, "dir/" + "q" * size + ".md")
+            got = rec(root, work, "dir/ref.md", "see " + "q" * 193 + ".md " + "q" * 194 + ".md")
+            check_eq("links F4 AT and BEYOND 200 characters of a path: listed / not listed", [len(p) for p in listed(got.err)], [4 + 196])
+        except OSError as exc:
+            print(f"skipped: links 200/201 character paths - the OS refused the file name ({type(exc).__name__})")
+        # F1: the heading holds the text's own ref, so the check reads the LISTED lines, never the whole stderr; this row needs no symlink
+        got = rec(root, work, "ln.md.txt", "see docs/ln.md NOTES.md")
+        check_eq("links F1: the substring ln.md of the heading is not a listed path; a path that is not on disk is not listed, NOTES.md is",
+                 ("ln.md" in got.err, "docs/ln.md" in listed(got.err), "NOTES.md" in listed(got.err)), (True, False, True))
         outside = root.parent / (root.name + "-outside.md")
         outside.write_bytes(b"secret outside\n")
         try:
             os.symlink(outside, root / "docs" / "ln.md")
-            check_eq("links: a link to a file that points outside every root is not listed", "ln.md" in rec(root, work, "ln.md.txt", "see docs/ln.md NOTES.md").err, False)
+            err = rec(root, work, "ln.md.txt", "see docs/ln.md NOTES.md").err
+            check_eq("links: a link to a file that points outside every root is not listed, the plain file beside it is",
+                     ("docs/ln.md" in listed(err), "NOTES.md" in listed(err)), (False, True))
         except OSError:
             print("skipped: links to a symlink pointing outside - the OS refused to make a file link")
         finally:

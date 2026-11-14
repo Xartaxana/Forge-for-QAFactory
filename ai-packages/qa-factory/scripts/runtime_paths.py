@@ -529,8 +529,9 @@ def declared_place(project, cfg, ref) -> tuple:
     The syntax is read the same on every OS (B-1): a drive, a root, a UNC share, `file:`, a scheme, a NUL, a blank or a
     non-text ref is `not_relative` whichever dialect names it (`PureWindowsPath` and `PurePosixPath` both), then every `\\` is
     a separator and the ref is normalised with `posixpath` semantics BEFORE it meets the project, so one table row gives one
-    answer on Windows and on Linux. `normal_ref` is that form: posix, `./` dropped, `..` collapsed lexically; a ref into a
-    sibling checkout keeps its leading `..` (`../repo/sub/a.md`).
+    answer on Windows and on Linux. `normal_ref` is the place relative to the project: posix, `./` dropped, `..` collapsed
+    (a ref that climbs out through the project's own name and back in is the plain ref); a ref into a sibling checkout keeps
+    its leading `..` (`../repo/sub/a.md`).
 
     With no `project` (no marker above the caller) nothing can be checked against the declared repositories: a ref with a
     `..` part is `no_project` (FR-59: not a pass), a ref without one is returned in its normal form (the old lexical rule).
@@ -550,7 +551,13 @@ def declared_place(project, cfg, ref) -> tuple:
     if project is None:
         return (None, DECLARED_NO_PROJECT) if ".." in slashed.split("/") else (normal, "")
     place = os.path.normpath(os.path.join(str(project), normal))
-    return (normal, "") if any(contained(place, root) for root in declared_roots(project, cfg)) else (None, DECLARED_OUTSIDE)
+    if not any(contained(place, root) for root in declared_roots(project, cfg)):
+        return None, DECLARED_OUTSIDE
+    try:      # the place relative to the project: `../proj/docs/x.md` and `docs/x.md` are ONE record
+        normal = os.path.relpath(place, str(project)).replace(os.sep, "/")
+    except ValueError:
+        pass
+    return normal, ""
 
 
 def declared_roots(project, cfg) -> list:

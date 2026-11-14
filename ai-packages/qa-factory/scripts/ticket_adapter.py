@@ -1993,13 +1993,15 @@ def _ready_line(command, args, form) -> str:
     value: a ticket from `peek` is a mention, not the story, so the inventory path is never built from its key (FR-59,
     SC1-7 E2). A switch (`--json`) is printed when the call set it. Run 12586: 'usage:' alone cost the scout a `--help`
     read and a retry per command."""
+    from config_contract import SECRET_QUERY_RE
     parts = ["ready: ticket_adapter.py", command]
     for flag, dest, placeholder in form:
         value = getattr(args, dest, None)
         if value is True:
             parts.append(flag)
         elif value:
-            parts += ([flag] if flag else []) + [f'"{value}"' if any(c.isspace() for c in str(value)) else str(value)]
+            shown = SECRET_QUERY_RE.sub(r"\1=<hidden>", str(value))      # B-2: a credential-like value is never echoed
+            parts += ([flag] if flag else []) + [f'"{shown}"' if any(c.isspace() for c in shown) else shown]
         elif placeholder:
             parts += ([flag] if flag else []) + [placeholder]
     return " ".join(parts)
@@ -2213,8 +2215,9 @@ def _record_source(args, emit=None) -> int:
         config = RP._config_of(project) if project is not None else None
         normal, why = RP.declared_place(project, config, ref)
         if normal is None:
-            door = {RP.DECLARED_NOT_RELATIVE: "give the locator relative to the project (a path with no drive and no `..`), or a URL; "
-                    "a document of a declared repository is named from the project, for example `<code_repos path>/<path inside it>`",
+            door = {RP.DECLARED_NOT_RELATIVE: "give the locator relative to the project (no drive, no leading / or \\, no file: or other "
+                    "scheme), or a URL; a document of a declared repository is named from the project, for example "
+                    "<code_repos path>/<path inside it>, which may start with ..",
                     RP.DECLARED_OUTSIDE: f"give the locator relative to the project: `{' '.join(ref.split())[:200]}` resolves outside the "
                     "project and every declared repository (code_repos); name a file inside one of them, or save the text under work/raw/ "
                     "and record that path",
@@ -2243,12 +2246,13 @@ def _record_source(args, emit=None) -> int:
             [left_out], left_out.get("id")) or "no reason given"), file=sys.stderr)
         return EXIT_USAGE
     path = Path(args.file)
+    shown_file = SECRET_QUERY_RE.sub(r"\1=<hidden>", str(args.file))      # B-2: a credential-like file name is never echoed
     try:
         data = path.read_bytes() if path.is_file() else b""
     except OSError:
         data = b""
     if not data.strip():
-        print(f"ticket_adapter: {args.file}: nothing to record: expected the text you read, saved as a UTF-8 file",
+        print(f"ticket_adapter: {shown_file}: nothing to record: expected the text you read, saved as a UTF-8 file",
               file=sys.stderr)
         return EXIT_USAGE
     try:
@@ -2257,7 +2261,7 @@ def _record_source(args, emit=None) -> int:
             raise ValueError("NUL byte")
     except ValueError:
         try:
-            fail(EXIT_NOT_CONFIGURED, f"{args.file} is not text: record the gap in your manifest with the reason", owner="config")
+            fail(EXIT_NOT_CONFIGURED, f"{shown_file} is not text: record the gap in your manifest with the reason", owner="config")
         except SystemExit as exc:
             return refuse_exit(exc, emit)
     try:
