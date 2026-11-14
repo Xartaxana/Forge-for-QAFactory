@@ -476,6 +476,53 @@ measured.
   mechanism's node table (T5/T5b) in the same move as S-1's dispatch; the piles status of T5/T5b is checked by the Lead before it.
 - Before any builder: a plan critic (new transport key in refusal JSON, ~120 relabelled sites, FR-38 direction).
 
+## §6b BINDING amendments after the plan critic (t-739, `reviews/20261114-tbw-t1r-sites-plan-critic.md`; Lead, 14.11.2026, owner away — by recommendation)
+
+These override §4-§6a where they differ. Line numbers in the verdict are anchors by function name and quoted text.
+
+1. **B1 → (a).** Every printer that hands a relabelled ER/RS refusal to a role session carries the same `told` projection built by
+   `detector_verdict.told_fields`: `run_suite.py` (S12 list plus `invalid_schedule` and the `store.begin` `invalid_request` inside
+   the launch path), `red_sandbox.py` (the refusal notes of `_run_mine`'s callers at the probe and diagnostic branches; the
+   in-process `ER.fresh_evidence` handler), `probe_by_code.py` (the handler of `MineRefusal`/`RequestError` from
+   `build_mine_request`), `import_test_receipt.py` (the handler of `validate_request`'s `RequestError`),
+   `execution_scheduler.py` (`_group_row`'s `run_refused` branch). No third parser of the JSON line: reuse the existing readers.
+   §1, E8, S13 no longer call `red_sandbox.py` / `execution_scheduler.py` "readers, untouched": they are printers to a role (AR-18).
+2. **Proof per road.** `T1rs/told/<id>` gains a column `road` ∈ `run_suite`, `red_sandbox`, `probe_by_code`, `import_test_receipt`,
+   `schedule`. S-2 sets the call marker on a producer entry for role R only when the row is proved on EVERY road R uses; the road
+   list per role is a data constant in the test, read from the tool lines of `agents/qa-*.md`. An unproved road splits the producer
+   entry and keeps the page for that role. §6a F-1 stands with this premise; S-2's measure decides whether code-critic closes.
+3. **B2 → one reading for all nodes: no SLOW_TESTS file is run locally** (PROJECT.md, package change p. 2). The site rows are an
+   in-process table in the fast keep file `test_detector_verdict.py` (calling `validate_request`, `build_mine_request`, `JobStore.*`
+   and the road handlers directly). A row that cannot be provoked there is written into `test_execution_request.py`, NOT run, named
+   in the report "judged by the batch canon", and counts UNPROVED (page kept, F-4) until a pipeline shows it green.
+   `test_stage_joints.py` is not run locally by S-2 either; S-2's own rows are data joints in `test_contract_slices.py`.
+4. **B3.** A site inside a helper with more than one caller gets NO literal id; the id goes on each caller. `JobStore.read`'s
+   corrupt-file raise stays a bare string: `recover` wraps it as `run_suite:recover`; `begin` (both reads) and `run_suite.main`'s
+   existing-key lookup wrap it as `run_suite:begin`; `last_run_of` leaves it bare (E6).
+5. **Cut.** S-1 becomes **S-1a** (`execution_request.py`: P-2 `records`, P-3 import, P-4 sites of that file, B3; rows asserting the
+   raised exception's `records` / `args[0]` carry the id and `stage_joints.told_text(row)[0]`) then **S-1b**
+   (`detector_verdict.told_fields`, `run_suite.py` sites and printers, the road printers of item 1, road rows), sequential, both on
+   `wip/tbw-t1r`. S-2 after both.
+6. **E-unknown-id.** No `execution_request:` / `run_suite:` literal outside the 31 row ids (P-7 grep, both directions).
+7. **E-unmapped.** P-7 enumerates every `raise RequestError|MineRefusal|WindowFirst|_sandbox_refusal` and every `errors.append(` in
+   `execution_request.py`, and every `raise` and JSON refusal print in `run_suite.py`, each with its id or its E6 reason;
+   `run_suite.py` "runtime probe does not match requested profile/source/runtime" is `execution_request:stand`.
+8. **E6 classification (F-8, PN-2).** The S-1a/S-1b reports class each bare E6 site: (code) a caller's misuse no role can meet, or
+   (role) a requirement a role can meet → proposed row queued to T1r-cards with a pointer.
+9. **Tests (TESTING.md).** `error-bytes` and `one-json-line` fold into the `T1rs/told/<id>` row (one row asserts `error` unchanged,
+   one `{` line, the `told` entry); `T1rs/told-fields/*` and `T1rs/no-launch/*` are dropped; `T1rs/unreadable-row` is one row of the
+   same table; `T1rs/listed-zero-sited` only if no `t1rp` row covers "marker on unsited row → red"; the `marked-iff-tested` list is
+   regenerated from the S-1 reports, never hand-typed.
+10. **F-3 cost column / S14 corrected:** `no_test` (post-collect branch), `selector_args`, `sandbox` (clone file), `window_first`
+    refuse after the stand probe and the collect (about 2 min; nothing written, nothing launched); `run_suite:begin`'s race sites
+    refuse inside the stand lease (released on exit).
+11. **Index wording per road (S-2 P-2):** "{n} checks of your test-run calls (`run_suite.py`, `red_sandbox.py`, `probe_by_code.py`)
+    are told in the refusal of the call, with what they expect and the door; a refused call launches no test. Write a request file
+    from `run_suite.py --template request`, never from memory." Bytes counted against the margin.
+12. **Mechanism text (Lead, at S-1b acceptance):** the mechanism spec's decision "Text" and row B2 gain the fourth transport — the
+    `told` key of JSON refusals; `error` stays byte-identical.
+13. Queue (Lead): PN-1 road-aware `call_told` only on recurrence; PN-3 live-runs count per ER/RS id, `window_first` first.
+
 ## §6.1 Small choices closed by the designer
 
 - C-1 Test prefix `T1rs/`; report `20261114-t1r-sites-report.md`; changelog `tbw-t1r-sites.md`.
