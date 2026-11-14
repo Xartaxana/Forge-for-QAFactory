@@ -596,6 +596,21 @@ def _cookies_into(jar: dict, headers) -> None:
 
 
 def _form_login(access: dict, values: dict, base_url: str, timeout: float) -> dict:
+    """The receipt of the sign-in FORM road: `form_session`'s first half (the one implementation)."""
+    return form_session(access, values, base_url, timeout)[0]
+
+
+def form_session(access: dict, values: dict, base_url: str, timeout: float) -> tuple:
+    """(receipt, cookie_header | None) of the sign-in FORM road (FV1-17b: the one implementation; `_form_login` returns its
+    receipt). The cookie header (`n1=v1; n2=v2`, the value of a `Cookie` request header) is returned ONLY when the receipt
+    answer is `in`; any other receipt gives None and nothing more is sent. The header is a secret: it is never put in the
+    receipt, a why or a file - the caller sends it and keeps it in memory only."""
+    out: dict = {"cookie": None}
+    receipt = _form_run(access, values, base_url, timeout, out)
+    return receipt, (out["cookie"] if receipt.get("answer") == "in" else None)
+
+
+def _form_run(access: dict, values: dict, base_url: str, timeout: float, out: dict) -> dict:
     """The sign-in FORM road (FV1-17a): a csrf step, ONE submit, a session step - the shape of a row of
     references/login-roads.json (the framework's name lives there, never here). At most three requests; the submit is
     never repeated (a lockout), and nothing is submitted when the first step does not hand out its token. The proof is
@@ -720,6 +735,7 @@ def _form_login(access: dict, values: dict, base_url: str, timeout: float) -> di
         except ValueError:
             proof = None
         if (isinstance(proof, dict) and proof) or (isinstance(proof, str) and proof.strip()):
+            out["cookie"] = cookie_header().get("Cookie")
             return done("ok", "in", f"form sign-in at {_safe(url2)}, then GET {_safe(url3)} -> HTTP {third.status} with a session",
                         third.status)
     return failed_step("GET", url3, third,", but it shows no session after the sign-in")
