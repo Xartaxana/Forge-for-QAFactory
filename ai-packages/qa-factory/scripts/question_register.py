@@ -2306,9 +2306,28 @@ def _story_case_ids(root: Path) -> list:
     return list(dict.fromkeys(ids))
 
 
+def _checked_stage(value: str):
+    """(stage, problem) for a `--stage` value: "" for a blank one (never refused), the stripped id when `stages.json` names it
+    (read through `acceptance.stage_def_of`, no case folding), else "" and what is wrong with it, what was expected and the ids."""
+    stage = (value or "").strip()
+    if not stage:
+        return "", ""
+    import acceptance
+    import null_outcomes
+    if acceptance.stage_def_of(stage):
+        return stage, ""
+    shown = repr(stage if len(stage) <= 80 else stage[:80] + "...")
+    ids = sorted(null_outcomes.stage_ids(), key=lambda i: (int(re.sub(r"\D", "", i) or 0), i))
+    if not ids:
+        return "", (f"--stage {shown} cannot be checked: the stage table could not be read (references/stages.json). "
+                    "Expected a stage id; leave --stage out to record none")
+    return "", f"--stage {shown} is not a stage of the factory. Valid: " + ", ".join(ids) + " (or leave --stage out)"
+
+
 def _main_fv19(root: Path, ns, operation: str) -> int:
     """The three FV1-9 operations of the CLI (the conductor's door; a role reaches the same writers through its form):
-    `--repeat QID --same-as QID`, `--reword QID --question-file`, `--note QID`. The role is `conductor`; the stage is not known."""
+    `--repeat QID --same-as QID`, `--reword QID --question-file`, `--note QID`. The role is `conductor`; the stage is the
+    conductor's `--stage` (a stage id of stages.json; blank records "", as an older hand-over did), `--note` has none."""
     flag = f"--{operation}"
     stray = [name for name, value in (("--reading", ns.reading), ("--register-hash", ns.register_hash),
                                       ("--case-ids-file", ns.case_ids_file), ("--case-file", ns.case_file), ("--then", ns.then),
@@ -2317,6 +2336,11 @@ def _main_fv19(root: Path, ns, operation: str) -> int:
                                       ("--words-file", ns.words_file if operation == "reword" else "")) if value]
     vocab = vocabulary()
     problems = [f"{name} has no meaning with {flag}; drop it" for name in stray]
+    stage = ""
+    if operation != "note":                      # `main`'s guard already refused a `--stage` with `--note`
+        stage, why = _checked_stage(ns.stage)
+        if why:
+            problems.append(why)
     for value, key, name, what in ((ns.where, "where", "--where", "where it was written"), (ns.by, "by", "--by", "who wrote it")):
         if not value:
             problems.append(f"{name} is missing: say {what} (there is no default). Valid: " + ", ".join(vocab[key]))
@@ -2353,10 +2377,10 @@ def _main_fv19(root: Path, ns, operation: str) -> int:
     target = ns.repeat or ns.reword or ns.note
     try:
         if operation == "repeat":
-            rec = declare_repeat(root, target, ns.same_as, words, by=ns.by, declared_by="conductor", stage="")
+            rec = declare_repeat(root, target, ns.same_as, words, by=ns.by, declared_by="conductor", stage=stage)
             print(json.dumps({"recorded": rec}, ensure_ascii=False, indent=2))
         elif operation == "reword":
-            row = reword(root, target, spec, role="conductor", by=ns.by, stage="")
+            row = reword(root, target, spec, role="conductor", by=ns.by, stage=stage)
             print(json.dumps({"reworded": row}, ensure_ascii=False, indent=2))
         else:
             rec = record_note(root, target, words, by=ns.by, where=ns.where)
@@ -2403,7 +2427,8 @@ def main(argv=None) -> int:
     ap.add_argument("--question-file", dest="question_file", default="", metavar="PATH",
                     help="a UTF-8 JSON file {question, source_says, severity, owner_role, before: {value, where}, "
                          "now: {value, where}} (with --raise)")
-    ap.add_argument("--stage", default="", help="with --raise --from-handoff: the stage (S1-S4) of the role that asked")
+    ap.add_argument("--stage", default="", help="with --raise --from-handoff, --repeat or --reword: the stage (a stage id of "
+                                                "references/stages.json, e.g. S3) the question was asked at; blank = not recorded")
     ap.add_argument("--asked-by", dest="asked_by", default="", metavar="ROLE", help="with --raise --from-handoff: the role that asked")
     ap.add_argument("--from-handoff", dest="from_handoff", default="", metavar="PATH",
                     help="with --raise: raise every `questions[]` entry of this role's form work/handoffs/<dispatch>.yaml "
@@ -2436,20 +2461,27 @@ def main(argv=None) -> int:
     except ValueError as exc:
         return _refuse(f"- {exc}")
     is_case = chosen[0] in ("keep-manual", "automate")
-    if (ns.stage or ns.asked_by or ns.from_handoff) and not ns.raise_question:
-        return _refuse("- --stage, --asked-by and --from-handoff go with --raise only")
+    guard = ([] if ns.raise_question or not (ns.asked_by or ns.from_handoff)
+             else ["--asked-by and --from-handoff go with --raise only"])
+    if ns.stage and not (ns.raise_question or chosen[0] in ("repeat", "reword")):
+        guard.append("--stage goes with --raise --from-handoff, --repeat or --reword only")
+    if guard:
+        return _refuse("\n".join(f"- {line}" for line in guard))
     if ns.raise_question and ns.from_handoff:
         stray = [flag for flag, value in (("--words", ns.words), ("--words-file", ns.words_file), ("--reading", ns.reading),
                                           ("--where", ns.where), ("--by", ns.by), ("--register-hash", ns.register_hash),
                                           ("--case-ids-file", ns.case_ids_file), ("--case-file", ns.case_file), ("--then", ns.then),
                                           ("--question-file", ns.question_file)) if value]
-        missing = [flag for flag, value in (("--stage", ns.stage), ("--asked-by", ns.asked_by)) if not value]
+        missing = [flag for flag, value in (("--stage", ns.stage.strip()), ("--asked-by", ns.asked_by)) if not value]
         if stray or missing:
             return _refuse((f"- --raise --from-handoff needs {', '.join(missing)}" if missing else "")
                            + ("\n" if stray and missing else "")
                            + (f"- {', '.join(stray)} has no meaning with --raise --from-handoff; drop it" if stray else ""))
+        stage, why = _checked_stage(ns.stage)
+        if why:
+            return _refuse(f"- {why}")
         try:
-            result = raise_from_handoff(root, ns.from_handoff, stage=ns.stage, asked_by=ns.asked_by)
+            result = raise_from_handoff(root, ns.from_handoff, stage=stage, asked_by=ns.asked_by)
         except Refused as exc:
             return _refuse(str(exc))
         print(json.dumps(result, ensure_ascii=False, indent=2))

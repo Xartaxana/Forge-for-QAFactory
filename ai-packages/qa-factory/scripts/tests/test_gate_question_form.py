@@ -1438,6 +1438,41 @@ def test_fv19_card_old_row_without_keys() -> None:
         check_eq(f"fv19 temporal: a malformed value {odd} is no line and no crash", gate_brief.question_card(dict(row, **odd), 1), lines)
 
 
+def test_fv19_handover_names_the_doors() -> None:
+    """FV1-9 tail card C (P2): the hand-over of a person's words names the answer, reword, repeat and show doors with `--task` (and
+    `--stage` on the two that record it), the script by its full path, every instruction before `## The question`; no register read
+    (`recorded=None`) names none of them (control)."""
+    import story_run
+    scripts = Path("C:/factory/scripts")
+    script = f"python {scripts / 'question_register.py'}"
+    recorded = {"recorded": ["Q1"], "deferred": [], "unread": [], "unknown_ids": []}
+    for kind, stage in (("questions", "S3"), ("halt", "S4"), ("questions", "S2")):
+        seen = []
+        driver = story_run.Driver.__new__(story_run.Driver)
+        driver.task, driver.scripts, driver.task_root, driver.state_dir = "T-1", scripts, Path("."), Path(".")
+        driver.unread = lambda k, s, d, text, words=None, seen=seen: seen.append(text)
+        driver.apply_question_answers = lambda s: {"plan_lines": []}
+        driver.register_words_to_conductor(kind, stage, "D-1", "Q1 text", "my words", recorded)
+        text = seen[0]
+        head = text[:text.index("## The question")]
+        label = f"fv19_handover_names_the_doors[{kind}/{stage}]"
+        for name, needle in (
+                ("answer sentence", f"recorded with `{script}` (--answer QID --reading <letter> | --not-needed QID | --defer QID, with --task T-1, --words-file"),
+                ("reword door", f"`{script} --task T-1 --reword QID --question-file <file> --by conductor --where \"{stage} stop\" --stage {stage}`"),
+                ("repeat door", f"`{script} --task T-1 --repeat QID --same-as QID --words-file <file> --by conductor --where \"{stage} stop\" --stage {stage}`"),
+                ("show door", f"`{script} --task T-1 --show`")):
+            check(f"{label}: the {name} is there, whole, before `## The question`", needle in head, needle)
+        check_eq(f"{label}: each door is named once", (head.count("--reword QID"), head.count("--repeat QID")), (1, 1))
+    seen = []
+    driver = story_run.Driver.__new__(story_run.Driver)
+    driver.task, driver.scripts, driver.task_root, driver.state_dir = "T-1", scripts, Path("."), Path(".")
+    driver.unread = lambda k, s, d, text, words=None: seen.append(text)
+    driver.judged_reply = lambda *a, **k: ""
+    driver.register_words_to_conductor("questions", "S3", "D-1", "Q1 text", "my words", None)
+    check_eq("fv19_handover_names_the_doors[control]: with no register read none of the doors is named",
+             [w for w in ("--reword QID", "--repeat QID", "--answer QID", "--stage") if w in seen[0]], [])
+
+
 if __name__ == "__main__":
     test_the_test_repository_question_offers_its_words_with_prices()
     test_the_words_are_offered_only_where_they_can_be_carried_out()
@@ -1476,4 +1511,5 @@ if __name__ == "__main__":
     test_fv19_conductor_text_note_door()
     test_fv19_human_text_passes()
     test_fv19_card_old_row_without_keys()
+    test_fv19_handover_names_the_doors()
     finish("gate question form")
