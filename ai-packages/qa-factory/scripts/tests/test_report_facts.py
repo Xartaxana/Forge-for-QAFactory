@@ -4714,9 +4714,11 @@ def fv16_case_remarks_left() -> None:
         SP.concern_report = boom
         got = RF.case_remarks_left(task)
         check_eq("P9 state-unreadable-unknown-line: no item, the problem said", (got["items"], got["problem"]), ([], RF.CASE_REMARKS_UNREADABLE))
-        check_in("P9 state-unreadable-unknown-line: an Unknown line in the report", f"{heading} — 0\n\nUnknown — {RF.CASE_REMARKS_UNREADABLE}.",
+        check_in("P9 state-unreadable-unknown-line: an Unknown line in the report", f"{heading} — unknown\n\nUnknown — {RF.CASE_REMARKS_UNREADABLE}.",
                  RF.render(RF.build(task))["review-gaps"])
-        check_in("P9 state-unreadable-unknown-line: and in the packet", f"{packet} (0)", RF.gate_b_gap_lines(ledger_dict, got))
+        check_in("P9 state-unreadable-unknown-line: and in the packet", f"{packet} (unknown)", RF.gate_b_gap_lines(ledger_dict, got))
+        check_not_in("P9 state-unreadable-unknown-line: the unknown is never a count of 0", f"{heading} — 0", RF.render(RF.build(task))["review-gaps"])
+        check_not_in("P9 state-unreadable-unknown-line: no machine path left in the facts", "task_root", str(got.keys()))
         SP.concern_report = saved[0]
         CT.Controller.state = lambda self: (_ for _ in ()).throw(OSError("locked"))
         check_eq("P9 state-unreadable-unknown-line: the state read fails the same way", RF.case_remarks_left(task)["problem"], RF.CASE_REMARKS_UNREADABLE)

@@ -4105,7 +4105,7 @@ ANSWERS_UNREADABLE = "the test writer's answers could not be read"
 
 
 def case_remarks_left(task_root) -> dict:
-    """`{"items": [{"id", "case", "problem", "reason"}], "problem": "", "task_root": str}`: the still-rejected remarks of the S4
+    """`{"items": [{"id", "case", "problem", "reason"}], "problem": ""}`: the still-rejected remarks of the S4
     case critic (`s5_plan.concern_report`, the one reader of them) that the S5 automator did NOT act on - answered
     `not_applicable`, answered with a word that is not a row word, or with no answer at all - read against the answers of the ONE
     merged store, `plan_remarks` of `work/automation-manifest.json` (`manifest_put._accumulate`), never against the window forms
@@ -4113,7 +4113,7 @@ def case_remarks_left(task_root) -> dict:
     (nothing was automated): no item. A state or remark list that cannot be read is `problem`, never "nothing left" (FR-41); a
     manifest that cannot be read lists every remark as unread, never as acted on. Pure: reads, writes nothing."""
     art = Path(task_root)
-    left: dict = {"items": [], "problem": "", "task_root": str(art)}
+    left: dict = {"items": [], "problem": ""}
     if not (art / "state" / "controller.json").is_file():
         return left
     try:
@@ -4152,8 +4152,8 @@ def case_remarks_left(task_root) -> dict:
 
 
 def case_remark_lines(left) -> list:
-    """THE renderer of `case_remarks_left` for the report's sub-section and the gate B packet (FR-10): per item the case (a link
-    to its file when it has one, the bare id when not - `gate_brief.case_ref`), the case reviewer's words and the test writer's,
+    """THE renderer of `case_remarks_left` for the report's sub-section and the gate B packet (FR-10): per item the case by its BARE
+    id (never a link: the link would carry `work/`, which the report validator forbids in a report body), the case reviewer's words and the test writer's,
     each through `_shown`; at most GAP_TESTS_MAX items, then the overflow line; a `problem` is one more `Unknown` line."""
     out = []
     shown = ((left or {}).get("items") or [])[:GAP_TESTS_MAX]
@@ -4187,8 +4187,15 @@ def gate_b_gap_lines(ledger, left=None) -> list:
         if body:
             out += ["", f"## {title} ({count})"] + body
     if isinstance(left, dict) and (left.get("items") or left.get("problem")):
-        out += ["", f"## Case review remarks the automation did not act on ({len(left['items'])})"] + case_remark_lines(left)
+        out += ["", f"## Case review remarks the automation did not act on ({_remark_count(left)})"] + case_remark_lines(left)
     return out
+
+
+def _remark_count(left: dict) -> str:
+    """The count word of the remark sub-section: `unknown` when the list could not be read (`problem` set, no item) - an unknown is never
+    printed as 0 (FR-41, AR-28) - else the number of items, a real 0 included."""
+    items = left.get("items") or []
+    return "unknown" if left.get("problem") and not items else str(len(items))
 
 
 def _r_review_gaps(facts: dict) -> str:
@@ -4200,7 +4207,7 @@ def _r_review_gaps(facts: dict) -> str:
     tail = ["", f"### Windows over the cap — {len(over)}", ""] + over if over else []
     left = facts.get("case_remarks_left")       # the remarks the automation did not act on: absent key or nothing, no sub-section
     if isinstance(left, dict) and (left.get("items") or left.get("problem")):
-        tail = ["", f"### Case review remarks the automation did not act on — {len(left['items'])}", ""] + case_remark_lines(left) + tail
+        tail = ["", f"### Case review remarks the automation did not act on — {_remark_count(left)}", ""] + case_remark_lines(left) + tail
     if ledger is None:
         return G.REPORT_BLOCK_HEADINGS["review-gaps"] + " — unknown\n\n" + _unknown_line(facts, "ledger", "which tests the code critic rejected") + "\n" + (
             "\n".join(tail) + "\n" if tail else "")
