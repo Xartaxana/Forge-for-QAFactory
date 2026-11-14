@@ -6,6 +6,57 @@ from pathlib import Path
 import waiver
 from driver_core import OpenWork, Person, Refusal, _read_answer, open_work_reason
 
+# F7-RC: the register line's `why_not_a_bug` for a gap the S4 case critic wrote as a `register_gaps` row (plain words, no stage code or role name).
+REGISTER_GAP_WHY = ("the reviewer of the test cases recorded it as a gap in the requirements: no test case can check it; "
+                    "it is not a defect of the product")
+
+
+def register_gap_rows(data, fields) -> tuple:
+    """`(rows, problems)` of the `register_gaps` section of a critic's form (F7-RC). PURE: data in, nothing read or written.
+    `fields` are the keys of the contract template's row (closed variety read from data). A row is `(index, line, ignored)`: the form's
+    OWN index, the register line without the driver's constants (text fields stripped; a placeholder field is absent, a placeholder
+    `refs` item dropped), and the keys outside the template row (ignored, never refused). Absent, `[]`, null (this parser reads a bare `register_gaps:` as `{}`) and a placeholder-only
+    section give no rows; a placeholder-only row is skipped. `problems` name every shape problem at once as
+    `register_gaps[<i>].<field>: <problem>` - a section or row that is not what the template says is never read as "no gaps"."""
+    import handoff
+    section = (data or {}).get("register_gaps") if isinstance(data, dict) else None
+    if section is None or section == [] or section == {} or (not isinstance(section, list) and handoff.is_placeholder(section)):
+        return [], []
+    if not isinstance(section, list):
+        return [], [f"register_gaps: is {type(section).__name__}, not a list"]
+    rows, problems = [], []
+    for i, row in enumerate(section):
+        if handoff.only_template(row):
+            continue
+        if not isinstance(row, dict):
+            problems.append(f"register_gaps[{i}]: is {type(row).__name__}; expected a row {{{', '.join(fields)}}}")
+            continue
+        line, bad = {}, len(problems)
+        for field in fields:
+            value = row.get(field)
+            if value is None or (not isinstance(value, list) and handoff.is_placeholder(value)):
+                continue
+            if field != "refs":
+                if isinstance(value, str):
+                    line[field] = value.strip()
+                else:
+                    problems.append(f"register_gaps[{i}].{field}: is {type(value).__name__}; expected text")
+            elif not isinstance(value, list):
+                problems.append(f"register_gaps[{i}].refs: is {type(value).__name__}; expected a list of ids")
+            else:
+                kept = []
+                for j, item in enumerate(value):
+                    if handoff.is_placeholder(item):
+                        continue
+                    if isinstance(item, str):
+                        kept.append(item.strip())
+                    else:
+                        problems.append(f"register_gaps[{i}].refs[{j}]: is {type(item).__name__}; expected text")
+                line["refs"] = kept
+        if len(problems) == bad:
+            rows.append((i, line, [str(k) for k in row if k not in fields]))
+    return rows, problems
+
 
 class DriverStagePlan:
     def role_lines(self, stage: str, role: str, record=None) -> list:
@@ -580,6 +631,63 @@ class DriverStagePlan:
             exc.dispatch = exc.dispatch or dispatch
             raise
 
+    def register_gaps_write(self, stage: str, dispatch: str) -> None:
+        """F7-RC: record the `register_gaps` rows of the S4 case critic's form of `dispatch` in the findings register - through the ONE
+        reader (`exploratory_findings.read`) and the ONE writer (`append`, in process), as `coverage_gap` lines. Called inside
+        `s4_critic_completion.complete`, BEFORE the acceptance record and the verdict seam. No readable form -> nothing (the verdict step that
+        follows sends it to the seam). A shape problem, a row the writer refuses, an unreadable or unwritable register is ONE `Refusal` for
+        the conductor (it carries the dispatch; nothing is written on a shape problem; rows written before a refused row stay). Only the
+        critic's rows are judged, by shape and by exact-bytes identity (a row equal to an ACTIVE coverage_gap line is recorded already);
+        what a register gap is stays the critic's judgment. ERROR DIRECTION: a duplicate line is allowed, a lost row never."""
+        import exploratory_findings as EF
+        import handoff
+        form = f"work/handoffs/{dispatch}.yaml"
+        try:
+            data = handoff.parse((self.task_root / form).read_text(encoding="utf-8")).data
+        except (OSError, ValueError):
+            return
+        row0 = ((handoff.template("s4-case-critic-to-designer").data or {}).get("register_gaps") or [{}])[0]
+        fields = tuple(row0) if isinstance(row0, dict) else ()
+        rows, problems = register_gap_rows(data, fields)
+        door = (f"Door (conductor): correct the row with `handoff_check.py --file {form} --set register_gaps[<i>].<field>=<value>`, or "
+                f"delete the row and keep the gap in `questions[]`; then retry the finish. Rows recorded already are not recorded again.")
+        expected = f"Expected a list of rows {{{', '.join(fields)}}}, or [] for no gap."
+
+        def refuse_gap(text: str):
+            exc = Refusal(text, dispatch=dispatch)
+            exc.known = False          # the sibling `questions[]` raise is a G refusal too: no phrase of this text routes it past the conductor
+            return exc
+        if problems:
+            raise refuse_gap(f"{stage}: the register_gaps of {form} were not recorded in the findings register, nothing was written: "
+                         + "; ".join(problems) + f". {expected} {door}")
+        if not rows:
+            return
+        register_file = "work/" + EF.register_path(self.task_root).name
+        try:
+            active = list(EF.read(self.task_root)["active"].values())
+        except OSError as exc:
+            raise refuse_gap(f"{stage}: the findings register {register_file} cannot be read ({exc}); the register gaps of {form} were "
+                         "not recorded. Door (conductor): restore the file, then retry the finish.") from exc
+        for i, line, ignored in rows:
+            if ignored:
+                print(f"{stage}: register_gaps[{i}] of {form} carries {', '.join('`' + k + '`' for k in ignored)}, not a field of the row; ignored")
+            same = next((a for a in active if a.get("kind") == "coverage_gap"
+                         and all(str(a.get(k) or "").strip() == line.get(k, "") for k in ("title", "statement", "missing_prerequisite"))
+                         and list(a.get("refs") or []) == line.get("refs", [])), None)
+            if same is not None:
+                print(f"{stage}: register_gaps[{i}] of {form} is recorded already as {same.get('id')}; not again")
+                continue
+            try:
+                ident = EF.append(self.task_root, dict(line, op="add", kind="coverage_gap", why_not_a_bug=REGISTER_GAP_WHY,
+                                                       evidence_refs=[{"path": form}]), by=dispatch)
+            except ValueError as exc:
+                raise refuse_gap(f"{stage}: register_gaps[{i}] of {form} was not recorded in the findings register: {exc}. {expected} "
+                             f"(the writer's --title, --statement, --refs, --missing-prerequisite are these fields). {door}") from exc
+            except OSError as exc:
+                raise refuse_gap(f"{stage}: the findings register {register_file} cannot be written ({exc}); register_gaps[{i}] of "
+                             f"{form} was not recorded. Door (conductor): restore the file, then retry the finish.") from exc
+            print(f"{stage}: register_gaps[{i}] recorded in the findings register as {ident} (coverage gap; it reaches the test report)")
+
     def stage_verdict_known(self, form: str) -> bool:
         """True when the form's ACCEPTANCE word - read by `acceptance.acceptance_word`, at the contract's `acceptance_verdict_at` (default
         `header.verdict`) - is a word of the acceptance table (`vocabulary.stage_acceptance_verdicts`). Reads only."""
@@ -709,6 +817,7 @@ class DriverStagePlan:
                 if not dispatch:
                     return self.stage_review_exhausted("S4", "qa-case-designer", dispatch, None, form, unreadable=True,
                                                        text="the saved result of the S4 case critic carries no dispatch id, so its form cannot be found")
+                self.register_gaps_write("S4", dispatch)       # F7-RC: before the record and the seam, whatever the verdict word
                 if not self.stage_verdict_known(form):
                     return self.stage_review_exhausted("S4", "qa-case-designer", dispatch, None, form, unreadable=True)
                 self.stage_acceptance_write("S4", dispatch)

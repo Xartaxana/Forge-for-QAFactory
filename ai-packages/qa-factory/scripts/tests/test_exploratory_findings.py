@@ -478,8 +478,235 @@ def key_m1_h(root):
     check("K-M1-h `person:<name>` is a person too", code == 0, err[:300])
 
 
+GAP_PLACEHOLDER = ('  - title: "<the gap in one line>"\n    statement: "<the register line and what no requirement holds>"\n'
+                   '    refs:\n      - <R-n or TC-n the gap stands against, or omit>\n    missing_prerequisite: "<what would close it>"\n')
+
+
+def gap_row(title="R-2 has no boundary", statement="the register of R-2 names no boundary value", refs=("R-2",),
+            missing="the owner's word on the boundary of R-2", extra=""):
+    """One block-YAML row of a critic's `register_gaps` (what its values file produces); a `None` field is left out."""
+    lines = [f'{key}: "{value}"' for key, value in (("title", title), ("statement", statement)) if value is not None]
+    if refs:
+        lines += ["refs:"] + [f"  - {ref}" for ref in refs]
+    if missing is not None:
+        lines.append(f'missing_prerequisite: "{missing}"')
+    return "".join(("  - " if k == 0 else "    ") + line + "\n" for k, line in enumerate(lines)) + extra
+
+
+def gap_form(task: Path, dispatch: str, section: str, verdict="ok") -> str:
+    """Write `work/handoffs/<dispatch>.yaml` with the verdict and a `register_gaps` section (the text after the key); return its path."""
+    path = task / "work" / "handoffs" / f"{dispatch}.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"header:\n  verdict: {verdict}\nregister_gaps:{section}", encoding="utf-8")
+    return f"work/handoffs/{dispatch}.yaml"
+
+
+class GapStub:
+    """The driver's own methods bound to a minimal object: `task_root`, the stages table, the dispatch the finish names and stubs for the
+    two moves the call site must come before (the acceptance record and the verdict seam); no driver process, no subprocess."""
+    def __init__(self, task: Path, dispatch: str):
+        import driver_stage_plan as DSP
+        self.task_root, self.task, self.last_dispatch, self.calls = task, "TP1-TEST", dispatch, []
+        for name in ("register_gaps_write", "s4_critic_completion", "stage_acceptor", "stage_verdict_known", "case_verdict"):
+            setattr(self, name, getattr(DSP.DriverStagePlan, name).__get__(self))
+        self.stages = lambda: {"S4": {"acceptance_by": "qa-case-critic"}}
+        self.stage_acceptance_write = lambda stage, dispatch: self.calls.append(("acceptance", dispatch))
+        self.stage_review_exhausted = lambda *a, **k: self.calls.append(("seam", k.get("unreadable"))) or "seam"
+
+
+def gap_write(task, dispatch):
+    """`register_gaps_write` for `dispatch`: (printed text, refusal text or "", the Refusal)."""
+    out, text, refusal = io.StringIO(), "", None
+    with contextlib.redirect_stdout(out):
+        try:
+            GapStub(task, dispatch).register_gaps_write("S4", dispatch)
+        except Exception as exc:  # noqa: BLE001 - the table names the refusal class below
+            text, refusal = str(exc), exc
+    return out.getvalue(), text, refusal
+
+
+def register_lines(task: Path) -> list:
+    return [json.loads(raw) for raw in (file_bytes(task) or b"").decode("utf-8").splitlines()]
+
+
+def key_f7rc(root):
+    """F7-RC: the S4 case critic's `register_gaps` rows are recorded by the driver (G1-G14, J1, A1, A4). One world per row id."""
+    import report_facts
+    import driver_stage_plan as DSP
+    from driver_core import Refusal
+    D = "S4-qa-case-critic-1"
+    n = [0]
+
+    def world(pipeline="gate-a-open"):
+        n[0] += 1
+        return story(root / f"w{n[0]}", pipeline)
+
+    # G1 rows recorded (R1): kind, recorded_by, evidence is the form, why_not_a_bug is the constant, window pre-gate-a
+    task = world()
+    form = gap_form(task, D, "\n" + gap_row() + gap_row("Second gap", "a second sentence", ("R-3", "TC-1"), "an answer"))
+    printed, text, _ = gap_write(task, D)
+    lines = register_lines(task)
+    check_eq("G1 two rows recorded, in form order", [(l["title"], l["kind"], l["refs"]) for l in lines],
+             [("R-2 has no boundary", "coverage_gap", ["R-2"]), ("Second gap", "coverage_gap", ["R-3", "TC-1"])])
+    check_eq("G1 recorded_by is the dispatch, the evidence is the form, the window comes from code, the why is the constant",
+             {(l["recorded_by"], l["evidence_refs"][0]["path"], l["window"], l["why_not_a_bug"]) for l in lines},
+             {(D, form, "pre-gate-a", DSP.REGISTER_GAP_WHY)})
+    check("G1 the print names each row and its id", "register_gaps[0] recorded in the findings register as EX-1" in printed
+          and "register_gaps[1] recorded in the findings register as EX-2" in printed, printed)
+    check("G1 the why text holds no stage code and no role name", "S4" not in DSP.REGISTER_GAP_WHY and "qa-" not in DSP.REGISTER_GAP_WHY)
+    # G2 absent / [] / null / a placeholder-only section -> nothing written, nothing printed (R3)
+    for label, section in (("empty list", " []\n"), ("null", "\n"), ("placeholder row only", "\n" + GAP_PLACEHOLDER)):
+        task = world()
+        gap_form(task, D, section)
+        printed, text, _ = gap_write(task, D)
+        check_eq(f"G2 {label}: no file, no print, no refusal", (file_bytes(task), printed, text), (None, "", ""))
+    task = world()
+    path = task / "work" / "handoffs" / f"{D}.yaml"
+    path.parent.mkdir(parents=True)
+    path.write_text("header:\n  verdict: ok\n", encoding="utf-8")
+    check_eq("G2 section absent (an older form): nothing", (gap_write(task, D)[0], file_bytes(task)), ("", None))
+    # G3 the placeholder row is skipped, a real row after it keeps the form's own index (R4)
+    task = world()
+    gap_form(task, D, "\n" + GAP_PLACEHOLDER + gap_row())
+    printed, _, _ = gap_write(task, D)
+    check("G3 placeholder skipped, the real row recorded as register_gaps[1]", "register_gaps[1] recorded" in printed
+          and len(register_lines(task)) == 1 and register_lines(task)[0]["title"] == "R-2 has no boundary", printed)
+    # G4 a string / a mapping -> Refusal, register bytes unchanged (R5)
+    for label, section in (("a word", " none\n"), ("a mapping", "\n  title: x\n"), ("a number", " 5\n")):
+        task = world()
+        gap_form(task, D, section)
+        _, text, refusal = gap_write(task, D)
+        check(f"G4 {label}: a Refusal naming the section and the expected list, nothing written",
+              isinstance(refusal, Refusal) and "register_gaps: is " in text and "Expected a list of rows" in text and file_bytes(task) is None, text)
+    # G5 two rows with shape problems -> ONE refusal naming both, nothing written (R6); the refusal carries the dispatch and the
+    # conductor's door (A3); a key outside the template row is ignored with a print line, never refused (A9)
+    task = world()
+    gap_form(task, D, '\n  - title: 5\n    statement: "x"\n    missing_prerequisite: "y"\n  - title: "t"\n    statement: "s"\n    refs: oops\n'
+                      '    missing_prerequisite: "m"\n')
+    _, text, refusal = gap_write(task, D)
+    check("G5 ONE refusal names both rows' problems", text.count("register_gaps[0].title: is int") == 1 and "register_gaps[1].refs: is str" in text, text)
+    check("G5 the refusal carries the dispatch and a door the conductor can use", getattr(refusal, "dispatch", "") == D
+          and f"handoff_check.py --file work/handoffs/{D}.yaml --set register_gaps[<i>].<field>=<value>" in text and "questions[]" in text
+          and "retry the finish" in text, text)
+    check("G5 nothing written, and the refusal is not routed by phrase (known False)", file_bytes(task) is None
+          and getattr(refusal, "known", True) is False)
+    task = world()
+    gap_form(task, D, "\n" + gap_row(extra="    note: extra\n"))
+    printed, text, _ = gap_write(task, D)
+    check("G5 a key outside the row is ignored with a print line, the row recorded", text == "" and len(register_lines(task)) == 1
+          and "carries `note`, not a field of the row; ignored" in printed, printed + text)
+    # G6 a placeholder field is absent -> the writer's own refusal names the flag and the row index (R7, R8)
+    task = world()
+    gap_form(task, D, '\n  - title: "t"\n    statement: "s"\n    missing_prerequisite: "<what would close it>"\n')
+    _, text, refusal = gap_write(task, D)
+    check("G6 the writer's refusal names --missing-prerequisite, the row index, the form and the door", "register_gaps[0]" in text
+          and "--missing-prerequisite" in text and f"work/handoffs/{D}.yaml" in text and "delete the row" in text
+          and file_bytes(task) is None and getattr(refusal, "dispatch", "") == D, text)
+    # G7 row 0 ok, row 1 refused -> row 0 written, the refusal names row 1; after the fix the retry writes ONLY row 1 (R8, D.4)
+    task = world()
+    gap_form(task, D, "\n" + gap_row() + gap_row("Bad", "a sentence", ("R-4",), None))
+    _, text, _ = gap_write(task, D)
+    check("G7 row 0 stays written, the refusal names row 1", len(register_lines(task)) == 1 and "register_gaps[1]" in text, text)
+    gap_form(task, D, "\n" + gap_row() + gap_row("Bad", "a sentence", ("R-4",), "now fixed"))
+    printed, text, _ = gap_write(task, D)
+    check("G7 the retry skips row 0 as recorded already and writes only row 1", text == "" and len(register_lines(task)) == 2
+          and "register_gaps[0] of" in printed and "is recorded already as EX-1" in printed and "register_gaps[1] recorded" in printed, printed + text)
+    # G8 the same form twice (a repeated finish, the recovery road) -> one line per row
+    task = world()
+    gap_form(task, D, "\n" + gap_row())
+    gap_write(task, D)
+    first = file_bytes(task)
+    printed, _, _ = gap_write(task, D)
+    check("G8 the second call writes nothing: the register bytes are equal, the row skipped", file_bytes(task) == first
+          and "recorded already as EX-1" in printed)
+    # G9 a repair round's new form: one equal row, one new -> only the new row is recorded (R11)
+    gap_form(task, "S4-qa-case-critic-2", "\n" + gap_row() + gap_row("Third", "a third sentence", ("R-5",), "an answer"))
+    gap_write(task, "S4-qa-case-critic-2")
+    check_eq("G9 only the new row was added, by the later dispatch", [(l["title"], l["recorded_by"]) for l in register_lines(task)],
+             [("R-2 has no boundary", D), ("Third", "S4-qa-case-critic-2")])
+    # G10 a reworded row is a second line (R12): duplicate allowed, loss never
+    gap_form(task, "S4-qa-case-critic-3", "\n" + gap_row(statement="the register of R-2 names no boundary value at all"))
+    gap_write(task, "S4-qa-case-critic-3")
+    check_eq("G10 the reworded row is a second line", len(register_lines(task)), 3)
+    # G11 the register path is a directory -> the read gives the empty register, the append raises -> a refusal naming the register (R10, A5)
+    task = world()
+    (task / "work" / "exploratory-findings.jsonl").mkdir()
+    gap_form(task, D, "\n" + gap_row())
+    _, text, refusal = gap_write(task, D)
+    check("G11 a Refusal that names work/exploratory-findings.jsonl and the form, with the dispatch", isinstance(refusal, Refusal)
+          and "work/exploratory-findings.jsonl" in text and f"work/handoffs/{D}.yaml" in text and getattr(refusal, "dispatch", "") == D, text)
+    # G12 after gate A answered -> the window is s5-s8 (R14)
+    task = world("between")
+    gap_form(task, D, "\n" + gap_row())
+    gap_write(task, D)
+    check_eq("G12 window s5-s8", register_lines(task)[0]["window"], "s5-s8")
+    # G13 the unknown verdict word and one gap row: the line is written, THEN the seam stub is called (positional invariant, R2)
+    task = world()
+    gap_form(task, D, "\n" + gap_row(), verdict="wibble")
+    stub = GapStub(task, D)
+    with contextlib.redirect_stdout(io.StringIO()):
+        answer = stub.s4_critic_completion(["TC-1"], 1, 3, dispatch_id=D)("digest")
+    check_eq("G13 the gap line is written, the seam stub called once (unreadable), the acceptance record not written",
+             (len(register_lines(task)), answer, stub.calls), (1, "seam", [("seam", True)]))
+    # G14 a refused gap row: a Refusal, and neither the acceptance record nor the seam was reached
+    task = world()
+    gap_form(task, D, "\n" + gap_row(None, "s", (), "m"))
+    stub = GapStub(task, D)
+    try:
+        stub.s4_critic_completion(["TC-1"], 1, 3, dispatch_id=D)("digest")
+        refused_at_call = False
+    except Refusal:
+        refused_at_call = True
+    check_eq("G14 a refused row stops the finish before the record and the seam", (refused_at_call, stub.calls, file_bytes(task)), (True, [], None))
+    # G15 a finish with no dispatch id records nothing and goes on to the seam as before (R13)
+    task = world()
+    stub = GapStub(task, "")
+    with contextlib.redirect_stdout(io.StringIO()):
+        answer = stub.s4_critic_completion(["TC-1"], 1, 3, dispatch_id="")("digest")
+    check_eq("G15 no dispatch id: the seam, no register", (answer, stub.calls, file_bytes(task)), ("seam", [("seam", True)], None))
+    # J1 form -> register -> the report's reader counts one gap and its text holds the statement and `missing:`
+    task = world()
+    gap_form(task, D, "\n" + gap_row())
+    gap_write(task, D)
+    unknown: dict = {}
+    got = report_facts._exploratory(task, unknown)
+    text = report_facts._r_exploratory({"exploratory": got, "unknown": unknown, "gate_b": {}})
+    check_eq("J1 the report's reader counts ONE gap and no finding", (got["formal"]["gaps"], got["formal"]["findings"], unknown), (1, 0, {}))
+    check("J1 the report text holds the statement and `missing:` with the critic's words",
+          "the register of R-2 names no boundary value" in text and "missing: the owner's word on the boundary of R-2" in text, text)
+    # A1 the role's copy holds `register_gaps: []`; the exit check of a form with one filled row and no refs raises no problem of this
+    # section, while the untouched sample row of the raw template does (the control that the check would have refused it)
+    import handoff
+    import handoff_check
+    import handoff_init
+    name = "s4-case-critic-to-designer"
+    raw = handoff_init.fill_head((handoff.CONTRACTS / f"{name}.yaml").read_text(encoding="utf-8"), task="QA-1", dispatch=D,
+                                 role="qa-case-critic", stage="S4", scope="R-1")
+    emptied = handoff_init.empty_optional_lists(raw, name)
+    check_eq("A1 the role's copy holds register_gaps: []", handoff.parse(emptied).data.get("register_gaps"), [])
+    art = handoff_check.Artifacts(root)
+    mine = lambda text: [p.path for p in handoff_check.check(handoff.parse(text), name, art)[2] if p.path.startswith("register_gaps")]
+    check("A1 control: the untouched sample row of the raw template is refused as not filled", mine(raw) != [], str(mine(raw)))
+    check_eq("A1 the emptied copy raises no problem of its own", mine(emptied), [])
+    out, applied, problems, _notes = handoff_check.apply_values(handoff.parse(emptied), name, [
+        ("register_gaps[0].title", "R-2 has no boundary", 0, ""), ("register_gaps[0].statement", "no boundary", 0, ""),
+        ("register_gaps[0].missing_prerequisite", "the owner's word", 0, "")])
+    check_eq("A1 a values file opens row 0 of the emptied section", (applied, [p.path for p in problems]), (3, []))
+    check_eq("A1 a filled row with no refs gives no register_gaps problem at the exit check", mine(out.text()), [])
+    # A4 a second `handoff_check --fix` over the unchanged form leaves equal bytes
+    task = world()
+    fixed = task / "work" / "handoffs" / f"{D}.yaml"
+    fixed.parent.mkdir(parents=True)
+    fixed.write_text(out.text(), encoding="utf-8")
+    argv = ("handoff_check.py", "--file", str(fixed), "--task", "TP1-TEST", "--task-root", str(task), "--fix")
+    run_script(*argv, cwd=root)
+    after_first = fixed.read_bytes()
+    run_script(*argv, cwd=root)
+    check("A4 the second --fix leaves the form's bytes equal to the first", fixed.read_bytes() == after_first)
+
+
 def main():
-    for key in (key_m1_1, key_m1_2, key_m1_2b, key_m1_3, key_m1_4, key_m1_4b, key_m1_4c, key_m1_smoke, key_fix1, key_m3, key_m1_h):
+    for key in (key_m1_1, key_m1_2, key_m1_2b, key_m1_3, key_m1_4, key_m1_4b, key_m1_4c, key_m1_smoke, key_fix1, key_m3, key_m1_h, key_f7rc):
         root = temp_project()
         try:
             key(root)

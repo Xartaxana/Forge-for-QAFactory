@@ -18,7 +18,7 @@ The requirements register is complete and every requirement in it can be checked
 <!-- kind: process -->
 ## Good outcome
 
-The acceptor reads each item against its witness; what you tried is the `tried` table of your handoff form.
+The case critic reads your register at S4, each item against its witness; what you tried is the `tried` table of your handoff form.
 
 1. **Every sentence has a home.** Each sentence of the story's own text is a requirement, a branch, or `not_obligation` with why. Witness: `## Source obligations`; `branch_accounting.py --unhomed` lists nothing.
 2. **Every requirement is checkable or asked.** It names an observable, or it is an `open_questions` record with the quotes and two readings. Witness: register rows; `work/requirements-readiness.json`.

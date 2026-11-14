@@ -288,6 +288,7 @@
   {"file": "diff_pass.py", "function": "run", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "diff_pass.py", "function": "main", "class": "shape", "roles": ["qa-requirements-tester", "qa-scout"], "owner": "data", "note": "T1a, F1 (a) step 3"},
   {"file": "diff_scope.py", "function": "main", "class": "shape", "roles": ["conductor"], "owner": "data", "note": "T1a, F1 (a) step 4: conductor, parent 2.8 group G-free"},
+  {"file": "driver_stage_plan.py", "function": "refuse_gap", "class": "xref", "roles": ["qa-case-critic", "conductor"], "owner": "data", "note": "F7-RC: the refusing helper of Driver.register_gaps_write (shape judge register_gap_rows; identity join against the active coverage_gap lines)"},
   {"file": "driver_timing.py", "function": "check", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "env_probe.py", "function": "_env_file_names", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "env_probe.py", "function": "main", "class": "shape", "roles": ["qa-scout"], "owner": "data", "note": "T1a, F1 (a) step 3"},
