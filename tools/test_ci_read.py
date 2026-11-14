@@ -653,6 +653,26 @@ def test_why_finds_a_step_without_its_name_in_the_log_by_its_place_among_the_run
     assert capsys.readouterr().out.splitlines()[3:] == SECTION + ["(4 of 4 lines)"]
 
 
+def test_why_C2_1_skipped_steps_open_no_group_so_the_ordinal_still_finds_a_named_failing_step(net, capsys):
+    steps = [{"number": 1, "name": "Set up job", "conclusion": "success"},
+             {"number": 2, "name": "deps", "conclusion": "success"},
+             {"number": 3, "name": "journal", "conclusion": "failure"},
+             {"number": 4, "name": "piles", "conclusion": "skipped"},
+             {"number": 5, "name": "lint", "conclusion": "skipped"},
+             {"number": 6, "name": "Post checkout", "conclusion": "success"}]
+    log = "T ##[group]Run pip install\nok\nT ##[group]Run python j.py\nbad\n##[error]exit 1\n"   # no Set up/Complete groups
+    why_routes(net, jobs=[job(11, steps=steps)], logs={11: log})
+    ci_read.main(["why", "9"])
+    assert capsys.readouterr().out.splitlines()[3:] == ["T ??[group]Run python j.py", "bad", "??[error]exit 1", "(3 of 3 lines)"]
+
+
+@pytest.mark.parametrize("extra", [["--branch", "b"], ["--workflow", "nightly.yml"]], ids=["branch", "workflow"])
+def test_why_Q1_an_explicit_run_id_with_branch_or_workflow_is_refused_before_any_request(extra, net, capsys):
+    why_routes(net, jobs=[job(11)], logs={11: LOG})
+    assert ci_read.main(["why", "9"] + extra) == 2 and net.requests == []
+    assert "--branch/--workflow" in capsys.readouterr().out
+
+
 def test_why_E_C2_1_green_prints_one_line(net, capsys):
     why_routes(net, run=dict(RUN, conclusion="success"))
     assert ci_read.main(["why", "9"]) == 0

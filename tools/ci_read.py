@@ -236,20 +236,48 @@ def make_commands(repo: str) -> dict:
         emit_own("dispatched %s for %s%s; find the run: ci_read.py pipelines" % (workflow, sanitize(args.ref),
                                                                               sanitize(shown)))
 
-    def cmd_why(args, token):
-        workflow = args.workflow or WORKFLOW
+    def why_run(args, token):
+        """The run `why` reads (latest of the workflow, or the explicit id), or None after saying "(no runs)"."""
         if args.run == "latest":
             query = "per_page=1" + ("&branch=" + urllib.parse.quote(args.branch, safe="") if args.branch else "")
-            rows = _rows(_open("%s/actions/workflows/%s/runs?%s" % (base, workflow, query), token)[1],
-                         "workflow_runs")
+            rows = _rows(_open("%s/actions/workflows/%s/runs?%s" % (base, args.workflow or WORKFLOW, query),
+                               token)[1], "workflow_runs")
             if not rows:
                 emit("(no runs)")
-                return
-            run = rows[0]
-        else:
-            run = json.loads(_text(_open("%s/actions/runs/%d" % (base, args.run), token)[1]))
-            if not isinstance(run, dict):
-                raise Failure("unexpected answer: expected a JSON object describing the run")
+                return None
+            return rows[0]
+        run = json.loads(_text(_open("%s/actions/runs/%d" % (base, args.run), token)[1]))
+        if not isinstance(run, dict):
+            raise Failure("unexpected answer: expected a JSON object describing the run")
+        return run
+
+    def why_job(job, args, token):
+        emit("job %s %s" % (job.get("id"), job.get("name")))
+        try:
+            log = _text(_open("%s/actions/jobs/%s/logs" % (base, job.get("id")), token)[1])
+        except urllib.error.HTTPError as exc:
+            if exc.code not in (404, 410):
+                raise
+            emit_own("log expired")
+            return
+        steps = [s for s in (job.get("steps") or []) if isinstance(s, dict)]
+        whole_shown = False
+        for step in [s for s in steps if s.get("conclusion") in FAILED] or [None]:
+            section = None
+            if step is not None:
+                emit("step %s %s %s" % (step.get("number"), step.get("name"), step.get("conclusion")))
+                section = common.step_section(log, step, steps)
+            if section is not None:
+                _emit_tail(section, None, args.tail)
+            elif not whole_shown:
+                emit_own("step section not found: job log tail")
+                _emit_tail(log, None, args.tail)
+                whole_shown = True
+
+    def cmd_why(args, token):
+        run = why_run(args, token)
+        if run is None:
+            return
         run_id, conclusion = run.get("id"), run.get("conclusion")
         head = "run %s %s %s %s" % (run_id, _done(run), run.get("display_title") or "-", str(run.get("head_sha") or "")[:8])
         if run.get("status") != "completed":
@@ -266,28 +294,7 @@ def make_commands(repo: str) -> dict:
             emit_own("%s: no failed job" % sanitize(str(conclusion)))
             return
         for job in failed[:WHY_MAX_JOBS]:
-            emit("job %s %s" % (job.get("id"), job.get("name")))
-            try:
-                log = _text(_open("%s/actions/jobs/%s/logs" % (base, job.get("id")), token)[1])
-            except urllib.error.HTTPError as exc:
-                if exc.code not in (404, 410):
-                    raise
-                emit_own("log expired")
-                continue
-            steps = [s for s in (job.get("steps") or []) if isinstance(s, dict)]
-            bad = [s for s in steps if s.get("conclusion") in FAILED]
-            whole_shown = False
-            for step in bad or [None]:
-                section = None
-                if step is not None:
-                    emit("step %s %s %s" % (step.get("number"), step.get("name"), step.get("conclusion")))
-                    section = common.step_section(log, step, steps)
-                if section is not None:
-                    _emit_tail(section, None, args.tail)
-                elif not whole_shown:
-                    emit_own("step section not found: job log tail")
-                    _emit_tail(log, None, args.tail)
-                    whole_shown = True
+            why_job(job, args, token)
         if len(failed) > WHY_MAX_JOBS:
             emit_own("+%d more failed jobs" % (len(failed) - WHY_MAX_JOBS))
 
@@ -307,6 +314,8 @@ def _check(args) -> None:
         if not name or not member:
             raise Refusal("artifact needs <name>/<path inside the zip>, e.g. ci-out/report.txt")
     if args.cmd == "why":
+        if args.run != "latest" and (args.branch is not None or args.workflow is not None):
+            raise Refusal("--branch/--workflow select `latest` only; with run <id> drop them")
         if not 1 <= args.tail <= common.WHY_MAX_TAIL:
             raise Refusal("why --tail must be 1..%d, got %d" % (common.WHY_MAX_TAIL, args.tail))
         if args.workflow is not None and not WORKFLOW_RE.fullmatch(args.workflow):

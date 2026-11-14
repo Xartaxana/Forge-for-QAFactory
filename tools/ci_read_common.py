@@ -129,7 +129,7 @@ def _starts_a_step(head: str) -> bool:
 def step_section(text: str, step: dict, steps: list):
     """The log lines of one step of a job (text of the section, or None when its boundary is not found). The start: a
     `##[group]` line whose text is the step name, else the step's ordinal among the `##[group]Run ` lines when their
-    count equals the count of steps that open such a group (every step but `Set up job`, `Complete job`, `Post ...`);
+    count equals the count of steps that open such a group (every step but `Set up job`, `Complete job`, `Post ...` and the skipped ones);
     the end: the next `##[group]Run ` / `Post ` / `Complete job` line, else the end of the log."""
     lines = text.splitlines()
     heads = [(i, _group_head(ln)) for i, ln in enumerate(lines)]
@@ -138,7 +138,8 @@ def step_section(text: str, step: dict, steps: list):
     if start is None:
         run_starts = [i for i, h in heads if h.startswith("Run ")]
         eligible = [s for s in steps if not (str(s.get("name")) in _NOT_A_RUN_STEP
-                                              or str(s.get("name")).startswith("Post "))]
+                                              or str(s.get("name")).startswith("Post ")
+                                              or s.get("conclusion") == "skipped")]   # a skipped step opens no group
         if len(run_starts) == len(eligible) and step in eligible:
             start = run_starts[eligible.index(step)]
     if start is None:
