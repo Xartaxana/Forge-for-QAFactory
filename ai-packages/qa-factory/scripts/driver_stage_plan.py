@@ -775,7 +775,7 @@ class DriverStagePlan:
         # a critic who wrote `approve` otherwise left the Then with no question for gate A to show.
         # FV1-9 (F-4): a case that holds only `question_repeats` / `reword_questions` under `approve` runs the roll-call too
         if fixes or self.unraised_cases() or self.cases_with_question_entries():
-            # remains: R1 (C1-7b) - gate A's entry repair runs the same command when gate_preflight finds `unraised_questions` (GATE_REPAIRS -> `raise_move`, a failure -> `RepairFailed`), so no gate A packet is shown with a question this call could have raised
+            # R1 (C1-7b), not a counted site since FV1-9 (`out` is read by `tell_rollcall`): gate A's entry repair runs the same command when gate_preflight finds `unraised_questions` (GATE_REPAIRS -> `raise_move`, a failure -> `RepairFailed`), so no gate A packet is shown with a question this call could have raised
             _code, out = self.py("critic_rollcall.py", *([str(findings)] if findings else []), "--apply-fixes",
                                  "--task-root", str(self.task_root))
             # FV1-9 (P1): the designer's refused entries and the planner's notes are told BEFORE `pin_cases` (which can raise) and `rework`:
