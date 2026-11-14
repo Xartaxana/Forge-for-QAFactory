@@ -97,6 +97,7 @@
         "scripts/env_probe.py",
         "references/env-file-names.json",
         "references/stand-answers.json",
+        "references/login-roads.json",
         "scripts/tests/test_probe_*.py",
         "scripts/tests/probe_entries.py",
         "scripts/tests/probe_by_code_languages_common.py",
