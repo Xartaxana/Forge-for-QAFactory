@@ -1147,6 +1147,77 @@ def traceability_reads_one_bugs_root() -> None:
         cleanup(bare)
 
 
+_K1_REGISTER = """---
+task: T-1
+created: 2026-11-01
+ids: [R-1]
+---
+
+## Register
+
+| R | Requirement (one verifiable statement) | source | derived_from | verifiable | ac_ref | observable | impact | delta | code_says |
+|---|---|---|---|---|---|---|---|---|---|
+| R-1 | Adding a chosen quantity gives a cart line with that quantity. | ac | - | yes | AC-1 | diff:app.py:10 | degraded | new | contradicts: F-1 |
+"""
+_K1_QUOTE = "Adding a chosen quantity gives a cart line with that quantity."
+
+
+def _k1_world(ref, entries, triage, current) -> Path:
+    """A minimal story shaped like the ARM product-page draft: a draft of place `req-R-1` that names `ref` as its triage instance, a REAL
+    standing walk record written by `place_answers.write` (capture in the recorder's index, hash holding, quote in the capture, requirement
+    quote in the register), a triage list and a run report that holds the `current` rows. Returns the task root."""
+    import place_answers as PA
+    root = temp_project()
+    task = root / "qa-factory" / "artifacts" / "T-1"
+    write(task / "pipeline.json", json.dumps({"ticket": "T-1", "stages": {}}))
+    write(task / "work" / "requirements-register.md", _K1_REGISTER)
+    write(task / "work" / "triage.json", json.dumps({"triage": triage}))
+    write(task / "work" / "run-report.json", json.dumps({"current_results": current, "results": current}))
+    body = {"title": "Quantity field rewrites what the shopper types", "impact": "degraded", "violates": "R-1", "case": "TC-8",
+            "manual_steps": ["erase the field and type 3"], "confirmation": "unconfirmed", "reproduction": entries}
+    if ref:
+        body["triage_ref"] = ref
+    write(task / "work" / "bug-drafts" / "d.json", json.dumps(body))
+    folder = task / "work" / "evidence" / "manual" / "settle-req-R-1" / "a1"
+    capture = write(folder / "001-page.txt", 'spinbutton "Quantity": "10"')
+    row = {"path": capture.relative_to(task).as_posix(), "content_hash": hashlib.sha256(capture.read_bytes()).hexdigest(),
+           "kind": "page", "phase": "post_action"}
+    write(folder / "captures.jsonl", json.dumps(row) + "\n")
+    record = {"place": "req-R-1", "answer": "bug", "draft": "d.json", "expectation": {"source": "requirement", "id": "R-1", "quote": _K1_QUOTE},
+              "seen": {"quote": 'spinbutton "Quantity": "10"', "capture": row["path"]}}
+    PA.write(task, "S7-qa-failure-analyst-1", "req-R-1", record)
+    return task
+
+
+def a_draft_of_a_place_the_runner_never_ran() -> None:
+    """FV1-24 K1: a `walk` entry lifts a draft whose triage instance the current report does not hold (a place the analyst walked); a
+    draft whose instance the report holds (any attempt, any spelling), a non-walk entry and a draft with no `triage_ref` keep both facts."""
+    walk = {"kind": "walk", "evidence": "evidence/place-answer-req-R-1.json", "observed": "erase + type 3 -> 13"}
+    fresh = {"kind": "fresh_data_rerun", "evidence": "evidence/rerun.log", "attempt_id": "a2", "observed": "again"}
+    other = [{"instance_id": "TC-9", "attempt_id": "a1", "status": "failed"}]         # the run held another case only
+    held = lambda status: [{"instance_id": "TC-1", "attempt_id": "a1", "status": status}]   # noqa: E731
+    app_bug = [{"instance_id": "TC-1", "attempt_id": "a1", "case": "TC-1", "verdict": "APP_BUG"}]
+    reproduced = (BR.REPRODUCED, ["walk"])
+    unconfirmed = ("unconfirmed", [])
+    rows = [  # id, triage_ref, entries, triage rows, current rows, (word, kinds), reason code that must be among the problems
+        ("place-born walk lifts", "TC-8#obs1@a1", [walk], [], other, reproduced, None),
+        ("instance is a current failure, no APP_BUG row", "TC-1@a1", [walk], [], held("failed"), unconfirmed, BR.R_NO_TRIAGE),
+        ("current result passed", "TC-1@a1", [walk], app_bug, held("passed"), unconfirmed, BR.R_GREEN),
+        ("non-walk entry only on a place-born draft", "TC-8#obs1@a1", [fresh], [], other, unconfirmed, BR.R_NO_TRIAGE),
+        ("no triage_ref", None, [walk], [], other, unconfirmed, BR.R_NO_TRIAGE),
+        ("spelling variant of a target is a target", "TC-1[chromium]@a1", [walk], [], held("failed"), unconfirmed, BR.R_NO_TRIAGE),
+        ("non-walk entry beside a walk entry: only the walk lifts", "TC-8#obs1@a1", [walk, fresh], [], other, reproduced, BR.R_NO_TRIAGE),
+    ]
+    for name, ref, entries, triage, current, want, code in rows:
+        task = _k1_world(ref, entries, triage, current)
+        try:
+            got_word, got_kinds, problems = BR.confirmation_of(task, json.loads((task / "work" / "bug-drafts" / "d.json").read_text(encoding="utf-8")))
+            check_eq(f"K1 {name}: the step", (got_word, got_kinds), want)
+            check(f"K1 {name}: the reason", code is None and problems == [] or code in problems, str(problems))
+        finally:
+            cleanup(task.parents[2])
+
+
 def main() -> None:
     root = temp_project("qa-factory-bugs-")
     extra = []
@@ -1526,6 +1597,7 @@ def main() -> None:
     the_draft_place_and_mark()
     one_bug_many_manifestations_n2()
     traceability_reads_one_bugs_root()
+    a_draft_of_a_place_the_runner_never_ran()
     finish("bug_records")
 
 
