@@ -1172,7 +1172,8 @@ def _k1_world(ref, entries, triage, current) -> Path:
     write(task / "pipeline.json", json.dumps({"ticket": "T-1", "stages": {}}))
     write(task / "work" / "requirements-register.md", _K1_REGISTER)
     write(task / "work" / "triage.json", json.dumps({"triage": triage}))
-    write(task / "work" / "run-report.json", json.dumps({"current_results": current, "results": current}))
+    report = {"current_results": current, "results": current} if isinstance(current, list) else dict(current)   # a dict is the whole report
+    write(task / "work" / "run-report.json", json.dumps(report))
     body = {"title": "Quantity field rewrites what the shopper types", "impact": "degraded", "violates": "R-1", "case": "TC-8",
             "manual_steps": ["erase the field and type 3"], "confirmation": "unconfirmed", "reproduction": entries}
     if ref:
@@ -1207,6 +1208,17 @@ def a_draft_of_a_place_the_runner_never_ran() -> None:
         ("no triage_ref", None, [walk], [], other, unconfirmed, BR.R_NO_TRIAGE),
         ("spelling variant of a target is a target", "TC-1[chromium]@a1", [walk], [], held("failed"), unconfirmed, BR.R_NO_TRIAGE),
         ("non-walk entry beside a walk entry: only the walk lifts", "TC-8#obs1@a1", [walk, fresh], [], other, reproduced, BR.R_NO_TRIAGE),
+        # F1 (defect-born): the report HOLDS the id by a route other than a failing instance key, so the held id wins over the place-born lift
+        ("green manual check of the case is held", "TC-9@a1", [walk], [],
+         {"current_results": other, "current_manual_checks": [{"case": "TC-9", "result": "pass"}]}, unconfirmed, BR.R_NO_TRIAGE),
+        ("case of a result row is held", "TC-1@a1", [walk], [],
+         [{"instance_id": "TC-1-inst", "case": "TC-1", "attempt_id": "a1", "status": "failed"}], unconfirmed, BR.R_NO_TRIAGE),
+        ("test_id of a passed row is held", "e2e::x@a1", [walk], [],
+         [{"instance_id": "i-1", "test_id": "e2e::x", "attempt_id": "a1", "status": "passed"}], unconfirmed, BR.R_NO_TRIAGE),
+        ("surprise past the cap: its case is held", "TC-9#sur-a2-ui-S31@a1", [walk], [],
+         {"current_results": other, "current_manual_checks": [{"case": "TC-9", "result": "fail"}]}, unconfirmed, BR.R_NO_TRIAGE),
+        ("report with no instances is no evidence of a run: no lift", "TC-8@a1", [walk], [], [], unconfirmed, BR.R_NO_TRIAGE),
+        ("report with no result lists at all", "TC-8@a1", [walk], [], {"note": "x"}, unconfirmed, BR.R_NO_TRIAGE),
     ]
     for name, ref, entries, triage, current, want, code in rows:
         task = _k1_world(ref, entries, triage, current)

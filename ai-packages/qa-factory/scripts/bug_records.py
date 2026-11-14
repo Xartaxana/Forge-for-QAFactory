@@ -968,7 +968,8 @@ def no_run_target(draft, report) -> bool:
     """True when the draft speaks for no execution of this run: a place the analyst walked (a case the runner did not run, a
     register contradiction), so its `walk` record is its only evidence. True ONLY when the report is a readable non-empty object,
     the draft's triage instance is non-empty, and that instance matches NO id the report holds in ANY attempt and ANY spelling
-    (`contract.id_spellings`: a result row's instance / test ids, and every name of a `triage_failures` entry). The error goes
+    (`contract.id_spellings`: the ids and case of every result row and manual check, whatever its result, the case of an
+    `#obs` / `#sur` target, and every name of a `triage_failures` entry); a report holding no id at all is False. The error goes
     toward "is a target": an unreadable or empty report, no instance, or any exception is False, and the draft then keeps both
     draft-wide facts (AR-28, FR-59). Public: the ONE reader of this fact (AR-13); `reproduction_problems` computes it once per draft."""
     try:
@@ -976,15 +977,26 @@ def no_run_target(draft, report) -> bool:
         if not instance or not (isinstance(report, dict) and report):
             return False
         wanted = C.id_spellings(instance)
+        parts = C.target_parts(instance)             # `<case>#obs<n>` / `#sur-<id>`: the case it belongs to is wanted too
+        if parts:
+            wanted |= C.id_spellings(parts[0])
         held = set(C.instance_results(report)) | set(C.current_instance_results(report))
         for got in C.triage_failures(report)[0].values():
             held.update(str(name) for name in (got.get("names") or []))
-        return not any(wanted & C.id_spellings(name) for name in held)
+        rows = [r for key in ("results", "current_results", "current_manual_checks", "manual_checks")
+                for r in (report.get(key) if isinstance(report.get(key), list) else [])]
+        rows += [r for group in C.instance_results(report).values() for r in group]
+        for row in rows:                             # any row the report holds, whatever its result (a green one is held too)
+            if isinstance(row, dict):
+                held.update(str(row[key]) for key in ("instance_id", "test_instance_id", "test_id", "test", "case")
+                            if row.get(key))
+        held.discard("")
+        return bool(held) and not any(wanted & C.id_spellings(name) for name in held)   # a report holding no id says nothing of a run
     except Exception:  # noqa: BLE001 - an unknown never lifts
         return False
 
 
-def _walk_has_no_run(draft, report, no_run: bool = False) -> bool:
+def _walk_has_no_run(draft, report, *, no_run: bool) -> bool:
     """Is a draft one with no `current_results` row by construction: a code-reading draft, a draft with no run target (`no_run`, the
     value of `no_run_target` the caller computed once), or a triage key that names a failure of kind `manual` / `observation` (F6)?
     An unreadable report or key is False (the red-now fact then stays on)."""
@@ -1040,7 +1052,7 @@ def reproduction_problems(task, draft, rows, report) -> tuple:
         no_run = no_run_target(draft, report)      # once per draft: both decisions below read this one value (AR-13)
         no_report = () if (report_ok or is_code_reading(draft)) else (R_NO_REPORT, "run-report.json cannot be read")   # an unknown never lifts
         walk_wide = (() if (is_code_reading(draft) or no_run) else _app_bug_problem(draft, rows)) or no_report \
-            or (() if _walk_has_no_run(draft, report, no_run) else _current_red_problem(draft, report))
+            or (() if _walk_has_no_run(draft, report, no_run=no_run) else _current_red_problem(draft, report))
     valid: list = []
     problems: list = []
     wide_said = False
