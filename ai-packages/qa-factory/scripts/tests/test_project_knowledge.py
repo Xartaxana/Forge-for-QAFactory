@@ -985,7 +985,7 @@ def test_lessons_problem_is_not_no_lesson(proj, monkeypatch):           # E40 an
 # --- phase 1 (OF3-1a): the catalogue and the one reader (AR-1, AR-9, AR-13, AR-28) -----------------------------------------------
 
 FIVE_KEYS = ["product.roles", "environments.credentials_by_role", "product.sides", "environments.sides", "environments.reference_for",
-             "environments.stand_lessons"]       # the name is kept from the five of PC-1b; SS1-11 added the sixth
+             "environments.stand_lessons", "environments.sign_in"]       # the name is kept from the five of PC-1b; SS1-11 added the sixth, FV1-28 C1 the seventh
 
 
 def test_keys_are_derived_from_the_catalogue_in_todays_order():
@@ -995,7 +995,8 @@ def test_keys_are_derived_from_the_catalogue_in_todays_order():
                        "product.sides": {"scope": "project", "compare": "exact"},
                        "environments.sides": {"scope": "stand", "compare": "exact"},
                        "environments.reference_for": {"scope": "stand", "compare": "exact"},
-                       "environments.stand_lessons": {"scope": "stand", "compare": "exact"}}
+                       "environments.stand_lessons": {"scope": "stand", "compare": "exact"},
+                       "environments.sign_in": {"scope": "stand", "compare": "exact"}}
     assert [row["key"] for row in PK.rows() if row["store"] in ("registry", "config+registry")] == FIVE_KEYS
     assert [row["key"] for row in PK.rows("artifact_root")] == ["artifact_root"] and PK.rows("no.such.key") == []
 
@@ -1273,6 +1274,48 @@ def test_record_guard_on_an_unreadable_registry_is_todays_refusal(proj):        
     proj.path().write_text("{broken", encoding="utf-8")
     row, problem, created = proj.record(state=PK.NOTICED, source="role", words="", only_if_latest=(PK.NOTICED,))
     assert row is None and created is False and "nothing was written over it" in problem
+
+
+# FV1-28 C1: the data join producer `first_look.put` (`sign_in`) -> `first_look.record_sign_in` -> registry row -> reader `sign_in`.
+# (case id, what the walk's dispatch is for the controller, the rows' `blocked_by`, the story's pipeline extras, rows in the registry, text of the line)
+SIGN_IN_CASES = [
+    ("accepted_with_way", "accepted", None, {}, 1, "recorded the way in to `dev` (ui) as PK-1 for later stories"),
+    ("all_rows_access", "accepted", "access", {}, 0, "every requirement of the record was blocked by access"),
+    ("no_trace", "accepted", None, {"no_trace": True}, 0, "this run leaves no trace (an experiment)"),
+    ("not_accepted", "running", None, {}, 0, "the first look of these heads was not accepted"),
+    ("duplicate", "accepted", None, {}, 1, "already recorded as PK-1"),
+]
+
+
+@pytest.mark.parametrize("case", SIGN_IN_CASES, ids=[c[0] for c in SIGN_IN_CASES])
+def test_sign_in_record_join(tmp_path, monkeypatch, case):
+    name, status, blocked, extra, held, text = case
+    import first_look as FL
+    import test_first_look as TFL
+    monkeypatch.setattr(FL, "_account_secrets", lambda *args: ([], []))          # the secret guard is A1's own row
+    proj = Proj(tmp_path, monkeypatch)
+    story = TFL.Story(proj.root / "qa-factory" / "artifacts")
+    caps = story.ready()
+    rows = story.rows(caps)
+    if blocked:
+        rows = [dict(r, status="unreachable", blocked_by=blocked) for r in rows]
+    assert story.put(rows, sign_in=TFL._good_ui(caps))["written"]                  # the producer: A1's `put`
+    if extra:
+        story.set_pipeline(dict(TFL.PIPELINE, **extra))
+    state = {"dispatches": {TFL.WALK: {"status": status}}}
+    done = FL.record_sign_in(story.task, by="conductor", controller_state=state)
+    if name == "duplicate":
+        assert FL.record_sign_in(story.task, by="conductor", controller_state=state)["recorded"] is True
+        done = FL.record_sign_in(story.task, by="driver", controller_state=state)
+    assert text in done["line"], done["line"]
+    assert len(proj.rows()) if held else not proj.path().exists()
+    ways = PK.sign_in(proj.root, "dev")
+    assert not ways["problem"] and len(ways["ways"]) == held and ways["precedence"] == PK.SIGN_IN_PRECEDENCE
+    if held:
+        way = ways["ways"][0]
+        assert way["surface"] == "ui" and way["id"] == "PK-1" and way["story"] == "QA-1" and len(proj.rows()) == 1
+        assert way["value"]["url"] == "/login" and not set(way["value"]) & set(PK.SIGN_IN_NOT_KEPT)     # the reader's value is what the walker found
+        assert proj.rows()[0]["provenance"]["source"] == "role" and "Signed in through the page" in proj.rows()[0]["provenance"]["words"]
 
 
 if __name__ == "__main__":
