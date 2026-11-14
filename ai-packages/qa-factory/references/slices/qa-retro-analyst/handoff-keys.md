@@ -62,3 +62,11 @@ Contract `s9-retro-to-project` (fill `work/handoffs/<dispatch>.yaml`; `handoff_c
 - `blocked.data[]` (only when blocked) - path of anything the conductor needs to see
 
 Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): `inputs`, `inputs_read`, `header`, `scope`, `artifacts`, `claims`, `unresolved`, `blocked`.
+
+## What code will check of you
+
+`<T>` is your ticket, `<ID>` your dispatch id, `<home>` the project's qa-factory folder - all three stand in your prompt (`Ticket: ... Dispatch: ...`) and in your task packet.
+
+### Not yet in rows
+
+Every number in retro.md comes from work/retro-numbers.md and .json, already computed by retro_numbers.py: do not re-add and do not re-price. The story's spend is the sessions the driver's own journal names - a roll-up over every session that merely mentions the ticket once published $1,911 against the $128 actually charged. Two records of the same money exist on purpose: the journal is what the CLI charged and is authoritative, the cost files are token-priced and mark themselves `provisional`; where they disagree, print the gap and say which is which. An unknown is written as `unknown`, never rounded into a fact. The precedent line is written by `estimate_record.py --task <T> --facts <file>`: the file holds `forecast` and `actual` objects and an optional `drivers` array, and code derives the row (ts, task, forecast, actual, delta, hit, drivers) from it; every wrong key is listed in one refusal. What outlives this story goes to the project's ledgers through `project_decisions.py --root <project> add-finding`, not into retro prose.

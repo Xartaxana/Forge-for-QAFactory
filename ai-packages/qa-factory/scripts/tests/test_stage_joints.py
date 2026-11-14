@@ -983,22 +983,23 @@ def told_leg_and_rows() -> None:
     env.load_map = {"common": [], "roles": {"qa-runner": [f"plugin:{SJ.KEY_PAGE.format(role='qa-runner')}"], "qa-scout": []}}
     row = a_row("a:x", roles=("qa-runner", "qa-scout"), requirement="Say it.", door="d")
     entry = row["producers"][0]
-    check_in("K2/gated-off: while `contract_slices` has no `requirement_section` a page item is refused", "the page renderer is not present",
-             " ".join(SJ._told_leg(entry, env, row)))
-    check_in("K2/gated-off: through the audit of a whole row", "the page renderer is not present", " ".join(SJ._row_problems(row, env, stage_ids, {}, kinds)[0]))
-    check_eq("K2/gated-off: the attribute is absent in the real package today", hasattr(contract_slices, SJ.PAGE_RENDERER), False)
-    setattr(contract_slices, SJ.PAGE_RENDERER, lambda *a, **k: "")
+    check_eq("K2/gated-on: T3a's renderer is present in the real package", callable(getattr(contract_slices, SJ.PAGE_RENDERER, None)), True)
+    real_renderer = getattr(contract_slices, SJ.PAGE_RENDERER)
+    delattr(contract_slices, SJ.PAGE_RENDERER)                  # the gate both ways: the attribute taken away, then put back
     try:
-        said = " ".join(SJ._told_leg(entry, env, row))
-        check_in("K2/gated-on: with the renderer present the leg is real: a role whose list lacks its key page is red", "qa-scout does not receive", said)
-        check_eq("K2/gated-on: and the role whose list holds it is green", "qa-runner" in said, False)
-        check_eq("K2/gated-on: a role whose capability the row's `when` does not admit owes no page",
-                 SJ._told_leg({**entry, "roles": ["qa-case-critic"]}, env, {**row, "when": ["shell"]}), [])
-        check_in("K2/gated-on: the conductor's section needs `conductor_answer` or a `move:<id>` in `when`", "selected by `conductor_answer`",
-                 " ".join(SJ._told_leg({**entry, "roles": ["conductor"]}, env, {**row, "when": ["always"]})))
-        check_eq("K2/gated-on: and holds with it", SJ._told_leg({**entry, "roles": ["conductor"]}, env, {**row, "when": ["conductor_answer"], "stages": ["*"]}), [])
+        check_in("K2/gated-off: while `contract_slices` has no `requirement_section` a page item is refused", "the page renderer is not present",
+                 " ".join(SJ._told_leg(entry, env, row)))
+        check_in("K2/gated-off: through the audit of a whole row", "the page renderer is not present", " ".join(SJ._row_problems(row, env, stage_ids, {}, kinds)[0]))
     finally:
-        delattr(contract_slices, SJ.PAGE_RENDERER)
+        setattr(contract_slices, SJ.PAGE_RENDERER, real_renderer)
+    said = " ".join(SJ._told_leg(entry, env, row))
+    check_in("K2/gated-on: with the renderer present the leg is real: a role whose list lacks its key page is red", "qa-scout does not receive", said)
+    check_eq("K2/gated-on: and the role whose list holds it is green", "qa-runner" in said, False)
+    check_eq("K2/gated-on: a role whose capability the row's `when` does not admit owes no page",
+             SJ._told_leg({**entry, "roles": ["qa-case-critic"]}, env, {**row, "when": ["shell"]}), [])
+    check_in("K2/gated-on: the conductor's section needs `conductor_answer` or a `move:<id>` in `when`", "selected by `conductor_answer`",
+             " ".join(SJ._told_leg({**entry, "roles": ["conductor"]}, env, {**row, "when": ["always"]})))
+    check_eq("K2/gated-on: and holds with it", SJ._told_leg({**entry, "roles": ["conductor"]}, env, {**row, "when": ["conductor_answer"], "stages": ["*"]}), [])
     check_in("K2/gated-off: a code producer is not told by a page", "a code producer is told where it is CALLED",
              " ".join(SJ._told_leg({"code": "x.py::f", "told": [{"page": True}]}, env, row)))
     check_in("K2: `page: 1` is no page item", "a told entry is not an object of path and anchor", " ".join(SJ._told_leg({**entry, "told": [{"page": 1}]}, env, row)))

@@ -54,3 +54,11 @@ Contract `s8-scribe-to-gate-b` (fill `work/handoffs/<dispatch>.yaml`; `handoff_c
 - `blocked.data[]` (only when blocked) - path of anything the conductor needs to see
 
 Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): `inputs`, `inputs_read`, `header`, `scope`, `artifacts`, `claims`, `unresolved`, `blocked`.
+
+## What code will check of you
+
+`<T>` is your ticket, `<ID>` your dispatch id, `<home>` the project's qa-factory folder - all three stand in your prompt (`Ticket: ... Dispatch: ...`) and in your task packet.
+
+### Not yet in rows
+
+test-report.md is read by code, not skimmed. Begin it from the template and run `report_facts.py --task <T> --write`: it renders the code-owned blocks (the verdict, Proven, Product bugs, Open questions, Skipped by the plan, Not proven, Decided at gate A, Size, Where to look; Decided at gate B after the gate) and you never type a number they carry. The `delivery_ready:` line is the block's (check_delivery.py feeds it): yes, after_checks or no. Eleven sections in this order: Proven, Product bugs, Left with you, Open questions, Not proven, Decided at gate A, Decided at gate B, Factory defects, Size, Where to look, Appendix - the verdict above the first. A green test the critic could not verify is in Left with you, not under Proven. Left with you has one item per case in `ledger.json` `left_items`, each with its R-n, case id, `To check:` and `Needed:` or `How:`; its last two blocks are code's. The Appendix is `traceability.py --render` pasted, a row for every R and every case. `report_facts.py --task <T> --check` must exit 0 before you finish. Your prose outside the blocks stays under 6,144 bytes. check_coverage.py re-runs at the exit gate: regenerate the coverage map first.

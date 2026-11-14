@@ -54,3 +54,11 @@ Contract `s7-analyst-to-automator` (fill `work/handoffs/<dispatch>.yaml`; `hando
 - `blocked.data[]` (only when blocked) - path of anything the conductor needs to see
 
 Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): `inputs`, `inputs_read`, `header`, `scope`, `artifacts`, `claims`, `unresolved`, `blocked`.
+
+## What code will check of you
+
+`<T>` is your ticket, `<ID>` your dispatch id, `<home>` the project's qa-factory folder - all three stand in your prompt (`Ticket: ... Dispatch: ...`) and in your task packet.
+
+### Not yet in rows
+
+work/triage.json is read row by row: every row's `verdict` comes from APP_BUG|TEST_BUG|TEST_BUG:collection|ENV_ISSUE|FLAKY|APP_CHANGED|CASE_DEFECT|ASSERT_STRICTER|NOT_EXECUTED|RUNNER_MISREAD_EVIDENCE|NO_DEFECT (NOT_EXECUTED is code's, for a manual check that did not answer; NO_DEFECT is for an observation `<case>#obs<n>` only, `reason` quoting its evidence), and every row's `evidence` is non-empty whatever the verdict. Every row also names its `instance_id` and `attempt_id`. ASSERT_STRICTER costs a `control` block: `result` effect_without_change, `action`, `without`, `observed`, an existing `evidence` file under `evidence/`; `impossible` needs `why`, no ASSERT_STRICTER. RUNNER_MISREAD_EVIDENCE costs a `contradiction` block: `then`, `runner_said`, `evidence` (a text capture of the attempt) and a `quote` from it (300 characters at most). FLAKY costs three more fields, and all three are checked: `reruns` >= 3 isolated executions of that test, counted across every role;`mechanism` from isolation|race|timing|shared_state|teardown|environment|unknown; and `fix_result` fixed or not_fixed. An unfixed flake is not verified, and quarantining it is the person's call at gate B, never yours.

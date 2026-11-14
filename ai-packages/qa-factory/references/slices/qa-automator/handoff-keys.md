@@ -61,3 +61,11 @@ Contract `s5-automator-to-critic` (fill `work/handoffs/<dispatch>.yaml`; `handof
 - `blocked.data[]` (only when blocked) - path of anything the conductor needs to see
 
 Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): `inputs`, `inputs_read`, `header`, `scope`, `artifacts`, `claims`, `unresolved`, `blocked`.
+
+## What code will check of you
+
+`<T>` is your ticket, `<ID>` your dispatch id, `<home>` the project's qa-factory folder - all three stand in your prompt (`Ticket: ... Dispatch: ...`) and in your task packet.
+
+### Not yet in rows
+
+s5_precheck.py will check, so write to it: every Then is bound in `then_bindings[]` {case, then, instance_id, assertion_ref "file:line"}, and the names it demands appear in that assertion. A status code or literal a Then fixes is asserted as written and NEVER changed after a red run: that test is handed over RED, `unresolved[] reason: contradicts_requirement`. A value you invented may change after a red run only with an `expectation_changes[]` row through manifest_put.py: `then_refs` [{case, then}] it still proves, `what_changed`, `reason`; a deleted or renamed test owes it too. A `blocked_by_env` row has `remedy` {kind, where, change, restart}, names only; it stands only on a run showing the stand (`env_blocked`, a STAND SIGNAL on a run no timeout killed, a connection refusal); a test the project's timeout killed is yours. Smells refused: env credentials in an assert, `None == None`, `sleep`, a copied helper. One `tests[]` entry per INSTANCE (`func[param]`); `covers` lists cases. A `deferred_by_decision:*` row carries `disputes` nothing|derivation|case_expectation; `derivation` = not derivable; `case_expectation` = you disagree with the approved case; no route out after gate A.

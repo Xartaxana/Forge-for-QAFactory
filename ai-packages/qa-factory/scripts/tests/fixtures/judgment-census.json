@@ -942,6 +942,7 @@
   {"file": "role_load.py", "function": "_settings_problems", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "role_load.py", "function": "_task_root", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "role_load.py", "function": "main", "class": "shape", "roles": ["conductor"], "owner": "data"},
+  {"file": "role_load.py", "function": "native_headroom_problems", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "role_load.py", "function": "process_ratchet_problems", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "role_load.py", "function": "settings", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "role_rules.py", "function": "_carrier_problems", "class": "xref", "roles": ["conductor"], "owner": "data"},

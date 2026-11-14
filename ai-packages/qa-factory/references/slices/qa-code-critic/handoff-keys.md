@@ -58,3 +58,11 @@ Contract `s5-critic-to-automator` (fill `work/handoffs/<dispatch>.yaml`; `handof
 - `blocked.data[]` (only when blocked) - path of anything the conductor needs to see
 
 Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): `inputs`, `inputs_read`, `header`, `scope`, `artifacts`, `claims`, `unresolved`, `blocked`.
+
+## What code will check of you
+
+`<T>` is your ticket, `<ID>` your dispatch id, `<home>` the project's qa-factory folder - all three stand in your prompt (`Ticket: ... Dispatch: ...`) and in your task packet.
+
+### Not yet in rows
+
+Static review first, the whole window; then probe_by_code.py and, on doubt, red_sandbox.py --probe (the calls, the model file work/probe-models/<your dispatch id>.json and the reasons are on the card); reuse the author's green receipt, never run a duplicate green. A `mechanical` finding is worded, not fixed. Findings go to work/test-code/critic-findings-<your dispatch id>.md with `cause:` on each. A test that changed after its red run is listed in your brief (`s5_precheck.py --json`: `expectation_changes`): give each row ONE verdict through manifest_put.py, a patch with its function, `red_attempt` and `green_attempt` plus `critic_verdict` legitimate_correction|fitted_to_code|could_not_judge and `critic_note`. `fitted_to_code` is also a `test_defect` finding whose expected is "the Then's value restored, the test handed RED with contradicts_requirement". A change you cannot judge is `could_not_judge` with a note, never silence.

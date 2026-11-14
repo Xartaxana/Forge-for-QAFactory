@@ -71,3 +71,11 @@ Contract `s6-runner-to-analyst` (fill `work/handoffs/<dispatch>.yaml`; `handoff_
 - `blocked.data[]` (only when blocked) - path of anything the conductor needs to see
 
 Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): `inputs`, `inputs_read`, `header`, `scope`, `artifacts`, `claims`, `unresolved`, `blocked`.
+
+## What code will check of you
+
+`<T>` is your ticket, `<ID>` your dispatch id, `<home>` the project's qa-factory folder - all three stand in your prompt (`Ticket: ... Dispatch: ...`) and in your task packet.
+
+### Not yet in rows
+
+work/run-report.json is read field by field. `witness` at least 30 characters naming the run_suite summary that EXISTS on disk (evidence/<label>-<ts>.json) with the exit code and the totals line - a retelling is not a witness. `head` non-empty: evidence not bound to a sha goes stale. `env_preflight` pass|blocked, and blocked means `execution_status` is env_blocked - one field, one source. `execution_status` from passed|failed|env_blocked|not_executed|broken_run|timeout. `totals` an object. Every `results[]` row names ONE case, even when one test covers several, with a status from passed|failed|error|skipped|not_run, and a skip carries its reason; `manual_checks[].result` is pass|fail|inconclusive; a manual `build` takes a `--then-quote` per Then (`thens`). Empty is not clean: a zero run with env_preflight pass and no env_blocked, manual_checks or manual_skipped is refused - return blocked with a reason instead. And every case S5 automated, plus every manual-agent row of the plan, has to appear in some lane of this report: results, manual_checks, skipped, impossible, env_blocked, manual_skipped or manual_human. Where a case went is your call; saying nothing about it is not.

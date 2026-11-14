@@ -58,3 +58,11 @@ Contract `s4-designer-to-case-critic` (fill `work/handoffs/<dispatch>.yaml`; `ha
 - `blocked.data[]` (only when blocked) - path of anything the conductor needs to see
 
 Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): `inputs`, `inputs_read`, `header`, `scope`, `artifacts`, `claims`, `unresolved`, `blocked`.
+
+## What code will check of you
+
+`<T>` is your ticket, `<ID>` your dispatch id, `<home>` the project's qa-factory folder - all three stand in your prompt (`Ticket: ... Dispatch: ...`) and in your task packet.
+
+### Not yet in rows
+
+A case file's `id` IS its file name, both in the form named on this brief's `Case id form:` line: `<case id>.md` declares `id: <case id>`. That is the factory's contract over any project note (a note naming another form is not read by code), and the exit gate refuses the handoff otherwise. Frontmatter every case owes: id, title, area, priority P0|P1|P2|P3, status (yours are Draft|Review|Approved - only the code critic moves a case to Automated, and only after a probe), channel auto|manual-agent|manual-human, reuse_decision new|updated|extend:<case id>|dedupe:<case id>, updated, task, covers: [R-n] that exist in that task's register (an R the register does not carry reads as invented), defect_class from the project's closed list (or smoke, or regression:BUG-NNN), and basis. defect_class and basis are inherited from your plan row, never reassigned. One case per plan row, an `unverifiable` row too; its Thens that wait on a question go in `question_thens` under that question's id as requirements-readiness.json has it (never `raise` once raised); a before/now question (a `raise` too) keys its texts `now` / `before`, never by letter.

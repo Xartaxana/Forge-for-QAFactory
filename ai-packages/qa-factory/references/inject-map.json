@@ -50,6 +50,7 @@
     ],
     "qa-case-critic": [
       "plugin:references/slices/qa-case-critic/common-rules.md",
+      "plugin:references/slices/qa-case-critic/handoff-keys.md",
       "plugin:references/slices/qa-case-critic/coverage-design.md",
       "plugin:references/risk-policy.md",
       "plugin:references/slices/qa-case-critic/artifact-contract.md",

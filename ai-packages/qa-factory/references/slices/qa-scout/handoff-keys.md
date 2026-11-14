@@ -62,3 +62,11 @@ Contract `s1-scout-to-tester` (fill `work/handoffs/<dispatch>.yaml`; `handoff_ch
 - `blocked.data[]` (only when blocked) - path of anything the conductor needs to see
 
 Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): `inputs`, `inputs_read`, `header`, `scope`, `artifacts`, `claims`, `unresolved`, `blocked`.
+
+## What code will check of you
+
+`<T>` is your ticket, `<ID>` your dispatch id, `<home>` the project's qa-factory folder - all three stand in your prompt (`Ticket: ... Dispatch: ...`) and in your task packet.
+
+### Not yet in rows
+
+work/context-manifest.json is read field by field: `ticket`, `acceptance_criteria` and `implementation` present; every `related[]` row is {key, kind, source}, kind one of implementation|blocker|bug|mention, `source` saying WHERE in this ticket the key was read; one `implementations[]` row per repository. `coverage_search[]` rows: repo, revision, changed_area, searched_paths, status complete|partial|unavailable, reason; nothing found is top-level `coverage_status: not_found`. `existing_test_candidates[]` rows: candidate_id, repo, revision, path, selector, parameter_ids, level, assertion_refs, candidate_requirement_refs, origin existing|added_in_change|unknown, result_candidate_refs. S1 closes on work/source-inventory.json: every required source retrieved and inspected, none `pending`, no material without receipts. A source you could not get: name it in your digest with its id and what is missing - recording a person's words is the orchestrator's door; you are resumed with their answer. Build with `context_bundle.py --manifest`, then `--validate`.

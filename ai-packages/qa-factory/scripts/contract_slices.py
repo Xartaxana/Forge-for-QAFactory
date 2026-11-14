@@ -69,6 +69,28 @@ COMMON_LAYER_SUBJECTS = ("common-rules.md",)
 # The generated page of the keys a role hands over (spec t-1765 X1-7): it has no source file to cut from, so
 # `targets` skips it and `keys_targets` / `keys_findings` / `keys_write` own it.
 KEYS_NAME = "handoff-keys.md"
+# A key page that outgrew `W` continues on `handoff-keys-<n>.md`, n >= 2 (§2.6a of the told-before-work spec): the generator owns every
+# one of them, the map lists them by a HAND line, and each is injected whole like the first.
+KEYS_CONTINUATION = re.compile(r"^handoff-keys-([2-9]|[1-9][0-9]+)\.md$")
+# The generated pages are injected inline in EVERY mode: a role is not told to look them up (the rules it must obey are in its prompt).
+# `inject_context` reads this one list (`named_instead`, `_dropped_headings`, `map_problems`) and so does the on_demand weight report.
+INLINE_SUBJECTS = COMMON_LAYER_SUBJECTS + (KEYS_NAME,)
+
+
+def keys_page_number(name: str):
+    """1 for `handoff-keys.md`, n for the continuation `handoff-keys-<n>.md` (n >= 2), None for any other name."""
+    name = Path(str(name)).name
+    if name == KEYS_NAME:
+        return 1
+    found = KEYS_CONTINUATION.match(name)
+    return int(found.group(1)) if found else None
+
+
+def inline_subject(name: str) -> bool:
+    """True for the name of an entry that is delivered inline whatever `config.prompts.slices` says: the common-rules slice, the
+    key page and a continuation page of it. The one owner of the question (AR-13)."""
+    name = Path(str(name)).name
+    return name in INLINE_SUBJECTS or keys_page_number(name) is not None
 
 
 def _provenance(subject: str, role: str) -> str:
@@ -193,7 +215,7 @@ def targets(plugin_root: Path) -> list:
             rel = str(entry)[len(PLUGIN_PREFIX):]
             parts = Path(rel).parts
             subject = parts[-1]
-            if subject == KEYS_NAME:        # generated from the contracts, not cut from a source: `keys_targets`
+            if keys_page_number(subject) is not None:   # generated from the contracts, not cut from a source: `keys_targets`
                 continue
             out.append({"role": role, "subject": subject, "entry": str(entry),
                         "slice_role": parts[-2],
@@ -257,7 +279,7 @@ def findings(plugin_root: Path) -> list:
     for path in sorted_paths(slices_dir.rglob("*.md")) if slices_dir.exists() else []:
         # The per-role catalogue is this generator's own file, not a slice: it is injected only
         # when `config.prompts.slices` is `on_demand`, so the map never names it.
-        if path.name in (CATALOGUE_NAME, KEYS_NAME):        # the key page: `keys_findings` judges it
+        if path.name == CATALOGUE_NAME or keys_page_number(path.name) is not None:   # the key pages: `keys_findings` judges them
             continue
         if path.resolve() not in declared:
             errors.append(f"{SLICES_REL}/{path.relative_to(slices_dir).as_posix()}: a slice no "
@@ -447,15 +469,29 @@ def _json_of(path: Path):
 
 
 def keys_targets(plugin_root: Path) -> list:
-    """[(role, entry, path)] of the key pages inject-map.json names: the map is the declaration, as for slices."""
+    """[(role, entry, path)] of the key pages inject-map.json names (the first page and its continuations): the map is the
+    declaration, as for slices."""
     imap = _json_of(plugin_root / "references" / "inject-map.json") or {}
     out = []
     for role, entries in (imap.get("roles") or {}).items():
         for entry in entries or []:
             e = str(entry)
-            if e.startswith(SLICE_PREFIX) and Path(e).name == KEYS_NAME:
+            if e.startswith(SLICE_PREFIX) and keys_page_number(e) is not None:
                 out.append((role, e, plugin_root / e[len(PLUGIN_PREFIX):]))
-    return sorted(out)
+    return sorted(out, key=lambda t: (t[0], keys_page_number(t[1]), t[1]))
+
+
+def _listed_pages(plugin_root: Path, role: str) -> list:
+    """The page numbers of `role` that inject-map.json lists, sorted (a number listed twice stands once)."""
+    return sorted({keys_page_number(e) for r, e, _p in keys_targets(plugin_root) if r == role})
+
+
+def _consecutive(numbers: list) -> int:
+    """How many pages 1, 2, 3 ... the sorted `numbers` hold without a gap (0 when page 1 is not listed)."""
+    count = 0
+    while count < len(numbers) and numbers[count] == count + 1:
+        count += 1
+    return count
 
 
 def _keys_outputs(plugin_root: Path, role: str, stage, writers: dict) -> list:
@@ -537,9 +573,152 @@ def _keys_form(role: str, stage) -> list:
     return lines
 
 
-def handoff_keys_page(plugin_root: Path, role: str) -> str:
-    """The generated `references/slices/<role>/handoff-keys.md`: Outputs, Witness and the handoff form of ONE role. Pure and
-    deterministic; a carrier it cannot read is named on the page, never dropped."""
+# --- the told section of the key page: "What code will check of you" (T3a of the told-before-work spec) -------------------
+# The rows of `stage-joints.json` that state a requirement are rendered here, for ONE role, by the one line renderer
+# `stage_joints.told_line`. The page is the survivor of the told carriers (the text reaches the role whole before its work); a
+# row that cannot be read, a role with no rows and a card that has not yet moved to rows are each SAID on the page, never left out.
+SECTION_HEAD = "## What code will check of you"
+SECTION_LEGEND = ("`<T>` is your ticket, `<ID>` your dispatch id, `<home>` the project's qa-factory folder - all three stand in "
+                  "your prompt (`Ticket: ... Dispatch: ...`) and in your task packet.")
+NOT_YET_HEAD = "### Not yet in rows"
+NONE_ROLE = "- none: code checks nothing of this role beyond the sections above"
+NONE_CONTINUED = "- none: every row of this role stands on the pages before this one"
+ROWS_LATER = "- the rows of this role stand on the pages after this one"
+# The dispatch tokens a row's `when` can hold, in the order of their sub-headings, with the words of the heading. How a token
+# relates to another (`replaces` / `replaced by`) is the DATA's (`stage-joints.json` `when_exclusive`), never written here.
+GROUPS = (("plan", "Only in a plan dispatch"), ("window", "Only in a window"), ("manual", "Only in a manual block"),
+          ("first_look", "Only in a first look"), ("not_first_look", "Not in a first look"), ("walk", "Only in a walk"))
+CARD_GROUP = "card"
+
+
+def page_name(n: int) -> str:
+    return KEYS_NAME if n == 1 else f"handoff-keys-{n}.md"
+
+
+def size_limits() -> tuple:
+    """`(L, W)`: `inject_context.MAX_BLOCK_CHARS` (imported, never a second literal) and 80 % of it, the split threshold of K8."""
+    import inject_context
+    limit = inject_context.MAX_BLOCK_CHARS
+    return limit, (limit * 8) // 10
+
+
+def ahead_card(role: str, plugin_root: Path = PLUGIN_ROOT) -> str:
+    """The card this role is handed by hand (`references/ahead-cards.json`), or "" when none is there for it. The moved copy of
+    `brief_pack.ahead_card`, which stays until the brief side moves to rows (T3b)."""
+    cards = (_json_of(Path(plugin_root) / "references" / "ahead-cards.json") or {}).get("cards") or {}
+    entry = cards.get(role) if isinstance(cards, dict) else None
+    return str((entry or {}).get("text") or "").strip() if isinstance(entry, dict) else ""
+
+
+def _group_heading(token: str, exclusive) -> str:
+    """The sub-heading of a dispatch group; `(replaces "<other>")` / `(replaced by "<other>")` come from `when_exclusive` pairs
+    (the first member replaces the second), an additive group has none."""
+    names = dict(GROUPS)
+    for pair in exclusive if isinstance(exclusive, list) else []:
+        if isinstance(pair, list) and len(pair) == 2 and token in pair and all(str(t) in names for t in pair):
+            other = pair[1] if pair[0] == token else pair[0]
+            return f'### {names[token]} ({"replaces" if pair[0] == token else "replaced by"} "{names[other]}")'
+    return f"### {names[token]}"
+
+
+def _row_order(row: dict, order: dict) -> tuple:
+    stages = row.get("stages")
+    stages = [stages] if isinstance(stages, str) else [s for s in stages or [] if isinstance(s, str)]
+    first = min([0 if s == "*" else order.get(s, len(order)) for s in stages] or [len(order)])
+    return first, str(row.get("check"))
+
+
+def _continuation_head(role: str, n: int) -> list:
+    """The lines of page `n` (>= 2) before its section: the provenance comment of a generated page."""
+    return [f"<!-- generated by scripts/contract_slices.py (handoff_keys_page): page {n} of the key page of {role}, the rest of "
+            "its section; edit stage-joints.json, never this file -->"]
+
+
+def _told_units(plugin_root: Path, role: str, model: dict) -> tuple:
+    """`(units, exclusive, why)`: the pieces the section is laid from, in page order. A unit is `(group, text)`: `group` None for
+    a row that holds in every dispatch (capability tokens only), a dispatch token of `GROUPS` for a row of that group (a row
+    holding two dispatch tokens stands under each: more text, never a row left out), `CARD_GROUP` for the card of a role whose
+    cards are not yet rows. `why` is not empty when `stage-joints.json` could not be read: no unit, never an empty section passed
+    as fine."""
+    import stage_joints
+    data, why = stage_joints.load_rows(plugin_root / "references" / "stage-joints.json")
+    if data is None:
+        return [], [], why
+    from stage_guard import stages_of_role
+    ids = [str(s.get("id")) for s in stages_of_role(model, role)]
+    order = {str(s.get("id")): i for i, s in enumerate(model.get("stages") or [])}
+    rows = sorted(stage_joints.rows_for(role, ids, None, data=data), key=lambda r: _row_order(r, order))
+    groups = [token for token, _name in GROUPS]
+    units = [(None, stage_joints.told_line(r)) for r in rows
+             if not [t for t in r.get("when") or [] if t in groups]]
+    for token in groups:
+        units += [(token, stage_joints.told_line(r)) for r in rows if token in (r.get("when") or [])]
+    hand = (data.get("told_ratchet") or {}).get("hand_cards")
+    card = ahead_card(role, plugin_root)
+    if card and (hand is None or (isinstance(hand, int) and not isinstance(hand, bool) and hand > 0)):
+        units.append((CARD_GROUP, card))
+    return units, data.get("when_exclusive") or [], ""
+
+
+def _page_text(lines: list) -> str:
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _section_lines(page: int, units: list, earlier: set, exclusive, total: int) -> list:
+    """The lines of the section on page `page` (1-based) holding `units`; `earlier` is the set of groups whose rows already
+    stood on a page before this one (their heading repeats with ` (continued)`); `total` is how many units the role has."""
+    lines = [SECTION_HEAD if page == 1 else f"{SECTION_HEAD} (continued from {page_name(page - 1)})", "", SECTION_LEGEND]
+    if not units:
+        return lines + ["", NONE_ROLE if total == 0 else (ROWS_LATER if page == 1 else NONE_CONTINUED)]
+    current = "-"
+    for group, text in units:
+        if group != current:
+            current = group
+            if group is None:
+                lines.append("")
+            elif group == CARD_GROUP:
+                lines += ["", NOT_YET_HEAD, ""]
+            else:
+                lines += ["", _group_heading(group, exclusive) + (" (continued)" if group in earlier else ""), ""]
+        lines.append(text)
+    return lines
+
+
+def requirement_section(plugin_root: Path, role: str, head=(), model=None, pages: int = 1) -> list:
+    """The section "What code will check of you" of the key pages of `role`: a list with the lines of the section on each of
+    `pages` listed pages (page 1 first). `head` is the text of page 1 before the section (the fixed sections: only its size
+    matters, for the split); `model` is stages.json (read when None). The rows are laid in order and a row goes to the current
+    page while the page stays at or under `W` (K8) with it, else to the next page; the LAST page takes every remaining row; a
+    row is never cut. A role with no rows says so (`none`), a continuation page with no rows says so, and a rows file that
+    cannot be read is named on the page. Also the attribute whose presence turns the page leg of `stage_joints` on (K2)."""
+    model = model if isinstance(model, dict) else (_json_of(plugin_root / "references" / "stages.json") or {})
+    units, exclusive, why = _told_units(plugin_root, role, model)
+    if why:
+        unknown = f"NOT KNOWN: the rows of what code checks could not be read ({why})."
+        return [[SECTION_HEAD if n == 1 else f"{SECTION_HEAD} (continued from {page_name(n - 1)})", "", SECTION_LEGEND, "", unknown]
+                for n in range(1, max(1, pages) + 1)]
+    _limit, width = size_limits()
+    placed = [[] for _ in range(max(1, pages))]
+    where = 0
+    for unit in units:
+        while where < len(placed) - 1:
+            seen = {g for earlier in placed[:where] for g, _t in earlier}
+            base = list(head) if where == 0 else _continuation_head(role, where + 1)
+            trial = base + [""] + _section_lines(where + 1, placed[where] + [unit], seen, exclusive, len(units))
+            if len(_page_text(trial).strip()) <= width:
+                break
+            where += 1
+        placed[where].append(unit)
+    out = []
+    for n, mine in enumerate(placed, start=1):
+        seen = {g for earlier in placed[:n - 1] for g, _t in earlier}
+        out.append(_section_lines(n, mine, seen, exclusive, len(units)))
+    return out
+
+
+def _role_pages(plugin_root: Path, role: str) -> tuple:
+    """`(pages, problems)`: the text of every listed key page of `role` (page 1 first) and what is wrong while generating them
+    (a rows file that cannot be read, a row longer than the split threshold on its own)."""
     model = _json_of(plugin_root / "references" / "stages.json") or {}
     writers = (_json_of(plugin_root / "references" / "artifact-writers.json") or {}).get("artifacts") or {}
     try:
@@ -547,48 +726,139 @@ def handoff_keys_page(plugin_root: Path, role: str) -> str:
         stage = stage_of_role(model, role)
     except Exception:
         stage = None
-    lines = [f"<!-- generated by scripts/contract_slices.py (handoff_keys_page) from artifact-writers.json, stages.json, "
-             f"stage-joints.json and handoffs/*.yaml for {role}; edit those, never this file -->",
-             "", f"# Keys you hand over - {role}", ""]
-    lines += _keys_outputs(plugin_root, role, stage, writers)
+    head = [f"<!-- generated by scripts/contract_slices.py (handoff_keys_page) from artifact-writers.json, stages.json, "
+            f"stage-joints.json and handoffs/*.yaml for {role}; edit those, never this file -->",
+            "", f"# Keys you hand over - {role}", ""]
+    head += _keys_outputs(plugin_root, role, stage, writers)
     witness = (model.get("witness") or {}).get(role)
-    lines += ["", "## Witness", "",
-              (f"Your witness artifact (stages.json `witness`): `{witness}`." if witness
-               else f"NOT KNOWN: stages.json declares no witness for {role}.")]
-    lines += [""] + _keys_form(role, stage)
-    return "\n".join(lines).rstrip() + "\n"
+    head += ["", "## Witness", "",
+             (f"Your witness artifact (stages.json `witness`): `{witness}`." if witness
+              else f"NOT KNOWN: stages.json declares no witness for {role}.")]
+    head += [""] + _keys_form(role, stage)
+    count = max(1, _consecutive(_listed_pages(plugin_root, role)))
+    sections = requirement_section(plugin_root, role, head, model, count)
+    pages = [_page_text(head + [""] + sections[0])]
+    for n in range(2, count + 1):
+        pages.append(_page_text(_continuation_head(role, n) + [""] + sections[n - 1]))
+    problems = []
+    units, _exclusive, why = _told_units(plugin_root, role, model)
+    if why:
+        problems.append(f"references/stage-joints.json cannot be read ({why}): the key pages cannot say what code checks of a role")
+    _limit, width = size_limits()
+    problems += [f"K8 {role}: one row is over the split threshold ({len(text)} characters, the threshold {width}): "
+                 f"shorten the sentence ({text[:60]}...)" for group, text in units if group != CARD_GROUP and len(text) > width]
+    return pages, problems
+
+
+def handoff_keys_pages(plugin_root: Path, role: str) -> list:
+    """The generated key pages of ONE role, as many as inject-map.json lists for it (at least one): Outputs, Witness, the handoff
+    form and the section of the rows. Pure and deterministic; a carrier it cannot read is named on the page, never dropped."""
+    return _role_pages(plugin_root, role)[0]
+
+
+def handoff_keys_page(plugin_root: Path, role: str) -> str:
+    """The generated `references/slices/<role>/handoff-keys.md` (page 1): Outputs, Witness, the handoff form and the section
+    "What code will check of you". The continuation pages are `handoff_keys_pages(...)[1:]`."""
+    return handoff_keys_pages(plugin_root, role)[0]
+
+
+def size_finding(rel: str, role: str, n: int, size: int) -> tuple:
+    """K8 on one page file of `size` characters (`len(text.strip())`, the measure `inject_context.collect_blocks` applies):
+    `("", "")` under `W`, `("warn", text)` from `W` to `L`, `("red", text)` over `L`. The text names the one move: the split."""
+    limit, width = size_limits()
+    if size < width:
+        return "", ""
+    name = page_name(n)
+    text = (f"K8 {rel}: {size} chars, at or over 80 % of MAX_BLOCK_CHARS ({limit}). Split: add the line "
+            f'"plugin:references/slices/{role}/{page_name(n + 1)}" right after "…/{name}" in references/inject-map.json '
+            f"roles.{role}, then run python -B scripts/contract_slices.py --write")
+    return ("red" if size > limit else "warn"), text
+
+
+def _page_sizes(plugin_root: Path) -> list:
+    """[(rel, role, n, size)] of every listed key page file that exists."""
+    out = []
+    for role, entry, path in keys_targets(plugin_root):
+        if path.parent.name == role and path.exists():
+            text = path.read_text(encoding="utf-8", errors="replace").replace("\r\n", "\n")
+            out.append((path.relative_to(plugin_root).as_posix(), role, keys_page_number(entry), len(text.strip())))
+    return out
+
+
+def keys_warnings(plugin_root: Path) -> list:
+    """The K8 WARN lines (`WARN K8 ...`): a page at or over 80 % of `MAX_BLOCK_CHARS` and not over it. Not a finding: exit 0."""
+    return [f"WARN {text}" for kind, text in (size_finding(*page) for page in _page_sizes(plugin_root)) if kind == "warn"]
 
 
 def keys_findings(plugin_root: Path) -> list:
     out = []
-    declared = set()
+    declared, cache = set(), {}
+    listed = {}
+    for role, entry, _path in keys_targets(plugin_root):
+        listed.setdefault(role, []).append(keys_page_number(entry))
+    for role, numbers in sorted(listed.items()):
+        numbers = sorted(set(numbers))
+        have = _consecutive(numbers)
+        if have != len(numbers):
+            gap = next(n for n in range(1, numbers[-1] + 1) if n not in numbers)
+            out.append(f"references/inject-map.json roles.{role}: the key pages are not consecutive - {page_name(gap)} is not "
+                       f"listed but {page_name(numbers[-1])} is; list every page from the first, or none after the gap")
     for role, entry, path in keys_targets(plugin_root):
         declared.add(path.resolve())
+        n = keys_page_number(entry)
         if path.parent.name != role:
             out.append(f"{entry}: injected to {role} but lives in the {path.parent.name} folder")
         elif not path.exists():
             out.append(f"{entry}: missing - run `python -B scripts/contract_slices.py --write`")
-        elif path.read_text(encoding="utf-8").replace("\r\n", "\n") != handoff_keys_page(plugin_root, role):
-            out.append(f"{entry}: stale - a carrier changed; run `python -B scripts/contract_slices.py --write`")
+        else:
+            if role not in cache:
+                cache[role] = _role_pages(plugin_root, role)
+            pages = cache[role][0]
+            if n <= len(pages) and path.read_text(encoding="utf-8").replace("\r\n", "\n") != pages[n - 1]:
+                out.append(f"{entry}: stale - a carrier changed; run `python -B scripts/contract_slices.py --write`")
+    for rel, role, n, size in _page_sizes(plugin_root):
+        kind, text = size_finding(rel, role, n, size)
+        if kind == "red":
+            out.append(text)
+    out += list(dict.fromkeys(p for _pages, problems in cache.values() for p in problems))
     slices_dir = plugin_root / SLICES_REL
-    for path in sorted_paths(slices_dir.rglob(KEYS_NAME)) if slices_dir.exists() else []:
-        if path.resolve() not in declared:
-            out.append(f"{SLICES_REL}/{path.relative_to(slices_dir).as_posix()}: a key page no role is injected - "
-                       "delete it or point inject-map.json at it")
+    for path in sorted_paths(slices_dir.rglob("handoff-keys*.md")) if slices_dir.exists() else []:
+        if keys_page_number(path.name) is not None and path.resolve() not in declared:
+            rel = f"{SLICES_REL}/{path.relative_to(slices_dir).as_posix()}"
+            out.append(f"unlisted generated page {rel}: a key page no role is injected - delete it (`--write` does) "
+                       "or point inject-map.json at it")
+    try:
+        import role_load
+        out += role_load.native_headroom_problems(plugin_root)       # K10: the plugin share against the Codex native ceiling
+    except Exception as exc:
+        out.append(f"K10 native headroom could not be judged ({type(exc).__name__}: {exc})")
     return out
 
 
 def keys_write(plugin_root: Path) -> list:
-    changed = []
-    for role, _entry, path in keys_targets(plugin_root):
+    """Write every listed key page that is not fresh and delete every generated page no role lists; the relative paths written,
+    and `deleted <path>` for each deletion."""
+    changed, declared, cache = [], set(), {}
+    for role, entry, path in keys_targets(plugin_root):
+        declared.add(path.resolve())
         if path.parent.name != role:
             continue
-        fresh = handoff_keys_page(plugin_root, role)
+        if role not in cache:
+            cache[role] = handoff_keys_pages(plugin_root, role)
+        n = keys_page_number(entry)
+        if n > len(cache[role]):
+            continue                                     # a gap in the list: `keys_findings` names it, nothing is guessed
+        fresh = cache[role][n - 1]
         old = path.read_text(encoding="utf-8").replace("\r\n", "\n") if path.exists() else None
         if old != fresh:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(fresh, encoding="utf-8", newline="\n")
             changed.append(path.relative_to(plugin_root).as_posix())
+    slices_dir = plugin_root / SLICES_REL
+    for path in sorted_paths(slices_dir.rglob("handoff-keys*.md")) if slices_dir.exists() else []:
+        if keys_page_number(path.name) is not None and path.resolve() not in declared:
+            path.unlink()
+            changed.append(f"deleted {path.relative_to(plugin_root).as_posix()}")
     return changed
 
 
@@ -734,7 +1004,7 @@ def report(plugin_root: Path) -> str:
                 continue
             path = plugin_root / e[len(PLUGIN_PREFIX):]
             source = (plugin_root / "references" / Path(e).name) if (e.startswith(SLICE_PREFIX)
-                                                                      and Path(e).name != KEYS_NAME) else path
+                                                                      and keys_page_number(e) is None) else path
             now += content_bytes(path) if path.exists() else 0
             before += content_bytes(source) if source.exists() else 0
         # What `config.prompts.slices: on_demand` would deliver instead: everything that is not a
@@ -743,14 +1013,14 @@ def report(plugin_root: Path) -> str:
         named = common
         for entry in entries or []:
             e = str(entry)
-            # a common-layer slice is delivered in every mode: it stays in the `on_demand` weight
-            if not e.startswith(PLUGIN_PREFIX) or (e.startswith(SLICE_PREFIX)
-                                                   and Path(e).name not in COMMON_LAYER_SUBJECTS):
+            # an inline subject (the common-layer slice, the key page and its continuations) is delivered in every mode: it
+            # stays in the `on_demand` weight and is never counted as named
+            if not e.startswith(PLUGIN_PREFIX) or (e.startswith(SLICE_PREFIX) and not inline_subject(e)):
                 continue
             path = plugin_root / e[len(PLUGIN_PREFIX):]
             named += content_bytes(path) if path.exists() else 0
         index = catalogue_path(plugin_root, role)
-        if any(str(e).startswith(SLICE_PREFIX) and Path(str(e)).name not in COMMON_LAYER_SUBJECTS
+        if any(str(e).startswith(SLICE_PREFIX) and not inline_subject(str(e))
                for e in entries or []) and index.exists():
             named += content_bytes(index)
         lines.append(f"{role:24} {now:8,} {before:9,} {before - now:8,} {named:10,} "
@@ -829,7 +1099,9 @@ def main() -> int:
             print("wrote " + path.relative_to(root).as_posix())
         print(f"slices: {len(targets(root))} declared, {len(changed)} rewritten")
         for line in keys_write(root):
-            print("wrote " + line)
+            print(line if line.startswith("deleted ") else "wrote " + line)
+        for line in keys_warnings(root):
+            print(line)
         for line in charter_write(root):
             print("wrote " + line)
         for line in catalogue_write(root):
@@ -844,6 +1116,8 @@ def main() -> int:
     problems = findings(root) + charter_findings(root) + catalogue_findings(root)
     for line in problems:
         print("SLICE: " + line)
+    for line in keys_warnings(root):
+        print(line)
     if not problems:
         print(f"slices: {len(targets(root))} declared, all present and fresh; "
               f"{len(keys_targets(root))} key pages; "

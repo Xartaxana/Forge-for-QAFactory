@@ -88,3 +88,11 @@ Contract `s3-strategist-to-designer` (fill `work/handoffs/<dispatch>.yaml`; `han
 - `blocked.data[]` (only when blocked) - path of anything the conductor needs to see
 
 Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): `inputs`, `inputs_read`, `header`, `scope`, `artifacts`, `claims`, `unresolved`, `blocked`.
+
+## What code will check of you
+
+`<T>` is your ticket, `<ID>` your dispatch id, `<home>` the project's qa-factory folder - all three stand in your prompt (`Ticket: ... Dispatch: ...`) and in your task packet.
+
+### Not yet in rows
+
+planning_contract.py and observation_contract.py will check, so write to them in fields, not in prose. `verification_depth: low` is accepted ONLY together with `impact: low`, `likelihood: low`, `confidence: high` and `bounded_reversible: true`; repeating the detector's sentence in a note is not evidence, and `impact: unknown` can never be low while `impact: severe` demands `critical`. Every row needs `risk_source_refs` and `required_scenarios` non-empty. A no-write obligation (kind `state_unchanged` or `no_write_attempt`) needs three things beside the claim: `sequence` of exactly four items with phases before_read, action, completion, after_read, each `ref` naming a check or step that exists; `positive_control_ref` naming a MUTATING check that is not one of those four; and `reachability_assertion_ref`. An oracle you cannot settle is `oracle_unknown: true` with `source_conflict: true`; an unresolved oracle does not authorize execution. A letter branch whose answer settles the oracle sets `oracle_unknown: false` and its `coverage_obligations` (`oracle_status: resolved`), each with `sufficiency_review {author_dispatch_id, input_hash, rationale}` and `observation_contract`.

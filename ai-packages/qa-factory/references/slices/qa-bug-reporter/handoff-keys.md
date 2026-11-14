@@ -54,3 +54,11 @@ Contract `s8-bug-reporter-to-scribe` (fill `work/handoffs/<dispatch>.yaml`; `han
 - `blocked.data[]` (only when blocked) - path of anything the conductor needs to see
 
 Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): `inputs`, `inputs_read`, `header`, `scope`, `artifacts`, `claims`, `unresolved`, `blocked`.
+
+## What code will check of you
+
+`<T>` is your ticket, `<ID>` your dispatch id, `<home>` the project's qa-factory folder - all three stand in your prompt (`Ticket: ... Dispatch: ...`) and in your task packet.
+
+### Not yet in rows
+
+bugs/BUG-n.md in the task root IS the bug, whatever the channel. Frontmatter is checked: id, title, severity, status, area, found_by, created, `violates` per the oracle grammar (requirement:R-n | invariant:<id> | consistency:<where> | history:<baseline> | impact:<harm> | external:<norm>) - with no oracle from that list this is an observation, not a bug; `impact` from config.json impact_scale, with `severity` DERIVED from it by the scale rather than assigned; `confirmation` unconfirmed|reproduced_by_factory|confirmed_by_person|confirmed_by_rerun (confirmed_by_person from the person's words, else the draft's value; the code derives reproduced_by_factory), so an unreproduced bug is shown apart. Two sections are mandatory: `## User impact` and `## Initial state`. A tracker is never yours to write: for a non-markdown channel write a proposal under work/proposals/; external_writes.py performs it after the gate. A bug from a draft also names `cases` (or `cases: []` with `no_case_reason`) and `requirements`; your handoff form lists each bug, each draft not filed, and with no draft chosen the one `gate_b` row - a complete answer.
