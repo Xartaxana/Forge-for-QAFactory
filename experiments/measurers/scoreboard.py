@@ -64,10 +64,10 @@ class Refusal(Exception):
 
 # --------------------------------------------------------------------------------------- reading the data files
 
-def _read_text(path, what: str) -> str:
+def _read_text(path, what: str, encoding: str = "utf-8") -> str:
     path = Path(path)
     try:
-        return path.read_bytes().decode("utf-8")
+        return path.read_bytes().decode(encoding)
     except FileNotFoundError:
         raise Refusal(f"{what} {path} is absent")
     except UnicodeDecodeError as exc:
@@ -213,7 +213,7 @@ def _v2_view(doc: dict, path) -> dict:
         if row.get("op") and row.get("better") and {"<=": "lower", ">=": "higher"}[row["op"]] != row["better"]:
             raise Refusal(f"the norms file {path}: row {rid}: `op` {row['op']} and `better` {row['better']} disagree")
         norms[nid] = {**{k: v for k, v in row.items() if k not in V2_ONLY}, "row": rid, "value": row.get("norm")}
-        raises += [{**r, "norm": nid} for r in row.get("raises", [])]
+        raises += [{**r, "norm": nid} for r in row.get("raises", []) if "ratchet" not in r]    # a ratchet raise is not a norm raise (B3)
     return {"schema": "norms/2", "norms": norms, "raises": raises, "rows": rows, "bar_changes": changes}
 
 
@@ -327,12 +327,20 @@ def price_row(task_root: Path, run_class: str) -> dict:
     status, finding = result.get("status"), str(result.get("finding") or "").strip()
     if low is None or high is None:
         return {"state": "unknown", "value": None, "why": f"task_price has no price ({status}): {finding}".rstrip(": ")}
+    low, high = round(low, 4), round(high, 4)
+    # The four statuses of `task_price` are the four states of amendment B1 (the value shapes are the amendment's); a status outside the
+    # four is `unknown` naming it, never `measured` (FR-41, AR-28).
+    if status == "agrees" and low == high:
+        return {"state": "measured", "value": low, "why": f"task_price status {status}"}
+    if status in ("agrees", "differs"):
+        note = finding or f"task_price status {status} but the low and high ends differ"
+        return {"state": "range", "value": {"low": low, "high": high, "note": note}, "why": f"range, task_price status {status}: {finding}".rstrip(": ")}
     if status == "incomplete":
-        return {"state": "unknown", "value": None, "why": f"task_price is incomplete, the price is at least {round(low, 4)} usd: {finding}".rstrip(": ")}
-    if low == high:
-        return {"state": "measured", "value": round(low, 4), "why": f"task_price status {status}"}
-    return {"state": "measured", "value": {"low": round(low, 4), "high": round(high, 4)},
-            "why": f"range, task_price status {status}: {finding}".rstrip(": ")}
+        note = finding or "a session has no record"
+        return {"state": "at_least", "value": {"at_least": low, "note": note}, "why": f"task_price is incomplete, the price is at least {low} usd: {finding}".rstrip(": ")}
+    if status == "not_cross_checked":
+        return {"state": "one_source", "value": {"value": low, "note": "one source"}, "why": "task_price status not_cross_checked: one source"}
+    return {"state": "unknown", "value": None, "why": f"task_price status {status!r} is not one of agrees, differs, incomplete, not_cross_checked"}
 
 
 # --------------------------------------------------------------------------------------- the judgment (K1)
@@ -432,33 +440,76 @@ def _stricter_or_equal(op: str, a, b) -> bool:
     return a <= b if op == "<=" else a >= b
 
 
-def _worded(row) -> int:
-    return sum(1 for r in (row or {}).get("raises", []) if isinstance(r, dict) and isinstance(r.get("word"), str) and r["word"].strip())
+RAISE_TEXT_KEYS = ("raised_by", "reason", "word")
+
+
+def _text_ok(item, keys) -> bool:
+    return isinstance(item, dict) and all(isinstance(item.get(k), str) and item[k].strip() for k in keys)
+
+
+def _ratchet_key(element: dict) -> str:
+    """The name of one ratchet element in a `raises` entry: `<pair>@<factory model>` (B3: a ratchet raise is scoped to its element)."""
+    return f"{element.get('pair')}@{element.get('factory_model')}"
 
 
 def _ratchet_problems(rows: dict, old_rows: dict) -> list:
-    """K5 for a ratchet: an element of `ratchets` is never removed, and its `value` never worsens (by the row's `better`), unless the row
-    gained a `raises` element carrying a non-empty `word`. A whole row that carried ratchets and is gone counts as removed."""
+    """K5 for a ratchet: an element of `ratchets` is never removed, and its `value` never worsens (by the row's `better`, judged by the ONE
+    judge), unless the row gained a `raises` entry `{"ratchet": "<pair>@<factory model>", raised_by, reason, word}` for THAT element. A norm
+    raise legalises no ratchet change and a ratchet raise no norm change. A whole row that carried ratchets and is gone counts as removed."""
     problems = []
     for rid, old in old_rows.items():
         if not isinstance(old, dict) or not old.get("ratchets"):
             continue
         new = rows.get(rid) if isinstance(rows.get(rid), dict) else {}
-        if _worded(new) > _worded(old):
-            continue
+        old_raises = [r for r in old.get("raises", []) if isinstance(r, dict)]
+        worded = {r["ratchet"] for r in new.get("raises", []) if isinstance(r, dict) and isinstance(r.get("ratchet"), str)
+                  and r not in old_raises and _text_ok(r, RAISE_TEXT_KEYS)}
         better = new.get("better", old.get("better"))
         for element in old["ratchets"]:
             key = (element.get("pair"), element.get("factory_model"))
+            if _ratchet_key(element) in worded:
+                continue
             match = next((e for e in new.get("ratchets", []) if (e.get("pair"), e.get("factory_model")) == key), None)
             if match is None:
-                problems.append(f"row {rid}: the ratchet {key[0]} ({key[1]}) was removed and no new `raises` element carries the owner's `word`")
+                problems.append(f"row {rid}: the ratchet {key[0]} ({key[1]}) was removed and no new `raises` entry for `ratchet: {_ratchet_key(element)}` "
+                                f"carries `raised_by`, `reason` and the owner's `word`")
                 continue
-            a, b = _range(element.get("value")), _range(match.get("value"))
-            if a is None or b is None or better not in ("lower", "higher"):
+            if match.get("value") == element.get("value"):
+                continue
+            outcome = judge(better, "measured", match.get("value"), element.get("value"))
+            if outcome == "unknown":
                 problems.append(f"row {rid}: the ratchet {key[0]} cannot be compared with its earlier value (value or `better` unreadable)")
-            elif (b[1] > a[1]) if better == "lower" else (b[0] < a[0]):
-                problems.append(f"row {rid}: the ratchet {key[0]} worsened from {_shown(element['value'])} to {_shown(match['value'])} "
-                                f"and no new `raises` element carries the owner's `word`")
+            elif outcome not in ("not_worse", "better"):
+                said = "worsened" if outcome == "worse" else f"cannot be shown not to have worsened ({outcome})"
+                problems.append(f"row {rid}: the ratchet {key[0]} {said} from {_shown(element['value'])} to {_shown(match['value'])} "
+                                f"and no new `raises` entry for `ratchet: {_ratchet_key(element)}` carries the owner's `word`")
+    return problems
+
+
+def _row_problems(rows: dict, old_rows) -> list:
+    """The per-row checks that hold with or without a `kind` (B3, Q-b): every ratchet raise names a `<pair>@<factory model>` and carries
+    `raised_by`, `reason` and `word`, non-blank; on a row with no norm every raise does; earlier ratchet raises are only appended to; a NEW
+    `worsened_passes` entry (absent in `old_rows`; with no `--against` every entry is new) names the `factory_model` it clears."""
+    problems = []
+    for rid, row in rows.items():
+        old = (old_rows or {}).get(rid) if isinstance((old_rows or {}).get(rid), dict) else {}
+        for index, raised in enumerate(row.get("raises", [])):
+            if "ratchet" not in raised and "kind" in row:
+                continue                                    # a norm raise: the norm checks judge it
+            if not _text_ok(raised, RAISE_TEXT_KEYS):
+                problems.append(f"row {rid}: raises[{index}] needs `raised_by`, `reason` and the owner's `word` (all text, none empty)")
+            elif "ratchet" in raised:
+                left, _at, model = str(raised["ratchet"]).rpartition("@")
+                if not isinstance(raised["ratchet"], str) or not PAIR.fullmatch(left) or not model:
+                    problems.append(f"row {rid}: raises[{index}]: `ratchet` is <agent model id>/<story>@<factory model>")
+        was = [r for r in old.get("raises", []) if isinstance(r, dict) and "ratchet" in r]
+        now = [r for r in row.get("raises", []) if isinstance(r, dict) and "ratchet" in r]
+        if now[:len(was)] != was:
+            problems.append(f"row {rid}: ratchet raises may only be appended: an earlier one was changed or removed")
+        before = [p for p in old.get("worsened_passes", []) if isinstance(p, dict)]
+        for index, entry in enumerate(row.get("worsened_passes", [])):
+            if isinstance(entry, dict) and entry not in before and not (isinstance(entry.get("factory_model"), str) and entry["factory_model"].strip()):
+                problems.append(f"row {rid}: worsened_passes[{index}] is new and needs the `factory_model` it clears")
     return problems
 
 
@@ -510,6 +561,7 @@ def check_norms(doc: dict, against=None) -> list:
         if not _stricter_or_equal(op, value, base):
             problems.append(f"norm {nid}: value {value} is looser than its baseline {base} and no raise row names it "
                             f"(raise rows need `raised_by`, `reason`, the owner's `word`)")
+    problems += _row_problems(doc.get("rows", {}), None if against is None else against.get("rows", {}))
     if against is not None:
         old_norms, old_raises = against.get("norms", {}), against.get("raises", [])
         for nid in dict.fromkeys(r.get("norm") for r in old_raises if isinstance(r, dict)):      # per norm: the rows live under their row now
@@ -551,9 +603,10 @@ def _judge_one(norm: dict, rows: dict, run_class: str, bar, truth_version, rows_
     if run_class != "live":
         return "unknown", f"not judged: run class {run_class} (K7)"
     row = rows.get(norm.get("row"))
-    if not isinstance(row, dict) or row.get("state") != "measured" or _num(row.get("value")) is None:
+    scalar = _scalar(row) if isinstance(row, dict) else None
+    if scalar is None:
         return "unknown", f"row {norm.get('row')}: " + (row.get("why") or row.get("state", "absent") if isinstance(row, dict) else "absent")
-    now = float(row["value"])
+    now = scalar
     if norm["kind"] == "not_worse_than_bar":
         bar_row = ((bar or {}).get("rows") or {}).get(norm["row"])
         if bar is None:
@@ -566,7 +619,7 @@ def _judge_one(norm: dict, rows: dict, run_class: str, bar, truth_version, rows_
         better = (rows_doc["rows"].get(norm["row"]) or {}).get("better")
         if better is None:
             return "unknown", f"row {norm['row']} declares no direction (`better`), so worse is not decided"
-        worse = now > bar_row["value"] if better == "lower" else now < bar_row["value"]
+        worse = judge(better, "measured", now, bar_row["value"]) == "worse"
         return ("red", f"{now} against the bar {bar_row['value']}") if worse else ("green", "")
     if norm.get("value") is None:
         return "unknown", "the norm value is not set"
@@ -579,8 +632,7 @@ def _judge_one(norm: dict, rows: dict, run_class: str, bar, truth_version, rows_
         if not isinstance(bar_row, dict) or bar_row.get("state") != "measured" or not _num(bar_row.get("value")):
             return "unknown", f"the bar has no measured non-zero {norm.get('bar_row')}"
         measured = round(now / float(bar_row["value"]), 2)
-    ok = measured <= limit if op == "<=" else measured >= limit
-    if not ok:
+    if judge("lower" if op == "<=" else "higher", "measured", measured, limit) == "worse":
         return "red", f"{measured} against the norm {op} {limit}"
     guard = rows.get(norm.get("unknown_row")) if norm.get("unknown_row") else None
     if isinstance(guard, dict) and (guard.get("state") != "measured" or _num(guard.get("value")) is None or guard["value"] > limit):
@@ -598,6 +650,50 @@ def _range(value):
     return (number, number) if number is not None else None
 
 
+VALUE_STATES = ("measured", "one_source", "range")        # states whose value can be compared as a number or a range
+OUTCOMES = ("worse", "not_worse", "better", "not decided: range", "not decided: lower bound", "unknown")
+
+
+def _bounds(value):
+    """(low, high) of a number, a `{low, high}` range or a `{value}` (the one_source shape); None for anything else."""
+    if isinstance(value, dict) and "low" not in value and "high" not in value:
+        number = _num(value.get("value")) if "value" in value else None
+        return (number, number) if number is not None else None
+    return _range(value)
+
+
+def _scalar(item: dict):
+    """The one number of a row in state measured or one_source; None for any other state or a range."""
+    got = _bounds(item.get("value")) if item.get("state") in ("measured", "one_source") else None
+    return got[0] if got and got[0] == got[1] else None
+
+
+def judge(better, state, value, against) -> str:
+    """THE comparison rule of amendment B1 (one function; `compare`, `compare --release`, OQ2, `can ratchet:`, the K5 ratchet check and the
+    norm verdicts all read it). `value` of `state` is judged against `against` (a number or a range). Exactly one of: `worse`, `not_worse`
+    (the value is not beyond `against`), `better` (strictly beyond, the whole range), `not decided: range`, `not decided: lower bound`,
+    `unknown` (no direction, a state or a value that is not comparable: an unknown is never `not_worse`, FR-41, AR-28)."""
+    prev = _bounds(against)
+    if better not in ("lower", "higher") or prev is None:
+        return "unknown"
+    lower = better == "lower"
+    if state == "at_least":                                   # a lower bound: it can prove `worse`, never `not_worse`
+        bound = _num(value.get("at_least")) if isinstance(value, dict) else _num(value)
+        if bound is None:
+            return "unknown"
+        return "worse" if lower and bound > prev[1] else "not decided: lower bound"
+    now = _bounds(value) if state in VALUE_STATES else None
+    if now is None:
+        return "unknown"
+    if (now[0] > prev[1]) if lower else (now[1] < prev[0]):
+        return "worse"
+    if (now[1] < prev[0]) if lower else (now[0] > prev[1]):
+        return "better"
+    if (now[1] <= prev[0]) if lower else (now[0] >= prev[1]):
+        return "not_worse"
+    return "not decided: range"
+
+
 def build_compare(doc: dict, previous: dict | None, previous_name, bar_name, rows_doc: dict) -> dict:
     """Per row {was, now, worse} against the previous scoreboard. `worse` is true/false only between two measured values of the SAME row;
     anything else is null with the reason; a first run has no `rows` at all; a dry/smoke/unknown/mixed run is `not_comparable` (K7)."""
@@ -613,27 +709,23 @@ def build_compare(doc: dict, previous: dict | None, previous_name, bar_name, row
     for rid, spec in rows_doc["rows"].items():
         now, was = (doc.get("rows") or {}).get(rid), (previous.get("rows") or {}).get(rid)
         if not isinstance(now, dict) or not isinstance(was, dict):
-            result[rid] = {"was": None, "now": None, "worse": None, "why": "the row is absent in one of the two files"}
+            result[rid] = {"was": None, "now": None, "worse": None, "outcome": "unknown", "why": "the row is absent in one of the two files"}
             continue
         if spec.get("truth_bound") and run.get("truth_version") != was_run.get("truth_version"):
             result[rid] = {"not_comparable": f"truth {was_run.get('truth_version')} vs {run.get('truth_version')}"}
             continue
-        entry = {"was": was.get("value") if was.get("state") == "measured" else was.get("state"),
-                 "now": now.get("value") if now.get("state") == "measured" else now.get("state"), "worse": None}
-        a, b = (_range(was.get("value")) if was.get("state") == "measured" else None), (_range(now.get("value")) if now.get("state") == "measured" else None)
-        if a is None or b is None:
-            entry["why"] = "one of the two values is not measured: nothing to compare"
-        elif spec.get("better") is None:
-            entry["why"] = "the row declares no direction (`better`)"
+        shows = VALUE_STATES + ("at_least",)
+        entry = {"was": was.get("value") if was.get("state") in shows else was.get("state"),
+                 "now": now.get("value") if now.get("state") in shows else now.get("state"), "worse": None}
+        outcome = judge(spec.get("better"), now.get("state"), now.get("value"), was.get("value") if was.get("state") in VALUE_STATES else None)
+        entry["outcome"] = outcome
+        if outcome == "unknown":
+            entry["why"] = "the row declares no direction (`better`)" if spec.get("better") is None \
+                else "one of the two values is not measured: nothing to compare"
+        elif outcome.startswith("not decided"):
+            entry["why"] = f"{outcome}: worse is not decided"
         else:
-            lower = spec["better"] == "lower"
-            worse = b[0] > a[1] if lower else b[1] < a[0]
-            better = b[1] < a[0] if lower else b[0] > a[1]
-            entry["worse"] = worse
-            if not worse and not better and (a[0] != a[1] or b[0] != b[1]) and b[0] != a[0]:
-                entry["worse"], entry["why"] = None, "the two ranges overlap: worse is not decided"
-            elif not worse and not better and a[0] == a[1] and b[0] == b[1]:
-                entry["worse"] = False
+            entry["worse"] = outcome == "worse"
         result[rid] = entry
     out["rows"] = result
     return out
@@ -752,7 +844,12 @@ def assemble(task_root, stand, story, arm, version, rows_path=None, norms_path=N
 # --------------------------------------------------------------------------------------- compare: printing, findings
 
 def _shown(value) -> str:
-    return f"{value['low']}..{value['high']}" if isinstance(value, dict) else str(value)
+    if isinstance(value, dict):
+        for key in ("at_least", "value"):                  # the at_least and one_source shapes of X1 (B1)
+            if key in value and "low" not in value:
+                return str(value[key])
+        return f"{value.get('low')}..{value.get('high')}"
+    return str(value)
 
 
 def render_compare(doc: dict, comp: dict, norms: dict, norms_doc: dict, rows_doc: dict, name: str) -> list:
@@ -884,6 +981,9 @@ def cmd_compare(args) -> int:
             print(f"finding: {item}")
         for card in cards:
             print(card)
+        for rid, entry in (comp.get("rows") or {}).items():          # an undecided or unknown row is never a finding and never a pass
+            if str(entry.get("outcome")).startswith("not decided") or entry.get("outcome") == "unknown":
+                print(f"no finding: {rid} {entry['outcome']} (was {_shown(entry.get('was'))}, now {_shown(entry.get('now'))})")
     return 0
 
 

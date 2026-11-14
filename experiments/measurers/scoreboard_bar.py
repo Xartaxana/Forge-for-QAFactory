@@ -9,8 +9,9 @@
 `release-check --release V` runs `release_lines` and judges its lines; `--lines` judges a saved copy: ONE judge, two inputs.
 
 PRICE (spec 3 item 2, B1-E5/E6): the free arm's price is its transcripts RE-PRICED by the catalogue, request by request, through the
-helpers `compare.py` already uses for the same job (`price_seen`, `is_empty_marker`) and the rate rule of the package
-(`cost_capture.resolve_rate`: the project's `rate_overrides` first, then the bundled catalogue). The host's `total_cost_usd` (the
+package's own valuation (`cost_capture.value_usage`: the project's `rate_overrides` first, then the bundled catalogue, the long-context
+tariff, the request's provider and date window: the formula the factory side uses, P18); `compare.is_empty_marker` skips the
+marker turns. The host's `total_cost_usd` (the
 `free-N.log` result) is only PRINTED beside the value, never part of it. A transcript that cannot be read, a missing one, an empty list,
 a request the catalogue cannot price: the value is `unknown` with the reason, never 0 and never the host figure (FR-41, AR-28).
 
@@ -24,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from decimal import Decimal
 import re
 import sys
 from pathlib import Path
@@ -45,14 +47,16 @@ def _cost_capture():
 NEEDED = "release: owner's word needed -- "
 OQ2 = re.compile(r"(?P<row>\S+) ratcheted, new bar (?P<bar>\S+) is better than the factory")
 PAIRED = re.compile(r"(?P<row>\S+) (?P<pair>[^\s/]+/\S+)(?: .*)?")
+FM_TAG = re.compile(r" \[factory model (?P<model>[^\]]+)\]$")
+LINE_PREFIXES = ("release: ", "can ratchet: ")
 DECISIONS = ("keep", "lift")
 
 
 # --------------------------------------------------------------------------------------- the bar's price
 
 def _requests(path: Path) -> dict:
-    """{message id: (model, usage)} of one transcript: the unique requests that carry a `usage` block, the same collection `compare.scan`
-    makes (it does not expose it). Lines that are not JSON are skipped as there. Raises OSError / UnicodeDecodeError."""
+    """{message id: (model, usage, timestamp)} of one transcript: the unique requests that carry a `usage` block, the same collection
+    `compare.scan` makes (it does not expose it). Lines that are not JSON are skipped as there. Raises OSError / UnicodeDecodeError."""
     seen = {}
     with path.open(encoding="utf-8") as handle:
         for line in handle:
@@ -63,7 +67,7 @@ def _requests(path: Path) -> dict:
             message = item.get("message") if isinstance(item, dict) else None
             message = message if isinstance(message, dict) else {}
             if item.get("type") == "assistant" and isinstance(message.get("usage"), dict) and not CMP.is_empty_marker(message.get("model"), message["usage"]):
-                seen[message.get("id") or item.get("uuid")] = (message.get("model"), message["usage"])
+                seen[message.get("id") or item.get("uuid")] = (message.get("model"), message["usage"], item.get("timestamp"))
     return seen
 
 
@@ -101,7 +105,7 @@ def bar_price(transcripts, cfg=None, results=()) -> dict:
         out["why"] = "no transcript of the free arm was given: nothing to re-price"
         return out
     CC = _cost_capture()
-    total, requests, catalogue = 0.0, 0, CC.load_catalogue()
+    total, requests, catalogue = Decimal("0"), 0, CC.load_catalogue()
     for path in paths_:
         try:
             seen = _requests(path)
@@ -111,41 +115,63 @@ def bar_price(transcripts, cfg=None, results=()) -> dict:
         except (OSError, UnicodeDecodeError) as exc:
             out["why"] = f"the transcript {path.name} cannot be read ({exc.__class__.__name__}) (not recomputed)"
             return out
-        rate = {model: CC.resolve_rate(model, cfg, catalogue)[0] for model, _u in seen.values()}
-        cost, unpriced = CMP.price_seen(rate, seen)
-        out["unpriced"] += unpriced
-        total, requests = total + cost, requests + len(seen)
+        for model, usage, stamp in seen.values():
+            cost = _request_cost(CC, model, usage, stamp, cfg, catalogue)
+            if cost is None:
+                out["unpriced"] += 1
+            else:
+                total += cost
+        requests += len(seen)
     if out["unpriced"]:
         out["why"] = f"{out['unpriced']} request(s) the catalogue cannot price: the sum would be a lower bound, not a price"
     elif not requests:
         out["why"] = "the transcripts hold no request with a usage block (not recomputed)"
     else:
-        out.update(state="measured", value=round(total, 4), why=f"{requests} request(s) of {len(paths_)} transcript(s) re-priced by the catalogue")
+        out.update(state="measured", value=round(float(total), 4), why=f"{requests} request(s) of {len(paths_)} transcript(s) re-priced by the catalogue")
     return out
+
+
+def _request_cost(CC, model, usage, stamp, cfg, catalogue):
+    """One request valued by the package's own `cost_capture.value_usage` (the factory side's formula: long-context tariff, the request's
+    provider and date window), never by a formula of this folder. None when the valuation is not complete (an unpriced request is counted,
+    never a zero). The date is the transcript line's own `timestamp`; a line with none or an unreadable one is asked with no window, which is
+    the package's rule for a request without a date (`resolve_rate`: the window is not checked)."""
+    agg = CC.zero()
+    CC.add_usage(agg, usage)
+    valuation = CC.value_usage(agg, model, cfg or {}, catalogue, CC.model_provider(model), CC.parse_ts(stamp))
+    return Decimal(valuation["subtotal_usd"]) if valuation.get("pricing_coverage") == "complete" else None
 
 
 def price_line(priced: dict) -> str:
     """One printed line: the value (or `unknown: <why>`) and, beside it and apart from it, the host's figure."""
     host = priced.get("host_total_usd")
     shown = f"{priced['value']} usd (re-priced by the catalogue)" if priced["state"] == "measured" else f"unknown: {priced['why']}"
-    return f"bar price: {shown}; host total_cost_usd: {'not given' if host is None else host} (the host's figure, printed only, not part of the value)"
+    gap = ""
+    if priced["state"] == "measured" and host is not None:                # FR-25: two records of one quantity, the gap printed
+        gap = f"; gap: {round(host - priced['value'], 4)} (host - re-priced)"
+    return (f"bar price: {shown}; host total_cost_usd: {'not given' if host is None else host} "
+            f"(the host's figure, printed only, not part of the value){gap}")
 
 
 # --------------------------------------------------------------------------------------- the OQ2 line
 
 def beats(row: str, better, a_value, b_value) -> bool:
-    """`a` is STRICTLY better than `b` (ranges: the whole range of `a` beyond the whole range of `b`). A value that is not a number or a range,
-    or a row with no direction, is a refusal naming the row: not-better is never assumed."""
-    a, b = SB._range(a_value), SB._range(b_value)
-    if a is None or b is None or better not in ("lower", "higher"):
+    """`a` is STRICTLY better than `b`: the outcome `better` of the one judge (ranges: the whole range of `a` beyond the whole range of `b`).
+    A value that is not a number or a range, or a row with no direction, is a refusal naming the row: not-better is never assumed."""
+    outcome = SB.judge(better, "measured", a_value, b_value)
+    if outcome == "unknown":
         raise SB.Refusal(f"row {row}: the values {a_value!r} and {b_value!r} or the direction {better!r} cannot be compared")
-    return a[1] < b[0] if better == "lower" else a[0] > b[1]
+    return outcome == "better"
 
 
-def bar_better_line(row: str, bar_file: str, better, factory, bar) -> str | None:
-    """OQ2: the line `release: owner's word needed -- <row> ratcheted, new bar <bar file> is better than the factory` when the new bar is
-    STRICTLY better than the factory's value on a ratcheted row, else None (the comparison is `beats`)."""
-    return f"{NEEDED}{row} ratcheted, new bar {bar_file} is better than the factory" if beats(row, better, bar, factory) else None
+def bar_better_line(row: str, bar_file: str, better, factory, bar, state: str = "measured") -> str | None:
+    """OQ2: the line `release: owner's word needed -- <row> ratcheted, new bar <bar file> is better than the factory` when the factory's value
+    (of `state`) is `worse` than the bar's by the one judge, or `not decided` against it (an overlapping range may hide a better bar: the owner
+    is asked); None when the bar is not better. An unreadable value or no direction is a refusal naming the row."""
+    outcome = SB.judge(better, state, factory, bar)
+    if outcome == "unknown":
+        raise SB.Refusal(f"row {row}: the values {factory!r} and {bar!r} or the direction {better!r} cannot be compared")
+    return f"{NEEDED}{row} ratcheted, new bar {bar_file} is better than the factory" if outcome == "worse" or outcome.startswith("not decided") else None
 
 
 # --------------------------------------------------------------------------------------- compare --release (B2)
@@ -155,8 +181,8 @@ def _flat(text) -> str:
 
 
 def _boards(root: Path, version: str) -> tuple:
-    """({(stand, story): (stamp, path, doc)}: the newest factory scoreboard of `version` per folder, any run class; whether a LIVE factory
-    scoreboard of ANOTHER version exists (a previous release); notes for the files that could not be read)."""
+    """({(stand, story): [(stamp, path, doc)] newest first}: every factory scoreboard of `version` per folder, any run class; whether a LIVE
+    factory scoreboard of ANOTHER version exists (a previous release); notes for the files that could not be read)."""
     mine, other, notes = {}, False, []
     for path in sorted(root.glob("*/*/*.yaml")) if root.is_dir() else []:
         match = SB.FILE_NAME.fullmatch(path.name)
@@ -171,11 +197,31 @@ def _boards(root: Path, version: str) -> tuple:
             continue
         key = (path.parent.parent.name, path.parent.name)
         if match.group(2) == f"{version}-factory":
-            if key not in mine or (match.group(1), path.name) > (mine[key][0], mine[key][1].name):
-                mine[key] = (match.group(1), path, doc)
+            mine.setdefault(key, []).append((match.group(1), path, doc))
         elif isinstance(doc.get("run"), dict) and doc["run"].get("run_class") == "live":
             other = True
+    for found in mine.values():
+        found.sort(key=lambda b: (b[0], b[1].name), reverse=True)
     return mine, other, notes
+
+
+def _run_of(board) -> dict:
+    return board.get("run") if isinstance(board.get("run"), dict) else {}
+
+
+def _live(candidates: list, factory_model=None):
+    """The newest LIVE board of a folder (holding `factory_model` in `run.models` when one is named), else None."""
+    for _stamp, _path, board in candidates:
+        models = _run_of(board).get("models")
+        if _run_of(board).get("run_class") == "live" and (factory_model is None or (isinstance(models, list) and factory_model in [str(m) for m in models])):
+            return board
+    return None
+
+
+def _board_for(candidates: list, factory_model: str):
+    """The board one ratchet element is judged on (F3): the newest live board of the element's factory model; none: the newest live board
+    (so the line names the model mismatch), none: the newest board of any class (so the line names the class), none: None."""
+    return _live(candidates, factory_model) or _live(candidates) or (candidates[0][2] if candidates else None)
 
 
 def _bars(root: Path, stand: str, story: str, notes: list) -> list:
@@ -192,38 +238,53 @@ def _bars(root: Path, stand: str, story: str, notes: list) -> list:
 def _element_line(rid: str, better, el: dict, board, version: str) -> str:
     """The ONE line of one ratcheted element (amendment B2, table B1 of the base spec): worse / not decided / unknown / no value / no
     comparable measurement / ok. Every doubt is `owner's word needed`; nothing unknown reads as `not worse` (FR-41, AR-28)."""
-    pre = f"{NEEDED}{rid} {el['pair']} "
+    tag = f" [factory model {el['factory_model']}]"          # a worsened_passes entry clears ONE factory model's element (Q-b)
+
+    def need(text: str) -> str:
+        return f"{NEEDED}{rid} {el['pair']} {text}{tag}"
     if board is None:
-        return pre + "no value in this release (no scoreboard for the pair)"
-    run = board.get("run") if isinstance(board.get("run"), dict) else {}
+        return need("no value in this release (no scoreboard for the pair)")
+    run = _run_of(board)
     if run.get("run_class") != "live":
-        return pre + f"no comparable measurement (run class {run.get('run_class')} vs live)"
+        return need(f"no comparable measurement (run class {run.get('run_class')} vs live)")
     models = [str(m) for m in run.get("models") or []] if isinstance(run.get("models"), list) else []
     if el["factory_model"] not in models:
-        return pre + f"no comparable measurement (factory model {el['factory_model']} vs {', '.join(models) or 'unknown'})"
+        return need(f"no comparable measurement (factory model {el['factory_model']} vs {', '.join(models) or 'unknown'})")
     item = board["rows"].get(rid)
     if not isinstance(item, dict):
-        return pre + f"unknown: the scoreboard has no row {rid}"
+        return need(f"unknown: the scoreboard has no row {rid}")
     state, value = item.get("state"), item.get("value")
-    prev = SB._range(el["value"])
-    if state == "at_least":
-        bound = SB._num(value)
-        if bound is None:
-            return pre + f"unknown: the lower bound of {rid} is not a number"
-        if better == "lower" and bound > prev[1]:
-            return pre + f"was {SB._shown(el['value'])} ({el['since']}) now at least {SB._shown(value)} ({version})"
-        return pre + f"not decided: lower bound ({SB._shown(value)})"
-    if state not in ("measured", "one_source", "range"):
-        return pre + f"unknown: {_flat(item.get('why') or state)}"
-    now = SB._range(value)
-    if now is None:
-        return pre + f"unknown: the value of {rid} is not a number"
-    worse, fine = (now[0] > prev[1], now[1] <= prev[0]) if better == "lower" else (now[1] < prev[0], now[0] >= prev[1])
-    if worse:
-        return pre + f"was {SB._shown(el['value'])} ({el['since']}) now {SB._shown(value)} ({version})"
-    if fine:
+    outcome = SB.judge(better, state, value, el["value"])
+    if outcome == "worse":
+        return need(f"was {SB._shown(el['value'])} ({el['since']}) now {'at least ' if state == 'at_least' else ''}{SB._shown(value)} ({version})")
+    if outcome in ("not_worse", "better"):
         return f"release: ok -- {rid} {el['pair']} not worse"
-    return pre + f"not decided: range ({SB._shown(value)})"
+    if outcome.startswith("not decided"):
+        return need(f"{outcome} ({SB._shown(value)})")
+    if state not in SB.VALUE_STATES + ("at_least",):
+        return need(f"unknown: {_flat(item.get('why') or state)}")
+    return need(f"unknown: the value of {rid} is not a number")
+
+
+def _oq2_lines(rid: str, better, el: dict, board: dict, bars: list, done: set) -> list:
+    """OQ2 (F4): for one ratcheted element, a line per OTHER bar file of the folder that the factory's value does not beat or may not beat
+    (the one judge on the states measured, one_source, range: `worse` or `not decided`). `done` holds (row, bar) pairs already printed."""
+    item = board["rows"].get(rid)
+    if not isinstance(item, dict) or item.get("state") not in SB.VALUE_STATES:
+        return []
+    out = []
+    for label, _model, bar_doc in bars:
+        bar_row = (bar_doc.get("rows") or {}).get(rid)
+        if label == el["bar"] or (rid, label) in done or not isinstance(bar_row, dict) or bar_row.get("state") != "measured":
+            continue
+        try:
+            line = bar_better_line(rid, label, better, item.get("value"), bar_row.get("value"), item.get("state"))
+        except SB.Refusal:
+            continue                    # an unreadable value is not "better"; the element line already speaks for the row
+        if line:
+            done.add((rid, label))
+            out.append(line)
+    return out
 
 
 def release_lines(version: str, norms_doc: dict, root=None) -> list:
@@ -239,41 +300,34 @@ def release_lines(version: str, norms_doc: dict, root=None) -> list:
     lines, oq2 = [], set()
     if not ratcheted and not other_live:
         lines.append("release: no previous release -- ratchet not judged")
+    if not any(_live(found) for found in mine.values()):
+        lines.append(f"release: warning -- no live factory scoreboard of {version}: nothing judged")        # B1-E3, B2-E1: nothing measured is not "ok"
     for rid, row in rows.items():
         for el in row.get("ratchets", []):
             stand, story = el["bar"].split("/")[:2]
-            board = (mine.get((stand, story)) or (None, None, None))[2]
+            board = _board_for(mine.get((stand, story)) or [], el["factory_model"])
             lines.append(_element_line(rid, row.get("better"), el, board, version))
-            if board is None or board.get("run", {}).get("run_class") != "live":
-                continue
-            item = board["rows"].get(rid)
-            for label, _model, bar_doc in _bars(root, stand, story, notes):
-                bar_row = (bar_doc.get("rows") or {}).get(rid)
-                if label == el["bar"] or label in oq2 or not isinstance(item, dict) or not isinstance(bar_row, dict) \
-                        or item.get("state") != "measured" or bar_row.get("state") != "measured":
-                    continue
-                try:
-                    line = bar_better_line(rid, label, row.get("better"), item.get("value"), bar_row.get("value"))
-                except SB.Refusal:
-                    continue                    # an unreadable value is not "better"; the element line above already speaks for the row
-                if line:
-                    oq2.add(label)
-                    lines.append(line)
+            if board is not None and _run_of(board).get("run_class") == "live":
+                lines += _oq2_lines(rid, row.get("better"), el, board, _bars(root, stand, story, notes), oq2)
     seen = set()
-    for (stand, story), (_stamp, path, board) in sorted(mine.items()):
-        run = board.get("run") if isinstance(board.get("run"), dict) else {}
-        if run.get("run_class") != "live":
+    for (stand, story), found in sorted(mine.items()):
+        board = _live(found)
+        if board is None:
             continue
         passed = {p.get("norm") for p in board.get("passes") or [] if isinstance(p, dict)}
         for nid, item in (board.get("norms") or {}).items():
             norm = item.get("norm") if isinstance(item, dict) and isinstance(item.get("norm"), dict) else {}
             rid = norm.get("row")
-            if not isinstance(item, dict) or item.get("verdict") != "red" or nid in passed or rid is None \
+            verdict = item.get("verdict") if isinstance(item, dict) else None
+            if verdict not in ("red", "unknown") or (verdict == "red" and nid in passed) or rid is None \
                     or any(r == rid and p.endswith("/" + story) for r, p in ratcheted):
                 continue
-            shown = SB._shown((board["rows"].get(rid) or {}).get("value"))
-            against = norm.get("value") if norm.get("value") is not None else _flat(item.get("why") or "unknown")
-            line = f"release: warning -- {rid} red: {shown} against norm {against}"
+            if verdict == "unknown":                                      # B2-E4: an unratcheted row nothing could be said about
+                line = f"release: warning -- {rid} unknown: {_flat(item.get('why') or 'unknown')}"
+            else:
+                shown = SB._shown((board["rows"].get(rid) or {}).get("value"))
+                against = norm.get("value") if norm.get("value") is not None else _flat(item.get("why") or "unknown")
+                line = f"release: warning -- {rid} red: {shown} against norm {against}"
             if line not in seen:
                 seen.add(line)
                 lines.append(line)
@@ -322,9 +376,15 @@ def release_check(lines, version: str, norms_path=None, produced=False) -> tuple
     """(exit code, printed lines). 0: no line needs the owner's word, or each has it recorded; 1: the list; a Refusal for unreadable input.
     `produced`: the lines come straight from `release_lines` (the direct road), so an empty list is a real "nothing to judge", not a missing
     input; from `--lines` an empty input stays a refusal."""
+    if not produced:                      # B4: a text file is outside input; a line that is not the producer's shape is named, never passed over
+        for number, line in enumerate(lines, 1):
+            shown = str(line).strip()
+            if shown and not shown.startswith(LINE_PREFIXES):
+                raise SB.Refusal(f"the release lines, line {number}: {shown[:200]!r} is not a `release: ...` or `can ratchet: ...` line of "
+                                 f"`compare --release` (exact lower-case prefixes): the wrong file, or its text was changed")
     lines = [str(line).strip() for line in lines if str(line).strip()]
     if not lines and not produced:
-        raise SB.Refusal("no `release:` line was given: `compare --release` was not run or printed nothing, and nothing is not a pass")
+        raise SB.Refusal("no lines: no `release:` line was given: `compare --release` was not run or printed nothing, and nothing is not a pass")
     passes, changes, notes = _answers(norms_path)
     open_, printed = [], list(notes)
     for line in lines:
@@ -333,11 +393,14 @@ def release_check(lines, version: str, norms_path=None, produced=False) -> tuple
             continue
         rest = line[len(NEEDED):]
         oq2, paired = OQ2.fullmatch(rest), PAIRED.fullmatch(rest)
+        tagged = FM_TAG.search(rest)
+        model = tagged["model"] if tagged else None
         if oq2:
             word = next((c for c in changes if c["bar"] == oq2["bar"]), None)
         elif paired:
             word = next((p for p in passes.get(paired["row"], []) if p.get("version") == version and p.get("pair") == paired["pair"]
-                         and isinstance(p.get("word"), str) and p["word"].strip()), None)
+                         and isinstance(p.get("word"), str) and p["word"].strip()
+                         and (p.get("factory_model") is None or p.get("factory_model") == model)), None)
         else:
             word = None
         if word:
@@ -372,8 +435,8 @@ def cmd_release_check(args) -> int:
         else:
             if not args.version:
                 raise SB.Refusal("`--lines` needs `--version V`: a worsened_passes entry is matched by version")
-            text = sys.stdin.read() if args.lines == "-" else SB._read_text(args.lines, "the release lines file")
-            lines, produced, version = text.splitlines(), False, args.version
+            text = sys.stdin.read() if args.lines == "-" else SB._read_text(args.lines, "the release lines file", "utf-8-sig")   # PowerShell 5.1 writes a BOM
+            lines, produced, version = text.lstrip("﻿").splitlines(), False, args.version
         code, printed = release_check(lines, version, args.norms, produced)
     except SB.Refusal as exc:
         return SB._red(str(exc))
