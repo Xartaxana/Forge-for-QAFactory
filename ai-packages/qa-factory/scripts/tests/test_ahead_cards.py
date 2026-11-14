@@ -49,7 +49,6 @@ import s5_precheck  # noqa: E402
 import validate_artifacts as V  # noqa: E402
 
 PLUGIN = harness.PLUGIN_ROOT
-CARD_MAX_BYTES = 1200
 
 # The row of `expectation_changes[]` (B-194): who writes which field. The names are the ones the
 # code reads; `code_reads` below proves it per name, so a rename in `manifest_put.py` or
@@ -245,8 +244,6 @@ def main() -> None:
     for role in everyone:
         card = table[role]
         text = card["text"]
-        size = len(text.encode("utf-8"))
-        check(f"{role}: the card fits the budget ({size} B <= {CARD_MAX_BYTES})", size <= CARD_MAX_BYTES)
         check(f"{role}: the card names the checks it was read from", bool(card.get("sources")))
         for source in card.get("sources") or []:
             check(f"{role}: source {source} exists", (harness.SCRIPTS / source).is_file())

@@ -1220,7 +1220,7 @@ def a24_refusal_registry() -> None:
 # `contract_slices.common_layer` rounded up to 250 and may only go down: growth shows as a red A22,
 # and a raise is named in the verdict (AR-20), never made quietly.
 INJECT_COMMON_CAP_BYTES = 5925        # the `common` list (list 5,262 B when measured)
-COMMON_LAYER_CAP_BYTES = 10750        # the bytes every role's slice has in common (shared 10,734 B when measured)
+COMMON_LAYER_CAP_BYTES = 9500         # the bytes every role's slice has in common (shared 9,320 B when measured)
 # When a role is over, the remedy is never "write less" but "put the fact in the layer that owns it".
 START_LOAD_REMEDY = ("move the fact to the layer that owns it (a rule code checks: the form's # Fill: comment and "
                      "the refusal; a section only some roles act on: <!-- roles: --> and contract_slices.py --write)")

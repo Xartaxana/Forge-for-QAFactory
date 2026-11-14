@@ -981,13 +981,21 @@ TRAPPED = ("If you cannot do what this names — the way out is not available to
            "with no way out is a factory defect, and repeating the call only spends your turns.")
 
 
-def block(message: str) -> None:
+def block(message) -> None:
     """Exit 2 = PreToolUse block / PostToolUse feedback; stderr is shown to the model.
+
+    `message` is a plain `str` (printed as it always was) or a `detector_verdict.refusal(...)` Record, which prints as
+    `detector_verdict.spoken` (the problem, the row's sentence and door, the check id); TRAPPED stays the last line either way.
 
     Every refusal carries the same last line, because the one thing a role must never do with a
     refusal it cannot satisfy is retry it. TP1-13797, 27.09: a rewrite guard named `Edit` to a
     role whose session had no Edit, and the role made the same blocked call four times. Nothing
     here decides for the role what to do instead — it says where an impossible refusal goes."""
+    try:
+        from detector_verdict import spoken
+        message = spoken(message)
+    except ImportError:             # a copy of this file with no sibling reader prints the message as it was
+        pass
     print(message.rstrip() + "\n" + TRAPPED, file=sys.stderr)
     sys.exit(2)
 

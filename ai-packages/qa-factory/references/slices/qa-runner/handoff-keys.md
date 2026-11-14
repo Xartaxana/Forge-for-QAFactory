@@ -71,3 +71,35 @@ Contract `s6-runner-to-analyst` (fill `work/handoffs/<dispatch>.yaml`; `handoff_
 - `blocked.data[]` (only when blocked) - path of anything the conductor needs to see
 
 Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): `inputs`, `inputs_read`, `header`, `scope`, `artifacts`, `claims`, `unresolved`, `blocked`.
+
+## What code will check of you
+
+`<T>` is your ticket, `<ID>` your dispatch id, `<home>` the project's qa-factory folder - all three stand in your prompt (`Ticket: ... Dispatch: ...`) and in your task packet.
+
+- [exit_gate:EG-digest-form] Your final message is the handoff form: a header `<role> <stage> <window> · ok|concerns|halt|impossible`; one line `<id> · <state> · <reason of at most 80 characters>` for every item of the dispatch's scope (a halting digest owes no scope lines); nothing but those lines between the header and the path; and, last, the task-relative path of what you wrote (a halting digest may omit it). Door: fix the digest line the refusal names, then end the dispatch again.
+- [exit_gate:EG-text-end] Your dispatch ends with the host's handback tool carrying your digest line, never with free text after it. Door: call the host's handback tool with your digest line.
+- [handoff_check:blocked_problem] A row in state `blocked` carries `blocked.problem`; `blocked_by_env` is used only where `options_for_role` offers it to this role. Door: write the problem, or pick a state the role is offered.
+- [handoff_check:claims] What the form claims is true is true on disk ("the form claims this is true, and it is not"). Door: fix the claim or make it true.
+- [handoff_check:cli] The call names an existing UTF-8 form with a `contract:` line and an existing values file; `--shorten` only with `--fix`. Door: the refusal's door; a non-UTF-8 form: run `handoff_init` again.
+- [handoff_check:field.blank] every `required` field of your handoff form (section `Handoff form` of this page). Door: write the value as a `path: value` line in the values file, then run the check again.
+- [handoff_check:field.max_len] every `required` field of your handoff form (section `Handoff form` of this page). Door: shorten it (`--shorten` with `--fix`) or rewrite.
+- [handoff_check:field.value] every `required` field of your handoff form (section `Handoff form` of this page). Door: write one of the listed words (or `new: <word> -- <why>` where the list is open).
+- [handoff_check:required_rows] A required list has one row per item in scope: the id, a state and a reason of at most 80 characters. Door: write the rows as index lines in the values file, then run this check again.
+- [handoff_check:required_rows.null_word] A list's null-outcome word (the declared empty outcome) stands only when the list has no rows; never both. Door: remove the word or remove the rows.
+- [handoff_check:required_rows.owed_by_verdict] When the verdict owes rows (the verdict word names work done on items), the list is not empty. Door: write the rows the verdict owes, or change the verdict.
+- [handoff_check:tried] In a contract that asks what was tried (TRIED_CONTRACTS), each tried entry states what was tried and the error it gave (TRIED_MEANING). Door: fill the tried entry with the attempt and its error.
+- [handoff_check:values_apply] Each path names a field of this contract, by its index where it is a list row, not a contract-owned path; a list field gets a list and a one-value field one value; rows open in order. Door: correct the path (the refusal suggests "did you mean").
+- [handoff_check:values_file] The values file is `path: value` lines (or a JSON object): valid JSON, an object not a list, each path given once, each key a field path, no nested value. Door: fix the line the refusal names (FILE_FIX).
+- [exit_gate:digest] Your final message has the digest form stated in the row [exit_gate:EG-digest-form] of this section. Door: fix the digest line the refusal names, then end the dispatch again.
+- [execution_request:selector_args] A manifest row of a profile that does not run pytest carries `selector_args` (the framework's own arguments) and `report_test_id`, unless the factory can build the selection from a `run_forms` direct form. Door: give the row `selector_args` and `report_test_id` through `manifest_put.py` once; until then run through `--template request`.
+- [execution_request:stand] The stand the run would stand on can be looked at now, and it runs this story's build. Door: name it as `environment` in your digest (`stand_health.py --probe --env <environment>`); a stand that runs another build: the person's word at the build question of the stage entry.
+- [execution_request:window_first] A run that picks part of a case (`--node-id`) does not leave tests of the same file in the dispatch's scope that have never run in this window: one call runs them together. Door: run the command the answer names (`run_suite.py --mine <cases>`); only what a repair touched: `--purpose repair_verify`; this exact run once more: `--again`.
+- [run_suite:begin] A request's `idempotency_key` is new, or names the very request (same digest) already recorded under it; a key another process is claiming at the same moment is not reused. Door: write the request with a new `idempotency_key` (a `--mine` run takes a key of its own: run it again); a claim that cannot be read: `--recover <key> --task <T>`.
+- [validate_artifacts:check_remedy_rows] A row blocked on the environment carries a `remedy` that is the fix, and names no value of a credential key. Door: edit the file and the field the refusal line names.
+- [validate_artifacts:check_result_rows] Every `results[]` row is an object naming one case or a test id, with a status from its list, a reason when skipped, and totals that agree with the rows. Door: edit the file and the field the refusal line names.
+- [validate_artifacts:check_run_report_coverage] Every case S5 automated and every manual-agent plan row is accounted for in the run report. Door: edit the file and the field the refusal line names.
+- [validate_artifacts:check_run_report_empty] A run with zero tests carries `env_preflight: blocked`, or names its environment-blocked, manual-check or manual-skipped rows. Door: edit the file and the field the refusal line names.
+- [validate_artifacts:check_run_report_head] The run report carries a non-empty `head`. Door: edit the file and the field the refusal line names.
+- [validate_artifacts:check_run_report_v0] The run report carries an `execution_status` from its list, computed from the run's own evidence, and `blocked` when `env_preflight` is blocked. Door: edit the file and the field the refusal line names.
+- [guard_pre_tool:*] 23 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
+- [stage_guard:*] 8 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.

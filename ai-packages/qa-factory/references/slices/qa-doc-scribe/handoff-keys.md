@@ -55,3 +55,44 @@ Contract `s8-scribe-to-gate-b` (fill `work/handoffs/<dispatch>.yaml`; `handoff_c
 - `blocked.data[]` (only when blocked) - path of anything the conductor needs to see
 
 Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): `inputs`, `inputs_read`, `header`, `scope`, `artifacts`, `claims`, `unresolved`, `blocked`.
+
+## What code will check of you
+
+`<T>` is your ticket, `<ID>` your dispatch id, `<home>` the project's qa-factory folder - all three stand in your prompt (`Ticket: ... Dispatch: ...`) and in your task packet.
+
+- [exit_gate:EG-digest-form] Your final message is the handoff form: a header `<role> <stage> <window> · ok|concerns|halt|impossible`; one line `<id> · <state> · <reason of at most 80 characters>` for every item of the dispatch's scope (a halting digest owes no scope lines); nothing but those lines between the header and the path; and, last, the task-relative path of what you wrote (a halting digest may omit it). Door: fix the digest line the refusal names, then end the dispatch again.
+- [exit_gate:EG-text-end] Your dispatch ends with the host's handback tool carrying your digest line, never with free text after it. Door: call the host's handback tool with your digest line.
+- [handoff_check:blocked_problem] A row in state `blocked` carries `blocked.problem`; `blocked_by_env` is used only where `options_for_role` offers it to this role. Door: write the problem, or pick a state the role is offered.
+- [handoff_check:claims] What the form claims is true is true on disk ("the form claims this is true, and it is not"). Door: fix the claim or make it true.
+- [handoff_check:cli] The call names an existing UTF-8 form with a `contract:` line and an existing values file; `--shorten` only with `--fix`. Door: the refusal's door; a non-UTF-8 form: run `handoff_init` again.
+- [handoff_check:field.blank] every `required` field of your handoff form (section `Handoff form` of this page). Door: write the value as a `path: value` line in the values file, then run the check again.
+- [handoff_check:field.max_len] every `required` field of your handoff form (section `Handoff form` of this page). Door: shorten it (`--shorten` with `--fix`) or rewrite.
+- [handoff_check:field.value] every `required` field of your handoff form (section `Handoff form` of this page). Door: write one of the listed words (or `new: <word> -- <why>` where the list is open).
+- [handoff_check:required_rows] A required list has one row per item in scope: the id, a state and a reason of at most 80 characters. Door: write the rows as index lines in the values file, then run this check again.
+- [handoff_check:required_rows.null_word] A list's null-outcome word (the declared empty outcome) stands only when the list has no rows; never both. Door: remove the word or remove the rows.
+- [handoff_check:required_rows.owed_by_verdict] When the verdict owes rows (the verdict word names work done on items), the list is not empty. Door: write the rows the verdict owes, or change the verdict.
+- [handoff_check:tried] In a contract that asks what was tried (TRIED_CONTRACTS), each tried entry states what was tried and the error it gave (TRIED_MEANING). Door: fill the tried entry with the attempt and its error.
+- [handoff_check:values_apply] Each path names a field of this contract, by its index where it is a list row, not a contract-owned path; a list field gets a list and a one-value field one value; rows open in order. Door: correct the path (the refusal suggests "did you mean").
+- [handoff_check:values_file] The values file is `path: value` lines (or a JSON object): valid JSON, an object not a list, each path given once, each key a field path, no nested value. Door: fix the line the refusal names (FILE_FIX).
+- [stage_guard:SG-command.delivery] Before gate B, a delivery form is written only when the ledger word is `yes` or `after_checks`, or a deliver_with_risks journal line stands. Door: write it without those words, split it, or file it.
+- [exit_gate:digest] Your final message has the digest form stated in the row [exit_gate:EG-digest-form] of this section. Door: fix the digest line the refusal names, then end the dispatch again.
+- [validate_artifacts:check_legacy_report_sections] (legacy form) Every gate-B section stands, in order. Door: edit the file and the field the refusal line names.
+- [validate_artifacts:check_ptr_readiness] `Readiness within what was verified` gives every register requirement a row with a status from its list. Door: edit the file and the field the refusal line names.
+- [validate_artifacts:check_report_blocks] Every code-owned block stands with its markers, opens with its own heading and holds no section heading; "Decided at gate B" stands only when gate B has recorded words, and never quotes gate A's. Door: edit the file and the field the refusal line names.
+- [validate_artifacts:check_report_coverage] The report's coverage line enumerates the check coverage. Door: edit the file and the field the refusal line names.
+- [validate_artifacts:check_report_forbidden] The report carries none of the factory's internal identifiers, and no decision marker without its decision text. Door: edit the file and the field the refusal line names.
+- [validate_artifacts:check_report_gate_b] "Decided at gate B" quotes the person's recorded words for each decision, never a paraphrase. Door: edit the file and the field the refusal line names.
+- [validate_artifacts:check_report_human_text] Each `Factory defects` item is written in plain words, as `human-questions.md` asks. Door: edit the file and the field the refusal line names.
+- [validate_artifacts:check_report_ledger_and_readiness] Hand text outside the generated tables stays within `TEST_REPORT_MAX_BYTES`, section 1 is the table `ledger.py` generated, and a `delivery_ready: yes|after_checks|no` line agrees with `ledger.json`. Door: edit the file and the field the refusal line names.
+- [validate_artifacts:check_report_left_with_you] Every `Left with you` item names its requirement and case, what a person would observe, and how. Door: edit the file and the field the refusal line names.
+- [validate_artifacts:check_report_sections] Every template section stands, in the template's order, with the verdict and its `delivery_ready:` line above the rest. Door: edit the file and the field the refusal line names.
+- [validate_artifacts:check_report_test_marks] Every test line under `Proven`, and every test a `Left with you` item names, carries the real-or-mock mark the ledger records. Door: edit the file and the field the refusal line names.
+- [validate_artifacts:check_report_traceability] Every register requirement and every plan case stands in a row of the traceability appendix. Door: edit the file and the field the refusal line names.
+- [validate_artifacts:check_test_report] `work/delivery-summary.md` is readable and fresh (regenerated when stale). Door: edit the file and the field the refusal line names.
+- [guard_pre_tool:*] 23 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
+- [stage_guard:*] 7 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
+- [host_adapter:*] 6 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
+
+### Not yet in rows
+
+test-report.md is read by code, not skimmed. Begin it from the template and run `report_facts.py --task <T> --write`: it renders the code-owned blocks (the verdict, Proven, Product bugs, Open questions, Skipped by the plan, Not proven, Decided at gate A, Size, Where to look; Decided at gate B after the gate) and you never type a number they carry. The `delivery_ready:` line is the block's (check_delivery.py feeds it): yes, after_checks or no. Eleven sections in this order: Proven, Product bugs, Left with you, Open questions, Not proven, Decided at gate A, Decided at gate B, Factory defects, Size, Where to look, Appendix - the verdict above the first. A green test the critic could not verify is in Left with you, not under Proven. Left with you has one item per case in `ledger.json` `left_items`, each with its R-n, case id, `To check:` and `Needed:` or `How:`; its last two blocks are code's. The Appendix is `traceability.py --render` pasted, a row for every R and every case. `report_facts.py --task <T> --check` must exit 0 before you finish. Your prose outside the blocks stays under 6,144 bytes. check_coverage.py re-runs at the exit gate: regenerate the coverage map first.

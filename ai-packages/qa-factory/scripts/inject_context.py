@@ -39,7 +39,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from contract_slices import COMMON_LAYER_SUBJECTS, parse  # noqa: E402  (the one owner of "which slice is never named instead", and of what a section is)
+from contract_slices import inline_subject, parse  # noqa: E402  (the one owner of "which entry is never named instead or cut", and of what a section is)
 from hooklib import PLUGIN_ROOT, person_signal, project_root, read_event, ref, role_name, take_notices, warn_once  # noqa: E402
 
 MAX_BLOCK_CHARS = 26000  # fuse against inflating a dispatch with a giant file
@@ -163,13 +163,14 @@ def entries_for(role: str, imap: dict, kind: str = "first") -> list:
 
 def _dropped_headings(rel: str, role: str, imap: dict, kind: str) -> list:
     """The headings `imap["kinds"][kind][role]["drop_sections"][rel]` names, or [] for everything the map must not do (E1-E4): a
-    missing or wrongly typed table, kind `first` or an unknown kind, an entry the role is not delivered, a `common` entry or a
-    `common-rules.md` slice, an entry that is not a `plugin:` file. Never raises."""
+    missing or wrongly typed table, kind `first` or an unknown kind, an entry the role is not delivered, a `common` entry, a
+    `common-rules.md` slice or a generated key page (`contract_slices.inline_subject`: a rework or repair dispatch never starts
+    without the requirement section), an entry that is not a `plugin:` file. Never raises."""
     try:
         if kind == "first" or kind not in DISPATCH_KINDS or not isinstance(rel, str) or not rel.startswith("plugin:"):
             return []
         common = imap.get("common")
-        if (rel in (common if isinstance(common, list) else []) or Path(rel).name in COMMON_LAYER_SUBJECTS
+        if (rel in (common if isinstance(common, list) else []) or inline_subject(rel)
                 or rel not in entries_for(role, imap, kind)):
             return []
         heads = imap["kinds"][kind][role]["drop_sections"][rel]
@@ -223,8 +224,9 @@ def map_problems(imap) -> list:
                 where = f"kinds.{kind}.{role}.drop_sections[{rel}]"
                 if rel not in listed:
                     problems.append(f"{where}: the entry is not in the list of {role} in `roles`")
-                elif rel in common or Path(str(rel)).name in COMMON_LAYER_SUBJECTS:
-                    problems.append(f"{where}: a common entry or a common-rules slice is never cut (it reaches every dispatch)")
+                elif rel in common or inline_subject(str(rel)):
+                    problems.append(f"{where}: a common entry, the common-rules slice or a generated key page is never cut "
+                                    "(it reaches every dispatch)")
                 elif not str(rel).startswith("plugin:"):
                     problems.append(f"{where}: only a `plugin:` entry can lose sections")
                 elif not isinstance(heads, list) or not heads or not all(isinstance(h, str) for h in heads):
@@ -243,12 +245,12 @@ def collect_blocks(role: str, imap: dict, event: dict | None = None, kind: str =
     blocks: list[str] = []
     entries = entries_for(role, imap, kind)
     if slices_mode() == "on_demand":
-        # The role's slice of the common rules is the one slice that is never "named instead":
+        # The role's slice of the common rules and its generated key page (every page of it) are never "named instead":
         # the exclusion sits INSIDE the filter, before the catalogue is appended, so in either mode
         # the rules are in the prompt itself and not only a name in a list (the rules are obeyed,
-        # not looked up).
+        # not looked up). The one list is `contract_slices.inline_subject`.
         def named_instead(e) -> bool:
-            return str(e).startswith(SLICE_REL_PREFIX) and Path(str(e)).name not in COMMON_LAYER_SUBJECTS
+            return str(e).startswith(SLICE_REL_PREFIX) and not inline_subject(str(e))
         named = [e for e in entries if named_instead(e)]
         if named:
             entries = [e for e in entries if not named_instead(e)]

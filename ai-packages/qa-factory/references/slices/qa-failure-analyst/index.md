@@ -7,4 +7,3 @@ names. A rule you did not read is still a rule the exit gate checks.
 - `references/slices/qa-failure-analyst/artifact-contract-automation.md` (1,038 B) — Instance identity, `runs[]`
 - `references/slices/qa-failure-analyst/artifact-contract-run.md` (10,763 B) — `run-report.json`, `triage.json`, Surprise rows, FLAKY — a test defect, `bug-drafts/*.json`
 - `references/slices/qa-failure-analyst/vocabularies.md` (1,835 B) — `execution_status`, Triage verdict and FLAKY mechanism, Bug confirmation
-- `references/slices/qa-failure-analyst/handoff-keys.md` (4,912 B) — Outputs, Witness, Handoff form

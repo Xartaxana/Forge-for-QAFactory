@@ -525,7 +525,9 @@ def _child_row(item: dict, output: _ChildOutput, code, output_error) -> dict:
               else "unknown" if silent else "completed" if code == 0 else "failed")
     answering = {}
     if told and told["status"] == "run_refused":
-        answering = {"error": told.get("error")}
+        # the child's refusal as it printed it: its `told` list (the row sentences, `detector_verdict.told_fields` in the child) rides on
+        # the group row beside `error`; the line is read by the reader above, nothing parses it again
+        answering = {"error": told.get("error"), **({"told": told["told"]} if isinstance(told.get("told"), list) and told["told"] else {})}
     elif told:
         answering = {"jobs": told.get("jobs"), "covered": told.get("covered")}
     job_id = (told.get("job_id") or None) if told else item["job_id"]

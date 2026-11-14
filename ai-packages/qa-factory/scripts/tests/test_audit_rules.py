@@ -761,7 +761,7 @@ def test_a22_injection_weight() -> None:
     imap = _j.loads((A.PLUGIN_ROOT / "references" / "inject-map.json").read_text(encoding="utf-8"))
     check_eq("A-K1: `common` does not hold common-rules.md (it is each role's slice)",
              [e for e in imap["common"] if "common-rules" in e], [])
-    check_eq("A-K1: COMMON_LAYER_CAP_BYTES is pinned (measured 10,734 B, rounded up to 250)", A.COMMON_LAYER_CAP_BYTES, 10750)
+    check_eq("A-K1: COMMON_LAYER_CAP_BYTES is pinned (measured 9,320 B, rounded up to 250)", A.COMMON_LAYER_CAP_BYTES, 9500)
     check_eq("A-K1: INJECT_COMMON_CAP_BYTES is pinned (measured 5,925 B with the X7-0 craft section)", A.INJECT_COMMON_CAP_BYTES, 5925)
     check("A-K1: both caps are under the old 18,000", A.COMMON_LAYER_CAP_BYTES <= 18000 and A.INJECT_COMMON_CAP_BYTES <= 18000)
     layer = CS.common_layer(A.PLUGIN_ROOT)

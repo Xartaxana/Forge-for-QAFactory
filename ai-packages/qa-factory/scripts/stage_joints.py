@@ -49,7 +49,10 @@ DATA = PLUGIN / "references" / "stage-joints.json"
 KEY = "same_class_gate_blocks"
 FRICTION_MIN = 2
 SCHEMA = 2                                          # the one schema this reader reads; a file of another is `(None, why)`
-TOP_KEYS = ("schema_version", "note", "friction", "joints", "ratchet", "when_kinds", "when_exclusive", "told_ratchet")
+TOP_KEYS = ("schema_version", "note", "friction", "joints", "ratchet", "when_kinds", "when_exclusive", "told_ratchet",
+            "call_told_families", "call_index_wording")
+CALL_KEY = "call_told_families"                     # the closed list of row families a refusal tells at the call (data, AR-1; T1r-pages)
+WORDING_KEY = "call_index_wording"                  # {family: the words of that family's index line on the page} (data, AR-1); `{n}` = the row count, `{scripts}` = the `--help` list
 TOLD_RATCHET_KEYS = ("hand_cards", "legacy_legs", "unsited")   # the counters of the data file; `audit` measures and compares each
 KIND_EXIT, KIND_DETECTOR, KIND_WINDOW = "exit", "detector", "window"
 KINDS = (KIND_EXIT, KIND_DETECTOR, KIND_WINDOW)     # set by the member function that produced a key, never read from its text
@@ -64,11 +67,16 @@ ROW_FIELDS_CARRIER = "window_record.REQUIRED_ROW_FIELDS"
 COMMANDS_CARRIER = "role-commands.json"
 PHASE_KEYS_CARRIER = "validate_artifacts.PHASE_JSON_KEYS"
 FORM_TEXT = "every `required` field of your handoff form (section `Handoff form` of this page)"
+# What a role is told of a command whose input is a file it wrote: where the card is, not the card (the card is told whole by
+# `<script> --help` before the first call and by the refusal of the command). `{script}` is the first word of the registry key.
+COMMANDS_TEXT = ("`{command}` checks its input against its command card (what to write, how to prove it); `{script} --help` "
+                 "prints the card before your first call, and a refusal of the command prints it again")
 ROW_KEYS = ("check", "stages", "producers", "joint")
 OPTIONAL_ROW_KEYS = ("requirement", "requirement_from", "carrier_key", "door", "door_needs", "when", "role_rule")   # K3, K7
 REQUIREMENT_CARRIERS = (FORM_CARRIER, PHASE_KEYS_CARRIER, ROW_FIELDS_CARRIER, COMMANDS_CARRIER)   # the closed `requirement_from`
 DOOR_NEEDS = ("shell", "none")
 PAGE_ITEM = {"page": True}                          # a told item: the row is on the role's generated key page (K2, gated)
+CALL_MARK = "call"                                  # `{"page": true, "call": true}`: the page item PLUS the call marker (honoured only while the family is listed)
 PAGE_RENDERER = "requirement_section"               # the attribute of `contract_slices` whose presence turns the page leg on
 KEY_PAGE = "references/slices/{role}/handoff-keys.md"
 AHEAD_CARDS = "references/ahead-cards.json"
@@ -310,12 +318,23 @@ def check_ids(plugin=None, records=None, errors=None) -> dict:
     return found
 
 
-def sited_ids(uni, ids=None) -> set:
+def sited_ids(uni, ids=None, errors=None) -> set:
     """Every id a row may be keyed by and still have a site in code: the keys of the v1-derived universe, the check id of every
-    A24 entry (`refusal_registry.check_of(e) for e in REGISTRY`) and every literal id of the scanner (`check_ids`)."""
+    A24 entry (`refusal_registry.check_of(e) for e in REGISTRY`), every literal id of the scanner (`check_ids`) and
+    `role_cli:<key>` for every key of `references/role-commands.json` (`role_cli.refuse` and `RefusingParser.error` print that id
+    as their check line; the keys are read through `role_cli.registry`, the one reader). A registry that yields no commands
+    (absent, unreadable, empty) adds nothing and, when `errors` is a list, gets one sentence there - never a crash."""
     import refusal_registry
+    import role_cli
+    try:
+        commands = role_cli.registry()
+        commands = commands if isinstance(commands, dict) else {}
+    except Exception:  # noqa: BLE001 - a file that is not the expected shape adds nothing, and is named below
+        commands = {}
+    if not commands and errors is not None:
+        errors.append("references/role-commands.json yields no commands (absent, unreadable or empty): no `role_cli:<key>` id is sited")
     return (set(uni) | {refusal_registry.check_of(e) for e in refusal_registry.REGISTRY}
-            | set(check_ids() if ids is None else ids))
+            | set(check_ids() if ids is None else ids) | {f"role_cli:{key}" for key in commands})
 
 
 def _is_sited(key, sited) -> bool:
@@ -551,9 +570,11 @@ def _carrier_expected(row: dict) -> tuple:
     if carrier == COMMANDS_CARRIER:
         import role_cli
         found = role_cli.entry(key)
-        parts = [str(found["input"])] if found.get("input") else []
-        parts += [f"how to prove it: {found['verify']}"] if found.get("verify") else []
-        return ("; ".join(parts), "") if parts else ("", f"no command `{key}`")
+        if not found:
+            return "", f"no command `{key}`"
+        if not found.get("input") and not found.get("verify"):
+            return "", f"command `{key}` has no card"       # a pointer to a card that does not exist is never written (AR-28)
+        return COMMANDS_TEXT.format(command=key, script=key.split()[0]), ""
     return "", f"unknown carrier {carrier!r}"
 
 
@@ -582,7 +603,8 @@ def fill(text, values) -> str:
 def told_line(row, values=None) -> str:
     """THE line renderer: `- [<check>] <expected> Door: <door>.`; `fill` is applied when `values` is given."""
     expected, door = told_text(row)
-    line = f"- [{row.get('check') if isinstance(row, dict) else None}] {expected} Door: {door}."
+    stop = "." if expected.rstrip() and not expected.rstrip().endswith((".", "!", "?")) else ""    # a carrier text has no final stop
+    line = f"- [{row.get('check') if isinstance(row, dict) else None}] {expected}{stop} Door: {door}."
     return line if values is None else fill(line, values)
 
 
@@ -617,7 +639,25 @@ def _shape_problems(data: dict) -> list:
     elif isinstance(groups, list) and isinstance(kinds, list):
         out += [f"stage-joints.json `when_exclusive` names `{k}`, which is not in `when_kinds`"
                 for g in groups for k in g if k not in kinds]
-    told = data.get("told_ratchet")
+    families = data.get(CALL_KEY)
+    if CALL_KEY in data:
+        if not isinstance(families, list) or not all(isinstance(f, str) and f.strip() for f in families) or len(set(families)) != len(families):
+            out.append(f"stage-joints.json `{CALL_KEY}` is not a list of distinct family names (it may be empty: nothing is then told at the call)")
+        elif isinstance(data.get("joints"), list):
+            stems = {str(r.get("check")).split(":", 1)[0] for r in data["joints"] if isinstance(r, dict)}
+            out += [f"stage-joints.json `{CALL_KEY}` names `{f}`, which is the family of no row (a typo tells nothing at the call: "
+                    "the rows stay on the page)" for f in families if f not in stems]
+    wording = data.get(WORDING_KEY)
+    if WORDING_KEY in data or (isinstance(families, list) and families):
+        listed = [f for f in families if isinstance(f, str)] if isinstance(families, list) else []
+        if not isinstance(wording, dict):
+            out.append(f"stage-joints.json `{WORDING_KEY}` is not an object of one wording per listed family")
+        else:
+            out += [f"stage-joints.json `{WORDING_KEY}` has no wording for the listed family `{f}`" for f in listed if f not in wording]
+            out += [f"stage-joints.json `{WORDING_KEY}` has a wording for `{f}`, which `{CALL_KEY}` does not list" for f in wording if f not in listed]
+            out += [f"stage-joints.json `{WORDING_KEY}` wording of `{f}` is not a non-empty text" for f, w in wording.items()
+                    if f in listed and not (isinstance(w, str) and w.strip())]
+    told =data.get("told_ratchet")
     if "told_ratchet" in data:
         if not isinstance(told, dict) or set(told) != set(TOLD_RATCHET_KEYS):
             out.append(f"stage-joints.json `told_ratchet` is not an object holding exactly {', '.join(TOLD_RATCHET_KEYS)}")
@@ -669,8 +709,82 @@ def _expand(rel: str, role: str) -> str:
 
 
 def _is_page(item) -> bool:
-    """`{"page": true}` exactly (`True`, not `1`): the row is told on the role's generated key page."""
-    return isinstance(item, dict) and set(item) == set(PAGE_ITEM) and item["page"] is True
+    """`{"page": true}` exactly, or `{"page": true, "call": true}` (`True`, not `1`): the row is told on the role's generated key
+    page; with the call marker it is told at the call instead, while its family is listed (`call_told`)."""
+    return (isinstance(item, dict) and set(item) in ({"page"}, {"page", CALL_MARK}) and item["page"] is True
+            and item.get(CALL_MARK, True) is True)
+
+
+def _is_call(item) -> bool:
+    """A page item that carries the call marker."""
+    return _is_page(item) and item.get(CALL_MARK) is True
+
+
+# ----------------------------------------------------------------------------- the call leg (T1r-pages, AR-10 / AR-15)
+def call_families(data) -> list:
+    """The `call_told_families` of a rows dict: a list of family names (the stem of a check id); `[]` when absent or not a list
+    of texts (the shape check names that; an unreadable list tells nothing at the call - every row stays on its page)."""
+    found = data.get(CALL_KEY) if isinstance(data, dict) else None
+    words = call_wording(data)
+    return [f for f in found if isinstance(f, str) and f in words] if isinstance(found, list) else []
+
+
+def call_wording(data) -> dict:
+    """The `call_index_wording` of a rows dict: `{family: words}` of the entries that are non-empty texts; `{}` when absent or not
+    an object. A listed family with no usable wording is not told at the call (its rows stay on the page: never an index line
+    that was not written, never a row in neither carrier); the shape check names the missing wording."""
+    found = data.get(WORDING_KEY) if isinstance(data, dict) else None
+    return {f: w for f, w in found.items() if isinstance(f, str) and isinstance(w, str) and w.strip()} if isinstance(found, dict) else {}
+
+
+_REAL_SITED = {}
+
+
+def real_sited() -> set:
+    """The ids that have a site in the running package (`sited_ids` over the real universe and scanner), read once per process.
+    The refusal that tells a row at the call lives in code, so the answer is the code's, whatever data tree is being rendered."""
+    if "set" not in _REAL_SITED:
+        uni, _errors = universe()
+        _REAL_SITED["set"] = sited_ids(uni, check_ids())
+    return _REAL_SITED["set"]
+
+
+def call_told(row, role: str, families, sited=None) -> bool:
+    """THE decision (AR-13): is `row` told to `role` at the call, not on its page? True only when the row's family (the stem of its
+    check id) is in `families`, it states a requirement, its check has a site in code (`sited`, default `real_sited()`: an unsited
+    row is never counted told at the call, N5), and EVERY producer entry that names the role carries the call marker (an entry
+    split per role keeps its page item for the roles whose finished work the row judges). Any doubt is False: the row stays on the
+    page (more text, never a row in neither carrier)."""
+    if not isinstance(row, dict) or not isinstance(families, (list, tuple, set)):
+        return False
+    check = str(row.get("check"))
+    if check.split(":", 1)[0] not in families or not _states_requirement(row):
+        return False
+    mine = [e for e in row.get("producers") or [] if isinstance(e, dict) and not e.get("code") and isinstance(e.get("roles"), list)
+            and (role in e["roles"] or (ANY in e["roles"] and role != "conductor"))]
+    if not mine or not all(any(_is_call(t) for t in (e.get("told") if isinstance(e.get("told"), list) else [])) for e in mine):
+        return False
+    return _is_sited(check, real_sited() if sited is None else sited)
+
+
+def _call_leg(entry: dict, row, env) -> list:
+    """What is wrong with a call marker (K2): nothing while the row's family is not listed (the marker sleeps and the page item
+    stands, B3); with the family listed the row must state a requirement and have a site in code - else the marker is refused and
+    the row is named (the page item stands)."""
+    if not isinstance(row, dict):
+        return ["told at the call: the marker is judged with its row, and none was given"]
+    check = str(row.get("check"))
+    if check.split(":", 1)[0] not in (getattr(env, "call_families", None) or []):
+        return []
+    out = []
+    if not _states_requirement(row):
+        out.append(f"told at the call: {check} states no requirement (`requirement` or `requirement_from`): there is nothing to tell "
+                   "at the call - remove the marker")
+    sited = getattr(env, "sited", None)
+    if not _is_sited(check, real_sited() if sited is None else sited):
+        out.append(f"told at the call: {check} has no site in code (its refusal is not written yet): the page item stands - "
+                   "remove the marker until the site lands")
+    return out
 
 
 def _page_leg(entry: dict, row, env: Env) -> list:
@@ -718,6 +832,8 @@ def _told_leg(entry: dict, env: Env, row=None) -> list:
     for item in told:
         if _is_page(item):
             out += _page_leg(entry, row, env)
+            if _is_call(item):
+                out += _call_leg(entry, row, env)
             continue
         if not isinstance(item, dict) or not set(item) <= set(TOLD_KEYS) or "path" not in item:
             out.append(f"a told entry is not an object of path and anchor: {item!r}")
@@ -758,6 +874,15 @@ def _reach_problems(entry: dict, item: dict, env: Env) -> list:
     return out
 
 
+def _continuation_pages(role: str, env: Env) -> list:
+    """The continuation key pages (`handoff-keys-<n>.md`) the injection map lists for `role`: a page that outgrew its split
+    continues on them, and a token the row tells may stand on any of them."""
+    base = KEY_PAGE.format(role=role).rsplit("/", 1)[0]
+    listed = (env.load_map.get("roles") or {}).get(role) or []
+    return [str(e)[len("plugin:"):] for e in listed
+            if re.fullmatch(re.escape(f"plugin:{base}/") + r"handoff-keys-\d+\.md", str(e))]
+
+
 def _demands_leg(check: str, entry: dict, env: Env) -> list:
     """Direction C for one role entry: every demanded token occurs in a told file the role receives. A code producer
     demands nothing of a role."""
@@ -769,16 +894,26 @@ def _demands_leg(check: str, entry: dict, env: Env) -> list:
     if carrier is not None and carrier not in CARRIERS:
         return [f"`demands_from` {carrier!r} is not one of {', '.join(CARRIERS)}"]
     out = []
+    told = entry.get("told") if isinstance(entry.get("told"), list) else []
+    page_only = bool(told) and all(_is_page(t) for t in told)       # the page carries the sentence: no tokens are owed (T1r)
     for role in entry.get("roles") or []:
         tokens, why = list(literal), ""
         if carrier:
             more, why = demand_tokens(carrier, role, check, env)
             tokens += more
+        if page_only and not why and not tokens:
+            continue
         if why or not tokens:
             out.append(why or f"the demands leg is missing for {role}")
             continue
-        texts = [env.text(_expand(str(t["path"]), role)) or "" for t in entry.get("told") or []
-                 if isinstance(t, dict) and "path" in t and env.reaches(role, _expand(str(t["path"]), role))]
+        paths = []
+        for t in told:
+            if _is_page(t):                          # the key page and every continuation page the map lists for the role
+                paths += [KEY_PAGE.format(role=role)] + _continuation_pages(role, env)
+            elif isinstance(t, dict) and "path" in t:
+                own = _expand(str(t["path"]), role)
+                paths += [own] + (_continuation_pages(role, env) if own == KEY_PAGE.format(role=role) else [])
+        texts = [env.text(p) or "" for p in paths if env.reaches(role, p)]
         out += [f"{role} is not told `{token}` in any of its told files" for token in dict.fromkeys(tokens)
                 if not any(token in text for text in texts)]
     return out
@@ -911,6 +1046,10 @@ def _row_problems(row, env: Env, stage_ids: set, detectors: dict, kinds=None) ->
     stages = row["stages"]
     if not isinstance(stages, list) or not stages:
         out.append(f"stage-joints: {check}: `stages` is empty - a check that runs at no stage")
+    elif stages == [ANY] and check not in detectors:
+        pass                                           # the single item `*`: every stage (T1r); a detector row keeps its own stages
+    elif ANY in stages and len(stages) > 1:
+        out.append(f"stage-joints: {check}: `stages` mixes `{ANY}` with {[s for s in stages if s != ANY]}: `{ANY}` stands alone")
     elif not all(s in stage_ids for s in stages):
         out.append(f"stage-joints: {check}: `stages` names {[s for s in stages if s not in stage_ids]}, "
                    "which are no stage of stages.json")
@@ -1099,10 +1238,11 @@ def audit(data=None, uni=None, pins=None, env=None, path=None, sited=None) -> Re
     rows = data["joints"]
     if sited is None:
         id_errors = []
-        sited = sited_ids(uni, check_ids(env.plugin, errors=id_errors))
+        sited = sited_ids(uni, check_ids(env.plugin, errors=id_errors), errors=id_errors)
         report.problems.extend(f"stage-joints: {e}" for e in id_errors)
     problems, unsited = _direction_a(rows, uni, sited)
     report.problems.extend(problems)
+    env.call_families, env.sited = call_families(data), sited      # what the call leg of K2 judges a marker against
     stage_ids = {str(s.get("id")) for s in env.model.get("stages") or [] if isinstance(s, dict)}
     detectors = detector_members(env.model)          # from the model, not from the injectable `uni`
     declared = []

@@ -6,4 +6,3 @@ names. A rule you did not read is still a rule the exit gate checks.
 
 - `references/slices/qa-case-designer/artifact-contract.md` (9,727 B) — Where artifacts live, `test-cases/<area>/<case id>.md`, `then_oracles` form
 - `references/slices/qa-case-designer/vocabularies.md` (1,445 B) — Disposition, Observable source, Oracle basis, A case's basis
-- `references/slices/qa-case-designer/handoff-keys.md` (3,851 B) — Outputs, Witness, Handoff form

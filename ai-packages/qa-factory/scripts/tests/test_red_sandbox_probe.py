@@ -924,6 +924,93 @@ def two_profiles_over_one_root() -> None:
             finish_project(root)
 
 
+def _told_entry(n: int) -> dict:
+    return {"check": f"execution_request:k10p{n}", "expected": f"Sentence {n}.", "door": f"door {n}"}
+
+
+# K10p/rs-told-passes-through/<case>: the `told` list of a parsed `run_suite.py --mine` refusal summary -> the checks the answer carries
+TOLD_CASES = {"one-entry": ([1], [1]), "three-entries": ([1, 2, 3], [1, 2, 3]), "repeated-check": ([1, 1, 2, 1], [1, 2])}
+
+
+class refusing_run_mine:
+    """`red_sandbox._run_mine` answers every launch with a refused `--mine` summary carrying `told` (the parsed JSON line of
+    `run_suite.py`): the refused road of the probe and of the diagnostic run, with nothing started."""
+    def __init__(self, told_list):
+        self.told_list = told_list
+
+    def __enter__(self):
+        import types
+        self.real = RS._run_mine
+        summary = {"status": "mine_refused", "error": "run_suite.py: refused for the table",
+                   "told": [_told_entry(n) for n in self.told_list]}
+        RS._run_mine = lambda *a, **k: (types.SimpleNamespace(returncode=2, stdout="", stderr=""), json.loads(json.dumps(summary)))
+        return self
+
+    def __exit__(self, *_exc):
+        RS._run_mine = self.real
+
+
+def rs_told_passes_through() -> None:
+    """K10p/rs-told-passes-through: a refusal the probe met at the launch reaches the refused answer with EVERY distinct entry of
+    `told`, in order, on the probe road (`_carry_told` at the refused-run site of `probe`) and on the diagnostic road (the refused-run
+    site of `diagnostic`). This is the proof a later card (K1b) reads before it moves a row off the page for these roads."""
+    for case, (given, wanted) in TOLD_CASES.items():
+        fake_pytest = fake()
+        root = project(fake_pytest)
+        try:
+            seed_green(root, "TC-100")
+            with refusing_run_mine(given):
+                got = probe(root, mutation_request(root))
+            check_eq(f"K10p/rs-told-passes-through/probe/{case}: not executed, every distinct check, in order",
+                     (got.get("status"), [e.get("check") for e in got.get("told", [])]),
+                     ("not_executed", [_told_entry(n)["check"] for n in wanted]))
+        finally:
+            finish_project(root)
+        root = project(fake_pytest, tests=DIAGNOSTIC_RED, scope=("TC-100",))
+        try:
+            manifest = manifest_of(root)
+            manifest["tests"] = [row_of(root, "test_add", "TC-100")]
+            manifest["then_bindings"] = [{"case": "TC-100", "then": n, "instance_id": "test_add", "assertion_ref": None,
+                                          "status": "covered"} for n in (1, 2, 3, 4)]
+            write_json(task_of(root) / "work" / "automation-manifest.json", manifest)
+            controller = task_of(root) / "state" / "controller.json"
+            doc = json.loads(controller.read_text(encoding="utf-8"))
+            doc["dispatches"] = {i: {"id": i, "stage": stage, "role": role, "status": "running", "scope": ["TC-100"],
+                                     "budget": {"requests": 50}} for i, stage, role in (
+                ("S5-qa-automator-1", "S5", "qa-automator"), ("S7-qa-failure-analyst-1", "S7", "qa-failure-analyst"))}
+            write_json(controller, doc)
+            subprocess.run([PY, "-B", str(RUN_SUITE), "--mine", "TC-100"], cwd=str(root), capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=300,
+                           env=dict(os.environ, CLAUDE_PROJECT_DIR=str(root), QA_FACTORY_SKIP_DASHBOARD_REFRESH="1",
+                                    PYTHONDONTWRITEBYTECODE="1"))
+            PL._reset()
+            lines = (root / "tests" / "test_calc.py").read_text(encoding="utf-8").splitlines()
+            variant = "\n".join(x for n, x in enumerate(lines, 1) if n != 6) + "\n"
+            write_json(root / "diag.json", {"label": "d1", "instance_id": "test_add", "cases": ["TC-100"], "thens_dropped": [2],
+                                            "mutation": {"path": "tests/test_calc.py",
+                                                         "before_sha256": RS.digest(root / "tests" / "test_calc.py"),
+                                                         "replacement_utf8": variant}})
+            with refusing_run_mine(given):
+                got = RS.diagnostic(root, root / "diag.json", task_of(root), timeout=300)
+            check_eq(f"K10p/rs-told-passes-through/diagnostic/{case}: not executed, every distinct check, in order",
+                     (got.get("status"), [e.get("check") for e in got.get("told", [])]),
+                     ("not_executed", [_told_entry(n)["check"] for n in wanted]))
+        finally:
+            finish_project(root)
+
+
+DIAGNOSTIC_RED = '''\
+from calc import add
+
+
+def test_add():
+    assert add(2, 2) == 4, "then 1"
+    assert add(1, 1) == 3, "then 2"
+    assert add(0, 5) == 5, "then 3"
+    assert add(3, 3) == 6, "then 4"
+'''
+
+
 def main() -> None:
     accepted()
     upgrades_a_live_receipt_and_keeps_the_other_instances()
@@ -941,6 +1028,7 @@ def main() -> None:
     prepare_failure_reported()
     node_id_mismatch_passthrough()
     two_profiles_over_one_root()
+    rs_told_passes_through()
     finish("test_red_sandbox_probe")
 
 

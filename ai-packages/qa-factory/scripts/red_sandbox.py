@@ -79,6 +79,7 @@ import runtime_paths  # noqa: E402
 from event_store import atomic_json  # noqa: E402
 from event_store import content_hash  # noqa: E402
 from role_cli import REPAIR_MARKER  # noqa: E402
+from detector_verdict import told_fields  # noqa: E402
 import hooklib  # noqa: E402
 from hooklib import read_json, ref, sorted_paths  # noqa: E402
 
@@ -1288,6 +1289,18 @@ def _cleanup(path) -> None:
     shutil.rmtree(path, ignore_errors=True)
 
 
+def _carry_told(into: list, source) -> None:
+    """Add to `into` the `told` entries of a refusal this road met, one per distinct `check` (told-before-work T1r-sites: the
+    refusal's row sentence reaches the role that read it here, beside the unchanged note). `source` is an exception or a
+    `Record` (`detector_verdict.told_fields`, the one builder) or the summary `_run_mine` already parsed off `run_suite.py`'s
+    JSON refusal (its `told` list as printed: no second parser of the line). Never raises."""
+    entries = ((source.get("told") if isinstance(source.get("told"), list) else [])
+               if isinstance(source, dict) else told_fields(source).get("told", []))
+    for entry in entries:
+        if isinstance(entry, dict) and entry.get("check") and all(held.get("check") != entry["check"] for held in into):
+            into.append(entry)
+
+
 def _case_nodes(placed: dict, case: str) -> list:
     """The `--node-id` selection of ONE case's launch: the targets' own nodes - but only when EVERY
     one of them is a pytest node (`<file>.py::<name>`, the shape `execution_request.manifest_rows`
@@ -1387,7 +1400,7 @@ def _fresh_instances(repo: Path, task_root: Path, cases: list) -> dict:
 
 
 def _author_baseline(repo: Path, task_root: Path, cases: list, targets: list, placed: dict,
-                     notes: list) -> tuple:
+                     notes: list, told: list | None = None) -> tuple:
     """What stands as the UNMUTATED run of the targets: `("covered", {"results", "jobs"})` - the author's
     green run of every target over these very bytes, no baseline to run - or `("refuse", {iid: words})`
     - a target with no such green: the author runs it first, a probe of a test nobody ran green proves
@@ -1414,6 +1427,8 @@ def _author_baseline(repo: Path, task_root: Path, cases: list, targets: list, pl
     except Exception as exc:
         notes.append(f"the author's result could not be read ({type(exc).__name__}: {str(exc)[:160]}): "
                      "the probe runs its own baseline")
+        if told is not None:
+            _carry_told(told, exc)
         return "own", None
     refuse, unknown = {}, []
     for iid in placed:
@@ -1562,6 +1577,7 @@ def probe(repo, request_path, task_root, *, destination=None, dispatch: str = ""
     task_root = Path(task_root).resolve()
     request = json.loads(Path(request_path).read_text(encoding="utf-8"))
     notes: list = []
+    told: list = []       # the row sentences of the refusals this probe met (`_carry_told`); on the answer only when it is a refusal
     if not isinstance(request, dict):
         return {"status": "not_executed", "instances": {}, "receipts": [],
                 "notes": ["the request is not a JSON object: write {\"cases\": [...], \"mutations\": [...]}"]}
@@ -1610,7 +1626,7 @@ def probe(repo, request_path, task_root, *, destination=None, dispatch: str = ""
                     "words": (f"{', '.join(answered)} already probed on these bytes: take "
                               f"{'it' if len(answered) == 1 else 'them'} out of mutations[] and probe the rest. "
                               + " ".join(a["words"] for a in answered.values()))}
-        mode, evidence = _author_baseline(repo, task_root, cases, targets, placed, notes)
+        mode, evidence = _author_baseline(repo, task_root, cases, targets, placed, notes, told)
         if mode == "refuse":
             return {"status": "not_executed",
                     "instances": {i: {"words": w} for i, w in evidence.items() if i}, "receipts": [],
@@ -1690,11 +1706,12 @@ def probe(repo, request_path, task_root, *, destination=None, dispatch: str = ""
             refused = True
             notes.append(f"{label} run: run_suite.py refused it ({summary.get('status') or 'no status'}): "
                          f"{summary['error']}" + (f" {summary['hint']}" if summary.get("hint") else ""))
+            _carry_told(told, summary)
     if any(not summary for _label, _proc, summary in runs) or refused:
         _cleanup(mutated_dest)
         _cleanup(baseline_dest)
         _cleanup(scratch)
-        return {"status": "not_executed", "instances": {}, "receipts": [], "notes": notes}
+        return {"status": "not_executed", "instances": {}, "receipts": [], "notes": notes, **({"told": told} if told else {})}
 
     # Every row is bound by the id the JOB REQUEST of its own run carries, not by the manifest's
     # (`manifest_from_tests.py` never writes `report_test_id`, and a pytest command under a
@@ -2007,7 +2024,7 @@ def _earlier_diagnostics(task_root: Path, iid: str, before: str) -> list:
     return found
 
 
-def _diagnostic_red(repo: Path, task_root: Path, case: str, iid: str, notes: list) -> str:
+def _diagnostic_red(repo: Path, task_root: Path, case: str, iid: str, notes: list, told: list | None = None) -> str:
     """"" when the instance's newest result is not green (or the story cannot say), else the refusal: a variant of a green
     test is no diagnosis of a red. A story that cannot tell is no reason to stop the analyst (FR-41, P1): it is a note."""
     import execution_request as ER
@@ -2020,6 +2037,8 @@ def _diagnostic_red(repo: Path, task_root: Path, case: str, iid: str, notes: lis
     except Exception as exc:
         notes.append(f"the newest result of {iid} could not be read ({type(exc).__name__}: {str(exc)[:160]}): "
                      "whether it is red now was not checked")
+        if told is not None:
+            _carry_told(told, exc)
         return ""
     if state.get("state") == "result" and state.get("outcome") == "passed":
         return (f"{iid}: its newest result over these bytes is green ({state.get('job_id')}): a diagnostic run is for a red "
@@ -2054,6 +2073,7 @@ def diagnostic(repo, request_path, task_root, *, dispatch: str = "", timeout: in
     repo = Path(repo).resolve()
     task_root = Path(task_root).resolve()
     notes: list = []
+    told: list = []       # the row sentences of the refusals this run met (`_carry_told`); on the answer only when it is a refusal
     try:
         request = json.loads(Path(request_path).read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
@@ -2152,7 +2172,7 @@ def diagnostic(repo, request_path, task_root, *, dispatch: str = "", timeout: in
         return _diagnostic_refusal(f"label taken: {evidence_path.relative_to(task_root).as_posix()} exists and is not "
                                    "overwritten; choose another label")
     case = info["case"]
-    red = _diagnostic_red(repo, task_root, case, iid, notes)
+    red = _diagnostic_red(repo, task_root, case, iid, notes, told)
     if red:
         return _diagnostic_refusal(red)
 
@@ -2172,9 +2192,10 @@ def diagnostic(repo, request_path, task_root, *, dispatch: str = "", timeout: in
             return {"status": "not_executed", "notes": notes + [
                 f"run_suite.py printed no summary (exit {proc.returncode}): {(proc.stderr or proc.stdout or '').strip()[-500:]}"]}
         if summary.get("error") and not summary.get("execution_status"):
+            _carry_told(told, summary)
             return {"status": "not_executed", "notes": notes + [
                 f"run_suite.py refused the run ({summary.get('status') or 'no status'}): {summary['error']}"
-                + (f" {summary['hint']}" if summary.get("hint") else "")]}
+                + (f" {summary['hint']}" if summary.get("hint") else "")], **({"told": told} if told else {})}
         rows = _report_rows(task_root, summary, notes, "diagnostic")
         contracts = _run_contracts(task_root, summary, notes, "diagnostic")
         row, note = bind_row({**target, "node_id": node}, contracts, rows, summary.get("reporter"), task_root.name,

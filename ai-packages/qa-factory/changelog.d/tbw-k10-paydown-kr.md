@@ -1,0 +1,5 @@
+- Named raise (AR-20) of the `native_headroom` baselines in `references/role-load.json` to the measured size, by the owner's word of 14.11.2026:
+  - `qa-automator`: none -> 79,909.
+  - `qa-code-critic`: none -> 72,828. TEMPORARY until card K1b (fork F-KR).
+  - `qa-test-strategist`: 46,008 -> 53,552.
+- Price per role: Codex refuses `qa-automator` when its project files together (`framework-rules.md`) exceed 14,491 characters; `qa-code-critic` when its project files (`framework-rules.md`) exceed 21,572 characters; `qa-test-strategist` when its project files together (`test-strategy.md` + `project-profile.md`) exceed 40,848 characters.

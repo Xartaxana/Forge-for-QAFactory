@@ -28,6 +28,7 @@
     "qa-requirements-tester": [
       "plugin:references/slices/qa-requirements-tester/common-rules.md",
       "plugin:references/slices/qa-requirements-tester/handoff-keys.md",
+      "plugin:references/slices/qa-requirements-tester/handoff-keys-2.md",
       "plugin:references/slices/qa-requirements-tester/artifact-contract.md",
       "plugin:references/slices/qa-requirements-tester/vocabularies.md",
       "project:qa-factory/strategy/aspect-profile.md",
@@ -36,6 +37,7 @@
     "qa-test-strategist": [
       "plugin:references/slices/qa-test-strategist/common-rules.md",
       "plugin:references/slices/qa-test-strategist/handoff-keys.md",
+      "plugin:references/slices/qa-test-strategist/handoff-keys-2.md",
       "plugin:references/risk-policy.md",
       "plugin:references/slices/qa-test-strategist/artifact-contract-plan.md",
       "plugin:references/automation-candidacy.md",
@@ -50,6 +52,7 @@
     ],
     "qa-case-critic": [
       "plugin:references/slices/qa-case-critic/common-rules.md",
+      "plugin:references/slices/qa-case-critic/handoff-keys.md",
       "plugin:references/slices/qa-case-critic/coverage-design.md",
       "plugin:references/risk-policy.md",
       "plugin:references/slices/qa-case-critic/artifact-contract.md",
@@ -59,6 +62,8 @@
     "qa-automator": [
       "plugin:references/slices/qa-automator/common-rules.md",
       "plugin:references/slices/qa-automator/handoff-keys.md",
+      "plugin:references/slices/qa-automator/handoff-keys-2.md",
+      "plugin:references/slices/qa-automator/handoff-keys-3.md",
       "plugin:references/slices/qa-automator/execution-lifecycle.md",
       "plugin:references/slices/qa-automator/vocabularies.md",
       "plugin:references/slices/qa-automator/artifact-contract-automation.md",
@@ -68,6 +73,7 @@
     "qa-code-critic": [
       "plugin:references/slices/qa-code-critic/common-rules.md",
       "plugin:references/slices/qa-code-critic/handoff-keys.md",
+      "plugin:references/slices/qa-code-critic/handoff-keys-2.md",
       "plugin:references/slices/qa-code-critic/execution-lifecycle.md",
       "plugin:references/code-review-rubric.md",
       "plugin:references/slices/qa-code-critic/artifact-contract-automation.md",
@@ -77,6 +83,7 @@
     "qa-runner": [
       "plugin:references/slices/qa-runner/common-rules.md",
       "plugin:references/slices/qa-runner/handoff-keys.md",
+      "plugin:references/slices/qa-runner/handoff-keys-2.md",
       "plugin:references/walk-charter.md",
       "plugin:references/slices/qa-runner/vocabularies.md",
       "plugin:references/slices/qa-runner/artifact-contract-run.md",
@@ -86,6 +93,7 @@
     "qa-failure-analyst": [
       "plugin:references/slices/qa-failure-analyst/common-rules.md",
       "plugin:references/slices/qa-failure-analyst/handoff-keys.md",
+      "plugin:references/slices/qa-failure-analyst/handoff-keys-2.md",
       "plugin:references/slices/qa-failure-analyst/vocabularies.md",
       "plugin:references/slices/qa-failure-analyst/artifact-contract-run.md",
       "plugin:references/slices/qa-failure-analyst/artifact-contract-automation.md",

@@ -48,7 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from content_size import content_bytes  # noqa: E402
 import hooklib  # noqa: E402  (`is_story_folder`, the one story-key leaf)
 from hooklib import PLUGIN_ROOT, artifact_root, is_one_component, project_root, read_json  # noqa: E402
-from inject_context import DISPATCH_KINDS, delivered_text, dispatch_kind, entries_for  # noqa: E402  (the one reader of `kinds`, AR-13)
+from inject_context import DISPATCH_KINDS, MAX_BLOCK_CHARS, delivered_text, dispatch_kind, entries_for  # noqa: E402  (the one reader of `kinds`, AR-13)
 
 SETTINGS_REL = "references/role-load.json"
 KINDS = DISPATCH_KINDS               # the dispatch kinds the CLI names; the map's `kinds` rows say what each drops (`first`: nothing)
@@ -287,6 +287,62 @@ def process_ratchet_problems(measured: dict, rows, roles) -> list:
                             "(`process_ratchet_tokens` in references/role-load.json; the slack is 0)")
     for role in sorted(r for r in rows if r not in set(roles)):
         problems.append(f"stale row `{role}` in `process_ratchet_tokens`: there is no agents/{role}.md - delete it")
+    return problems
+
+
+# The Codex native ceiling (K10 of the told-before-work spec, 2.6b): `native_context.stage` refuses a role whose whole context is over
+# this many characters (`native_context.py`, the literal at its `len(context) >` test; this is its dev-time mirror). A dispatch is
+# the plugin share (charter + the two injection layers), up to `MAX_BLOCK_CHARS` per `project:` entry, the task packet and a reserve.
+NATIVE_CONTEXT_LIMIT = 100000
+NATIVE_RESERVE = 200                    # the marker and the packet heading: an estimate, not verified (T0 M10 measures it)
+NATIVE_LAYERS = ("charter", "injection_common", "injection_role")
+NATIVE_FINDING = "In-run size ceiling of the injected context blocks a role (Codex native packet, 100000 characters)"
+
+
+def native_headroom_problems(plugin_root=PLUGIN_ROOT) -> list:
+    """K10, one sentence per role that is red; [] when sound. Per role of inject-map.json: the headroom `H` = 100000 - MAX_BLOCK_CHARS
+    x (the `project:` entries of `entries_for`) - `allowances.packet` - 200, the plugin share `U` = the BYTES of the layers charter +
+    injection_common + injection_role of `static_load` (bytes >= characters, so the share errs high, the safe side). `U <= H` is
+    green; `U > H` is red unless `U` is at or under the role's baseline `native_headroom.<role>` of role-load.json (a shrink-only
+    bound: a raise is named in the verdict, AR-20). A role whose share cannot be measured, or a baseline table that is not a map of
+    role -> whole bytes, is red too: an unknown is never a pass. No role-load.json (a tree that is not required to have it): nothing
+    is judged."""
+    if not settings_present(plugin_root):
+        return []
+    try:
+        cfg = settings(plugin_root)
+    except RoleLoadError as exc:
+        return [f"K10 native headroom was not judged: {exc}"]
+    baselines = cfg.get("native_headroom")
+    baselines = {} if baselines is None else baselines
+    if not isinstance(baselines, dict) or not all(isinstance(k, str) and isinstance(v, int) and not isinstance(v, bool) and v >= 0
+                                                  for k, v in baselines.items()):
+        return ["K10 native headroom was not judged: `native_headroom` in references/role-load.json must map a role name to a whole "
+                "number of bytes"]
+    imap, problems = load_imap(plugin_root), []
+    for role in role_names(plugin_root):
+        try:
+            layers = {layer["name"]: layer for layer in static_load(role, "first", plugin_root)["layers"]}
+        except Exception as exc:  # noqa: BLE001 - the share is reported as not measured, never skipped
+            problems.append(f"K10 {role}: the plugin share could not be measured ({type(exc).__name__}: {exc})")
+            continue
+        gaps = [name for name in NATIVE_LAYERS if layers[name]["bytes"] is None or not layers[name]["measured"]]
+        if gaps:
+            problems.append(f"K10 {role}: the plugin share could not be measured (layer {', '.join(gaps)}: "
+                            f"{'; '.join(str(layers[n]['reason']) for n in gaps)})")
+            continue
+        used = sum(layers[name]["bytes"] for name in NATIVE_LAYERS)
+        projects = len(_split(entries_for(role, imap))[1])
+        headroom = NATIVE_CONTEXT_LIMIT - MAX_BLOCK_CHARS * projects - int(cfg["allowances"]["packet"]) - NATIVE_RESERVE
+        baseline = baselines.get(role)
+        if used > headroom and not (baseline is not None and used <= baseline):
+            problems.append(
+                f"K10 {role}: the plugin share is {used:,} bytes, over its native-context headroom {headroom:,} "
+                f"({NATIVE_CONTEXT_LIMIT:,} - {MAX_BLOCK_CHARS:,} x {projects} project entries - {cfg['allowances']['packet']:,} packet "
+                f"- {NATIVE_RESERVE} reserve) and over its baseline {('none' if baseline is None else f'{baseline:,}')} "
+                "(`native_headroom` in references/role-load.json): a role this big can be refused at run time by the Codex native "
+                f"ceiling. Shrink the plugin text of the role; the finding is \"{NATIVE_FINDING}\" (Appendix A of the told-before-work "
+                "spec); a raise of the baseline is named in the verdict (AR-20)")
     return problems
 
 
