@@ -466,7 +466,45 @@ SIGN_IN_CASES = [
     ("a 30-character data-testid selector", _ui_fields(submit="[data-testid=login-form-submit-button-v2]"), None, "pw"),
     ("a selector with a double space", _ui_fields(submit="form  button[type=submit]"), None, "pw"),
     ("read_login raising", _ui(), CODE_FLOOR, "raises"),
+    # A1-1: the literal check reads EVERY leaf and every key, the scrub reads `why` too; a refusal names the field path, never the value
+    ("a literal account secret in why", _ui(why=f"I typed {SECRET} and landed"), "`sign_in.why` holds an account value", "pw"),
+    ("a literal account secret in quote", _ui(quote=f"{QUOTE} {SECRET}"), "`sign_in.quote` holds an account value", "pw"),
+    ("a literal account secret in an evidence path", _ui(evidence=[SECRET]), "`sign_in.evidence[0]` is not a capture path", "pw"),
+    ("a password pair in why", _ui(why="the password: hunter2hunter2 worked"), "`sign_in.why` looks like a secret value", None),
+    ("a secret as a key of sign_in", _ui(**{SECRET: "x"}), "`sign_in`: unknown key `[not printed]`", "pw"),
+    ("a secret as a key of fields", _ui_fields(**{SECRET: "#x"}), "`sign_in.fields`: unknown key `[not printed]`", "pw"),
+    ("a secret as a key of landed", lambda caps: {**_good_ui(caps), "landed": {"url_not": ["/login"], SECRET: "x"}},
+     "`sign_in.landed`: unknown key `[not printed]`", "pw"),
+    # A1-2: case-folded, URL-unquoted once; a short secret is matched as a whole token
+    ("a secret in upper case in steps", _ui(steps=[f"typed {SECRET.upper()} into the box"]), "`sign_in.steps[0]` holds an account value", "pw"),
+    ("a secret url-encoded in url", _ui(url="/login?x=" + SECRET.replace("-", "%2D")), "`sign_in.url` holds an account value", "pw"),
+    ("a short secret as a whole token", _ui(steps=["typed ab into the box"]), "`sign_in.steps[0]` holds an account value", "short"),
+    ("a short secret as a token with punctuation and case", _ui(steps=["typed (AB), then pressed"]), "`sign_in.steps[0]` holds an account value", "short"),
+    ("a short secret inside words is no hit", _ui(why="Used the label and the table, then landed."), None, "short"),
+    ("an all-digit secret in steps", _ui(steps=["typed 908172 into the box"]), "`sign_in.steps[0]` holds an account value", "digits"),
+    ("an empty password: no literal check", _ui(), None, "empty"),
+    ("an empty password: the scrub still runs", _ui(why="the password: hunter2hunter2 worked"), "`sign_in.why` looks like a secret value", "empty"),
+    # A1-5: no got-value is echoed when it may be the secret
+    ("actor equal to the secret", _ui(actor=SECRET), "got '[not printed]'", "pw"),
+    ("surface equal to the secret", _ui(surface=SECRET), "got '[not printed]'", "pw"),
+    ("req equal to the secret", _ui(req=SECRET), "`sign_in.req` is the requirement (R-n) whose survey attempt holds the captures; got '[not printed]'", "pw"),
+    ("a plain wrong actor is still echoed", _ui(actor="admin"), "got 'admin'", "pw"),
+    # A1-3 / A1-4: the http `access` object has a shape
+    ("access empty", _http(access={}), "`sign_in.access.kind` names how the request signs in", None),
+    ("access kind empty", _http(access={"kind": "", "url": "/l"}), "`sign_in.access.kind` names how the request signs in", None),
+    ("access with an extra key token", _http(access={"kind": "local_login", "url": "/l", "token": "x" * 18}), "`sign_in.access`: unknown key `token`", None),
+    ("access with a secret as a key", _http(access={"kind": "local_login", "url": "/l", SECRET: "v"}),
+     "`sign_in.access`: unknown key `[not printed]`", "pw"),
+    ("access url at the limit (500)", _http(access={"kind": "local_login", "url": "/" + "x" * 499}), None, None),
+    ("access url beyond the limit (501)", _http(access={"kind": "local_login", "url": "/" + "x" * 500}), "`sign_in.access.url` is longer than 500", None),
+    ("access user_field beyond the limit (501)", _http(access={"kind": "local_login", "url": "/l", "user_field": "u" * 501}),
+     "`sign_in.access.user_field` is longer than 500", None),
+    ("access with a number where text is expected", _http(access={"kind": "local_login", "url": "/l", "user_key": 5}),
+     "`sign_in.access.user_key` is text", None),
+    ("access with a mapping where text is expected", _http(access={"kind": "local_login", "url": {"a": "b"}}), "`sign_in.access.url` is text", None),
+    ("access with unauth_status codes", _http(access={"kind": "local_login", "url": "/l", "unauth_status": [401, 403]}), None, None),
 ]
+LOGIN_PASSWORDS = {"pw": SECRET, "short": "ab", "digits": "908172", "empty": ""}
 
 
 def test_sign_in_battery():
@@ -491,7 +529,7 @@ def test_sign_in_battery():
                 def fake(cfg, root, actor=None, stand=None, task_root=None, _login=login):
                     if _login == "raises":
                         raise manual_capture.LoginMaterialMissing("the keys are not set", "key")
-                    return manual_capture.Credentials("alice", SECRET)
+                    return manual_capture.Credentials("alice", LOGIN_PASSWORDS[_login])
                 manual_capture.read_login = fake
             try:
                 value = build(caps)
@@ -514,7 +552,8 @@ def test_sign_in_battery():
                 check_eq(f"{label}: and read back as sent ({{}} when none)", read["sign_in"], sent)
             else:
                 check(f"{label}: is refused with `{needle}`", not done["written"] and needle in text, text[:400])
-                check(f"{label}: no secret value is ever in the problem text", SECRET not in text and "hunter2hunter2" not in text and "pw1234" not in text, text[:400])
+                check(f"{label}: no secret value is ever in the problem text", SECRET.casefold() not in text.casefold() and "hunter2hunter2" not in text
+                      and "pw1234" not in text and "908172" not in text, text[:400])
             FL._record_path(s.task).unlink(missing_ok=True)
         s.put(s.rows(caps))
         text = FL._record_path(s.task).read_text(encoding="utf-8")
@@ -524,6 +563,28 @@ def test_sign_in_battery():
         check_eq("sign_in_battery: a record with no `sign_in` reads {}", FL.read(s.task)["sign_in"], {})
         FL._record_path(s.task).unlink()
         check_eq("sign_in_battery: `put --null` writes no sign_in", (FL.put(s.task, None, "no_stand")["written"], FL.read(s.task)["sign_in"]), (True, {}))
+
+
+def test_sign_in_secret_guard_leaves_and_data():
+    """FV1-28 A1: the guard on scalar leaves and keys, and the closed lists of `sign_in` as data (AR-1)."""
+    import config_contract
+    guard = FL.sign_in_secret_faults
+    check_eq("guard_leaves: an all-digit secret as a number leaf is found by its str(), the field named",
+             guard({"steps": [], "x": {"n": 908172}}, ["908172"]), ["`sign_in.x.n` holds an account value of this walk; record names and selectors only, never a value"])
+    check_eq("guard_leaves: a number leaf against a secret that is not all digits is skipped", guard({"x": 908172}, ["a908172"]), [])
+    check_eq("guard_leaves: a boolean and None are skipped", guard({"x": True, "y": None}, ["1", "True"]), [])
+    found = guard({SECRET: 1, "x": {SECRET: "v"}}, [SECRET])
+    check_eq("guard_leaves: a key holding the secret is found at any depth", len(found), 2)
+    check("guard_leaves: and the path never carries the key", all(SECRET not in p for p in found), str(found))
+    check_eq("guard_leaves: an empty literal is no literal", guard({"x": "anything"}, [""]), [])
+    check_eq("guard_leaves: one pass of unquote only (%252D is not chased)", guard({"x": "S3cr3t%252Dpw%252D9"}, [SECRET]), [])
+    data = FL.data()
+    check_eq("data: the access keys are the union of the constants of config_contract and kind, url, unauth_status",
+             set(data["sign_in_access_keys"]), set(config_contract.ACCESS_KEY_FIELDS) | set(config_contract.BODY_FIELD_KEYS) | {"kind", "url", "unauth_status"})
+    check_eq("data: the surface keys", data["sign_in_surface_keys"], {"ui": ["fields", "landed"], "http": ["access"]})
+    check_eq("data: the fields, landed keys and the refused kinds", (data["sign_in_fields_keys"], data["sign_in_landed_keys"], data["sign_in_http_refused_kinds"]),
+             (["user", "secret", "submit"], ["url_not"], ["harness_command", "none"]))
+    check("data: the refused kinds are kinds of config_contract", set(data["sign_in_http_refused_kinds"]) <= set(config_contract.ACCESS_KINDS))
 
 
 # --- read ------------------------------------------------------------------------------------------------------------
@@ -959,9 +1020,7 @@ def test_statuses_file_is_the_one_home_of_the_words():
                                                                        "no_reachable_surface", "profile_not_chosen", "walk_not_opened"])
     check_eq("statuses: open_retry_max", data["open_retry_max"], 1)
     check("statuses: reachable words are statuses", set(data["reachable"]) <= set(data["statuses"]))
-    # `access` is also the key of the http way of `sign_in` (not a status word): that one constant line is the one place it stands in code
-    source = "\n".join(line for line in (harness.SCRIPTS / "first_look.py").read_text(encoding="utf-8").splitlines()
-                       if not line.startswith("SIGN_IN_ACCESS = "))
+    source = (harness.SCRIPTS / "first_look.py").read_text(encoding="utf-8")
     for word in data["statuses"] + data["blocked_by"]:
         check(f"statuses: the word {word} is no literal in the code (AR-1)", f'"{word}"' not in source and f"'{word}'" not in source)
     for key in ("blocked_by_required_for", "share_excludes", "no_capture_needed", "attempt_settled"):
