@@ -81,7 +81,8 @@ class DriverStageS8s9:
             word_at = handoff.acceptance_verdict_path(handoff.contract_of("S8", "qa-doc-scribe"))      # THE reader of where the word is (AR-13)
             extra += [f"You also accept or return the analyst's handoff ({awaiting}): your word on it is `{word_at}` of your form "
                       "(`accept` or `return`), and `inputs_read` names the analyst's form "
-                      "work/handoffs/" + awaiting + ".yaml. A concern about the report itself belongs in `unresolved`."]
+                      "work/handoffs/" + awaiting + ".yaml. A concern about the report itself belongs in `unresolved`.",
+                      self.consumer_round_line("S7", awaiting)]       # B2-2: the round state, told BEFORE the work (FR-38)
             extra += self.s7_places_scribe_line()        # t-1991 U3a: settled / unsettled places, with the source of each expectation
         self.run_role("S8", "qa-doc-scribe", complete=complete, extra=extra)
         if awaiting and self.consumer_settled("S7", self.controller_state(), awaiting, True, ran=True):

@@ -2552,8 +2552,127 @@ def hf2_11b_forty_tests_changed_by_one_fixture() -> None:
         harness.cleanup(root)
 
 
+def test_consumer_gap_road() -> None:
+    """SC-B2 rows G1-G10 (B2-3, B2-4, B2-5): a consumer-judged stage (S6 by the analyst, S7 by the scribe) gets one repair round and is never
+    a barrier - a spent / unreadable / uncountable / unregistrable round is accepted by the driver WITH A GAP (record first, then the
+    warning), the consumer's OWN completion goes on, and the seam is never asked. One table of cases for both stages."""
+    import acceptance as A
+    import brief_pack
+    import gate_brief
+    from driver_core import GAP_PREFIX, OpenWork, Refusal, ReworkRefused
+    root, task_root, env = seed("QA-9")
+    try:
+        for stage in ("S6", "S7"):
+            driver = driver_for(root, env, "QA-9")
+            author, who = A.stage_def_of(stage)["roles"][0], driver.CONSUMER_ROUTES[stage]["who"]
+            tip, judge = f"{stage}-{author}-1", f"X-{stage}-1"
+            dispatches = {tip: {"id": tip, "stage": stage, "role": author, "status": "accepted"}}
+            pipeline, calls, seam, ran, counts = {"ticket": "QA-9"}, [], [], [], [(1, 1)]
+            driver.controller_state = lambda: {"stages": {stage: {"status": "pending"}}, "dispatches": dispatches}
+            driver.pipeline = lambda: pipeline
+            driver.stage_review_exhausted = lambda *a, **k: seam.append(a) or "SEAM"
+            driver.stage_verdict_known = lambda form: True
+            driver.consumer_counts = lambda *a: counts[0]
+            driver.consumer_person_pass = lambda *a, **k: False
+            driver.rework = lambda *a, **k: ran.append(k) or None
+            driver.last_dispatch = judge
+
+            def write(st, dispatch, word="reject", quote="the run report has no row"):
+                pipeline.setdefault("acceptance", {}).setdefault(st, []).append(
+                    {"stage": st, "acceptor": A.consumer_of(st), "reviewed_dispatch": tip, "verdict": word, "quote": quote})
+
+            def py(script, *args, **kw):
+                at = lambda key: args[args.index(key) + 1]
+                calls.append("record" if "--acceptor" in args else "warn")
+                if "--acceptor" in args:
+                    pipeline.setdefault("acceptance", {}).setdefault(stage, []).append(
+                        {"stage": stage, "acceptor": at("--acceptor"), "reviewed_dispatch": tip, "verdict": "accept", "quote": at("--quote")})
+                    assert at("--acceptance") == f"work/handoffs/{tip}.yaml", args
+                else:
+                    pipeline.setdefault("warnings", []).append(at("--warn"))
+                return 0, ""
+            driver.py, driver.stage_acceptance_write = py, write
+
+            def finish(label, word="reject", quote="the run report has no row", counted=(1, 1), known=True, refuse="", inner="INNER"):
+                pipeline.pop("acceptance", None), pipeline.pop("warnings", None), calls.clear(), seam.clear(), ran.clear()
+                counts[0], driver.stage_verdict_known = counted, lambda form: known
+
+                def written(st, dispatch):
+                    if refuse:
+                        raise Refusal(refuse)
+                    write(st, dispatch, word, quote)
+                driver.stage_acceptance_write = written
+                out = driver.consumer_completion(stage, inner)("digest")
+                check_eq(f"{stage} {label}: the seam is never asked", seam, [])
+                return out, (pipeline.get("acceptance") or {}).get(stage, [])[-1:], pipeline.get("warnings") or [], list(calls)
+            words = lambda why: f"{stage} was accepted with a gap: {why}"
+            spent = f"the one repair round of the {author} is spent"
+            out, rec, warns, order = finish("G1 accept-unchanged", word="accept", counted=(0, 1))
+            check_eq(f"{stage} G1: an accept is the consumer's own completion, no gap record, no warning", (out, order, warns), ("INNER", [], []))
+            out, rec, warns, order = finish("G2 reject-round-left-reworks-once", counted=(0, 1))
+            check_eq(f"{stage} G2: a reject with a round left sends the stale work back, no gap", (type(out).__name__, out.unresolved, order), ("OpenWork", A.SUPERSEDED_WORD, []))
+            out, rec, warns, order = finish("G3 reject-no-round-gap-own-completion", counted=(1, 1))
+            check_eq(f"{stage} G3: the driver's accept with a gap quote, then the warning, then the consumer's own completion",
+                     (out, rec[0]["acceptor"], rec[0]["verdict"], rec[0]["quote"], warns, order),
+                     ("INNER", A.DRIVER_ACCEPTOR, "accept", f"{GAP_PREFIX} {spent}: the run report has no row", [words(spent)], ["record", "warn"]))
+            check_eq(f"{stage} G3b gap-own-open-work-passes-through: open work of the stage's own rule is returned as it is",
+                     type(finish("G3b", inner=OpenWork("repairs_pending", "rows remain"))[0]).__name__, "OpenWork")
+            for label, kw, why, quote in (
+                    ("G4 unreadable-word-gap", dict(known=False), f"the {who}'s verdict word could not be read", "(no quote)"),
+                    ("G4 form-refused-gap", dict(refuse="the form lacks its quote"), f"the {who}'s acceptance form was refused: the form lacks its quote", "(no quote)"),
+                    ("G5 uncountable-gap-no-round", dict(counted=(None, None)), f"the repair rounds of the {author} could not be counted",
+                     "the run report has no row"),
+                    ("G7 temporal-round-2-of-1-gap", dict(counted=(2, 1)), spent, "the run report has no row"),
+                    ("E-B9 long quote cut at 400", dict(quote="q" * 500), spent, "q" * 400 + "...")):
+                out, rec, warns, order = finish(label, **kw)
+                check_eq(f"{stage} {label}: gap record, then the warning; no round is started; the consumer's own completion",
+                         (out, rec[0]["quote"], warns, order, ran), ("INNER", f"{GAP_PREFIX} {why}: {quote}", [words(why)], ["record", "warn"], []))
+            # G10: no author run to judge -> no record, no warning, the consumer goes on
+            dispatches.clear()
+            out, rec, warns, order = finish("G10 no-author-no-record", known=False)
+            check_eq(f"{stage} G10: no author dispatch -> no record, no warning, own completion", (out, rec, warns, order), ("INNER", [], [], []))
+            dispatches[tip] = {"id": tip, "stage": stage, "role": author, "status": "accepted"}
+            # the settle road (restart recovery): G8 person-pass-wins, G9 rework-refused-gap, a round left reworks once, spent -> gap
+            for label, counted, person, refused, want in (("G8 person-pass-wins", (1, 1), True, False, ([], [], [])),
+                                                          ("G9 rework-refused-gap", (0, 1), False, True, (["record", "warn"], [], [1])),
+                                                          ("G2 settled round left", (0, 1), False, False, ([], [], [1])),
+                                                          ("G3 settled spent", (1, 1), False, False, (["record", "warn"], [], []))):
+                pipeline.pop("acceptance", None), pipeline.pop("warnings", None), calls.clear(), seam.clear(), ran.clear()
+                write(stage, tip)
+                counts[0], driver.consumer_person_pass = counted, lambda *a, p=person, **k: p
+                driver.rework = (lambda *a, **k: ran.append(1) or (_ for _ in ()).throw(ReworkRefused("the controller will not register a round"))) \
+                    if refused else (lambda *a, **k: ran.append(1) or None)
+                done = driver.consumer_settled(stage, driver.controller_state(), tip, True, ran=True)
+                check_eq(f"{stage} {label}: (calls, seam, rounds started) and the entry's result", (calls, seam, ran, done), (*want, False if person else True))
+                if refused:
+                    check_in(f"{stage} {label}: the refusal text is in the gap quote", "could not be started: the controller will not register a round",
+                             pipeline["acceptance"][stage][-1]["quote"])
+            pipeline.pop("acceptance", None), pipeline.pop("warnings", None)
+            finish("G6 close words", counted=(1, 1))
+            check_eq(f"{stage} G6 close-words-say-gap", driver.consumer_close_words(stage),
+                     (f"accepted with a gap: {GAP_PREFIX} {spent}: the run report has no row", "accepted with a gap"))
+            pipeline["acceptance"][stage][-1]["quote"] = f"by: person - {GAP_PREFIX} said so"
+            check_eq(f"{stage} G8 a person's pass is never read as a gap", driver.consumer_close_words(stage)[1], "accepted by a person's word")
+            # the round line (B2-2): told before the work; a round left / none left / uncounted
+            for counted, head in (((0, 1), f"Your return is the one chance the {author} has to redo this (0 of 1 used)"),
+                                  ((1, 1), "No return is left for this handoff: do your own work"),
+                                  ((None, None), "No return is left for this handoff: the rounds could not be counted: do your own work")):
+                counts[0] = counted
+                check_eq(f"{stage} round line {counted}", driver.consumer_round_line(stage, tip).startswith(head), True)
+        # G6: the S6 gap reaches the scribe's brief as a `standing:` line; the S7 warning reaches the packet gate_brief reads (`collect`)
+        line = "S6 was accepted with a gap: the one repair round of the qa-runner is spent"
+        shown = brief_pack.decisions({"warnings": [line]}, "S8", "qa-doc-scribe")[0]
+        check_eq("S6 G6 scribe-brief-standing-gap-line", [s for s in shown if "- standing: " + line in str(s)] != [], True)
+        packet = Path(root) / "qa-factory" / "artifacts" / "QA-9"
+        packet.mkdir(parents=True, exist_ok=True)
+        (packet / "pipeline.json").write_text(json.dumps({"ticket": "QA-9", "stages": {}, "warnings": [line.replace("S6", "S7")]}), encoding="utf-8")
+        check_eq("S7 G6 s7-gap-after-scribe-brief-reaches-gate-b", [w for w in gate_brief.collect("QA-9", packet)["warnings"] if "S7 was accepted with a gap" in w] != [], True)
+    finally:
+        harness.cleanup(root)
+
+
 def main() -> None:
-    run_scenarios([], [s5_critic_finish_passes_window, d1_s6_freshness, d1_texts,
+    run_scenarios([], [s5_critic_finish_passes_window, d1_s6_freshness, d1_texts, test_consumer_gap_road,
                        hf2_11b_s6_freshness_reads_the_run_rows_shas,
                        hf2_11b_stale_live_checks_are_proved_again_before_the_reduction,
                        hf2_11b_the_tool_takes_only_a_running_dispatch,

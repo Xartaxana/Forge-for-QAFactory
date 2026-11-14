@@ -10,7 +10,7 @@ from driver_chains import ChainKind
 from controller import MANUAL_WINDOW_CASES, lane_keys, manual_blocks, manual_done_cases, walk_lanes
 import project_decisions
 import waiver
-from driver_core import BY_PERSON, CODE_CLOSE_SITES, InfraStop, OpenWork, Person, Refusal, _read_json, open_work_reason, seam_rank
+from driver_core import BY_PERSON, CODE_CLOSE_SITES, GAP_PREFIX, InfraStop, OpenWork, Person, Refusal, ReworkRefused, _read_json, open_work_reason, seam_rank
 from driver_dispatch import WALK_ACCOUNT_TRIGGERS
 
 
@@ -179,22 +179,27 @@ class DriverStageS6:
     def consumer_close_words(self, stage: str) -> tuple:
         """B-20 N4 (AR-27, FR-35): `(reason, digest)` of the close of a stage judged by its consumer, from the acceptance RECORD - never from a
         refusal's words. A driver accept whose quote starts `by: person` for the author's LAST dispatch is the person's pass: the words say a
-        person's word accepted it. Any other record (the consumer role's own) and no record give the default words (`CODE_CLOSE_SITES`,
-        the consumer's name). INVARIANT: a person's pass is never reported as a role's verdict. An unreadable state gives the default."""
+        person's word accepted it. One whose quote starts `GAP_PREFIX` (`consumer_gap`) is an acceptance WITH A GAP: the words say so and
+        carry the quote. Any other record (the consumer role's own) and no record give the default words (`CODE_CLOSE_SITES`, the
+        consumer's name). INVARIANT: a person's pass is never reported as a role's verdict or as a gap (its branch comes first). An
+        unreadable state gives the default."""
         import acceptance
         route = self.CONSUMER_ROUTES.get(stage) or {}
         reason = CODE_CLOSE_SITES.get(f"{stage.lower()}.accepted", ("", "the consumer accepted the handoff"))[1]
         digest = f"accepted by the {route.get('who', 'consumer')}"
+        quote, by_driver = "", False
         try:
             pipeline = self.pipeline()
             author = acceptance.stage_author_dispatch(self.controller_state(), acceptance.stage_def_of(stage))
             record = acceptance.stage_acceptance(pipeline, stage) or {}
-            by_person = (acceptance.accepted_for(pipeline, stage, author, acceptor=acceptance.DRIVER_ACCEPTOR)
-                         and str(record.get("quote") or "").startswith(BY_PERSON))
+            quote = str(record.get("quote") or "")
+            by_driver = acceptance.accepted_for(pipeline, stage, author, acceptor=acceptance.DRIVER_ACCEPTOR)
         except Exception:  # noqa: BLE001 - a record that cannot be read names nobody: the default words
-            by_person = False
-        if by_person:
+            by_driver = False
+        if by_driver and quote.startswith(BY_PERSON):
             return f"a person's word passed the acceptance of {route.get('what', 'the handoff')}", "accepted by a person's word"
+        if by_driver and quote.startswith(GAP_PREFIX):      # POSITION: after the person's pass - a person's word is never read as a gap
+            return f"accepted with a gap: {quote}", "accepted with a gap"
         return reason, digest
 
     def consumer_word_step(self) -> bool:
@@ -323,29 +328,61 @@ class DriverStageS6:
     def consumer_counts(self, stage: str, reviewed: str) -> tuple:
         """`(counted, cap)` of the author's repair rounds on the dispatch the consumer REVIEWED, as the controller counts them (`prepare` carries
         `repair_budget` for `REPAIR_LOOP_ROLES`; the packet is asked for the reviewed dispatch's own scope and half, so the ledger key is the
-        first dispatch's). Read ONLY after a verdict `reject` is known (B1). `(None, None)` when the controller cannot say."""
+        first dispatch's). Read after a verdict `reject` is known (B1) and, as advice only, by `consumer_round_line` before the consumer works.
+        `(None, None)` when the controller cannot say."""
         dispatch = (self.controller_state().get("dispatches") or {}).get(reviewed) or {}
         extra = ({"execution_kind": str(dispatch.get("execution_kind") or ""), "manual_case_ids": [str(c) for c in dispatch.get("manual_case_ids") or []]}
                  if stage == "S6" else {})
         budget = self.budget_or_none(stage, self.CONSUMER_ROUTES[stage]["author"], list(dispatch.get("scope") or []), ref=reviewed, **extra) or {}
         return budget.get("counted"), budget.get("cap")
 
-    def consumer_exhausted(self, stage: str, record: dict, dispatch: str, form: str, counted, cap):
-        """A `reject` with no round left, or none that can be counted: the ONE seam (`stage_review_exhausted`), never a code decision. The text says
-        which of the two it is (FR-41: an unknown is not «no round is left»)."""
+    def consumer_round_line(self, stage: str, awaiting: str) -> str:
+        """The round line of the consumer's brief, BEFORE its work (FR-38, AR-10): the consumer is told how many returns the author has left on
+        the handoff `awaiting` it judges, as the controller counts them (`consumer_counts`). A round left: «your return is the one chance»; none
+        left, or the count unknown: no return is left, the consumer goes on with what it has and names the gap in its form. ADVICE only: the
+        verdict-time count decides (`consumer_completion`, `consumer_settled`)."""
         route = self.CONSUMER_ROUTES[stage]
-        text = ""
-        if not (isinstance(counted, int) and isinstance(cap, int)):
-            text = (f"the {route['who']} rejected {stage} and the factory could not count the repair rounds of {route['author']}, so none is "
-                    f"started: {record.get('quote') or ''}")
-        return self.stage_review_exhausted(stage, route["author"], dispatch, record, form, text=text)
+        counted, cap = self.consumer_counts(stage, awaiting)
+        known = isinstance(counted, int) and isinstance(cap, int)
+        if known and counted < cap:
+            return (f"Your return is the one chance the {route['author']} has to redo this ({counted} of {cap} used): return it only if you "
+                    f"cannot do your own work with it, and only for a reason the {route['author']} was told (your charter lists them).")
+        return ("No return is left for this handoff" + ("" if known else ": the rounds could not be counted")
+                + ": do your own work with what it gives, and name what you could not use as a gap in your form's `unresolved` "
+                  "(the report shows it as a factory defect).")
+
+    def consumer_gap(self, stage: str, why: str, quote: str = "") -> bool:
+        """The gap road (B2-3; it replaces the seam for a consumer-judged stage; NO question to anyone): `stage` is accepted by the DRIVER with a
+        named gap, and the consumer goes on with what it has. The author dispatch is `acceptance.stage_author_dispatch` (never the consumer's
+        record, which may not exist); none -> no record, no warning, one printed line, False (a stage with no author run is not judged). Else,
+        in this ORDER: (1) the record `stage_done.py --acceptance <author form> --acceptor driver --verdict accept --quote "gap: <why>: <quote>"`
+        (the one writer, as `person_pass`; an empty quote is `(no quote)`, a longer one is cut at 400 characters with `...`), (2) the warning
+        `stage_done.py --warn "<stage> was accepted with a gap: <why>"` (the one writer of `pipeline["warnings"]`; ORDER INVARIANT: only after
+        the record, so a warning never claims a gap no record holds), (3) one printed line; True. A refused write is a `Refusal` on the standard
+        road (E-B7): the stage never closes without a record."""
+        import acceptance
+        route = self.CONSUMER_ROUTES[stage]
+        author = acceptance.stage_author_dispatch(self.controller_state(), acceptance.stage_def_of(stage))
+        if not author:
+            print(f"{stage}: no author run to judge; the consumer goes on")
+            return False
+        said = " ".join(str(quote or "").split())
+        said = said[:400] + "..." if len(said) > 400 else (said or "(no quote)")
+        self.py("stage_done.py", "--task", self.task, "--stage", stage, "--acceptance", f"work/handoffs/{author}.yaml",
+                "--acceptor", acceptance.DRIVER_ACCEPTOR, "--verdict", "accept", "--quote", f"{GAP_PREFIX} {why}: {said}", check=True,
+                expect=f"the gap recorded as the acceptance of {stage} for {author}")
+        self.py("stage_done.py", "--task", self.task, "--warn", f"{stage} was accepted with a gap: {why}", check=True,
+                expect=f"the warning of the {stage} gap recorded in pipeline.json")
+        print(f"{stage}: accepted with a gap ({why}); the {route['who']} goes on with what it has")
+        return True
 
     def consumer_completion(self, stage: str, inner, dispatch_id=None):
         """The `complete` callable of the consumer's finish while `stage` awaits it (the shape of `stage_critic_completion`): write the record from
         the consumer's form FIRST (`stage_acceptance_write`, the one writer), then `accept` -> the consumer's own completion `inner` (a VALUE: a
         callable is called); `reject` with a round left -> `OpenWork("stage_superseded")` (its work is stale, E-24); `reject` with none left (or
-        none countable) -> the conductor through the ONE seam. A verdict word the table does not know goes to the same seam. The repair budget
-        is read only on a reject (B1)."""
+        none countable), a verdict word nobody can read, or a form the writer refuses -> the GAP ROAD (`consumer_gap`, B2-3) and the consumer's
+        OWN completion. INVARIANT: the seam is never reached from here; `own()` is the stage's unchanged rule (it adds no close the stage's
+        own rule refuses). The repair budget is read only on a reject (B1)."""
         import acceptance
         route = self.CONSUMER_ROUTES[stage]
 
@@ -355,8 +392,13 @@ class DriverStageS6:
             dispatch = str(getattr(self, "last_dispatch", "") or "") if dispatch_id is None else str(dispatch_id or "")
             form = f"work/handoffs/{dispatch}.yaml" if dispatch else ""
             if not dispatch or not self.stage_verdict_known(form):
-                return self.stage_review_exhausted(stage, route["author"], dispatch, None, form, unreadable=True)
-            self.stage_acceptance_write(stage, dispatch)
+                self.consumer_gap(stage, f"the {route['who']}'s verdict word could not be read")
+                return own()
+            try:
+                self.stage_acceptance_write(stage, dispatch)
+            except Refusal as refusal:
+                self.consumer_gap(stage, f"the {route['who']}'s acceptance form was refused: " + " ".join(str(getattr(refusal, "text", "") or refusal).split())[:200])
+                return own()
             record = acceptance.stage_acceptance(self.pipeline(), stage) or {}
             if record.get("verdict") == "accept":
                 return own()
@@ -364,8 +406,10 @@ class DriverStageS6:
             if isinstance(counted, int) and isinstance(cap, int) and counted < cap:
                 return OpenWork(acceptance.SUPERSEDED_WORD, open_work_reason(
                     f"the {route['who']} sent {route['what']} back: {record.get('quote') or ''}", f"... [list: {form}]"))
-            outcome = self.consumer_exhausted(stage, record, dispatch, form, counted, cap)
-            return own() if outcome is None else outcome
+            # FR-41: an unknown count is not «no round is left» - the `why` says which of the two it is
+            self.consumer_gap(stage, f"the one repair round of the {route['author']} is spent" if isinstance(counted, int) and isinstance(cap, int)
+                              else f"the repair rounds of the {route['author']} could not be counted", str(record.get("quote") or ""))
+            return own()
         return complete
 
     def consumer_settled(self, stage: str, state: dict, awaiting: str, done: bool, ran: bool = False) -> bool:
@@ -374,7 +418,8 @@ class DriverStageS6:
           consumer ran (`ran`: its own stage is still to finish).
         - a `reject` record: a person's pass (`consumer_person_pass`) takes it as the accept; else the author's repair round NOW, ONCE per
           round, in a fresh context (`rework`: the controller reads the scope from the record, B2), within the repair cap (read only here, B1);
-          no round left -> the conductor through the ONE seam (`consumer_exhausted`); True.
+          no round left, none countable, or a round the controller refuses to register -> the GAP ROAD (`consumer_gap`, B2-3: no seam, no
+          question); True.
         - no record but an accepted, not superseded consumer dispatch CREATED AFTER `awaiting` (the finish died after the dispatch, M2): the
           record is written from its form, then the cases above. Otherwise False: the consumer is still to be dispatched."""
         import acceptance
@@ -386,7 +431,7 @@ class DriverStageS6:
                 return False
             form_mine = f"work/handoffs/{mine}.yaml"
             if not self.stage_verdict_known(form_mine):         # the guard its sibling `consumer_completion` has: an unreadable word is no accept
-                self.stage_review_exhausted(stage, route["author"], mine, None, form_mine, unreadable=True)
+                self.consumer_gap(stage, f"the {route['who']}'s verdict word could not be read")
                 return True
             self.stage_acceptance_write(stage, mine)
             record = acceptance.stage_acceptance(self.pipeline(), stage) or {}
@@ -396,12 +441,19 @@ class DriverStageS6:
             return not ran
         form = f"work/handoffs/{mine or getattr(self, 'last_dispatch', '')}.yaml"
         counted, cap = self.consumer_counts(stage, awaiting)
+        quote = str(record.get("quote") or "")
         if not (isinstance(counted, int) and isinstance(cap, int) and counted < cap):
-            self.consumer_exhausted(stage, record, mine, form, counted, cap)      # the ONE seam; a driver accept stands as a record
+            # FR-41: an unknown count is not «no round is left» - the `why` says which of the two it is
+            self.consumer_gap(stage, f"the one repair round of the {route['author']} is spent" if isinstance(counted, int) and isinstance(cap, int)
+                              else f"the repair rounds of the {route['author']} could not be counted", quote)
             return True
-        self.rework(stage, route["author"], [], f"{route['who']}, acceptance record of {stage} for {awaiting}: " + str(record.get("quote") or ""),
-                    cause="test_defect", complete=route["rework_complete"](self),
-                    extra=[f"Repair round {counted + 1} of {cap}: the {route['who']}'s verdict is in {form}; change only what it names."])
+        try:
+            self.rework(stage, route["author"], [], f"{route['who']}, acceptance record of {stage} for {awaiting}: " + quote,
+                        cause="test_defect", complete=route["rework_complete"](self),
+                        extra=[f"Repair round {counted + 1} of {cap}: the {route['who']}'s verdict is in {form}; change only what it names."])
+        except ReworkRefused as refusal:      # E-B10: the controller registered no round (before any role ran): the gap road, never the seam
+            self.consumer_gap(stage, f"the repair round of the {route['author']} could not be started: "
+                              + " ".join(str(getattr(refusal, "text", "") or refusal).split())[:200], quote)
         return True
 
     def stage_S6(self) -> None:
