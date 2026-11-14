@@ -310,12 +310,23 @@ def check_ids(plugin=None, records=None, errors=None) -> dict:
     return found
 
 
-def sited_ids(uni, ids=None) -> set:
+def sited_ids(uni, ids=None, errors=None) -> set:
     """Every id a row may be keyed by and still have a site in code: the keys of the v1-derived universe, the check id of every
-    A24 entry (`refusal_registry.check_of(e) for e in REGISTRY`) and every literal id of the scanner (`check_ids`)."""
+    A24 entry (`refusal_registry.check_of(e) for e in REGISTRY`), every literal id of the scanner (`check_ids`) and
+    `role_cli:<key>` for every key of `references/role-commands.json` (`role_cli.refuse` and `RefusingParser.error` print that id
+    as their check line; the keys are read through `role_cli.registry`, the one reader). A registry that yields no commands
+    (absent, unreadable, empty) adds nothing and, when `errors` is a list, gets one sentence there - never a crash."""
     import refusal_registry
+    import role_cli
+    try:
+        commands = role_cli.registry()
+        commands = commands if isinstance(commands, dict) else {}
+    except Exception:  # noqa: BLE001 - a file that is not the expected shape adds nothing, and is named below
+        commands = {}
+    if not commands and errors is not None:
+        errors.append("references/role-commands.json yields no commands (absent, unreadable or empty): no `role_cli:<key>` id is sited")
     return (set(uni) | {refusal_registry.check_of(e) for e in refusal_registry.REGISTRY}
-            | set(check_ids() if ids is None else ids))
+            | set(check_ids() if ids is None else ids) | {f"role_cli:{key}" for key in commands})
 
 
 def _is_sited(key, sited) -> bool:

@@ -105,11 +105,14 @@ class Record(str):
     refused = ""
     check = ""
     tag = ""
+    expected = ""
+    door = ""
 
-    def __new__(cls, text, *, script="", words="gate", kind="finding", refused="", check="", tag=""):
+    def __new__(cls, text, *, script="", words="gate", kind="finding", refused="", check="", tag="", expected="", door=""):
         obj = super().__new__(cls, text)
         obj.script, obj.words, obj.kind, obj.refused = script, words, kind, refused
         obj.check, obj.tag = check, tag
+        obj.expected, obj.door = expected, door
         return obj
 
 
@@ -135,7 +138,57 @@ def with_check(record, check: str):
         return record
     return Record(str(record), script=getattr(record, "script", ""), words=getattr(record, "words", "gate"),
                   kind=getattr(record, "kind", "finding"), refused=getattr(record, "refused", ""), check=check,
-                  tag=getattr(record, "tag", ""))
+                  tag=getattr(record, "tag", ""), expected=getattr(record, "expected", ""), door=getattr(record, "door", ""))
+
+
+def _unreadable_row(check, why) -> str:
+    return f"(the factory's requirement row {check} could not be read: {why}; this is a factory defect)"
+
+
+def refusal(check: str, problem, *, fill: dict | None = None) -> "Record":
+    """THE constructor of a refusal that tells before it blames (told-before-work T2, AR-15): a `Record` whose text is `problem`
+    ONLY (`str(record)` never carries the sentence) and whose `check`, `expected` and `door` are the row's. The row is read through
+    `stage_joints.row_for` (AR-13: exact id, else `<stem>:*`), the sentence through `told_text`, the placeholders through `fill`.
+    A row that cannot be read (the file, or no row for the id) gives `expected` = the sentence that says so and `door` = "", never
+    a pass and never an exception (FR-59, AR-28). A row with no sentence (an aggregator key) gives `expected` = "" and its own
+    door. Two rows: the first one (the audit catches the duplicate). `fill=None`, or a placeholder with no value, leaves the
+    placeholder as written. Nothing here reads the text for a marker (I-R: no REPAIR_MARKER or PERSON_MARKER is added)."""
+    try:
+        text = str(problem)
+    except Exception:  # noqa: BLE001 - a refusal is built whatever the problem object is
+        text = repr(problem)
+    check = str(check)                      # the scanner reads the check of `with_check` as this bare parameter (CHECK_PASSTHROUGH)
+    record = with_check(Record(text), check)
+    try:
+        import stage_joints as SJ
+        row, why = SJ.row_for(check)
+        if row is None:
+            expected, door = _unreadable_row(check, why), ""
+        elif row.get("requirement") or row.get("requirement_from"):
+            expected, door = SJ.told_text(row)
+        else:
+            expected, door = "", str(row.get("door") or "")
+        expected, door = SJ.fill(expected, fill), SJ.fill(door, fill)
+    except Exception as exc:  # noqa: BLE001 - an unknown is a sentence, never a crash (I-P)
+        expected, door = _unreadable_row(check, type(exc).__name__), ""
+    record.expected, record.door = expected, door
+    return record
+
+
+def spoken(record) -> str:
+    """The text a sink prints: the problem, then `  expected: <sentence>` and `  door: <door>` when they are not empty, then
+    `  check: <id>` when the record has one. A plain `str` (a `Record` with nothing but a problem and no check included) is
+    returned unchanged, byte for byte. It never truncates: a sentence is bounded by the rows audit, not here."""
+    if not isinstance(record, Record):
+        return record if isinstance(record, str) else str(record)
+    parts = [str(record)]
+    if record.expected:
+        parts.append(f"  expected: {record.expected}")
+    if record.door:
+        parts.append(f"  door: {record.door}")
+    if record.check:
+        parts.append(f"  check: {record.check}")
+    return "\n".join(parts)
 
 
 def one_line(text) -> str:

@@ -74,14 +74,18 @@ KEY_CHARS = 90
 # in a unit the census marks blocking (no list-name filter: over-counting is the declared safe side).
 WIDE_TRANSPORTS = ("deny", "block", "refuse", "run_guarded", "raises", "sys.exit(str)", "SystemExit(str)",
                    "stderr-print+return", "stderr-write+return", "list")
-# The transports that carry a `refusal(...)` Record whole to the role (a site there is `sourced`). Content fixed here, the
-# constructor `detector_verdict.refusal` arrives with T2: until then no site of the package is `sourced`.
+# The transports that carry a `refusal(...)` Record whole to the role (a site there is `sourced`). Content fixed here: since
+# told-before-work T2 all four accept a Record (`block`, `deny` and `refuse` print `detector_verdict.spoken`; `run_guarded`
+# hands a Record raised as a `ValueError` to `refuse` whole); a site is `sourced` once a node relabels it to `refusal(...)`.
 RECORD_SINKS = ("block", "deny", "refuse", "run_guarded")
 RECORD_CALLS = {"refusal": 0, "with_check": 1}      # the call -> the position of its check argument
 # A def that hands its own `check` parameter on to `with_check(...)`/`refusal(...)` (told-before-work T1c, F7 (a)): `(file, def
 # name) -> the position of that parameter in the def's signature`. A closed vocabulary of OUR code (precedent: RECORD_CALLS).
 # The id is then the str literal each bare-name call of the def passes at that position, in the scope where the def is visible.
-CHECK_PASSTHROUGH = {("exit_gate.py", "own"): 1}
+# The constructor `refusal` of detector_verdict is listed too (T2, position 0): its call sites live in OTHER files, so the scan
+# reads them where they stand (`_scan_wide` records the literal of every call it binds to detector_verdict), and a constructor
+# line with no call site yet is no walk error (`_passthrough`).
+CHECK_PASSTHROUGH = {("exit_gate.py", "own"): 1, ("detector_verdict.py", "refusal"): 0}
 STATES = ("sourced", "tagged", "bare")
 QUOTE_HEAD_RE = re.compile(r"^[a-zA-Z]{0,2}(\"\"\"|'''|\"|')")
 
@@ -1374,7 +1378,13 @@ def _passthrough(name: str, nodes: list, stack: tuple, call: ast.Call, kind: str
     `check: <id>`; its `state` is `walk_error` ON PURPOSE: a record of this kind is a fact of the scan, not a refusal site, and
     that state is the one filter every reader (`wide_report`, the census `units_of`) already applies to keep a record out of
     every unit and total. A non-literal at a call site is a `check_arg` walk error there; a listed def with no call that gives a
-    literal is a walk error at the `with_check` call (it must never hide a check argument)."""
+    literal is a walk error at the `with_check` call (it must never hide a check argument).
+
+    EXCEPTION, a constructor (a listed def whose name is a key of `RECORD_CALLS`, i.e. `detector_verdict.refusal`): its call sites
+    are calls of OTHER files, so no record is made here (`[]`: no records, and no walk error for zero call sites - no site has
+    been relabelled yet); each such call is read in its own file by `_scan_wide`, which records the literal at the listed position
+    or a `check_arg` walk error "the check of refusal() must be a literal". A same-name function of another file is bound to
+    detector_verdict by no import there, so it is no call site (ERROR DIRECTION: never toward "sited")."""
     index = CHECK_PASSTHROUGH.get((name, stack[-1])) if stack else None
     if index is None:
         return None
@@ -1385,6 +1395,8 @@ def _passthrough(name: str, nodes: list, stack: tuple, call: ast.Call, kind: str
     params = [a.arg for a in where.args.posonlyargs + where.args.args] if where is not None else []
     if index >= len(params) or not (isinstance(arg, ast.Name) and arg.id == params[index]):
         return None
+    if stack[-1] in RECORD_CALLS:
+        return []           # a CONSTRUCTOR (`refusal`): its call sites are in other files and are read there, by `_scan_wide`; none yet is no error
     scope, out = stack[:-1], []
     for n, s in nodes:
         if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == stack[-1]
@@ -1481,13 +1493,19 @@ def _scan_wide(name: str, path: Path, spec: dict, blocking) -> tuple:
         if isinstance(node, ast.Call):
             callee = _callee(node)
             if _record_kind(node, bind):
-                _, why = _record_id(node, consts, _record_kind(node, bind))
-                passed = _passthrough(name, nodes, stack, node, _record_kind(node, bind), consts) if why else None
+                kind = _record_kind(node, bind)
+                ident, why = _record_id(node, consts, kind)
+                passed = _passthrough(name, nodes, stack, node, kind, consts) if why else None
                 if passed is not None:                  # a listed pass-through def: its ids are the literals at its call sites
                     records.extend(passed)
                 elif why:
+                    if kind == "refusal":
+                        why = ("the check of refusal() must be a literal or a module constant: name the check with a literal")
                     records.append((_walk_error(name, fn, _expr_key(node) or "", node.lineno, "check_arg") | {"why": why},
                                     node.col_offset))
+                else:                                   # a bound call with a literal check: its id is sited, in a transport or not (T2-8)
+                    records.append(({"file": name, "function": fn, "call": ident[:KEY_CHARS], "line": node.lineno,
+                                     "transport": "check_id", "state": "walk_error", "check": ident}, node.col_offset))
             func = node.func
             args = node.args
             if isinstance(func, ast.Name) and func.id in REFUSAL_CALLS:
