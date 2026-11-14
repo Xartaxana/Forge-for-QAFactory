@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "_note": "Closed variety of the ways a stand signs a person in (FR-13, AR-1): the sign-in FORMS the factory knows and the attempt budget of one roads run. One reader: stand_access.login_roads(). SCOPE: a row describes a sign-in form whose csrf step answers JSON and whose session step answers JSON; a form of another shape (a csrf token in a cookie, no session endpoint, a cookie-session JSON sign-in) is a finding and a schema change, never a code branch. A row is {id, seen_in, csrf: {path, token_at: [keys]}, submit: {path, encoding: form|json, csrf_field, extra: {name: string}}, session: {path, proof_at: [keys]}, refused_marker, fields: [user, secret], field_errors_reported}: `csrf.path` is read first and hands out a token at `token_at`; `submit.path` takes the token, the user and the secret as `fields` (a project that records its own field names in environment.access wins) plus `extra`; `refused_marker` is the text a refusing redirect (its Location) or JSON `url` carries; `session.path` answers with a non-empty value at `proof_at` once signed in; `field_errors_reported` says whether the form tells a wrong field name from a wrong password (false = a refusal cannot tell which one it was). A row with a missing key, a wrong type or a path that does not start with exactly one / is dropped; at most 20 rows are read. `budget` is the cap of ONE roads run: `real_secret_failures` = how many failed sign-ins with the real account a run may spend (1..3; absent, 0 or a non-number reads as 1; above 3 reads as 3), `candidates` = how many extra login addresses given with --candidate a run tries (1..5, default 5).",
+  "budget": {"real_secret_failures": 1, "candidates": 5},
+  "forms": [
+    {
+      "id": "csrf-credentials-form",
+      "seen_in": "NextAuth.js / Auth.js credentials provider",
+      "csrf": {"path": "/api/auth/csrf", "token_at": ["csrfToken"]},
+      "submit": {"path": "/api/auth/callback/credentials", "encoding": "form", "csrf_field": "csrfToken", "extra": {"json": "true"}},
+      "session": {"path": "/api/auth/session", "proof_at": ["user"]},
+      "refused_marker": "error=",
+      "fields": ["email", "password"],
+      "field_errors_reported": false
+    }
+  ]
+}

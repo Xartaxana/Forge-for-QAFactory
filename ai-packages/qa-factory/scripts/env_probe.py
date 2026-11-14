@@ -237,7 +237,7 @@ _UNREADABLE_ROW = {"id": "unreadable", "verdict": "dead", "means": "table_unread
 
 
 def _empty_stand_answers() -> dict:
-    return {"codes": [], "no_answer": [], "order": [], "login_remedies": [], "login_recheck": "", "remedy": {},
+    return {"codes": [], "no_answer": [], "order": [], "login_remedies": [], "login_answers": [], "login_recheck": "", "remedy": {},
             "texts": {}, "table": "unreadable"}
 
 
@@ -265,7 +265,7 @@ def stand_answers() -> dict:
             data = json.loads(Path(STAND_ANSWERS_PATH).read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 data = _expand_tokens(data)
-                for name in ("codes", "no_answer", "order", "login_remedies"):
+                for name in ("codes", "no_answer", "order", "login_remedies", "login_answers"):
                     if isinstance(data.get(name), list):
                         loaded[name] = [row for row in data[name] if isinstance(row, dict)]
                 for name in ("remedy", "texts"):
@@ -288,12 +288,18 @@ def reload_stand_answers() -> None:
     _stand_cache.clear()
 
 
-def _row_takes(row: dict, code, kind, outcome=None) -> bool:
-    """Does a table row take this answer: `any`, or a recorded `outcome` the row lists, or a code (`codes` / `from`..`to`)
-    whose `kinds` / `not_kinds` fit. The one matcher of the `codes` and `login_remedies` tables."""
+def _row_takes(row: dict, code, kind, outcome=None, *, road=None, answer=None) -> bool:
+    """Does a table row take this answer: `any`, or a recorded `outcome` / `answer` the row lists, or a code (`codes` /
+    `from`..`to`) whose `kinds` / `not_kinds` fit. The one matcher of the `codes`, `login_remedies` and `login_answers`
+    tables. A row with `roads` takes only an attempt of one of those road kinds - checked FIRST, so a road-scoped row can
+    never take another road's answer through `any`, `outcomes` or `answers` (a `roads` that is not a list takes nothing)."""
+    if "roads" in row and not (isinstance(row["roads"], list) and road in row["roads"]):
+        return False
     if row.get("any"):
         return True
     if outcome is not None and outcome in (row.get("outcomes") or []):
+        return True
+    if answer is not None and answer in (row.get("answers") or []):
         return True
     if isinstance(code, bool) or not isinstance(code, int):
         return False

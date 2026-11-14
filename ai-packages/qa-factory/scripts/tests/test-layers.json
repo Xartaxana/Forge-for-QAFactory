@@ -2515,11 +2515,14 @@
   },
   "test_http_client.py": {
    "layer": "table",
-   "why": "table (B.2 criterion 5): HTTP client refusals",
+   "why": "table (B.2 criterion 5): HTTP client refusals and the sign-in answers built on them",
    "covers": [
     "http_client.py",
     "story_version.py",
-    "tests/harness.py"
+    "tests/harness.py",
+    "stand_access.py",
+    "references/login-roads.json",
+    "references/stand-answers.json"
    ]
   },
   "test_human_questions.py": {
