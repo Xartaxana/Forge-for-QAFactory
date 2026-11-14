@@ -3,66 +3,64 @@
  "group": "s1-s4",
  "routes": {
   "s1_gap": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s1-s4 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "the S0 snapshot is past the scout's run; the gap stop needs the scout to hand over a source gap, and no recipe from S0 makes the scout run again with a changed message"
   },
   "s1_review": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s1-s4 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "a code-move route row cannot be judged by the walker yet (dry_world.py run_exit_row); the same stop is walked by s1.review and kind:s1_review at S0"
   },
   "structured_artifact": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s1-s4 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "a code-move route row cannot be judged by the walker yet (dry_world.py run_exit_row); the refusal also needs a role to hand over a malformed structured artifact, which no seed recipe from S0 prepares"
   }
  },
  "joints": {
   "exit_gate:grounding": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s1-s4 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "the joint refuses a role handoff inside a stage turn (S3 strategist); a recipe from S0 reaches it in seed turns, and the walker reads the refusal line of the answer turns only (dry_world.py run_exit_row: first_refusal of the post-answer output)"
   },
   "exit_gate:case_identity": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s1-s4 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "the joint refuses a role handoff inside a stage turn (S4 designer); the walker reads the refusal line of the answer turns only, and the recipe from S0 to S4 is beyond the 240 s row cap"
   },
   "branch_accounting:*": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s1-s4 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "the family refuses a handoff inside a stage turn (S3); the walker reads the refusal line of the answer turns only (dry_world.py run_exit_row), so a seed turn's refusal is not observed"
   },
   "planning_contract:*": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s1-s4 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "the family refuses a handoff inside a stage turn (S3); the walker reads the refusal line of the answer turns only (dry_world.py run_exit_row), so a seed turn's refusal is not observed"
   },
   "critic_rollcall:*": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s1-s4 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "the family refuses the critic's handoff inside a stage turn (S2-S4); the walker reads the refusal line of the answer turns only (dry_world.py run_exit_row), so a seed turn's refusal is not observed"
   }
  },
  "kinds_without_key": {
   "conductor": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s1-s4 writes the rows of this group",
+   "reach": "live_only",
+   "why_unreached": "stage_review_exhausted is not reachable from the dry stub (measured: a stub critic reject at S4 does not exhaust the review, see the walk row); no_move_legacy is a legacy road no S0 recipe prepares",
    "raised_at": [
     "driver_conductor:no_move_legacy"
    ]
   },
   "questions": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s1-s4 writes the rows of this group",
+   "reach": "live_only",
+   "why_unreached": "needs an open blocking question or an over-threshold register at an S2-S4 handover; the dry stub writes no question register and no recipe from S0 can add one",
    "raised_at": [
-    "driver_dispatch:question_threshold",
-    "driver_machine:_act_wait_existing_job"
+    "driver_dispatch:question_threshold"
    ]
   },
   "s1_gap": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s1-s4 writes the rows of this group",
+   "reach": "live_only",
+   "why_unreached": "the S0 snapshot is past the scout's run; the gap stop needs the scout to hand over a source gap, and no recipe from S0 makes the scout run again with a changed message",
    "raised_at": [
     "driver_dispatch:s1_person"
    ]
   },
   "s1_review": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s1-s4 writes the rows of this group",
+   "reach": "story",
    "raised_at": [
     "driver_dispatch:run_role",
     "driver_dispatch:s1_person"
@@ -72,8 +70,24 @@
  "ratchet": {
   "live_only": 0,
   "after": 0,
-  "unwalked": 12,
+  "unwalked": 0,
   "hook_layer": 0,
-  "raised_by": []
+  "raised_by": [
+   "live_only | routes/s1_gap | N4:s1-s4 t-827, census row",
+   "live_only | routes/s1_review | N4:s1-s4 t-827, census row",
+   "live_only | routes/structured_artifact | N4:s1-s4 t-827, census row",
+   "live_only | joints/exit_gate:grounding | N4:s1-s4 t-827, census row",
+   "live_only | joints/exit_gate:case_identity | N4:s1-s4 t-827, census row",
+   "live_only | joints/branch_accounting:* | N4:s1-s4 t-827, census row",
+   "live_only | joints/planning_contract:* | N4:s1-s4 t-827, census row",
+   "live_only | joints/critic_rollcall:* | N4:s1-s4 t-827, census row",
+   "live_only | kinds_without_key/conductor | N4:s1-s4 t-827, census row",
+   "live_only | walk/kind:conductor/stage_review_exhausted:rework_stage | N4:s1-s4 t-827, walk row",
+   "live_only | kinds_without_key/questions | N4:s1-s4 t-827, census row",
+   "live_only | kinds_without_key/s1_gap | N4:s1-s4 t-827, census row",
+   "live_only | walk/route:s1_gap/code move | N4:s1-s4 t-827, walk row",
+   "live_only | walk/route:s1_review/code move | N4:s1-s4 t-827, walk row",
+   "live_only | walk/route:structured_artifact/code move | N4:s1-s4 t-827, walk row"
+  ]
  }
 }
