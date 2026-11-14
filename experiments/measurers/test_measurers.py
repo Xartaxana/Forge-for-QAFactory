@@ -1647,6 +1647,568 @@ def verdict_word_tests() -> None:
           Path(stage_compare.__file__).read_text(encoding="utf-8"))
 
 
+# --- the run scoreboard (P1-v N6): one table per behaviour, the case id names the row ------------------------------
+# The same tables run two ways: `python -m pytest experiments/measurers/test_measurers.py` (one parameterised test per table, the
+# parameter id is the case) and `python -B experiments/measurers/test_measurers.py` (the self-running list above, `check` per case).
+try:
+    import pytest
+except ImportError:                                  # the self-running form needs no pytest
+    pytest = None
+
+
+def _parametrize(cases):
+    if pytest is None:
+        return lambda function: function
+    return pytest.mark.parametrize("case", cases, ids=[c[0] for c in cases])
+
+
+def _sb():
+    import scoreboard
+    return scoreboard
+
+
+def sb_cli(*argv):
+    """(code, stdout, stderr) of `scoreboard.main(argv)`."""
+    import io
+    import contextlib
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        try:
+            code = _sb().main([str(a) for a in argv])
+        except SystemExit as stop:
+            code = stop.code
+    return code, out.getvalue(), err.getvalue()
+
+
+def sb_run(tmp: Path, name="run", start="2026-11-01T10:00:00+00:00", run_class="live", role_s=300, questions=0,
+           cumulative=False, process=True) -> Path:
+    """A story folder (qa-factory/artifacts/QA-9) with the carriers run_counters reads: one process window of 20 minutes, one first-pass
+    role call of `role_s` seconds and one resumed call of 100 s that names a check; `questions` rows of driver-questions.jsonl."""
+    from datetime import datetime, timedelta
+    t0 = datetime.fromisoformat(start)
+    at = lambda minutes: (t0 + timedelta(minutes=minutes)).isoformat()  # noqa: E731
+    task = tmp / name / "qa-factory" / "artifacts" / "QA-9"
+    (task / "state").mkdir(parents=True)
+    sid = "stub-S1-qa-scout-1-1" if run_class != "live" else "sess-1"
+    rows = []
+    if process:
+        rows.append({"kind": "process", "event": "end", "since": at(0), "ts": at(20), "package": "p1", "config_sha": None,
+                     "answer_file": False, "run_class": run_class, "process_code": 0, "question_kind": None})
+    rows.append({"kind": "role", "role": "qa-scout", "stage": "S1", "dispatch": "S1-qa-scout-1", "session_id": sid, "ts": at(5),
+                 "wall_ms": role_s * 1000, "duration_ms": role_s * 1000 - 5000, "resumed": False, "is_error": False,
+                 **({"total_cost_usd": 0.424} if cumulative else {})})
+    rows.append({"kind": "role", "role": "qa-scout", "stage": "S1", "dispatch": "S1-qa-scout-1", "session_id": sid, "ts": at(8),
+                 "wall_ms": 100000, "duration_ms": 95000, "resumed": True, "resume_kind": "refusal_resume",
+                 "checks": ["s5_precheck:manifest"], "checks_n": {"s5_precheck:manifest": 2}, "is_error": False,
+                 **({"total_cost_usd": 0.455} if cumulative else {})})
+    (task / "state" / "driver-runs.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    if questions:
+        (task / "state" / "driver-questions.jsonl").write_text(
+            "\n".join(json.dumps({"ts": at(3), "kind": "k", "stage": "S1", "source": "driver", "why_person": "x"}) for _ in range(questions)) + "\n",
+            encoding="utf-8")
+    return task
+
+
+def sb_assemble(task: Path, out: Path, *extra, arm="factory", version="9.9.9"):
+    return sb_cli("assemble", "--task-root", task, "--stand", "mybooks", "--story", "add-to-cart", "--arm", arm, "--version", version,
+                  "--out-root", out, *extra)
+
+
+def sb_files(out: Path) -> list:
+    return sorted((out / "mybooks" / "add-to-cart").glob("*.yaml")) if (out / "mybooks" / "add-to-cart").is_dir() else []
+
+
+def sb_yaml(path):
+    import yaml
+    return yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+
+
+def sb_truth(path: Path, ids=(1, 2, 3)) -> Path:
+    import yaml
+    path.write_text(yaml.safe_dump({"schema": "truth/1", "versions": [{"id": "v1", "cards": [{"id": i, "class": "bug"} for i in ids]},
+                                                                       {"id": "v2", "cards": [{"id": i, "class": "bug"} for i in ids]}]}), encoding="utf-8")
+    return path
+
+
+def sb_judgment(path: Path, rows) -> Path:
+    import yaml
+    if isinstance(rows, bytes):
+        path.write_bytes(rows)
+    elif isinstance(rows, str):
+        path.write_text(rows, encoding="utf-8")
+    else:
+        path.write_text(yaml.safe_dump({"schema": "judgment/1", "evaluated_against_version": "v1",
+                                        "key": {"X": {"arm": "free"}, "Y": {"arm": "factory"}}, "card_rows": rows}, allow_unicode=True), encoding="utf-8")
+    return path
+
+
+def sb_good_rows(ids=(1, 2, 3)) -> list:
+    return [{"card": i, "arm": arm, "verdict": "found" if (arm == "Y" and i == 1) else "missed", "unsure": arm == "Y" and i == 3}
+            for arm in ("X", "Y") for i in ids]
+
+
+def sb_rows_file(tmp: Path) -> Path:
+    """A copy of rows.json that declares a verdict vocabulary and the categories of QA1 (the shipped file declares none)."""
+    doc = json.loads((HERE.parent / "scoreboards" / "rows.json").read_text(encoding="utf-8"))
+    doc["verdicts"] = {"found": "found", "missed": "missed"}
+    doc["rows"]["QA1"]["quality"]["categories"] = ["found"]
+    path = tmp / "rows-vocabulary.json"
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    return path
+
+
+def _dup(rows):
+    return rows + [dict(rows[-1])]
+
+
+SB_JUDGMENT_CASES = [
+    # (case id, how the judgment rows are changed -> rows | text | bytes, the refusal's words or None when the file is accepted)
+    ("AT: exactly the truth's card count", lambda r: r, None),
+    ("BEYOND: one extra card", lambda r: r + [{"card": 4, "arm": "Y", "verdict": "found"}], "card 4 is not in truth version v1"),
+    ("a card listed twice", _dup, "listed twice"),
+    ("a card of the truth with no row", lambda r: [x for x in r if not (x["card"] == 2 and x["arm"] == "Y")], "card 2 of truth version v1 has no verdict row"),
+    ("a verdict word outside the vocabulary", lambda r: [dict(r[0], arm="Y", verdict="maybe")] + r[1:], "verdict word 'maybe'"),
+    ("a list where the card id is a scalar", lambda r: r + [{"card": [1, 2], "arm": "Y", "verdict": "found"}], "`card` must be a scalar"),
+    ("a mapping where the verdict is a text", lambda r: [dict(x, verdict={"a": 1}) if x["arm"] == "Y" and x["card"] == 1 else x for x in r], "`verdict` must be a non-empty text"),
+    ("an empty file", lambda r: "", "is empty"),
+    ("non-UTF-8 bytes", lambda r: b"card_rows: \xff\xfe\n", "is not UTF-8 text"),
+    ("10,000 rows", lambda r: [{"card": n, "arm": "Y", "verdict": "found"} for n in range(10000)], "and 9"),
+    ("a truth version the truth file lacks", lambda r: r, "has no version v9"),
+]
+
+
+def sb_judgment_case(tmp: Path, case) -> None:
+    name, mutate, want = case
+    task, out, truth = sb_run(tmp), tmp / "out", sb_truth(tmp / "truth.yaml")
+    rows = mutate(sb_good_rows())
+    judgment = sb_judgment(tmp / "judgment.yaml", rows)
+    extra = ["--truth", truth, "--judgment", judgment, "--rows", sb_rows_file(tmp)]
+    if name.startswith("a truth version"):
+        extra += ["--truth-version", "v9"]
+    code, printed, err = sb_assemble(task, out, *extra)
+    if want is None:
+        assert code == 0, err
+        doc = sb_yaml(sb_files(out)[0])
+        assert doc["run"]["truth_version"] == "v1"
+        assert (doc["rows"]["QA1"]["state"], doc["rows"]["QA1"]["value"]) == ("measured", 1), doc["rows"]["QA1"]
+        assert "1 unsure card(s)" in doc["rows"]["QA2"]["why"] or doc["rows"]["QA2"]["state"] == "unknown"
+    else:
+        assert code == 2 and want in err, (code, err[:400])
+        assert "RED" in err and str(judgment) in err or "truth" in err
+        assert sb_files(out) == [], "a refused judgment wrote a file"
+        assert len(err) < 4000, "the refusal is not bounded"
+
+
+SB_MONEY_CASES = [
+    ("agreement: the value of task_price", {"status": "agrees", "price_low_usd": 0.455, "price_high_usd": 0.455}, "live", True, "measured", 0.455),
+    ("a journal whose session totals rise is NOT summed (0.424 then 0.455 stays task_price's 0.455)",
+     {"status": "agrees", "price_low_usd": 0.455, "price_high_usd": 0.455}, "live", True, "measured", 0.455),
+    ("a range with its note", {"status": "differs", "finding": "A and B differ", "price_low_usd": 2.0, "price_high_usd": 3.5}, "live", False, "measured",
+     {"low": 2.0, "high": 3.5}),
+    ("incomplete: the price is at least the figure, so unknown", {"status": "incomplete", "finding": "a session has no record", "price_low_usd": 1.0,
+                                                                  "price_high_usd": 1.0}, "live", False, "unknown", None),
+    ("no price at all", {"status": "incomplete", "finding": "No session of this task has a record."}, "live", False, "unknown", None),
+    ("task_price raises", RuntimeError("boom"), "live", False, "unknown", None),
+    ("a dry run has no money", {"status": "agrees", "price_low_usd": 9.0, "price_high_usd": 9.0}, "dry", False, "n/a", None),
+]
+
+
+def sb_money_case(tmp: Path, case) -> None:
+    import contextlib
+    name, answer, run_class, cumulative, state, value = case
+    scoreboard = _sb()
+
+    def fake(root, task):
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+    saved, scoreboard.TP.task_price = scoreboard.TP.task_price, fake
+    try:
+        code, _printed, err = sb_assemble(sb_run(tmp, run_class=run_class, cumulative=cumulative), tmp / "out")
+    finally:
+        scoreboard.TP.task_price = saved
+    assert code == 0, err
+    row = sb_yaml(sb_files(tmp / "out")[0])["rows"]["X1"]
+    assert (row["state"], row["value"]) == (state, value), row
+    assert row["unit"] == "usd"
+
+
+def _m(value):
+    return {"state": "measured", "value": value}
+
+
+_U = {"state": "unknown", "value": None, "why": "not recorded"}
+
+
+def _bar(value, truth="v1", row="T1"):
+    return {"run": {"truth_version": truth}, "rows": {row: _m(value), "QA1": _m(value)}}
+
+
+SB_NORM_CASES = [
+    # (case id, norm, rows, run class, bar, truth version, verdict)
+    ("N-questions AT the norm (40)", "N-questions", {"Q1": _m(40)}, "live", None, None, "green"),
+    ("N-questions BEYOND the norm (41)", "N-questions", {"Q1": _m(41)}, "live", None, None, "red"),
+    ("an unknown row is never green", "N-questions", {"Q1": _U}, "live", None, None, "unknown"),
+    ("N-gate within the norm, no unknown check", "N-gate", {"G1": _m(16), "G1u": _m(0)}, "live", None, None, "green"),
+    ("N-gate within the norm but the unknown check is above it: unknown (AR-28)", "N-gate", {"G1": _m(3), "G1u": _m(17)}, "live", None, None, "unknown"),
+    ("N-gate beyond the norm is red whatever the unknown count", "N-gate", {"G1": _m(17), "G1u": _m(17)}, "live", None, None, "red"),
+    ("N-wall with no bar is unknown (7.5)", "N-wall", {"T1x": _m(357)}, "live", None, None, "unknown"),
+    ("N-wall ratio AT the norm (357 / 10 = 35.7)", "N-wall", {"T1x": _m(357)}, "live", _bar(10), None, "green"),
+    ("N-wall ratio BEYOND the norm (358 / 10 = 35.8)", "N-wall", {"T1x": _m(358)}, "live", _bar(10), None, "red"),
+    ("N-wall with a bar of 0 is unknown, never a ratio", "N-wall", {"T1x": _m(358)}, "live", _bar(0), None, "unknown"),
+    ("N-brief: the norm value is not set, so unknown even when measured", "N-brief", {"B1": _m(0)}, "live", None, None, "unknown"),
+    ("a dry run judges no norm (K7)", "N-questions", {"Q1": _m(1)}, "dry", None, None, "unknown"),
+    ("an unknown run class judges no norm (K7)", "N-questions", {"Q1": _m(1)}, "unknown", None, None, "unknown"),
+    ("quality worse than the bar of the same truth version: red", "N-quality-QA1", {"QA1": _m(1)}, "live", _bar(2), "v1", "red"),
+    ("quality equal to the bar: green", "N-quality-QA1", {"QA1": _m(2)}, "live", _bar(2), "v1", "green"),
+    ("quality against a bar of another truth version: unknown", "N-quality-QA1", {"QA1": _m(9)}, "live", _bar(2, "v2"), "v1", "unknown"),
+    ("quality against no bar: unknown", "N-quality-QA1", {"QA1": _m(9)}, "live", None, "v1", "unknown"),
+    ("a quality row with no declared direction is not decided", "N-quality-QA3", {"QA3": _m(1)}, "live", _bar(2, row="QA3"), "v1", "unknown"),
+]
+
+
+def sb_norm_case(tmp: Path, case) -> None:
+    _name, norm, rows, run_class, bar, truth, want = case
+    scoreboard = _sb()
+    judged = scoreboard.judge_norms(scoreboard.load_norms(), rows, run_class, bar, truth, scoreboard.load_rows())
+    assert judged[norm]["verdict"] == want, judged[norm]
+
+
+def _norms():
+    return json.loads((HERE.parent / "scoreboards" / "norms.json").read_text(encoding="utf-8"))
+
+
+def _edit(doc, fn):
+    fn(doc)
+    return doc
+
+
+RAISE = {"norm": "N-questions", "from": 40, "to": 50, "raised_by": "Lead", "reason": "the story grew", "word": "owner, 14.11.2026"}
+
+
+def _set_value(nid, value):
+    return lambda d: d["norms"][nid].update(value=value)
+
+
+SB_RATCHET_CASES = [
+    # (case id, edit of the new file, edit of the old file or None (then no --against), words of the problem or None when green)
+    ("the shipped file is green", lambda d: None, None, None),
+    ("a looser value with no raise row", _set_value("N-questions", 50), None, "looser than its baseline"),
+    ("a tighter value is green", _set_value("N-questions", 30), None, None),
+    ("a raise with raised_by, reason and the owner's word is green",
+     lambda d: (d["raises"].append(dict(RAISE)), d["norms"]["N-questions"].update(value=50)), None, None),
+    ("a raise without the owner's word", lambda d: (d["raises"].append({k: v for k, v in RAISE.items() if k != "word"}), d["norms"]["N-questions"].update(value=50)),
+     None, "needs `norm`, `raised_by`, `reason`"),
+    ("a raise without raised_by", lambda d: (d["raises"].append({k: v for k, v in RAISE.items() if k != "raised_by"}), d["norms"]["N-questions"].update(value=50)),
+     None, "needs `norm`, `raised_by`, `reason`"),
+    ("a raise with an empty reason", lambda d: (d["raises"].append(dict(RAISE, reason=" ")), d["norms"]["N-questions"].update(value=50)), None, "needs `norm`"),
+    ("a 'raise' to a stricter value", lambda d: (d["raises"].append(dict(RAISE, to=30)), d["norms"]["N-questions"].update(value=30)), None, "is not looser"),
+    ("a raise that starts from a wrong baseline", lambda d: (d["raises"].append(dict(RAISE, **{"from": 35})), d["norms"]["N-questions"].update(value=50)),
+     None, "the baseline is 40"),
+    ("a norm the raise row does not name stays refused", lambda d: (d["raises"].append(dict(RAISE)), d["norms"]["N-gate"].update(value=20)), None, "norm N-gate"),
+    ("against: `initial` rewritten", _set_value("N-questions", 40), lambda o: o["norms"]["N-questions"].update(initial=30, value=30), "`initial` changed"),
+    ("against: a norm dropped", lambda d: d["norms"].pop("N-gate"), lambda o: None, "was dropped"),
+    ("against: looser than before with no new raise row", lambda d: (d["norms"]["N-questions"].update(value=35)),
+     lambda o: o["norms"]["N-questions"].update(value=30), "no new raise row"),
+    ("against: looser than before WITH a new raise row is green",
+     lambda d: (d["raises"].append(dict(RAISE, **{"from": 40, "to": 45})), d["norms"]["N-questions"].update(value=45)),
+     lambda o: o["norms"]["N-questions"].update(value=30), None),
+    ("against: an earlier raise row removed", lambda d: None, lambda o: o["raises"].append(dict(RAISE)), "may only be appended"),
+    ("against: an unset norm may be set once", lambda d: d["norms"]["N-brief"].update(value=12, initial=12), lambda o: None, None),
+]
+
+
+def sb_ratchet_case(tmp: Path, case) -> None:
+    _name, edit, old_edit, want = case
+    scoreboard = _sb()
+    new, old = _norms(), _norms()
+    edit(new)
+    if old_edit is not None:
+        old_edit(old)
+    problems = scoreboard.check_norms(new, old if old_edit is not None else None)
+    if want is None:
+        assert problems == [], problems
+    else:
+        assert any(want in p for p in problems), problems
+
+
+def _doc(run_class="live", arm="factory", truth="v1", **rows):
+    return {"run": {"run_class": run_class, "arm": arm, "truth_version": truth},
+            "rows": {k: (v if isinstance(v, dict) else _m(v)) for k, v in rows.items()}}
+
+
+SB_COMPARE_CASES = [
+    # (case id, now doc, previous doc or None, row, expected entry fields or the not_comparable words)
+    ("a first run: previous none, no worse flag at all", _doc(Q1=5), None, "Q1", "first"),
+    ("a lower-is-better row that rose is worse", _doc(Q1=5), _doc(Q1=3), "Q1", {"was": 3, "now": 5, "worse": True}),
+    ("the same value is not worse", _doc(Q1=3), _doc(Q1=3), "Q1", {"worse": False}),
+    ("a row that fell is not worse", _doc(Q1=2), _doc(Q1=3), "Q1", {"worse": False}),
+    ("a higher-is-better row that fell is worse", _doc(QA1=1), _doc(QA1=2), "QA1", {"worse": True}),
+    ("unknown now, measured before: undecided, never a pass", _doc(Q1=_U), _doc(Q1=3), "Q1", {"worse": None, "now": "unknown"}),
+    ("measured now, unknown before: undecided", _doc(Q1=3), _doc(Q1=_U), "Q1", {"worse": None, "was": "unknown"}),
+    ("a row with no declared direction is never worse", _doc(Q2=9), _doc(Q2=1), "Q2", {"worse": None}),
+    ("a dry file against a live file: not comparable (K7)", _doc(run_class="dry", Q1=9), _doc(Q1=1), None, "run_class live vs dry"),
+    ("a live file against a dry file: not comparable (K7)", _doc(Q1=9), _doc(run_class="dry", Q1=1), None, "run_class dry vs live"),
+    ("a mixed run is not comparable", _doc(run_class="mixed", Q1=9), _doc(Q1=1), None, "run_class live vs mixed"),
+    ("an unknown run class is not comparable", _doc(run_class="unknown", Q1=9), _doc(Q1=1), None, "run_class live vs unknown"),
+    ("another arm is not comparable", _doc(arm="free", Q1=9), _doc(Q1=1), None, "arm factory vs free"),
+    ("a quality row across truth versions: not comparable (7.8)", _doc(truth="v2", QA1=2), _doc(truth="v1", QA1=1), "QA1", "truth v1 vs v2"),
+    ("a time row across truth versions is still compared", _doc(truth="v2", Q1=5), _doc(truth="v1", Q1=3), "Q1", {"worse": True}),
+    ("money ranges that do not overlap: worse", _doc(X1={"state": "measured", "value": {"low": 5.0, "high": 6.0}}),
+     _doc(X1={"state": "measured", "value": {"low": 2.0, "high": 3.0}}), "X1", {"worse": True}),
+    ("money ranges that overlap: undecided", _doc(X1={"state": "measured", "value": {"low": 2.5, "high": 6.0}}),
+     _doc(X1={"state": "measured", "value": {"low": 2.0, "high": 3.0}}), "X1", {"worse": None}),
+]
+
+
+def sb_compare_case(tmp: Path, case) -> None:
+    _name, now, previous, row, want = case
+    scoreboard = _sb()
+    comp = scoreboard.build_compare(now, previous, "was.yaml" if previous else None, None, scoreboard.load_rows())
+    if want == "first":
+        assert comp["previous"] == "none" and "rows" not in comp and "not_comparable" not in comp, comp
+    elif row is None:
+        assert comp.get("not_comparable") == want and "rows" not in comp, comp
+    elif isinstance(want, str):
+        assert comp["rows"][row] == {"not_comparable": want}, comp["rows"][row]
+    else:
+        assert all(comp["rows"][row].get(k) == v for k, v in want.items()), comp["rows"][row]
+        if want.get("worse") is None:
+            assert "why" in comp["rows"][row]
+
+
+def sb_put(folder: Path, stamp: str, arm: str, run_class: str) -> Path:
+    import yaml
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{stamp}-1.0.0-{arm}.yaml"
+    path.write_text(yaml.safe_dump({"schema": "scoreboard/1", "run": {"arm": arm, "run_class": run_class}, "rows": {}}), encoding="utf-8")
+    return path
+
+
+SB_PREVIOUS_CASES = [
+    # (case id, files already in the folder as (stamp, arm, class), the file being compared, the expected previous or None)
+    ("the newest EARLIER live file of the same arm", [("20261101-1000", "factory", "live"), ("20261102-1000", "factory", "live")], ("20261103-1000", "factory"),
+     "20261102-1000-1.0.0-factory.yaml"),
+    ("a later file is not previous", [("20261105-1000", "factory", "live")], ("20261103-1000", "factory"), None),
+    ("another arm is not previous (7.7)", [("20261101-1000", "free", "live")], ("20261103-1000", "factory"), None),
+    ("a dry file is not previous of a live one", [("20261101-1000", "factory", "dry"), ("20261031-1000", "factory", "live")], ("20261103-1000", "factory"),
+     "20261031-1000-1.0.0-factory.yaml"),
+    ("only a dry file earlier: none", [("20261101-1000", "factory", "dry")], ("20261103-1000", "factory"), None),
+    ("no earlier file at all", [], ("20261103-1000", "factory"), None),
+]
+
+
+def sb_previous_case(tmp: Path, case) -> None:
+    _name, files, current, want = case
+    folder = tmp / "folder"
+    folder.mkdir()
+    for stamp, arm, run_class in files:
+        sb_put(folder, stamp, arm, run_class)
+    found, _doc_, notes = _sb().previous_of(folder / f"{current[0]}-1.0.0-{current[1]}.yaml")
+    assert (found.name if found else None) == want and notes == [], (found, notes)
+
+
+def sb_assemble_case(tmp: Path, case) -> None:
+    """The edges of 7.2-7.7 and the refusals, each through the command line."""
+    name = case[0]
+    scoreboard = _sb()
+    out = tmp / "out"
+    if name == "an empty run folder is refused naming the folder":
+        empty = tmp / "empty-run"
+        empty.mkdir()
+        code, _p, err = sb_assemble(empty, out)
+        assert code == 2 and str(empty) in err and "is empty" in err and sb_files(out) == [], err
+    elif name == "a run folder that does not exist is refused naming it":
+        code, _p, err = sb_assemble(tmp / "nowhere", out)
+        assert code == 2 and str(tmp / "nowhere") in err and sb_files(out) == [], err
+    elif name == "an absent rows file is a red line naming it":
+        code, _p, err = sb_assemble(sb_run(tmp), out, "--rows", tmp / "no-rows.json")
+        assert code == 2 and "RED" in err and str(tmp / "no-rows.json") in err and sb_files(out) == [], err
+    elif name == "a norms file that is not JSON is a red line naming it":
+        (tmp / "norms.json").write_text("{not json", encoding="utf-8")
+        code, _p, err = sb_assemble(sb_run(tmp), out, "--norms", tmp / "norms.json")
+        assert code == 2 and str(tmp / "norms.json") in err and sb_files(out) == [], err
+    elif name == "a norms file of non-UTF-8 bytes is a red line naming it":
+        (tmp / "norms.json").write_bytes(b"\xff\xfe{}")
+        code, _p, err = sb_assemble(sb_run(tmp), out, "--norms", tmp / "norms.json")
+        assert code == 2 and "not UTF-8" in err and str(tmp / "norms.json") in err, err
+    elif name == "compare reads no scoreboard from an unreadable norms file":
+        code, _p, _e = sb_assemble(sb_run(tmp), out)
+        (tmp / "norms.json").write_text("[]", encoding="utf-8")
+        code, printed, err = sb_cli("compare", sb_files(out)[0], "--norms", tmp / "norms.json")
+        assert code == 2 and printed == "" and str(tmp / "norms.json") in err, (printed, err)
+    elif name == "a stand name with a path separator is refused":
+        code, _p, err = sb_cli("assemble", "--task-root", sb_run(tmp), "--stand", "../x", "--story", "s", "--arm", "factory", "--version", "1", "--out-root", out)
+        assert code == 2 and "not a plain name" in err and not (tmp / "x").exists(), err
+    elif name == "the same input gives the same bytes":
+        task = sb_run(tmp)
+        assert sb_assemble(task, out)[0] == 0
+        first = sb_files(out)[0].read_bytes()
+        assert sb_assemble(task, out)[0] == 0
+        assert sb_files(out)[0].read_bytes() == first
+    elif name == "an old record: a counter it cannot know stays unknown in the row and the norm (7.6)":
+        code, _p, err = sb_assemble(sb_run(tmp, process=False), out)
+        doc = sb_yaml(sb_files(out)[0])
+        assert code == 0 and doc["rows"]["Q1"]["state"] == "unknown" and doc["rows"]["Q1"]["value"] is None, doc["rows"]["Q1"]
+        assert doc["rows"]["T6"]["value"] is None and doc["norms"]["N-questions"]["verdict"] == "unknown", doc["norms"]["N-questions"]
+        assert doc["run"]["run_class"] == "unknown" and all(n["verdict"] == "unknown" for n in doc["norms"].values())
+    elif name == "a dry run: stub-role rows are n/a and no norm is judged (7.9)":
+        doc = (sb_assemble(sb_run(tmp, run_class="dry"), out), sb_yaml(sb_files(out)[0]))[1]
+        assert doc["run"]["run_class"] == "dry" and doc["rows"]["T9"]["state"] == "n/a" and doc["rows"]["R1r"]["state"] == "n/a"
+        assert all(n["verdict"] == "unknown" and "K7" in n["why"] for n in doc["norms"].values())
+    elif name == "a dry file next to a live file: compare says not comparable, no worse flag, no finding":
+        assert sb_assemble(sb_run(tmp, "live", questions=1), out)[0] == 0
+        assert sb_assemble(sb_run(tmp, "dry", start="2026-11-03T10:00:00+00:00", run_class="dry", questions=9), out)[0] == 0
+        dry = [f for f in sb_files(out) if f.name.startswith("20261103")][0]
+        code, printed, err = sb_cli("compare", dry, "--findings", "--findings-root", tmp / "piles")
+        assert code == 0 and "not comparable: run_class live vs dry" in printed and "worse" not in printed.replace("not comparable", ""), printed
+        assert not (tmp / "piles").exists(), "a finding was drafted for a non-comparable pair"
+    elif name == "the owner's word passes a red norm and is recorded (P13)":
+        code, printed, err = sb_assemble(sb_run(tmp, questions=41), out, "--pass", "N-questions", "owner", "14.11.2026")
+        doc = sb_yaml(sb_files(out)[0])
+        assert doc["norms"]["N-questions"]["verdict"] == "red" and doc["passes"] == [{"norm": "N-questions", "word": "owner", "date": "14.11.2026"}], doc
+        code, printed, err = sb_cli("compare", sb_files(out)[0])
+        assert "passed by the owner's word: owner, 14.11.2026" in printed and "release: warning -- red" not in printed, printed
+    elif name == "a pass for a norm that does not exist is refused":
+        code, _p, err = sb_assemble(sb_run(tmp), out, "--pass", "N-nope", "owner", "14.11.2026")
+        assert code == 2 and "N-nope" in err and sb_files(out) == [], err
+    elif name == "no run dir is touched: the run folder is read only":
+        task = sb_run(tmp)
+        before = sorted((str(p.relative_to(task)), p.read_bytes()) for p in task.rglob("*") if p.is_file())
+        sb_assemble(task, out)
+        assert before == sorted((str(p.relative_to(task)), p.read_bytes()) for p in task.rglob("*") if p.is_file())
+    else:
+        raise AssertionError("no such case: " + name)
+    del scoreboard
+
+
+SB_ASSEMBLE_CASES = [(n,) for n in (
+    "an empty run folder is refused naming the folder", "a run folder that does not exist is refused naming it",
+    "an absent rows file is a red line naming it", "a norms file that is not JSON is a red line naming it",
+    "a norms file of non-UTF-8 bytes is a red line naming it", "compare reads no scoreboard from an unreadable norms file",
+    "a stand name with a path separator is refused", "the same input gives the same bytes",
+    "an old record: a counter it cannot know stays unknown in the row and the norm (7.6)",
+    "a dry run: stub-role rows are n/a and no norm is judged (7.9)",
+    "a dry file next to a live file: compare says not comparable, no worse flag, no finding",
+    "the owner's word passes a red norm and is recorded (P13)", "a pass for a norm that does not exist is refused",
+    "no run dir is touched: the run folder is read only")]
+
+
+def sb_cli_case(tmp: Path, case) -> None:
+    name = case[0]
+    out = tmp / "out"
+    if name == "--help names assemble, compare and norms":
+        code, printed, _e = sb_cli("--help")
+        assert code == 0 and all(word in printed for word in ("assemble", "compare", "norms", "--findings", "--check")), printed
+    elif name == "norms --check is green on the shipped file":
+        code, printed, _e = sb_cli("norms", "--check")
+        assert code == 0 and printed.strip().endswith("norms: green"), printed
+    elif name == "norms --check exits 1 and names the norm when it loosened":
+        doc = _norms()
+        doc["norms"]["N-wall"]["value"] = 99
+        (tmp / "n.json").write_text(json.dumps(doc), encoding="utf-8")
+        code, printed, _e = sb_cli("norms", "--check", "--norms", tmp / "n.json")
+        assert code == 1 and "N-wall" in printed and printed.strip().endswith("norms: red"), printed
+    elif name == "compare names the previous file, the bar and 'can tighten' for a green norm":
+        assert sb_assemble(sb_run(tmp, "a", questions=3), out)[0] == 0
+        assert sb_assemble(sb_run(tmp, "b", start="2026-11-02T10:00:00+00:00", questions=2), out)[0] == 0
+        newest = sb_files(out)[-1]
+        code, printed, _e = sb_cli("compare", newest)
+        assert code == 0 and "previous: 20261101-1000-9.9.9-factory.yaml" in printed and "bar: none" in printed, printed
+        assert "Q1: was 3.0, now 2.0 questions -- not worse" in printed.replace("was 3,", "was 3.0,").replace("now 2 ", "now 2.0 ") or "Q1: was 3, now 2" in printed, printed
+        assert "can tighten: N-questions 40 -> 2" in printed, printed
+    elif name == "compare --findings writes ONE finding per worsened row, in the pile, quoting the row":
+        assert sb_assemble(sb_run(tmp, "a", questions=1), out)[0] == 0
+        assert sb_assemble(sb_run(tmp, "b", start="2026-11-02T10:00:00+00:00", questions=5), out)[0] == 0
+        newest = sb_files(out)[-1]
+        code, printed, _e = sb_cli("compare", newest, "--findings", "--findings-root", tmp / "piles")
+        found = sorted((tmp / "piles").rglob("*.md"))
+        assert code == 0 and [f.name for f in found] == ["20261102-scoreboard-q1-factory.md"] and found[0].parent == tmp / "piles" / "live-runs" / "findings", found
+        text = found[0].read_text(encoding="utf-8")
+        assert "Q1" in text and "было 1" in text and "стало 5" in text and "sha256" in text and "Решение владельца нужно: нет" in text, text
+        assert "card row, pile live-runs" in printed
+        again = [f.read_bytes() for f in found]
+        sb_cli("compare", newest, "--findings", "--findings-root", tmp / "piles")
+        assert [f.read_bytes() for f in sorted((tmp / "piles").rglob("*.md"))] == again, "the finding is not deterministic"
+    elif name == "compare --findings on a first run writes nothing":
+        assert sb_assemble(sb_run(tmp, "a", questions=1), out)[0] == 0
+        code, printed, _e = sb_cli("compare", sb_files(out)[0], "--findings", "--findings-root", tmp / "piles")
+        assert code == 0 and "previous: none" in printed and not (tmp / "piles").exists(), printed
+    elif name == "the scoreboard file carries no absolute path of this machine (AR-4)":
+        assert sb_assemble(sb_run(tmp), out)[0] == 0
+        text = sb_files(out)[0].read_text(encoding="utf-8")
+        assert str(tmp) not in text and re.search(r"[A-Za-z]:\\", text) is None, text[:400]
+    else:
+        raise AssertionError("no such case: " + name)
+
+
+SB_CLI_CASES = [(n,) for n in (
+    "--help names assemble, compare and norms", "norms --check is green on the shipped file",
+    "norms --check exits 1 and names the norm when it loosened",
+    "compare names the previous file, the bar and 'can tighten' for a green norm",
+    "compare --findings writes ONE finding per worsened row, in the pile, quoting the row",
+    "compare --findings on a first run writes nothing",
+    "the scoreboard file carries no absolute path of this machine (AR-4)")]
+
+SB_GROUPS = (("judgment shape (K1, 7.4, 7.10)", SB_JUDGMENT_CASES, sb_judgment_case), ("money row (X1)", SB_MONEY_CASES, sb_money_case),
+             ("norm verdict (K2, 7.5)", SB_NORM_CASES, sb_norm_case), ("norms only tighten (K5)", SB_RATCHET_CASES, sb_ratchet_case),
+             ("comparison (K7, 7.5, 7.7-7.9)", SB_COMPARE_CASES, sb_compare_case), ("previous file (K7, 7.7)", SB_PREVIOUS_CASES, sb_previous_case),
+             ("assemble edges", SB_ASSEMBLE_CASES, sb_assemble_case), ("command line and findings (K4)", SB_CLI_CASES, sb_cli_case))
+
+
+@_parametrize(SB_JUDGMENT_CASES)
+def test_scoreboard_judgment_shape(tmp_path, case):
+    sb_judgment_case(tmp_path, case)
+
+
+@_parametrize(SB_MONEY_CASES)
+def test_scoreboard_money_row(tmp_path, case):
+    sb_money_case(tmp_path, case)
+
+
+@_parametrize(SB_NORM_CASES)
+def test_scoreboard_norm_verdict(tmp_path, case):
+    sb_norm_case(tmp_path, case)
+
+
+@_parametrize(SB_RATCHET_CASES)
+def test_scoreboard_norms_only_tighten(tmp_path, case):
+    sb_ratchet_case(tmp_path, case)
+
+
+@_parametrize(SB_COMPARE_CASES)
+def test_scoreboard_comparison(tmp_path, case):
+    sb_compare_case(tmp_path, case)
+
+
+@_parametrize(SB_PREVIOUS_CASES)
+def test_scoreboard_previous_file(tmp_path, case):
+    sb_previous_case(tmp_path, case)
+
+
+@_parametrize(SB_ASSEMBLE_CASES)
+def test_scoreboard_assemble_edges(tmp_path, case):
+    sb_assemble_case(tmp_path, case)
+
+
+@_parametrize(SB_CLI_CASES)
+def test_scoreboard_command_line(tmp_path, case):
+    sb_cli_case(tmp_path, case)
+
+
+def scoreboard_tests(root: Path) -> None:
+    """The self-running form of the scoreboard tables: every case in its own folder, one `check` line each."""
+    for number, (group, cases, runner) in enumerate(SB_GROUPS):
+        for index, case in enumerate(cases):
+            folder = root / f"sb-{number}-{index}"
+            folder.mkdir(parents=True)
+            try:
+                runner(folder, case)
+                check(f"scoreboard, {group}: {case[0]}", True)
+            except Exception as exc:  # noqa: BLE001 - a failing case is a FAIL line, not a crash
+                check(f"scoreboard, {group}: {case[0]}", False, f"{type(exc).__name__}: {str(exc)[:300]}")
+
+
 def types_module(module, name):
     """A stand-in module whose main() is `module.<name>` with the shared argv - for run_main."""
     import types
@@ -1790,6 +2352,7 @@ def main() -> int:
         b267_tests(root)
         runs_table_tests(root)
         verdict_word_tests()
+        scoreboard_tests(root)
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
