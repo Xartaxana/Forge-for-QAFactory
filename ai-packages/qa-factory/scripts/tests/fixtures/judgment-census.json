@@ -847,6 +847,7 @@
   {"file": "project_decisions.py", "function": "add_finding", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "project_decisions.py", "function": "record_stand_account", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "project_decisions.py", "function": "record_stand_frontend", "class": "shape", "roles": ["conductor"], "owner": "data"},
+  {"file": "project_decisions.py", "function": "record_stand_login", "class": "shape", "roles": ["conductor"], "owner": "data", "note": "FV1-15 D6: refusals = no stand selected, no road signed in, no record, access_errors; the person's word is the trigger, the first `in` road in the fixed order is data"},
   {"file": "project_decisions.py", "function": "run", "class": "shape", "roles": ["qa-retro-analyst"], "owner": "data", "note": "T1a: now blocking (wide non-list site); roles relabelled by F1 (a), step 3: `agents/qa-retro-analyst.md:62`"},
   {"file": "project_decisions.py", "function": "resolve", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "project_decisions.py", "function": "upsert", "class": "shape", "roles": ["conductor"], "owner": "data"},

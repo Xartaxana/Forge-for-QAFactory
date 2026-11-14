@@ -3973,6 +3973,10 @@ class DriverMachine:
             self.answer_row(f"stand at {stage}: ", words, what=f"the person's words naming the stand at {stage}")
             print(f"{stage}: the stand is `{named}`; it is checked when the stage starts")
             return True
+        # FV1-15 D4 (E-D1): AFTER the stand-name branch (a stand literally named `find the way in` keeps its road) and BEFORE the generic
+        # seam (which would send the site door to the conductor). INVARIANT: the search runs only when THIS question offered the token.
+        if token == "find the way in" and token in self.seam_tokens(asked):
+            return self._take_find_way_in(stage, words)
         if token in self.seam_tokens(asked):
             return self.take_seam_answer(words, asked, qtext, stage, dispatch)
         self.unread(
@@ -3984,6 +3988,28 @@ class DriverMachine:
             + MOVES_RULE + " " + OWN_TOKEN_RULE + "\n\n## The question\n" + qtext[:6000],
             words=words, block=waiver.STAND_NOT_CONFIRMED_BLOCK)
         return False
+
+    def _take_find_way_in(self, stage: str, words: str) -> bool:
+        """The executor of the person's `find the way in` at the stand question (FV1-15 D4, FR-9): `project_decisions.py stand-login` tries
+        every way the factory knows (`stand_access.try_roads`, no command and no candidate: code composes none) and records the first
+        that signs in as `environment.access`. ONE search per stand per story: `state["login_search"][<stand>]` is set whatever the
+        outcome, so the question comes back WITHOUT the option (`stand_check` reads it). Always True - the step runs again as `retry`,
+        and `stand_check` probes the stand anew: a refusal leaves the config untouched and the question comes back."""
+        self.answer_file()
+        self.answer_row(f"{stage} (find the way in): ", words.strip(), what="your answer to the question")
+        environment = str(self.pipeline().get("environment") or "")
+        code, out = self.py("project_decisions.py", "--root", str(self.project), "stand-login", "--stand", environment,
+                            "--words-file", str(self.task_root / self.answer_file()))
+        if not isinstance(self.state.get("login_search"), dict):      # a record that is not a table is started again, never indexed
+            self.state["login_search"] = {}
+        self.state["login_search"][environment] = {"at": _now(), "exit": code}
+        self.save_state()
+        if code == 0:
+            print(f"{stage}: a way in was found and recorded; the stand is checked again")
+        else:
+            first = " ".join(out.splitlines()[0].split())[:300] if out.strip() else ""
+            print(f"{stage}: no way in signed in; the question comes back" + (f" ({first})" if first else ""))
+        return True
 
     def _take_stand_login_answer(self, kind: str, stage: str, dispatch: str, qtext: str, words: str) -> bool:
         """The answer to `stand_login_gate`'s question (t-667 D14; C1-6b A6/A7). `retry` and `go on` are carried out by the seam's own

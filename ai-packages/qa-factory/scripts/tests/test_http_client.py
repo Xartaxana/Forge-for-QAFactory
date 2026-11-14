@@ -685,6 +685,117 @@ def the_contract_joins():
     check_eq("one tuple: ACCESS_KINDS and LOGIN_ANSWERS are the module's own", (CC.ACCESS_KINDS is SA.KINDS, CC.LOGIN_ANSWERS is SA.ANSWERS), (True, True))
 
 
+def the_stand_login_joins():
+    """FV1-15 join rows: the story-time search (`project_decisions.record_stand_login`), the probe that follows it, and the readers
+    of a recorded answer (`stand_health._login_receipt`, remedy L0). Expected values are the card's (docs/tasks/specs/
+    20261114-fv1-17-15-cards-redraft-spec.md, FV1-15 D6, P4, P5, edges E-D5), not read from the code they judge."""
+    import project_decisions as PD
+    import stand_health as SH
+    stub = SignStub()
+    root = temp_dir("qa-stand-login-")
+    saved = {k: os.environ.get(k) for k in ("SIGN_BASE", "SIGN_U", "SIGN_S")}
+    os.environ.update({"SIGN_BASE": stub.base, "SIGN_U": VALUES["U"], "SIGN_S": VALUES["S"]})
+    named = dict(LOCAL, user_key="SIGN_U", secret_key="SIGN_S")   # the contract wants variable NAMES of two characters or more
+    config_path = root / "qa-factory" / "config.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    words = root / "words.txt"
+    words.write_text("find the way in", encoding="utf-8")
+
+    def write_config(access, extra=None):
+        env = {"base_url_key": "SIGN_BASE", "user_key": "SIGN_U", "secret_keys": ["SIGN_S"], "health_path": "/health", "env_file": ""}
+        if access:
+            env["access"] = access
+        config_path.write_text(json.dumps({"environment": env, **(extra or {})}, indent=2), encoding="utf-8")
+
+    def fresh(login_route):
+        stub.routes, stub.seen = {("GET", "/health"): jb({"status": "ok"}), ("POST", "/login"): login_route}, []
+        form_routes(stub)
+    try:
+        # E1: the recorded `local_login /login` is a wrong door (405); the form road signs in -> recorded, and the probe exits 0
+        write_config(named)
+        fresh((405, [], b""))
+        got = PD.record_stand_login(root, words="find the way in")
+        saved_config = json.loads(config_path.read_text(encoding="utf-8"))
+        access = saved_config["environment"]["access"]
+        check_eq("stand-login-e1: the form road is recorded, replacing the local login",
+                 (got["road"], got["kind"], got["replaced"], access["kind"], access["form"], access["login_probe"]["answer"],
+                  access["login_probe"]["outcome"]), ("b:csrf-credentials-form", "form_login", "local_login", "form_login",
+                                                      "csrf-credentials-form", "in", "ok"))
+        check("stand-login-e1: the decision row keeps the person's words, no credential in the record",
+              got["decision"].startswith("DD-") and all(v not in json.dumps(saved_config) for v in VALUES.values()))
+        result = EP.probe(saved_config, "", root=root)
+        check_eq("stand-login-e1: the probe that follows exits 0 (no Layer-1 line), login in", (result["layer1"], result["login"]["answer"]),
+                 ([], "in"))
+        # none in: refused, the config bytes unchanged, no registry row left open
+        for case, route in (("stand-login-none-in-401-empty", (401, [], b"")), ("stand-login-none-in-429", (429, [], b""))):
+            write_config(named)
+            before = config_path.read_bytes()
+            backlog = root / "qa-factory" / "factory-backlog.md"
+            had = backlog.read_bytes() if backlog.exists() else None
+            fresh(route)
+            try:
+                PD.record_stand_login(root, words="find the way in")
+                refusal = ""
+            except ValueError as exc:
+                refusal = str(exc)
+            check_in(f"{case}: refused, naming the roads and their answers", "no way in signed in (a: ", refusal)
+            check_in(f"{case}: ...and that nothing was written", "nothing was written", refusal)
+            check(f"{case}: the config bytes and the registry are unchanged",
+                  config_path.read_bytes() == before and (backlog.read_bytes() if backlog.exists() else None) == had)
+        # the recorded way already signs in: unchanged
+        write_config(named)
+        before = config_path.read_bytes()
+        fresh(jb({"access_token": "tok-value-1"}))
+        check_eq("stand-login-a-in: unchanged, nothing written", (PD.record_stand_login(root, words="find the way in"),
+                                                                  config_path.read_bytes() == before), ({"unchanged": True}, True))
+        # no config file: today's refusal; the CLI turns a refusal into one stderr line and exit 2
+        lone = temp_dir("qa-stand-login-none-")
+        try:
+            PD.record_stand_login(lone, words="x")
+            none_refusal = ""
+        except ValueError as exc:
+            none_refusal = str(exc)
+        check_in("stand-login-no-config: today's `_project_config` refusal", "does not exist", none_refusal)
+        cleanup(lone)
+        write_config(named)
+        fresh((401, [], b""))
+        args = PD._build_parser().parse_args(["--root", str(root), "stand-login", "--words-file", str(words)])
+        err = io.StringIO()
+        code = None
+        with contextlib.redirect_stderr(err):
+            try:
+                PD._record_stand_login(args)
+            except SystemExit as exc:
+                code = exc.code
+        check_eq("stand-login-cli-refusal: one stderr line, exit 2", (code, err.getvalue().count("\n"), "stand-login refused" in err.getvalue()),
+                 (2, 1, True))
+        # the readers of a recorded answer
+        probe = {"user_key": "SIGN_U", "outcome": "ok", "status": 0, "checked_at": "2026-11-12T10:00:00", "seconds": 60}
+        got = SH._login_receipt({"environment": {"access": {"kind": "harness_command", "login_probe": probe}}})
+        check_eq("stand-health-e5: status 0 is no code: proved by the project's login command",
+                 (got["outcome"], "proved" in got["sentence"], "login command" in got["sentence"], "contradicts" in got["sentence"]),
+                 ("proved", True, True, False))
+        failed = {"user_key": "SIGN_U", "outcome": "failed", "status": 405, "checked_at": "2026-11-12T10:00:00"}
+        wrong = SH._login_receipt({"environment": {"access": {"kind": "local_login", "login_probe": dict(failed, answer="wrong_door")}}})["sentence"]
+        old = SH._login_receipt({"environment": {"access": {"kind": "local_login", "login_probe": failed}}})["sentence"]
+        check_eq("remedy-l0: answer wrong_door -> the door's remedy and the plain words; no answer + 405 -> today's, nothing guessed",
+                 ("find the way in" in wrong, "its answer did not look like a sign-in" in wrong, "find the way in" in old,
+                  "its answer did not" in old), (True, True, False, False))
+        unjudged = SH._login_receipt({"environment": {"access": {"kind": "local_login", "login_probe": dict(failed, answer="unjudged")}}})["sentence"]
+        check_eq("remedy-l0: unjudged says it did not show, and offers no door", ("its answer did not show whether a sign-in is there" in unjudged,
+                                                                                  "find the way in" in unjudged), (True, False))
+        check_eq("remedy-answer-not-a-word: read as absent", "its answer did not" in SH._login_receipt(
+            {"environment": {"access": {"kind": "local_login", "login_probe": dict(failed, answer="maybe")}}})["sentence"], False)
+        # _derived_frontend reads the record through `recorded_login`: a harness access whose record is not `ok` derives nothing
+        check_eq("derived-frontend-reads-recorded-login: outcome ` ok ` (padded) and `maybe`",
+                 [SA.recorded_login({"login_probe": {"user_key": "SIGN_U", "outcome": o}})["outcome"] for o in (" ok ", "maybe")], ["ok", None])
+    finally:
+        stub.close()
+        for key, value in saved.items():
+            os.environ.pop(key, None) if value is None else os.environ.__setitem__(key, value)
+        cleanup(root)
+
+
 def main():
     stub = Stub()
     try:
@@ -702,6 +813,7 @@ def main():
     the_door()
     the_failures_pass_through()
     the_sign_in_rows()
+    the_stand_login_joins()
     finish("http_client")
 
 

@@ -1300,8 +1300,9 @@ class DriverRunner:
 
     # The move each token of a SITE's closed question carries when the site raises it as a seam question (C1-6b, A7): `retry` /
     # `go on` / `stop` are the seam's own moves (`NM.TOKEN_MOVES`, the one table); `by hand` passes the same block as `go on` (its
-    # typed record is the site's); `reapprove` is a word only the site reads (`site_door`).
-    SITE_MOVES = {**NM.TOKEN_MOVES, "by hand": "go_on_as_is", "reapprove": NM.SITE_DOOR}
+    # typed record is the site's); `reapprove` and `find the way in` (FV1-15 D4: the stand question's search of every way in) are
+    # words only the site reads (`site_door`).
+    SITE_MOVES = {**NM.TOKEN_MOVES, "by hand": "go_on_as_is", "reapprove": NM.SITE_DOOR, "find the way in": NM.SITE_DOOR}
 
     def site_seam_person(self, kind: str, text: "Priced", stage: str, *, block: str = "", details: str = "", answer_note: str = "") -> "Person":
         """A site's own closed question (`text` from `closed_question`) as a SEAM question (A7): the Person carries the tokens the

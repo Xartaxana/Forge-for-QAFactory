@@ -653,6 +653,7 @@ PINNED_ELSEWHERE = {"package.copies": "test_package_generation.py (D3)", "s0.fla
                     "s6.walk_supply": "test_walk_supply.py (TR3-10 D3a: the way question, its tokens and executors)",
                     "s6.data_change": "test_walk_supply.py (TR3-10 D3a step 2: the data-change question, its tokens and executor)",
                     "s6.stand_confirm": "test_story_run_s6.py (C1-6b: C16b stand_confirm, the price section and the executors)",
+                    "s6.stand_confirm.login": "test_human_questions.py (FV1-15: the stand-login variant, its find-the-way-in token and executor)",
                     "s6.gate_a_dry": "test_story_run_s6.py (C1-6b: C16b gate A dry, reapprove / go on / stop, edge 10)",
                     "s3.grounding_coverage": "test_grounding_coverage.py (G2-2: the coverage stop, go on / stop)",
                     "s3.grounding_coverage.not_known": "test_grounding_coverage.py (G2-2: only unknown outside the count)",

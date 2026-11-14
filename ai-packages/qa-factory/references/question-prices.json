@@ -242,6 +242,12 @@
       {"answer": "retry", "factory": "command", "person": "your_work", "delivery": "waits"},
       {"answer": "go on", "factory": "record", "person": "none", "delivery": "not_known", "unverified": "which stand the tests ran on"}
     ],
+    "s6.stand_confirm.login": [
+      {"answer": "find the way in", "factory": "command", "person": "none", "delivery": "unchanged"},
+      {"answer": "stand name", "factory": "command", "person": "none", "delivery": "unchanged"},
+      {"answer": "retry", "factory": "command", "person": "your_work", "delivery": "waits"},
+      {"answer": "go on", "factory": "record", "person": "none", "delivery": "not_known", "unverified": "which stand the tests ran on"}
+    ],
     "s6.gate_a_dry": [
       {"answer": "reapprove", "factory": "stages_again", "person": "answer", "delivery": "waits"},
       {"answer": "go on", "factory": "record", "person": "none", "delivery": "not_known", "unverified": "the cases named above, not checked by hand"},

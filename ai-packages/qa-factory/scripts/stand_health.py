@@ -55,6 +55,7 @@ from urllib.parse import urlsplit, urlunsplit
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import console_io  # noqa: E402  (the one ASCII fallback)
 import config_contract  # noqa: E402  (LOGIN_OUTCOMES and API_PATH_RE: one copy each)
+import stand_access  # noqa: E402  (`recorded_login`: the one reader of the login record)
 from launch_check import _LEGACY_NOT_EXECUTED  # noqa: E402  (the legacy codes, one copy; no run_suite import)
 
 RUNS_KEPT = 30
@@ -680,6 +681,17 @@ def _remedy(config: dict, environment: str, values: dict) -> str:
     return env_probe.fill(table.get("with_recipe") or "{recipe}", name=str(chosen.get("name") or ""), recipe=text)
 
 
+# What a recorded sign-in `answer` (a word of `stand_access.ANSWERS`) says in plain words, for the sentence of a failed record (P4).
+# An unknown is said as an unknown (FR-41); `in` and `not_tried` have no failed sentence, so they carry no words.
+ANSWER_WORDS = {"credentials_refused": "the stand refused the account", "fields_unconfirmed": "the stand refused the account, "
+                "and the body field names are not confirmed", "body_shape": "the stand asked for other body field names",
+                "wrong_door": "its answer did not look like a sign-in", "unjudged": "its answer did not show whether a sign-in is there",
+                "throttled": "the stand limits requests", "stand_error": "the stand failed with a server error",
+                "no_answer": "the stand gave no answer", "did_not_finish": "the sign-in did not finish in time",
+                "command_failed": "the project's sign-in command did not get in",
+                "command_missing": "the project's sign-in command could not be run"}
+
+
 def _login_receipt(config: dict) -> dict:
     """What the project last PROVED about getting in, from `environment.access.login_probe`
     (a key NAME, a status code and a date — never a value), or why there is nothing to show.
@@ -690,19 +702,23 @@ def _login_receipt(config: dict) -> dict:
     access = (config.get("environment") or {}).get("access") if isinstance(config.get("environment"), dict) else {}
     access = access if isinstance(access, dict) else {}
     receipt = access.get("login_probe") if isinstance(access.get("login_probe"), dict) else {}
-    user_key = str(receipt.get("user_key") or "").strip()
+    recorded = stand_access.recorded_login(access)        # AR-13: the one reader of the record (FV1-15 P4)
+    user_key = recorded["user_key"]
     if not user_key:
         return {"recorded": False, "outcome": "none",
                 "sentence": "No login has been proved on this stand (environment.access has no "
                             "login_probe): liveness is all this check can say."}
     import env_probe
     answers = env_probe.stand_answers()
-    at = str(receipt.get("checked_at") or "").strip()
+    at = recorded["checked_at"]
     date = f" on {at[:10]}" if at else ""
-    # a status that is not an int (a string, a bool, a float) reads as no code recorded (E-L7); an outcome that is not
-    # one of the four words reads as absent (E-L8); a table that cannot be read proves nothing (never "proved")
-    code = receipt.get("status") if isinstance(receipt.get("status"), int) and not isinstance(receipt.get("status"), bool) else None
-    word = receipt.get("outcome") if receipt.get("outcome") in config_contract.LOGIN_OUTCOMES else None
+    # `recorded_login` reads the record (P4, AR-13): a status that is not an HTTP code (100..599 - a string, a bool, a float, a
+    # hand-written 0: the project's own sign-in command has none) reads as no code recorded (E-L7, E5); an outcome that is not
+    # one of the four words reads as absent (E-L8); an `answer` that is not a word reads as absent (an old record is never guessed);
+    # a table that cannot be read proves nothing (never "proved")
+    code = recorded["status"]
+    word = recorded["outcome"]
+    answer = recorded["answer"]
     if answers.get("table") != "ok":
         word = None
     recheck = "re-check the login" + (f": {answers['login_recheck']}" if answers.get("login_recheck") else "")
@@ -710,24 +726,24 @@ def _login_receipt(config: dict) -> dict:
     out = {"recorded": True, "user_key": user_key, "status": receipt.get("status"), "checked_at": at}
 
     def remedy(for_code, for_outcome):
-        return _login_remedy(answers, for_code, for_outcome, user_key)
+        return _login_remedy(answers, for_code, for_outcome, user_key, answer)
     if word == "ok" and code is not None and env_probe.answer_meaning(code, None).get("means") != "answered":
         # the outcome says success and the code says otherwise: a contradiction never resolves toward success (E-L6)
         out.update(outcome="unknown", sentence=f"The login record as {user_key} contradicts itself (outcome ok, HTTP {code}); "
                                                f"{recheck}.")
     elif word == "ok":
-        user_field, secret_field = receipt.get("user_field"), receipt.get("secret_field")
-        named = isinstance(user_field, str) and user_field.strip()  # FB-3: the body field the proof used, when it stored one
-        what = (f"HTTP {code}" + (f", body field `{user_field.strip()}`" if named else "")) if code is not None \
+        user_field, secret_field = recorded["user_field"], recorded["secret_field"]   # FB-3: the body field the proof used, when stored
+        what = (f"HTTP {code}" + (f", body field `{user_field}`" if user_field else "")) if code is not None \
             else "the project's login command"
         out.update(outcome="proved", sentence=f"Login was last proved as {user_key} ({what}){date}.")
-        if named:
-            out["user_field"] = user_field.strip()
-            if isinstance(secret_field, str) and secret_field.strip():
-                out["secret_field"] = secret_field.strip()
+        if user_field:
+            out["user_field"] = user_field
+            if secret_field:
+                out["secret_field"] = secret_field
     elif word == "failed":
         said = f"HTTP {code}" if code is not None else "no code recorded"
-        out.update(outcome="failed", sentence=f"The last login as {user_key} did not succeed ({said}){date}."
+        meant = f" ({ANSWER_WORDS[answer]})" if answer in ANSWER_WORDS else ""   # P4: what the attempt came to, in plain words
+        out.update(outcome="failed", sentence=f"The last login as {user_key} did not succeed ({said}){date}{meant}."
                                               + (" " + remedy(code, word) if remedy(code, word) else "") + again)
     elif word in ("skipped", "not_recorded"):
         why = (answers.get("texts", {}).get("login_not_tried") or {}).get(word) or word
@@ -744,11 +760,12 @@ def _login_receipt(config: dict) -> dict:
     return out
 
 
-def _login_remedy(answers: dict, code, outcome, user_key: str) -> str:
-    """The remedy by the recorded code (Table L, `login_remedies`): the first row that takes the code or the outcome."""
+def _login_remedy(answers: dict, code, outcome, user_key: str, answer=None) -> str:
+    """The remedy by the recorded code (Table L, `login_remedies`): the first row that takes the code, the outcome or the recorded
+    `answer` (L0 takes `wrong_door` only; a record with no `answer` never reaches it)."""
     from env_probe import _row_takes, fill
     for row in answers.get("login_remedies") or []:
-        if _row_takes(row, code, None, outcome):
+        if _row_takes(row, code, None, outcome, answer=answer):
             return fill(row.get("remedy"), user_key=user_key).strip()
     return ""
 
