@@ -1,7 +1,7 @@
 {
   "generated_by": "python tools/lint_ratchet.py --update (pyflakes; identity = path + class + arguments, no line)",
   "pyflakes_version": "3.2.0",
-  "total": 66,
+  "total": 76,
   "rows": [
     {
       "path": "ai-packages/qa-factory/scripts/driver_dialog.py",
@@ -193,7 +193,7 @@
       "path": "ai-packages/qa-factory/scripts/tests/test_check_delivery.py",
       "class": "HandReaderInput",
       "args": "RR-plan-row",
-      "count": 3
+      "count": 7
     },
     {
       "path": "ai-packages/qa-factory/scripts/tests/test_controller_gate_decision.py",
@@ -220,7 +220,19 @@
       "count": 4
     },
     {
+      "path": "ai-packages/qa-factory/scripts/tests/test_execution_request.py",
+      "class": "UnusedImport",
+      "args": "execution_request as er",
+      "count": 1
+    },
+    {
       "path": "ai-packages/qa-factory/scripts/tests/test_handed_to_person.py",
+      "class": "HandReaderInput",
+      "args": "RR-plan-row",
+      "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/test_handoff.py",
       "class": "HandReaderInput",
       "args": "RR-plan-row",
       "count": 1
@@ -241,13 +253,19 @@
       "path": "ai-packages/qa-factory/scripts/tests/test_report_facts.py",
       "class": "HandReaderInput",
       "args": "RR-plan-row",
-      "count": 1
+      "count": 3
     },
     {
       "path": "ai-packages/qa-factory/scripts/tests/test_role_commands.py",
       "class": "HandReaderInput",
       "args": "RR-plan-row",
       "count": 1
+    },
+    {
+      "path": "ai-packages/qa-factory/scripts/tests/test_s5_precheck.py",
+      "class": "HandReaderInput",
+      "args": "RR-plan-row",
+      "count": 2
     },
     {
       "path": "ai-packages/qa-factory/scripts/tests/test_story_run_s6.py",
