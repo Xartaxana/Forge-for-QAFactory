@@ -9,9 +9,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import dispatch_manifest as dm  # noqa: E402
 import dispatch_new  # noqa: E402
 
-OWN = "C:\\r\\tools\\a.py"
+HERE = Path(__file__).resolve().parent
+OWN = str(HERE / "dispatch_new.py")  # real files: the launch hook's path check stats them
+OWN2, OWN3 = str(HERE / "dispatch_gate.py"), str(HERE / "dispatch_manifest.py")
+NEWFILE = str(HERE / "zz_not_yet_there.py")
 HAND = "C:\\r\\docs\\tasks\\handoffs\\t-1.md"
-BASE = ["--kind", "builder", "--task", "t-862", "--given", "C:\\r\\spec.md", "--owns", OWN,
+BASE = ["--kind", "builder", "--task", "t-862", "--given", str(Path(__file__).resolve()), "--owns", OWN,
         "--non-goals", "none here", "--handoff", HAND, "--edges", "E-1 x", "--dod", "python -m pytest x -q",
         "--siblings", "none -- single file"]
 
@@ -33,11 +36,11 @@ def swap(argv, flag, value):
     return argv
 
 
-THREE_OWNS = swap(BASE, "--owns", None) + ["--owns", OWN, "C:\\r\\tools\\b.py", "C:\\r\\tools\\c.py"]
+THREE_OWNS = swap(BASE, "--owns", None) + ["--owns", OWN, OWN2, OWN3]
 
 # id, argv, exit, substrings of stdout, substrings of stderr
 CASES = [
-    ("ok", BASE, 0, ["task: t-862", "owns:\nC:\\r\\tools\\a.py\n", "DoD: `python -m pytest x -q`"], []),
+    ("ok", BASE, 0, ["task: t-862", "owns:\n" + OWN + "\n", "DoD: `python -m pytest x -q`"], []),
     ("ok-node-feature", BASE + ["--feature", "F19", "--node", "forge/5/F5-2"],
      0, ["node: forge/5/F5-2", "feature: F19"], []),
     ("E-C1-1-relative-owns", swap(BASE, "--owns", "tools/a.py"), 2, [], ["DISPATCH INCOMPLETE", "owns"]),
@@ -49,8 +52,14 @@ CASES = [
      ["DESIGNER-SKIP"]),
     ("designer-resubmission", THREE_OWNS + ["--designer", "resubmission t-861"], 0, ["designer: resubmission t-861"], []),
     ("designer-path", THREE_OWNS + ["--designer", "C:\\r\\docs\\spec.md"], 0, ["designer: C:\\r\\docs\\spec.md"], []),
-    ("E-C1-5-missing-given", swap(BASE, "--given", "C:\\no\\such\\file.md"), 0, ["C:\\no\\such\\file.md"],
-     ["--given path(s) not found"]),
+    ("E-C1-5-missing-given", swap(BASE, "--given", str(HERE / "no_such_spec.md")), 2, [], ["DISPATCH PATHS MISSING", "(new)"]),
+    ("C1-1-new-owns-unmarked", swap(BASE, "--owns", NEWFILE), 2, [], ["DISPATCH PATHS MISSING"]),
+    ("C1-1-new-owns-marked", swap(BASE, "--owns", NEWFILE + " (new)"), 0, [NEWFILE + " (new)"], []),
+    ("C1-1-critic-handoff-outside", ["--kind", "critic", "--task", "t-505", "--handoff", "C:\\tmp\\x.md"], 2, [],
+     ["HANDOFF PATH"]),
+    ("C1-2-empty-owns-item", THREE_OWNS[:-1] + [" "], 2, [], ["ARGUMENT REFUSED", "--owns", "empty"]),
+    ("C1-2-empty-given-item", swap(BASE, "--given", ""), 2, [], ["ARGUMENT REFUSED", "--given", "empty"]),
+    ("C1-3-designer-skip-case", THREE_OWNS + ["--designer", "Skip -- tiny"], 0, ["designer: Skip -- tiny"], []),
     ("E-C1-6-task-letter", swap(BASE, "--task", "t-123a"), 0, ["task: t-123a"], []),
     ("E-C1-6-task-bad", swap(BASE, "--task", "t-12"), 2, [], ["ID REFUSED", "--task"]),
     ("E-C1-6-task-case", swap(BASE, "--task", "T-123"), 2, [], ["ID REFUSED"]),
@@ -76,6 +85,17 @@ def test_dispatch_new_table(capsys, argv, code, out_has, err_has):
         assert out == ""  # a refused dispatch prints no headers
 
 
+def test_degraded_cut_is_refused(capsys, monkeypatch):  # C1-4
+    real = dispatch_new.dispatch_gate.decide_full
+
+    def degraded(payload):
+        return real(payload)._replace(cut=type("Cut", (), {"degraded": True})())
+
+    monkeypatch.setattr(dispatch_new.dispatch_gate, "decide_full", degraded)
+    code, out, err = run(capsys, BASE)
+    assert (code, out) == (2, "") and "degraded" in err
+
+
 @pytest.mark.parametrize("argv", [c[1] for c in CASES if c[2] == 0 and "--owns" in c[1]],
                          ids=[c[0] for c in CASES if c[2] == 0 and "--owns" in c[1]])
 def test_printed_text_passes_check_and_ids_read_back(capsys, argv):
@@ -95,4 +115,4 @@ def test_printed_text_passes_check_and_ids_read_back(capsys, argv):
     while i < len(argv) and not argv[i].startswith("--"):
         asked.append(argv[i])
         i += 1
-    assert [p.path for p in dm.owned_paths(dm.section_cut(out))] == asked
+    assert [p.path for p in dm.owned_paths(dm.section_cut(out))] == [a.removesuffix(" (new)") for a in asked]

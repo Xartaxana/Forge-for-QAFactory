@@ -5,13 +5,15 @@
         --siblings "<t>" [--designer <abs> | "skip -- <why>" | "resubmission t-NNN"]
 
 The generator has NO grammar of its own: it only lays the values out one header per line (list values one path per line
-under their header), then asks the one checker (dispatch_manifest.check) and the one id reader (header_ids). Whatever
-the checker refuses, this refuses (exit 2, the checker's message on stderr, nothing on stdout). A `--task`, `--node` or
-`--feature` that header_ids does not read back is refused the same way (the read grammar is journal_keys / B0's).
-Pure output: stdout only, no file. An argument holding a newline or a backtick is refused before anything is printed
-(it could forge a header or close the DoD span); this is the only rule of the generator's own.
+under their header), then asks the launch hook's own decision (dispatch_gate.decide_full: completeness, handoff folder, paths; no description,
+so no label check) and the one id reader (header_ids). Whatever the hook refuses, this refuses (exit 2, the hook's message
+with its doors on stderr, nothing on stdout); a degraded read is refused too. A `--task`, `--node` or `--feature` that
+header_ids does not read back is refused the same way. Pure output: stdout only, no file. An argument holding a newline
+or a backtick, and an empty `--given`/`--owns` item, are refused before anything is printed (they could forge a header,
+close the DoD span or end the section); these are the only rules of the generator's own. A new owned file is written
+`<abs path> (new)`.
 
-Exit: 0 printed (checker notes, a missing `--given` path: one stderr note each); 2 refused.
+Exit: 0 printed (hook notes: one stderr line each); 2 refused.
 """
 from __future__ import annotations
 
@@ -22,6 +24,7 @@ from pathlib import Path
 _TOOLS_DIR = Path(__file__).resolve().parent
 if str(_TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(_TOOLS_DIR))
+import dispatch_gate  # noqa: E402
 import dispatch_manifest  # noqa: E402
 import streams  # noqa: E402
 
@@ -55,8 +58,20 @@ def _forbidden(args) -> str:
     return ""
 
 
+def _empty_item(args) -> str:
+    """The name of the first list argument holding an empty or whitespace-only item (it would end the section), or ''."""
+    for name in ("given", "owns"):
+        if any(not p.strip() for p in getattr(args, name)):
+            return name
+    return ""
+
+
 def _path(p: str) -> str:
-    return "`%s`" % p if any(c.isspace() for c in p) else p
+    """Backtick a path holding whitespace; a trailing ` (new)` marker (the owns door) stays outside the span."""
+    mark = ""
+    if p.lower().endswith(" (new)"):
+        p, mark = p[:-6], p[-6:]
+    return ("`%s`" % p if any(c.isspace() for c in p) else p) + mark
 
 
 def build_text(args) -> str:
@@ -76,8 +91,9 @@ def build_text(args) -> str:
     lines.append("DoD: `%s`" % args.dod if args.dod else "DoD:")
     lines.append("siblings: %s" % args.siblings)
     if args.designer is not None:
-        # a bare word form (skip -- why / resubmission t-N) stays as typed; anything else is a path
-        is_form = args.designer.split(None, 1)[:1] in (["skip"], ["resubmission"])
+        # the checker's own two forms stay as typed; anything else is a path
+        is_form = bool(dispatch_manifest._DESIGNER_SKIP_RE.match(args.designer)
+                       or dispatch_manifest._DESIGNER_RESUBMISSION_RE.match(args.designer))
         lines.append("designer: %s" % (args.designer if is_form else _path(args.designer)))
     return "\n".join(lines) + "\n"
 
@@ -102,23 +118,33 @@ def main(argv=None) -> int:
               "Write it on one line without backticks (the DoD command is wrapped for you)." % name.replace("_", "-"),
               file=sys.stderr)
         return 2
+    name = _empty_item(args)
+    if name:
+        print("DISPATCH ARGUMENT REFUSED: --%s holds an empty item; a blank line would end the section. "
+              "Drop the empty value." % name, file=sys.stderr)
+        return 2
     text = build_text(args)
     refusal = _ids_refusal(args, text)
     if refusal:
         print(refusal, file=sys.stderr)
         return 2
+    # the launch hook's own decision (completeness, handoff folder, paths); no description, so the label check is skipped
+    payload = {"cwd": str(_TOOLS_DIR.parent), "tool_name": "Agent",
+               "tool_input": {"subagent_type": args.kind, "prompt": text}}
     try:
-        code, message, note = dispatch_manifest.check({"tool_input": {"subagent_type": args.kind, "prompt": text}})
+        decision = dispatch_gate.decide_full(payload)
     except Exception as exc:  # fail closed: an unchecked text is not handed out
         print("DISPATCH CHECK FAILED (%s: %s): the checker could not read this text; nothing printed."
               % (type(exc).__name__, exc), file=sys.stderr)
         return 2
-    if code != 0:
-        print(message, file=sys.stderr)
+    if decision.code != 0:
+        print(decision.message, file=sys.stderr)
         return 2
-    missing = [p for p in args.given if not Path(p).exists()]
-    if missing:
-        print("NOTE: --given path(s) not found: %s (printed anyway)" % ", ".join(missing), file=sys.stderr)
+    if decision.cut is None or decision.cut.degraded:
+        print("DISPATCH CHECK FAILED: the text could only be read in a degraded way, so it was not checked; "
+              "nothing printed.", file=sys.stderr)
+        return 2
+    note = "\n".join(n for n in decision.notes if n)
     if note:
         print(note, file=sys.stderr)
     sys.stdout.write(text)
