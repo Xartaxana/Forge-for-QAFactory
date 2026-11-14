@@ -219,7 +219,7 @@ def _closed(problems: list, field: str, value, allowed) -> bool:
 
 def _nested_keys(problems: list, label: str, value, allowed) -> None:
     for key in value:
-        if key not in allowed:
+        if key not in allowed and key not in EXCLUDED:     # an excluded key is reported once, by the excluded walk
             problems.append(f"`{key}` is not a field of the findings register; the fields of `{label}` are "
                             f"{_list_text(allowed)}")
 
@@ -251,8 +251,13 @@ def _judge_refs(problems: list, task_root, refs) -> list:
             ref = dict(ref)
             raw = _text(ref.get("path"))
             if raw and not ref.get("sha256") and not Path(raw).is_absolute():
-                candidate = (root / raw).resolve()
-                if candidate.is_relative_to(root) and candidate.is_file():
+                try:
+                    candidate = (root / raw).resolve()
+                    measurable = candidate.is_relative_to(root) and candidate.is_file()
+                except ValueError as exc:       # a path the OS cannot stat (too long, embedded NUL): this ref's own sentence
+                    problems.append(str(exc))
+                    continue
+                if measurable:
                     ref["sha256"] = install_paths.sha256_file(candidate)
         issue = C.evidence_ref_issue(task_root, ref, "evidence")
         if issue:
@@ -342,7 +347,8 @@ def append(task_root, line: dict, *, by: str) -> str:
         if kind_ok or "oracle_status" in line:
             if oracle == "confirmed":
                 problems.append("a confirmed oracle is a case check: it goes through the case and S7, not this register")
-            _closed(problems, "oracle_status", oracle, ORACLES)
+            else:
+                _closed(problems, "oracle_status", oracle, ORACLES)
             who_said = _text(by)
             if oracle == PERSON_CONFIRMED and (op != "correct" or not (who_said == PERSON_BY or who_said.startswith(PERSON_BY + ":"))):
                 problems.append("`person_confirmed` is recorded only on a person's word at gate B, as a correction of the line they "

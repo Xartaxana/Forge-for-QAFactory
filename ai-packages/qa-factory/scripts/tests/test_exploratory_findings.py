@@ -195,7 +195,43 @@ def key_m1_1(root):
             return str(exc)
         return None
 
+    def excluded(key):      # the OLD module's sentence for an excluded key, verbatim
+        return (f"`{key}` is not a field of the findings register: a product bug goes through S7 triage and gate B; "
+                "record the finding without the field")
+
+    def os_text(raw):       # what the stdlib raises (as ValueError) for this path; "" where this platform raises none
+        try:
+            (Path(task).resolve() / raw).resolve().is_file()
+        except ValueError as exc:
+            return str(exc)
+        return ""
+
+    long_path, nul_path = "work/evidence/" + "a" * 40000, "work/evidence/o\x00ne.txt"
+    os_rows = []
+    for label, raw, others in (("over-long evidence path alone", long_path, {}),
+                               ("over-long evidence path with two other problems", long_path, {"title": "", "statement": ""}),
+                               ("NUL evidence path alone", nul_path, {})):
+        said = os_text(raw)
+        if said:
+            os_rows.append((label, good_line(evidence_refs=[{"path": raw}], **others),
+                            "; ".join([T, S] * bool(others) + [said])))
+    probe_ok = {"method": "api", "runs": 1, "reproduced": 1}
+    link_ok = {"id": "EX-1", "reason": "r"}
     for name, line, expected in (
+        ("a confirmed oracle alone: its one sentence", good_line(oracle_status="confirmed"),
+         "a confirmed oracle is a case check: it goes through the case and S7, not this register"),
+        ("an unlisted oracle alone: the closed-list sentence", good_line(oracle_status="maybe"),
+         f"`oracle_status` is `maybe`; expected one of {EF._list_text(EF.ORACLES)}"),
+        ("excluded key in an evidence ref: once", good_line(evidence_refs=[{"path": "work/evidence/one.txt", "severity": "x"}]),
+         excluded("severity")),
+        ("excluded key in probe: once", good_line(probe=dict(probe_ok, impact="x")), excluded("impact")),
+        ("excluded key in origin: once", good_line(origin={"dispatch": "S7-1", "target": "t9", "bug": "x"}), excluded("bug")),
+        ("excluded key in corrects: once", good_line(op="correct", corrects=dict(link_ok, priority="x")), excluded("priority")),
+        ("the same excluded key in probe and origin: once",
+         good_line(probe=dict(probe_ok, impact="x"), origin={"dispatch": "S7-1", "target": "t9", "impact": "x"}), excluded("impact")),
+        ("a nested key that is unknown, not excluded: its own sentence", good_line(probe=dict(probe_ok, flavour="x")),
+         f"`flavour` is not a field of the findings register; the fields of `probe` are {EF._list_text(EF.PROBE_FIELDS)}"),
+        *os_rows,
         ("two required fields: both sentences, in order", good_line(title="", statement=" "), f"{T}; {S}"),
         ("one problem: the sentence alone, as it always was", good_line(kind="bug"),
          "`kind` is `bug`; expected one of observation, unresolved_question, coverage_gap"),
