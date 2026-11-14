@@ -741,6 +741,160 @@ def document_places() -> None:
         cleanup(root)
 
 
+def linked_documents_rows() -> None:
+    """FV1-23 A-3: `ticket_light.path_candidates`, `source_inventory.linked_documents` and the stderr listing and
+    `linked_document` rows of `record-source`. One table of texts, one outcome per row; the volume is the adversarial list of
+    the spec (every row a case of the input from outside) and the join rows with the reader and the settler. Mutation: keep a
+    path outside the roots, double an origin, print on stdout, let the listing change the exit code."""
+    import brief_pack
+    import ticket_light as TL
+    # -- path_candidates: the grammar, characters only
+    long200, long201 = "a" * 197 + ".md", "a" * 198 + ".md"
+    for label, text, expected in (
+            ("a link, a bare name in backticks, a percent-encoded name with a query", "[x](docs/a.md#part) and `README.md`, docs/My%20Doc.md?x=1.",
+             ["docs/a.md", "README.md", "docs/My Doc.md"]),
+            ("a URL, mailto, a drive, a home path and a UNC share are no relative paths", "https://h.example/d/a.md mailto:a@b.example C:\\x\\y.md ~/x.md \\\\srv\\sh\\x.md file:///x/y.md", []),
+            ("a rooted path stays, the caller decides its base", "see /docs/a.md.", ["/docs/a.md"]),
+            ("a word with neither a slash nor a dot is no path", "cart merge README", []),
+            ("200 characters stay, 201 go", f"{long200} {long201}", [long200]),
+            ("a repeat is one candidate, first occurrence order", "b.md a.md b.md", ["b.md", "a.md"]),
+            ("a NUL after decoding is kept for the predicate to refuse", "a%00.md", ["a\x00.md"]),
+            ("not text", None, []),
+    ):
+        check_eq(f"path_candidates: {label}", TL.path_candidates(text), expected)
+    # -- linked_documents through record-source
+    def scenario(repos=None, refs=True):
+        root = project()
+        sib = root.parent / (root.name + "-sib")
+        (sib / "docs").mkdir(parents=True)
+        _set_config(root, code_repos=[{"name": "sib", "path": "../" + sib.name}] if repos is None else repos)
+        work = work_of(root, "PROJ-1")
+        if refs:
+            (work / "ticket-references.json").write_text(json.dumps({"rows": [], "scanned": ["ticket"], "written_by": ["S0"]}), encoding="utf-8")
+        return root, sib, work
+
+    def put(base, rel, data=b"alpha\n"):
+        path = base / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return path
+
+    def rec(root, work, ref, text, *extra, on_disk=True):
+        if on_disk and not (root / ref).exists() and "://" not in ref:      # the ref names the document the text was read from
+            put(root, ref, text.encode("utf-8"))
+        return cli(root, "record-source", "--output", work / "source-inventory.json", "--ref", ref, "--file", words(root, text, "t.txt"),
+                   "--relation", "normative", *extra)
+
+    def rows_of(work):
+        return json.loads((work / "ticket-references.json").read_text(encoding="utf-8"))["rows"]
+
+    def listed(err):
+        return [line[2:].split(" (")[0] for line in err.splitlines() if line.startswith("- ") and " B)" in line]
+
+    root, sib, work = scenario()
+    try:
+        for rel in ("docs/a.md", "docs/My Doc.md", "NOTES.md", "docs/token=abc123.md"):
+            put(root, rel)
+        put(root, "img/p.png", b"\x89PNG\x00\x01")
+        put(sib, "docs/A.md")
+        (root / "docs" / "sub").mkdir()
+        text = ("# R\n[x](../../../etc/passwd) C:\\x\\y.md ~/x.md file:///x/y.md https://h.example/docs/b.md\n"
+                "[a](docs/a.md#part) [m](docs/My%20Doc.md) docs/a.md?x=1 docs/ README.md img/p.png docs/token=abc123.md a%00.md\n"
+                f"{'x' * 198}.md `NOTES.md` [s](../{sib.name}/docs/A.md)\n")
+        got = rec(root, work, "README.md", text, "--summary")
+        check_eq("links: the exit code and the stdout shape are the record's own (one JSON line)", (got.code, len(got.out.splitlines()), json.loads(got.out)["record"]["relation"]), (0, 1, "normative"))
+        check_eq("links: only existing, contained, regular, non-empty text files, none twice, never the text itself",
+                 listed(got.err), ["docs/a.md", "docs/My Doc.md", "NOTES.md", f"../{sib.name}/docs/A.md"])
+        check_in("links: the heading points at the charter", "Linked from README.md, inside the declared repositories (a first look at each, charter: the walk of references;", got.err)
+        check_eq("links: a credential-like name, a NUL, an escape, a 201 character name and an image are not printed",
+                 [w for w in ("abc123", "passwd", "p.png", "\x00") if w in got.err], [])
+        check_eq("links: the stdout carries no listing", "Linked" in got.out, False)
+        check_eq("links: the rows are the listed paths, origin mention:document:<ref>, not read",
+                 sorted((r["ref"], r["kind"], r["origins"], r["status"]) for r in rows_of(work)),
+                 sorted((p, "linked_document", ["mention:document:README.md"], SI.LINKED_DOCUMENT_STATUS)
+                        for p in ("docs/a.md", "docs/My Doc.md", "NOTES.md", f"../{sib.name}/docs/A.md")))
+        before = rows_of(work)
+        rec(root, work, "README.md", text)
+        check_eq("links: a text recorded twice is one row per path, origins not doubled", rows_of(work), before)
+        check_eq("links JOIN reader: brief_pack.reference_gap_lines shows an unread linked document",
+                 [l for l in brief_pack.reference_gap_lines(work.parent) if "docs/a.md" in l and "linked document" in l] != [], True)
+        got = rec(root, work, "docs/a.md", "alpha\n")
+        check_eq("links JOIN settler: recording a listed path settles its row, the reader stops showing it",
+                 ([r["status"] for r in rows_of(work) if r["ref"] == "docs/a.md"], [l for l in brief_pack.reference_gap_lines(work.parent) if "docs/a.md" in l]),
+                 (["fetched"], []))
+        check_eq("links: a text with a document already recorded counts it and does not list it", (listed(rec(root, work, "README.md", text).err)[:1], "1 linked document(s) already recorded" in rec(root, work, "README.md", text).err),
+                 (["docs/My Doc.md"], True))
+        # text refs that list nothing: a key, a URL, a task-relative copy
+        for ref in ("PROJ-9", "https://wiki.example/p", "work/raw/copy.md"):
+            check_eq(f"links: the text ref {ref} lists nothing", "Linked from" in rec(root, work, ref, "see docs/a.md and NOTES.md", on_disk=False).err, False)
+        # no file of references (a story older than S0's file): the lines still print, nothing is written
+        (work / "ticket-references.json").unlink()
+        check_eq("links TEMPORAL: no references file: the listing prints, no file is born",
+                 ("- NOTES.md (6 B)" in rec(root, work, "README2.md", "see NOTES.md").err, (work / "ticket-references.json").exists()), (True, False))
+        # a failure while listing never changes the verdict
+        real = SI.linked_documents
+        SI.linked_documents = lambda *a, **k: 1 / 0
+        try:
+            got = rec(root, work, "README3.md", "see NOTES.md")
+        finally:
+            SI.linked_documents = real
+        check_eq("links: a failure inside the listing is one stderr line and exit 0", (got.code, "links of README3.md could not be listed (ZeroDivisionError)" in got.err), (0, True))
+        # a folder the text names, 25 / 26 kept, 500 / 501 names
+        for name, count in (("m25", 25), ("m26", 26)):
+            for i in range(count):
+                put(root, f"{name}/f{i:02d}.md")
+            got = rec(root, work, f"{name}.md", " ".join(f"{name}/f{i:02d}.md" for i in range(count)))
+            check_eq(f"links AT/BEYOND 25: {count} kept", (len(listed(got.err)), f"- and {count - 25} more linked from {name}.md: look for them yourself" in got.err), (25, count > 25))
+        for count in (500, 501):
+            put(root, "n/n000.md"), put(root, f"n/n{count - 1:03d}.md")
+            got = rec(root, work, f"t{count}.md", " ".join(f"n/n{i:03d}.md" for i in range(count)))
+            check_eq(f"links AT/BEYOND 500 names: {count} (the 501st name is never tried)",
+                     (listed(got.err), "more than 500 names in the text: only the first 500 were checked" in got.err),
+                     (["n/n000.md", "n/n499.md"], count == 501))
+        check_eq("links: a text with no candidate lists nothing", "Linked" in rec(root, work, "plain.md", "# nothing here\n").err, False)
+        outside = root.parent / (root.name + "-outside.md")
+        outside.write_bytes(b"secret outside\n")
+        try:
+            os.symlink(outside, root / "docs" / "ln.md")
+            check_eq("links: a link to a file that points outside every root is not listed", "ln.md" in rec(root, work, "ln.md.txt", "see docs/ln.md NOTES.md").err, False)
+        except OSError:
+            print("skipped: links to a symlink pointing outside - the OS refused to make a file link")
+        finally:
+            outside.unlink()
+        # an exclusion record the person wrote (hand-made as_written entry: no kind names a path) keeps a path out; an unreadable one lists nothing
+        excl = work / "source-exclusions.json"
+        excl.write_text(json.dumps({"schema_version": 1, "exclusions": [{"id": "X-1", "as_written": "NOTES.md", "target": {"kind": "ref", "branch": "none"}, "reason": "old"}]}), encoding="utf-8")
+        check_eq("links: a path the person's word names is not listed", "NOTES.md" in rec(root, work, "r4.md", "see NOTES.md docs/a.md").err.split("already")[0], False)
+        excl.write_text("not json", encoding="utf-8")
+        check_eq("links: an unreadable exclusion record lists nothing", SI.linked_documents(root, _set_config(root), "README.md", text, work.parent)["paths"], [])
+        excl.unlink()
+        # attachments: the refactor guard (the merge survivor keeps its behaviour)
+        client = SimpleNamespace(base_url="https://jira.example", references_context={}, project_keys=[])
+        (work / "ticket-references.json").write_text(json.dumps({"rows": [{"kind": "url", "ref": "https://o.example/x", "origins": ["mention:description"], "status": "person"}], "scanned": [], "written_by": []}), encoding="utf-8")
+        for _ in range(2):
+            SI.append_attachment_references(client, work / "source-inventory.json", "PROJ-1", {}, {"notes.txt": "see https://o.example/x"})
+        document = json.loads((work / "ticket-references.json").read_text(encoding="utf-8"))
+        check_eq("attachments refactor guard: the origin joins the existing row once, scanned and written_by are marked",
+                 ([r["origins"] for r in document["rows"] if r["ref"] == "https://o.example/x"], document["scanned"], document["written_by"]),
+                 ([["mention:description", "notes.txt"]], ["attachments"], ["S1"]))
+    finally:
+        cleanup(sib)
+        cleanup(root)
+    # -- a document recorded BEFORE the text that links it is born fetched; a rooted link and nested roots
+    root, sib, work = scenario(repos=[{"name": "app", "path": "app"}])
+    try:
+        put(root, "x.md"), put(root, "app/x.md"), put(root, "app/README.md"), put(root, "docs/a.md")
+        rec(root, work, "docs/a.md", "alpha\n")
+        got = rec(root, work, "app/README.md", "see /x.md and docs/a.md ../docs/a.md")
+        check_eq("links: a rooted link resolves against the innermost declared root; a recorded document is counted, not listed",
+                 (listed(got.err), "1 linked document(s) already recorded" in got.err), (["app/x.md"], True))
+        check_eq("links: the document recorded before is born fetched", sorted((r["ref"], r["status"]) for r in rows_of(work)),
+                 [("app/x.md", SI.LINKED_DOCUMENT_STATUS), ("docs/a.md", "fetched")])
+    finally:
+        cleanup(sib)
+        cleanup(root)
+
+
 def record_source_never_replaces() -> None:
     """F1 (t-551): a text never replaces a record it did not write. Mutation: remove the `same` check in
     `source_inventory.record_text_source`."""
@@ -954,6 +1108,7 @@ def main() -> None:
     record_source_edges()
     record_source_declared_roots()
     document_places()
+    linked_documents_rows()
     record_source_never_replaces()
     get_and_freshness()
     key_gate()

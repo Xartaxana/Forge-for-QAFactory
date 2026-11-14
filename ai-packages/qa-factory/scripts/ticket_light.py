@@ -1269,6 +1269,32 @@ def references(texts: dict, *, known_prefixes, not_tracker_prefixes, key_form=No
     return out
 
 
+PATH_CANDIDATE_LIMIT = 200       # characters of one candidate; a longer piece is no path a role wrote
+_PATH_SPLIT_RE = re.compile(r"[\s()\[\]<>\"'`|,;]+")
+_MACHINE_PATH_RE = re.compile(r"^(?:~[/\\]|[A-Za-z]:|\\\\)")
+
+
+def path_candidates(text) -> list[str]:
+    """The pieces of `text` that may name a file by a RELATIVE path (`sub/a.md`, `./b.md`, `a.md`): pure, characters only
+    (no word list, FR-12; no project or file name, AR-3). Split on whitespace and on ``()[]<>"'`|,;``; strip trailing `.:!?`;
+    drop a `#...` or `?...` suffix; percent-decode once; drop empty pieces, URLs (`://`), `mailto:`, absolute MACHINE paths (a
+    drive, `\\\\`, `~/`: `TL.references` reads those as `local_path` rows), pieces with neither `/` nor `.` and pieces over
+    PATH_CANDIDATE_LIMIT characters; a rooted piece (`/sub/x.md`) stays - the caller decides its base. First occurrence order,
+    distinct. A candidate is a GUESS: whether it names a file inside a declared place is the caller's test."""
+    from urllib.parse import unquote
+    out: list[str] = []
+    for piece in _PATH_SPLIT_RE.split(text) if isinstance(text, str) else []:
+        piece = piece.rstrip(".:!?")
+        for mark in "#?":
+            piece = piece.split(mark, 1)[0]
+        piece = unquote(piece).rstrip(".:!?") if piece else ""
+        if (not piece or "://" in piece or piece.lower().startswith("mailto:") or _MACHINE_PATH_RE.match(piece)
+                or not ("/" in piece or "." in piece) or len(piece) > PATH_CANDIDATE_LIMIT or piece in out):
+            continue
+        out.append(piece)
+    return out
+
+
 def prefixes_to_probe(rows: list[dict]) -> list[str]:
     """Prefixes of ticket rows whose prefix the run does not know yet: one per-prefix probe each
     (never one per key). The decoy `TC-001` of TP1-15045 costs one."""

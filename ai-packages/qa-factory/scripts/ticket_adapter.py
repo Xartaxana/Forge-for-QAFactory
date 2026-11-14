@@ -2204,12 +2204,14 @@ def _record_source(args, emit=None) -> int:
         print("ticket_adapter: the locator holds a credential-like field (token=, secret=, password=, key=); the value is not "
               "shown and nothing was recorded: record the locator without it", file=sys.stderr)
         return EXIT_USAGE
+    project, config = None, None
     if not _URL_RE.match(ref):      # file: names THIS machine (AR-4); a URL keeps today's road
         try:
             project = RP.nearest_project(Path(args.output).resolve().parent.parent)
         except (OSError, ValueError):
             project = None
-        normal, why = RP.declared_place(project, RP._config_of(project) if project is not None else None, ref)
+        config = RP._config_of(project) if project is not None else None
+        normal, why = RP.declared_place(project, config, ref)
         if normal is None:
             door = {RP.DECLARED_NOT_RELATIVE: "give the locator relative to the project (a path with no drive and no `..`), or a URL; "
                     "a document of a declared repository is named from the project, for example `<code_repos path>/<path inside it>`",
@@ -2265,6 +2267,26 @@ def _record_source(args, emit=None) -> int:
             print_summary(record, load_inventory(Path(args.output)), args.output)
         else:
             print_result(load_inventory(Path(args.output)) if args.json else record, args.json)
+        # FV1-23 A-3: the documents this text links on disk, to STDERR (stdout keeps its three shapes, FR-14) and as reference rows;
+        # it runs after the record, so no failure here changes the verdict or the exit code
+        try:
+            found = SI.linked_documents(project, config, ref, text, Path(args.output).resolve().parent.parent)
+            if found["rows"]:
+                SI._merge_reference_rows(Path(args.output).parent / "ticket-references.json", found["rows"], "documents")
+            if found["paths"] or found["more"] or found["recorded"]:
+                print(f"Linked from {ref}, inside the declared repositories (a first look at each, charter: the walk of references; "
+                      "record what can carry a requirement, or name it in your trail):", file=sys.stderr)
+                for linked in found["paths"]:
+                    print(f"- {linked} ({found['sizes'][linked]} B)", file=sys.stderr)
+                if found["more"]:
+                    print(f"- and {found['more']} more linked from {ref}: look for them yourself", file=sys.stderr)
+                if found["recorded"]:
+                    print(f"- {found['recorded']} linked document(s) already recorded", file=sys.stderr)
+                if not found["checked_all"]:
+                    print(f"- more than {SI.LINK_CANDIDATES_LIMIT} names in the text: only the first {SI.LINK_CANDIDATES_LIMIT} were checked",
+                          file=sys.stderr)
+        except Exception as exc:  # noqa: BLE001 - advice must never change the verdict
+            print(f"ticket_adapter: links of {ref} could not be listed ({type(exc).__name__})", file=sys.stderr)
         return 0
     except ValueError as exc:      # the call's fault, not the factory's (FR-46): the inventory is untouched
         print(f"ticket_adapter: {exc}", file=sys.stderr)

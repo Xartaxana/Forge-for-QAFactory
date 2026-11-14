@@ -1982,56 +1982,32 @@ def _reference_status_of(item: dict) -> str | None:
     return None
 
 
-def _settle_references(output: Path, items: list) -> None:
-    """The story's `ticket-references.json` (S0) says, per ticket row, whether the ticket was fetched or
-    why not (FR-41: a reference present in the text never vanishes). A source record that settles a
-    ticket row moves its status. No file (a story older than the file) means nothing to settle."""
-    path = Path(output).parent / "ticket-references.json"
+LINKED_DOCUMENT_KIND = "linked_document"      # a row for a document a recorded text links on disk (FV1-23 A-3)
+LINKED_DOCUMENT_STATUS = "not_fetched:linked document - a first look by the walk of references"
+LINK_CANDIDATES_LIMIT = 500                    # names of a text that are tried as paths; the rest are said, not tried
+
+
+def _reference_document(path: Path):
+    """The parsed `ticket-references.json` at `path` (a dict whose `rows` is a list), or None: no file (a story older than the
+    file), a file that cannot be read, or one of another shape. The ONE reader of the file for the writers below (AR-13)."""
     if not path.is_file():
-        return
+        return None
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return
-    rows = document.get("rows") if isinstance(document, dict) else None
-    if not isinstance(rows, list):
-        return
-    updates = {}
-    for item in items:
-        status = _reference_status_of(item)
-        if status and item.get("canonical_ref"):
-            updates[_key(item)] = status
-    changed = False
-    for row in rows:
-        if isinstance(row, dict) and row.get("kind") == "ticket" and row.get("ref") in updates \
-                and row.get("status") != updates[row["ref"]]:
-            row["status"] = updates[row["ref"]]
-            changed = True
-    if changed:
-        _atomic_write(path, json.dumps(document, indent=2, ensure_ascii=False).encode("utf-8") + b"\n")
+        return None
+    return document if isinstance(document, dict) and isinstance(document.get("rows"), list) else None
 
 
-def append_attachment_references(client, output: Path, key: str, snapshot: dict, named_texts: dict) -> None:
-    """S1 (C12): the text attachments just downloaded add reference rows to the story's
-    `ticket-references.json` - origins `mention:attachment:<name>` - and a row already there gains the
-    origin instead of a twin. No file (a story older than S0's file) or no text: nothing to add. A table
-    that cannot be read refuses (TableError), as everywhere else."""
-    path = Path(output).parent / "ticket-references.json"
-    if not named_texts or not path.is_file():
-        return
-    try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return
-    rows = document.get("rows") if isinstance(document, dict) else None
-    if not isinstance(rows, list):
-        return
-    context = getattr(client, "references_context", None) or {}
-    known = _known_prefixes(client, Path(output), key, snapshot, tuple(named_texts.values()))
-    fresh = TL.references(named_texts, known_prefixes=known, not_tracker_prefixes=not_tracker_prefixes(),
-                          reference_kinds=TL.load_reference_kinds(),
-                          known_hosts=list(context.get("known_hosts") or []) + [client.base_url],
-                          repos=context.get("repos") or [], seeded=[], own_key=key)
+def _merge_reference_rows(path: Path, fresh: list, scanned_word: str) -> bool:
+    """Merge `fresh` rows into the `ticket-references.json` at `path` by IDENTITY `(kind, ref, repo)`: a row already there gains
+    the origins instead of a twin and keeps its status; a new row is appended; `scanned_word` joins `scanned` and `S1`
+    joins `written_by`; written atomically. True when the file was written; no file or an unreadable one writes nothing (the
+    one survivor of attachments' and linked documents' rows, AR-15)."""
+    document = _reference_document(path)
+    if document is None:
+        return False
+    rows = document["rows"]
 
     def identity(row):
         return (row.get("kind"), row.get("ref"), row.get("repo_id") or row.get("repo"))
@@ -2046,11 +2022,54 @@ def append_attachment_references(client, output: Path, key: str, snapshot: dict,
             for origin in row.get("origins") or []:
                 if origin not in have.setdefault("origins", []):
                     have["origins"].append(origin)
-    if "attachments" not in document.setdefault("scanned", []):
-        document["scanned"].append("attachments")
+    if scanned_word not in document.setdefault("scanned", []):
+        document["scanned"].append(scanned_word)
     if "S1" not in document.setdefault("written_by", []):
         document["written_by"].append("S1")
     _atomic_write(path, json.dumps(document, indent=2, ensure_ascii=False).encode("utf-8") + b"\n")
+    return True
+
+
+def _settle_references(output: Path, items: list) -> None:
+    """The story's `ticket-references.json` (S0) says, per ticket row, whether the ticket was fetched or
+    why not (FR-41: a reference present in the text never vanishes). A source record that settles a
+    ticket row - or a `linked_document` row, by its path - moves its status. No file (a story older than the
+    file) means nothing to settle."""
+    path = Path(output).parent / "ticket-references.json"
+    document = _reference_document(path)
+    if document is None:
+        return
+    rows = document["rows"]
+    updates = {}
+    for item in items:
+        status = _reference_status_of(item)
+        if status and item.get("canonical_ref"):
+            updates[_key(item)] = status
+    changed = False
+    for row in rows:
+        if isinstance(row, dict) and row.get("kind") in ("ticket", LINKED_DOCUMENT_KIND) and row.get("ref") in updates \
+                and row.get("status") != updates[row["ref"]]:
+            row["status"] = updates[row["ref"]]
+            changed = True
+    if changed:
+        _atomic_write(path, json.dumps(document, indent=2, ensure_ascii=False).encode("utf-8") + b"\n")
+
+
+def append_attachment_references(client, output: Path, key: str, snapshot: dict, named_texts: dict) -> None:
+    """S1 (C12): the text attachments just downloaded add reference rows to the story's
+    `ticket-references.json` - origins `mention:attachment:<name>` - and a row already there gains the
+    origin instead of a twin. No file (a story older than S0's file) or no text: nothing to add. A table
+    that cannot be read refuses (TableError), as everywhere else."""
+    path = Path(output).parent / "ticket-references.json"
+    if not named_texts or _reference_document(path) is None:
+        return
+    context = getattr(client, "references_context", None) or {}
+    known = _known_prefixes(client, Path(output), key, snapshot, tuple(named_texts.values()))
+    fresh = TL.references(named_texts, known_prefixes=known, not_tracker_prefixes=not_tracker_prefixes(),
+                          reference_kinds=TL.load_reference_kinds(),
+                          known_hosts=list(context.get("known_hosts") or []) + [client.base_url],
+                          repos=context.get("repos") or [], seeded=[], own_key=key)
+    _merge_reference_rows(path, fresh, "attachments")
 
 
 def refresh_targets(inventory: dict) -> list:
@@ -2484,6 +2503,72 @@ def document_place_lines(cfg: dict, task_root) -> list:
             lines.append(f"{name}: no text file under {locator}")
         lines += notes
     return lines
+
+
+def linked_documents(project, cfg: dict, text_ref: str, text: str, task_root) -> dict:
+    """The documents the recorded `text` (held at `text_ref`) links on disk (FV1-23 A-3): `{"paths": [normal refs, at most
+    DOC_FILES_LIMIT], "sizes": {ref: bytes}, "more": the kept paths beyond them, "recorded": the kept paths already a `read`
+    source (counted, not listed), "checked_all": False when the text held more than LINK_CANDIDATES_LIMIT names, "rows": the
+    `ticket-references.json` rows to merge (the listed paths as not read, the recorded ones as `fetched`)}`. Reads the disk,
+    writes nothing; data only - which linked document matters is the scout's judgment.
+
+    Nothing (the empty dict) unless `text_ref` resolves to an existing REGULAR file inside a declared root (no key or word test:
+    a ticket key, a URL and a task-relative `work/raw/...` ref list nothing). Each of the first LINK_CANDIDATES_LIMIT names
+    (`ticket_light.path_candidates`) is resolved against the folder of `text_ref`; a rooted one against the INNERMOST declared
+    root holding `text_ref`. Kept iff `declared_place` accepts it, it is an existing regular file other than `text_ref`,
+    `text_file_problem` is "", its name holds no credential and the person did not leave it out (an unreadable record of the
+    exclusions lists nothing). A link the code fails to see is the allowed error; a path outside the roots is never kept."""
+    import posixpath
+    import runtime_paths
+    import source_exclusions
+    from config_contract import SECRET_QUERY_RE
+    nothing = {"paths": [], "sizes": {}, "more": 0, "recorded": 0, "checked_all": True, "rows": []}
+    if project is None or not isinstance(text, str):
+        return nothing
+    base, _why = runtime_paths.declared_place(project, cfg, text_ref)
+    here = os.path.normpath(os.path.join(str(project), base)) if base is not None else ""
+    if base is None or not os.path.isfile(here):
+        return nothing
+    holding = [root for root in runtime_paths.declared_roots(project, cfg) if runtime_paths.contained(here, root)]
+    if not holding:
+        return nothing
+    innermost = max(holding, key=lambda root: len(os.path.realpath(root)))
+    try:
+        live = source_exclusions.live(task_root)
+    except source_exclusions.ExclusionRecordError:
+        return nothing
+    try:
+        recorded_refs = {item.get("canonical_ref") for item in load_inventory(Path(task_root) / "work" / "source-inventory.json").get("sources", [])
+                         if isinstance(item, dict) and item.get("status") == "read"}
+    except (OSError, ValueError, AttributeError, TypeError):
+        recorded_refs = set()
+    candidates = TL.path_candidates(text)
+    folder, kept = posixpath.dirname(base), []
+    for name in candidates[:LINK_CANDIDATES_LIMIT]:
+        slashed = name.replace("\\", "/")
+        if slashed.startswith("/"):
+            try:
+                ref = os.path.relpath(os.path.join(innermost, slashed.lstrip("/")), str(project)).replace(os.sep, "/")
+            except ValueError:
+                continue
+        else:
+            ref = posixpath.join(folder, slashed) if folder else slashed
+        normal, _why = runtime_paths.declared_place(project, cfg, ref)
+        if normal is None or normal == base or normal in kept:
+            continue
+        place = os.path.normpath(os.path.join(str(project), normal))
+        if (os.path.isfile(place) and not text_file_problem(place) and not SECRET_QUERY_RE.search(normal)
+                and not source_exclusions.first_ref_match(live, normal)):
+            kept.append(normal)
+    unread = [ref for ref in kept if ref not in recorded_refs]
+    fetched = [ref for ref in kept if ref in recorded_refs]
+    paths = unread[:DOC_FILES_LIMIT]
+    origin = f"mention:document:{text_ref}"
+    rows = ([{"ref": ref, "kind": LINKED_DOCUMENT_KIND, "origins": [origin], "status": LINKED_DOCUMENT_STATUS} for ref in paths]
+            + [{"ref": ref, "kind": LINKED_DOCUMENT_KIND, "origins": [origin], "status": "fetched"} for ref in fetched])
+    return {"paths": paths, "sizes": {ref: os.path.getsize(os.path.join(str(project), ref)) for ref in paths},
+            "more": len(unread) - len(paths), "recorded": len(fetched), "checked_all": len(candidates) <= LINK_CANDIDATES_LIMIT,
+            "rows": rows}
 
 
 def refresh_relevant_sources(client: JiraClient, output: Path) -> dict:
