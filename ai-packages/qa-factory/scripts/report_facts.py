@@ -2399,7 +2399,8 @@ def knowledge_facts(task_root, project_root=None) -> dict:
 def question_count(task_root):
     """How many questions the story put to the person, for the retro's line: the questions of the story's register
     (`question_register.load`, the one reader of `work/requirements-readiness.json` `open_questions`) except those a designer took
-    (`with_designer`: the person was not asked). A story with no readable register has no count: `unmeasured: <why>`, never 0; a register that
+    (`with_designer`: the person was not asked) and a question merged into another one (`QR.hidden_repeat`): the person is asked it once,
+    under the earlier id. A story with no readable register has no count: `unmeasured: <why>`, never 0; a register that
     is read and holds no question is a MEASURED zero."""
     try:
         got = QR.load(task_root)
@@ -2409,7 +2410,7 @@ def question_count(task_root):
         return _unmeasured("the story has no question register (work/requirements-readiness.json open_questions)")
     if got.get("problems") and not got.get("questions"):
         return _unmeasured("the question register could not be read: " + "; ".join(str(p) for p in got["problems"])[:160])
-    return sum(1 for q in got.get("questions") or [] if q.get("status") != "with_designer")
+    return sum(1 for q in got.get("questions") or [] if q.get("status") != "with_designer" and not QR.hidden_repeat(q))
 
 
 # The retro's reading of the counters: lines of words, no money in them (the repository's files never print prices), nothing refused.

@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import SCRIPTS, check, check_eq, check_in, check_not_in, cleanup, finish, temp_dir  # noqa: E402
 
 sys.path.insert(0, str(SCRIPTS))
+import report_facts as RF  # noqa: E402
 import retro_numbers as RN  # noqa: E402
 import run_counters as RC  # noqa: E402
 import driver_journal as DJ  # noqa: E402
@@ -362,6 +363,7 @@ def test_fv19_retro_lists_merged_questions() -> None:
                  (older.get("merged_questions"), RN.merged_question_lines(older.get("merged_questions"))[-1],
                   "Questions merged as one" in RN.render(older)),
                  ({"records": [], "unreadable": False}, "- none: no question was merged in this story", True))
+        check_eq(f"{name}: before any merge the retro's question count is all four rows", RF.question_count(troot), 4)
         bare_root, bare_base, bare_troot = project()
         try:
             check_eq(f"{name}: a story with no register has no key (an older story: the section is absent)",
@@ -371,6 +373,8 @@ def test_fv19_retro_lists_merged_questions() -> None:
         QR.declare_repeat(troot, "Q16", "Q7", "both ask the limit", by="driver", declared_by="qa-case-designer", stage="S4")
         QR.declare_repeat(troot, "Q17", "Q7", "y" * 250, by="driver", declared_by="qa-test-strategist", stage="S3")
         QR.declare_repeat(troot, "Q18", "Q7", "same", by="driver", declared_by="qa-case-designer", stage="S4")
+        check_eq(f"{name}: after three merges the person is asked one question, not four (a merged twin is not counted twice)",
+                 RF.question_count(troot), 1)
         data = RN.numbers("QA-1", base, troot)
         recs = data["merged_questions"]["records"]
         check_eq(f"{name}: three records, in file order, with the standing the register reader returns",
@@ -406,6 +410,9 @@ def test_fv19_retro_lists_merged_questions() -> None:
         finally:
             QR.repeat_records = real
         check_eq(f"{name}: a story with no register at all has no section", RN.merged_question_lines(None), [])
+        QR.record(troot, "Q18", "open", "asking this one after all", "remark", "person", "")
+        check_eq(f"{name}: a merged question reopened through the register is shown again and counted (over-counting is the allowed error)",
+                 RF.question_count(troot), 2)
     finally:
         cleanup(root)
 
