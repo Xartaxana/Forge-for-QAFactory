@@ -108,6 +108,9 @@ TR2-6, TR2-9, TR2-11, TR2-16, TR4-14, TR4-15 (у них «—» или толь�
 | `findings/20261112-tr3-9-ostatki-dorozhek-ruchnogo-prohoda.md` | находка, id — | остатки TR3-9: длинная функция дорожки, два повтора, мёртвое слагаемое, известный остаток отчёта, один нестабильный пин | `scripts/driver_stage_s6.py`, `scripts/controller.py`, `scripts/config_contract.py`, `scripts/tests/test_walk_lanes_parallel.py` | в пачке 6, TR6-1 | нет | t-096, t-102, t-107 |
 | `findings/20261110-tr1-11-chernovik-nablyudeniya-klyuch-svyazi.md` | находка, id — | черновик непривязанного наблюдения не называет его: нужно одно необязательное поле контракта, которое читает `place_of_draft` | `scripts/place_answers.py`, `references/artifact-contract-run.md`, `scripts/validate_artifacts.py` | в пачке 5, TR4-15 | нет | t-2306, t-2299 |
 | `findings/20261113-test-controller-rework-repair-binding-krasnyj-odin-raz-fr-31.md` | находка, id — | тест красный один раз на каноне, не воспроизвёлся (FR-31); первый шаг — печатать `repr` исключения в падающем assert | `scripts/tests/test_controller_rework_repair_binding.py` | в пачке 6, TR6-2 | нет | t-247 Red 2; TR4-7, t-2183 |
+| `findings/20261114-skill-doroga-ne-pishet-register-gaps.md` | находка, id — | дорога скилла не записывает строки `register_gaps` критика S4: драйвер, который их записывает, там не бежит (край R18) | `skills/qa-story/phases/s4.md`, `scripts/driver_stage_plan.py` | в пачке 5, TR5-4 | нет | критик кода A2/A3/F7-пересборки (Q1); P31, ось 5 |
+| `findings/20261114-f-r0-dve-dorogi-k-odnomu-registru-vopros-vladeltsu.md` | находка, id — | F-R0: две дороги к одному реестру наблюдений (роли с shell и критик S4 без Bash) — вопрос владельцу по P31, рекомендация (а) | `scripts/exploratory_findings.py`, `scripts/driver_stage_plan.py` | в пачке 5, TR5-5 | да (P31) | критик кода A2/A3/F7-пересборки (Q6) |
+| `findings/20261114-cl-ns-detektor-roli-bez-shell-na-karte-komand.md` | находка, id — | CL-NS: роль без shell на карточке команды без носителя, который велит её запускать; четыре строки дрейфа | `references/role-commands.json`, `scripts/tests/test_ahead_cards.py` | в пачке 6, TR6-3 | нет | критик кода A2/A3/F7-пересборки (Q5); FR-56 |
 
 ## Входящие
 
@@ -115,6 +118,8 @@ TR2-6, TR2-9, TR2-11, TR2-16, TR4-14, TR4-15 (у них «—» или толь�
 пачке этой кучки, которую ещё не взяли, или указатель `перенос: <кучка>/…`.
 
 ## Вопросы владельцу
+
+- TR5-5 (находка `findings/20261114-f-r0-dve-dorogi-k-odnomu-registru-vopros-vladeltsu.md`, P31): роли с командной строкой записывают наблюдения сами, а проверяющий кейсы без неё — строкой формы, которую записывает код; оставить две дороги (рекомендация, действует до слова владельца) или перевести всех на одну (отдельная тема, около шести узлов).
 
 - Закрыто 06.11.2026. `dispatch.parallel_windows`: 3, и это умолчание пакета: «По умолчанию запускаем в параллели и только если это не возможно, то последовательно».
 - Закрыто 06.11.2026. Восемь карточек Add to Cart: ответы владельца — `experiments/mybooks/thinking-roles/walker-vs-plain-agent.md`, раздел 5.

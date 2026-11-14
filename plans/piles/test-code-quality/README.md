@@ -86,6 +86,7 @@ K7 тест опирается на модули, которых нет в до�
 | `findings/20261113-chitateli-kolonki-tablicy-rukami-vne-critic-rollcall.md` | находка, id — | шесть читателей колонки таблицы руками вне `critic_rollcall` (`audit_factory`, `planning_contract`) — через `contract.md_column`, направление ошибки назвать | `scripts/audit_factory.py`, `scripts/planning_contract.py` | пачка 2, TQ2-2 | нет | критик темы TQ2-1 (Q1); TQ2-1 |
 | `findings/20261113-narezka-okon-derzhit-gruppy-slijaniya-i-c12-dlya-legacy.md` | находка, id — | нарезка окон разрезает пары слияния (legacy режет по кейсам), у окон legacy нет C12; один механизм — группа слияния остаётся вместе | `scripts/s5_plan.py`, `scripts/controller.py`, `scripts/s5_precheck.py` | пачка 2, TQ2-3 | нет | критик темы TQ2-1 (Q2, F7); TQ2-1 |
 | `findings/20261113-case-concern-lines-71-stroka-mertvaya-rabota-i-prichina-bez-granicy.md` | находка, id — | `case_concern_lines` на 71 строку, `elsewhere` вычисляется зря, причина стадии без границы | `scripts/brief_pack.py`, `scripts/s5_plan.py` | пачка 2, TQ2-4 | нет | критик темы TQ2-1 (Q3); TQ2-1 |
+| `findings/20261114-perepis-slepoe-pyatno-otkazy-draivera-refusal.md` | находка, id — | перепись суждений не видит отказов семейства драйвера (`Refusal(Exception)`, `raise factory(...)`), у `driver_stage_plan.py` 0 строк | `scripts/tests/test_judgment_census.py`, `scripts/tests/fixtures/judgment-census.json` | пачка 2, TQ2-5 | нет | критик кода A2/A3/F7-пересборки (Q2, F2); AR-29, AR-20 |
 
 ## Входящие
 
