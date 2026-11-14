@@ -25,7 +25,7 @@ FV2-1, FV2-2 имеют фиксированные id от Lead (строки р
 
 | Узел | Приоритет | Что | Исполнитель | Пишет в | Зависит от | Статус |
 |---|---|---|---|---|---|---|
-| FV2-1 | П2 | `handoff_check._plan_row_of` читает ключ шапки `plan_row:`, которого нет в контракте кейса (`artifact-contract.md:59-62`); читать носитель контракта через `contract.case_plan_row`; найти, где роли учили писать `plan_row:` (`findings/20261113-chitatel-plan-row-chitaet-klyuch-kotorogo-net-v-kontrakte.md`) | designer → builder → critic | `scripts/handoff_check.py`, `references/form-rounds.json` | — | ожидает |
+| FV2-1 | П2 | `handoff_check._plan_row_of` читает ключ шапки `plan_row:`, которого нет в контракте кейса (`artifact-contract.md:59-62`); читать носитель контракта через `contract.case_plan_row`; найти, где роли учили писать `plan_row:` (`findings/20261113-chitatel-plan-row-chitaet-klyuch-kotorogo-net-v-kontrakte.md`) | designer → builder → critic | `scripts/handoff_check.py`, `references/form-rounds.json` | — | принято: 1d1206b (t-770) |
 | FV2-2 | П2 | Метка «заполняет код» по имени листа `requirements` (`BY_LEAF`) покрывает поля S3/S8, которых код не заполняет; метка ключуется полным путём поля (`findings/20261113-by-leaf-requirements-pomechaet-polya-kotorye-kod-ne-zapolnyaet.md`) | designer → builder → critic | `scripts/handoff_check.py`, `references/form-rounds.json` | FV2-1 | принято: 4f37213 (t-661) |
 | FV2-3 | П2 | Два читателя «раннер выбирает по id узла» расходятся на `py.test`: `is_pytest_command` против `runner_identity.node_id_selection`; единственный ответ — ключ данных (`findings/20261113-py-test-dva-chitatelya-odnogo-voprosa-vybor-po-id-uzla.md`) | designer → builder → critic | `scripts/execution_request.py`, `scripts/run_suite.py`, `references/launch-causes.json` | — | ожидает |
 | FV2-4 | П3 | Выходы стадий, которые не отказывает ни один читатель (8) и не покрытые (6): `requirements-readiness.json` без `verdict`, `grounding.yaml` без `rows:` (`findings/20261113-vyhody-stadii-kotorye-ne-otkazyvaet-ni-odin-chitatel.md`; нужна доразведка имён) | designer → builder → critic | `scripts/validate_artifacts.py` | FV2-1, FV2-2 | ожидает |
@@ -76,6 +76,7 @@ FV2-1, FV2-2 имеют фиксированные id от Lead (строки р
 
 - 13.11 — пачка открыта (t-545): девять находок очередей критиков P1-a, P1-v, FV1-4, FV1-18, FV1-19.
 - 14.11 — FV2-2: принято, ветка `wip/fv2-2` слита в main коммитом 4f37213 (отчёт волны 2 `docs/tasks/specs/reports/20261113-wave2-integration-report.md`); зависимость FV2-1 этим отчётом не названа слитой, статус FV2-1 не тронут.
+- 14.11 (t-770) — FV2-1: принято, `wip/fv2-1` слита в main коммитом 1d1206b (a60160e, волна 1; код `handoff_check._plan_row_of` читает через `contract.case_plan_row`); места, где роли учили писать `plan_row:`, не найдены (отчёт `docs/tasks/specs/reports/20261113-fv2-1-report.md`); три красные строки реестра остаются красными по другой причине (P-n / TS-n, FV1-14) — вопрос отчёта открыт у Lead.
 - 14.11 (t-756) — очереди ночных критиков заведены узлами FV2-28…FV2-44 (диффы FV1-23 A-2/A-3, FV1-9 хвост, FV1-5; код A2/A3/F7-пересборки; T1r-sites): шестнадцать находок в `findings/` тем же ходом; FV2-41 условный (повтор класса B1), FV2-31, FV2-36, FV2-38, FV2-42 — решения и указатели Lead без правки кода. Пачка перерезается Lead позже (узлов больше размера L).
 
 ## Живые доказательства
