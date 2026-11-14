@@ -2026,6 +2026,8 @@ def case_concern_lines(task_root: Path, dispatch_id: str, state, role: str, writ
         groups = [CR.parametrise_group(c.get("problem"), cfg) for c in shown]
         asked = {frozenset(g) for g in groups if len(g) >= 2}      # one ask per GROUP: the token sits on every case of it
         n, k = len(shown), len(asked)
+        r = sum(1 for c in shown if c.get("still_rejected"))
+        rej = f"{r} of them cases it still rejected when S4 went on; " if r else ""     # said apart, and only when there is one
         if not plan and author:
             elsewhere = sum(1 for g in asked if not all(C.names_case(scope, i, cfg) for i in g))
         if n:
@@ -2050,6 +2052,10 @@ def case_concern_lines(task_root: Path, dispatch_id: str, state, role: str, writ
                 text = (f"The case critic carried {n} concern(s) for the cases of this window: {rel}. The automator answers each in "
                         "`plan_remarks`; judge each answer (C12)")
             text = _short(text, HEAD_LINE_CHARS)
+            if rej:     # the clause goes into the cut text, so it never pushes the instruction out of the bound (AR-10)
+                mark = f"({k} ask"
+                text = (text.replace(mark, f"({rej}{k} ask", 1) if mark in text
+                        else text + f". {rej.rstrip('; ')}")
             if not plan and author:     # said whole, never cut off by the line's bound: they are the residual (K2-E12, E13)
                 if elsewhere:
                     text += (f"; {elsewhere} name a case of another window: they cannot be merged here, say so in the row")
@@ -2065,11 +2071,11 @@ def case_concern_lines(task_root: Path, dispatch_id: str, state, role: str, writ
         if report["silent"]:
             head.append(f"Case critic's concerns: {len(report['silent'])} findings file(s) gave none because a round could not be read "
                         "against the critic's receipt (the file changed after it, or its roll-call is broken); read the rows marked "
-                        f"`approve_with_concerns` there before you {verb}")
+                        f"`approve_with_concerns` and every reviewed row whose verdict is not an approving one there before you {verb}")
             files += [f"- {path} - case critic's findings that gave no concern (receipt): read it" for path in report["silent"]]
     except Exception as exc:  # noqa: BLE001 - the brief is built; the line says what could not be read
         return {"head": [f"Case critic's concerns: could not be read ({_text_whole(exc)}); read the rows marked `approve_with_concerns` "
-                         f"in work/test-cases/**/critic-findings.md before you {verb}"], "files": [], "sides": {}}
+                         f"and every reviewed row whose verdict is not an approving one in work/test-cases/**/critic-findings.md before you {verb}"], "files": [], "sides": {}}
     return {"head": head, "files": files, "sides": sides}
 
 

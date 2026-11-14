@@ -13,6 +13,7 @@ keys are the spec's lines, quoted verbatim BEFORE the run, with a negative contr
 """
 import contextlib
 import copy
+import hashlib
 import io
 import json
 import sys
@@ -505,7 +506,253 @@ def k_merge_hint_both_paths():
     check_eq("G9: the exit code, `ok` and the findings are those of the plan with no concern", results["with"][:3], results["without"][:3])
 
 
+# --- FV1-6 N2: the rows the S4 case critic still rejects travel to the automator (rows C1-C14) -----------------------------------
+
+R_COLS = ("plan row", "case", "reviewed", "verdict", "note", "fix")
+R_DIR = "work/test-cases/api/"
+
+
+def r_round(number, verdict, rows, cols=R_COLS):
+    """One findings round (newest goes on top of the file); a row is `(plan row, case, reviewed, verdict, note, fix)`."""
+    keep = [i for i, name in enumerate(R_COLS) if name in cols]
+    table = "".join("| " + " | ".join(row[i] for i in keep) + " |\n" for row in rows)
+    return (f"# Case critic findings - round {number}\n\nVerdict: {verdict}\n\n## Roll-call\n\n| " + " | ".join(cols) + " |\n|"
+            + "---|" * len(cols) + "\n" + table + "\n").encode("utf-8")
+
+
+def r_story(root, files, links=None):
+    """`files` is `{name: [(bytes of a round, status), ...]}` oldest first; the state holds one S4 critic dispatch per round,
+    in the order they were accepted, each with the receipt of the file as it stood then."""
+    dispatches, number = {}, 0
+    for name, rounds in files.items():
+        data = b""
+        for round_bytes, status in rounds:
+            data = round_bytes + data
+            number += 1
+            ident = f"S4-qa-case-critic-{number}"
+            dispatches[ident] = {"id": ident, "stage": "S4", "role": "qa-case-critic", "status": status,
+                                 "evidence_refs": [{"path": R_DIR + name, "sha256": hashlib.sha256(data).hexdigest()}]}
+        BASE.put(root, R_DIR + name, data)
+    if links is not None:
+        BASE.put(root, "state/story-case-links.json", json.dumps({"links": [{"case_id": case} for case in links]}))
+    return {"dispatches": dispatches}
+
+
+def r_carried(files, links=None, edit=None):
+    """`(remarks, silent, stderr)` of a story built from `files`; `edit` may change a file after its receipts were taken."""
+    root = temp_dir("qa-fv16-n2-")
+    try:
+        state = r_story(root, files, links)
+        if edit:
+            path = root / R_DIR / edit[0]
+            path.write_bytes(edit[1](path.read_bytes()))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            report = SP.concern_report(root, state)
+        return report["concerns"], report["silent"], err.getvalue()
+    finally:
+        cleanup(root)
+
+
+def r_brief(files, dispatch_id="W1", role="qa-automator"):
+    """`(head, the side file's story path)` of the plan-form brief of `role` for a story built from `files`."""
+    import brief_pack as BP
+    root = temp_dir("qa-fv16-n2-")
+    try:
+        state = r_story(root, files)
+        with contextlib.redirect_stderr(io.StringIO()):
+            return (BP.case_concern_lines(root, dispatch_id, state, role, False)["head"],
+                    BP._rel(root, f"work/briefs/{dispatch_id}-case-concerns.md"))
+    finally:
+        cleanup(root)
+
+
+def r_brief_head(files, dispatch_id="W1", role="qa-automator"):
+    return r_brief(files, dispatch_id, role)[0]
+
+
+def fv16_still_rejected_rows():
+    import critic_rollcall as CR
+    ok = "accepted"
+    rej = ("TS-1", "TC-1", "yes", "reject", "wrong oracle", "assert the 404")
+    prt = ("TS-2", "TC-2", "yes", "partial", "half covered", "")
+    appr = ("TS-1", "TC-1", "yes", "approve", "", "")
+    conc = ("TS-3", "TC-3", "yes", "approve_with_concerns", "F-1 flag", "")
+    ids = lambda remarks: [r["id"] for r in remarks]
+    cases = lambda remarks: [r["case"] for r in remarks]
+
+    got, silent, _ = r_carried({"critic-findings.md": [(r_round(1, "reject", [rej]), ok)]})
+    check_eq("C1 reject-row-carried: one remark, id CR-TC-1, still_rejected, the critic's words whole",
+             [(r["id"], r["case"], r["still_rejected"], r["check"], r["problem"], r["fix"], r["review"]) for r in got],
+             [("CR-TC-1", "TC-1", True, "case critic, S4 - still rejected", "wrong oracle", "assert the 404", "S4-qa-case-critic-1")])
+    check_in("C1 reject-row-carried: expected names the round and the findings file", "round S4-qa-case-critic-1 (its full finding is in "
+             + R_DIR + "critic-findings.md)", got[0]["expected"])
+    check_eq("C1 reject-row-carried: the keys are the chain's nine and the remark's own flag", sorted(got[0]),
+             sorted(["id", "case", "test", "then", "kind", "check", "problem", "expected", "fix", "review", "still_rejected"]))
+    check_eq("C1 reject-row-carried: the file is not silent", silent, [])
+
+    got, _s, _ = r_carried({"critic-findings.md": [(r_round(1, "partial", [prt]), ok)]})
+    check_eq("C2 partial-row-carried", [(r["id"], r["problem"]) for r in got], [("CR-TC-2", "half covered")])
+    got, _s, _ = r_carried({"critic-findings.md": [(r_round(1, "reject", [("TS-1", "TC-1", "yes", "reject", "", "")]), ok)]})
+    check_eq("C2 partial-row-carried: a reject with no note says so", got[0]["problem"], CR.REJECTED_NOTE)
+
+    got, _s, _ = r_carried({"critic-findings.md": [(r_round(1, "reject", [rej]), ok), (r_round(2, "approve", [appr]), ok)]})
+    check_eq("C3 later-approve-supersedes: nothing from the earlier reject", got, [])
+
+    two = [rej, ("TS-2", "TC-2", "yes", "reject", "second", "")]
+    got, _s, _ = r_carried({"critic-findings.md": [(r_round(1, "reject", two), ok),
+                                                   (r_round(2, "approve", [("TS-2", "TC-2", "yes", "approve", "", "")]), ok)]})
+    check_eq("C4 later-round-not-listing-keeps-earlier-reject: TC-1 keeps round 1's word, TC-2 is superseded",
+             [(r["case"], r["review"]) for r in got], [("TC-1", "S4-qa-case-critic-1")])
+
+    glob = ("TS-5", "", "yes", "reject", "no case named", "")
+    got, _s, _ = r_carried({"critic-findings.md": [(r_round(1, "reject", [glob, ("TS-6", "", "yes", "reject", "again", "")]), ok)]})
+    check_eq("C5 no-case-id-global: case None, the plan row leads the problem, ids deduplicated",
+             [(r["id"], r["case"], r["problem"]) for r in got],
+             [("CR-global", None, "(plan row TS-5) no case named"), ("CR-global.2", None, "(plan row TS-6) again")])
+
+    two_rounds = lambda a, b: {"critic-findings.md": [(r_round(1, "reject", [a]), ok), (r_round(2, "reject", [b]), ok)]}
+    got, _s, _ = r_carried(two_rounds(glob, ("TS-6", "", "yes", "reject", "no case for TS-6", "")))
+    check_eq("C5b case-less-reject-of-another-plan-row-kept: round 2's TS-6 does not drop round 1's TS-5",
+             (sorted(r["id"] for r in got), sorted(r["problem"] for r in got)),
+             (["CR-global", "CR-global.2"], ["(plan row TS-5) no case named", "(plan row TS-6) no case for TS-6"]))
+    got, _s, _ = r_carried(two_rounds(glob, ("TS-5", "", "yes", "reject", "still no case", "")))
+    check_eq("C5b case-less-reject-of-the-same-plan-row: only the later round's remark is carried",
+             [(r["id"], r["problem"]) for r in got], [("CR-global", "(plan row TS-5) still no case")])
+    got, _s, _ = r_carried(two_rounds(("", "", "yes", "reject", "first", ""), ("", "", "yes", "reject", "second", "")))
+    check_eq("C5b case-less-reject-with-no-plan-row: they share one key, the later round's is carried",
+             [r["problem"] for r in got], ["(plan row ) second"])
+    got, _s, _ = r_carried(two_rounds(("", "", "yes", "reject", "first", ""), ("TS-6", "", "yes", "reject", "other", "")))
+    check_eq("C5b case-less-reject-with-no-plan-row: a later reject of ANOTHER plan row does not drop it (over-carry)",
+             sorted(r["problem"] for r in got), ["(plan row ) first", "(plan row TS-6) other"])
+
+    base = {"critic-findings.md": [(r_round(1, "approve_with_concerns", [conc]), ok)]}
+    alone, _s, _ = r_carried(base)
+    both, _s, _ = r_carried({"critic-findings.md": [(r_round(1, "reject", [conc, ("TS-4", "TC-4", "yes", "reject", "n", "")]), ok)]})
+    first, _s, _ = r_carried({"critic-findings.md": [(r_round(1, "reject", [("TS-4", "TC-4", "yes", "reject", "n", ""), conc]), ok)]})
+    check_eq("C6 concern-ids-unchanged: with no reject the concern is CC-1", ids(alone), ["CC-1"])
+    check_eq("C6 concern-ids-unchanged: with a reject after it, CC-1 and CR-TC-4", ids(both), ["CC-1", "CR-TC-4"])
+    check_eq("C6 concern-ids-unchanged: a reject listed BEFORE the concern does not move CC-1", sorted(ids(first)), ["CC-1", "CR-TC-4"])
+    two_files = {"a/critic-findings.md": [(r_round(1, "approve_with_concerns", [conc]), ok)],
+                 "b/critic-findings.md": [(r_round(2, "reject", [rej, conc]), ok)]}
+    got, _s, _ = r_carried(two_files)
+    check_eq("C6 concern-ids-unchanged: across files the numbering counts concerns only", ids(got), ["CC-1", "CC-2", "CR-TC-1"])
+
+    got, silent, err = r_carried({"critic-findings.md": [(r_round(1, "reject", [rej]), ok)]}, edit=("critic-findings.md", lambda b: b + b"x"))
+    check_eq("C7 receipt-doubt-carries-nothing: no remark, the file is silent", (got, silent), ([], [R_DIR + "critic-findings.md"]))
+    check_in("C7 receipt-doubt-carries-nothing: stderr says why", "no end of the file matches the receipt", err)
+
+    import brief_pack as BP
+    root7 = temp_dir("qa-fv16-n2-")
+    try:
+        state7 = r_story(root7, {"critic-findings.md": [(r_round(1, "reject", [rej]), ok)]})
+        (root7 / R_DIR / "critic-findings.md").write_bytes((root7 / R_DIR / "critic-findings.md").read_bytes() + b"x")
+        for role7 in ("qa-automator", "qa-code-critic"):
+            with contextlib.redirect_stderr(io.StringIO()):
+                heads7 = BP.case_concern_lines(root7, "W1", state7, role7, False)["head"]
+            check(f"C7b receipt-doubt-head-reads-every-non-approving-row: role {role7}",
+                  len(heads7) == 1 and "whose verdict is not an approving one there before you" in heads7[0], str(heads7))
+        real7, BP._sp = BP._sp, (lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+        try:
+            fail7 = BP.case_concern_lines(root7, "W1", state7, "qa-automator", False)["head"]
+        finally:
+            BP._sp = real7
+        check("C7b the failed-read head reads every non-approving row too", "whose verdict is not an approving one in work/test-cases" in fail7[0],
+              str(fail7))
+    finally:
+        cleanup(root7)
+
+    only = {"critic-findings.md": [(r_round(1, "approve_with_concerns", [conc]), ok)]}
+    got, _s, _ = r_carried(only)
+    check_eq("C8 no-reject-byte-identical: the concern is the nine-key CC-1 remark as before", got,
+             [{"id": "CC-1", "case": "TC-3", "test": None, "then": None, "kind": "remark", "check": "case critic, S4", "problem": "F-1 flag",
+               "expected": "the case critic's full finding is in " + R_DIR + "critic-findings.md, round S4-qa-case-critic-1; take it into "
+               "account when the case is automated, or say in `plan_remarks` why it does not apply", "fix": "", "review": "S4-qa-case-critic-1"}])
+    check_eq("C8 no-reject-byte-identical: the brief head carries no still-rejected clause", [l for l in r_brief_head(only) if "still rejected" in l], [])
+
+    head = r_brief_head({"critic-findings.md": [(r_round(1, "reject", [conc, rej]), ok)]})
+    check("C9 brief-head-counts: 2 carried, 1 of them still rejected", any(
+        "carried 2 concern(s) to automation (1 of them cases it still rejected when S4 went on; 0 ask to parametrise" in l for l in head), str(head))
+    check_eq("C9 brief-head-counts: r = 0, no clause", [l for l in r_brief_head(only) if "of them cases it still rejected" in l], [])
+
+    head8, rel8 = r_brief(only)
+    check_eq("C8b no-reject-head-byte-equal-to-main: the plan-author head is the text main builds, word for word", head8,
+             [f"The case critic carried 1 concern(s) to automation (0 ask to parametrise cases into one test): {rel8}. Answer each in the "
+              f"plan: a `{CR.PARAMETRISE_TOKEN}` concern is one parameterized test over its cases, or each test that holds them says why "
+              "in `apart_reason`"])
+
+    withrej = {"critic-findings.md": [(r_round(1, "reject", [conc, rej]), ok)]}
+    clause = "1 of them cases it still rejected when S4 went on; "
+    for role9, field9 in (("qa-automator", "in `apart_reason`"),):
+        long9 = r_brief_head(withrej, "S5-qa-automator-plan-12-and-a-long-tail-of-id-" + "x" * 8, role9)
+        check("C9b clause-does-not-cut-the-instruction: a 55-character dispatch id keeps the field to fill and the clause",
+              len(long9) == 1 and clause in long9[0], str(long9))
+    sizes9 = set()
+    for size in range(1, 80):
+        one, _rel = r_brief(withrej, "d" * size)
+        pre = one[0].replace(clause, "", 1)
+        check(f"C9b head-at-the-limit: id of {size} characters, the clause once and the text without it within the bound",
+              one[0].count(clause) == 1 and len(pre) <= BP.HEAD_LINE_CHARS, str(one))
+        sizes9.add(len(pre))
+        if "apart_reason" in pre:
+            check(f"C9b head-keeps-the-field: id of {size} characters", "in `apart_reason`" in one[0], one[0])
+    check("C9b head-at-the-limit: the ids reach a text of exactly 400 characters before the clause, and one cut from a longer one (400)",
+          BP.HEAD_LINE_CHARS in sizes9 and max(sizes9) == BP.HEAD_LINE_CHARS, str(sorted(sizes9)[-3:]))
+    real_limit = BP.HEAD_LINE_CHARS
+    BP.HEAD_LINE_CHARS = 30
+    try:
+        forced = r_brief_head(withrej)
+    finally:
+        BP.HEAD_LINE_CHARS = real_limit
+    check("C9b clause-after-the-cut: a cut that loses the parenthesis appends the clause as its own sentence, never drops it",
+          len(forced) == 1 and forced[0].endswith(". 1 of them cases it still rejected when S4 went on"), str(forced))
+
+    gone = {"critic-findings.md": [(r_round(1, "reject", [("TS-9", "TC-9", "yes", "reject", "bad", "")]), ok)]}
+    prefix = "(case removed since the review) bad"
+    for label, links, wanted in (("pinned set without TC-9", ["TC-1"], prefix), ("empty pinned set (legacy)", None, "bad"),
+                                 ("pinned set with TC-9", ["TC-9"], "bad")):
+        got, _s, _ = r_carried(gone, links)
+        check_eq(f"C10 removed-case-prefixed: {label}", [r["problem"] for r in got], [wanted])
+
+    nine = ("TS-9", "TC-9", "yes", "reject", "bad", "")
+    new = (r_round(2, "approve", [appr]), ok)
+    for label, status, wanted in (("earlier critic stale", "stale", []), ("earlier critic accepted", ok, ["TC-9"])):
+        got, _s, _ = r_carried({"critic-findings.md": [(r_round(1, "reject", [nine]), status), new]})
+        check_eq(f"C11 stale-earlier-life-silent: {label}", cases(got), wanted)
+
+    word = lambda w: {"critic-findings.md": [(r_round(1, "reject", [("TS-1", "TC-1", "yes", w, "n", "")]), ok)]}
+    for cell, shown in (("approved", "approved"), ("fail", "fail"), ("", "unstated")):
+        got, _s, _ = r_carried(word(cell))
+        rows = CR.current_rejected(r_round(1, "reject", [("TS-1", "TC-1", "yes", cell, "n", "")]))
+        check_eq(f"C12 unknown-word-and-no-verdict-column: cell {cell!r} is carried, as written", (cases(got), [r["verdict"] for r in rows]),
+                 (["TC-1"], [shown]))
+    nocol = tuple(c for c in R_COLS if c != "verdict")
+    pair = [("TS-1", "TC-1", "yes", "", "a", ""), ("TS-2", "TC-2", "yes", "", "b", ""), ("TS-3", "TC-3", "no", "", "c", "")]
+    for declared, wanted in (("reject", ["TC-1", "TC-2"]), ("approve_with_concerns", [])):
+        got, _s, _ = r_carried({"critic-findings.md": [(r_round(1, declared, pair, cols=nocol), ok)]})
+        check_eq(f"C12 unknown-word-and-no-verdict-column: no verdict column under `Verdict: {declared}` (unreviewed row skipped)",
+                 cases(got), wanted)
+
+    old = r_round(1, "reject", [rej, prt])
+    new = r_round(2, "reject", [("TS-9", "TC-9", "yes", "reject", "newest only", "")])
+    check_eq("C13 current-rejected-reader: a two-round file reads the newest round only",
+             [(r["case"], r["problem"], r["plan_row"]) for r in CR.current_rejected(new + old)], [("TC-9", "newest only", "TS-9")])
+    with contextlib.redirect_stderr(io.StringIO()):
+        check_eq("C13 current-rejected-reader: a file with no roll-call is None", CR.current_rejected(b"# findings\n"), None)
+        check_eq("C13 current-rejected-reader: a newest round of approving rows only is []",
+                 CR.current_rejected(r_round(3, "approve", [appr, conc]) + new + old), [])
+    check_eq("C13 current-rejected-reader: the problem is not cut", len(CR.current_rejected(r_round(1, "reject", [
+        ("TS-1", "TC-1", "yes", "reject", "x" * 900, "")]))[0]["problem"]), 900)
+
+    got, _s, _ = r_carried({"critic-findings.md": [(r_round(1, "reject", [rej, ("TS-7", "TC-1", "yes", "partial", "again", "")]), ok)]})
+    check_eq("C14 cr-id-dedup: one case twice in a round", ids(got), ["CR-TC-1", "CR-TC-1.2"])
+    got, _s, _ = r_carried({"a/critic-findings.md": [(r_round(1, "reject", [rej]), ok)],
+                         "b/critic-findings.md": [(r_round(2, "reject", [rej]), ok)]})
+    check_eq("C14 cr-id-dedup: one case in two files", ids(got), ["CR-TC-1", "CR-TC-1.2"])
+
+
 def main():
+    fv16_still_rejected_rows()
     k1_the_real_plan()
     k_merge_hints_table()
     k_merge_hint_both_paths()
