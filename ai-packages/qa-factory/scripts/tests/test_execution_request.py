@@ -2181,6 +2181,9 @@ def t1rs_sites_after_the_probe() -> None:
                      (str(refused.args[0]), "execution_request:selector_args"))
             check_in("T1rs selector_args: the old text", "selector by itself only for pytest node ids", str(refused))
             check("T1rs selector_args: its row states a sentence", bool(SJ.told_text(SJ.row_for("execution_request:selector_args")[0])[0]))
+            import detector_verdict as DV      # S-1b: the printer of `run_suite.mine` merges `told_fields(exc)` after the unchanged `error`
+            check_eq("T1rs selector_args (road run_suite): the told entry of the printed line",
+                     [e.get("check") for e in DV.told_fields(refused).get("told", [])], ["execution_request:selector_args"])
         # window_first: two tests of one case in one file, one `--node-id`, no run of the other in this window
         put("work/automation-manifest.json", {"tests": [
             {"case": "TC-001", "file": "tests/test_a.py", "instance_id": "test_one", "selector": "test_one"},
@@ -2199,6 +2202,12 @@ def t1rs_sites_after_the_probe() -> None:
                      (str(refused), getattr(refused.args[0], "check", ""), refused.payload.get("status")),
                      (str(refused.args[0]), "execution_request:window_first", "run_the_window_first"))
             check("T1rs window_first: its row states a sentence", bool(SJ.told_text(SJ.row_for("execution_request:window_first")[0])[0]))
+            # S-1b: the printer of `run_suite.mine` merges `told_fields(exc)` after the payload and the unchanged `error`
+            import detector_verdict as DV
+            check_eq("T1rs window_first (road run_suite): the told entry of the printed line",
+                     DV.told_fields(refused).get("told", [{}])[0].get("check"), "execution_request:window_first")
+            check_eq("T1rs window_first (road run_suite): its expected is the row's sentence",
+                     DV.told_fields(refused)["told"][0].get("expected"), SJ.told_text(SJ.row_for("execution_request:window_first")[0])[0])
     finally:
         if saved is None:
             os.environ.pop("CLAUDE_PROJECT_DIR", None)

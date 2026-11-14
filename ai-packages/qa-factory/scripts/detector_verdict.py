@@ -191,6 +191,47 @@ def spoken(record) -> str:
     return "\n".join(parts)
 
 
+def _records_in(source, depth: int = 0) -> list:
+    """The `Record`s with a check inside `source`: a `Record`; the items of a list or tuple; an exception (its `records` when it
+    holds any, else its first argument when that is a `Record`). Anything else, and anything nested more than twice, is none."""
+    if depth > 2:
+        return []
+    if isinstance(source, Record):
+        return [source] if source.check else []
+    if isinstance(source, (list, tuple)):
+        return [r for item in source for r in _records_in(item, depth + 1)]
+    if isinstance(source, BaseException):
+        held = getattr(source, "records", ())
+        found = _records_in(list(held), depth + 1) if isinstance(held, (list, tuple)) else []
+        if found:
+            return found
+        return _records_in(source.args[0], depth + 1) if source.args else []
+    return []
+
+
+def told_fields(source) -> dict:
+    """The JSON projection of the refusals in `source` (told-before-work T1r-sites, AR-13: the one builder of the `told` key a JSON
+    refusal carries): `{"told": [{"check", "expected", "door"}, ...]}`, one entry per distinct `check` in first-seen order, a key
+    of an entry left out when its value is empty. `{}` when `source` holds no `Record` with a check, so a printer merges it
+    (`{..., **told_fields(exc)}`) and a refusal nobody sited prints what it always printed. Never raises, never reads a text: an odd
+    source is `{}` (the safe side: nothing added)."""
+    try:
+        told, seen = [], set()
+        for record in _records_in(source):
+            if record.check in seen:
+                continue
+            seen.add(record.check)
+            entry = {"check": record.check}
+            for key in ("expected", "door"):
+                value = getattr(record, key, "")
+                if isinstance(value, str) and value:
+                    entry[key] = value
+            told.append(entry)
+        return {"told": told} if told else {}
+    except Exception:  # noqa: BLE001 - a projection never stops the refusal it rides on
+        return {}
+
+
 def one_line(text) -> str:
     """A finding is ONE physical line: a producer prints its text through this."""
     return re.sub(r"\s*[\r\n]+\s*", " ", str(text)).strip()

@@ -904,6 +904,7 @@ def t1rs_sites() -> None:
             check(f"t1rs {rid}: its row states a sentence the refusal can print", bool(told), why)
             if carried:
                 check_eq(f"t1rs {rid}: the Record carries that sentence", carried[0].expected, told)
+        t1rs_roads(tmp, root, mine, request, broken, story, running, pipeline, cfg, profile, store)
         # B3: a helper with several callers stays bare - `read` (begin / recover name their own row; last_run_of stays bare, E6)
         # and `find_active_dispatch` (build_mine_request names its row)
         for label, exc in (("JobStore.read", _raised(lambda: store.read("bad"))),
@@ -933,6 +934,221 @@ def t1rs_sites() -> None:
         else:
             os.environ["CLAUDE_PROJECT_DIR"] = saved
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def t1rs_roads(tmp, root, mine, request, broken, story, running, pipeline, cfg, profile, store) -> None:
+    """told-before-work T1r-sites S-1b: the ROAD column of the `t1rs_sites` table. Each row calls a printer or handler IN-PROCESS (or
+    `run_suite.py` itself as the child it is) and asserts: `error` / the message is the old text, exactly ONE line starting with `{`
+    (the JSON roads), `told` the LAST key, and `told[0]` is `{check: <id>, expected: told_text(row)[0]}`. `road` is one of run_suite,
+    red_sandbox, probe_by_code, import_test_receipt, schedule. A road not provoked here is named in the S-1b report (judged by the batch canon)."""
+    import contextlib
+    import hashlib
+    import io
+    import subprocess
+    import execution_request as ER
+    import execution_scheduler as SCH
+    import import_test_receipt as ITR
+    import probe_by_code as PBC
+    import red_sandbox as RSB
+    import role_cli
+    import run_suite as RS
+    import stage_joints as SJ
+
+    def sentence(rid):
+        return SJ.told_text(SJ.row_for(rid)[0])[0]
+
+    def at(project):
+        from harness import use_project         # hooklib caches the project root per process: moved with the env, as every test does
+        use_project(project)
+
+    def call(fn, *argv):
+        out, err, code, saved = io.StringIO(), io.StringIO(), None, sys.argv
+        sys.argv = ["run_suite.py", *[str(a) for a in argv]]
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                try:
+                    fn()
+                except SystemExit as stop:
+                    code = stop.code
+        finally:
+            sys.argv = saved
+        return code, out.getvalue(), err.getvalue()
+
+    def write(path, value):
+        Path(path).write_text(value if isinstance(value, str) else json.dumps(value), encoding="utf-8")
+
+    def row(road, rid, stream, old, code, want_code, extra_first=()):
+        """One JSON refusal: ONE `{` line on `stream`, `error` is `old`, `told` is last and holds the row's sentence."""
+        tag = f"t1rs road {road} {rid}"
+        lines = [ln for ln in stream.splitlines() if ln.startswith("{")]
+        check_eq(f"{tag}: exactly one JSON line, the exit code unchanged", (len(lines), code), (1, want_code))
+        if len(lines) != 1:
+            return
+        got = json.loads(lines[0])
+        check_eq(f"{tag}: `error` is the old text, `told` the last key, no `execution_status`",
+                 (got.get("error"), list(got)[-1], "execution_status" in got), (old, "told", False))
+        entry = (got.get("told") or [{}])[0]
+        check_eq(f"{tag}: the told entry is the row's", (entry.get("check"), entry.get("expected")), (rid, sentence(rid)))
+
+    # --- the projection every road above uses: `told_fields` (rows of the same table; edges 2 and 7 of the node)
+    first = DV.refusal("execution_request:freshness", "a")
+    second = DV.refusal("run_suite:begin", "b")
+    holder = ER.RequestError("a; b")
+    holder.records = (first, second, DV.refusal("execution_request:freshness", "c"), "x")
+    shapes = {
+        "record": (first, ["execution_request:freshness"]),
+        "exception-records (dedupe by check, first-seen order, a str item skipped)": (holder, ["execution_request:freshness", "run_suite:begin"]),
+        "exception-arg0 (no records, a Record first)": (ER.RequestError(second), ["run_suite:begin"]),
+        "exception-str-arg0 (records == ())": (ER.RequestError("text"), []),
+        "exception-no-args": (ER.RequestError(), []),
+        "list of items": ([second, first, ValueError(first)], ["run_suite:begin", "execution_request:freshness"]),
+        "record with no check": (DV.Record("plain"), []),
+        "plain str": ("text", []),
+        "odd source (None, an int, a dict)": ([None, 3, {"told": []}], []),
+    }
+    for name, (source, want) in shapes.items():
+        got = DV.told_fields(source)
+        check_eq(f"t1rs told_fields {name}", [e["check"] for e in got.get("told", [])], want)
+        check_eq(f"t1rs told_fields {name}: no key when nothing is told", ("told" in got), bool(want))
+    check_eq("t1rs told_fields: an empty value's key is left out (a row with no door)",
+             "door" in DV.told_fields(DV.Record("p", check="x:y", expected="e"))["told"][0], False)
+    # --- road run_suite: main() and the refusers, in-process
+    at(root)
+    req_file = tmp / "req.json"
+    write(req_file, broken(freshness="stale"))
+    code, out, err = call(RS.main, "--request", req_file)
+    row("run_suite", "execution_request:freshness", err, T1RS_OLD["execution_request:freshness"], code, 2)
+    write(pipeline, {"ticket": "REQ-1", "environment": "qa", "sides": {
+        "ui": {"reality": "real", "deliverable": True, "reference": "qa", "source": "person"}}})
+    write(req_file, request)
+    code, out, err = call(RS.main, "--request", req_file)
+    row("run_suite", "execution_request:stand.reference", out, T1RS_OLD["execution_request:stand.reference"], code, 2)
+    write(pipeline, {"ticket": "REQ-1"})
+    jobs = root / "qa-factory" / "artifacts" / "REQ-1" / "state" / "execution-jobs"
+    jobs.mkdir(parents=True, exist_ok=True)
+    claim = jobs / (hashlib.sha256(b"k-1").hexdigest() + ".json")
+    write(claim, "{not json")
+    code, out, err = call(RS.main, "--request", req_file)
+    claim.unlink()
+    row("run_suite", "run_suite:begin", err, _CORRUPT, code, 2)
+    code, out, err = call(RS.main, "--recover", "nokey", "--task", "REQ-1")
+    row("run_suite", "run_suite:recover", err, "unknown execution job", code, 2)
+    code, out, err = call(RS.main, "--detail", "t", "--task", "NOPE", "--label", "x")
+    try:
+        RS.story_root("NOPE", "run_suite --task")
+    except ValueError as exc:
+        phantom = str(exc)
+    row("run_suite", "run_suite:phantom_story", err, phantom, code, 2)
+    missing = tmp / "missing-request.json"
+    try:
+        missing.read_text(encoding="utf-8")
+    except OSError as exc:
+        absent = f"{type(exc).__name__}: {exc}"
+    code, out, err = call(RS.main, "--detail", "t", "--request", missing)
+    row("run_suite", "run_suite:detail_target", out, absent, code, 2)
+    code, out, err = call(lambda: RS.refuse_missing_executor("web", "npx", ["TC-002"]))
+    lines = [ln for ln in out.splitlines() if ln.startswith("{")]
+    got = json.loads(lines[0]) if len(lines) == 1 else {}
+    check_eq("t1rs road run_suite run_suite:missing_executor: one JSON line, exit 3, the question first, `told` last",
+             (len(lines), code, "question" in got, list(got)[-1:], (got.get("told") or [{}])[0].get("check"),
+              (got.get("told") or [{}])[0].get("expected")),
+             (1, 3, True, ["told"], "run_suite:missing_executor", sentence("run_suite:missing_executor")))
+    block_missing = root / "qa-factory" / "artifacts" / "REQ-1" / "work" / "none.json"
+    mapping = tmp / "mapping.json"
+    write(mapping, {})
+    code, out, err = call(RS.main, "--reparse-block", block_missing, "--task", "REQ-1", "--mapping", mapping)
+    row("run_suite", "run_suite:reparse", err, "reparse block must be an existing task-local run block", code, 2)
+    schedule = tmp / "schedule.json"
+    write(schedule, {"requests": [broken(freshness="stale")]})
+    code, out, err = call(RS.main, "--schedule", schedule)
+    row("run_suite", "execution_request:freshness", err, T1RS_OLD["execution_request:freshness"], code, 2)
+    write(pipeline, {"stages": {"S5": {"status": "running"}}})
+    code, out, err = call(RS.main, "--task", "REQ-1", "--label", "x")
+    write(pipeline, {"ticket": "REQ-1"})
+    spoken_ok = (RS.UNTYPED_STORY_RUN.format(stage="S5") in err and f"  expected: {sentence('run_suite:untyped_story_run')}" in err
+                 and not [ln for ln in err.splitlines() if ln.startswith("{")])
+    check_eq("t1rs road run_suite run_suite:untyped_story_run: ap.error prints the old problem, then the row's `expected:` line",
+             (code, spoken_ok), (2, True))
+    at(mine)
+    write(mine / "qa-factory" / "config.json", {})
+    story({})
+    code, out, err = call(RS.main, "--mine", "TC-002", "--task", "K-1")
+    row("run_suite", "execution_request:active_dispatch", out, str(_raised(lambda: ER.build_mine_request(
+        mine, ["TC-002"], cfg={}, task="K-1"))), code, 2)
+    code, out, err = call(RS.main, "--mine", "TC-002", "--detail", "x")
+    lines = [ln for ln in out.splitlines() if ln.startswith("{")]
+    got = json.loads(lines[0]) if len(lines) == 1 else {}
+    check_eq("t1rs road run_suite active_dispatch (--mine --detail): one JSON line, `hint` kept, `told` last",
+             (len(lines), code, "hint" in got, list(got)[-1:], (got.get("told") or [{}])[0].get("check")),
+             (1, 2, True, ["told"], "execution_request:active_dispatch"))
+    # --- road schedule: a child of `execution_scheduler` is `run_suite.py --request`; its `run_refused` line becomes a group row
+    at(root)
+    write(pipeline, {"ticket": "REQ-1", "environment": "qa", "sides": {
+        "ui": {"reality": "real", "deliverable": True, "reference": "qa", "source": "person"}}})
+    child = subprocess.run([sys.executable, "-B", str(Path(RS.__file__).resolve()), "--request", str(req_file)], cwd=str(root),
+                           capture_output=True, text=True, encoding="utf-8", timeout=120)
+    write(pipeline, {"ticket": "REQ-1"})
+
+    class Pipe:
+        def text(self, name):
+            return child.stdout if name == "stdout" else ""
+
+        def lines(self, name, count):
+            return []
+    group = SCH._child_row({"request": request, "job_id": "j-1", "workers": 1, "resources": set(), "reason": "t1rs"},
+                           Pipe(), child.returncode, None)
+    entry = (group.get("told") or [{}])[0]
+    check_eq("t1rs road schedule execution_request:stand.reference: the group row keeps `error` and carries `told`",
+             (group.get("status"), group.get("error") == T1RS_OLD["execution_request:stand.reference"], entry.get("check"),
+              entry.get("expected")), ("run_refused", True, "execution_request:stand.reference", sentence("execution_request:stand.reference")))
+    # --- road import_test_receipt: the text road of `run_guarded`: the old message, then the row's `expected:` / `door:` lines
+    stream = io.StringIO()
+    code = role_cli.run_guarded("import_test_receipt.py", lambda: ITR.import_receipt(broken(freshness="stale"), {}, root, tmp / "out"), stream)
+    printed = stream.getvalue().splitlines()
+    check_eq("t1rs road import_test_receipt execution_request:freshness: old message, `expected:` line, `check:` last",
+             (code, printed[0], f"  expected: {sentence('execution_request:freshness')}" in printed, printed[-1]),
+             (2, "import_test_receipt.py: " + T1RS_OLD["execution_request:freshness"], True, "  check: execution_request:freshness"))
+    # --- road red_sandbox: the reader of `_run_mine` is the existing one; `_carry_told` copies the child's own `told`
+    at(mine)
+    proc, summary = RSB._run_mine(Path(RS.__file__).resolve(), mine, ["TC-002"], dispatch="", sandbox_root=tmp / "sandbox",
+                                  reason="t1rs", again=False, timeout=120)
+    carried: list = []
+    RSB._carry_told(carried, summary)
+    check_eq("t1rs road red_sandbox execution_request:active_dispatch: `_run_mine` reads the one line, `told` is carried",
+             (summary.get("status"), bool(summary.get("error")), [e.get("check") for e in carried],
+              [e.get("expected") for e in carried]), ("mine_refused", True, ["execution_request:active_dispatch"],
+                                                      [sentence("execution_request:active_dispatch")]))
+    refused = ER.MineRefusal(DV.refusal("execution_request:profile", "no profile"))
+    saved_fresh, saved_budget = RSB._fresh_instances, ER.load_run_budget
+    RSB._fresh_instances = lambda *a, **k: (_ for _ in ()).throw(refused)
+    ER.load_run_budget = lambda *a, **k: ({}, "")
+    try:
+        told, notes = [], []
+        mode = RSB._author_baseline(mine, mine / "qa-factory" / "artifacts" / "K-1", ["TC-002"], [], {}, notes, told)[0]
+        check_eq("t1rs road red_sandbox execution_request:profile (in-process fresh_evidence handler, probe): the note, then `told`",
+                 (mode, notes[0].startswith("the author's result could not be read (MineRefusal: no profile)"),
+                  [e.get("check") for e in told], [e.get("expected") for e in told]),
+                 ("own", True, ["execution_request:profile"], [sentence("execution_request:profile")]))
+        told, notes = [], []
+        RSB._diagnostic_red(mine, mine / "qa-factory" / "artifacts" / "K-1", "TC-002", "i", notes, told)
+        check_eq("t1rs road red_sandbox execution_request:profile (in-process fresh_evidence handler, diagnostic): the note, then `told`",
+                 (notes[0].startswith("the newest result of i could not be read (MineRefusal: no profile)"),
+                  [e.get("check") for e in told]), (True, ["execution_request:profile"]))
+    finally:
+        RSB._fresh_instances, ER.load_run_budget = saved_fresh, saved_budget
+    # --- road probe_by_code: the call sites of `_profile_for` / `find_active_dispatch` name their row on the Refusal they raise
+    rows_of = [{"node": "tests/a.spec.ts::TC-002 adds one", "entry": {"profile_id": "nope"}}]
+    story(running)
+    for label, fn, rid in (
+            ("_profile_of", lambda: PBC._profile_of(cfg, rows_of, "TC-002"), "execution_request:profile"),
+            ("_profile_cwd", lambda: PBC._profile_cwd(cfg, "tests/a.spec.ts", "nope"), "execution_request:profile"),
+            ("_dispatch_context", lambda: (story({}), PBC._dispatch_context(mine, "K-1", mine / "qa-factory" / "artifacts" / "K-1",
+                                                                         "gone", "TC-002", False))[1], "execution_request:active_dispatch")):
+        exc = _raised(fn)
+        sent = DV.told_fields(exc).get("told", [{}])[0]
+        check_eq(f"t1rs road probe_by_code {rid} ({label}): a Refusal that keeps its text and carries the row",
+                 (isinstance(exc, PBC.Refusal), str(exc).startswith("probe_by_code: "), sent.get("check"), sent.get("expected")),
+                 (True, True, rid, sentence(rid)))
 
 
 _CORRUPT = "corrupt persisted job for idempotency key: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"

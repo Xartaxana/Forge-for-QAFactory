@@ -119,6 +119,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from hooklib import artifacts_dir, project_root, load_config, story_root, StoryRootError, read_json
 from execution_request import (JobStore, ProvenanceRefused, RequestError, is_pytest_command, probe_record,
                                pytest_timeout_setting, validate_request)
+from detector_verdict import refusal, spoken, told_fields
 from execution_fingerprint import verify_files
 from profile_contract import ACCEPTS, acceptable_provenance
 from role_cli import REPAIR_MARKER
@@ -735,29 +736,29 @@ def reparse_run_block(task_root: Path, block_path: Path, mapping: dict) -> Path:
     """Reparse immutable reporter bytes with a corrected exact map; never launch tests."""
     task_root, block_path = Path(task_root).resolve(), Path(block_path).resolve()
     if not block_path.is_relative_to(task_root) or not block_path.is_file():
-        raise RequestError("reparse block must be an existing task-local run block")
+        raise RequestError(refusal("run_suite:reparse", "reparse block must be an existing task-local run block"))
     old = json.loads(block_path.read_text(encoding="utf-8"))
     old_block_id = str(old.get("block_id") or old.get("id") or "")
     if not old_block_id:
-        raise RequestError("reparse requires a canonical immutable block_id")
+        raise RequestError(refusal("run_suite:reparse", "reparse requires a canonical immutable block_id"))
     evidence = next((row for row in old.get("evidence") or []
                      if isinstance(row, dict) and row.get("reporter") in {"trx", "junit-xml", "pytest"}), None)
     if not evidence:
-        raise RequestError("run block has no machine reporter evidence")
+        raise RequestError(refusal("run_suite:reparse", "run block has no machine reporter evidence"))
     raw = Path(str(evidence.get("report_path") or ""))
     report = (task_root / raw).resolve() if not raw.is_absolute() else raw
     if (raw.is_absolute() or not report.is_relative_to(task_root) or not report.is_file() or
             hashlib.sha256(report.read_bytes()).hexdigest() != evidence.get("report_sha256")):
-        raise RequestError("raw reporter evidence is missing, unsafe or changed")
+        raise RequestError(refusal("run_suite:reparse", "raw reporter evidence is missing, unsafe or changed"))
     contracts = mapping.get("instance_contracts") if isinstance(mapping, dict) else None
     if not isinstance(contracts, dict):
-        raise RequestError("mapping requires instance_contracts")
+        raise RequestError(refusal("run_suite:reparse", "mapping requires instance_contracts"))
     selected = [str(row.get("instance_id") or "") for row in old.get("results") or [] if row.get("instance_id")]
     if set(contracts) != set(selected):
-        raise RequestError("mapping must cover exactly the prior selected instances")
+        raise RequestError(refusal("run_suite:reparse", "mapping must cover exactly the prior selected instances"))
     report_ids = [str((contracts.get(i) or {}).get("report_test_id") or "") for i in selected]
     if any(not value for value in report_ids) or len(set(report_ids)) != len(report_ids):
-        raise RequestError("mapping reporter IDs must be non-empty and unique")
+        raise RequestError(refusal("run_suite:reparse", "mapping reporter IDs must be non-empty and unique"))
     reporter = evidence["reporter"]
     parsed = parse_trx(report) if reporter == "trx" else parse_junitxml(report)
     parsed.update({"execution_status": execution_status({"exit_code": 1 if parsed.get("failed") else 0, **parsed}),
@@ -815,7 +816,7 @@ def reparse_run_block(task_root: Path, block_path: Path, mapping: dict) -> Path:
             stream.write(payload)
     except FileExistsError:
         if target.read_text(encoding="utf-8") != payload:
-            raise RequestError("reparse projection collision")
+            raise RequestError(refusal("run_suite:reparse", "reparse projection collision"))
     return target
 
 
@@ -967,7 +968,9 @@ def _refuse_phantom_story(task: str) -> None:
     try:
         story_root(task, "run_suite --task")
     except StoryRootError as exc:
-        print(json.dumps({"status": "invalid_request", "error": str(exc)}, ensure_ascii=False), file=sys.stderr)
+        told = refusal("run_suite:phantom_story", str(exc))
+        print(json.dumps({"status": "invalid_request", "error": str(exc), **told_fields(told)}, ensure_ascii=False),
+              file=sys.stderr)
         sys.exit(2)
 
 
@@ -1113,8 +1116,9 @@ def resolve_detail_target(args) -> None:
         store = JobStore(artifacts_dir(task) / "state" / "execution-jobs")
         job = store.last_run_of(raw)
     except (OSError, ValueError) as exc:
+        told = refusal("run_suite:detail_target", f"{type(exc).__name__}: {exc}")
         print(json.dumps({"status": "invalid_request", "error": f"{type(exc).__name__}: {exc}",
-                          "hint": "--detail needs a readable request, or --task and --label"},
+                          "hint": "--detail needs a readable request, or --task and --label", **told_fields(told)},
                          ensure_ascii=False))
         sys.exit(2)
     if args.label:
@@ -1413,7 +1417,7 @@ def refuse_untyped_story_run(task: str, ap) -> None:
     where it cannot be."""
     stage = active_story_stage(task)
     if stage:
-        ap.error(UNTYPED_STORY_RUN.format(stage=stage))
+        ap.error(spoken(refusal("run_suite:untyped_story_run", UNTYPED_STORY_RUN.format(stage=stage))))
 
 
 def stamp_first_run(task: str) -> None:
@@ -1564,11 +1568,13 @@ def refuse_missing_executor(profile_id: str, tool: str, cases: list, stage: str 
         statement = (f"`{tool}` is not available to me in this session, and these tests run "
                      "through it")
         options, executor_options = "", lambda count: []
+    question = (statement + ". " + options).strip()
     print(json.dumps({"status": "executor_unavailable", "profile": profile_id, "tool": tool,
                       "cases": [str(c) for c in cases], "stage": stage,
-                      "question": (statement + ". " + options).strip(),
+                      "question": question,
                       "options": executor_options(len(cases)),
-                      "launched": False}, ensure_ascii=False))
+                      "launched": False, **told_fields(refusal("run_suite:missing_executor", question))},
+                     ensure_ascii=False))
     sys.exit(3)
 
 
@@ -2075,11 +2081,11 @@ def mine(args) -> Path:
     except WindowFirst as exc:
         # Not a refusal of the test: a cheaper way to ask for the same evidence. Nothing was
         # launched, so no idempotency key is spent and the named command is free to run.
-        print(json.dumps({**exc.payload, "error": str(exc)}, ensure_ascii=False))
+        print(json.dumps({**exc.payload, "error": str(exc), **told_fields(exc)}, ensure_ascii=False))
         _say_mine_phases(clock)
         sys.exit(2)
     except MineRefusal as exc:
-        print(json.dumps({"status": "mine_refused", "error": str(exc)}, ensure_ascii=False))
+        print(json.dumps({"status": "mine_refused", "error": str(exc), **told_fields(exc)}, ensure_ascii=False))
         _say_mine_phases(clock)
         sys.exit(2)
     except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
@@ -2802,7 +2808,7 @@ def main() -> None:
             mapping = json.loads(args.mapping.read_text(encoding="utf-8"))
             output = reparse_run_block(artifacts_dir(args.task), args.reparse_block, mapping)
         except (OSError, json.JSONDecodeError, RequestError) as exc:
-            print(json.dumps({"status": "invalid_reparse", "error": str(exc)}), file=sys.stderr)
+            print(json.dumps({"status": "invalid_reparse", "error": str(exc), **told_fields(exc)}), file=sys.stderr)
             sys.exit(2)
         from finalize_task import refresh
         refresh(artifacts_dir(args.task))
@@ -2821,7 +2827,7 @@ def main() -> None:
             receipt = execute_schedule(document, project_root(), Path(__file__).resolve())
         except Exception as exc:
             print(json.dumps({"status": "invalid_schedule", "error": str(exc),
-                              "notes": notes}, ensure_ascii=False), file=sys.stderr)
+                              "notes": notes, **told_fields(exc)}, ensure_ascii=False), file=sys.stderr)
             sys.exit(2)
         print(json.dumps(dict(receipt, notes=notes) if notes else receipt, ensure_ascii=False))
         sys.exit(0 if all(row.get("status") in {"completed", "reused", "already_run", "duplicate"}
@@ -2833,7 +2839,7 @@ def main() -> None:
         try:
             recovered = store.recover(args.recover, same_process)
         except RequestError as exc:
-            print(json.dumps({"status": "invalid_recovery", "error": str(exc)}), file=sys.stderr)
+            print(json.dumps({"status": "invalid_recovery", "error": str(exc), **told_fields(exc)}), file=sys.stderr)
             sys.exit(2)
         refresh_dashboard()
         print(json.dumps({**recovered["job"], "job_status": recovered["job"].get("status"),
@@ -2878,10 +2884,14 @@ def main() -> None:
                                                   (raw_request.get("runtime_provenance") or {}).get("environment_id")
                                                   if isinstance(raw_request.get("runtime_provenance"), dict) else "")
             if _reference:
-                print(json.dumps({"status": "run_refused", "error": _reference}, ensure_ascii=False))
+                print(json.dumps({"status": "run_refused", "error": _reference,
+                                  **told_fields(refusal("execution_request:stand.reference", _reference))}, ensure_ascii=False))
                 sys.exit(2)
             store = JobStore(task_root / "state" / "execution-jobs")
-            existing = store.read(str(raw_request.get("idempotency_key") or ""))
+            try:
+                existing = store.read(str(raw_request.get("idempotency_key") or ""))
+            except RequestError as exc:       # `read` has several callers: its corrupt-file raise is named here (B3)
+                raise RequestError(refusal("run_suite:begin", str(exc))) from exc
             request = validate_request(raw_request, project_root(), allow_exhausted_reuse=bool(existing))
             if request.get("runtime_required", True):
                 # `--mine` has just looked at this very stand while it built the request: that reading is the
@@ -2899,8 +2909,9 @@ def main() -> None:
                     ("expected_source_revision", expected.get("expected_source_revision"),
                      observed.get("expected_source_revision"))) if was != now]
                 if moved:
-                    raise RequestError("runtime probe does not match requested profile/source/runtime: "
-                                       + ", ".join(moved) + " moved since the request was built")
+                    raise RequestError(refusal("execution_request:stand",
+                                               "runtime probe does not match requested profile/source/runtime: "
+                                               + ", ".join(moved) + " moved since the request was built"))
                 request["runtime_probe_before"] = observed
             if existing:
                 # A key that already holds a run is answered from it - never for a request made
@@ -2919,7 +2930,7 @@ def main() -> None:
                     print_not_launched(action, job, brief=bool(args.mine))
                     sys.exit(0)
         except (OSError, json.JSONDecodeError, RequestError, StoryRootError) as exc:
-            print(json.dumps({"status": "invalid_request", "error": str(exc)}), file=sys.stderr)
+            print(json.dumps({"status": "invalid_request", "error": str(exc), **told_fields(exc)}), file=sys.stderr)
             sys.exit(2)
         # The run budget (D-0017/D-0018/D-0019) is asked after the existing-key branch above
         # (a repeat of the very same request is that branch's, unchanged) and before any key or
@@ -2969,7 +2980,7 @@ def main() -> None:
             try:
                 action, job = store.begin(request)
             except RequestError as exc:
-                print(json.dumps({"status": "invalid_request", "error": str(exc)}), file=sys.stderr)
+                print(json.dumps({"status": "invalid_request", "error": str(exc), **told_fields(exc)}), file=sys.stderr)
                 sys.exit(2)
             if action != "launch":
                 print_not_launched(action, job, brief=bool(args.mine))
@@ -3104,9 +3115,10 @@ def resolve_mine_detail(args) -> None:
     try:
         task = args.task or find_active_dispatch(artifact_root(), "", args.dispatch or "", cases)[0]
     except MineRefusal as exc:
+        told = refusal("execution_request:active_dispatch", str(exc))       # `find_active_dispatch` has several callers: named here (B3)
         print(json.dumps({"status": "mine_refused", "error": str(exc),
-                          "hint": "outside a dispatch name the story: --task TICKET --mine CASE --detail TEST"},
-                         ensure_ascii=False))
+                          "hint": "outside a dispatch name the story: --task TICKET --mine CASE --detail TEST",
+                          **told_fields(told)}, ensure_ascii=False))
         sys.exit(2)
     for job in reversed(JobStore(artifacts_dir(task) / "state" / "execution-jobs").jobs()):
         old = job["request"]
