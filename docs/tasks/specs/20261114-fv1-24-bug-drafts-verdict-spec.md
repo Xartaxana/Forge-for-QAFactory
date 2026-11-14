@@ -436,3 +436,30 @@ TC-009 hits); "Places" absent from S7 briefs (control: `settle` hits the same fi
 the prompt, `driver_dispatch.py:713-724`).
 Needed beyond the manifest: the ARM copy `C:\QAFactory\mybooks-stand\arm-factory\...\LOCAL-1` and the root-checkout
 `experiments/.../runs/` (gitignored, absent from read-main).
+
+## 11. Lead decisions after the plan critic t-754 (14.11.2026, owner away; BINDING, they override the cards above)
+
+Review: `docs/tasks/specs/reviews/20261114-fv1-24-plan-critic.md` (fit_with_fixes). Amendments A1-A16 are taken whole.
+
+- **Forks.** F-2: nothing is built; the person's gate B selection stays the filer (critic's (b'), P13) — what the person reads
+  beside the row is owner question Q2, node N-c carries the source of the expectation. F-3: (b) — `inferred_requirements` is
+  exactly `C.unconfirmed_requirements`, no `inferred_sources` row. Both differ from the Lead's first choice; taken by the
+  critic's recommendation until the owner's word.
+- **Order.** K1 goes out now (A1, A3, A4). K1g (A2: `gate_preflight.check_bug_drafts` reads K1's exported predicate) goes out
+  AFTER K1 is on main, its own node, hot file. K2 does NOT go out: it waits for N-a (the confirmation reader sees Q5-shaped and
+  per-Then answers; scout first, then a plan critic — a meaning change) and is redrafted with A5-A12. K5 waits for
+  stage-critics B3 and the tbw merges (A13), with texts A14, A15.
+- **K1 as dispatched.** The predicate is ONE exported function `bug_records.no_run_target(draft, report)` (public name, K1g
+  reads it), computed ONCE per draft inside `reproduction_problems` and passed to both decisions (A3); `_walk_has_no_run`
+  receives it, it does not call it again. K1-a invariant reworded: "a draft whose instance the current report holds (any
+  attempt, any spelling) keeps both facts". TEMPORAL adds: a place-born draft that also names an R in
+  `unconfirmed_requirements` will read `unconfirmed` again once K2 lands, until the analyst splits that part off (the ARM
+  product-page draft, R-3 + R-8) — K1's changelog says so, and says gate B still blocks such a draft until K1g.
+- **K1 tests (A4).** No row in a quarantined file. ONE scenario variant family on story `local-1-arm-b`
+  (`test_scenario_local_1_arm_b.py`, fixture `scripts/tests/fixtures/stories/`): the ARM product-page draft, its place record
+  and capture become story fixture data; variants: place-born walk lifts / instance is a current failure, no APP_BUG row /
+  current result passed / non-walk entry only / no `triage_ref` / spelling variant is a target. The rows "report unreadable"
+  and other internal boundaries are dropped (CLAUDE.md rule 11).
+- **New nodes** (rows in an untaken `live-run-fvf` batch): K1g; N-a; N-b (a requirement_silent line carries its R's claim
+  question id — one road, FR-7); N-c; A12 (non-walk lifted drafts and triage APP_BUG rows naming an unconfirmed R).
+- **Census** (A16): `reproduction_problems` and `answer_problems` are class xref; the census value is read from CI.
