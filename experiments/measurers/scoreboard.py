@@ -4,7 +4,9 @@
     python -B experiments/measurers/scoreboard.py assemble --task-root <the story's folder> --stand S --story T --arm factory \\
         --version V [--truth truth.yaml --judgment judgment.yaml] [--bar bar-<model>.yaml] [--model M] [--pass NORM WORD DATE]
     python -B experiments/measurers/scoreboard.py compare <scoreboard.yaml> [--previous FILE] [--bar FILE] [--findings]
-    python -B experiments/measurers/scoreboard.py norms --check [--against OLD-norms.json]
+    python -B experiments/measurers/scoreboard.py compare --release VERSION [--norms FILE] [--root DIR]     (one `release:` line per ratcheted element)
+    python -B experiments/measurers/scoreboard.py release-check (--release VERSION | --version V --lines FILE|-) [--norms FILE]
+    python -B experiments/measurers/scoreboard.py norms --check [--against OLD-norms.json] | --convert NORMS1-FILE
 
 One run, one YAML file `experiments/scoreboards/<stand>/<story>/<YYYYMMDD-HHMM>-<version>-<arm>.yaml` (UTC start). The COUNTERS are the
 package's `run_counters.counters(task_root)` (imported through `paths.SCRIPTS`, precedent `code_friction.py`): this file parses no
@@ -118,16 +120,127 @@ def load_rows(path=None) -> dict:
     return doc
 
 
-def load_norms(path=None) -> dict:
-    path = Path(path or NORMS_FILE)
+KINDS = ("limit", "ratio_to_bar", "not_worse_than_bar")
+V2_ONLY = ("id", "norm", "ratchets", "raises", "worsened_passes")        # row keys that are not a per-norm key of the K2/K5 view
+BAR_FILE = re.compile(r"(?P<stand>[A-Za-z0-9][A-Za-z0-9._-]*)/(?P<story>[A-Za-z0-9][A-Za-z0-9._-]*)/(?P<name>bar-(?P<model>[A-Za-z0-9][A-Za-z0-9._-]*)\.yaml)")
+PAIR = re.compile(r"(?P<model>[^\s/]+)/(?P<story>[^\s/]+)")
+CONVERT_HELP = "convert it with `python -B experiments/measurers/scoreboard.py norms --convert <file>` and commit the result"
+
+
+def legacy_to_v2(doc: dict) -> dict:
+    """The ONE conversion between the two shapes: a norms/1-shaped doc ({norms: {id: {kind, row, op, value, ...}}, raises: [{norm, from, to,
+    ...}]}, which is also the in-memory K2/K5 view `load_norms` returns) -> a norms/2 doc (`rows.<row id>`; the norm id kept as `id`, `value`
+    as `norm`, a raise moved under its row with `from`/`to`). Two norms pointing at ONE row are a refusal naming both, never merged."""
+    norms, raises = doc.get("norms"), doc.get("raises", [])
+    if not isinstance(norms, dict) or not isinstance(raises, list):
+        raise Refusal("the norms document needs a `norms` object and a `raises` list to be converted")
+    rows, owner = {}, {}
+    for nid, norm in norms.items():
+        if not isinstance(norm, dict) or not isinstance(norm.get("row"), str):
+            raise Refusal(f"norm {nid} needs a `row` naming a row of rows.json")
+        rid = norm["row"]
+        if rid in rows:
+            raise Refusal(f"norms {owner[rid]} and {nid} both point at row {rid}: norms/2 holds one entry per row, they are not merged silently "
+                          f"(point one of them at its own row, or drop one)")
+        better = norm.get("better", {"<=": "lower", ">=": "higher"}.get(norm.get("op")))
+        row = {"id": nid, **{k: v for k, v in norm.items() if k not in ("row", "value", "better", "unit")}, "norm": norm.get("value")}
+        if "unit" in norm:
+            row["unit"] = norm["unit"]
+        row.update(better=better, ratchets=[], raises=[], worsened_passes=[])
+        rows[rid], owner[rid] = row, nid
+    ids = {nid: rid for rid, nid in owner.items()}
+    for index, raised in enumerate(raises):
+        if not isinstance(raised, dict) or raised.get("norm") not in ids:
+            raise Refusal(f"raise {index} names an unknown norm {raised.get('norm') if isinstance(raised, dict) else raised}")
+        rows[ids[raised["norm"]]]["raises"].append({k: v for k, v in raised.items() if k != "norm"})
+    out = {"schema": "norms/2", "rows": rows, "bar_changes": doc.get("bar_changes", [])}
+    return out
+
+
+def _check_ratchet_element(path, rid, index, element, better) -> None:
+    where = f"the norms file {path}: row {rid}: ratchets[{index}]"
+    if not isinstance(element, dict):
+        raise Refusal(f"{where} must be an object {{pair, factory_model, since, value, bar}}")
+    pair = element.get("pair")
+    if not isinstance(pair, str) or not PAIR.fullmatch(pair):
+        raise Refusal(f"{where}: `pair` must be <agent model id>/<story> with no space")
+    bar = element.get("bar")
+    match = BAR_FILE.fullmatch(bar) if isinstance(bar, str) else None
+    if not match or ".." in bar or match["story"] != PAIR.fullmatch(pair)["story"]:
+        raise Refusal(f"{where}: `bar` must be <stand>/<story>/bar-<model id>.yaml with the story of the pair")
+    for key in ("factory_model", "since"):
+        if not isinstance(element.get(key), str) or not element[key].strip():
+            raise Refusal(f"{where}: `{key}` must be a non-empty text")
+    if _range(element.get("value")) is None:
+        raise Refusal(f"{where}: `value` must be a number or a {{low, high}} range")
+    if better not in ("lower", "higher"):
+        raise Refusal(f"the norms file {path}: row {rid} has ratchets but `better` is {better!r}: it must be lower or higher")
+
+
+def _v2_view(doc: dict, path) -> dict:
+    """norms/2 -> the K2/K5 view: `norms` ({id: per-norm keys, row, value}), `raises` (global, each with its `norm` id), plus `rows` and
+    `bar_changes` as they are. A row without `kind` is a ratchet-only row: not a norm, never judged by K2."""
+    rows, changes = doc.get("rows"), doc.get("bar_changes", [])
+    if not isinstance(rows, dict):
+        raise Refusal(f"the norms file {path}: `rows` must be an object of row id -> entry (not a list)")
+    if not isinstance(changes, list):
+        raise Refusal(f"the norms file {path}: `bar_changes` must be a list")
+    norms, raises = {}, []
+    for rid, row in rows.items():
+        if not isinstance(row, dict):
+            raise Refusal(f"the norms file {path}: row {rid} must be an object")
+        for key in ("ratchets", "raises", "worsened_passes"):
+            if not isinstance(row.get(key, []), list):
+                raise Refusal(f"the norms file {path}: row {rid}: `{key}` must be a list")
+        if row.get("better") not in (None, "lower", "higher"):
+            raise Refusal(f"the norms file {path}: row {rid}: `better` is lower, higher or null")
+        for index, element in enumerate(row.get("ratchets", [])):
+            _check_ratchet_element(path, rid, index, element, row.get("better"))
+        seen = [(e["pair"], e["factory_model"]) for e in row.get("ratchets", [])]
+        if len(set(seen)) != len(seen):
+            raise Refusal(f"the norms file {path}: row {rid} ratchets the same pair and factory model twice")
+        if any(not isinstance(r, dict) for r in row.get("raises", [])):
+            raise Refusal(f"the norms file {path}: row {rid}: every `raises` element must be an object")
+        if "kind" not in row:
+            continue
+        nid = row.get("id")
+        if not isinstance(nid, str) or not nid:
+            raise Refusal(f"the norms file {path}: row {rid} has a `kind` and needs the norm `id` (text)")
+        if nid in norms:
+            raise Refusal(f"the norms file {path}: norm id {nid} is carried by two rows ({norms[nid]['row']} and {rid})")
+        if row["kind"] not in KINDS or (row["kind"] != "not_worse_than_bar" and row.get("op") not in ("<=", ">=")):
+            raise Refusal(f"the norms file {path}: row {rid} (norm {nid}) needs a `kind` (limit, ratio_to_bar, not_worse_than_bar) and, for a limit, an `op`")
+        if row.get("op") and row.get("better") and {"<=": "lower", ">=": "higher"}[row["op"]] != row["better"]:
+            raise Refusal(f"the norms file {path}: row {rid}: `op` {row['op']} and `better` {row['better']} disagree")
+        norms[nid] = {**{k: v for k, v in row.items() if k not in V2_ONLY}, "row": rid, "value": row.get("norm")}
+        raises += [{**r, "norm": nid} for r in row.get("raises", [])]
+    return {"schema": "norms/2", "norms": norms, "raises": raises, "rows": rows, "bar_changes": changes}
+
+
+def _read_norms(path, accept_v1: bool) -> dict:
     doc = _load_json(path, "the norms file")
-    if doc.get("schema") != "norms/1" or not isinstance(doc.get("norms"), dict) or not isinstance(doc.get("raises", []), list):
-        raise Refusal(f"the norms file {path} must carry schema norms/1, a `norms` object and a `raises` list")
-    for nid, norm in doc["norms"].items():
-        if not isinstance(norm, dict) or norm.get("kind") not in ("limit", "ratio_to_bar", "not_worse_than_bar") \
-                or not isinstance(norm.get("row"), str) or (norm["kind"] != "not_worse_than_bar" and norm.get("op") not in ("<=", ">=")):
-            raise Refusal(f"the norms file {path}: norm {nid} needs a `kind` (limit, ratio_to_bar, not_worse_than_bar), a `row` and, for a limit, an `op`")
-    return doc
+    schema = doc.get("schema")
+    if schema == "norms/1":
+        if not accept_v1:
+            raise Refusal(f"the norms file {path} is schema norms/1 but this reader needs norms/2 (`rows.<row id>` = {{norm, unit, better, ratchets, "
+                          f"raises, worsened_passes}} plus the per-norm keys id, kind, op, ...): {CONVERT_HELP}")
+        try:
+            doc = legacy_to_v2(doc)
+        except Refusal as exc:
+            raise Refusal(f"the norms file {path} (norms/1) cannot be converted: {exc}")
+    elif schema != "norms/2":
+        raise Refusal(f"the norms file {path} must carry schema norms/2 (found {schema!r}); an older norms/1 file: {CONVERT_HELP}")
+    return _v2_view(doc, path)
+
+
+def load_norms(path=None) -> dict:
+    """The ONE reader of norms.json: schema norms/2 only (a norms/1 file is refused with the way to convert it). Returns the K2/K5 view."""
+    return _read_norms(Path(path or NORMS_FILE), accept_v1=False)
+
+
+def load_old_norms(path) -> dict:
+    """`norms --check --against OLD`: the file as it was; an old norms/1 file is read as the comparison side, converted in memory."""
+    return _read_norms(Path(path), accept_v1=True)
 
 
 # --------------------------------------------------------------------------------------- counters -> rows
@@ -319,6 +432,36 @@ def _stricter_or_equal(op: str, a, b) -> bool:
     return a <= b if op == "<=" else a >= b
 
 
+def _worded(row) -> int:
+    return sum(1 for r in (row or {}).get("raises", []) if isinstance(r, dict) and isinstance(r.get("word"), str) and r["word"].strip())
+
+
+def _ratchet_problems(rows: dict, old_rows: dict) -> list:
+    """K5 for a ratchet: an element of `ratchets` is never removed, and its `value` never worsens (by the row's `better`), unless the row
+    gained a `raises` element carrying a non-empty `word`. A whole row that carried ratchets and is gone counts as removed."""
+    problems = []
+    for rid, old in old_rows.items():
+        if not isinstance(old, dict) or not old.get("ratchets"):
+            continue
+        new = rows.get(rid) if isinstance(rows.get(rid), dict) else {}
+        if _worded(new) > _worded(old):
+            continue
+        better = new.get("better", old.get("better"))
+        for element in old["ratchets"]:
+            key = (element.get("pair"), element.get("factory_model"))
+            match = next((e for e in new.get("ratchets", []) if (e.get("pair"), e.get("factory_model")) == key), None)
+            if match is None:
+                problems.append(f"row {rid}: the ratchet {key[0]} ({key[1]}) was removed and no new `raises` element carries the owner's `word`")
+                continue
+            a, b = _range(element.get("value")), _range(match.get("value"))
+            if a is None or b is None or better not in ("lower", "higher"):
+                problems.append(f"row {rid}: the ratchet {key[0]} cannot be compared with its earlier value (value or `better` unreadable)")
+            elif (b[1] > a[1]) if better == "lower" else (b[0] < a[0]):
+                problems.append(f"row {rid}: the ratchet {key[0]} worsened from {_shown(element['value'])} to {_shown(match['value'])} "
+                                f"and no new `raises` element carries the owner's `word`")
+    return problems
+
+
 def check_norms(doc: dict, against=None) -> list:
     """K5: a norm only tightens. Returns the problems (empty = green). The baseline of a norm is its `initial`, or the `to` of its
     last raise; a raise names `from` (the baseline before it), `to`, `raised_by`, `reason` and the owner's `word`. With `against` (the
@@ -369,8 +512,13 @@ def check_norms(doc: dict, against=None) -> list:
                             f"(raise rows need `raised_by`, `reason`, the owner's `word`)")
     if against is not None:
         old_norms, old_raises = against.get("norms", {}), against.get("raises", [])
-        if raises[:len(old_raises)] != old_raises:
-            problems.append("raises may only be appended: an earlier raise row was changed or removed")
+        for nid in dict.fromkeys(r.get("norm") for r in old_raises if isinstance(r, dict)):      # per norm: the rows live under their row now
+            was = [r for r in old_raises if isinstance(r, dict) and r.get("norm") == nid]
+            now = [r for r in raises if isinstance(r, dict) and r.get("norm") == nid]
+            if now[:len(was)] != was:
+                problems.append("raises may only be appended: an earlier raise row was changed or removed")
+                break
+        problems += _ratchet_problems(doc.get("rows", {}), against.get("rows", {}))
         for nid, old in old_norms.items():
             new = norms.get(nid)
             if not isinstance(new, dict) or not isinstance(old, dict):
@@ -626,16 +774,7 @@ def render_compare(doc: dict, comp: dict, norms: dict, norms_doc: dict, rows_doc
         if item["verdict"] == "green" and spec.get("kind") == "limit" and spec.get("value") is not None and _num(row.get("value")) is not None \
                 and not _stricter_or_equal(spec["op"], spec["value"], row["value"]):
             lines.append(f"can tighten: {nid} {spec['value']} -> {row['value']}")
-    worsened = {rid for rid, e in (comp.get("rows") or {}).items() if e.get("worse") is True}
-    owner = [n for n, s in norms_doc["norms"].items() if s.get("ratcheted_since") and s.get("row") in worsened and n not in passed]
-    red = [n for n, i in norms.items() if i["verdict"] == "red" and n not in passed and n not in owner]
-    if owner:
-        lines.append(f"release: owner's word needed -- {', '.join(owner)}")
-    if red:
-        lines.append(f"release: warning -- red norm(s): {', '.join(red)}")
-    unknown = [n for n, i in norms.items() if i["verdict"] == "unknown" and n not in passed]
-    if unknown and doc["run"].get("run_class") == "live":
-        lines.append(f"release: warning -- unknown norm(s), not green: {', '.join(unknown)}")
+    # The `release:` lines have ONE producer: `compare --release <version>` (scoreboard_bar.release_lines), which reads the ratchets of norms.json.
     return lines
 
 
@@ -705,6 +844,19 @@ def cmd_assemble(args) -> int:
 
 
 def cmd_compare(args) -> int:
+    if args.release is not None:
+        if args.scoreboard:
+            return _red("`compare --release <version>` reads every scoreboard of that version itself: give the version or one scoreboard file, not both")
+        import scoreboard_bar                   # here, not at the top: scoreboard_bar imports this module
+        try:
+            lines = scoreboard_bar.release_lines(args.release, load_norms(args.norms), args.root)
+        except Refusal as exc:
+            return _red(str(exc))
+        for line in lines:
+            print(line)
+        return 0                                # it reports; `release-check` judges
+    if not args.scoreboard:
+        return _red("compare needs a scoreboard file, or `--release <version>`")
     try:
         rows_doc, norms_doc = load_rows(args.rows), load_norms(args.norms)
         path = Path(args.scoreboard)
@@ -737,8 +889,11 @@ def cmd_compare(args) -> int:
 
 def cmd_norms(args) -> int:
     try:
+        if args.convert:
+            print(json.dumps(legacy_to_v2(_load_json(args.convert, "the norms/1 file")), indent=2, ensure_ascii=False))
+            return 0
         doc = load_norms(args.norms)
-        old = load_norms(args.against) if args.against else None
+        old = load_old_norms(args.against) if args.against else None
     except Refusal as exc:
         return _red(str(exc))
     if not args.check:
@@ -774,7 +929,9 @@ def main(argv=None) -> int:
     a.add_argument("--out-root", help="default experiments/scoreboards")
     a.set_defaults(run=cmd_assemble)
     c = sub.add_parser("compare", help="print a scoreboard against the previous one and the norms; --findings writes a finding per worsened row")
-    c.add_argument("scoreboard")
+    c.add_argument("scoreboard", nargs="?", help="a scoreboard file (not with --release)")
+    c.add_argument("--release", metavar="VERSION", help="judge the ratcheted rows of norms.json against the scoreboards of this package version: one `release:` line each")
+    c.add_argument("--root", help="with --release: the scoreboards folder (default experiments/scoreboards)")
     c.add_argument("--previous", help="default: the newest earlier live file of the same arm in the same folder")
     c.add_argument("--bar")
     c.add_argument("--findings", action="store_true", help="write one finding file per worsened row (the pile named by rows.json)")
@@ -786,6 +943,7 @@ def main(argv=None) -> int:
     n.add_argument("--check", action="store_true")
     n.add_argument("--against", help="the norms file as it was before the edit (git show ...:norms.json)")
     n.add_argument("--norms")
+    n.add_argument("--convert", metavar="NORMS1_FILE", help="print an old norms/1 file as norms/2 and stop")
     n.set_defaults(run=cmd_norms)
     r = sub.add_parser("release-check", help="K3: exit 0 only when no `compare --release` line needs the owner's word, or each has it recorded")
     import scoreboard_bar                       # here, not at the top: scoreboard_bar imports this module (release-check lives there, N7)

@@ -1875,7 +1875,8 @@ def sb_norm_case(tmp: Path, case) -> None:
 
 
 def _norms():
-    return json.loads((HERE.parent / "scoreboards" / "norms.json").read_text(encoding="utf-8"))
+    """The shipped norms.json (norms/2) as the K2/K5 view `load_norms` returns: {norms: {id: ...}, raises: [...], rows, bar_changes}."""
+    return _sb().load_norms(HERE.parent / "scoreboards" / "norms.json")
 
 
 def _edit(doc, fn):
@@ -2106,7 +2107,7 @@ def sb_cli_case(tmp: Path, case) -> None:
     elif name == "norms --check exits 1 and names the norm when it loosened":
         doc = _norms()
         doc["norms"]["N-wall"]["value"] = 99
-        (tmp / "n.json").write_text(json.dumps(doc), encoding="utf-8")
+        (tmp / "n.json").write_text(json.dumps(_sb().legacy_to_v2(doc)), encoding="utf-8")
         code, printed, _e = sb_cli("norms", "--check", "--norms", tmp / "n.json")
         assert code == 1 and "N-wall" in printed and printed.strip().endswith("norms: red"), printed
     elif name == "compare names the previous file, the bar and 'can tighten' for a green norm":
@@ -2262,10 +2263,8 @@ RC_BAR = "mybooks/add-to-cart/bar-claude-opus-5.yaml"
 RC_OQ2 = f"release: owner's word needed -- Q1 ratcheted, new bar {RC_BAR} is better than the factory"
 
 
-def rc_norms(tmp: Path, rows=None, bar_changes=None, raw=None, schema="norms/1") -> Path:
-    doc = {"schema": schema, "norms": {}, "raises": []}
-    if rows is not None:
-        doc["rows"] = rows
+def rc_norms(tmp: Path, rows=None, bar_changes=None, raw=None, schema="norms/2") -> Path:
+    doc = {"schema": schema, "rows": rows if rows is not None else {}}
     if bar_changes is not None:
         doc["bar_changes"] = bar_changes
     path = tmp / "norms.json"
@@ -2378,7 +2377,7 @@ def sb_release_case(tmp: Path, case) -> None:
                 raise AssertionError(f"{raw!r} passed")
     elif name == "norms.json whose bar_changes is not a list: a named error":
         try:
-            bar.release_check([RC_OK], RC_VERSION, rc_norms(tmp, raw=json.dumps({"schema": "norms/1", "norms": {}, "raises": [], "bar_changes": {}})))
+            bar.release_check([RC_OK], RC_VERSION, rc_norms(tmp, raw=json.dumps({"schema": "norms/2", "rows": {}, "bar_changes": {}})))
         except _sb().Refusal as exc:
             assert "bar_changes" in str(exc), exc
         else:
@@ -2434,12 +2433,416 @@ SB_OQ2_CASES = _sb_names(
     "OQ2: bar_changes without a word is ignored and named: exit 1", "OQ2: bar_changes for ANOTHER bar file: exit 1")
 
 
+# --- P1-v N6b: norms/2, the ratchet check (K5), `compare --release` (B2) and the direct road of release-check ----------------------------
+REL_VER, REL_FM, REL_STAND, REL_STORY = "1.1.0", "factory-model-a", "mybooks", "add-to-cart"
+REL_BAR1 = f"{REL_STAND}/{REL_STORY}/bar-claude-sonnet-5-5.yaml"
+REL_BAR2 = f"{REL_STAND}/{REL_STORY}/bar-claude-opus-5.yaml"
+REL_OQ2 = f"release: owner's word needed -- Q1 ratcheted, new bar {REL_BAR2} is better than the factory"
+REL_PAIR2 = f"claude-opus-5/{REL_STORY}"
+
+
+def rel_el(value=10, factory_model=REL_FM, since="1.0.0", pair=RC_PAIR, bar=REL_BAR1):
+    return {"pair": pair, "factory_model": factory_model, "since": since, "value": value, "bar": bar}
+
+
+def rel_board(tmp: Path, row=None, version=REL_VER, models=(REL_FM,), run_class="live", norms=None, passes=None, rows=None, stamp="20261110-1000"):
+    import yaml
+    folder = tmp / "sb" / REL_STAND / REL_STORY
+    folder.mkdir(parents=True, exist_ok=True)
+    doc = {"schema": "scoreboard/1", "run": {"run_class": run_class, "arm": "factory", "models": list(models)},
+           "rows": rows if rows is not None else ({"Q1": row} if row is not None else {}), "norms": norms or {}, "passes": passes or []}
+    (folder / f"{stamp}-{version}-factory.yaml").write_text(yaml.safe_dump(doc), encoding="utf-8")
+
+
+def rel_bar(tmp: Path, model: str, value, state="measured"):
+    import yaml
+    folder = tmp / "sb" / REL_STAND / REL_STORY
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"bar-{model}.yaml").write_text(yaml.safe_dump({"schema": "scoreboard/1", "run": {"arm": "free"},
+                                                              "rows": {"Q1": {"state": state, "value": value}}}), encoding="utf-8")
+
+
+def rel_norms(tmp: Path, ratchets=(), better="lower", raises=(), bar_changes=(), passes=(), name="norms.json", row_extra=None) -> Path:
+    row = {"norm": 40, "unit": "questions", "better": better, "ratchets": list(ratchets), "raises": list(raises), "worsened_passes": list(passes)}
+    row.update(row_extra or {})
+    path = tmp / name
+    path.write_text(json.dumps({"schema": "norms/2", "rows": {"Q1": row}, "bar_changes": list(bar_changes)}), encoding="utf-8")
+    return path
+
+
+def rel_lines(tmp: Path, norms: Path, version=REL_VER):
+    return _sbb().release_lines(version, _sb().load_norms(norms), tmp / "sb")
+
+
+def _need(text):
+    return f"release: owner's word needed -- Q1 {RC_PAIR} {text}"
+
+
+def _m(value):
+    return {"state": "measured", "value": value}
+
+
+RNG = lambda low, high: {"low": low, "high": high}      # noqa: E731
+SB_REL_JUDGE_CASES = [
+    # (case id, the scoreboard row of the release, the ratchet's value, better, the ONE line expected)
+    ("worse: a measured value above the ratchet (lower is better)", _m(12), 10, "lower", _need("was 10 (1.0.0) now 12 (1.1.0)")),
+    ("not worse: equal to the ratchet", _m(10), 10, "lower", RC_OK),
+    ("not worse: better than the ratchet", _m(8), 10, "lower", RC_OK),
+    ("higher is better: below the ratchet is worse", _m(8), 10, "higher", _need("was 10 (1.0.0) now 8 (1.1.0)")),
+    ("higher is better: above the ratchet is not worse", _m(11), 10, "higher", RC_OK),
+    ("range now overlapping the ratchet: not decided: range", _m(RNG(9, 11)), 10, "lower", _need("not decided: range (9..11)")),
+    ("range now with low_now > high_prev: worse", _m(RNG(11, 13)), 10, "lower", _need("was 10 (1.0.0) now 11..13 (1.1.0)")),
+    ("range now with high_now <= low_prev: not worse", _m(RNG(7, 10)), 10, "lower", RC_OK),
+    ("previous range, now above its high end: worse", _m(13), RNG(8, 12), "lower", _need("was 8..12 (1.0.0) now 13 (1.1.0)")),
+    ("previous range, now at its low end: not worse", _m(8), RNG(8, 12), "lower", RC_OK),
+    ("previous range, now inside it: not decided: range", _m(10), RNG(8, 12), "lower", _need("not decided: range (10)")),
+    ("ranges that overlap at the edge: not decided: range", _m(RNG(12, 14)), RNG(8, 12), "lower", _need("not decided: range (12..14)")),
+    ("range against range, now wholly above: worse", _m(RNG(13, 15)), RNG(8, 12), "lower", _need("was 8..12 (1.0.0) now 13..15 (1.1.0)")),
+    ("range against range, now wholly below: not worse", _m(RNG(5, 8)), RNG(8, 12), "lower", RC_OK),
+    ("one_source above the ratchet: worse, compared as a value", {"state": "one_source", "value": 12}, 10, "lower", _need("was 10 (1.0.0) now 12 (1.1.0)")),
+    ("at_least above the ratchet: worse", {"state": "at_least", "value": 11}, 10, "lower", _need("was 10 (1.0.0) now at least 11 (1.1.0)")),
+    ("at_least below the ratchet: not decided: lower bound", {"state": "at_least", "value": 9}, 10, "lower", _need("not decided: lower bound (9)")),
+    ("at_least when higher is better: never decided", {"state": "at_least", "value": 20}, 10, "higher", _need("not decided: lower bound (20)")),
+    ("state unknown: unknown: <why>", {"state": "unknown", "value": None, "why": "no price"}, 10, "lower", _need("unknown: no price")),
+    ("state n/a: unknown with the reason", {"state": "n/a", "value": None, "why": "stub roles"}, 10, "lower", _need("unknown: stub roles")),
+    ("the scoreboard has no such row: unknown", None, 10, "lower", _need("unknown: the scoreboard has no row Q1")),
+    ("a value that is not a number: unknown", _m("x"), 10, "lower", _need("unknown: the value of Q1 is not a number")),
+]
+
+
+def sb_rel_judge_case(tmp: Path, case) -> None:
+    _name, row, prev, better, want = case
+    rel_board(tmp, rows={"Q1": row} if row is not None else {})
+    assert rel_lines(tmp, rel_norms(tmp, [rel_el(prev)], better)) == [want]
+
+
+def _cli_release(tmp, *extra, norms=None, version=REL_VER):
+    return sb_cli("compare", "--release", version, "--norms", norms or rel_norms(tmp, [rel_el()]), "--root", tmp / "sb", *extra)
+
+
+def _check_release(tmp, norms, *extra, version=REL_VER):
+    return sb_cli("release-check", "--release", version, "--norms", norms, "--root", tmp / "sb", *extra)
+
+
+def sb_rel_case(tmp: Path, case) -> None:
+    name = case[0]
+    if name == "no scoreboard for the pair: no value in this release":
+        assert rel_lines(tmp, rel_norms(tmp, [rel_el()])) == [_need("no value in this release (no scoreboard for the pair)")]
+    elif name == "a scoreboard of ANOTHER version only: no value in this release":
+        rel_board(tmp, _m(1), version="1.0.9")
+        assert rel_lines(tmp, rel_norms(tmp, [rel_el()])) == [_need("no value in this release (no scoreboard for the pair)")]
+    elif name == "factory model differs: no comparable measurement":
+        rel_board(tmp, _m(1), models=("factory-model-b",))
+        assert rel_lines(tmp, rel_norms(tmp, [rel_el()])) == [_need("no comparable measurement (factory model factory-model-a vs factory-model-b)")]
+    elif name == "a dry run: no comparable measurement":
+        rel_board(tmp, _m(1), run_class="dry")
+        assert rel_lines(tmp, rel_norms(tmp, [rel_el()])) == [_need("no comparable measurement (run class dry vs live)")]
+    elif name == "two ratchet elements print exactly two element lines":
+        rel_board(tmp, _m(1))
+        lines = rel_lines(tmp, rel_norms(tmp, [rel_el(), rel_el(pair=REL_PAIR2, bar=REL_BAR2)]))
+        assert lines == [RC_OK, f"release: ok -- Q1 {REL_PAIR2} not worse"], lines
+    elif name == "no ratchet and no earlier release: 'no previous release', nothing else":
+        assert rel_lines(tmp, rel_norms(tmp)) == ["release: no previous release -- ratchet not judged"]
+    elif name == "empty ratchets and a previous release: only warnings, release-check exit 0":
+        rel_board(tmp, _m(9), norms={"N-q": {"norm": {"kind": "limit", "row": "Q1", "op": "<=", "value": 5}, "verdict": "red"}})
+        rel_board(tmp, _m(3), version="1.0.9", stamp="20261001-1000")
+        norms = rel_norms(tmp)
+        assert rel_lines(tmp, norms) == ["release: warning -- Q1 red: 9 against norm 5"]
+        code, printed, _e = _check_release(tmp, norms)
+        assert code == 0 and "release: warning -- Q1 red: 9 against norm 5" in printed and printed.strip().endswith("release-check: ok"), printed
+    elif name == "a previous release and nothing to say: no line, release-check exit 0":
+        rel_board(tmp, _m(3), version="1.0.9", stamp="20261001-1000")
+        rel_board(tmp, _m(3))
+        assert rel_lines(tmp, rel_norms(tmp)) == []
+        assert _check_release(tmp, rel_norms(tmp))[0] == 0
+    elif name == "a red row that is ratcheted gets its element line, not a warning":
+        rel_board(tmp, _m(9), norms={"N-q": {"norm": {"kind": "limit", "row": "Q1", "op": "<=", "value": 5}, "verdict": "red"}})
+        assert rel_lines(tmp, rel_norms(tmp, [rel_el(10)])) == [RC_OK]
+    elif name == "a red norm the owner passed gives no warning":
+        rel_board(tmp, _m(9), norms={"N-q": {"norm": {"kind": "limit", "row": "Q1", "op": "<=", "value": 5}, "verdict": "red"}},
+                  passes=[{"norm": "N-q", "word": "owner", "date": "14.11.2026"}])
+        assert rel_lines(tmp, rel_norms(tmp)) == ["release: no previous release -- ratchet not judged"]
+    elif name == "a measured row better than its bar: can ratchet, with the bar file and its value":
+        rel_board(tmp, _m(4))
+        rel_bar(tmp, "claude-sonnet-5-5", 10)
+        assert rel_lines(tmp, rel_norms(tmp)) == ["release: no previous release -- ratchet not judged",
+                                                  f"can ratchet: Q1 {RC_PAIR} 4 better than bar {REL_BAR1} (10)"]
+    elif name == "a row equal to or worse than its bar is not proposed":
+        for value in (10, 12):
+            rel_board(tmp, _m(value))
+            rel_bar(tmp, "claude-sonnet-5-5", 10)
+            assert not [x for x in rel_lines(tmp, rel_norms(tmp)) if x.startswith("can ratchet")], value
+    elif name == "a row in the state one_source, range, at_least or unknown is never proposed":
+        rel_bar(tmp, "claude-sonnet-5-5", 10)
+        for row in ({"state": "one_source", "value": 4}, _m(RNG(3, 4)), {"state": "at_least", "value": 4}, {"state": "unknown", "value": None}):
+            rel_board(tmp, row)
+            assert not [x for x in rel_lines(tmp, rel_norms(tmp)) if x.startswith("can ratchet")], row
+    elif name == "a row already ratcheted for that pair is not proposed again":
+        rel_board(tmp, _m(4))
+        rel_bar(tmp, "claude-sonnet-5-5", 10)
+        assert not [x for x in rel_lines(tmp, rel_norms(tmp, [rel_el(10)])) if x.startswith("can ratchet")]
+    elif name == "a bar whose row is not measured is never beaten":
+        rel_board(tmp, _m(4))
+        rel_bar(tmp, "claude-sonnet-5-5", None, state="unknown")
+        assert not [x for x in rel_lines(tmp, rel_norms(tmp)) if x.startswith("can ratchet")]
+    elif name == "OQ2: a new bar better than the factory on a ratcheted row prints the line; release-check exit 1, with bar_changes exit 0":
+        rel_board(tmp, _m(6))
+        rel_bar(tmp, "claude-opus-5", 3)
+        norms = rel_norms(tmp, [rel_el(10)])
+        assert rel_lines(tmp, norms) == [RC_OK, REL_OQ2]
+        assert _check_release(tmp, norms)[0] == 1
+        answered = rel_norms(tmp, [rel_el(10)], bar_changes=[{"bar": REL_BAR2, "word": "owner, 14.11.2026", "decision": "keep"}], name="n2.json")
+        assert _check_release(tmp, answered)[0] == 0
+    elif name == "OQ2: a new bar worse than the factory gives no line":
+        rel_board(tmp, _m(6))
+        rel_bar(tmp, "claude-opus-5", 8)
+        assert REL_OQ2 not in rel_lines(tmp, rel_norms(tmp, [rel_el(10)]))
+    elif name == "compare --release exits 0 even when a line needs the owner's word":
+        rel_board(tmp, _m(12))
+        code, printed, _e = _cli_release(tmp)
+        assert code == 0 and printed.strip() == _need("was 10 (1.0.0) now 12 (1.1.0)"), printed
+    elif name == "release-check --release: a worse row without worsened_passes exit 1, with the same row, version and pair exit 0":
+        rel_board(tmp, _m(12))
+        code, printed, _e = _check_release(tmp, rel_norms(tmp, [rel_el()]))
+        assert code == 1 and "owner's word needed for 1 line(s)" in printed, printed
+        word = {"version": REL_VER, "pair": RC_PAIR, "word": "owner, 14.11.2026", "quote": "ship it"}
+        assert _check_release(tmp, rel_norms(tmp, [rel_el()], passes=[word], name="p.json"))[0] == 0
+    elif name == "release-check --release: a worsened_passes entry of another pair or another version does not cover the line":
+        rel_board(tmp, _m(12))
+        for change in ({"pair": REL_PAIR2}, {"version": "1.0.9"}, {"word": " "}):
+            word = dict({"version": REL_VER, "pair": RC_PAIR, "word": "owner, 14.11.2026", "quote": "x"}, **change)
+            assert _check_release(tmp, rel_norms(tmp, [rel_el()], passes=[word], name="p.json"))[0] == 1, change
+    elif name == "release-check --release: all ratchets not worse: exit 0":
+        rel_board(tmp, _m(9))
+        code, printed, _e = _check_release(tmp, rel_norms(tmp, [rel_el()]))
+        assert code == 0 and printed.strip().endswith("release-check: ok"), printed
+    elif name == "norms.json absent: compare --release and release-check --release exit 2 naming the path":
+        absent = tmp / "none.json"
+        for code, _o, err in (sb_cli("compare", "--release", REL_VER, "--norms", absent, "--root", tmp / "sb"), _check_release(tmp, absent)):
+            assert code == 2 and str(absent) in err, err
+    elif name == "norms.json that is not JSON: exit 2 naming the path":
+        bad = tmp / "bad.json"
+        bad.write_text("{not json", encoding="utf-8")
+        for code, _o, err in (_cli_release(tmp, norms=bad), _check_release(tmp, bad)):
+            assert code == 2 and str(bad) in err, err
+    elif name == "norms.json whose rows is a list: exit 2 naming the path":
+        bad = tmp / "list.json"
+        bad.write_text(json.dumps({"schema": "norms/2", "rows": []}), encoding="utf-8")
+        for code, _o, err in (_cli_release(tmp, norms=bad), _check_release(tmp, bad)):
+            assert code == 2 and str(bad) in err and "rows" in err, err
+    elif name == "a version that is empty or has path separators: exit 2, nothing read":
+        for version in ("", "../x", "a/b", "a\\b", ".."):
+            for code, printed, err in (_cli_release(tmp, version=version), _check_release(tmp, rel_norms(tmp), version=version)):
+                assert code == 2 and "version" in err and printed == "", (version, err)
+    elif name == "release-check takes exactly one input: both or neither is exit 2":
+        norms = rel_norms(tmp)
+        assert sb_cli("release-check", "--release", REL_VER, "--lines", tmp / "x.txt", "--norms", norms)[0] == 2
+        assert sb_cli("release-check", "--norms", norms)[0] == 2
+        assert sb_cli("release-check", "--lines", tmp / "x.txt", "--norms", norms)[0] == 2
+    elif name == "compare takes a scoreboard or --release, not both and not neither":
+        assert sb_cli("compare", "--norms", rel_norms(tmp))[0] == 2
+        assert sb_cli("compare", str(tmp / "x.yaml"), "--release", REL_VER, "--norms", rel_norms(tmp))[0] == 2
+    else:
+        raise AssertionError("no such case: " + name)
+
+
+SB_REL_CASES = _sb_names(
+    "no scoreboard for the pair: no value in this release", "a scoreboard of ANOTHER version only: no value in this release",
+    "factory model differs: no comparable measurement", "a dry run: no comparable measurement",
+    "two ratchet elements print exactly two element lines", "no ratchet and no earlier release: 'no previous release', nothing else",
+    "empty ratchets and a previous release: only warnings, release-check exit 0", "a previous release and nothing to say: no line, release-check exit 0",
+    "a red row that is ratcheted gets its element line, not a warning", "a red norm the owner passed gives no warning",
+    "a measured row better than its bar: can ratchet, with the bar file and its value", "a row equal to or worse than its bar is not proposed",
+    "a row in the state one_source, range, at_least or unknown is never proposed", "a row already ratcheted for that pair is not proposed again",
+    "a bar whose row is not measured is never beaten",
+    "OQ2: a new bar better than the factory on a ratcheted row prints the line; release-check exit 1, with bar_changes exit 0",
+    "OQ2: a new bar worse than the factory gives no line", "compare --release exits 0 even when a line needs the owner's word",
+    "release-check --release: a worse row without worsened_passes exit 1, with the same row, version and pair exit 0",
+    "release-check --release: a worsened_passes entry of another pair or another version does not cover the line",
+    "release-check --release: all ratchets not worse: exit 0",
+    "norms.json absent: compare --release and release-check --release exit 2 naming the path", "norms.json that is not JSON: exit 2 naming the path",
+    "norms.json whose rows is a list: exit 2 naming the path", "a version that is empty or has path separators: exit 2, nothing read",
+    "release-check takes exactly one input: both or neither is exit 2", "compare takes a scoreboard or --release, not both and not neither")
+
+# K5 for a ratchet element: (case id, old ratchets, new ratchets, new raises, better, words of the problem or None when green)
+WORD = {"raised_by": "Lead", "reason": "the story grew", "word": "owner, 14.11.2026", "from": 10, "to": 12}
+SB_RATCHET_ELEMENT_CASES = [
+    ("a ratchet element unchanged is green", [rel_el(10)], [rel_el(10)], [], "lower", None),
+    ("a ratchet element removed with no raise: refused", [rel_el(10)], [], [], "lower", "was removed"),
+    ("a ratchet element removed with a raise carrying the word: green", [rel_el(10)], [], [WORD], "lower", None),
+    ("a ratchet value worsened (lower is better): refused", [rel_el(10)], [rel_el(11)], [], "lower", "worsened from 10 to 11"),
+    ("a ratchet value worsened with a raise carrying the word: green", [rel_el(10)], [rel_el(11)], [WORD], "lower", None),
+    ("a ratchet value worsened with a raise whose word is empty: refused", [rel_el(10)], [rel_el(11)], [dict(WORD, word=" ")], "lower", "worsened"),
+    ("a ratchet value improved is green", [rel_el(10)], [rel_el(8)], [], "lower", None),
+    ("higher is better: a lower ratchet value is refused", [rel_el(10)], [rel_el(9)], [], "higher", "worsened from 10 to 9"),
+    ("higher is better: a higher ratchet value is green", [rel_el(10)], [rel_el(11)], [], "higher", None),
+    ("a range ratchet whose high end grew: refused", [rel_el(RNG(5, 8))], [rel_el(RNG(5, 9))], [], "lower", "worsened"),
+    ("a ratchet element added is green", [], [rel_el(10)], [], "lower", None),
+    ("only the other element removed: refused naming the pair", [rel_el(10), rel_el(7, pair=REL_PAIR2, bar=REL_BAR2)], [rel_el(10)], [], "lower", REL_PAIR2),
+]
+
+
+def sb_ratchet_element_case(tmp: Path, case) -> None:
+    _name, old, new, raises, better, want = case
+    old_file = rel_norms(tmp, old, better, name="old.json")
+    new_file = rel_norms(tmp, new, better, raises=raises, name="new.json")
+    scoreboard = _sb()
+    problems = scoreboard.check_norms(scoreboard.load_norms(new_file), scoreboard.load_old_norms(old_file))
+    if want is None:
+        assert problems == [], problems
+    else:
+        assert any(want in p for p in problems), problems
+        code, printed, _e = sb_cli("norms", "--check", "--norms", new_file, "--against", old_file)
+        assert code == 1 and printed.strip().endswith("norms: red"), printed
+
+
+def _v1_of(view: dict) -> dict:
+    return {"schema": "norms/1", "norms": view["norms"], "raises": view["raises"]}
+
+
+def sb_norms2_case(tmp: Path, case) -> None:
+    name, scoreboard = case[0], _sb()
+    view = _norms()
+    if name == "a norms/1 file is refused by load_norms with what is wrong, what is expected and how to convert":
+        old = tmp / "old.json"
+        old.write_text(json.dumps(_v1_of(view)), encoding="utf-8")
+        try:
+            scoreboard.load_norms(old)
+        except scoreboard.Refusal as exc:
+            assert all(word in str(exc) for word in ("norms/1", "norms/2", "--convert", str(old))), exc
+        else:
+            raise AssertionError("a norms/1 file was read")
+        assert sb_cli("norms", "--check", "--norms", old)[0] == 2
+    elif name == "round trip: norms/1 -> norms/2 -> the same K2/K5 view, every norm key kept":
+        v2 = scoreboard.legacy_to_v2(_v1_of(view))
+        path = tmp / "v2.json"
+        path.write_text(json.dumps(v2), encoding="utf-8")
+        again = scoreboard.load_norms(path)
+        assert again["norms"] == view["norms"] and again["raises"] == view["raises"], (again["norms"], view["norms"])
+        assert set(v2["rows"]) == {n["row"] for n in view["norms"].values()} and all(r["id"] in view["norms"] for r in v2["rows"].values())
+        for rid, row in v2["rows"].items():
+            assert {"norm", "unit", "better", "ratchets", "raises", "worsened_passes", "id", "kind"} <= set(row) or row["kind"] == "not_worse_than_bar", rid
+    elif name == "round trip: the K5 verdicts of today's rows are unchanged through a norms/1 file read as --against":
+        old = _v1_of(view)
+        old["norms"]["N-questions"]["value"] = 30
+        old["norms"]["N-questions"]["initial"] = 30
+        (tmp / "old.json").write_text(json.dumps(old), encoding="utf-8")
+        code, printed, _e = sb_cli("norms", "--check", "--norms", HERE.parent / "scoreboards" / "norms.json", "--against", tmp / "old.json")
+        assert code == 1 and "`initial` changed" in printed, printed
+        old["norms"]["N-questions"]["initial"] = 40
+        old["norms"]["N-questions"]["value"] = 40
+        (tmp / "old.json").write_text(json.dumps(old), encoding="utf-8")
+        code, printed, _e = sb_cli("norms", "--check", "--norms", HERE.parent / "scoreboards" / "norms.json", "--against", tmp / "old.json")
+        assert code == 0 and printed.strip().endswith("norms: green"), printed
+    elif name == "norms --convert prints a norms/2 file that load_norms reads":
+        old = tmp / "old.json"
+        old.write_text(json.dumps(_v1_of(view)), encoding="utf-8")
+        code, printed, _e = sb_cli("norms", "--convert", old)
+        (tmp / "new.json").write_text(printed, encoding="utf-8")
+        assert code == 0 and scoreboard.load_norms(tmp / "new.json")["norms"] == view["norms"]
+    elif name == "two norms pointing at ONE row are refused naming both ids, never merged":
+        v1 = {"norms": {"N-a": {"kind": "limit", "row": "Q1", "op": "<=", "value": 1}, "N-b": {"kind": "limit", "row": "Q1", "op": "<=", "value": 2}}, "raises": []}
+        try:
+            scoreboard.legacy_to_v2(v1)
+        except scoreboard.Refusal as exc:
+            assert "N-a" in str(exc) and "N-b" in str(exc) and "Q1" in str(exc), exc
+        else:
+            raise AssertionError("two norms of one row were merged")
+    elif name == "a raise naming an unknown norm is refused at conversion":
+        try:
+            scoreboard.legacy_to_v2({"norms": {}, "raises": [dict(RAISE)]})
+        except scoreboard.Refusal as exc:
+            assert "unknown norm N-questions" in str(exc), exc
+        else:
+            raise AssertionError("an orphan raise was dropped")
+    elif name == "a norm id carried by two rows is refused":
+        row = {"id": "N-a", "kind": "limit", "op": "<=", "norm": 1, "better": "lower"}
+        (tmp / "d.json").write_text(json.dumps({"schema": "norms/2", "rows": {"Q1": row, "Q3": dict(row)}}), encoding="utf-8")
+        try:
+            scoreboard.load_norms(tmp / "d.json")
+        except scoreboard.Refusal as exc:
+            assert "N-a" in str(exc) and "Q1" in str(exc) and "Q3" in str(exc), exc
+        else:
+            raise AssertionError("a duplicate id was read")
+    elif name == "`op` and `better` that disagree are refused":
+        row = {"id": "N-a", "kind": "limit", "op": "<=", "norm": 1, "better": "higher"}
+        (tmp / "d.json").write_text(json.dumps({"schema": "norms/2", "rows": {"Q1": row}}), encoding="utf-8")
+        try:
+            scoreboard.load_norms(tmp / "d.json")
+        except scoreboard.Refusal as exc:
+            assert "disagree" in str(exc), exc
+        else:
+            raise AssertionError("op and better disagreed silently")
+    elif name == "a norm whose row is absent from rows.json keeps the refusal of K2 (unknown row: not green)":
+        view["norms"]["N-ghost"] = {"kind": "limit", "row": "ZZ9", "op": "<=", "value": 1, "unit": "x"}
+        judged = scoreboard.judge_norms(view, {"Q1": {"state": "measured", "value": 1}}, "live", None, None, scoreboard.load_rows())
+        assert judged["N-ghost"]["verdict"] == "unknown", judged["N-ghost"]
+    elif name == "a norms/2 file of another schema is refused naming the schema":
+        (tmp / "d.json").write_text(json.dumps({"schema": "norms/3", "rows": {}}), encoding="utf-8")
+        try:
+            scoreboard.load_norms(tmp / "d.json")
+        except scoreboard.Refusal as exc:
+            assert "norms/3" in str(exc) and "norms/2" in str(exc), exc
+        else:
+            raise AssertionError("an unknown schema was read")
+    elif name == "the shipped norms.json is norms/2 with empty ratchets and worsened_passes and every norm key of norms/1":
+        doc = json.loads((HERE.parent / "scoreboards" / "norms.json").read_text(encoding="utf-8"))
+        assert doc["schema"] == "norms/2" and doc["bar_changes"] == []
+        for row in doc["rows"].values():
+            assert row["ratchets"] == [] and row["worsened_passes"] == [] and row["raises"] == [], row
+            assert {"id", "kind", "norm", "unit", "better", "carrier", "ratcheted_since"} <= set(row) and ("initial" in row or row["kind"] == "not_worse_than_bar"), row
+        assert {r["id"] for r in doc["rows"].values()} == {"N-rework", "N-gate", "N-questions", "N-wall", "N-brief"} | {f"N-quality-QA{i}" for i in range(1, 7)}
+        assert doc["rows"]["G1"]["unknown_row"] == "G1u" and doc["rows"]["T1x"]["bar_row"] == "T1"
+    else:
+        raise AssertionError("no such case: " + name)
+
+
+SB_NORMS2_CASES = _sb_names(
+    "a norms/1 file is refused by load_norms with what is wrong, what is expected and how to convert",
+    "round trip: norms/1 -> norms/2 -> the same K2/K5 view, every norm key kept",
+    "round trip: the K5 verdicts of today's rows are unchanged through a norms/1 file read as --against",
+    "norms --convert prints a norms/2 file that load_norms reads",
+    "two norms pointing at ONE row are refused naming both ids, never merged", "a raise naming an unknown norm is refused at conversion",
+    "a norm id carried by two rows is refused", "`op` and `better` that disagree are refused",
+    "a norm whose row is absent from rows.json keeps the refusal of K2 (unknown row: not green)",
+    "a norms/2 file of another schema is refused naming the schema",
+    "the shipped norms.json is norms/2 with empty ratchets and worsened_passes and every norm key of norms/1")
+
+# a ratchet element that is itself malformed is refused at load (outside input: a norms file)
+BAD_RATCHETS = [
+    ("a pair with a space", rel_el(pair="claude sonnet/add-to-cart"), "pair"), ("a pair with no story", rel_el(pair="claude-sonnet-5-5"), "pair"),
+    ("a bar with `..` in it", rel_el(bar="mybooks/../bar-x.yaml"), "bar"), ("a bar of another story than the pair", rel_el(bar="mybooks/other/bar-x.yaml"), "bar"),
+    ("a bar that is an absolute path", rel_el(bar="/etc/bar-x.yaml"), "bar"), ("a value that is not a number", rel_el(value="ten"), "value"),
+    ("an empty factory model", rel_el(factory_model=" "), "factory_model"), ("a missing since", {k: v for k, v in rel_el().items() if k != "since"}, "since"),
+    ("an element that is not an object", "x", "ratchets[0]"),
+]
+SB_BAD_RATCHET_CASES = [(f"a ratchet element with {n} is refused naming the key", e, k) for n, e, k in BAD_RATCHETS] + [
+    ("a ratchet on a row with no direction is refused", rel_el(), "better")]
+
+
+def sb_bad_ratchet_case(tmp: Path, case) -> None:
+    name, element, key = case
+    scoreboard = _sb()
+    path = rel_norms(tmp, [element], better=None if "no direction" in name else "lower")
+    try:
+        scoreboard.load_norms(path)
+    except scoreboard.Refusal as exc:
+        assert key in str(exc) and str(path) in str(exc), exc
+    else:
+        raise AssertionError("a malformed ratchet was read")
+
+
 SB_GROUPS =(("judgment shape (K1, 7.4, 7.10)", SB_JUDGMENT_CASES, sb_judgment_case), ("money row (X1)", SB_MONEY_CASES, sb_money_case),
              ("norm verdict (K2, 7.5)", SB_NORM_CASES, sb_norm_case), ("norms only tighten (K5)", SB_RATCHET_CASES, sb_ratchet_case),
              ("comparison (K7, 7.5, 7.7-7.9)", SB_COMPARE_CASES, sb_compare_case), ("previous file (K7, 7.7)", SB_PREVIOUS_CASES, sb_previous_case),
              ("assemble edges", SB_ASSEMBLE_CASES, sb_assemble_case), ("command line and findings (K4)", SB_CLI_CASES, sb_cli_case),
              ("bar price (N7, B1-E5/E6)", SB_BAR_CASES, sb_bar_case), ("release-check (K3, F7)", SB_RELEASE_CASES, sb_release_case),
-             ("release-check OQ2 (ratcheted row, new bar)", SB_OQ2_CASES, sb_release_case))
+             ("release-check OQ2 (ratcheted row, new bar)", SB_OQ2_CASES, sb_release_case),
+             ("compare --release, one element one line (B1 table, range against range)", SB_REL_JUDGE_CASES, sb_rel_judge_case),
+             ("compare --release, edges B2-E1..E9 and the direct road", SB_REL_CASES, sb_rel_case),
+             ("norms only tighten: ratchet elements (K5)", SB_RATCHET_ELEMENT_CASES, sb_ratchet_element_case),
+             ("norms/2 shape and conversion", SB_NORMS2_CASES, sb_norms2_case),
+             ("a malformed ratchet element", SB_BAD_RATCHET_CASES, sb_bad_ratchet_case))
 
 
 @_parametrize(SB_JUDGMENT_CASES)
@@ -2495,6 +2898,31 @@ def test_scoreboard_release_check(tmp_path, case):
 @_parametrize(SB_OQ2_CASES)
 def test_scoreboard_release_check_oq2(tmp_path, case):
     sb_release_case(tmp_path, case)
+
+
+@_parametrize(SB_REL_JUDGE_CASES)
+def test_scoreboard_release_judge(tmp_path, case):
+    sb_rel_judge_case(tmp_path, case)
+
+
+@_parametrize(SB_REL_CASES)
+def test_scoreboard_release_edges(tmp_path, case):
+    sb_rel_case(tmp_path, case)
+
+
+@_parametrize(SB_RATCHET_ELEMENT_CASES)
+def test_scoreboard_ratchet_elements(tmp_path, case):
+    sb_ratchet_element_case(tmp_path, case)
+
+
+@_parametrize(SB_NORMS2_CASES)
+def test_scoreboard_norms2(tmp_path, case):
+    sb_norms2_case(tmp_path, case)
+
+
+@_parametrize(SB_BAD_RATCHET_CASES)
+def test_scoreboard_bad_ratchet(tmp_path, case):
+    sb_bad_ratchet_case(tmp_path, case)
 
 
 def scoreboard_tests(root: Path) -> None:
