@@ -9,7 +9,7 @@
   "ratchet_slack_tokens": 1000,
   "ratchet_tokens": {
     "qa-scout": 15437,
-    "qa-requirements-tester": 12630,
+    "qa-requirements-tester": 12670,
     "qa-test-strategist": 16925,
     "qa-case-designer": 13355,
     "qa-case-critic": 18296,
@@ -23,7 +23,7 @@
   },
   "process_ratchet_tokens": {
     "qa-scout": 13971,
-    "qa-requirements-tester": 11280,
+    "qa-requirements-tester": 11320,
     "qa-test-strategist": 15392,
     "qa-case-designer": 12079,
     "qa-case-critic": 15929,
