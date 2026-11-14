@@ -1,13 +1,15 @@
 # Stage critics: S2/S3 removed (Part A); S6/S7 consumer acceptance gets one chance and is never a barrier (Part B) — designer draft, fix round 1
 
 Status: DRAFT by designer for Lead acceptance, 13.11.2026; FIX ROUND after the critic-on-plan verdict
-`docs/tasks/specs/reviews/20261113-stage-critics-removed-plan-critic.md` (fit_with_fixes). Every blocker and fix is answered in §R.
-Forks are returned in §F; nothing below is accepted until the Lead says so.
+`docs/tasks/specs/reviews/20261113-stage-critics-removed-plan-critic.md` (fit_with_fixes), with the owner's answers of 13.11.2026 on forks
+F1, F3, F5 and on the quarantined `test_stage_critic_route.py` (relayed by the coordinator in this round). Every blocker, fix and owner's
+answer is answered in §R. Open forks are in §F; nothing below is accepted until the Lead says so.
 Package tree read: `C:\QAFactory\forge-repo\.claude\worktrees\read-main\ai-packages\qa-factory` (origin/main AFTER wave 3, past 12317b6;
-every line the verdict corrects was re-read there in this round — §T). Every `file:line` below is on that tree under
-`ai-packages/qa-factory/` unless another path is given; a builder finds functions by NAME (lines may drift). Package text English (FR-30).
+every line the verdict corrects was re-read there in this round — §T). TQ2-1 K2 code was read on `C:\QAFactory\forge-repo\.claude\worktrees\tq2-k2`
+(branch `wip/tq2-1-k2`, not yet on read-main). Every `file:line` below is on read-main under `ai-packages/qa-factory/` unless another path
+is given; a builder finds functions by NAME (lines may drift). Package text English (FR-30).
 
-## §0. The owner's words (13.11.2026, verbatim) and the Lead's readings
+## §0. The owner's words (13.11.2026, verbatim)
 
 - On the stage critics 0.11.0 added (D-0060 part B): «в таком варианте мы только увеличиваем время прохода стори и количество барьеров.
   Убираем лишних кртиков, оставляем как раньше»
@@ -19,18 +21,24 @@ every line the verdict corrects was re-read there in this round — §T). Every 
 - On S6/S7 acceptance by the consuming role, first: «это нормально»; then (scope addition, relayed by the Lead): «это не должно быть
   барьером. Но если использовать данные для дальнейшей работы нельзя, то можно даль один шанс их переделать (но все требования должны
   быть у автора изначально)»
+- On F1 (the Lead's reading of «не барьер» for S6/S7: one round, then go on, no person question, the gap in the report): «всё верно»
+- On F3 (no road back from S4 to S2): «именно, автор кейсов фиксит то что может, остальное доходит до отчёта по тестированию»
+- On F5 (S4 keeps the stop at the person when review rounds are spent): «да и человек может ещё один круг сказать или идти дальше с
+  фиксацией правки и тогда автоматизатор должен учесть эти замечания»
+- On the quarantined `scripts/tests/test_stage_critic_route.py` (asked: delete the dead test of the stage-critic route): «Да, удаляй»
 
-**Lead's reading (the owner may correct it):** «не должно быть барьером» = when the one round is spent, or the consumer's verdict cannot
-be read, or the rounds cannot be counted, the consumer does NOT go to the conductor seam and no person is asked: the stage is accepted by
-the driver with a named GAP, the consumer goes on with what it has, and the gap reaches the report / gate B as a factory defect (Part B,
-B2). «один шанс» = one repair round, not two. Marked here as the Lead's reading so the owner can correct it.
+**The reading of «не должно быть барьером» (confirmed by the owner, F1: «всё верно»):** when the one round is spent, or the consumer's
+verdict cannot be read, or the rounds cannot be counted, the consumer does NOT go to the conductor seam and no person is asked: the stage is
+accepted by the driver with a named GAP, the consumer goes on with what it has, and the gap reaches the report / gate B as a factory defect
+(Part B, B2). «один шанс» = one repair round, not two.
 
 Goal. After this work the factory has a critic only on test cases (S4, `qa-case-critic`) and on automation code (S5, `qa-code-critic`);
-S2 and S3 close on their author's finish as before 0.11.0; S4 and S5 acceptance do not change; S6/S7 acceptance by the consumer stays as
-a mechanism with ONE return and no barrier.
+S2 and S3 close on their author's finish as before 0.11.0; S4 and S5 acceptance do not change in this spec (the S4 seam's two doors and the
+remarks to the automator, F5, are the FV1-6 re-cut, §X); S6/S7 acceptance by the consumer stays as a mechanism with ONE return and no
+barrier; a register defect the case author cannot fix in the cases reaches the test report (F3, node A3 on fork F7).
 
-Non-goals (from the brief): S4 and S5 acceptance; the S5/S7 repair-limit road (`repair_limit_gate`, `s7.repair_limit`); restoring any code
-refusal; any new question to a person.
+Non-goals (from the brief): S4 and S5 acceptance (the F5 S4 work goes to the FV1-6 re-cut, §X); the S5/S7 repair-limit road
+(`repair_limit_gate`, `s7.repair_limit`); restoring any code refusal; any new question to a person.
 
 ## §1. Package header (designer rule 1; CLAUDE.md rule 10, P27, AR-29)
 
@@ -40,21 +48,21 @@ refusal; any new question to a person.
 |---|---|---|---|
 | AR-1 closed variety is data | which stages have an in-stage acceptor; which earlier stages' artifacts the S4 acceptor reads; the consumer round cap | `references/stages.json` rows (`acceptance_by` and the critic leave S2/S3 `roles`; new S4 key `acceptance_reads`; new S6/S7 key `acceptance_rounds`), read by key, never by a stage or role name in code. RESIDUAL: `brief_pack.TRIED_READERS` (`brief_pack.py:112`) is closed variety in code and gains one row (B-1, Lead decision 1); its move into `stages.json` is ONE queue line for the Lead (§Q) | A1a W1 row; B1 rows C1-C6 |
 | AR-13 one reader | the cap of a repair loop; "accepted with a gap"; the stage author of a ticket re-run | one new reader `runtime_policy.repair_cap` replaces the four inline `policy.get("design_repair_cycles" if "case" in role ...)` sites; the gap quote prefix `GAP_PREFIX` lives beside `BY_PERSON` in `driver_core.py:411` and is read in `consumer_close_words` like `BY_PERSON` (F-7); `ticket_rework_step` reads the author as `stages.json` `roles[0]` for every stage (B-4a) | B1 grep in DoD; B2 rows; A1a T4 |
-| AR-14 one writer | the gap record; the gap warning | the existing writer `stage_done.py --acceptance ... --acceptor driver` (one writer of `pipeline["acceptance"]`) and `stage_done.py --warn` (one writer of `pipeline["warnings"]`, `stage_done.py:178-190`) — see fork F6 for how the two are called | B2 rows |
-| AR-15 one survivor | the hand-over of an earlier author's form; the gap to the report | the form travels by the ONE existing table `TRIED_READERS` / reader `tried_reader_names` (`brief_pack.py:3636-3644`) — no `author_form` part (B-1); the gap travels by the ONE existing warnings road (`stage_done.py --warn` -> `brief_pack.py:1819-1824` -> scribe; `gate_brief.py:2362` -> gate B) — no second reader of acceptance records (B-3) | A1a J1; B2 G6 |
+| AR-14 one writer | the gap record; the gap warning; the register remainder line | the existing writer `stage_done.py --acceptance ... --acceptor driver` (one writer of `pipeline["acceptance"]`) and `stage_done.py --warn` (one writer of `pipeline["warnings"]`, `stage_done.py:178-190`) — see fork F6; the findings register's one writer `exploratory_findings.py` (`:1`, `append` `:277`) for A3 | B2 rows; A3 row |
+| AR-15 one survivor | the hand-over of an earlier author's form; the gap to the report; the register remainder to the report | the form travels by the ONE existing table `TRIED_READERS` / reader `tried_reader_names` (`brief_pack.py:3636-3644`) — no `author_form` part (B-1); the gap travels by the ONE existing warnings road (`stage_done.py --warn` -> `brief_pack.py:1819-1824` -> scribe; `gate_brief.py:2362` -> gate B) — no second reader of acceptance records (B-3); the register remainder travels by the existing findings register (F7 (a)), not a new field | A1a J1; B2 G6; A3 X1 |
 | AR-17 one seam | S6/S7 no longer reach `stage_review_exhausted`; S4 still does | the seam is untouched; only its S6/S7 callers stop calling it; its then-dead S6/S7 branches are removed by residual node R1 after FV1-6 (F-3) | B2 row G4; R1 |
 | AR-19 stage twins | S2, S3, S4 were one route (X2-7); S6, S7 one consumer table | S2 and S3 leave together (same commit, A1a); S6 and S7 change together through `CONSUMER_ROUTES`; S4 keeps its own route | A1a W-rows; B rows at S6 and S7 |
 | AR-20 shrink-only ratchets | `judgment-census.json` (`ratchet` line), `driver-layers.json` rows, `role-load.json` (`ratchet_tokens`, `process_ratchet_tokens` slack 0) | rows leave / ceilings go DOWN to the printed count; any raise is named with key, old -> new, reason in the report and the commit (axis 18). The census and driver-layers tests are SLOW (`scripts/slow_tests.json`): their printed value is read from the branch's CI run (RUNBOOK §7, `tools/ci_read.py`) and written in a fix commit on the same branch before acceptance | A1b, A2, B2, B3 DoDs |
-| AR-21 / AR-22 handoff whole; every field produced has a reader | `work/advice-S2.json` and `work/advice-S3.json` (written by `exit_gate.write_advice`) and the S2 tester's / S3 strategist's handoff forms (their `tried` tables) lost their only reader (the S2/S3 critic's brief, `brief_pack.stage_critic_names` `:3565-3579`) | advice files: S4 `acceptance_reads` `{"S2": ["outputs", "advice"], "S3": ["advice"]}` (F2 (a)); both forms: the `TRIED_READERS` row `("S4", "qa-case-critic")` (B-1, B-1b) | A1a J1, J2 in `test_field_producers.py` |
+| AR-21 / AR-22 handoff whole; every field produced has a reader | `work/advice-S2.json` and `work/advice-S3.json` (written by `exit_gate.write_advice`) and the S2 tester's / S3 strategist's handoff forms (their `tried` tables) lost their only reader (the S2/S3 critic's brief, `brief_pack.stage_critic_names` `:3565-3579`) | advice files: S4 `acceptance_reads` `{"S2": ["outputs", "advice"], "S3": ["advice"]}` (F2 (a)); both forms: the `TRIED_READERS` row `("S4", "qa-case-critic")` (B-1, B-1b); the register remainder: producer (the case critic's `exploratory_findings.py add`) and reader (`report_facts` exploratory block) in ONE topic, A2 + A3 | A1a J1, J2; A3 X1 |
 | AR-23 empty outcome | an advice file absent at S4; an author form absent | the advice path is named with the absence line of `file_lines`; an absent form is not named (`tried_reader_names` skips an empty `last_accepted_form`) and the critic's `not_looked` says so | A1a J2 |
 | AR-25 every recorded state has a way out | 0.11.0 states in flight (S2/S3 critic dispatch, `stage_in_repair`, an author accepted with the stage open, an S2/S3 completed whose ticket changes later; a second consumer round registered under cap 2) | §A.5 (T1-T4) and §B.5 state each one's road; T1-T4 have test rows | A1a T1, T2, T4; A1b T3 note; B2 G7 |
-| AR-27 a gap reaches the report under its owner | the S6/S7 gap | a `pipeline["warnings"]` line `{stage} was accepted with a gap: {why}` -> the scribe's brief (`standing:` label, `brief_pack.py:1822`) -> `## Factory defects - nothing is wanted from you`; the S7 gap recorded at the scribe's own finish reaches gate B's packet through the same warnings (`gate_brief.py:2362`) | B2 G6; B3 scribe line |
+| AR-27 a finding, bug or gap reaches the report under its own owner | the S6/S7 gap; the S4 register remainder (F3) | S6/S7: a `pipeline["warnings"]` line `{stage} was accepted with a gap: {why}` -> the scribe's brief (`standing:` label, `brief_pack.py:1822`) -> `## Factory defects - nothing is wanted from you`; the S7 gap recorded at the scribe's own finish reaches gate B's packet through the same warnings (`gate_brief.py:2362`). S4 register remainder: a findings-register line (`refs` R-n, evidence the critic's findings file, window `pre-gate-a`) -> `report_facts` exploratory block (A3) | B2 G6; B3 scribe line; A3 X1 |
 | AR-28 an unknown never becomes a pass | an unreadable consumer verdict / uncountable rounds | recorded as a GAP (acceptor `driver`, quote `gap: ...`), never as a plain accept; no round is started on an unknown count | B2 G4, G5 |
 | AR-29 a code check judges data; judgment is judged by a tier above | the judgment of the register (S2) moves to the case critic at S4; the plan's four checks become the author's own self-check (no critic judges the plan; the case critic at S4 sees coverage and level through the cases; the person reads the plan at gate A — F-8); consumer return reasons stay the consumer role's judgment | no code check added that reads meaning; AR-29 text updated (node D) | critic question 10/11 on each node |
 
 AR-2, AR-7, AR-10 (FR-38): the consumer's legal return reasons are exactly what the author was told before the work (B3); the round state
-reaches the consumer in its brief before its work (B2, the round line). FR-11/FR-38 for the S4 critic: its form and scope rule are changed
-with its charter (A2, B-5).
+reaches the consumer in its brief before its work (B2, the round line). FR-11/FR-38 for the S4 critic: its form, scope rule and the
+register-remainder line are changed with its charter (A2, B-5, F7).
 
 ### 1.2 Checks added, altered or removed: owner served and census class
 
@@ -66,6 +74,7 @@ with its charter (A2, B-5).
 | completion of a dispatch whose role the stage does not declare (T2 rule) | `driver_stage_plan.completion_for` | added (A1a): answers False | data (the stage row) | not a check unit (raises nothing) |
 | the ticket re-run's author choice | `driver_s0.ticket_rework_step` | altered (A1a): `roles[0]` for every stage | data | not a check unit |
 | the four register checks + `tried` | case critic charter, S4 | moved / added as role text | judgment (the case critic; outcome accepted at gate A by the person and by the driver's shape checks) | none (text) |
+| the register remainder line (F3) | case critic charter + `exploratory_findings.append` (existing validator) | the critic records what the designer cannot fix; the existing validator judges its shape | judgment (the case critic decides what is a remainder); data (the validator) | existing rows `exploratory_findings.py append` etc. (shape, data, `judgment-census.json:348-357`) unchanged |
 | the four plan checks | strategist charter | reminder (self-check) | judgment (the author; nobody reviews the plan by meaning before gate A; the person reads it there) | none (text) |
 | repair cap of a loop | `runtime_policy.repair_cap` (new reader) used by `Controller.prepare` (`controller.py:2197`), `Controller.validate` (`:5605`), `runtime_policy.cumulative_budget` (`:94`), `stage_status.round_cap` (`:69`) | altered: a stage row's `acceptance_rounds` caps its author's rounds, except a packet carrying `person_words: true` (F-10) | data | the existing refusal unit in `Controller.validate` `:5639-5663` keeps its class; `repair_cap` raises nothing (not a unit); `runtime_policy.cumulative_budget` row (shape, data) unchanged |
 | consumer exhausted -> seam | `driver_stage_s6.consumer_exhausted` | replaced by the gap road (writes records, refuses nothing) | data (carries the consumer's quote) / judgment stays the consumer's | not a check |
@@ -73,12 +82,12 @@ with its charter (A2, B-5).
 
 ### 1.3 SIBLING_MAP axes (rule 10(b)), per mechanism
 
-Mechanism A (S2/S3 stage critic removed; register checks to S4; plan reminder) and mechanism B (consumer one round, gap road). One line
-per axis of `docs/SIBLING_MAP.md` (36 axes, read by heading list, trail §T):
+Mechanism A (S2/S3 stage critic removed; register checks to S4; plan reminder; register remainder to the report) and mechanism B
+(consumer one round, gap road). One line per axis of `docs/SIBLING_MAP.md` (36 axes, read by heading list, trail §T):
 
 - axis 1 (policy/role files/journal): n/a — no forge policy text changes; designer rule 1 and CLAUDE.md rule 10 untouched.
 - axis 2 (exam instruments): n/a — no tier exam touched.
-- axis 3 (package/release copy/installed plugin): covered — changelog fragments (A1a, B2); release copy is the normal release.
+- axis 3 (package/release copy/installed plugin): covered — changelog fragments (A1a, A3, B2); release copy is the normal release.
 - axis 4 (rules/debt/backlog/principles): covered — D-0060 archive Lead note (§A.6); no FR text changes; `design/factory-rules-debt.md` "stage critic" grep in node D.
 - axis 5 (stage twins): covered — A: S2 and S3 leave together, S4 kept; B: S6 and S7 through one table; row "Author + critic repair loop" (`SIBLING_MAP.md:122`) gains the S6/S7 consumer loop in node D (and FV1-6 item 14's S2/S3 addition is dropped, §X).
 - axis 6 (measurers): queued — node D greps `experiments/measurers/stage_compare.py` for `qa-case-critic` and reports (no edit outside the package without a node).
@@ -87,17 +96,19 @@ per axis of `docs/SIBLING_MAP.md` (36 axes, read by heading list, trail §T):
 - axis 13-16: n/a.
 - axis 17 (detector verdict shape): covered A — `advice` records keep one shape; their reader moves to S4. B n/a.
 - axis 18 (shrink-only ratchets): covered — census, driver-layers, role-load rows (A1b, A2, B2, B3); raises named; slow-test values read from CI.
-- axis 19-30: n/a (no tools line, host receipt, table reader, host form, tests[] row, execution record, freshness, stand word, profile, row form render, jsonl appender, profile commands touched).
+- axis 19-29: n/a (no tools line, host receipt, table reader, host form, tests[] row, execution record, freshness, stand word, profile, row form render, jsonl appender touched).
+- axis 30 (profile commands): covered — the case critic's Commands card row for `exploratory_findings.py add` lives in its one carrier `role-commands.json` (A3).
 - axis 31 (role carriers, one owner per aspect): covered — the register-judgment aspect moves from "stage critic S2" to the case critic charter; the plan self-check lives in the strategist charter only; `role-rules.json` rows follow their carrier (A2).
 - axis 32 (where judgment lives): covered — §1.2.
 - axis 33 (which dispatch am I): n/a — `reviewed_dispatch` (`brief_pack.py:3582-3597`) keeps S4 and the consumers; S2/S3 drop out by data.
-- axis 34 (one road): covered — no stage name in code for either mechanism; S6 and S7 one road; the ticket re-run's author is `roles[0]` for every stage (B-4a: the S1/S3 special cases go); the earlier-author form travels by `TRIED_READERS` only (B-1). The S4 seam vs the S6/S7 gap road is a difference selected by the CONSUMER RELATION (`acceptance.consumer_of(stage)`, `acceptance.py:1490-1494`: `acceptance_by` outside the stage's own roles), a data reading, plus the owner's word «не должно быть барьером» said of consumer acceptance only (§0) — named in §F (F5).
+- axis 34 (one road): covered — no stage name in code for either mechanism; S6 and S7 one road; the ticket re-run's author is `roles[0]` for every stage (B-4a: the S1/S3 special cases go); the earlier-author form travels by `TRIED_READERS` only (B-1). The S4 seam vs the S6/S7 gap road is a difference selected by the CONSUMER RELATION (`acceptance.consumer_of(stage)`, `acceptance.py:1490-1494`: `acceptance_by` outside the stage's own roles), a data reading, plus the owner's word of 13.11.2026 (§0, F5: «да и человек может ещё один круг сказать или идти дальше ...») — the third legal form of designer rule 6, carrier §0.
 - axis 35, 36: n/a.
 
 Four questions (rule 10): (a) cost — A removes one or more paid critic dispatches per S2 and S3 (and their repair rounds); B removes a
-second repair round and every conductor/person call at an exhausted consumer review; paid by nobody new. (c) detector — calibration
-check 41 (judgment census) and check 36 (architecture), the role-load audit A22, the keep rows below; the live proof row (FR-33) in
-`live-runs`. (d) on the path — data rows read by code (`stages.json`), the controller's cap in `validate`, the brief lines.
+second repair round and every conductor/person call at an exhausted consumer review; A3 costs the case critic one command per register
+remainder; paid by nobody new. (c) detector — calibration check 41 (judgment census) and check 36 (architecture), the role-load audit A22,
+the keep rows below; the live proof row (FR-33) in `live-runs`. (d) on the path — data rows read by code (`stages.json`), the controller's
+cap in `validate`, the brief lines, the findings register's reader in `report_facts`.
 
 ---
 
@@ -113,13 +124,14 @@ check 41 (judgment census) and check 36 (architecture), the role-load audit A22,
 - `driver_stage_plan.py`: `stage_S3` `:106-137` (critic branches `:115-117`, `:121-122`, `:130-131`); `s3_author_done` `:330-339`;
   `stage_repair_owed` `:557`; `s4_repair_owed` `:572`; `stage_acceptor` `:579-581`; `stage_S2` `:583-593` (no acceptor -> `stage_simple`);
   `stage_raise_questions` `:595`; `stage_critic_route` `:601`; `stage_after_critic` `:621`; `stage_critic_form` `:633`;
-  `stage_acceptance_write` `:641`; `stage_critic_completion` `:653`; `stage_verdict_known` `:681`; `stage_review_exhausted` `:691`;
-  `settle_role_questions` `:921`; `ticket_rerun_critic` `:962`; `completion_for` `:1011-1143` with the S2/S3 `ticket_changed` branch
-  `:1025-1035` (it answers for ANY role at S2/S3) and the S2/S3 acceptor branch `:1036-1043`.
-- Shared users kept: `stage_acceptance_write` — S4, S6 `driver_stage_s6.py:359,387`; `stage_verdict_known` — S4, S6 `:357`;
-  `stage_review_exhausted` — S4, S6 `:358` and via `consumer_exhausted` `:341`; `stage_acceptor` — S4; `settle_role_questions` — S4.
-  After A AND B, `stage_review_exhausted` has S4 as its only caller; its S6/S7 branches (`word = ... "stage_in_repair"` `:744`,
-  `who = acceptance.consumer_of(stage) or ...` `:702`) are dead then — residual node R1 (F-3).
+  `stage_acceptance_write` `:641` (raises the critic's `questions[]` then writes the record, `:646-651`); `stage_critic_completion` `:653`;
+  `stage_verdict_known` `:681`; `stage_review_exhausted` `:691`; `s4_critic_completion` `:785`; `settle_role_questions` `:921`;
+  `ticket_rerun_critic` `:962`; `completion_for` `:1011-1143` with the S2/S3 `ticket_changed` branch `:1025-1035` (it answers for ANY role
+  at S2/S3) and the S2/S3 acceptor branch `:1036-1043`.
+- Shared users kept: `stage_acceptance_write` — S4 (`:811`), S6 `driver_stage_s6.py:359,387`; `stage_verdict_known` — S4 (`:809`), S6 `:357`;
+  `stage_review_exhausted` — S4 (`:807`, `:810`, `:820`), S6 `:358` and via `consumer_exhausted` `:341`; `stage_acceptor` — S4;
+  `settle_role_questions` — S4. After A AND B, `stage_review_exhausted` has S4 as its only caller; its S6/S7 branches
+  (`word = ... "stage_in_repair"` `:744`, `who = acceptance.consumer_of(stage) or ...` `:700`) are dead then — residual node R1 (F-3).
 - `driver_machine.py`: `_act_prepare_stage` calls `self.stage_S2()` (`:1322-1323`); `wait_existing_job` -> `_wait_then_critic` (`:1290-1291`,
   `:1429-1433`) which calls `ticket_rerun_critic`; `record_running(... retry=lambda: self._wait_then_critic(action) ...)` (`:1496`).
 - `driver_s0.ticket_rework_step` (`:483-548`): the author to re-run is `roles[-1]` among the stage's ACCEPTED dispatches, filtered to
@@ -161,6 +173,11 @@ check 41 (judgment census) and check 36 (architecture), the role-load audit A22,
   `test_brief_s3_roster.py:85`, `test_stage_guard.py:2134` (slow, through the selftest). `test_scenario_local_1_arm_b.py` (slow): its walk
   (`fixtures/stories/local-1-arm-b/story.json:7-60`) has no S2/S3 critic step (S2 tester -> next S3 strategist; S4 critic; gate A); its
   recorded S2/S3 critic files are history and stay — judged by CI, no edit.
+- The quarantined `test_stage_critic_route.py` (`test-layers.json:9948`; deleted on the owner's word, A1b): its docstring `:2-18` lists
+  R1-R7; its functions add `r8_s4_rounds_left_unchanged` `:265-290`, `r9_restart_road_reads_the_record_id` `:293-328` (S2/S3 rows
+  `:295-308`, S4 rows `:309-328`), `r10_questions_come_from_the_critics_form` `:331-340` (through the S2 rig). No other package file imports
+  it or names it except its own `finish(...)` `:354`, the comments `test_story_run_s3_windows.py:175,199` (rewritten by A1a) and its
+  quarantine row; outside the package `plans/features.json:1194` names it (grep, control: the row `:9948`).
 - `role-load.json`: `qa-case-critic` 18296 / process 15929; `qa-test-strategist` 16925 / 15392; `qa-requirements-tester` 12630 / 11280;
   `process_ratchet_tokens` is slack-0 (A22 red above or below its row).
 
@@ -192,10 +209,16 @@ dimensions follows; hold it for S4 and borrow the dimensions that fit S2 and S3.
 Scope rule `:95` (B-5b) gains, after its first sentence: "The register bullet is read once, on the first review round, over the whole
 register and its sources, whatever the row scope; a repair round does not repeat it."
 
+Register remainder (F3, on fork F7 (a); one Tools line): "A register gap the designer cannot close in the cases (no case can carry it,
+or only the person can settle it) is recorded once, when you first find it, with `exploratory_findings.py add --task-root <T> --by <your
+dispatch id> --kind coverage_gap --title ... --statement <the register line and what is missing> --why-not-a-bug <a gap in the
+requirements, not a product defect> --refs <R-n[,TC-n]> --missing-prerequisite <what would close it> --evidence <your findings file>`;
+it reaches the test report. A gap only the person can settle also goes in `questions[]`."
+
 Process lines: `:3` description, `:10`, `:15`, `:20-25` lose S2/S3 (the critic is the S4 critic only); item 3 (`:24`) names every advice
 file it is given (`work/advice-S4.json`, `work/advice-S2.json`, `work/advice-S3.json`, each named, or a dash and why it was absent).
-`:86` "a finding at S3 and S4" -> "a finding". `:121` "at every stage" -> "at S4". Net: the S3 bullet leaves; three craft lines and one
-scope sentence come in — A2 measures and names.
+`:86` "a finding at S3 and S4" -> "a finding". `:121` "at every stage" -> "at S4". Net: the S3 bullet leaves; three craft lines, one scope
+sentence and one Tools line come in — A2 measures and names.
 
 The S4 critic's FORM (B-5a, A2 owns it): `handoffs/s4-case-critic-to-designer.yaml` `advice_read` (`:105`) placeholder becomes
 `"<each advice file the brief names - work/advice-S4.json, work/advice-S2.json, work/advice-S3.json - read, or a dash and the reason it was
@@ -221,17 +244,32 @@ reader. No `author_form` part. The S4 author (designer) brief does not change: b
 acceptor / has no `TRIED_READERS` row. Moving `TRIED_READERS` into `stages.json` is NOT done here (it would change the design): one queue
 line for the Lead (§Q, AR-1 residual).
 
-### A.2.4 What a finding against the REGISTER at S4 does (existing mechanisms only)
+### A.2.4 What a finding against the REGISTER at S4 does (F3, decided by the owner 13.11.2026)
 
-No road from S4 back to the tester is built (no new loop, no new barrier — the owner's motive). A register finding travels by the two
-roads that exist:
-1. When the register gap changes what a case must check and the case can carry it, the critic scores the case dimension and the
-   designer's ordinary S4 repair round fixes the CASES (`s4_after_critic`, unchanged).
-2. When only the person or the product owner can settle it (silence, a diff-only claim P20, a sentence with no home), the critic writes it
-   in `questions[]` of its form; `stage_acceptance_write` raises it into the register (`driver_stage_plan.py:646-649`, S4 included) and the
-   conductor settles it from files or it goes to the person at gate A with its class (`settle_role_questions`, unchanged). No new
-   question site.
-The register file itself is not edited at S4 (one writer). Fork F3 (owner's, OPEN) returns the alternative.
+The owner's word: «именно, автор кейсов фиксит то что может, остальное доходит до отчёта по тестированию». No road from S4 back to the
+tester is built. A register finding has three roads:
+1. **The designer fixes what it can** — when the register gap changes what a case must check and a case can carry it, the critic scores
+   the case dimension and the designer's ordinary S4 repair round fixes the CASES (`s4_after_critic`, `driver_stage_plan.py:749-772`,
+   unchanged).
+2. **A question only the person or the product owner can settle** (silence, a diff-only claim P20) — the critic writes it in `questions[]`
+   of its form; `stage_acceptance_write` raises it into the question register (`driver_stage_plan.py:646-649`, S4 included); the conductor
+   settles it from files or it goes to the person at gate A (`settle_role_questions`, unchanged). EXISTING CARRIER TO THE REPORT: a
+   question still not settled at S8 is listed in the report's `open-questions` block (`report_facts._questions` `:2600-2621`, predicate
+   `QR.settled`; block order `:79`). A question the person ANSWERED at gate A is settled and leaves the report's list — the answer stands in
+   the register; that part reaches the report only as long as it is open.
+3. **The remainder the designer cannot fix** (a sentence no requirement holds and no case can carry, a compound requirement whose two
+   behaviours the cases cannot separate, a gap the person answered "go on" over) — FACT: today it has NO carrier to the report. The case
+   critic's findings / `approve_with_concerns` rows reach the automator (`s5_plan.case_concerns` `:1146-1160`) and gate A's line "Concerns
+   carried to automation", but `report_facts.py` reads no critic concern (grep `concern|plan_remarks` -i over `report_facts.py`: no hit;
+   control: `review_gaps` `:2503` in the same file, which reads only the S5 code critic's rows). The nearest existing carrier is the
+   findings register `work/exploratory-findings.jsonl` (one writer/reader `exploratory_findings.py`, kinds `observation`,
+   `unresolved_question`, `coverage_gap` `:36`; window `pre-gate-a` before gate A `:201-202`; refs R-n/TC-n; evidence a file under the
+   story) whose lines the report renders in its exploratory block and gate B lines (`report_facts._register` `:360`, `facts["exploratory"]`
+   `:393-407`). It is NOT on the case critic's Commands card today (`references/role-commands.json`: no `exploratory_findings` entry; control:
+   `critic_rollcall.py --store` `:194-199`). How the remainder travels is returned as fork F7 (Lead); node A3 is written on F7 (a): the
+   case critic records the remainder in the findings register, producer (charter line in A2 + card row in A3) and reader (the existing
+   `report_facts` exploratory block, pinned by a row in A3) in one topic.
+The register file itself is not edited at S4 (one writer).
 
 ## A.3 S3 — the acceptor removed; the four checks become the author's reminder
 
@@ -268,8 +306,8 @@ first. `FIRST_LOOK_KIND (S3, qa-case-critic)` goes (A1a); the `(S4, qa-case-crit
 | `completion_for` `:1033-1034` acceptor sub-branch of `ticket_changed`; `:1036-1043` acceptor branch [A1b] | delete (dead after A1a: `stage_acceptor` is "" at S2/S3) | |
 | `s3_ticket_completion(closes=...)` [A1b] | drop the parameter | one caller left passes the default |
 | `driver_s0.ticket_rework_step` author filter `:526-530` [A1a] | one generic rule: the author is `stages.json` `roles[0]` | B-4a, P31 |
-| `stage_acceptor`, `stage_repair_owed`, `s4_repair_owed`, `stage_acceptance_write`, `stage_verdict_known`, `settle_role_questions` | KEEP | S4, S6, S7 |
-| `stage_review_exhausted` S6/S7 branches (`:702`, `:744`) [R1] | simplify after FV1-6 and B2 merge | F-3 |
+| `stage_acceptor`, `stage_repair_owed`, `s4_repair_owed`, `stage_acceptance_write`, `stage_verdict_known`, `settle_role_questions`, `s4_critic_completion` | KEEP | S4, S6, S7 |
+| `stage_review_exhausted` S6/S7 branches (`:700`, `:744`) [R1] | simplify after FV1-6 and B2 merge | F-3 |
 | `acceptance.py` stage-acceptance block, `stage_done.py --acceptance`, `vocabulary.stage_acceptance_verdicts`, `Reviewed dispatch:` | KEEP; docstrings listing "S2, S3, S4" corrected [A1b] (`acceptance.py:1458-1461,1516-1517,1526`, `stage_done.py:975,1551`) ; `controller.py:5894` comment corrected by B1 (it sits in `validate`, which B1 owns) | text only |
 | `acceptance.author_exit_owes_plan` + its branch [A1b] | delete | A.3 |
 | `controller.REPAIR_LOOP_ROLES` entries `qa-requirements-tester`, `qa-test-strategist` [A1a] | delete | before X2-7 they were not in the set |
@@ -281,10 +319,47 @@ first. `FIRST_LOOK_KIND (S3, qa-case-critic)` goes (A1a); the `(S4, qa-case-crit
 | `null-outcomes.json` NE34 `:133`, NE35 `:137` [A1b] | delete (verified: the scope carriers of the two forms) | |
 | `open-vocabularies.json:3` note [A1b] | "The stage critic judges every extension" -> "The critic of the stage judges every extension (S4, S5); an extension proposed at S2 or S3 is read by the case critic at S4 through the author's form and by the person at gate A" | |
 | `test-layers.json:1701,1703` (`covers` of the keep row `test_field_producers.py`) [A1b] | remove the two entries (a `covers` entry is not a keep row; `quarantine`/`cohorts` are untouched) | the files are deleted |
+| quarantined `scripts/tests/test_stage_critic_route.py` [A1b] | DELETE on the owner's word 13.11.2026 («Да, удаляй»), in the commit that removes the route, after A1a's survivor rows are green (A.4.1); its quarantine row STAYS until the cohort purge | A.4.1 |
+| `plans/features.json:1194` (names the deleted file) [A1b] | remove the line (what `test_quarantine.py purge` would do, `_purge_features`) | no path to a missing file |
 | `driver-layers.json` `:525-526`, `:529`, `:531-533`, `:535-536`, `:784` [A1b] | delete | methods gone (F-1) |
 | `driver-layers.json` `:527-528`, `:530`, `:534`, `:537-538` [A1b] | KEEP; notes "S2 and S3" corrected to "S4/S6/S7" | |
 | `driver-layers.json` `:686` (`consumer_exhausted`) [B2] | delete; new rows `consumer_gap`, `consumer_round_line` (home `driver_stage_s6`, row 74) | F-1 |
 | `judgment-census.json` `ratchet` [A1b, B2] | no row leaves; `blocking_per_role` values lowered to what `test_judgment_census.py` prints on the branch's CI run when below the ceiling (F-2) | AR-20 |
+
+### A.4.1 Deleting `test_stage_critic_route.py` — the road and the precondition
+
+THE ROAD (read on `tools/test_quarantine.py`): `purge` deletes a whole COHORT only (`purge --cohort ID --owner-word "<who, date>"`, `:14`,
+`cmd_purge` `:1862-1907`) and refuses before the cohort is READY: "purge refused: cohort <id> is not READY TO DELETE (...) --
+python tools/test_quarantine.py status prints every rule; purge only when all pass" (`:1889-1890`); the SessionStart line says releases
+1 of 2, no watch run yet — not READY. The tool's single-file door is its commit-message check (`check_history`, `:1695-1699`): "quarantined
+file <n> was changed, deleted or renamed -- expected a line 'quarantine-edit: <n> -- <reason>' (the bare file name, no folder) in this
+commit message" (`_edit_refusal` `:1525-1527`); removing the quarantine ROW instead needs `quarantine-purge: <cohort>` (`:1702-1704`), so the
+row is NOT removed. The later cohort purge expects exactly this state: "deleted earlier (a quarantine-edit): nothing to remove, the rows
+still go" (`_purge_apply` `:2216-2217`). So A1b: `git rm ai-packages/qa-factory/scripts/tests/test_stage_critic_route.py` in the route-removal
+commit, whose message carries the line
+`quarantine-edit: test_stage_critic_route.py -- deleted on the owner's word 13.11.2026 (Yes, delete): the S2/S3 stage-critic route it tested is removed in this commit; its S4 checks live on in test_story_run_refusals.py (A1a rows S-R8..S-R10)`
+(English gloss of «Да, удаляй»; the commit message is read before push for Cyrillic like any package commit). `python tools/test_quarantine.py check`
+must pass on the commit.
+EDGES of the deletion: (i) no kept file imports it (grep, §A.1) — `_purge_helpers`' refusal "kept files import a file of the cohort" cannot
+fire later; (ii) `selftest.py --quarantined` builds its list from the quarantine rows (`selftest.py:845`), so the next `quarantine-watch`
+may report the row's file as missing/red — ESTIMATE, not verified (the watch code for an absent file was not traced). If it does, the door
+is the tool's own `judge test_stage_critic_route.py --pipeline <id> --verdict stale --by <tier> --reason "deleted on the owner's word
+13.11.2026 with the S2/S3 route"` (`:8`); the Lead watches the first watch run after the merge (§O). INVARIANT: the quarantine row leaves
+only through `purge` (one writer, AR-14); no bypass of the purge's READY rule.
+
+THE PRECONDITION (the Lead's condition). The file is not wholly about S2/S3. Per behaviour:
+
+| behaviour (test_stage_critic_route.py) | survives the removal? | live row today (non-quarantined) | verdict |
+|---|---|---|---|
+| R7, S4 part: S4 names the critic as its acceptor and the critic is S4's last role (`:233`); the S4 designer's loop counts (`:225`, F-X2-4) | yes (S4 keeps its critic) | none asserts S4's row shape; the designer's cap: none | A1a W1 gains `stages["S4"]["acceptance_by"] == "qa-case-critic" and stages["S4"]["roles"][-1] == "qa-case-critic"`; B1 C4 pins the designer's cap |
+| R8 `r8_s4_rounds_left_unchanged` (`:265-290`): the record is written FIRST from the critic's form, then S4's rule: `concerns` at 0 of 2 -> `OpenWork("cases_in_repair")`; `ok` -> None; `concerns` at 2 of 2 -> the seam is asked with "S4" | yes | partial: `test_story_run_refusals.py:3551-3608` (`refusal_c2_4_s4_keeps_open_only_when_the_round_will_run`, keep `test-layers.json:5995`, slow) pins `OpenWork cases_in_repair` (`:3576`), `approve -> None` (`:3583`), last round -> None (`:3584`) — but its writer is a no-op stub (`:3564`) and its seam stub returns None without logging (`:3568`): "record first" and "the seam is asked on the last round" are NOT asserted | A1a adds row S-R8 |
+| R9 S4 part (`:309-328`): the restart road writes the record of the RECORD's dispatch id (`S4-qa-case-critic-7`, `last_dispatch` unset); a record with no id writes nothing and asks the seam with a reason naming "no dispatch id" | yes (S4 `s4_critic_completion` `:803-808`) | none (`:3591` uses an id but stubs the writer) | A1a adds row S-R9 |
+| R9 S2/S3 part (`:295-308`) | no (route removed) | — | dies with the route |
+| R10 (`:331-340`): the critic's `questions[]` are raised BEFORE its record, `check=True`, `--asked-by` the acceptor, `--from-handoff` the critic's form; one raise per finish | yes for S4 (`stage_acceptance_write` `:646-651` is S4's writer too) | none at the driver level (`test_question_register.py:1849-1957` pins the CLI, not the driver's order or `check=True`) | A1a adds row S-R10 |
+| R1-R6, R7 S2/S3 parts | no | — | die with the route |
+
+Every surviving behaviour has a live row once A1a is merged; A1b deletes the file only after A1a's rows S-R8..S-R10 and W1 are green on
+A1a's branch CI. If any of them is red there, the deletion is NOT legal: A1b stops with that output as a question to the Lead.
 
 ## A.5 TEMPORAL — a story in flight recorded under 0.11.0, resumed on the new package
 
@@ -324,11 +399,12 @@ dispatch of an undeclared role never closes any stage, whatever its `repair_caus
   cases (a sentence no requirement holds, a compound requirement, a silent boundary, a requirement only the diff states) and reads the
   tester's and the strategist's forms and `work/advice-S2.json` / `work/advice-S3.json`. The strategist checks its own plan against four
   reminders before it stops. A ticket re-run always re-runs the stage's author. A story paused under 0.11.0 in S2 or S3 re-runs that
-  stage's author once, or is closed on the author's finished work."
+  stage's author once, or is closed on the author's finished work." A3 appends: "A register gap the case designer cannot close is recorded
+  by the case critic in the findings register and shown in the test report."
 - D-0060 archive entry, Lead note (text to append, Russian, the Lead writes it): «Примечание Lead, 13.11.2026: часть B (критики стадий
   S2 и S3) снята словом владельца 13.11.2026 — «в таком варианте мы только увеличиваем время прохода стори и количество барьеров.
-  Убираем лишних кртиков, оставляем как раньше». Проверки реестра S2 перенесены к критику кейсов на S4, проверки плана S3 — напоминанием
-  в хартию стратега; приёмка S6/S7 потребителем оставлена с одним раундом и без барьера (спека
+  Убираем лишних кртиков, оставляем как раньше». Проверки реестра S2 перенесены к критику кейсов на S4 (непочиненный остаток — в отчёт),
+  проверки плана S3 — напоминанием в хартию стратега; приёмка S6/S7 потребителем оставлена с одним раундом и без барьера (спека
   `docs/tasks/specs/20261113-stage-critics-s2-s3-removed-spec.md`). P27/AR-29 не меняются: код не судит, суждение у роли.»
 
 ---
@@ -362,7 +438,7 @@ dispatch of an undeclared role never closes any stage, whatever its `repair_caus
   line, otherwise `standing` (`brief_pack.py:1819-1824`, `gate_brief._not_established` `:2249-2268`). Gate B's packet reads the same
   warnings (`gate_brief.py:2362`).
 
-## B.2 Design
+## B.2 Design (F1 decided by the owner: «всё верно»)
 
 B2-1. The cap is data. `stages.json` S6 and S7 get `"acceptance_rounds": 1` — "the repair rounds a consumer may ask of this stage's
 author". One reader `runtime_policy.repair_cap(role, stage_def=None, limits=None, person_words=False) -> int|None`: when `stage_def` carries
@@ -468,10 +544,10 @@ wanted from you`; a `standing:` line of your brief that begins `S6 was accepted 
 ## B.5 TEMPORAL
 
 Before: cap 2 and the seam; after: cap 1 and the gap road; the move that creates it: B1 (cap) and B2 (road) commits — either alone is
-safe (B1 alone: cap 1 with the seam = F1 (b)'s world; B2 alone: the gap road under cap 2). A story in flight with a SECOND consumer round
-already registered (counted 1, round 2 running): the round runs; at the next verdict the count is 2 of 1 -> gap (E-B1). A round 2 not yet
-registered: none is started. An S6/S7 story parked at the seam: its answer roads are unchanged (`take_seam_answer`); the next consumer
-verdict, if any, follows the gap road. INVARIANT: no in-flight state is a dead end; no third round is ever started.
+safe (B1 alone: cap 1 with the seam; B2 alone: the gap road under cap 2). A story in flight with a SECOND consumer round already registered
+(counted 1, round 2 running): the round runs; at the next verdict the count is 2 of 1 -> gap (E-B1). A round 2 not yet registered: none is
+started. An S6/S7 story parked at the seam: its answer roads are unchanged (`take_seam_answer`); the next consumer verdict, if any, follows
+the gap road. INVARIANT: no in-flight state is a dead end; no third round is ever started.
 
 ---
 
@@ -479,17 +555,18 @@ verdict, if any, follows the gap road. INVARIANT: no in-flight state is a dead e
 
 Common to every node: given — this spec; `ai-packages/qa-factory/design/factory-rules.md` WHOLE; `plans/builder-rules.md`; `docs/TESTING.md`;
 `ai-packages/qa-factory/design/architecture.md` (rows of §1.1); `ai-packages/qa-factory/scripts/slow_tests.json`; the files of owns as they
-stand in the node's worktree. non-goals (all): S4, S5 acceptance; the S5/S7 repair-limit road; any code refusal restored; any new question
-to a person; any new test FILE (a new parameterised function in an existing keep file is legal); any edit or run of a quarantined test file;
-any local run of a file listed in `scripts/slow_tests.json` — such a file is named "judged by CI" and its keys are read from the branch's CI
-run (RUNBOOK §7, `tools/ci_read.py`). handoff: builder report per `.claude/agents/builder.md` rule 7 (FR pass A-G, verbatim witness, axis
-block, AR-20 line for every ratchet move, `architecture:` and `judgment:` lines, the CI keys of slow files). Worktrees
+stand in the node's worktree. non-goals (all): S4, S5 acceptance (the F5 S4 doors are the FV1-6 re-cut, §X); the S5/S7 repair-limit road;
+any code refusal restored; any new question to a person; any new test FILE (a new parameterised function in an existing keep file is
+legal); any edit or run of a quarantined test file (except A1b's owner-ordered deletion of `test_stage_critic_route.py`); any local run of
+a file listed in `scripts/slow_tests.json` — such a file is named "judged by CI" and its keys are read from the branch's CI run (RUNBOOK §7,
+`tools/ci_read.py`). handoff: builder report per `.claude/agents/builder.md` rule 7 (FR pass A-G, verbatim witness, axis block, AR-20 line
+for every ratchet move, `architecture:` and `judgment:` lines, the CI keys of slow files). Worktrees
 `C:\QAFactory\forge-repo\.claude\worktrees\sc-<node>\` from origin/main at dispatch (after the prerequisites of §Parallelism).
 VERIFICATION FORM (every code node): `python -B ai-packages/qa-factory/scripts/tests/scenario_walk.py --witness-for <the node's owned
 non-test paths>` and every NON-slow file it prints, run; the slow files it prints are listed as "judged by CI".
-OWNER'S FORKS (Lead decision 5): F1, F3, F5 stay open; each node below says which of its lines change if the owner picks the other option.
+OWNER'S FORKS: F1, F3, F5 were decided (a) by the owner on 13.11.2026 (§0); no node carries alternative lines for them.
 
-### A1a — S2/S3 leave in data; temporal rules; the S4 hand-over; live tests  [builder -> critic, topic A]
+### A1a — S2/S3 leave in data; temporal rules; the S4 hand-over; live tests (incl. the survivors of the deleted test)  [builder -> critic, topic A]
 owns:
 C:\QAFactory\forge-repo\.claude\worktrees\sc-a1a\ai-packages\qa-factory\references\stages.json (S2, S3 rows: `roles`, `acceptance_by`; S4 row: new `acceptance_reads`)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-a1a\ai-packages\qa-factory\scripts\driver_stage_plan.py (`completion_for`: the new T2 rule only)
@@ -499,14 +576,16 @@ C:\QAFactory\forge-repo\.claude\worktrees\sc-a1a\ai-packages\qa-factory\scripts\
 C:\QAFactory\forge-repo\.claude\worktrees\sc-a1a\ai-packages\qa-factory\scripts\stage_guard.py (`selftest()`: the case `:3088-3089` only)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-a1a\ai-packages\qa-factory\scripts\tests\test_story_run_s3_windows.py (W1 `:120`, W3 `:175`, W11 `:199-202`, W5 `:285-291`; new rows SC-1..SC-3, T2)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-a1a\ai-packages\qa-factory\scripts\tests\test_story_run_freshness_k6_k7.py (`:344-355` rows; new row T4)
+C:\QAFactory\forge-repo\.claude\worktrees\sc-a1a\ai-packages\qa-factory\scripts\tests\test_story_run_refusals.py (new function `refusal_s4_critic_finish_survivors`, rows S-R8, S-R9, S-R10, and its call in the file's `main`)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-a1a\ai-packages\qa-factory\scripts\tests\test_stage_closure.py (new rows T1, T1-b)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-a1a\ai-packages\qa-factory\scripts\tests\test_field_producers.py (new rows J1, J2)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-a1a\ai-packages\qa-factory\scripts\tests\test_first_look_briefs.py (`PAIRS` `:28`: the `("S3", "qa-case-critic")` entry only)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-a1a\ai-packages\qa-factory\scripts\tests\test_first_look_wiring.py (`:126`: the `("S3", "qa-case-critic")` entry only)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-a1a\ai-packages\qa-factory\scripts\tests\test_brief_s3_roster.py (`:85`: the S3 roles tuple only)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-a1a\ai-packages\qa-factory\changelog.d\stage-critics-s2-s3-removed.md (new)
-non-goals: every function A1b deletes (they become inert by data and stay until A1b); S4 functions; every S6/S7 function; `Controller.validate`
-and `Controller.prepare` (B1); charters and forms (A2); `story_run_common.py`; the `ticket_changed` acceptor sub-branch (A1b).
+non-goals: every function A1b deletes (they become inert by data and stay until A1b); S4 functions (S-R rows only READ them); every S6/S7
+function; `Controller.validate` and `Controller.prepare` (B1); charters and forms (A2); `story_run_common.py`; the `ticket_changed`
+acceptor sub-branch (A1b); the quarantined `test_stage_critic_route.py` (A1b deletes it).
 edges (each with invariant):
 - POSITIONAL `completion_for` T2 rule: right after the two S1 rules (`:1014-1024`), BEFORE the S2/S3 `ticket_changed` branch (`:1025`).
   INVARIANT: a dispatch of an undeclared role never closes any stage, whatever its `repair_cause`; a declared author's ticket re-run still
@@ -521,21 +600,34 @@ edges (each with invariant):
 - the S2 tester or the S3 strategist has no accepted dispatch -> `tried_reader_names` names nothing for it. INVARIANT: no path is invented.
 - `TRIED_READERS` S9 row unchanged. INVARIANT: the retro's brief is byte-identical.
 - `REPAIR_LOOP_ROLES` shrink: INVARIANT S4, S5, S6, S7 authors and critics keep their cap.
+- S-R rows exercise TODAY's S4 code (no S4 behaviour changes in this spec): INVARIANT a red S-R row on A1a's branch is a defect of S4 older
+  than this spec — the node reports it as a question to the Lead and does not change S4 code.
 - TEMPORAL: both worlds A.5 (T1, T1-b, T2, T4). The world is created by this node's `stages.json` commit.
-F1/F3/F5 if the owner picks the other option: no line of A1a changes.
 test rows (parameterised; ids name the input):
 - `test_story_run_s3_windows.py` (keep `test-layers.json:6083`, SLOW — judged by CI): W1 rewritten: S2 roles == [tester], S3 roles ==
-  [strategist], neither has `acceptance_by`; S4 has `acceptance_by` and `acceptance_reads == {"S2": ["outputs", "advice"], "S3": ["advice"]}`.
-  W3 `:175` / W11 `:199-202` rewritten as SC-2 `s3-closes-without-critic` (diff world and off-diff): window 2 / the one window closes; the
-  routed list stays empty. W5 `:285-291`: S3 ticket_changed -> `s3_ticket_completion()` callable returns True (closes); S2 ticket_changed
-  with the tester -> True. SC-1 `s2-closes-without-critic`: S2 through `_act_prepare_stage` with the role stub: one dispatch (tester), its
-  completion closes. SC-3 `s4-still-runs-its-critic`: `stage_S4` with stubs dispatches the designer then `qa-case-critic` (control). T2
-  `undeclared-role-never-closes`: `completion_for("S2", "qa-case-critic", {})` is False; `completion_for("S2", "qa-case-critic",
-  {"repair_cause": "ticket_changed"})` is False; `completion_for("S3", "qa-case-critic", {"repair_cause": "ticket_changed"})` is False;
-  `completion_for("S3", "qa-runner", {"purpose": "first_look"})` is not False by the T2 rule (control: declared optional).
+  [strategist], neither has `acceptance_by`; S4 has `acceptance_by == "qa-case-critic"`, `roles[-1] == "qa-case-critic"` (R7 S4 survivor) and
+  `acceptance_reads == {"S2": ["outputs", "advice"], "S3": ["advice"]}`. W3 `:175` / W11 `:199-202` rewritten as SC-2
+  `s3-closes-without-critic` (diff world and off-diff): window 2 / the one window closes; the routed list stays empty; the comments naming
+  `test_stage_critic_route` go. W5 `:285-291`: S3 ticket_changed -> `s3_ticket_completion()` callable returns True (closes); S2
+  ticket_changed with the tester -> True. SC-1 `s2-closes-without-critic`: S2 through `_act_prepare_stage` with the role stub: one dispatch
+  (tester), its completion closes. SC-3 `s4-still-runs-its-critic`: `stage_S4` with stubs dispatches the designer then `qa-case-critic`
+  (control). T2 `undeclared-role-never-closes`: `completion_for("S2", "qa-case-critic", {})` is False; `completion_for("S2",
+  "qa-case-critic", {"repair_cause": "ticket_changed"})` is False; `completion_for("S3", "qa-case-critic", {"repair_cause":
+  "ticket_changed"})` is False; `completion_for("S3", "qa-runner", {"purpose": "first_look"})` is not False by the T2 rule (control).
 - `test_story_run_freshness_k6_k7.py` (keep `:5719`, SLOW — judged by CI): `:344-355` S2 ticket re-run with the tester -> True (no acceptor);
   T4 `ticket-rerun-picks-roles0`: accepted S2 dispatches tester then `qa-case-critic` -> `rework("S2", "qa-requirements-tester", ...)`;
   S3 with strategist then first-look runner accepted -> strategist (control, as today); S1 scout then reference runner -> scout (control).
+- `test_story_run_refusals.py` (keep `:5995`, SLOW — judged by CI), new function `refusal_s4_critic_finish_survivors` (the survivors of the
+  deleted R8/R9/R10, on the file's existing `seed`/`driver_for` fixture): S-R8 `s4-record-first-then-rule`: `stage_acceptance_write` logs
+  `(stage, dispatch)`, `stage_review_exhausted` logs its first argument; `s4_critic_completion(["TC-1"], counted, 2)` with
+  `last_dispatch = "S4-qa-case-critic-1"` and a findings file: `concerns` at 0 -> written `[("S4", "S4-qa-case-critic-1")]` before the
+  result, result `OpenWork` with `unresolved == "cases_in_repair"`; `ok` at 0 -> written, None, no seam; `concerns` at 2 -> written, seam
+  log `["S4"]`. S-R9 `s4-restart-reads-record-id`: `last_dispatch = ""`, `dispatch_id="S4-qa-case-critic-7"`, `ok` -> written
+  `[("S4", "S4-qa-case-critic-7")]`, None; `dispatch_id=""` -> nothing written, one seam call whose `text` contains "no dispatch id". S-R10
+  `s4-critic-questions-before-record`: the REAL `stage_acceptance_write("S4", "S4-qa-case-critic-1")` with `py` logging `(script, args,
+  check)` and the form file present -> first `question_register.py` with `--stage S4`, `--asked-by qa-case-critic`, `--from-handoff
+  work/handoffs/S4-qa-case-critic-1.yaml`, `check=True`; then `stage_done.py ... --acceptance work/handoffs/S4-qa-case-critic-1.yaml`; with
+  the form file absent -> only the `stage_done.py` call.
 - `test_stage_closure.py` (keep `:5335`, fast): T1 `author-last-closes-by-repair`: `Controller.stage_repairs(state)` for S2 running, newest
   dispatch the tester accepted without `stage_complete`/`unresolved`, nothing open -> one `stage_completed` fix for S2; with `unresolved`
   -> none. T1-b `s3-between-windows-not-closed`: S3 running, newest dispatch window 1 (`purpose: s3_labelling`) accepted -> no fix for S3.
@@ -545,17 +637,18 @@ test rows (parameterised; ids name the input):
   for `qa-case-designer` both return []. J2 `absent-advice-named` / `no-author-form-named-nothing`.
 - `test_first_look_briefs.py`, `test_first_look_wiring.py`, `test_brief_s3_roster.py` (fast): the S3 critic entries leave; every other pair
   unchanged.
-DoD: keys W1, W3/W11 (SC-2), W5, SC-1, SC-3, T2, T4 green on the branch's CI run (read with `tools/ci_read.py`, quoted verbatim); T1,
-T1-b, J1, J2 and the three first-look files green locally; `python -B ai-packages/qa-factory/scripts/stage_guard.py --selftest` prints no
-failure (the selftest case of `stage_guard.py`; `test_stage_guard.py` itself is slow — judged by CI); `grep -n "roles\[-1\]"
-ai-packages/qa-factory/scripts/driver_s0.py` prints nothing, positive control the same grep on the base tree prints `:535`/`:540`.
+DoD: keys W1, W3/W11 (SC-2), W5, SC-1, SC-3, T2, T4, S-R8, S-R9, S-R10 green on the branch's CI run (read with `tools/ci_read.py`, quoted
+verbatim); T1, T1-b, J1, J2 and the three first-look files green locally; `python -B ai-packages/qa-factory/scripts/stage_guard.py --selftest`
+prints no failure (`test_stage_guard.py` itself is slow — judged by CI); `grep -n "roles\[-1\]" ai-packages/qa-factory/scripts/driver_s0.py`
+prints nothing, positive control the same grep on the base tree prints `:535`/`:540`.
 Verification: `python -B ai-packages/qa-factory/scripts/tests/scenario_walk.py --witness-for ai-packages/qa-factory/references/stages.json ai-packages/qa-factory/scripts/driver_stage_plan.py ai-packages/qa-factory/scripts/driver_s0.py ai-packages/qa-factory/scripts/controller.py ai-packages/qa-factory/scripts/brief_pack.py ai-packages/qa-factory/scripts/stage_guard.py`
-and the non-slow files it prints; judged by CI: `test_story_run_s3_windows.py`, `test_story_run_freshness_k6_k7.py`, `test_stage_guard.py`
-and every other slow file it prints. `architecture: AR-1, AR-13, AR-15, AR-19, AR-22, AR-23, AR-25 -- data rows; TRIED_READERS row (AR-1
-residual queued); one author rule; T2/T4 roads`. judgment: no check reads meaning. Ratchets: none expected (no method added or removed).
-siblings: S4 route (control SC-3); S6/S7 consumer (Part B); the census/stage-joints rows of T1 topic (§X).
+and the non-slow files it prints; judged by CI: `test_story_run_s3_windows.py`, `test_story_run_freshness_k6_k7.py`, `test_story_run_refusals.py`,
+`test_stage_guard.py` and every other slow file it prints. `architecture: AR-1, AR-13, AR-15, AR-19, AR-22, AR-23, AR-25 -- data rows;
+TRIED_READERS row (AR-1 residual queued); one author rule; T2/T4 roads; S4 survivors pinned live`. judgment: no check reads meaning.
+Ratchets: none expected (no method added or removed).
+siblings: S4 route (control SC-3, S-R rows); S6/S7 consumer (Part B); the census/stage-joints rows of T1 topic (§X).
 
-### A1b — the dead S2/S3 route removed (after A1a)  [builder -> critic, topic A]
+### A1b — the dead S2/S3 route removed, with its quarantined test (after A1a)  [builder -> critic, topic A]
 owns:
 C:\QAFactory\forge-repo\.claude\worktrees\sc-a1b\ai-packages\qa-factory\scripts\driver_stage_plan.py (`stage_S3` critic branches; deleted: `stage_S2`, `s3_author_done`, `stage_raise_questions`, `stage_critic_route`, `stage_after_critic`, `stage_critic_form`, `stage_critic_completion`, `ticket_rerun_critic`; `completion_for`: the acceptor sub-branch `:1033-1034` and the branch `:1036-1043` only; docstrings of `stage_acceptance_write`, `stage_repair_owed` naming S2/S3)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-a1b\ai-packages\qa-factory\scripts\driver_machine.py (`_act_prepare_stage` S2 branch; `_wait_then_critic` deleted; the `wait_existing_job` line `:1290-1291`; the `record_running` retry `:1496`)
@@ -569,7 +662,9 @@ C:\QAFactory\forge-repo\.claude\worktrees\sc-a1b\ai-packages\qa-factory\handoffs
 C:\QAFactory\forge-repo\.claude\worktrees\sc-a1b\ai-packages\qa-factory\scripts\handoff_init.py (the two contract names in the tuples `:152-153`)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-a1b\ai-packages\qa-factory\references\null-outcomes.json (NE34, NE35)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-a1b\ai-packages\qa-factory\references\open-vocabularies.json (the `note` `:3`)
-C:\QAFactory\forge-repo\.claude\worktrees\sc-a1b\ai-packages\qa-factory\scripts\tests\test-layers.json (the `covers` entries `:1701`, `:1703` of the keep row `test_field_producers.py` only)
+C:\QAFactory\forge-repo\.claude\worktrees\sc-a1b\ai-packages\qa-factory\scripts\tests\test-layers.json (the `covers` entries `:1701`, `:1703` of the keep row `test_field_producers.py` only; the quarantine row `test_stage_critic_route.py` `:9948` is NOT touched)
+C:\QAFactory\forge-repo\.claude\worktrees\sc-a1b\ai-packages\qa-factory\scripts\tests\test_stage_critic_route.py (delete, A.4.1)
+C:\QAFactory\forge-repo\.claude\worktrees\sc-a1b\plans\features.json (the line `:1194` naming the deleted file only)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-a1b\ai-packages\qa-factory\scripts\tests\test_story_run_s3_windows.py (new row W2)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-a1b\ai-packages\qa-factory\scripts\tests\test_first_look_step.py (`s3_readers_with_first_look_dispatch_present` `:612-643` only)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-a1b\ai-packages\qa-factory\scripts\tests\test_story_run_first_look.py (`:44` only)
@@ -579,8 +674,13 @@ C:\QAFactory\forge-repo\.claude\worktrees\sc-a1b\ai-packages\qa-factory\scripts\
 C:\QAFactory\forge-repo\.claude\worktrees\sc-a1b\ai-packages\qa-factory\scripts\tests\fixtures\driver-layers.json (rows of A.4 marked [A1b])
 C:\QAFactory\forge-repo\.claude\worktrees\sc-a1b\ai-packages\qa-factory\scripts\tests\fixtures\judgment-census.json (the `ratchet` values only, as the CI run of `test_judgment_census.py` prints)
 non-goals: everything A1a owns except the listed `completion_for` lines; `Controller.validate` (B1 owns the `:5894` comment); S4 functions;
-S6/S7 functions; `stage_review_exhausted` (R1); the recorded fixture story `local-1-arm-b` (history, unchanged).
+S6/S7 functions; `stage_review_exhausted` (R1); the recorded fixture story `local-1-arm-b` (history, unchanged); every other quarantined
+file (the owner's word covers `test_stage_critic_route.py` only); the quarantine rows and cohorts of `test-layers.json`.
 edges (each with invariant):
+- PRECONDITION of the deletion (A.4.1): A1a merged and its rows W1, S-R8, S-R9, S-R10 green on A1a's CI. INVARIANT: no surviving S4
+  behaviour of the deleted file is left without a live row; otherwise A1b stops with that output as a question.
+- the deletion's commit message carries the `quarantine-edit:` line of A.4.1; `python tools/test_quarantine.py check` passes. INVARIANT:
+  the quarantine row stays (it leaves only through `purge`); no `quarantine-purge:` line is written.
 - `_s3_completion_gate`: INVARIANT every closing S3 exit is still validated; window 1 claiming completion still refused first.
 - `_act_prepare_stage`: S2 joins the explicit `stage_simple` line (never the generic `getattr`, which would look for the deleted method).
   INVARIANT: S1 -> simple, S2 -> simple, S3 -> stage_S3, S4 -> stage_S4.
@@ -598,46 +698,81 @@ edges (each with invariant):
   every assertion it had.
 - census / driver-layers values: slow tests — read from the branch CI, written in a fix commit; a raise is named (key, old -> new, reason).
 - TEMPORAL: none new (A1a created the world; A1b removes code already inert in it).
-F1/F3/F5 if the owner picks the other option: no line of A1b changes.
 test rows: W2 (`test_story_run_s3_windows.py`, slow): `_act_prepare_stage` S1 -> simple, S2 -> simple, S3 -> stage_S3, S4 -> stage_S4.
 DoD: W2 green on the branch CI; `test_first_look_step.py`, `test_story_run_first_look.py`, `test_question_register.py`,
 `test_field_producers.py` green locally; `grep -rn "stage_critic_route\|ticket_rerun_critic\|author_exit_owes_plan\|_wait_then_critic\|s3_author_done\|stage-critic-to" ai-packages/qa-factory/scripts --include=*.py`
 outside `tests/fixtures/stories/` prints nothing, positive control `grep -n "stage_review_exhausted" ai-packages/qa-factory/scripts/driver_stage_plan.py`
-prints a hit; `test_handoff.py`, `test_driver_layers.py`, `test_judgment_census.py` green on the branch CI.
-Verification: `python -B ai-packages/qa-factory/scripts/tests/scenario_walk.py --witness-for ai-packages/qa-factory/scripts/driver_stage_plan.py ai-packages/qa-factory/scripts/driver_machine.py ai-packages/qa-factory/scripts/driver_dispatch.py ai-packages/qa-factory/scripts/controller.py ai-packages/qa-factory/scripts/acceptance.py ai-packages/qa-factory/scripts/stage_done.py ai-packages/qa-factory/handoffs/index.yaml ai-packages/qa-factory/scripts/handoff_init.py ai-packages/qa-factory/references/null-outcomes.json ai-packages/qa-factory/references/open-vocabularies.json`
+prints a hit; `python tools/test_quarantine.py check` output attached (passes on the deletion commit); `python tools/test_quarantine.py status`
+before/after attached (the cohort's row count unchanged); `test_handoff.py`, `test_driver_layers.py`, `test_judgment_census.py` green on
+the branch CI. Verification: `python -B ai-packages/qa-factory/scripts/tests/scenario_walk.py --witness-for ai-packages/qa-factory/scripts/driver_stage_plan.py ai-packages/qa-factory/scripts/driver_machine.py ai-packages/qa-factory/scripts/driver_dispatch.py ai-packages/qa-factory/scripts/controller.py ai-packages/qa-factory/scripts/acceptance.py ai-packages/qa-factory/scripts/stage_done.py ai-packages/qa-factory/handoffs/index.yaml ai-packages/qa-factory/scripts/handoff_init.py ai-packages/qa-factory/references/null-outcomes.json ai-packages/qa-factory/references/open-vocabularies.json`
 and the non-slow files it prints; judged by CI: `test_story_run_s3_windows.py`, `test_handoff.py`, `test_driver_layers.py`,
-`test_judgment_census.py` and every other slow file it prints. `architecture: AR-17, AR-19, AR-20, AR-22, AR-25 -- dead route removed,
-seam kept for S4; ratchets lowered as printed`. judgment: removed a judgment site (the stage critic); no check added.
-siblings: S4 route; `stage_review_exhausted` simplification (R1).
+`test_judgment_census.py` and every other slow file it prints. `architecture: AR-14, AR-17, AR-19, AR-20, AR-22, AR-25 -- dead route and its
+test removed together, the quarantine row left to purge (one writer); seam kept for S4; ratchets lowered as printed`. judgment: removed a
+judgment site (the stage critic); no check added.
+siblings: S4 route; `stage_review_exhausted` simplification (R1); the other quarantined files of §O (not touched).
 
 ### A2 — charters, the S4 critic's form and ratchets  [builder -> critic, topic A]
 owns:
-C:\QAFactory\forge-repo\.claude\worktrees\sc-a2\ai-packages\qa-factory\agents\qa-case-critic.md (`:3`, `:10`, `:15`, `:20-25`, `:30-33`, `:86`, `:95`, `:121`; A.2.2)
+C:\QAFactory\forge-repo\.claude\worktrees\sc-a2\ai-packages\qa-factory\agents\qa-case-critic.md (`:3`, `:10`, `:15`, `:20-25`, `:30-33`, `:86`, `:95`, `:121`, one Tools line for the register remainder; A.2.2)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-a2\ai-packages\qa-factory\agents\qa-test-strategist.md (`:21`; one craft line near `:32`; A.3)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-a2\ai-packages\qa-factory\agents\qa-requirements-tester.md (`:21` only)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-a2\ai-packages\qa-factory\handoffs\s4-case-critic-to-designer.yaml (`advice_read` `:105`; non-required `inputs` rows; A.2.2)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-a2\ai-packages\qa-factory\references\role-load.json (the three roles' rows)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-a2\ai-packages\qa-factory\design\role-rules.json (only rows whose carrier line A2 changes)
-non-goals: any other charter; the rubric dimensions `:38-75`; Tools/When-to-ask sections except the stage words and `:95`; every
-`required: true` row of the S4 form.
+non-goals: any other charter; the rubric dimensions `:38-75`; Tools/When-to-ask sections except the stage words, `:95` and the one
+register-remainder line; every `required: true` row of the S4 form; `role-commands.json` (A3).
 edges: a `role-rules.json` anchor that stood in a removed S2/S3 line -> the row moves to its new carrier line (the register bullet) or is
 removed in the same commit with the reason. INVARIANT: no rule is lost silently. A ratchet row raised -> named key, old -> new, reason;
 process rows set to the measured value (slack 0). The S4 form: a brief-named file absent -> dash and reason in `advice_read` /
-`not_looked`; INVARIANT: no new `required: true` row (FR-5). Line numbers re-read on the worktree (TQ2-1 K1 edits this charter, §X).
-F1/F3/F5 if the owner picks the other option: F3 (b) -> the case critic's register bullet gains "a register gap only the tester can
-repair: say so in `questions[]` as a request to re-run S2 (the conductor's `rework_stage`)"; F1/F5: no line of A2 changes.
+`not_looked`; INVARIANT: no new `required: true` row (FR-5). The register-remainder line is written on F7 (a); if the Lead picks F7 (b)
+it becomes "a gap only the person can settle goes in `questions[]`" and the `exploratory_findings` command is not named; if (c), the field
+name of F7 (c). INVARIANT (FR-39, FR-11): the charter never names a command its Commands card does not list (A3 lands the card row; A2 and
+A3 merge in the same topic, A3 first or together). Line numbers re-read on the worktree (TQ2-1 K1 edits this charter, §X).
 test rows: none new (role text; TESTING.md); `test_role_rules.py` and `test_role_load.py` (both fast) are the witness.
 DoD: `python -B ai-packages/qa-factory/scripts/role_load.py --all --json` before/after attached; DOC-DISPATCH key-presence run (CLAUDE.md
 rule 11; script in full in the report, never committed; a negative control with one key deliberately absent reports failure) over
 `agents/qa-case-critic.md` with keys present, verbatim: "**The register behind the cases.**", "a requirement that folds two behaviours into
 one row", "a boundary the text is silent on", "a requirement whose only source is the diff", "The register bullet is read once, on the first
-review round"; keys absent: "**S2: the register.**", "**S3: the plan.**", "The stage critic of S2, S3 and S4"; over
-`agents/qa-test-strategist.md` present: "no critic judges the plan", "**A changed branch no row walks.**"; over
+review round", "it reaches the test report"; keys absent: "**S2: the register.**", "**S3: the plan.**", "The stage critic of S2, S3 and
+S4"; over `agents/qa-test-strategist.md` present: "no critic judges the plan", "**A changed branch no row walks.**"; over
 `handoffs/s4-case-critic-to-designer.yaml` present: "work/advice-S2.json", "work/advice-S3.json". Verification:
 `python -B ai-packages/qa-factory/scripts/tests/scenario_walk.py --witness-for ai-packages/qa-factory/agents/qa-case-critic.md ai-packages/qa-factory/agents/qa-test-strategist.md ai-packages/qa-factory/agents/qa-requirements-tester.md ai-packages/qa-factory/handoffs/s4-case-critic-to-designer.yaml ai-packages/qa-factory/references/role-load.json ai-packages/qa-factory/design/role-rules.json`
 and the non-slow files it prints (`test_role_rules.py`, `test_role_load.py` expected); slow ones judged by CI.
-`architecture: AR-10, AR-20, AR-29 -- the S4 critic told before the work in its form; ratchets as measured`. judgment: role text only.
-siblings: the consumer charters (B3, another file set).
+`architecture: AR-10, AR-20, AR-27, AR-29 -- the S4 critic told before the work in its form and charter, the register remainder's road
+named; ratchets as measured`. judgment: role text only.
+siblings: the consumer charters (B3, another file set); A3 (the card row the charter line names).
+
+### A3 — the register remainder reaches the test report (F3; written on fork F7 (a), pending the Lead's choice)  [builder -> critic, topic A]
+owns:
+C:\QAFactory\forge-repo\.claude\worktrees\sc-a3\ai-packages\qa-factory\references\role-commands.json (the entry for `exploratory_findings.py add`: new, or `qa-case-critic` added to its `roles`, with `input`/`verify` text)
+C:\QAFactory\forge-repo\.claude\worktrees\sc-a3\ai-packages\qa-factory\scripts\tests\test_exploratory_findings.py (new rows X1, X2; keep `test-layers.json:1650`, not in `slow_tests.json`)
+C:\QAFactory\forge-repo\.claude\worktrees\sc-a3\ai-packages\qa-factory\changelog.d\stage-critics-s2-s3-removed.md (one appended sentence, after A1a; A.6)
+non-goals: `exploratory_findings.py` code (its validator and window rule stay as they are); `report_facts.py` code (its exploratory block
+is the existing reader); the charter (A2); the delivery verdict (P21 rules unchanged: a findings-register line never adds to proven,
+`exploratory_findings.py:4-6`); any new field or block.
+edges (each with invariant):
+- the card row is the producer's door: if `stage_guard` / the hook allows a role's command by another carrier than `role-commands.json`
+  (not traced in this round — ESTIMATE), the builder names that carrier by grep (`exploratory_findings` over `scripts/stage_guard.py`,
+  `references/*.json`, control: `critic_rollcall.py`) and adds `qa-case-critic` there in the same commit (that file then joins the owns by
+  a report line), or stops with the grep as a question. INVARIANT (FR-39): what the charter says the critic may do, the guard permits.
+- the line written at S4 before gate A gets window `pre-gate-a` from code (`_window`, `exploratory_findings.py:199-203`); INVARIANT: no new
+  window value.
+- evidence must be a file under the story folder (`_judge_refs`); the critic's findings file (`work/test-cases/.../critic-findings.md`) is
+  one. INVARIANT (NE28): a line with no evidence is refused, never written.
+- the remainder recorded twice (a repair round re-reads it): the charter says "once, when you first find it"; a duplicate line is a role
+  defect the tier above sees, not a code refusal (no new refusal). INVARIANT: no code judges whether two lines mean the same gap (AR-29).
+- no remainder -> nothing written. INVARIANT (AR-23): the report's exploratory block already says its empty outcome
+  (`WHEN_PRESENT_WHY`, `report_facts.py:346`).
+test rows (in `test_exploratory_findings.py`, fast): X1 `s4-register-gap-line-accepted`: `append(task_root, {op: add, kind: coverage_gap,
+title, statement, why_not_a_bug, refs: ["R-2"], missing_prerequisite, evidence_refs: [<a critic findings file>]}, by="S4-qa-case-critic-1")`
+on a story whose gate A is unanswered -> an id, window `pre-gate-a`; the same register read by `report_facts` facts (`facts["exploratory"]`)
+counts one gap (`formal.gaps == 1`). X2 `s4-register-gap-no-evidence-refused` -> ValueError naming `--evidence`, nothing written.
+DoD: X1, X2 green locally; the card row present (key-presence: "exploratory_findings.py add" and "qa-case-critic" in the same entry; script
+in full, negative control). Verification: `python -B ai-packages/qa-factory/scripts/tests/scenario_walk.py --witness-for ai-packages/qa-factory/references/role-commands.json`
+and the non-slow files it prints. `architecture: AR-14, AR-15, AR-22, AR-27 -- one writer and one reader of the findings register reused;
+producer (the critic's card + charter line) and reader (report exploratory block) in one topic`. judgment: the critic judges what a
+remainder is; code checks the line's shape (existing census rows `exploratory_findings.py` `:348-357`, class shape/xref, owner data).
+siblings: S6 charter's own use of the findings register (`references/explore-charter.md:103`) — same command, same form.
 
 ### B1 — the consumer round cap is data; one reader of a loop's cap  [builder -> critic, topic B]
 owns:
@@ -651,10 +786,9 @@ non-goals: `DEFAULT_LIMITS` values; `story_progress.py` (the S5 window line, F-9
 edges: E-B1, E-B2, E-B3, E-B12. `stage_status.round_cap` with an unknown / empty `stage` -> today's value. INVARIANT: the line never shows a
 cap the controller does not apply (FR-10: the packet's `repair_budget.cap` and the status line read the one reader). The blast radius
 (F-10) is decided in this spec (E-B12): no stop-and-ask for the builder.
-F1/F3/F5 if the owner picks the other option: F1 (b) keeps B1 whole (cap 1 is the owner's «один шанс» either way); F3, F5: no line changes.
 test rows (in `test_story_run_s6.py`, keep `:6130`, SLOW — judged by CI): C1 `s6-runner-cap-is-1`, C2 `s7-analyst-cap-is-1`, C3
-`s5-automator-cap-unchanged` (2), C4 `s4-designer-cap-unchanged` (design_repair_cycles), C5 `malformed-row-ignored` (`"x"`, `-1`, `true`,
-absent), C6 `person-words-lift-the-row` (`person_words=True` at S6 runner -> 2).
+`s5-automator-cap-unchanged` (2), C4 `s4-designer-cap-unchanged` (design_repair_cycles; also the R7 S4 survivor), C5 `malformed-row-ignored`
+(`"x"`, `-1`, `true`, absent), C6 `person-words-lift-the-row` (`person_words=True` at S6 runner -> 2).
 DoD: rows green on the branch CI; `grep -rn "design_repair_cycles\" if" ai-packages/qa-factory/scripts --include=*.py` outside `tests/` prints
 only `runtime_policy.py` (positive control: the same grep on the base tree prints the four sites); a fast local check of the reader:
 `python -B -c "import sys; sys.path.insert(0, 'ai-packages/qa-factory/scripts'); import runtime_policy as R; print([R.repair_cap('qa-runner', {'roles': ['qa-runner'], 'acceptance_rounds': 1}), R.repair_cap('qa-automator', {'roles': ['qa-automator']}), R.repair_cap('qa-runner', {'roles': ['qa-runner'], 'acceptance_rounds': True}), R.repair_cap('qa-runner', {'roles': ['qa-runner'], 'acceptance_rounds': 1}, person_words=True)])"`
@@ -670,7 +804,7 @@ C:\QAFactory\forge-repo\.claude\worktrees\sc-b2\ai-packages\qa-factory\scripts\d
 C:\QAFactory\forge-repo\.claude\worktrees\sc-b2\ai-packages\qa-factory\scripts\driver_core.py (new constant `GAP_PREFIX` beside `BY_PERSON` `:411` only)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-b2\ai-packages\qa-factory\scripts\driver_stage_s7.py (the extra list `:134-137` only)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-b2\ai-packages\qa-factory\scripts\driver_stage_s8s9.py (the extra lines `:76-83` only)
-C:\QAFactory\forge-repo\.claude\worktrees\sc-b2\ai-packages\qa-factory\scripts\tests\test_story_run_s6.py (new function `test_consumer_gap_road`, rows G1-G9)
+C:\QAFactory\forge-repo\.claude\worktrees\sc-b2\ai-packages\qa-factory\scripts\tests\test_story_run_s6.py (new function `test_consumer_gap_road`, rows G1-G10)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-b2\ai-packages\qa-factory\scripts\tests\fixtures\driver-layers.json (the `driver_stage_s6` rows only: `:686` deleted; `consumer_gap`, `consumer_round_line` added)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-b2\ai-packages\qa-factory\scripts\tests\fixtures\judgment-census.json (the `ratchet` values only, as the CI run prints)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-b2\ai-packages\qa-factory\changelog.d\consumer-one-round-no-barrier.md (new)
@@ -678,11 +812,8 @@ non-goals: `stage_review_exhausted` (S4 keeps it; R1 simplifies it); `person_pas
 `consumer_word_step`; the controller; `acceptance.py`; `brief_pack.py` (B-3: no second reader); `stage_done.py` (F6 (a): no change);
 charters (B3).
 edges: E-B4..E-B11; POSITIONAL B2-3 (INVARIANT stated there); B2-4 position after `BY_PERSON`; ORDER record-then-warning (B2-3 step 3);
-`own()` invariant (F-5). TEMPORAL: B.5 (both worlds; the move is this node's commit).
-F1/F3/F5 if the owner picks the other option: F1 (b) -> B2-3 is not applied: the five `consumer_gap` calls stay `consumer_exhausted` /
-`stage_review_exhausted` calls (today's code), `consumer_gap`, `GAP_PREFIX` and the close-words branch are not added, rows G3-G5, G9 expect
-the seam; B2-2 (round line, "No return is left ... the conductor decides" variant) stays. F5 (b) -> a new node routes the S4 callers of
-`stage_review_exhausted` (`driver_stage_plan.py` `stage_S4`) through `consumer_gap`'s twin; B2 lines unchanged. F3: none.
+`own()` invariant (F-5). TEMPORAL: B.5 (both worlds; the move is this node's commit). If the Lead picks F6 (b), B2-3 step 3 becomes one
+`--acceptance ... --warn` call and `stage_done.py` (`main` `:1549-1553`, `record_acceptance`) joins the owns with one row.
 test rows (in `test_story_run_s6.py`, keep `:6130`, SLOW — judged by CI): G1 `accept-unchanged`; G2 `reject-round-left-reworks-once`; G3
 `reject-no-round-gap-own-completion` (record `acceptor: driver`, quote starts `gap: the one repair round`, warning `S6 was accepted with a
 gap: ...` in `pipeline["warnings"]` after the record, `own()` returned, no `no_move`); G3b `gap-own-open-work-passes-through` (`own()`
@@ -697,7 +828,7 @@ on the branch CI with the values written. Verification: `python -B ai-packages/q
 and the non-slow files it prints; judged by CI: `test_story_run_s6.py`, `test_driver_layers.py`, `test_judgment_census.py` and every
 other slow file it prints. `architecture: AR-13, AR-14, AR-15, AR-17, AR-27, AR-28 -- one prefix home, one writer of records and warnings,
 the warnings road to the report; S4 seam untouched`. judgment: a seam call removed (it carried no judgment); no check added.
-siblings: S4 seam (kept); FV1-22 N1/N2, FV1-6 (§X); R1.
+siblings: S4 seam (kept; its F5 doors in the FV1-6 re-cut, §X); FV1-22 N1/N2, FV1-6 (§X); R1.
 
 ### B3 — consumer charters: legal returns, round line, gap  [builder -> critic, topic B]
 owns:
@@ -706,8 +837,7 @@ C:\QAFactory\forge-repo\.claude\worktrees\sc-b3\ai-packages\qa-factory\agents\qa
 C:\QAFactory\forge-repo\.claude\worktrees\sc-b3\ai-packages\qa-factory\references\role-load.json (the two roles' rows)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-b3\ai-packages\qa-factory\design\role-rules.json (rows whose carrier line changes)
 non-goals: `qa-runner.md` (nothing missing, B.3); every other line.
-edges: as A2. F1 (b) -> the scribe's Tools line loses its gap sentence ("a `standing:` line ... goes there too") and reads "No return
-left: write the report on what you have"; F3, F5: none.
+edges: as A2.
 DoD: as A2 with these paths; keys present, verbatim: in `qa-failure-analyst.md` "Return the run only for what the runner was told to give",
 "names the requirement it breaks and its red test", "or one seen value merge"; in `qa-doc-scribe.md` "S6 was accepted with a gap", "No
 return left". Verification: `python -B ai-packages/qa-factory/scripts/tests/scenario_walk.py --witness-for ai-packages/qa-factory/agents/qa-failure-analyst.md ai-packages/qa-factory/agents/qa-doc-scribe.md ai-packages/qa-factory/references/role-load.json ai-packages/qa-factory/design/role-rules.json`
@@ -717,16 +847,16 @@ siblings: FV1-24, FV1-25 (same analyst charter — §X).
 ### R1 — `stage_review_exhausted` loses its dead S6/S7 branches (after B2 and FV1-6)  [builder -> critic, topic B residual, F-3]
 owns:
 C:\QAFactory\forge-repo\.claude\worktrees\sc-r1\ai-packages\qa-factory\scripts\driver_stage_plan.py (`stage_review_exhausted` only)
-non-goals: its S4 behaviour; FV1-6's door text.
-edges: the `who` (`:702`) and `word` (`:744`) choices collapse to the S4 values (`qa-case-critic`, `cases_in_repair`); INVARIANT: S4's seam
+non-goals: its S4 behaviour; FV1-6's door text (the F5 re-cut).
+edges: the `who` (`:700`) and `word` (`:744`) choices collapse to the S4 values (`qa-case-critic`, `cases_in_repair`); INVARIANT: S4's seam
 text and open-work word are byte-identical; no caller other than S4 exists (grep `stage_review_exhausted(` over `scripts/*.py` outside
-tests prints only `driver_stage_plan.py` S4 lines; control: the definition). If F5 (b) is chosen by the owner, R1 is void.
+tests prints only `driver_stage_plan.py` S4 lines; control: the definition).
 test rows: the S4 exhausted-review row the FV1-6 node leaves in its keep file stays green (named in R1's dispatch from FV1-6's merged
-spec); no new row.
+spec), plus A1a's S-R8 (seam asked with "S4"); no new row.
 DoD/Verification: `python -B ai-packages/qa-factory/scripts/tests/scenario_walk.py --witness-for ai-packages/qa-factory/scripts/driver_stage_plan.py`
 and the non-slow files it prints. `architecture: AR-17 -- one seam, S4 only`.
 
-### D — docs and generated texts (after A1b, A2, B1, B2)  [builder -> critic or Lead]
+### D — docs and generated texts (after A1b, A2, A3, B1, B2)  [builder -> critic or Lead]
 owns:
 C:\QAFactory\forge-repo\.claude\worktrees\sc-d\ai-packages\qa-factory\skills\qa-story\phases\s2.md (`:117` only)
 C:\QAFactory\forge-repo\.claude\worktrees\sc-d\ai-packages\qa-factory\skills\qa-story\phases\s3.md (`:60` only)
@@ -746,30 +876,60 @@ kb search repeated with its control and reported.
 
 ### Parallelism (re-checked against the edited owns; D-0048 function lists on hot files)
 Prerequisites: B2 starts after FV1-22 N1 merges (N1 owns `driver_stage_s6.consumer_settled`, the same function as B2 — `очередь: FV1-22/N1
--> B2`); A2 starts after TQ2-1 K1 merges; R1 after B2 and FV1-6; A1b after A1a; D last.
-Parallel sets: A1a ∥ B1 ∥ B2 ∥ A2 ∥ B3 (once their prerequisites are met); A1b ∥ B1 ∥ B2.
+-> B2`); A2 starts after TQ2-1 K1 merges; A3 after the Lead's F7 choice and after A1a (shared changelog fragment); R1 after B2 and FV1-6;
+A1b after A1a (and A1a's S-R rows green); D last.
+Parallel sets: A1a ∥ B1 ∥ B2 ∥ A2 ∥ B3 (once their prerequisites are met); A1b ∥ A3 ∥ B1 ∥ B2.
 Function overlaps checked: `stages.json` A1a S2/S3/S4 rows vs B1 S6/S7 rows — disjoint rows. `controller.py`: A1a `REPAIR_LOOP_ROLES` +
 `repair_passes`; A1b `_s3_completion_gate`; B1 `Controller.prepare` + `Controller.validate` (incl. the `:5894` comment moved from A1b to B1
 for this reason) — disjoint functions. `driver_stage_plan.py`: A1a and A1b both touch `completion_for` — SEQUENTIAL (A1b from main after
-A1a); B2 none; R1 `stage_review_exhausted` after B2. `brief_pack.py`: A1a only (B2 no longer edits it). `acceptance.py`: A1b only.
-`driver_stage_s6.py`: B2 `consumer_*`; FV1-6 `person_pass` + `time_stamp` — disjoint. `test_story_run_s6.py`: B1
-`test_consumer_round_cap_is_data`, B2 `test_consumer_gap_road` — disjoint new functions. `test_story_run_s3_windows.py`,
-`test_field_producers.py`: A1a and A1b — sequential. `role-load.json` / `role-rules.json`: A2 three roles, B3 two roles — disjoint rows,
-the later merges main. `driver-layers.json`: A1b route rows vs B2 s6 rows — disjoint rows. `judgment-census.json` `ratchet` (one JSON line):
-A1b and B2 may both move it — the LATER merge re-reads its CI print after merging main and writes the printed values (D-0048 later-merge
-rule). One critic pass per topic (R13-g): topic A (A1a+A1b+A2), topic B (B1+B2+B3+R1).
+A1a); B2 none; R1 `stage_review_exhausted` after B2. `brief_pack.py`: A1a only (B2 no longer edits it; TQ2-1 K2 `case_concern_lines` is
+another function). `acceptance.py`: A1b only. `driver_stage_s6.py`: B2 `consumer_*`; FV1-6 `person_pass` + `time_stamp` — disjoint.
+`test_story_run_s6.py`: B1 `test_consumer_round_cap_is_data`, B2 `test_consumer_gap_road` — disjoint new functions.
+`test_story_run_refusals.py`: A1a only (a new function). `test_story_run_s3_windows.py`, `test_field_producers.py`: A1a and A1b —
+sequential. `role-load.json` / `role-rules.json`: A2 three roles, B3 two roles — disjoint rows, the later merges main. `role-commands.json`:
+A3 only. `changelog.d/stage-critics-s2-s3-removed.md`: A1a creates it, A3 appends — A3 after A1a. `agents/qa-case-critic.md`: A2 only (A3
+owns the card, not the charter). `driver-layers.json`: A1b route rows vs B2 s6 rows — disjoint rows. `judgment-census.json` `ratchet` (one
+JSON line): A1b and B2 may both move it — the LATER merge re-reads its CI print after merging main and writes the printed values (D-0048
+later-merge rule). One critic pass per topic (R13-g): topic A (A1a+A1b+A2+A3), topic B (B1+B2+B3+R1).
 
 ## §X. Crossings (notes for the Lead; no other file edited)
 
 - TQ2-1: only K1 (`wip/tq2-1-k1`) touches `agents/qa-case-critic.md`, `design/role-rules.json`, `references/role-load.json`; A2 starts AFTER
-  K1 merges (F-13: K2 touches `critic_rollcall.py`, `s5_plan.py`, `s5_precheck.py` — no A2 file); line numbers in A.2 are re-read there.
-- FV1-6 (`docs/tasks/specs/20261113-fv1-6-s2-door-back-to-tester-spec.md`): its seam survives for S4 ONLY. Changes: title -> "after an
-  exhausted S4 case review"; §1 AR-19 line -> S4 only; §2.1/§2.2 become the motive only; §2.3 rows S2, S3, S6, S7 die (S4, S5, S7-test rows
-  stay); §5 R rows "at S2 and S4" -> S4 only; the R1 row (`OpenWork("stage_in_repair")` at S2) dies; siblings drop S3/S6/S7; the
-  `driver_stage_s6.py` `person_pass`/`time_stamp` owns line stays valid (S4 reads times). ITEM 14 (`docs/SIBLING_MAP.md:122`, "append
-  ', S2/S3 author/stage critic'") is the SAME line as node D and is now WRONG: it is dropped from FV1-6 (F-13); node D writes the row.
-  FV1-6 also owns `judgment-census.json` (its spec `:222`): the later merge re-reads the CI print. Residual R1 runs after FV1-6. The
-  finding's name no longer matches; the Lead re-cuts or closes it as "S4 only".
+  K1 merges (F-13: K2 touches `critic_rollcall.py`, `s5_plan.py`, `s5_precheck.py`, `brief_pack.py` `case_concern_lines` — no A2 file;
+  `brief_pack.py` is shared with A1a by DIFFERENT functions: A1a `TRIED_READERS`, `stage_critic_names`, `FIRST_LOOK_KIND`; K2
+  `case_concern_lines`); line numbers in A.2 are re-read there.
+- FV1-6 (`docs/tasks/specs/20261113-fv1-6-s2-door-back-to-tester-spec.md`) — RE-CUT "S4 only", with the content the owner's F5 word sets
+  («да и человек может ещё один круг сказать или идти дальше с фиксацией правки и тогда автоматизатор должен учесть эти замечания»).
+  Facts read on main for the S4 exhausted case review:
+  (i) the doors. The seam's moves are the conductor's: "accept S4 with the gap, one more round on words you ground, or ask the person"
+  (`driver_stage_plan.py:693-697` docstring, `:707` `lead`); the person's priced fallback question is the seam's own (`:747`, `no_move(...,
+  call=False)`); no test asserts which moves the person is offered (the t-356 digest `docs/tasks/specs/reports/t-356-fvf-net-why-digest.md`
+  B6c). "Go on": `person_pass` closes S4 when the person's word was recorded after the critic dispatch started (`:717-729`). "One more
+  round": the conductor's `rework --reason` of the designer, read back as a new author dispatch after the critic -> `OpenWork("cases_in_repair")`
+  (`:739-745`); past `design_repair_cycles` (2) the controller's cap refusal applies with its person's-pass door (`controller.py:5639-5663`,
+  `_passed_by_person`). So (i) holds as MOVES, but the person's question naming exactly these two doors (with price) is not pinned.
+  (ii) the remarks to the automator on "go on". FACT: on "go on" `person_closes` writes only a local-calibration finding
+  (`project_decisions.py add-finding`, `:721-725`); the conductor's "accept with the gap" writes only the acceptance record. The automator
+  receives the S4 critic's remarks through `s5_plan.case_concerns` (`:1146-1160`; TQ2-1 K2's `concern_report` / `brief_pack.case_concern_lines`
+  on `wip/tq2-1-k2`, `tq2-k2` worktree `s5_plan.py:1152-1166`, `brief_pack.py:1993-2018`, read the same list), which carries ONLY rows whose
+  `verdict` cell is `approve_with_concerns` (`critic_rollcall.py:423`). On an exhausted review the critic's last-round rows that still send
+  cases back (`reject` / `partial`) are therefore NOT carried. GAP: the critic's still-open remarks reach neither the automator's brief nor
+  its `plan_remarks` duty (C12) when the person says "go on".
+  Content of the re-cut (S4 only; owner's word F5 is the requirement): (1) the person's question at the S4 exhausted seam names two doors
+  with their price and consequence (P22): "one more round" (one designer + one critic dispatch; executed by the conductor's `rework
+  --reason` on the person's words, passing the cap through `_passed_by_person`) and "go on with the remarks recorded" (S4 closes; the
+  critic's open remarks go to the automator); a row pins both doors in the packet text. (2) On "go on", the last accepted S4 critic
+  round's rows that do not approve are carried to the automator by the ONE reader `s5_plan.case_concerns` / `concern_report` (AR-13, no
+  second list): the reader also carries those rows when S4 was closed on the person's word (marker: the `by: person` acceptance record for
+  the S4 author dispatch, `driver_core.BY_PERSON`) — each becomes a remark with a `plan_remarks` row owed (`applied` / `not_applicable`);
+  rows: carried on "go on", not carried when the stage closed by `approve*`, a round that cannot be read is a global remark (FR-59).
+  Producer (the person's pass record, exists) and reader (`case_concerns`) change in one node (AR-22); FR-8/FR-9/AR-24 (the person's
+  decision has an executor: the automator). The node depends on TQ2-1 K2 (same reader) — `очередь: TQ2-1/K2 -> FV1-6`.
+  Unchanged from the first round of this note: title -> "after an exhausted S4 case review"; §1 AR-19 line -> S4 only; §2.3 rows S2, S3,
+  S6, S7 die (S4, S5, S7-test rows stay); §5 R rows "at S2 and S4" -> S4 only; the R1 row (`OpenWork("stage_in_repair")` at S2) dies;
+  siblings drop S3/S6/S7; the `driver_stage_s6.py` `person_pass`/`time_stamp` owns line stays valid. ITEM 14 (`docs/SIBLING_MAP.md:122`,
+  "append ', S2/S3 author/stage critic'") is the SAME line as node D and is now WRONG: dropped from FV1-6 (F-13); node D writes the row.
+  FV1-6 also owns `judgment-census.json` (its spec `:222`): the later merge re-reads the CI print. Residual R1 runs after FV1-6.
 - FV1-22 (`docs/tasks/specs/20261113-fv1-22-s7-acceptance-loop-spec.md`): N1 SURVIVES and is a PREREQUISITE of B2 twice — in practice
   (without it the analyst's verdict is unreadable and every S6 acceptance becomes a gap) and by owns: N1 item 7 owns
   `driver_stage_s6.consumer_settled` (its spec `:149`, `:188-189`) — `очередь: FV1-22/N1 -> B2`. N1's edges that route an unreadable word
@@ -791,29 +951,35 @@ rule). One critic pass per topic (R13-g): topic A (A1a+A1b+A2), topic B (B1+B2+B
 - T1 topic (census / stage-joints rows): A1a changes `stages.json` roles that `stage_joints.py` reads (`:120`, `:300` read `advice`); A1b
   changes `judgment-census.json` ratchet values; a T1 node editing the same rows goes after A1b (`очередь: A1b -> T1/<node>`).
 
-## §F. Forks (returned; options, cost, recommendation)
+## §F. Forks
 
-- F1 (OWNER, open) — the reading of «не должно быть барьером» (§0). (a) RECOMMENDED the gap road (B2): no seam, no person, a factory-defect
-  line in the report / at gate B; cost: a consumer that could not use the data proceeds on less, the report says so. (b) the seam stays at
-  an exhausted consumer review (today) with one round instead of two; cost: the barrier the owner named. Nodes written on (a); B1, B2, B3,
-  R1 name their (b) lines.
+- F1 (OWNER) — DECIDED (a) by the owner 13.11.2026: «всё верно». The gap road (B2): no seam, no person, a factory-defect line in the report /
+  at gate B.
 - F2 (Lead) — DECIDED (a): `acceptance_reads` S3 `["advice"]`.
-- F3 (OWNER, open) — a register defect found at S4. (a) RECOMMENDED no road back: case-level verdicts + `questions[]` to the register/gate A
-  (A.2.4); (b) the conductor's existing `rework_stage` of S2 from S4 — costs a re-run of S2, S3 (two windows) and S4 per use, the barrier
-  the owner removed. A2 names its (b) line.
+- F3 (OWNER) — DECIDED (a) by the owner 13.11.2026: «именно, автор кейсов фиксит то что может, остальное доходит до отчёта по
+  тестированию». No road back from S4 to S2; the requirement "the remainder reaches the test report" opened F7 (A.2.4).
 - F4 (Lead) — DECIDED (a): the ordinary road for T1/T3 (F-14: T1 may be closed by `stage_repairs`, cheaper).
-- F5 (OWNER, open) — S4's exhausted review keeps the seam while S6/S7 take the gap road. A difference selected by the consumer relation
-  (`acceptance.consumer_of`) plus the owner's word said of consumer acceptance only («оставляем как раньше» for the rest). (a) RECOMMENDED
-  keep as designed; (b) put S4 on the gap road too — cost: an exhausted case review no longer reaches the person (contradicts the S4
-  non-goal). B2 and R1 name their (b) lines.
-- F6 (Lead, NEW in this round — returned because the verdict's B-3 text contradicts the code) — how the gap warning is written. The verdict
-  says "`consumer_gap` adds `--warn` to the SAME `stage_done.py --acceptance` call"; FACT: `stage_done.py:1549-1553` returns
+- F5 (OWNER) — DECIDED (a) by the owner 13.11.2026: «да и человек может ещё один круг сказать или идти дальше с фиксацией правки и тогда
+  автоматизатор должен учесть эти замечания». S4 keeps its seam; the two doors and the remarks to the automator are S4 work, written in §X
+  as the content of the FV1-6 re-cut (facts and the gap named there).
+- F6 (Lead, OPEN, new in this round — the verdict's B-3 text contradicts the code) — how the gap warning is written. The verdict says
+  "`consumer_gap` adds `--warn` to the SAME `stage_done.py --acceptance` call"; FACT: `stage_done.py:1549-1553` returns
   `record_acceptance(...)` for `--acceptance` and ignores `--warn` (warns reach `apply_facts` only on the `set_facts` road `:1562-1569` or
   a stage transition `:1571-1573`), so the edit as written would drop the warning silently. (a) RECOMMENDED two calls of the same writer in
   fixed order — the record, then `stage_done.py --task <T> --warn "<line>"` (no `stage_done.py` change; one writer kept; a refused warning
   write takes E-B7's road); (b) teach `record_acceptance` to take `warns` so one call writes both (atomic; costs a `stage_done.py` edit,
-  `main` `:1549-1553` and `record_acceptance`, plus a row). B2 is written on (a); (b) changes B2-3 step 3 and adds `stage_done.py`
-  (`main`, `record_acceptance`) to B2's owns.
+  `main` `:1549-1553` and `record_acceptance`, plus a row). B2 is written on (a); (b) changes B2-3 step 3 and B2's owns (named in B2).
+- F7 (Lead, OPEN, new in this round — from the owner's F3 requirement) — the carrier of a register defect the case designer cannot fix
+  to the test report. FACT (A.2.4): an unsettled question reaches the report's `open-questions` block (`report_facts._questions`
+  `:2600-2621`); nothing else from the S4 critic reaches the report (`report_facts.py` reads no critic concern; control `review_gaps`
+  `:2503`, S5 only). Options: (a) RECOMMENDED the existing findings register — the case critic writes a `coverage_gap` line
+  (`exploratory_findings.py add`, refs R-n, evidence its findings file, window `pre-gate-a` by code) that the report's exploratory block
+  already renders; cost: one card row (`role-commands.json`) and one charter line (A2, A3), no code; the line shows under the exploratory
+  block's heading, not under a "register" heading; (b) `questions[]` only — no new carrier, but a gap the person answered at gate A leaves
+  the report's list (`QR.settled`), so "the remainder reaches the report" holds only for unanswered ones; (c) a new form field (e.g.
+  `register_gaps[]` in `s4-case-critic-to-designer.yaml`) with a new reader and report block — producer and reader in one node; cost: a new
+  field, a new block, a new reader (AR-15: a second road beside the findings register). A3 is written on (a); (b) drops A3 and changes
+  A2's line; (c) replaces A3 with a code node.
 
 ## §S. Small choices closed by the designer
 
@@ -830,57 +996,79 @@ rule). One critic pass per topic (R13-g): topic A (A1a+A1b+A2), topic B (B1+B2+B
 - F-10: `acceptance_rounds` does not bind a packet with `person_words: true` (the option adding no new refusal — Lead decision 2).
 - `test-layers.json` `covers` entries of deleted files removed by hand (a `covers` entry is not a keep row; `quarantine`/`cohorts` untouched).
 - `controller.py:5894` comment correction moved from A1 to B1 (it sits in `Controller.validate`, which B1 owns).
+- The S4 survivors of the deleted test go to `test_story_run_refusals.py` (the keep file that already holds S4's critic-finish rows,
+  `:3551-3608`), written by A1a so they are green BEFORE A1b deletes the file.
+- The deletion takes the tool's single-file door (`quarantine-edit:`), the row stays for the cohort purge; `plans/features.json:1194` is
+  cleaned in the same commit (what purge would do); the commit line carries an English gloss of the owner's words.
 
 ## §Q. Queue lines for the Lead (not nodes of this spec)
 
 - AR-1 residual: `brief_pack.TRIED_READERS` is closed variety in code; moving it into `stages.json` beside `acceptance_reads` (migrating the
   S9 row) is a design change with its own critic pass (verdict B-1 larger option).
+- FV1-6 re-cut "S4 only" with the F5 content of §X (`очередь: TQ2-1/K2 -> FV1-6`).
 
 ## §O. Owner's notices (the Lead tells the owner)
 
-1. Quarantined tests (never edited here; deletion only by the owner's word, `tools/test_quarantine.py purge`):
-   - WHOLLY dead with the S2/S3 route: `scripts/tests/test_stage_critic_route.py` (`test-layers.json:9948`).
-   - PARTLY stale (keep S4/S6 rows, judged by `quarantine-watch`): `test_controller_stage_acceptance.py` (`:7712`; S2/S3 rows incl. `:110`),
-     `test_brief_pack_roles.py` (`:7294`; X2-1 rows `:405-425`), `test_acceptance_semantics.py` (`:7162`), `test_repair_route.py` (`:9400`),
-     `test_handoff_init_author.py` (`:8438`; `:16` tuple keeps S4, `:43`, `:85-89`, `:122-174` name `s2-stage-critic-to-tester`),
-     `test_rows_owed.py` (`:9612`; `:46` tuple keeps S4, `:112` S2/S3 only) (F-12).
+1. Quarantined tests:
+   - `scripts/tests/test_stage_critic_route.py` (`test-layers.json:9948`): deleted by node A1b on the owner's word 13.11.2026 («Да, удаляй»)
+     in the commit that removes the S2/S3 route, through the tool's single-file door (`quarantine-edit:` line; A.4.1); its surviving S4
+     checks (R7 S4 part, R8, R9 S4 part, R10) are first written as live rows by A1a. Its quarantine row stays until the cohort purge
+     (purge refuses a not-READY cohort and deletes cohorts only). ESTIMATE, not verified: the next `quarantine-watch` may report the row's
+     file as missing; the door is `test_quarantine.py judge ... --verdict stale` — the Lead watches that run.
+   - PARTLY stale, NOT covered by the owner's word, unchanged (keep S4/S6 rows, judged by `quarantine-watch`):
+     `test_controller_stage_acceptance.py` (`:7712`; S2/S3 rows incl. `:110`), `test_brief_pack_roles.py` (`:7294`; X2-1 rows `:405-425`),
+     `test_acceptance_semantics.py` (`:7162`), `test_repair_route.py` (`:9400`), `test_handoff_init_author.py` (`:8438`; `:16` tuple keeps
+     S4, `:43`, `:85-89`, `:122-174` name `s2-stage-critic-to-tester`), `test_rows_owed.py` (`:9612`; `:46` tuple keeps S4, `:112` S2/S3 only).
    - Name-only (not stale): `test_open_vocabularies.py` (`:8984`; a test name says "stage critic").
 2. Quarantined tests that go stale under Part B (the consumer seam rows): `test_stage_acceptance_consumer.py` (`:9931`),
    `test_consumer_close_route.py` (`:7670`), `test_stage_review_person_pass.py` (`:9974`, its S6 rows), `test_s7_repair_review.py`
    (`:9786`) and `test_story_run_repair_limit.py` (`:10145`) where they stub the consumer cap.
-3. The Lead's reading of «не должно быть барьером» (§0, F1).
-4. Forks F1, F3, F5 are the owner's (open); F2, F4 the Lead's (decided); F6 the Lead's (new, recommended (a)).
-5. FR-33: one `live-runs` row — a story where S2 and S3 close with no critic, S4's critic reads the register and both forms, and S6 or S7 is
-   returned once and then accepted with a gap shown under "Factory defects" (S6) or at gate B (S7).
+3. Forks F1, F3, F5 decided by the owner (13.11.2026); F2, F4 the Lead's (decided); F6, F7 the Lead's (open, recommended (a)).
+4. The F5 S4 work (two doors; the remarks to the automator on "go on") is not in this spec: it is the FV1-6 re-cut (§X); until it lands,
+   a "go on" at an exhausted S4 review does NOT carry the critic's open remarks to the automator (fact, §X (ii)).
+5. FR-33: one `live-runs` row — a story where S2 and S3 close with no critic; S4's critic reads the register and both forms and records one
+   register remainder that the test report shows; S6 or S7 is returned once and then accepted with a gap shown under "Factory defects" (S6)
+   or at gate B (S7), with no question to the person.
 
 ## §T. Reading trail (searches with positive controls)
 
 Round 0 (draft): as in the draft's trail (charters, `stages.json`, driver/controller/acceptance/brief_pack/exit_gate ranges, FV1-6/FV1-22
 specs, SIBLING_MAP axis headings, `test-layers.json` ranges).
-Round 1 (this fix round, on read-main after wave 3): the verdict whole; the spec whole; `brief_pack.py:112,1812-1827,3560-3649,4001,4312-4313`;
-`driver_stage_plan.py:106-139,1005-1143` + the def list; `driver_s0.py:483-552`; `story_step.py:890-911`; `stage_guard.py:3074-3091`;
-`stage_done.py:905-939,1540-1574` + `--warn`/`warns` grep; `gate_brief.py:2249-2268`; `driver_stage_s6.py:323-402` + def list;
-`driver_machine.py:578-617` + `_wait_then_critic` grep; `controller.py:235-238,745-768,3744-3759,3905-3941,5590-5664,8516-8562` + def list +
-`words_given`/`stage_closes_with`/`.recover()` greps; `runtime_policy.py:85-99`; `stage_status.py:55-79,205-239`; `story_progress.py:345-360`;
-`stages.json` rows (grep + `:66-160`); `handoffs/s4-case-critic-to-designer.yaml` grep; `agents/qa-case-critic.md` whole;
-`open-vocabularies.json:1-6`; `block-names.json:30-43`; `architecture.md:130-143`; `SIBLING_MAP.md:120-123`; `driver-layers.json` grep
-`:525-538,680-688,784`; `judgment-census.json:1-8` + file greps; `slow_tests.json` whole; `test-layers.json` section heads, `:1-30`,
-`:970-979`, `:1680-1719`, `:5038-5055` + file-name greps (keep ends `:7107`, quarantine from `:7161`); tests `test_first_look_step.py:608-652`,
-`test_question_register.py:1918-1937`, `test_handoff.py:662-681`, `test_field_producers.py:550-579`, `test_open_vocabularies.py:340-364`,
-`test_scenario_local_1_arm_b.py` whole, `local-1-arm-b/story.json:1-60`; `plans/piles/live-run-fvf/batch-1-live-run-fvf.md:36-90` (root and
-read-main; FV1-28/29 only on read-main); FV1-6 spec greps (`SIBLING_MAP`, `driver_stage_s6`, census); FV1-22 spec grep.
+Round 1 (fix round, on read-main after wave 3): the verdict whole; the spec whole; `brief_pack.py:112,1812-1827,3560-3649,4001,4312-4313`;
+`driver_stage_plan.py:106-139,685-772,785-825,1005-1143` + the def list; `driver_s0.py:483-552`; `story_step.py:890-911`;
+`stage_guard.py:3074-3091`; `stage_done.py:905-939,1540-1574` + `--warn`/`warns` grep; `gate_brief.py:2249-2268`; `driver_stage_s6.py:323-402`
++ def list; `driver_machine.py:578-617` + `_wait_then_critic` grep; `controller.py:235-238,745-768,3744-3759,3905-3941,5590-5664,8516-8562` +
+def list + `words_given`/`stage_closes_with`/`.recover()` greps; `runtime_policy.py:85-99`; `stage_status.py:55-79,205-239`;
+`story_progress.py:345-360`; `stages.json` rows (grep + `:66-160`); `handoffs/s4-case-critic-to-designer.yaml` grep;
+`agents/qa-case-critic.md` whole; `agents/qa-doc-scribe.md` whole; `open-vocabularies.json:1-6`; `block-names.json:30-43`;
+`architecture.md:130-143`; `SIBLING_MAP.md:120-123`; `driver-layers.json` grep `:525-538,680-688,784`; `judgment-census.json:1-8` + file
+greps; `slow_tests.json` whole + greps; `test-layers.json` section heads, `:1-30`, `:970-979`, `:1680-1719`, `:5038-5055` + file-name greps
+(keep ends `:7107`, quarantine from `:7161`); tests `test_first_look_step.py:608-652`, `test_question_register.py:1918-1937` + `--from-handoff`
+grep, `test_handoff.py:662-681`, `test_field_producers.py:550-579`, `test_open_vocabularies.py:340-364`, `test_scenario_local_1_arm_b.py`
+whole, `local-1-arm-b/story.json:1-60`, `test_stage_critic_route.py:1-33,265-344` + def grep, `test_story_run_refusals.py:3550-3669`;
+`report_facts.py:2503-2662` + greps (`review.gaps|_questions`, `register|question|gap` -i, `concern|plan_remarks` -i: no hit, control
+`review_gaps` in the same file); `exploratory_findings.py:1-60,199-203,277-346` + greps; `s5_plan.py:1116-1175`; `critic_rollcall.py` grep
+(`accepted_rounds|approve_with_concerns`); `role-commands.json:180-209` + `exploratory` grep (no hit, control `critic_rollcall.py --store`);
+references grep `"qa-case-critic"`; `exploratory_findings` grep over package `*.json|*.md|*.yaml`; `selftest.py:740-755,844-851` +
+`quarantine` grep; `tools/test_quarantine.py:1-20,1510-1539,1615-1714,2205-2229` + command grep; `test_stage_critic_route` grep over read-main
+(package and forge); TQ2-1 K2 worktree `tq2-k2`: `brief_pack.py:1993-2018`, `s5_plan.py:1152-1177` (`case_concern_lines`, `concern_report`
+grep on read-main: no hit; control: the same grep on `tq2-k2` hits); `plans/piles/live-run-fvf/batch-1-live-run-fvf.md:36-90`; FV1-6 spec
+greps (`SIBLING_MAP`, `driver_stage_s6`, census); FV1-22 spec grep.
 Searches (Grep tool; code tokens case-sensitive, text case-insensitive where marked): S2/S3-only tokens over the package (control: the
 definitions and `brief_pack.py:4001`); `stage-critic-to|stage_critic` file list (control: the two yamls); `advice_read` over
 `*.py|*.json|*.yaml` (control: the S4 yaml); `design_repair_cycles` (control: `runtime_policy.py:13`); `round_cap\(` (control: definition);
-`BY_PERSON` (control: `driver_core.py:411`); `ticket_rework_step` and `consumer_completion|consumer_settled|repair_budget|round_cap` counts
-over tests (control: driver-layers hits); kb `stage critic|qa-case-critic` -i (control: hits on S4) and `consumer` -i; `design/` -i for the
-route names (control: `controller-blocks.md:229`); phases -i (control: `s2.md:117`).
-Not verified (estimates): whether `next` names `recover` on its own for a T1 state (the driver runs it at `driver_machine.py:477`, `:2076`;
-not traced further — T1's rows pin `stage_repairs`, the pure function); the exact census count after A1b/B2; the role-load deltas;
-`scenario_walk.py --witness-for` outputs (not run: this designer has no shell; each node runs it first).
-Needed beyond the manifest: `scripts/slow_tests.json`, `plans/piles/live-run-fvf/batch-1-live-run-fvf.md` (read-main copy).
+`BY_PERSON` (control: `driver_core.py:411`); `s4_critic_completion|stage_acceptance_write|--from-handoff` counts over tests (control: the
+deleted file's own hits); kb `stage critic|qa-case-critic` -i (control: hits on S4) and `consumer` -i; `design/` -i for the route names
+(control: `controller-blocks.md:229`); phases -i (control: `s2.md:117`).
+Not verified (estimates): whether `next` names `recover` on its own for a T1 state (T1's rows pin `stage_repairs`, the pure function); the
+exact census count after A1b/B2; the role-load deltas; `scenario_walk.py --witness-for` outputs (not run: this designer has no shell; each
+node runs it first); how `quarantine-watch` treats a quarantine row whose file is gone; whether the hook/guard grants a role's command by
+`role-commands.json` alone (A3 edge).
+Needed beyond the manifest: `scripts/slow_tests.json`, `plans/piles/live-run-fvf/batch-1-live-run-fvf.md` (read-main copy),
+`tools/test_quarantine.py`, the `tq2-k2` worktree (`brief_pack.py`, `s5_plan.py`), `report_facts.py`, `exploratory_findings.py`,
+`role-commands.json`, `test_story_run_refusals.py`, `selftest.py`.
 
-## §R. Fix round (critic-on-plan verdict, 13.11.2026)
+## §R. Fix round (critic-on-plan verdict, 13.11.2026; owner's answers of the same day)
 
 | item | what changed | where |
 |---|---|---|
@@ -908,11 +1096,19 @@ Needed beyond the manifest: `scripts/slow_tests.json`, `plans/piles/live-run-fvf
 | F-14 | T1 states which road fires (`stage_repairs` vs re-run) with rows T1 / T1-b in the fast keep file `test_stage_closure.py`; F4 cost corrected | A.5, A1a, §F F4 |
 | F-15 | A2's grep replaced by a verbatim key-presence run with a negative control (B3, D too) | A2, B3, D |
 | K10 | A1 split into A1a (data, temporal rules, hand-over, live tests) and A1b (dead code, driver-layers, census); one critic pass for topic A | §N A1a/A1b, §Parallelism |
+| owner F1 | quote in §0; the "Lead's reading" hedges removed; F1 decided; alternative lines removed from nodes | §0, B.2, §F, §N |
+| owner F3 | quote in §0; A.2.4 rewritten: three roads, the existing carrier of road 2 (`open-questions` block) named with file:line, road 3 has no carrier today (fact with control) -> fork F7, node A3 written on F7 (a) with producer and reader in one topic, rows X1/X2 | §0, A.2.2, A.2.4, A3, §F F3/F7 |
+| owner F5 | quote in §0; facts read for the S4 exhausted seam: (i) the doors exist as conductor moves, unpinned; (ii) MISSING — on "go on" the critic's still-rejecting rows are not carried to the automator (`critic_rollcall.py:423`, `s5_plan.case_concerns`; TQ2-1 K2 reads the same list); written as the FV1-6 re-cut content, not folded into A/B | §X FV1-6, §O 4, §Q, §F F5 |
+| owner: delete `test_stage_critic_route.py` | quote in §0; the tool's road read (`purge` cohort-only and refused before READY; single-file door `quarantine-edit:`; row stays); precondition table per R7/R8/R9/R10 with live coverage found or added (A1a S-R8..S-R10, W1, B1 C4); deletion in A1b's route-removal commit after those rows are green; `plans/features.json:1194` cleaned; watch risk named | A.1, A.4, A.4.1, A1a, A1b, §O 1 |
 
 Found in this round beyond the verdict (applied): FV1-22 N1 owns `consumer_settled` (B2 queued after N1, §X); `controller.py:5894` sits in
 `Controller.validate` with B1's cap lines (comment moved to B1); `stage_done.py:1551` message (A1b); `controller.py:758` comment (A1a); the
-local-1-arm-b scenario has no S2/S3 critic step (A.1, judged by CI); kb needs no edit (A.6). Counts: 24 items — 23 applied as written or by
-the Lead's decisions, 1 (B-3) applied in goal with its mechanism returned as F6.
+local-1-arm-b scenario has no S2/S3 critic step (A.1, judged by CI); kb needs no edit (A.6); the existing S4 critic-finish rows in
+`test_story_run_refusals.py:3551-3608` stub the writer and the seam (so R8/R9 survivors were not live — A1a S-R rows); TQ2-1 K2's
+`brief_pack.py` function is disjoint from A1a's (§X). Counts: 24 verdict items — 23 applied as written or by the Lead's decisions, 1 (B-3)
+applied in goal with its mechanism returned as F6; 4 owner's answers — 4 applied (F3's carrier returned as F7; F5's S4 part routed to the
+FV1-6 re-cut as instructed).
 
-Forks returned in this round: F1, F3, F5 (owner's, open, nodes on the recommendation, reversible lines named per node); F6 (Lead, new:
-how the gap warning is written — B-3's text contradicts `stage_done.py:1549-1553`; recommended (a) two calls of the one writer).
+Forks returned in this round: F6 (Lead: how the gap warning is written — B-3's text contradicts `stage_done.py:1549-1553`; recommended
+(a) two calls of the one writer); F7 (Lead: the carrier of the S4 register remainder to the test report — recommended (a) the existing
+findings register; A3 written on it).
