@@ -5,4 +5,5 @@ the ones your work touches BEFORE you write your artifact, the way you read the 
 names. A rule you did not read is still a rule the exit gate checks.
 
 - `references/slices/qa-test-strategist/artifact-contract-plan.md` (9,233 B) — `test-plan.md`, `grounding.yaml`, Fields the plan validator checks (coverage-observation-v1)
-- `references/slices/qa-test-strategist/handoff-keys.md` (22,782 B) — Outputs, Witness, Handoff form, What code will check of you, Not yet in rows
+- `references/slices/qa-test-strategist/handoff-keys.md` (11,927 B) — Outputs, Witness, Handoff form, What code will check of you
+- `references/slices/qa-test-strategist/handoff-keys-2.md` (5,835 B) — What code will check of you (continued from handoff-keys.md), Not yet in rows

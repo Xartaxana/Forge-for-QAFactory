@@ -451,7 +451,7 @@ def test_handoff_keys_pages() -> None:
     # X7-3: the runner and the analyst have a key page too; their forms get the `tried` table in X7-7, so the table is checked for the four
     # X7-4: the reporter, the scribe and the retro analyst have one too
     x7_roles = ("qa-runner", "qa-failure-analyst", "qa-bug-reporter", "qa-doc-scribe", "qa-retro-analyst")
-    check_eq("X1-7: the map names a key page for exactly the roles that have a slice", sorted(r for r, _e, _p in CS.keys_targets(PLUGIN_ROOT)),
+    check_eq("X1-7: the map names a key page for exactly the roles that have a slice", sorted({r for r, _e, _p in CS.keys_targets(PLUGIN_ROOT)}),     # a role with continuation pages is listed once per page
              sorted(roles + x7_roles))
     for role in x7_roles:
         page = (PLUGIN_ROOT / "references" / "slices" / role / CS.KEYS_NAME).read_text(encoding="utf-8")
@@ -708,8 +708,10 @@ def test_told_section_size_and_split() -> None:
             check_eq("T3a (d): over L is not also a WARN line", warn, [])
         # (e) the partition
         with Capabilities():
-            cap = [told_row(f"t:a{i}", text=f"a{i} " + "x" * 2990) for i in range(1, 4)]
-            win = [told_row(f"t:w{i}", when=["window"], text=f"w{i} " + "y" * 2990) for i in range(1, 7)]
+            # T1r-pages: the partition splits at the stricter of W (20800 characters) and the 12000-byte slice cap, so the rows are sized
+            # to the cap (1490 characters, not 2990): the same nine rows still need two pages and split inside the window group
+            cap = [told_row(f"t:a{i}", text=f"a{i} " + "x" * 1490) for i in range(1, 4)]
+            win = [told_row(f"t:w{i}", when=["window"], text=f"w{i} " + "y" * 1490) for i in range(1, 7)]
             root = told_plugin(tmp / "split", cap + win, lists={"qa-x": ("handoff-keys.md", "handoff-keys-2.md")})
             pages = CS.handoff_keys_pages(root, "qa-x")
             check_eq("T3a (e): two listed pages are two generated pages", len(pages), 2)
@@ -864,9 +866,83 @@ def test_native_headroom() -> None:
         cleanup(tmp)
 
 
+def test_t1rp() -> None:
+    """T1r-pages: rows told at the call leave the page for one index line per family (the family list is data), the key page is
+    split at the stricter of W and the slice cap, and no row is in neither carrier."""
+    import re
+    import stage_joints as SJ
+    from stage_guard import stages_of_role
+    call = lambda row: {**row, "producers": [{**row["producers"][0], "told": [{"page": True, "call": True}]}]}
+    plan, plan_md = call(told_row("guard_pre_tool:PT-plan-rewrite", text="Never rewrite whole.")), call(told_row("guard_pre_tool:PT-plan-md-rewrite", text="Never rewrite md."))
+    cmd, out = call(told_row("role_cli:plan_row.py", text="A command row.")), told_row("t:out", text="Output row.")
+
+    def joints(rows, families):
+        return json.dumps({"schema_version": 2, "when_exclusive": WHEN_EXCLUSIVE, "call_told_families": families,
+                           "told_ratchet": {"hand_cards": 0, "legacy_legs": 0, "unsited": 0}, "joints": list(rows)})
+    tmp = temp_dir("qa-factory-t1rp-")
+    try:
+        with Capabilities():
+            fams = ["guard_pre_tool", "host_adapter", "role_cli"]
+            root = told_plugin(tmp / "a", joints_text=joints([plan, plan_md, cmd, out], fams)) if (tmp / "a").mkdir() is None else None
+            section = section_of(CS.handoff_keys_page(root, "qa-x"))
+            check_in("T1rp/index-line/guard_pre_tool: one line, the count, the nothing-lost sentence",
+                     "- [guard_pre_tool:*] 2 checks of your tool calls are told in the refusal of the call, with what they expect and the door; "
+                     "nothing you have written is lost by them.", section)
+            check_in("T1rp/index-line/role_cli: the count and the `--help` instruction before the input file, no nothing-lost sentence",
+                     "- [role_cli:*] 1 checks of your commands are told in the refusal of the call, with what they expect and the door. "
+                     "Run `plan_row.py --help` before you write an input file", section)
+            check("T1rp/index-line/role_cli: and the sentence 'nothing you have written is lost' is not printed for it", "lost by them" not in section.split("- [role_cli:*]")[1])
+            check_eq("T1rp/index-line/host_adapter: a listed family with 0 rows for the role has no line", "- [host_adapter:*]" in section, False)
+            check_eq("T1rp/no-row-lost/fixture: the call-told rows are not on the page and the output row is",
+                     ("- [guard_pre_tool:PT-plan-rewrite]" in section, "- [role_cli:plan_row.py]" in section, "- [t:out] " in section), (False, False, True))
+            check_eq("T1rp/page-ids-and-call-ids/fixture: page ids + call-told ids == rows_for ids",
+                     sorted(["t:out"] + [r["check"] for r in (plan, plan_md, cmd) if SJ.call_told(r, "qa-x", fams)]), sorted(r["check"] for r in SJ.rows_for("qa-x", ["S1"], None, data=json.loads(joints([plan, plan_md, cmd, out], fams)))))
+            only = section_of(CS.handoff_keys_page(told_plugin(tmp / "b", joints_text=joints([plan], fams)) if (tmp / "b").mkdir() is None else None, "qa-x"))
+            check_eq("T1rp/only-call-rows: a role whose rows are all told at the call has index lines, not the `none` line", ("- [guard_pre_tool:*]" in only, CS.NONE_ROLE in only), (True, False))
+            back = section_of(CS.handoff_keys_page(told_plugin(tmp / "c", joints_text=joints([plan, plan_md, cmd, out], [])) if (tmp / "c").mkdir() is None else None, "qa-x"))
+            check_eq("T1rp/reversible: the family list emptied, every row is on the page again and there is no index line",
+                     ("- [guard_pre_tool:PT-plan-rewrite]" in back, "- [role_cli:plan_row.py]" in back, "told in the refusal of the call" in back), (True, True, False))
+            check_eq("T1rp/unlisted-family-sleeps: a marker on a family not in the list leaves the row on the page",
+                     "- [role_cli:plan_row.py]" in section_of(CS.handoff_keys_page(told_plugin(tmp / "d", joints_text=joints([cmd], ["guard_pre_tool"])) if (tmp / "d").mkdir() is None else None, "qa-x")), True)
+        # the split at the stricter limit: under W (characters), over the cap (bytes)
+        with Capabilities():
+            rows = [told_row(f"t:w{i}", text=f"w{i} " + "x" * 2990) for i in range(1, 6)]
+            root = tmp / "e"
+            root.mkdir()
+            told_plugin(root, rows, lists={"qa-x": ("handoff-keys.md", "handoff-keys-2.md")})
+            pages = CS.handoff_keys_pages(root / "plugin", "qa-x")
+            _limit, width = CS.size_limits()
+            check_eq("T1rp/split-at-cap: five rows (about 15000 characters, under W) split over the cap: page 1 at or under it, both pages under W",
+                     (len(pages), len(pages[0].encode()) <= CS.SLICE_MAX_BYTES, all(len(p.strip()) < width for p in pages), "- [t:w5] " in pages[1]), (2, True, True, True))
+        check_eq("T1rp/one-cap: the slice cap is one literal, read by the partition and by selftest",
+                 (CS.SLICE_MAX_BYTES, __import__("selftest").REFERENCE_MD_MAX_BYTES), (12000, 12000))
+    finally:
+        cleanup(tmp)
+    # the real package, per role
+    model = json.loads((PLUGIN_ROOT / "references" / "stages.json").read_text(encoding="utf-8"))
+    data, _why = SJ.load_rows()
+    fams = SJ.call_families(data)
+    _limit, width = CS.size_limits()
+    form = "a header `<role> <stage> <window>"
+    for role in sorted(json.loads((PLUGIN_ROOT / "references" / "inject-map.json").read_text(encoding="utf-8"))["roles"]):
+        pages = CS.handoff_keys_pages(PLUGIN_ROOT, role)
+        text = "\n".join(pages)
+        ids = [str(s.get("id")) for s in stages_of_role(model, role)]
+        rows = SJ.rows_for(role, ids, None, data=data)
+        on_page = {m for m in re.findall(r"^- \[([^\]]+)\]", text, re.M)}
+        at_call = {r["check"] for r in rows if SJ.call_told(r, role, fams)}
+        check_eq(f"T1rp/no-row-lost/{role}: page ids + call-told ids == rows_for ids (index lines are not rows)",
+                 sorted((on_page - {f"{f}:*" for f in fams}) | at_call), sorted(r["check"] for r in rows))
+        check_eq(f"T1rp/digest-once/{role}: the digest form sentence stands once on the pages", text.count(form), 1)
+        check_eq(f"T1rp/pages-listed/{role}: the generated pages are the listed pages, each under W characters and at or under the cap in bytes",
+                 (len(pages), len([1 for r, _e, _p in CS.keys_targets(PLUGIN_ROOT) if r == role]), all(len(p.strip()) < width and len(p.encode()) <= CS.SLICE_MAX_BYTES for p in pages)),
+                 (len(pages), len(pages), True))
+
+
 test_rendering()
 test_told_section_rows()
 test_told_section_size_and_split()
+test_t1rp()
 test_inline_set()
 test_native_headroom()
 test_handoff_keys_pages()

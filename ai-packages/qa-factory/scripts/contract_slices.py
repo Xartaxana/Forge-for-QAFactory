@@ -595,8 +595,14 @@ def page_name(n: int) -> str:
     return KEYS_NAME if n == 1 else f"handoff-keys-{n}.md"
 
 
+# The ONE literal of the per-slice byte cap (AR-13): `selftest.REFERENCE_MD_MAX_BYTES` re-exports it, `--limits` judges every slice
+# file against it, and the partition of a key page keeps each page at or under it as well as under `W` (F-10 (a): both limits met).
+SLICE_MAX_BYTES = 12_000
+
+
 def size_limits() -> tuple:
-    """`(L, W)`: `inject_context.MAX_BLOCK_CHARS` (imported, never a second literal) and 80 % of it, the split threshold of K8."""
+    """`(L, W)`: `inject_context.MAX_BLOCK_CHARS` (imported, never a second literal) and 80 % of it, the split threshold of K8.
+    The partition of a key page splits at the stricter of `W` (characters) and `SLICE_MAX_BYTES` (bytes)."""
     import inject_context
     limit = inject_context.MAX_BLOCK_CHARS
     return limit, (limit * 8) // 10
@@ -634,6 +640,36 @@ def _continuation_head(role: str, n: int) -> list:
             "its section; edit stage-joints.json, never this file -->"]
 
 
+# The index line of a family whose rows are told at the call (T1r-pages; its family list is DATA, `call_told_families` of
+# stage-joints.json). The page keeps one line per family so the role knows the checks exist; the refusal of the call tells each
+# whole. Only the WORDS live here: what the family's calls are, and the closing sentence that is true for it. A listed family with
+# no entry gets the plain words (`CALL_WHAT_DEFAULT`, no closing sentence) - never a line that promises more than the family keeps.
+CALL_LINE = ("- [{family}:*] {n} checks of your {what} are told in the refusal of the call, with what they expect and the door"
+             "{tail}.")
+CALL_WHAT_DEFAULT = "commands"
+CALL_WHAT = {"guard_pre_tool": "tool calls", "stage_guard": "tool calls", "host_adapter": "tool calls"}
+CALL_NOTHING_LOST = ("guard_pre_tool", "stage_guard", "host_adapter")     # a refusal before any effect: nothing written is lost
+CALL_NOTHING_LOST_TAIL = "; nothing you have written is lost by them"
+CALL_HELP_FAMILY = "role_cli"                                              # a refusal that comes after an input file was written
+CALL_HELP_TAIL = (". Run {scripts} before you write an input file: it prints what each command of the script checks")
+
+
+def _call_index_lines(families, called_rows: list) -> list:
+    """One line per family of `families` (in the list's order) that holds at least one of `called_rows`, with the count. The
+    role_cli line names `<script> --help` for every script of its rows (the card before the file, not after the refusal)."""
+    out = []
+    for family in families:
+        mine = [r for r in called_rows if str(r.get("check")).split(":", 1)[0] == family]
+        if not mine:
+            continue
+        tail = CALL_NOTHING_LOST_TAIL if family in CALL_NOTHING_LOST else ""
+        if family == CALL_HELP_FAMILY:
+            scripts = sorted({str(r.get("check")).split(":", 1)[1].split()[0] for r in mine if ":" in str(r.get("check"))})
+            tail = CALL_HELP_TAIL.format(scripts=", ".join(f"`{s} --help`" for s in scripts))
+        out.append(CALL_LINE.format(family=family, n=len(mine), what=CALL_WHAT.get(family, CALL_WHAT_DEFAULT), tail=tail))
+    return out
+
+
 def _told_units(plugin_root: Path, role: str, model: dict) -> tuple:
     """`(units, exclusive, why)`: the pieces the section is laid from, in page order. A unit is `(group, text)`: `group` None for
     a row that holds in every dispatch (capability tokens only), a dispatch token of `GROUPS` for a row of that group (a row
@@ -648,9 +684,14 @@ def _told_units(plugin_root: Path, role: str, model: dict) -> tuple:
     ids = [str(s.get("id")) for s in stages_of_role(model, role)]
     order = {str(s.get("id")): i for i, s in enumerate(model.get("stages") or [])}
     rows = sorted(stage_joints.rows_for(role, ids, None, data=data), key=lambda r: _row_order(r, order))
+    families = stage_joints.call_families(data)
+    called = [stage_joints.call_told(r, role, families) for r in rows]
+    told = [r for r, at_call in zip(rows, called) if not at_call]          # the rows the role's page tells whole
     groups = [token for token, _name in GROUPS]
-    units = [(None, stage_joints.told_line(r)) for r in rows
+    units = [(None, stage_joints.told_line(r)) for r in told
              if not [t for t in r.get("when") or [] if t in groups]]
+    units += [(None, line) for line in _call_index_lines(families, [r for r, at_call in zip(rows, called) if at_call])]
+    rows = told
     for token in groups:
         units += [(token, stage_joints.told_line(r)) for r in rows if token in (r.get("when") or [])]
     hand = (data.get("told_ratchet") or {}).get("hand_cards")
@@ -688,8 +729,9 @@ def requirement_section(plugin_root: Path, role: str, head=(), model=None, pages
     """The section "What code will check of you" of the key pages of `role`: a list with the lines of the section on each of
     `pages` listed pages (page 1 first). `head` is the text of page 1 before the section (the fixed sections: only its size
     matters, for the split); `model` is stages.json (read when None). The rows are laid in order and a row goes to the current
-    page while the page stays at or under `W` (K8) with it, else to the next page; the LAST page takes every remaining row; a
-    row is never cut. A role with no rows says so (`none`), a continuation page with no rows says so, and a rows file that
+    page while the page stays at or under `W` (K8, characters) AND at or under `SLICE_MAX_BYTES` (bytes) with it, else to the
+    next page; the LAST page takes every remaining row; a row is never cut. A row told at the call (`call_told_families`) is
+    not laid: its family has one index line instead. A role with no rows says so (`none`), a continuation page with no rows says so, and a rows file that
     cannot be read is named on the page. Also the attribute whose presence turns the page leg of `stage_joints` on (K2)."""
     model = model if isinstance(model, dict) else (_json_of(plugin_root / "references" / "stages.json") or {})
     units, exclusive, why = _told_units(plugin_root, role, model)
@@ -705,7 +747,8 @@ def requirement_section(plugin_root: Path, role: str, head=(), model=None, pages
             seen = {g for earlier in placed[:where] for g, _t in earlier}
             base = list(head) if where == 0 else _continuation_head(role, where + 1)
             trial = base + [""] + _section_lines(where + 1, placed[where] + [unit], seen, exclusive, len(units))
-            if len(_page_text(trial).strip()) <= width:
+            fits = _page_text(trial)
+            if len(fits.strip()) <= width and len(fits.encode("utf-8")) <= SLICE_MAX_BYTES:       # the stricter of K8's W and the slice cap
                 break
             where += 1
         placed[where].append(unit)
@@ -764,7 +807,8 @@ def handoff_keys_page(plugin_root: Path, role: str) -> str:
 
 def size_finding(rel: str, role: str, n: int, size: int) -> tuple:
     """K8 on one page file of `size` characters (`len(text.strip())`, the measure `inject_context.collect_blocks` applies):
-    `("", "")` under `W`, `("warn", text)` from `W` to `L`, `("red", text)` over `L`. The text names the one move: the split."""
+    `("", "")` under `W`, `("warn", text)` from `W` to `L`, `("red", text)` over `L`. The text names the one move: the split.
+    The byte cap is judged by `selftest --limits` (its door for a key page: the same split line)."""
     limit, width = size_limits()
     if size < width:
         return "", ""

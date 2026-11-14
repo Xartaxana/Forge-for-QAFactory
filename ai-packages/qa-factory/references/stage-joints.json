@@ -269,7 +269,7 @@
         "test": "scripts/tests/test_exit_gate_digest_source.py",
         "fixture": "scripts/tests/fixtures/run-12586-digest/"
       },
-      "requirement": "Your final message is the handoff form: a header `<role> <stage> <window> · ok|concerns|halt|impossible`; one line `<id> · <state> · <reason of at most 80 characters>` for every item of the dispatch's scope (a halting digest owes no scope lines); nothing but those lines between the header and the path; and, last, the task-relative path of what you wrote (a halting digest may omit it). A verdict or a state word outside the form's list is advice, not a refusal; a reason over 80 characters, an absolute path under the task root, prose before the header and a missing path the witness names are mended by code when mending makes the form pass.",
+      "requirement": "Your final message has the digest form stated in the row [exit_gate:EG-digest-form] of this section.",
       "door": "fix the digest line the refusal names, then end the dispatch again",
       "when": [
         "always"
@@ -1254,7 +1254,8 @@
           "field": "the tool call (a command or a file write) the guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -1292,7 +1293,8 @@
           "field": "the tool call (a command or a file write) the guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -1329,7 +1331,8 @@
           "field": "the tool call (a command or a file write) the guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -1366,7 +1369,8 @@
           "field": "the tool call (a command or a file write) the guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -1403,7 +1407,8 @@
           "field": "the tool call (a command or a file write) the guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -1440,7 +1445,8 @@
           "field": "the tool call (a command or a file write) the guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -1477,7 +1483,8 @@
           "field": "the tool call (a command or a file write) the guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -1514,7 +1521,8 @@
           "field": "the tool call (a command or a file write) the guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -1551,7 +1559,8 @@
           "field": "the tool call (a command or a file write) the guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -1588,7 +1597,8 @@
           "field": "the tool call (a command or a file write) the guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -1625,7 +1635,8 @@
           "field": "the tool call (a command or a file write) the guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -1662,7 +1673,8 @@
           "field": "the tool call (a command or a file write) the guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -1683,12 +1695,24 @@
       "producers": [
         {
           "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
             "qa-test-strategist"
           ],
           "field": "the tool call (a command or a file write) the guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -1709,12 +1733,24 @@
       "producers": [
         {
           "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
             "qa-test-strategist"
           ],
           "field": "the tool call (a command or a file write) the guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -1735,12 +1771,24 @@
       "producers": [
         {
           "roles": [
-            "qa-automator"
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
           ],
           "field": "the tool call (a command or a file write) the guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -1777,7 +1825,8 @@
           "field": "the tool call (a command or a file write) the guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -1803,7 +1852,8 @@
           "field": "the tool call (a command or a file write) the guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -1840,7 +1890,8 @@
           "field": "the tool call (a command or a file write) the guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -1877,7 +1928,8 @@
           "field": "the tool call (a command or a file write) the guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -1914,7 +1966,8 @@
           "field": "the tool call (a command or a file write) the guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -1951,7 +2004,8 @@
           "field": "the tool call (a command or a file write) the guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -1988,7 +2042,8 @@
           "field": "the tool call (a command or a file write) the guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -2025,7 +2080,8 @@
           "field": "the tool call (a command or a file write) the guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -2062,7 +2118,8 @@
           "field": "the tool call (a command or a file write) the guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -2100,7 +2157,8 @@
           "field": "the shell command the stage guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -2138,7 +2196,8 @@
           "field": "the shell command the stage guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -2176,7 +2235,8 @@
           "field": "the shell command the stage guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -2214,7 +2274,8 @@
           "field": "the shell command the stage guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -2235,7 +2296,18 @@
       "producers": [
         {
           "roles": [
-            "qa-automator",
+            "qa-automator"
+          ],
+          "field": "the shell command the stage guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        },
+        {
+          "roles": [
             "qa-bug-reporter",
             "qa-case-critic",
             "qa-case-designer",
@@ -2251,7 +2323,8 @@
           "field": "the shell command the stage guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -2288,7 +2361,8 @@
           "field": "the shell command the stage guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -2309,12 +2383,23 @@
       "producers": [
         {
           "roles": [
+            "qa-doc-scribe"
+          ],
+          "field": "the shell command the stage guard judges",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        },
+        {
+          "roles": [
             "qa-automator",
             "qa-bug-reporter",
             "qa-case-critic",
             "qa-case-designer",
             "qa-code-critic",
-            "qa-doc-scribe",
             "qa-failure-analyst",
             "qa-requirements-tester",
             "qa-retro-analyst",
@@ -2325,7 +2410,8 @@
           "field": "the shell command the stage guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -2362,7 +2448,8 @@
           "field": "the shell command the stage guard judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -2399,7 +2486,8 @@
           "field": "the host tool call the adapter judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -2436,7 +2524,8 @@
           "field": "the host tool call the adapter judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -2473,7 +2562,8 @@
           "field": "the host tool call the adapter judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -2510,7 +2600,8 @@
           "field": "the host tool call the adapter judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -2547,7 +2638,8 @@
           "field": "the host tool call the adapter judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -2584,7 +2676,8 @@
           "field": "the host tool call the adapter judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -2621,7 +2714,8 @@
           "field": "the host tool call the adapter judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -2658,7 +2752,8 @@
           "field": "the host tool call the adapter judges",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -6951,7 +7046,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -6979,7 +7075,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7007,7 +7104,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7035,7 +7133,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7063,7 +7162,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7091,7 +7191,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7121,7 +7222,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7151,7 +7253,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7179,7 +7282,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7209,7 +7313,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7237,7 +7342,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7265,7 +7371,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7293,7 +7400,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7321,7 +7429,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7351,7 +7460,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7381,7 +7491,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7411,7 +7522,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7439,7 +7551,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7467,7 +7580,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7495,7 +7609,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7525,7 +7640,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7553,7 +7669,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7587,7 +7704,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7621,7 +7739,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7650,7 +7769,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7680,7 +7800,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7710,7 +7831,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7740,7 +7862,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7770,7 +7893,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7798,7 +7922,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7828,7 +7953,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7856,7 +7982,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7884,7 +8011,8 @@
           "field": "the file the command reads",
           "told": [
             {
-              "page": true
+              "page": true,
+              "call": true
             }
           ],
           "demands": []
@@ -7925,5 +8053,13 @@
     "hand_cards": 12,
     "legacy_legs": 0,
     "unsited": 150
-  }
+  },
+  "call_told_families": [
+    "guard_pre_tool",
+    "stage_guard",
+    "host_adapter",
+    "execution_request",
+    "run_suite",
+    "role_cli"
+  ]
 }

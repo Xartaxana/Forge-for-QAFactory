@@ -8,4 +8,6 @@ names. A rule you did not read is still a rule the exit gate checks.
 - `references/slices/qa-automator/execution-lifecycle.md` (7,112 B) — Before the first write, Author and critic, Importing a developer or CI result, After a mechanical fix, Requests, receipts and reuse, Runtime provenance of a request…
 - `references/slices/qa-automator/test-code-patterns.md` (9,475 B) — Principle, Executable shape, Decision ladder (top down; the first fitting answer is final), Rules for introducing a new pattern, Catalog by problem (not by surface), Client/SDK reuse…
 - `references/slices/qa-automator/vocabularies.md` (652 B) — `unresolved[]` reason
-- `references/slices/qa-automator/handoff-keys.md` (41,376 B) — Outputs, Witness, Handoff form, What code will check of you, Only in a plan dispatch (replaces "Only in a window"), Only in a window (replaced by "Only in a plan dispatch"), Not yet in rows
+- `references/slices/qa-automator/handoff-keys.md` (11,750 B) — Outputs, Witness, Handoff form, What code will check of you
+- `references/slices/qa-automator/handoff-keys-2.md` (11,910 B) — What code will check of you (continued from handoff-keys.md)
+- `references/slices/qa-automator/handoff-keys-3.md` (6,739 B) — What code will check of you (continued from handoff-keys-2.md), Only in a plan dispatch (replaces "Only in a window"), Only in a window (replaced by "Only in a plan dispatch"), Not yet in rows

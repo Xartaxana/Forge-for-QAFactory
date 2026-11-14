@@ -509,9 +509,9 @@ def lookups() -> None:
               [r["check"] for r in SJ.rows_for(runner, ["S5"], {"plan": True}, data=unknown)]),
              (["u:zz", "u:plan"], ["u:zz", "u:plan"], ["u:zz"], ["u:zz", "u:plan"]))
     real_rows = SJ.rows_for(runner, ["*"])
-    check_eq("rows-for/real: since T1r the runner is told rows (111 today), each stating a requirement; no row names the conductor yet (T9c)",
+    check_eq("rows-for/real: since T1r the runner is told rows (114 today), each stating a requirement; no row names the conductor yet (T9c)",
              (len(real_rows), all(r.get("requirement") or r.get("requirement_from") for r in real_rows), SJ.rows_for("conductor", ["*"])),
-             (111, True, []))
+             (114, True, []))
 
 
 def renderers() -> None:
@@ -533,8 +533,8 @@ def renderers() -> None:
              fields, "; ".join(f"`{n}`: {s.what}" for n, s in window_record.REQUIRED_ROW_FIELDS.items()))
     command = next(name for name, found in role_cli.registry().items() if found.get("input") and found.get("verify"))
     said = SJ.told_text({"check": "a:x", "requirement_from": "role-commands.json", "carrier_key": command})[0]
-    check_eq("told-text/role-commands.json: the command's `input` and `verify`",
-             said, f"{role_cli.entry(command)['input']}; how to prove it: {role_cli.entry(command)['verify']}")
+    check_eq("told-text/role-commands.json: a command row is told as a pointer to its card (T1r-pages: the card itself is `--help` and the refusal)",
+             said, SJ.COMMANDS_TEXT.format(command=command, script=command.split()[0]))
     for label, row in (("an unknown carrier", {"check": "a:x", "requirement_from": "my.table"}),
                        ("a carrier key that names nothing", {"check": "a:x", "requirement_from": "validate_artifacts.PHASE_JSON_KEYS", "carrier_key": "no-such"}),
                        ("a command that names nothing", {"check": "a:x", "requirement_from": "role-commands.json", "carrier_key": "no such command"}),
@@ -741,13 +741,34 @@ def measure_untold(units: dict, rows: dict, found: list) -> int:
     return count
 
 
+def KEY_PAGE_ROLES(row: dict) -> list:
+    """The roles a row's producers name literally (a `*` is expanded by the caller's mapped set, not here)."""
+    return [r for e in row.get("producers") or [] if isinstance(e, dict) and isinstance(e.get("roles"), list) for r in e["roles"] if r != SJ.ANY]
+
+
+def row_counts(row: dict, role: str, mapped: set) -> bool:
+    """K5 (T1r-pages P-8): a row counts for a role when a producer names the role AND the row tells it: it states a requirement
+    (page or call: a call-told row is a row that states one), or it is a sentence-less row whose leg for that role is the role's
+    OWN key page (`references/slices/<role>/handoff-keys.md`, the `<role>` placeholder expanded for this role). Another role's page,
+    an unexpanded placeholder and a leg with no path do not count (the error direction is toward NOT counting)."""
+    if not SJ._row_names(row, role, lambda: mapped):
+        return False
+    if SJ._states_requirement(row):
+        return True
+    own = SJ.KEY_PAGE.format(role=role)
+    return any(isinstance(e, dict) and isinstance(e.get("roles"), list) and (role in e["roles"] or SJ.ANY in e["roles"])
+               and any(isinstance(t, dict) and isinstance(t.get("path"), str) and SJ._expand(t["path"], role) == own
+                       for t in e.get("told") or [])
+               for e in row.get("producers") or [])
+
+
 def k5_problems(unit_roles: dict, unit_rows: dict, mapped: set) -> list:
     """K5: the roles of a unit (census roles minus the conductor) are each named by a told row of it (`SJ._row_names`: `*` is
     every mapped role, never the conductor)."""
     out = []
     for unit, rows in sorted(unit_rows.items()):
         missing = {r for r in set(unit_roles.get(unit) or []) - {"conductor"}
-                   if not any(SJ._row_names(row, r, lambda: mapped) for row in rows)}
+                   if not any(row_counts(row, r, mapped) for row in rows)}
         if missing:
             out.append(f"{unit[0]}::{unit[1]} is met by {', '.join(sorted(missing))}, which no row of it names")
     return out
@@ -758,7 +779,7 @@ def told_unit_rows(ids: dict, data: dict) -> dict:
     cover: the row's own id, a `<stem>:*` row for every id of that stem, a sub-id row `<id>.<part>` for its parent id."""
     out = {}
     for row in data["joints"]:
-        if not SJ._states_requirement(row):
+        if not SJ._states_requirement(row) and not any(row_counts(row, r, {r}) for r in KEY_PAGE_ROLES(row)):
             continue
         check = str(row.get("check"))
         stem = check.split(":", 1)[0]
@@ -943,7 +964,7 @@ def told_variants() -> None:
              "an overridden and a non-blocking unit are not counted",
              [measure_untold(units, rows, found) for found in ([site("bare")], [site("sourced")], [site("tagged")], [])], [1, 0, 0, 1])
     check_eq("K5/roles-subset: a unit's roles minus the conductor must all be named by its rows (`*` is every mapped role)",
-             [k5_problems({u: r}, {u: [a_row("x:y", roles=rr)]}, {"qa-runner", "qa-scout"}) for r, rr in (
+             [k5_problems({u: r}, {u: [a_row("x:y", roles=rr, requirement="r")]}, {"qa-runner", "qa-scout"}) for r, rr in (
                  (["qa-runner", "conductor"], ("qa-runner",)), (["qa-runner", "qa-scout"], ("qa-runner",)), (["qa-runner", "qa-scout"], ("*",)))],
              [[], ["f.py::g is met by qa-scout, which no row of it names"], []])
     stub = a_rows_file(a_row("x:one", roles=("qa-runner",), requirement="a requirement"), a_row("y:*", roles=("qa-scout",), requirement="r"),
@@ -1079,6 +1100,78 @@ def told_leg_and_rows() -> None:
              ([p for p in opened if "judgment-census" in p or "told-ratchet" in p], shaped.problems), ([], []))
 
 
+def t1rp() -> None:
+    """T1r-pages: the pointer for a command row, the call marker (K2), the one decision `call_told`, the shape of the family list, K5's legs."""
+    import io
+    import role_cli
+    key = next(k for k, f in role_cli.registry().items() if f.get("input") and f.get("verify"))
+    row_of_cmd = lambda k: {"check": "role_cli:x", "requirement_from": "role-commands.json", "carrier_key": k, "door": "d"}
+    check_eq("T1rp/role-cli-pointer/real: a real key reads as the pointer, with the `--help` clause and the script = first token",
+             SJ._carrier_expected(row_of_cmd(key)), (SJ.COMMANDS_TEXT.format(command=key, script=key.split()[0]), ""))
+    check_in("T1rp/role-cli-pointer/subcommand: the script is the first token of the key", f"`{key.split()[0]} --help`", SJ._carrier_expected(row_of_cmd(key))[0])
+    check_eq("T1rp/role-cli-pointer/absent: a key with no command is the defect text (no pointer to nothing)",
+             SJ._carrier_expected(row_of_cmd("no such command")), ("", "no command `no such command`"))
+    real_registry = role_cli.registry
+    role_cli.registry = lambda: {"zz.py a": {"roles": ["qa-runner"]}}
+    try:
+        check_eq("T1rp/role-cli-pointer/empty-card: a command with neither `input` nor `verify` is the defect text",
+                 SJ._carrier_expected(row_of_cmd("zz.py a")), ("", "command `zz.py a` has no card"))
+    finally:
+        role_cli.registry = real_registry
+    out = io.StringIO()
+    role_cli.refuse(key, "it is wrong", out)
+    check_in("T1rp/refusal-keeps-card: the refusal still prints the card's `input`", f"what to write: {role_cli.entry(key)['input']}", out.getvalue())
+    # the call marker (K2)
+    env = copy.copy(ENV)
+    env.load_map = {"common": [], "roles": {"qa-runner": [f"plugin:{SJ.KEY_PAGE.format(role='qa-runner')}"]}}
+    row = a_row("t:one", requirement="Say it.", door="d")
+    entry = row["producers"][0]
+    entry["told"] = [{"page": True, "call": True}]
+
+    def leg(families, sited, the_row=row, the_entry=entry):
+        env.call_families, env.sited = families, sited
+        return SJ._told_leg(the_entry, env, the_row)
+    check_eq("T1rp/call-leg/listed-ok: the family listed, the row stating a requirement and sited: the marker is green", leg(["t"], {"t:one"}), [])
+    check_eq("T1rp/call-leg/family-not-listed-dormant: the family not listed: the marker sleeps, K2 is green and the row is page-told",
+             (leg([], {"t:one"}), SJ.call_told(row, "qa-runner", [], {"t:one"})), ([], False))
+    check_in("T1rp/call-leg/no-requirement-red: a marker on a row that states no requirement is refused, naming the row",
+             "t:one states no requirement", " ".join(SJ._call_leg(entry, {**row, "requirement": ""}, (setattr(env, "call_families", ["t"]), env)[1])))
+    check_in("T1rp/call-leg/unsited-red: a marker on a row with no site in code is refused, the page item stands",
+             "t:one has no site in code", " ".join(leg(["t"], set())))
+    check_in("T1rp/call-leg/call-1-red: `call: 1` is no marker", "a told entry is not an object",
+             " ".join(leg(["t"], {"t:one"}, row, {**entry, "told": [{"page": True, "call": 1}]})))
+    check_eq("T1rp/call-leg/legacy-still-0: a call marker is no legacy leg, and the real file counts none", SJ._legacy_legs(REAL["joints"]), 0)
+    split = {**row, "producers": [entry, {**entry, "roles": ["qa-scout"], "told": [{"page": True}]}]}
+    check_eq("T1rp/call-told/decision: listed + sited + stating + every entry naming the role marked is True; an unmarked entry, an unsited row, "
+             "an unnamed role, a code-less doubt are False",
+             [SJ.call_told(row, "qa-runner", ["t"], {"t:one"}), SJ.call_told(split, "qa-scout", ["t"], {"t:one"}),
+              SJ.call_told(split, "qa-runner", ["t"], {"t:one"}), SJ.call_told(row, "qa-runner", ["t"], set()),
+              SJ.call_told(row, "qa-scout", ["t"], {"t:one"}), SJ.call_told(row, "qa-runner", "t", {"t:one"})],
+             [True, False, True, False, False, False])
+    # the family list: shape, reversibility
+    check_eq("T1rp/call-families/real: the real file lists the six families and the real audit is clean with them",
+             (SJ.call_families(REAL), audit().problems),
+             (["guard_pre_tool", "stage_guard", "host_adapter", "execution_request", "run_suite", "role_cli"], []))
+    check_eq("T1rp/call-families/empty-green: an EMPTY list is green (no row is told at the call; every row is page-told)",
+             audit(data=mutated(lambda d: d.update(call_told_families=[]))).problems, [])
+    for label, change, said in (("unknown family", lambda d: d["call_told_families"].append("zz_nope"), "names `zz_nope`, which is the family of no row"),
+                                ("not a list", lambda d: d.update(call_told_families="role_cli"), "is not a list of distinct family names"),
+                                ("a repeat", lambda d: d["call_told_families"].append("role_cli"), "is not a list of distinct family names"),
+                                ("absent", lambda d: d.pop("call_told_families"), "lacks `call_told_families`")):
+        check_in(f"T1rp/call-families/{label.replace(' ', '-')}-red", said, text_of(audit(data=mutated(change))))
+    # K5 (P-8)
+    page_row = lambda path, roles=("qa-runner",): {"check": "t:x", "producers": [{"roles": list(roles), "field": "f", "demands": [],
+                                                                                  "told": [{"path": path, "anchor": "## Outputs"}]}]}
+    check_eq("K5/key-page-leg-counts: a sentence-less row whose leg is the role's own key page (placeholder expanded) counts for it",
+             row_counts(page_row("references/slices/<role>/handoff-keys.md"), "qa-runner", {"qa-runner"}), True)
+    check_eq("K5/other-role-page-not-counted: another role's page, a leg with no path and a bare sentence-less row do not count",
+             [row_counts(page_row("references/slices/qa-scout/handoff-keys.md"), "qa-runner", {"qa-runner"}),
+              row_counts({**page_row("x"), "producers": [{"roles": ["qa-runner"], "told": [{"page": True}]}]}, "qa-runner", {"qa-runner"}),
+              row_counts(page_row("references/slices/<role>/handoff-keys.md", ("qa-scout",)), "qa-runner", {"qa-runner"})], [False, False, False])
+    check_eq("K5/call-told-counts: a row that states a requirement and carries the call marker counts for the roles it names",
+             row_counts(row, "qa-runner", {"qa-runner"}), True)
+
+
 def main() -> None:
     k1_real_tree()
     k2_k3_pins()
@@ -1101,6 +1194,7 @@ def main() -> None:
     exit_gate_sites()
     told_variants()
     told_leg_and_rows()
+    t1rp()
     told_real()
     finish("test_stage_joints")
 
