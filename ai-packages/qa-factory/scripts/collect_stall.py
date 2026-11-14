@@ -64,7 +64,7 @@ The loop half of the verdict is `{looped, loop_signals, loop_unreadable_reasons,
 or `ignored` (the stall half is byte-identical to before). The closed variety - which record means a loop - is the data table
 `references/collect-loops.json` (`load_loops`, the one reader; FR-13): L1 one role dispatched on one `controller.ledger_key`
 more often than normal; L2 `window_rounds` hit the cap or repeated; L3 `gate_repair` journal rows stopped by cap or repeat;
-L4 `repair_limit` / `repair_limit_s7` answered by the person; L5 a person's recorded word passed a cap (`stage_overrides`: a
+L4 `repair_limit` / `repair_limit_s7` / `repair_limit_s4` answered by the person; L5 a person's recorded word passed a cap (`stage_overrides`: a
 repair pass key built by `controller.repair_pass_key`, or a block named in `exit_limit` passes; revoked ones count - history);
 L6 the exit gate granted a round; L7 `driver-questions.jsonl` rows of the repair/exit-limit questions - the DURABLE carrier:
 the driver pops `window_rounds`, `exit_limit` and its passes when a window or dispatch is accepted and overwrites a
