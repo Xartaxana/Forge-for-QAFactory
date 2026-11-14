@@ -355,7 +355,7 @@ def cmd_control_bytes() -> bool:
 SKILL_MD_MAX_BYTES = 19_000
 SKILL_MD_MAX_LINES = 500
 AGENT_MD_MAX_BYTES = 9_000
-REFERENCE_MD_MAX_BYTES = 12_206   # was 12_000: conductor.md row T11 (FV1-9), the Lead's decision 14.11, to be confirmed by the owner
+REFERENCE_MD_MAX_BYTES = 12_000
 
 
 def cmd_limits() -> bool:

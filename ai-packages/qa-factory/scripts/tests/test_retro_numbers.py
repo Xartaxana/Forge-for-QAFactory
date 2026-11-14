@@ -358,9 +358,16 @@ def test_fv19_retro_lists_merged_questions() -> None:
         (troot / "work" / "requirements-readiness.json").write_text(json.dumps({"verdict": "blocked", "open_questions": [
             row("Q7", "What is the limit?"), row("Q16", "How many may I add?"), row("Q17", long_text), row("Q18", "Another one?")]}), encoding="utf-8")
         older = RN.numbers("QA-1", base, troot)
-        check_eq(f"{name}: a story with a register and no merge has no key (the section is absent, not an empty heading)",
-                 ("merged_questions" in older, RN.merged_question_lines(older.get("merged_questions")), "Questions merged as one" in RN.render(older)),
-                 (False, [], False))
+        check_eq(f"{name}: a story with a register and no merge says none (F3, AR-23: the key with no records, the T16 none line)",
+                 (older.get("merged_questions"), RN.merged_question_lines(older.get("merged_questions"))[-1],
+                  "Questions merged as one" in RN.render(older)),
+                 ({"records": [], "unreadable": False}, "- none: no question was merged in this story", True))
+        bare_root, bare_base, bare_troot = project()
+        try:
+            check_eq(f"{name}: a story with no register has no key (an older story: the section is absent)",
+                     "merged_questions" in RN.numbers("QA-1", bare_base, bare_troot), False)
+        finally:
+            cleanup(bare_root)
         QR.declare_repeat(troot, "Q16", "Q7", "both ask the limit", by="driver", declared_by="qa-case-designer", stage="S4")
         QR.declare_repeat(troot, "Q17", "Q7", "y" * 250, by="driver", declared_by="qa-test-strategist", stage="S3")
         QR.declare_repeat(troot, "Q18", "Q7", "same", by="driver", declared_by="qa-case-designer", stage="S4")
@@ -375,12 +382,12 @@ def test_fv19_retro_lists_merged_questions() -> None:
         check_eq(f"{name}: a heading and a line per record", ("## Questions merged as one" in text, len(lines)), (True, 3))
         check_in(f"{name}: both texts as they stood, who, stage, standing", "- Q16 merged into Q7 by case designer at S4 (", lines[0])
         check_in(f"{name}: ... both texts, why and standing", "\"How many may I add?\" / \"What is the limit?\"; why: both ask the limit; now: merged", lines[0])
-        check_in(f"{name}: a text AT 200 characters is whole, BEYOND (250) is cut with an ellipsis, why too",
-                 "\"" + "w" * 200 + "...\" / \"What is the limit?\"; why: " + "y" * 200 + "...; now: merged", lines[1])
+        check_in(f"{name}: a long text (250) is printed whole, why too (F3: texts uncut)",
+                 "\"" + "w" * 250 + "\" / \"What is the limit?\"; why: " + "y" * 250 + "; now: merged", lines[1])
         check_in(f"{name}: the role is in words", " by test strategist at S3 (", lines[1])
         edge = "\n".join(RN.merged_question_lines({"records": [{"id": "Q1", "same_as": "Q2", "texts": {"question": "a" * 200, "same_as_question": "b" * 201},
                                                                 "why": "z" * 200, "standing": "shown again: gone"}], "unreadable": False}))
-        check_in(f"{name}: AT 200 no ellipsis, 201 cut", "\"" + "a" * 200 + "\" / \"" + "b" * 200 + "...\"; why: " + "z" * 200 + ";", edge)
+        check_in(f"{name}: AT 200 and 201 both whole, no ellipsis", "\"" + "a" * 200 + "\" / \"" + "b" * 201 + "\"; why: " + "z" * 200 + ";", edge)
         check_in(f"{name}: a record whose question is gone from the register says the reader's standing, no KeyError", "now: shown again: gone", edge)
         check_eq(f"{name}: an empty block says none", RN.merged_question_lines({"records": [], "unreadable": False})[-1],
                  "- none: no question was merged in this story")

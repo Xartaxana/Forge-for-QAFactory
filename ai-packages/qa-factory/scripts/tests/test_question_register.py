@@ -2301,7 +2301,8 @@ def test_fv19_repeat_records_history(tmp):
                  QR.repeat_records(root)["records"][1]["standing"], "reopened")
         (root / "work" / "question-answers.jsonl").write_text((root / "work" / "question-answers.jsonl").read_text(encoding="utf-8") + "{ broken\n", encoding="utf-8")
         check_eq("fv19_repeat_records_history: a broken line makes the answer `unreadable`, never an empty history", QR.repeat_records(root)["unreadable"], True)
-        check_eq("fv19_repeat_records_history: no answers file -> no records, readable", QR.repeat_records(tmp / "nowhere"), {"records": [], "unreadable": False})
+        check_eq("fv19_repeat_records_history: no answers file -> no records, readable", QR.repeat_records(tmp / "nowhere"), {"records": [], "present": False, "unreadable": False})
+        check_eq("fv19_repeat_records_history (F3): a story with a readiness file says `present`", QR.repeat_records(root)["present"], True)
     finally:
         cleanup(proj)
 

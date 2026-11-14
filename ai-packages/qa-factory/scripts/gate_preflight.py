@@ -2025,9 +2025,10 @@ class Rehearsal:
                      f"readings and where each comes from, before {role} is asked",
                      "the question packet goes back to qa-requirements-tester at S2, for the "
                      "question packet only; " + self.waiver_command(qid),
-                     # FV1-9 (P6): which question this is about and whether the person is shown its card (the register's `is_open`):
-                     # the gate's top leaves out a finding whose card says the same thing with its help lines
-                     question=qid, on_card=bool(matched[index - 1] is not None and question_register.is_open(matched[index - 1])))
+                     # FV1-9 (P6, F2): which question this is about and whether gate A shows its card: the card list is
+                     # `gate_brief.still_open`, and a row that got past the skips above (answered, settled, hidden repeat) is in it
+                     # unless it is the conductor's (`driver_owned`, skipped there too). One reader, no second rule.
+                     question=qid, on_card=not question_register.driver_owned(question))
 
     def _branch_cases(self) -> list:
         """One dict per case of the story for `planning_contract.variant_errors`: its id, its

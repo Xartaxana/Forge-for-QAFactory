@@ -820,10 +820,11 @@ class DriverGates:
         if any(item.get("check") == "open_questions" for item in rest):
             # T10 (FV1-9, P7): the helper's turn for a question the rework could not repair - what helps the person answer, in a
             # note on the card, never a reading picked for them
-            out += ["", "For each `open_questions` finding above: when `controller.py rework --stage S2 --role qa-requirements-tester` "
-                    "is refused by the repair cap, do not try again. Read the sources and write what helps the person answer that "
-                    "question - where each reading comes from, the source line, what each answer changes, an answered question it "
-                    "rests on - with `question_register.py --task <T> --note <id> --words-file <file> --by conductor --where "
+            out += ["", "For each `open_questions` finding above: when `controller.py --operation rework --stage S2 --role "
+                    "qa-requirements-tester` is refused by the repair cap, do not try again. Read the sources and write what helps "
+                    "the person answer that question - where each reading comes from, the source line, what each answer changes, "
+                    f"an answered question it rests on - with `question_register.py --task {self.task or '<T>'} --note <id> "
+                    "--words-file <file> --by conductor --where "
                     "\"stage ran\"`. Do not say which reading is right: the person decides. Do not rewrite the question; its card "
                     "shows your note."]
         out += ["", "Repair what you can with the factory's own commands (each finding's `fix` names its door), then "

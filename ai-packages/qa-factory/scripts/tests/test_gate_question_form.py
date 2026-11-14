@@ -1137,15 +1137,21 @@ def test_fv19_card_no_help_line() -> None:
     """D5, FR-41: nothing helps (no H1, H2, H5, H6 and no reading with a known origin) -> T6 and no `?`; one known origin is help enough."""
     t6 = ("  - where these readings come from is not recorded, and the factory has found nothing more than what is shown here; "
           "answer from what you know of the product, or in your own words.")
-    for label, row in (("a bare question", help_question()),
-                       ("readings with a blank origin", help_question(readings=readings_row(2, **{"from": ""}))),
-                       ("readings with no origin key", help_question(readings=readings_row(2))),
-                       ("readings with an unknown origin word", help_question(readings=readings_row(2, **{"from": "spec"})))):
+    t6_bare = ("  - the factory has found nothing more than what is shown here; answer from what you know of the product, "
+               "or in your own words.")
+    for label, row, expected in (("a bare question (F1: no readings, so no readings clause)", help_question(), t6_bare),
+                                 ("readings with a blank origin", help_question(readings=readings_row(2, **{"from": ""})), t6),
+                                 ("readings with no origin key", help_question(readings=readings_row(2)), t6)):
         lines = gate_brief.question_card(row, 1)
-        check_in(f"fv19_card_no_help_line {label}: T6 is printed", t6, lines)
+        check_in(f"fv19_card_no_help_line {label}: T6 is printed", expected, lines)
+        check_eq(f"fv19_card_no_help_line {label}: `these readings` only where there are readings",
+                 any("these readings" in l for l in lines), bool(row.get("readings")))
         check(f"fv19_card_no_help_line {label}: no `(from ?)`", not any("(from ?)" in l for l in lines))
         check_eq(f"fv19_card_no_help_line {label}: the answer line stays last", lines[-1].startswith("  - Answer: "), True)
-        check_eq(f"fv19_card_no_help_line {label}: T6 is before the answer line", lines.index(t6) < len(lines) - 1, True)
+        check_eq(f"fv19_card_no_help_line {label}: T6 is before the answer line", lines.index(expected) < len(lines) - 1, True)
+    spec = gate_brief.question_card(help_question(readings=readings_row(2, **{"from": "spec"})), 1)
+    check_eq("fv19_card_no_help_line (F1, FR-10): a reading whose origin the data file does not know is printed `(from: spec)` and T6 "
+             "does not say the origin is unrecorded", (any("(from: spec)" in l for l in spec), any("not recorded" in l for l in spec)), (True, False))
     bare_lines = gate_brief.question_card(help_question(), 1)
     check_eq("fv19_card_no_help_line: a bare card has no `?` but the question's own",
              [l for l in bare_lines if "?" in l], ["- **Q1** [major, owner dev_arch] What is the import limit?"])
@@ -1356,8 +1362,8 @@ def test_fv19_rehearsal_skips_hidden_repeat() -> None:
         QR.record(task_root, "Q20", "with_designer", "with the designer", "stage ran", "driver", QR.load(task_root)["questions"][2]["row_hash"])
         owned = gate_preflight.Rehearsal(task_root, "A")
         owned.check_open_questions()
-        check_eq("fv19_rehearsal_skips_hidden_repeat: a `with_designer` row has no card, so `on_card` is False and the line stays",
-                 {f["question"]: f["on_card"] for f in owned.findings}, {"Q7": True, "Q20": False})
+        check_eq("fv19_rehearsal_skips_hidden_repeat (F2): a `with_designer` row IS in gate A's list (`still_open`), so `on_card` is True",
+                 {f["question"]: f["on_card"] for f in owned.findings}, {"Q7": True, "Q20": True})
     finally:
         cleanup(base.parent)
 
@@ -1368,13 +1374,17 @@ def test_fv19_conductor_text_note_door() -> None:
     conductor_text = driver_gates.DriverGates.conductor_text
     finding = {"check": "open_questions", "id": "open_questions-1", "message": "Q1 cannot be answered as it stands (x)", "fix": "back to S2"}
     other = {"check": "gate_decision", "id": "gate_decision-1", "message": "the gate decision is open", "fix": "f"}
-    t10 = ("For each `open_questions` finding above: when `controller.py rework --stage S2 --role qa-requirements-tester` is refused by the "
-           "repair cap, do not try again. Read the sources and write what helps the person answer that question - where each reading "
-           "comes from, the source line, what each answer changes, an answered question it rests on - with `question_register.py "
-           "--task <T> --note <id> --words-file <file> --by conductor --where \"stage ran\"`. Do not say which reading is right: the "
+    t10 = ("For each `open_questions` finding above: when `controller.py --operation rework --stage S2 --role qa-requirements-tester` is "
+           "refused by the repair cap, do not try again. Read the sources and write what helps the person answer that question - where each "
+           "reading comes from, the source line, what each answer changes, an answered question it rests on - with `question_register.py "
+           "--task T-1 --note <id> --words-file <file> --by conductor --where \"stage ran\"`. Do not say which reading is right: the "
            "person decides. Do not rewrite the question; its card shows your note.")
     with_it = conductor_text(TopStub(), "A", "the cap", [finding, other], "a rework")
     check_in("fv19_conductor_text_note_door: with an open_questions finding T10 is present, word for word", t10, with_it)
+    class NoTask(TopStub):
+        task = ""
+    check_in("fv19_conductor_text_note_door (F5): with no task id the placeholder `<T>` stays", "--task <T> --note <id>",
+             conductor_text(NoTask(), "A", "the cap", [finding], ""))
     check_eq("fv19_conductor_text_note_door: T10 comes after the findings",
              with_it.index(t10) > with_it.index("the gate decision is open"), True)
     check_eq("fv19_conductor_text_note_door: the closing paragraph stays last",

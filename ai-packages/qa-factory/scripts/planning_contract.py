@@ -3356,8 +3356,6 @@ def _reword_plan_entries(root: Path, rows: list) -> tuple:
     `notes` naming the row and the entry, and never stops the other entries or rows. A key that is no list, or an empty one, is
     a line and is kept. A row with no `reword_questions` is returned as it was. Pure on `rows` (a copy is returned); never raises."""
     import question_register as QR
-    REWORD_ENTRY_FORM = ('{"question": "Q<n>", "text": "<the question in clearer words>", "readings": ["<text>", ...] (optional), '
-                         '"why": "<one line>"}')
     out, notes = copy.deepcopy(rows), []
     for index, row in enumerate(out):
         if not isinstance(row, dict) or "reword_questions" not in row:
@@ -3366,21 +3364,16 @@ def _reword_plan_entries(root: Path, rows: list) -> tuple:
         entries = row["reword_questions"]
         if not isinstance(entries, list) or not entries:
             notes.append(f"{rid}: reword_questions must be a list of entries and holds {'none' if isinstance(entries, list) else 'no list'}. "
-                         f"Expected: {REWORD_ENTRY_FORM}")
+                         f"Expected: {QR.REWORD_ENTRY_FORM}")
             continue
         left = []
         for position, item in enumerate(entries):
             label = f"{rid}: reword_questions[{position}]"
-            if not isinstance(item, dict):
-                notes.append(f"{label} is not an object. Expected: {REWORD_ENTRY_FORM}")
+            qid, spec, problem = QR.reword_entry(item)      # F4: the one entry check and spec build, shared with the case carrier
+            if problem:
+                notes.append(f"{label} {problem}")
                 left.append(item)
                 continue
-            qid, text, why, readings = (item.get(k) for k in ("question", "text", "why", "readings"))
-            if not all(isinstance(x, str) and x.strip() for x in (qid, text, why)) or not (readings is None or isinstance(readings, list)):
-                notes.append(f"{label} needs `question`, `text` and `why` as texts (`readings` a list when given). Expected: {REWORD_ENTRY_FORM}")
-                left.append(item)
-                continue
-            spec = {"question": text, "why": why, **({"readings": readings} if readings is not None else {})}
             try:
                 QR.reword(root, qid, spec, role="qa-test-strategist", by="driver", stage="S3")
             except Exception as exc:  # noqa: BLE001 - a refusal of the writer, or anything else: the entry stays, the rest go on

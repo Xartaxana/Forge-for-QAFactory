@@ -1351,7 +1351,8 @@ def repeat_records(task_root) -> dict:
     standing}], "unreadable": bool}`, one entry per `repeat` record of the answers file in file order, an undone one included.
     `texts` are the two questions as they stood when the record was written. `standing` says what became of it: `merged` (the id is
     a hidden repeat now), `shown again: gone|cycle|target_changed|its words changed`, `answered by the person`, `reopened`,
-    `replaced by a later merge` (a later `repeat` record of the same id, a carried-over one included). `unreadable` is True when
+    `replaced by a later merge` (a later `repeat` record of the same id, a carried-over one included). `present` is True when the
+    story has a register at all (F3: with one, "no merge" is a fact the retro says; without one it says nothing). `unreadable` is True when
     the answers file has a broken line or cannot be read: a merge may be missing. The ONE reader of `repeat_history` (AR-13)."""
     view = load(task_root)
     skipped = view["skipped"]
@@ -1374,7 +1375,8 @@ def repeat_records(task_root) -> dict:
                         "by": str(rec.get("by") or ""), "why": str(rec.get("words") or ""), "stage": str(rec.get("stage") or ""),
                         "at": str(rec.get("at") or ""), "texts": dict(rec["texts"]) if isinstance(rec.get("texts"), dict) else {},
                         "standing": standing})
-    return {"records": records, "unreadable": bool(skipped["broken_lines"] + skipped["non_object_lines"] + skipped["unreadable_file"])}
+    return {"records": records, "present": view["register_present"],
+            "unreadable": bool(skipped["broken_lines"] + skipped["non_object_lines"] + skipped["unreadable_file"])}
 
 
 # --------------------------------------------------------------------------------------------
@@ -1695,6 +1697,22 @@ def record_note(task_root, qid, words, *, by, where) -> dict:
     return rec
 
 
+REWORD_ENTRY_FORM = ('{"question": "Q<n>", "text": "<the question in clearer words>", "readings": ["<text>", ...] (optional), '
+                      '"why": "<one line>"}')
+
+
+def reword_entry(item) -> tuple:
+    """`(qid, spec, problem)` of ONE `reword_questions` entry (FV1-9 F4): the one check and the one spec build the case carrier
+    (`rewords_for_case`) and the plan carrier (`planning_contract._reword_plan_entries`) share. `problem` is "" for a well-formed entry
+    (then `qid` is the target and `spec` is `reword`'s argument), else why not, with the expected form, and `qid`/`spec` are None."""
+    if not isinstance(item, dict):
+        return None, None, f"is not an object. Expected: {REWORD_ENTRY_FORM}"
+    qid, text, why, readings = (item.get(k) for k in ("question", "text", "why", "readings"))
+    if not all(isinstance(x, str) and x.strip() for x in (qid, text, why)) or not (readings is None or isinstance(readings, list)):
+        return None, None, f"needs `question`, `text` and `why` as texts (`readings` a list when given). Expected: {REWORD_ENTRY_FORM}"
+    return qid, {"question": text, "why": why, **({"readings": readings} if readings is not None else {})}, ""
+
+
 def _apply_case_key(case_text: str, case_id: str, key: str, apply) -> dict:
     """The shared walk of a case front-matter key that holds a list of entries the S4 exit executes (`question_repeats`,
     `reword_questions`): `apply(entry)` returns "" when the entry is done, else why not. `{"text", "done", "problems"}`: `text` is the
@@ -1720,10 +1738,6 @@ def _apply_case_key(case_text: str, case_id: str, key: str, apply) -> dict:
     return out
 
 
-def _one_line(exc) -> str:
-    return " ".join(str(exc).split())
-
-
 def repeats_for_case(task_root, case_text: str, case_id: str) -> dict:
     """The S4-exit half of declaring a repeat (FV1-9, D3): execute the case designer's `question_repeats` entries
     (`{"question": "Q16", "same_as": "Q7", "why": "<one line>"}`) through `declare_repeat` (role `qa-case-designer`, by `driver`, stage S4)
@@ -1741,7 +1755,7 @@ def repeats_for_case(task_root, case_text: str, case_id: str) -> dict:
         try:
             declare_repeat(task_root, question, target, why, by="driver", declared_by="qa-case-designer", stage="S4")
         except Refused as exc:
-            return f"{question.strip()} -> {target.strip()} was not recorded: {_one_line(exc)}"
+            return f"{question.strip()} -> {target.strip()} was not recorded: {_squeeze(exc)}"
         recorded.append({"question": question.strip(), "same_as": target.strip()})
         return ""
 
@@ -1756,15 +1770,13 @@ def rewords_for_case(task_root, case_text: str, case_id: str) -> dict:
     reworded = []
 
     def one(entry) -> str:
-        question, text, why = (entry.get(k) for k in ("question", "text", "why"))
-        readings = entry.get("readings")
-        if not all(isinstance(x, str) and x.strip() for x in (question, text, why)) or not (readings is None or isinstance(readings, list)):
-            return "a `reword_questions` entry needs `question`, `text` and `why` as texts (`readings` a list when given)"
-        spec = {"question": text, "why": why, **({"readings": readings} if readings is not None else {})}
+        question, spec, problem = reword_entry(entry)
+        if problem:
+            return f"a `reword_questions` entry {problem}"
         try:
             reword(task_root, question, spec, role="qa-case-designer", by="driver", stage="S4")
         except Refused as exc:
-            return f"{question.strip()} was not asked again: {_one_line(exc)}"
+            return f"{question.strip()} was not asked again: {_squeeze(exc)}"
         reworded.append({"question": question.strip()})
         return ""
 
@@ -2219,7 +2231,7 @@ def raise_from_handoff(task_root, handoff_file, *, stage, asked_by) -> dict:
                 reword(task_root, target, spec, role=asked_by, by="driver", stage=stage)
                 out["rewords"].append(target.strip())
             except Refused as exc:
-                out["reword_problems"].append(f"questions[{i}]: {target.strip()} was not asked again: {_one_line(exc)}")
+                out["reword_problems"].append(f"questions[{i}]: {target.strip()} was not asked again: {_squeeze(exc)}")
     return out
 
 

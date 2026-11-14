@@ -2838,6 +2838,8 @@ REPEATED_CARD_LINE = ("  - this question was raised twice in this story; it is a
 REWORDED_OPEN_STATES = (None, "", "open", "named")
 NO_HELP_LINE = ("  - where these readings come from is not recorded, and the factory has found nothing more than what is shown "
                 "here; answer from what you know of the product, or in your own words.")
+NO_HELP_LINE_NO_READINGS = ("  - the factory has found nothing more than what is shown here; answer from what you know of the product, "
+                            "or in your own words.")
 NOTE_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
@@ -2900,9 +2902,11 @@ def _help_lines(question: dict, part: str, has_quote: bool = False, has_side: bo
             out.append("  - what may help you answer, from the factory's helper, who read the sources for it "
                        f"({written}it does not say which answer is right - you decide): {words}")
     elif part == "tail":
-        known = any(QR.origin_words(r.get("from")) for r in (question.get("readings") or []) if isinstance(r, dict))
+        readings = [r for r in (question.get("readings") or []) if isinstance(r, dict)]
+        # F1 (FR-10): ANY non-blank `from` is a recorded origin - the card prints it as `(from ...)`, so T6 never says it is unrecorded.
+        known = any(" ".join(str(r.get("from") or "").split()) for r in readings)
         if not (has_quote or has_side or helped or known):
-            out.append(NO_HELP_LINE)
+            out.append(NO_HELP_LINE if readings else NO_HELP_LINE_NO_READINGS)
     return out
 
 

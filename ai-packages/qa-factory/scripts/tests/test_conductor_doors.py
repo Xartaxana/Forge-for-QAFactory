@@ -28,7 +28,7 @@ sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 import project_decisions as PD  # noqa: E402
 
 CONDUCTOR = PLUGIN_ROOT / "references" / "conductor.md"
-SIZE_CAP = 12206        # references/*.md, selftest --limits (builder-rules 5)
+SIZE_CAP = 12000        # references/*.md, selftest --limits (builder-rules 5)
 
 # The sentence of the spec, VERBATIM (t-294 node B, requirement 3). Quoted here before the run, never derived
 # from the file it checks.
