@@ -382,6 +382,24 @@ def more(root: Path, base: Path) -> None:
           code == 0 and "Traceback" not in printed and "file absent: pipeline.json" in printed
           and "file absent: work/retro-numbers.json" in printed
           and int(re.search(r"MISS=(\d+)", printed).group(1)) > 0, printed[-400:])
+    prov_task = root / "prov-task"
+    (prov_task / "work").mkdir(parents=True)
+    (prov_task / "evidence").mkdir()
+    (prov_task / "work" / "automation-manifest.json").write_text('{"tests": []}', encoding="utf-8")
+    (prov_task / "evidence" / "runtime-provenance-a.json").write_text('{"result": "matched"}', encoding="utf-8-sig")
+    (prov_task / "evidence" / "runtime-provenance-b.json").write_text('{"result": "not_applicable"}', encoding="utf-8")
+    (prov_task / "evidence" / "runtime-provenance-c.json").write_text('[1]', encoding="utf-8")
+    code, printed = run_main(check_all_contracts, ["--task-dir", str(prov_task)])
+    check("check_all_contracts counts provenance records per result, a non-object file as unreadable",
+          code == 0 and "3 provenance records exist" in printed and "matched 1" in printed
+          and "not_applicable 1" in printed and "unreadable 1" in printed
+          and "only matched and person_confirmed identify a build" in printed, printed[-600:])
+    (prov_task / "evidence" / "runtime-provenance-a.json").unlink()
+    (prov_task / "evidence" / "runtime-provenance-b.json").unlink()
+    (prov_task / "evidence" / "runtime-provenance-c.json").unlink()
+    code, printed = run_main(check_all_contracts, ["--task-dir", str(prov_task)])
+    check("check_all_contracts with no provenance files says 0 records, no traceback",
+          code == 0 and "0 provenance records exist" in printed and "Traceback" not in printed, printed[-600:])
     code, printed = run_main(check_all_contracts, ["--task-dir", str(root / "no-such-folder")])
     check("a task folder that does not exist is refused by name, with the form to pass",
           code == 2 and "task folder not found" in printed and "--task-dir" in printed, printed)

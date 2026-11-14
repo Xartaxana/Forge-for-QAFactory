@@ -284,8 +284,17 @@ def s5_automator_to_critic(x, note):
     note(c, "have", "artifacts.probes", f"{len(list((R/'work/probes').glob('*.json')))} probe records on disk")
     prov = sorted(R.glob("evidence/runtime-provenance-*.json"))
     man_blob = json.dumps(man)
+    by_result = collections.Counter()
+    for p in prov:
+        try:
+            rec = json.loads(p.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError):
+            rec = None
+        by_result[str(rec.get("result")) if isinstance(rec, dict) else "unreadable"] += 1
+    split = ", ".join(f"{k} {v}" for k, v in sorted(by_result.items())) or "none"
     note(c, "CATCH", "artifacts.runtime_provenance",
-         f"{len(prov)} provenance records exist (expected_source_revision + observed_runtime_identity), "
+         f"{len(prov)} provenance records exist (by result: {split}); only matched and person_confirmed "
+         f"identify a build, "
          f"but the manifest names one {man_blob.count('provenance')} times and NO instance names the record "
          f"its evidence was taken on: the critic had 56 records and 19 instances and no join between them")
 
