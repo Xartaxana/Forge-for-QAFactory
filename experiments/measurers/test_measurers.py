@@ -2313,6 +2313,215 @@ SB_BAR_CASES = [(n,) for n in (
     "F5: a request dated before the catalogue window of its model is unpriced, not valued at a later entry",
     "F7: the line prints the gap host - re-priced when both are known, and no gap when one is unknown")]
 
+# --- P1-v N9: the writer of the free arm's bar file (`scoreboard_bar.py bar`; spec 20261114-p1v-n8-carriers-draft.md 7(a)) -----------------
+# Hand figures: transcript 1 = events 10:00:00 and 10:05:00 (T1 300 s), one request of BAR_USAGE_B (1.5 usd), two tool calls (Read, Bash),
+# the Bash one refused (is_error) with its result 300 s after the call (T10 300 s). Transcript 2 = 10:10:00 .. 10:20:00, BAR_USAGE_A (4.2 usd).
+# Two transcripts: T1 = 10:00 .. 10:20 = 1200 s, X1 = 1.5 + 4.2 = 5.7 usd, T10 = 300 + 600 s.
+def bf_transcript(path: Path, start="10:00:00", end="10:05:00", usage=BAR_USAGE_B, mid="m1", model=BAR_MODEL, stamps=True) -> Path:
+    ts = (lambda t: {"timestamp": f"2026-11-01T{t}Z"}) if stamps else (lambda t: {})
+    rows = [{"type": "assistant", "uuid": f"u-{mid}", **ts(start), "message": {"id": mid, "model": model, "usage": usage, "content": [
+                {"type": "tool_use", "id": f"{mid}-r", "name": "Read", "input": {"file_path": "x.txt"}},
+                {"type": "tool_use", "id": f"{mid}-b", "name": "Bash", "input": {"command": "ls"}}]}},
+            {"type": "user", "uuid": f"r-{mid}", **ts(end), "message": {"content": [
+                {"type": "tool_result", "tool_use_id": f"{mid}-r", "content": "ok"},
+                {"type": "tool_result", "tool_use_id": f"{mid}-b", "content": "denied", "is_error": True}]}}]
+    path.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    return path
+
+
+def bf_cli(*argv):
+    """(code, stdout, stderr) of `scoreboard_bar.main(argv)`."""
+    import io
+    import contextlib
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        try:
+            code = _sbb().main([str(a) for a in argv])
+        except SystemExit as stop:
+            code = stop.code
+    return code, out.getvalue(), err.getvalue()
+
+
+def bf_bar(tmp: Path, *extra, model=BAR_MODEL, stand="mybooks", story="add-to-cart"):
+    """The command line `bar` into tmp/out; returns (code, stdout, stderr)."""
+    return bf_cli("bar", "--stand", stand, "--story", story, "--model", model, "--out-root", tmp / "out", *extra)
+
+
+def bf_file(tmp: Path, model=BAR_MODEL) -> Path:
+    return tmp / "out" / "mybooks" / "add-to-cart" / f"bar-{model}.yaml"
+
+
+def bf_written(tmp: Path) -> list:
+    return sorted(str(p) for p in (tmp / "out").rglob("*") if p.is_file()) if (tmp / "out").exists() else []
+
+
+def bf_judgment_pair(tmp: Path, free_found=(2,)) -> tuple:
+    """(truth, judgment): arm X is the free arm (key), it found the cards in `free_found`; the verdict vocabulary is declared by `sb_rows_file`."""
+    rows = [{"card": i, "arm": arm, "verdict": "found" if (arm == "X" and i in free_found) else "missed", "unsure": False}
+            for arm in ("X", "Y") for i in (1, 2, 3)]
+    return sb_truth(tmp / "truth.yaml"), sb_judgment(tmp / "judgment.yaml", rows)
+
+
+SB_BAR_FILE_CASES = [(n,) for n in (
+    "one session: X1 1.5 re-priced, T1 300 s, T10 300 s, turns 7, tool calls by name, the host figure beside and not in X1, no machine path",
+    "two transcripts are summed: X1 5.7, T1 from the first event of the earliest to the last of the latest 1200 s, T10 900 s",
+    "a transcript that is absent: X1 and T1 and T10 unknown with the reason, the file is still written, the model is not verified",
+    "an empty transcript: X1 and T1 unknown, the file is still written",
+    "a transcript that cannot be read (not UTF-8): unknown, never 0, the file is still written",
+    "one of two transcripts absent: unknown, not the other transcript's figures",
+    "no transcript given at all: unknown rows, the file says the model was not verified",
+    "a result with no total_cost_usd: the host figure is unknown, X1 and turns are untouched",
+    "a result with no num_turns, or a result file that is absent: turns unknown, X1 untouched",
+    "no readable timestamp: T1 unknown, never 0, X1 still measured",
+    "the model id is not a message.model of the transcript: refused naming both, nothing written",
+    "--model with a slash, a backslash, .. or empty: refused as not a plain name, nothing written",
+    "--stand or --story with a slash, .. or empty: refused, nothing written",
+    "--truth without --judgment, or the reverse: refused naming the missing one, nothing written",
+    "a judgment that K1 refuses: its text passed through, nothing written",
+    "a judgment of the free arm: truth_version and the QA rows come through read_judgment and quality_rows",
+    "no judgment: the QA rows are unknown and truth_version is null",
+    "every row the free arm has no part for is n/a with the reason, never 0",
+    "an existing bar file is replaced by the same write, the line says replaced, no second file",
+    "the written file is read back by assemble --bar and compare --release (_bars) without refusal")]
+
+
+def sb_bar_file_case(tmp: Path, case) -> None:
+    name = case[0]
+    a = bf_transcript(tmp / "a.jsonl")
+    b = bf_transcript(tmp / "b.jsonl", "10:10:00", "10:20:00", BAR_USAGE_A, "m2")
+    log = bar_result(tmp / "free-1.log")
+    rows_doc = _sb().load_rows()
+
+    def written(*extra, **kw):
+        code, printed, err = bf_bar(tmp, *extra, **kw)
+        assert code == 0, (code, printed, err)
+        return sb_yaml(bf_file(tmp, kw.get("model", BAR_MODEL)))
+
+    def refused(words, *extra, **kw):
+        code, printed, err = bf_bar(tmp, *extra, **kw)
+        assert code == 2 and "RED:" in err and words in err, (code, printed, err[:300])
+        assert bf_written(tmp) == [], ("a refusal wrote", bf_written(tmp))
+
+    if name.startswith("one session"):
+        doc = written("--transcript", a, "--result", log)
+        assert doc["schema"] == "scoreboard/1" and doc["run"]["arm"] == "free" and doc["run"]["run_class"] == "live", doc["run"]
+        assert doc["run"]["models"] == [BAR_MODEL] and doc["run"]["model_verified"] is True, doc["run"]
+        r = doc["rows"]
+        assert (r["X1"]["state"], r["X1"]["value"]) == ("measured", BAR_B), r["X1"]
+        assert (r["T1"]["state"], r["T1"]["value"]) == ("measured", 300.0), r["T1"]
+        assert (r["T10"]["state"], r["T10"]["value"]) == ("measured", 300.0), r["T10"]
+        free = doc["free"]
+        assert free["turns"]["value"] == 7 and free["tool_calls"]["by_name"] == {"Bash": 1, "Read": 1}, free
+        assert free["refused_calls"]["n"] == 1 and free["host_total_usd"] == BAR_HOST, free
+        assert r["X1"]["value"] != BAR_HOST
+        assert str(tmp) not in bf_file(tmp).read_text(encoding="utf-8"), "a machine path was written (AR-4)"
+    elif name.startswith("two transcripts"):
+        doc = written("--transcript", a, "--transcript", b)
+        r = doc["rows"]
+        assert (r["X1"]["state"], r["X1"]["value"]) == ("measured", BAR_SUM), r["X1"]
+        assert r["T1"]["value"] == 1200.0 and r["T10"]["value"] == 900.0, (r["T1"], r["T10"])
+        assert doc["free"]["tool_calls"]["by_name"] == {"Bash": 2, "Read": 2}, doc["free"]
+    elif name.startswith("a transcript that is absent"):
+        doc = written("--transcript", tmp / "gone.jsonl")
+        r = doc["rows"]
+        for rid in ("X1", "T1", "T10"):
+            assert r[rid]["state"] == "unknown" and r[rid]["value"] is None and "absent" in r[rid]["why"], (rid, r[rid])
+        assert doc["run"]["model_verified"] is False and "not verified" in r["X1"]["why"], doc["run"]
+        assert doc["free"]["tool_calls"]["state"] == "unknown" and doc["free"]["refused_calls"]["n"] is None
+    elif name.startswith("an empty transcript"):
+        (tmp / "empty.jsonl").write_text("", encoding="utf-8")
+        r = written("--transcript", tmp / "empty.jsonl")["rows"]
+        assert r["X1"]["state"] == "unknown" and r["T1"]["state"] == "unknown" and r["T1"]["value"] is None, r
+    elif name.startswith("a transcript that cannot be read"):
+        (tmp / "bad.jsonl").write_bytes(b"\xff\xfe\x00 not a transcript\n")
+        r = written("--transcript", tmp / "bad.jsonl", "--result", log)["rows"]
+        assert r["X1"]["state"] == "unknown" and r["X1"]["value"] is None and r["T10"]["value"] is None, r
+    elif name.startswith("one of two transcripts absent"):
+        doc = written("--transcript", a, "--transcript", tmp / "gone.jsonl")
+        r = doc["rows"]
+        assert r["X1"]["state"] == "unknown" and r["T1"]["state"] == "unknown" and r["T10"]["state"] == "unknown", r
+        assert doc["free"]["tool_calls"]["by_name"] is None, doc["free"]
+    elif name.startswith("no transcript given"):
+        doc = written()
+        assert doc["run"]["model_verified"] is False and "not verified" in doc["run"]["model_note"], doc["run"]
+        assert doc["rows"]["X1"]["state"] == "unknown" and "not verified" in doc["rows"]["X1"]["why"], doc["rows"]["X1"]
+    elif name.startswith("a result with no total_cost_usd"):
+        (tmp / "free-2.log").write_text(json.dumps({"type": "result", "num_turns": 4}) + "\n", encoding="utf-8")
+        doc = written("--transcript", a, "--result", tmp / "free-2.log")
+        assert doc["free"]["host_total_usd"] == "unknown" and doc["free"]["turns"]["value"] == 4, doc["free"]
+        assert doc["rows"]["X1"]["value"] == BAR_B, doc["rows"]["X1"]
+    elif name.startswith("a result with no num_turns"):
+        (tmp / "free-2.log").write_text(json.dumps({"type": "result", "total_cost_usd": 2.0}) + "\n", encoding="utf-8")
+        for result in (tmp / "free-2.log", tmp / "no-such.log"):
+            doc = written("--transcript", a, "--result", result)
+            assert doc["free"]["turns"]["state"] == "unknown" and doc["free"]["turns"]["value"] is None, doc["free"]
+            assert doc["rows"]["X1"]["value"] == BAR_B, doc["rows"]["X1"]
+    elif name.startswith("no readable timestamp"):
+        bf_transcript(tmp / "nots.jsonl", stamps=False)
+        r = written("--transcript", tmp / "nots.jsonl")["rows"]
+        assert r["T1"]["state"] == "unknown" and r["T1"]["value"] is None and "timestamp" in r["T1"]["why"], r["T1"]
+        assert r["X1"]["state"] == "measured", r["X1"]
+    elif name.startswith("the model id is not"):
+        refused("claude-opus-5", "--transcript", a, model="claude-opus-5")
+        code, _o, err = bf_bar(tmp, "--transcript", a, model="claude-opus-5")
+        assert "claude-opus-5" in err and BAR_MODEL in err, err
+    elif name.startswith("--model with"):
+        for bad in ("a/b", "a\\b", "..", "a..b", ""):
+            refused("not a plain name", "--transcript", a, model=bad)
+    elif name.startswith("--stand or --story"):
+        for bad in ("a/b", "..", ""):
+            refused("not a plain name", "--transcript", a, stand=bad)
+            refused("not a plain name", "--transcript", a, story=bad)
+    elif name.startswith("--truth without"):
+        truth, judgment = bf_judgment_pair(tmp)
+        refused("--judgment is missing", "--transcript", a, "--truth", truth)
+        refused("--truth is missing", "--transcript", a, "--judgment", judgment)
+    elif name.startswith("a judgment that K1 refuses"):
+        truth, _j = bf_judgment_pair(tmp)
+        judgment = sb_judgment(tmp / "bad-judgment.yaml", sb_good_rows()[:-1] + [{"card": 9, "arm": "X", "verdict": "found"}])
+        refused("card 9 is not in truth version v1", "--transcript", a, "--truth", truth, "--judgment", judgment)
+    elif name.startswith("a judgment of the free arm"):
+        truth, judgment = bf_judgment_pair(tmp)
+        path, text, _notes = _sbb().bar_doc("mybooks", "add-to-cart", BAR_MODEL, [a], [], None, truth, judgment, None, sb_rows_file(tmp), tmp / "out")
+        doc = _sb().yaml.safe_load(text)
+        assert doc["run"]["truth_version"] == "v1", doc["run"]
+        sb = _sb()
+        want = sb.quality_rows(sb.load_rows(sb_rows_file(tmp)), sb.read_judgment(judgment, truth, "free", {"found": "found", "missed": "missed"}), "")
+        assert doc["rows"]["QA1"]["state"] == "measured" and doc["rows"]["QA1"]["value"] == want["QA1"]["value"] == 1, (doc["rows"]["QA1"], want)
+        assert path == bf_file(tmp), path
+    elif name.startswith("no judgment"):
+        doc = written("--transcript", a)
+        assert doc["run"]["truth_version"] is None and doc["rows"]["QA1"]["state"] == "unknown" and doc["rows"]["QA1"]["value"] is None, doc["rows"]["QA1"]
+    elif name.startswith("every row the free arm"):
+        doc = written("--transcript", a)
+        assert list(doc["rows"]) == list(rows_doc["rows"]), "a row of rows.json is missing from the bar file"
+        own = {"X1", "T1", "T10"} | {rid for rid, s in rows_doc["rows"].items() if "quality" in s}
+        for rid, row in doc["rows"].items():
+            if rid not in own:
+                assert row == {"name": rows_doc["rows"][rid]["name"], "value": None, "unit": rows_doc["rows"][rid]["unit"], "source": "none",
+                               "state": "n/a", "why": "no such part in a free agent"}, (rid, row)
+    elif name.startswith("an existing bar file"):
+        code, first, _e = bf_bar(tmp, "--transcript", a)
+        assert code == 0 and first.startswith("wrote "), first
+        before = bf_file(tmp).read_text(encoding="utf-8")
+        code, second, _e = bf_bar(tmp, "--transcript", a, "--transcript", b)
+        assert code == 0 and second.startswith("replaced "), second
+        assert bf_file(tmp).read_text(encoding="utf-8") != before and len(bf_written(tmp)) == 1, bf_written(tmp)
+    elif name.startswith("the written file is read back"):
+        written("--transcript", a, "--result", log)
+        task = sb_run(tmp)
+        code, printed, err = sb_cli("assemble", "--task-root", task, "--stand", "mybooks", "--story", "add-to-cart", "--arm", "factory",
+                                    "--version", "9.9.9", "--bar", bf_file(tmp), "--out-root", tmp / "out2")
+        assert code == 0 and "RED" not in err, (code, printed, err)
+        notes = []
+        found = _sbb()._bars(tmp / "out", "mybooks", "add-to-cart", notes)
+        assert [(label, model) for label, model, _doc in found] == [(f"mybooks/add-to-cart/bar-{BAR_MODEL}.yaml", BAR_MODEL)] and notes == [], (found, notes)
+        lines = _sbb().release_lines("9.9.9", _sb().load_norms(), tmp / "out")
+        assert not any("note" in line for line in lines), lines
+    else:
+        raise AssertionError("no such case: " + name)
+
+
 RC_VERSION, RC_PAIR = "1.1.0", "claude-sonnet-5-5/add-to-cart"
 RC_OK = "release: ok -- Q1 " + RC_PAIR + " not worse"
 RC_NEED = f"release: owner's word needed -- Q1 {RC_PAIR} was 1 (1.0.0) now 3 (1.1.0)"
@@ -3112,7 +3321,8 @@ SB_GROUPS =(("judgment shape (K1, 7.4, 7.10)", SB_JUDGMENT_CASES, sb_judgment_ca
              ("norms/2 shape and conversion", SB_NORMS2_CASES, sb_norms2_case),
              ("a malformed ratchet element", SB_BAD_RATCHET_CASES, sb_bad_ratchet_case),
              ("a ratchet raise is scoped to its element; a pass to its factory model (B3, Q-b)", SB_RAISE_SCOPE_CASES, sb_raise_scope_case),
-             ("release-check --lines is outside input (B4)", SB_LINES_CASES, sb_lines_case))
+             ("release-check --lines is outside input (B4)", SB_LINES_CASES, sb_lines_case),
+             ("the free arm's bar file writer (N9)", SB_BAR_FILE_CASES, sb_bar_file_case))
 
 
 @_parametrize(SB_JUDGMENT_CASES)
@@ -3203,6 +3413,11 @@ def test_scoreboard_raise_scope(tmp_path, case):
 @_parametrize(SB_LINES_CASES)
 def test_scoreboard_release_lines_file(tmp_path, case):
     sb_lines_case(tmp_path, case)
+
+
+@_parametrize(SB_BAR_FILE_CASES)
+def test_scoreboard_bar_file(tmp_path, case):
+    sb_bar_file_case(tmp_path, case)
 
 
 def scoreboard_tests(root: Path) -> None:
