@@ -30,9 +30,9 @@
     "qa-automator": 24116,
     "qa-code-critic": 21174,
     "qa-runner": 16920,
-    "qa-failure-analyst": 20204,
+    "qa-failure-analyst": 20262,
     "qa-bug-reporter": 15438,
-    "qa-doc-scribe": 18992,
+    "qa-doc-scribe": 19084,
     "qa-retro-analyst": 14477
   },
   "native_headroom": {
