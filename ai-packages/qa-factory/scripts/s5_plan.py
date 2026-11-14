@@ -1181,7 +1181,8 @@ def _file_concerns(key, rounds, root, number) -> tuple:
                 0, case, "case critic, S4 - still rejected", problem,
                 f"the case critic still rejected this case in its round {item['review']} (its full finding is in {where}); S4 "
                 "went on without another round: take its words into account when the case is automated, or say in "
-                "`plan_remarks` why they do not apply", item["fix"], item["review"], ident=f"CR-{case_key}")
+                "`plan_remarks` why they do not apply - each one you mark not_applicable, or leave unanswered, is listed in the test "
+                "report", item["fix"], item["review"], ident=f"CR-{case_key}")
             remark["still_rejected"] = True
             out.append(remark)
     return out, not any(one["listed"] for one in read)
