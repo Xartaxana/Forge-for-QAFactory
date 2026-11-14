@@ -56,7 +56,7 @@ and the critic role file's rule 18 point here (B-419).
    with a severity — blocks / fix before merge / queue — never a style pass and never "I don't like it".
 8. **Hygiene** where the diff is in the package: FR-29/FR-30, the size caps, CRLF kept.
 
-9. **IN-TREE RATCHETS** (SIBLING_MAP axis 18, 16.10; since D-0060 the members include `scripts/tests/fixtures/judgment-census.json` `ratchet` and `role-load.json` `process_ratchet_tokens`): a diff that adds or raises a row of an
+9. **IN-TREE RATCHETS** (SIBLING_MAP axis 18, 16.10; since D-0060 the members include `scripts/tests/fixtures/judgment-census.json` `ratchet` and `role-load.json` `process_ratchet_tokens`; since P1-v N6, `experiments/scoreboards/norms.json` (tighten-only: a looser `norm`, a removed or worsened `ratchets` element, a new `raises`, `worsened_passes` or `bar_changes` entry is named with its owner's `word`)): a diff that adds or raises a row of an
    in-tree shrink-only ratchet is named in the verdict, row by row (key, old → new count, the
    reason), and an unnamed raise is a finding. The ratchets: `audit_factory.NO_MOVE_BASELINE` /
    `NO_MOVE_BASELINE_MAX` (A27), `OUTSIDE_WALKS` / `OUTSIDE_WALKS_MAX`, `fixtures/env-facts-baseline.json`,
