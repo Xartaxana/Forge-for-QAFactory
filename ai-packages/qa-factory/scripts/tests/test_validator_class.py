@@ -339,7 +339,7 @@ GUARDED = {
     "manifest_put.py --fragment": ("battery", "B14"),
     "critic_rollcall.py --store": ("none", "a path to the case-version store; no role-written record"),
     "external_writes.py --record": ("open", "not established by t-1349 (sweep row 30 covers the bug side only)"),
-    "exploratory_findings.py add": ("open", "append raises the first ValueError only: no battery row holds that the refusal lists every problem"),
+    "exploratory_findings.py add": ("none", "exploratory_findings.append collects every problem of the line and refuses once with all of them, each sentence unchanged, joined by `; ` (SC-N7, t-758); the stoppers (op, --by, the window) are refused alone"),
     "case_versions.py --pin": ("none", "two values, a case id and a version; no role-written record"),
     "plan_row.py": ("battery", "B10"),
     "grounding_section.py": ("none", "read-only: prints parts of work/grounding.yaml by id and writes nothing; no role-written record"),

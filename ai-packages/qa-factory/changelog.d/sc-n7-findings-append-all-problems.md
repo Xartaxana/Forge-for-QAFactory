@@ -1,0 +1,1 @@
+- `exploratory_findings.py add|correct|withdraw` refuses a bad line once, naming every problem it found (each sentence as before, joined by `; `), instead of one problem per call; an unknown `op`, a blank `--by` and an unreadable window are still refused alone
