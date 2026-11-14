@@ -863,7 +863,7 @@ def test_native_headroom() -> None:
         check_eq("T3a (j): a tree with no role-load.json judges nothing", RL.native_headroom_problems(role_tree("none", headroom + 1, settings=False)), [])
         check_eq("T3a (j): the shipped package is green (its one role over H stands at its named baseline)", RL.native_headroom_problems(PLUGIN_ROOT), [])
         shipped = json.loads((PLUGIN_ROOT / "references" / "role-load.json").read_text(encoding="utf-8"))["native_headroom"]
-        check_eq("T3a (j): the shipped baselines are the roles that are over H today", sorted(shipped), ["qa-test-strategist"])
+        check_eq("T3a (j): the shipped baselines are the K10 rows of KR (the roles over H, named raise)", sorted(shipped), ["qa-automator", "qa-code-critic", "qa-test-strategist"])
     finally:
         cleanup(tmp)
 
