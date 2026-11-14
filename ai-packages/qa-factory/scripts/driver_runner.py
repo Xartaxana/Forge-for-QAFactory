@@ -15,7 +15,7 @@ import human_text
 import no_move as NM
 import person_owned as PO
 import waiver
-from driver_core import EXIT_ERROR, InfraStop, JOURNAL_ROWS_BLOCK, Person, Priced, Refusal, Stop, _answer_note, _append_jsonl, _now, _read_answer, _read_json, _write_json, finding_lines, gate_refusal, recorded_earlier
+from driver_core import EXIT_ERROR, InfraStop, JOURNAL_ROWS_BLOCK, Person, Priced, Refusal, Stop, _answer_note, _append_jsonl, _now, _read_answer, _read_json, _write_json, finding_key, finding_lines, gate_refusal, recorded_earlier
 
 
 # What the person reads beside a Codex call's price (`cost_basis` of the journal row, the cost line, the dashboard card,
@@ -423,14 +423,29 @@ class DriverRunner:
         road (`conductor_round`, `role_resume`, `structured_resume`, `handoff_resume`, `gate_repair`), the series key, the dispatch,
         the outcome (`same_set`, `cap`, `again`) and the finding set as it is COMPARED (`finding_lines`: ids masked, sorted), cut to 20
         lines of 300 characters with `set_size` keeping the true count. Data for the cause analysis (`collect-loops.json` L8); it
-        judges no cause (P27, AR-29). Once-ness is the caller's (the stop's own record guards it). An empty set writes no row (FR-41:
-        an unknown is not a repeat). Any failure is one stderr line and never stops the factory (P1)."""
+        judges no cause (P27, AR-29). ONCE per (road, key, finding_key(lines), outcome) across relaunches: the mark lives in the
+        state file under `repeat_recorded` (absent, None or not a dict in an older state = empty), so the arrival after a person's
+        `retry` writes nothing, and neither does the arrival that spends a paid round the person bought on the set the first
+        arrival recorded (same tuple: the person's `round` is no new stop). An empty set writes no row (FR-41: an unknown is not a repeat).
+        Any failure is one stderr line and never stops the factory (P1)."""
         try:
             found = finding_lines(lines)
             if not found:
                 return
+            state = getattr(self, "state", None)
+            state = state if isinstance(state, dict) else None
+            ident = "|".join((road, key, finding_key(lines), outcome))
+            if state is not None:
+                held = state.get("repeat_recorded")
+                if isinstance(held, dict) and held.get(ident):
+                    return
             self.journal_run({"kind": "repeat_stop", "stage": stage, "road": road, "key": key, "dispatch": dispatch,
                               "outcome": outcome, "set": [line[:300] for line in found][:20], "set_size": len(found)})
+            if state is not None:
+                if not isinstance(state.get("repeat_recorded"), dict):
+                    state["repeat_recorded"] = {}
+                state["repeat_recorded"][ident] = 1
+                getattr(self, "save_state", lambda: None)()
         except Exception as exc:
             print(f"repeat record not written ({type(exc).__name__}: {' '.join(str(exc).split())[:160]})", file=sys.stderr)
 

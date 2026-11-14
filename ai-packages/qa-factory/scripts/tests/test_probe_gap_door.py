@@ -446,7 +446,9 @@ def test_fv122_stage_outside_the_table_is_gated():
     assert d.seen[0]["call"] is False
     assert [r["outcome"] for r in fv122_rounds(d)] == ["to_conductor", "same_set"]
     gap = SR.Refusal("head\nwindow gap", dispatch="S8-qa-doc-scribe-1", window_findings=["window gap"])     # a window's own gaps stay S5's
-    SR.Driver.window_round_gate(fv122_gate_stub(), gap, "S8")
+    stub = fv122_gate_stub()
+    SR.Driver.window_round_gate(stub, gap, "S8")
+    assert fv122_rounds(stub) == [] and stub.journal_rows == []
 
 
 def test_fv122_go_on_goes_to_the_conductor():
@@ -547,6 +549,51 @@ def test_fv122_n3d_gate_stop_writes_one_repeat_row_for_same_set_and_cap():
             continue
         assert len(rows) == 1 and (rows[0]["road"], rows[0]["outcome"], rows[0]["key"]) == ("gate_repair", outcome, "gate_A"), rows
         assert rows[0]["set_size"] == 2 and d.handed                                   # the stop's own move still happens
+
+
+def test_fv122_n3b_second_arrival_of_the_same_set_writes_nothing():
+    """F2: ONCE per (road, key, finding_key, outcome) across relaunches - the mark is in the persisted state. A different outcome on
+    the same set is a new tuple. An older state (no mark, None, not a dict) reads as empty and never crashes."""
+    for older in ("absent", None, ["x"]):
+        state = {} if older == "absent" else {"repeat_recorded": older}
+        saved = []
+        d = SimpleNamespace(state=state, journal_rows=[], save_state=lambda: saved.append(1))
+        d.journal_run = d.journal_rows.append
+        args = ("S8", "role_resume", "k", "S8-qa-doc-scribe-1", ["the form misses failure_class"])
+        SR.Driver.record_repeat(d, *args, "again")
+        assert len(fv122_repeats(d)) == 1 and isinstance(state["repeat_recorded"], dict) and saved, older    # the mark is created and kept
+        SR.Driver.record_repeat(d, *args, "again")                                      # the arrival after the person's `round`/`retry`
+        assert len(fv122_repeats(d)) == 1, older
+        SR.Driver.record_repeat(d, *args, "same_set")                                   # another outcome: another tuple
+        assert [r["outcome"] for r in fv122_repeats(d)] == ["again", "same_set"], older
+        relaunched = SimpleNamespace(state=json.loads(json.dumps(state)), journal_rows=[], save_state=lambda: None)
+        relaunched.journal_run = relaunched.journal_rows.append
+        SR.Driver.record_repeat(relaunched, *args, "again")                             # a relaunch reads the same persisted mark
+        assert relaunched.journal_rows == [], older
+
+
+@pytest.mark.parametrize("spent, rows", [(False, 0), (True, 1)])
+def test_fv122_n3b_structured_resume_without_a_spent_resume_is_no_repeat(monkeypatch, spent, rows):
+    """F3: the first structured refusal with NO session resumed nothing - it records nothing; the refusal after a SPENT resume does."""
+    import driver_machine
+    monkeypatch.setattr(driver_machine, "route_known", lambda refusal: ("structured_artifact", "resume_structured"))
+    dispatch = "S8-qa-doc-scribe-1"
+    d = SimpleNamespace(boundary="S8:" + dispatch, state={"sessions": {}, "structured_resumes": {dispatch: 1} if spent else {}},
+                        journal_rows=[], order=[])
+    d.journal_conductor = lambda **kw: None
+    d.journal_run = d.journal_rows.append
+    d.refusal_lines = lambda refusal, items=None: list(refusal.findings)
+    d.dispatch_role = lambda name: "qa-doc-scribe"
+    d.record_repeat = types.MethodType(SR.Driver.record_repeat, d)
+
+    def exit_limit(*args, **kw):
+        raise RuntimeError("person")
+
+    d.exit_limit = exit_limit
+    refusal = SR.Refusal("head\nthe form misses failure_class", findings=["the form misses failure_class"], dispatch=dispatch)
+    with pytest.raises(RuntimeError, match="person"):
+        SR.Driver.handle_refusal(d, refusal)
+    assert len(fv122_repeats(d)) == rows
 
 
 if __name__ == "__main__": raise SystemExit(pytest.main([__file__, "-q", "-p", "no:cacheprovider"]))

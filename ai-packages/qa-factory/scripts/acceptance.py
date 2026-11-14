@@ -1587,7 +1587,17 @@ def stage_acceptance_from_form(form, *, stage, role, acceptor, reviewed_dispatch
     side = stage_acceptance_verdict(word)
     if not side:
         known = "|".join(stage_acceptance_table()) or "none readable"
-        return None, [f"{STAGE_ACCEPTANCE_PHRASE}: verdict word `{word}` is not one of {known}; the form must end its header with one of them"]
+        try:
+            import handoff
+            contract = form.get("contract")
+            at = ""
+            if isinstance(contract, str) and contract.strip():
+                handoff.template(contract)          # an unknown contract raises: the reader would only answer its default (FR-41)
+                at = handoff.acceptance_verdict_path(contract)
+        except Exception:
+            at = ""
+        where = f"write one of them at `{at}` of the form" if at else "the form must carry one of them as its verdict"
+        return None, [f"{STAGE_ACCEPTANCE_PHRASE}: verdict word `{word}` is not one of {known}; {where}"]
     section = form.get("stage_acceptance") if isinstance(form.get("stage_acceptance"), dict) else {}
     paths = section.get("witness_paths")
     failure = section.get("failure_class")
