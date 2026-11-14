@@ -4159,9 +4159,7 @@ def case_remark_lines(left) -> list:
     shown = ((left or {}).get("items") or [])[:GAP_TESTS_MAX]
     for item in shown:
         case = item.get("case")
-        # OPEN QUESTION to the Lead (t-791): the card says `gate_brief.case_ref(case, case_files(...))`, a link whose path starts with
-        # `work/test-cases/` for every authored case; `validate_artifacts.check_report_forbidden` refuses any `work/` in a report. Until
-        # decided the ref is the bare id (the card's own "case with no file" form), through `_shown`.
+        # the bare case id in the report and the packet alike: a link to the authoring copy carries `work/`, which a report never shows
         ref = "a remark on no one case" if case is None else (_shown(case)[0] or "a case whose id is not shown")
         problem, cut_problem = _shown(item.get("problem"))
         reason, cut_reason = _shown(item.get("reason"))
