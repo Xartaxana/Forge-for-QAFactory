@@ -1628,7 +1628,7 @@ def profiles_owning(cfg: dict, rel_path) -> list:
     profiles share that deepest root - a tie the path cannot break and no caller may break by taking the first.
     The one predicate of "which profiles own this path" (`_profile_for`, `probe_by_code._profile_cwd`,
     `gate_preflight.Rehearsal._profiles_sharing_root`), with one normalisation (`_path_key`). A root the one reader of
-    test places ignores - empty or absolute (`test_locations._grammar_problem`), or folded by `_path_key` to a place
+    test places ignores - empty or absolute (`test_locations.grammar_problem`), or folded by `_path_key` to a place
     above the project (`..`, `../x`); `.` is already no key - owns nothing, like `probe_by_code._in_test_root`
     (OF4-6: a root `/tests` is not the project's `tests`)."""
     import test_locations as TL
@@ -1637,7 +1637,7 @@ def profiles_owning(cfg: dict, rel_path) -> list:
     for profile in selected_profiles(cfg):
         raw = str((profile.get("roots") or {}).get("test") or "").replace("\\", "/").strip()
         root = _path_key(raw)
-        if TL._grammar_problem(raw) in ("empty", "an absolute path") or root == ".." or root.startswith("../"):
+        if TL.grammar_problem(raw) in ("empty", "an absolute path") or root == ".." or root.startswith("../"):
             continue    # `tests/ui/..` is folded by `_path_key` to `tests` and stays a root; only a root that ends above the project goes
         if not path_under(key, root):
             continue
