@@ -1,0 +1,1 @@
+- project knowledge (`project_knowledge.py`): a role the strategist names is now recorded as `noticed_unconfirmed` only if, under the registry lock, nothing decided it first; an answer a person gave in a parallel story between the roster read and the write is no longer followed by the role's guess, so the person is not asked again (PK2-18)

@@ -1220,5 +1220,60 @@ def test_account_state_on_an_unreadable_config_is_unknown(proj, raw):
     assert got["state"] == "unknown" and got["row"] is None
 
 
+DECIDED = [s for s in PK.STATES if s != PK.NOTICED]        # read from the module's own closed set, not listed here
+
+
+def _noticed_form(proj):
+    strategist_form(proj, "product_roles:\n  - role: auditor\n    sign_in: account\n    where: R-1\nblocked: none\n")
+
+
+@pytest.mark.parametrize("decided", DECIDED)
+def test_notice_race_a_person_answer_between_the_read_and_the_write_stays_last(proj, monkeypatch, capsys, decided):     # PK2-18
+    _noticed_form(proj)
+    real_roster = PK.roster
+
+    def racing(root, cfg, stand):
+        got = real_roster(root, cfg, stand)             # the stale read: the role is not there yet
+        proj.record(state=decided)                      # a parallel story's answer lands before notice's own write
+        return got
+
+    monkeypatch.setattr(PK, "roster", racing)
+    capsys.readouterr()
+    assert PK.notice_from_handoff(proj.root, proj.task, "T-2") == []
+    rows = proj.rows()
+    assert [r["state"] for r in rows] == [decided] and PK.state(proj.root, PK.ROLES_KEY, "", "auditor")["row"]["state"] == decided
+    assert capsys.readouterr().err == ""
+
+
+@pytest.mark.parametrize("held", ["noticed_row", "no_rows", "no_file"])
+def test_notice_writes_when_the_role_is_absent_or_only_noticed(proj, held):                  # PK2-18
+    if held == "noticed_row":
+        proj.facts([role_fact("PK-1", "auditor", PK.NOTICED, "2026-11-01T10:00:00+00:00")])
+    elif held == "no_rows":
+        proj.facts([])
+    _noticed_form(proj)
+    ids = PK.notice_from_handoff(proj.root, proj.task, "T-2")
+    assert len(ids) == 1 and len(proj.rows()) == (2 if held == "noticed_row" else 1)       # the fixture row has another value: a new row
+    assert proj.rows()[-1]["state"] == PK.NOTICED
+
+
+@pytest.mark.parametrize("decided", DECIDED)
+def test_record_guard_refuses_after_a_decided_state_and_an_unguarded_caller_writes(proj, decided):          # PK2-18
+    proj.record(state=decided)
+    before = proj.path().read_bytes()
+    assert proj.record(state=PK.NOTICED, source="role", words="", only_if_latest=(PK.NOTICED,)) == (None, "", False)
+    assert proj.path().read_bytes() == before
+    row, problem, created = proj.record(state=PK.NOTICED, source="role", words="")           # no guard: as today
+    assert problem == "" and created is True and row["state"] == PK.NOTICED
+    assert proj.record(state=PK.NOTICED, source="role", words="", only_if_latest=(PK.NOTICED,))[2] is False   # latest noticed: guard passes, same row
+
+
+def test_record_guard_on_an_unreadable_registry_is_todays_refusal(proj):                     # PK2-18
+    proj.path().parent.mkdir(parents=True, exist_ok=True)
+    proj.path().write_text("{broken", encoding="utf-8")
+    row, problem, created = proj.record(state=PK.NOTICED, source="role", words="", only_if_latest=(PK.NOTICED,))
+    assert row is None and created is False and "nothing was written over it" in problem
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q", "-p", "no:cacheprovider"]))
