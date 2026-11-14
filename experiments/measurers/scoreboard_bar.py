@@ -2,6 +2,7 @@
 """The free-agent bar's price and the release check of the run scoreboard (P1-v N7).
 
     python -B experiments/measurers/scoreboard_bar.py price --transcript T [--transcript T2 ...] [--result free-N.log ...] [--cfg cost.json]
+    python -B experiments/measurers/scoreboard_bar.py bar --stand S --story T --model M --transcript T [--transcript T2 ...] [--result free-N.log ...] [--truth F --judgment F] [--cfg cost.json] [--out-root DIR]
     python -B experiments/measurers/scoreboard_bar.py release-check (--release V | --version V --lines FILE|-) [--norms norms.json] [--root DIR]
     python -B experiments/measurers/scoreboard.py release-check ...      (the same command, through scoreboard.py)
     python -B experiments/measurers/scoreboard.py compare --release V    (N6b: the producer of the lines; `release_lines` below)
@@ -71,9 +72,9 @@ def _requests(path: Path) -> dict:
     return seen
 
 
-def host_total(results) -> float | None:
-    """The host's own `total_cost_usd` of the free arm's result file(s), summed; None when there is none or one cannot be read. A result
-    file is one JSON object, or a log whose last JSON line is that object. PRINTED only."""
+def _result_sum(results, key: str) -> float | None:
+    """The number `key` of the free arm's result file(s), summed; None when there is no result file, one cannot be read, or one holds no such
+    number. A result file is one JSON object, or a log whose last JSON line that carries `key` is that object."""
     total = 0.0
     for result in results or ():
         try:
@@ -86,13 +87,20 @@ def host_total(results) -> float | None:
                 data = json.loads(candidate)
             except ValueError:
                 continue
-            if isinstance(data, dict) and SB._num(data.get("total_cost_usd")) is not None:
-                found = SB._num(data["total_cost_usd"])
+            if isinstance(data, dict) and SB._num(data.get(key)) is not None:
+                found = SB._num(data[key])
                 break
         if found is None:
             return None
         total += found
-    return round(total, 4) if results else None
+    return total if results else None
+
+
+def host_total(results) -> float | None:
+    """The host's own `total_cost_usd` of the free arm's result file(s), summed; None when there is none or one cannot be read. A result
+    file is one JSON object, or a log whose last JSON line is that object. PRINTED only."""
+    total = _result_sum(results, "total_cost_usd")
+    return None if total is None else round(total, 4)
 
 
 def bar_price(transcripts, cfg=None, results=()) -> dict:
@@ -151,6 +159,144 @@ def price_line(priced: dict) -> str:
         gap = f"; gap: {round(host - priced['value'], 4)} (host - re-priced)"
     return (f"bar price: {shown}; host total_cost_usd: {'not given' if host is None else host} "
             f"(the host's figure, printed only, not part of the value){gap}")
+
+
+# --------------------------------------------------------------------------------------- the bar file (N9)
+
+NOT_FREE = "no such part in a free agent"
+NO_MODEL_CHECK = "the model id was not verified: no transcript could be read to compare it with"
+
+
+def _friction():
+    """The package's `friction` (tool calls and refused calls of a transcript: one road for both arms, SIBLING_MAP axis 14)."""
+    if str(paths.SCRIPTS) not in sys.path:
+        sys.path.append(str(paths.SCRIPTS))
+    import friction
+    return friction
+
+
+def _event_times(path: Path, when) -> list:
+    """The readable `timestamp` of every line of one transcript (aware datetimes); torn lines and lines with none are left out."""
+    found = []
+    with path.open(encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            try:
+                item = json.loads(line)
+            except ValueError:
+                continue
+            got = when(item.get("timestamp")) if isinstance(item, dict) else None
+            if got is not None:
+                found.append(got)
+    return found
+
+
+def _read_free(path: Path, FR) -> dict:
+    """One free-arm transcript: {name, ok, why, models, times, spans}. `ok` only when the package's `call_spans` finds a readable record;
+    the model ids are the transcript's `message.model` values (through `_requests`, the same request collection the price uses)."""
+    out = {"name": path.name, "ok": False, "why": "", "models": set(), "times": [], "spans": None}
+    try:
+        spans = FR.call_spans(path)
+        out["models"] = {m for m, _usage, _stamp in _requests(path).values() if isinstance(m, str)}
+        out["times"] = _event_times(path, FR._when)
+    except FileNotFoundError:
+        out["why"] = f"the transcript {path.name} is absent"
+        return out
+    except OSError as exc:
+        out["why"] = f"the transcript {path.name} cannot be read ({exc.__class__.__name__})"
+        return out
+    except UnicodeDecodeError as exc:
+        out["why"] = f"the transcript {path.name} cannot be read ({exc.__class__.__name__})"
+        return out
+    if spans["refused"]["state"] != "measured":
+        out["why"] = f"the transcript {path.name} holds no readable record (empty or torn)"
+        return out
+    out.update(ok=True, spans=spans)
+    return out
+
+
+def _free_rows(reads: list, FR) -> dict:
+    """{T1, T10, tool_calls, refused_calls} of the free arm from its transcripts. One transcript that cannot be read makes all of them
+    `unknown` with its reason (a partial sum would be a lower bound passed for a value); no transcript at all is `unknown` too."""
+    bad = next((r["why"] for r in reads if not r["ok"]), None)
+    if not reads or bad:
+        why = bad or "no transcript of the free arm was given"
+        unknown = {"state": "unknown", "value": None, "why": why}
+        return {"T1": dict(unknown), "T10": dict(unknown), "tool_calls": {"state": "unknown", "by_name": None, "why": why},
+                "refused_calls": {"state": "unknown", "n": None, "why": why}}
+    times = [t for r in reads for t in r["times"]]
+    if times:
+        t1 = {"state": "measured", "value": round((max(times) - min(times)).total_seconds(), 1), "why": ""}
+    else:
+        t1 = {"state": "unknown", "value": None, "why": "no readable timestamp in the transcripts"}
+    names, refused, unmeasured, seconds = {}, 0, 0, 0.0
+    for r in reads:
+        for call in r["spans"]["calls"]:
+            names[str(call["name"])] = names.get(str(call["name"]), 0) + 1
+        row = r["spans"]["refused"]
+        refused, unmeasured, seconds = refused + row["calls"], unmeasured + row["exec_unmeasured"], seconds + row["exec_s"]
+    if unmeasured:
+        t10 = {"state": "unknown", "value": None, "why": f"{FR.seconds_text(seconds, unmeasured, refused)} of refused calls"}
+    else:
+        t10 = {"state": "measured", "value": round(seconds, 1), "why": ""}
+    return {"T1": t1, "T10": t10, "tool_calls": {"state": "measured", "by_name": dict(sorted(names.items())), "why": ""},
+            "refused_calls": {"state": "measured", "n": refused, "why": ""}}
+
+
+def bar_doc(stand, story, model, transcripts=(), results=(), cfg=None, truth=None, judgment=None, truth_version=None,
+            rows_path=None, out_root=None) -> tuple:
+    """(path, text, notes). Raises SB.Refusal before anything is written; the caller writes `text` to `path` (the one write site).
+    The free arm's bar file `<out-root>/<stand>/<story>/bar-<model>.yaml` (schema scoreboard/1, arm free, run class live). X1 is `bar_price`
+    (the host's figure is not in it), T1 the span of the transcripts' events, T10 the refused calls' execution seconds, turns and the tool
+    calls by name are kept under `free`, the QA rows come through `read_judgment` + `quality_rows` (one road with the factory arm), every
+    other row of rows.json is `n/a`. Error direction: `unknown` / `n/a`, never 0. The model id must be a `message.model` of a transcript
+    (a refusal naming both); with no readable transcript it cannot be checked and the file says so."""
+    for what, token in (("the stand", stand), ("the story", story), ("the model", model)):
+        SB._safe(token, what)
+    rows_doc = SB.load_rows(rows_path)
+    if (truth is None) != (judgment is None):
+        raise SB.Refusal("--truth and --judgment go together: " + ("--judgment is missing" if judgment is None else "--truth is missing"))
+    judged = SB.read_judgment(judgment, truth, "free", rows_doc.get("verdicts") or {}, truth_version) if truth is not None else None
+    FR = _friction()
+    reads = [_read_free(Path(p), FR) for p in transcripts or ()]
+    seen = sorted({m for r in reads if r["ok"] for m in r["models"]})
+    if seen and model not in seen:
+        raise SB.Refusal(f"the model id {model!r} is not a `message.model` of the transcripts (they name {', '.join(seen)}): "
+                         f"the bar of one model is not written under another's name")
+    verified = bool(seen)
+    free = _free_rows(reads, FR)
+    price = bar_price(transcripts, cfg, results)
+    if not verified:
+        price["why"] = f"{price['why']}; {NO_MODEL_CHECK}".lstrip("; ")
+    quality = SB.quality_rows(rows_doc, judged, f"no truth table or judgment was given for the free arm of {stand}/{story}")
+    rows = {}
+    for rid, spec in rows_doc["rows"].items():
+        if "quality" in spec:
+            item, source = quality[rid], "judgment x truth"
+        elif spec.get("special") == "price":
+            item, source = price, "scoreboard_bar.bar_price (transcripts re-priced by the catalogue)"
+        elif rid in ("T1", "T10"):
+            item, source = free[rid], "free-arm transcripts (friction.call_spans)" if rid == "T10" else "free-arm transcripts (first to last event)"
+        else:
+            item, source = {"state": "n/a", "value": None, "why": NOT_FREE}, "none"
+        rows[rid] = {"name": spec["name"], "value": item["value"], "unit": spec["unit"], "source": source, "state": item["state"],
+                     **({"why": SB._scrub(item["why"])} if item.get("why") else {})}
+    times = [t for r in reads if r["ok"] for t in r["times"]]
+    from datetime import timezone
+    run = {"stand": stand, "story": story, "arm": "free", "run_class": "live", "models": [model], "model_verified": verified,
+           "started": min(times).astimezone(timezone.utc).isoformat() if times else None,
+           "truth_version": judged["truth_version"] if judged else None, "transcripts": [r["name"] for r in reads],
+           "results": [Path(p).name for p in results or ()]}
+    if not verified:
+        run["model_note"] = NO_MODEL_CHECK
+    turns = _result_sum(results, "num_turns")
+    doc = {"schema": SB.SCHEMA, "run": run, "rows": rows,
+           "free": {"turns": {"state": "unknown", "value": None, "why": "no result file with `num_turns` was given or readable"} if turns is None
+                    else {"state": "measured", "value": int(turns) if turns == int(turns) else turns, "why": ""},
+                    "tool_calls": free["tool_calls"], "refused_calls": free["refused_calls"],
+                    "host_total_usd": price["host_total_usd"] if price["host_total_usd"] is not None else "unknown",
+                    "host_total_note": "the host's own figure, printed beside the price and never part of it"}}
+    path = Path(out_root or SB.SCOREBOARDS) / stand / story / f"bar-{model}.yaml"
+    return path, SB.yaml.safe_dump(doc, sort_keys=False, allow_unicode=True, default_flow_style=False, width=120), []
 
 
 # --------------------------------------------------------------------------------------- the OQ2 line
@@ -456,9 +602,36 @@ def cmd_price(args) -> int:
     return 0
 
 
+def cmd_bar(args) -> int:
+    try:
+        cfg = SB._load_json(args.cfg, "the cost config") if args.cfg else None
+        path, text, notes = bar_doc(args.stand, args.story, args.model, args.transcript or [], args.result or [], cfg, args.truth, args.judgment,
+                                    None, None, args.out_root)
+    except SB.Refusal as exc:
+        return SB._red(str(exc))
+    replaced = path.exists()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8", newline="\n")           # the one write site of a bar file
+    for note in notes:
+        print(note)
+    print(f"{'replaced' if replaced else 'wrote'} {path}")
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter, prog="scoreboard_bar.py")
-    sub = parser.add_subparsers(dest="command", required=True, metavar="{price,release-check}")
+    sub = parser.add_subparsers(dest="command", required=True, metavar="{price,bar,release-check}")
+    b = sub.add_parser("bar", help="write the free arm's bar file bar-<model>.yaml (nothing is written on a refusal; an existing file is replaced)")
+    b.add_argument("--stand", required=True)
+    b.add_argument("--story", required=True)
+    b.add_argument("--model", required=True, help="the agent's model id; it must be a message.model of a transcript")
+    b.add_argument("--transcript", action="append", help="a free-arm session transcript (repeatable: a resume is several)")
+    b.add_argument("--result", action="append", help="a free-N.log result file (num_turns is read; total_cost_usd is kept beside the price)")
+    b.add_argument("--truth", help="truth/<story>.yaml; with --judgment the QA rows are read")
+    b.add_argument("--judgment", help="judgment.yaml (the blind evaluation of the free arm)")
+    b.add_argument("--cfg", help="the project's cost block as JSON (rate_overrides)")
+    b.add_argument("--out-root", help="default experiments/scoreboards")
+    b.set_defaults(run=cmd_bar)
     p = sub.add_parser("price", help="re-price the free arm's transcripts by the catalogue; the host's total is printed beside it")
     p.add_argument("--transcript", action="append", help="a free-arm session transcript (repeatable: a resume is several)")
     p.add_argument("--result", action="append", help="a free-N.log result file (its total_cost_usd is printed only)")
