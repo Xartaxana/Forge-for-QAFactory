@@ -204,6 +204,15 @@ def run_script(project: Path, script: str, args: list) -> tuple:
     return done.returncode, (done.stderr or done.stdout)
 
 
+def run_script_both(project: Path, script: str, args: list) -> tuple:
+    """`run_script` with stdout AND stderr in the text (a scoped run says why it refused on stdout; N2e): `(exit code, stdout + stderr)`."""
+    try:
+        done = harness.run_script(script, *args, cwd=project)
+    except subprocess.TimeoutExpired:
+        return -9, f"{script} did not finish within its timeout"
+    return done.returncode, (done.stdout or "") + (done.stderr or "")
+
+
 def cut(text: str, limit: int = 400) -> str:
     """The head of a command's text on one line (a `live_only` carries it; the stub journal keeps the whole row)."""
     return " ".join(text.split())[:limit]
@@ -416,14 +425,21 @@ def run_command(words: list, cwd, timeout: int = 120) -> tuple:
     return done.returncode, (done.stdout + done.stderr)
 
 
-def automator_branch(project, task_dir, kit: dict, runner: dict, dispatch: str, run=run_script) -> dict:
+def automator_branch(project, task_dir, kit: dict, runner: dict, dispatch: str, run=run_script, manifest_overrides=None, fragments=None) -> dict:
     """What the automator role does at S5, as the journal row's keys. The test file of each automated case is the `test_file:<lang>` of the runner row's
     language, written by the filler; the command that runs the tests is the one the WORLD's profile holds (`profile_contract.profile_commands`, axis 30) -
     nothing in this function reads the call's text; a profile with no command is `no_command` in the row and nothing is run. The manifest fragment of
-    each case is the filler's `manifest_row`, merged by `manifest_put.py` (the one writer of the manifest)."""
+    each case is the filler's `manifest_row` (with the row's `overrides.manifest_row`, N2e; `tests[].profile_id` is the runner row's profile, derived, never typed),
+    merged by `manifest_put.py` (the one writer of the manifest). `fragments` (N2e): the story's own fragments of the role's judgment (`then_bindings`: which
+    assertion proves which Then), each merged the same way; a case with no row of `then_bindings` stays refused by `s5_precheck`, never filled by the stub. Then the role's
+    documented scoped run, `run_suite.py --mine <case>` (the run block the exit gate reads), once per written case (`ran_suite` in the row)."""
     import form_filler as FF
     import profile_contract as PC
-    out = {"wrote": [], "live_only": [], "ran": []}
+    out = {"wrote": [], "live_only": [], "ran": [], "ran_suite": []}
+    manifest_overrides = dict({"tests[].profile_id": runner["profile_id"]}, **(manifest_overrides or {}))
+    if fragments is not None and (not isinstance(fragments, list) or not all(isinstance(f, dict) and f for f in fragments)):
+        raise KitError("story `stub` `qa-automator@S5.manifest_fragments` must be a list of non-empty JSON objects (each one merged by manifest_put.py); got "
+                       + cut(json.dumps(fragments), 120))
     cases = [c["id"] for c in kit["cases"] if c["channel"] == "auto"]
     written = []
     for case in cases:
@@ -448,7 +464,7 @@ def automator_branch(project, task_dir, kit: dict, runner: dict, dispatch: str, 
         try:
             frag = task_dir / "state" / "dry-stub-fragments" / f"{dispatch}-{case}.json"
             frag.parent.mkdir(parents=True, exist_ok=True)
-            frag.write_text(fill_output("manifest_row", kit_context(kit, dispatch, cases=[case])).files["work/automation-manifest.json"], encoding="utf-8")
+            frag.write_text(fill_output("manifest_row", kit_context(kit, dispatch, cases=[case]), manifest_overrides).files["work/automation-manifest.json"], encoding="utf-8")
             code, text = run(project, "manifest_put.py", ["--task", kit["key"], "--fragment", str(frag)])
             if code == 0:
                 out["wrote"].append("work/automation-manifest.json")
@@ -456,6 +472,20 @@ def automator_branch(project, task_dir, kit: dict, runner: dict, dispatch: str, 
                 out["live_only"].append({"output": "work/automation-manifest.json", "case": case, "why": f"manifest_put.py exit {code}: {cut(text)}"})
         except Unfillable as exc:
             out["live_only"].append(dict(live_row(exc), case=case))
+    for at, fragment in enumerate(fragments or []):
+        frag = task_dir / "state" / "dry-stub-fragments" / f"{dispatch}-story-{at}.json"
+        frag.parent.mkdir(parents=True, exist_ok=True)
+        frag.write_text(json.dumps(fragment, indent=1), encoding="utf-8")
+        code, text = run(project, "manifest_put.py", ["--task", kit["key"], "--fragment", str(frag)])
+        if code == 0:
+            out["wrote"].append("work/automation-manifest.json")
+        else:
+            out["live_only"].append({"output": "work/automation-manifest.json", "why": f"manifest_put.py (story fragment {at}) exit {code}: {cut(text)}"})
+    for case in written:
+        code, text = run_script_both(project, "run_suite.py", ["--task", kit["key"], "--mine", case]) if run is run_script else run(project, "run_suite.py", ["--task", kit["key"], "--mine", case])
+        out["ran_suite"].append({"case": case, "exit": code, "text": cut(text)})
+        if code != 0:
+            out["live_only"].append({"output": "the scoped run (run_suite.py --mine)", "case": case, "why": f"exit {code}: {cut(text, 900)}"})
     return out
 
 
@@ -712,10 +742,11 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
     if "files" in mine:       # the role's own files, as the story's data (before `--fix` below, which derives from them)
         row["wrote"] += write_files(task_dir, mine["files"], f"{role}@{stage}")
     if kit and role == "qa-automator" and stage == "S5":
-        done = automator_branch(project, task_dir, kit, runner_row(kit["runner"]), dispatch)
+        done = automator_branch(project, task_dir, kit, runner_row(kit["runner"]), dispatch, manifest_overrides=overrides_for(mine, "manifest_row", n), fragments=mine.get("manifest_fragments"))
         row["wrote"] += done["wrote"]
         row["live_only"] += done["live_only"]
         row["ran"] = done["ran"]
+        row["ran_suite"] = done["ran_suite"]
         if "no_command" in done:
             row["no_command"] = done["no_command"]
     for out, script, args in ROLE_STEPS.get(role, []) if stage == "S1" else []:
@@ -1231,7 +1262,7 @@ def selftest_n2(tmp: Path) -> None:
         if commands:
             check_eq("N2 (2): the test file of the automated case is written by the filler and the command is the profile's own (exit 0, not the brief's)",
                      ([r["argv"] for r in row.get("ran", [])], [r["exit"] for r in row.get("ran", [])], (project / "qa-factory" / "tests" / "TC-1_test.py").is_file(),
-                      "decoy" in json.dumps(row)), ([["python", "-B", "-m", "pytest", "-q", "-p", "no:cacheprovider", "qa-factory/tests"]], [0], True, False))
+                      "decoy" in json.dumps(row)), ([["python", "-B", "-m", "pytest", "-q", "-p", "no:cacheprovider", "."]], [0], True, False))
             check("N2 (2): the manifest fragment of the case was merged by manifest_put.py (exit 0)", "work/automation-manifest.json" in row["wrote"], json.dumps(row)[:600])
         else:
             check("N2 (6): a profile without `commands` is `no command` in the journal, nothing is run, and the brief's command is not looked for",
@@ -1440,6 +1471,18 @@ def selftest_n2c(tmp: Path) -> None:
     check_eq("N2d: the story's S4 critic file reads through the product's roll-call reader and derives `2 of 2 reviewed`",
              ([(r["plan_row"], r["ids"], r["reviewed"], r["verdict"]) for r in rows], CR.derive(rows)["digest"]),
              ([("TS-1", ["TC-1"], True, "approve"), ("TS-2", ["TC-2"], True, "approve")], "2 of 2 reviewed"))
+    # N2e: the automator's story fragments (`qa-automator@S5.manifest_fragments`) and its row of the story
+    for name, bad in (("a string", "x"), ("an empty object in the list", [{}]), ("a non-object in the list", [3]), ("an object, not a list", {"then_bindings": []})):
+        try:
+            automator_branch(None, None, {"key": "K", "cases": []}, {"profile_id": "p"}, "D", fragments=bad)
+            got_text = "no error"
+        except KitError as exc:
+            got_text = str(exc)
+        check(f"N2e: `manifest_fragments` as {name} is a KitError naming the key", "qa-automator@S5.manifest_fragments" in got_text, got_text)
+    mine = story["qa-automator@S5"]
+    check_eq("N2e: the story's S5 automator row: a digest line per case and the path, one fragment of `then_bindings`/`obligation_bindings`, the hash left out (the code writes it)",
+             (mine["result_text"].splitlines()[-1], [sorted(f) for f in mine["manifest_fragments"]], decode_overrides(mine["overrides"]["manifest_row"])),
+             ("work/automation-manifest.json", [["obligation_bindings", "then_bindings"]], {"tests[].obligation_refs[].obligation_hash": __import__("form_filler").ABSENT}))
 
 
 def rows_dir(tmp: Path, name: str, calls: list) -> Path:

@@ -6,7 +6,7 @@
  "profile": {
   "profile_id": "dry-pytest",
   "commands": {
-   "one_test": {"argv": ["python", "-B", "-m", "pytest", "-q", "-p", "no:cacheprovider", "qa-factory/tests"], "cwd": "."}
+   "one_test": {"argv": ["python", "-B", "-m", "pytest", "-q", "-p", "no:cacheprovider", "."], "cwd": "."}
   }
  }
 }

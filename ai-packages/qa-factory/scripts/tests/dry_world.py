@@ -932,7 +932,7 @@ def main_pass(story_id: str = DEFAULT_STORY, label: str = "default", ledger_path
             if kind == "conductor":
                 details = world.task_root / "state" / "driver-question-details.md"
                 stop = ("the road met the conductor: a state the driver has no move for; "
-                        + (f"its own words: {cut(details.read_text(encoding='utf-8', errors='replace'), 1600)}" if details.is_file() else "no details file"))
+                        + (f"its own words: {cut(details.read_text(encoding='utf-8', errors='replace'), 6000)}" if details.is_file() else "no details file"))
                 break
             words = answers.get((stage, kind))
             if words is None:

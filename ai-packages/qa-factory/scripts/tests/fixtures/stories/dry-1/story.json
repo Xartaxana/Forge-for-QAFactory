@@ -31,6 +31,21 @@
     ]
    }
   },
+  "qa-automator@S5": {
+   "result_text": "qa-automator S5 window · ok\nTC-1 · green · the test checks the cart total with a quantity\nTC-2 · unresolved · the story's kit makes this case manual; the stub automates only the auto cases\nwork/automation-manifest.json",
+   "manifest_fragments": [
+    {"then_bindings": [
+      {"case": "TC-1", "then": 1, "instance_id": "test_the_case", "assertion_ref": "qa-factory/tests/TC-1_test.py:6", "status": "covered"},
+      {"case": "TC-2", "then": 1, "instance_id": null, "assertion_ref": null, "status": "unresolved", "reason": "handed_to_person", "owner": "person", "part": "the empty cart", "detail": "open the cart page with no lines; the total reads zero and no checkout is offered"}
+     ],
+     "obligation_bindings": [{"obligation_id": "OB-1", "instance_ids": ["test_the_case"]}]}
+   ],
+   "overrides": {
+    "manifest_row": {
+     "tests[].obligation_refs[].obligation_hash": {"$absent": true}
+    }
+   }
+  },
   "qa-case-designer@S4": {
    "result_text": "qa-case-designer S4 DRY-1 · ok\nTC-1 · created · the case checks the cart total with a quantity\nwork/handoffs/S4-qa-case-designer-1.yaml",
    "overrides": {
@@ -50,8 +65,8 @@
      {"r": "R-1", "state": "implemented", "files": ["src/shop/cart.py", "src/shop/checkout.py"]}
     ],
     "areas": [
-     {"id": "B-1", "matters": "no", "why": "the cart module has one function the story changes and nothing else calls it in this synthetic project", "regression": "gap:the synthetic project holds no test of the cart module"},
-     {"id": "B-2", "matters": "no", "why": "the checkout module has one function the story changes and nothing else calls it in this synthetic project", "regression": "gap:the synthetic project holds no test of the checkout module"}
+     {"id": "B-1", "matters": "no", "why": "the cart module has one function the story changes and nothing else calls it in this synthetic project", "regression": "test_cart.py::test_cart_total_multiplies_price_by_quantity defends the cart total"},
+     {"id": "B-2", "matters": "no", "why": "the checkout module has one function the story changes and nothing else calls it in this synthetic project", "regression": "gap:the synthetic project holds no test of the checkout module (test_cart.py does not reach it)"}
     ]
    }
   },
@@ -74,7 +89,7 @@
   {"stage": "S2", "role": "qa-requirements-tester", "door": {"kind": "driver"}},
   {"stage": "S3", "role": "qa-test-strategist", "door": {"kind": "driver"}},
   {"stage": "S4", "role": "qa-case-designer", "door": {"kind": "driver"}, "answers": {"gate_A": "approve"}},
-  {"stage": "S5", "role": "qa-automator", "door": {"kind": "driver"}},
+  {"stage": "S5", "role": "qa-automator", "door": {"kind": "driver"}, "answers": {"environment": "go on"}},
   {"stage": "S6", "role": "qa-runner", "door": {"kind": "driver"}},
   {"stage": "S7", "role": "qa-failure-analyst", "door": {"kind": "driver"}},
   {"stage": "S8", "role": "qa-doc-scribe", "door": {"kind": "driver"}},
