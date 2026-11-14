@@ -2552,8 +2552,41 @@ def hf2_11b_forty_tests_changed_by_one_fixture() -> None:
         harness.cleanup(root)
 
 
+def test_consumer_round_cap_is_data() -> None:
+    """B1 (E-B1, E-B2, E-B3, E-B12): the S6/S7 consumer round cap is `acceptance_rounds` in the stage row, read by ONE function
+    (`runtime_policy.repair_cap`); S4/S5 keep today's caps; a malformed row is ignored; a person's words lift the row; the status
+    line reads the same reader (the line never shows a cap the controller does not apply)."""
+    import acceptance
+    import runtime_policy as RP
+    import stage_status as SS
+
+    def cap(stage, role, **kw):
+        return RP.repair_cap(role, acceptance.stage_def_of(stage), **kw)
+
+    rows = [("C1 s6-runner-cap-is-1", cap("S6", "qa-runner"), 1),
+            ("C2 s7-analyst-cap-is-1", cap("S7", "qa-failure-analyst"), 1),
+            ("C3 s5-automator-cap-unchanged", cap("S5", "qa-automator"), RP.DEFAULT_LIMITS["repair_cycles"]),
+            ("C4 s4-designer-cap-unchanged", cap("S4", "qa-case-designer"), RP.DEFAULT_LIMITS["design_repair_cycles"]),
+            ("C6 person-words-lift-the-row", cap("S6", "qa-runner", person_words=True), RP.DEFAULT_LIMITS["repair_cycles"]),
+            ("C1 a project's limits do not lift the row", cap("S6", "qa-runner", limits={"repair_cycles": 5}), 1),
+            ("C1 the status line reads the one reader (S6)", SS.round_cap(None, "qa-runner", "S6"), 1),
+            ("C1 the status line reads the one reader (S7)", SS.round_cap(None, "qa-failure-analyst", "S7"), 1),
+            ("C1 an unknown stage reads today's value", SS.round_cap(None, "qa-runner", "S99"), RP.DEFAULT_LIMITS["repair_cycles"]),
+            ("C1 an empty stage reads today's value", SS.round_cap(None, "qa-runner", ""), RP.DEFAULT_LIMITS["repair_cycles"]),
+            ("C1 not the stage's author: today's value", RP.repair_cap("qa-code-critic", {"roles": ["qa-runner"], "acceptance_rounds": 1}),
+             RP.DEFAULT_LIMITS["repair_cycles"])]
+    for label, got, want in rows:
+        eq(label, got, want)
+    for bad in ("x", -1, True, None, 1.5):             # C5: malformed or absent -> ignored, today's cap
+        eq(f"C5 malformed-row-ignored: {bad!r}",
+           RP.repair_cap("qa-runner", {"roles": ["qa-runner"], "acceptance_rounds": bad}), RP.DEFAULT_LIMITS["repair_cycles"])
+    eq("C5 malformed-row-ignored: key absent", RP.repair_cap("qa-runner", {"roles": ["qa-runner"]}), RP.DEFAULT_LIMITS["repair_cycles"])
+    eq("C5 malformed-row-ignored: no row", RP.repair_cap("qa-runner", None), RP.DEFAULT_LIMITS["repair_cycles"])
+    eq("C5 a zero is a cap", RP.repair_cap("qa-runner", {"roles": ["qa-runner"], "acceptance_rounds": 0}), 0)
+
+
 def main() -> None:
-    run_scenarios([], [s5_critic_finish_passes_window, d1_s6_freshness, d1_texts,
+    run_scenarios([], [test_consumer_round_cap_is_data, s5_critic_finish_passes_window, d1_s6_freshness, d1_texts,
                        hf2_11b_s6_freshness_reads_the_run_rows_shas,
                        hf2_11b_stale_live_checks_are_proved_again_before_the_reduction,
                        hf2_11b_the_tool_takes_only_a_running_dispatch,

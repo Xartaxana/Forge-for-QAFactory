@@ -46,7 +46,7 @@ from hooklib import (CLOSED_AT, ORDERS_DUE, REOPENED_AT, STOP_VALUES, gate_order
                      story_closed, story_closure, story_root, story_root_at)
 import person_words
 from record_schema import validate_record
-from runtime_policy import (DEFAULT_LIMITS, resolve_model, checkpoint_due, cumulative_budget,
+from runtime_policy import (DEFAULT_LIMITS, repair_cap, resolve_model, checkpoint_due, cumulative_budget,
                             warning_milestones, orchestrator_rollover_due)
 
 TERMINAL = {"accepted", "blocked", "incomplete", "paused"}
@@ -2209,11 +2209,11 @@ class Controller:
                 # "Round 5 of 2 is the last one" was arithmetic done in a prompt. The numbers
                 # the orchestrator tells a role come from the same ledger the cap reads.
                 ledger = repair_ledger(state["dispatches"], request)
-                policy = dict(DEFAULT_LIMITS, **(options.get("limits") or {}))
+                import acceptance
                 packet["repair_budget"] = {
                     "counted": ledger["counted"], "by_cause": ledger["by_cause"],
-                    "cap": policy.get("design_repair_cycles" if "case" in options["role"]
-                                      else "repair_cycles"),
+                    "cap": repair_cap(options["role"], acceptance.stage_def_of(stage), options.get("limits"),
+                                      person_words=bool(options.get("person_words"))),
                     "mechanical": mechanical_rounds(state["dispatches"], request),
                     "mechanical_cap": self._dispatch_setting("mechanical_rounds"),
                     "passes": repair_passes(state["dispatches"], request),
@@ -5633,8 +5633,9 @@ class Controller:
                                  "place the retro can learn why the round existed.")
             # The repair cap must not depend on whether the host recorded a counter.
             if p.get("role") in REPAIR_LOOP_ROLES and not p.get("parent_retry"):
-                policy = dict(DEFAULT_LIMITS, **(p.get("limits") or {}))
-                cap = policy.get("design_repair_cycles" if "case" in p["role"] else "repair_cycles")
+                import acceptance
+                cap = repair_cap(p["role"], acceptance.stage_def_of(p.get("stage")), p.get("limits"),
+                                 person_words=bool(p.get("person_words")))
                 ledger = repair_ledger(state["dispatches"], p)
                 spent = ledger["counted"]
                 free = ("A round that is not about a defect of the test spends none of the "
@@ -5923,7 +5924,7 @@ class Controller:
                     self._s3_completion_gate(d, p, state)
                 if p.get("stage_complete"):
                     # X2-5 (E-B11). POSITION: after every check of this branch that exists today, before the S5/S6 branches. INVARIANT: a stage
-                    # without `acceptance_by` (S0, S1, S5, S8, S9) is refused nothing new; S2, S3, S4, S6 and S7 do not close without an `accept`
+                    # without `acceptance_by` (S0, S1, S5, S8, S9) is refused nothing new; S4, S6 and S7 do not close without an `accept`
                     # record for the author's last dispatch, or a person's recorded word (P13).
                     from acceptance import stage_acceptance_refusal
                     refusal, passed = stage_acceptance_refusal(self._pipeline(), d, state, self._passed_by_person)

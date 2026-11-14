@@ -68,6 +68,22 @@ def checkpoint_due(role, counters, limits=None):
                                   if counters.get(key) is None]}
 
 
+def repair_cap(role, stage_def=None, limits=None, person_words=False):
+    """THE reader of a repair loop's cap. A stage row's `acceptance_rounds` (an int, not a bool, >= 0) caps the stage's
+    author (`roles[0]`) unless a person's words built the round; anything else (absent, malformed) reads today's
+    `repair_cycles` / `design_repair_cycles`. Never raises."""
+    try:
+        rounds = stage_def.get("acceptance_rounds") if isinstance(stage_def, dict) else None
+        roles = stage_def.get("roles") if isinstance(stage_def, dict) else None
+        if (isinstance(rounds, int) and not isinstance(rounds, bool) and rounds >= 0 and not person_words
+                and isinstance(roles, (list, tuple)) and roles and role == roles[0]):
+            return rounds
+    except Exception:  # noqa: BLE001 - a row that cannot be read switches nothing on
+        pass
+    policy = dict(DEFAULT_LIMITS, **(limits or {}))
+    return policy.get("design_repair_cycles" if "case" in role else "repair_cycles")
+
+
 def cumulative_budget(role, previous, current, limits=None):
     """Merge one dispatch's measured deltas into durable cumulative counters.
 
@@ -90,10 +106,9 @@ def cumulative_budget(role, previous, current, limits=None):
             raise ValueError(f"{metric} counters cannot decrease")
         counters[metric] = before + delta
     due = checkpoint_due(role, counters, limits)
-    policy = dict(DEFAULT_LIMITS, **(limits or {}))
-    repair_cap = policy.get("design_repair_cycles" if "case" in role else "repair_cycles")
-    if repair_cap is not None and counters["repair_cycles"] is not None \
-            and counters["repair_cycles"] >= repair_cap:
+    cap = repair_cap(role, None, limits)
+    if cap is not None and counters["repair_cycles"] is not None \
+            and counters["repair_cycles"] >= cap:
         due["checkpoint"] = True
         due["blocking"] = True
         due["reasons"] = [*due["reasons"], "repair_cycles"]
