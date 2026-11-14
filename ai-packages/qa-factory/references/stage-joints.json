@@ -8061,5 +8061,13 @@
     "execution_request",
     "run_suite",
     "role_cli"
-  ]
+  ],
+  "call_index_wording": {
+    "guard_pre_tool": "{n} checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.",
+    "stage_guard": "{n} checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.",
+    "host_adapter": "{n} checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.",
+    "execution_request": "{n} checks of your commands are told in the refusal of the call, with what they expect and the door.",
+    "run_suite": "{n} checks of your commands are told in the refusal of the call, with what they expect and the door.",
+    "role_cli": "{n} checks of your commands are told in the refusal of the call, with what they expect and the door. Run {scripts} before you write an input file: it prints what each command of the script checks."
+  }
 }

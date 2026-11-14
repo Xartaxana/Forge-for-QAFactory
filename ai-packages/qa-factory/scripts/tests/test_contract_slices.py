@@ -876,8 +876,11 @@ def test_t1rp() -> None:
     plan, plan_md = call(told_row("guard_pre_tool:PT-plan-rewrite", text="Never rewrite whole.")), call(told_row("guard_pre_tool:PT-plan-md-rewrite", text="Never rewrite md."))
     cmd, out = call(told_row("role_cli:plan_row.py", text="A command row.")), told_row("t:out", text="Output row.")
 
+    words = json.loads((PLUGIN_ROOT / "references" / "stage-joints.json").read_text(encoding="utf-8"))["call_index_wording"]
+
     def joints(rows, families):
         return json.dumps({"schema_version": 2, "when_exclusive": WHEN_EXCLUSIVE, "call_told_families": families,
+                           "call_index_wording": {f: words[f] for f in families},
                            "told_ratchet": {"hand_cards": 0, "legacy_legs": 0, "unsited": 0}, "joints": list(rows)})
     tmp = temp_dir("qa-factory-t1rp-")
     try:

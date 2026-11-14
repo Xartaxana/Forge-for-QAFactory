@@ -819,6 +819,9 @@ def told_world() -> dict:
     joined = rep["units"]
     ids = {RR.check_of(e): (Path(e["file"]).name, e["function"]) for e in RR.REGISTRY}
     ids.update({i: (f, fn) for i, (f, fn, _line) in SJ.check_ids().items()})
+    # the literal `exit_gate:required_outputs` is the family `required_outputs_errors` collects (`own(..., "exit_gate:required_outputs")`
+    # in `all_errors`); the walk maps every literal to `all_errors`, this join gives that one literal its own unit (t-722 Q1)
+    ids["exit_gate:required_outputs"] = ("exit_gate.py", "required_outputs_errors")
     unit_roles = {k: r.get("roles") for k, r in rows.items()}
     _WORLD.update(
         rep=rep, rows=rows, units=units, ids=ids, unit_roles=unit_roles,
@@ -1153,12 +1156,25 @@ def t1rp() -> None:
              (SJ.call_families(REAL), audit().problems),
              (["guard_pre_tool", "stage_guard", "host_adapter", "execution_request", "run_suite", "role_cli"], []))
     check_eq("T1rp/call-families/empty-green: an EMPTY list is green (no row is told at the call; every row is page-told)",
-             audit(data=mutated(lambda d: d.update(call_told_families=[]))).problems, [])
+             audit(data=mutated(lambda d: d.update(call_told_families=[], call_index_wording={}))).problems, [])
     for label, change, said in (("unknown family", lambda d: d["call_told_families"].append("zz_nope"), "names `zz_nope`, which is the family of no row"),
                                 ("not a list", lambda d: d.update(call_told_families="role_cli"), "is not a list of distinct family names"),
                                 ("a repeat", lambda d: d["call_told_families"].append("role_cli"), "is not a list of distinct family names"),
                                 ("absent", lambda d: d.pop("call_told_families"), "lacks `call_told_families`")):
         check_in(f"T1rp/call-families/{label.replace(' ', '-')}-red", said, text_of(audit(data=mutated(change))))
+    # the wording of each family's index line is data too: one per listed family
+    check_eq("T1rp/call-wording/real: one wording per listed family, the real audit is clean with them",
+             sorted(SJ.call_wording(REAL)), sorted(SJ.call_families(REAL)))
+    check_eq("T1rp/call-wording/unusable-sleeps: a listed family with no usable wording is not told at the call (its rows stay on the page)",
+             SJ.call_families({**REAL, "call_index_wording": {k: v for k, v in REAL["call_index_wording"].items() if k != "role_cli"}}),
+             [f for f in SJ.call_families(REAL) if f != "role_cli"])
+    for label, change, said in (("missing", lambda d: d["call_index_wording"].pop("role_cli"), "has no wording for the listed family `role_cli`"),
+                                ("unlisted", lambda d: d["call_index_wording"].update(zz_nope="x"), "has a wording for `zz_nope`, which `call_told_families` does not list"),
+                                ("empty", lambda d: d["call_index_wording"].update(role_cli="  "), "wording of `role_cli` is not a non-empty text"),
+                                ("not-text", lambda d: d["call_index_wording"].update(role_cli=7), "wording of `role_cli` is not a non-empty text"),
+                                ("not-object", lambda d: d.update(call_index_wording=["role_cli"]), "is not an object of one wording per listed family"),
+                                ("absent", lambda d: d.pop("call_index_wording"), "lacks `call_index_wording`")):
+        check_in(f"T1rp/call-wording/{label}-red", said, text_of(audit(data=mutated(change))))
     # K5 (P-8)
     page_row = lambda path, roles=("qa-runner",): {"check": "t:x", "producers": [{"roles": list(roles), "field": "f", "demands": [],
                                                                                   "told": [{"path": path, "anchor": "## Outputs"}]}]}

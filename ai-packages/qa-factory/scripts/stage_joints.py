@@ -50,8 +50,9 @@ KEY = "same_class_gate_blocks"
 FRICTION_MIN = 2
 SCHEMA = 2                                          # the one schema this reader reads; a file of another is `(None, why)`
 TOP_KEYS = ("schema_version", "note", "friction", "joints", "ratchet", "when_kinds", "when_exclusive", "told_ratchet",
-            "call_told_families")
+            "call_told_families", "call_index_wording")
 CALL_KEY = "call_told_families"                     # the closed list of row families a refusal tells at the call (data, AR-1; T1r-pages)
+WORDING_KEY = "call_index_wording"                  # {family: the words of that family's index line on the page} (data, AR-1); `{n}` = the row count, `{scripts}` = the `--help` list
 TOLD_RATCHET_KEYS = ("hand_cards", "legacy_legs", "unsited")   # the counters of the data file; `audit` measures and compares each
 KIND_EXIT, KIND_DETECTOR, KIND_WINDOW = "exit", "detector", "window"
 KINDS = (KIND_EXIT, KIND_DETECTOR, KIND_WINDOW)     # set by the member function that produced a key, never read from its text
@@ -645,7 +646,17 @@ def _shape_problems(data: dict) -> list:
             stems = {str(r.get("check")).split(":", 1)[0] for r in data["joints"] if isinstance(r, dict)}
             out += [f"stage-joints.json `{CALL_KEY}` names `{f}`, which is the family of no row (a typo tells nothing at the call: "
                     "the rows stay on the page)" for f in families if f not in stems]
-    told = data.get("told_ratchet")
+    wording = data.get(WORDING_KEY)
+    if WORDING_KEY in data or (isinstance(families, list) and families):
+        listed = [f for f in families if isinstance(f, str)] if isinstance(families, list) else []
+        if not isinstance(wording, dict):
+            out.append(f"stage-joints.json `{WORDING_KEY}` is not an object of one wording per listed family")
+        else:
+            out += [f"stage-joints.json `{WORDING_KEY}` has no wording for the listed family `{f}`" for f in listed if f not in wording]
+            out += [f"stage-joints.json `{WORDING_KEY}` has a wording for `{f}`, which `{CALL_KEY}` does not list" for f in wording if f not in listed]
+            out += [f"stage-joints.json `{WORDING_KEY}` wording of `{f}` is not a non-empty text" for f, w in wording.items()
+                    if f in listed and not (isinstance(w, str) and w.strip())]
+    told =data.get("told_ratchet")
     if "told_ratchet" in data:
         if not isinstance(told, dict) or set(told) != set(TOLD_RATCHET_KEYS):
             out.append(f"stage-joints.json `told_ratchet` is not an object holding exactly {', '.join(TOLD_RATCHET_KEYS)}")
@@ -713,7 +724,16 @@ def call_families(data) -> list:
     """The `call_told_families` of a rows dict: a list of family names (the stem of a check id); `[]` when absent or not a list
     of texts (the shape check names that; an unreadable list tells nothing at the call - every row stays on its page)."""
     found = data.get(CALL_KEY) if isinstance(data, dict) else None
-    return [f for f in found if isinstance(f, str)] if isinstance(found, list) else []
+    words = call_wording(data)
+    return [f for f in found if isinstance(f, str) and f in words] if isinstance(found, list) else []
+
+
+def call_wording(data) -> dict:
+    """The `call_index_wording` of a rows dict: `{family: words}` of the entries that are non-empty texts; `{}` when absent or not
+    an object. A listed family with no usable wording is not told at the call (its rows stay on the page: never an index line
+    that was not written, never a row in neither carrier); the shape check names the missing wording."""
+    found = data.get(WORDING_KEY) if isinstance(data, dict) else None
+    return {f: w for f, w in found.items() if isinstance(f, str) and isinstance(w, str) and w.strip()} if isinstance(found, dict) else {}
 
 
 _REAL_SITED = {}

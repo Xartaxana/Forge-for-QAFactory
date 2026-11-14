@@ -640,33 +640,23 @@ def _continuation_head(role: str, n: int) -> list:
             "its section; edit stage-joints.json, never this file -->"]
 
 
-# The index line of a family whose rows are told at the call (T1r-pages; its family list is DATA, `call_told_families` of
-# stage-joints.json). The page keeps one line per family so the role knows the checks exist; the refusal of the call tells each
-# whole. Only the WORDS live here: what the family's calls are, and the closing sentence that is true for it. A listed family with
-# no entry gets the plain words (`CALL_WHAT_DEFAULT`, no closing sentence) - never a line that promises more than the family keeps.
-CALL_LINE = ("- [{family}:*] {n} checks of your {what} are told in the refusal of the call, with what they expect and the door"
-             "{tail}.")
-CALL_WHAT_DEFAULT = "commands"
-CALL_WHAT = {"guard_pre_tool": "tool calls", "stage_guard": "tool calls", "host_adapter": "tool calls"}
-CALL_NOTHING_LOST = ("guard_pre_tool", "stage_guard", "host_adapter")     # a refusal before any effect: nothing written is lost
-CALL_NOTHING_LOST_TAIL = "; nothing you have written is lost by them"
-CALL_HELP_FAMILY = "role_cli"                                              # a refusal that comes after an input file was written
-CALL_HELP_TAIL = (". Run {scripts} before you write an input file: it prints what each command of the script checks")
+# The index line of a family whose rows are told at the call (T1r-pages). Both the family list (`call_told_families`) and the
+# words of each family's line (`call_index_wording`) are DATA of stage-joints.json (AR-1); only the frame lives here. `{n}` is the
+# row count; `{scripts}` is the list of the `<script> --help` commands of the family's rows (a family whose words use it names the
+# card before the file, not after the refusal). The page keeps one line per family so the role knows the checks exist.
+CALL_LINE = "- [{family}:*] {words}"
 
 
-def _call_index_lines(families, called_rows: list) -> list:
-    """One line per family of `families` (in the list's order) that holds at least one of `called_rows`, with the count. The
-    role_cli line names `<script> --help` for every script of its rows (the card before the file, not after the refusal)."""
+def _call_index_lines(wording: dict, families, called_rows: list) -> list:
+    """One line per family of `families` (in the list's order) that holds at least one of `called_rows`, with the count."""
     out = []
     for family in families:
         mine = [r for r in called_rows if str(r.get("check")).split(":", 1)[0] == family]
-        if not mine:
+        if not mine or family not in wording:
             continue
-        tail = CALL_NOTHING_LOST_TAIL if family in CALL_NOTHING_LOST else ""
-        if family == CALL_HELP_FAMILY:
-            scripts = sorted({str(r.get("check")).split(":", 1)[1].split()[0] for r in mine if ":" in str(r.get("check"))})
-            tail = CALL_HELP_TAIL.format(scripts=", ".join(f"`{s} --help`" for s in scripts))
-        out.append(CALL_LINE.format(family=family, n=len(mine), what=CALL_WHAT.get(family, CALL_WHAT_DEFAULT), tail=tail))
+        scripts = sorted({str(r.get("check")).split(":", 1)[1].split()[0] for r in mine if ":" in str(r.get("check"))})
+        words = wording[family].replace("{n}", str(len(mine))).replace("{scripts}", ", ".join(f"`{s} --help`" for s in scripts))
+        out.append(CALL_LINE.format(family=family, words=words))
     return out
 
 
@@ -690,7 +680,7 @@ def _told_units(plugin_root: Path, role: str, model: dict) -> tuple:
     groups = [token for token, _name in GROUPS]
     units = [(None, stage_joints.told_line(r)) for r in told
              if not [t for t in r.get("when") or [] if t in groups]]
-    units += [(None, line) for line in _call_index_lines(families, [r for r, at_call in zip(rows, called) if at_call])]
+    units += [(None, line) for line in _call_index_lines(stage_joints.call_wording(data), families, [r for r, at_call in zip(rows, called) if at_call])]
     rows = told
     for token in groups:
         units += [(token, stage_joints.told_line(r)) for r in rows if token in (r.get("when") or [])]
