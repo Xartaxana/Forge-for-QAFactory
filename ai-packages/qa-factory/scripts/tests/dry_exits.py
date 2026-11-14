@@ -1366,13 +1366,18 @@ def judge_group(outcomes: list, ledger_path, ids: list) -> list:
     for rid in wanted:
         section, name, variant = _subject_of(rid)
         if len(by_id.get(rid, [])) == 1:
-            subjects.setdefault((section, name), []).append((variant, by_id[rid][0]))
+            subjects.setdefault((section, name), []).append((variant, by_id[rid][0], rid))
     for (section, name), rows in subjects.items():
-        if any(o.kind not in ("pass", "fail") or o.changed is None for _v, o in rows):
+        if any(o.kind not in ("pass", "fail") or o.changed is None for _v, o, _r in rows):
             continue
-        moving = [(v, o) for v, o in rows if v != "stop" and not v.endswith(":stop") and v != V_EMPTY]
-        if moving and all(o.changed is False for _v, o in moving):
-            lines.append(("alive", "fail", f"alive only stop: {_prefix_of(section)}{name}: every variant but stop left the state fingerprint unchanged ({', '.join(v for v, _o in moving)})"))
+        moving = [(v, o, r) for v, o, r in rows if v != "stop" and not v.endswith(":stop") and v != V_EMPTY]
+        if moving and all(o.changed is False for _v, o, _r in moving):
+            text = f"alive only stop: {_prefix_of(section)}{name}: every variant but stop left the state fingerprint unchanged ({', '.join(v for v, _o, _r in moving)})"
+            # applied AFTER the rows were judged and reconciled: softened only when EVERY contributing variant is red AND still labelled in the ledger
+            if all(o.kind == "fail" and r in ledger for _v, o, r in moving):
+                lines.append(("alive", "note", f"{text}; known red: " + "; ".join(f"{r} -> {ledger[r].node}" for _v, _o, r in moving)))
+            else:
+                lines.append(("alive", "fail", text))
     problems = [f"{rid}: {len(by_id.get(rid, []))} outcome(s)" for rid in wanted if len(by_id.get(rid, [])) != 1]
     problems += [f"{rid}: an outcome for a row the file does not hold" for rid in by_id if rid not in set(wanted)]
     tally: dict = {}
@@ -1463,6 +1468,12 @@ def _selftest_cases() -> list:
 
     def tmp():
         return Path(tempfile.mkdtemp(prefix="dry-exits-"))
+
+    def check(directory=None, walk_dir=None, universe=None, ledger_path=None):
+        """ISOLATION (t-828): every selftest case builds its own tree against a fake universe, so a call that names no `walk_dir` gets its own EMPTY
+        temp one - never the real `fixtures/stories/dry-1/exits/` (a real group file would turn the cases red: the result must not depend on which
+        real group files exist). The real module-level `check` is called, nothing else changes."""
+        return globals()["check"](directory, walk_dir if walk_dir is not None else tmp(), universe, ledger_path)
 
     def src(text, name="m.py"):
         return [(Path(name), text)]
@@ -1654,6 +1665,20 @@ def _selftest_cases() -> list:
     def _():
         report = check(_tree(tmp()), universe=_universe())
         return None if not report.problems else f"got {report.problems}"
+
+    @case("isolation: a real-looking walk file where the DEFAULT walk_dir points does not change a fake-universe case's verdict")
+    def _():
+        mod = globals()
+        planted = tmp()
+        _write(planted / "s0.json", {"schema": 1, "group": "s0", "rows": [{"id": "kind:halt/free words", "reach": "seed", "start": "S1"}]})
+        saved = mod["WALK_DIR"]
+        mod["WALK_DIR"] = planted
+        try:
+            isolated = check(_tree(tmp()), universe=_universe())
+            leaking = mod["check"](_tree(tmp()), None, _universe())          # control: the real check with the default directory does read it
+        finally:
+            mod["WALK_DIR"] = saved
+        return None if not isolated.problems and leaking.problems else f"isolated {isolated.problems}; control (default dir) {leaking.problems}"
 
     @case("check: a route removed from its group file is red naming the route and the door")
     def _():
@@ -2490,6 +2515,38 @@ def _walker_cases(case, tmp) -> None:
         dead = group_lines([("p.key/a", Outcome("pass", changed=False)), ("p.key/stop", stop)], {})
         live = group_lines([("p.key/a", P), ("p.key/stop", stop)], {})
         return None if any(n == "alive" and "alive only stop" in d for n, _k, d in dead) and not any(n == "alive" for n, _k, _d in live) else f"got {dead} {live}"
+
+    def alive_lines(outcomes, ledger):
+        return [(k, d) for n, k, d in group_lines(outcomes, ledger) if n == "alive"]
+
+    stop0 = ("p.key/stop", Outcome("pass", changed=False))
+
+    @case("judge_group: alive - every moving-less variant red AND ledgered is a NOTE naming the row and node, never a fail")
+    def _():
+        got = alive_lines([("p.key/a", F), ("p.key/b", F), stop0], {"p.key/a": "N4S0-1", "p.key/b": "N4S0-1"})
+        return None if len(got) == 1 and got[0][0] == "note" and "known red: p.key/a -> N4S0-1" in got[0][1] and "p.key/b -> N4S0-1" in got[0][1] else f"got {got}"
+
+    @case("judge_group: alive - one ledgered red and one unledgered red variant stays FAIL")
+    def _():
+        got = alive_lines([("p.key/a", F), ("p.key/b", F), stop0], {"p.key/a": "N4S0-1"})
+        return None if [k for k, _d in got] == ["fail"] else f"got {got}"
+
+    @case("judge_group: alive - a ledgered red variant plus a variant that passed yet left the state unchanged stays FAIL")
+    def _():
+        got = alive_lines([("p.key/a", F), ("p.key/b", Outcome("pass", changed=False)), stop0], {"p.key/a": "N4S0-1"})
+        return None if [k for k, _d in got] == ["fail"] else f"got {got}"
+
+    @case("judge_group: alive - no red rows (all passed, state unchanged) is the FAIL of today")
+    def _():
+        got = alive_lines([("p.key/a", Outcome("pass", changed=False)), stop0], {})
+        return None if [k for k, _d in got] == ["fail"] else f"got {got}"
+
+    @case("judge_group: alive - an unreadable ledger file keeps alive FAIL (the ledger problem is printed by its own line)")
+    def _():
+        bad = tmp() / "known_red.json"
+        bad.write_text("{not json", encoding="utf-8")
+        got = judge_group([("p.key/a", F), stop0], bad, ["p.key/a", "p.key/stop"])
+        return None if any(n == "alive" and k == "fail" for n, k, _d in got) and any(n == "known_red" and k == "fail" for n, k, _d in got) else f"got {got}"
 
     @case("judge_group: `outcomes` is PASS with the count per kind; a row with two outcomes or none is FAIL")
     def _():
