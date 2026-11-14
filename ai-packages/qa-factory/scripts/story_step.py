@@ -2044,8 +2044,19 @@ def _gate_refusal(args, task_root: Path, dispatch: dict, blocking: list) -> str:
     if waiting:
         lines.append("  " + str(len(waiting)) + " finding(s) wait for the person's word their line names (`then handed: "
                      "<case>#<n>`), recorded by the conductor from the person's own words; `*` does not pass them.")
+    # an open expectation (`awaits_answer`) is settled only by the answer to its question: its line names the question and the
+    # author's way (bind the Then `expectation_unconfirmed`, or return the item), never a word door (FR-10, FR-2, AR-28)
+    awaiting = [r for r in refused if getattr(r, "refused", "") == detector_verdict.AWAITS_ANSWER]
+    refused = [r for r in refused if r not in awaiting]
+    if awaiting:
+        lines.append("  " + str(len(awaiting)) + " finding(s) wait for the answer to an expectation question "
+                     "(`awaits_answer`): no recorded word passes them, `*` included. Each line above names either the question and "
+                     "the command with which the conductor records the person's answer, or sends the case back to S4; until it is answered, the author "
+                     "binds that Then `expectation_unconfirmed` as the line says, or returns the item in its digest when "
+                     "the line sends the case back to S4.")
     if refused:
-        lines.append("  " + ("No recorded word passes these; they are the author's repair." if not (named or starred or waiting)
+        lines.append("  " + ("No recorded word passes these; they are the author's repair."
+                             if not (named or starred or waiting or awaiting)
                              else f"{len(refused)} finding(s) carry the source's `refused` tag: no recorded word "
                                   "passes them, `*` included; they are the author's repair."))
     lines.append(f"  {REPAIR_MARKER}.")

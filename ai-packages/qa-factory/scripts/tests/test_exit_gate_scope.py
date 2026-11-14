@@ -357,7 +357,7 @@ b, p = exit_gate.judge_words([source, other, srcsum], said("S3 exit"), STAGE)
 check("...but a plain record (`words=gate`) of the SAME script as that summary goes to `passed`, the source record stays",
       (b, [e["error"] for e in p]) == ([source], [other]), f"{b} {p}")
 tagged = {c: R(f"s5.py: [x x:{c}] t", script="s5.py", words="source", kind="finding", refused=c)
-          for c in ("family", "predating", "unreadable")}
+          for c in ("family", "predating", "awaits_answer", "unreadable")}
 for cause, record in tagged.items():
     b, p = exit_gate.judge_words([record], said("*"), STAGE)
     check(f"`*` does not pass a record the source refused ({cause}): the tag of the source is above `*`", (b, p) == ([record], []),
