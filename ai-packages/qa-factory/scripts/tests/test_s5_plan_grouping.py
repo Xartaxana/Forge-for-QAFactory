@@ -688,7 +688,7 @@ def fv16_still_rejected_rows():
         check("C9b clause-does-not-cut-the-instruction: a 55-character dispatch id keeps the field to fill and the clause",
               len(long9) == 1 and clause in long9[0], str(long9))
     sizes9 = set()
-    for size in range(1, 80):
+    for size in range(1, 240):      # wide enough to reach the bound whatever the length of the temp story path on this OS
         one, _rel = r_brief(withrej, "d" * size)
         pre = one[0].replace(clause, "", 1)
         check(f"C9b head-at-the-limit: id of {size} characters, the clause once and the text without it within the bound",
