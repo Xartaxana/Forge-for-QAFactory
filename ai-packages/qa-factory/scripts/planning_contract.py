@@ -2958,6 +2958,42 @@ def append_question_ref(task_root, row_id: str, qid: str, case: str = "a case") 
     return _write_row_state(state, nothing)
 
 
+def repoint_bare_ref(task_root, row_id: str, old_qid: str, new_qid: str, case: str = "a case") -> tuple:
+    """`(written, line)`: the question `old_qid` was declared a repeat of `new_qid` (FV1-9, B1), and plan row `row_id` only LISTS it in
+    `question_refs` - no branch of `if_answered` is keyed by it and its `reason` does not name it - so the ref moves to `new_qid`
+    (once, even when the row names `new_qid` already). No letter is involved: a row that answers by `old_qid`'s letters is not moved
+    (the strategist's rework repoints it). Written only on a plan the person has not approved at gate A (the ban every writer
+    of the plan keeps); every other case returns `(False, line)` saying why and writes nothing. `line` is "" when the row does not
+    name `old_qid` at all. Never raises; the same preamble as `append_question_ref` (`_plan_row_for_write`)."""
+    root = Path(task_root)
+    row_id, old_qid, new_qid = (str(x or "").strip() for x in (row_id, old_qid, new_qid))
+    nothing = f"{old_qid} was marked as the same question as {new_qid} for {case}; "
+    state, line = _plan_row_for_write(root, row_id, nothing)
+    if state is None:
+        return False, line
+    row = state.rows[state.index]
+    refs = [str(ref).strip() for ref in row.get("question_refs") or []]
+    if old_qid not in refs:
+        return False, ""
+    branches = row.get("if_answered")
+    if isinstance(branches, dict) and any(str(key).strip() == old_qid for key in branches):
+        return False, nothing + f"{row_id} answers by {old_qid}'s letters, so its branch is not moved; the plan is unchanged"
+    reason = row.get("reason")
+    if isinstance(reason, str) and _id_token(old_qid).search(reason):
+        return False, nothing + f"the reason of {row_id} names {old_qid}, so the ref is not moved; the plan is unchanged"
+    if state.approved:
+        return False, nothing + "you have already approved the test plan at gate A, so the plan is unchanged"
+    moved = []
+    for ref in row["question_refs"]:
+        name = str(ref).strip()
+        if name == old_qid:
+            name = new_qid
+        if name not in [str(x).strip() for x in moved]:
+            moved.append(name if name == new_qid else ref)
+    state.rows[state.index] = dict(row, question_refs=moved)
+    return _write_row_state(state, nothing)
+
+
 def _plan_row_for_write(root: Path, row_id: str, nothing: str) -> tuple:
     """`(state, "")` or `(None, line)`: the ONE preamble of every row-level write of a question ref (`append_question_ref`,
     `repoint_question_ref`; AR-14): the plan exists and reads, gate A's approval can be read, the row is there and its
