@@ -17,19 +17,32 @@ EXCLUDED_GLOBS = (
 )
 MEASURERS_PREFIX = "experiments/measurers/"
 TEST_SEGMENTS = ("tests", "test", "fixtures")
-TEST_BASENAMES = ("test_*.py", "*_test.py", "conftest.py", "*_testkit.py")
+TEST_BASENAME_STAR = "test_*.py"  # outside ai-packages/ only, and only with a test definition in the staged blob
+TEST_BASENAMES = ("*_test.py", "conftest.py", "*_testkit.py")  # outside ai-packages/ only
+PACKAGE_PREFIX = "ai-packages/"  # there a test is recognised by the path SEGMENT rule only, never by basename
+TEST_DEF_RE = re.compile(r"^\s*(def test_|class Test)", re.MULTILINE)
 PRODUCT_PREFIXES = ("ai-packages/", "tools/", "gateway/", MEASURERS_PREFIX)
 
 DOOR_RE = re.compile(r"^\s*tests-over:(.*)$", re.IGNORECASE)
 
 WARN_TEXT = (
     "TEST VOLUME (WARN, the commit goes on): +{t} test lines vs +{p} product lines in this commit; name the "
-    'reason in a line "tests-over: <reason>" of the message and in your report (docs/TESTING.md «Бюджет»).'
+    'reason in a line "tests-over: <reason>" of the message and in your report (docs/TESTING.md «Бюджет / Объём»).'
 )
 
 
-def classify(path):
-    """Return 'test', 'product' or 'excluded' for a repo-relative path."""
+def staged_blob_has_tests(path):
+    """Default blob predicate: the staged blob has a test definition. Unreadable/deleted/git failure -> False
+    (declared error direction: unsure -> product, fewer WARNs)."""
+    try:
+        r = _git("show", ":" + path)
+        return r.returncode == 0 and TEST_DEF_RE.search(r.stdout) is not None
+    except Exception:
+        return False
+
+
+def classify(path, has_tests=staged_blob_has_tests):
+    """Return 'test', 'product' or 'excluded' for a repo-relative path. has_tests(path) is the blob predicate."""
     path = path.replace("\\", "/")
     if "/" not in path:
         return "excluded"  # root files
@@ -38,10 +51,17 @@ def classify(path):
     if any(fnmatch.fnmatchcase(path, g) for g in EXCLUDED_GLOBS):
         return "excluded"
     parts = path.split("/")
-    if any(seg in TEST_SEGMENTS for seg in parts[:-1]) or any(
-        fnmatch.fnmatchcase(parts[-1], b) for b in TEST_BASENAMES
-    ):
+    if any(seg in TEST_SEGMENTS for seg in parts[:-1]):
         return "test"
+    if not path.startswith(PACKAGE_PREFIX):
+        if any(fnmatch.fnmatchcase(parts[-1], b) for b in TEST_BASENAMES):
+            return "test"
+        if fnmatch.fnmatchcase(parts[-1], TEST_BASENAME_STAR):
+            try:
+                if has_tests(path):
+                    return "test"
+            except Exception:
+                pass  # unsure -> product
     if path.startswith(PRODUCT_PREFIXES):
         return "product"
     return "excluded"
@@ -58,14 +78,14 @@ def new_path(raw):
     return raw
 
 
-def sum_numstat(text):
+def sum_numstat(text, has_tests=staged_blob_has_tests):
     """(test_added, product_added) from `git diff --numstat -M` text; binary rows skipped."""
     test = product = 0
     for line in text.splitlines():
         cols = line.split("\t", 2)
         if len(cols) < 3 or not cols[0].isdigit():
             continue  # binary ("-") or malformed
-        cls = classify(new_path(cols[2].strip()))
+        cls = classify(new_path(cols[2].strip()), has_tests)
         if cls == "test":
             test += int(cols[0])
         elif cls == "product":
@@ -88,9 +108,9 @@ def door_reason(message):
     return found
 
 
-def decide(numstat_text, message, merge):
+def decide(numstat_text, message, merge, has_tests=staged_blob_has_tests):
     """(warned, (test, product), text). A merge never warns; equal or both-zero is silent."""
-    t, p = sum_numstat(numstat_text)
+    t, p = sum_numstat(numstat_text, has_tests)
     if merge or t <= p:
         return False, (t, p), ""
     reason = door_reason(message)
