@@ -2840,7 +2840,7 @@ def merged_question_lines(block) -> list:
     for rec in block["records"]:
         rec = rec if isinstance(rec, dict) else {}
         texts = rec.get("texts") if isinstance(rec.get("texts"), dict) else {}
-        from driver_dialog import DriverDialog      # F6: the one `role_words` (the person's name of a role)
+        from story_run import DriverDialog          # F6: the one `role_words` (the person's name of a role)
         who = DriverDialog.role_words(rec["declared_by"]) if rec.get("declared_by") else "an unrecorded role"
         out.append(f"- {rec.get('id') or '(no id)'} merged into {rec.get('same_as') or '(no id)'} by {who} at {rec.get('stage') or 'an unrecorded stage'} "
                    f"({rec.get('at') or 'time not recorded'}): \"{cut(texts.get('question'))}\" / \"{cut(texts.get('same_as_question'))}\"; "
