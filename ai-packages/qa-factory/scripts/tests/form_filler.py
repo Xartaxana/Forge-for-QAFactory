@@ -76,6 +76,16 @@ class FillContext:
 
     channels: dict = field(default_factory=dict)   # case id -> `auto` | `manual`: the story kit's channel of each case (the one source in a dry world)
 
+    plan_rows: dict = field(default_factory=dict)  # case id -> {"row": <plan row id>, "disposition": <word>}: the story kit's plan, one row per distinct id; empty = ONE row every case cites
+
+    @property
+    def plan_row_list(self) -> list:
+        """`[(row id, disposition)]`, one per DISTINCT row id of `plan_rows`, in the order the kit first names them; empty when the kit holds no plan rows."""
+        seen = {}
+        for one in (self.plan_rows or {}).values():
+            seen.setdefault(one["row"], one["disposition"])
+        return list(seen.items())
+
     @property
     def case_channel(self) -> str:
         """What the artifact token `<channel>` reads: the kit's channel of the case being written; a case the kit gives none (or no kit at all) is `auto`."""
@@ -884,6 +894,82 @@ def _text_of(raw: str, path: str, generic: str, ctx: FillContext, fills: list, u
     return raw
 
 
+def _issued_id(ctx: FillContext, key: str) -> str:
+    """The id a field that CITES an id another form issued reads: the first id `ctx.minted` holds for `key`, except the plan row (`plan_row_key` of the rules)
+    when the kit names plan rows - then the row of the case being written (`plan_rows`), so each case cites its own row. "" when there is none."""
+    own = (ctx.plan_rows or {}).get(ctx.case_id) if key == rules().get("plan_row_key") and ctx.case_id else None
+    return own["row"] if own else (ctx.minted.get(key) or [""])[0]
+
+
+def _set_path(node, path: str, value) -> None:
+    """Put `value` at `a.b[0].c` of `node` (a template's own path; the last key may be new); a parent the node does not hold raises `KeyError`/`IndexError`."""
+    steps = []
+    for part in path.split("."):
+        steps.append(ROW_INDEX.sub("", part))
+        steps += [int(i) for i in ROW_INDEX.findall(part)]
+    for step in steps[:-1]:
+        node = node[step]
+    node[steps[-1]] = value
+
+
+def _plan_value(value, row: str, disposition: str, n: int):
+    """A value of a `per_plan_row` patch for plan row `n` (1-based): `{row}`, `{disposition}`, `{n}` in a text are filled, any other value is copied."""
+    if isinstance(value, str):
+        return value.replace("{row}", row).replace("{disposition}", disposition).replace("{n}", str(n))
+    return json.loads(json.dumps(value))
+
+
+def _expand_plan_rows(output: str, spec: dict, tree: dict, ctx: FillContext, unfillable: list) -> None:
+    """Replace the template's ONE plan row (`tree[spec["at"]][0]`) by one row per distinct plan row of the kit: each a copy of the filled row with the `set` paths
+    of the rules (id, the obligation's id, the planned instance) and its disposition's own `by_disposition` paths. A disposition the rules hold no shape for is an
+    `Unfillable` naming it; nothing is guessed."""
+    rows = tree.get(spec["at"])
+    if not isinstance(rows, list) or not rows or not isinstance(rows[0], dict):
+        unfillable.append(Unfillable(spec["at"], "", f"the template of {output} has no row at `{spec['at']}[0]` to repeat per plan row"))
+        return
+    made = []
+    for n, (rid, disposition) in enumerate(ctx.plan_row_list, 1):
+        patch = (spec.get("by_disposition") or {}).get(disposition)
+        if patch is None:
+            unfillable.append(Unfillable(f"{spec['at']}[{n - 1}]", "", f"form-fill-rules.json holds no row shape for the plan row disposition `{disposition}` "
+                                                                      f"(`per_plan_row.by_disposition` has {sorted(spec.get('by_disposition') or {})})"))
+            continue
+        clone = json.loads(json.dumps(rows[0]))
+        try:
+            for path, value in {**spec["set"], **patch}.items():
+                _set_path(clone, path, _plan_value(value, rid, disposition, n))
+        except (KeyError, IndexError, TypeError) as exc:
+            unfillable.append(Unfillable(f"{spec['at']}[{n - 1}]", "", f"the `per_plan_row` paths of the rules do not fit the template ({type(exc).__name__}: {exc})"))
+            continue
+        made.append(clone)
+    if made:
+        tree[spec["at"]] = made
+
+
+def _spread_plan_rows(output: str, spec: dict, lines: list, ctx: FillContext, unfillable: list) -> list:
+    """The lines of a markdown template with the line that holds `spec["token"]` written once per distinct plan row of the kit (the token becomes the row id,
+    the `each` texts and the disposition's own `by_disposition` texts are swapped in), and the lines that start with a `counts` prefix ending in the number of
+    plan rows. A disposition the rules hold no shape for is an `Unfillable` naming it."""
+    listed = ctx.plan_row_list
+    out = []
+    for text in lines:
+        if spec["token"] in text:
+            for rid, disposition in listed:
+                swaps = (spec.get("by_disposition") or {}).get(disposition)
+                if swaps is None:
+                    unfillable.append(Unfillable(output, rid, f"form-fill-rules.json holds no row shape for the plan row disposition `{disposition}` "
+                                                              f"(`per_plan_row.by_disposition` has {sorted(spec.get('by_disposition') or {})})"))
+                    continue
+                one = text.replace(spec["token"], rid)
+                for old, new in [*(spec.get("each") or {}).items(), *swaps.items()]:
+                    one = one.replace(old, new.replace("{disposition}", disposition))
+                out.append(one)
+        else:
+            counted = next((p for p in spec.get("counts") or [] if text.startswith(p)), None)
+            out.append(f"{counted}{len(listed)}" if counted else text)
+    return out
+
+
 def _json_nodes(node, path: str = "", generic: str = "") -> list:
     """`[(path, generic path, parent, key)]` of every node under `node`, parents first (`a.b[0].c`, generic `a.b[].c`)."""
     out = []
@@ -923,7 +1009,7 @@ def _fill_json(output: str, row: dict, ctx: FillContext, overrides: dict, fills:
         elif isinstance(parent[key], str):
             cited = (row.get("cites") or {}).get(path) or (row.get("cites") or {}).get(generic)
             if cited and handoff.is_placeholder(parent[key]) and ID_TOKEN.match(_hint_of(parent[key])):
-                issued = (ctx.minted.get(cited) or [""])[0]          # the id another form issued (3.5): never an invented one
+                issued = _issued_id(ctx, cited)          # the id another form issued (3.5): never an invented one
                 if not issued:
                     unfillable.append(Unfillable(path, parent[key], f"the field cites an id another form issued, and ctx.minted holds no `{cited}` id"))
                 else:
@@ -936,6 +1022,8 @@ def _fill_json(output: str, row: dict, ctx: FillContext, overrides: dict, fills:
             del parent[key]
         else:
             parent[key] = value
+    if row.get("per_plan_row") and ctx.plan_rows:             # the kit names plan rows: one row per distinct id, each with its own disposition and obligation
+        _expand_plan_rows(output, row["per_plan_row"], tree, ctx, unfillable)
     return json.dumps(tree, indent=2, ensure_ascii=False) + "\n"
 
 
@@ -974,6 +1062,8 @@ def _fill_md(output: str, row: dict, ctx: FillContext, overrides: dict, fills: l
             else:
                 spread.append(text)
         lines = spread
+    if row.get("per_plan_row") and ctx.plan_rows:        # the kit names plan rows: the plan's table row is written once per distinct row id
+        lines = _spread_plan_rows(output, row["per_plan_row"], lines, ctx, unfillable)
     front_end = 0
     if lines and lines[0].strip() == "---":
         front_end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), 0)
@@ -1014,7 +1104,7 @@ def _fill_md(output: str, row: dict, ctx: FillContext, overrides: dict, fills: l
             key = next((k for p, k in (row.get("cites") or {}).items() if label.startswith(p)), None)
             as_hint = any(variant == f"cite_hint:{p}" and label.startswith(p) for p in (row.get("cites") or {}))
             if key and not as_hint and ID_TOKEN.match(_hint_of(match.group(0))):
-                issued = (ctx.minted.get(key) or [""])[0]
+                issued = _issued_id(ctx, key)
                 if not issued:
                     unfillable.append(Unfillable(label, match.group(0), f"the field cites an id another form issued, and ctx.minted holds no `{key}` id"))
                     return match.group(0)

@@ -1,5 +1,7 @@
 {
  "_about": "The label ledger of the dry walk, read ONLY by scripts/tests/known_red.py (P1-a spec 3.6): `known_red` holds one row per walk-row id (`<key|route|joint|kind>/<variant>`) that is red today because of a defect of main - `{node, raised_by[, note]}` - and `pins.known_red` is the number of rows (equality, both directions). Empty until the walk nodes (N3, N4) measure their first red rows; a raise is named in raised_by of the row.",
- "known_red": {},
- "pins": {"known_red": 0}
+ "known_red": {
+  "main/S5": {"node": "P1B-9", "raised_by": "Lead t-789: the S5 handover requires runtime_provenance and no record exists for a not_applicable probe (product gap, N2f report gap 9)"}
+ },
+ "pins": {"known_red": 1}
 }

@@ -41,6 +41,7 @@
     "<the diff text>": "impl_diff",
     "<channel>": "case_channel"
   },
+  "plan_row_key": "P",
   "artifact_templates": {
     "work/impl-diff.txt": {
       "contract": "references/artifact-contract.md",
@@ -52,6 +53,12 @@
       "contract": "references/artifact-contract-plan.md",
       "anchor": "## `test-plan.md`",
       "format": "md",
+      "per_plan_row": {
+        "token": "<TS-n>",
+        "counts": ["rows_total: ", "planned: ", "Pyramid: api "],
+        "each": {"`automate`": "`{disposition}`"},
+        "by_disposition": {"automate": {}, "manual-agent": {" | new | api | ": " |  | api | "}}
+      },
       "template": "---\ntask: <TICKET>\ncreated: 2026-11-13\nrows_total: 1\ncandidates: 0\nplanned: 1\n---\n\n# Test plan\n\nPyramid: api 1\n\n## Plan\n\n| TS | what we verify | R | defect hypothesis | impact class | priority | observable | oracle | disposition + reason | fit | level | technique |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n| <TS-n> | <what is verified, one plain line> | <R-n> | error-path @ <the place the defect would live> | blocked-flow | P1 | expected-contract:spec | requirement:<R-n> | `automate` — <why this row is worth automating> | new | api | <the technique applied> |\n\n## Recommended regression\n\nNo regression: <why no existing test defends the blast radius>\n",
       "required": ["body:## Plan", "task", "created", "rows_total", "candidates", "planned"]
     },
@@ -64,6 +71,20 @@
       "contract": "references/artifact-contract-plan.md",
       "anchor": "`work/test-plan.json` is `{\"rows\": [ ... ]}` — the rows for the scripts, a",
       "format": "json",
+      "per_plan_row": {
+        "at": "rows",
+        "set": {
+          "id": "{row}",
+          "disposition": "{disposition}",
+          "coverage_obligations[0].obligation_id": "OB-{n}",
+          "coverage_delta.entries[0].obligation_id": "OB-{n}",
+          "coverage_delta.planned_instance_ids[0]": "i{n}"
+        },
+        "by_disposition": {
+          "automate": {},
+          "manual-agent": {"fit": "", "rung_basis": {"kind": "judgement", "ref": "filled rung ref"}}
+        }
+      },
       "template": {
         "rows": [
           {

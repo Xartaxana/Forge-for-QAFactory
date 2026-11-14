@@ -21,7 +21,7 @@
      "| plan row | case | reviewed | verdict | note |",
      "|---|---|---|---|---|",
      "| TS-1 | TC-1 | yes | approve | the Then reads the total through the cart page, an independent channel |",
-     "| TS-2 | TC-2 | yes | approve | the Then reads the empty cart's zero and the missing checkout offer |",
+     "| TS-2 | TC-2 | yes | approve | the Then reads the empty cart's zero and the missing checkout offer; lower level: impossible - the synthetic project holds no rendered cart page a test could read, so an agent reads it by hand |",
      "",
      "## Merge candidates",
      "",

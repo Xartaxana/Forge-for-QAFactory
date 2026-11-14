@@ -14,3 +14,7 @@
   the case template takes each case's `channel` from the story kit (`FillContext.channels`, token `<channel>`; a case the kit does not list is
   `auto`, as before) and the kit names the case file's own words (`auto`, `manual-agent`, `manual-human`); a runner row may carry a `runtime_probe`
   that the world builder installs under `execution.runtime_probes` (the factory's own `runtime_probe.py` for the profile)
+- dry story, plan rows (P1-b N2g): a story kit may carry `plan_rows` (case id -> `{row, disposition}`); the filler then writes one plan row per distinct
+  row id in `test-plan.md` and `work/test-plan.json` (each with its disposition, an obligation of its own, a manual row with a `rung_basis` and no `fit`)
+  and each case file cites its own row; the kit reader refuses a disposition outside `contract.DISPOSITIONS`, a case the kit does not hold, a kit case
+  with no entry and one row id with two dispositions; a kit without the key writes the bytes of before

@@ -256,6 +256,36 @@ def read_json(path) -> dict:
     return found
 
 
+def plan_rows_problems(plan_rows, case_ids: list) -> list:
+    """What is wrong with a kit's `plan_rows` (case id -> `{"row": <plan row id>, "disposition": <word>}`), as problems for the kit reader: not an object, a case
+    the kit does not hold, a kit case with no entry (a present key covers EVERY case), a row id that is no `TS-n` or a disposition outside the product's own
+    closed set (`contract.TS_ID_RE`, `contract.DISPOSITIONS`: read here, never listed), two cases sharing one row id with different dispositions."""
+    import contract as CO
+    if not isinstance(plan_rows, dict):
+        return ["`plan_rows` is not an object (case id -> {row, disposition})"]
+    problems = []
+    if not plan_rows:
+        problems.append("`plan_rows` is empty: a present key covers every case (leave the key out for one row every case cites)")
+    for case in plan_rows:
+        if case not in case_ids:
+            problems.append(f"`plan_rows` names the case {case!r}, which `cases` does not hold")
+    for case in case_ids:
+        if plan_rows and case not in plan_rows:
+            problems.append(f"`plan_rows` has no entry for the case {case!r} (a present key covers every case)")
+    by_row = {}
+    for case, one in plan_rows.items():
+        if not isinstance(one, dict) or not isinstance(one.get("row"), str) or not CO.TS_ID_RE.match(one["row"]):
+            problems.append(f"`plan_rows[{case!r}].row` is not a plan row id of the form `TS-n`")
+        elif one.get("disposition") not in CO.DISPOSITIONS:
+            problems.append(f"`plan_rows[{case!r}].disposition` {one.get('disposition')!r} is not one of {list(CO.DISPOSITIONS)}")
+        else:
+            by_row.setdefault(one["row"], {}).setdefault(one["disposition"], []).append(case)
+    for row, words in by_row.items():
+        if len(words) > 1:
+            problems.append(f"`plan_rows` gives the plan row {row} more than one disposition ({', '.join(f'{w} for {c}' for w, c in words.items())}): one row, one disposition")
+    return problems
+
+
 def load_kit(story_id: str, base=None) -> dict:
     """The kit of a story (`kit.json`: the task key, the requirement ids, the cases with their channel, the ids other forms issue, the runner row it
     walks) checked against its `story.json` (same task key). The ONE reader of the kit: the filler's context is built from it and from nothing else."""
@@ -275,6 +305,8 @@ def load_kit(story_id: str, base=None) -> dict:
         problems.append(f"`cases` is not a non-empty list of {{id, channel in {list(CHANNELS)}}}")
     elif len({c["id"] for c in cases}) != len(cases):
         problems.append("`cases` names one id twice")
+    if "plan_rows" in kit:
+        problems += plan_rows_problems(kit["plan_rows"], [c["id"] for c in cases] if isinstance(cases, list) and all(isinstance(c, dict) and "id" in c for c in cases) else [])
     if not isinstance(kit.get("minted"), dict):
         problems.append("`minted` is not an object (prefix -> the ids the world issues)")
     if not isinstance(kit.get("runner"), str) or not kit["runner"].strip():
@@ -310,7 +342,7 @@ def kit_context(kit: dict, dispatch: str = "", impl_diff: str = "", cases=None, 
     import form_filler as FF
     ids = [c["id"] for c in kit["cases"]] if cases is None else list(cases)
     return FF.FillContext(task_key=kit["key"], dispatch_id=dispatch, requirements=list(kit["requirements"]), cases=ids,
-                          channels={c["id"]: c["channel"] for c in kit["cases"]},
+                          channels={c["id"]: c["channel"] for c in kit["cases"]}, plan_rows=dict(kit.get("plan_rows") or {}),
                           minted={k: list(v) for k, v in kit["minted"].items()}, impl_diff=impl_diff, author_dispatch=author_dispatch, cases_root=cases_root)
 
 
@@ -444,11 +476,13 @@ def automator_branch(project, task_dir, kit: dict, runner: dict, dispatch: str, 
         raise KitError("story `stub` `qa-automator@S5.manifest_fragments` must be a list of non-empty JSON objects (each one merged by manifest_put.py); got "
                        + cut(json.dumps(fragments), 120))
     cases = [c["id"] for c in kit["cases"] if c["channel"] == "auto"]
-    written = []
+    written, test_files = [], {}
     for case in cases:
         try:
             made = fill_output(f"test_file:{runner['lang']}", kit_context(kit, dispatch, cases=[case]))
-            out["wrote"] += [rel(project, p) for p in FF.write_outputs(task_dir, project, made)]
+            paths = [rel(project, p) for p in FF.write_outputs(task_dir, project, made)]
+            out["wrote"] += paths
+            test_files[case] = paths[0]
             written.append(case)
         except Unfillable as exc:
             out["live_only"].append(dict(live_row(exc), case=case))
@@ -463,6 +497,13 @@ def automator_branch(project, task_dir, kit: dict, runner: dict, dispatch: str, 
     elif written:
         code, text = run_command(words, Path(project) / str(spec.get("cwd") or "."))
         out["ran"].append({"argv": words, "exit": code, "text": cut(text)})
+    for case in written:      # the role's documented tool reads the test file's marker and writes what only the product can: the case's CURRENT pin (`case_version_links`), the plan row, the obligation hash
+        code, text = run(project, "manifest_from_tests.py", ["--task", kit["key"], "--dispatch", dispatch, "--file", test_files[case]])
+        out["from_tests"] = out.get("from_tests", []) + [{"case": case, "exit": code, "text": cut(text)}]
+        if code == 0:
+            out["wrote"].append("work/automation-manifest.json")
+        else:
+            out["live_only"].append({"output": "work/automation-manifest.json", "case": case, "why": f"manifest_from_tests.py exit {code}: {cut(text)}"})
     for case in written:
         try:
             frag = task_dir / "state" / "dry-stub-fragments" / f"{dispatch}-{case}.json"
@@ -750,6 +791,7 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
         row["live_only"] += done["live_only"]
         row["ran"] = done["ran"]
         row["ran_suite"] = done["ran_suite"]
+        row["from_tests"] = done.get("from_tests", [])
         if "no_command" in done:
             row["no_command"] = done["no_command"]
     for out, script, args in ROLE_STEPS.get(role, []) if stage == "S1" else []:
@@ -1267,6 +1309,8 @@ def selftest_n2(tmp: Path) -> None:
                      ([r["argv"] for r in row.get("ran", [])], [r["exit"] for r in row.get("ran", [])], (project / "qa-factory" / "tests" / "TC-1_test.py").is_file(),
                       "decoy" in json.dumps(row)), ([["python", "-B", "-m", "pytest", "-q", "-p", "no:cacheprovider", "."]], [0], True, False))
             check("N2 (2): the manifest fragment of the case was merged by manifest_put.py (exit 0)", "work/automation-manifest.json" in row["wrote"], json.dumps(row)[:600])
+            check_eq("N2g: the role's own tool `manifest_from_tests.py` runs once per written test file (it writes the case's current pin, the plan row, the obligation hash), the journal names the case",
+                     [r["case"] for r in row.get("from_tests", [])], ["TC-1"])
         else:
             check("N2 (6): a profile without `commands` is `no command` in the journal, nothing is run, and the brief's command is not looked for",
                   "no command" in row.get("no_command", "") and row.get("ran") == [] and "decoy" not in json.dumps(row.get("ran")), json.dumps(row)[:600])
@@ -1503,6 +1547,62 @@ def selftest_n2c(tmp: Path) -> None:
           "p" not in (read_json(config_path(probe_world)).get("execution") or {}).get("runtime_probes", {}), "")
     cased = FF.fill_artifact("work/test-cases/", kit_context(kit, cases=["TC-2"]))
     check("N2f: the case file written for TC-2 says `channel: manual-agent`", "\nchannel: manual-agent\n" in next(iter(cased.files.values()), ""), str(cased.files)[:200])
+    # N2g: the kit's `plan_rows` - one plan row per distinct row id, each with its own disposition and obligation; a kit without the key writes today's bytes
+    import contract as CO
+    import hashlib
+    no_key = {k: v for k, v in kit.items() if k != "plan_rows"}
+    pinned = {"test-plan.md": "49928afd3387031bd0f6ea5d4eb29bb9804ce27afbe8c70f186e46dc7be2efdb", "work/test-plan.json": "8621f6849497919581d2c3bf97d3d9b5188919a73b7b6d9a0e0b7dbd4492e110",
+              "work/test-cases/general/TC-1.md": "ab11a0ffd878d525f1a1f2efe1feb834f8e89d4c3dc5fc6849b209b125675366",
+              "work/test-cases/general/TC-2.md": "f01ab495d47232cc95aff9bbb6546197eb1a1fe03e1d3bd09fbebf8a90525a87"}
+    plain = {}
+    for output in ("test-plan.md", "work/test-plan.json", "work/test-cases/"):
+        plain.update(fill_output(output, kit_context(no_key, "D1", cases=["TC-1", "TC-2"] if output.endswith("/") else None)).files)
+    check_eq("N2g edge 2: a kit with no `plan_rows` writes the bytes of before the key (sha256 of the plan, its rows and both case files): ONE row, every case cites it",
+             {p: hashlib.sha256(t.encode("utf-8")).hexdigest() for p, t in plain.items()}, pinned)
+    planned = {}
+    for output in ("test-plan.md", "work/test-plan.json", "work/test-cases/"):
+        planned.update(fill_output(output, kit_context(kit, "D1", cases=["TC-1", "TC-2"] if output.endswith("/") else None)).files)
+    plan_md_ids = [line.split("|")[1].strip() for line in planned["test-plan.md"].splitlines() if line.startswith("| TS-")]
+    plan_json = json.loads(planned["work/test-plan.json"])["rows"]
+    check_eq("N2g edge 1: test-plan.md and work/test-plan.json hold the same rows, one per distinct row id, in the kit's order",
+             (plan_md_ids, [r["id"] for r in plan_json]), (["TS-1", "TS-2"], ["TS-1", "TS-2"]))
+    check_eq("N2g edge 1: each row has the kit's disposition (md cell and json) and an obligation of its own, the delta entry and the instance following it",
+             ([r["disposition"] for r in plan_json], [r["coverage_obligations"][0]["obligation_id"] for r in plan_json], [r["coverage_delta"]["entries"][0]["obligation_id"] for r in plan_json],
+              [r["coverage_delta"]["planned_instance_ids"] for r in plan_json], [("`automate`" in line, "`manual-agent`" in line) for line in planned["test-plan.md"].splitlines() if line.startswith("| TS-")]),
+             (["automate", "manual-agent"], ["OB-1", "OB-2"], ["OB-1", "OB-2"], [["i1"], ["i2"]], [(True, False), (False, True)]))
+    check_eq("N2g edge 1: the plan's counts say two rows; a manual row carries a `rung_basis` and no `fit`, an automate row keeps `fit: new`",
+             (["rows_total: 2" in planned["test-plan.md"], "planned: 2" in planned["test-plan.md"]], [r.get("fit") for r in plan_json], [bool(r.get("rung_basis")) for r in plan_json]),
+             ([True, True], ["new", ""], [False, True]))
+    check_eq("N2g edge 1: each case file cites its own plan row", [re.search(r"^Plan row: (.+)$", planned[f"work/test-cases/general/{c}.md"], re.M).group(1) for c in ("TC-1", "TC-2")], ["TS-1", "TS-2"])
+    check("N2g edge 1: the plan rows pass the product's own plan validator (`planning_contract.validate_plan`)", not __import__("planning_contract").validate_plan(plan_json), str(__import__("planning_contract").validate_plan(plan_json))[:300])
+    words = list(CO.DISPOSITIONS)
+    good_story, good_kit = (STORIES / "dry-1" / "story.json").read_text(encoding="utf-8"), (STORIES / "dry-1" / "kit.json").read_text(encoding="utf-8")
+    cases_of = ["TC-1", "TC-2"]
+    good_rows = kit["plan_rows"]
+    for name, rows, needle in (("a word outside the product's set", {"TC-1": good_rows["TC-1"], "TC-2": {"row": "TS-2", "disposition": "maybe"}}, str(words)),
+                               ("a case the kit does not hold", dict(good_rows, **{"TC-9": {"row": "TS-9", "disposition": "automate"}}), "'TC-9'"),
+                               ("a kit case with no entry", {"TC-1": good_rows["TC-1"]}, "no entry for the case 'TC-2'"),
+                               ("one row id with two dispositions", {"TC-1": good_rows["TC-1"], "TC-2": {"row": "TS-1", "disposition": "manual-agent"}}, "more than one disposition"),
+                               ("a row id that is no TS-n", {"TC-1": {"row": "X-1", "disposition": "automate"}, "TC-2": good_rows["TC-2"]}, "`TS-n`"),
+                               ("an empty object", {}, "is empty"), ("not an object", ["TC-1"], "not an object")):
+        got = plan_rows_problems(rows, cases_of)
+        check(f"N2g edge 2: `plan_rows` with {name} is refused, naming it", any(needle in p for p in got), str(got))
+    check_eq("N2g edge 2: a row id shared by two cases with ONE disposition is legal (one row, two cases)",
+             plan_rows_problems({"TC-1": good_rows["TC-1"], "TC-2": dict(good_rows["TC-1"])}, cases_of), [])
+    shared = FF.fill_artifact("work/test-plan.json", FF.replace(kit_context(kit), plan_rows={"TC-1": good_rows["TC-1"], "TC-2": dict(good_rows["TC-1"])}))
+    check_eq("N2g edge 1: two cases sharing one row id make ONE plan row", [r["id"] for r in json.loads(next(iter(shared.files.values())))["rows"]], ["TS-1"])
+    held = tmp / "n2g-kit"
+    (held / "k").mkdir(parents=True)
+    (held / "k" / "story.json").write_text(good_story, encoding="utf-8")
+    (held / "k" / "kit.json").write_text(good_kit.replace('"disposition": "manual-agent"', '"disposition": "maybe"'), encoding="utf-8")
+    try:
+        load_kit("k", held)
+        got_text = "no refusal"
+    except KitError as exc:
+        got_text = str(exc)
+    check("N2g edge 1: the kit reader refuses a disposition outside the product's set, naming kit.json and the allowed words", "kit.json" in got_text and "manual-agent" in got_text and "maybe" in got_text, got_text)
+    skip_row = FF.fill_artifact("work/test-plan.json", FF.replace(kit_context(kit), plan_rows={"TC-1": good_rows["TC-1"], "TC-2": {"row": "TS-2", "disposition": "skip"}}))
+    check("N2g: a product disposition the rules hold no row shape for is an `Unfillable` naming it, nothing written for it", any("`skip`" in u.why for u in skip_row.unfillable), str(skip_row.unfillable)[:200])
 
 
 def rows_dir(tmp: Path, name: str, calls: list) -> Path:

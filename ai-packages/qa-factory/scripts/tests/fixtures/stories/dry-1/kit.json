@@ -6,6 +6,10 @@
   {"id": "TC-1", "channel": "auto"},
   {"id": "TC-2", "channel": "manual-agent"}
  ],
+ "plan_rows": {
+  "TC-1": {"row": "TS-1", "disposition": "automate"},
+  "TC-2": {"row": "TS-2", "disposition": "manual-agent"}
+ },
  "minted": {"R": ["R-1", "R-2"], "TC": ["TC-1", "TC-2"], "TS": ["TS-1", "TS-2"], "P": ["TS-1", "TS-2"]},
  "runner": "python-pytest"
 }
