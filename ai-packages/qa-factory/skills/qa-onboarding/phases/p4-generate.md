@@ -266,7 +266,8 @@ later, from a gate, with `project_decisions.py --root . stand-account --stand <n
 
 How a manual capture signs in by code follows what you recorded above (`manual_capture.http_login_source`); only the cases below ask for one more line of config:
 - The login proof confirmed `local_login`: write nothing, the capture signs in at the `access.url` you recorded.
-- `kind` is `harness_command` (or `bearer_env`, `oidc_password`) and there is no `manual_capture.login.http`: the capture refuses before it sends anything, so ask the person ONE closed question: `Does the application sign in by a request that returns a token? yes, at <path> / no, only through the sign-in page / I do not know`. "Yes" → write `manual_capture.login.http` as `{"path": "<path>", "token_field": "<the answer's token field>"}`; "no, only through the sign-in page" → write `manual_capture.login.http` as `null`; "I do not know" → write nothing (the capture then refuses with the key to record, and says nothing was sent). No other kind is asked this.
+- `kind` is `ui_only`: write nothing; screens sign in through `fill-account` (say so to the person).
+- `kind` is `harness_command` (or `bearer_env`, `oidc_password`, `form_login`: the capture refuses a form sign-in until the capture itself learns that road) and there is no `manual_capture.login.http`: the capture refuses before it sends anything, so ask the person ONE closed question: `Does the application sign in by a request that returns a token? yes, at <path> / no, only through the sign-in page / I do not know`. "Yes" → write `manual_capture.login.http` as `{"path": "<path>", "token_field": "<the answer's token field>"}`; "no, only through the sign-in page" → write `manual_capture.login.http` as `null`; "I do not know" → write nothing (the capture then refuses with the key to record, and says nothing was sent). No other kind is asked this.
 - The sign-in PAGE of the application is not at the factory's default address: a present `manual_capture.login.ui` replaces the factory's recipe WHOLE, so copy the `login.ui` object of `references/manual-capture-steps.json` into `manual_capture.login.ui` and set its `landed.url_not` to the fragments of YOUR sign-in page address. Without it the login window closes at the first step on any other sign-in page, and the screenshot shows the account. Then correct what is the factory's guess: path, username, password, submit, landed.session_cookie (or remove it), and remove local_storage. If you cannot read that form now, write nothing but tell the person that screens sign in through fill-account.
 
 Then **prove the scheme with one real login**, and record the proof rather than describing
@@ -303,11 +304,51 @@ doc:config.json#/environment/integrations --essence "environment integrations ke
 Two cases of a failed login. (a) `login.refusal: body_shape` is a config problem, not a stand
 problem: the endpoint refused every body the factory knows and asked for fields it was not sent;
 `login.complained` lists them. Write them into `access.user_field` / `access.secret_field` (you
-judge which is which), then run both commands again. (b) Any other `login: failed` (including a
-400/422 without `refusal` - the stand judged the account), or `liveness: dead`, is a stand
+judge which is which), then run both commands again. (b) `liveness: dead` is a stand
 problem: keep the block, write `login.record` whole as `login_probe` (its `outcome` says it failed and
 its `status` is the code that came back), and carry it into the phase-3 summary as a `[DEFERRED: …]`
-with its backlog row.
+with its backlog row. Any other proof login whose `login.status` is not `ok` (a `failed` one, including a
+400/422 without `refusal`; a `skipped` or `not_recorded` one) says only that the way recorded did not sign in,
+not that no way does: run every road before you ask the person anything. The command:
+
+```
+python "${CLAUDE_PLUGIN_ROOT}/scripts/stand_access.py" --project-root . --roads --json
+```
+
+Add `--command "<line>"` when discovery found the project's own sign-in test (you compose the line from that
+test and the run template; code never guesses one), one `--candidate <kind>=<url>` per other login site discovery
+listed (`evidence` / `other_evidence`; `<kind>` is `local_login` or `oidc_password`; at most 5), and
+`--user-key NAME --secret-key NAME` when the block records no key names. Read EVERY road of its output: each
+carries its `answer` (what one sign-in attempt came to), its `why`, and for a command road a `negative` line
+(`passed` means the command also signs in with a wrong secret, so it proves nothing alone). `first_in` is a hint,
+not a verdict: YOU choose among the roads whose `answer` is `in`; prefer the project's own command; when the
+road you choose is not the `harness_command`, the stand's own address is no longer taken as its UI, and you say
+so. Write the chosen road's `access` as `environment.access`, run both commands above again, and copy
+`login.record` whole into `login_probe` (the step above). In the phase-4 digest list EVERY road tried with its
+answer and, when you replaced the approved access, say that you did and why (the phase-3 gate came before the
+roads ran, so the digest is where the person sees the change). Run the roads command at most twice per
+onboarding, and never after a road answered `credentials_refused`: the account is what is wrong, another run only fails it again,
+so tell the person which road the stand refused the account at and ask (the values live in their env file;
+never ask for a value).
+
+When no road answered `in`: never write that sign-in by code is impossible - not in a finding, a note or a
+decision; the roads tried are all a record may say. Put ONE closed question to the person, as
+`references/human-questions.md` asks (plain words, what the factory tried, the unknown said as unknown: "I tried
+<n> ways to sign in to the stand by code; none of them signed in, and for <m> of them the answer did not show
+whether a sign-in is there"), with these four answers, each followed by its price lines (the factory / you / the
+story, rule 6 of that file):
+
+- "not needed: the tests sign in through the UI only" - record `environment.access.kind: "ui_only"` with
+  `project_decisions.py --root . add` and the person's own words; the probe then skips the sign-in by code and
+  screens sign in through `fill-account`. A person's "UI only" wins over any road that was found: report that
+  road, do not use it.
+- "here is how to get it" - take the way they name and prove it with the roads command above (within the
+  two runs of an onboarding). A way no kind represents (a cookie-session JSON sign-in, a csrf token in a cookie) is
+  recorded as a `harness_command` you compose from their words, or as a `[DEFERRED: …]` naming that way.
+- "here it is as text" - they paste the sign-in request or command. Never a secret value: if one is in it, do
+  not repeat it, ask for the variable NAME. Record and prove it as the answer above.
+- "I do not know" - keep the block, copy `login.record` whole into `login_probe`, and carry a `[DEFERRED: …]`
+  line into the phase-3 summary naming every road tried and its answer.
 
 When the person confirmed a variable of `frontend_candidates` as the stand's UI address in topic 2, write it as
 `environment.frontend.url_key` (its NAME, never the address); the `env_probe.py` line below is the re-check. When topic 2
