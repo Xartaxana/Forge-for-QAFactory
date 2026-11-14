@@ -1,0 +1,16 @@
+{
+ "schema": 1,
+ "group": "selftest",
+ "rows": [
+  {"id": "s1.review/agree", "start": "S0", "seed": null, "answer": {"token": "agree", "words": null, "words_file": null}, "reach": "story",
+   "expect": {"checks": ["C2", "C3"]}},
+  {"id": "s1.review/empty", "start": "S0", "seed": null, "answer": {"token": null, "words": null, "words_file": null}, "reach": "story",
+   "expect": {"checks": ["empty"]}},
+  {"id": "s1.review/unavailable", "start": "S0", "seed": null, "answer": {"token": "unavailable", "words": null, "words_file": null}, "reach": "story",
+   "expect": {"checks": ["C2"]}},
+  {"id": "kind:conductor/stage_review_exhausted:rework_stage", "start": "S2", "seed": null, "answer": {"token": "rework_stage", "words": null, "words_file": null},
+   "reach": "live_only", "why_unreached": "self-test: proves the live_only NOTE (no world is built for a row that does not run)", "expect": {"checks": []}},
+  {"id": "s8.delivery.no/go on", "start": "S8", "seed": "to-s8", "answer": {"token": "go on", "words": null, "words_file": null}, "reach": "seed",
+   "expect": {"checks": ["C2"]}}
+ ]
+}

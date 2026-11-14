@@ -55,6 +55,30 @@ MATCH_KNOWN = "match_known"                              # the function whose li
 # The keys of a state carrier that hold a clock reading. A short closed list kept here on purpose (AR-1 inside the test layer: the
 # fingerprint must ignore them and the carriers are the controller's and the driver's own files); a key ending in `_at` is a clock too.
 TIME_KEYS = ("at", "ts", "started", "finished", "stage_started", "stage_finished", "started_at", "finished_at", "asked_at")
+# The grammar of a walk row (node N4w; spec docs/tasks/specs/20261114-p1b-n4w-exit-walker-spec.md section 8). Closed vocabularies are data
+# tuples HERE and nowhere else (AR-1 inside the test layer): the loader, the judge and the self-test read these names.
+WALK_FILE_KEYS = ("schema", "group", "rows")
+WALK_ROW_KEYS = ("id", "start", "seed", "answer", "stub", "expect", "reach", "why_unreached")
+ANSWER_KEYS = ("token", "words", "words_file")
+EXPECT_KEYS = ("checks", "owner_quote", "owner_question")
+OWNER_QUOTE_KEYS = ("text", "carrier")
+SEED_FILE_KEYS = ("schema", "group", "recipes")
+SEED_STEP_KEYS = ("drive_until", "op")
+DRIVE_UNTIL_KEYS = ("stage", "question")
+CHECKS_JUDGED = ("C2", "C3", "C4", "C5", "C6", "C9", "empty")          # implemented by `judge_row`
+CHECKS_PENDING = ("C7", "C8", "C10")                                   # listed, not judged here: the row is a NOTE `pending judge` (F-W13)
+CHECK_IDS = CHECKS_JUDGED + CHECKS_PENDING
+STARTS = ("fresh",) + tuple(f"S{n}" for n in range(10))
+NAMESPACES = {"route": "routes", "joint": "joints", "kind": "kinds_without_key"}      # a bare subject is a price key (F-W2 (a))
+V_FREE, V_EMPTY, V_CODE = "free words", "empty", "code move"
+JOINT_VARIANTS = ("repair", "no repair", "word")                        # F-W3 (a)
+WHY_VALUES = ("refusal", "threshold", "cap", "unread_answer", "stage_review_exhausted", "by_hand", "stop", "chosen")    # the seam's closed `why` (P1-b section 3)
+OP_SCRIPTS = ("story_step.py", "stage_done.py", "waiver.py", "controller.py")     # the closed list of a seed `op` (P1-b 4.3)
+CASE_VARIANT_RE = re.compile(r"^words:[A-Za-z0-9_.-]+$")                # the E9 battery rows
+WHY_VARIANT_RE = re.compile(r"^([a-z_]+):(\S.*)$")                      # `<why>:<token>` (F-W15 (a))
+QUESTION_RE = re.compile(r"^Q[0-9]+$")
+CARRIER_RE = re.compile(r"^(.+):([0-9]+)$")
+GATE_CLASSES = ("gate",)
 STATE_DOOR = "add a row to fixtures/driver-exits/<group>.json with reach seed or live_only (or unwalked, counted in that group's ratchet) and a why_unreached"
 
 
@@ -228,26 +252,54 @@ def load_classes(directory=None) -> dict:
     return data
 
 
-def load_walk_rows(walk_dir=None) -> dict:
-    """The walk rows of the dry story, `{id: row + {"_path": path}}`, from `fixtures/stories/dry-1/exits/*.json` (`{"schema": 1, "group":
-    g, "rows": [...]}`). The directory is created by the walk nodes (N4): while it is absent there are no rows (TEMPORAL; stated in the
-    report). Present but unreadable, a row with no id or reach, an id in two files: `ExitsUnreadable`."""
+def load_group_file(path, *, strict: bool = False, universe=None, seeds=None, class_of_subject=None, story_dir=None) -> list:
+    """The rows of ONE walk file (`{"schema": 1, "group": g, "rows": [...]}`), the one reader both the census (`strict=False`) and the walker
+    (`strict=True`) go through. Refused in both modes: an unreadable file, a `rows` list that is absent or EMPTY (an empty group says nothing,
+    EW2), a row with no id or with a field of the census row grammar that is wrong, an unknown top-level field of a row (EW4). `strict` adds
+    the grammar of `walk_row_problems` and the file's own keys; every refusal comes BEFORE any world is built (E-R3)."""
+    path = Path(path)
+    data = _read_json(path, "an object with schema, group and rows")
+    body = data.get("rows") if isinstance(data, dict) else None
+    if not isinstance(body, list):
+        raise ExitsUnreadable(f"{path}: expected an object with a rows list")
+    if not body:
+        raise ExitsUnreadable(f"{path}: `rows` is empty; an empty group says nothing - expected the walk rows of the group (or delete the file)")
+    problems: list = []
+    if strict:
+        problems += [f"{path}: unknown top-level key {key!r}; expected only {list(WALK_FILE_KEYS)}" for key in sorted(set(data) - set(WALK_FILE_KEYS))]
+        if data.get("schema") != 1:
+            problems.append(f"{path}: schema is {data.get('schema')!r}; expected 1")
+        if data.get("group") != path.stem:
+            problems.append(f"{path}: group is {data.get('group')!r}; expected the file stem {path.stem!r}")
+    rows: list = []
+    for index, row in enumerate(body):
+        rid = row.get("id") if isinstance(row, dict) else None
+        if not isinstance(rid, str) or "/" not in rid or not rid.split("/", 1)[0] or not rid.split("/", 1)[1]:
+            raise ExitsUnreadable(f"{path}: row {index} id {rid!r}; expected '<key|route:..|joint:..|kind:..>/<variant>'")
+        found = _row_problems(str(path), "walk", rid, {k: v for k, v in row.items() if k in ROW_KEYS})
+        found += [f"{path}: row {rid!r} has unknown field {key!r}; expected only {list(WALK_ROW_KEYS)}" for key in sorted(set(row) - set(WALK_ROW_KEYS))]
+        if strict and not found:
+            found = walk_row_problems(path, row, universe=universe, seeds=seeds or {}, class_of_subject=class_of_subject, story_dir=story_dir)
+        problems.extend(found)
+        rows.append(row)
+    if problems:
+        raise ExitsUnreadable("\n".join(problems))
+    return rows
+
+
+def load_walk_rows(walk_dir=None, *, strict: bool = False, universe=None, seeds_dir=None, class_of_subject=None, story_dir=None) -> dict:
+    """The walk rows of the dry story, `{id: row + {"_path": path}}`, from `fixtures/stories/dry-1/exits/*.json`. The directory is created
+    by the walk nodes (N4): while it is absent there are no rows (TEMPORAL; stated in the report). Present but unreadable, a row with no id
+    or reach, an unknown field, an empty `rows` list, an id in two files: `ExitsUnreadable`. `strict=True` (the walker's call) is the whole
+    grammar; the census and `driven_keys` call it non-strict - one reader, the same files."""
     walk_dir = Path(walk_dir or WALK_DIR)
     if not walk_dir.is_dir():
         return {}
     rows: dict = {}
     for path in sorted(walk_dir.glob("*.json")):
-        data = _read_json(path, "an object with schema, group and rows")
-        body = data.get("rows") if isinstance(data, dict) else None
-        if not isinstance(body, list):
-            raise ExitsUnreadable(f"{path}: expected an object with a rows list")
-        for index, row in enumerate(body):
-            rid = row.get("id") if isinstance(row, dict) else None
-            if not isinstance(rid, str) or "/" not in rid or not rid.split("/", 1)[0] or not rid.split("/", 1)[1]:
-                raise ExitsUnreadable(f"{path}: row {index} id {rid!r}; expected '<key|route|joint|kind>/<variant>'")
-            found = _row_problems(str(path), "walk", rid, {k: v for k, v in row.items() if k in ROW_KEYS})
-            if found:
-                raise ExitsUnreadable("\n".join(found))
+        seeds = load_seeds(Path(seeds_dir) / path.name) if strict and seeds_dir else {}
+        for row in load_group_file(path, strict=strict, universe=universe, seeds=seeds, class_of_subject=class_of_subject, story_dir=story_dir):
+            rid = row["id"]
             if rid in rows:
                 raise ExitsUnreadable(f"walk row id {rid!r} is in two files: {rows[rid]['_path']} and {path}; expected each id once")
             rows[rid] = {**row, "_path": path}
@@ -600,6 +652,7 @@ def check(directory=None, walk_dir=None, universe: Universe | None = None, ledge
     counts = _ratchets(census, walk, universe, report)
     _classes_and_doors(census, universe, red)
     _ledger(Path(ledger_path or directory / "known_red.json"), red)
+    _ledger_orphans(Path(ledger_path or directory / "known_red.json"), walk, red)
     report.numbers = _numbers(census, universe, counts)
     return report
 
@@ -623,13 +676,13 @@ def _code_rows(census: dict, universe: Universe, red) -> None:
 def _walk_problems(census: dict, walk: dict, universe: Universe, red) -> None:
     """Section 2: the walk rows against the census, in both directions. A row's subject exists; a walk row never carries a count reach; a
     census row that claims it is run (`seed`/`story`) has a walk row behind it (E1, AR-28)."""
-    subjects = set(universe.prices) | set(census["routes"]) | set(census["joints"]) | set(census["kinds_without_key"])
-    walked = {rid.split("/", 1)[0] for rid in walk}
+    walked = {_subject_of(rid)[:2] for rid in walk}
     for rid, row in sorted(walk.items()):
-        subject, reach = rid.split("/", 1)[0], str(row.get("reach"))
-        if subject not in subjects:
-            red(f"walk row {rid} ({row['_path']}): {subject!r} is not a key of question-prices.json, a route, a joint or a kind without a key; "
-                f"fix the id, or add the key/route to its table")
+        section, subject = _subject_of(rid)[:2]
+        reach = str(row.get("reach"))
+        if (subject not in universe.prices) if section == "key" else (subject not in census[section]):
+            red(f"walk row {rid} ({row['_path']}): {subject!r} is not a key of question-prices.json, a route, a joint or a kind without a key "
+                f"(a route, joint or kind id carries its namespace `route:`/`joint:`/`kind:`); fix the id, or add the key/route to its table")
         if reach in COUNT_ONLY:
             red(f"walk row {rid}: reach {reach} is a count of the group files, not a walk row's reach; give the row story, seed, live_only or "
                 f"after:<finding>, or remove it")
@@ -638,7 +691,7 @@ def _walk_problems(census: dict, walk: dict, universe: Universe, red) -> None:
             reach = str(row.get("reach"))
             if reach == "hook_layer":
                 red(f"{section[:-1]} {name}: reach hook_layer is a count (the hook refusals are not rows of a group file); fix the row")
-            if reach in EXECUTABLE and name not in walked:
+            if reach in EXECUTABLE and (section, name) not in walked:
                 red(f"{section[:-1]} {name} ({census['where'][(section, name)]}): claims reach {reach} and no walk row names it; write the row "
                     f"in fixtures/stories/dry-1/exits/<group>.json, or set the row's reach to unwalked and count it in the group's ratchet")
 
@@ -710,6 +763,19 @@ def _ledger(ledger: Path, red) -> None:
             red(stale)
     except Exception as exc:  # LedgerError names the file and the row
         red(f"{ledger}: {exc}")
+
+
+def _ledger_orphans(ledger: Path, walk: dict, red) -> None:
+    """I8: a ledger id that is neither a `main...` stage row nor the id of a written walk row can never be reported by any part - red naming it.
+    (A part's ledger of its own, like the self-test's, is another file and is never read here.) An unreadable ledger is `_ledger`'s line."""
+    try:
+        import known_red
+        ids = list(known_red.load(ledger))
+    except Exception:
+        return
+    for rid in ids:
+        if not (rid.startswith("main/") or rid.startswith("main:") or rid in walk):
+            red(f"label ledger row {rid} names no walk row and no main stage; no part can ever report it - rename or remove it ({ledger})")
 
 
 def _numbers(census: dict, universe: Universe, counts: dict) -> list:
@@ -886,6 +952,465 @@ def same_ask(first: dict, second: dict) -> bool:
     The text, `asked_at`, and the FR-7 block are not compared. Direction of error: two nearly equal asks merge into one (a false red, one
     review); one ask is never counted as two (that would pass a loop)."""
     return _ask_identity(first) == _ask_identity(second)
+
+
+# ---------------------------------------------------------------------------------------------------- the walk rows (node N4w)
+def _cut(text, n: int = 300) -> str:
+    return " ".join(str(text).split())[:n]
+
+
+def _subject_of(rid: str) -> tuple:
+    """`(section, name, variant)` of a walk row id (F-W2 (a)): a bare subject is a price key (`section` "key"); `route:`, `joint:`, `kind:` name the
+    section of the census. Never raises: an id with no `/` gives an empty variant, the caller refuses it."""
+    subject, _, variant = str(rid).partition("/")
+    prefix, sep, rest = subject.partition(":")
+    if sep and prefix in NAMESPACES and rest:
+        return NAMESPACES[prefix], rest, variant
+    return "key", subject, variant
+
+
+def _prefix_of(section: str) -> str:
+    return next((f"{prefix}:" for prefix, name in NAMESPACES.items() if name == section), "")
+
+
+def variant_problem(section: str, name: str, variant: str, universe) -> str:
+    """"" when `variant` is in the vocabulary of the subject, else the sentence naming what it may be (EW10): a key - its price answers, `free words`,
+    `empty`, `words:<case>`; a code route - `code move`; a joint - `repair`, `no repair`, `word` (F-W3 (a)); a route that asks a person and a kind -
+    `free words`, `empty`, `words:<case>` and `<why>:<token>` with a `why` of the seam's closed list (F-W15 (a))."""
+    cases = why = False
+    if section == "key":
+        fixed, cases = [str(r.get("answer")) for r in universe.prices.get(name, [])] + [V_FREE, V_EMPTY], True
+    elif section == "joints":
+        fixed = list(JOINT_VARIANTS)
+    elif section == "routes" and universe.routes.get(name) != "ask_person":
+        fixed = [V_CODE]
+    else:
+        fixed, cases, why = [V_FREE, V_EMPTY], True, True
+    if variant in fixed or (cases and CASE_VARIANT_RE.match(variant)):
+        return ""
+    found = WHY_VARIANT_RE.match(variant)
+    if why and found and found.group(1) in WHY_VALUES:
+        return ""
+    allowed = fixed + (["words:<case>"] if cases else []) + ([f"<why>:<token> with why one of {list(WHY_VALUES)}"] if why else [])
+    return f"variant {variant!r} is outside the vocabulary of {name!r}; expected one of {allowed}"
+
+
+def resolve_words_file(story_dir, name) -> tuple:
+    """`(path, problem)` of a row's `words_file` (EW14): relative to the story folder, no `..`, resolving INSIDE it, and a file that exists. One
+    reader for the loader and for `dry_world.answer_bytes` (AR-13)."""
+    if not isinstance(name, str) or not name.strip():
+        return None, "words_file is not a path; expected a file name inside the story folder"
+    given = Path(name)
+    if given.anchor or ".." in given.parts:
+        return None, f"words_file {name!r} must be relative to the story folder and hold no `..`"
+    base = Path(story_dir).resolve()
+    path = (base / given).resolve()
+    try:
+        path.relative_to(base)
+    except ValueError:
+        return None, f"words_file {name!r} resolves outside the story folder {base}"
+    if not path.is_file():
+        return None, f"words_file {name!r} is not a file in the story folder {base}"
+    return path, ""
+
+
+def _carrier_problem(carrier) -> str:
+    """"" when `carrier` is `<path>:<line>` and the path (absolute, or relative to the repository root) is a file with that many lines."""
+    found = CARRIER_RE.match(carrier) if isinstance(carrier, str) else None
+    if not found:
+        return f"carrier {carrier!r} is not `<path>:<line>`"
+    path = Path(found.group(1))
+    path = path if path.is_absolute() else PACKAGE.parents[1] / path
+    if not path.is_file():
+        return f"carrier {carrier!r}: {path} is not a file"
+    lines = len(path.read_text(encoding="utf-8", errors="replace").splitlines())
+    return "" if 1 <= int(found.group(2)) <= lines else f"carrier {carrier!r}: the file has {lines} line(s)"
+
+
+def walk_row_problems(path, row, *, universe, seeds, class_of_subject=None, story_dir=None) -> list:
+    """The grammar of ONE walk row (spec section 8), every refusal naming the row id and the field (EW4-EW10, EW14-EW16, I2, I3). `seeds` is the
+    `recipes` mapping of `seeds/<group>.json` ({} when the file is absent); `class_of_subject(section, name) -> class word` is what C4 needs (a
+    row listing C4 with none given is refused: the class is never guessed, FR-59); `story_dir` lets `words_file` be resolved. Nothing here runs
+    a world."""
+    where = str(path)
+    rid = row.get("id") if isinstance(row, dict) else None
+    if not isinstance(rid, str):
+        return [f"{where}: a row has no id; expected a string '<subject>/<variant>'"]
+    out: list = []
+
+    def bad(text: str) -> None:
+        out.append(f"{where}: row {rid!r}: {text}")
+
+    for key in sorted(set(row) - set(WALK_ROW_KEYS)):
+        bad(f"unknown field {key!r}; expected only {list(WALK_ROW_KEYS)}")
+    section, name, variant = _subject_of(rid)
+    known = {"key": universe.prices, "routes": universe.routes, "joints": universe.joints, "kinds_without_key": universe.kinds}[section]
+    if name not in known:
+        bad(f"{name!r} is not a key of question-prices.json" if section == "key" else f"{name!r} is not a {section[:-1]} of the driver")
+        if section == "key":
+            out[-1] += "; a route, joint or kind id needs its namespace `route:`/`joint:`/`kind:`"
+    else:
+        found = variant_problem(section, name, variant, universe)
+        if found:
+            bad(found)
+    if row.get("start") not in STARTS:
+        bad(f"start {row.get('start')!r}; expected one of {list(STARTS)} (a static `after:` belongs to `reach`, F-W14)")
+    expect = row.get("expect")
+    if expect is None:
+        expect = {}
+    elif not isinstance(expect, dict):
+        bad(f"`expect` is {type(expect).__name__}; expected an object with {list(EXPECT_KEYS)}")
+        expect = {}
+    for key in sorted(set(expect) - set(EXPECT_KEYS)):
+        bad(f"unknown field {key!r} in `expect`; expected only {list(EXPECT_KEYS)}")
+    question = expect.get("owner_question")
+    if question is not None and not (isinstance(question, str) and QUESTION_RE.match(question)):
+        bad(f"expect.owner_question {question!r}; expected null or 'Q<number>'")
+    runnable = row.get("reach") in EXECUTABLE and question is None
+    checks = expect.get("checks")
+    if checks is None:
+        checks = []
+    if not isinstance(checks, list) or not all(isinstance(c, str) for c in checks):
+        bad("expect.checks is not a list of check ids")
+        checks = []
+    for check_id in checks:
+        if check_id not in CHECK_IDS:
+            bad(f"unknown check {check_id!r}; expected one of {list(CHECK_IDS)}")
+    if len(set(checks)) != len(checks):
+        bad("expect.checks names a check twice")
+    if runnable and not checks:
+        bad("a row that runs has an empty or absent expect.checks; a row with no check never passes (name the checks it judges)")
+    if "C4" in checks:
+        if class_of_subject is None:
+            bad("C4 is listed and no class source was given; C4 is the gate check and the class is never guessed")
+        elif name in known and class_of_subject(section, name) not in GATE_CLASSES:
+            bad(f"C4 is the gate check; the class of {name!r} is {class_of_subject(section, name)!r}")
+    quote = expect.get("owner_quote")
+    if quote is not None:
+        if not isinstance(quote, dict):
+            bad("expect.owner_quote is not an object with `text` and `carrier`")
+        else:
+            for key in sorted(set(quote) - set(OWNER_QUOTE_KEYS)):
+                bad(f"unknown field {key!r} in `expect.owner_quote`; expected only {list(OWNER_QUOTE_KEYS)}")
+            if not isinstance(quote.get("text"), str) or not quote["text"].strip():
+                bad("expect.owner_quote has no `text`; expected the owner's words")
+            problem = _carrier_problem(quote.get("carrier"))
+            if problem:
+                bad(f"expect.owner_quote {problem}")
+    answer = row.get("answer")
+    if answer is None:
+        answer = {}
+    elif not isinstance(answer, dict):
+        bad(f"`answer` is {type(answer).__name__}; expected an object with {list(ANSWER_KEYS)}")
+        answer = {}
+    for key in sorted(set(answer) - set(ANSWER_KEYS)):
+        bad(f"unknown field {key!r} in `answer`; expected only {list(ANSWER_KEYS)}")
+    for key in ANSWER_KEYS:
+        value = answer.get(key)
+        if value is not None and not isinstance(value, str):
+            bad(f"answer.{key} is {type(value).__name__}; expected text or null")
+        elif isinstance(value, str) and not value.strip() and variant != V_EMPTY:
+            bad(f"answer.{key} is blank; an empty answer is only the `{V_EMPTY}` variant")
+    if answer.get("words") is not None and answer.get("words_file") is not None:
+        bad("`answer.words` and `answer.words_file` are both set; one answer, one source")
+    given = any(answer.get(key) is not None for key in ANSWER_KEYS)
+    if runnable and variant == V_EMPTY and given:
+        bad(f"variant `{V_EMPTY}` carries an answer field; expected token, words and words_file all null")
+    if runnable and variant != V_EMPTY and not given:
+        bad(f"all answer fields are null on variant {variant!r}; an empty answer is only the `{V_EMPTY}` variant")
+    if story_dir is not None and isinstance(answer.get("words_file"), str):
+        problem = resolve_words_file(story_dir, answer["words_file"])[1]
+        if problem:
+            bad(problem)
+    seed = row.get("seed")
+    if seed is not None and (not isinstance(seed, str) or not seed.strip()):
+        bad(f"seed {seed!r}; expected null or the id of a recipe of seeds/<group>.json")
+    elif seed is not None and seed not in seeds:
+        bad(f"seed {seed!r} is not a recipe of seeds/{Path(where).stem}.json ({len(seeds)} recipe(s): {sorted(seeds)}); write the recipe, or set seed to null")
+    if runnable and row.get("why_unreached") not in (None, ""):
+        bad("why_unreached on a row that runs; the field says why a row is NOT run (one meaning per field)")
+    stub = row.get("stub")
+    if stub is not None and not isinstance(stub, dict):
+        bad(f"`stub` is {type(stub).__name__}; expected the control grammar of the story's `stub` (an object)")
+    elif isinstance(stub, dict) and "conductor" in stub and not isinstance(stub["conductor"], dict):
+        bad("stub.conductor is not an object")
+    return out
+
+
+def _seed_problems(where: str, recipes) -> list:
+    out: list = []
+    if not isinstance(recipes, dict):
+        return [f"{where}: `recipes` is {type(recipes).__name__}; expected an object of recipe id -> list of steps"]
+    for rid, steps in recipes.items():
+        if not isinstance(steps, list) or not steps:
+            out.append(f"{where}: recipe {rid!r} is not a non-empty list of steps (a row that needs no seed says `seed: null`)")
+            continue
+        for index, step in enumerate(steps):
+            at = f"{where}: recipe {rid!r} step {index}"
+            if not isinstance(step, dict) or len(step) != 1 or next(iter(step)) not in SEED_STEP_KEYS:
+                out.append(f"{at} is not an object with exactly one of {list(SEED_STEP_KEYS)}")
+            elif "drive_until" in step:
+                until = step["drive_until"]
+                if not isinstance(until, dict) or set(until) != set(DRIVE_UNTIL_KEYS) or not all(isinstance(v, str) and v.strip() for v in until.values()):
+                    out.append(f"{at}: drive_until must be an object with exactly {list(DRIVE_UNTIL_KEYS)}, both text")
+                elif not re.match(r"^S[0-9]$", until["stage"]):
+                    out.append(f"{at}: drive_until.stage {until['stage']!r}; expected S0..S9")
+            else:
+                op = step["op"]
+                if not isinstance(op, list) or not op or not all(isinstance(a, str) for a in op):
+                    out.append(f"{at}: op must be a non-empty list of text ([script, args...])")
+                elif op[0] not in OP_SCRIPTS:
+                    out.append(f"{at}: op script {op[0]!r} is not on the closed list {list(OP_SCRIPTS)} (a seed never writes a file by hand, P1-b 4.3)")
+    return out
+
+
+def load_seeds(path) -> dict:
+    """The `recipes` of `seeds/<group>.json` (`{"schema": 1, "group": g, "recipes": {id: [step, ...]}}`); an ABSENT file is `{}` (a row that names a
+    recipe is then refused naming the file, EW5). Unreadable, an unknown key, a group that is not the file stem, a recipe that is not a non-empty
+    list of closed steps: `ExitsUnreadable` naming the file (before any world)."""
+    path = Path(path)
+    if not path.is_file():
+        return {}
+    data = _read_json(path, "an object with schema, group and recipes")
+    if not isinstance(data, dict):
+        raise ExitsUnreadable(f"{path}: the top level is {type(data).__name__}; expected an object with {list(SEED_FILE_KEYS)}")
+    problems = [f"{path}: unknown top-level key {key!r}; expected only {list(SEED_FILE_KEYS)}" for key in sorted(set(data) - set(SEED_FILE_KEYS))]
+    if data.get("schema") != 1:
+        problems.append(f"{path}: schema is {data.get('schema')!r}; expected 1")
+    if data.get("group") != path.stem:
+        problems.append(f"{path}: group is {data.get('group')!r}; expected the file stem {path.stem!r}")
+    problems += _seed_problems(str(path), data.get("recipes"))
+    if problems:
+        raise ExitsUnreadable("\n".join(problems))
+    return data["recipes"]
+
+
+def subject_class(section: str, name: str, census: dict, universe) -> str:
+    """The class word of a walk subject for C4 (the rule is data in `classes.json`, read through `class_of`, AR-13): a key by its `question:<key>`
+    source, a route or joint by its census row, a kind has none (`n/a`)."""
+    classes = census["classes"]
+    if section == "key":
+        return classes.get("by_source", {}).get(f"question:{name}") or classes.get("default") or CLASS_UNKNOWN
+    return class_of(census[section].get(name, {}), classes, section=section, action=universe.routes.get(name, ""), joints=universe.joints,
+                    registry=universe.registry)
+
+
+@dataclass(frozen=True)
+class Outcome:
+    """The one outcome of a row: `kind` pass / fail / note; a note carries its `tag` (live_only, after, owner_question, pending_judge, rounds_unknown),
+    an `after` note its `node`; `changed` is whether the answer changed the state fingerprint (None: not measured)."""
+    kind: str
+    detail: str = ""
+    tag: str = ""
+    node: str = ""
+    changed: object = None
+
+
+def _norm(token) -> str:
+    from driver_dialog import DriverDialog
+    return DriverDialog.s0_normalize(str(token))
+
+
+def rework_problem(options, author: str) -> str:
+    """C9 (FV1-6): "" when among `options` there is a move `rework_stage` whose `args.role` is the stage's author; else the sentence. An option with no
+    `args.role` counts as missing (the executor is not named, FR-42)."""
+    moves = [o for o in options or [] if isinstance(o, dict) and (o.get("move") or o.get("action")) == "rework_stage"]
+    if not moves:
+        return "none of the offered options is a `rework_stage` move"
+    roles = [str(((o.get("args") or {}) if isinstance(o.get("args"), dict) else {}).get("role") or "") for o in moves]
+    if author not in roles:
+        return f"no `rework_stage` option names the author {author!r} in args.role (found {roles}); executor not named"
+    return ""
+
+
+def judge_row(row: dict, facts: dict, *, prices: dict, class_of_subject: str = "", classes=GATE_CLASSES) -> Outcome:
+    """The ONE outcome of a row that ran, from `facts` alone (it opens no file: AR-13, AR-29 - the data is compared, the expectation is SET by the
+    row's `expect.checks`). It judges exactly the listed checks in order, then the always-checks (K15/E17 for a key subject, E18, the route record).
+    A failing check is a FAIL naming the check and the evidence (cut at 300); a listed C7/C8/C10 is a NOTE `pending judge` (EW26), never green; a C3
+    that cannot be established (`rounds unknown`, EW19) is a NOTE; every listed check passing is a PASS. `facts` keys: see `dry_world.row_facts`."""
+    rid = row["id"]
+    section, name, variant = _subject_of(rid)
+    checks = list((row.get("expect") or {}).get("checks") or [])
+    seed = facts.get("seed") or {"reached": True}
+    if facts.get("over_cap"):
+        return Outcome("fail", f"{rid}: over the cap {facts.get('cap')} s at {facts['over_cap']}")
+    if not seed.get("reached"):
+        return Outcome("fail", f"seed did not reach {name}: {_cut(seed.get('detail', ''))}")
+    ask, token = facts.get("ask"), (row.get("answer") or {}).get("token")
+    fp_ask, fp_after = facts.get("fp_ask"), facts.get("fp_after")
+    changed = None if fp_ask is None or fp_after is None else fp_ask != fp_after
+    results: list = []        # (check, "ok" | "fail" | "note", detail)
+
+    def put(check_id, status, detail=""):
+        results.append((check_id, status, _cut(detail)))
+
+    for check_id in checks:
+        if check_id == "C2":
+            offered = list((ask or {}).get("offered") or []) or [a for a in (facts.get("priced_at_ask") or {}).get("answers") or []]
+            records = [r for r in facts.get("answer_records") or [] if r.get("question_sha") == facts.get("ask_sha")]
+            whys, calls = list(facts.get("conductor_whys") or []), int(facts.get("conductor_calls") or 0)
+            if not ask:
+                put(check_id, "fail", "no question was pending at the target, so no variant was offered")
+            elif token and not offered:
+                put(check_id, "fail", f"the ask {ask.get('kind')!r} carries no offered set and no priced record names one; C2 cannot be established")
+            elif token and _norm(token) not in {_norm(o) for o in offered}:
+                put(check_id, "fail", f"the token {token!r} was not offered at {ask.get('kind')!r} (offered {sorted(map(str, offered))})")
+            elif not records:
+                put(check_id, "fail", f"the driver recorded no answer for this ask (no driver-answers.jsonl row with its question_sha; {len(facts.get('answer_records') or [])} row(s) added)")
+            elif "unread_answer" in whys or (calls and not whys):
+                put(check_id, "fail", "a conductor call followed the answer" + (" with why unread_answer" if "unread_answer" in whys else " and its why is not on record"))
+            else:
+                put(check_id, "ok")
+        elif check_id == "C3":
+            if fp_ask is None or fp_after is None:
+                put(check_id, "fail", "no state fingerprint was taken at the ask and after the answer")
+            elif any("rounds unknown" in str(n) for n in facts.get("fp_notes") or ()):
+                put(check_id, "note", "rounds unknown: no dispatch records, so the fingerprint cannot tell a new round with the same bytes")
+            elif not changed:
+                put(check_id, "fail", "the answer changed nothing: the state fingerprint is the one it was asked at (C3)")
+            else:
+                put(check_id, "ok")
+        elif check_id == "C4":
+            if class_of_subject not in classes:
+                put(check_id, "fail", f"C4 is the gate check; the class of {name!r} is {class_of_subject!r}")
+            elif int(facts.get("passed_lines") or 0) < 1:
+                put(check_id, "fail", "no new line in state/passed-by-person.jsonl: the person's word did not pass the block")
+            else:
+                put(check_id, "ok")
+        elif check_id == "C5":
+            put(check_id, "fail" if facts.get("loop") else "ok", facts.get("loop") or "")
+        elif check_id == "C6":
+            gates = facts.get("gates") or []
+            wrong = [g for g in gates if g.get("ready") is not True]
+            put(check_id, "fail" if wrong or not gates else "ok",
+                "no gate question was met by the row" if not gates else "; ".join(f"{g.get('kind')}: gate_ready {g.get('ready')!r} {g.get('detail', '')}" for g in wrong))
+        elif check_id == "C9":
+            rework = facts.get("rework")
+            problem = "no stage_review_exhausted ask with options was observed" if not rework else rework_problem(rework.get("options"), rework.get("author", ""))
+            put(check_id, "fail" if problem else "ok", problem)
+        elif check_id == V_EMPTY:
+            after = facts.get("asked_after") or {}
+            if not facts.get("empty_refused"):
+                put(check_id, "fail", "the driver did not refuse the empty answer (no `is empty` line); an empty answer silently taken is red")
+            elif not ask or (after.get("kind"), after.get("stage")) != (ask.get("kind"), ask.get("stage")):
+                put(check_id, "fail", f"the ask is no longer pending after the empty answer (was {ask and ask.get('kind')!r}, now {after.get('kind')!r})")
+            else:
+                put(check_id, "ok")
+    if section == "key":
+        priced, rows = facts.get("priced_at_ask"), {str(r.get("answer")) for r in prices.get(name, [])}
+        if not priced or priced.get("key") != name:
+            put("K15", "fail", f"key not observed: expected {name}, observed {priced.get('key') if priced else 'none'}")
+        elif not priced.get("answers") or not set(map(str, priced["answers"])) <= rows:
+            put("K15", "fail", f"the answers the question offered {sorted(map(str, priced.get('answers') or []))} are not all price rows of {name} ({sorted(rows)})")
+    if section == "routes" and name not in (facts.get("routes_added") or []):
+        put("route", "fail", f"route not observed: {name!r} was not matched by the driver during the row (state/dry-routes.jsonl)")
+    if section == "joints":
+        needle = name.rstrip("*")
+        if needle not in str(facts.get("refusal_text") or ""):
+            put("joint", "fail", f"joint not observed: no refusal line of the driver names {needle!r}")
+    if any(str(line.get("run_class") or "") != "dry" for line in facts.get("stub_added") or []):
+        put("E18", "fail", "a stub journal line the row added does not carry run_class dry")
+    if facts.get("exhausted"):
+        put("turns", "fail", f"{rid}: {facts.get('post_turns')} post-answer turns with no new ask and no loop")
+    fails = [f"{c}: {d}" if d else c for c, s, d in results if s == "fail"]
+    pending = [c for c in checks if c in CHECKS_PENDING]
+    if fails:
+        return Outcome("fail", "; ".join(fails), changed=changed)
+    if pending:
+        done = ", ".join(f"{c} {s}" for c, s, _d in results)
+        return Outcome("note", f"pending judge {', '.join(pending)}" + (f" (judged: {done})" if done else ""), tag="pending_judge", changed=changed)
+    notes = [f"{c}: {d}" for c, s, d in results if s == "note"]
+    if notes:
+        return Outcome("note", "; ".join(notes), tag="rounds_unknown", changed=changed)
+    return Outcome("pass", changed=changed)
+
+
+def judge_group(outcomes: list, ledger_path, ids: list) -> list:
+    """The lines of a part, `[(name, kind, detail)]` (kind pass / fail / note; the name is a row id, `known_red`, `alive` or `outcomes`), from the
+    `[(row id, Outcome)]` the rows produced. Rows that RAN (pass / fail) go to `known_red.reconcile` with the ledger FILTERED to the ids of this group's
+    file (a ledger row of another group is no `unknown row` here, I6); rows that did not run are NOTEs and are never in the results. E15 (F-W16 (a)):
+    a ledger row for a row whose outcome is `after:<node>` with the SAME node is red. The check `outcomes` is PASS only when every id of the file has
+    exactly one outcome (I1). `alive`: a subject whose rows all ran and whose every variant but `stop` and `empty` left the fingerprint unchanged is red."""
+    import known_red
+    wanted = list(ids)
+    by_id: dict = {}
+    for rid, outcome in outcomes:
+        by_id.setdefault(rid, []).append(outcome)
+    lines: list = []
+    try:
+        ledger_all = known_red.load(ledger_path)
+    except known_red.LedgerError as exc:
+        ledger_all = None
+        lines.append(("known_red", "fail", str(exc)))
+    ledger = {rid: row for rid, row in (ledger_all or {}).items() if rid in set(wanted)}
+    single = {rid: found[0] for rid, found in by_id.items() if len(found) == 1}
+    for rid, outcome in single.items():
+        if outcome.tag == "after" and rid in ledger and ledger[rid].node == outcome.node:
+            lines.append(("known_red", "fail", f"a row is never expected red for the defect that made it unreachable: {rid} is after:{outcome.node} and the ledger names {outcome.node} for it"))
+            del ledger[rid]
+    results = {rid: o.kind == "pass" for rid, o in single.items() if o.kind in ("pass", "fail")}
+    for rid in wanted:
+        for outcome in by_id.get(rid, []):
+            if outcome.kind == "pass":
+                lines.append((rid, "pass", ""))
+            elif outcome.kind == "fail":
+                lines.append((rid, "note" if rid in ledger else "fail", f"red evidence: {outcome.detail}" if rid in ledger else outcome.detail))
+            else:
+                lines.append((rid, "note", outcome.detail))
+    known: tuple = ()
+    if ledger_all is not None:
+        verdict = known_red.reconcile(results, ledger, ledger_path=str(ledger_path))
+        lines += [("known_red", "fail", problem) for problem in verdict.problems] + [("known_red", "note", text) for text in verdict.known]
+        known = verdict.known
+    subjects: dict = {}
+    for rid in wanted:
+        section, name, variant = _subject_of(rid)
+        if len(by_id.get(rid, [])) == 1:
+            subjects.setdefault((section, name), []).append((variant, by_id[rid][0]))
+    for (section, name), rows in subjects.items():
+        if any(o.kind not in ("pass", "fail") or o.changed is None for _v, o in rows):
+            continue
+        moving = [(v, o) for v, o in rows if v != "stop" and not v.endswith(":stop") and v != V_EMPTY]
+        if moving and all(o.changed is False for _v, o in moving):
+            lines.append(("alive", "fail", f"alive only stop: {_prefix_of(section)}{name}: every variant but stop left the state fingerprint unchanged ({', '.join(v for v, _o in moving)})"))
+    problems = [f"{rid}: {len(by_id.get(rid, []))} outcome(s)" for rid in wanted if len(by_id.get(rid, [])) != 1]
+    problems += [f"{rid}: an outcome for a row the file does not hold" for rid in by_id if rid not in set(wanted)]
+    tally: dict = {}
+    for rid in wanted:
+        for o in by_id.get(rid, []):
+            word = "known red" if o.kind == "fail" and rid in ledger else {"pass": "pass", "fail": "fail"}.get(o.kind) or (o.tag or "note").replace("_", " ")
+            tally[word] = tally.get(word, 0) + 1
+    detail = f"{len(wanted)} rows: " + ", ".join(f"{n} {word}" for word, n in sorted(tally.items())) if not problems else "; ".join(problems)
+    lines.append(("outcomes", "fail" if problems else "pass", detail))
+    return lines
+
+
+def group_unwalked(group: str, census, walk_rows: list, prices: dict, *, routes=None) -> tuple:
+    """`(count, [text])` of the `unwalked` NOTE of a group (F-W9 (a)): the census entries of `driver-exits/<group>.json` whose reach is `unwalked`, plus
+    the variants §3.3 demands of the subjects the group's walk rows name and no row writes (a key: each price answer + `free words` + `empty`; a code
+    route: `code move`; a joint: `repair`, `no repair`, `word`; a kind and an asking route have open options and demand none). Price keys with no row
+    at all stay with the census (P1-b section 3.2). No census file for the group (`census` None, or the group is not in it): 0 and the NOTE saying so."""
+    if not census or group not in census.get("groups", []):
+        return 0, [f"no census file for group {group}: unwalked not counted"]
+    names = [f"{_prefix_of(section)}{name}" for section in SECTIONS for name, row in census[section].items()
+             if row.get("reach") == "unwalked" and Path(census["where"][(section, name)]).stem == group]
+    have: dict = {}
+    for row in walk_rows:
+        section, name, variant = _subject_of(row["id"])
+        have.setdefault((section, name), []).append(variant)
+    missing: list = []
+    for (section, name), variants in have.items():
+        if section == "key":
+            demanded = [str(r.get("answer")) for r in prices.get(name, [])] + [V_FREE, V_EMPTY]
+        elif section == "joints":
+            demanded = list(JOINT_VARIANTS)
+        elif section == "routes" and routes is not None and routes.get(name) not in (None, "ask_person"):
+            demanded = [V_CODE]
+        else:
+            demanded = []
+        missing += [f"{_prefix_of(section)}{name}/{v}" for v in demanded if v not in variants]
+    total = len(names) + len(missing)
+    return total, [f"{total} (census unwalked {len(names)}: {', '.join(names) or 'none'}; variants without a row {len(missing)}: {', '.join(missing) or 'none'})"]
 
 
 # ---------------------------------------------------------------------------------------------------- the selftest
@@ -1240,15 +1765,15 @@ def _selftest_cases() -> list:
     @case("walk: the same seed row with a walk row naming it is green")
     def _():
         root = tmp()
-        report = check(_tree(root, seed_r1), walk_with(root, "r1/a"), universe=_universe())
+        report = check(_tree(root, seed_r1), walk_with(root, "route:r1/a"), universe=_universe())
         return None if not report.problems else f"got {report.problems}"
 
     @case("walk: a walk row with reach unwalked or hook_layer is red (a count, not a walk row's reach)")
     def _():
         for reach in ("unwalked", "hook_layer"):
             root = tmp()
-            report = check(_tree(root), walk_with(root, "r1/a", reach), universe=_universe())
-            if not any("walk row r1/a" in p and f"reach {reach}" in p for p in report.problems):
+            report = check(_tree(root), walk_with(root, "route:r1/a", reach), universe=_universe())
+            if not any("walk row route:r1/a" in p and f"reach {reach}" in p for p in report.problems):
                 return f"{reach}: {report.problems}"
         return None
 
@@ -1597,7 +2122,392 @@ def _selftest_cases() -> list:
             return None if "g.json" in str(exc) and "h.json" in str(exc) else f"got {exc}"
         return "no refusal"
 
+    _walker_cases(case, tmp)
     return cases
+
+
+def _walker_cases(case, tmp) -> None:
+    """The table of node N4w (spec 5.1: the pure functions get synthetic facts and files in a temp dir; `run_seed` / `drive_main` get a fake driver)."""
+    import types
+    uni = _universe(routes={"r1": "continue", "r2": "ask_person", UNMATCHED: "conductor"}, joints=["exit:j1", "exit:g:*"])
+
+    def wrow(rid="p.key/a", **kw):
+        row = {"id": rid, "start": "S1", "seed": None, "answer": {"token": "a", "words": None, "words_file": None}, "reach": "story",
+               "expect": {"checks": ["C3"]}}
+        row.update(kw)
+        return row
+
+    def probs(row, seeds=None, **kw):
+        return walk_row_problems("g.json", row, universe=uni, seeds=seeds or {}, **kw)
+
+    refusals = [
+        ("EW4 unknown field of a row", wrow(extra=1), "unknown field 'extra'"),
+        ("EW4 unknown field of the answer", wrow(answer={"token": "a", "tokens": 1}), "unknown field 'tokens' in `answer`"),
+        ("EW4 unknown field of expect", wrow(expect={"checks": ["C3"], "check": []}), "unknown field 'check' in `expect`"),
+        ("EW5 a seed recipe that the seeds file does not hold", wrow(seed="nope"), "seed 'nope' is not a recipe"),
+        ("EW8 a bare id that is no price key needs its namespace", wrow("r1/code move"), "needs its namespace"),
+        ("EW9 a subject the driver does not have", wrow("route:gone/code move"), "'gone' is not a route"),
+        ("EW10 a variant outside the key's vocabulary", wrow("p.key/zzz"), "variant 'zzz' is outside"),
+        ("a route with a code move has one variant", wrow("route:r1/free words"), "variant 'free words' is outside"),
+        ("an asking route takes a `<why>:<token>` variant of the closed list only", wrow("route:r2/nonsense:x"), "variant 'nonsense:x' is outside"),
+        ("start outside S0..S9 and fresh", wrow(start="S10"), "start 'S10'"),
+        ("I2 a row that runs with no check", wrow(expect={"checks": []}), "empty or absent expect.checks"),
+        ("an unknown check id", wrow(expect={"checks": ["C99"]}), "unknown check 'C99'"),
+        ("EW15 words and words_file together", wrow(answer={"token": None, "words": "x", "words_file": "f.txt"}), "both set"),
+        ("EW16 all answer fields null on a variant other than empty", wrow(answer={"token": None, "words": None, "words_file": None}), "all answer fields are null"),
+        ("EW16 a field set on the empty variant", wrow("p.key/empty", answer={"token": "a"}, expect={"checks": ["empty"]}), "carries an answer field"),
+        ("a blank token is not an answer", wrow(answer={"token": "  "}), "is blank"),
+        ("why_unreached on a row that runs", wrow(why_unreached="x"), "why_unreached on a row that runs"),
+        ("an owner_quote whose carrier is no file", wrow(expect={"checks": ["C3"], "owner_quote": {"text": "t", "carrier": "no/such/file.md:3"}}), "is not a file"),
+        ("an owner_question that is no Q<n>", wrow(expect={"checks": ["C3"], "owner_question": "first"}), "owner_question"),
+        ("C4 with no class source", wrow(expect={"checks": ["C4"]}), "no class source"),
+    ]
+    for label, row, needle in refusals:
+        @case(f"walk grammar: {label} is refused naming the row and the field")
+        def _(row=row, needle=needle):
+            got = "\n".join(probs(row))
+            return None if needle in got and repr(row["id"]) in got else f"got {got!r}"
+
+    @case("walk grammar: C4 on a subject that is not of the gate class is refused naming the class")
+    def _():
+        got = "\n".join(probs(wrow(expect={"checks": ["C4"]}), class_of_subject=lambda s, n: "ban"))
+        ok = probs(wrow(expect={"checks": ["C4"]}), class_of_subject=lambda s, n: "gate")
+        return None if "gate check; the class of 'p.key' is 'ban'" in got and not ok else f"got {got!r} / {ok}"
+
+    @case("walk grammar: EW14 a words_file that is absolute, climbs, is absent or is a real file in the folder")
+    def _():
+        folder = tmp()
+        (folder / "w.txt").write_bytes(b"a\r\nb")
+        bad = ["../x.txt", str(folder / "w.txt"), "absent.txt", "/rooted.txt"]
+        for name in bad:
+            if "words_file" not in "\n".join(probs(wrow(answer={"words_file": name}), story_dir=folder)):
+                return f"{name!r} not refused"
+        return None if not probs(wrow(answer={"words_file": "w.txt"}), story_dir=folder) else "a file inside the folder was refused"
+
+    @case("walk grammar: a complete row and a live_only row with no checks pass; `*` joints and `<why>:<token>` are in vocabulary")
+    def _():
+        rows = [wrow(), wrow("p.key/empty", answer={}, expect={"checks": ["empty"]}), wrow("p.key/free words", answer={"words": "w"}),
+                wrow("p.key/words:long", answer={"words": "w"}), wrow("joint:exit:g:*/word", answer={"token": "x"}, expect={"checks": ["C3"]}),
+                wrow("route:r1/code move", answer={"token": "x"}), wrow("kind:k1/stage_review_exhausted:rework_stage", answer={"token": "x"}),
+                wrow("p.key/b", reach="live_only", why_unreached="needs a live dispatch", expect={"checks": []}, answer=None)]
+        got = [p for row in rows for p in probs(row)]
+        return None if not got else f"got {got}"
+
+    def group_file(rows, group="g", **extra):
+        root = tmp()
+        _write(root / f"{group}.json", {"schema": 1, "group": group, "rows": rows, **extra})
+        return root / f"{group}.json"
+
+    @case("walk loader: EW2 an empty rows list is refused in both modes, naming the file")
+    def _():
+        path = group_file([])
+        for strict in (False, True):
+            try:
+                load_group_file(path, strict=strict, universe=uni)
+            except ExitsUnreadable as exc:
+                if "g.json" not in str(exc):
+                    return f"{strict}: {exc}"
+                continue
+            return f"{strict}: no refusal"
+        return None
+
+    @case("walk loader: EW3/EW4 broken JSON names the file; an unknown row field is refused in the census mode too")
+    def _():
+        broken = tmp() / "g.json"
+        broken.write_text("{bad", encoding="utf-8")
+        for path, needle in ((broken, "g.json"), (group_file([{"id": "p.key/a", "reach": "seed", "start": "S1", "bogus": 1}]), "'bogus'")):
+            try:
+                load_group_file(path, universe=uni)
+            except ExitsUnreadable as exc:
+                if needle not in str(exc):
+                    return f"{needle}: {exc}"
+                continue
+            return f"{needle}: no refusal"
+        return None
+
+    @case("walk loader: strict mode wants the group to be the file stem and refuses the unknown top-level key of the file")
+    def _():
+        path = group_file([wrow()], group="g", extra=1)
+        try:
+            load_group_file(path, strict=True, universe=uni)
+        except ExitsUnreadable as exc:
+            return None if "'extra'" in str(exc) else f"got {exc}"
+        return "no refusal"
+
+    @case("seeds: an absent file is no recipes; an op script off the closed list, an empty recipe and a bad step are refused naming the file")
+    def _():
+        root = tmp()
+        if load_seeds(root / "seeds" / "g.json") != {}:
+            return "absent file read as recipes"
+        path = root / "seeds" / "g.json"
+        for recipes, needle in (({"r": [{"op": ["rm", "-rf"]}]}, "closed list"), ({"r": []}, "non-empty list"), ({"r": [{"drive_until": {"stage": "S1"}}]}, "drive_until"),
+                                ({"r": [{"op": ["story_step.py"], "drive_until": {}}]}, "exactly one")):
+            _write(path, {"schema": 1, "group": "g", "recipes": recipes})
+            try:
+                load_seeds(path)
+            except ExitsUnreadable as exc:
+                if needle not in str(exc) or "g.json" not in str(exc):
+                    return f"{needle}: {exc}"
+                continue
+            return f"{needle}: no refusal"
+        _write(path, {"schema": 1, "group": "g", "recipes": {"r": [{"drive_until": {"stage": "S8", "question": "q"}}, {"op": ["story_step.py", "--task", "{task}"]}]}})
+        return None if list(load_seeds(path)) == ["r"] else "a good recipe was refused"
+
+    @case("census: a ledger row that names no walk row and no main stage is an orphan, red; main/ and a written walk row are not")
+    def _():
+        out = {}
+        for rid, expect_red in (("p.key/zzz", True), ("main/S5", False), ("route:r1/a", False)):
+            root = tmp()
+            ledger = {"known_red": {rid: {"node": "P1B-9", "raised_by": "x"}}, "pins": {"known_red": 1}}
+            directory = _tree(root, ledger=ledger)
+            walk = {"route:r1/a": {"reach": "seed"}}
+            red = []
+            _ledger_orphans(directory / "known_red.json", walk, red.append)
+            out[rid] = bool(red)
+            if bool(red) != expect_red:
+                return f"{rid}: red={red}"
+        return None
+
+    # ---- answer bytes, the control, the part grammar
+    @case("answer bytes: token+newline, words as given, token and words, the file's raw bytes (CRLF and BOM kept), none -> b''")
+    def _():
+        import dry_world as W
+        folder = tmp()
+        (folder / "w.txt").write_bytes(b"\xef\xbb\xbfone\r\ntwo")
+        rows = [({"token": "go on"}, b"go on\n"), ({"words": "free\ntext"}, b"free\ntext"), ({"token": "agree", "words": "and more"}, b"agree\nand more"),
+                ({"words_file": "w.txt"}, b"\xef\xbb\xbfone\r\ntwo"), ({}, b"")]
+        for answer, want in rows:
+            got = W.answer_bytes({"id": "k/a", "answer": answer}, folder)
+            if got != want:
+                return f"{answer}: {got!r} != {want!r}"
+        try:
+            W.answer_bytes({"id": "k/a", "answer": {"words_file": "../w.txt"}}, folder)
+        except W.MainPassError as exc:
+            return None if "words_file" in str(exc) else f"got {exc}"
+        return "a words_file outside the folder was read"
+
+    @case("control: a row `stub` with a conductor lifts it to the control's top level; a row with no stub writes the story's control unchanged")
+    def _():
+        import dry_world as W
+        root = tmp()
+        world = W.World({"id": "dry-1", "task": "T", "stub": {"qa-scout": {"verdict": "ok"}}}, root, {}, None, root / "snaps", "dry-1")
+        world.control()
+        plain = (root / "dry-stub-control.json").read_text(encoding="utf-8")
+        want = json.dumps({"task": "T", "story": "dry-1", "stub": {"qa-scout": {"verdict": "ok"}}})
+        world.control({"conductor": {"variant": "go on"}, "qa-scout": {"verdict": "bad"}})
+        steered = json.loads((root / "dry-stub-control.json").read_text(encoding="utf-8"))
+        ok = steered.get("conductor") == {"variant": "go on"} and "conductor" not in steered["stub"] and steered["stub"]["qa-scout"] == {"verdict": "bad"}
+        return None if plain == want and ok else f"plain {plain} / steered {steered}"
+
+    @case("parts: main, main:<type>, exits:<group> parse; an empty or malformed group, an unknown group and any other text exit 2 naming the groups")
+    def _():
+        import test_scenario_dry_1 as S
+        root = tmp()
+        _write(root / "exits" / "grp.json", {})
+        if [S.parse_part(t, root) for t in ("main", "main:x", "exits:grp")] != [("main", "default"), ("main", "x"), ("exits", "grp")]:
+            return "a good part was misread"
+        for text in ("exits:", "exits:Bad_Name", "exits:nosuch", "walk", "exit:grp"):
+            try:
+                S.parse_part(text, root)
+            except SystemExit as exc:
+                if exc.code != 2:
+                    return f"{text!r}: exit {exc.code}"
+                continue
+            return f"{text!r}: no refusal"
+        return None
+
+    @case("route spy: returns exactly what the real function returns and records only after a non-None result")
+    def _():
+        import dry_driver
+        sink = tmp() / "state" / "dry-routes.jsonl"
+        spy = dry_driver.route_spy(lambda text: ("marked_x", "continue") if "x" in text else None, sink)
+        first, second = spy("nothing"), spy("a x b")
+        lines = sink.read_text(encoding="utf-8").splitlines() if sink.is_file() else []
+        return None if first is None and second == ("marked_x", "continue") and lines == ['{"route": "marked_x"}'] else f"{first} {second} {lines}"
+
+    # ---- drive_main and run_seed with a fake driver
+    def fake_world():
+        import dry_world as W
+        root = tmp()
+        world = W.World({"id": "dry-1", "task": "T"}, root, {}, None, root / "snaps", "dry-1")
+        world.task_root.mkdir(parents=True)
+        (world.task_root / "state").mkdir()
+        return W, world
+
+    def put_state(world, kind, stage, n_questions):
+        state = world.task_root / "state"
+        _write(state / "driver-state.json", {"asked": {"kind": kind, "stage": stage} if kind else {}})
+        _write(state / "driver-questions.jsonl", "".join(json.dumps({"kind": kind or "x", "stage": stage}) + "\n" for _ in range(n_questions)))
+
+    @case("drive_main: returns at once, with no driver run, when the stop_after snapshot already exists")
+    def _():
+        W, world = fake_world()
+        (world.snaps / "dry-1" / "S2").mkdir(parents=True)
+
+        def never(*a, **k):
+            raise AssertionError("the driver ran")
+        got = W.drive_main(world, {}, line=lambda *a: None, stop_after="S2", drive_fn=never)
+        return None if got["turns"] == 0 and got["stop"] == "" else f"got {got['turns']} {got['stop']!r}"
+
+    @case("run_seed: the question already pending is reached with zero driver runs (EW12)")
+    def _():
+        W, world = fake_world()
+        put_state(world, "s1_review", "S1", 1)
+        runs = []
+        got = W.run_seed(world, [{"drive_until": {"stage": "S1", "question": "s1_review"}}], {}, drive_fn=lambda *a, **k: runs.append(a))
+        return None if got == (True, "") and not runs else f"got {got} {runs}"
+
+    @case("run_seed: an intermediate question is answered with the story's closed words; one with no words is not reached and named (EW17)")
+    def _():
+        W, world = fake_world()
+        put_state(world, "halt", "S0", 1)
+
+        def turn(w, *args, timeout):
+            put_state(w, "s1_review", "S1", 2)
+            return W.Run(0, "", 1.0, [])
+        step = [{"drive_until": {"stage": "S1", "question": "s1_review"}}]
+        got = W.run_seed(world, step, {("S0", "halt"): "go on"}, drive_fn=turn)
+        written = (world.root / "answer.md").read_bytes() if (world.root / "answer.md").is_file() else b""
+        put_state(world, "halt", "S0", 1)
+        none = W.run_seed(world, step, {}, drive_fn=turn)
+        return None if got == (True, "") and written == b"go on" and not none[0] and "halt" in none[1] else f"got {got} {written!r} {none}"
+
+    @case("run_seed: the cap AT the value still runs, BEYOND it (cap + 1 s) is not reached; a driver exit with no new question is named")
+    def _():
+        W, world = fake_world()
+        step = [{"drive_until": {"stage": "S1", "question": "s1_review"}}]
+        outs = []
+        for seconds in (10.0, 11.0):
+            put_state(world, "halt", "S0", 1)
+            outs.append(W.run_seed(world, step, {("S0", "halt"): "go"}, cap=10,
+                                   drive_fn=lambda w, *a, timeout, s=seconds: (put_state(w, "s1_review", "S1", 2), W.Run(0, "", s, []))[1]))
+        put_state(world, "halt", "S0", 1)
+        stuck = W.run_seed(world, step, {("S0", "halt"): "go"}, drive_fn=lambda w, *a, timeout: W.Run(0, "", 1.0, []))
+        return None if outs[0] == (True, "") and not outs[1][0] and "over the cap" in outs[1][1] and not stuck[0] and "no new question" in stuck[1] else f"{outs} {stuck}"
+
+    # ---- judge_row, one row per check and branch
+    ask = {"kind": "s1_review", "stage": "S1", "offered": ["agree", "flip"]}
+    good = {"seed": {"reached": True}, "ask": ask, "ask_sha": "q1", "priced_at_ask": {"key": "p.key", "answers": ["a", "b"]}, "fp_ask": "x", "fp_after": "y",
+            "fp_notes": [], "answer_records": [{"question_sha": "q1"}], "conductor_calls": 0, "conductor_whys": [], "gates": [], "passed_lines": 0, "loop": "",
+            "stub_added": [{"run_class": "dry"}], "routes_added": [], "cap": 240}
+    jrow = wrow("p.key/a", answer={"token": "agree"}, expect={"checks": ["C2", "C3"]})
+
+    def judged(row=jrow, klass="", **facts):
+        return judge_row(row, {**good, **facts}, prices={"p.key": [{"answer": "a"}, {"answer": "b"}, {"answer": "c"}]}, class_of_subject=klass)
+
+    table = [
+        ("a row whose checks hold is PASS", {}, "pass", ""),
+        ("C2: a token the ask did not offer is FAIL", {"ask": {**ask, "offered": ["flip"]}}, "fail", "was not offered"),
+        ("C2: no answer record for the ask is FAIL", {"answer_records": [{"question_sha": "other"}]}, "fail", "no answer"),
+        ("C2: an unread_answer conductor call is FAIL", {"conductor_whys": ["unread_answer"]}, "fail", "unread_answer"),
+        ("C3: a fingerprint that did not change is FAIL naming the check", {"fp_after": "x"}, "fail", "changed nothing"),
+        ("C3: rounds unknown is a NOTE, never PASS (EW19)", {"fp_notes": ["rounds unknown: x"]}, "note", "rounds unknown"),
+        ("K15/E17: a priced record of another key is FAIL (EW18)", {"priced_at_ask": {"key": "q.key", "answers": ["a"]}}, "fail", "key not observed: expected p.key, observed q.key"),
+        ("K15/E17: no priced record is FAIL", {"priced_at_ask": None}, "fail", "key not observed"),
+        ("K15/E17: an offered answer with no price row is FAIL", {"priced_at_ask": {"key": "p.key", "answers": ["a", "zzz"]}}, "fail", "price rows"),
+        ("E18: a stub line with run_class '' is FAIL", {"stub_added": [{"run_class": ""}]}, "fail", "run_class"),
+        ("EW17: a seed that did not reach is FAIL naming the subject", {"seed": {"reached": False, "detail": "met halt"}}, "fail", "seed did not reach p.key"),
+        ("EW23: over the cap is FAIL naming the phase", {"over_cap": "answer turn 1"}, "fail", "over the cap 240 s at answer turn 1"),
+        ("EW24: POST_TURNS with no new ask and no loop is FAIL", {"exhausted": True, "post_turns": 4}, "fail", "4 post-answer turns"),
+    ]
+    for label, facts, kind, needle in table:
+        @case(f"judge_row: {label}")
+        def _(facts=facts, kind=kind, needle=needle):
+            got = judged(**facts)
+            return None if got.kind == kind and needle in got.detail else f"got {got}"
+
+    @case("judge_row: C4 passes on a gate subject with a new passed-by-person line, fails without one or off the gate class")
+    def _():
+        row = wrow("p.key/a", answer={"token": "agree"}, expect={"checks": ["C4"]})
+        a, b, c = judged(row, "gate", passed_lines=1), judged(row, "gate"), judged(row, "ban", passed_lines=1)
+        return None if (a.kind, b.kind, c.kind) == ("pass", "fail", "fail") else f"got {a} {b} {c}"
+
+    @case("judge_row: C5 follows the loop fact; C6 needs every gate rehearsal true and at least one gate met")
+    def _():
+        c5 = wrow("p.key/a", expect={"checks": ["C5"]})
+        c6 = wrow("p.key/a", expect={"checks": ["C6"]})
+        got = [judged(c5).kind, judged(c5, loop="third ask").kind, judged(c6).kind, judged(c6, gates=[{"kind": "gate_A", "ready": True}]).kind,
+               judged(c6, gates=[{"kind": "gate_A", "ready": None, "detail": "no json"}]).kind]
+        return None if got == ["pass", "fail", "fail", "pass", "fail"] else f"got {got}"
+
+    @case("judge_row: C9 wants a rework_stage option whose args.role is the author; no role counts as missing")
+    def _():
+        row = wrow("p.key/a", expect={"checks": ["C9"]})
+        opts = lambda role: {"options": [{"move": "rework_stage", "args": {"role": role}}] if role else [{"move": "rework_stage"}], "author": "qa-case-designer"}   # noqa: E731
+        got = [judged(row, rework=opts("qa-case-designer")).kind, judged(row, rework=opts("qa-scout")).kind, judged(row, rework=opts("")).kind, judged(row).kind]
+        return None if got == ["pass", "fail", "fail", "fail"] else f"got {got}"
+
+    @case("judge_row: `empty` is PASS only when the driver refused it and the same ask is still pending")
+    def _():
+        row = wrow("p.key/empty", answer={}, expect={"checks": ["empty"]})
+        pending = {"kind": "s1_review", "stage": "S1"}
+        got = [judged(row, empty_refused=True, asked_after=pending).kind, judged(row, empty_refused=False, asked_after=pending).kind,
+               judged(row, empty_refused=True, asked_after={}).kind]
+        return None if got == ["pass", "fail", "fail"] else f"got {got}"
+
+    @case("judge_row: EW26 a listed C7/C8/C10 is a NOTE `pending judge` naming it, while a failing check among the others is still FAIL")
+    def _():
+        row = wrow("p.key/a", answer={"token": "agree"}, expect={"checks": ["C2", "C7", "C10"]})
+        note, red = judged(row), judged(row, answer_records=[])
+        return None if note.kind == "note" and note.tag == "pending_judge" and "C7, C10" in note.detail and red.kind == "fail" else f"got {note} {red}"
+
+    @case("judge_row: a route subject needs its route in the recorded routes (F-W4)")
+    def _():
+        row = wrow("route:r1/code move", answer={"token": "agree"}, expect={"checks": ["C3"]})
+        seen, missing = judged(row, routes_added=["r1"]), judged(row, routes_added=[])
+        return None if seen.kind == "pass" and missing.kind == "fail" and "route not observed" in missing.detail else f"got {seen} {missing}"
+
+    # ---- judge_group
+    def ledger_file(rows):
+        root = tmp()
+        return _write(root / "known_red.json", {"known_red": {rid: {"node": node, "raised_by": "x"} for rid, node in rows.items()}, "pins": {"known_red": len(rows)}})
+
+    def group_lines(outcomes, ledger, ids=None):
+        return judge_group(outcomes, ledger_file(ledger), ids or [rid for rid, _o in outcomes])
+
+    P, F = Outcome("pass", changed=True), Outcome("fail", "no", changed=False)
+
+    @case("judge_group: a ledger row of another group is not an unknown row; a red row with a ledger row is known red; a green one is stale")
+    def _():
+        got = group_lines([("p.key/a", F), ("p.key/b", P)], {"p.key/a": "P1B-9", "other/x": "P1B-9", "p.key/b": "P1B-9"})
+        text = "\n".join(f"{n} {k} {d}" for n, k, d in got)
+        return None if "known red: p.key/a -> P1B-9" in text and "stale: p.key/b" in text and "other/x" not in text else f"got {text}"
+
+    @case("judge_group: a red row with no ledger row is new red")
+    def _():
+        text = "\n".join(f"{n} {k} {d}" for n, k, d in group_lines([("p.key/a", F)], {}))
+        return None if "fail" in text and "new red: p.key/a" in text else f"got {text}"
+
+    @case("judge_group: E15 a ledger row naming the node of the row's own after: label is red")
+    def _():
+        gone = Outcome("note", "after:P1B-9: x", tag="after", node="P1B-9")
+        text = "\n".join(f"{n} {k} {d}" for n, k, d in group_lines([("p.key/a", gone)], {"p.key/a": "P1B-9"}))
+        return None if "never expected red for the defect that made it unreachable" in text else f"got {text}"
+
+    @case("judge_group: alive only stop - every variant but stop unchanged is red; one that moved is not")
+    def _():
+        stop = Outcome("pass", changed=False)
+        dead = group_lines([("p.key/a", Outcome("pass", changed=False)), ("p.key/stop", stop)], {})
+        live = group_lines([("p.key/a", P), ("p.key/stop", stop)], {})
+        return None if any(n == "alive" and "alive only stop" in d for n, _k, d in dead) and not any(n == "alive" for n, _k, _d in live) else f"got {dead} {live}"
+
+    @case("judge_group: `outcomes` is PASS with the count per kind; a row with two outcomes or none is FAIL")
+    def _():
+        notes = [("p.key/a", P), ("p.key/b", Outcome("note", "live_only: x", tag="live_only"))]
+        ok = [(n, k, d) for n, k, d in group_lines(notes, {}) if n == "outcomes"][0]
+        two = [(n, k) for n, k, d in group_lines([("p.key/a", P), ("p.key/a", P)], {}, ["p.key/a"]) if n == "outcomes"][0]
+        none = [(n, k) for n, k, d in group_lines([("p.key/a", P)], {}, ["p.key/a", "p.key/b"]) if n == "outcomes"][0]
+        return None if ok[1] == "pass" and "1 pass" in ok[2] and "1 live only" in ok[2] and two[1] == "fail" and none[1] == "fail" else f"got {ok} {two} {none}"
+
+    # ---- group_unwalked
+    @case("group_unwalked: a key with answers a, b and only `a` written -> b, free words, empty are missing; a census unwalked row counts; no census file is a NOTE")
+    def _():
+        directory = _tree(tmp())
+        census = load(directory)
+        count, texts = group_unwalked("g", census, [wrow("p.key/a")], {"p.key": [{"answer": "a"}, {"answer": "b"}]}, routes=uni.routes)
+        none = group_unwalked("selftest", census, [], {})
+        return (None if count == 7 and "variants without a row 3: p.key/b, p.key/free words, p.key/empty" in texts[0] and "route:r1" in texts[0]
+                and none == (0, ["no census file for group selftest: unwalked not counted"]) else f"got {count} {texts} {none}")
 
 
 def selftest() -> int:

@@ -47,6 +47,23 @@ def passing_spy(real, sink: Path):
     return spy
 
 
+def route_spy(real, sink: Path):
+    """A function with the signature of `real` (`driver_machine.match_known`) that returns exactly what `real` returns and, after a call that matched a
+    route (a non-None result), appends `{"route": <name>}` to `sink` (`state/dry-routes.jsonl`): the walker's record of WHICH route the driver took
+    (N4w, F-W4 (a)). Nothing is recorded for a text no row matches, and nothing of the driver's own class is replaced (AR-17: a module function)."""
+    def spy(*args, **kwargs):
+        result = real(*args, **kwargs)
+        if result is not None:
+            try:
+                sink.parent.mkdir(parents=True, exist_ok=True)
+                with sink.open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps({"route": result[0] if isinstance(result, tuple) else str(result)}) + "\n")
+            except OSError as exc:
+                print(f"dry_driver: cannot record the route in {sink} ({type(exc).__name__}); expected a writable state folder", file=sys.stderr)
+        return result
+    return spy
+
+
 def main(argv: list) -> int:
     sink = sink_path(argv)
     if sink is None:
@@ -54,6 +71,8 @@ def main(argv: list) -> int:
         return 2
     import no_move
     no_move.priced_options = passing_spy(no_move.priced_options, sink)
+    import driver_machine
+    driver_machine.match_known = route_spy(driver_machine.match_known, sink.with_name("dry-routes.jsonl"))
     import story_run
     sys.argv = [story_run.__file__, *argv]
     return story_run.main()

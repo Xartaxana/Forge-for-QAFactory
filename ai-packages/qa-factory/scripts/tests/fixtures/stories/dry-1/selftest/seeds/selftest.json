@@ -1,0 +1,7 @@
+{
+ "schema": 1,
+ "group": "selftest",
+ "recipes": {
+  "to-s8": [{"drive_until": {"stage": "S8", "question": "s8.delivery.no"}}]
+ }
+}
