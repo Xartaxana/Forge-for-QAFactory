@@ -636,6 +636,7 @@
   {"file": "manual_capture.py", "function": "_account_steps_gate", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "manual_capture.py", "function": "_attempt_to_close", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "manual_capture.py", "function": "_http_login", "class": "shape", "roles": ["conductor"], "owner": "data"},
+  {"file": "manual_capture.py", "function": "_http_auth", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "manual_capture.py", "function": "_new_backend", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "manual_capture.py", "function": "_pairs_login", "class": "xref", "roles": ["conductor"], "owner": "data"},
   {"file": "manual_capture.py", "function": "_read_pair", "class": "shape", "roles": ["conductor"], "owner": "data"},

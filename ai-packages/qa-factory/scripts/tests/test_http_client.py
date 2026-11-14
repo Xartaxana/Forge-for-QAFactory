@@ -587,6 +587,7 @@ def the_sign_in_rows():
         check_eq("table-control: the shipped table is read again", SA.answer_of(405, "", road="local_login"), "wrong_door")
         the_roads(stub)
         the_form_session_rows(stub)
+        the_capture_auth_rows(stub)
     finally:
         stub.close()
     the_contract_joins()
@@ -618,6 +619,40 @@ def the_form_session_rows(stub):
               receipt["answer"] != "in" and posts <= 1 and all(x not in json.dumps(receipt) for x in ("sess-val-999", "csrf-tok-123")))
         if case in ("capture-form-refused-no-secret", "capture-form-refused-no-form", "capture-form-refused-empty-access"):
             check_eq(f"{case}: nothing was sent", len(stub.seen), 0)
+
+
+def the_capture_auth_rows(stub):
+    """FV1-17b: the capture's sign-in header (`manual_capture._http_auth`) and the token-only wrapper `_http_login`."""
+    import manual_capture as MC
+    creds = MC.Credentials(VALUES["U"], VALUES["S"])
+    spec_data = MC.spec()
+    tok_cfg = {"environment": {"access": dict(LOCAL)}}
+    form_cfg = {"environment": {"access": dict(FORM)}}
+
+    def run(fn, cfg, session="user", routes=None, who=creds):
+        stub.routes, stub.seen = {}, []
+        form_routes(stub, session)
+        stub.routes.update(routes or {})
+        try:
+            return fn(MC.UrllibHttp(), {"base_url": stub.base}, who, spec_data, cfg, 4.0), None
+        except ValueError as exc:
+            return None, str(exc)
+
+    # a token stand: LOCAL at /login
+    got, err = run(MC._http_auth, tok_cfg, routes={("POST", "/login"): jb({"access_token": "tok-value-1"})})
+    check_eq("auth-token: Authorization, Bearer, the same bytes as before",
+             (got, err, run(MC._http_login, tok_cfg, routes={("POST", "/login"): jb({"access_token": "tok-value-1"})})[0]),
+             (("Authorization", "Bearer tok-value-1"), None, "tok-value-1"))
+    got, err = run(MC._http_auth, form_cfg)
+    check_eq("auth-form-in: the Cookie header, never Authorization", (got[0], sorted(got[1].split("; "))),
+             ("Cookie", ["a=1", "b=2", "session=sess-val-999"]))
+    got, err = run(MC._http_auth, form_cfg, who=MC.Credentials(VALUES["U"], "wrong-one-x"))
+    check("auth-form-refused: a refusal with the why, one submit, no cookie, csrf or secret value in the text",
+          got is None and err and sum(r["method"] == "POST" for r in stub.seen) == 1
+          and all(x not in err for x in ("sess-val-999", "csrf-tok-123", "wrong-one-x", "a=1", "b=2")))
+    got, err = run(MC._http_login, form_cfg)
+    check("login-wrapper-form-refuses: one sentence, nothing sent, no header",
+          got is None and "token only" in err and stub.seen == [])
 
 
 def the_roads(stub):
