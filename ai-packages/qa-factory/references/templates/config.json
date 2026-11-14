@@ -53,7 +53,7 @@
     "health_path": "",
     "health_url": "",
     "health_expect": [],
-    "access": {"kind": "", "command": "", "url": "", "client_id_key": "", "realm_key": "", "user_key": "", "secret_key": "", "user_field": "", "secret_field": "", "token_key": "", "unauth_status": [], "login_probe": {}},
+    "access": {"kind": "", "form": "", "command": "", "url": "", "client_id_key": "", "realm_key": "", "user_key": "", "secret_key": "", "user_field": "", "secret_field": "", "token_key": "", "unauth_status": [], "login_probe": {}},
     "frontend": {"url_key": "", "api_path": ""},
     "extra_keys": [],
     "integrations": []

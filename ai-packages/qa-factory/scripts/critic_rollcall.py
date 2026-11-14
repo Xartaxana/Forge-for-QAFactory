@@ -403,12 +403,49 @@ def carried_concerns(data: bytes, sha256: str, receipts=(), artifacts=None, memo
     return _read_round(data, sha256, receipts, artifacts, memo, review, start)[1]
 
 
+REJECTED_NOTE = "the case critic rejected this case and wrote no note"
+
+
+def rejected_rows(rows: list, declared: str = "") -> list:
+    """THE predicate of "the case critic still rejects this case" (AR-13): one element per case of every `reviewed: yes` row of
+    `rows` (`parse_rollcall`'s) whose word is not an approving one, in the order of the rows.
+
+    The word is the row's `verdict` cell; a table with NO `verdict` column (`None`) takes the round's `declared` word (the
+    `scoped_verdict` rule). `reject`, `partial`, an unknown word, an empty cell and an empty declared word all list the row:
+    the error direction is over-list, a doubt is never read as approval (FR-59); a row not reviewed is skipped (it carries no
+    verdict it does not have). `{"case", "verdict" (as written, `unstated` when empty), "problem" (the row's `note` word for word,
+    REJECTED_NOTE when it wrote none), "fix", "plan_row"}`; a row that names no case has `case` `''`."""
+    declared = str(declared or "").strip().lower()
+    out = []
+    for row in rows:
+        if row.get("reviewed") is not True:
+            continue
+        if _row_outcome("", {"reviewed": True, "verdict": row.get("verdict")}, declared)[0] == "accepted":
+            continue      # THE rule "this row approves" is `_row_outcome`'s, not a second writing of it
+        word = row.get("verdict")
+        word = declared if word is None else str(word)
+        for case in [str(one) for one in row.get("ids") or [row.get("case") or ""]]:
+            out.append({"case": case, "verdict": word or "unstated", "problem": row.get("note") or REJECTED_NOTE,
+                        "fix": row.get("fix") or "", "plan_row": str(row.get("plan_row") or "")})
+    return out
+
+
+def current_rejected(data: bytes, artifacts=None):
+    """The rows the case critic's NEWEST round still rejects (`rejected_rows`), cut as the round's receipt will cut it at the
+    critic's finish: the whole file's hash, no older receipt. `None` when the round cannot be read (a doubt, no roll-call table)
+    or lists no reviewed case; `[]` when it lists some and approves them all. The one reader the question of the S4 repair limit
+    and `accepted_rounds` share (AR-13); `problem` is never cut here (FR-49)."""
+    listed, _concerns, rejected = _read_round(data, hashlib.sha256(data).hexdigest(), (), artifacts, None, "")
+    return rejected if listed else None
+
+
 def _read_round(data: bytes, sha256: str, receipts, artifacts, memo, review: str, start: int = 1) -> tuple:
-    """`(listed, concerns)` of ONE round, cut and parsed once: `listed` the cases of its `reviewed: yes` rows, `concerns` as
-    `carried_concerns` words them. At any doubt `(set(), [])` and one line on stderr says why."""
+    """`(listed, concerns, rejected)` of ONE round, cut and parsed once: `listed` the cases of its `reviewed: yes` rows, `concerns` as
+    `carried_concerns` words them, `rejected` as `rejected_rows` lists them (each with the `review` it came from). At any doubt
+    `(set(), [], [])` and one line on stderr says why."""
     def silent(reason: str) -> tuple:
         print(f"critic_rollcall: no concern carried from this round: {reason}", file=sys.stderr)
-        return set(), []
+        return set(), [], []
     try:
         text, doubt = _receipt_round(data, sha256, receipts, memo)
         if doubt:
@@ -428,7 +465,8 @@ def _read_round(data: bytes, sha256: str, receipts, artifacts, memo, review: str
                 found.append({"id": f"CC-{number}", "case": case, "kind": "remark", "problem": row.get("note") or NO_NOTE,
                               "fix": row.get("fix") or "", "review": review})
                 number += 1
-        return listed, found
+        rejected = [dict(item, review=review) for item in rejected_rows(rows, declared_verdict(text))]
+        return listed, found, rejected
     except Exception as exc:  # noqa: BLE001 - a reader of a role's file never stops the stage
         return silent(f"the roll-call could not be read ({type(exc).__name__})")
 
@@ -437,10 +475,10 @@ def accepted_rounds(data: bytes, rounds, artifacts=None) -> list:
     """The accepted rounds of ONE findings file, read once each (AR-13: THE reader of which cases a round lists and which
     concerns it carries; `s5_plan.case_concerns` uses only this). `rounds` is `[(sha256, review dispatch id)]` in the order
     the reviews were accepted; the receipts of the file's other rounds are the other hashes, one memo serves them all.
-    `[{"review", "listed": {case}, "concerns": [carried_concerns' elements]}]`, one per round, in the same order; a round in
-    doubt lists nothing and carries nothing (stderr says why)."""
+    `[{"review", "listed": {case}, "concerns": [carried_concerns' elements], "rejected": [rejected_rows' elements]}]`, one per
+    round, in the same order; a round in doubt lists nothing and carries nothing (stderr says why)."""
     memo, receipts = {}, [str(sha or "") for sha, _review in rounds]
-    return [dict(zip(("listed", "concerns"), _read_round(data, sha, receipts, artifacts, memo, str(review or ""))),
+    return [dict(zip(("listed", "concerns", "rejected"), _read_round(data, sha, receipts, artifacts, memo, str(review or ""))),
                  review=str(review or "")) for sha, review in rounds]
 
 

@@ -1651,12 +1651,15 @@ def write_paste_references(path: Path, ticket_obj: dict, cfg: dict, key: str, wo
     if parent and form.strict.fullmatch(parent[0]):
         known |= prefix_set(parent[0])
         seeded.append({"ref": parent[0], "origins": ["field:parent"]})
-    rows = TL.references(paste_texts(path, ticket_obj), known_prefixes=known,
+    texts = paste_texts(path, ticket_obj)
+    rows = TL.references(texts, known_prefixes=known,
                          not_tracker_prefixes=SI.not_tracker_prefixes(), reference_kinds=kinds,
                          known_hosts=hosts, repos=context["repos"], seeded=seeded, own_key=key, key_form=form)
     for row in rows:
         if row.get("kind") == "ticket":
             row["status"], row["reason"] = "unproven", UNPROVEN_REASON
+    # FV1-23 A-5: the documents the pasted text links on disk (the REST leg's road, `text_link_rows`); every ref is masked before it is stored
+    rows = SI.mask_reference_rows(rows + SI.text_link_rows(work.parent, texts))
     document = {"schema_version": 1, "ticket": key, "written_by": ["S0"], "provenance": {"source": "person_pasted"},
                 "scanned": ["summary", "description"], "rows": rows}
     SI._atomic_write(work / "ticket-references.json",
@@ -2291,6 +2294,16 @@ def _record_source(args, emit=None) -> int:
                           file=sys.stderr)
         except Exception as exc:  # noqa: BLE001 - advice must never change the verdict
             print(f"ticket_adapter: links of {ref} could not be listed ({type(exc).__name__})", file=sys.stderr)
+        # FV1-23 A-5 (a): the keys, URLs and merge requests of the text, through the reader and the merge attachments use
+        try:
+            adapter = ((config or {}).get("adapters") or {}).get("ticket") or {}
+            direct = adapter.get("direct_api") if isinstance(adapter.get("direct_api"), dict) else {}
+            keys = adapter.get("project_keys")
+            SI.append_document_references(Path(args.output), ref, text, context=references_context(config or {}),
+                                          project_keys=keys if isinstance(keys, list) else (),
+                                          base_url=direct.get("base_url") if isinstance(direct.get("base_url"), str) else None)
+        except Exception as exc:  # noqa: BLE001 - advice must never change the verdict
+            print(f"ticket_adapter: references of {ref} could not be read ({type(exc).__name__})", file=sys.stderr)
         return 0
     except ValueError as exc:      # the call's fault, not the factory's (FR-46): the inventory is untouched
         print(f"ticket_adapter: {exc}", file=sys.stderr)

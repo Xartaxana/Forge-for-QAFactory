@@ -9,3 +9,9 @@
   (FV1-28)
 - the first-look walker's brief says, when the check of the stand at the start did not pass, that the check is a guess of code and
   not a fact, and that the role finds the way in itself (FV1-28)
+- when every row shown to the case designer or the automator is a row the walker could not reach for want of a way in, the brief says
+  so in one line with each reason, instead of "no row names such a path"; the two closed words are data (`first-look-statuses.json`,
+  key `gap_rows`) (FV1-28)
+- the briefs of the first look's readers and the walker carry the way in this story's own first look found (`sign_in` of the
+  record): one line, surface, actor, address, selectors, steps, never an account value, cut at 600 characters with a pointer to the
+  record; a stale or empty record gives no line (FV1-28)

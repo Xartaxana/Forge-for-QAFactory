@@ -606,6 +606,98 @@ def test_runner_brief_says_the_probe_is_a_guess():
         check_in("runner_pending: the way out for the role is named", "every requirement is `unreachable` with `blocked_by: access`", text)
 
 
+def access_rows(*, blocked="access"):
+    return [{"req": "R-1", "status": "unreachable", "blocked_by": blocked, "why": "no account opens the admin screen"},
+            {"req": "R-2", "status": "unreachable", "blocked_by": blocked, "why": "the sign-in page timed out twice"}]
+
+
+def test_all_access_rows_are_one_line():
+    """Item 5: every row shown unreachable for want of a way in -> ONE line with each why, whole; the closed words are the data file's."""
+    lead = "First look: the walker could not reach these requirements (access): R-1: no account opens the admin screen; R-2: the sign-in page timed out twice; "
+    with tempfile.TemporaryDirectory() as tmp:
+        p = Project(tmp)
+        write_record(p, rows=access_rows())
+        for kind, stage, role, tail in (("s5", "S5", "qa-automator", "a gap you close with your own look"), ("s4", "S4", "qa-case-designer", "name it as a gap")):
+            got = "\n".join(lines(p, stage, role))
+            check_in(f"all_access: {kind} - the one line, each why whole", lead + tail, got)
+            check_not_in(f"all_access: {kind} - instead of the 'no row names such a path' line", "no row of the record names such a path", got)
+        write_record(p, rows=access_rows()[:1] + [dict(access_rows()[1], blocked_by="product")])
+        check_in("all_access: variant one_row_product - today's text stands", "no row of the record names such a path", "\n".join(lines(p, "S5", "qa-automator")))
+        write_record(p, rows=access_rows())
+        for label, changes in (("key_absent", {"gap_rows": None}), ("empty_lists", {"gap_rows": {"status": [], "blocked_by": []}}),
+                               ("one_list_empty", {"gap_rows": {"status": ["unreachable"], "blocked_by": []}})):
+            restore = _with_data(**changes)
+            try:
+                check_in(f"all_access: variant {label} - the line is never printed, today's text stands", "no row of the record names such a path",
+                         "\n".join(lines(p, "S5", "qa-automator")))
+            finally:
+                restore()
+
+
+def sign_in_of(*, steps=None, url="/login", surface="ui", **extra):
+    base = {"surface": surface, "actor": "default", "url": url, "steps": steps or ["opened the sign-in page", "pressed Sign in"],
+            "evidence": ["work/evidence/x.txt"], "quote": "q", "req": "R-1", "why": "WHY-TEXT landed"}
+    if surface == "ui":
+        base.update(fields={"user": "#email", "secret": "#password", "submit": "button[type=submit]"}, landed={"url_not": ["/login-LANDED"]})
+    else:
+        base.update(access={"kind": "local_login", "url": "/api/login", "user_key": "AUTH_USERNAME", "secret_key": "AUTH_PASSWORD"})
+    base.update(extra)
+    return base
+
+
+def test_own_way_in_join():
+    """Join row (3): A1's `put` with a `sign_in` -> `first_look.read` -> the S5 and S6 brief line (and S3, S7)."""
+    import test_first_look as TFL
+    with tempfile.TemporaryDirectory() as tmp:
+        s = TFL.Story(tmp)
+        caps = s.ready()
+        done = s.put(s.rows(caps), sign_in=TFL._good_ui(caps))
+        check("own_way_in: A1's put writes the way in", done["written"], str(done))
+        want = ("Way in found by this story's first look (walk S3-first-look, ui, as default): url /login; fields user #email, secret #password, "
+                "submit button[type=submit]; steps: opened the sign-in page; typed the account and pressed Sign in; it worked then - if it fails "
+                "now, find the way yourself and record it.")
+        for stage, role in (("S5", "qa-automator"), ("S6", "qa-runner"), ("S3", "qa-test-strategist"), ("S7", "qa-failure-analyst")):
+            check_eq(f"own_way_in: {role} reads the line", brief_pack.sign_in_lines(s.task, stage, role), [want])
+        check_eq("own_way_in: a role outside the first look's readers gets none", brief_pack.sign_in_lines(s.task, "S9", "qa-retro-analyst"), [])
+        text = "\n".join(brief_pack.sign_in_lines(s.task, "S5", "qa-automator"))
+        for hidden in ("Signed in through the page", "Pay button", "work/evidence"):
+            check_not_in(f"own_way_in: the line prints no `why`, quote or evidence ({hidden})", hidden, text)
+        s.put(s.rows(caps), sign_in=TFL._good_http(caps))
+        check_in("own_way_in: http line shape", "access local_login at /api/login, key names AUTH_USERNAME/AUTH_PASSWORD",
+                 "\n".join(brief_pack.sign_in_lines(s.task, "S5", "qa-automator")))
+        s.put(s.rows(caps))
+        check_eq("own_way_in: a record with no sign_in -> no line (today's brief)", brief_pack.sign_in_lines(s.task, "S5", "qa-automator"), [])
+
+
+def test_own_way_in_edges():
+    with tempfile.TemporaryDirectory() as tmp:
+        p = Project(tmp)
+        for label, value in (("absent", None), ("empty", {}), ("not_a_dict", "logged in"), ("a_list", ["x"])):
+            write_record(p, **({} if value is None else {"sign_in": value}))
+            check_eq(f"own_way_in_edges: {label} -> no line", brief_pack.sign_in_lines(p.task, "S5", "qa-automator"), [])
+        write_record(p, sign_in=sign_in_of(), source_head={"product": "b" * 40})
+        check_eq("own_way_in_edges: a stale record -> no sign-in line (the stale single line wins)", brief_pack.sign_in_lines(p.task, "S5", "qa-automator"), [])
+        write_record(p, rows=[], null="no_stand", sign_in=sign_in_of())
+        check_eq("own_way_in_edges: a null record -> no line", brief_pack.sign_in_lines(p.task, "S5", "qa-automator"), [])
+        # LIMITS: 600 whole, 601 and beyond cut AT the limit with `...`, followed by `whole:`
+        write_record(p, sign_in=sign_in_of(steps=["a"]))
+        base = len(brief_pack.sign_in_lines(p.task, "S5", "qa-automator")[0])
+        for size, cut in ((600, False), (601, True), (2000, True)):
+            write_record(p, sign_in=sign_in_of(steps=["a" * (size - base + 1)]))
+            got = brief_pack.sign_in_lines(p.task, "S5", "qa-automator")
+            check_eq(f"own_way_in_edges: line_{size} - {'cut at the limit with the record named' if cut else 'whole'}",
+                     (len(got[0]), got[1:], got[0].endswith("...") if cut else got[0].endswith("record it.")),
+                     (600, [f"whole: {FILE}"] if cut else [], True))
+        # INVARIANT: a secret-looking value of a hand-edited record is scrubbed, whatever the guard at put did
+        write_record(p, sign_in=sign_in_of(steps=["typed password: hunter2hunter2 in the box"]))
+        check_not_in("own_way_in_edges: a password pair in a step is scrubbed", "hunter2hunter2", "\n".join(brief_pack.sign_in_lines(p.task, "S5", "qa-automator")))
+        # the walker's own brief: the record is current -> the line follows
+        write_record(p, sign_in=sign_in_of())
+        check_in("own_way_in_edges: the walker's brief holds the way found by the last walk", "Way in found by this story's first look", p.first_look_brief())
+        write_record(p)
+        check_not_in("own_way_in_edges: control - no sign_in, none in the walker's brief", "Way in found by this story's first look", p.first_look_brief())
+
+
 def main():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

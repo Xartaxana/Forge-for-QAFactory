@@ -1555,25 +1555,31 @@ def _stand_blocked(profile, when, record, said, story="", other_profile=None) ->
     line = f"{profile} {when}: {said}"
     asks = isinstance(record, dict) and bool(record.get("asks_person"))
     where = _registry_where()
+
+    def tagged(exc):
+        # FV1-28 A2: the record this refusal judged rides on the exception (NOT in `row`, which is persisted), so a survey walk can
+        # read its FIELDS; None for a non-dict. Every EnvBlocked built elsewhere has no such attribute (`getattr(exc, "provenance", None)`)
+        exc.provenance = record if isinstance(record, dict) else None
+        return exc
     if stand_runs_other_build(record):
         key = "remedy_other_content" if content_differs(record) else "remedy_other_build"
-        return EnvBlocked(line, say_refusal(key), "user", do_not_retry=True, cause="build")
+        return tagged(EnvBlocked(line, say_refusal(key), "user", do_not_retry=True, cause="build"))
     if isinstance(record, dict):
         import runtime_probe
         if record.get("reason_code") == runtime_probe.NO_EXPECTED_REVISION:
             # a checkout that names no commit (EP1-28 H-4): no build can be named, so "capture again" is no door
-            return EnvBlocked(line, say_refusal("remedy_no_revision", checkout=str(record.get("checkout") or "the checkout")),
-                              "user", do_not_retry=True, cause="build")
+            return tagged(EnvBlocked(line, say_refusal("remedy_no_revision", checkout=str(record.get("checkout") or "the checkout")),
+                                     "user", do_not_retry=True, cause="build"))
         if record.get("reason_code") == runtime_probe.DEVICE_UNREADY:
             # a device stand whose build could not be read (no device, a tool that fails, two devices, a broken table): the
             # device's own halt, never "capture again" - the same device answers again (F-2, AR-25)
-            return EnvBlocked(line, say_refusal("door_device"), "user", do_not_retry=True, cause="device")
+            return tagged(EnvBlocked(line, say_refusal("door_device"), "user", do_not_retry=True, cause="device"))
     if story and person_confirmed(record) and not person_confirmed(record, story):
-        return EnvBlocked(line, say_refusal("remedy_other_story", registry=where), "user", do_not_retry=True, cause="build")
+        return tagged(EnvBlocked(line, say_refusal("remedy_other_story", registry=where), "user", do_not_retry=True, cause="build"))
     if asks:
         text = other_profile() if other_profile is not None else None
-        return EnvBlocked(line, text or say_refusal("remedy_unknown_asks", registry=where), "user", do_not_retry=True, cause="build")
-    return EnvBlocked(line, say_refusal("remedy_retry"), "user")
+        return tagged(EnvBlocked(line, text or say_refusal("remedy_unknown_asks", registry=where), "user", do_not_retry=True, cause="build"))
+    return tagged(EnvBlocked(line, say_refusal("remedy_retry"), "user"))
 
 
 def stand_probe(attempt: Attempt, cfg, project_root, profile, when, command, stand=None) -> dict:

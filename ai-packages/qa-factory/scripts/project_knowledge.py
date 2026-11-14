@@ -668,8 +668,13 @@ def record_problems(key, environment, element, state, scope, words, source, by, 
     return out
 
 
-def record(root, *, key, environment, element, state, scope, value, words, source, story, by, where="", task_root=None) -> tuple:
+def record(root, *, key, environment, element, state, scope, value, words, source, story, by, where="", task_root=None, only_if_latest=None) -> tuple:
     """`(row, problem, created)`: ONE fact put in the registry, with the person's words whole.
+
+    `only_if_latest` (default None: no guard) is a tuple of states: the write happens only when the subject has no live row or its
+    latest state is one of them, checked HERE under the lock with the other checks (a caller's earlier read is not a check). When
+    the latest state is any other, nothing is written and the result is `(None, "", False)`: no row, an EMPTY problem (not an error),
+    nothing created. A caller that passes no guard is never refused by it.
 
     Under the lock it LOADS, checks (`record_problems`, `_refuse_no_trace`), numbers (`next_id`) and writes, so two stories never
     lose a row. Refused, nothing written, `row` None and `problem` says why and the door. The same live state AND value for the same
@@ -684,6 +689,8 @@ def record(root, *, key, environment, element, state, scope, value, words, sourc
         if reason:
             return None, reason, False
         held = _latest(rows, key, environment, element)
+        if only_if_latest is not None and held is not None and held.get("state") not in only_if_latest:
+            return None, "", False                      # already decided by a later answer: not an error, not a write
         if held is not None and held.get("state") == state and held.get("value") == value:     # a changed value is the person's new word
             if key == LESSONS_KEY:       # a lesson's words ARE its payload: a corrected lesson is never "already recorded"
                 held_prov = held.get("provenance") if isinstance(held.get("provenance"), dict) else {}
@@ -766,7 +773,9 @@ def notice_from_handoff(root, task_root, story) -> list:
                 continue
             row, problem, created = record(root, key=ROLES_KEY, environment="", element=item["role"], state=NOTICED, scope="project",
                                            value={"sign_in": item["sign_in"]}, words="", source="role", story=story, by="driver",
-                                           where=item["where"], task_root=task_root)
+                                           where=item["where"], task_root=task_root, only_if_latest=(NOTICED,))
+            if row is None and not problem:             # a person's answer landed after the roster was read: already decided
+                continue
             if row is None:
                 print(f"project_knowledge: the role {item['role']!r} the strategist named was not recorded as noticed ({problem})",
                       file=sys.stderr)

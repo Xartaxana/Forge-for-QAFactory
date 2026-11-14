@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from hooklib import ConfigUnreadable, read_config_file  # re-export (OF4-10)
+import stand_access  # stdlib only at load: the one tuple of access kinds and the one tuple of sign-in answers (AR-13)
 
 SCHEMA_VERSION = 1
 # The keys no script reads any more used to be a tuple here (INACTIVE_KEYS); they are the
@@ -57,6 +58,17 @@ RUNTIME_DEFAULTS = {
     "impact_scale": IMPACT_DEFAULTS,
 }
 SECRET_QUERY_RE = re.compile(r"(?i)(token|secret|password|key)=([^&#]*)")
+# the password of a URL's userinfo: `scheme://user:password@host` (the user name stays; an `@` after the first `/`, `?` or `#` is no userinfo)
+USERINFO_PASSWORD_RE = re.compile(r"(?i)([a-z][a-z0-9+.-]*://[^/\s:@?#]+:)[^/\s?#]*@")
+
+
+def mask_secret_ref(value):
+    """ONE masking of a stored reference: the `name=value` pairs of `SECRET_QUERY_RE` AND the userinfo password of a URL are replaced by
+    `<hidden>`. Idempotent; a non-string, an empty string or a text that is no URL comes back unchanged and nothing raises. Over-masking
+    (a harmless `monkey=` pair) is the allowed error; a percent-encoded `token%3D` is NOT handled."""
+    if not isinstance(value, str) or not value:
+        return value
+    return USERINFO_PASSWORD_RE.sub(r"\1<hidden>@", SECRET_QUERY_RE.sub(r"\1=<hidden>", value))
 # a value that is a PLACEHOLDER, never a secret: `{key}` or `$NAME` (the shape a route is written in, SS1-15 section 3.2)
 PLACEHOLDER_VALUE_RE = re.compile(r"^(\{[^{}]*\}|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?)$")
 
@@ -106,7 +118,9 @@ def requirement_source_kinds() -> dict:
 # is recorded here as names and codes: which of the five ways the project reaches its stand,
 # which key NAMES that way needs, and what an unauthenticated request answers on a healthy
 # stand. Keycloak is one instance of `oidc_password`, not the design.
-ACCESS_KINDS = ("harness_command", "local_login", "oidc_password", "bearer_env", "none")
+ACCESS_KINDS = stand_access.KINDS   # one tuple (AR-13): the scheme the probe signs in by is the scheme the config may name
+# What `login_probe.answer` may say (FV1-17a): what one sign-in attempt came to; the words are stand_access's own.
+LOGIN_ANSWERS = stand_access.ANSWERS
 ACCESS_KEY_FIELDS = ("client_id_key", "realm_key", "user_key", "secret_key", "token_key")
 # Every `*_key` is a variable NAME. The regex is the whole guarantee that a value never
 # lands in a committed file by being typed into a field that asks for a name.
@@ -357,9 +371,14 @@ def access_errors(access) -> list[str]:
         errors.append("environment.access.kind must be one of " + " | ".join(ACCESS_KINDS))
     for field in ACCESS_KEY_FIELDS:
         errors.extend(_name_errors(f"environment.access.{field}", access.get(field)))
-    for field in ("command", "url"):
+    for field in ("command", "url", "form"):
         if field in access and not isinstance(access.get(field), str):
             errors.append(f"environment.access.{field} must be a string")
+    if kind == "form_login" and str(access.get("form") or "").strip():
+        known = [row["id"] for row in stand_access.login_roads()["forms"]]
+        if str(access["form"]).strip() not in known:
+            errors.append("environment.access.form must be one of " + (" | ".join(known) if known else
+                          "(none: no sign-in form is known, references/login-roads.json has no valid row)"))
     errors.extend(body_field_errors(access))
     if kind == "harness_command" and not str(access.get("command") or "").strip():
         errors.append("environment.access.command is required for kind harness_command")
@@ -387,16 +406,19 @@ def access_errors(access) -> list[str]:
                 if raw is not None and raw != "" and not (isinstance(raw, str) and BODY_FIELD_RE.match(raw)):
                     errors.append(_field_name_error(f"environment.access.login_probe.{key}"))
             status = probe.get("status")
-            if status is not None and (not isinstance(status, int) or isinstance(status, bool)):
-                errors.append("environment.access.login_probe.status must be an HTTP code")
+            if status is not None and stand_access.valid_status(status) is None:   # the same test as `recorded_login` (AR-13)
+                errors.append("environment.access.login_probe.status must be an HTTP code (100..599); leave it out (null) "
+                              "for a sign-in command, which has none")
             if "outcome" in probe and probe.get("outcome") not in LOGIN_OUTCOMES:
                 errors.append("environment.access.login_probe.outcome must be one of " + " | ".join(LOGIN_OUTCOMES)
                               + " (only `ok` is a proof; leave it out when the login was not re-checked)")
+            if "answer" in probe and probe.get("answer") not in LOGIN_ANSWERS:
+                errors.append("environment.access.login_probe.answer must be one of " + " | ".join(LOGIN_ANSWERS)
+                              + " (what the sign-in attempt came to; leave it out when it is not known)")
             if not str(probe.get("checked_at") or "").strip():
                 errors.append("environment.access.login_probe.checked_at is empty - a proof "
                               "without a date is prose")
             if "seconds" in probe:   # RN1-3: absent is never an error; a present one is read by the next login's ceiling
-                import stand_access  # the ONE validity test of the field (AR-13); a local import: no cycle at load
                 if stand_access.recorded_seconds({"login_probe": probe}) is None:
                     errors.append("environment.access.login_probe.seconds must be a positive number of seconds (how long "
                                   "the recorded login took); leave it out when unknown")

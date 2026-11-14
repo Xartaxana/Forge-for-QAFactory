@@ -197,6 +197,23 @@ def test_walk_opened_with_survey_env_items_guest():
         check("walk_opened_with_survey_env_items_guest: a good share asks nothing", raised is None)
 
 
+def test_pending_probe_does_not_skip_the_walk():
+    """FV1-28 A1, the live defect (LOCAL-1: `environment: "local"`, `environment_pending: true`): the probe at S0 is a guess of code, so the
+    driver opens the survey walk and registers `S3-qa-runner-<n>`; before the change the same story read `null: no_stand`."""
+    with tempfile.TemporaryDirectory() as tmp:
+        r = Rig(tmp, writes=GOOD)
+        r.set_pipeline({"ticket": "QA-1", "environment": "local", "environment_pending": True})
+        raised, _ = r.step()
+        argv = r.argv("walk_session.py", "open")
+        check("pending_probe_does_not_skip_the_walk: the survey walk is opened on the named stand",
+              argv[argv.index("--place") + 1] == "survey" and argv[argv.index("--env") + 1] == "local", argv)
+        check_eq("pending_probe_does_not_skip_the_walk: the dispatch S3-qa-runner-1 is registered", [(k, q["id"], q["stage"], q["role"]) for k, q in FakeController.log],
+                 [("dispatch", WALK, "S3", "qa-runner")])
+        got = FL.read(r.task)
+        check_eq("pending_probe_does_not_skip_the_walk: the record is the role's walked one, not `null: no_stand`", (got["null"], len(got["rows"])), ("", 4))
+        check("pending_probe_does_not_skip_the_walk: no question to the person", raised is None)
+
+
 def test_http_only_walk_adds_default_actor_when_recorded():
     with tempfile.TemporaryDirectory() as tmp:
         r = Rig(tmp, cfg=env_cfg(tmp), writes=GOOD)
