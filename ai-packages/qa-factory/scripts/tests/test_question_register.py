@@ -2384,7 +2384,7 @@ def test_fv19_reword_refusals(tmp):
         ("repeat", repeat_of_q16, {}, "Q7 is repeat"),
         ("not shown at the last stop", not_shown, {}, "was not shown to the person in these words"),
         ("shown on other bytes", shown_other, {}, "was not shown to the person in these words"),
-        ("second reword before a new showing", twice, {}, "was not shown to the person in these words"),
+        ("second reword before a new showing", twice, {"question": "Which limit of the import is meant here?"}, "was not shown to the person in these words"),
         ("readings count", story, {"readings": ["only one"]}, "must be 2 texts"),
         ("blank reading", story, {"readings": ["x", "  "]}, "none blank"),
         ("readings not a list", story, {"readings": "x"}, "must be 2 texts"),
@@ -2479,6 +2479,155 @@ def test_fv19_reword_after_reopen_allowed(tmp):
     row, why = rw(root)
     check_eq("fv19_reword_after_reopen_allowed: after a reopen record the row is open again and may be reworded (it was shown on these bytes)",
              (why, row["question"] if row else None), (None, "What is the exact limit of the import?"))
+
+
+def test_fv19_reword_replay_is_done(tmp):
+    """P6: a reword whose result already stands (or stood, as the same party's earlier reword for the same reason) is DONE and writes nothing.
+    A row that is NOT done is observed as the normal path having run: a refusal, or (with a fresh showing) a new history entry."""
+    text1, text2 = "What is the exact limit of the import?", "Which import limit applies to one upload?"
+    original = "What does Q7 ask about the limit?"
+    readings = ["the limit is 100 files", "the limit is 1000 files"]
+    case = {"TC_9": {"then_oracles": json.dumps([{"then": 1, "source": "unknown", "ref": "Q7"}])}}
+    entry = {"question": "Q7", "text": text1, "why": "the first words did not say which limit"}
+
+    def fresh(label, **parts):
+        return rw_story(tmp, "fv19-rp-" + label, **parts)
+
+    def state(root, again):
+        """(refusal or None, number of reword entries after, the question's words after, readiness bytes unchanged by the replay)."""
+        before = snapshot(root)
+        row, why = again()
+        after = row_of(QR.load(root), "Q7")
+        return (None if why is None else why.splitlines()[0][:42], len(after.get("reworded", [])), after["question"], snapshot(root) == before)
+
+    def twice_same(label):
+        root = fresh(label)
+        rw(root)
+        return state(root, lambda: rw(root))
+
+    def after_answer(label):
+        root = fresh(label)
+        rw(root)
+        put(root, "Q7", "answered", "Q7: a", reading="a")
+        return state(root, lambda: rw(root))
+
+    def case_carrier(label):
+        root = fresh(label, cases=case)
+        text = write_case(root, "TC_8", then_oracles=case["TC_9"]["then_oracles"], reword_questions=json.dumps([entry])).read_text(encoding="utf-8")
+        QR.rewords_for_case(root, text, "TC_8")                          # the run that reworded, whose case text was never written
+        out = QR.rewords_for_case(root, text, "TC_8")                    # the replay, on the ORIGINAL case text
+        return (out["problems"], out["reworded"], "reword_questions" in (out["text"] or "reword_questions"), len(row_of(QR.load(root), "Q7")["reworded"]))
+
+    def plan_carrier(label):
+        rows = [{"id": "TS-3", "question_refs": ["Q7"], "reason": "r", "reword_questions": [entry]}]
+        root = fresh(label, plan=rows)
+        import planning_contract as PC
+        PC._reword_plan_entries(root, rows)
+        out, notes = PC._reword_plan_entries(root, rows)
+        return (notes, "reword_questions" in out[0], len(row_of(QR.load(root), "Q7")["reworded"]))
+
+    def handoff_carrier(label):
+        proj = temp_project("qa-question-register-fv19-replay-")
+        try:
+            use_project(proj)
+            root = write_story(proj / "qa-factory" / "artifacts" / "QA-9", [fv_row("Q7", asked_by="qa-case-critic")])
+            show_now(root, "Q7")
+            forms = root / "work" / "handoffs"
+            forms.mkdir(parents=True)
+            item = {"rewords": "Q7", "question": text1, "why": "unclear first words"}
+            results = []
+            for n in (1, 2):
+                path = forms / f"S2-qa-case-critic-{n}.yaml"
+                path.write_text("header: {role: qa-case-critic, stage: S2, window_or_scope: S2, verdict: ok}\nquestions:\n  - " + json.dumps(item) + "\n", encoding="utf-8")
+                results.append(QR.raise_from_handoff(root, path, stage="S2", asked_by="qa-case-critic"))
+            return (results[1]["rewords"], results[1]["reword_problems"], len(row_of(QR.load(root), "Q7")["reworded"]))
+        finally:
+            cleanup(proj)
+
+    def original_no_history(label):
+        root = fresh(label)
+        return state(root, lambda: rw(root, question=original))
+
+    def third_text(label):
+        root = fresh(label)
+        rw(root)
+        return state(root, lambda: rw(root, question="A third wording nobody wrote before?"))
+
+    def readings_equal(label):
+        root = fresh(label)
+        rw(root, readings=readings)
+        return state(root, lambda: rw(root, readings=readings))
+
+    def readings_differ(label):
+        root = fresh(label)
+        rw(root, readings=readings)
+        return state(root, lambda: rw(root, readings=["the limit is 50 files", "the limit is 500 files"]))
+
+    def history_same_party(label):
+        root = fresh(label)
+        rw(root)
+        show_now(root, "Q7")
+        rw(root, question=text2)
+        show_now(root, "Q7")
+        return state(root, lambda: rw(root))                            # text1 again, same role, same why
+
+    def history_other_party_new_why(label):
+        root = fresh(label, cases=case)
+        rw(root)
+        show_now(root, "Q7")
+        rw(root, role="qa-case-designer", question=text2, why="their own reason")
+        show_now(root, "Q7")
+        return state(root, lambda: rw(root, why="a NEW reason for the same words"))
+
+    def original_after_reword(label):
+        root = fresh(label)
+        rw(root)
+        show_now(root, "Q7")
+        return state(root, lambda: rw(root, question=original))
+
+    def odd_entries(label):
+        root = fresh(label)
+        rw(root)
+        show_now(root, "Q7")
+        path = root.joinpath(*QR.READINESS_REL)
+        data = json.loads(path.read_bytes().decode("utf-8-sig"))
+        stored = next(r for r in data["open_questions"] if r["id"] == "Q7")
+        stored["reworded"] = ["junk", {"was": 5}, {"no": "was"}] + stored["reworded"]
+        QR._write_readiness(path, data)
+        show_now(root, "Q7")
+        return state(root, lambda: rw(root))                            # replay of the real entry: junk elements are skipped, never raise
+
+    def readings_not_a_list(label):
+        root = fresh(label)
+        rw(root)
+        return state(root, lambda: rw(root, readings="x"))
+
+    done_q = (None, 1, text1, True)
+    table = [
+        ("a: the same spec twice with no new showing -> done, one entry, bytes unchanged", twice_same, done_q),
+        ("b: replay after an answer on the reworded bytes -> done", after_answer, done_q),
+        ("c: case carrier replayed on the original case text -> entry dropped, no problem", case_carrier, ([], [{"question": "Q7"}], False, 1)),
+        ("d: plan carrier twice on the same rows -> second leaves no key and no note", plan_carrier, ([], False, 1)),
+        ("e: handoff item twice -> second has the id in rewords and no reword_problems", handoff_carrier, (["Q7"], [], 1)),
+        ("f CONTROL: spec equal to the original with no history -> refused nothing changed", original_no_history,
+         ("- nothing changed: the question and every ", 0, original, True)),
+        ("g CONTROL: a text that is neither current nor in the history -> refused not shown", third_text,
+         ("- Q7 was not shown to the person in these ", 1, text1, True)),
+        ("h1: readings given and equal -> done", readings_equal, (None, 1, text1, True)),
+        ("h2 CONTROL: readings given and different -> not done (refused not shown)", readings_differ,
+         ("- Q7 was not shown to the person in these ", 1, text1, True)),
+        ("i: text1, text2, then text1 replayed by the same party for the same reason -> done, the question still reads text2", history_same_party,
+         (None, 2, text2, True)),
+        ("j: text1, text2 by another party, text1 again with a NEW why -> not done (a new entry is written)", history_other_party_new_why,
+         (None, 3, text1, False)),
+        ("k: reword once, then ask for the ORIGINAL text -> not done (a new entry is written)", original_after_reword,
+         (None, 2, original, False)),
+        ("junk reworded elements are skipped, never raise (replay of the real entry is done)", odd_entries, (None, 4, text1, True)),
+        ("readings that are not a list -> the replay rule does not apply, the shape check refuses", readings_not_a_list,
+         ("- Q7 was not shown to the person in these ", 1, text1, True)),
+    ]
+    for label, make, expected in table:
+        check_eq(f"fv19_reword_replay_is_done: {label}", make(label.split(":")[0].split(" ")[0] + str(abs(hash(label)) % 10**5)), expected)
 
 
 def test_fv19_note_bound_to_bytes(tmp):
@@ -2651,7 +2800,8 @@ def test_fv19_handoff_rewords_item(tmp):
         check_eq("fv19_handoff_rewords_item: a `rewords` item asks Q7 again (role = the form's asker), the other entry is raised, the index stays the form's own",
                  (done["rewords"], done["reword_problems"], row_of(view, "Q7")["question"], row_of(view, "Q7")["reworded"][0]["role"],
                   done["raised"][0]["raised_from"]["row"]), (["Q7"], [], "What is the exact limit of the import?", "qa-case-critic", "questions[0]"))
-        refused = QR.raise_from_handoff(root, form("S2-qa-case-critic-2", new, item), stage="S2", asked_by="qa-case-critic")
+        second = dict(item, question="Which limit of the import is meant here?")      # a replay of the SAME item is done (P6); new words are refused
+        refused = QR.raise_from_handoff(root, form("S2-qa-case-critic-2", new, second), stage="S2", asked_by="qa-case-critic")
         check("fv19_handoff_rewords_item: a refused reword (not shown since it was last worded) is a `reword_problems` line and the form is not refused",
               len(refused["reword_problems"]) == 1 and "was not shown to the person" in refused["reword_problems"][0] and len(refused["already"]) == 0, str(refused))
         odd = QR.raise_from_handoff(root, form("S2-qa-case-critic-3", {"rewords": 5, "question": "x"}, {"rewords": "Q99", "question": "y", "why": "z"}),
@@ -2696,7 +2846,9 @@ def test_fv19_cli_repeat_reword_note(tmp):
         spec.write_text(json.dumps({"question": "What is the exact limit of the import?", "why": "unclear"}), encoding="utf-8")
         code, out, err = cli("--task", "QA-9", "--reword", "Q7", "--question-file", str(spec), *base)
         check_eq("fv19_cli_repeat_reword_note: --reword exits 0, the conductor is the role, the id stays", (code, json.loads(out)["reworded"]["id"], row_of(QR.load(root), "Q7")["reworded"][0]["role"]), (0, "Q7", "conductor"))
-        code, out, err = cli("--task", "QA-9", "--reword", "Q7", "--question-file", str(spec), *base)
+        spec2 = proj / "q2.json"      # a replay of the SAME file is done (P6); new words before a new showing are refused
+        spec2.write_text(json.dumps({"question": "Which limit of the import is meant here?", "why": "unclear"}), encoding="utf-8")
+        code, out, err = cli("--task", "QA-9", "--reword", "Q7", "--question-file", str(spec2), *base)
         check("fv19_cli_repeat_reword_note: a second --reword before a new showing exits 2", code == 2 and "was not shown to the person" in err, err)
         code, out, err = cli("--task", "QA-9", "--reword", "Q7", *base)
         check("fv19_cli_repeat_reword_note: --reword needs --question-file", code == 2 and "--reword needs --question-file" in err, err)
@@ -2721,7 +2873,7 @@ def test_fv19_cli_repeat_reword_note(tmp):
 TESTS = [test_fv19_repeat_hidden_while_target_resolves, test_fv19_repeat_of_settled_listed_for_brief, test_fv19_repeat_unresolved_shown,
          test_fv19_repeat_write_refusals, test_fv19_repeat_refused_with_dependants, test_fv19_repeat_replay_noop, test_fv19_person_answer_beats_repeat,
          test_fv19_reopen_undoes_repeat, test_fv19_repeat_records_history, test_fv19_reword_keeps_id, test_fv19_reword_refusals, test_fv19_reword_who_may,
-         test_fv19_reword_readings_frozen, test_fv19_reword_carries_repeats, test_fv19_reword_after_reopen_allowed, test_fv19_note_bound_to_bytes,
+         test_fv19_reword_readings_frozen, test_fv19_reword_carries_repeats, test_fv19_reword_after_reopen_allowed, test_fv19_reword_replay_is_done, test_fv19_note_bound_to_bytes,
          test_fv19_asked_for_brief_empty_and_unreadable, test_fv19_raise_pending_records_repeats, test_fv19_raise_pending_rewords,
          test_fv19_handoff_rewords_item, test_fv19_origin_words_unknown_default, test_fv19_cli_repeat_reword_note,
          test_gw1_47_stray_line_starts_with_an_open_register_id, test_answers_lock_busy_names_the_holder, test_placeholder_question_row_dropped, test_x2_6_role_questions,test_g1_13_question_row_keys_never_meet_and_the_readiness_writer_keeps_its_bytes, test_e1_exact_id, test_e2_load, test_e3_answers_file, test_e4_register, test_e5_parser, test_e6_cli,

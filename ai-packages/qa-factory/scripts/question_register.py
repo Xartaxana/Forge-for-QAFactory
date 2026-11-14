@@ -1579,7 +1579,9 @@ def reword(task_root, qid, spec, *, role, by, stage) -> dict:
     show the row on its current bytes (ONE reword per showing); `role` may not (the conductor always; a role whose own work cites
     the id; any other only a question it asked); `readings` are given and a plan row or a case answers them by letter for another
     role, or that could not be read (the question text alone is then allowed); the count of readings differs or one is blank; the new
-    row fails `contract.question_errors`; nothing changed; `why` is blank. Whether the meaning was kept is the rewording role's stage
+    row fails `contract.question_errors`; nothing changed; `why` is blank. A reword whose words already stand, or stood as the result of
+    an earlier reword, is done: nothing is written (a replay after a crash); a history match counts only for the same `role` and `why`
+    that produced those words. Whether the meaning was kept is the rewording role's stage
     critic's judgment; this checks ids, shape, showings and dependants."""
     root = Path(task_root)
     view = load(root)
@@ -1595,6 +1597,20 @@ def reword(task_root, qid, spec, *, role, by, stage) -> dict:
     given = spec.get("readings")
     why = spec["why"].strip() if isinstance(spec.get("why"), str) else ""
     role, own = str(role or "").strip(), vocabulary().get("reword_own_artifacts", {})
+    # REPLAY (P6): words that already stand, or stood as the result of the same party's earlier reword for the same reason, are DONE.
+    # It sits before every other check: a done reword changed the row's bytes, so the showing check would refuse its replay forever.
+    # Never turns a no-op request into a success: the ORIGINAL words were produced by no reword and match nothing here.
+    if text and (given is None or isinstance(given, list)):
+        history = row.get("reworded") if isinstance(row.get("reworded"), list) else []
+        if history and _squeeze(text) == _squeeze(row.get("question")) and (
+                given is None or [_squeeze(x) for x in given] == [_squeeze(x) for x in _reading_texts(row)]):
+            return row
+        for k in range(len(history) - 1):
+            made, later = history[k], history[k + 1]
+            if (isinstance(made, dict) and isinstance(later, dict) and isinstance(later.get("was"), str)
+                    and _squeeze(text) == _squeeze(later["was"]) and str(made.get("role") or "").strip() == role
+                    and _squeeze(made.get("why")) == _squeeze(why)):
+                return row
     deps = dependants(root, wanted)
     problems = []
     if row["status"] not in OPEN_STATUSES:
