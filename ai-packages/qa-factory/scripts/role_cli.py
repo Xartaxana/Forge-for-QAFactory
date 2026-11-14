@@ -76,13 +76,44 @@ def _is_record(problem) -> bool:
     return isinstance(problem, str) and all(isinstance(getattr(problem, name, None), str) for name in ("check", "expected", "door"))
 
 
-def refuse(command: str, problem, stream=None, *, check=None) -> int:
+def _extra_record_lines(records, first: str, own: str) -> list:
+    """The further refused checks of an error, one indented told line each (THE line renderer
+    `stage_joints.told_line`). `records` is read only when it is a list or tuple; an item that is not a Record is skipped; a check
+    equal to `first` (printed by the caller), to `own`, or already kept is dropped; first-seen order. More than
+    `branch_accounting.limit("refusal_units_shown")` lines keep that many and a tail line naming the rest (never a silent drop);
+    when the limit cannot be read there is no cap. Never raises: on any exception it returns what it had built."""
+    lines: list = []
+    try:
+        if not isinstance(records, (list, tuple)):
+            return []
+        import stage_joints                      # inside: `stage_joints` imports this module lazily, a top-level import is a cycle
+        seen = {first, own}
+        for item in records:
+            if not _is_record(item) or item.check in seen:
+                continue
+            seen.add(item.check)
+            lines.append("  " + stage_joints.told_line(stage_joints.row_for(item.check)[0] or {"check": item.check}))
+        try:
+            import branch_accounting
+            cap = branch_accounting.limit("refusal_units_shown")
+        except Exception:  # noqa: BLE001 - an unreadable limit means no cap
+            cap = None
+        if cap is not None and len(lines) > cap:
+            rest = len(lines) - cap
+            lines = lines[:cap] + [f"  {rest} more refused checks are not shown: fix these and run the command again; it names the rest"]
+    except Exception:  # noqa: BLE001
+        pass
+    return lines
+
+
+def refuse(command: str, problem, stream=None, *, check=None, records=()) -> int:
     """Print the refusal as an instruction and return the exit code. Never raises.
 
     `problem` is a plain `str` or a `detector_verdict.refusal(...)` Record. The lines keep their order: `<command>: <problem>`,
     the Record's `expected` / `door` lines (skipped when empty, and when the Record's check is this command's own
-    `role_cli:<command>` row: the card lines below already say it), what to write, how to prove it, `if you cannot`, and LAST
-    `  check: <the Record's check, else `check`, else role_cli:<command>>`."""
+    `role_cli:<command>` row: the card lines below already say it), what to write, how to prove it, one line for every further
+    distinct check in `records` (an error that refused several), `if you cannot`, and LAST
+    `  check: <the Record's check, else `check`, else role_cli:<command>>`. No `records`: today's output, byte for byte."""
     out = stream or sys.stderr
     row = entry(command)
     own = f"role_cli:{command}"
@@ -97,6 +128,8 @@ def refuse(command: str, problem, stream=None, *, check=None) -> int:
         print(f"  what to write: {row['input']}", file=out)
     if row.get("verify"):
         print(f"  how to prove it: {row['verify']}", file=out)
+    for line in _extra_record_lines(records, problem.check if record else "", own):
+        print(line, file=out)
     print("  if you cannot: do not repeat this call — record what you were trying to do and why it "
           "could not be done in your findings and your handover, and halt. A refusal with no way "
           "out is a factory defect, not your mistake.", file=out)
@@ -182,7 +215,8 @@ def run_guarded(command: str, entrypoint, stream=None) -> int:
         # a `refusal(...)` Record raised as `ValueError(record)` reaches `refuse` whole (its row's sentence and door print);
         # any other ValueError is today's text
         first = exc.args[0] if exc.args else None
-        return refuse(command, first if _is_record(first) else (str(exc) or exc.__class__.__name__), stream)
+        return refuse(command, first if _is_record(first) else (str(exc) or exc.__class__.__name__), stream,
+                      records=getattr(exc, "records", ()))
     except DEFECT as exc:
         return refuse(command, f"this is a defect in {command}, not something you wrote wrong: "
                                f"{exc.__class__.__name__}: {exc}. Do not try other argument shapes "

@@ -92,5 +92,46 @@ def test_the_cli_refuses_in_a_line_never_in_a_traceback(case, tmp_path):
     assert sorted(p.relative_to(story).as_posix() for p in story.rglob("*")) == before
 
 
+# K10p/import-prints-every-check/<case>: mutation of the request -> the request checks it breaks (every one is named on the road)
+EVERY = {
+    "four-checks": ({"purpose": "impact_regression", "selected_instance_ids": ["i1", "ghost"], "remaining_budget": -1,
+                     "freshness": "stale"},
+                    ["execution_request:purpose", "execution_request:selection", "execution_request:budget",
+                     "execution_request:freshness"]),
+    "two-checks": ({"remaining_budget": -1, "freshness": "stale"}, ["execution_request:budget", "execution_request:freshness"]),
+}
+
+
+@pytest.mark.parametrize("case", list(EVERY))
+def test_the_import_road_prints_every_refused_check(case, tmp_path):
+    import io
+
+    import role_cli
+    import import_test_receipt as ITR
+    (tmp_path / "test.py").write_text("# test\n")
+    (tmp_path / "report.xml").write_text("<testsuite/>")
+    config = {"profiles": [{"profile_id": "local", "adapter_id": "ci-json", "adapter_version": "1",
+        "extensions": {"external_receipts": {"enabled": True, "producer_id": "pipeline", "system": "CI"}}}]}
+    (tmp_path / "qa-factory").mkdir()
+    (tmp_path / "qa-factory" / "config.json").write_text(json.dumps(config))
+    changes, wanted = EVERY[case]
+    stream = io.StringIO()
+    code = role_cli.run_guarded("import_test_receipt.py",
+                                lambda: ITR.import_receipt({**request(tmp_path), **changes}, {}, tmp_path, tmp_path / "out"), stream)
+    printed = stream.getvalue().splitlines()
+    assert code == 2, printed
+    first = printed[-1].removeprefix("  check: ")
+    assert first in wanted, printed
+    for check_id in wanted:
+        lines = [x for x in printed if x.startswith(f"  - [{check_id}]")]
+        assert len(lines) == (0 if check_id == first else 1), (check_id, printed)    # the first check stands in the card lines, once
+        if check_id == first:
+            assert sum(1 for x in printed if x == f"  check: {check_id}") == 1, printed
+    assert printed.index("  if you cannot: do not repeat this call — record what you were trying to do and why it "
+                         "could not be done in your findings and your handover, and halt. A refusal with no way "
+                         "out is a factory defect, not your mistake.") == len(printed) - 2, printed
+    assert not (tmp_path / "out").exists()
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q", "-p", "no:cacheprovider"]))

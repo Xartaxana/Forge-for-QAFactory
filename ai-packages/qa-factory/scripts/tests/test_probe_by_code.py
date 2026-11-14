@@ -3163,7 +3163,89 @@ def of4_6_profiles_owning_and_in_test_root_agree() -> None:
             check_eq(f"OF4-6 root {root!r} path {rel!r}: profiles_owning", bool(ER.profiles_owning(cfg, rel)), want)
 
 
+def _rec(n: int):
+    import detector_verdict as DV
+    return DV.Record(f"problem {n}", check=f"execution_request:k10p{n}", expected=f"Sentence {n}.", door=f"door {n}")
+
+
+# K10p/pbc-told/<printer>/<case>: the records of a refusal -> the checks the printed JSON's `told` holds (every distinct one, in order)
+PBC_TOLD_CASES = {"one-record": ([1], [1]), "two-records": ([1, 2], [1, 2]), "repeated-check": ([1, 2, 1], [1, 2])}
+PBC_PRINTERS = ("plan", "tool", "refusal")
+
+
+def _printed_json(printer: str, exc: Exception) -> dict:
+    """Raise `exc` into the real one-JSON printer of `printer` (`_plan_cli`, and `main`'s ToolRefusal / Refusal handlers) and parse
+    the one line it prints. The raise sits where the printer's own `try` reads the story, so nothing else of the call runs."""
+    import contextlib
+    import io
+
+    def boom(*_a, **_k):
+        raise exc
+    names = {"plan": ("parse_node", ["--plan", "--task", TASK, "--instance", "test_add", "--test", f"{TEST_FILE_REL}::test_add"]),
+             "tool": ("probe", ["--task", TASK, "--dispatch", DISPATCH, "--test", f"{TEST_FILE_REL}::test_add", "--instance", "test_add"]),
+             "refusal": ("probe", ["--task", TASK, "--dispatch", DISPATCH, "--test", f"{TEST_FILE_REL}::test_add", "--instance", "test_add"])}
+    target, argv = names[printer]
+    saved = {name: getattr(PBC, name) for name in (target, "story_root", "project_root", "artifacts_dir", "load_config",
+                                                   "_record_tool_refusal")}
+    saved_argv = sys.argv
+    PBC.story_root = lambda *a, **k: Path(".")
+    PBC.project_root = lambda *a, **k: Path(".")
+    PBC.artifacts_dir = lambda *a, **k: Path(".")
+    PBC.load_config = lambda *a, **k: {}
+    PBC._record_tool_refusal = lambda *a, **k: None
+    setattr(PBC, target, boom)
+    sys.argv = ["probe_by_code.py", *argv]
+    out = io.StringIO()
+    code = None
+    try:
+        with contextlib.redirect_stdout(out):
+            try:
+                PBC.main()
+            except SystemExit as stop:
+                code = stop.code
+    finally:
+        sys.argv = saved_argv
+        for name, value in saved.items():
+            setattr(PBC, name, value)
+    check_eq(f"K10p/pbc-told/{printer}: exit 2, one line", (code, len(out.getvalue().strip().splitlines())), (2, 1))
+    return json.loads(out.getvalue().strip().splitlines()[-1])
+
+
+def k10p_pbc_told_is_printed() -> None:
+    """K10p/pbc-told: a pre-action `Refusal` / `ToolRefusal` carrying records reaches the one-JSON printer with EVERY distinct check in
+    `told` (`told_fields`, the one builder), in order, `error` unchanged. The proof a later card (K1b) reads before it moves a row off
+    the page for the probe road: a row is carried by these printers only."""
+    for printer in PBC_PRINTERS:
+        for case, (given, wanted) in PBC_TOLD_CASES.items():
+            cls = PBC.ToolRefusal if printer == "tool" else PBC.Refusal
+            got = _printed_json(printer, cls("probe_by_code: refused for the table", *[_rec(n) for n in given]))
+            check_eq(f"K10p/pbc-told/{printer}/{case}: status, error unchanged, every distinct check in order",
+                     (got.get("status"), got.get("error"), [e.get("check") for e in got.get("told", [])]),
+                     ("refused", "probe_by_code: refused for the table", [_rec(n).check for n in wanted]))
+    # one row per execution_request id a pre-action Refusal of probe_by_code cites, provoked through its real function
+    root = project()
+    try:
+        cfg = {"profiles": [{"profile_id": "unit", "roots": {"test": "tests"}}]}
+        for label, fn, rid in (
+                ("_profile_cwd", lambda: PBC._profile_cwd(cfg, TEST_FILE_REL, "nope"), "execution_request:profile"),
+                ("_dispatch_context", lambda: PBC._dispatch_context(root, TASK, root / "qa-factory" / "artifacts" / TASK,
+                                                                    "S5-qa-code-critic-9", "TC-100", False),
+                 "execution_request:active_dispatch")):
+            try:
+                fn()
+                exc = None
+            except PBC.Refusal as stop:
+                exc = stop
+            check_eq(f"K10p/pbc-told/{rid}/{label}: a pre-action Refusal that carries the row, printed by the refusal printer",
+                     (exc is not None and [r.check for r in exc.records] == [rid]) and
+                     [e.get("check") for e in _printed_json("refusal", exc).get("told", [])], [rid])
+    finally:
+        cleanup(root)
+        cleanup_beside(root)
+
+
 def main() -> None:
+    k10p_pbc_told_is_printed()
     of4_6_profiles_owning_and_in_test_root_agree()
     b355_i_in_test_root_reads_the_one_reader()
     second_hop_name_in_two_files_is_refused()

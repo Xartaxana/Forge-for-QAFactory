@@ -389,6 +389,82 @@ def told_cases() -> None:
              (stage_guard.block_match(stage_guard.LAST_DENIAL["message"]), stage_guard.block_match(str(record))), ("*", "*"))
 
 
+def refuse_cases() -> None:
+    """K10p/refuse-*: `role_cli.refuse` prints every further refused check of an error (`records`) through the one line renderer, after
+    `how to prove it` and before `if you cannot`; the LAST line stays `  check: <first check>`. Rows are injected by `_Rows`."""
+    import io
+    import branch_accounting
+    import role_cli
+    command = "import_test_receipt.py"
+    rows = {f"t:{n}": ({"check": f"t:{n}", "requirement": f"Sentence {n}.", "door": f"door {n}"}, "") for n in "abcde"}
+
+    def rec(n: str) -> DV.Record:
+        return DV.Record(f"problem {n}", check=f"t:{n}", expected=f"Sentence {n}.", door=f"door {n}")
+
+    def run(problem, **kw) -> list:
+        stream = io.StringIO()
+        code = role_cli.refuse(command, problem, stream, **kw)
+        check_eq("K10p/refuse: the exit code is the refused one", code, role_cli.EXIT_REFUSED)
+        return stream.getvalue().splitlines()
+
+    def extras(lines) -> list:
+        return [x for x in lines if x.startswith("  - [") or "more refused checks" in x]
+
+    def line(n: str) -> str:
+        return f"  - [t:{n}] Sentence {n}. Door: door {n}."
+
+    def limited(n):
+        saved = branch_accounting.limit
+        branch_accounting.limit = lambda name: n
+        return saved
+
+    with _Rows(rows):
+        base = run(rec("a"))
+        for label, kw in (("no-records", {}), ("records-empty", {"records": ()}), ("records-not-a-list",
+                          {"records": "t:b"}), ("records-a-dict", {"records": {"t:b": rec("b")}}), ("records-none", {"records": None})):
+            check_eq(f"K10p/refuse-{label}/no-records: output byte-equal to today", run(rec("a"), **kw), base)
+        check_eq("K10p/refuse-no-records: a plain str problem with no records is its own lines, the check last",
+                 run("plain", check="x:y")[-1], "  check: x:y")
+        lines = run(rec("a"), records=(rec("a"), rec("b"), rec("c")))
+        check_eq("K10p/refuse-records-printed: every further check once, after `how to prove it`, before `if you cannot`",
+                 (extras(lines), [i for i, x in enumerate(lines) if x.startswith("  how to prove it")] < [i for i, x in enumerate(lines)
+                  if x == line("b")], lines.index(line("c")) < next(i for i, x in enumerate(lines) if x.startswith("  if you cannot"))),
+                 ([line("b"), line("c")], True, True))
+        check_eq("K10p/refuse-last-line-is-check: the last line is the first record's check", lines[-1], "  check: t:a")
+        check_eq("K10p/refuse-first-repeated: the first record in `records` is not printed twice; a repeat of another is printed once",
+                 extras(run(rec("a"), records=(rec("a"), rec("b"), rec("b"), rec("a")))), [line("b")])
+        check_eq("K10p/refuse-non-record-item: a non-Record item is skipped, no exception",
+                 extras(run(rec("a"), records=("t:b", 7, None, {"check": "t:c"}, rec("d")))), [line("d")])
+        check_eq("K10p/refuse-own-command-check: a record of this command's own row is skipped",
+                 extras(run(rec("a"), records=(DV.Record("p", check=f"role_cli:{command}", expected="E", door="D"), rec("b")))), [line("b")])
+        check_eq("K10p/refuse-unreadable-row: an id with no row prints the `could not be read` sentence",
+                 extras(run(rec("a"), records=(rec("a"), DV.Record("p", check="t:none")))),
+                 ["  - [t:none] (the factory's requirement row t:none could not be read: the row states no requirement; this is a factory defect). Door: ."])
+        saved = limited(2)
+        try:
+            at = run(rec("a"), records=(rec("a"), rec("b"), rec("c")))
+            beyond = run(rec("a"), records=(rec("a"), rec("b"), rec("c"), rec("d")))
+            beyond_many = run(rec("a"), records=(rec("a"), rec("b"), rec("c"), rec("d"), rec("e")))
+        finally:
+            branch_accounting.limit = saved
+        tail = "  {} more refused checks are not shown: fix these and run the command again; it names the rest"
+        check_eq("K10p/refuse-at-limit: AT the limit every line prints, no tail line", extras(at), [line("b"), line("c")])
+        check_eq("K10p/refuse-beyond-limit: one beyond prints the limit and a tail line naming 1",
+                 (extras(beyond), beyond[-1]), ([line("b"), line("c"), tail.format(1)], "  check: t:a"))
+        check_eq("K10p/refuse-beyond-limit: three beyond name 2", extras(beyond_many)[-1], tail.format(2))
+
+        def broken_limit(name):
+            raise branch_accounting.Unreadable("x")
+        saved, branch_accounting.limit = branch_accounting.limit, broken_limit
+        try:
+            check_eq("K10p/refuse-limit-unreadable: no cap, every line prints",
+                     len(extras(run(rec("a"), records=tuple(rec(n) for n in "abcde")))), 4)
+        finally:
+            branch_accounting.limit = saved
+    check_eq("K10p/refuse-no-literal-line: role_cli renders no `- [` line of its own (the one renderer is stage_joints.told_line)",
+             "- [" in Path(role_cli.__file__).read_text(encoding="utf-8"), False)
+
+
 COMPOUND = ("3 problems - the request is refused whole, every one is listed:\n"
             "1) decision references stale source revision\n"
             "2) gate before prerequisite completion: already accepted\n   (the second line of item 2)\n"
@@ -1226,6 +1302,7 @@ def main() -> None:
     check_id_cases()
     told_cases()
     refusal_cases()
+    refuse_cases()
     render_cases()
     joined_cases()
     named_cases()
