@@ -134,7 +134,7 @@ def test_K7_t091_written_in_the_form_passes_unchanged():
     # K7 predates the siblings line: it is refused for that line alone, and passes with one appended
     # (K7 also carries 3+ numbered items, so the designer line is owed too)
     assert missing_names(run(_fixture("K7"))[1]) == ["siblings", "designer"]
-    assert run(_fixture("K7") + "\nsiblings: none -- a standalone tool\ndesigner: resubmission t-91\n") == (0, "", "")
+    assert run(_fixture("K7") + "\nsiblings: none -- a standalone tool\ndesigner: resubmission t-091\n") == (0, "", "")
 
 
 def test_K8_critic_prompt_with_numbered_owns_overlap_is_not_checked():
@@ -487,7 +487,7 @@ def test_owns_continuation_limit_40_passes_41_is_unreadable():
     def owns(n):
         return "owns:\n" + "\n".join("- C:\\work\\f%d.py" % i for i in range(n))
 
-    assert run(build(owns=owns(40), designer="designer: resubmission t-1")) == (0, "", "")
+    assert run(build(owns=owns(40), designer="designer: resubmission t-001")) == (0, "", "")
     code, msg, note = run(build(owns=owns(41)))
     assert code == 2 and missing_text(msg) == "owns (no absolute path could be read)"
 
@@ -1108,7 +1108,17 @@ FORM_ROWS = [
     ("des-3-owns-skip-emdash", build(owns=OWNS3, designer="designer: skip \u2014 tiny edit"), []),
     ("des-3-owns-skip-no-reason", build(owns=OWNS3, designer="designer: skip"), ["designer"]),
     ("des-3-owns-skip-empty-reason", build(owns=OWNS3, designer="designer: skip --"), ["designer"]),
-    ("des-3-owns-resubmission", build(owns=OWNS3, designer="designer: resubmission t-97"), []),
+    ("des-3-owns-resubmission", build(owns=OWNS3, designer="designer: resubmission t-097"), []),
+    # offload B0 (E-B0-1): the id of a resubmission is the journal's read grammar (letter included, ASCII only)
+    ("des-3-owns-resubmission-letter", build(owns=OWNS3, designer="designer: resubmission t-123a"), []),
+    ("des-3-owns-resubmission-two-letters", build(owns=OWNS3, designer="designer: resubmission t-123ab"), []),
+    ("des-3-owns-resubmission-word-any-case", build(owns=OWNS3, designer="designer: Resubmission t-123"), []),
+    ("des-3-owns-resubmission-short-id", build(owns=OWNS3, designer="designer: resubmission t-97"), ["designer"]),
+    ("des-3-owns-resubmission-upper-letter", build(owns=OWNS3, designer="designer: resubmission t-123A"), ["designer"]),
+    ("des-3-owns-resubmission-three-letters", build(owns=OWNS3, designer="designer: resubmission t-123abc"), ["designer"]),
+    ("des-3-owns-resubmission-cyrillic-letter", build(owns=OWNS3, designer="designer: resubmission t-123а"), ["designer"]),
+    ("des-3-owns-resubmission-fullwidth", build(owns=OWNS3, designer="designer: resubmission t-１２３"), ["designer"]),
+    ("des-3-owns-resubmission-ten-digits", build(owns=OWNS3, designer="designer: resubmission t-1234567890"), ["designer"]),
     ("des-3-owns-resubmission-no-id", build(owns=OWNS3, designer="designer: resubmission"), ["designer"]),
     ("des-3-owns-path", build(owns=OWNS3, designer="designer: C:\\x\\draft.md"), []),
     ("des-3-owns-path-backticked", build(owns=OWNS3, designer="designer: `C:\\x y\\draft.md`"), []),
@@ -1156,7 +1166,32 @@ def test_designer_skip_goes_out_with_the_owed_event_in_the_note():
     code, msg, note = run(build(owns=OWNS3, designer="designer: skip -- tiny edit"))
     assert (code, msg) == (0, "")
     assert "dispatch_skipped" in note and "tiny edit" in note and "rule 2" in note
-    assert run(build(owns=OWNS3, designer="designer: resubmission t-5"))[2] == ""
+    assert run(build(owns=OWNS3, designer="designer: resubmission t-005"))[2] == ""
+
+
+# offload B0 item 8: designer_skip_reason(cut) and header_ids(cut) read the ONE cut
+def _cut_of(prompt):
+    return dm.cut_payload(payload(prompt))[1]
+
+
+def test_designer_skip_reason_and_header_ids_are_pure_readers_of_the_cut():
+    cut =_cut_of(build(owns=OWNS3, designer="designer: skip -- tiny edit"))
+    assert dm.designer_skip_reason(cut) == "tiny edit"
+    assert dm.designer_skip_reason(_cut_of(build(owns=OWNS3, designer="designer: resubmission t-123a"))) is None
+    assert dm.designer_skip_reason(_cut_of(build(owns=OWNS3, designer=None))) is None
+    assert dm.designer_skip_reason(None) == None  # noqa: E711 -- no cut, no reason
+    assert dm.header_ids(None) == {}
+    head = "task: t-123a\nnode: forge/5/F5-2\nfeature: F19\n"
+    assert dm.header_ids(_cut_of(head + build())) == {"task": "t-123a", "node": "forge/5/F5-2", "feature": "F19"}
+    # a malformed value is skipped (never repaired), the first well-formed line of a key wins, a fenced line is no header
+    ids = dm.header_ids(_cut_of("task: t-12\ntask: t-124\nnode: forge/5\nfeature: F1\n" + build()))
+    assert ids == {"task": "t-124"}
+    assert dm.header_ids(_cut_of("```\ntask: t-777\n```\n" + build())) == {}
+    assert dm.header_ids(_cut_of("> task: t-777\n" + build())) == {}
+    # the fallback: the first `Task t-NNN` within the first 200 characters of the prompt
+    assert dm.header_ids(_cut_of("Task t-555 is the one\n" + build())) == {"task": "t-555"}
+    assert dm.header_ids(_cut_of("x" * 195 + " Task t-555 late\n" + build())) == {}
+    assert dm.header_ids(_cut_of("Task t-123а x\n" + build())) == {}
 
 
 def test_degraded_cut_is_unchecked_note_never_a_refusal_for_the_new_items():

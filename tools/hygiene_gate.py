@@ -80,8 +80,8 @@ MSG_MUTATION = (
     "a script under the scratchpad (python -B <path>). A reading role: Edit/Write your handoff file."
 )
 MSG_JOURNAL_BLOCK = (
-    "the journal is written only through Edit/Write at the file's tail (journal_echo checks the line). "
-    "Reading it with grep, cat or tail is fine."
+    "the journal is written by `python -B tools/journal_write.py <event> ...` (the hooks write delegated/returned "
+    "themselves); a redirect, tee or sed -i onto it is refused. Reading it with grep, cat or tail is fine."
 )
 MSG_ROLLBACK = (
     "{n} path(s) under {dir} have uncommitted changes that may be another session's, and this command would discard "
@@ -1555,6 +1555,42 @@ def _decide_command(tool_name: str, command: str, payload: dict):
             "additionalContext": WARN_PREFIX + "; ".join(warn),
         }}
     return 0, None
+
+
+RUN_COMMAND_MAX = 65_536     # run_allowed: a command longer than this is never judged, it is refused (AR-1: a data row)
+
+
+# run_allowed only: a command word that is not known until the shell runs it ($(...), backticks, $var), in command position
+# (start, or after ; & | ( newline, past leading NAME=value assignments). The live gate does not see it; the --run road does.
+_DYNAMIC_COMMAND_WORD_RE = re.compile(
+    r"(?:^|[;&|(\n])\s*(?:[A-Za-z_]\w*=(?:\"[^\"]*\"|'[^']*'|\S)*\s+)*(?:\$|`)")
+
+
+def run_allowed(cmd, cwd) -> tuple[bool, list[str]]:
+    """(ok, reasons) -- may the command text `cmd` be RUN (journal_write accept --run) from `cwd`? Offload B0, X-1/X-9.
+    The same judgment as the live gate (`_decide_command` as a Bash call), but the ERROR DIRECTION is the opposite of
+    decide(): this is the only check before an unhooked subprocess, so it REFUSES on doubt. ok is True only for the gate's
+    plain allow (no answer at all); a deny, a WARN-class or note answer (an unresolvable payload, an unmeasured
+    rollback), an exception, a NUL byte, a non-string, an empty command or one over RUN_COMMAND_MAX is (False, reasons).
+    The refusal classes of the live gate are unchanged."""
+    try:
+        if not isinstance(cmd, str) or not cmd.strip():
+            return False, ["the command is empty or not text"]
+        if "\x00" in cmd:
+            return False, ["the command holds a NUL byte"]
+        if len(cmd) > RUN_COMMAND_MAX:
+            return False, [f"the command is {len(cmd)} characters; the gate judges at most {RUN_COMMAND_MAX}"]
+        if _DYNAMIC_COMMAND_WORD_RE.search(cmd):
+            return False, ["the command word is dynamic ($(...), backticks or a variable in command position), so the gate cannot "
+                           "know what runs; write the command out literally, or put it in a file and pass it with --witness-file"]
+        _code, out = _decide_command("Bash", cmd, {"cwd": cwd})
+        if out is None:
+            return True, []
+        hso = out.get("hookSpecificOutput", {}) if isinstance(out, dict) else {}
+        reason = hso.get("permissionDecisionReason") or hso.get("additionalContext") or "the gate did not give a plain allow"
+        return False, [str(reason)]
+    except Exception as exc:  # noqa: BLE001 -- fail CLOSED: an exception is a doubt
+        return False, [f"hygiene_gate could not judge the command ({type(exc).__name__}); refused"]
 
 
 def decide(payload: dict) -> tuple[int, dict | None]:

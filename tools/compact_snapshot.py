@@ -68,7 +68,6 @@ _deadline_at = None  # time.monotonic() at which collect_git stops asking; None 
 _STDIN_STATE = {"hit": False}  # the stdin deadline passed: a reader thread may still be blocked (see the bottom)
 
 _SKIP_DIRS = {"__pycache__", ".git", "node_modules"}
-_TID_RE = re.compile(r"^t-(\d+)$")
 
 REMINDER = (
     "After the compact: read CURRENT_CONTEXT.md, then the newest hand-written narrative of "
@@ -304,31 +303,8 @@ def open_dispatches(events: list) -> list:
     return open_dispatches_with_source(events)[0]
 
 
-def next_free_id(events: list) -> str:
-    """The next id of the file's own sequence (rule 9e: journal_keys.next_ids -- a closed band is skipped, an open
-    band raises the max). When journal_keys cannot be imported: max + 1 over the plain ids, as before."""
-    try:
-        import journal_keys
-
-        return "t-%03d" % journal_keys.next_ids(events).main
-    except Exception:
-        pass
-    top = 0
-    for e in events:
-        m = _TID_RE.match(str(e.get("task_id") or ""))
-        if m:
-            top = max(top, int(m.group(1)))
-    return f"t-{top + 1:03d}"  # the journal's own width: t-008, t-318
-
-
-def band_lines_of(events: list) -> list:
-    """The `band t-A..t-B: next t-N` lines of the fallback path (rule 9e): [] when journal_keys cannot be imported."""
-    try:
-        import journal_keys
-
-        return journal_keys.band_lines(journal_keys.next_ids(events))
-    except Exception:
-        return []
+# offload B0 (S-5): the snapshot no longer computes a next id (max+1 races between sessions); it names the one road
+NEXT_ID_DOOR = "from python -B tools/journal_write.py next (the clone counter)"
 
 
 # -- carriers ----------------------------------------------------------
@@ -528,23 +504,17 @@ def build_snapshot(root: Path, source: str, now: datetime.datetime, session=None
 
     out += ["", "## 3. OPEN DISPATCHES", ""]
     if jerr:
-        out.append(f"journal {jerr} -- open dispatches and next free id NOT computed")
+        out.append(f"journal {jerr} -- open dispatches and next id NOT computed")
         n_open, nxt = None, None
     else:
         opens, fallback = open_dispatches_with_source(events, journal)
         n_open = len(opens)
-        band_ls: list = []
-        if journal is None:
-            nxt, nxt_label = next_free_id(events), "NEXT FREE ID"
-            band_ls = band_lines_of(events)
-        elif not switched:
-            nxt, nxt_label = journal.next_free_id(""), "NEXT FREE ID"
-            band_ls = jk.band_lines(journal.band_state(""))
-        elif cur_rel is None:
-            nxt, nxt_label = "unknown -- no developer slug", "NEXT FREE ID"
+        # offload B0: ids are issued by the clone counter, never read off the journal's max -- no band lines either
+        if journal is not None and switched and cur_rel is None:
+            nxt = "unknown -- no developer slug"
         else:
-            nxt, nxt_label = journal.next_free_id(own_label), f"NEXT FREE ID ({cur_rel})"
-            band_ls = jk.band_lines(journal.band_state(own_label))
+            nxt = NEXT_ID_DOOR
+        nxt_label = "next id"
         if fallback:
             out.append("(note: session_context could not be imported, so this list was computed by the plain "
                        "fallback rule - a `closes:t-NNN` marker is NOT honoured here: a dispatch closed that way "
@@ -553,19 +523,23 @@ def build_snapshot(root: Path, source: str, now: datetime.datetime, session=None
             out.append(f"(note: {bad} malformed journal line(s) skipped)")
         if not opens:
             out.append("none")
+        # a `returned` never closes a task (rule 9f): the dispatch stays listed, marked as RESULT PENDING
+        returned = {(e.get("task_id"), e.get("worker_ref")): e.get("ts")
+                    for e in events if e.get("event") == "returned"}
         for e in opens:
             shown_id = e.get("task_id")
+            back = returned.get((shown_id, e.get("worker_ref")))
+            pending = f" RESULT PENDING (returned {back})" if back else ""
             if jk is not None and not fallback:
                 key = jk.task_key(e, journal.segments)      # B-454: the key on the screen, t-NNN@label for a labelled task
                 shown_id = jk.display(key) if key is not None else shown_id
             out.append(
                 f"- {shown_id} agent={e.get('agent')} model={e.get('model')} "
                 f"ts={e.get('ts')} worker_ref={e.get('worker_ref')} | "
-                f"{one_line(e.get('notes'), NOTE_CAP_DISPATCH)}"
+                f"{one_line(e.get('notes'), NOTE_CAP_DISPATCH)}{pending}"
             )
         out.append("")
         out.append(f"{nxt_label}: {nxt}")
-        out.extend(band_ls)        # rule 9e: the bands with a free id, so a session keeps its band across /compact
 
     out += ["", f"## 4. Last {JOURNAL_TAIL} journal events", ""]
     if jerr:
@@ -703,7 +677,7 @@ def write_snapshot(root: Path, source: str, now: datetime.datetime = None, sessi
         f"COMPACT SNAPSHOT: {rel} {dash} open dispatches "
         f"{'?' if facts['open'] is None else facts['open']}, uncommitted package "
         f"{'?' if facts['pkg'] is None else facts['pkg']} / forge "
-        f"{'?' if facts['forge'] is None else facts['forge']}, next free id "
+        f"{'?' if facts['forge'] is None else facts['forge']}, next id "
         f"{facts['next'] or '?'}"
     )
     return summary, folder

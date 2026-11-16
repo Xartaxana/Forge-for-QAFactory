@@ -1541,8 +1541,10 @@ def test_peer_main_sessions_p4_a_thousand_peers_youngest_first_and_the_note_show
     peers = transcripts.peer_main_sessions(str(own), now)
     assert len(peers) == 1000 and [a for _s, a in peers] == sorted(a for _s, a in peers)
     import journal_keys
-    note = journal_keys.peer_note(peers, journal_keys.BandState())
+    note = journal_keys.peer_note(peers)            # offload B0: no band state any more
     assert note.count("s0") == 3 and "+997 more" in note and note.startswith("PARALLEL SESSION (a note, nothing is blocked)")
+    assert note.endswith("Task ids come from the clone counter (python -B tools/journal_write.py next); nothing to do.")
+    assert "id_band" not in note and "band" not in note
 
 
 def test_peer_main_sessions_p5_a_folder_with_spaces_and_cyrillic(tmp_path):

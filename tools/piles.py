@@ -2684,7 +2684,7 @@ CLOSE_FORMS = ('`close <slug> <N> --hash <h> [--url <https://…>]` or '
 
 # ---- the carry-over gate of `close <slug> <N>`: a batch is closed by finishing, not by carrying over (08.10.2026) ----
 
-LEFTOVER_DONE_RE = re.compile(r"[0-9a-f]{7,40}|t-\d+")
+LEFTOVER_DONE_RE = re.compile(r"[0-9a-f]{7,40}|" + journal_keys.ID_PATTERN)     # the t- branch: the journal's read grammar (offload B0)
 LEFTOVER_TARGET_RE = re.compile(r"findings/[^/\s]+\.md|пачка\s+\d{1,3}|[a-z0-9][a-z0-9-]*/findings/[^/\s]+\.md")
 # A `подтвердил:` / `обоснование:` value that is only one of these (trimmed, lower case) is EMPTY: the gate exists for a person's
 # signature and a reason. A dash with text ("— Иванов, 09.10") is not one of them. Data, not code (FR-13).
@@ -2999,7 +2999,7 @@ def check_leftovers(text: str, rel: str, *, root=None, pile=None, view=None, del
 PROOF_SECTION = "живые доказательства"
 # `сделано:` of a proof row: a commit (7-40 hex), a task (t-nnn) or a log / notebook path (a `/` and a file extension; a bare
 # "да/нет" is not one). A `перенос:` target is free text -- where the proof goes is for the person who confirms it to judge.
-PROOF_DONE_RE = re.compile(r"[0-9a-f]{7,40}|t-\d+|(?:[\w.-]+/)+[\w-]+(?:\.[\w-]+)+(?:[#:][\w.-]+)?")
+PROOF_DONE_RE = re.compile(r"[0-9a-f]{7,40}|" + journal_keys.ID_PATTERN + r"|(?:[\w.-]+/)+[\w-]+(?:\.[\w-]+)+(?:[#:][\w.-]+)?")
 PROOF_TARGET_RE = re.compile(r"(?!(?:%s)$)\S.*" % "|".join(re.escape(w) for w in LEFTOVER_EMPTY_WORDS))
 PROOF_RULE = DoneCarryRule(PROOF_DONE_RE, "7-40 hex characters nor t-nnn nor a log/notebook path (dir/file.ext)",
                            PROOF_TARGET_RE, "a place (text that is not empty or a placeholder word)")
@@ -3220,7 +3220,7 @@ def cmd_close(args, root) -> int:
 
 STATUS_NODE_WORDS = ("в работе", "сдано", "принято", "отклонено")     # what `status` writes into a node's Статус cell
 STATUS_BATCH_WORDS = ("сдано", "принято")                              # `в работе` is `take`'s, `закрыта` is `close`'s
-TASK_RE = re.compile(r"t-\d{1,6}")
+TASK_RE = re.compile(journal_keys.ID_PATTERN)       # the journal's one read grammar (offload B0); used with fullmatch
 NODE_ID_MAX = 40
 HAND_EDIT = "edit the cell by hand (a taken batch allows it: (в) masks every Статус cell)"
 
@@ -3254,7 +3254,7 @@ def _status_evidence(root, args, word: str, node_level: bool) -> str:
         raise Refused('--hash and --task go with a node set to принято (`принято: <hash> (t-NNN)`); "%s" is written as the bare word'
                       % word)
     if has_t and not TASK_RE.fullmatch(args.task):
-        raise Refused('--task "%s": expected a task id t-NNN (1-6 digits)' % printable(_shorten(args.task, 40)))
+        raise Refused('--task "%s": expected a task id t-NNN (3-9 digits, optional lower-case letter)' % printable(_shorten(args.task, 40)))
     if has_h:
         check_hash(root, args.hash)
     if node_level and word == "принято":

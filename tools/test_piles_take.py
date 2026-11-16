@@ -291,7 +291,7 @@ BROKEN_TABLE = {                                # `load_pile` only appends a bat
 def status_world(tree, cli, kind):
     """Batch 2 of the mini tree in the state `kind`; the hash used is HEAD's short hash (nothing here moves HEAD)."""
     h = head_hash(tree, short=True)
-    rows = {"taken": ["ожидает"], "submitted-node": ["сдано"], "accepted-node": ["принято: %s (t-1)" % h],
+    rows = {"taken": ["ожидает"], "submitted-node": ["сдано"], "accepted-node": ["принято: %s (t-001)" % h],
             "open-nodes": ["принято", "сдано"], "all-done": ["принято", "отклонено"], "dup": ["ожидает", "ожидает"],
             "batch-accepted-fully": ["принято", "отклонено"]}.get(kind, ["ожидает"])
     ids = ["F0-3 + F0-4"] if kind == "two-ids" else ["F0-3", "F0-3"] if kind == "dup" else ["Ф0-3", "F0-4"] if kind == "cyrillic-id" \
@@ -333,8 +333,8 @@ STATUS_ROWS = [
     ("backwards", "submitted-node", (*NODE_SET, "в работе"), 2, ('is "сдано" -- a status only goes forward', "edit the cell by hand"), "none", ""),
     ("accepted-then-rejected", "accepted-node", (*NODE_SET, "отклонено"), 2, ("and final", "writes nothing any more", "edit the cell by hand"), "none", ""),
     ("same-again", "submitted-node", (*NODE_SET, "сдано"), 0, ("forge/2 F0-3 is already сдано; nothing changed",), "none", ""),
-    ("accepted-other-hash", "accepted-node", (*NODE_SET, "принято", "--hash", "{h}", "--task", "t-2"), 2, ('already accepted with "принято: {h} (t-1)"',), "none", ""),
-    ("accepted-same-again", "accepted-node", (*NODE_SET, "принято", "--hash", "{h}", "--task", "t-1"), 0, ("is already принято; nothing changed",), "none", ""),
+    ("accepted-other-hash", "accepted-node", (*NODE_SET, "принято", "--hash", "{h}", "--task", "t-002"), 2, ('already accepted with "принято: {h} (t-001)"',), "none", ""),
+    ("accepted-same-again", "accepted-node", (*NODE_SET, "принято", "--hash", "{h}", "--task", "t-001"), 0, ("is already принято; nothing changed",), "none", ""),
     ("accepted-no-evidence", "taken", (*NODE_SET, "принято"), 2, ("expected --hash <merge commit> and/or --task t-NNN",), "none", ""),
     ("accepted-hash", "taken", (*NODE_SET, "принято", "--hash", "{h}"), 0, ("set to принято: {h}. Next:",), "node", "принято: {h}"),
     ("accepted-task", "taken", (*NODE_SET, "принято", "--task", "t-415"), 0, ("set to принято (t-415)",), "node", "принято (t-415)"),
@@ -357,13 +357,26 @@ STATUS_ROWS = [
     ("bad-hash", "taken", (*NODE_SET, "принято", "--hash", "xyz1234"), 2, ('--hash "xyz1234": expected a commit hash (7-40 hex characters)',), "none", ""),
     ("bad-hash-empty", "taken", (*NODE_SET, "принято", "--hash", ""), 2, ("expected a commit hash",), "none", ""),
     ("bad-hash-not-a-commit", "taken", (*NODE_SET, "принято", "--hash", "deadbee"), 2, ("deadbee is not a commit in this repository",), "none", ""),
-    ("bad-task-magnitude", "taken", (*NODE_SET, "принято", "--task", "t-1234567"), 2, ("expected a task id t-NNN (1-6 digits)",), "none", ""),
+    # offload B0 (X-4, E-B0-9): the task id is the journal's read grammar -- 3-9 digits, an optional lower-case letter(s);
+    # the rows `t-1` / `t-2` / `t-9` are REWRITTEN to t-001 / t-002 / t-009 above, and `t-1` is now a refused row below
+    ("bad-task-magnitude", "taken", (*NODE_SET, "принято", "--task", "t-1234567890"), 2, ("expected a task id t-NNN (3-9 digits, optional lower-case letter)",), "none", ""),
+    ("bad-task-nine-digits-ok", "taken", (*NODE_SET, "принято", "--task", "t-123456789"), 0, ("set to принято (t-123456789)",), "node", "принято (t-123456789)"),
+    ("task-with-a-letter", "taken", (*NODE_SET, "принято", "--task", "t-123a"), 0, ("set to принято (t-123a)",), "node", "принято (t-123a)"),
+    ("task-with-two-letters", "taken", (*NODE_SET, "принято", "--task", "t-123ab"), 0, ("set to принято (t-123ab)",), "node", "принято (t-123ab)"),
+    ("bad-task-three-letters", "taken", (*NODE_SET, "принято", "--task", "t-123abc"), 2, ("expected a task id t-NNN (3-9 digits, optional lower-case letter)",), "none", ""),
+    ("bad-task-upper-letter", "taken", (*NODE_SET, "принято", "--task", "t-123A"), 2, ("expected a task id t-NNN (3-9 digits",), "none", ""),
+    ("bad-task-cyrillic-letter", "taken", (*NODE_SET, "принято", "--task", "t-123а"), 2, ("expected a task id t-NNN (3-9 digits",), "none", ""),
+    ("bad-task-fullwidth", "taken", (*NODE_SET, "принято", "--task", "t-１２３"), 2, ("expected a task id t-NNN (3-9 digits",), "none", ""),
+    ("bad-task-one-digit", "taken", (*NODE_SET, "принято", "--task", "t-1"), 2, ("expected a task id t-NNN (3-9 digits",), "none", ""),
+    ("bad-task-two-digits", "taken", (*NODE_SET, "принято", "--task", "t-12"), 2, ("expected a task id t-NNN (3-9 digits",), "none", ""),
     ("bad-task-empty", "taken", (*NODE_SET, "принято", "--task", ""), 2, ("expected a task id t-NNN",), "none", ""),
     ("bad-task-pipe", "taken", (*NODE_SET, "принято", "--task", "t-1|x"), 2, ("expected a task id t-NNN",), "none", ""),
+    ("bad-task-pipe-3-digits", "taken", (*NODE_SET, "принято", "--task", "t-001|x"), 2, ("expected a task id t-NNN",), "none", ""),
     ("bad-task-case", "taken", (*NODE_SET, "принято", "--task", "T-1"), 2, ("expected a task id t-NNN",), "none", ""),
-    ("evidence-with-other-word", "taken", (*NODE_SET, "сдано", "--task", "t-1"), 2, ("--hash and --task go with a node set to принято",), "none", ""),
+    ("bad-task-trailing-newline", "taken", (*NODE_SET, "принято", "--task", "t-123\n"), 2, ("expected a task id t-NNN (3-9 digits",), "none", ""),
+    ("evidence-with-other-word", "taken", (*NODE_SET, "сдано", "--task", "t-001"), 2, ("--hash and --task go with a node set to принято",), "none", ""),
     ("evidence-at-batch-level", "taken", ("--set", "сдано", "--hash", "{h}"), 2, ("--hash and --task go with a node set to принято",), "none", ""),
-    ("word-in-another-case", "taken", (*NODE_SET, "ПРИНЯТО", "--task", "t-9"), 0, ("set to принято (t-9)",), "node", "принято (t-9)"),
+    ("word-in-another-case", "taken", (*NODE_SET, "ПРИНЯТО", "--task", "t-009"), 0, ("set to принято (t-009)",), "node", "принято (t-009)"),
     ("word-with-extra-spaces", "taken", (*NODE_SET, "  В   работе "), 0, ("set to в работе",), "node", "в работе"),
     ("word-unknown", "taken", (*NODE_SET, "готово"), 2, ('--set "готово": expected one of в работе, сдано, принято, отклонено for a node',), "none", ""),
     ("word-waiting-on-a-node", "taken", (*NODE_SET, "ожидает"), 2, ("expected one of в работе, сдано, принято, отклонено for a node",), "none", ""),

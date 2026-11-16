@@ -74,9 +74,9 @@ BACKLOG = """# Бэклог фабрики
 
 FEATURES = '{"schema_version": 1, "features": []}\n'
 
-LEFTOVER_OK = "- x | сделано: t-1"           # the default «Остатки» line of batch_text: finished, so `close` may pass
+LEFTOVER_OK = "- x | сделано: t-001"          # the default «Остатки» line of batch_text: finished, so `close` may pass
 PROOF_WAITING = "ждёт фазы 1"                 # the default «Статус» cell of batch_text's proof row: waiting, so `close` refuses (F5-5)
-PROOF_DONE = "сделано: t-1"                   # a finished proof row; accept_batch1 and batch2 put it there
+PROOF_DONE = "сделано: t-001"                  # a finished proof row; accept_batch1 and batch2 put it there
 
 
 def card_text(slug, name, rows=(), feats="F19"):

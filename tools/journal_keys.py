@@ -72,7 +72,16 @@ SLUG_RE = dev_config.SLUG_RE
 _TS_SHAPE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$")
 IDENTITY_FIELDS = ("ts", "task_id", "event", "agent", "worker_ref")
 LABEL_RE = re.compile(r"^[a-z0-9-]{1,24}$")
-REF_RE = re.compile(r"^(t-\d{3,})(?:@([a-z0-9-]{1,24}))?$")
+# THE ONE ID GRAMMAR (offload B0, owner 14.11.2026 "Number 123 and 123A"): a task id is `t-` + 3 to 9 ASCII digits + an
+# optional clone LETTER of 0-2 lower-case ASCII letters (`t-123`, `t-123a`, `t-123ab`). `[0-9]` / `[a-z]`, never `\d` /
+# `\w`: a fullwidth digit, a Cyrillic or an upper-case letter is not an id. `\Z`, not `$`. READING is permissive about
+# spelling (a legacy `t-0123` is a readable string) and keys by the STRING (task_key = (label, id)), never by a
+# normalised number: `t-123` and `t-123a` are two tasks. ISSUING is narrower (is_canonical).
+ID_RE = re.compile(r"^t-([0-9]{3,9})([a-z]{0,2})\Z")
+ID_PATTERN = r"t-[0-9]{3,9}[a-z]{0,2}"
+ID_JUMP_MAX = 1000            # rule 9a'': a brand-new id is at most this far above the max number of its letter
+JOURNAL_WRITE_DOOR = "python -B tools/journal_write.py next"
+REF_RE = re.compile(r"^(" + ID_PATTERN + r")(?:@([a-z0-9-]{1,24}))?\Z")
 # The `closes:` token of a journal line's notes: `closes:t-NNN` or `closes:t-NNN@label`. The
 # `(?<!\w)` boundary keeps `discloses:t-001` out. The label part is captured WIDER than a valid
 # label (any run of [A-Za-z0-9_-]) on purpose: a token whose `@...` is not a valid label closes
@@ -80,7 +89,10 @@ REF_RE = re.compile(r"^(t-\d{3,})(?:@([a-z0-9-]{1,24}))?$")
 # close the OTHER clone's instance, the false close this module exists to prevent. The readers
 # (session_context, calibration_counts) keep a fallback copy of this regex for the case that this
 # module cannot be imported; a test in each pins their pattern equal to this one.
-CLOSES_RE = re.compile(r"(?<!\w)closes:(t-\d+)(@[A-Za-z0-9_-]*)?")
+# The id of a token ends at a boundary: an ASCII letter or digit (or any non-ASCII character) right after it makes it
+# NOT an id (`closes:t-123A`, `closes:t-123abc`, `closes:t-123` + a Cyrillic letter close nothing -- never the bare
+# `t-123`, K4's false close); the optional `@label` follows the boundary.
+CLOSES_RE = re.compile(r"(?<!\w)closes:(" + ID_PATTERN + r")(?![0-9A-Za-z]|[^\x00-\x7f])(@[A-Za-z0-9_-]*)?")
 # The NODE of a `delegated` line (t-797 F5-2, M5): the pile node the work belongs to, ONE form everywhere --
 # the `node` field, the hop_metrics `--node` argument and the normalized notes token: `<slug>/<N>/<id>`
 # (`forge/5/F5-2`, `conductor/2/C2-1`, `forge/4/D9`). A bare id (`F5-2`) is never a node: ids repeat between
@@ -100,7 +112,7 @@ MAX_PROBLEMS_SHOWN = 3
 # never reached on a long run). `\Z`, not `$`: `t-500..\n` is not a band. The id regex of the next-id readers
 # (ID_NUM_RE) is the same ASCII class, kept here because journal_validator imports this module, not the reverse.
 BAND_RE = re.compile(r"^t-([0-9]{3,9})\.\.(?:t-([0-9]{3,9}))?\Z")
-ID_NUM_RE = re.compile(r"^t-([0-9]{3,9})$")
+ID_NUM_RE = ID_RE         # kept name: group(1) the digits, group(2) the clone letter (rebuilt on the read grammar)
 BAND_MAX_SIZE = 1000      # ids in a closed band
 BAND_JUMP_MAX = 10000     # a band may start at most this far above `top`
 BAND_GAP_MIN = 50         # a closed band starts at least this far above `top` (it protects by DISTANCE)
@@ -139,6 +151,45 @@ NO_SEGMENTS = Segments()
 def identity(obj: dict) -> tuple:
     """The five-field identity of a journal line object (non-strings read as "")."""
     return tuple(obj.get(k) if isinstance(obj.get(k), str) else "" for k in IDENTITY_FIELDS)
+
+
+def parse_id(s):
+    """(digits_text, letter) of a task id in the READ grammar (`t-123` -> ("123", ""), `t-123a` -> ("123", "a")), else
+    None. A non-string is None. Pure, never raises."""
+    m = ID_RE.match(s) if isinstance(s, str) else None
+    return (m.group(1), m.group(2)) if m else None
+
+
+def is_canonical(s) -> bool:
+    """The ISSUE grammar: an id a writer may issue anew. The number is 001..999 zero-padded to 3 digits, or 4-9 digits
+    with no leading zero; number >= 1; the letter part is as the read grammar allows. `t-0123`, `t-000`, `t-0001`
+    read fine as strings but are never issued."""
+    parsed = parse_id(s)
+    if parsed is None:
+        return False
+    digits, _letter = parsed
+    if int(digits) < 1:
+        return False
+    return len(digits) == 3 or digits[0] != "0"
+
+
+def id_number(s):
+    """The number of a task id in the read grammar as an int (the letter ignored), else None."""
+    parsed = parse_id(s)
+    return int(parsed[0]) if parsed else None
+
+
+def max_by_letter(objs) -> dict:
+    """{letter: highest number seen} over the `task_id` of every journal line object in `objs` (ids of the read
+    grammar only; an id with no letter is under ""). Rule 9a'' reads its jump cap from this. Never raises."""
+    out: dict = {}
+    for obj in objs:
+        parsed = parse_id(obj.get("task_id")) if isinstance(obj, dict) else None
+        if parsed is not None:
+            n = int(parsed[0])
+            if n > out.get(parsed[1], 0):
+                out[parsed[1]] = n
+    return out
 
 
 def split_lines(text: str | None) -> list[str]:
@@ -300,8 +351,8 @@ class BandState:
             if band is not None:
                 self.add_band(band)
         tid = obj.get("task_id") if isinstance(obj, dict) else None
-        m = ID_NUM_RE.match(tid) if isinstance(tid, str) else None
-        if m:
+        m = ID_RE.match(tid) if isinstance(tid, str) else None
+        if m and not m.group(2):         # a lettered id belongs to another clone's counter, not to this sequence
             self.ids.add(int(m.group(1)))
 
     def issuable(self):
@@ -384,24 +435,22 @@ def band_lines(state) -> list:
 PEER_CLEAR_SUFFIX = " (possibly this session before /clear)"
 
 
-def peer_note(peers, state, cleared: bool = False) -> str:
+def peer_note(peers, cleared: bool = False) -> str:
     """The PARALLEL SESSION note (a note, never a refusal): "" with no `peers` ([(stem, age_s)], youngest first,
     transcripts.peer_main_sessions), else one line that tells the session another main session of this project
-    is live and how to open a band. At most 3 stems are shown. `state`: a BandState or a NextIds (its `top`).
-    `cleared` (SessionStart source "clear"): the youngest file may be this very session's pre-/clear transcript, so
-    the note ends with PEER_CLEAR_SUFFIX -- no peer is dropped (an unknown is never hidden)."""
+    is live. Ids come from the clone counter (JOURNAL_WRITE_DOOR), so nobody opens a band: the note says there is
+    nothing to do. At most 3 stems are shown. `cleared` (SessionStart source "clear"): the youngest file may be
+    this very session's pre-/clear transcript, so the note ends with PEER_CLEAR_SUFFIX -- no peer is dropped (an
+    unknown is never hidden)."""
     if not peers:
         return ""
-    s = suggested_band(state.top)
     shown = ", ".join(str(stem)[:8] for stem, _age in peers[:3])
     if len(peers) > 3:
         shown += f", +{len(peers) - 3} more"
     return (
         "PARALLEL SESSION (a note, nothing is blocked): another main session of this project wrote its "
-        f"transcript {int(peers[0][1]) // 60} min ago ({shown}). Two sessions issuing task ids into one journal "
-        "file collide on max+1 (13.11, t-347..t-356); one of you opens a band before its next id: "
-        f'id_band: "t-{s:03d}..t-{s + 49:03d}" on every journal line you issue from it (python tools/journal_keys.py '
-        "where prints the next ids; CLAUDE.md, Routing log)."
+        f"transcript {int(peers[0][1]) // 60} min ago ({shown}). Task ids come from the clone counter "
+        f"({JOURNAL_WRITE_DOOR}); nothing to do."
         + (PEER_CLEAR_SUFFIX if cleared else "")
     )
 
@@ -844,15 +893,15 @@ class Journal:
         skipped."""
         return [r.obj for r in (self.rows if rows is None else rows) if r.obj is not None]
 
-    def next_free_id(self, label) -> str:
-        """t-NNN = the next id of the file's own sequence of the logical journal `label`, in the journal's own
-        width: max(t-NNN) + 1, where an open band raises the max and a closed band is skipped (rule 9e;
-        `next_ids`). With no band in the journal it is max + 1, as before."""
-        return f"t-{next_ids(r.obj for r in self.logical(label) if r.obj is not None).main:03d}"
+    def max_ids(self, label) -> dict:
+        """{letter: highest number} of the logical journal `label` (see max_by_letter). Ids are NOT issued from
+        this: the one road is JOURNAL_WRITE_DOOR (the clone counter); this is what `where` shows and what rule
+        9a'' measures a jump against."""
+        return max_by_letter(r.obj for r in self.logical(label) if r.obj is not None)
 
     def band_state(self, label) -> BandState:
-        """The BandState of the logical journal `label` (what next_free_id reads), for the readers that also
-        print the bands (compact_snapshot)."""
+        """The BandState of the logical journal `label` -- READ-ONLY: bands are retired for new lines, but the
+        old lines' bands still feed `BandState.top`."""
         state = BandState()
         for r in self.logical(label):
             if r.obj is not None:
@@ -1137,11 +1186,10 @@ def cmd_check(journal_path: Path, segments_path: Path) -> int:
 
 
 def cmd_where(root: Path) -> int:
-    """Prints the file this clone writes its journal lines to, the next free task id and the last
-    ts of that writer's logical journal -- from current_path(), the function the hooks use -- then
-    (rule 9e) a line `band t-A..t-B: next t-N` for each of the latest 3 closed bands that still have a
-    free id, and LAST, always, the band a second writer would open. Exit 1 with the door when there is
-    no path to write."""
+    """Prints the file this clone writes its journal lines to, the highest task number PER LETTER of that
+    writer's logical journal and its last ts -- from current_path(), the function the hooks use -- and the one
+    road that issues an id (JOURNAL_WRITE_DOOR: the clone counter; bands are retired). Exit 1 with the door when
+    there is no path to write."""
     rel, why = current_path(root)
     if rel is None:
         print(f"journal_keys where: there is no file to write to -- {why}", file=sys.stderr)
@@ -1149,20 +1197,13 @@ def cmd_where(root: Path) -> int:
     j = load_all(root)
     label = "" if rel == HISTORY_REL else Path(rel).stem
     print(f"write to: {rel}")
-    if rel != HISTORY_REL and not (root / rel).exists():
-        print(f"next free id: t-001 (the file does not exist yet; with `continues` on line 1 it continues the history: "
-              f"{j.next_free_id('')})")
-        print("last ts: -")
-        s, e = j.band_state("").suggested()      # the file continues the history: its top is the history's
-        print(f"suggested band (for a second writer): t-{s:03d}..t-{e:03d}")
-        return 0
-    state = j.band_state(label)
-    print(f"next free id: t-{state.issuable()[0]:03d}")
-    print(f"last ts: {j.last_ts(label) or '-'}")
-    for line in band_lines(state):
-        print(line)
-    s, e = state.suggested()
-    print(f"suggested band (for a second writer): t-{s:03d}..t-{e:03d}")
+    # a file that does not exist yet continues the history (`continues` on line 1): its maxima are the history's
+    maxima = j.max_ids("" if rel != HISTORY_REL and not (root / rel).exists() else label)
+    shown = ", ".join(f"{letter or '(none)'}: t-{n:03d}{letter}" for letter, n in sorted(maxima.items())) or "-"
+    print(f"max id per letter: {shown}")
+    print(f"ids are issued by `{JOURNAL_WRITE_DOOR}` (the clone counter); do not take max+1 by hand")
+    exists = rel == HISTORY_REL or (root / rel).exists()
+    print(f"last ts: {(j.last_ts(label) if exists else None) or '-'}")
     return 0
 
 
@@ -1171,7 +1212,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--journal", default=None, help="the journal path (default logs/routing-log.jsonl of this repository)")
     ap.add_argument("--root", default=None, help="`where`: the repository root (default: the repository of this file)")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("where", help="print the file this clone writes to, the next free id and the last ts")
+    sub.add_parser("where", help="print the file this clone writes to, the max id per letter and the last ts")
     d = sub.add_parser("declare", help="declare the lines A-B of the journal as a foreign instance")
     d.add_argument("--label", required=True)
     d.add_argument("--lines", required=True, help="A-B, 1-based, inclusive")

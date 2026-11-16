@@ -372,7 +372,7 @@ def test_closes_tokens_shapes():
     assert jk.closes_tokens("closes:t-050,closes:t-051;") == ["t-050", "t-051"]
     assert jk.closes_tokens("discloses:t-050 encloses:t-051") == []          # the (?<!\w) boundary
     assert jk.closes_tokens("closes: t-050") == [] and jk.closes_tokens(None) == [] and jk.closes_tokens(5) == []
-    assert jk.closes_tokens("closes:t-5") == ["t-5"]                          # a legacy short id stays a token (ref_key refuses it)
+    assert jk.closes_tokens("closes:t-5") == []                               # 3-9 digits: a short id is no token of the one grammar
     assert jk.closes_tokens("closes:t-050@a closes:t-050@" + "a" * 24) == ["t-050@a", "t-050@" + "a" * 24]
 
 
@@ -526,7 +526,7 @@ def test_k4_an_empty_root_and_an_empty_developer_file(tmp_path):
     root = make_root(tmp_path / "e", history=None, files={DEV2: ""})
     j = jk.load_all(root)
     assert j.rows == [] and j.problems == [] and [f.slug for f in j.files] == ["dev2"]
-    assert j.next_free_id("dev2") == "t-001" and j.last_ts("dev2") is None
+    assert j.max_ids("dev2") == {} and j.last_ts("dev2") is None
     assert j.successor_slug is None                     # an empty file has no line 1: it cannot continue the history
 
 
@@ -534,13 +534,13 @@ def test_k4_the_successor_continues_the_numbers_of_the_history_and_an_empty_file
     root = _two_files(tmp_path)
     j = jk.load_all(root)
     assert j.successor_slug == "dev1" and j.aliases == frozenset({"main", "dev1"})
-    assert j.next_free_id("") == "t-004" and j.next_free_id("main") == "t-004" and j.next_free_id("dev1") == "t-004"
-    assert j.next_free_id("dev2") == "t-003"
+    assert j.max_ids("") == {"": 3} and j.max_ids("main") == {"": 3} and j.max_ids("dev1") == {"": 3}
+    assert j.max_ids("dev2") == {"": 2}
     assert [r.line_no for r in j.logical("")] == [1, 2, 3, 1, 2]        # the history followed by the successor
     assert j.last_ts("") == "2026-10-02T08:30:00" and j.last_ts("dev2") == "2026-10-02T09:10:00"
     # a successor with only its line 1: the ids still go on from the history
     only = make_root(tmp_path / "o", files={DEV1: jtext(M_CREATED)})
-    assert jk.load_all(only).next_free_id("") == "t-003"
+    assert jk.load_all(only).max_ids("") == {"": 2}
 
 
 def test_k4_two_successors_and_a_misplaced_continues_are_problems_and_none_is_a_successor(tmp_path):
@@ -660,20 +660,26 @@ def _where(root, capsys):
     return rc, out.out, out.err
 
 
+_DOOR_LINE = "ids are issued by `python -B tools/journal_write.py next` (the clone counter); do not take max+1 by hand"
+
+
 def test_k17_before_the_switch_it_is_the_history(tmp_path, capsys):
     rc, out, err = _where(make_root(tmp_path), capsys)
     assert rc == 0 and err == ""
-    assert out.splitlines() == ["write to: logs/routing-log.jsonl", "next free id: t-003", "last ts: 2026-10-01T10:00:00", "suggested band (for a second writer): t-100..t-149"]
+    assert out.splitlines() == ["write to: logs/routing-log.jsonl", "max id per letter: (none): t-002", _DOOR_LINE,
+                                "last ts: 2026-10-01T10:00:00"]
 
 
 def test_k17_after_the_switch_with_a_slug(tmp_path, capsys):
     rc, out, err = _where(_two_files(tmp_path), capsys)
     assert rc == 0 and err == ""
-    assert out.splitlines() == ["write to: logs/journal/dev1.jsonl", "next free id: t-004", "last ts: 2026-10-02T08:30:00", "suggested band (for a second writer): t-100..t-149"]
+    assert out.splitlines() == ["write to: logs/journal/dev1.jsonl", "max id per letter: (none): t-003", _DOOR_LINE,
+                                "last ts: 2026-10-02T08:30:00"]
     other = _two_files(tmp_path / "n")
     write(other, jk.DEV_CONFIG_REL, "developer: dev2\n")
     rc, out, err = _where(other, capsys)
-    assert rc == 0 and out.splitlines() == ["write to: logs/journal/dev2.jsonl", "next free id: t-003", "last ts: 2026-10-02T09:10:00", "suggested band (for a second writer): t-100..t-149"]
+    assert rc == 0 and out.splitlines() == ["write to: logs/journal/dev2.jsonl", "max id per letter: (none): t-002", _DOOR_LINE,
+                                            "last ts: 2026-10-02T09:10:00"]
 
 
 def test_k17_after_the_switch_with_a_slug_whose_file_does_not_exist_yet(tmp_path, capsys):
@@ -681,9 +687,7 @@ def test_k17_after_the_switch_with_a_slug_whose_file_does_not_exist_yet(tmp_path
     write(root, jk.DEV_CONFIG_REL, "developer: dev4\n")
     rc, out, err = _where(root, capsys)
     assert rc == 0
-    assert out.splitlines()[0] == "write to: logs/journal/dev4.jsonl"
-    assert "next free id: t-001 (the file does not exist yet" in out and "continues the history: t-004" in out
-    assert "last ts: -" in out
+    assert out.splitlines() == ["write to: logs/journal/dev4.jsonl", "max id per letter: (none): t-003", _DOOR_LINE, "last ts: -"]
 
 
 def test_k17_after_the_switch_without_a_slug_exits_1_with_the_door(tmp_path, capsys):
@@ -807,41 +811,39 @@ def _band_where(tmp_path, capsys, dev1_lines):
 
 
 def _bd(tid, ts, band=None, **kw):
-    """A delegated line of the dev1 file, optionally carrying `id_band`."""
+    """A delegated line of the dev1 file, optionally carrying `id_band` (an OLD line: bands are retired for new ones)."""
     return delegated(tid, ts, **({"id_band": band} if band else {}), **kw)
 
 
-def test_k1_where_prints_the_band_with_free_ids_and_the_suggested_band_last(tmp_path, capsys):
+# F6-58 rows k1-k3 REWRITTEN to the retired answer (offload B0): `where` prints the max per letter and the door, never a
+# band line and never a suggested band; an old band line is still READ (BandState.top), it is just not advertised.
+def test_k1_where_prints_the_max_per_letter_and_the_door_and_no_band_line(tmp_path, capsys):
     out = _band_where(tmp_path, capsys, [_bd("t-003", "2026-10-02T08:30:00"),
-                                         _bd("t-450", "2026-10-02T08:40:00", "t-450..t-499")])
-    assert out[:3] == ["write to: logs/journal/dev1.jsonl", "next free id: t-004", "last ts: 2026-10-02T08:40:00"]
-    assert out[3:] == ["band t-450..t-499: next t-451", "suggested band (for a second writer): t-550..t-599"]
+                                         _bd("t-450", "2026-10-02T08:40:00", "t-450..t-499"),
+                                         _bd("t-005a", "2026-10-02T08:50:00")])
+    assert out == ["write to: logs/journal/dev1.jsonl", "max id per letter: (none): t-450, a: t-005a", _DOOR_LINE,
+                   "last ts: 2026-10-02T08:50:00"]
+    assert not any(l.startswith(("band ", "suggested band", "next free id")) for l in out)
 
 
-def test_k2_where_shows_the_latest_three_bands_with_a_free_id_and_never_a_used_up_one(tmp_path, capsys):
+def test_k2_where_with_many_old_bands_still_prints_one_max_line_and_no_band_lines(tmp_path, capsys):
     lines = [_bd("t-003", "2026-10-02T08:30:00")]
     top = 3
-    for i in range(7):                       # 5 bands with a free id, 2 used up (a band of 3 ids, all issued)
+    for i in range(7):
         lo = jk.suggested_band(top)
-        used = i in (1, 4)
-        hi = lo + (2 if used else 9)
-        lines.append(_bd(f"t-{lo}", f"2026-10-02T09:{i:02d}:00", f"t-{lo}..t-{hi}"))
-        if used:
-            lines += [_bd(f"t-{lo + k}", f"2026-10-02T09:{i:02d}:{k:02d}") for k in (1, 2)]
-        top = hi
+        lines.append(_bd(f"t-{lo}", f"2026-10-02T09:{i:02d}:00", f"t-{lo}..t-{lo + 9}"))
+        top = lo + 9
     out = _band_where(tmp_path, capsys, lines)
-    band_lines = [l for l in out if l.startswith("band ")]
-    assert len(band_lines) == 3 and len([l for l in out if l.startswith("suggested band")]) == 1
-    expect = [(b, n) for b, n in jk.free_bands(jk.next_ids(json.loads(l) for l in jtext(*lines).splitlines()))]
-    assert len(expect) == 5 and band_lines == [f"band {b.label}: next t-{n:03d}" for b, n in expect[-3:]]
+    assert len(out) == 4 and out[1].startswith("max id per letter: (none): t-") and out[2] == _DOOR_LINE
+    assert not any("band" in l for l in out)
 
 
-def test_k3_where_with_every_band_used_up_prints_no_band_line_but_the_suggestion(tmp_path, capsys):
+def test_k3_where_with_a_used_up_band_prints_the_same_four_lines(tmp_path, capsys):
     lines = [_bd("t-003", "2026-10-02T08:30:00"), _bd("t-100", "2026-10-02T08:40:00", "t-100..t-101"),
              _bd("t-101", "2026-10-02T08:41:00")]
     out = _band_where(tmp_path, capsys, lines)
-    assert out == ["write to: logs/journal/dev1.jsonl", "next free id: t-004", "last ts: 2026-10-02T08:41:00",
-                   "suggested band (for a second writer): t-200..t-249"]
+    assert out == ["write to: logs/journal/dev1.jsonl", "max id per letter: (none): t-101", _DOOR_LINE,
+                   "last ts: 2026-10-02T08:41:00"]
 
 
 @pytest.mark.parametrize("value,reason", [
@@ -883,10 +885,99 @@ def test_the_band_state_is_the_one_next_id_rule():
     assert jk.next_ids([{"task_id": "t-399"}, {"id_band": "t-400..t-449"}, {"id_band": "t-450..t-499"}]).main == 500
     assert jk.next_ids([{"task_id": "t-433"}, {"id_band": "t-500.."}]).main == 500
     assert jk.next_ids([]).main == 1 and jk.next_ids([{"task_id": "t-1234567890"}]).main == 1
-    assert jk.peer_note([], jk.BandState()) == "" and jk.peer_note([], jk.BandState(), cleared=True) == ""
-    assert "on every journal line you issue from it" in jk.peer_note([("abcdefghij", 125)], jk.BandState())
-    plain = jk.peer_note([("abcdefghij", 125)], jk.BandState())
-    assert jk.peer_note([("abcdefghij", 125)], jk.BandState(), cleared=True) == plain + " (possibly this session before /clear)"
-    note = jk.peer_note([(f"abcdefghij{i}", 125) for i in range(5)], jk.BandState())
-    assert "2 min ago (abcdefgh, abcdefgh, abcdefgh, +2 more)" in note and 'id_band: "t-050..t-099"' in note
+    assert jk.peer_note([]) == "" and jk.peer_note([], cleared=True) == ""
+    plain = jk.peer_note([("abcdefghij", 125)])
+    assert "Task ids come from the clone counter (python -B tools/journal_write.py next); nothing to do." in plain
+    assert "id_band" not in plain and "open a band" not in plain and "band" not in plain
+    assert jk.peer_note([("abcdefghij", 125)], cleared=True) == plain + " (possibly this session before /clear)"
+    note = jk.peer_note([(f"abcdefghij{i}", 125) for i in range(5)])
+    assert "2 min ago (abcdefgh, abcdefgh, abcdefgh, +2 more)" in note and "id_band" not in note
 
+
+# ================ the ONE id grammar (offload B0, E-B0-1 / E-B0-2): `t-123`, `t-123a`, ASCII only ================
+
+_FULLWIDTH = "t-１２３"
+_CYRILLIC_A = "t-123а"
+# (value, parse_id, is_canonical): None = not an id of the READ grammar at all
+ID_GRAMMAR_ROWS = [
+    ("t-123", ("123", ""), True), ("t-123a", ("123", "a"), True), ("t-123ab", ("123", "ab"), True),
+    ("t-001", ("001", ""), True), ("t-999", ("999", ""), True), ("t-010", ("010", ""), True),
+    ("t-1000", ("1000", ""), True), ("t-123456789", ("123456789", ""), True), ("t-001a", ("001", "a"), True),
+    # readable as strings, never ISSUED (E-B0-1)
+    ("t-0123", ("0123", ""), False), ("t-000", ("000", ""), False), ("t-0001", ("0001", ""), False),
+    ("t-000a", ("000", "a"), False), ("t-0000000001", None, False),
+    # not ids at all: upper-case, Cyrillic, fullwidth, 3-letter, too short, too long, trailing junk
+    ("t-123A", None, False), (_CYRILLIC_A, None, False), (_FULLWIDTH, None, False), ("t-123abc", None, False),
+    ("t-12", None, False), ("t-1234567890", None, False), ("t-123\n", None, False), ("t-123 ", None, False),
+    (" t-123", None, False), ("T-123", None, False), ("t-", None, False), ("", None, False), ("t-123@", None, False),
+    (None, None, False), (123, None, False), (["t-123"], None, False),
+]
+
+
+@pytest.mark.parametrize("value,parsed,canonical", ID_GRAMMAR_ROWS,
+                         ids=[f"{i}-{str(r[0])[:14]!r}" for i, r in enumerate(ID_GRAMMAR_ROWS)])
+def test_the_id_grammar_read_and_issue(value, parsed, canonical):
+    assert jk.parse_id(value) == parsed
+    assert jk.is_canonical(value) is canonical
+    if parsed is not None:
+        assert jk.id_number(value) == int(parsed[0])
+        assert bool(jk.REF_RE.match(value)) and bool(jk.REF_RE.match(value + "@codex"))
+        assert jk.ID_NUM_RE.match(value).groups() == parsed
+    else:
+        assert jk.id_number(value) is None
+        assert not (isinstance(value, str) and jk.ID_RE.match(value))
+        assert not jk.REF_RE.match(value if isinstance(value, str) else "")
+
+
+def test_one_pattern_text_feeds_the_regexes_and_the_validator_imports_it():
+    assert jk.ID_PATTERN == "t-[0-9]{3,9}[a-z]{0,2}"
+    assert jk.ID_PATTERN in jk.CLOSES_RE.pattern and jk.ID_PATTERN in jk.REF_RE.pattern
+    assert jk.ID_JUMP_MAX == 1000 and jk.JOURNAL_WRITE_DOOR == "python -B tools/journal_write.py next"
+    import journal_validator as jv
+    assert jv.TASK_ID_RE is jk.ID_RE
+
+
+# E-B0-2: a token closes exactly the id it spells; E-B0-1: no non-ASCII / upper-case / long id is ever closed
+@pytest.mark.parametrize("notes,tokens", [
+    ("closes:t-123a", ["t-123a"]), ("closes:t-123", ["t-123"]), ("closes:t-123ab@codex", ["t-123ab@codex"]),
+    ("closes:t-123,closes:t-123a;", ["t-123", "t-123a"]), ("closes:t-123a.", ["t-123a"]),
+    ("closes:t-123@codex-fixes", ["t-123@codex-fixes"]), ("closes:t-123A", []), ("closes:t-123abc", []),
+    ("closes:t-123а", []), ("closes:" + _FULLWIDTH, []),
+    ("closes:t-12", []), ("closes:t-1234567890", []), ("closes:t-123456789", ["t-123456789"]),
+    ("closes:t-123—next", []),                          # decision 2: an id glued to a non-ASCII character closes nothing
+    ("closes:t-123 а", ["t-123"]),                      # a space ends the token: the next word is not part of it
+    ("closes:t-0123", ["t-0123"]),                           # a legacy spelling is READABLE: it closes exactly that string
+    ("closes:t-123abc@codex", []), ("closes:T-123", []), ("closes:t-", []),
+])
+def test_closes_tokens_the_one_grammar_and_the_adversarial_ids(notes, tokens):
+    assert jk.closes_tokens(notes) == tokens
+
+
+def test_a_token_of_the_bare_id_never_resolves_to_the_lettered_task_and_back():
+    segs = jk.NO_SEGMENTS
+    carrier = _ev("2026-10-02T10:00:00", None, "dispatch_skipped")
+    assert jk.ref_key("t-123", carrier, segs) == ("", "t-123")
+    assert jk.ref_key("t-123a", carrier, segs) == ("", "t-123a")
+    assert jk.ref_key("t-123ab@codex", carrier, segs) == ("codex", "t-123ab")
+    assert jk.ref_key("t-123", carrier, segs) != jk.ref_key("t-123a", carrier, segs)
+    for bad in ("t-123A", "t-123abc", _CYRILLIC_A, _FULLWIDTH, "t-12", "t-1234567890", "t-123abc@codex", "t-123a@"):
+        assert jk.ref_key(bad, carrier, segs) is None, bad
+    assert jk.task_key(_ev("2026-10-02T10:00:00", "t-123a"), segs) == ("", "t-123a")      # identity stays the string
+
+
+def test_max_by_letter_and_the_band_state_count_letterless_ids_only():
+    objs = [{"task_id": "t-100"}, {"task_id": "t-102a"}, {"task_id": "t-101a"}, {"task_id": "t-0123"},
+            {"task_id": "t-9"}, {"task_id": None}, "not an object", {"task_id": "t-999999999ab"}]
+    assert jk.max_by_letter(objs) == {"": 123, "a": 102, "ab": 999999999}      # t-0123 is readable: number 123
+    st = jk.BandState()
+    for o in objs:
+        if isinstance(o, dict):
+            st.add(o)
+    assert st.ids == {100, 123}                                                # a lettered id is another counter's
+
+
+def test_where_prints_a_lettered_max_beside_the_letterless_one(tmp_path, capsys):
+    root = make_root(tmp_path, files={DEV1: jtext(M_CREATED, delegated("t-003", "2026-10-02T08:30:00"),
+                                                  delegated("t-001a", "2026-10-02T08:31:00"))}, slug="dev1")
+    rc, out, _err = _where(root, capsys)
+    assert rc == 0 and out.splitlines()[1] == "max id per letter: (none): t-003, a: t-001a"
