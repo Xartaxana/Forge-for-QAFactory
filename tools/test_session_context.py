@@ -1527,19 +1527,6 @@ def test_open_dispatches_accepted_closes_even_when_ts_lies():
     assert sc.open_dispatches(events) == []
 
 
-def test_open_dispatch_lines_cap_three_plus_summary():
-    events = [
-        _event("delegated", ts=f"2026-07-10T08:0{i}:00", agent="builder", task_id=f"t-00{i}")
-        for i in range(1, 6)
-    ]
-    lines = sc.open_dispatch_lines(events)
-    assert len(lines) == 4
-    assert lines[0].startswith("OPEN DISPATCH: t-001")
-    assert lines[1].startswith("OPEN DISPATCH: t-002")
-    assert lines[2].startswith("OPEN DISPATCH: t-003")
-    assert lines[3] == "OPEN DISPATCHES: 5 total, 2 more not shown"
-
-
 # offload B0 item 5: a `returned` NEVER closes a task; delegated + a later matching returned = RESULT PENDING
 def _d(tid, wref, ts="2026-07-10T08:00:00", agent="builder"):
     return _event("delegated", ts=ts, agent=agent, task_id=tid, worker_ref=wref, model="sonnet")
@@ -1549,38 +1536,61 @@ def _r(tid, wref, ts="2026-07-10T09:00:00", agent="builder"):
     return _event("returned", ts=ts, agent=agent, task_id=tid, worker_ref=wref, model="sonnet")
 
 
+_NOW = datetime.datetime(2026, 7, 12, 12, 0, 0)
+_ACC = lambda tid: _event("accepted", ts="2026-07-10T10:00:00", agent="builder", task_id=tid)  # noqa: E731
+
+
+def _week(n, day=10):
+    """n tasks t-001.. each delegated and returned (worker a) at distinct minutes of one day."""
+    out = []
+    for i in range(1, n + 1):
+        out += [_d(f"t-00{i}", "agent:a", ts=f"2026-07-{day:02d}T08:0{i}:00"),
+                _r(f"t-00{i}", "agent:a", ts=f"2026-07-{day:02d}T09:0{i}:00")]
+    return out
+
+
+# FG7-48: ONE count line, then by name only the "returned, not accepted" of the last 7 days (newest first, <=5, "N more")
 @pytest.mark.parametrize("name,events,want", [
-    ("no-returned-is-open", [_d("t-001", "agent:a")], ["OPEN DISPATCH: t-001 agent=builder since 2026-07-10T08:00:00"]),
-    ("matching-returned-is-pending", [_d("t-001", "agent:a"), _r("t-001", "agent:a")],
-     ["RESULT PENDING: t-001 agent=builder returned 2026-07-10T09:00:00"]),
-    ("another-workers-returned-does-not-match", [_d("t-001", "agent:a"), _r("t-001", "agent:b")],
-     ["OPEN DISPATCH: t-001 agent=builder since 2026-07-10T08:00:00"]),
+    ("zero-open-no-line", [], []),
+    ("zero-open-all-accepted", [_d("t-001", "agent:a"), _ACC("t-001")], []),
+    ("only-old-phantoms-one-count-line", [_d("t-001", "agent:a", ts="2026-06-01T08:00:00"), _d("t-002", "agent:b", ts="2026-06-02T08:00:00")],
+     ["OPEN DISPATCHES: 2 (returned, not accepted: 0)"]),
+    ("two-returned-this-week-newest-first", _week(2),
+     ["OPEN DISPATCHES: 2 (returned, not accepted: 2)",
+      "RESULT PENDING: t-002 agent=builder returned 2026-07-10T09:02:00",
+      "RESULT PENDING: t-001 agent=builder returned 2026-07-10T09:01:00"]),
+    ("seven-returned-this-week-five-named-two-more", _week(7),
+     ["OPEN DISPATCHES: 7 (returned, not accepted: 7)"]
+     + [f"RESULT PENDING: t-00{i} agent=builder returned 2026-07-10T09:0{i}:00" for i in range(7, 2, -1)]
+     + ["RESULT PENDING: 2 more"]),
+    ("returned-ten-days-ago-counted-not-named", _week(1, day=2),
+     ["OPEN DISPATCHES: 1 (returned, not accepted: 1)"]),
+    ("returned-of-another-worker-still-counts-for-the-task", [_d("t-001", "agent:a"), _r("t-001", "agent:b")],
+     ["OPEN DISPATCHES: 1 (returned, not accepted: 1)",
+      "RESULT PENDING: t-001 agent=builder returned 2026-07-10T09:00:00"]),
+    ("returned-without-worker-ref-counts", [_d("t-001", "agent:a"), _event("returned", ts="2026-07-10T09:00:00", task_id="t-001")],
+     ["OPEN DISPATCHES: 1 (returned, not accepted: 1)",
+      "RESULT PENDING: t-001 agent=builder returned 2026-07-10T09:00:00"]),
+    ("returned-before-the-last-delegated-does-not-count",
+     [_d("t-001", "agent:a"), _r("t-001", "agent:a"), _d("t-001", "agent:c", ts="2026-07-10T10:00:00", agent="critic")],
+     ["OPEN DISPATCHES: 1 (returned, not accepted: 0)"]),
     ("another-tasks-returned-does-not-match", [_d("t-001", "agent:a"), _r("t-002", "agent:a")],
-     ["OPEN DISPATCH: t-001 agent=builder since 2026-07-10T08:00:00"]),
-    ("returned-never-closes-the-task-it-is-in-the-list-not-gone", [_d("t-001", "agent:a"), _r("t-001", "agent:a")],
-     ["RESULT PENDING: t-001 agent=builder returned 2026-07-10T09:00:00"]),
-    ("an-accepted-closes-it-whatever-returned-says", [_d("t-001", "agent:a"), _r("t-001", "agent:a"),
-                                                       _event("accepted", ts="2026-07-10T10:00:00", agent="builder", task_id="t-001")], []),
-    ("two-workers-one-returned", [_d("t-001", "agent:a"), _d("t-001", "agent:c", ts="2026-07-10T08:10:00", agent="critic"),
-                                  _r("t-001", "agent:a")],
-     ["OPEN DISPATCH: t-001 agent=critic since 2026-07-10T08:10:00"]),                  # only the LAST delegated of a task is open
-    ("lettered-id", [_d("t-123a", "agent:a"), _r("t-123a", "agent:a")], ["RESULT PENDING: t-123a agent=builder returned 2026-07-10T09:00:00"]),
+     ["OPEN DISPATCHES: 1 (returned, not accepted: 0)"]),
+    ("an-accepted-closes-it-whatever-returned-says", [_d("t-001", "agent:a"), _r("t-001", "agent:a"), _ACC("t-001")], []),
     ("bare-and-lettered-are-two-tasks", [_d("t-123", "agent:a"), _d("t-123a", "agent:a"), _r("t-123a", "agent:a")],
-     ["OPEN DISPATCH: t-123 agent=builder since 2026-07-10T08:00:00",
+     ["OPEN DISPATCHES: 2 (returned, not accepted: 1)",
       "RESULT PENDING: t-123a agent=builder returned 2026-07-10T09:00:00"]),
-    ("a-returned-with-no-worker-ref-matches-nothing", [_d("t-001", "agent:a"), _event("returned", ts="2026-07-10T09:00:00", task_id="t-001")],
-     ["OPEN DISPATCH: t-001 agent=builder since 2026-07-10T08:00:00"]),
     ("a-returned-alone-opens-nothing", [_r("t-001", "agent:a")], []),
 ])
 def test_result_pending_and_the_returned_that_never_closes(name, events, want):
-    assert sc.open_dispatch_lines(events) == want
+    assert sc.open_dispatch_lines(events, now=_NOW) == want
     assert "returned" not in sc._OPEN_LIFECYCLE_EVENTS
 
 
 def test_open_dispatch_lines_sanitizes_external_values():
     events = [_event("delegated", ts="2026-07-10T08:00:00", agent="büilder",
-                     task_id="t-001")]
-    lines = sc.open_dispatch_lines(events)
+                     task_id="t-001", worker_ref="agent:a")]
+    lines = sc.open_dispatch_lines(events + [_r("t-001", "agent:a")], now=_NOW)
     assert lines
     for line in lines:
         assert line.isascii()
@@ -1600,9 +1610,10 @@ def test_build_context_lines_shows_open_dispatch(tmp_path):
     root = _seed_repo(tmp_path, events=events)
     now = datetime.datetime(2026, 7, 10, 12, 0, 0)
     lines = sc.build_context_lines(root, now)
-    assert any(l.startswith("OPEN DISPATCH: t-001") for l in lines)
+    assert "OPEN DISPATCHES: 1 (returned, not accepted: 0)" in lines
+    assert not any(l.startswith("OPEN DISPATCH:") for l in lines)
     degradation_idx = next(i for i, l in enumerate(lines) if l.startswith("OPEN DEGRADATION WINDOW"))
-    dispatch_idx = next(i for i, l in enumerate(lines) if l.startswith("OPEN DISPATCH:"))
+    dispatch_idx = next(i for i, l in enumerate(lines) if l.startswith("OPEN DISPATCHES:"))
     calibration_idx = next(i for i, l in enumerate(lines) if l.startswith("Last calibration:"))
     assert degradation_idx < dispatch_idx < calibration_idx
     assert len(lines) <= sc.MAX_LINES
@@ -2638,8 +2649,10 @@ def test_b402_k4_a_declared_open_instance_is_not_closed_by_the_other_clones_acce
     events = [a, b, b_done]
     opens = sc.open_dispatches(events, _declared(a))
     assert [o["worker_ref"] for o in opens] == ["agent:aaa"]
-    lines = sc.open_dispatch_lines(events, _declared(a))
-    assert lines == ["OPEN DISPATCH: t-050@codex-fixes agent=scout since 2026-10-02T10:00:00"]
+    ret = _event("returned", ts="2026-10-02T10:30:00", agent="scout", task_id="t-050", worker_ref="agent:aaa")
+    lines = sc.open_dispatch_lines(events + [ret], _declared(a, ret), now=datetime.datetime(2026, 10, 3))
+    assert lines == ["OPEN DISPATCHES: 1 (returned, not accepted: 1)",
+                     "RESULT PENDING: t-050@codex-fixes agent=scout returned 2026-10-02T10:30:00"]
     # the bare reading, with the same events: the false close
     assert sc.open_dispatches(events, jk.NO_SEGMENTS) == []
 
@@ -2702,8 +2715,9 @@ def test_b402_k8_a_declaration_can_reveal_but_never_hide_an_open_dispatch(tmp_pa
 
 def test_b402_declared_display_goes_through_ascii_sanitize():
     a, b, _ = _t050()
-    weird = jk.Segments(1, [("x-" + "y" * 20, "w", (jk.identity(a),))])
-    line = sc.open_dispatch_lines([a, b], weird)[0]
+    ret = _event("returned", ts="2026-10-02T10:30:00", agent="scout", task_id="t-050", worker_ref="agent:aaa")
+    weird = jk.Segments(1, [("x-" + "y" * 20, "w", (jk.identity(a), jk.identity(ret)))])
+    line = sc.open_dispatch_lines([a, ret, b], weird, now=datetime.datetime(2026, 10, 3))[1]
     assert line.isascii() and "t-050@x-" in line
 
 
@@ -2714,7 +2728,7 @@ def test_b402_build_context_lines_reads_the_declaration_of_its_root(tmp_path):
     assert not any(l.startswith("OPEN DISPATCH") for l in sc.build_context_lines(root, now))      # glued: closed
     (root / "logs" / "journal-segments.json").write_text(jk.dumps_declaration(_declared(a)), encoding="utf-8")
     lines = sc.build_context_lines(root, now)
-    assert "OPEN DISPATCH: t-050@codex-fixes agent=scout since 2026-10-02T10:00:00" in lines
+    assert "OPEN DISPATCHES: 1 (returned, not accepted: 0)" in lines
     assert not any(l.startswith("JOURNAL SEGMENTS") for l in lines)
 
 
@@ -2822,7 +2836,7 @@ def test_k5_open_tasks_of_both_files_own_first_and_the_foreign_one_with_its_slug
     root = _k5_root(tmp_path, [_dl8("t-002", "2026-10-02T10:00:00"), _dl8("t-003", "2026-10-02T10:10:00")],
                     [_dl8("t-001", "2026-10-02T09:45:00")])             # dev2's is OLDER than both of the owner's
     lines, opens = _k5_lines(root)
-    assert [l.split(" agent=")[0] for l in opens] == ["OPEN DISPATCH: t-002", "OPEN DISPATCH: t-003", "OPEN DISPATCH: t-001@dev2"]
+    assert opens == ["OPEN DISPATCHES: 3 (returned, not accepted: 0)"]            # both files are scanned; FG7-48: one count line, no names without a `returned`
     assert "JOURNAL: write to logs/journal/dev1.jsonl" in lines
     assert not any(l.startswith("JOURNAL FILES:") for l in lines)
 
@@ -2839,13 +2853,12 @@ def test_k5_last_event_is_the_writers_own_even_when_the_other_file_is_later(tmp_
     assert "JOURNAL: write to logs/journal/dev2.jsonl" in lines
 
 
-def test_k5_four_own_and_one_foreign_show_three_own_and_the_summary(tmp_path):
+def test_k5_four_own_and_one_foreign_are_one_count_line_and_no_names(tmp_path):
     own = [_dl8(f"t-00{i}", f"2026-10-02T10:{i}0:00") for i in (2, 3, 4, 5)]
     root = _k5_root(tmp_path, own, [_dl8("t-001", "2026-10-02T09:45:00")])      # the foreign one is the OLDEST
     lines, opens = _k5_lines(root)
-    assert [l.split(" agent=")[0] for l in opens] == ["OPEN DISPATCH: t-002", "OPEN DISPATCH: t-003", "OPEN DISPATCH: t-004",
-                                                     "OPEN DISPATCHES: 5 total, 2 more not shown"]
-    assert not any("@dev2" in l for l in lines)                  # another's old task never hides one's own (E-11)
+    assert opens == ["OPEN DISPATCHES: 5 (returned, not accepted: 0)"]            # the foreign one is counted too; the old 3-line cut and E-11 own-first are gone
+    assert not any("@dev2" in l for l in lines)
 
 
 def test_k5_a_labelled_closes_in_the_owner_file_closes_the_other_writers_task_and_a_bare_one_does_not(tmp_path):
@@ -2853,19 +2866,19 @@ def test_k5_a_labelled_closes_in_the_owner_file_closes_the_other_writers_task_an
     close_labelled = _ev8("dispatch_skipped", "2026-10-02T10:20:00", agent="scout", notes="closes:t-001@dev2")
     close_bare = _ev8("dispatch_skipped", "2026-10-02T10:20:00", agent="scout", notes="closes:t-001")
     root = _k5_root(tmp_path / "a", [_dl8("t-002", "2026-10-02T10:00:00"), close_labelled], foreign)
-    assert [l.split(" agent=")[0] for l in _k5_lines(root)[1]] == ["OPEN DISPATCH: t-002"]
+    assert _k5_lines(root)[1] == ["OPEN DISPATCHES: 1 (returned, not accepted: 0)"]
     root = _k5_root(tmp_path / "b", [_dl8("t-002", "2026-10-02T10:00:00"), close_bare], foreign)
-    assert [l.split(" agent=")[0] for l in _k5_lines(root)[1]] == ["OPEN DISPATCH: t-002", "OPEN DISPATCH: t-001@dev2"]
+    assert _k5_lines(root)[1] == ["OPEN DISPATCHES: 2 (returned, not accepted: 0)"]
     ghost = _ev8("dispatch_skipped", "2026-10-02T10:20:00", agent="scout", notes="closes:t-001@ghost")
     root = _k5_root(tmp_path / "c", [_dl8("t-002", "2026-10-02T10:00:00"), ghost], foreign)
-    assert [l.split(" agent=")[0] for l in _k5_lines(root)[1]] == ["OPEN DISPATCH: t-002", "OPEN DISPATCH: t-001@dev2"]
+    assert _k5_lines(root)[1] == ["OPEN DISPATCHES: 2 (returned, not accepted: 0)"]
 
 
 def test_k5_a_task_of_the_history_is_closed_by_an_accepted_in_the_successor(tmp_path):
     history = [_dl8("t-001", "2026-10-02T09:00:00"), _dl8("t-002", "2026-10-02T09:10:00")]
     root = _k5_root(tmp_path, [_acc8("t-002", "2026-10-02T10:00:00")], history=history)
     lines, opens = _k5_lines(root)
-    assert [l.split(" agent=")[0] for l in opens] == ["OPEN DISPATCH: t-001"]      # the same task ("", t-002), one logical journal
+    assert opens == ["OPEN DISPATCHES: 1 (returned, not accepted: 0)"]      # the same task ("", t-002), one logical journal
 
 
 def test_k5_after_the_switch_without_a_slug_says_so_and_shows_the_newest_line_with_its_file(tmp_path):

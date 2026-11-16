@@ -55,8 +55,8 @@ Hard constraints (all load-bearing):
   wrote into the journal) -- so each of those three values is routed
   through the same _ascii_sanitize helper before being formatted into
   a line.
-- <=25 lines total (MAX_LINES) -- the OPEN DISPATCH addition can only
-  ever add up to 4 lines (3 OPEN DISPATCH + 1 summary), and
+- <=25 lines total (MAX_LINES) -- the OPEN DISPATCHES addition can only
+  ever add up to 7 lines (1 count + 5 RESULT PENDING + 1 more), and
   build_context_lines() still truncates to MAX_LINES at the end.
 - Reading stdin must never block: only attempted when stdin is not a
   TTY (a manual `python tools/session_context.py` run from an
@@ -548,46 +548,58 @@ def open_dispatches(events: list, segments=None, *, journal=None) -> list:
     return opens
 
 
-def open_dispatch_lines(events: list, segments=None, *, journal=None, own_label=None) -> list:
-    """Up to 3 'OPEN DISPATCH: t-NNN agent=X since <ts>' lines (oldest
-    first) plus one summary line when more than 3 are open. task_id,
-    agent and ts are journal-sourced -> each goes through
-    _ascii_sanitize (non-UTF8-console invariant). Empty when nothing is
-    open. B-402: a declared instance shows as `t-NNN@label`
-    (journal_keys.display)."""
+RESULT_PENDING_DAYS = 7
+RESULT_PENDING_NAMED_MAX = 5
+
+
+def open_dispatch_lines(events: list, segments=None, *, journal=None, own_label=None, now=None) -> list:
+    """FG7-48: ONE count line `OPEN DISPATCHES: N (returned, not accepted: K)` -- N every open
+    dispatch (open_dispatches), K those with a `returned` event after their last `delegated` (a
+    `returned` never closes a task: offload B0, rule 9f; an accepted/rejected since leaves the open
+    set already). Below it, by name, only the K whose `returned` ts is within RESULT_PENDING_DAYS of
+    `now`: `RESULT PENDING: t-NNN agent=X returned <ts>`, newest first, at most
+    RESULT_PENDING_NAMED_MAX, then `RESULT PENDING: <n> more`. A returned older than that counts in
+    K and is not named; the `returned` matches by task key, not worker_ref. Nothing open: no line.
+    The old per-dispatch `OPEN DISPATCH:` lines are gone (29 never-closed phantoms hid the few that
+    needed an acceptance). task_id, agent and ts are journal-sourced -> _ascii_sanitize.
+    B-402: a declared instance shows as `t-NNN@label`. `own_label` is kept for callers, unused."""
     if segments is None:
         segments, _reason = load_journal_segments(repo_root())
     opens = open_dispatches(events, segments, journal=journal)
     if not opens:
         return []
-    if own_label is not None:
-        # t-581 (E-11): the writer's OWN open dispatches first, the others after, each group oldest
-        # first -- another writer's old task never hides one's own in the 3-line cut
-        own = [e for e in opens if (_task_key(e, segments) or (None,))[0] == own_label]
-        own_ids = {id(e) for e in own}
-        opens = own + [e for e in opens if id(e) not in own_ids]
-    # a `returned` NEVER closes a task (offload B0, rule 9f): it only says the worker ended. An open `delegated` whose
-    # (task key, worker_ref) has a later `returned` is shown as RESULT PENDING (same 3-line cut), else OPEN DISPATCH.
-    returned_ts = {}
-    for e in events:
-        if e.get("event") == "returned" and isinstance(e.get("worker_ref"), str):
+    now = now or datetime.datetime.now()
+    pos = {id(e): i for i, e in enumerate(events)}
+    returned_last = {}  # key -> (ts_str, file_idx) of the latest `returned`
+    for i, e in enumerate(events):
+        if e.get("event") == "returned":
             rkey = _task_key(e, segments)
             if rkey is not None:
-                returned_ts[(rkey, e["worker_ref"].strip())] = str(e.get("ts") or "-")
-    lines = []
-    for e in opens[:3]:
+                rk = (str(e.get("ts") or ""), i)
+                if rkey not in returned_last or rk > returned_last[rkey]:
+                    returned_last[rkey] = rk
+    pending = []  # (ts_str, key, event)
+    for e in opens:
         key = _task_key(e, segments)
-        tid = _ascii_sanitize(_display_key(key) if key is not None else "-")
+        back = returned_last.get(key) if key is not None else None
+        if back is not None and back > (str(e.get("ts") or ""), pos.get(id(e), -1)):
+            pending.append((back[0], key, e))
+    lines = [f"OPEN DISPATCHES: {len(opens)} (returned, not accepted: {len(pending)})"]
+    recent = []
+    for back_ts, key, e in pending:
+        try:
+            age = now - parse_ts(back_ts)
+        except (ValueError, TypeError, AttributeError):
+            continue  # an unparsable ts cannot be shown as this week's: counted, not named
+        if age <= datetime.timedelta(days=RESULT_PENDING_DAYS):
+            recent.append((back_ts, key, e))
+    recent.sort(key=lambda t: t[0], reverse=True)
+    for back_ts, key, e in recent[:RESULT_PENDING_NAMED_MAX]:
+        tid = _ascii_sanitize(_display_key(key))
         agent = _ascii_sanitize(str(e.get("agent") or "-"))
-        ts = _ascii_sanitize(str(e.get("ts") or "-"))
-        wref = e.get("worker_ref")
-        back = returned_ts.get((key, wref.strip())) if key is not None and isinstance(wref, str) else None
-        if back is not None:
-            lines.append(f"RESULT PENDING: {tid} agent={agent} returned {_ascii_sanitize(back)}")
-        else:
-            lines.append(f"OPEN DISPATCH: {tid} agent={agent} since {ts}")
-    if len(opens) > 3:
-        lines.append(f"OPEN DISPATCHES: {len(opens)} total, {len(opens) - 3} more not shown")
+        lines.append(f"RESULT PENDING: {tid} agent={agent} returned {_ascii_sanitize(back_ts)}")
+    if len(recent) > RESULT_PENDING_NAMED_MAX:
+        lines.append(f"RESULT PENDING: {len(recent) - RESULT_PENDING_NAMED_MAX} more")
     return lines
 
 
@@ -2205,7 +2217,7 @@ def build_context_lines(
     else:
         segments, segments_reason = load_journal_segments(root)
     lines.extend(open_dispatch_lines(events, segments if segments is not None else _no_segments(),
-                                     journal=journal, own_label=own_label))
+                                     journal=journal, own_label=own_label, now=now))
     if segments_reason:
         lines.append(segments_line(segments_reason))
     problems = (journal.problems + [f"{r.path} line {r.line_no}: {r.error}" for r in bad_rows]) if journal is not None else []
@@ -2320,7 +2332,7 @@ def compact_snapshot_lines(root: Path, now: datetime.datetime = None, session_id
 
 
 _COMPACT_AFTER = ("AFTER COMPACT: read the snapshot above before your next action; "
-                  "accept the OPEN DISPATCH lines in a batch")
+                  "accept the RESULT PENDING lines in a batch")
 
 
 def _exc_text(e: Exception) -> str:
