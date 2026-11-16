@@ -1302,7 +1302,19 @@ NC_CASES = [
     ("same_worker_twice",
      [D("t-001", "a1"), D("t-001", "a1"), A("t-001")], ALL5, None, 2,
      lambda d, r: (r["t-001"]["cost"] == pytest.approx(0.002) and r["t-001"]["unmeasured"] == []
-                   and r["t-001"]["tokens"] == 1500 and d["totals"]["measured"] == 2)),
+                   and r["t-001"]["tokens"] == 1500 and d["totals"]["measured"] == 2
+                   and [(e["line"], e["priced_on_line"]) for e in r["t-001"]["priced_elsewhere"]] == [(2, 1)])),
+    ("same_worker_first_unpriced",
+     [D("t-001", "a6"), A("t-001"), D("t-002", "a6", node="forge/7/FG7-9"), A("t-002")],
+     {"a6": [("m-x", 10, 10)]}, None, 2,
+     lambda d, r: (r["forge/7/FG7-9"]["cost"] is None and r["forge/7/FG7-9"]["partial"]
+                   and r["forge/7/FG7-9"]["unmeasured"][0]["why"] == "unpriced:m-x"
+                   and r["forge/7/FG7-9"]["priced_elsewhere"] == [] and d["totals"]["measured"] == 0
+                   and d["totals"]["cost"] is None and r["t-001"]["cost"] is None)),
+    ("defect_in_window_on_old_row",
+     [D("t-001", "a1", ts="2026-10-01T10:00:00"), A("t-001", ts="2026-10-01T11:00:00"),
+      ev_line(TS, "t-009", "defect_found", ref="t-001", notes="late defect")], ALL5, None, 1,
+     lambda d, r: (list(r) == ["t-001"] and r["t-001"]["defects"] == 1 and r["t-001"]["dispatches"] == 1)),
     ("clone_collision_two_rows",
      [D("t-001", "a1"), A("t-001")], ALL5, {"dev2": [D("t-001", "a2"), A("t-001")]}, 2,
      lambda d, r: sorted(r) == ["t-001", "t-001@dev2"] and all(x["dispatches"] == 1 for x in r.values())),
@@ -1376,6 +1388,11 @@ NC_RENDERS = [
      [D("t-001", "a1"), D("t-001", "a9"), A("t-001")], ALL5,
      lambda d, t: ("1. t-001 >= $0.00 (2 dispatches, 1 unmeasured)" in t and "total >= $0.00" in t
                    and "not measured: t-001 line 2 (no_transcript)" in t)),
+    ("same_worker_note_and_given_prices_header",
+     [D("t-001", "a1"), D("t-001", "a1"), A("t-001")], ALL5,
+     lambda d, t: ("priced elsewhere (the agent's transcript is counted once, on its first line): "
+                   "t-001 line 2 (same_worker, priced on line 1)" in t
+                   and "prices: given as_of T --" in t and "model_prices.json" not in t)),
     ("ties_by_name",
      [D("t-002", "a2"), A("t-002"), D("t-001", "a1"), A("t-001")], ALL5,
      lambda d, t: t.index("| t-001 |") < t.index("| t-002 |") and t.index("1. t-001 ") < t.index("2. t-002 ")),
@@ -1393,6 +1410,26 @@ def test_node_cost_render(tmp_path, journal, workers, check):
     d, text = _nc_text(tmp_path, journal, workers)
     assert check(d, text), text
     assert text.startswith("## Node cost (printed, never written: P18)\nwindow: since 2026-11-01; source: worker transcripts")
+
+
+@pytest.mark.parametrize("counts,why", [({"split_missing": 2}, "split_missing"), ({"bad_iterations": 1}, "bad_iterations"),
+                                        ({}, None)], ids=["split_missing", "bad_iterations", "none"])
+def test_node_cost_low_figure_counts_are_named(tmp_path, counts, why):
+    """F3: a cache write priced at the 5-minute rate, or a malformed iterations field, makes the dispatch partial."""
+    import types
+    import usage_report
+    part = {"input_tokens": 10, "output_tokens": 10, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0,
+            "cache_creation_1h_tokens": 0, "model": "m-a"}
+
+    def request_parts(path, skipped=None, counts=None, **kw):
+        counts.update(dict(want))
+        return [{"key": "r:0", "parts": [part]}]
+    want = counts
+    tr = types.SimpleNamespace(agent_file_name=lambda a: a, request_parts=request_parts)
+    ev = {"obj": {"worker_ref": "agent:a1"}, "line": 1}
+    put(tmp_path, "prices.json", json.dumps(NC_PRICES))
+    p = fm._price_dispatch(ev, {"a1": "p"}, usage_report.load_prices(tmp_path / "prices.json"), {}, usage_report, tr)
+    assert p["whys"] == ([why] if why else []) and p["cost"] is not None
 
 
 def _cli_world(tmp_path):
