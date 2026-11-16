@@ -367,17 +367,16 @@ def test_full_silence_non_journal_path(monkeypatch, capsys):
 
 
 def test_r3_events_joins_the_same_silence_check_as_siblings():
-    # A structural pin of main()'s source: r3_events must live in the
-    # SAME `if (not violations and not tier_events and ...)` expression
-    # as every other source, not a separate condition.
+    # A structural pin: main() has ONE silence check (`if not _echo_visible(...): return 0`), and
+    # _echo_visible is ONE expression over every source, r3 included -- not a separate condition.
     import inspect
-    source = inspect.getsource(je.main)
-    match = re.search(r"if \(not violations.*?\):\s*\n\s*return 0", source, re.DOTALL)
-    assert match is not None, "silence-check `if` block not found in main() source"
-    block = match.group(0)
-    for name in ("violations", "tier_events", "witness_visible", "ts_drift_events",
-                 "escalation_events", "notes_len_events", "r3_events"):
-        assert f"not {name}" in block, f"{name} missing from the shared silence check"
+    main_src = inspect.getsource(je.main)
+    assert re.search(r"if not _echo_visible\(.*?\):\s*\n\s*return 0", main_src, re.DOTALL), \
+        "silence-check `if not _echo_visible(...)` block not found in main() source"
+    block = inspect.getsource(je._echo_visible)
+    for name in ("violations", 'parts["tier"]', 'parts["witness"]', 'parts["ts_drift"]',
+                 'parts["escalation"]', 'parts["notes_len"]', 'parts["r3"]'):
+        assert name in block, f"{name} missing from the shared silence check"
 
 
 def test_combine_context_six_positional_arg_form_unchanged():

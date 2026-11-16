@@ -238,8 +238,10 @@ def test_piles_refusal_keeps_the_pushed_merge_and_prints_the_command_E_C3_7(env)
 
 def test_status_commit_refusal_takes_the_same_road_C3_5(env):
     branch(env, "b12c", {"f.txt": "x\n"})
-    (env.root / ".git" / "hooks" / "pre-commit").write_bytes(
+    pre_commit = env.root / ".git" / "hooks" / "pre-commit"
+    pre_commit.write_bytes(
         b"#!/bin/sh\ngit diff --cached --name-only | grep -q node.txt && { echo 'HOOK: no node' >&2; exit 1; }\nexit 0\n")
+    pre_commit.chmod(0o755)    # a hook fires only when executable (Linux); Windows ignores the bit
     rc, out, w = go(env, "b12c", node=("pile", "1", "N-4"))
     assert rc == 1 and "the status commit was refused" in out and "HOOK: no node" in out and w.pushed
     assert blob(env, "f.txt") == b"x\n" and blob(env, "plans/node.txt") is None
@@ -482,6 +484,7 @@ def test_origin_hook_refusal_prints_its_text_E_C3_4(env):
     branch(env, "b23", {"f.txt": "x\n"})
     hook = env.origin / "hooks" / "pre-receive"
     hook.write_bytes(b"#!/bin/sh\necho 'POLICY: no pushes today' >&2\nexit 1\n")
+    hook.chmod(0o755)    # a hook fires only when executable (Linux); Windows ignores the bit
     before = origin_main(env)
     rc, out, _ = go(env, "b23")
     assert rc == 2 and "POLICY: no pushes today" in out and "step 7" in out and origin_main(env) == before
