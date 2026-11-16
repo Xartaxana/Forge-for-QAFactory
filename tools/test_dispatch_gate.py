@@ -6,6 +6,7 @@ Run from the repo root: python -m pytest tools/test_dispatch_gate.py
 """
 
 import json
+import types
 import os
 import subprocess
 import sys
@@ -2897,8 +2898,32 @@ def test_decide_keeps_the_pair_and_main_prints_the_path_lines(tmp_path, monkeypa
     assert dispatch_gate.decide(payload) == (0, "")
     code, out, err = _run_main(monkeypatch, capsys, payload)
     ctx = _context(json.loads(out))
-    assert code == 0 and ctx.startswith("PATH CHECK: paths checked under the root:")
-    assert "tools/have.py (6 bytes, 1 lines)" in ctx
+    assert code == 0 and ctx.startswith("PATH CHECK: ok (1 owns, 1 given)")
+    assert "bytes" not in ctx
+
+
+@pytest.mark.parametrize("owns, given, expect", [
+    ("have", "tools/have.py", "PATH CHECK: ok (1 owns, 1 given)"),
+    ("new", "tools/have.py", "PATH CHECK: ok (1 owns, 1 given)"),
+    ("have", "tools/gone.py", "given: tools/gone.py"),
+])
+def test_fg749_path_report_is_one_count_line_unless_something_is_missing(tmp_path, owns, given, expect):
+    root = _root(tmp_path)
+    o = str(root / "tools" / "have.py") if owns == "have" else str(root / "tools" / "fresh.py") + " (new)"
+    d = _pdecide(root, owns=o, given=given if given != "none" else "")
+    report = dispatch_gate.format_path_report(d.paths)
+    if d.code == 2:
+        assert d.code == 2 and expect in d.message
+        assert "bytes" not in d.message and "tools/have.py" not in report and "given: tools/gone.py MISSING" in report
+    else:
+        assert d.code == 0 and report == expect, (d.message, report)
+
+
+def test_fg749_zero_given_paths_count_as_zero_and_non_missing_problems_are_still_listed():
+    R = lambda kind, status, path: types.SimpleNamespace(kind=kind, status=status, path=path, full=path)
+    assert dispatch_gate.format_path_report([R("owns", "ok", "a")]) == "PATH CHECK: ok (1 owns, 0 given)"
+    out = dispatch_gate.format_path_report([R("owns", "ok", "a"), R("given", "outside", "../b")])
+    assert "given: ../b (outside)" in out and "owns: a" not in out
 
 
 def test_top_level_entries_has_both_spellings_of_case_and_is_none_when_unreadable(tmp_path):
