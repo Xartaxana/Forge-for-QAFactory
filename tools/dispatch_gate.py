@@ -867,12 +867,18 @@ def _describe(report):
 
 
 def format_path_report(paths):
-    """The printout on a pass: one line per path, at most 10 listed, then a summary."""
+    """The printout on a pass: ONE count line when every path exists (or is a `(new)` owns path);
+    otherwise only the paths that need action (missing/outside/unchecked/glob), at most 10 listed."""
     if not paths:
         return ""
-    lines = [_describe(r) for r in paths[:_PRINT_LIMIT]]
-    if len(paths) > _PRINT_LIMIT:
-        lines.append("... and %d more path(s) checked" % (len(paths) - _PRINT_LIMIT))
+    acting = [r for r in paths if r.status not in ("ok", "new")]
+    if not acting:
+        n = sum(1 for r in paths if r.kind == "owns")
+        m = sum(1 for r in paths if r.kind == "given")
+        return PATH_NOTE + "ok (%d owns, %d given)" % (n, m)
+    lines = [_describe(r) for r in acting[:_PRINT_LIMIT]]
+    if len(acting) > _PRINT_LIMIT:
+        lines.append("... and %d more path(s) checked" % (len(acting) - _PRINT_LIMIT))
     return PATH_NOTE + "paths checked under the root:\n" + "\n".join(lines)
 
 
