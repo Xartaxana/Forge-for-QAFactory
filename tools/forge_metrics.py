@@ -1000,6 +1000,376 @@ def compute(root=ROOT, window=DEFAULT_WINDOW, use_seed=True, features=None, regi
 
 
 # ============================================================================================
+# node cost
+# ============================================================================================
+# `--node-cost` (FG7-5, spec docs/tasks/specs/20261116-fg7-5-node-cost-with-rework-spec.md): the price of every
+# node of the window WITH its rework. A print-only mode: money is never written to a repository file (P18).
+# DATA only (P27): the code joins and sums; the reason column holds counts of journal events, never a verdict on
+# WHY a node was dear. `transcripts` and `usage_report` are imported inside node_costs (I-2: importing this
+# module stays as light as before). An unknown price is n/d or `>= $X`, never zero (FR-41). The node of a task
+# is the first node_of of its delegated lines -- the same line as hop_metrics.load_chains, which this module
+# does not import.
+
+TOP_NODES = 5
+NODE_COST_SOURCE = "worker transcripts"
+NODE_WARN_REASONS = ("node_not_string", "node_not_form", "two_tokens")
+REJECT_CLASSES = ("spec", "capability", "recon", "tooling")
+_CRITIC_TOKEN_RE = re.compile(r"\bcritic:(" + _jk.ID_PATTERN + r")\b") if _jk is not None else None
+_NODE_EVENTS = ("delegated", "accepted", "rejected", "escalated")
+
+
+def _agent_id(obj, transcripts):
+    """The agent id of a delegated line's `agent:<id>` worker_ref, or None (no ref, another kind of ref, or an id
+    transcripts.agent_file_name refuses: a glob or a path piece)."""
+    ref = obj.get("worker_ref")
+    aid = ref[len("agent:"):] if isinstance(ref, str) and ref.startswith("agent:") else None
+    return aid if aid is not None and transcripts.agent_file_name(aid) is not None else None
+
+
+def _price_dispatch(ev, found, prices, seen, usage_report, transcripts):
+    """Price of ONE delegated line from its worker transcript: {"tokens", "cost" (None = nothing priced),
+    "whys" ([] = fully measured), optional "same_worker" (the line of the first dispatch of this agent id, which
+    carried the transcript's whole cost)}. The cost may err HIGH, never silently LOW: every source of a low figure
+    (no transcript, an unpriced model, a skipped usage line, a cache write with no 1-hour split, a malformed
+    iterations field, a non-agent ref) is a `why`."""
+    aid = _agent_id(ev["obj"], transcripts)
+    if aid is None:
+        return {"tokens": 0, "cost": None, "whys": ["bad_ref"]}
+    if aid in seen:
+        first_line, first_priced, first_whys = seen[aid]
+        if first_priced:
+            return {"tokens": 0, "cost": 0.0, "whys": [], "same_worker": first_line}
+        return {"tokens": 0, "cost": None, "whys": list(first_whys)}
+    path = found.get(aid)
+    if path is None:
+        return {"tokens": 0, "cost": None, "whys": ["no_transcript"]}
+    skipped, counts = [], {}
+    try:
+        reqs = transcripts.request_parts(path, skipped=skipped, counts=counts)
+    except OSError:
+        return {"tokens": 0, "cost": None, "whys": ["unreadable"]}
+    whys = ["bad_usage"] if skipped else []
+    whys += [w for w in ("split_missing", "bad_iterations") if counts.get(w)]
+    if not reqs:
+        return {"tokens": 0, "cost": None, "whys": whys or ["no_usage"]}
+    tokens, cost, priced = 0, 0.0, False
+    for req in reqs:
+        for p in req["parts"]:
+            tokens += (p["input_tokens"] + p["cache_creation_input_tokens"]
+                       + p["cache_read_input_tokens"] + p["output_tokens"])
+            c = usage_report.accounted_cost(p["model"], p["input_tokens"], p["output_tokens"],
+                                            p["cache_creation_input_tokens"], p["cache_read_input_tokens"],
+                                            prices, p["cache_creation_1h_tokens"])[0]
+            if c is None:
+                why = "unpriced:%s" % p["model"]
+                if why not in whys:
+                    whys.append(why)
+            else:
+                cost += c
+                priced = True
+    seen[aid] = (ev["line"], priced, list(whys))
+    return {"tokens": tokens, "cost": cost if priced else None, "whys": whys}
+
+
+def _nc_tasks(journal, segs, warn):
+    """The tasks of the journal by key and the defect_found lines: -> (tasks, defects)."""
+    tasks = {}       # key -> {"key", "disp", "node", "events", "delegated", "defect_evs", "outcome"}
+    defects = []     # ev
+    for seq, r in enumerate(journal.rows):
+        obj = r.obj
+        if obj is None:
+            continue
+        kind = obj.get("event")
+        key = _jk.task_key(obj, segs)
+        if key is None:
+            continue
+        ev = {"obj": obj, "file": r.path, "line": r.line_no, "seq": seq}
+        if kind == "defect_found":
+            defects.append(ev)
+            continue
+        if kind not in _NODE_EVENTS:
+            continue
+        t = tasks.setdefault(key, {"key": key, "disp": _jk.display(key), "node": None, "events": [],
+                                   "delegated": [], "defect_evs": [], "outcome": None})
+        t["events"].append(ev)
+        if kind in ("accepted", "rejected"):
+            t["outcome"] = kind
+        if kind == "delegated":
+            t["delegated"].append(ev)
+            node, reason = _jk.node_of(obj)
+            if reason in NODE_WARN_REASONS:
+                warn("%s: %s" % (t["disp"], reason))
+            if node is not None:
+                if t["node"] is None:
+                    t["node"] = node
+                elif node != t["node"]:
+                    warn("%s: two nodes %s, %s" % (t["disp"], t["node"], node))
+    return tasks, defects
+
+
+def _nc_links(tasks, defects, journal, segs, warn):
+    """Explicit tokens only (prose is never parsed): -> (attach, defect_count). A defect line also becomes an event
+    of its ref's task (`defect_evs`), so its ts counts into the window test of that row (E15)."""
+    attach = {}      # attached task key -> {target keys}
+    for k, t in tasks.items():
+        for ev in t["events"]:
+            obj = ev["obj"]
+            if obj.get("event") not in ("accepted", "rejected") or not isinstance(obj.get("notes"), str):
+                continue
+            for tok in _CRITIC_TOKEN_RE.findall(obj["notes"]):
+                ck = _jk.ref_key(tok, obj, segs, journal.label_ids, journal.aliases)
+                ct = tasks.get(ck)
+                if ct is None or not any(d["obj"].get("agent") == "critic" for d in ct["delegated"]):
+                    warn("%s line %d: critic:%s names no critic dispatch" % (ev["file"], ev["line"], tok))
+                elif ck != k and ct["node"] is None:
+                    attach.setdefault(ck, set()).add(k)
+    defect_count = {}
+    for ev in defects:
+        obj = ev["obj"]
+        ref = obj.get("ref")
+        rk = _jk.ref_key(ref, obj, segs, journal.label_ids, journal.aliases) if isinstance(ref, str) else None
+        if rk is None or rk not in tasks:
+            warn("defect_found line %d: ref %s names no task" % (ev["line"], ref))
+            continue
+        defect_count[rk] = defect_count.get(rk, 0) + 1
+        tasks[rk]["defect_evs"].append(ev)
+        dk = _jk.task_key(obj, segs)
+        if dk in tasks and dk != rk and tasks[dk]["node"] is None and tasks[dk]["delegated"]:
+            attach.setdefault(dk, set()).add(rk)
+    return attach, defect_count
+
+
+def _nc_rows_of(tasks, attach, k, stack=()):
+    """The row names task `k` belongs to: its node, else the rows of the tasks it is attached to, else itself."""
+    if tasks[k]["node"] is not None:
+        return {tasks[k]["node"]}
+    targets = attach.get(k)
+    if not targets or k in stack:
+        return {tasks[k]["disp"]}
+    out = set()
+    for g in targets:
+        out |= _nc_rows_of(tasks, attach, g, stack + (k,))
+    return out or {tasks[k]["disp"]}
+
+
+def _nc_money(tasks, priced_of, keys):
+    """tokens, cost, dispatches, unmeasured entries, priced-elsewhere entries of the tasks `keys`."""
+    tokens, cost, n, um, elsewhere, any_priced = 0, 0.0, 0, [], [], False
+    for k in keys:
+        for ev in tasks[k]["delegated"]:
+            p = priced_of[ev["seq"]]
+            n += 1
+            tokens += p["tokens"]
+            if p["cost"] is not None:
+                cost += p["cost"]
+                any_priced = True
+            if p["whys"]:
+                ref = ev["obj"].get("worker_ref")
+                um.append({"task": tasks[k]["disp"], "line": ev["line"], "file": ev["file"],
+                           "worker_ref": ref if isinstance(ref, str) else None, "why": "+".join(p["whys"])})
+            if p.get("same_worker") is not None:
+                elsewhere.append({"task": tasks[k]["disp"], "line": ev["line"], "file": ev["file"],
+                                  "priced_on_line": p["same_worker"]})
+    return tokens, (cost if any_priced else None), n, um, elsewhere
+
+
+def _nc_counts(tasks, ks):
+    """Event counts of the tasks `ks` of one row: -> (rejects by class, critic, redelegations, replaced, escalations)."""
+    rej = dict.fromkeys(REJECT_CLASSES + ("unclassified",), 0)
+    crit = redel = repl = esc = 0
+    for k in ks:
+        nc = 0
+        for ev in tasks[k]["events"]:
+            obj = ev["obj"]
+            kind = obj.get("event")
+            if kind == "rejected":
+                fc = obj.get("failure_class")
+                rej[fc if fc in REJECT_CLASSES else "unclassified"] += 1
+            elif kind == "escalated":
+                esc += 1
+            elif kind == "delegated" and obj.get("agent") == "critic":
+                crit += 1
+            elif kind == "delegated":
+                nc += 1
+                if nc > 1:
+                    redel += 1
+                    if _jv is not None and _jv.extract_replaces_worker(obj.get("notes")) is not None:
+                        repl += 1
+    return rej, crit, redel, repl, esc
+
+
+def _nc_row(name, ks, tasks, priced_of, defect_count, shared_in):
+    tokens, cost, n, um, elsewhere = _nc_money(tasks, priced_of, ks)
+    rej, crit, redel, repl, esc = _nc_counts(tasks, ks)
+    shared_names = sorted(tasks[k]["disp"] for k, rs in shared_in.items() if name in rs)
+    return {"row": name, "kind": "node" if any(tasks[k]["node"] is not None for k in ks) else "task",
+            "status": "accepted" if all(tasks[k]["outcome"] == "accepted" for k in ks) else "open",
+            "tasks": sorted(tasks[k]["disp"] for k in ks), "dispatches": n, "unmeasured": um,
+            "priced_elsewhere": elsewhere,
+            "tokens": tokens, "cost": cost, "partial": bool(um), "rejects": rej, "critic": crit,
+            "redelegations": redel, "replaced": repl, "escalations": esc,
+            "defects": sum(defect_count.get(k, 0) for k in ks), "shared": shared_names,
+            "_linked": len(ks) > 1 or bool(shared_names)}
+
+
+def _nc_price_all(disp_list, projects, prices, usage_report, transcripts):
+    """ONE walk of the transcripts folder, every dispatch of the report once: -> {seq: price of that line}."""
+    ids = sorted({a for a in (_agent_id(ev["obj"], transcripts) for ev in disp_list) if a is not None})
+    found = transcripts.find_agent_transcripts(ids, root=Path(projects) if projects is not None else None)
+    seen, priced_of = {}, {}
+    for ev in disp_list:
+        priced_of[ev["seq"]] = _price_dispatch(ev, found, prices, seen, usage_report, transcripts)
+    return priced_of
+
+
+def node_costs(root, window, projects=None, prices=None) -> dict:
+    """The data of `--node-cost` (spec §3.2). Never prints money to a file; prints only the stderr lines of an
+    unreadable journal. Raises usage_report.PricesError when the price table is unreadable (E18)."""
+    import transcripts
+    import usage_report
+    if _jk is None:
+        raise RuntimeError("journal_keys is not importable")
+    prices_file = "given" if prices is not None else "tools/model_prices.json"
+    if prices is None:
+        prices = usage_report.load_prices()
+    journal = _jk.load_all(Path(root))
+    segs = journal.segments
+    if journal.segments_reason:
+        print(f"forge_metrics: the task-key declaration is unreadable ({journal.segments_reason}) -- colliding "
+              "task ids are read as one task", file=sys.stderr)
+    bad = sum(1 for r in journal.rows if r.obj is None)
+    if bad:
+        print(f"forge_metrics: {bad} journal line(s) unreadable", file=sys.stderr)
+    win_day = _since(window)[:10]
+    warnings = []
+
+    def warn(text):
+        if text not in warnings:
+            warnings.append(text)
+
+    tasks, defects = _nc_tasks(journal, segs, warn)
+    attach, defect_count = _nc_links(tasks, defects, journal, segs, warn)
+    members, shared_tasks = {}, {}   # row name -> [task key]; task key -> {row names}
+    for k in tasks:
+        rs = _nc_rows_of(tasks, attach, k)
+        if len(rs) == 1:
+            members.setdefault(next(iter(rs)), []).append(k)
+        else:
+            shared_tasks[k] = rs
+
+    def in_window(keys):
+        return any(isinstance(ev["obj"].get("ts"), str) and ev["obj"]["ts"][:10] >= win_day
+                   for k in keys for ev in tasks[k]["events"] + tasks[k]["defect_evs"])
+
+    rows_in = {name: ks for name, ks in members.items() if in_window(ks)}
+    shared_in = {k: rs for k, rs in shared_tasks.items() if any(n in rows_in for n in rs)}
+    disp_list = [ev for ks in rows_in.values() for k in ks for ev in tasks[k]["delegated"]]
+    disp_list += [ev for k in shared_in for ev in tasks[k]["delegated"]]
+    disp_list.sort(key=lambda e: e["seq"])
+    priced_of = _nc_price_all(disp_list, projects, prices, usage_report, transcripts)
+
+    rows = [_nc_row(name, ks, tasks, priced_of, defect_count, shared_in) for name, ks in rows_in.items()]
+    rows.sort(key=lambda r: (r["cost"] is None, -(r["cost"] or 0.0), r["row"]))
+    shared = []
+    for k in sorted(shared_in, key=lambda x: tasks[x]["disp"]):
+        tokens, cost, n, um, elsewhere = _nc_money(tasks, priced_of, [k])
+        shared.append({"task": tasks[k]["disp"], "cited_by": sorted(n_ for n_ in shared_in[k] if n_ in rows_in),
+                       "tokens": tokens, "cost": cost, "partial": bool(um), "dispatches": n, "unmeasured": um,
+                       "priced_elsewhere": elsewhere})
+    top = [r["row"] for r in rows if r["status"] == "accepted" and r["cost"] is not None][:TOP_NODES]
+    n_disp = sum(r["dispatches"] for r in rows) + sum(s["dispatches"] for s in shared)
+    n_um = sum(len(r["unmeasured"]) for r in rows) + sum(len(s["unmeasured"]) for s in shared)
+    costs = [x["cost"] for x in rows + shared if x["cost"] is not None]
+    totals = {"rows": len(rows), "accepted": sum(1 for r in rows if r["status"] == "accepted"),
+              "open": sum(1 for r in rows if r["status"] != "accepted"),
+              "unlinked": sum(1 for r in rows if r["kind"] == "task" and not r["_linked"]),
+              "dispatches": n_disp, "measured": n_disp - n_um, "unmeasured": n_um,
+              "tokens": sum(x["tokens"] for x in rows + shared),
+              "cost": sum(costs) if costs else None, "partial": n_um > 0}
+    for r in rows:
+        del r["_linked"]
+    return {"window": window, "prices_as_of": prices.get("as_of"), "prices_file": prices_file,
+            "source": NODE_COST_SOURCE, "rows": rows, "shared": shared, "top": top, "totals": totals,
+            "warnings": warnings}
+
+
+def _cost_cell(cost, partial) -> str:
+    if cost is None:
+        return "n/d"
+    return (">= $%.2f" if partial else "$%.2f") % cost
+
+
+def _rejects_text(rej: dict) -> str:
+    n = sum(rej.values())
+    if not n:
+        return "0"
+    return "%d (%s)" % (n, ", ".join("%s %d" % (c, rej[c]) for c in REJECT_CLASSES + ("unclassified",) if rej[c]))
+
+
+def render_node_costs(d: dict) -> str:
+    t = d["totals"]
+    L = ["## Node cost (printed, never written: P18)",
+         "window: since %s; source: %s (tools/transcripts.py); prices: %s as_of %s -- API list "
+         "price of the tokens, an estimate, not a bill" % (d["window"], d["source"], d["prices_file"],
+                                                           d["prices_as_of"])]
+    if not d["rows"] and not d["shared"]:
+        L.append("rows 0; dispatches 0 -- no nodes in the window")
+        L += ["", "Top %d accepted nodes by cost: none in the window" % TOP_NODES]
+        return "\n".join(L) + "\n"
+    total = _cost_cell(t["cost"], t["partial"])
+    L.append("rows %d (accepted %d, open %d; %d with no node and no link token); dispatches %d: measured %d, "
+             "unmeasured %d; total %s, tokens %d" % (t["rows"], t["accepted"], t["open"], t["unlinked"],
+                                                     t["dispatches"], t["measured"], t["unmeasured"], total,
+                                                     t["tokens"]))
+    L.append("| row | status | dispatches | unmeasured | tokens | cost | rejects | critic | redelegations | "
+             "escalations | defects after acceptance |")
+    L.append("|---|---|---|---|---|---|---|---|---|---|---|")
+    for r in d["rows"]:
+        L.append("| %s | %s | %d | %d | %d | %s | %s | %d | %d (replaced %d) | %d | %d |" % (
+            r["row"], r["status"], r["dispatches"], len(r["unmeasured"]), r["tokens"],
+            _cost_cell(r["cost"], r["partial"]), _rejects_text(r["rejects"]), r["critic"], r["redelegations"],
+            r["replaced"], r["escalations"], r["defects"]))
+    L.append("")
+    by_name = {r["row"]: r for r in d["rows"]}
+    if d["top"]:
+        L.append("Top %d accepted nodes by cost (journal facts; why it cost that is the calibration's judgment):"
+                 % TOP_NODES)
+        for i, name in enumerate(d["top"], 1):
+            r = by_name[name]
+            line = ("%d. %s %s (%d dispatches, %d unmeasured) -- rejects %s, critic passes %d, redelegations %d "
+                    "(replaced %d), escalations %d, defects after acceptance %d" % (
+                        i, name, _cost_cell(r["cost"], r["partial"]), r["dispatches"], len(r["unmeasured"]),
+                        _rejects_text(r["rejects"]), r["critic"], r["redelegations"], r["replaced"],
+                        r["escalations"], r["defects"]))
+            if r["shared"]:
+                line += "; shared " + ", ".join(r["shared"])
+            L.append(line)
+    else:
+        L.append("Top %d accepted nodes by cost: none in the window" % TOP_NODES)
+    um = sorted((u for x in d["rows"] + d["shared"] for u in x["unmeasured"]), key=lambda u: (u["file"], u["line"]))
+    if um:
+        L.append("")
+        shown = ["%s line %d (%s%s)" % (u["task"], u["line"], u["why"],
+                                        " " + u["worker_ref"] if u["why"] == "bad_ref" and u["worker_ref"] else "")
+                 for u in um[:TOP_N]]
+        more = " (+%d more)" % (len(um) - TOP_N) if len(um) > TOP_N else ""
+        L.append("not measured: " + ", ".join(shown) + more)
+    pe = sorted((u for x in d["rows"] + d["shared"] for u in x["priced_elsewhere"]), key=lambda u: (u["file"], u["line"]))
+    if pe:
+        L.append("")
+        shown = ["%s line %d (same_worker, priced on line %d)" % (u["task"], u["line"], u["priced_on_line"])
+                 for u in pe[:TOP_N]]
+        more = " (+%d more)" % (len(pe) - TOP_N) if len(pe) > TOP_N else ""
+        L.append("priced elsewhere (the agent's transcript is counted once, on its first line): "
+                 + ", ".join(shown) + more)
+    if d["shared"]:
+        L.append("shared (counted once, in no row): " + "; ".join(
+            "%s %s cited by %s" % (s["task"], _cost_cell(s["cost"], s["partial"]), ", ".join(s["cited_by"]))
+            for s in d["shared"]))
+    return "\n".join(L) + "\n"
+
+
+# ============================================================================================
 # report
 # ============================================================================================
 
@@ -1332,8 +1702,34 @@ def main(argv=None, root=None) -> int:
     ap.add_argument("--check", action="store_true", help="name every NEW row/file/event without a feature; exit 1 on offenders; writes nothing")
     ap.add_argument("--base", default=None, help="--check: the ref to compare against (default: merge-base with main, else HEAD~1)")
     ap.add_argument("--warn", action="store_true", help="--check: print the same text, always exit 0")
+    ap.add_argument("--node-cost", action="store_true", dest="node_cost",
+                    help="print the price of each node of the window with its rework (stdout only, never written)")
+    ap.add_argument("--projects-root", default=None, help="--node-cost: the transcripts root (default ~/.claude/projects)")
     args = ap.parse_args(argv)
     root = Path(root) if root is not None else ROOT
+
+    if args.node_cost:      # BEFORE --check and compute(): with it neither runs and nothing is written (I-1)
+        if args.write or args.out or args.check:
+            print("forge_metrics --node-cost: prints only -- money is never written to a repository file (P18); "
+                  "drop --write/--out/--check", file=sys.stderr)
+            return 2
+        window = _normalize_window(args.window)
+        if args.projects_root is not None and not Path(args.projects_root).is_dir():
+            print(f"forge_metrics --node-cost: --projects-root {args.projects_root} is not a directory",
+                  file=sys.stderr)
+            return 2
+        import usage_report     # lazy: only this mode prices (I-2)
+        try:
+            data = node_costs(root, window, projects=args.projects_root)
+        except (usage_report.PricesError, RuntimeError) as e:
+            print(f"forge_metrics --node-cost: {e}", file=sys.stderr)
+            return 2
+        for w in data["warnings"]:
+            print(f"forge_metrics: {w}", file=sys.stderr)
+        text = (json.dumps(data, ensure_ascii=False, sort_keys=True, indent=1) + "\n" if args.json
+                else render_node_costs(data))
+        sys.stdout.write(text)
+        return 0
 
     if args.check:
         try:

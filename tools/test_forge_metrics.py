@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -1176,3 +1177,322 @@ def test_k14_attribute_finding_returns_the_unknown_tag_beside_a_registered_one()
     ids = {"F06", "F19"}
     assert fm.attribute_finding("[F99] and F06", "F19", ids) == {"feature": "F06", "by": "tag", "unknown": ["F99"]}
     assert fm.attribute_finding("[F06] [F98] [F99]", None, ids)["unknown"] == ["F98", "F99"]     # sorted
+
+
+# ---------------------------------------------------------------------------------------------
+# FG7-5 -- `--node-cost`: the price of a node with its rework (spec 20261116-fg7-5-node-cost-with-rework-spec.md)
+# ---------------------------------------------------------------------------------------------
+# The world is built under tmp_path: the history file (label "", so rows are named t-001) plus optional developer
+# files, worker transcripts under <projects>/<proj>/<session>/subagents/agent-<id>.jsonl, a two-model price file.
+# A worker transcript is a list of requests (model, input tokens, output tokens); prices are data of the test.
+
+NC_WINDOW = "2026-11-01"
+NC_PRICES = {"as_of": "T", "unit": "usd_per_token", "cache_write_multiplier": 1.25, "cache_write_1h_multiplier": 2,
+             "cache_read_multiplier": 0.1,
+             "models": {"m-a": {"input": 1e-06, "output": 2e-06}, "m-b": {"input": 3e-06, "output": 6e-06}}}
+TS = "2026-11-10T10:00:00"
+
+
+def D(tid, aid=None, ts=TS, agent="builder", **kw):
+    ref = ("agent:" + aid) if aid else kw.pop("worker_ref", "cli:" + ts)
+    return ev_line(ts, tid, "delegated", agent=agent, worker_ref=ref, **kw)
+
+
+def A(tid, ts=TS, **kw):
+    return ev_line(ts, tid, "accepted", **kw)
+
+
+def R(tid, ts=TS, **kw):
+    return ev_line(ts, tid, "rejected", **kw)
+
+
+def nc_world(tmp_path, journal, workers=None, files=None):
+    """-> (root, projects, prices). journal: lines of the history file; files: {slug: lines}; workers: {agent id:
+    [(model, input, output), ...]}."""
+    import usage_report
+    root, projects = tmp_path / "w", tmp_path / "projects"
+    put(root, fm.JOURNAL_REL, "".join(l + "\n" for l in journal))
+    for slug, lines in (files or {}).items():
+        put(root, "logs/journal/%s.jsonl" % slug, "".join(l + "\n" for l in lines))
+    projects.mkdir(parents=True, exist_ok=True)
+    for aid, reqs in (workers or {}).items():
+        lines = [json.dumps({"type": "assistant", "requestId": "r%d" % i,
+                             "message": {"model": m, "usage": {"input_tokens": i_, "output_tokens": o_,
+                                                               "cache_creation_input_tokens": 0,
+                                                               "cache_read_input_tokens": 0}}})
+                 for i, (m, i_, o_) in enumerate(reqs)]
+        put(projects, "proj/sess/subagents/agent-%s.jsonl" % aid, "\n".join(lines) + "\n")
+    put(tmp_path, "prices.json", json.dumps(NC_PRICES))
+    return root, projects, usage_report.load_prices(tmp_path / "prices.json")
+
+
+def nc_run(tmp_path, journal, workers=None, files=None, window=NC_WINDOW):
+    root, projects, prices = nc_world(tmp_path, journal, workers, files)
+    d = fm.node_costs(root, window, projects=projects, prices=prices)
+    return d, {r["row"]: r for r in d["rows"]}
+
+
+W1 = [("m-a", 1000, 500)]       # priced: 1000*1e-6 + 500*2e-6 = 0.002, tokens 1500
+ALL5 = {a: W1 for a in ("a1", "a2", "a3", "a4", "a5")}
+
+
+def _critic_attach(d, r):
+    return list(r) == ["t-001"] and r["t-001"]["tasks"] == ["t-001", "t-002"] and r["t-001"]["critic"] == 1
+
+
+def _shared(d, r):
+    return (sorted(r) == ["t-001", "t-003"] and [s["task"] for s in d["shared"]] == ["t-002"]
+            and d["shared"][0]["cited_by"] == ["t-001", "t-003"] and r["t-001"]["shared"] == ["t-002"]
+            and r["t-001"]["dispatches"] == 1 and d["shared"][0]["dispatches"] == 1)
+
+
+def _unpriced(d, r):
+    x = r["t-001"]
+    return (x["partial"] and x["cost"] == pytest.approx(0.002) and x["unmeasured"][0]["why"] == "unpriced:m-x"
+            and x["tokens"] == 1520)
+
+
+NC_CASES = [
+    ("two_attempts_and_critic_same_id",
+     [D("t-001", "a1"), R("t-001", failure_class="spec"), D("t-001", "a2"), D("t-001", "a3", agent="critic"), A("t-001")],
+     ALL5, None, 3,
+     lambda d, r: (r["t-001"]["status"] == "accepted" and r["t-001"]["dispatches"] == 3 and r["t-001"]["critic"] == 1
+                   and r["t-001"]["redelegations"] == 1 and r["t-001"]["rejects"]["spec"] == 1
+                   and r["t-001"]["cost"] == pytest.approx(0.006) and r["t-001"]["tokens"] == 4500
+                   and d["totals"]["unlinked"] == 1 and not r["t-001"]["partial"])),
+    ("node_field_merges_tasks",
+     [D("t-001", "a1", node="forge/7/FG7-9"), A("t-001"), D("t-002", "a2", node="forge/7/FG7-9"), A("t-002")],
+     ALL5, None, 2,
+     lambda d, r: (list(r) == ["forge/7/FG7-9"] and r["forge/7/FG7-9"]["tasks"] == ["t-001", "t-002"]
+                   and r["forge/7/FG7-9"]["kind"] == "node" and d["totals"]["unlinked"] == 0)),
+    ("critic_token_attaches",
+     [D("t-001", "a1"), A("t-001", notes="done critic:t-002"), D("t-002", "a2", agent="critic"), A("t-002")],
+     ALL5, None, 2, _critic_attach),
+    ("critic_token_two_rows_is_shared",
+     [D("t-001", "a1"), A("t-001", notes="critic:t-002"), D("t-003", "a3"), A("t-003", notes="critic:t-002"),
+      D("t-002", "a2", agent="critic"), A("t-002")], ALL5, None, 3, _shared),
+    ("critic_token_to_non_critic_links_nothing",
+     [D("t-001", "a1"), A("t-001", notes="critic:t-002"), D("t-002", "a2"), A("t-002")], ALL5, None, 2,
+     lambda d, r: sorted(r) == ["t-001", "t-002"] and any("critic:t-002" in w for w in d["warnings"])),
+    ("prose_is_not_a_link",
+     [D("t-001", "a1"), A("t-001", notes="critic on t-002"), D("t-002", "a2", agent="critic"), A("t-002")],
+     ALL5, None, 2, lambda d, r: sorted(r) == ["t-001", "t-002"] and d["totals"]["unlinked"] == 2),
+    ("defect_after_acceptance",
+     [D("t-001", "a1"), A("t-001"), D("t-004", "a2"),
+      ev_line(TS, "t-004", "defect_found", ref="t-001", notes="late defect")], ALL5, None, 2,
+     lambda d, r: (list(r) == ["t-001"] and r["t-001"]["status"] == "open" and r["t-001"]["defects"] == 1
+                   and r["t-001"]["tasks"] == ["t-001", "t-004"])),
+    ("defect_with_unknown_ref_warns",
+     [D("t-001", "a1"), A("t-001"), ev_line(TS, "t-004", "defect_found", ref="t-777", notes="x")], ALL5, None, 1,
+     lambda d, r: r["t-001"]["status"] == "accepted" and any("names no task" in w for w in d["warnings"])),
+    ("missing_transcript_is_unmeasured",
+     [D("t-001", "a9"), A("t-001")], ALL5, None, 1,
+     lambda d, r: (r["t-001"]["cost"] is None and r["t-001"]["partial"] and d["totals"]["cost"] is None
+                   and r["t-001"]["unmeasured"][0]["why"] == "no_transcript" and r["t-001"]["unmeasured"][0]["line"] == 1
+                   and d["top"] == [])),
+    ("cli_ref_and_old_line",
+     [D("t-001", worker_ref="cli:2026-11-12T10:00:00"), R("t-001"), D("t-001", "a1"), A("t-001")], ALL5, None, 2,
+     lambda d, r: (r["t-001"]["unmeasured"][0]["why"] == "bad_ref" and r["t-001"]["rejects"]["unclassified"] == 1
+                   and r["t-001"]["cost"] == pytest.approx(0.002) and r["t-001"]["partial"])),
+    ("glob_ref_is_bad_ref",
+     [D("t-001", worker_ref="agent:a*"), A("t-001")], ALL5, None, 1,
+     lambda d, r: r["t-001"]["unmeasured"][0]["why"] == "bad_ref" and r["t-001"]["cost"] is None),
+    ("unpriced_model_is_partial",
+     [D("t-001", "a6"), A("t-001")], {"a6": [("m-a", 1000, 500), ("m-x", 10, 10)]}, None, 1, _unpriced),
+    ("same_worker_twice",
+     [D("t-001", "a1"), D("t-001", "a1"), A("t-001")], ALL5, None, 2,
+     lambda d, r: (r["t-001"]["cost"] == pytest.approx(0.002) and r["t-001"]["unmeasured"] == []
+                   and r["t-001"]["tokens"] == 1500 and d["totals"]["measured"] == 2
+                   and [(e["line"], e["priced_on_line"]) for e in r["t-001"]["priced_elsewhere"]] == [(2, 1)])),
+    ("same_worker_first_unpriced",
+     [D("t-001", "a6"), A("t-001"), D("t-002", "a6", node="forge/7/FG7-9"), A("t-002")],
+     {"a6": [("m-x", 10, 10)]}, None, 2,
+     lambda d, r: (r["forge/7/FG7-9"]["cost"] is None and r["forge/7/FG7-9"]["partial"]
+                   and r["forge/7/FG7-9"]["unmeasured"][0]["why"] == "unpriced:m-x"
+                   and r["forge/7/FG7-9"]["priced_elsewhere"] == [] and d["totals"]["measured"] == 0
+                   and d["totals"]["cost"] is None and r["t-001"]["cost"] is None)),
+    ("defect_in_window_on_old_row",
+     [D("t-001", "a1", ts="2026-10-01T10:00:00"), A("t-001", ts="2026-10-01T11:00:00"),
+      ev_line(TS, "t-009", "defect_found", ref="t-001", notes="late defect")], ALL5, None, 1,
+     lambda d, r: (list(r) == ["t-001"] and r["t-001"]["defects"] == 1 and r["t-001"]["dispatches"] == 1)),
+    ("clone_collision_two_rows",
+     [D("t-001", "a1"), A("t-001")], ALL5, {"dev2": [D("t-001", "a2"), A("t-001")]}, 2,
+     lambda d, r: sorted(r) == ["t-001", "t-001@dev2"] and all(x["dispatches"] == 1 for x in r.values())),
+    ("window_keeps_row_whole",
+     [D("t-001", "a1", ts="2026-10-01T10:00:00"), A("t-001"), D("t-009", "a2", ts="2026-10-02T10:00:00"),
+      A("t-009", ts="2026-10-02T11:00:00")], ALL5, None, 1,
+     lambda d, r: (list(r) == ["t-001"] and r["t-001"]["cost"] == pytest.approx(0.002)
+                   and r["t-001"]["dispatches"] == 1)),
+    ("replaced_and_escalated",
+     [D("t-001", "a1"), D("t-001", "a2", notes="replaces_worker:agent:a1"), D("t-001", "a3"),
+      ev_line(TS, "t-001", "escalated"), A("t-001")], ALL5, None, 3,
+     lambda d, r: (r["t-001"]["redelegations"], r["t-001"]["replaced"], r["t-001"]["escalations"]) == (2, 1, 1)),
+    ("two_nodes_first_wins",
+     [D("t-001", "a1", node="forge/7/FG7-1"), D("t-001", "a2", node="forge/7/FG7-2"), A("t-001")], ALL5, None, 2,
+     lambda d, r: list(r) == ["forge/7/FG7-1"] and any("two nodes" in w for w in d["warnings"])),
+    ("task_with_no_dispatch_has_no_cost",
+     [A("t-001")], ALL5, None, 0,
+     lambda d, r: r["t-001"]["dispatches"] == 0 and r["t-001"]["cost"] is None and d["top"] == []),
+]
+
+
+@pytest.mark.parametrize("journal,workers,files,n_disp,check", [c[1:] for c in NC_CASES], ids=[c[0] for c in NC_CASES])
+def test_node_cost_grouping_and_price(tmp_path, journal, workers, files, n_disp, check):
+    d, rows = nc_run(tmp_path, journal, workers, files)
+    assert check(d, rows), json.dumps(d, indent=1, default=str)
+    t = d["totals"]
+    # I-3: every dispatch counted once, in a row or in the shared bucket; the money adds up to the total
+    assert t["dispatches"] == n_disp == sum(r["dispatches"] for r in d["rows"]) + sum(s["dispatches"] for s in d["shared"])
+    assert t["measured"] + t["unmeasured"] == t["dispatches"]
+    known = [x["cost"] for x in d["rows"] + d["shared"] if x["cost"] is not None]
+    assert (t["cost"] is None) == (not known) and (not known or t["cost"] == pytest.approx(sum(known)))
+    # I-4: a row is in the top only if accepted and priced
+    assert all(rows[n]["status"] == "accepted" and rows[n]["cost"] is not None for n in d["top"])
+
+
+def _six_world():
+    """t-001..t-006 accepted, cost k*0.10 each (input 100000*k tokens); t-006 also has a rejected attempt and a retry."""
+    j, w = [], {}
+    for k in range(1, 7):
+        j += [D("t-00%d" % k, "a%d" % k)]
+        w["a%d" % k] = [("m-a", 100000 * k, 0)]
+    j += [R("t-006", failure_class="spec"), D("t-006", "a7")] + [A("t-00%d" % k) for k in range(1, 7)]
+    w["a7"] = [("m-a", 10, 0)]
+    return j, w
+
+
+def _nc_text(tmp_path, journal, workers=None):
+    d, _rows = nc_run(tmp_path, journal, workers)
+    return d, fm.render_node_costs(d)
+
+
+def _top_lines(text):
+    return [l for l in text.split("\n") if l[:1].isdigit() and ". " in l[:4]]
+
+
+NC_RENDERS = [
+    ("empty_journal", [], None,
+     lambda d, t: ("rows 0; dispatches 0 -- no nodes in the window" in t
+                   and "Top 5 accepted nodes by cost: none in the window" in t and "| row |" not in t)),
+    ("six_accepted_top_is_five_with_reasons", None, None,
+     lambda d, t: (len(_top_lines(t)) == 5 and "6. " not in t
+                   and _top_lines(t)[0] == "1. t-006 $0.60 (2 dispatches, 0 unmeasured) -- rejects 1 (spec 1), critic "
+                                           "passes 0, redelegations 1 (replaced 0), escalations 0, defects after "
+                                           "acceptance 0"
+                   and _top_lines(t)[4].startswith("5. t-002 $0.20") and "| t-001 | accepted | 1 | 0 | 100000 | $0.10 |" in t)),
+    ("open_row_not_in_top",
+     [D("t-001", "a1"), D("t-002", "a2"), A("t-002")], {"a1": [("m-a", 900000, 0)], "a2": W1},
+     lambda d, t: (len(_top_lines(t)) == 1 and _top_lines(t)[0].startswith("1. t-002 ")
+                   and "| t-001 | open |" in t)),
+    ("partial_prints_ge",
+     [D("t-001", "a1"), D("t-001", "a9"), A("t-001")], ALL5,
+     lambda d, t: ("1. t-001 >= $0.00 (2 dispatches, 1 unmeasured)" in t and "total >= $0.00" in t
+                   and "not measured: t-001 line 2 (no_transcript)" in t)),
+    ("same_worker_note_and_given_prices_header",
+     [D("t-001", "a1"), D("t-001", "a1"), A("t-001")], ALL5,
+     lambda d, t: ("priced elsewhere (the agent's transcript is counted once, on its first line): "
+                   "t-001 line 2 (same_worker, priced on line 1)" in t
+                   and "prices: given as_of T --" in t and "model_prices.json" not in t)),
+    ("ties_by_name",
+     [D("t-002", "a2"), A("t-002"), D("t-001", "a1"), A("t-001")], ALL5,
+     lambda d, t: t.index("| t-001 |") < t.index("| t-002 |") and t.index("1. t-001 ") < t.index("2. t-002 ")),
+    ("more_than_ten_unmeasured_announced",
+     [D("t-001", "x%d" % i) for i in range(12)] + [A("t-001")], None,
+     lambda d, t: ("(+2 more)" in t and len(d["rows"][0]["unmeasured"]) == 12 and t.count("no_transcript") == 10
+                   and "| t-001 | accepted | 12 | 12 | 0 | n/d |" in t)),
+]
+
+
+@pytest.mark.parametrize("journal,workers,check", [c[1:] for c in NC_RENDERS], ids=[c[0] for c in NC_RENDERS])
+def test_node_cost_render(tmp_path, journal, workers, check):
+    if journal is None:
+        journal, workers = _six_world()
+    d, text = _nc_text(tmp_path, journal, workers)
+    assert check(d, text), text
+    assert text.startswith("## Node cost (printed, never written: P18)\nwindow: since 2026-11-01; source: worker transcripts")
+
+
+@pytest.mark.parametrize("counts,why", [({"split_missing": 2}, "split_missing"), ({"bad_iterations": 1}, "bad_iterations"),
+                                        ({}, None)], ids=["split_missing", "bad_iterations", "none"])
+def test_node_cost_low_figure_counts_are_named(tmp_path, counts, why):
+    """F3: a cache write priced at the 5-minute rate, or a malformed iterations field, makes the dispatch partial."""
+    import types
+    import usage_report
+    part = {"input_tokens": 10, "output_tokens": 10, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0,
+            "cache_creation_1h_tokens": 0, "model": "m-a"}
+
+    def request_parts(path, skipped=None, counts=None, **kw):
+        counts.update(dict(want))
+        return [{"key": "r:0", "parts": [part]}]
+    want = counts
+    tr = types.SimpleNamespace(agent_file_name=lambda a: a, request_parts=request_parts)
+    ev = {"obj": {"worker_ref": "agent:a1"}, "line": 1}
+    put(tmp_path, "prices.json", json.dumps(NC_PRICES))
+    p = fm._price_dispatch(ev, {"a1": "p"}, usage_report.load_prices(tmp_path / "prices.json"), {}, usage_report, tr)
+    assert p["whys"] == ([why] if why else []) and p["cost"] is not None
+
+
+def _cli_world(tmp_path):
+    root, projects, _prices = nc_world(tmp_path, [D("t-001", "a1"), A("t-001")], ALL5)
+    (tmp_path / "notadir").write_text("x", encoding="utf-8")
+    return root, projects
+
+
+NC_DOORS = [
+    ("write_refused", lambda r, p: ["--node-cost", "--write"], 2, "money is never written to a repository file (P18)"),
+    ("out_refused", lambda r, p: ["--node-cost", "--write", "--out", str(r / "o.md")], 2, "drop --write/--out/--check"),
+    ("check_refused", lambda r, p: ["--node-cost", "--check"], 2, "prints only"),
+    ("bad_window", lambda r, p: ["--node-cost", "--window", "yesterday"], "--window must look like", ""),
+    ("projects_root_is_a_file", lambda r, p: ["--node-cost", "--projects-root", str(r.parent / "notadir")], 2,
+     "is not a directory"),
+    ("json_has_the_keys", lambda r, p: ["--node-cost", "--json", "--window", NC_WINDOW, "--projects-root", str(p)], 0, ""),
+    ("text_without_registry", lambda r, p: ["--node-cost", "--window", NC_WINDOW, "--projects-root", str(p)], 0, ""),
+]
+
+
+@pytest.mark.parametrize("argv_of,rc_want,err_has", [c[1:] for c in NC_DOORS], ids=[c[0] for c in NC_DOORS])
+def test_node_cost_cli_doors(tmp_path, capsys, argv_of, rc_want, err_has):
+    root, projects = _cli_world(tmp_path)
+    assert not (root / "plans" / "features.json").exists()
+    try:
+        rc = fm.main(argv_of(root, projects), root=root)
+    except SystemExit as e:
+        rc = str(e.code)
+    out = capsys.readouterr()
+    if isinstance(rc_want, str):
+        assert rc_want in rc
+        return
+    assert rc == rc_want and err_has in out.err
+    assert not (root / fm.OUT_REL).exists() and not (root / "o.md").exists()
+    if rc_want:
+        assert out.out == ""
+    if "--json" in argv_of(root, projects):
+        assert {"window", "prices_as_of", "source", "rows", "shared", "top", "totals", "warnings"} <= set(json.loads(out.out))
+    elif rc_want == 0:
+        assert out.out.startswith("## Node cost") and "| t-001 | accepted | 1 |" in out.out
+
+
+def test_node_cost_broken_price_file_is_one_stderr_line_and_empty_stdout(tmp_path, capsys, monkeypatch):
+    import usage_report
+    root, projects = _cli_world(tmp_path)
+    (tmp_path / "bad.json").write_text("{not json", encoding="utf-8")
+    monkeypatch.setattr(usage_report, "PRICES_FILE", tmp_path / "bad.json")
+    assert fm.main(["--node-cost", "--projects-root", str(projects)], root=root) == 2
+    out = capsys.readouterr()
+    assert out.out == "" and len(out.err.strip().split("\n")) == 1
+    assert out.err.startswith("forge_metrics --node-cost: price file") and "malformed JSON" in out.err
+
+
+def test_node_cost_import_stays_light():
+    """I-2: importing forge_metrics pulls neither transcripts nor usage_report (the hooks import it)."""
+    code = ("import sys; sys.path.insert(0, 'tools'); import forge_metrics; "
+            "print(sorted(m for m in ('transcripts', 'usage_report') if m in sys.modules))")
+    done = subprocess.run([sys.executable, "-I", "-c", code], cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8")
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.strip() == "[]"
+
+
+def test_node_cost_critic_token_pattern_equals_the_hooks():
+    """F6: the pattern is rebuilt from journal_keys.ID_PATTERN; this row pins it equal to journal_echo's."""
+    import journal_echo
+    assert fm._CRITIC_TOKEN_RE.pattern == journal_echo.CRITIC_TOKEN_RE.pattern
