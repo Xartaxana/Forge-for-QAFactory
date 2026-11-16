@@ -89,3 +89,11 @@ You receive a spec and implement it. The coordinator writes the spec — not you
    never lost, never shortened, and the cap does not apply.
    An empty or truncated final message counts as work not delivered,
    no matter how much was actually done.
+8. Tests are written by `docs/TESTING.md` — read it before your first
+   test; its section «Как писать эффективный тест на нашем проекте» is
+   the how-to. The test volume rule is TESTING.md «Бюджет / Объём»;
+   when your diff goes over it, name the reason in one line of your
+   report AND in a line `tests-over: <reason>` of the commit message
+   (the commit-msg hook WARNs without it, it never refuses). A new case
+   is a row of an existing scenario, table or junction, not a new file
+   (the one exception: «Бюджет / Файлы»).

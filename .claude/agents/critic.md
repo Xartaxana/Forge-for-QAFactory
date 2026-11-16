@@ -169,3 +169,9 @@ Your job is to find what's wrong and prove it.
    leaves your verdict as a fix of this round or as a proposed node with its
    owner, never as a line for somebody to pass on; the coordinator of the
    proper tier opens the node (rule 6).
+20. Tests, on every diff gate, with their own verdict line: the
+   question is docs/tasks/critic-diff-brief.md question 5 (the rule
+   text is docs/TESTING.md «Бюджет»). A diff over the volume rule with
+   no reason named — in the report and in the commit's `tests-over:`
+   line — is a finding; a named reason that does not hold is a finding
+   too.
