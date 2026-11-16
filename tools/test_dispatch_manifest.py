@@ -160,7 +160,8 @@ _EXPECTED_INCOMPLETE = (
     "'siblings: none -- <why>' with the reason on the same line), "
     "designer: (required only from 3 owned paths or 3 numbered items: the absolute path of the accepted "
     "draft, 'designer: skip -- <reason>' or 'designer: resubmission t-<id>'). To send it "
-    "anyway on purpose, add a line: manifest-skip: <item>[, <item>] -- <reason>"
+    "anyway on purpose, add a line: manifest-skip: <item>[, <item>] -- <reason>. "
+    "Door: python -B tools/dispatch_new.py prints these lines checked."
 )
 
 
@@ -1162,11 +1163,23 @@ def test_non_writing_dispatches_get_neither_check():
         assert run("do the survey\n", type_) == (0, "", "")
 
 
-def test_designer_skip_goes_out_with_the_owed_event_in_the_note():
-    code, msg, note = run(build(owns=OWNS3, designer="designer: skip -- tiny edit"))
+@pytest.mark.parametrize("head, expected", [
+    ("task: t-123\n", "DESIGNER-SKIP: over the designer threshold; the hook writes "
+                      "dispatch_skipped(agent=designer) for t-123"),
+    ("", None),
+], ids=["with-task-line-hook-writes", "no-task-line-owed-and-door"])
+def test_designer_skip_note_with_and_without_task(head, expected):
+    code, msg, note = run(head + build(owns=OWNS3, designer="designer: skip -- tiny edit"))
     assert (code, msg) == (0, "")
-    assert "dispatch_skipped" in note and "tiny edit" in note and "rule 2" in note
+    if expected:
+        assert note == expected
+    else:
+        assert "owed" in note and "python -B tools/journal_write.py skip" in note and "tiny edit" in note
     assert run(build(owns=OWNS3, designer="designer: resubmission t-005"))[2] == ""
+
+
+def test_incomplete_refusal_names_the_dispatch_new_door():
+    assert "python -B tools/dispatch_new.py" in run("just some words\n")[1]
 
 
 # offload B0 item 8: designer_skip_reason(cut) and header_ids(cut) read the ONE cut

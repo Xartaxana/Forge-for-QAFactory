@@ -138,7 +138,8 @@ INCOMPLETE_TEMPLATE = (
     "DISPATCH INCOMPLETE (CLAUDE.md rule 11): this {kind} dispatch does not go out. "
     "Missing: {items}. Expected, each as its own line outside code fences and quotes, "
     "starting with its name and a colon: " + _expected_forms() + ". "
-    "To send it anyway on purpose, add a line: manifest-skip: <item>[, <item>] -- <reason>"
+    "To send it anyway on purpose, add a line: manifest-skip: <item>[, <item>] -- <reason>. "
+    "Door: python -B tools/dispatch_new.py prints these lines checked."
 )
 SKIP_REFUSED_TEMPLATE = (
     "MANIFEST-SKIP REFUSED: '{line}' -- {why}. Expected: manifest-skip: <item>[, <item>] "
@@ -153,8 +154,12 @@ UNCHECKED_NOTE_TEMPLATE = (
     "out; check " + ", ".join(k[1] for k in KEY_GROUPS[:-1]) + " and " + KEY_GROUPS[-1][1] + " by eye."
 )
 DESIGNER_SKIP_NOTE_TEMPLATE = (
-    'DESIGNER-SKIP: this dispatch is over the designer threshold and carries "designer: skip -- {reason}" -- '
-    "a dispatch_skipped(agent=designer) event is owed (CLAUDE.md rule 2)."
+    "DESIGNER-SKIP: over the designer threshold; the hook writes dispatch_skipped(agent=designer) for {task}"
+)
+DESIGNER_SKIP_OWED_TEMPLATE = (
+    'DESIGNER-SKIP: over the designer threshold, "designer: skip -- {reason}"; the dispatch has no task: line, '
+    "so a dispatch_skipped(agent=designer) event is owed (CLAUDE.md rule 2): "
+    "python -B tools/journal_write.py skip ..."
 )
 FORM_NOT_ENFORCED_NOTE_TEMPLATE = (
     "SIBLINGS/DESIGNER NOT ENFORCED (DISPATCH_FORM_REFUSES is off): this dispatch went out missing {items}; "
@@ -966,7 +971,9 @@ def check_cut(cut, is_builder: bool):
     if unenforced:
         skip_notes.append(FORM_NOT_ENFORCED_NOTE_TEMPLATE.format(items=_items_text(unenforced, missing)))
     if designer_skip_reason is not None:
-        skip_notes.append(DESIGNER_SKIP_NOTE_TEMPLATE.format(reason=designer_skip_reason))
+        task = header_ids(cut).get("task")
+        skip_notes.append(DESIGNER_SKIP_NOTE_TEMPLATE.format(task=task) if task
+                          else DESIGNER_SKIP_OWED_TEMPLATE.format(reason=designer_skip_reason))
     return 0, "", "\n".join(skip_notes), True
 
 

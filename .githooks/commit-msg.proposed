@@ -1,0 +1,41 @@
+#!/bin/sh
+# A gate's refusal stops the commit with its own text: the hook's exit code is the FIRST failing gate's, not the
+# last command's (the pre-commit lesson; a mechanism_gate refusal must not be masked by a passing piles check --
+# critic t-587 P1): gate() stops at the first refusal.
+# Output policy (owner 16.11.2026): on success ONE line `gates: ok (N checks)`; a failing gate prints its full output
+# and stops; a passing gate's lines containing WARN are shown, the rest hidden.
+n=0
+tmp=$(mktemp "${TMPDIR:-/tmp}/commitmsg.XXXXXX") || exit 1
+trap 'rm -f "$tmp"' EXIT
+
+# gate <command...>: run it, capture stdout+stderr; on failure print its full text and exit with its own code.
+gate() {
+    if "$@" >"$tmp" 2>&1; then
+        n=$((n + 1))
+        grep 'WARN' "$tmp" || true
+    else
+        rc=$?
+        cat "$tmp"
+        exit "$rc"
+    fi
+}
+
+# Gate for rule 10(b)'s axis block on mechanism-touching commits.
+gate python tools/mechanism_gate.py "$1"
+# Architecture gate (F6-29): a commit touching ai-packages/qa-factory/ names the AR-n invariants it touches in a
+# message line "architecture: AR-n[, AR-m] -- <how kept>"; the door is "architecture: none -- <reason>".
+# The same gate checks the "judgment:" line (D-0060, P27/AR-29): none / adds data check <unit> / moves <what> to role|to code,
+# with the judgment census (scripts/tests/fixtures/judgment-census.json) compared HEAD vs index; one refusal names both lines.
+gate python tools/architecture_gate.py "$1"
+# Piles gate (placement, overlap, frozen batch, frozen backlog, form, findings placed -- D-0036, F0-2, D-0044); the door is a
+# commit-message line "piles-skip: <item> -- <reason>" -- this is why it runs here and not in pre-commit.
+gate python tools/piles.py check --msg-file "$1"
+# Test-volume WARN (owner 14.11.2026): LAST, after the refusing gates; never blocks (whatever its exit code, the commit
+# goes on, as the old `|| true`). Its WARN line is shown; a crash's text is shown in full.
+if python tools/test_volume.py "$1" >"$tmp" 2>&1; then
+    grep 'WARN' "$tmp" || true
+else
+    cat "$tmp"
+fi
+n=$((n + 1))
+echo "gates: ok ($n checks)"
