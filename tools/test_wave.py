@@ -137,34 +137,56 @@ def test_forge_check_is_information_only(env):
 SHA = "abcd1234" + "0" * 32
 
 
-def ci_data(run, jobs):
-    """A fake of wave._ci_get: the DATA the Actions API would give (C3-6), `None` = ci_read cannot answer."""
-    def get(root, path):
-        if run is None:
-            raise OSError("no token")
-        return {"workflow_runs": run} if path.startswith("actions/runs?") else {"jobs": jobs}
-    return get
-
-
-@pytest.mark.parametrize("run,jobs,state", [
-    ([{"id": 1, "head_sha": SHA, "status": "completed", "conclusion": "success"}],
-     [{"name": "forge-check", "status": "completed", "conclusion": "success"}], "success"),
-    ([{"id": 1, "head_sha": SHA, "status": "completed", "conclusion": "failure"}],
-     [{"name": "forge-check", "status": "completed", "conclusion": "failure"},
-      {"name": "unit", "status": "completed", "conclusion": "failure"}], "failure (failed: forge-check, unit)"),
-    ([{"id": 1, "head_sha": SHA, "status": "in_progress", "conclusion": None}],
-     [{"name": "other", "status": "completed", "conclusion": "success"}], "pending"),
-    ([{"id": 1, "head_sha": "ffffffff" + "0" * 32, "status": "completed", "conclusion": "success"}], [], "unknown"),
-    ([], [], "unknown"),
-    (None, None, "unknown")], ids=["green", "red-reason-from-data", "pending", "other-commit", "no-run", "no-data"])
-def test_forge_check_state_reads_ci_data_C3_6(monkeypatch, run, jobs, state):
-    monkeypatch.setattr(wave, "_ci_get", ci_data(run, jobs))
+@pytest.mark.parametrize("answer,state", [
+    (("success", []), "success"),
+    (("failure", ["forge-check", "unit"]), "failure (failed: forge-check, unit)"),
+    (("failure", []), "failure"),
+    (("in_progress", []), "pending"),
+    (("none", []), "unknown"),
+    (("unknown", []), "unknown")], ids=["green", "red-names", "red-no-names", "pending", "no-run", "unknown"])
+def test_forge_check_state_prints_the_run_state_of_ci_read_C3_6(monkeypatch, answer, state):
+    import ci_read
+    monkeypatch.setattr(ci_read, "run_state", lambda root, sha: answer)
     assert wave.forge_check_state(Path("."), SHA) == state
 
 
-def test_forge_check_state_unknown_when_the_reader_breaks(monkeypatch):
-    monkeypatch.setattr(wave, "_ci_get", lambda *a: {"workflow_runs": "not a list"})
-    assert wave.forge_check_state(Path("."), SHA) == "unknown"
+class _Resp:
+    def __init__(self, body):
+        self._body = body.encode()
+        self.status = 200
+
+    def read(self, n=None):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+@pytest.mark.parametrize("routes,state", [
+    ({"/actions/runs?": {"workflow_runs": [{"id": 1, "head_sha": SHA, "status": "completed", "conclusion": "failure"}]},
+      "/actions/runs/1/jobs": {"jobs": [{"name": "forge-check", "conclusion": "failure"}, {"name": "unit", "conclusion": "failure"}]}},
+     "failure (failed: forge-check, unit)"),
+    ({"/actions/runs?": {"workflow_runs": [{"id": 1, "head_sha": SHA, "status": "completed", "conclusion": "success"}]},
+      "/actions/runs/1/jobs": {"jobs": [{"name": "forge-check", "conclusion": "success"}]}}, "success"),
+    ({"/actions/runs?": "not json"}, "unknown")], ids=["red", "green", "bad-answer"])
+def test_forge_check_state_goes_through_the_real_ci_read_with_a_faked_opener_C3_6(monkeypatch, tmp_path, routes, state):
+    """The junction: a rename in ci_read turns this red instead of turning the state into a silent unknown."""
+    import json
+    import urllib.request
+    monkeypatch.setenv("QA_CI_REPO", "o/r")
+    monkeypatch.setenv("GITHUB_TOKEN", "dummy-token")
+    monkeypatch.delenv("QA_DEV_CONFIG", raising=False)
+
+    def fake_urlopen(req, timeout=None):
+        for needle, answer in routes.items():
+            if needle in req.full_url:
+                return _Resp(answer if isinstance(answer, str) else json.dumps(answer))
+        raise AssertionError("unexpected request " + req.full_url)
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    assert wave.forge_check_state(tmp_path, SHA) == state
 
 
 def test_non_ff_push_retries_from_the_merge(env, monkeypatch):
@@ -642,3 +664,48 @@ def test_worktree_left_to_a_running_sweep_when_its_lock_stays_busy_C3_7(env, mon
         lock.release()
     assert rc == 0 and wt.exists() and "a worktree sweep holds its lock" in out and blob(env, "f.txt") == b"x\n"
     assert g(env.root, "branch", "--list", "s2") != ""
+
+
+def test_worktree_that_git_cannot_remove_keeps_the_branch_P4_F1(env):
+    branch(env, "s3", {"f.txt": "x\n"})
+    g(env.root, "fetch", "-q", "origin")
+    g(env.root, "branch", "s3", "origin/s3")
+    wt = env.tmp / "wt-s3"
+    g(env.root, "worktree", "add", "-q", str(wt), "s3")
+    g(env.root, "worktree", "lock", str(wt))                  # `remove --force` (once) refuses a locked worktree
+    rc, out, _ = go(env, "s3")
+    assert rc == 0 and wt.exists() and "kept: git worktree remove failed:" in out and "(the worktree is not removed)" in out
+    assert g(env.root, "branch", "--list", "s3") != "" and blob(env, "f.txt") == b"x\n"
+
+
+@pytest.mark.parametrize("pin,ok", [
+    ("full", True), ("prefix7", True), ("upper", True),
+    ("other", False), ("short", False), ("nothex", False), ("empty", False)],
+    ids=["full", "prefix7", "upper-case", "other-tip", "6-chars", "not-hex", "empty"])
+def test_sha_pin_is_checked_before_any_push_P4_Q2(env, pin, ok):
+    branch(env, "p1", {"f.txt": "x\n"})
+    tip = g(env.origin, "rev-parse", "p1")
+    main_before = origin_main(env)
+    value = {"full": tip, "prefix7": tip[:7], "upper": tip[:12].upper(), "other": "0" * 40, "short": tip[:6],
+             "nothex": "zzzzzzzz", "empty": ""}[pin]
+    out = []
+    rc = wave.Wave(env.root, "p1", "t-868", None, ci=lambda r, s: "success", out=out.append, pin=value).run()
+    text = "\n".join(out)
+    if ok:
+        assert rc == 0 and "pushed: %s" % tip in text and blob(env, "f.txt") == b"x\n"
+    else:
+        assert rc == 2 and origin_main(env) == main_before and blob(env, "f.txt") is None and "pushed:" not in text
+        assert ("!= accepted" in text and "re-accept the new tip" in text) if pin == "other" else "expected 7 to 40 hex" in text
+
+
+def test_a_local_tip_that_is_not_the_pin_is_not_pushed_P4_Q2(env):
+    branch(env, "p2", {"f.txt": "x\n"})
+    g(env.root, "fetch", "-q", "origin")
+    g(env.root, "branch", "p2", "origin/p2")
+    accepted = g(env.root, "rev-parse", "p2")
+    g(env.root, "checkout", "-q", "p2")
+    put(env.root, {"late.txt": "late\n"}, "late commit")      # a commit the worker added after acceptance
+    g(env.root, "checkout", "-q", "main")
+    out = []
+    rc = wave.Wave(env.root, "p2", "t-868", None, ci=lambda r, s: "success", out=out.append, pin=accepted).run()
+    assert rc == 2 and "!= accepted" in "\n".join(out) and g(env.origin, "rev-parse", "p2") == accepted

@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """wave.py -- the one merge road of a wave (offload spec r2, §3.C3; mechanism M6).
 
-  python -B tools/wave.py merge <branch> --task t-NNN [--node <slug> <N> <id>] [--repo DIR]
+  python -B tools/wave.py merge <branch> --task t-NNN [--node <slug> <N> <id>] [--sha <tip>] [--repo DIR]
+
+--sha pins the accepted branch tip (full or a prefix of 7+ hex digits): another tip is refused before any push. The tool
+prints `pushed: <sha>` (the tip it merges) before the merge.
 
 One call: take the machine lock `main-merge` (60 s), fetch, push the branch to origin itself when origin lacks it or is
 behind it (fast-forward only, never forced; a refusal prints origin's text and nothing is merged), refuse a branch known
@@ -24,11 +27,9 @@ restore mismatch is exit 1 after it."""
 from __future__ import annotations
 
 import argparse
-import contextlib
 import hashlib
-import io
-import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -50,6 +51,7 @@ SWEEP_WAIT = 20.0                 # seconds on a running worktree sweep before a
 SHOW_PATHS = 5
 ATTEMPTS = 3
 MAIN = "main"
+PIN_RE = re.compile(r"[0-9a-fA-F]{7,40}", re.ASCII)
 _NONFF = ("non-fast-forward", "fetch first", "failed to update ref", "(stale info)")
 
 
@@ -77,60 +79,15 @@ def git_bytes(cwd, *args):
     return p.returncode, p.stdout
 
 
-def _ci_get(root, path):
-    """The parsed JSON of one GitHub Actions API path, through the helpers of tools/ci_read.py (its token door, its
-    repository door, its request function): DATA, never the text its commands print (C3-6; AR-13, AR-18)."""
-    import ci_read  # noqa: PLC0415
-    door = os.environ.get(ci_read.REPO_DOOR, "")
-    if door:
-        repo = ci_read._repo_name(door)
-    else:
-        host, rpath = ci_read.split_origin(ci_read.origin_url(root))
-        repo = ci_read._origin_repo_path(rpath) if host == "github.com" else None
-    if repo is None:
-        raise OSError("no GitHub repository for this clone")
-    with contextlib.redirect_stderr(io.StringIO()):
-        name, _src = ci_read.backend_for(root).token_env_name()
-    token = os.environ.get(name)
-    if not token:
-        raise OSError("no token")
-    _status, raw = ci_read._open("%s/repos/%s/%s" % (ci_read.API, repo, path), token)
-    data = json.loads(ci_read._text(raw))
-    if not isinstance(data, dict):
-        raise OSError("unexpected answer")
-    return data
-
-
 def forge_check_state(root, sha):
-    """`success | failure | pending | unknown` for the commit `sha` from the DATA of the Actions API (ci_read's helpers);
-    a red state carries the names of its failed jobs: `failure (failed: a, b)`. Any failure to know is `unknown`, never a
-    guessed reason."""
-    def word(w):
-        w = str(w or "").strip()
-        return ("success" if w == "success" else "failure" if w in ("failure", "timed_out", "cancelled")
-                else "pending" if w in ("in_progress", "queued", "waiting", "pending", "None", "requested") else "unknown")
-
-    def of(row):
-        return word(row.get("conclusion") or row.get("status"))
-    try:
-        runs = [r for r in _ci_get(root, "actions/runs?head_sha=%s&per_page=10" % sha).get("workflow_runs") or []
-                if isinstance(r, dict) and str(r.get("head_sha") or "") == sha]
-        if not runs:
-            return "unknown"
-        run = runs[0]
-        state = of(run)
-        jobs = [j for j in _ci_get(root, "actions/runs/%s/jobs?per_page=100" % run.get("id")).get("jobs") or []
-                if isinstance(j, dict)]
-        for job in jobs:
-            if "forge-check" in str(job.get("name") or ""):
-                state = of(job)
-        if state == "failure":
-            failed = [str(j.get("name")) for j in jobs if of(j) == "failure"][:3]
-            if failed:
-                return "failure (failed: %s)" % ", ".join(failed)
-        return state
-    except Exception:  # noqa: BLE001 -- information only: whatever fails is `unknown`
-        return "unknown"
+    """`success | failure | pending | unknown` for the commit `sha` from ci_read.run_state (the one road to the CI state:
+    its backend, its token door, its request function); a red state carries the names of its failed jobs:
+    `failure (failed: a, b)`. No run or any failure to know is `unknown`, never a guessed reason."""
+    import ci_read  # noqa: PLC0415
+    state, failed = ci_read.run_state(root, sha)
+    if state == "failure" and failed:
+        return "failure (failed: %s)" % ", ".join(failed[:3])
+    return {"success": "success", "failure": "failure", "in_progress": "pending"}.get(state, "unknown")
 
 
 def journal_rel(root):
@@ -155,8 +112,9 @@ def _sha(data):
 
 
 class Wave:
-    def __init__(self, repo, branch, task, node=None, ci=forge_check_state, out=print):
+    def __init__(self, repo, branch, task, node=None, ci=forge_check_state, out=print, pin=None):
         self.branch, self.task, self.node, self.ci, self.out = branch, task, node, ci, out
+        self.pin = pin
         self.root = jl.common_dir(repo).parent
         self.sha = None
         self.branch_sha = None
@@ -207,16 +165,36 @@ class Wave:
     def locked(self):
         self.fetch()
         if self.branch != MAIN:
+            self.check_pin_local()
             self.publish_branch()
         rc, sha, _e = git(self.root, "rev-parse", "--verify", "-q", "refs/remotes/origin/" + self.branch)
         if rc != 0 or self.branch == MAIN:
             raise Refuse("step 3: branch %s is not on origin (expected an existing branch other than main)" % self.branch)
+        self.check_pin(sha)
         self.branch_sha = sha
+        self.say("pushed: %s" % sha)
         self.say("forge-check: %s" % self.ci(self.root, sha))
         self.merge_and_push(sha)
         self.commit_journal()
         why = self.refresh()
         self.finish(why)
+
+    def pin_problem(self):
+        """None, or the text that refuses a malformed --sha before anything runs."""
+        if self.pin is not None and not PIN_RE.fullmatch(self.pin):
+            return "--sha %r: expected 7 to 40 hex digits (a full sha or a prefix of at least 7)" % self.pin
+        return None
+
+    def check_pin(self, tip):
+        """The branch tip that is pushed and merged is the accepted one: a mismatch refuses before any push."""
+        if self.pin is not None and not tip.lower().startswith(self.pin.lower()):
+            raise Refuse("step 3: tip %s != accepted %s; expected the tip you accepted -- re-accept the new tip, "
+                         "or pass the new sha with --sha" % (tip, self.pin))
+
+    def check_pin_local(self):
+        rc, tip, _e = git(self.root, "rev-parse", "--verify", "-q", "refs/heads/" + self.branch)
+        if rc == 0:
+            self.check_pin(tip)
 
     def publish_branch(self):
         """Step 3a: the accepted branch reaches origin by this road. Nothing local -> step 3 judges; origin equal to or
@@ -464,7 +442,7 @@ class Wave:
                 return False, "kept, checked out in %s" % wt
             if not self.remove_worktree(wt):
                 self.delete_remote()
-                return False, "kept, checked out in %s (a worktree sweep holds its lock)" % wt
+                return False, "kept, checked out in %s (the worktree is not removed)" % wt
         rc, local, _e = git(root, "rev-parse", "--verify", "-q", "refs/heads/" + br)
         ok, text = True, "deleted"
         if rc == 0:
@@ -487,7 +465,8 @@ class Wave:
 
     def remove_worktree(self, wt):
         """Under the SAME lock the background worktree sweep takes (one lock, not two): remove the folder; a folder that is
-        already gone is a report line, not an error. False = the lock stayed busy for SWEEP_WAIT: left to the sweep."""
+        already gone is a report line, not an error. False = the worktree stays (the lock stayed busy for SWEEP_WAIT and it
+        is left to the sweep, or git could not remove it): the caller never deletes its branch then."""
         sweep_dir = jl.common_dir(self.root) / ws.STATE_DIRNAME
         deadline = time.monotonic() + SWEEP_WAIT
         while True:
@@ -507,8 +486,11 @@ class Wave:
             _hook("before-worktree-remove")
             gone = not Path(wt).exists()
             if not gone:
-                rc, _o, _e = git(self.root, "worktree", "remove", "--force", wt)
-                gone = rc != 0 and not Path(wt).exists()
+                rc, o, err = git(self.root, "worktree", "remove", "--force", wt)
+                if rc != 0 and Path(wt).exists():          # git could not remove it: the branch stays checked out there
+                    self.say("worktree %s kept: git worktree remove failed: %s" % (wt, err or o or "no text"))
+                    return False
+                gone = rc != 0
             if gone:
                 git(self.root, "worktree", "prune")
                 self.say("worktree %s: folder already gone (removed by the sweep); registration pruned" % wt)
@@ -551,6 +533,9 @@ class Wave:
             raise Refuse("", 1)
 
     def run(self):
+        bad = self.pin_problem()
+        if bad:
+            return self.refuse(Refuse(bad))
         try:
             with jl.machine_lock("main-merge", LOCK_WAIT, repo=self.root):
                 self.locked()
@@ -575,6 +560,8 @@ def build_parser():
     m.add_argument("branch")
     m.add_argument("--task", required=True, help="t-NNN")
     m.add_argument("--node", nargs=3, metavar=("SLUG", "N", "ID"))
+    m.add_argument("--sha", default=None, metavar="SHA",
+                   help="the accepted branch tip (full or a prefix of 7+ hex digits); a different tip is refused before any push")
     m.add_argument("--repo", default=str(_TOOLS.parent))
     return p
 
@@ -592,7 +579,7 @@ def main(argv=None):
         print("refused: --node %s: expected <slug> <N> <id> in the node grammar (slug/N/id, N from 1)" % " ".join(a.node))
         return 2
     try:
-        wave = Wave(a.repo, a.branch, a.task, a.node)
+        wave = Wave(a.repo, a.branch, a.task, a.node, pin=a.sha)
     except jl.LockError as exc:
         print("refused: %s" % exc)
         return 2

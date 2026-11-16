@@ -798,3 +798,43 @@ def test_why_remote_text_is_sanitized(net, capsys):
 def test_constants():
     assert ci_read.API == "https://api.github.com" and ci_read.MAX_ARTIFACT_BYTES == 200 * 1024 * 1024
     assert ci_read.common.DEFAULT_GREP == r"FAIL|===|Error|Traceback" and ci_read.TOKEN_ENV == "GITHUB_TOKEN"
+
+
+# ---- run_state: the CI state of a commit as data (FG7-43 P4-Q1) ----------------------------------------------------
+
+SHA = "abcd1234" + "0" * 32
+RUN_OF = {"id": 5, "head_sha": SHA, "status": "completed", "conclusion": "failure"}
+
+
+def state_routes(net, run, jobs):
+    net.routes = [("/actions/runs/5/jobs", json.dumps({"jobs": jobs})),
+                  ("/actions/runs?head_sha=", runs_json(*run))]
+
+
+@pytest.mark.parametrize("run,jobs,expected", [
+    ([RUN_OF], [{"name": "forge-check", "conclusion": "failure"}, {"name": "unit", "conclusion": "timed_out"},
+                {"name": "lint", "conclusion": "success"}], ("failure", ["forge-check", "unit"])),
+    ([dict(RUN_OF, conclusion="success")], [{"name": "forge-check", "conclusion": "success"}], ("success", [])),
+    ([dict(RUN_OF, status="in_progress", conclusion=None)], [{"name": "x", "status": "in_progress"}], ("in_progress", [])),
+    ([dict(RUN_OF, head_sha="f" * 40)], [], ("none", [])),
+    ([], [], ("none", []))], ids=["two-failed-jobs", "success", "in-progress", "other-sha", "no-run"])
+def test_run_state_reads_the_answers_of_the_backend(run, jobs, expected, net):
+    state_routes(net, run, jobs)
+    assert ci_read.run_state(ci_read.ROOT, SHA) == expected
+    assert net.requests[0].full_url == BASE + "/actions/runs?head_sha=%s&per_page=10" % SHA
+
+
+@pytest.mark.parametrize("how", ["http-error", "not-json", "bad-shape", "no-token", "no-origin"])
+def test_run_state_is_unknown_when_nothing_can_be_known(how, net, monkeypatch, set_origin):
+    state_routes(net, [RUN_OF], [])
+    if how == "http-error":
+        net.routes = [("/actions/runs?", http_error(500))]
+    elif how == "not-json":
+        net.routes = [("/actions/runs?", "<html>")]
+    elif how == "bad-shape":
+        net.routes = [("/actions/runs?", json.dumps({"workflow_runs": "x"}))]
+    elif how == "no-token":
+        monkeypatch.delenv("GITHUB_TOKEN")
+    else:
+        set_origin(None)
+    assert ci_read.run_state(ci_read.ROOT, SHA) == ("unknown", [])
