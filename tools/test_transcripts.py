@@ -1553,3 +1553,26 @@ def test_peer_main_sessions_p5_a_folder_with_spaces_and_cyrillic(tmp_path):
     own = _peer_file(folder, "own.jsonl", now, 0)
     _peer_file(folder, "сессия.jsonl", now, 30)
     assert transcripts.peer_main_sessions(str(own), now) == [("сессия", 30)]
+
+
+# ---- offload B23 (X-2, K14): launch_agent_id, the ONE reader of an Agent launch's tool_response
+
+_LAUNCH_BLOCK = {"type": "text", "text": "Async agent launched successfully.\nagentId: a8de996f0a26174d7 (internal ID)\nworking"}
+
+
+@pytest.mark.parametrize("response,expected", [
+    ({"agentId": "fieldid", "status": "async_launched"}, "fieldid"),
+    ({"agentId": "fieldid", "content": [_LAUNCH_BLOCK]}, "fieldid"),                       # the field wins over the text
+    ({"content": [_LAUNCH_BLOCK]}, "a8de996f0a26174d7"),
+    ({"content": "agentId: strid1 (x)"}, "strid1"),
+    ([{"type": "image"}, _LAUNCH_BLOCK], "a8de996f0a26174d7"),                              # content blocks
+    ("agentId: first1 then agentId: second2", "first1"),                                    # the first of two
+    ({"agentId": "../../x", "content": [_LAUNCH_BLOCK]}, "a8de996f0a26174d7"),              # an unsafe field is not an id
+    ({"agentId": ""}, None), ({}, None), ([], None), ("", None), (None, None), (5, None),
+    ({"result": {"agentId": "deep"}}, None),                                                # nested dicts are not searched
+    ("agentId: " + "x" * 10, "xxxxxxxxxx"),
+    ("x" * (2 * 1024 * 1024), None),                                                         # 2 MB, no id
+], ids=["field", "field_over_blocks", "dict_content", "dict_str", "blocks", "first_of_two", "unsafe_field", "empty_field", "empty_dict",
+        "empty_list", "empty_str", "none", "int", "nested", "plain_text", "two_mb"])
+def test_launch_agent_id_rows(response, expected):
+    assert transcripts.launch_agent_id(response) == expected

@@ -908,3 +908,11 @@ def test_f6_15_probe_a_record_rewritten_under_one_uuid_in_a_worker_transcript(tm
     assert h["requests"] == 1 and h["units"] == 9.0                      # one request, the units of ONE (4 + 1*5)
     counts = tier_echo.count_models(tier_echo.iter_transcript_models(str(path)))
     assert counts["m"] >= h["requests"]                                  # measured 3 on 16.10: the lines, not the requests
+
+
+# ---- offload B23 (K14): the launch pattern is transcripts' one, and the reader reads the same line
+
+def test_the_launch_line_is_read_by_the_one_pattern_of_transcripts():
+    import transcripts
+    assert hm._LAUNCH_RE is transcripts.LAUNCH_RE
+    assert hm._LAUNCH_RE.search("x\nagentId: abc-1_Z (internal)").group(1) == "abc-1_Z"

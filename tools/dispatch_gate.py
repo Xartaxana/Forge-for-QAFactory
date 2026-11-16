@@ -1057,6 +1057,21 @@ def _model_family(model_id) -> str | None:
     return None
 
 
+def label_model_family(description) -> str | None:
+    """The tier family word a dispatch description opens with ("sonnet: find x" -> "sonnet", "opus-x: y" -> "opus"), read
+    by the SAME leading-token rule as check 3 (_LABEL_LEADING_TOKEN_RE, the token compared whole against the family
+    names); None when the description is not a string or its leading token is no tier word ("fix flaky test"). The
+    public reader the dispatch-record hook (tools/journal_hooks.py, offload B23) asks -- it writes no model it did not
+    read here (E-B23-3)."""
+    if not isinstance(description, str):
+        return None
+    token_m = _LABEL_LEADING_TOKEN_RE.match(description)
+    if not token_m:
+        return None
+    token = token_m.group(1).lower()
+    return _model_family(token) if token in _FAMILY_NAMES else None
+
+
 def _strip_quotes(token: str) -> str:
     """Strips EXACTLY one pair of surrounding quotes (single or
     double) from a captured token. YAML frontmatter legally writes

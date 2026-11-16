@@ -1283,3 +1283,72 @@ def test_block_message_names_resubmission_is_a_full_report():
     assert "complete" in msg.lower() or "whole" in msg.lower() or "all over again" in msg.lower()
     assert "last" in msg.lower()
     assert "coordinator" in msg.lower()
+
+
+# ---- offload B23 (BL-5, F-B3-1 (a)): every exit-0 decision tells the journal hook the worker returned
+
+_GIT = ["git", "-c", "user.name=t", "-c", "user.email=t@t"]
+_DELEGATED = ('{"ts":"2026-11-14T10:00:00","event":"delegated","agent":"builder","model":"sonnet","task_id":"t-001",'
+              '"worker_ref":"agent:agent-1","category":"implementation","feature":"F19","notes":"sonnet: build"}\n')
+
+
+@pytest.fixture
+def journal_repo(tmp_path):
+    repo = tmp_path / "jr"
+    (repo / "tools").mkdir(parents=True)
+    (repo / "logs/journal").mkdir(parents=True)
+    (repo / "tools/dev.config.yaml").write_text("developer: dev1\n")
+    (repo / "logs/journal/dev1.jsonl").write_text(_DELEGATED, encoding="utf-8")
+    subprocess.run([*_GIT, "-C", str(repo), "init", "-q"], check=True, capture_output=True)
+    return repo
+
+
+def _returned(repo):
+    rows = [json.loads(x) for x in (repo / "logs/journal/dev1.jsonl").read_text(encoding="utf-8").splitlines()]
+    return [r for r in rows if r["event"] == "returned"]
+
+
+def test_b23_a_passing_stop_writes_returned_once(journal_repo):
+    result = _run_hook(_stop_payload(str(journal_repo), "s-pass", agent_id="agent-1"), cwd=journal_repo)
+    assert result.returncode == 0, result.stderr
+    assert len(_returned(journal_repo)) == 1 and _returned(journal_repo)[0]["worker_ref"] == "agent:agent-1"
+    again = _run_hook(_stop_payload(str(journal_repo), "s-pass", agent_id="agent-1"), cwd=journal_repo)
+    assert again.returncode == 0 and len(_returned(journal_repo)) == 1             # a later stop of the same worker: nothing more
+
+
+def test_b23_a_blocked_stop_exit_2_writes_nothing_and_the_later_real_stop_writes_it_once(journal_repo):
+    _write_track(journal_repo, "s-block", {"edits": [{"ts": "t1", "tool_name": "Edit", "agent_id": "agent-1"}], "runs": []})
+    result = _run_hook(_stop_payload(str(journal_repo), "s-block", agent_id="agent-1"), cwd=journal_repo)
+    assert result.returncode == 2 and not _returned(journal_repo)
+    _write_track(journal_repo, "s-block", {"edits": [{"ts": "t1", "tool_name": "Edit", "agent_id": "agent-1"}],
+                                           "runs": [{"ts": "t2", "tool_name": "Bash", "command": "pytest", "outcome": "green", "agent_id": "agent-1"}]})
+    ok = _run_hook(_stop_payload(str(journal_repo), "s-block", agent_id="agent-1"), cwd=journal_repo)
+    assert ok.returncode == 0 and len(_returned(journal_repo)) == 1
+
+
+def test_b23_the_doc_only_exemption_and_the_safety_valve_skip_are_exit_0_paths_that_write(journal_repo):
+    _write_track(journal_repo, "s-doc", {"edits": [{"ts": "t1", "tool_name": "Edit", "agent_id": "agent-1", "file_path": "notes.md"}], "runs": []})
+    assert _run_hook(_stop_payload(str(journal_repo), "s-doc", agent_id="agent-1"), cwd=journal_repo).returncode == 0
+    assert len(_returned(journal_repo)) == 1
+
+
+def test_b23_a_recorder_exception_keeps_the_exit_code_and_the_message(journal_repo, monkeypatch, capsys):
+    import journal_hooks
+
+    def boom(_payload):
+        raise RuntimeError("recorder down")
+    monkeypatch.setattr(journal_hooks, "record_returned", boom)
+    _write_track(journal_repo, "s-boom", {"edits": [], "runs": []})
+    monkeypatch.setattr(sys, "stdin", type("In", (), {"buffer": __import__("io").BytesIO(json.dumps(_stop_payload(str(journal_repo), "s-boom", "agent-1")).encode())})())
+    assert dod_gate.main() == 0
+    assert capsys.readouterr().err == "" and not _returned(journal_repo)
+
+
+def test_b23_no_payload_paths_never_reach_the_recorder(monkeypatch):
+    import journal_hooks
+    calls = []
+    monkeypatch.setattr(journal_hooks, "record_returned", lambda p: calls.append(p) or [])
+    for raw in (b"", b"not json", b"{}"):
+        monkeypatch.setattr(sys, "stdin", type("In", (), {"buffer": __import__("io").BytesIO(raw)})())
+        assert dod_gate.main() == 0
+    assert calls == []

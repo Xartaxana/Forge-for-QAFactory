@@ -224,8 +224,28 @@ def is_edit_tool(tool_name) -> bool:
     return tool_name in EDIT_TOOL_NAMES
 
 
+# The journal writer (offload B23, S-12): `python [flags] tools/journal_write.py ...`. The FIRST `python` call with a
+# program argument decides, so `python -m pytest ...; python tools/journal_write.py ...` is still a verification run.
+# Forms read: the `py` launcher (`py -3`), value-taking flags (`-X utf8`, `-W ignore`), a quoted program taken whole.
+_PYTHON_PROGRAM_RE = re.compile(
+    r"""(?:\bpython[\d.]*(?:\.exe)?|(?<![\w.])py(?:\.exe)?)\s+(?:-\d[\d.]*\s+)?(?:(?:-[XW]\s+\S+|-[A-Za-z]+)\s+)*"""
+    r"""(?:"([^"]+)"|'([^']+)'|([^\s"';|&]+))""", re.IGNORECASE)
+
+
+def _is_journal_writer_call(command: str) -> bool:
+    """True when the first python program argument of `command` is tools/journal_write.py (any subcommand): the
+    writer's own `--run` is recorded in the journal's witness, and the writer call is never a verification run."""
+    match = _PYTHON_PROGRAM_RE.search(command)
+    if match is None:
+        return False
+    program = next((g for g in match.groups() if g), "").replace("\\", "/")
+    return program == "tools/journal_write.py" or program.endswith("/tools/journal_write.py")
+
+
 def is_verification_command(command: str) -> bool:
     command = command or ""
+    if _is_journal_writer_call(command):
+        return False        # never a verification run, neither green nor red (S-12)
     if VERIFICATION_COMMAND_RE.search(command):
         return True
     if NODE_SCRIPT_RE.search(command):

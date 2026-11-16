@@ -299,8 +299,11 @@ def test_s3_no_tool_outside_the_chain_carries_its_own_stream_reconfigure():
 def test_s3_positive_control_the_real_census_sees_the_helper_and_a_chain_link():
     counts, unreadable = census(TOOLS)
     assert not unreadable
-    assert counts["streams.py"] == 1 and counts["journal_echo.py"] >= 1
-    assert in_chain("tools/journal_echo.py") and not in_chain("tools/streams.py")
+    assert counts["streams.py"] == 1 and counts["journal_echo.py"] >= 1 and counts["language_sites.py"] >= 1
+    # streams.py is itself a link (offload B23: the closure over journal_write reaches it); the census still tells a link
+    # from a tool OUTSIDE the chain that carries a call (language_sites.py, exempt only through KEPT)
+    assert in_chain("tools/journal_echo.py") and in_chain("tools/streams.py") and not in_chain("tools/language_sites.py")
+    assert "language_sites.py" in KEPT
 
 
 def test_s3_negative_control_a_copy_in_a_scratch_directory_is_an_offender(tmp_path):
@@ -353,17 +356,22 @@ def chain_reaches(start_stems, root):
     return _transitive_tool_module_closure(set(start_stems), _tools_module_names(root), root)
 
 
-def test_s4_no_chain_link_reaches_tools_streams():
-    reached = chain_reaches(link_stems(), TOOLS)
-    if "streams" in reached:
-        culprits = [stem for stem in link_stems() if "streams" in chain_reaches({stem}, TOOLS)]
-        pytest.fail(f"{culprits} reaches tools/streams.py -- a chain link keeps its own stream setup; restore the "
-                    f"copy, or the Lead brings streams.py into MECHANISM_PREFIXES with a mechanism commit")
+# journal_write imports streams (the CLI); the hooks reach it through it; wave is a coordinator CLI, never a hook (Lead, 16.11.2026)
+SANCTIONED_STREAMS_ROAD = {"journal_write", "journal_hooks", "dod_gate", "wave"}
+
+
+def test_s4_only_the_sanctioned_road_reaches_tools_streams():
+    """streams.py is a link now (B23); no OTHER link may reach it: a hook keeps its own stream setup unless the Lead names it."""
+    culprits = {stem for stem in link_stems() if stem != "streams" and "streams" in chain_reaches({stem}, TOOLS)}
+    extra = sorted(culprits - SANCTIONED_STREAMS_ROAD)
+    assert not extra, (f"{extra} reaches tools/streams.py outside the sanctioned road {sorted(SANCTIONED_STREAMS_ROAD)} -- a chain "
+                       f"link keeps its own stream setup, or the Lead adds it to SANCTIONED_STREAMS_ROAD with a mechanism commit")
+    assert "journal_write" in culprits            # the road itself is seen (a positive control)
 
 
 def test_s4_positive_control_two_step_chains_are_seen_and_the_links_are_listed():
     stems = link_stems()
-    assert len(stems) >= 30 and "journal_echo" in stems and "piles" in stems and "streams" not in stems
+    assert len(stems) >= 30 and "journal_echo" in stems and "piles" in stems and "streams" in stems
     assert "tier_echo" in chain_reaches({"journal_echo"}, TOOLS)       # journal_echo -> tier_echo (a link)
     assert "gitcmd" in chain_reaches({"piles"}, TOOLS)                 # piles -> gitcmd
     assert "preflight_quota" in chain_reaches({"session_context"}, TOOLS)

@@ -69,7 +69,7 @@ a SECOND case ("2a") on the SAME script, exactly the same shape a
 source deployment's own probe already uses for its own owns_gate.py:
 CASES.script is not required to be unique, and the composition check
 below operates on the SET of scripts, so one script backed by two cases
-produces neither CASE-MISSING nor STALE-CASE. CASE COUNT: 20 cases: 18 over
+produces neither CASE-MISSING nor STALE-CASE. CASE COUNT: 21 cases (case 18, t-876: the dod_gate stop writes `returned` through tools/journal_hooks.py): 19 over
 15 distinct Claude-hook scripts (case 0: the cost gate tools/agent_budget.py, D-0035; cases 16 and 16a: the
 PreToolUse Edit|Write hook tools/handoff_gate.py, forge/5 F5-1 -- a critic-kind worker writing a non-handoff path
 is refused, and the control: its own handoff path passes) plus two GIT-hook cases
@@ -1097,6 +1097,47 @@ def _check_search_ledger_artifact(extra: dict) -> tuple:
     return False, f"no non-empty ledger file among {candidates}"
 
 
+_JH_SEED = ('{"ts":"2026-11-05T14:29:30","event":"journal_created","agent":"lead","category":"journal","feature":"F19",'
+            '"notes":"seed"}\n')
+
+
+def _journal_hooks_repo(label: str) -> str:
+    """A throwaway git repo with a one-line journal for slug probe (never the live logs/journal)."""
+    tmp = _mkdtemp(label)
+    for rel, text in (("tools/dev.config.yaml", "developer: probe\n"), ("logs/journal/probe.jsonl", _JH_SEED)):
+        _write_tmp(tmp, rel, text)
+    shutil.copy(os.path.join(REPO, "logs", "journal-letters.json"), os.path.join(tmp, "logs", "journal-letters.json"))
+    subprocess.run(["git", "-C", tmp, "init", "-q"], check=True, capture_output=True)
+    subprocess.run([sys.executable, os.path.join(REPO, "tools", "journal_write.py"), "clone", "--claim", "--repo", tmp],
+                   check=True, capture_output=True)
+    return tmp
+
+
+def _jh_rows(extra: dict) -> list:
+    path = os.path.join(extra["tmp"], "logs", "journal", "probe.jsonl")
+    return [json.loads(x) for x in Path(path).read_text(encoding="utf-8").splitlines()]
+
+
+def _case_18_journal_hooks_record_returned():
+    """The post-agent hook writes the delegated first (a probe-internal setup call), then a passing SubagentStop through
+    dod_gate must write `returned` (dod_gate is on the live SubagentStop path, so this case lands with B23)."""
+    tmp = _journal_hooks_repo("journal-hooks-returned")
+    launch = {"tool_name": "Agent", "cwd": tmp, "session_id": "probe0001-xxxx",
+              "tool_input": {"subagent_type": "scout", "description": "sonnet: liveness probe", "prompt": "probe"},
+              "tool_response": {"isAsync": True, "status": "async_launched", "agentId": "liveness-probe-agent"}}
+    setup = run_subprocess_case("tools/journal_hooks.py", launch, args=["post-agent"])
+    payload = {"session_id": "probe0001-xxxx", "cwd": tmp, "hook_event_name": "SubagentStop",
+               "agent_id": "liveness-probe-agent"}
+    return {"payload": payload, "env": None, "extra": {"tmp": tmp, "setup_rc": setup.get("returncode")}, "args": []}
+
+
+def _check_journal_hooks_returned(extra: dict) -> tuple:
+    kinds = [r.get("event") for r in _jh_rows(extra)]
+    if kinds.count("delegated") != 1 or kinds.count("returned") != 1 or kinds.index("returned") < kinds.index("delegated"):
+        return False, f"expected delegated then one returned, got {kinds!r}"
+    return True, "delegated, then returned, written once"
+
+
 def _check_dod_gate_artifact(extra: dict) -> tuple:
     track_path = Path(extra["track_path"])
     if not track_path.exists():
@@ -1334,7 +1375,7 @@ CASES = [
         "build": _case_11_hygiene_gate,
         "expected_exit": 0,
         "anchors": (
-            "the journal is written only through Edit/Write at the file's tail",
+            "the journal is written by `python -B tools/journal_write.py <event>",     # B0 item 9 changed the door text
             '"permissionDecision": "deny"',
         ),
         "const_ref": ("hygiene_gate", "MSG_JOURNAL_BLOCK"),
@@ -1400,6 +1441,17 @@ CASES = [
         "build": _case_16a_handoff_gate_passes_own_path,
         "expected_exit": 0,
         "artifact_check": _check_handoff_gate_wrote_nothing,
+    },
+    # offload B23 (t-876, critic Q4): dod_gate is live on SubagentStop, so record_returned is live at landing. Cases 17
+    # (post-agent) and 19 (pre-edit) wait for the settings placement (stream L).
+    {
+        "name": "18-dod_gate-passing-stop-writes-returned",
+        "script": "tools/dod_gate.py",
+        "kind": "artifact",
+        "isolation": "subprocess",
+        "build": _case_18_journal_hooks_record_returned,
+        "expected_exit": 0,
+        "artifact_check": _check_journal_hooks_returned,
     },
 ]
 

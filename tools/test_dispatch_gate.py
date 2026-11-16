@@ -3413,3 +3413,14 @@ def test_t857_a_writer_whose_handback_is_followed_by_short_lines_is_not_counted_
     assert sorted(f.name for f in live) == sorted("agent-fresh%d.jsonl" % i for i in range(1, _cap()))
     code, out, err = _run_main(monkeypatch, capsys, _dispatch())
     assert (code, err) == (0, "")
+
+
+# ---- offload B23 (S-1): label_model_family, the public reader of a description's tier word
+
+@pytest.mark.parametrize("description,expected", [
+    ("sonnet: find x", "sonnet"), ("opus-x: y", "opus"), ("Opus: review", "opus"), ("fable - plan", "fable"), ("haiku: tiny", "haiku"),
+    ("fix flaky test", None), ("claude: x", None), ("sonnetry: x", None), ("sonnet", None), ("", None), (None, None), (5, None),
+], ids=["sonnet", "opus_dash", "opus_case", "fable", "haiku", "no_tier_word", "other_label", "longer_token", "no_separator", "empty",
+        "none", "int"])
+def test_label_model_family_rows(description, expected):
+    assert dispatch_gate.label_model_family(description) == expected

@@ -86,7 +86,7 @@ LEAD_COLUMNS = CHAR_COLUMNS[1:]
 WARN_REASONS = frozenset({"node_not_string", "node_not_form", "node_token_differ"})
 EXIT_OK, EXIT_CALL, EXIT_JOURNAL = 0, 1, 2
 AGENT_REF_RE = re.compile(r"^agent:([A-Za-z0-9_-]+)$")
-_LAUNCH_RE = re.compile(r"agentId: ([A-Za-z0-9_-]+)")
+_LAUNCH_RE = transcripts.LAUNCH_RE   # the one pattern of the launch line (offload B23, K14)
 _WRITTEN_RE = re.compile(r"written (.+?) bytes=\d+")
 _INTAKE_RES = (re.compile(r'<agent-message from="([A-Za-z0-9_-]+)"'), re.compile(r"<task-id>([A-Za-z0-9_-]+)</task-id>"))
 _PREFILTER = ("tool_use", "tool_result", "agent-message from=", "<task-id>", "agentId: ")

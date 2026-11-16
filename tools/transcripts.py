@@ -59,6 +59,28 @@ def projects_root() -> Path:
     return Path.home() / ".claude" / "projects"
 
 
+LAUNCH_RE = re.compile(r"agentId: ([A-Za-z0-9_-]+)")      # the launch line of an Agent tool result (hop_metrics reads it too)
+
+
+def launch_agent_id(tool_response):
+    """The agent id of an Agent launch's `tool_response` -- the ONE reader of it (offload B23, X-2; K14). A dict's
+    `agentId` field wins (when it is a safe id); else the first `agentId: <id>` of the text -- a str, a list of content
+    blocks, or the `content` of a dict (a str or blocks). None for anything else (no id, a non-string, an unsafe id).
+    Never raises."""
+    try:
+        if isinstance(tool_response, dict):
+            field = tool_response.get("agentId")
+            if isinstance(field, str) and AGENT_ID_RE.fullmatch(field):
+                return field
+            text = content_text(tool_response.get("content"))
+        else:
+            text = content_text(tool_response)
+        match = LAUNCH_RE.search(text) if text else None
+        return match.group(1) if match else None
+    except Exception:  # noqa: BLE001 -- a reader: never raises
+        return None
+
+
 def agent_file_name(agent_id):
     """agent-<id>.jsonl; None for a non-string, empty or unsafe id (a glob metacharacter, a separator)."""
     if isinstance(agent_id, str) and AGENT_ID_RE.fullmatch(agent_id):

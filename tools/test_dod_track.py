@@ -943,3 +943,31 @@ def test_path_occupied_by_directory_stays_loud_fail_open_directory_untouched(
     assert track_path.is_dir(), "the directory must not vanish/become a file on failure"
     leftovers = list(track_path.parent.glob("*.tmp"))
     assert not leftovers, f"an orphaned .tmp fragment next to the (untouched) directory: {leftovers}"
+
+
+# ---- offload B23 (S-12): a journal writer call is never a verification run
+
+@pytest.mark.parametrize("command,expected", [
+    ('python -B tools/journal_write.py accept --witness "12 passed" --task t-001', False),
+    ('python -B tools/journal_write.py accept --task t-001 --run "python -m pytest tools/ -q"', False),
+    ("python tools/journal_write.py returned --task t-001 --worker agent:x", False),
+    ("( cd C:/x/wt && python -B C:/x/wt/tools/journal_write.py accept --witness pytest )", False),
+    ("python -m pytest tools/test_x.py -q; python -B tools/journal_write.py accept --witness ok", True),
+    ("python -m pytest tools/ -q", True),
+    ("python -B tools/journal_write.py_test", True),
+    ('python -X utf8 tools/journal_write.py accept --run "python -m pytest tools/x.py -q"', False),
+    ('python -W ignore -B tools/journal_write.py accept --run "python -m pytest tools/x.py -q"', False),
+    ('python -B "C:/my dir/tools/journal_write.py" accept --run "python -m pytest tools/x.py -q"', False),
+    ('py -3 tools/journal_write.py accept --run "python -m pytest tools/x.py -q"', False),
+    ("py -3 -m pytest tools/x.py -q", True),
+], ids=["witness_text", "run_pytest", "returned", "worktree_path", "pytest_first", "plain_pytest", "lookalike",
+        "flag_with_value_X", "flag_with_value_W", "quoted_path_with_space", "py_launcher", "py_launcher_pytest"])
+def test_is_verification_command_never_counts_a_journal_writer_call(command, expected):
+    assert dod_track.is_verification_command(command) is expected
+
+
+def test_a_writer_call_with_rc_0_records_no_run(tmp_path):
+    payload = {"tool_name": "Bash", "session_id": "s1", "cwd": str(tmp_path), "agent_id": "a1",
+               "tool_input": {"command": 'python -B tools/journal_write.py accept --witness "12 passed" --task t-001'},
+               "tool_response": {"stdout": "journal: accepted t-001 written", "returncode": 0}}
+    assert dod_track.build_fact(payload) is None

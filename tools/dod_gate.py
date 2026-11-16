@@ -559,6 +559,22 @@ _STDIN_DEADLINE_MSG = "stdin deadline exceeded -- fail-open, payload discarded"
 _STDIN_DEADLINE_STATE = {"hit": False}
 
 
+def _record_returned(payload: dict) -> None:
+    """The end of a dispatch (offload B23): every exit-0 decision of a SubagentStop that has a parsed payload (pass, doc-only
+    exemption, safety-valve skip) tells the journal hook the worker returned. Its failure, in any form, never changes this
+    gate's exit code or message (F-B3-1 (a)); its WARN lines go to stderr after the gate's own message (unread on exit 0, so journal_hooks ALSO appends them to
+    <common>/forge-journal/warn.log for calibration check 48(c) and keeps a pending marker for a refused write)."""
+    try:
+        tools_dir = str(Path(__file__).resolve().parent)
+        if tools_dir not in sys.path:
+            sys.path.insert(0, tools_dir)
+        import journal_hooks
+        for line in journal_hooks.record_returned(payload):
+            sys.stderr.write(line + "\n")
+    except Exception:
+        pass
+
+
 def main() -> int:
     _reconfigure_stderr_utf8()
 
@@ -606,6 +622,8 @@ def main() -> int:
     if message:
         sys.stderr.write(message + "\n")
 
+    if exit_code == 0:
+        _record_returned(payload)
     return exit_code
 
 
