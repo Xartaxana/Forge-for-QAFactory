@@ -541,3 +541,15 @@ status words (P7), `factory-rules-debt` (54 files), `lead-queue-fable` (4), `bac
 `critic_verdict` (9 + 1), piles readers (42), `"(ожидает|в работе|принято|отклонено|закрыта)"` over non-test `tools/`.
 Not measured (no shell): P12 count, P13, P25 list, P26, git-log cost of F3. Needed beyond the manifest: the files of the
 trail outside `given:` (all read-only).
+
+## The owner's word on leftovers (17.11.2026, Lead session; answers to the t-906 origin table) — binds §2.2 and forks F2, F5
+
+Verbatim, per origin:
+- critic remarks about other code (20 of 206): «вот это можно оставлять» — a remark about code outside the node's topic may become a node.
+- deferred minor critic remarks (51): «делать сразу» — fixed in the same node's fix round, no node, no «Остатки» row.
+- the owner's new word during the work (31): «если я что-то новое сказала по теме работ, то надо делать сразу, если я просто сказала что-то из другой темы, то можно завести отдельным узлом».
+- defect after acceptance or red CI (27): «CI не записываем отдельными узлами» — a red CI is repaired on the spot and is not a node.
+- scope cut by the spec (24): «если я урезала для экономии токенов, то ок, в остальных случаях сделать сразу или спросить меня».
+- the critic brief against PROJECT п. 9: «почему бриф противоречит? Это служебный фаил который никогда не должен противоречить основным» — a service file never contradicts the main rules; the brief is brought in line, and a check keeps it so.
+- the rules-debt file (F8): «давай починим сейчас, правила это важно» — the 25 open rows are FIXED now (a separate stream of this session), not migrated into nodes; the file's fate is decided after it is empty.
+Consequence for the forks: F2 is (a) (size is not a criterion); the criterion of §2.2 is exactly the owner's list above.
