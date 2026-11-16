@@ -43,7 +43,9 @@ def template(tmp_path_factory):
     (repo / "tools/dev.config.yaml").write_text("developer: dev1\n")
     (repo / "tools/journal_write.py").write_text("# stub: the --run capability probe looks for this file\n")
     (repo / "logs/journal/dev1.jsonl").write_text(SEED)
-    shutil.copy(TOOLS.parent / "logs/journal-letters.json", repo / "logs/journal-letters.json")
+    # an EMPTY registry, not a copy of the real one: the real file carries a dev1 row of the real clone, which would make
+    # this temp clone's claim the next letter ("a") -- the tests must not depend on whose checkout runs them
+    (repo / "logs/journal-letters.json").write_text('{"letters": []}\n')
     assert cli(repo, "clone", "--claim")[0] == 0
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "seed")
@@ -422,7 +424,7 @@ def test_accept_text_witness_and_a_non_builder_without_one(repo):
 
 
 @pytest.mark.parametrize("more,text", [
-    ([], "needs a witness"), (["--witness", "a", "--witness-file", "x"], "exactly one"), (["--allow-red", "r"], "--run only"),
+    ([], "--from-worker <handoff path>"), (["--witness", "a", "--witness-file", "x"], "exactly one"), (["--allow-red", "r"], "--run only"),
     (["--witness-file", "nofile.txt"], "does not exist")], ids=["none", "two", "allow-red-alone", "missing-file"])
 def test_accept_refusals(repo, more, text):
     refused(repo, "accept", "--task", deleg(repo), "--agent", "builder", "--model", "sonnet", "--by", "opus", "--feature", "F19",
@@ -446,6 +448,43 @@ def test_e_b1_10_a_long_witness_file_is_cut_from_the_start(repo, tmp_path):
     assert accept(repo, deleg(repo), "--witness-file", str(f))[0] == 0
     w = last(repo)["witness"]
     assert w.startswith("[… 60 lines cut]\nline 60") and w.endswith("line 99") and last(repo)["witness_by"] == "file"
+
+
+_REPORT = "# report\nDoD: python -B -m pytest x -q\nsome prose\nOutput (verbatim tail): 5 passed in 1.0s\n"
+_BLOCK = ("# report\nDoD: python -B -m pytest x -q\nOutput (verbatim tail):\n3 passed\n  1 skipped\n\nafter the block\n"
+          "questions: none\n")
+_BLOCK_HEADER = "DoD: pytest -q\nOutput (verbatim tail):\nok\nneeded beyond the manifest: none\nnot output\n"
+_ONE = "DoD: python -B -m pytest x -q\nOutput (verbatim tail): 5 passed in 1.0s"
+_FENCE = ("DoD: `pytest -q`\nOutput (verbatim tail):\n```\n3 passed\n\n1 skipped\n```\nOwns-at-stop rows alone: prose\n"
+          "questions: none\n")
+_TWO = "DoD: pytest -q\nOutput (verbatim tail): 5 passed\n## more\nOutput (second): 6 passed\n"
+
+
+@pytest.mark.parametrize("body,combine,code,text,witness", [
+    (_REPORT, [], 0, "", _ONE),
+    (None, [], 2, "not an existing report file", None),
+    ("Output (verbatim tail): 5 passed\n", [], 2, "no line starting `DoD:`", None),
+    ("DoD: pytest -q\n", [], 2, "no line starting `Output`", None),
+    (_BLOCK, [], 0, "", "DoD: python -B -m pytest x -q\nOutput (verbatim tail):\n3 passed\n  1 skipped"),
+    (_BLOCK_HEADER, [], 0, "", "DoD: pytest -q\nOutput (verbatim tail):\nok"),
+    (_FENCE, [], 0, "", "DoD: `pytest -q`\nOutput (verbatim tail):\n```\n3 passed\n\n1 skipped\n```"),
+    (_TWO, [], 2, "expected exactly one block", None),
+    (_REPORT, ["--witness", "w"], 2, "exactly one", None),
+    (_REPORT, ["--run", "echo hi"], 2, "exactly one", None)],
+    ids=["file-ok", "file-absent", "no-dod-line", "no-output-line", "block-below-output", "block-ends-at-header",
+         "fence-stops-at-closing-fence", "two-blocks-refused", "with-witness", "with-run"])
+def test_fg7_47_from_worker(repo, tmp_path, body, combine, code, text, witness):
+    f = tmp_path / "report.md"
+    if body is not None:
+        f.write_text(body, encoding="utf-8")
+    t = deleg(repo)
+    n = len(lines(repo))
+    got, out, err = accept(repo, t, "--from-worker", str(f), *combine)
+    assert got == code and text in err, (got, out, err)
+    if code == 0:
+        assert last(repo)["witness"] == witness
+    else:
+        assert len(lines(repo)) == n
 
 
 # ------------------------------------------------------------------ --run: E-B1-8, E-B1-9

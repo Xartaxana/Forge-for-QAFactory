@@ -5,7 +5,7 @@
     python -B tools/journal_write.py delegated --agent A --model M --worker W --notes N [--task t-NNN]
     python -B tools/journal_write.py returned --task t-NNN --worker W
     python -B tools/journal_write.py accept --task t-NNN --agent A --model M --by B --notes N
-                                       (--run "<cmd>" | --witness-file <path> | --witness "<text>")
+                                       (--run "<cmd>" | --witness-file <path> | --witness "<text>" | --from-worker <handoff path>)
     python -B tools/journal_write.py reject|skip|escalate|defect|decomposable|degraded|restored|calibrated ...
     python -B tools/journal_write.py event --json '<object without ts>'   a rare or retro line
     python -B tools/journal_write.py clone --claim | --show              this clone's letter (registry row)
@@ -545,6 +545,46 @@ def witness_from_file(path_text: str) -> str:
     return cut_witness(text)
 
 
+def witness_from_worker(path_text: str) -> str:
+    """The witness taken from a worker's report file (the `handoff:` path): its first line starting `DoD:` (the
+    command) and the ONE block starting at the line starting `Output` (the verbatim tail; when a code fence follows, up to its
+    closing fence), joined by newlines, cut like a `--run` output. Two `Output` lines are refused."""
+    door = (" -- the worker's report must carry a line starting `DoD:` (the verification command) and a line starting "
+            "`Output` (its verbatim tail); ask the worker to add it, or pass --witness-file <path>")
+    path = Path(path_text)
+    if not path.is_file():
+        raise Refused(2, f"--from-worker {path_text!r} is not an existing report file; nothing written -- pass the "
+                         "worker's handoff path")
+    try:
+        text = path.read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        raise Refused(2, f"--from-worker {path_text!r} cannot be read as UTF-8 text; nothing written") from None
+    rows = [r.rstrip() for r in clean(text, keep_newline=True).split("\n")]
+    dod = next((r.strip() for r in rows if r.strip().startswith("DoD:")), None)
+    starts = [i for i, r in enumerate(rows) if r.strip().startswith("Output")]
+    if len(starts) > 1:
+        raise Refused(2, f"--from-worker {path_text!r} has {len(starts)} lines starting `Output`; expected exactly one "
+                         "block; nothing written -- trim the handoff to one `Output` block, or pass --witness-file <path>")
+    start = starts[0] if starts else None
+    if dod is None:
+        raise Refused(2, f"--from-worker {path_text!r} has no line starting `DoD:`; nothing written" + door)
+    if start is None:
+        raise Refused(2, f"--from-worker {path_text!r} has no line starting `Output`; nothing written" + door)
+    outs = [rows[start].strip()]                       # the Output line, then the block under it
+    fenced = start + 1 < len(rows) and rows[start + 1].strip().startswith("```")
+    for r in rows[start + 1:]:
+        s = r.strip()
+        if fenced:
+            outs.append(r)
+            if len(outs) > 2 and s.startswith("```"):
+                break                                  # the block opens a code fence: it ends at the closing fence
+            continue
+        if not s or s.startswith(("#", "DoD:", "questions:", "needed beyond")):
+            break                                      # a blank line or the next header ends the block
+        outs.append(r)
+    return cut_witness("\n".join([dod, *outs]))
+
+
 def _find_bash(root: Path) -> str:
     door = "no bash that sees this repo; run the witness yourself and pass --witness-file <path>"
     bash = shutil.which("bash")
@@ -664,7 +704,7 @@ def _build_parser() -> argparse.ArgumentParser:
     add("delegated", req=("agent", "model", "worker", "notes"), opt=("task", "node", "feature", "attempt", "replaces", "category"))
     add("returned", req=("task", "worker"), opt=("model", "agent", "category", "notes", "feature"))
     add("accept", req=("task", "agent", "model", "by", "notes"),
-        opt=("run", "witness-file", "witness", "basis", "allow-red", "feature", "node", "category"))
+        opt=("run", "witness-file", "witness", "from-worker", "basis", "allow-red", "feature", "node", "category"))
     add("reject", req=("task", "agent", "model", "by", "attempt", "failure-class", "notes"), opt=("basis", "feature", "category"))
     add("skip", req=("agent", "notes"), opt=("feature", "category"))
     add("escalate", req=("task", "agent", "model", "notes"), opt=("feature", "category"))
@@ -732,21 +772,23 @@ def _precheck_task(root: Path, task: str) -> None:
 
 
 def _accept_obj(a, root: Path) -> tuple:
-    given = [x for x in (a.run, a.witness_file, a.witness) if x is not None]
+    given = [x for x in (a.run, a.witness_file, a.witness, a.from_worker) if x is not None]
     witness = witness_by = None
     if len(given) > 1:
-        raise Refused(2, "pass exactly one of --run, --witness-file, --witness")
+        raise Refused(2, "pass exactly one of --run, --witness-file, --witness, --from-worker")
     if a.allow_red and a.run is None:
         raise Refused(2, "--allow-red goes with --run only")
     if a.agent == "builder" and not given:
         raise Refused(2, "accepting a builder needs a witness: exactly one of --run \"<cmd>\", --witness-file <path>, "
-                         "--witness \"<text>\"")
+                         "--witness \"<text>\", --from-worker <handoff path>")
     notes = f"{a.notes} allow-red: {a.allow_red}" if a.allow_red else a.notes
     check_notes(notes)                                 # before a --run executes; _prepare runs the same function again
     if a.run is not None:                              # POSITIONAL: before the lock
         _precheck_task(root, a.task)
         witness, _rc = run_witness(a.run, root, allow_red=a.allow_red)
         witness_by = "run"
+    elif a.from_worker is not None:
+        witness, witness_by = witness_from_worker(a.from_worker), "file"
     elif a.witness_file is not None:
         witness, witness_by = witness_from_file(a.witness_file), "file"
     elif a.witness is not None:

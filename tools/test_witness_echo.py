@@ -492,6 +492,72 @@ def test_collect_witness_events_prose_witness_no_commands_soft_warn(tmp_path):
     assert events[0][0] == "warn_soft"
 
 
+def _worker_transcript(path: Path, runs: list) -> Path:
+    """A worker transcript of the real shape: per run one assistant tool_use line and one user tool_result line.
+    runs: [(command, result text or None for no result, is_error)]."""
+    rows = []
+    for i, (command, result, is_error) in enumerate(runs):
+        rows.append({"type": "assistant", "timestamp": "2026-07-21T10:00:0%d.000Z" % i, "message": {"content": [
+            {"type": "tool_use", "id": "tu%d" % i, "name": "Bash", "input": {"command": command}}]}})
+        if result is not None:
+            rows.append({"type": "user", "message": {"content": [
+                {"type": "tool_result", "tool_use_id": "tu%d" % i, "content": result, "is_error": is_error}]}})
+    path.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    return path
+
+
+_CMD = "python -B -m pytest tools/x.py -q -p no:cacheprovider"
+_GREEN = "172 passed in 1.0s"
+_RED = "2 failed, 170 passed in 1.0s"
+
+
+@pytest.mark.parametrize("where,runs,witness_cmd,expect", [
+    ("worker", [(_CMD, _GREEN, False)], _CMD, []),
+    ("worker", [(_CMD + " 2>&1 | tail -50", _GREEN, False)], _CMD, []),
+    ("worker", [("( cd /wt && " + _CMD + " )", _GREEN, False)], _CMD, []),
+    ("worker", [("W=/wt; " + _CMD, _GREEN, False)], _CMD, []),
+    ("worker", [("cd /wt\n" + _CMD + "\ngit status", _GREEN, False)], _CMD, []),
+    ("worker", [(_CMD + " -k foo", _GREEN, False)], _CMD, ["warn_soft"]),
+    ("worker", [("pwd", _GREEN, False), ("git status", _GREEN, False)], _CMD, ["warn_soft"]),
+    ("worker", [(_CMD, _RED, False)], _CMD, ["warn_loud"]),
+    ("worker", [(_CMD, "Exit code 1" + chr(10) + "boom", True)], _CMD, ["warn_loud"]),
+    ("worker", [(_CMD, _GREEN, False), (_CMD, "Refusing to run: too complex to verify", True)], _CMD, []),
+    ("worker", [("echo \"" + _CMD + "\"", _RED, False)], _CMD, ["warn_soft"]),
+    ("worker", [(_CMD, _RED, False), (_CMD + " | tail", _GREEN, False)], _CMD, []),
+    ("worker", [(_CMD, _GREEN, False), (_CMD + " | tail", _RED, False)], _CMD, ["warn_loud"]),
+    ("worker", [(_CMD, None, False)], _CMD, ["warn_soft"]),
+    ("worker", [(_CMD, "Command running in background; Read the file for progress.", False)], _CMD, ["warn_soft"]),
+    ("worker", [(_CMD, _GREEN, False), (_CMD + " > out.txt", "started in background", False)], _CMD, []),
+    ("worker", [(_CMD, _GREEN, False)], None, ["warn_soft"]),
+    ("session", [("make build", _GREEN, False)], _CMD, []),
+    ("nowhere", [("make build", _GREEN, False)], _CMD, ["warn_soft"]),
+    ("no-worker-ref", [(_CMD, _GREEN, False)], _CMD, ["warn_soft"]),
+    ("critic-entry", [(_CMD, _GREEN, False)], _CMD, ["warn_soft"]),
+    ("transcript-missing", [(_CMD, _GREEN, False)], _CMD, ["warn_soft"])],
+    ids=["bare", "piped-tail", "cd-subshell", "var-prefix", "newline-separated", "narrowed-run", "short-commands",
+         "red-run", "is-error", "refusal-skipped", "text-in-a-string", "latest-green", "latest-red", "no-result", "background-only", "background-after-green", "no-dod-line", "in-session", "nowhere",
+         "no-worker-ref", "critic-entry-ignored", "transcript-missing"])
+def test_fg7_47_witness_command_looked_up_at_the_worker(tmp_path, monkeypatch, where, runs, witness_cmd, expect):
+    session_cmd = _CMD if where == "session" else "git status"
+    _write_track(tmp_path, "sess-1", [_run_entry("2026-07-21T10:00:00.000000", session_cmd, "green")])
+    tr = _worker_transcript(tmp_path / "agent-w1.jsonl", runs)
+    monkeypatch.setattr(we, "_find_agent_transcript",
+                        lambda _id: None if where == "transcript-missing" else str(tr))
+    head = json.loads(_delegated_head_line())
+    if where != "no-worker-ref":
+        head["worker_ref"] = "agent:w1"
+    heads = [json.dumps(head)]
+    if where == "critic-entry":
+        head["worker_ref"] = "cli:2026-07-10T08:00:00"
+        heads = [json.dumps(head), json.dumps({**head, "agent": "critic", "worker_ref": "agent:w1"})]
+    witness = "tests pass" if witness_cmd is None else "DoD: `%s`\nOutput (verbatim tail): 172 passed" % witness_cmd
+    if where == "session":
+        witness += " " + _CMD
+    payload = {"session_id": "sess-1", "cwd": str(tmp_path)}
+    events = we._collect_witness_events(_new_lines(_accepted_line(witness=witness)), heads, payload)
+    assert [e[0] for e in events] == expect
+
+
 def test_collect_witness_events_retro_note_no_warn(tmp_path):
     _write_track(tmp_path, "sess-1", [
         _run_entry("2026-07-21T10:00:00.000000", "pytest tools/x.py -q", "red"),
