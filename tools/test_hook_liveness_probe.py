@@ -966,12 +966,12 @@ def test_full_probe_run_from_another_cwd_is_ok_on_the_post_merge_settings(tmp_pa
         cwd=str(tmp_path), capture_output=True, timeout=300)
     out = done.stdout.decode("utf-8", errors="replace")
     assert done.returncode == 0, out
-    assert "OVERALL: OK" in out and "23/23 alive" in out and "DOUBLE-RUN" not in out
+    assert "OVERALL: OK" in out and "%d/%d alive" % (len(hlp.CASES), len(hlp.CASES)) in out and "DOUBLE-RUN" not in out
     assert "[OK] 10-dispatch_gate-in-process-critic-snapshot" in out
 
 
 # --------------------------------------------------------------------
-# INTEGRATION: live run of all 23 real cases against the real gates
+# INTEGRATION: live run of all real cases against the real gates
 # (real .claude/settings.json, never a fixture -- this is the one
 # section legitimately exercising the live tree, and it is itself
 # isolation-safe by construction, see hook_liveness_probe.py's own
@@ -991,7 +991,7 @@ def test_live_run_of_all_cases_is_ok():
 
         non_ok = [r for r in report["results"] if r["verdict"] != hlp.OK]
         assert non_ok == [], non_ok
-        assert len(report["results"]) == 23
+        assert len(report["results"]) == len(hlp.CASES)
 
         assert hlp.overall_ok(report) is True
     finally:
@@ -1003,7 +1003,7 @@ def test_main_cli_exit_code_zero_on_live_gates(capsys):
     captured = capsys.readouterr()
     assert exit_code == 0
     assert "OVERALL: OK" in captured.out
-    assert "23/23" in captured.out
+    assert "%d/%d" % (len(hlp.CASES), len(hlp.CASES)) in captured.out
 
 
 def test_main_cli_json_flag_produces_parseable_json(capsys):
