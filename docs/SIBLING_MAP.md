@@ -518,6 +518,7 @@ hygiene; cost gates in rule 12, Cost gates), `delegation.config.yaml` (the model
 | `PROCESS/README.md` | Lead | protocol and exam index, exam delivery | owner of exam delivery; index → pointers |
 | `.claude/skills/next-task/SKILL.md` | Lead | next-task procedure | procedure (rules by number) |
 | `.claude/skills/session-handoff/SKILL.md` | Lead | handoff checks | procedure |
+| `.claude/skills/session-retro/SKILL.md` | Lead | end-of-session retro, inbox `docs/retro/` | procedure; reduction → `docs/retro/README.md` |
 | `.claude/skills/boot-diet/SKILL.md` | Lead | boot diet, trimmed ↔ full pairs | procedure |
 | `.claude/skills/onboarding/SKILL.md` | Lead | install and upgrade, per-tier exams | procedure; exams → axis 2 |
 | `.claude/skills/permission-audit/SKILL.md` | Lead | hygiene audit table | procedure (hygiene points by number) |
