@@ -216,6 +216,7 @@
 | `findings/20261114-testing-md-podprocess-na-proverku-protiv-suhoj-istorii.md` | находка, id — | `docs/TESTING.md` называет «подпроцесс на проверку» дефектом, сухая история P1-b так устроена: исключение не названо | `docs/TESTING.md` | пачка 7, FG7-39 | да (F2 спеки P1-b) | спека N4w §13 (Q-4); FR-44, AR-19 |
 | `findings/20261114-dispetcher-spec-bez-uzla-hodoka-strok-vyhoda.md` | находка, id — | дефект диспетчера: в спеке P1-b не было узла, владеющего ходоком строк выхода, два билдера вернулись пустыми (t-803, t-804) | `.claude/agents/designer.md` | пачка 7, FG7-40 | нет | утренний разбор Lead 14.11; AR-25, P12 |
 | `findings/20261114-dispetcher-predpisal-stroku-judgment-none-bez-prichiny.md` | находка, id — | дефект диспетчера: предписана строка `judgment: none` без причины, гейт её отказывает (t-806) | `.claude/agents/designer.md` | пачка 7, FG7-41 | нет | утренний разбор Lead 14.11; FR-1, AR-13 |
+| `findings/20261116-razgruzka-koordinatora-ostatki-bez-vladeltsa-posle-posadki.md` | находка, id — | замечания критиков разгрузки координатора без узла: переключатель журнала на отказ, остатки `wave.py`, спека, тема SC, карточки | `tools/journal_hooks.py`, `tools/wave.py`, спека разгрузки, `plans/piles/*/README.md` | пачка 7, FG7-42…FG7-46 | нет | карта t-876, посадка 16.11; P31, AR-13 |
 
 ## Входящие
 

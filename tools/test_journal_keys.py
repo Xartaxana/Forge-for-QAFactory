@@ -58,6 +58,13 @@ def _segs(text: str) -> jk.Segments:
 
 # ---- identity and keys ----
 
+@pytest.mark.parametrize("name", ["ID_NUMBER_MAX", "ID_GRAMMAR_TEXT", "fmt_id"])
+def test_the_id_grammar_has_one_home_and_journal_write_binds_the_same_objects(name):
+    import journal_write as jw
+    assert getattr(jw, name) is getattr(jk, name)
+    assert jk.fmt_id(7, "") == "t-007" and jk.fmt_id(1234, "a") == "t-1234a"
+
+
 def test_identity_has_five_fields_and_an_empty_worker_ref():
     assert jk.identity(BR_D) == ("2026-10-02T10:00:00", "t-050", "delegated", "scout", "agent:aaa")
     assert jk.identity(MN_A) == ("2026-10-02T11:05:00", "t-050", "accepted", "scout", "")

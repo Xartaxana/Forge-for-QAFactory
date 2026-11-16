@@ -55,7 +55,7 @@ scanning, plus a MASKED-by-broad-allowlist detector).
    | Signal in the transcript | Likely wrong action | Fix at the source |
    |---|---|---|
    | `python - <<EOF`, `python -c "...replace/open(...,'w')..."` on a tracked file | a file edit bypassing Edit/Write (hygiene point 4) | redo it through Edit/Write; remind the worker of the rule |
-   | `printf`/`echo >>`/`cat <<EOF` into `logs/routing-log.jsonl` | a hand-built journal line instead of the Edit/Write tool (hygiene point 5); risk of missing required fields | write strictly via the Edit/Write tool; check the fields of lines already written |
+   | `printf`/`echo >>`/`cat <<EOF` into `logs/routing-log.jsonl` | a hand-built journal line instead of the one writer (hygiene point 5); risk of missing required fields | write through `python -B tools/journal_write.py <event>`; check the fields of lines already written |
    | `git push` / installing packages / an edit outside the `owns` manifest, unasked | action outside the mandate — the prompt worked as a safety net | do NOT allow; investigate (an out-of-manifest write, the dispatch-context-manifest rule) |
 
    No longer rows of this table: reads via `grep`/`cat`/`python -c`, `2>&1` and the pytest form (allowed); `cd X &&`

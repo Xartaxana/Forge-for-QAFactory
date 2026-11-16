@@ -17,12 +17,13 @@ reads in the morning, handoff verifies in the evening.
    now; `git log origin/<default-branch>..<default-branch> --oneline`
    is empty — otherwise `git push`. Don't sweep unfamiliar untracked
    files into a commit silently — figure out what they are first.
-2. **Journal closed** (logs/routing-log.jsonl): no `delegated` without
-   a paired `accepted`/`rejected`; no `lead_degraded` without a
+2. **Journal closed** (`logs/journal/<dev>.jsonl`): no `delegated` without
+   a paired `accepted`/`rejected` (a `returned` alone is RESULT PENDING:
+   the worker stopped, acceptance is still owed); no `lead_degraded` without a
    `lead_restored` — a degradation that survives the session must be
    the journal's last event (CLAUDE.md, "Lead degradation"). This
-   session's entries were written with an Edit tool (command hygiene,
-   point 5).
+   session's entries were written through `tools/journal_write.py` or
+   its hooks (command hygiene, point 5).
    2a. **Durable persistence of accepted deliverables.** For every
    `accepted(builder)` event of THIS session, the entity the witness
    names (a test, a function, a file — read out of the `witness` or

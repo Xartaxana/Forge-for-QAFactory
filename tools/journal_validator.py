@@ -1349,7 +1349,7 @@ def _novelty_reason(task_id: str, letter_max: dict):
     canonical" (an id a writer never issues: t-0123, t-000), or "jumps" (its number is more than ID_JUMP_MAX above
     the max number of its letter; with no id of that letter yet, above 0). Out-of-order numbers and gaps are legal."""
     if not _jk.is_canonical(task_id):
-        return "is not canonical (3-digit zero-padded number 001..999, or 4-9 digits with no leading zero)"
+        return _jk.ID_NOT_CANONICAL_TEXT
     digits, letter = _jk.parse_id(task_id)
     base = letter_max.get(letter, 0)
     if int(digits) > base + _jk.ID_JUMP_MAX:

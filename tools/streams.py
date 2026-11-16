@@ -11,10 +11,10 @@ The twin for the release side is ai-packages/qa-factory/scripts/console_io.py `u
 is a deliberate second copy: tools/ must not depend on the release package's layout, and the twin has no
 `newline` parameter (adding one is a package edit).
 
-RULE: a mechanism-chain link (a file in mechanism_gate.MECHANISM_PREFIXES under tools/) never imports this
-module, directly or through any chain of tools/ imports, EXCEPT the road named in
-tools/test_streams.py SANCTIONED_STREAMS_ROAD (journal_write, journal_hooks, dod_gate) -- the other links keep
-their own copies so that a broken helper can never gate a hook. This file is itself in MECHANISM_PREFIXES since
+RULE: the importers of this module are exactly the sanctioned road named by SANCTIONED_STREAMS_ROAD in
+tools/test_streams.py (journal_write, journal_hooks, dod_gate, wave); every other mechanism-chain link (a file in
+mechanism_gate.MECHANISM_PREFIXES under tools/) keeps its own stream setup, so that a broken helper can never
+gate a hook. This file is itself in MECHANISM_PREFIXES since
 B23. tools/test_streams.py checks both halves: S3 (no stream reconfigure call outside the chain except here)
 and S4 (no link outside the sanctioned road reaches this file). A further link that must share it is brought
 into the net by the Lead with a mechanism commit, not by an import.

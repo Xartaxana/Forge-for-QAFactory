@@ -1938,10 +1938,7 @@ def test_audit_cli_exits_one_on_a_bad_since_and_zero_on_a_clean_window(
     assert "0 commits on mechanism paths, 0 mismatches" in capsys.readouterr().out
 
 
-# ---- offload B23 (S-13): the net is TAKEN FROM the closure over the live AND the proposed settings
-
-PROPOSED_SETTINGS_PATH = REPO_ROOT / ".claude" / "settings.json.proposed"
-
+# ---- offload B23 (S-13): the net is TAKEN FROM the closure over the live settings
 
 def _closure_gaps(settings_path):
     paths = set()
@@ -1953,21 +1950,16 @@ def _closure_gaps(settings_path):
     return [p for p in sorted(f"tools/{m}.py" for m in closure) if not any(mg._matches(p, pref) for pref in mg.MECHANISM_PREFIXES)]
 
 
-@pytest.mark.parametrize("settings", [LIVE_SETTINGS_PATH, PROPOSED_SETTINGS_PATH], ids=["live", "proposed"])
-def test_b23_the_closure_of_each_world_of_settings_is_inside_the_net(settings):
-    assert _closure_gaps(settings) == []
+def test_b23_the_closure_of_the_live_settings_is_inside_the_net():
+    assert _closure_gaps(LIVE_SETTINGS_PATH) == []
 
 
-def test_b23_the_proposed_settings_add_exactly_the_two_journal_hook_entries():
-    live, proposed = _load_settings(LIVE_SETTINGS_PATH), _load_settings(PROPOSED_SETTINGS_PATH)
-    assert {k: v for k, v in proposed.items() if k != "hooks"} == {k: v for k, v in live.items() if k != "hooks"}
-
-    def entries(data):
-        return [(event, g.get("matcher"), h["command"]) for event, groups in data["hooks"].items() for g in groups for h in g["hooks"]]
-    added = [e for e in entries(proposed) if e not in entries(live)]
-    assert sorted(added) == [("PostToolUse", "Task|Agent", "python tools/journal_hooks.py post-agent"),
-                             ("PreToolUse", "Edit|Write", "python tools/journal_hooks.py pre-edit")]
-    assert [e for e in entries(live) if e not in entries(proposed)] == []
+@pytest.mark.parametrize("entry", [("PostToolUse", "Task|Agent", "python tools/journal_hooks.py post-agent"),
+                                   ("PreToolUse", "Edit|Write", "python tools/journal_hooks.py pre-edit")])
+def test_b23_the_live_settings_carry_each_journal_hook_entry_exactly_once(entry):
+    live = _load_settings(LIVE_SETTINGS_PATH)
+    entries = [(event, g.get("matcher"), h["command"]) for event, groups in live["hooks"].items() for g in groups for h in g["hooks"]]
+    assert entries.count(entry) == 1
 
 
 @pytest.mark.parametrize("path", ["tools/journal_hooks.py", "tools/journal_write.py", "tools/journal_lock.py", "tools/test_volume.py",
@@ -1979,7 +1971,6 @@ def test_b23_the_listed_paths_are_mechanism_paths(path):
 def test_b23_hop_metrics_is_outside_the_net_and_not_reached_by_the_closure():
     assert mg.mechanism_paths(["tools/hop_metrics.py"]) == []
     paths = set()
-    for settings in (LIVE_SETTINGS_PATH, PROPOSED_SETTINGS_PATH):
-        for command in _iter_hook_commands(_load_settings(settings)):
-            paths |= set(_tool_paths_in_text(command))
+    for command in _iter_hook_commands(_load_settings(LIVE_SETTINGS_PATH)):
+        paths |= set(_tool_paths_in_text(command))
     assert "hop_metrics" not in _transitive_tool_module_closure({Path(p).stem for p in paths}, _tools_module_names())

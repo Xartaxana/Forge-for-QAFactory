@@ -62,11 +62,12 @@ WITNESS_CHARS = 6000
 WITNESS_FILE_MAX = 1 << 20
 RUN_TIMEOUT = 600                  # seconds (module constant: a test moves it)
 PROBE_TIMEOUT = 30
-ID_NUMBER_MAX = 999_999_999
+ID_NUMBER_MAX = jk.ID_NUMBER_MAX          # the id grammar lives in journal_keys; the names stay bound here
+ID_GRAMMAR_TEXT = jk.ID_GRAMMAR_TEXT
+fmt_id = jk.fmt_id
 REGISTRY_REL = "logs/journal-letters.json"
 COUNTER_NAME = "counter.json"
 CLONE_ID_NAME = "clone-id"
-ID_GRAMMAR_TEXT = "expected a task id t-NNN (3-9 digits, optional lower-case letter)"
 CLAIM_DOOR = "python -B tools/journal_write.py clone --claim"
 
 # data rows (AR-1): the category of an event by the agent that did the work, and of the lead's own events
@@ -129,10 +130,6 @@ def cut_witness(text: str, max_lines: int = WITNESS_LINES, max_chars: int = WITN
         marker = f"[… {total} lines cut]\n"
         out = marker + keep[0][-(max_chars - len(marker)):]
     return out
-
-
-def fmt_id(number: int, letter: str) -> str:
-    return f"t-{number:03d}{letter}"
 
 
 def _now() -> datetime.datetime:
@@ -444,7 +441,7 @@ def _check_new_task(tid, pre: _Pre, counter: dict) -> None:
     if parsed is None:
         raise Refused(2, f"task id {str(tid)[:40]!r}: {ID_GRAMMAR_TEXT}")
     if not jk.is_canonical(tid):
-        raise Refused(2, f"{tid} is not canonical (3 digits zero-padded, or 4-9 digits with no leading zero); "
+        raise Refused(2, f"{tid} {jk.ID_NOT_CANONICAL_TEXT}; "
                          f"take one from `{jk.JOURNAL_WRITE_DOOR}`")
     letter = _need_letter(pre)
     if parsed[1] != letter:

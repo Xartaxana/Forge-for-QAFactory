@@ -3254,7 +3254,7 @@ def _status_evidence(root, args, word: str, node_level: bool) -> str:
         raise Refused('--hash and --task go with a node set to принято (`принято: <hash> (t-NNN)`); "%s" is written as the bare word'
                       % word)
     if has_t and not TASK_RE.fullmatch(args.task):
-        raise Refused('--task "%s": expected a task id t-NNN (3-9 digits, optional lower-case letter)' % printable(_shorten(args.task, 40)))
+        raise Refused('--task "%s": %s' % (printable(_shorten(args.task, 40)), journal_keys.ID_GRAMMAR_TEXT))
     if has_h:
         check_hash(root, args.hash)
     if node_level and word == "принято":

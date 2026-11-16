@@ -25,7 +25,7 @@ COMPACT = "This session is being continued from a previous conversation"
 HANDBACK = "Another Claude session sent a message"
 HOOK_RE = re.compile(r"PreToolUse:\S+ hook error")
 UPPER_RE = re.compile(r"\b[A-Z]{2,}(?: [A-Z]{2,})+\b")
-ASSIGN_RE = re.compile(r"^\s*(?:\w+=\S*;\s*)+")
+ASSIGN_RE = re.compile(r"^\s*(?:(?:export\s+)?\w+=\S*?\s*(?:;|&&)\s*)+")
 SHELLS = ("Bash", "PowerShell")
 
 
@@ -35,7 +35,10 @@ def default_dir() -> Path:
 
 
 def shape(cmd: str) -> str:
-    return " ".join(ASSIGN_RE.sub("", str(cmd)).split()[:2])
+    words = ASSIGN_RE.sub("", str(cmd)).split()[:2]
+    if words[:1] == ["export"]:                    # a bare `export X=y` is one shape, whatever the variable
+        words = words[:1]
+    return " ".join(words).rstrip(";")
 
 
 def error_class(text: str) -> tuple[str, bool]:

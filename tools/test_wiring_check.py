@@ -348,6 +348,23 @@ def test_harness_hooks_qualified_claude_project_dir_form_missing_file_is_an_issu
     assert issues == ["hook file not found: tools/nonexistent_hook.py"]
 
 
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python tools/my_hook.py pre-edit",
+        'python "$CLAUDE_PROJECT_DIR/tools/my_hook.py" post-agent',
+    ],
+)
+def test_harness_hooks_subcommand_word_form(repo, command):
+    _write_settings(repo, [command])
+    assert wiring_check.check_harness_hooks(repo) == [
+        "hook file not found: tools/my_hook.py"
+    ]
+    (repo / "tools").mkdir()
+    (repo / "tools" / "my_hook.py").write_text("pass\n", encoding="utf-8")
+    assert wiring_check.check_harness_hooks(repo) == []
+
+
 def test_harness_hooks_both_legal_forms_of_same_file_dedupe(repo):
     (repo / "tools").mkdir()
     (repo / "tools" / "my_hook.py").write_text("pass\n", encoding="utf-8")
@@ -384,6 +401,14 @@ def test_harness_hooks_both_legal_forms_of_same_file_dedupe(repo):
         "python scripts/my_hook.py",
         # (8) missing closing quote on the qualified form.
         'python "$CLAUDE_PROJECT_DIR/tools/my_hook.py',
+        # (9) subcommand-word branch: a flag, two arguments, an upper-case
+        # word, a `;` and a `../` argument all stay unparsed. (A trailing
+        # space is not a row: the caller strips the command first.)
+        "python tools/my_hook.py --flag",
+        "python tools/my_hook.py a b",
+        "python tools/my_hook.py Pre",
+        "python tools/my_hook.py x;y",
+        "python tools/my_hook.py ../x",
     ],
 )
 def test_harness_hooks_adversarial_illegal_forms_do_not_parse(repo, illegal_command):

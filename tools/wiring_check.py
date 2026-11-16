@@ -247,8 +247,14 @@ _ADOPTION_LEDGER_NAME = "ADOPTION_LEDGER.md"
 # with the $CLAUDE_PROJECT_DIR/ prefix and vice versa -- group 2 is the
 # filename, captured by the SAME group regardless of which of the two
 # forms matched.
+#
+# Forms (1) and (2) may each carry ONE lower-case subcommand word after
+# the script path (and after the closing quote in form 2): one space,
+# then `[a-z][a-z0-9-]*`, then end of string (e.g. `python tools/x.py
+# pre-edit`). Flags and any second argument stay illegal.
 _HOOK_COMMAND_RE = re.compile(
-    r'^python (")?(?(1)\$CLAUDE_PROJECT_DIR/tools/|tools/)([^/\\]+\.py)(?(1)"|)$'
+    r'^python (")?(?(1)\$CLAUDE_PROJECT_DIR/tools/|tools/)([^/\\]+\.py)(?(1)"|)'
+    r'(?: [a-z][a-z0-9-]*)?$'
 )
 
 

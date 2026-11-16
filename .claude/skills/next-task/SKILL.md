@@ -34,10 +34,12 @@ duplicated here.
 3. **Dispatch downward — immediately, in the background**
    (background-by-default rule). Hand off any part of the task that
    maps to a worker tier BEFORE starting your own part: each dispatch
-   gets a spec with a DoD (DoD-in-every-dispatch rule); get the
-   task_id by re-reading the journal's tail (no-silent-reuse rule);
-   parallel dispatches declare which paths they own; write the
-   `delegated` event before launching.
+   gets a spec with a DoD (DoD-in-every-dispatch rule); take the
+   task_id from `python -B tools/journal_write.py next` and the header
+   lines from `python -B tools/dispatch_new.py`; parallel dispatches
+   declare which paths they own; the `delegated` event is written by
+   the launch hook (repair a `JOURNAL: … NOT written` line with the
+   CLI the same turn).
 4. **While workers run** — do the coordinator's own part yourself;
    between acceptances you may close small, point items from the
    queue (self-reading follows CLAUDE.md rule 1, with a

@@ -69,8 +69,8 @@ a SECOND case ("2a") on the SAME script, exactly the same shape a
 source deployment's own probe already uses for its own owns_gate.py:
 CASES.script is not required to be unique, and the composition check
 below operates on the SET of scripts, so one script backed by two cases
-produces neither CASE-MISSING nor STALE-CASE. CASE COUNT: 21 cases (case 18, t-876: the dod_gate stop writes `returned` through tools/journal_hooks.py): 19 over
-15 distinct Claude-hook scripts (case 0: the cost gate tools/agent_budget.py, D-0035; cases 16 and 16a: the
+produces neither CASE-MISSING nor STALE-CASE. CASE COUNT: 23 cases (cases 17-19, t-876/t-879: the post-agent hook writes `delegated`, the dod_gate stop writes `returned`, the pre-edit hook warns -- all through tools/journal_hooks.py): 21 over
+16 distinct Claude-hook scripts (case 0: the cost gate tools/agent_budget.py, D-0035; cases 16 and 16a: the
 PreToolUse Edit|Write hook tools/handoff_gate.py, forge/5 F5-1 -- a critic-kind worker writing a non-handoff path
 is refused, and the control: its own handoff path passes) plus two GIT-hook cases
 ("wiring": "githooks", outside the settings.json sverka): 14 tools/piles.py check refuses a broken tree and names
@@ -1118,6 +1118,26 @@ def _jh_rows(extra: dict) -> list:
     return [json.loads(x) for x in Path(path).read_text(encoding="utf-8").splitlines()]
 
 
+def _case_17_journal_hooks_post_agent():
+    tmp = _journal_hooks_repo("journal-hooks-post")
+    payload = {"tool_name": "Agent", "cwd": tmp, "session_id": "probe0001-xxxx",
+               "tool_input": {"subagent_type": "scout", "description": "sonnet: liveness probe", "prompt": "probe"},
+               "tool_response": {"isAsync": True, "status": "async_launched", "agentId": "liveness-probe-agent"}}
+    return {"payload": payload, "env": None, "extra": {"tmp": tmp}, "args": ["post-agent"]}
+
+
+def _check_journal_hooks_post_agent(extra: dict) -> tuple:
+    rows = [r for r in _jh_rows(extra) if r.get("event") == "delegated"]
+    if len(rows) != 1 or rows[0].get("worker_ref") != "agent:liveness-probe-agent" or rows[0].get("via") != "hook":
+        return False, f"expected one hook-written delegated for agent:liveness-probe-agent, got {rows!r}"
+    return True, f"delegated {rows[0].get('task_id')} written by the hook"
+
+
+def _case_19_journal_hooks_pre_edit():
+    payload = {"tool_name": "Edit", "tool_input": {"file_path": "logs/journal/probe.jsonl"}}
+    return {"payload": payload, "env": None, "extra": {}, "args": ["pre-edit"]}
+
+
 def _case_18_journal_hooks_record_returned():
     """The post-agent hook writes the delegated first (a probe-internal setup call), then a passing SubagentStop through
     dod_gate must write `returned` (dod_gate is on the live SubagentStop path, so this case lands with B23)."""
@@ -1442,8 +1462,17 @@ CASES = [
         "expected_exit": 0,
         "artifact_check": _check_handoff_gate_wrote_nothing,
     },
-    # offload B23 (t-876, critic Q4): dod_gate is live on SubagentStop, so record_returned is live at landing. Cases 17
-    # (post-agent) and 19 (pre-edit) wait for the settings placement (stream L).
+    # offload B23 (t-876, critic Q4): dod_gate is live on SubagentStop, so record_returned is live at landing; cases 17
+    # (post-agent) and 19 (pre-edit) landed with the settings placement (t-879).
+    {
+        "name": "17-journal_hooks-post-agent-writes-delegated",
+        "script": "tools/journal_hooks.py",
+        "kind": "artifact",
+        "isolation": "subprocess",
+        "build": _case_17_journal_hooks_post_agent,
+        "expected_exit": 0,
+        "artifact_check": _check_journal_hooks_post_agent,
+    },
     {
         "name": "18-dod_gate-passing-stop-writes-returned",
         "script": "tools/dod_gate.py",
@@ -1452,6 +1481,15 @@ CASES = [
         "build": _case_18_journal_hooks_record_returned,
         "expected_exit": 0,
         "artifact_check": _check_journal_hooks_returned,
+    },
+    {
+        "name": "19-journal_hooks-pre-edit-warns",
+        "script": "tools/journal_hooks.py",
+        "kind": "response",
+        "isolation": "subprocess",
+        "build": _case_19_journal_hooks_pre_edit,
+        "expected_exit": 0,
+        "anchors": ("JOURNAL: by-hand edit",),
     },
 ]
 

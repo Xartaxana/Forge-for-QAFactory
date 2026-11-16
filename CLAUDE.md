@@ -233,7 +233,7 @@ a rule.
    | R11 | when | duty |
    |---|---|---|
    | m | a WRITING dispatch's "given" manifest | executed as a MARKED declaration: an inline enumeration, OR a pointer to a persisted spec that itself carries the enumeration, ONE hop away — no marker, no manifest; `owns` itself is always given INLINE, never by pointer |
-   | f | a dispatch to builder, or any dispatch whose `owns:` holds an absolute path (D-0022) | carries its manifest as HEADER LINES outside fences and quotes: `given:`, `owns:` (absolute paths, on that line or right under it, no blank line, no heading marks; a path with spaces in backticks), `non-goals:`, `handoff:`, `edges:`, `DoD:` (the verification command in backticks), `siblings:` (entries, or `none -- <why>`) and, over rule 2's threshold, `designer:` (the accepted draft's absolute path, `skip -- <reason>`, or `resubmission <task_id>`); `tools/dispatch_manifest.py` refuses it otherwise and names what is missing; the informed pass is a line `manifest-skip: <item>[, <item>] -- <reason>` |
+   | f | a dispatch to builder, or any dispatch whose `owns:` holds an absolute path (D-0022) | carries its manifest as HEADER LINES outside fences and quotes: `given:`, `owns:` (absolute paths, on that line or right under it, no blank line, no heading marks; a path with spaces in backticks), `non-goals:`, `handoff:`, `edges:`, `DoD:` (the verification command in backticks), `siblings:` (entries, or `none -- <why>`) and, over rule 2's threshold, `designer:` (the accepted draft's absolute path, `skip -- <reason>`, or `resubmission <task_id>`); `python -B tools/dispatch_new.py` prints these lines checked (never typed by hand); `tools/dispatch_manifest.py` refuses a dispatch without them and names what is missing; the informed pass is a line `manifest-skip: <item>[, <item>] -- <reason>` |
    | h | critic/designer dispatch | report path on `handoff:`, never `owns:`; `tools/dispatch_gate.py` refuses a dispatch whose `handoff:` names no single `.md` file in the role's folder; `tools/handoff_gate.py` lets it write only that file |
 
 11a. Question routing (question-routing rule): questions route UP, work routes DOWN; the apex of the hierarchy is the
@@ -249,8 +249,9 @@ a rule.
 
 12. The coordinator's cadence runs on LARGE moves, not a series of small ones: accepting workers happens in a BATCH
    at a stage boundary (accepting everything stays mandatory — the cadence changes, not the obligation); one question
-   carrying a list instead of a round of clarifications; journal append strictly at the TAIL — anchored on the file's
-   actual tail, not on memory of what was written; the boot-budget backlog is worked down as a batch at handoff
+   carrying a list instead of a round of clarifications; what code can do, code does — journal lines through
+   `tools/journal_write.py`, dispatch headers from `tools/dispatch_new.py`, a merge of accepted branches through
+   `tools/wave.py merge`, a red pipeline through `tools/ci_read.py why` (the owner's word 14.11.2026); the boot-budget backlog is worked down as a batch at handoff
    (boot-diet). The target is roughly 15 main-turns per task — a measured goal, not a gate.
 
    Cost gates (D-0035, D-0038, D-0040, D-0054; why: `docs/CLAUDE_HOST_ADAPTATIONS_FULL.md`): a fix round runs in a
@@ -271,13 +272,18 @@ a rule.
 ## Routing log — logs/journal/<dev>.jsonl
 
 One journal file per developer: `<dev>` is the `developer:` slug of the untracked `tools/dev.config.yaml`
-(`python tools/journal_keys.py where` names the file). One JSON line per event, written with an Edit/Write tool:
+(`python tools/journal_keys.py where` names the file). One JSON line per event, written by the one writer
+`python -B tools/journal_write.py <event> …` (the machine lock, the clock, the validator BEFORE the write; the owner's
+word 14.11.2026): the Task/Agent PostToolUse hook writes `delegated` (and the owed designer `dispatch_skipped`) and the
+SubagentStop gate writes `returned` by themselves; the coordinator writes `accepted`, `rejected` and the rest with one
+call (`accept --run "<cmd>"` runs the verification under bash and stores its verbatim tail as the witness):
 
 ```json
 {"ts":"2026-11-11T12:00:00","event":"delegated","agent":"builder","model":"sonnet","task_id":"t-042","category":"implementation","worker_ref":"agent:<id>","feature":"F19","notes":"brief: what was delegated"}
 ```
 
-The journal is append-only and records ACCOMPLISHED FACTS, not intentions: `delegated`/`escalated` are written AFTER
+The journal is append-only and records ACCOMPLISHED FACTS, not intentions: `delegated` is written by the hook AFTER
+the launch returns (a hook line `JOURNAL: … NOT written` is repaired the same turn with the CLI), `escalated` after
 the dispatch call returns, same turn; a new `delegated` carries a `worker_ref` — a non-empty handle of the launch (a
 background-task id, a job id, `cli:<ts>`, `retro:<...>`) that exists only after launch. Open dispatches are
 reconciled at both session boundaries — the SessionStart hook and the session-handoff check — worker alive / result
@@ -298,18 +304,17 @@ Typed fields (typed-fields rule: load-bearing facts go in fields, notes are a hu
 fields are in the SHAPES table below, and every new event also carries `feature: Fnn` — the factory feature it
 belongs to, from `plans/features.json` (`journal_validator` WARNs on a missing or unknown id for events from
 2026-10-02; `tools/forge_metrics.py` attributes by it first and by tag/files/words only when it is absent;
-unclassified work is a Forge metric, not an error). Old events are never rewritten. Issuing a task_id means
-re-reading the tail of the journal right before writing `delegated`: the next id `python tools/journal_keys.py where`
-prints for your sequence or your band, never an id remembered earlier. Two writers of one journal file (a second
-session of the same developer), or a branch whose ids will meet another's at a merge, do not share the max+1
-sequence: the second writer opens a BAND on the first line it writes — `id_band: "t-A..t-B"` (closed, at most 1000
-ids, starting at least 50 above every id and band in the file) or `id_band: "t-A.."` (open: the file's own sequence
-goes on from t-A); `where` prints a suggested band, the gate refuses a band that reaches back or sits too close, and
-a filler line that only raises the max is not written. `journal_keys.py declare` labels are the after-the-fact road
-for an id two clones already both issued; a band is the before-issuing road. A collision noticed later is not rewritten — it gets a note on the next event and counts as two tasks
-(no-silent-reuse rule). `ts` comes from the system clock read right before writing (Get-Date or equivalent), never
-from the session's narrative; a wrong `ts` noticed later gets a note on the next event (the reference: usage
-reports / git log, calibration check 13(f)). A MISSED event noticed later is repaired by a RETRO pair: append
+unclassified work is a Forge metric, not an error). Old events are never rewritten. A task id is issued by
+`journal_write.py next` (or by the writer when no id is given) under the machine lock, from the clone's counter in the
+git common directory, shared by every session and worktree of the clone; ids may skip and land out of order, never
+repeat (validator rule 9a: never seen, at most 1000 above its letter's max). An id carries the clone's LETTER — none
+for the first clone of a developer, `a`, `b`, … for the next ones (`logs/journal-letters.json`, `journal_write.py clone
+--claim`; the owner's word 14.11.2026 «Номер 123 и 123А», written in lower case ASCII: `t-123`, `t-123a`). Bands
+(`id_band`) are retired for new lines and still read in old ones; `journal_keys.py declare` repairs only collisions
+already in history. A collision noticed later is not rewritten — it gets a note on the next event and counts as two
+tasks (no-silent-reuse rule). `ts` is read from the system clock by the writer, never taken from the session's
+narrative; a wrong `ts` noticed later gets a note on the next event (the reference: usage reports / git log,
+calibration check 13(f)). A MISSED event noticed later is repaired by a RETRO pair: append
 `delegated`/`accepted` NOW, with the current `ts`, a "retroactive" mark and the event's actual boundaries in
 `notes`; inserting lines into the past is forbidden; calibration watches the retro stream.
 
@@ -318,6 +323,7 @@ Event SHAPES — the typed fields each event adds on top of the five base fields
 | event | adds on top of the base fields |
 |---|---|
 | `delegated` | `task_id`, `model`, `worker_ref`; optional `node` — the pile node `<slug>/<N>/<id>` (`forge/5/F5-2`; `journal_keys.NODE_RE`; a bare id is never a node); a REPEAT on an open task is legitimate only as: a critic-entry (another tier) / a retry with `attempt`>=2 after `rejected` / a DEAD-WORKER REPLACEMENT: a bare `replaces_worker:<prev worker_ref>` token in `notes` — not a retry, `attempt` does not grow; the handle literally matches the `worker_ref` of a prior `delegated` of the same task; the first non-whitespace token after the colon is read, so trailing punctuation breaks the match; on a closed task it is forbidden |
+| `returned` | `task_id`, `worker_ref` (the `delegated` it ends), `model`; written by the SubagentStop gate when a worker's stop passes; never closes a task — the open-dispatch scan shows it as RESULT PENDING until `accepted`/`rejected` |
 | `accepted` | `task_id`, `model`, `by` (a bare tier word); + `basis` ("critic" / "queued-to-lead") when the acceptor is not strictly above the executor; + `witness` (the verbatim run output) on builder work |
 | `rejected` | `task_id`, `model`, `by`, `attempt` (number), `failure_class` ∈ spec/capability/recon/tooling |
 | `escalated` | `task_id` (must already exist earlier in the file), `model` |
@@ -336,7 +342,7 @@ on purpose: `by` is a bare tier keyword from `TIER_ORDER` in `tools/journal_vali
 matrix outright and no `basis` legalizes it; `model` is free-form, and a full model id there is recommended. The
 validator's own failure detector is a pair of calibration checks. Events: the six of the table — `rejected` is a
 failed attempt (rule 6), `defect_found` a late defect in ACCEPTED work (agent = the original tier, notes: what broke
-— the false-accept stream) — plus `decomposable`, `lead_degraded`, `lead_restored`, `journal_created`, `calibrated`
+— the false-accept stream) — plus `returned`, `decomposable`, `lead_degraded`, `lead_restored`, `journal_created`, `calibrated`
 (a calibration run happened). The journal is the evidence for the weekly calibration
 (PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md); DELEGATION_TABLE.md statuses move only on this data (Update Rule 1); a
 calibration overdue by more than 7 days shows as a Last Calibration line in the Boot Report.
@@ -412,7 +418,9 @@ child shell, a byte copy (`cp`/`Copy-Item`) and its restore.
    | a | a NAMED, committed script with its output attached | legitimate: committed and reviewable |
    | b | a `-c`/heredoc payload that is a pure calculation/read | outside this point's scope, the gate stays silent; an unresolvable payload gets one WARN |
 
-5. Log entries — via an Edit/Write tool, other writes to `logs/journal/*.jsonl` or `logs/routing-log.jsonl` are refused.
+5. Log entries — through `tools/journal_write.py` only (the owner's word 14.11.2026): a redirect, tee, in-place editor
+   or payload that writes `logs/journal/*.jsonl` or `logs/routing-log.jsonl` is refused; an Edit/Write of them draws a
+   WARN until node B23-S makes it a refusal.
 6. An environment-negative claim requires verification: empty output or "command not found" from an INCORRECTLY
    invoked tool is a miscall, not proof the object is absent; a negative claim about the environment ("the
    service/key/file is missing") is valid only after a positive check using the canonical form (point 1). Not just

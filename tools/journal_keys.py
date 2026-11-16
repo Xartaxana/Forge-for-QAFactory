@@ -81,6 +81,16 @@ ID_RE = re.compile(r"^t-([0-9]{3,9})([a-z]{0,2})\Z")
 ID_PATTERN = r"t-[0-9]{3,9}[a-z]{0,2}"
 ID_JUMP_MAX = 1000            # rule 9a'': a brand-new id is at most this far above the max number of its letter
 JOURNAL_WRITE_DOOR = "python -B tools/journal_write.py next"
+# The ONE home of the id grammar texts and the id formatter (journal_write, journal_validator and piles print / call these).
+ID_NUMBER_MAX = 999_999_999
+ID_GRAMMAR_TEXT = "expected a task id t-NNN (3-9 digits, optional lower-case letter)"
+ID_NOT_CANONICAL_TEXT = "is not canonical (3-digit zero-padded number 001..999, or 4-9 digits with no leading zero)"
+
+
+def fmt_id(number: int, letter: str) -> str:
+    return f"t-{number:03d}{letter}"
+
+
 REF_RE = re.compile(r"^(" + ID_PATTERN + r")(?:@([a-z0-9-]{1,24}))?\Z")
 # The `closes:` token of a journal line's notes: `closes:t-NNN` or `closes:t-NNN@label`. The
 # `(?<!\w)` boundary keeps `discloses:t-001` out. The label part is captured WIDER than a valid

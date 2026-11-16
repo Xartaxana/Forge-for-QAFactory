@@ -87,7 +87,7 @@
       "4. File edits — only via Edit/Write tools",
       "a NAMED, committed script with its output attached",
       "outside this point's scope, the gate stays silent",
-      "5. Log entries — via an Edit/Write tool,",
+      "5. Log entries — through `tools/journal_write.py` only",
       "6. An environment-negative claim requires verification:",
       "-E; -P needs a UTF-8",
       "a project decision rests on an UNKNOWN property of the environment",

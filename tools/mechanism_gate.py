@@ -272,8 +272,8 @@ MECHANISM_PREFIXES = (
     "tools/agents_md.py",           # run by .githooks/pre-commit (AGENTS.md --check)
     "tools/worktree_sweep.py",      # run by .githooks/post-merge (F6-38; self-activating, placed by the Lead) and imported by session_context.py / piles.py
     "tools/worktree-junk.json",     # DATA that decides what worktree_sweep.py deletes (untracked traces, protected branches): an edit widens the deletion set
-    # Offload B23 (S-13): the list is TAKEN FROM the closure test over the live AND the proposed settings, not from memory.
-    "tools/journal_hooks.py",       # PostToolUse Task|Agent + PreToolUse Edit|Write hooks (proposed settings) and imported by tools/dod_gate.py (record_returned)
+    # Offload B23 (S-13): the list is TAKEN FROM the closure test over the live settings, not from memory.
+    "tools/journal_hooks.py",       # PostToolUse Task|Agent + PreToolUse Edit|Write hooks (live settings) and imported by tools/dod_gate.py (record_returned)
     "tools/journal_write.py",       # imported by tools/journal_hooks.py (the one writer)
     "tools/journal_lock.py",        # imported by tools/journal_hooks.py and tools/journal_write.py (the machine lock)
     "tools/streams.py",             # imported by tools/journal_write.py (the CLI's utf8_stdio): the closure reaches it, so it is a link (tools/test_streams.py S4 names this road)

@@ -51,6 +51,15 @@
             "command": "python tools/handoff_gate.py"
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python tools/journal_hooks.py pre-edit"
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -82,6 +91,15 @@
           {
             "type": "command",
             "command": "python tools/negative_lint.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Task|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python tools/journal_hooks.py post-agent"
           }
         ]
       }

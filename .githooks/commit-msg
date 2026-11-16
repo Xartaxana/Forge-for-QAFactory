@@ -12,3 +12,5 @@ python tools/architecture_gate.py "$1"
 # Piles gate (placement, overlap, frozen batch, frozen backlog, form, findings placed -- D-0036, F0-2, D-0044); the door is a
 # commit-message line "piles-skip: <item> -- <reason>" -- this is why it runs here and not in pre-commit.
 python tools/piles.py check --msg-file "$1"
+# Test-volume WARN (owner 14.11.2026): LAST, after the refusing gates; never blocks (exit 0 always; "|| true" on top).
+python tools/test_volume.py "$1" || true

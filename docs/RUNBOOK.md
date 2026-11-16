@@ -92,7 +92,15 @@ CI форжа — GitHub Actions репозитория `Xartaxana/Forge-for-QAF
 **Прогнать ветку.** Запушить ветку, затем `python tools/ci_read.py start --ref <ветка>` (запускает `canon.yml`; то же —
 `gh workflow run canon.yml -f ref=<ветка>`). Токен: имя переменной — `github_token_env` в `tools/dev.config.yaml` (читает
 `tools/dev_config.py`; без файла — `GITHUB_TOKEN`); значение не печатается и не пишется. Результат — `python tools/ci_read.py
-pipelines`, затем `jobs <run_id>`, красное — `log <job_id>`, файлы — `artifact <run_id> <имя>/<путь>`.
+pipelines`; красное — сразу `python -B tools/ci_read.py why` (все упавшие задачи и шаги с хвостами логов одним вызовом; чинить
+по одной причине за раз — ошибка ночи 13.11: шесть починок `main` подряд); по частям — `jobs <run_id>`, `log <job_id>`; файлы —
+`artifact <run_id> <имя>/<путь>`.
+
+**Слить принятое.** Одна дорога — `python -B tools/wave.py merge <ветка> --task t-NNN [--node <кучка> <N> <узел>]` (слово владельца 14.11.2026; спека
+`docs/tasks/specs/20261114-coordinator-offload-spec-r2.md` §3.C3): сливает ветку во временном дереве, пушит `main`, двигает
+статус узла (`piles.py status`), пишет журнал, обновляет корневой checkout, убирает ветку и папку дерева. CI на ветке не ждёт
+(«Командная работа» п. 12). Ручное слияние — запасной путь, когда `wave.py` отказал и причина названа; калибровка считает такие
+слияния (проверка 48 (f)).
 
 **BATCH CANON — пайплайн CI на ветке пачки** (слово владельца 03.11.2026: «Канон всегда на CI»; слово 28.10.2026: «Когда всё
 реализовано, конечные проверки пачки должны занимать не больше часа и всё что возможно идти в CI»). Канон пачки и канон релиза —
@@ -221,7 +229,7 @@ qa-factory, а не только Test Project 1. Копия — рабочее �
 7. **(g) Своё состояние переживает сжатие контекста.** Носитель — тетрадь: pid, номер текущего лога, что ждёт и
    что уже решено, записываются в неё сразу. Хук PreCompact (`tools/compact_snapshot.py`, файлы в
    `docs/tasks/compact-snapshots/`) сохраняет только факты репозитория (незакоммиченные файлы, открытые диспатчи,
-   следующий id, хвост журнала), а не рассказ; после сжатия читать новейший снимок и хвост тетради.
+   хвост журнала; следующий id печатает `python -B tools/journal_write.py next`), а не рассказ; после сжатия читать новейший снимок и хвост тетради.
    Правило о сжатии (что и когда писать владельцу, снимок перед строкой) — `PROJECT.md`, «Прогоны и эксперименты».
 8. **(h) Утренний отчёт**: докуда добралась стори (строка `[progress]` в хвосте лога), на какие вопросы ответили
    «мои» и почему, какие починки сделаны (файлы, коммиты), какие дефекты записаны (`B-nnn`), где были остановки,
@@ -612,7 +620,8 @@ PostgreSQL на том же `localhost:5433` и по отдельной базе
    20). A builder that must start from another base gets a worktree the coordinator creates — git -C <repo> worktree add
    <path> -b <branch> <base> — and is dispatched without isolation, its owns inside that path; the dispatch gate WARNs
    (WORKTREE BASE) on an isolation dispatch naming a branch origin/main lacks.
-9. `git merge` refuses while the INDEX holds staged changes — even to files the merge does not touch: commit the staged part
+9. (By-hand merges only — `tools/wave.py merge` works in its own temporary tree and meets neither this nor item 7.)
+   `git merge` refuses while the INDEX holds staged changes — even to files the merge does not touch: commit the staged part
    first, or `git stash push --staged`, merge, `stash pop`, re-`add`. The parallel cap counts a worker whose transcript was
    written in the last 10 minutes; a resume by `SendMessage` is not gated. A scout has NO Bash: a dispatch that needs a run or
    a bisect goes to a builder (t-878). Docker from Git Bash needs `MSYS_NO_PATHCONV=1` before `docker run … -v X:/repo -w /repo`.

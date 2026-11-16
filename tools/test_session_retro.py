@@ -27,6 +27,8 @@ def transcript(tmp_path):
             _user("This session is being continued from a previous conversation ..."),
             _user([{"type": "text", "text": "Another Claude session sent a message: hi"}]),
             _tu("Bash", command="A=1; git -C x status"), _tu("PowerShell", command="git -C y log"),
+            _tu("Bash", command="export A=1; git -C z log"), _tu("Bash", command="export A=1 && B=2; git -C z log"),
+            _tu("Bash", command="export X=y"), _tu("Bash", command="ls;"),
             _tu("Read", file_path="a"), _tu("Read", file_path="a"), _tu("Read", file_path="a"), _tu("Read", file_path="b"),
             _tu("Agent", subagent_type="builder", description="d1"), _tu("Agent", subagent_type="critic", description="d1"),
             _err("PreToolUse:Agent hook error: [x] DISPATCH PATHS MISSING: owns", "T5"),
@@ -40,7 +42,7 @@ def transcript(tmp_path):
 def test_counts(transcript):
     r = sr.analyze(transcript)
     assert (r["operator"], r["compactions"], r["handbacks"], r["unreadable"], r["refusals"]) == (1, 1, 1, 2, 2)
-    assert dict(r["shapes"]) == {"git -C": 2}
+    assert dict(r["shapes"]) == {"git -C": 4, "export": 1, "ls": 1}
     assert dict(r["tools"])["Read"] == 4 and r["repeat_reads"] == [("a", 3)]
     assert r["redispatched"] == ["d1"] and dict(r["agents"]) == {"builder": 1, "critic": 1}
     assert [(c, t) for c, _, t in r["errors"]] == [("DISPATCH PATHS MISSING", "T5"),
