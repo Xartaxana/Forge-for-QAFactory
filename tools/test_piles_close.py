@@ -183,7 +183,7 @@ def with_proof_section(body, head=None):
 
 
 @pytest.mark.parametrize("cell", [
-    "сделано: abc1234", "Сделано: abc1234", "  СДЕЛАНО:   t-12  ", "`сделано: abc1234`", "сделано: " + "a1" * 20, "сделано: t-596",
+    "сделано: abc1234", "Сделано: abc1234", "  СДЕЛАНО:   t-012  ", "`сделано: abc1234`", "сделано: " + "a1" * 20, "сделано: t-596",
     "сделано: abc1234 \\| note: see the log", "сделано: t-639 \\| критик интеграции пачки 2", "note: x \\| сделано: abc1234",
     "сделано: abc1234 \\| сделано: nonsense",                              # the FIRST `сделано:` is the value, a later one is a note
     "сделано: logs/journal/dev1.jsonl", "сделано: experiments/run-13/runs/cmp3gb.md:12", "сделано: docs/n.md#s2",
@@ -205,7 +205,7 @@ def test_proofs_a_finished_or_person_confirmed_row_passes(cell):
     ("сделано: " + "a" * 41, "is neither 7-40 hex"), ("сделано: T5", "is neither"), ("сделано: да/нет", "is neither"),
     ("сделано: logs/journal", "is neither"),                                                      # a path needs a file extension
     ("сделано:", "is neither"),
-    ("сделано: t-1 \\| перенос: x \\| обоснование: р \\| подтвердил: М, 08", "carries both `сделано:` and `перенос:`"),   # neither form wins
+    ("сделано: t-001 \\| перенос: x \\| обоснование: р \\| подтвердил: М, 08", "carries both `сделано:` and `перенос:`"),   # neither form wins
     ("перенос: live-runs/1 \\| обоснование: р", "`подтвердил:` is missing"),
     ("перенос: live-runs/1 \\| обоснование: р \\| подтвердил:", "`подтвердил:` is empty"),
     ("перенос: live-runs/1 \\| обоснование: р \\| подтвердил: N/A", "is a placeholder, not a person's confirmation"),
@@ -230,7 +230,7 @@ def test_proofs_every_table_of_every_section_counts_and_a_header_only_table_pass
     assert piles.proof_problems(with_proof_section(HEAD)) == []                                     # a table with only the header
     assert piles.proof_problems(with_proof_section("")) == []                                       # an empty section
     assert piles.proof_problems(with_proof_section(None)) == []                                     # no section at all
-    two = HEAD + "| x | y | z | сделано: t-1 |\n\nтекст между таблицами\n\n" + HEAD + "| второй | y | z | ждёт |\n"
+    two = HEAD + "| x | y | z | сделано: t-001 |\n\nтекст между таблицами\n\n" + HEAD + "| второй | y | z | ждёт |\n"
     found = piles.proof_problems(with_proof_section(two))
     assert len(found) == 1 and '"второй"' in found[0]                                               # the second table counts too
     found = piles.proof_problems(with_proof_section("| Что | Где |\n|---|---|\n| x | y |\n"))
@@ -240,7 +240,7 @@ def test_proofs_every_table_of_every_section_counts_and_a_header_only_table_pass
 def test_proofs_a_comment_hides_what_it_covers_ends_the_table_and_an_unclosed_one_is_refused():
     found = piles.proof_problems(with_proof_section(HEAD + "<!-- | спрятано | y | z | ждёт | -->\n| живая | y | z | ждёт |\n"))
     assert len(found) == 1 and "no «Статус» column" in found[0] and "живая" in found[0]            # (в)'s boundary: the row after the comment is a header
-    assert piles.proof_problems(with_proof_section(HEAD + "| a | y | z | сделано: t-1 | <!-- ждёт -->\n")) == []     # an inline comment ends nothing
+    assert piles.proof_problems(with_proof_section(HEAD + "| a | y | z | сделано: t-001 | <!-- ждёт -->\n")) == []     # an inline comment ends nothing
     found = piles.proof_problems(with_proof_section(HEAD + "<!-- | x | y | z | ждёт |\n"))
     assert "never closes" in found[0] and "piles-skip: в --" in found[0]
 
@@ -255,7 +255,7 @@ def _shape(row_lines):
 
 @pytest.mark.parametrize("shape,rows", [
     ("plain", "| a | b | c | %s |\n"),
-    ("two rows with a rule", "| z | b | c | сделано: t-1 |\n|---|---|---|---|\n| a | b | c | %s |\n"),
+    ("two rows with a rule", "| z | b | c | сделано: t-001 |\n|---|---|---|---|\n| a | b | c | %s |\n"),
 ])
 def test_close_and_frozen_agree_on_a_row_the_gate_demands_an_edit_of(shape, rows):
     wait, done = _shape(rows)
@@ -325,10 +325,10 @@ def test_close_refuses_while_a_proof_row_waits_and_writes_nothing(tree, cli):
 def test_close_judges_ostatki_first_then_the_proofs_and_a_closed_batch_is_not_judged_again(tree, cli):
     accept_batch1(tree)
     edit(tree, B1, "| a | b | c | %s |" % PROOF_DONE, "| a | b | c | ждёт |")
-    edit(tree, B1, "- x | сделано: t-1", "- осталось дело")
+    edit(tree, B1, "- x | сделано: t-001", "- осталось дело")
     code, out = cli(tree, "close", "forge", "1", "--hash", head_hash(tree))
     assert code == 2 and "«Остатки» is not finished" in out and "«Живые доказательства»" not in out
-    edit(tree, B1, "- осталось дело", "- x | сделано: t-1")
+    edit(tree, B1, "- осталось дело", "- x | сделано: t-001")
     assert "«Живые доказательства» are not finished" in cli(tree, "close", "forge", "1", "--hash", head_hash(tree))[1]
     edit(tree, B1, "| a | b | c | ждёт |", "| a | b | c | %s |" % PROOF_DONE)
     h = head_hash(tree)
@@ -371,7 +371,7 @@ def test_the_three_real_finished_cells_of_forge_2_are_refused_with_the_note_segm
 
 
 @pytest.mark.parametrize("pairs,ok", [
-    ("сделано: abc1234", True), ("Сделано: abc1234", True), ("СДЕЛАНО: t-5", True),             # the key is case-free in BOTH gates
+    ("сделано: abc1234", True), ("Сделано: abc1234", True), ("СДЕЛАНО: t-005", True),             # the key is case-free in BOTH gates
     ("сделано: T-5", False), ("Сделано: T-5", False), ("сделано: ABC1234", False),              # the value is strict in BOTH gates
     ("перенос: пачка 2 | обоснование: р | подтвердил: М, 08.10", True),
     ("Перенос: пачка 2 | Обоснование: р | Подтвердил: М, 08.10", True),                         # mixed-case keys inside the pairs
