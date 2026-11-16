@@ -561,3 +561,79 @@ def test_perf_100kb_1mb_is_roughly_linear(world):
     small, big = best(100_000, 3), best(1_000_000, 2)
     print(f"hygiene_gate decide: 100KB {small:.4f}s, 1MB {big:.4f}s, ratio {big / max(small, 1e-6):.1f}")
     assert big / max(small, 1e-6) < 40 and big < 30.0
+
+
+# ---- offload B0 item 9 / E-B0-10: run_allowed(cmd, cwd) -- the gate as the ONLY check before an unhooked run ----
+# (row, command, cwd world key, ok). The error direction is the OPPOSITE of decide(): refuse on doubt.
+_PAD = hg.RUN_COMMAND_MAX - len("echo ")
+RUN_ALLOWED_ROWS = [
+    ("pytest-is-allowed", "python -m pytest tools/test_x.py -q", "clean", True),
+    ("echo-is-allowed", "echo hello", "clean", True),
+    ("redirect-onto-the-journal", f"echo x >> {JNL}", "clean", False),
+    ("redirect-backslash-form", "echo x >> logs\\journal\\dev1.jsonl", "clean", False),
+    ("python-c-appends-to-the-journal", "python -c \"open('logs/journal/dev1.jsonl','a').write('x')\"", "clean", False),
+    ("git-checkout-on-a-dirty-tree", "git checkout -- .", "repo", False),
+    ("cd-then-pytest", "cd tools && pytest", "clean", False),
+    ("command-substitution-cd", "$(echo cd) x", "clean", False),
+    ("unresolvable-payload-is-a-warn-so-refused", 'python -c "print($X)"', "clean", False),
+    ("python-parse-failure-warn-refused", 'python -c "def ("', "clean", False),
+    ("size-cap-at-the-limit-is-judged", "echo " + "x" * _PAD, "clean", True),
+    ("size-cap-one-over-is-refused", "echo " + "x" * (_PAD + 1), "clean", False),
+    ("seventy-kb", "echo " + "x" * 70_000, "clean", False),
+    ("nul-byte", "echo a\x00b", "clean", False),
+    ("nul-byte-alone", "\x00", "clean", False),
+    ("empty", "", "clean", False),
+    ("whitespace-only", "  \n\t ", "clean", False),
+    ("not-text-none", None, "clean", False),
+    ("not-text-int", 5, "clean", False),
+    ("not-text-bytes", b"echo x", "clean", False),
+]
+
+
+# Lead decision 2 (t-850 r3): the live gate gives a plain allow to a dynamic command word, but the --run road is stricter:
+# run_allowed refuses `$(...)`, a backtick or a variable in command position, naming the --witness-file door.
+RUN_ALLOWED_ROWS += [
+    ("backtick-command-word", "`echo cd` x", "clean", False),
+    ("variable-command-word", "x=cd; $x tools", "clean", False),
+    ("dynamic-word-after-a-pipe", "echo a | $(echo cat)", "clean", False),
+    ("dynamic-word-after-an-assignment", "FOO=1 $(echo pytest) -q", "clean", False),
+    ("variable-as-an-argument-is-allowed", "echo $HOME", "clean", True),
+    ("substitution-as-an-argument-is-allowed", "echo $(date)", "clean", True),
+    ("assignment-with-substitution-then-literal-word", "FOO=$(date) echo hi", "clean", True),
+]
+
+
+@pytest.mark.parametrize("row,cmd,cwd_key,ok", RUN_ALLOWED_ROWS, ids=[r[0] for r in RUN_ALLOWED_ROWS])
+def test_run_allowed_battery(world, row, cmd, cwd_key, ok):
+    got_ok, reasons = hg.run_allowed(cmd, world[cwd_key])
+    assert got_ok is ok, (row, reasons)
+    assert isinstance(reasons, list) and all(isinstance(r, str) and r for r in reasons)
+    assert (reasons == []) is ok                                  # a refusal always carries its reason
+    if row == "redirect-onto-the-journal":
+        assert "journal_write.py" in reasons[0]                   # the door is named, not a bare "no"
+    if row.endswith("command-word") or row in ("command-substitution-cd", "dynamic-word-after-a-pipe", "dynamic-word-after-an-assignment"):
+        assert "--witness-file" in reasons[0]                     # the door is named
+    if row == "size-cap-one-over-is-refused":
+        assert str(hg.RUN_COMMAND_MAX) in reasons[0]
+
+
+def test_run_allowed_an_exception_inside_the_gate_is_a_refusal_with_the_class_named(world, monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("injected")
+    monkeypatch.setattr(hg, "_decide_command", boom)
+    ok, reasons = hg.run_allowed("echo hello", world["clean"])
+    assert ok is False and len(reasons) == 1 and "RuntimeError" in reasons[0] and "refused" in reasons[0]
+    monkeypatch.setattr(hg, "_decide_command", lambda *a, **k: (0, {"hookSpecificOutput": {"additionalContext": "WARN x"}}))
+    assert hg.run_allowed("echo hello", world["clean"]) == (False, ["WARN x"])           # a WARN-class answer is not a plain allow
+    monkeypatch.setattr(hg, "_decide_command", lambda *a, **k: (0, "not a dict"))
+    ok, reasons = hg.run_allowed("echo hello", world["clean"])
+    assert ok is False and reasons
+
+
+def test_run_allowed_keeps_the_refusal_classes_of_the_live_gate(world):
+    # the same judgment as decide(): whatever decide() denies for a Bash call, run_allowed refuses (parity on the rows above)
+    for cmd in (f"echo x >> {JNL}", "git reset --hard", "cd x; echo y > docs/a.md"):
+        _code, out = _decide(cmd, B, world["repo"])
+        assert _kind(out) == "deny"
+        assert hg.run_allowed(cmd, world["repo"])[0] is False
+    assert hg.RUN_COMMAND_MAX == 65_536                           # Lead decision 1 of t-850: the cap stays 65536

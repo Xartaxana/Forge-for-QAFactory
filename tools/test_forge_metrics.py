@@ -340,6 +340,21 @@ def test_k4_journal_attribution(tmp_path):
     assert by_line[4]["key"] == by_line[2]["key"] == ("", "t-002")             # B-402: the key is (label, task_id)
 
 
+def test_offload_b0_a_returned_joins_its_task_inherits_the_feature_and_is_not_counted(tmp_path):
+    # axis 6: `returned` is the END of a dispatch -- it joins the task instance (feature inherited, by "task") but is
+    # a work event of no kind: it is not in the window count and not in the unclassified list
+    feats, index = _two(tmp_path)
+    lines = [ev_line("2026-10-02T10:00:00", "t-123a", feature="F06"),
+             ev_line("2026-10-02T10:30:00", "t-123a", event="returned", notes="back", worker_ref="cli:2026-10-02T10:00:00")]
+    events, skipped = fm.parse_journal_text("\n".join(lines).encode("utf-8"))
+    assert skipped == []
+    by_line = {e["line"]: e for e in fm.attribute_events(events, feats, index)}
+    assert (by_line[2]["feature"], by_line[2]["by"]) == ("F06", "task") and by_line[2]["key"] == ("", "t-123a")
+    assert "returned" in fm.TASK_EVENTS and fm.UNCOUNTED_EVENTS == {"returned"}
+    assert "returned" not in {e["event"] for e in fm.attribute_events(events, feats, index)
+                              if e["event"] in fm.TASK_EVENTS and e["event"] not in fm.UNCOUNTED_EVENTS}
+
+
 def _collision_lines():
     return [
         ev_line("2026-10-02T10:01:00", "t-002", notes="fix `controller.py` after the run"),             # 1: F05 by files
@@ -544,7 +559,7 @@ def test_k6_the_shipped_registry_ids_are_what_the_validator_loads():
 
 
 def test_k6_a_real_failure_still_fails_and_keeps_its_warning_channel_separate():
-    bad = ev_line("2026-10-02T09:00:00", "t-009")                 # task id novelty violated -> a real FAIL
+    bad = ev_line("2026-10-02T09:00:00", "t-2009")                # task id novelty violated (a jump over the cap) -> a real FAIL
     code, violations, warnings = _decide(bad)
     assert code == 1 and any("novelty" in v for v in violations)
     assert len(warnings) == 1 and all("WARN" not in v for v in violations)

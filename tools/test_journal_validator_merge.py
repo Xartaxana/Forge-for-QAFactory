@@ -363,8 +363,11 @@ def test_new_tail_line_reusing_a_closed_id_today_rule_fires():
 
 
 def test_new_tail_line_with_a_wrong_new_id_today_rule_fires():
-    new = _dump(_obj(task_id="t-009", model="sonnet", ts="2026-07-10T11:00:00"))
-    _assert_fails(_merge(_text(B1, H1, H2, O1, O2, new)), "task_id novelty")
+    # REWRITTEN (offload B0): t-009 is a legal gap now (rule 9a''); the wrong new id of today is a jump over the cap
+    new = _dump(_obj(task_id="t-2009", model="sonnet", ts="2026-07-10T11:00:00"))
+    _assert_fails(_merge(_text(B1, H1, H2, O1, O2, new)), "task_id novelty", "jumps more than 1000")
+    legal_gap = _dump(_obj(task_id="t-009", model="sonnet", ts="2026-07-10T11:00:00"))
+    assert _merge(_text(B1, H1, H2, O1, O2, legal_gap)) == (0, [], [])
 
 
 def test_valid_new_tail_passes():
@@ -437,8 +440,9 @@ def test_empty_staged_with_non_empty_parents_names_every_line():
 def test_staged_lines_with_both_parents_empty_are_all_new_and_validated():
     ok = _dump(_obj(task_id="t-001", model="sonnet"))
     assert _merge(_text(ok), head="", other="") == (0, [], [])
-    bad = _dump(_obj(task_id="t-005", model="sonnet"))
+    bad = _dump(_obj(task_id="t-2005", model="sonnet"))             # REWRITTEN: t-005 is a legal gap, t-2005 a jump
     _assert_fails(_merge(_text(bad), head="", other=""), "task_id novelty")
+    assert _merge(_text(_dump(_obj(task_id="t-005", model="sonnet"))), head="", other="") == (0, [], [])
 
 
 # ---- decide / decide_with_warnings are untouched: outside a merge append-only stands ----
@@ -1370,14 +1374,50 @@ def test_m1_the_collision_warn_names_a_band_that_overlapped_an_id_the_other_clon
     assert "lies inside band" not in _decide(staged, head, other, jk.NO_SEGMENTS)[2][0]
 
 
-@pytest.mark.parametrize("tail_id,band,ok", [
-    ("t-401", "t-400..t-449", True), ("t-501", "t-500..t-549", True), ("t-002", None, True), ("t-450", None, False),
-    ("t-502", None, False), ("t-401", None, False), ("t-501", "t-400..t-449", False)])     # F1: a band's next id needs its band
-def test_m2_two_parents_with_bands_of_their_own_the_tail_may_take_the_next_of_either(tail_id, band, ok):
+@pytest.mark.parametrize("tail_id,band,needle", [
+    # REWRITTEN group (offload B0): the old bands of the two parents are state (they feed the jump base, top t-549) but a
+    # tail line may not carry one; every tail id is judged by "never seen + canonical + within 1000 of the max"
+    ("t-401", None, None), ("t-501", None, None), ("t-002", None, None), ("t-450", None, None), ("t-502", None, None),
+    ("t-1549", None, None), ("t-1550", None, "jumps more than 1000 above the sequence (the highest t-NNN is 549)"),
+    ("t-401", "t-400..t-449", "band_retired"), ("t-501", "t-400..t-449", "band_retired"),
+    ("t-0401", None, "is not canonical")])
+def test_m2_two_parents_with_old_bands_the_tail_takes_any_unseen_id_within_the_cap_and_no_band(tail_id, band, needle):
     h = [_band_obj("t-400", "2026-07-10T09:00:00", "t-400..t-449")]
     o = [_band_obj("t-500", "2026-07-10T09:30:00", "t-500..t-549", agent="scout", category="recon")]
     tail = _band_obj(tail_id, "2026-07-10T11:00:00", band)
     code, violations, _w = _decide(_text(B1, *h, *o, tail), _text(B1, *h), _text(B1, *o), jk.NO_SEGMENTS)
-    assert (code == 0) is ok, violations
-    if not ok:
-        assert any("task_id novelty violated" in v and f"got {tail_id}" in v for v in violations)
+    if needle is None:
+        assert (code, violations) == (0, []), violations
+    else:
+        assert code == 1 and any(needle in v for v in violations), violations
+
+
+# ---- offload B0, E-B0-7: two worktree copies with INTERLEAVED ids merge with no novelty violation ----
+
+def test_e_b0_7_interleaved_ids_of_two_worktree_copies_merge_with_no_novelty_violation():
+    here = [_dump(_obj(task_id="t-900", model="sonnet", ts="2026-07-10T09:00:00", notes="here t-900")),
+            _dump(_obj(task_id="t-902", model="sonnet", ts="2026-07-10T09:20:00", notes="here t-902"))]
+    there = [_dump(_obj(task_id="t-901", model="sonnet", ts="2026-07-10T09:10:00", agent="scout", category="recon",
+                        notes="there t-901")),
+             _dump(_obj(task_id="t-903", model="sonnet", ts="2026-07-10T09:30:00", agent="scout", category="recon",
+                        notes="there t-903"))]
+    staged = _text(B1, *here, *there)            # the union: ours first, then theirs (ts not interleaved: tail is judged only for NEW lines)
+    code, violations, warnings = _decide(staged, _text(B1, *here), _text(B1, *there), jk.NO_SEGMENTS)
+    assert (code, violations) == (0, []), violations
+    assert not any(COLLISION in w for w in warnings)
+    # the new tail line after the union may take any unseen id in the cap, never a seen one
+    tail_ok = _dump(_obj(task_id="t-905", model="sonnet", ts="2026-07-10T11:00:00"))
+    assert _decide(_text(B1, *here, *there, tail_ok), _text(B1, *here), _text(B1, *there), jk.NO_SEGMENTS)[:2] == (0, [])
+    tail_seen = _dump(_obj(task_id="t-901", model="sonnet", ts="2026-07-10T11:00:00", agent="scout", category="recon"))
+    code, violations, _w = _decide(_text(B1, *here, *there, tail_seen), _text(B1, *here), _text(B1, *there), jk.NO_SEGMENTS)
+    assert code == 1 and any("repeated delegated" in v for v in violations)       # a SEEN id is a repeat, never a new id
+    assert not any("task_id novelty" in v for v in violations)
+
+
+def test_e_b0_7_the_same_id_in_both_copies_with_different_content_is_still_the_collision_warn():
+    here = _dump(_obj(task_id="t-901", model="sonnet", ts="2026-07-10T09:00:00", notes="here t-901"))
+    there = _dump(_obj(task_id="t-901", model="sonnet", ts="2026-07-10T09:10:00", agent="scout", category="recon",
+                       notes="there t-901, other work"))
+    code, violations, warnings = _decide(_text(B1, here, there), _text(B1, here), _text(B1, there), jk.NO_SEGMENTS)
+    assert (code, violations) == (0, [])                          # today's handling: a WARN naming both clones, never a refusal
+    assert len(warnings) == 1 and COLLISION in warnings[0] and "t-901" in warnings[0]

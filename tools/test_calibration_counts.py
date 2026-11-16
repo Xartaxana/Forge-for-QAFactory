@@ -102,6 +102,44 @@ def test_accepted_builder_missing_witness_is_violation(tmp_path):
 
 
 # ---------------------------------------------------------------------
+# offload B0 item 6 (axis 6): `returned` is a typed event -- task_id, model and worker_ref are required
+# ---------------------------------------------------------------------
+@pytest.mark.parametrize("drop,missing", [(None, None), ("worker_ref", "worker_ref"), ("task_id", "task_id"), ("model", "model")])
+def test_returned_required_fields_are_violations(tmp_path, drop, missing):
+    p = tmp_path / "j.jsonl"
+    returned = dict(task_id="t-001", model="sonnet", worker_ref="agent:a", agent="builder", category="implementation", notes="n")
+    if drop:
+        del returned[drop]
+    write_journal(p, [
+        ev("2026-07-09T00:00:00", "delegated", agent="builder", model="sonnet", task_id="t-001",
+           worker_ref="agent:a", category="implementation", notes="n"),
+        ev("2026-07-09T00:10:00", "returned", **returned),
+    ])
+    report = analyze_journal(str(p), None, None, parse_ts("2026-07-10T13:14:00"))
+    viol = [v for v in report["field_violations"] if v["event"] == "returned"]
+    if missing is None:
+        assert viol == []
+    else:
+        assert len(viol) == 1 and missing in viol[0]["missing_fields"]
+
+
+def test_returned_blank_worker_ref_is_a_violation(tmp_path):
+    p = tmp_path / "j.jsonl"
+    write_journal(p, [
+        ev("2026-07-09T00:10:00", "returned", task_id="t-001", model="sonnet", worker_ref="  ", agent="builder",
+           category="implementation", notes="n"),
+    ])
+    report = analyze_journal(str(p), None, None, parse_ts("2026-07-10T13:14:00"))
+    assert [v["missing_fields"] for v in report["field_violations"] if v["event"] == "returned"] == [["worker_ref"]]
+
+
+def test_the_fallback_closes_regex_is_pinned_equal_to_journal_keys():
+    import calibration_counts as cc
+    import journal_keys as jk
+    assert cc.CLOSES_RE.pattern == jk.CLOSES_RE.pattern
+
+
+# ---------------------------------------------------------------------
 # 5. missing 'by' after the cutoff vs. legal before it
 # ---------------------------------------------------------------------
 def test_by_missing_after_cutoff_legal_before(tmp_path):

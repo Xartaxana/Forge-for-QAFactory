@@ -258,7 +258,7 @@ _OPEN_LIFECYCLE_EVENTS = {"delegated", "accepted", "rejected", "escalated", "dec
 # would close the other clone's instance (t-525 F1). The tokenizer is journal_keys.closes_tokens;
 # _CLOSES_RE below is only the fallback copy for a failed import of journal_keys (a test pins its
 # pattern equal to journal_keys.CLOSES_RE).
-_CLOSES_RE = re.compile(r"(?<!\w)closes:(t-\d+)(@[A-Za-z0-9_-]*)?")
+_CLOSES_RE = re.compile(r"(?<!\w)closes:(t-[0-9]{3,9}[a-z]{0,2})(?![0-9A-Za-z]|[^\x00-\x7f])(@[A-Za-z0-9_-]*)?")
 _LABEL_RE = re.compile(r"^[a-z0-9-]{1,24}$")
 
 
@@ -566,13 +566,26 @@ def open_dispatch_lines(events: list, segments=None, *, journal=None, own_label=
         own = [e for e in opens if (_task_key(e, segments) or (None,))[0] == own_label]
         own_ids = {id(e) for e in own}
         opens = own + [e for e in opens if id(e) not in own_ids]
+    # a `returned` NEVER closes a task (offload B0, rule 9f): it only says the worker ended. An open `delegated` whose
+    # (task key, worker_ref) has a later `returned` is shown as RESULT PENDING (same 3-line cut), else OPEN DISPATCH.
+    returned_ts = {}
+    for e in events:
+        if e.get("event") == "returned" and isinstance(e.get("worker_ref"), str):
+            rkey = _task_key(e, segments)
+            if rkey is not None:
+                returned_ts[(rkey, e["worker_ref"].strip())] = str(e.get("ts") or "-")
     lines = []
     for e in opens[:3]:
         key = _task_key(e, segments)
         tid = _ascii_sanitize(_display_key(key) if key is not None else "-")
         agent = _ascii_sanitize(str(e.get("agent") or "-"))
         ts = _ascii_sanitize(str(e.get("ts") or "-"))
-        lines.append(f"OPEN DISPATCH: {tid} agent={agent} since {ts}")
+        wref = e.get("worker_ref")
+        back = returned_ts.get((key, wref.strip())) if key is not None and isinstance(wref, str) else None
+        if back is not None:
+            lines.append(f"RESULT PENDING: {tid} agent={agent} returned {_ascii_sanitize(back)}")
+        else:
+            lines.append(f"OPEN DISPATCH: {tid} agent={agent} since {ts}")
     if len(opens) > 3:
         lines.append(f"OPEN DISPATCHES: {len(opens)} total, {len(opens) - 3} more not shown")
     return lines
@@ -2224,9 +2237,9 @@ def build_context_lines(
 
 
 def peer_note_lines(root: Path, stdin_payload, now_epoch: float = None) -> list:
-    """The PARALLEL SESSION note (rule 9e, F6-58) as a list of 0 or 1 line: another main session of this project
-    wrote its transcript within PEER_WINDOW_S, so two sessions may be issuing task ids into one journal file. From
-    the payload's `transcript_path` and the band state of the journal file `journal_keys.py where` names. A note,
+    """The PARALLEL SESSION note (F6-58; since offload B0 it says ids come from the clone counter) as a list of 0 or
+    1 line: another main session of this project wrote its transcript within PEER_WINDOW_S. From the payload's
+    `transcript_path`. A note,
     never a refusal; it errs toward SILENCE -- any exception, an absent `transcript_path`, no peer -> []."""
     try:
         if _jk is None or _transcripts is None or not isinstance(stdin_payload, dict):
@@ -2235,12 +2248,8 @@ def peer_note_lines(root: Path, stdin_payload, now_epoch: float = None) -> list:
             stdin_payload.get("transcript_path"), time.time() if now_epoch is None else now_epoch)
         if not peers:
             return []
-        root = Path(root)
-        rel, _why = _jk.current_path(root)
-        label = "" if rel in (None, _jk.HISTORY_REL) else Path(rel).stem
         # source "clear": the pre-/clear transcript of THIS person is among the peers (a new file starts at a clear)
-        note = _jk.peer_note(peers, _jk.load_all(root).band_state(label),
-                             cleared=extract_source(stdin_payload) == "clear")
+        note = _jk.peer_note(peers, cleared=extract_source(stdin_payload) == "clear")
         return [note] if note else []
     except Exception:  # noqa: BLE001
         return []

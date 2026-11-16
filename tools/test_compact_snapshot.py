@@ -110,7 +110,10 @@ def test_exactly_60_entries_no_more_line(tmp_path):
     assert "and 0 more" not in text and " more" not in text.split("## 3.")[0]
 
 
-def test_open_dispatches_and_next_free_id(tmp_path):
+_DOOR = "from python -B tools/journal_write.py next (the clone counter)"       # offload B0: no id is computed from the journal
+
+
+def test_open_dispatches_and_the_next_id_door(tmp_path):
     _init_repo(tmp_path)
     _journal(tmp_path, [
         _ev("delegated", "t-001", worker_ref="agent:aaa", model="m1"),
@@ -121,8 +124,8 @@ def test_open_dispatches_and_next_free_id(tmp_path):
         _ev("delegated", "t-310", worker_ref="agent:ddd", ts="2026-10-02T10:07:00"),
     ])
     text, facts = cs.build_snapshot(tmp_path, "manual", NOW)
-    assert facts["open"] == 2 and facts["next"] == "t-311"
-    assert "NEXT FREE ID: t-311" in text
+    assert facts["open"] == 2 and facts["next"] == _DOOR
+    assert f"next id: {_DOOR}" in text and "NEXT FREE ID" not in text
     block = text.split("## 3. OPEN DISPATCHES")[1].split("## 4.")[0]
     assert "t-002 agent=builder model=m2" in block and "worker_ref=agent:bbb" in block
     assert "t-310" in block and "t-001" not in block and "t-003" not in block
@@ -155,7 +158,7 @@ def test_journal_malformed_lines_skipped_and_counted(tmp_path):
         f.write("[1, 2]\n")
     text, facts = cs.build_snapshot(tmp_path, "manual", NOW)
     assert "2 malformed journal line(s) skipped" in text
-    assert facts["open"] == 1 and facts["next"] == "t-008"
+    assert facts["open"] == 1 and facts["next"] == _DOOR
 
 
 def test_journal_unreadable_is_stated(tmp_path, monkeypatch):
@@ -304,7 +307,7 @@ def test_backlog_rows_counts_the_leftovers_without_an_executor_and_the_counter_s
     _frozen_tree(tmp_path, {f"pile-number-{i:02d}": {"20261008-a.md": _h()} for i in range(40)})
     assert cs.backlog_rows(tmp_path / "plans" / "BACKLOG.md", tmp_path).endswith(", 0 leftovers without an executor")
     (tmp_path / "plans/piles/pile-number-00/batch-1-x.md").write_text(
-        batch_text("pile-number-00", 1, "ожидает", [node("F0-1")], pre="## Бриф\n", leftovers="- bare\n- ok | сделано: t-1\n- node | узел: F0-1"),
+        batch_text("pile-number-00", 1, "ожидает", [node("F0-1")], pre="## Бриф\n", leftovers="- bare\n- ok | сделано: t-001\n- node | узел: F0-1"),
         encoding="utf-8")
     text = cs.backlog_rows(tmp_path / "plans" / "BACKLOG.md", tmp_path)
     assert text.endswith(", 1 leftovers without an executor") and " more]" in text, text
@@ -338,7 +341,7 @@ def test_summary_line_format(tmp_path):
     line = cs.run(tmp_path, "auto", NOW)
     assert line == (
         "COMPACT SNAPSHOT: docs/tasks/compact-snapshots/2026-10-02-1331-auto.md — "
-        "open dispatches 1, uncommitted package 0 / forge 0, next free id t-318"
+        f"open dispatches 1, uncommitted package 0 / forge 0, next id {_DOOR}"
     )
 
 
@@ -705,27 +708,29 @@ def _k13(tmp_path, slug, dev2_extra=(), dev1_extra=()):
     return cs.build_snapshot(root, "manual", NOW)
 
 
-def test_k13_the_owner_next_id_is_the_max_of_the_history_and_her_file_plus_one(tmp_path):
+def test_k13_the_owner_gets_the_door_and_the_open_list_is_unchanged(tmp_path):
+    # REWRITTEN (offload B0): the snapshot used to print the writer's max+1; it prints the one road that issues an id
     text, facts = _k13(tmp_path, "dev1")
-    assert "NEXT FREE ID (logs/journal/dev1.jsonl): t-004" in text and facts["next"] == "t-004"
+    assert f"next id: {_DOOR}" in text and facts["next"] == _DOOR
+    assert "NEXT FREE ID" not in text and "t-004" not in text.split("next id:")[1].splitlines()[0]
 
 
-def test_k13_another_writers_next_id_is_by_her_own_file(tmp_path):
+def test_k13_another_writer_gets_the_same_door(tmp_path):
     text, facts = _k13(tmp_path, "dev2")
-    assert "NEXT FREE ID (logs/journal/dev2.jsonl): t-003" in text and facts["next"] == "t-003"
+    assert f"next id: {_DOOR}" in text and facts["next"] == _DOOR
 
 
 def test_k13_without_a_slug_the_next_id_is_unknown_not_a_guess(tmp_path):
     root = _root13(tmp_path, history=_jt13(*_HIST13), files={DEV1: _jt13(M_CREATED), DEV2: _jt13(N_CREATED)})
     text, facts = cs.build_snapshot(root, "manual", NOW)
-    assert "NEXT FREE ID: unknown -- no developer slug" in text and facts["next"] == "unknown -- no developer slug"
-    assert "t-00" not in text.split("NEXT FREE ID:")[1].splitlines()[0]
+    assert "next id: unknown -- no developer slug" in text and facts["next"] == "unknown -- no developer slug"
+    assert "t-00" not in text.split("next id:")[1].splitlines()[0] and "journal_write.py" not in text.split("next id:")[1].splitlines()[0]
 
 
-def test_k13_before_the_switch_the_label_is_the_old_one(tmp_path):
+def test_k13_before_the_switch_it_is_the_same_door(tmp_path):
     root = _root13(tmp_path, history=_jt13(*_HIST13))
     text, facts = cs.build_snapshot(root, "manual", NOW)
-    assert "NEXT FREE ID: t-003" in text and "NEXT FREE ID (" not in text and facts["next"] == "t-003"
+    assert f"next id: {_DOOR}" in text and "next id (" not in text and facts["next"] == _DOOR
 
 
 def test_k13_open_tasks_are_shown_by_their_key_and_a_labelled_close_removes_the_other_writers(tmp_path):
@@ -747,26 +752,35 @@ def test_k13_the_last_events_are_the_writers_own_logical_journal(tmp_path):
     assert "DEV2-LATE" in dev2.split("journal events", 1)[1]
 
 
-# ---- F6-58 (rule 9e): the bands in the snapshot ----
+# ---- F6-58 (rule 9e) RETIRED by offload B0: no band line in the snapshot, whatever the journal holds; RESULT PENDING ----
 
-def test_s1_the_fallback_next_free_id_skips_a_band_and_the_band_lines_follow(tmp_path):
-    events = [_ev("delegated", "t-399"), _ev("decomposable", None, id_band="t-400..t-449")]
-    assert cs.next_free_id(events) == "t-450"                       # main reached the band: B+1
-    assert cs.band_lines_of(events) == ["band t-400..t-449: next t-400"]
-    assert cs.next_free_id([_ev("delegated", "t-399")]) == "t-400" and cs.band_lines_of([_ev("delegated", "t-399")]) == []
+def test_s1_the_snapshot_has_no_next_id_computation_and_no_band_helpers_any_more():
+    assert not hasattr(cs, "next_free_id") and not hasattr(cs, "band_lines_of")
+    assert cs.NEXT_ID_DOOR == _DOOR
 
 
-def test_s2_the_main_path_prints_the_band_lines_after_next_free_id_and_nothing_without_a_band(tmp_path):
+def test_s2_the_main_path_prints_no_band_line_even_for_a_journal_with_an_old_band(tmp_path):
     _init_repo(tmp_path)
     _journal(tmp_path, [_ev("delegated", "t-310", worker_ref="agent:aaa"),
                         _ev("delegated", "t-450", worker_ref="agent:bbb", ts="2026-10-02T10:01:00", id_band="t-450..t-499")])
     text, facts = cs.build_snapshot(tmp_path, "manual", NOW)
     lines = text.splitlines()
-    i = lines.index("NEXT FREE ID: t-311")
-    assert lines[i + 1] == "band t-450..t-499: next t-451" and facts["next"] == "t-311"
-    plain = tmp_path / "plain"
-    plain.mkdir()
-    _init_repo(plain)
-    _journal(plain, [_ev("delegated", "t-310", worker_ref="agent:aaa")])
-    lines = cs.build_snapshot(plain, "manual", NOW)[0].splitlines()
-    assert lines[lines.index("NEXT FREE ID: t-311") + 1] == "" and not any(l.startswith("band t-") for l in lines)
+    i = lines.index(f"next id: {_DOOR}")
+    assert lines[i + 1] == "" and facts["next"] == _DOOR
+    assert not any(l.startswith("band t-") for l in lines)
+
+
+def test_the_open_list_marks_a_dispatch_whose_worker_returned_and_a_returned_never_closes_it(tmp_path):
+    _init_repo(tmp_path)
+    _journal(tmp_path, [
+        _ev("delegated", "t-001", worker_ref="agent:aaa"),
+        _ev("delegated", "t-002", worker_ref="agent:bbb", ts="2026-10-02T10:01:00"),
+        _ev("returned", "t-001", worker_ref="agent:aaa", ts="2026-10-02T10:30:00"),
+        _ev("returned", "t-002", worker_ref="agent:other", ts="2026-10-02T10:31:00"),      # another worker's handle: not a match
+    ])
+    text, facts = cs.build_snapshot(tmp_path, "manual", NOW)
+    block = text.split("## 3. OPEN DISPATCHES")[1].split("## 4.")[0]
+    rows = [l for l in block.splitlines() if l.startswith("- t-")]
+    assert facts["open"] == 2 and len(rows) == 2                               # the returned closed nothing
+    assert "RESULT PENDING (returned 2026-10-02T10:30:00)" in rows[0] and rows[0].startswith("- t-001 ")
+    assert "RESULT PENDING" not in rows[1] and rows[1].startswith("- t-002 ")

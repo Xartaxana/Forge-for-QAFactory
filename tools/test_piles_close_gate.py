@@ -38,7 +38,7 @@ def with_leftovers(tree, *lines):
     ("- дело | сделано: T-5", "neither 7-40 hex characters nor t-nnn"),
     ("- дело | Сделано: T-5", "neither 7-40 hex characters nor t-nnn"),                 # the key is case-free (m3), the value is strict
     ("- дело | СДЕЛАНО: ABC1234", "`сделано: ABC1234` is neither"),                   # hex in lower case only, in both gates
-    ("- дело | сделано: t-5 | перенос: пачка 2 | обоснование: р | подтвердил: М, 08.10", "carries both `сделано:` and `перенос:`"),
+    ("- дело | сделано: t-005 | перенос: пачка 2 | обоснование: р | подтвердил: М, 08.10", "carries both `сделано:` and `перенос:`"),
     ("- дело | перенос: пачка 2 | обоснование: р", "`подтвердил:` is missing"),
     ("- дело | перенос: пачка 2 | обоснование: р | подтвердил:", "`подтвердил:` is empty"),   # mutation (b): empty accepted
     ("- дело | перенос: пачка 2 | обоснование: р | подтвердил:   ", "`подтвердил:` is empty"),
@@ -76,7 +76,7 @@ def test_gate_refuses_a_line_that_is_neither_finished_nor_carried_with_a_person(
 @needs_git
 def test_gate_names_the_line_number_and_its_first_80_characters_and_lists_every_bad_line(tree, cli):
     long_line = "- " + "д" * 120
-    with_leftovers(tree, "- ok | сделано: t-1", long_line, "- и ещё одна")
+    with_leftovers(tree, "- ok | сделано: t-001", long_line, "- и ещё одна")
     code, out = cli(tree, "close", "forge", "1", "--hash", head_hash(tree))
     shown = long_line[:80]
     assert code == 2 and (('"%s…"' % shown[:79]) in out or ('"%s"' % shown) in out), out
@@ -92,13 +92,13 @@ def test_gate_names_the_line_number_and_its_first_80_characters_and_lists_every_
     ("- дело | сделано: t-596",),
     ("- сделано: t-596",),                                                              # the keys may come first
     ("- дело | " + CARRY % "пачка 2",),                                                  # card row 2 of the fixture is "ожидает"
-    ("- `a | b` дело | сделано: t-1",),                                                 # a pipe inside backticks is no separator
-    ("- дело | сделано: t-1", "  продолжение строки без ключей"),                        # t-618 F-1: 2+ spaces = one more segment
-    ("- дело", "  сделано: t-1"),                                                       # the keys may stand on the continuation line
+    ("- `a | b` дело | сделано: t-001",),                                                 # a pipe inside backticks is no separator
+    ("- дело | сделано: t-001", "  продолжение строки без ключей"),                        # t-618 F-1: 2+ spaces = one more segment
+    ("- дело", "  сделано: t-001"),                                                       # the keys may stand on the continuation line
     ("- дело | перенос: пачка 2 | обоснование: нужен стенд", "  подтвердил: Dev1, 08.10"),   # a wrapped carry is one item
-    ("- дело | сделано: t-1", "", "- и ещё | сделано: t-2"),                            # a blank line is no item
-    ("<!-- - спрятано | в комментарии -->", "- дело | сделано: t-1"),                    # a comment holds no items
-    ("<!-- a --><!-- b -->", "- дело | сделано: t-1"),                                  # nothing between two comments is no item
+    ("- дело | сделано: t-001", "", "- и ещё | сделано: t-002"),                            # a blank line is no item
+    ("<!-- - спрятано | в комментарии -->", "- дело | сделано: t-001"),                    # a comment holds no items
+    ("<!-- a --><!-- b -->", "- дело | сделано: t-001"),                                  # nothing between two comments is no item
     (),                                                                                 # an empty section
 ])
 def test_gate_passes_a_finished_or_person_confirmed_carry_over_and_empty_sections(tree, cli, lines):
@@ -129,15 +129,15 @@ def put_staged(tree, rel=X):
 
 @needs_git
 @pytest.mark.parametrize("lines,passes", [
-    (("- дело | сделано: t-1", "  продолжение"), True),                    # 2 spaces: one more ' | ' segment of the item above
-    (("- дело | сделано: t-1", "   три пробела", "  два пробела"), True),    # 3 and 2 spaces: both continue
-    (("- дело | сделано: t-1", " один пробел"), False),                    # 1 space: an item of its own, no keys
-    (("- дело | сделано: t-1", "\tтабуляция"), False),                      # a tab: an item of its own
-    (("- дело | сделано: t-1", "  - под-пункт"), False),                   # an indented marker: an item of its own
-    (("- дело", "  - под-пункт | сделано: t-2"), False),                   # ... and the parent keeps its own (empty) keys
-    (("- дело | сделано: t-1", "  - под-пункт", "  сделано: t-2"), True),   # the continuation joins the NEAREST item above it
-    (("- дело | сделано: t-1", "", "  продолжение после пустой строки"), True),   # a blank line does not end the item
-    (("  начало без пункта выше", "  сделано: t-1"), True),                # an indented line with no item above is an item; the next joins it
+    (("- дело | сделано: t-001", "  продолжение"), True),                    # 2 spaces: one more ' | ' segment of the item above
+    (("- дело | сделано: t-001", "   три пробела", "  два пробела"), True),    # 3 and 2 spaces: both continue
+    (("- дело | сделано: t-001", " один пробел"), False),                    # 1 space: an item of its own, no keys
+    (("- дело | сделано: t-001", "\tтабуляция"), False),                      # a tab: an item of its own
+    (("- дело | сделано: t-001", "  - под-пункт"), False),                   # an indented marker: an item of its own
+    (("- дело", "  - под-пункт | сделано: t-002"), False),                   # ... and the parent keeps its own (empty) keys
+    (("- дело | сделано: t-001", "  - под-пункт", "  сделано: t-002"), True),   # the continuation joins the NEAREST item above it
+    (("- дело | сделано: t-001", "", "  продолжение после пустой строки"), True),   # a blank line does not end the item
+    (("  начало без пункта выше", "  сделано: t-001"), True),                # an indented line with no item above is an item; the next joins it
 ])
 def test_gate_continuation_boundaries_one_space_two_spaces_and_a_tab(tree, cli, lines, passes):
     with_leftovers(tree, *lines)
@@ -175,7 +175,7 @@ def test_an_inline_comment_opener_in_hod_cannot_hide_the_ostatki_heading(tree, c
 
 @needs_git
 def test_a_comment_around_the_heading_no_longer_hides_the_section(tree, cli):
-    with_leftovers(tree, "- x | сделано: t-1", "-->")
+    with_leftovers(tree, "- x | сделано: t-001", "-->")
     edit(tree, B1, "## Остатки", "<!--\n## Остатки")
     code, out = run_close(tree, cli)
     assert code == 2 and 'line' in out and '"-->": has neither' in out, out                # the stray `-->` is an item without keys
@@ -183,7 +183,7 @@ def test_a_comment_around_the_heading_no_longer_hides_the_section(tree, cli):
 
 @needs_git
 def test_an_unclosed_comment_in_ostatki_is_refused_with_its_line_number(tree, cli):
-    with_leftovers(tree, "- дело | сделано: t-1", "<!-- забыли закрыть", "- дело | сделано: t-2")
+    with_leftovers(tree, "- дело | сделано: t-001", "<!-- забыли закрыть", "- дело | сделано: t-002")
     lineno = rd(tree, B1).split("\n").index("<!-- забыли закрыть") + 1
     snap = tree_state(tree)
     code, out = run_close(tree, cli)
@@ -603,14 +603,19 @@ def test_k7_a_new_bare_item_is_red_with_the_three_forms_and_the_door_and_a_done_
     assert code == 2 and len(reds) == 1 and "осталось дело" in reds[0], out
     assert WHY in reds[0] and "сделано: <hash | t-nnn>" in reds[0] and "узел: <node id>" in reds[0] and "перенос: <target>" in reds[0]
     assert "piles-skip: <item> -- <reason>" in out                                  # the door is named (FR-2)
-    code, out, reds = left(tree, cli, LEFTOVER_OK, "- осталось дело | сделано: t-12", old=LEFTOVER_OK + "\n" + BARE)
+    code, out, reds = left(tree, cli, LEFTOVER_OK, "- осталось дело | сделано: t-012", old=LEFTOVER_OK + "\n" + BARE)
     assert reds == [], out
 
 
 @needs_git
 @pytest.mark.parametrize("line,red", [
-    ("- дело | сделано: t-12", False), ("- дело | сделано: abc1234", False), ("- дело | сделано: —", True),
-    ("- дело | сделано: abcdef", True), ("- дело | сделано: t-12 (потом)", True),
+    ("- дело | сделано: t-012", False), ("- дело | сделано: abc1234", False), ("- дело | сделано: —", True),
+    ("- дело | сделано: abcdef", True), ("- дело | сделано: t-012 (потом)", True),
+    # offload B0 (X-4, E-B0-9): the t- branch is the journal's read grammar (3-9 digits, optional lower-case letter)
+    ("- дело | сделано: t-123a", False), ("- дело | сделано: t-123ab", False), ("- дело | сделано: t-123456789", False),
+    ("- дело | сделано: t-0123", False), ("- дело | сделано: t-1234", False),      # old world: 4-digit ids already in real pile files still read
+    ("- дело | сделано: t-123abc", True), ("- дело | сделано: t-123A", True), ("- дело | сделано: t-12", True),
+    ("- дело | сделано: t-1", True), ("- дело | сделано: t-1234567890", True), ("- дело | сделано: t-123а", True),
 ])
 def test_k8_the_done_form(tree, cli, line, red):
     code, out, reds = left(tree, cli, line)
@@ -645,10 +650,10 @@ def test_k9_the_node_form(tree, cli, value, needle):
 @needs_git
 def test_k9_a_node_item_may_later_be_closed_by_done_and_a_node_alone_is_refused_by_close_with_that_sentence(tree, cli):
     other_batches(tree)
-    code, out, reds = left(tree, cli, "- дело | узел: F0-3 | сделано: t-12")
+    code, out, reds = left(tree, cli, "- дело | узел: F0-3 | сделано: t-012")
     assert reds == [], out
     accept_batch1(tree)
-    edit(tree, B1, "- дело | узел: F0-3 | сделано: t-12", "- дело | узел: F0-3")
+    edit(tree, B1, "- дело | узел: F0-3 | сделано: t-012", "- дело | узел: F0-3")
     snap = tree_state(tree)
     code, out = cli(tree, "close", "forge", "1", "--hash", head_hash(tree), "--today", "2026-10-08")
     assert code == 2 and "a «узел:» item is closed by «сделано: <hash | t-nnn>» when the node merges, or carried" in out, out
@@ -683,7 +688,7 @@ def test_k11_an_old_bare_item_stays_legal_and_counted_an_edited_one_is_red_and_t
     edit(tree, B1, BARE + " уточнение\n" + BARE, BARE + "\n" + BARE + "\n" + BARE)   # a THIRD copy: one old copy does not legalize it
     stage(tree, "plans/piles")
     assert len(red_lines(cli(tree, "check")[1])) == 1
-    edit(tree, B1, BARE + "\n" + BARE + "\n" + BARE, "- другое | сделано: t-1\n" + BARE + "\n" + BARE)   # moved lines, unchanged: old
+    edit(tree, B1, BARE + "\n" + BARE + "\n" + BARE, "- другое | сделано: t-001\n" + BARE + "\n" + BARE)   # moved lines, unchanged: old
     stage(tree, "plans/piles")
     assert red_lines(cli(tree, "check")[1]) == []
 
@@ -713,7 +718,7 @@ def test_k13_a_file_absent_at_the_base_has_only_new_items_and_k16_an_unreadable_
 @needs_git
 def test_k14_the_summary_count_line_names_the_unowned_leftovers_zero_included(tree, cli):
     assert "; остатков без исполнителя: 0" in cli(tree, "summary")[1]
-    edit(tree, B1, LEFTOVER_OK, BARE + "\n- ok | сделано: t-1")
+    edit(tree, B1, LEFTOVER_OK, BARE + "\n- ok | сделано: t-001")
     found = piles.leftovers_unowned(piles.load_tree(tree))
     assert [(p, item) for p, _, item in found] == [(B1, BARE)], found
     assert "; остатков без исполнителя: 1" in cli(tree, "summary")[1]

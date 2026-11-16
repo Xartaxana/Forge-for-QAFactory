@@ -253,12 +253,21 @@ def test_defect_found_missing_ref_fails():
 
 # ---- 9. task_id novelty / reference ----
 
-def test_delegated_novelty_violation_wrong_number():
+def test_delegated_novelty_violation_jump_beyond_the_cap():
+    # REWRITTEN (offload B0, rule 9a''): "t-005 after t-001" used to be the max+1 violation; a gap is legal now, a
+    # jump of more than ID_JUMP_MAX above the max is the refusal
     staged = _staged(_line(event="delegated", ts="2026-07-10T08:10:00", model="sonnet",
-                            task_id="t-005", notes="skipped ahead"))
+                            task_id="t-1500", notes="skipped far ahead"))
     code, violations = jv.decide(staged, HEAD_TEXT, NOW)
     assert code == 1
-    assert any("task_id novelty" in v for v in violations)
+    assert any("task_id novelty" in v and "jumps more than 1000" in v for v in violations)
+    assert any("python -B tools/journal_write.py next" in v and "band" not in v for v in violations)
+
+
+def test_delegated_novelty_a_gap_of_a_few_is_legal():
+    staged = _staged(_line(event="delegated", ts="2026-07-10T08:10:00", model="sonnet",
+                            task_id="t-005", notes="a reserved id, gap"))
+    assert jv.decide(staged, HEAD_TEXT, NOW) == (0, [])
 
 
 def test_delegated_novelty_correct_max_plus_one_passes():
@@ -988,6 +997,9 @@ def test_form_fields_vocabulary_and_pairs_cover_every_check():
         {"ts": "2026-07-10T08:00:00", "event": "defect_found", "agent": "a", "category": "c", "notes": "n"},
         {"ts": "2026-07-10T08:00:00", "event": "accepted", "agent": "a", "category": "c", "notes": "n", "node": "F5-2"},   # t-814: rule 18
         {"ts": "2026-07-10T08:00:00", "event": "accepted", "agent": "a", "category": "c", "notes": "n", "id_band": "x"},  # F6-58: rule 9e
+        {"ts": "2026-07-10T08:00:00", "event": "accepted", "agent": "a", "category": "c", "notes": "n", "via": "pigeon"},   # rule 20
+        {"ts": "2026-07-10T08:00:00", "event": "accepted", "agent": "a", "category": "c", "notes": "n", "session": "x" * 17},
+        {"ts": "2026-07-10T08:00:00", "event": "accepted", "agent": "a", "category": "c", "notes": "n", "witness_by": "memory"},
     ]
     seen = set()
     for obj in cases:
@@ -1145,7 +1157,7 @@ def test_main_exits_one_on_real_staged_violation(tmp_path, capsys, monkeypatch):
     (root / "logs" / "routing-log.jsonl").write_text(HEAD_TEXT, encoding="utf-8")
     _git(root, "add", "logs/routing-log.jsonl")
     _git(root, "commit", "-q", "-m", "seed journal")
-    bad_line = _line(event="delegated", ts="2026-07-10T08:10:00", task_id="t-999", model="sonnet",
+    bad_line = _line(event="delegated", ts="2026-07-10T08:10:00", task_id="t-9999", model="sonnet",
                       notes="wrong novelty")
     (root / "logs" / "routing-log.jsonl").write_text(_staged(bad_line), encoding="utf-8")
     _git(root, "add", "logs/routing-log.jsonl")
@@ -1493,21 +1505,25 @@ def _k8(*objs, seed=HISTORY_TEXT, head=None):
     return jv.decide(_jtext(*objs), head, _NOW8, seed_text=seed)
 
 
-def test_k8_the_next_id_is_the_max_of_the_history_plus_one_and_only_that():
-    ok = _k8(M_CREATED, _deleg("t-003", "2026-10-02T08:30:00"))
-    assert ok == (0, [])
-    for wrong in ("t-002", "t-004", "t-009"):                # +0 (a repeat of an open task), +2 and beyond
-        code, violations = _k8(M_CREATED, _deleg(wrong, "2026-10-02T08:30:00"))
-        assert code == 1 and violations, wrong
-    code, violations = _k8(M_CREATED, _deleg("t-004", "2026-10-02T08:30:00"))
-    assert any("got t-004; the next new id is t-003" in v for v in violations)
+def test_k8_the_history_is_the_seen_set_and_the_jump_base_of_the_file():
+    # REWRITTEN (offload B0, rule 9a''): "the next id is the max of the history + 1 and only that" is retired; a gap
+    # (t-004, t-009) is legal, a seen id is a repeat (9b-9d), a jump over 1000 above the history's max is refused
+    assert _k8(M_CREATED, _deleg("t-003", "2026-10-02T08:30:00")) == (0, [])
+    for gap in ("t-004", "t-009", "t-1002"):                 # +1, +6 and exactly the cap above the history's t-002
+        assert _k8(M_CREATED, _deleg(gap, "2026-10-02T08:30:00")) == (0, []), gap
+    code, violations = _k8(M_CREATED, _deleg("t-002", "2026-10-02T08:30:00"))
+    assert code == 1 and any("repeated delegated" in v for v in violations)     # t-002 of the history is a SEEN open task
+    code, violations = _k8(M_CREATED, _deleg("t-1003", "2026-10-02T08:30:00"))
+    assert code == 1 and any("jumps more than 1000 above the sequence (the highest t-NNN is 2)" in v for v in violations)
     code, violations = _k8(M_CREATED, _deleg("t-001", "2026-10-02T08:30:00"))
     assert any("CLOSED task" in v for v in violations)      # t-001 is accepted in the history
 
 
-def test_k8_without_the_seed_the_same_file_starts_at_t_001():
-    code, violations = _k8(M_CREATED, _deleg("t-003", "2026-10-02T08:30:00"), seed=None)
-    assert code == 1 and any("got t-003; the next new id is t-001" in v for v in violations)
+def test_k8_without_the_seed_the_jump_is_measured_from_zero():
+    assert _k8(M_CREATED, _deleg("t-003", "2026-10-02T08:30:00"), seed=None) == (0, [])
+    assert _k8(M_CREATED, _deleg("t-1000", "2026-10-02T08:30:00"), seed=None) == (0, [])
+    code, violations = _k8(M_CREATED, _deleg("t-1002", "2026-10-02T08:30:00"), seed=None)      # legal WITH the seed (above)
+    assert code == 1 and any("no id exists yet" in v for v in violations)
     assert _k8(_created("2026-10-02T08:00:00"), _deleg("t-001", "2026-10-02T08:30:00"), seed=None) == (0, [])
 
 
@@ -1524,7 +1540,7 @@ def test_k8_the_ts_of_the_first_line_is_anchored_on_the_history():
 
 
 def test_k8_line_numbers_in_the_messages_are_those_of_the_file_not_of_the_seed():
-    code, violations = _k8(M_CREATED, _deleg("t-009", "2026-10-02T08:30:00"))
+    code, violations = _k8(M_CREATED, _deleg("t-2500", "2026-10-02T08:30:00"))
     assert code == 1 and violations[0].startswith("line 2 ")
 
 
@@ -1558,9 +1574,12 @@ def test_k8_the_merge_mode_passes_the_seed_too():
     assert (code, violations) == (0, [])
 
 
-# ================================ id bands (F6-58, rule 9e): rows j1-j18 ================================
-# A spec is ("d", id[, band]) for a delegated line or ("x", None[, band]) for a decomposable line that carries only a
-# band; a 3rd element, even None, writes the `id_band` field. HEAD specs are state (never judged), NEW specs are judged.
+# ================ rule 9a'' (offload B0, BL-1): the id of a NEW delegated; rule 9e (bands) RETIRED ================
+# REWRITTEN group (the F6-58 rows j1-j18 + S1/P10/edge/j10/j11 band rows): a new line carrying `id_band` is a
+# `band_retired` violation, an old band in HEAD still feeds the jump base (TEMPORAL, read-only), and the id of a new
+# line is judged by "never seen + canonical + at most 1000 above the max of its letter". A spec is ("d", id[, band]) for a
+# delegated line or ("x", None[, band]) for a decomposable line that carries only a band; a 3rd element, even None,
+# writes the `id_band` field. HEAD specs are state (never judged), NEW specs are judged.
 
 def _band_lines(specs, base_hour):
     out = []
@@ -1582,69 +1601,65 @@ def _ids(a, b):
     return [("d", f"t-{n}") for n in range(a, b + 1)]
 
 
-_B450 = ("d", "t-450", "t-450..t-499")
-_J1 = [_B450, ("d", "t-357"), ("d", "t-451", "t-450..t-499"), ("d", "t-358")]   # every band line carries its band
-_FILLED_400 = [("x", None, "t-400..t-449")] + _ids(341, 399) + [("d", "t-400", "t-400..t-449")]
-_DOOR_451 = 't-451 lies in the id band t-450..t-499 of another writer; a line issued from a band carries "id_band":"t-450..t-499"'
-_EDGE_400 = [("d", "t-340"), ("x", None, "t-400..t-449")] + _ids(341, 399)
 _HUGE = "t-" + "9" * 5000 + ".."
 _FORM_VALUES = ["t-5..t-9", "500..", "t-500 .. t-510", "t-500–t-510", "", ["t-1"], {"from": "t-1"}, 500,
                 "t-４００..t-４４９", "t-1234567890..", _HUGE]
+_RETIRED = ("band_retired", "`id_band` is retired", "python -B tools/journal_write.py next")
 
 # (row, head specs, new specs, needles that must ALL appear in the violations; () = no violation at all)
 ID_BAND_ROWS = [
-    ("j1", [("d", "t-356")], _J1, ()),
-    ("j2", [("d", "t-356")], _J1 + [("d", "t-455", "t-450..t-499")],
-     ("task_id novelty violated", "got t-455", "t-452 (band t-450..t-499)")),
-    # F1 (t-402): a band's next id is issuable only by a line that carries that band in its own id_band
-    ("S1-naive-max-plus-1", [("d", "t-356")], [_B450, ("d", "t-451")],
-     ("task_id novelty violated", "got t-451", "the next new id is t-357", _DOOR_451)),
-    ("S1-band-owner-with-field", [("d", "t-356")], [_B450, ("d", "t-451", "t-450..t-499")], ()),
-    ("P10-plain-id-at-a-band-first-id", [("d", "t-356"), ("x", None, "t-500..t-549")], [("d", "t-500")],
-     ("got t-500", "the next new id is t-357",
-      't-500 lies in the id band t-500..t-549 of another writer; a line issued from a band carries "id_band":"t-500..t-549"')),
-    ("edge-main-at-a-band-edge-takes-the-next-after-it", _EDGE_400, [("d", "t-450")], ()),
-    ("edge-main-at-a-band-edge-plain-first-id-refused", _EDGE_400, [("d", "t-400")],
-     ("got t-400", "the next new id is t-450", "t-400 lies in the id band t-400..t-449")),
-    ("band-never-declared-opens-on-its-own-line-and-its-id-is-judged", [("d", "t-356")], [("d", "t-455", "t-450..t-499")],
-     ("got t-455", "or t-450 (band t-450..t-499)")),
-    ("a-line-carries-another-bands-field", [("d", "t-356"), _B450, ("x", None, "t-600..t-649")],
-     [("d", "t-600", "t-450..t-499")], ("got t-600", "lies in the id band t-600..t-649")),
-    ("a-band-line-without-a-new-id-needs-no-field-for-9d", [("d", "t-356"), _B450], [("d", "t-450")],
-     ("repeated delegated by the same agent",)),
-    ("j3", [("d", "t-356")], [("x", None, "t-300..t-310")], ("starts at or below t-356", "start it at t-450", "(rule 9e)")),
-    ("j4", [("d", "t-356"), _B450], [("x", None, "t-470..t-480")], ("starts at or below t-499", "start it at t-550")),
-    ("j5a-jump", [("d", "t-356")], [("x", None, "t-999999999..")], ("starts 999999643 ids above t-356", "at most 10000")),
-    ("j5a-nine-digits-parse", [("d", "t-999999000")], [("x", None, "t-999999100..")], ()),
-    ("j6", [("d", "t-356")], [("x", None, "t-500..t-499")], ("ends below its start", "(rule 9e)")),
-    ("j7-1000", [("d", "t-356")], [("x", None, "t-500..t-1499")], ()),
-    ("j7-1001", [("d", "t-356")], [("x", None, "t-500..t-1500")], ("holds 1001 ids", "at most 1000")),
-    ("j8-pass", [("d", "t-433")], [("x", None, "t-500.."), ("d", "t-500")], ()),
-    ("j8-novelty", [("d", "t-433")], [("x", None, "t-500.."), ("d", "t-500"), ("d", "t-434")],
-     ("task_id novelty violated", "got t-434", "the next new id is t-501")),
-    ("j9-10000", [("d", "t-100")], [("x", None, "t-10100..")], ()),
-    ("j9-10001", [("d", "t-100")], [("x", None, "t-10101..")], ("starts 10001 ids above t-100", "start it nearer, at t-150")),
-    ("j10-pass", [("d", "t-340")], _FILLED_400 + [("d", "t-450")], ()),
-    ("j10-skip-in-band", [("d", "t-340")], _FILLED_400 + [("d", "t-402")],
-     ("got t-402", "the next new id is t-450", "or t-401 (band t-400..t-449)")),
-    ("j10-skip-in-band-with-field", [("d", "t-340")], _FILLED_400 + [("d", "t-402", "t-400..t-449")],
-     ("got t-402", "or t-401 (band t-400..t-449)")),
-    ("j10-reuse",[("d", "t-340")], _FILLED_400 + [("d", "t-400")], ("repeated delegated by the same agent",)),
-    ("j11", [("d", "t-340")],
-     [("x", None, "t-400..t-402")] + _ids(341, 360) + [("d", f"t-{n}", "t-400..t-402") for n in (400, 401, 402)] + [("d", "t-403")],
-     ("got t-403", "the next new id is t-361", "band t-400..t-402 is used up -- open a new band at t-500")),
-    ("j12", [("d", "t-356", "junk")], [("d", "t-357")], ()),
-    ("j13", [("d", "t-356")], [("x", None, None), ("d", "t-357", None)], ()),
-    ("j15-near", [("d", "t-356")], [("x", None, "t-405..t-410")], ("starts 49 ids above t-356", "at least 50", "start it at t-450")),
-    ("j15-gap-50", [("d", "t-356")], [("x", None, "t-406..t-410")], ()),
-    ("j16", [("d", "t-356")], [("x", None, "t-357.."), ("d", "t-357")], ()),
-    ("j17", [("d", "t-356")], [("d", "t-300", "t-300..t-310")],
-     ("starts at or below t-356", "task_id novelty violated", "got t-300")),
-    ("j18", [("d", "t-356")], [("x", None, "t-450..t-499"), ("d", "t-450", "t-450..t-499")], ()),
-    ("j14-no-band-old-reading", [("d", "t-356")], [("d", "t-357"), ("d", "t-358")], ()),
-    ("j14-no-band-gap", [("d", "t-356")], [("d", "t-358")], ("got t-358", "the next new id is t-357")),
-] + [(f"j5-form-{i}", [("d", "t-356")], [("x", None, v)], ("is not \"t-A..t-B\"", "(rule 9e)"))
-     for i, v in enumerate(_FORM_VALUES)]
+    # --- the retired road: a band on a NEW line is refused, whatever it holds, and names the writer ---
+    ("j1-band-on-a-new-delegated", [("d", "t-356")], [("d", "t-357", "t-450..t-499")], _RETIRED),
+    ("j1-band-on-a-new-decomposable", [("d", "t-356")], [("x", None, "t-450..t-499")], _RETIRED),
+    ("j1-open-band", [("d", "t-356")], [("x", None, "t-450..")], _RETIRED),
+    ("j1-band-with-its-first-id", [("d", "t-356")], [("d", "t-450", "t-450..t-499")], _RETIRED),
+    ("j3-band-below-the-sequence", [("d", "t-356")], [("x", None, "t-300..t-310")], _RETIRED),
+    ("j6-reversed-band", [("d", "t-356")], [("x", None, "t-500..t-499")], _RETIRED),
+    ("j7-1001-band", [("d", "t-356")], [("x", None, "t-500..t-1500")], _RETIRED),
+    # the band never makes an id legal: an id far above the sequence stays a jump, the band is a second violation
+    ("j17-band-never-legalises-an-id", [("d", "t-356")], [("x", None, "t-5000..t-5010"), ("d", "t-5000", "t-5000..t-5010")],
+     _RETIRED + ("got t-5000", "jumps more than 1000 above the sequence (the highest t-NNN is 356)")),
+    # --- null and absent bands are not bands; a junk band of an OLD line is never judged (temporal) ---
+    ("j13-null-band-is-no-band", [("d", "t-356")], [("x", None, None), ("d", "t-357", None)], ()),
+    ("j12-old-junk-band-in-head-is-not-judged", [("d", "t-356", "junk")], [("d", "t-357")], ()),
+    # --- rule 9a'': gaps and out-of-order are legal; the jump cap is 1000 above the max of the letter ---
+    ("j14-no-band-in-order", [("d", "t-356")], [("d", "t-357"), ("d", "t-358")], ()),
+    ("j14-gap-of-one-is-legal", [("d", "t-356")], [("d", "t-358")], ()),
+    ("e3-jump-at-1000-is-legal", [("d", "t-356")], [("d", "t-1356")], ()),
+    ("e3-jump-at-1001-is-refused", [("d", "t-356")], [("d", "t-1357")],
+     ("task_id novelty violated", "got t-1357", "jumps more than 1000 above the sequence (the highest t-NNN is 356)")),
+    ("e8-reserved-lower-id-after-a-higher-one", [("d", "t-356")], [("d", "t-358"), ("d", "t-357"), ("d", "t-359")], ()),
+    ("e8-next-n3-written-in-the-reverse-order", [("d", "t-899")], [("d", "t-902"), ("d", "t-900"), ("d", "t-901")], ()),
+    ("e8-t901-then-t900", [("d", "t-899")], [("d", "t-901"), ("d", "t-900")], ()),
+    ("e3-the-jump-base-follows-the-highest-new-line", [("d", "t-356")], [("d", "t-1356"), ("d", "t-2356"), ("d", "t-2357")], ()),
+    ("e3-the-jump-base-follows-the-highest-new-line-beyond", [("d", "t-356")], [("d", "t-1356"), ("d", "t-2357")],
+     ("got t-2357", "highest t-NNN is 1356")),
+    # --- E-B0-4: an id issued twice is a SEEN id, judged as a repeat (9b-9d), never as a new one ---
+    ("e4-same-id-twice-same-agent", [("d", "t-356")], [("d", "t-357"), ("d", "t-357")], ("repeated delegated by the same agent",)),
+    ("e4-reused-id-of-head", [("d", "t-356")], [("d", "t-356")], ("repeated delegated by the same agent",)),
+    # --- E-B0-1: an id the issue grammar refuses (readable as a string, never issued) ---
+    ("e1-leading-zero", [("d", "t-356")], [("d", "t-0357")], ("got t-0357", "is not canonical")),
+    ("e1-000", [("d", "t-356")], [("d", "t-000")], ("got t-000", "is not canonical")),
+    ("e1-0001", [("d", "t-356")], [("d", "t-0001")], ("got t-0001", "is not canonical")),
+    ("e1-4-digit-no-zero-is-canonical", [("d", "t-999")], [("d", "t-1000")], ()),
+    # --- the letter: t-123 and t-123a are two tasks, each with its own jump base ---
+    ("l1-first-id-of-a-letter", [("d", "t-356")], [("d", "t-001a")], ()),
+    ("l2-letter-at-1000-is-legal", [("d", "t-356")], [("d", "t-1000a")], ()),
+    ("l2-letter-at-1001-is-refused", [("d", "t-356")], [("d", "t-1001a")],
+     ("got t-1001a", "jumps more than 1000 above the sequence (no id with letter 'a' exists yet)")),
+    ("l3-the-letter-has-its-own-base", [("d", "t-356"), ("d", "t-040a")], [("d", "t-1040a")], ()),
+    ("l3-the-letter-has-its-own-base-beyond", [("d", "t-356"), ("d", "t-040a")], [("d", "t-1041a")],
+     ("got t-1041a", "the highest t-NNNa is 40")),
+    ("l4-the-same-number-with-a-letter-is-a-new-id", [("d", "t-356")], [("d", "t-356a")], ()),
+    ("l4-the-bare-number-after-its-lettered-twin-is-new", [("d", "t-356a")], [("d", "t-356")], ()),
+    ("l5-two-letters", [("d", "t-356")], [("d", "t-001ab")], ()),
+    ("l6-a-lettered-id-twice-is-a-repeat", [("d", "t-356a")], [("d", "t-356a")], ("repeated delegated by the same agent",)),
+    # --- TEMPORAL: the old bands in HEAD still feed the base of the letterless sequence (both worlds on one row) ---
+    ("old-band-in-head-feeds-the-base-legal", [("d", "t-356"), ("x", None, "t-400..t-449")], [("d", "t-1449")], ()),
+    ("old-band-in-head-feeds-the-base-beyond", [("d", "t-356"), ("x", None, "t-400..t-449")], [("d", "t-1450")],
+     ("got t-1450", "the highest t-NNN is 449")),
+    ("old-band-in-head-does-not-reserve-its-ids", [("d", "t-356"), ("x", None, "t-400..t-449")], [("d", "t-357")], ()),
+] + [(f"j5-form-{i}", [("d", "t-356")], [("x", None, v)], _RETIRED) for i, v in enumerate(_FORM_VALUES)]
 
 
 @pytest.mark.parametrize("row,head,new,needles", ID_BAND_ROWS, ids=[r[0] for r in ID_BAND_ROWS])
@@ -1657,22 +1672,30 @@ def test_id_band(row, head, new, needles):
     assert violations, row
     for needle in needles:
         assert needle in joined, (needle, violations)
-    if row.startswith("j5-form"):
-        assert len(violations) == 1 and "id_band" in violations[0]       # one text per bad value, nothing raised
+    assert not any("max+1" in v or "id band" in v or "open a band" in v for v in violations)       # no band advice left
 
 
-def test_id_band_a_refused_band_never_enters_the_state_and_a_foreign_bad_band_is_clearable():
-    # the refused band of j17 does not make t-301 issuable on the next line either
-    v = _band_run([("d", "t-356")], [("x", None, "t-300..t-310"), ("d", "t-300")])
-    assert any("task_id novelty violated" in x and "got t-300" in x for x in v)
+def test_id_band_a_band_on_a_new_line_never_enters_the_state_and_a_foreign_bad_band_is_clearable():
+    # the retired band of a NEW line does not make a later id issuable: t-5001 stays a jump
+    v = _band_run([("d", "t-356")], [("x", None, "t-5000..t-5010"), ("d", "t-5001")])
+    assert any("task_id novelty violated" in x and "got t-5001" in x for x in v)
     assert "id_band" in jv.FORM_FIELDS
     assert [f for f, _t in jv._line_form_violations(json.loads(_line(id_band="junk", event="decomposable")), "T")] == ["id_band"]
     assert jv._line_form_violations(json.loads(_line(event="decomposable", id_band=None)), "T") == []
 
 
+def test_the_novelty_text_names_the_writer_and_gives_no_band_advice():
+    v = _band_run([("d", "t-356")], [("d", "t-0357"), ("d", "t-2357")])
+    assert len(v) == 2
+    for text in v:
+        assert "python -B tools/journal_write.py next" in text and "(rule 9a'')" in text
+        assert "band" not in text and "id_band" not in text and "journal_keys.py where" not in text
+    assert "is not canonical" in v[0] and "jumps more than 1000" in v[1]
+
+
 # ---- rule 19 (FG7-32): the order-known door, ONE table ----
 # HEAD holds t-001 @08:00. Each case is (new lines, seed_text, expected code, [texts the violations must hold],
-# [texts the WARN list must hold], declared count). The defects: an id out of order (t-005, next is t-002), a ts
+# [texts the WARN list must hold], declared count). The defects: an id past the jump cap (t-2005, rule 9a''), a ts
 # earlier than HEAD's last line, a repeated delegated by one agent with no attempt.
 _D = "2026-07-10T"
 
@@ -1681,7 +1704,7 @@ def _tok(ts, at, notes=None):
     return _line(event="dispatch_skipped", ts=_D + at, notes=notes or f"order-known:{_D}{ts}")
 
 
-def _id_bad(ts="09:00:00", tid="t-005", **kw):
+def _id_bad(ts="09:00:00", tid="t-2005", **kw):       # REWRITTEN: t-005 is a legal gap now; t-2005 jumps over the cap
     return _line(task_id=tid, model="sonnet", ts=_D + ts, **kw)
 
 
@@ -1689,7 +1712,7 @@ _TS_BAD = _line(task_id="t-002", model="sonnet", ts=_D + "07:00:00")
 _DUP_OK = _line(task_id="t-002", model="sonnet", ts=_D + "09:00:00")
 _DUP_BAD = _line(task_id="t-002", model="sonnet", ts=_D + "10:00:00")
 _DEFECTS = {
-    "id": ([_id_bad()], "09:00:00", "t-005", "10:30:00"),
+    "id": ([_id_bad()], "09:00:00", "t-2005", "10:30:00"),
     "ts": ([_TS_BAD], "07:00:00", "t-002", "09:00:00"),
     "dup": ([_DUP_OK, _DUP_BAD], "10:00:00", "t-002", "10:30:00"),
 }
@@ -1720,7 +1743,7 @@ _CASES["f2-one-token-over-a-line-with-two-defects-counts-1"] = (
 _CASES["f3-order-defect-and-missing-worker-ref-and-token-stays-refused"] = (
     [_id_bad(worker_ref=None), _tok("09:00:00", "10:30:00")], None, 1, ["worker_ref"], [], 1)
 _CASES["edge4-two-lines-with-one-ts-both-covered"] = (
-    [_id_bad(), _id_bad(tid="t-009"), _tok("09:00:00", "10:30:00")], None, 0, [], [], 2)
+    [_id_bad(), _id_bad(tid="t-3009"), _tok("09:00:00", "10:30:00")], None, 0, [], [], 2)
 _CASES["edge4-token-on-the-defective-line-itself-does-not-count"] = (
     [_id_bad(notes=f"order-known:{_D}09:00:00")], None, 1, [f"order-known:{_D}09:00:00"], [], 0)
 _CASES["edge5-empty-token-is-ignored-and-warned"] = (
@@ -1745,3 +1768,157 @@ def test_order_known_door_table(case):
         assert f"order-known: {declared_want} declared" in wjoined
     else:
         assert not any(w.startswith("order-known: ") for w in warnings)
+
+
+# ================ offload B0: `returned` (rule 9f, E-B0-6), rule 20 fields, E-B0-1 form, E-B0-5 both worlds ================
+# HEAD holds t-001 delegated to builder with worker_ref cli:2026-07-10T08:00:00 (an OPEN task).
+_WREF = "cli:2026-07-10T08:00:00"
+
+
+def _ret(ts="2026-07-10T08:30:00", tid="t-001", wref=_WREF, **kw):
+    return _line(event="returned", ts=ts, agent="builder", model="sonnet", task_id=tid, worker_ref=wref,
+                 notes="the dispatch returned", **kw)
+
+
+_CLOSED_HEAD = HEAD_TEXT + _line(event="accepted", ts="2026-07-10T08:20:00", agent="builder", model="sonnet",
+                                 task_id="t-001", by="opus", witness="w", notes="closed") + "\n"
+_RETURNED_DOOR = "journal_write.py returned --task <id> --worker <worker_ref>"
+
+# (row, staged new lines, head text, code, [needles in the violations])
+RETURNED_ROWS = [
+    ("matching-open-delegated", [_ret()], HEAD_TEXT, 0, []),
+    ("matching-with-optional-fields", [_ret(via="hook", session="a1-B2", witness_by="run")], HEAD_TEXT, 0, []),
+    ("wrong-worker-ref", [_ret(wref="agent:other")], HEAD_TEXT, 1,
+     ["no earlier open delegated of t-001 carries worker_ref 'agent:other'", _RETURNED_DOOR, "(rule 9f)"]),
+    ("closed-task", [_ret(ts="2026-07-10T08:30:00")], _CLOSED_HEAD, 1, ["t-001 is already closed", _RETURNED_DOOR]),
+    ("no-task-at-all", [_ret(tid="t-077")], HEAD_TEXT, 1, ["t-077 has no delegated earlier in this journal", _RETURNED_DOOR]),
+    ("twice-for-one-pair", [_ret(), _ret(ts="2026-07-10T08:31:00")], HEAD_TEXT, 1,
+     ["t-001 already has a returned for worker_ref"]),
+    ("two-workers-two-returned", [_line(event="delegated", ts="2026-07-10T08:10:00", agent="critic", model="opus",
+                                        task_id="t-001", worker_ref="agent:crit", notes="critic entry"),
+                                  _ret(), _ret(ts="2026-07-10T08:31:00", wref="agent:crit")], HEAD_TEXT, 0, []),
+    ("returned-after-its-delegated-in-the-same-commit",
+     [_line(event="delegated", ts="2026-07-10T08:10:00", model="sonnet", task_id="t-002", worker_ref="agent:new", notes="d"),
+      _ret(ts="2026-07-10T08:20:00", tid="t-002", wref="agent:new")], HEAD_TEXT, 0, []),
+    ("returned-before-its-delegated-never-opens-the-task",
+     [_ret(tid="t-002", wref="agent:new"),
+      _line(event="delegated", ts="2026-07-10T08:40:00", model="sonnet", task_id="t-002", worker_ref="agent:new", notes="d")],
+     HEAD_TEXT, 1, ["t-002 has no delegated earlier in this journal"]),
+    ("missing-worker-ref", [_ret(wref=None)], HEAD_TEXT, 1, ["'worker_ref' is required (non-empty string) for returned"]),
+    ("blank-worker-ref", [_ret(wref="  ")], HEAD_TEXT, 1, ["'worker_ref' is required (non-empty string) for returned"]),
+    ("missing-task-id", [_line(event="returned", ts="2026-07-10T08:30:00", model="sonnet", notes="n")], HEAD_TEXT, 1, ["'task_id'"]),
+    ("missing-model", [_line(event="returned", ts="2026-07-10T08:30:00", task_id="t-001", notes="n")], HEAD_TEXT, 1,
+     ["'model' is required for event=returned"]),
+    ("a-returned-is-not-novelty-issuing-an-unseen-far-id-names-the-door-only",
+     [_ret(tid="t-5000")], HEAD_TEXT, 1, ["t-5000 has no delegated earlier", _RETURNED_DOOR]),
+]
+
+
+@pytest.mark.parametrize("row,new,head,code_want,needles", RETURNED_ROWS, ids=[r[0] for r in RETURNED_ROWS])
+def test_returned_rule_9f(row, new, head, code_want, needles):
+    code, violations = jv.decide(head + "".join(l + "\n" for l in new), head, NOW)
+    assert code == code_want, violations
+    joined = "\n".join(violations)
+    for needle in needles:
+        assert needle in joined, (needle, violations)
+    assert "task_id novelty" not in joined                      # a returned never goes through the id check
+
+
+def test_a_returned_never_closes_or_reopens_a_task_the_critic_entry_and_the_accept_still_work():
+    staged = _staged(
+        _ret(),
+        _line(event="delegated", ts="2026-07-10T08:40:00", agent="critic", model="opus", task_id="t-001",
+              worker_ref="agent:crit", notes="critic entry after the builder returned"),
+        _line(event="accepted", ts="2026-07-10T08:50:00", agent="builder", model="sonnet", task_id="t-001", by="opus",
+              witness="w", notes="accept"))
+    assert jv.decide(staged, HEAD_TEXT, NOW) == (0, [])
+    # after the accept the task is closed: a returned is refused, a reopening delegated stays refused too
+    code, violations = jv.decide(_staged(*(staged.splitlines()[1:])) + _ret(ts="2026-07-10T09:00:00") + "\n", HEAD_TEXT, NOW)
+    assert code == 1 and any("t-001 is already closed" in v for v in violations)
+
+
+def test_returned_is_in_the_event_set_and_the_required_field_sets():
+    assert "returned" in jv.EVENTS
+    for needed in (jv.MODEL_REQUIRED_EVENTS, jv.TASK_ID_REQUIRED_EVENTS):
+        assert "returned" in needed
+    assert "returned" not in {"delegated"}                       # novelty is `delegated` only (the loop reads that event)
+
+
+# rule 20: `via` / `session` / `witness_by`: absent or null is never a violation, a present bad value is
+@pytest.mark.parametrize("kw,named", [
+    ({}, None), ({"via": None, "session": None, "witness_by": None}, None),
+    ({"via": "hook"}, None), ({"via": "cli"}, None), ({"via": "Hook"}, "via"), ({"via": ""}, "via"), ({"via": 1}, "via"),
+    ({"via": ["hook"]}, "via"),
+    ({"session": "a" * 16}, None), ({"session": "a" * 17}, "session"), ({"session": ""}, "session"),
+    ({"session": "ab cd"}, "session"), ({"session": "аbc"}, "session"), ({"session": 5}, "session"),
+    ({"session": "x\n"}, "session"), ({"session": "a-B-9"}, None),
+    ({"witness_by": "run"}, None), ({"witness_by": "file"}, None), ({"witness_by": "text"}, None),
+    ({"witness_by": "RUN"}, "witness_by"), ({"witness_by": True}, "witness_by"), ({"witness_by": {"a": 1}}, "witness_by"),
+])
+def test_rule_20_optional_fields_are_judged_by_value(kw, named):
+    code, violations = jv.decide(_staged(_line(event="dispatch_skipped", ts="2026-07-10T08:10:00", **kw)), HEAD_TEXT, NOW)
+    if named is None:
+        assert (code, violations) == (0, [])
+    else:
+        assert code == 1 and len(violations) == 1 and f"`{named}` = " in violations[0] and "(rule 20)" in violations[0], violations
+
+
+# E-B0-1 on a NEW line: an id outside the read grammar is a form violation for every event that carries one
+_BAD_IDS = ["t-123A", "t-123а", "t-１２３", "t-123abc", "t-12", "t-1234567890", "T-123", "t-123 ", "t-", ""]
+
+
+@pytest.mark.parametrize("bad", _BAD_IDS, ids=[repr(b) for b in _BAD_IDS])
+@pytest.mark.parametrize("event", ["delegated", "accepted", "returned"])
+def test_e_b0_1_an_id_outside_the_read_grammar_is_a_form_violation_on_a_new_line(event, bad):
+    extra = {"by": "opus", "witness": "w"} if event == "accepted" else {}
+    code, violations = jv.decide(_staged(_line(event=event, ts="2026-07-10T08:10:00", agent="builder", model="sonnet",
+                                               task_id=bad, **extra)), HEAD_TEXT, NOW)
+    assert code == 1 and violations
+    if bad:
+        assert any("does not match the t-NNN format (3-9 ASCII digits" in v for v in violations), violations
+    assert not any("task_id novelty" in v for v in violations)          # never reaches the id check
+
+
+# E-B0-5 TEMPORAL: old journals (bare ids, bands, <id>@<label>, legacy spellings) are state, never judged; the first
+# new line after the switch with a gap is legal. Both worlds on ONE fixture.
+def test_e_b0_5_an_old_journal_validates_as_before_and_the_first_new_line_may_leave_a_gap():
+    old = [
+        _line(event="delegated", ts="2026-07-10T07:00:00", task_id="t-001", model="sonnet"),
+        _line(event="delegated", ts="2026-07-10T07:01:00", task_id="t-002", model="sonnet", id_band="t-100..t-149"),
+        _line(event="delegated", ts="2026-07-10T07:02:00", task_id="t-100", model="sonnet", id_band="t-100..t-149"),
+        _line(event="delegated", ts="2026-07-10T07:03:00", task_id="t-0123", model="sonnet"),             # legacy spelling
+        _line(event="dispatch_skipped", ts="2026-07-10T07:04:00", notes="closes:t-002@dev2 closes:t-100"),
+        _line(event="accepted", ts="2026-07-10T07:05:00", task_id="t-001", model="sonnet", by="opus", witness="w"),
+        _line(event="delegated", ts="2026-07-10T07:06:00", task_id="t-9", model="sonnet"),                  # an old short id
+    ]
+    head = "".join(l + "\n" for l in old)
+    # the old world: the head is never judged; an empty new tail is clean
+    assert jv.decide(head, head, NOW) == (0, [])
+    # the new world on the same head: a gap, an out-of-order id, a lettered id are legal (jump base: max(123, band top 149))
+    new = [_line(event="delegated", ts="2026-07-10T08:00:00", task_id="t-300", model="sonnet"),
+           _line(event="delegated", ts="2026-07-10T08:01:00", task_id="t-250", model="sonnet"),
+           _line(event="delegated", ts="2026-07-10T08:02:00", task_id="t-001a", model="sonnet")]
+    assert jv.decide(head + "".join(l + "\n" for l in new), head, NOW) == (0, [])
+    # ... and the band of the OLD lines is still the jump base: t-1149 is the cap (149 + 1000), t-1150 is refused
+    ok = _line(event="delegated", ts="2026-07-10T08:00:00", task_id="t-1149", model="sonnet")
+    bad = _line(event="delegated", ts="2026-07-10T08:00:00", task_id="t-1150", model="sonnet")
+    assert jv.decide(head + ok + "\n", head, NOW) == (0, [])
+    code, violations = jv.decide(head + bad + "\n", head, NOW)
+    assert code == 1 and any("the highest t-NNN is 149" in v for v in violations)
+    # a NEW line may not carry a band any more, the old ones stay readable
+    code, violations = jv.decide(head + _line(event="delegated", ts="2026-07-10T08:00:00", task_id="t-301", model="sonnet",
+                                              id_band="t-400..t-449") + "\n", head, NOW)
+    assert code == 1 and any("band_retired" in v for v in violations)
+
+
+def test_e_b0_5_the_live_dev1_journal_validates_with_no_new_violation():
+    live = Path(__file__).resolve().parent.parent / "logs" / "journal" / "dev1.jsonl"
+    if not live.exists():
+        pytest.skip("the developer journal is not in this clone")
+    text = live.read_text(encoding="utf-8")
+    now = jv.datetime.datetime(2099, 1, 1)
+    line = _line(event="delegated", ts="2098-12-31T00:00:00", task_id="t-1000001", model="sonnet")
+    # the live journal as head (never judged) plus one far-above line: only the jump rule fires, nothing about the old lines
+    code, violations = jv.decide(text + line + "\n", text, now)
+    assert code == 1 and len(violations) == 1 and "jumps more than 1000" in violations[0]
+    assert jv.decide(text, text, now) == (0, [])

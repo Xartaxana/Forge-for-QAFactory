@@ -899,9 +899,8 @@ def combine_context(violations: list, tier_events: list, witness_events: list = 
     return "; ".join(parts)
 
 
-# --- PEER NOTE at write time (rule 9e, F6-58) ----------------------------
-# Trigger: a NEW `delegated` line (echo_new_lines) while the journal file holds no closed band with a free id (once one
-# writer has a band the writers are separated and the note stops: stateless) AND another main session of this project
+# --- PEER NOTE at write time (F6-58; offload B0: bands retired, the note says ids come from the clone counter) ------
+# Trigger: a NEW `delegated` line (echo_new_lines) AND another main session of this project
 # wrote its transcript within transcripts.PEER_WINDOW_S (axis 14: transcripts.peer_main_sessions, from the payload's
 # `transcript_path`). The text is journal_keys.peer_note. A NOTE, never a refusal: it does not change decide()'s
 # verdict and it errs toward SILENCE (any exception, no import, no peer -> "").
@@ -916,15 +915,8 @@ def _peer_note_text(payload: dict, echo_new_lines: list, seed_lines: list, stage
         if not any(isinstance(o, dict) and o.get("event") == "delegated"
                    for o in map(journal_validator._try_parse_obj, echo_new_lines)):
             return ""
-        state = jk.BandState()
-        for line in list(seed_lines) + list(staged_lines):
-            obj = journal_validator._try_parse_obj(line)
-            if obj is not None:
-                state.add(obj)
-        if jk.free_bands(state):
-            return ""
         peers = transcripts.peer_main_sessions(payload.get("transcript_path"), time.time())
-        return jk.peer_note(peers, state)
+        return jk.peer_note(peers)
     except Exception:
         return ""
 
@@ -1965,7 +1957,7 @@ CRITIC_SKIP_RE = re.compile(r"critic\s*:\s*skipped", re.IGNORECASE)
 # whitespace around the colon) matches; no free-form wording ("critic:
 # skip", "no critic", "critic waived" -- do NOT match, see battery 3 in
 # test_journal_echo_r3.py).
-CRITIC_TOKEN_RE = re.compile(r"\bcritic:(t-\d{3,})\b")
+CRITIC_TOKEN_RE = re.compile(r"\bcritic:(t-[0-9]{3,9}[a-z]{0,2})\b")      # the id grammar of journal_keys.ID_RE (offload B0)
 # Case-sensitive literal (NOT ignorecase, symmetric with
 # journal_validator's replaces_worker/closes token) -- a machine
 # structural token, not free prose, unlike CRITIC_SKIP_RE above. Group
@@ -2329,6 +2321,70 @@ _STDIN_DEADLINE_MSG = "stdin deadline exceeded -- fail-open, payload discarded"
 _STDIN_DEADLINE_STATE = {"hit": False}
 
 
+def _skip_run_witness(witness_events: list, new_lines: list, base_lines: list) -> list:
+    """The witness events minus those of an `accepted` line with `witness_by: run` (offload B0, X-7): the writer RAN
+    the command itself (journal_write accept --run), so the cross-check of the witness text against the session's own
+    track has nothing to say about it. Line numbers are those the collector used (len(base) + index + 1)."""
+    skip = set()
+    for idx, line in enumerate(new_lines):
+        obj = journal_validator._try_parse_obj(line)
+        if obj is not None and obj.get("witness_by") == "run":
+            skip.add(len(base_lines) + idx + 1)
+    return [e for e in witness_events if not (len(e) > 1 and e[1] in skip)]
+
+
+def _echo_parts(echo_new_lines: list, echo_base_lines: list, payload, now, used_fallback: bool) -> dict:
+    """The echo collectors (tier MISMATCH, witness, ts drift, escalation, notes length, R3) over given lines -- the ONE
+    place the hook and `echo_for_lines` take them from. Each beyond the tier collector fails open in its own try."""
+    parts = {"tier": _collect_tier_events(echo_new_lines, echo_base_lines)}
+    try:
+        parts["witness"] = _skip_run_witness(
+            _collect_witness_events(echo_new_lines, echo_base_lines, payload), echo_new_lines, echo_base_lines)
+    except Exception:
+        parts["witness"] = []
+    for name, fn, args in (("ts_drift", _collect_ts_drift_events, (echo_new_lines, echo_base_lines, now)),
+                           ("escalation", _collect_escalation_events, (echo_new_lines, echo_base_lines)),
+                           # NOTES LEN is fully off when the echo base fell back to the whole uncommitted tail
+                           ("notes_len", _collect_notes_len_events, (echo_new_lines, echo_base_lines)),
+                           # R3 MIRROR runs unconditionally, also in the fallback (critic input does not age)
+                           ("r3", _collect_r3_events, (echo_new_lines, echo_base_lines))):
+        if name == "notes_len" and used_fallback:
+            parts[name] = []
+            continue
+        try:
+            parts[name] = fn(*args)
+        except Exception:
+            parts[name] = []
+    return parts
+
+
+def _echo_visible(parts: dict, violations: list, peer_note_text: str) -> bool:
+    """Is there anything to print? ("note" witness events never make a line visible.)"""
+    return bool(violations or parts["tier"] or any(e[0] != "note" for e in parts["witness"])
+                or parts["ts_drift"] or parts["escalation"] or parts["notes_len"] or parts["r3"] or peer_note_text)
+
+
+def _echo_context(parts: dict, violations: list, fallback_marker: str, peer_note_text: str, ascii_only: bool) -> str:
+    """The ONE assembly of the echo text: main() builds both channels with it and echo_for_lines the stdout form."""
+    return combine_context(violations, parts["tier"], parts["witness"], parts["ts_drift"], parts["escalation"],
+                           fallback_marker, notes_len_events=parts["notes_len"], r3_events=parts["r3"],
+                           peer_note=peer_note_text, ascii_only=ascii_only)
+
+
+def echo_for_lines(new_lines: list, base_lines: list, *, payload=None) -> str:
+    """The text the PostToolUse hook would print for `new_lines` written after `base_lines` (offload B0, X-7; read by
+    journal_write after its own write, F-B1-2 (a)): tier MISMATCH, notes length, escalation, R3, ts drift and the
+    witness cross-check (skipped for an `accepted` line with `witness_by: run`). "" when there is nothing to say.
+    No validation (the writer validated), no peer note (that needs a transcript path), no fallback marker. Never
+    raises: any failure is ""."""
+    try:
+        parts = _echo_parts(list(new_lines), list(base_lines), payload if isinstance(payload, dict) else {},
+                            datetime.datetime.now(), False)
+        return _echo_context(parts, [], "", "", False) if _echo_visible(parts, [], "") else ""
+    except Exception:
+        return ""
+
+
 def main() -> int:
     _reconfigure_streams_utf8()
     try:
@@ -2387,83 +2443,18 @@ def main() -> int:
 
         if transcripts is None and _TRANSCRIPTS_OFF_LINE:  # t-859: ONE line per call, whatever the worker_refs
             sys.stderr.write(_TRANSCRIPTS_OFF_LINE + "\n")
-        tier_events = _collect_tier_events(echo_new_lines, echo_base_lines)
+        # ECHO collectors (TIER / WITNESS / TS DRIFT / ESCALATION / NOTES LEN / R3 MIRROR): one payload-scoped base,
+        # taken by `_echo_parts` -- the same function `echo_for_lines` (journal_write's echo) calls (offload B0, X-7).
+        # Each carries its own fail-open and its own rule (see the sections above); NOTES LEN is off in the fallback.
+        parts = _echo_parts(echo_new_lines, echo_base_lines, payload, now, used_fallback)
 
-        # WITNESS ECHO at write time (this port's second extension --
-        # see the module docstring): the SAME payload-scoped base as
-        # TIER ECHO above. A second, outer try/except here (on top of
-        # the per-line one inside _collect_witness_events itself) means
-        # a failure in this cross-check can never take down JOURNAL
-        # ECHO/TIER ECHO.
-        try:
-            witness_events = _collect_witness_events(echo_new_lines, echo_base_lines, payload)
-        except Exception:
-            witness_events = []
-        # "note" events (retro / empty track) never make a line visible
-        # -- only warn_loud/warn_soft/warn_stale trigger printing.
-        witness_visible = any(e[0] != "note" for e in witness_events)
-
-        # TS DRIFT ECHO at write time: the
-        # SAME payload-scoped base as TIER ECHO/WITNESS ECHO above --
-        # `now` is the SAME variable already computed above for
-        # decide()/_get_head_text, not recomputed. Warn-only, always
-        # visible (no "note" branch, unlike WITNESS ECHO).
-        try:
-            ts_drift_events = _collect_ts_drift_events(echo_new_lines, echo_base_lines, now)
-        except Exception:
-            ts_drift_events = []
-
-        # ESCALATION ECHO (a machine guard mirroring the escalation
-        # rule): the SAME payload-scoped base as
-        # TIER/WITNESS/TS DRIFT above (see the "ESCALATION ECHO at write
-        # time" section for how base_lines is used as history for
-        # CONTEXT while the trigger stays on echo_new_lines). Fails open
-        # as a second layer on top of the per-line try/except already
-        # inside _collect_escalation_events itself -- the same pattern
-        # as WITNESS ECHO/TS DRIFT ECHO above.
-        try:
-            escalation_events = _collect_escalation_events(echo_new_lines, echo_base_lines)
-        except Exception:
-            escalation_events = []
-
-        # NOTES LEN ECHO: the SAME payload-scoped base as TIER/WITNESS/
-        # TS-DRIFT/ESCALATION above -- but fully disabled when
-        # used_fallback == True (see the "NOTES LEN ECHO" section above
-        # for the motive: otherwise it would re-evaluate the WHOLE
-        # uncommitted journal tail on every write). Fails open as a
-        # second layer on top of the per-line try/except already inside
-        # _collect_notes_len_events itself.
-        if used_fallback:
-            notes_len_events = []
-        else:
-            try:
-                notes_len_events = _collect_notes_len_events(echo_new_lines, echo_base_lines)
-            except Exception:
-                notes_len_events = []
-
-        # R3 MIRROR: the SAME payload-scoped base as TIER/WITNESS/
-        # ESCALATION above -- this layer runs UNCONDITIONALLY, including
-        # when used_fallback == True (see the "R3 MIRROR" section above:
-        # critic input/basis/notes do not depend on how much time
-        # passed since an unrelated commit -- the same "noisy but not
-        # correctness-false" class TIER/WITNESS/ESCALATION already are,
-        # NOT the class NOTES-LEN/TS-DRIFT belong to). Fails open as a
-        # second layer on top of the per-line try/except already inside
-        # _collect_r3_events itself.
-        try:
-            r3_events = _collect_r3_events(echo_new_lines, echo_base_lines)
-        except Exception:
-            r3_events = []
-
-        # PEER NOTE (rule 9e): beside TS DRIFT, in its own try; a note, so it never changes `violations`
+        # PEER NOTE: beside TS DRIFT, in its own try; a note, so it never changes `violations`
         try:
             peer_note_text = _peer_note_text(payload, echo_new_lines, journal_validator.split_lines(seed_text), staged_lines)
         except Exception:
             peer_note_text = ""
 
-        if (not violations and not tier_events and not witness_visible
-                and not ts_drift_events and not escalation_events
-                and not notes_len_events and not r3_events and not peer_note_text):
+        if not _echo_visible(parts, violations, peer_note_text):
             return 0
 
         # Fallback marker: visible ONLY when we're already
@@ -2471,14 +2462,8 @@ def main() -> int:
         # silent even in fallback (see the section docstring above).
         fallback_marker = FALLBACK_MARKER_TEXT if used_fallback else ""
 
-        context_for_stdout = combine_context(violations, tier_events, witness_events, ts_drift_events,
-                                              escalation_events, fallback_marker,
-                                              notes_len_events=notes_len_events, r3_events=r3_events,
-                                              peer_note=peer_note_text, ascii_only=False)
-        context_for_stderr = combine_context(violations, tier_events, witness_events, ts_drift_events,
-                                              escalation_events, fallback_marker,
-                                              notes_len_events=notes_len_events, r3_events=r3_events,
-                                              peer_note=peer_note_text, ascii_only=True)
+        context_for_stdout = _echo_context(parts, violations, fallback_marker, peer_note_text, False)
+        context_for_stderr = _echo_context(parts, violations, fallback_marker, peer_note_text, True)
 
         sys.stderr.write(context_for_stderr + "\n")
         output = {

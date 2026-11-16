@@ -1358,15 +1358,20 @@ def test_q2_a_delegated_with_a_live_peer_and_no_band_gets_the_peer_note_and_the_
     assert result.stdout == "" and result.stderr == ""
 
 
-def test_q3_no_peer_note_once_the_file_holds_a_closed_band_with_a_free_id_or_for_a_line_that_is_not_delegated(tmp_path):
+def test_q3_the_peer_note_is_stateless_now_an_old_band_does_not_silence_it_and_a_non_delegated_line_gets_none(tmp_path):
+    # REWRITTEN (offload B0): bands are retired, so the note no longer stops once the file holds a closed band with a
+    # free id; it says ids come from the clone counter, whatever the file holds
     banded = HEAD_TEXT + _line(event="delegated", ts="2026-07-10T08:05:00", task_id="t-450", model="sonnet",
                                notes="band", id_band="t-450..t-499") + "\n"
     journal_path = _seed_committed_journal(tmp_path, banded)
     new_line = _line(event="delegated", ts=_fresh_ts(), task_id="t-002", model="sonnet", notes="second task")
     journal_path.write_text(banded + new_line + "\n", encoding="utf-8")
     result = _run_hook(_peer_payload(journal_path, tmp_path))
-    assert result.returncode == 0 and "PARALLEL SESSION" not in result.stdout + result.stderr
-    # not a delegated: no note even with a peer and no band
+    assert result.returncode == 0
+    ctx = _parse_stdout_json(result.stdout)["additionalContext"]
+    assert "Task ids come from the clone counter (python -B tools/journal_write.py next); nothing to do." in ctx
+    assert "id_band" not in ctx and "open a band" not in ctx
+    # not a delegated: no note even with a peer
     other = tmp_path / "other"
     other.mkdir()
     journal_path = _seed_committed_journal(other)
@@ -1374,3 +1379,53 @@ def test_q3_no_peer_note_once_the_file_holds_a_closed_band_with_a_free_id_or_for
                                               notes="split") + "\n", encoding="utf-8")
     result = _run_hook(_peer_payload(journal_path, other))
     assert result.returncode == 0 and "PARALLEL SESSION" not in result.stdout + result.stderr
+
+
+# ---------------------------------------------------------------------
+# offload B0 item 10 (X-7): echo_for_lines is the hook's own assembly, not a second one
+# ---------------------------------------------------------------------
+
+
+def test_echo_for_lines_gives_the_text_main_prints_on_one_sample(tmp_path):
+    long_notes = "n" * 400                                                   # over the 300-char NOTES LEN threshold
+    new_line = _line(event="delegated", ts=_fresh_ts(), task_id="t-002", model="sonnet", notes=long_notes)
+    journal_path = _seed_committed_journal(tmp_path)
+    journal_path.write_text(HEAD_TEXT + new_line + "\n", encoding="utf-8")
+    result = _run_hook(_post_tool_use_payload(journal_path, original_file=HEAD_TEXT))      # payload-scoped base: NOTES LEN is on
+    assert result.returncode == 0
+    hook_ctx = _parse_stdout_json(result.stdout)["additionalContext"]
+    assert "NOTES LEN: line 2 event=delegated notes 400 chars > threshold 300" in hook_ctx
+    assert journal_echo.echo_for_lines([new_line], [HEAD_LINE]) == hook_ctx             # the same text, one assembly
+    # the clean sample: nothing to say, an empty string (never None, never raises)
+    clean = _line(event="delegated", ts=_fresh_ts(), task_id="t-002", model="sonnet", notes="short")
+    assert journal_echo.echo_for_lines([clean], [HEAD_LINE]) == ""
+
+
+@pytest.mark.parametrize("new_lines,base_lines", [
+    ([], []), (["{not json"], []), (["[1, 2]"], ["{not json"]), ([None], []), ([5, 6], [None]),
+    (["\x00"], ["\ud800"]),
+])
+def test_echo_for_lines_never_raises_on_junk(new_lines, base_lines):
+    assert journal_echo.echo_for_lines(new_lines, base_lines) == ""
+    assert journal_echo.echo_for_lines(new_lines, base_lines, payload="not a dict") == ""
+
+
+def test_the_witness_segment_is_skipped_only_for_an_accepted_line_with_witness_by_run():
+    base = [HEAD_LINE]
+    ran = _line(event="accepted", ts=_fresh_ts(), task_id="t-001", model="sonnet", by="opus", witness="w", witness_by="run")
+    pasted = _line(event="accepted", ts=_fresh_ts(), task_id="t-001", model="sonnet", by="opus", witness="w", witness_by="text")
+    plain = _line(event="accepted", ts=_fresh_ts(), task_id="t-001", model="sonnet", by="opus", witness="w")
+    events = [("warn_loud", 2, "pytest", "ts"), ("warn_loud", 3, "pytest", "ts"), ("warn_soft", 4)]
+    kept = journal_echo._skip_run_witness(events, [ran, pasted, plain], base)
+    assert kept == [("warn_loud", 3, "pytest", "ts"), ("warn_soft", 4)]               # line 2 (the run) is gone, 3 and 4 stay
+    assert journal_echo._skip_run_witness(events, [pasted, plain, plain], base) == events
+    assert journal_echo._skip_run_witness(events, ["{not json", ran], base) == [e for e in events if e[1] != 3]
+    assert journal_echo._skip_run_witness([], [ran], base) == []
+
+
+def test_critic_token_reads_the_one_id_grammar():
+    assert journal_echo.CRITIC_TOKEN_RE.search("critic:t-123a").group(1) == "t-123a"
+    assert journal_echo.CRITIC_TOKEN_RE.search("critic:t-123").group(1) == "t-123"
+    assert journal_echo.CRITIC_TOKEN_RE.search("critic:t-123ab").group(1) == "t-123ab"
+    for bad in ("critic:t-12", "critic:t-123A", "critic:t-123abc", "critic:t-1234567890", "critic:t-１２３"):
+        assert journal_echo.CRITIC_TOKEN_RE.search(bad) is None, bad

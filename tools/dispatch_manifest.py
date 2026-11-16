@@ -741,7 +741,16 @@ _WORD_CHAR_RE = re.compile(r"\w")
 _REL_PATH_RE = re.compile(
     r"(?<![\w./\\-])(?:[\w.-]+/)+(?:[\w-][\w.-]*\.[A-Za-z0-9]{1,10}(?![\w/])|(?![\w.-]))")
 _DESIGNER_SKIP_RE = re.compile(r"\s*skip\s*(?:" + _SEP + r")\s*(\S.*)$", re.IGNORECASE)
-_DESIGNER_RESUBMISSION_RE = re.compile(r"\s*resubmission\s+t-\d+\b", re.IGNORECASE)
+# the task id is the journal's read grammar (journal_keys.ID_RE, lower-case letter included); IGNORECASE only for the word
+_DESIGNER_RESUBMISSION_RE = re.compile(
+    r"\s*(?i:resubmission)\s+t-[0-9]{3,9}[a-z]{0,2}(?![0-9A-Za-z]|[^\x00-\x7f])")     # the case-fold is for the word only
+# The header lines of the offload spec (F-B2-1 (a)): `task: t-NNN`, `node: <slug>/<N>/<id>`, `feature: Fnn`, each on its
+# own line outside a fence or quote, read by header_ids (the one reader). Not manifest ITEMS: nothing is refused for
+# their absence. The fallback for the task: the first `Task t-NNN` within the first TASK_FALLBACK_CHARS of the prompt.
+_IDS_HEADER_RE = re.compile(r"^[ \t]*(?:[-*•][ \t]+)?(?:\*\*)?(task|node|feature)(?:\*\*)?[ \t]*:[ \t]*(.*)$", re.IGNORECASE)
+_FEATURE_RE = re.compile(r"F[0-9]{2,3}\Z")
+TASK_FALLBACK_CHARS = 200
+_TASK_FALLBACK_RE = re.compile(r"\bTask[ \t]+(t-[0-9]{3,9}[a-z]{0,2})(?![0-9A-Za-z]|[^\x00-\x7f])")
 
 
 def _extent_lines(cut: DispatchCut, sec: Section):
@@ -798,6 +807,53 @@ def _designer_state(cut: DispatchCut):
             if any(_ABS_PATH_RE.match(p) for p in path_candidates(body)):
                 return None, None
     return state, None
+
+
+def designer_skip_reason(cut):
+    """The reason of a `designer: skip -- <reason>` line of `cut`, or None (offload B0): the ONE cut-based reader the
+    DESIGNER-SKIP note (check_cut) and the dispatch-record hook both ask. None for no cut, a degraded cut, a dispatch
+    under the designer threshold (the line is not required there, so it is not read) and a designer line that is
+    not a skip (a path, a resubmission, or absent)."""
+    if cut is None or cut.degraded:
+        return None
+    if max(designer_threshold(cut)) < DESIGNER_THRESHOLD:
+        return None
+    return _designer_state(cut)[1]
+
+
+def header_ids(cut) -> dict:
+    """{"task": "t-NNN[a-z]", "node": "<slug>/<N>/<id>", "feature": "Fnn"} -- only the keys found and well-formed -- of the
+    header lines `task:` / `node:` / `feature:` of `cut` (offload B0, F-B2-1 (a)). A line inside a fence or quote is not a
+    header; the FIRST well-formed line of a key wins; a value outside its grammar (journal_keys.ID_RE, NODE_RE,
+    Fnn) is skipped, never repaired. Without a task header the fallback is the first `Task t-NNN` in the first
+    TASK_FALLBACK_CHARS characters of the prompt. {} for no cut. Pure; a degraded cut reads the fallback only
+    (every line is prose there)."""
+    if cut is None:
+        return {}
+    tools_dir = str(Path(__file__).resolve().parent)
+    if tools_dir not in sys.path:
+        sys.path.insert(0, tools_dir)
+    import journal_keys as jk      # stdlib + dev_config only; lazy like the other sibling imports
+    out: dict = {}
+    if not cut.degraded:
+        for li, line in enumerate(cut.lines):
+            if cut.quoted[li]:
+                continue
+            m = _IDS_HEADER_RE.match(line)
+            if m is None:
+                continue
+            key, value = m.group(1).lower(), m.group(2).strip().strip("`*_ \t")
+            if key in out:
+                continue
+            ok = (jk.ID_RE.match(value) if key == "task" else jk.NODE_RE.match(value) if key == "node"
+                  else _FEATURE_RE.match(value))
+            if ok:
+                out[key] = value
+    if "task" not in out:
+        fb = _TASK_FALLBACK_RE.search(cut.text[:TASK_FALLBACK_CHARS])
+        if fb:
+            out["task"] = fb.group(1)
+    return out
 
 
 def designer_threshold(cut: DispatchCut):

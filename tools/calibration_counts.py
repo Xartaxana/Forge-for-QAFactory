@@ -81,8 +81,8 @@ if streams:
 DEFAULT_BY_SINCE = "1970-01-01T00:00:00"
 LEGACY_CUTOFF = "1970-01-01T00:00:00"
 
-MODEL_REQUIRED_EVENTS = {"delegated", "escalated", "accepted", "rejected"}
-TASK_ID_REQUIRED_EVENTS = {"delegated", "accepted", "rejected", "escalated", "defect_found"}
+MODEL_REQUIRED_EVENTS = {"delegated", "escalated", "accepted", "rejected", "returned"}
+TASK_ID_REQUIRED_EVENTS = {"delegated", "accepted", "rejected", "escalated", "defect_found", "returned"}
 FAILURE_CLASSES = {"spec", "capability", "recon", "tooling"}
 LIFECYCLE_EVENTS = {"delegated", "accepted", "rejected", "escalated"}
 ALWAYS_REQUIRED_FIELDS = ("agent", "category", "notes")
@@ -102,7 +102,7 @@ ALWAYS_REQUIRED_FIELDS = ("agent", "category", "notes")
 # tokenizer is journal_keys.closes_tokens; this regex is the fallback copy for a failed import of
 # journal_keys (a test pins its pattern equal to journal_keys.CLOSES_RE). A token whose `@...` is
 # not a valid label closes NOTHING (t-525 F1).
-CLOSES_RE = re.compile(r"(?<!\w)closes:(t-\d+)(@[A-Za-z0-9_-]*)?")
+CLOSES_RE = re.compile(r"(?<!\w)closes:(t-[0-9]{3,9}[a-z]{0,2})(?![0-9A-Za-z]|[^\x00-\x7f])(@[A-Za-z0-9_-]*)?")
 _LABEL_RE = re.compile(r"^[a-z0-9-]{1,24}$")
 
 
@@ -372,6 +372,11 @@ def _field_violations(in_window: List[ParsedLine]) -> Tuple[list, list]:
             ref = d.get("ref")
             if not isinstance(ref, str) or not ref.strip():
                 missing.append("ref")
+
+        if ev == "returned":                    # the end of a dispatch: the worker handle is its whole point
+            w = d.get("worker_ref")
+            if not isinstance(w, str) or not w.strip():
+                missing.append("worker_ref")
 
         if not missing:
             continue

@@ -77,7 +77,10 @@ PROCESS_DOC_PREFIXES = ("docs/", "plans/")   # "F19 docs" of the process-tax met
 # (single source: tools/journal_validator.py).
 FEATURE_EVENTS = set(getattr(_jv, "FEATURE_WARN_EVENTS", {"delegated", "accepted", "defect_found"}))
 FEATURE_FROM = getattr(_jv, "FEATURE_WARN_FROM", "2026-10-02")
-TASK_EVENTS = {"delegated", "accepted", "rejected", "escalated", "defect_found"}
+TASK_EVENTS = {"delegated", "accepted", "rejected", "escalated", "defect_found", "returned"}
+# `returned` (offload B0) is the END of a dispatch: it joins its task's instance (so it inherits the feature) but is not a
+# work event -- it never carries `feature` itself, so it is neither counted in the window nor listed as unclassified.
+UNCOUNTED_EVENTS = {"returned"}
 
 EXPECTED_SHAPE = (
     '{"schema_version": 1, "features": [{"id": "F01", "name": "...", "root": "package"|"repo", '
@@ -856,7 +859,7 @@ def compute(root=ROOT, window=DEFAULT_WINDOW, use_seed=True, features=None, regi
               "task ids are read as one task", file=sys.stderr)
     win_day = _since(window)[:10]
     evs = [e for e in attribute_events(events, features, index, segments, journal=journal)
-           if e["event"] in TASK_EVENTS and e["ts"][:10] >= win_day]
+           if e["event"] in TASK_EVENTS and e["event"] not in UNCOUNTED_EVENTS and e["ts"][:10] >= win_day]
 
     # --- git ---
     pkg_commits = collect_commits(root, window, [PACKAGE])

@@ -1540,6 +1540,43 @@ def test_open_dispatch_lines_cap_three_plus_summary():
     assert lines[3] == "OPEN DISPATCHES: 5 total, 2 more not shown"
 
 
+# offload B0 item 5: a `returned` NEVER closes a task; delegated + a later matching returned = RESULT PENDING
+def _d(tid, wref, ts="2026-07-10T08:00:00", agent="builder"):
+    return _event("delegated", ts=ts, agent=agent, task_id=tid, worker_ref=wref, model="sonnet")
+
+
+def _r(tid, wref, ts="2026-07-10T09:00:00", agent="builder"):
+    return _event("returned", ts=ts, agent=agent, task_id=tid, worker_ref=wref, model="sonnet")
+
+
+@pytest.mark.parametrize("name,events,want", [
+    ("no-returned-is-open", [_d("t-001", "agent:a")], ["OPEN DISPATCH: t-001 agent=builder since 2026-07-10T08:00:00"]),
+    ("matching-returned-is-pending", [_d("t-001", "agent:a"), _r("t-001", "agent:a")],
+     ["RESULT PENDING: t-001 agent=builder returned 2026-07-10T09:00:00"]),
+    ("another-workers-returned-does-not-match", [_d("t-001", "agent:a"), _r("t-001", "agent:b")],
+     ["OPEN DISPATCH: t-001 agent=builder since 2026-07-10T08:00:00"]),
+    ("another-tasks-returned-does-not-match", [_d("t-001", "agent:a"), _r("t-002", "agent:a")],
+     ["OPEN DISPATCH: t-001 agent=builder since 2026-07-10T08:00:00"]),
+    ("returned-never-closes-the-task-it-is-in-the-list-not-gone", [_d("t-001", "agent:a"), _r("t-001", "agent:a")],
+     ["RESULT PENDING: t-001 agent=builder returned 2026-07-10T09:00:00"]),
+    ("an-accepted-closes-it-whatever-returned-says", [_d("t-001", "agent:a"), _r("t-001", "agent:a"),
+                                                       _event("accepted", ts="2026-07-10T10:00:00", agent="builder", task_id="t-001")], []),
+    ("two-workers-one-returned", [_d("t-001", "agent:a"), _d("t-001", "agent:c", ts="2026-07-10T08:10:00", agent="critic"),
+                                  _r("t-001", "agent:a")],
+     ["OPEN DISPATCH: t-001 agent=critic since 2026-07-10T08:10:00"]),                  # only the LAST delegated of a task is open
+    ("lettered-id", [_d("t-123a", "agent:a"), _r("t-123a", "agent:a")], ["RESULT PENDING: t-123a agent=builder returned 2026-07-10T09:00:00"]),
+    ("bare-and-lettered-are-two-tasks", [_d("t-123", "agent:a"), _d("t-123a", "agent:a"), _r("t-123a", "agent:a")],
+     ["OPEN DISPATCH: t-123 agent=builder since 2026-07-10T08:00:00",
+      "RESULT PENDING: t-123a agent=builder returned 2026-07-10T09:00:00"]),
+    ("a-returned-with-no-worker-ref-matches-nothing", [_d("t-001", "agent:a"), _event("returned", ts="2026-07-10T09:00:00", task_id="t-001")],
+     ["OPEN DISPATCH: t-001 agent=builder since 2026-07-10T08:00:00"]),
+    ("a-returned-alone-opens-nothing", [_r("t-001", "agent:a")], []),
+])
+def test_result_pending_and_the_returned_that_never_closes(name, events, want):
+    assert sc.open_dispatch_lines(events) == want
+    assert "returned" not in sc._OPEN_LIFECYCLE_EVENTS
+
+
 def test_open_dispatch_lines_sanitizes_external_values():
     events = [_event("delegated", ts="2026-07-10T08:00:00", agent="büilder",
                      task_id="t-001")]
@@ -2722,14 +2759,19 @@ def test_b402_closes_token_regex_shapes():
     assert sc._closes_task_ids("closes:t-050 and closes:t-051@codex-fixes.") == ["t-050", "t-051@codex-fixes"]
     assert sc._closes_task_ids("closes:t-050@Codex") == []                   # a malformed label closes nothing
     assert sc._closes_task_ids("discloses:t-050") == [] and sc._closes_task_ids(None) == []
-    assert sc._closes_task_ids("closes:t-5") == ["t-5"]                       # legacy short ids keep their old reading
-    assert sc._closes_key("t-5", {}, jk.NO_SEGMENTS) == ("", "t-5")
+    assert sc._closes_task_ids("closes:t-5") == []                            # REWRITTEN (offload B0): the one grammar is 3-9 digits
+    assert sc._closes_task_ids("closes:t-123a closes:t-123") == ["t-123a", "t-123"]
+    assert sc._closes_task_ids("closes:t-123A closes:t-123abc closes:t-123а") == []     # E-B0-1/2: closes nothing
+    assert sc._closes_key("t-050", {}, jk.NO_SEGMENTS) == ("", "t-050")
 
 
 def test_b402_fallback_regex_is_pinned_equal_to_journal_keys_and_reads_the_same(monkeypatch):
     assert sc._CLOSES_RE.pattern == jk.CLOSES_RE.pattern
     samples = ["closes:t-050 closes:t-051@codex-fixes.", "closes:t-050@Codex", "closes:t-050@", "discloses:t-050",
-               "closes:t-050@codex_x closes:t-051", "closes:t-5", "closes:t-050@" + "a" * 25]
+               "closes:t-050@codex_x closes:t-051", "closes:t-5", "closes:t-050@" + "a" * 25,
+               # offload B0 (E-B0-1/2): the fallback copy reads the one grammar exactly like journal_keys
+               "closes:t-123a closes:t-123", "closes:t-123A", "closes:t-123abc", "closes:t-123а", "closes:t-12",
+               "closes:t-1234567890", "closes:t-123—x", "closes:t-123ab@codex", "closes:t-123,closes:t-123b."]
     want = [jk.closes_tokens(s) for s in samples]
     monkeypatch.setattr(sc, "_jk", None)
     assert [sc._closes_task_ids(s) for s in samples] == want
@@ -3192,7 +3234,9 @@ def test_q1_session_start_adds_one_parallel_session_line_when_a_peer_wrote_two_m
     payload = {"transcript_path": _q1_transcripts(tmp_path, peer_age=125), "source": "startup"}
     lines = _sc.peer_note_lines(root, payload)
     assert len(lines) == 1 and lines[0].startswith("PARALLEL SESSION (a note, nothing is blocked)")
-    assert "2 min ago (peer-ses)" in lines[0] and 'id_band: "t-100..t-149"' in lines[0]
+    assert "2 min ago (peer-ses)" in lines[0]
+    assert "Task ids come from the clone counter (python -B tools/journal_write.py next); nothing to do." in lines[0]
+    assert "id_band" not in lines[0] and "band" not in lines[0]               # REWRITTEN (offload B0): no band is opened
     monkeypatch.setattr(_sc, "read_stdin_payload", lambda: payload)
     assert _sc.main(root) == 0
     out = capsys.readouterr().out.splitlines()
