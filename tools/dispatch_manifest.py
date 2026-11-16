@@ -139,7 +139,7 @@ INCOMPLETE_TEMPLATE = (
     "Missing: {items}. Expected, each as its own line outside code fences and quotes, "
     "starting with its name and a colon: " + _expected_forms() + ". "
     "To send it anyway on purpose, add a line: manifest-skip: <item>[, <item>] -- <reason>. "
-    "Door: python -B tools/dispatch_new.py prints these lines checked."
+    "Door: the expected lines above; python -B tools/dispatch_new.py prints them in this form."
 )
 SKIP_REFUSED_TEMPLATE = (
     "MANIFEST-SKIP REFUSED: '{line}' -- {why}. Expected: manifest-skip: <item>[, <item>] "
@@ -155,7 +155,7 @@ UNCHECKED_NOTE_TEMPLATE = (
 )
 DESIGNER_SKIP_NOTE_TEMPLATE = (
     "DESIGNER-SKIP: over the designer threshold; the hook writes dispatch_skipped(agent=designer) itself "
-    "(with or without a task: line), nothing is owed"
+    "(with or without a task: line); nothing is owed unless a `JOURNAL: ... NOT written` line follows"
 )
 FORM_NOT_ENFORCED_NOTE_TEMPLATE = (
     "SIBLINGS/DESIGNER NOT ENFORCED (DISPATCH_FORM_REFUSES is off): this dispatch went out missing {items}; "

@@ -161,7 +161,7 @@ _EXPECTED_INCOMPLETE = (
     "designer: (required only from 3 owned paths or 3 numbered items: the absolute path of the accepted "
     "draft, 'designer: skip -- <reason>' or 'designer: resubmission t-<id>'). To send it "
     "anyway on purpose, add a line: manifest-skip: <item>[, <item>] -- <reason>. "
-    "Door: python -B tools/dispatch_new.py prints these lines checked."
+    "Door: the expected lines above; python -B tools/dispatch_new.py prints them in this form."
 )
 
 
@@ -1167,9 +1167,8 @@ def test_non_writing_dispatches_get_neither_check():
 def test_designer_skip_note_says_the_hook_writes_the_event(head):
     code, msg, note = run(head + build(owns=OWNS3, designer="designer: skip -- tiny edit"))
     assert (code, msg) == (0, "")
-    assert note == dm.DESIGNER_SKIP_NOTE_TEMPLATE
     assert note.startswith("DESIGNER-SKIP: over the designer threshold; the hook writes dispatch_skipped(agent=designer)")
-    assert "owed" not in note.replace("nothing is owed", "")
+    assert note.endswith("nothing is owed unless a `JOURNAL: ... NOT written` line follows")
     assert run(build(owns=OWNS3, designer="designer: resubmission t-005"))[2] == ""
 
 

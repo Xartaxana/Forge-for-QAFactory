@@ -4,16 +4,25 @@
 # must not be masked by a passing escape_check): gate() stops at the first refusal.
 # Output policy (owner 16.11.2026): on success ONE line `gates: ok (N checks)`; a gate that
 # fails prints its full output and stops the commit; a gate that passes but printed a line
-# containing WARN has those lines shown, the rest hidden. Gates run in the same order as always.
+# containing WARN is shown WHOLE (header and detail lines); a line `WARN: ok ...` alone is not a warning.
+# Gates run in the same order as always.
 n=0
+crashed=""
 tmp=$(mktemp "${TMPDIR:-/tmp}/precommit.XXXXXX") || exit 1
 trap 'rm -f "$tmp"' EXIT
+
+# warn_show: a passing gate's output holding a WARN other than the success line `WARN: ok ...` is printed whole.
+warn_show() {
+    if grep 'WARN' "$tmp" | grep -qv '^WARN: ok'; then
+        cat "$tmp"
+    fi
+}
 
 # gate <command...>: run it, capture stdout+stderr; on failure print its full text and exit with its own code.
 gate() {
     if "$@" >"$tmp" 2>&1; then
         n=$((n + 1))
-        grep 'WARN' "$tmp" || true
+        warn_show
     else
         rc=$?
         cat "$tmp"
@@ -51,14 +60,18 @@ gate python tools/architecture_index.py --check
 # generated; a change to any source without a regenerated file does not land.
 gate python tools/agents_md.py --check
 # Forge attribution (WARN only): new backlog rows / package files / journal events without a
-# feature are printed (WARN lines survive the one-line policy) so the developer sees them at commit time;
-# --warn never blocks: whatever its exit code, the commit goes on (as the old `|| true`), and a crash's
-# traceback is printed in full.
+# feature are printed whole (offenders and doors) so the developer sees them at commit time;
+# --warn never blocks: whatever its exit code, the commit goes on (as the old `|| true`); a crash's
+# traceback is printed in full and the check is not counted.
 if python tools/forge_metrics.py --check --base HEAD --warn >"$tmp" 2>&1; then
-    # a line `WARN: ok (...)` is the success summary calling itself WARN: hidden
-    grep 'WARN' "$tmp" | grep -v '^WARN: ok' || true
+    n=$((n + 1))
+    warn_show
 else
     cat "$tmp"
+    crashed="forge_metrics"
 fi
-n=$((n + 1))
-echo "gates: ok ($n checks)"
+if [ -n "$crashed" ]; then
+    echo "gates: ok ($n checks, $crashed did not run)"
+else
+    echo "gates: ok ($n checks)"
+fi
