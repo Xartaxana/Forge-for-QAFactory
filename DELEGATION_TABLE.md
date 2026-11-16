@@ -1,7 +1,7 @@
 # Delegation Table
 
 A living document. Every row starts as an estimate and is refined by
-your own usage as you delegate (see CLAUDE.md rules 1-11 for how a
+your own usage as you delegate (see CLAUDE.md rules 1-13 for how a
 task gets routed; this table is what "which tier" resolves against).
 
 Status values (four-state model):

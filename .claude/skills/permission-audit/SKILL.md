@@ -20,8 +20,7 @@ scanning, plus a MASKED-by-broad-allowlist detector).
    why the command didn't match the allowlist. More often than not, the prompt
    isn't "we forgot to allow this" but "this was done the wrong way": inventing
    a custom form instead of using the ready-made function/canonical command,
-   editing a file around the Edit/Write tool, skipping a required journal
-   field, running a manual poll loop where a check already exists for that. Do
+   skipping a required journal field, running a manual poll loop where a check already exists for that. Do
    NOT skip straight past this to "add a pattern" — for every group, ask first:
    *why did this command take this shape at all, and was that the right call?*
    Only what was done CORRECTLY is safe to allow (silence). What was done
