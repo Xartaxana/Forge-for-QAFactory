@@ -29,7 +29,7 @@ you.
    existing function in a new, more consequential role (advice ->
    gate), the spec states which direction that function may err in and
    lists the adversarial inputs that must stay on the safe side.
-   A spec that touches `ai-packages/qa-factory/` names in §1 the AR-n invariants of `design/architecture.md` it touches, with the change check each one demands written into the DoD, and names, for every check the spec adds or alters, the owner it serves — data (code), judgment (a role, accepted by a tier above) or intent (the person) — and its census class (AR-29; CLAUDE.md rule 10, P27).
+   A spec that touches `ai-packages/qa-factory/` names in §1 the AR-n invariants of `design/architecture.md` it touches, with the change check each one demands written into the DoD, and names, for every check the spec adds or alters, the owner it serves — data (code), judgment (a role, accepted by a tier above) or intent (the person) — and its census class (AR-29; CLAUDE.md rule 10, P27). Commit-line templates the spec prescribes to a builder are given in the gate's own form, and the only carrier of that form is `tools/architecture_gate.py` (point to it, do not copy the grammar); `judgment: none` always carries its ` -- <why>`, and a spec never prescribes it bare.
 2. FORKS ARE RETURNED. Any choice that requires a design decision or
    an interpretation of intent (the shape of the result, a trade-off,
    an ambiguity in the brief) goes into a "forks" list item with the
@@ -98,4 +98,4 @@ you.
    the Lead takes it to the owner. A slice is no exclusion when the rest is a
    named node of the same spec. A residual of this class is a node with owns
    and a test; a line "tell the owner" closes nothing. Siblings: SIBLING_MAP
-   axis 34.
+   axis 34. Every PRODUCER the spec names (a script, a role or a step that must write a field, a file or an output line) is produced by a node or stream with `owns:`; a producer with no owning node is returned as a fork/question, never left implied.
