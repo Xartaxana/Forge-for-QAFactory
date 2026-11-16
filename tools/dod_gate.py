@@ -98,11 +98,15 @@ without side effects, same as the rest of this file set.
 import json
 import os
 import re
-import subprocess
 import sys
 import threading
 from datetime import datetime
 from pathlib import Path
+
+try:
+    import gitcmd
+except Exception:  # a copy of this file alone in a folder carries no gitcmd
+    gitcmd = None
 
 
 def _now_iso() -> str:
@@ -400,10 +404,9 @@ _OWNS_LIST_LIMIT = 10
 
 OWNS_BLOCK_MESSAGE = (
     "Stop blocked: these changed paths are outside your owns: {paths}. Expected: changes only inside your "
-    "owns (plus the handoff report). Doors: (1) revert the path (restore it from a byte copy; for an "
-    "untracked file remove it, `git rm --cached` if it was staged); or (2) leave it, name it in the report "
-    "under \"needed beyond the manifest\" and add the line `owns-skip: <path> -- <reason>` to the report "
-    "file{report}."
+    "owns (plus the handoff report). Doors: (1) undo your edit with Edit/Write (or restore the path from "
+    "your byte copy); or (2) leave it, name it in the report under \"needed beyond the manifest\" and add "
+    "the line `owns-skip: <path> -- <reason>` to the report file{report}."
 )
 
 
@@ -411,15 +414,16 @@ class _GitFailed(Exception):
     pass
 
 
-def _git(cwd: str, *args: str) -> str:
-    try:
-        done = subprocess.run(["git", "-C", cwd, *args], capture_output=True, text=True,
-                              encoding="utf-8", errors="replace", timeout=60)
-    except (OSError, subprocess.SubprocessError) as exc:
-        raise _GitFailed("%s: %s" % (type(exc).__name__, exc))
-    if done.returncode != 0:
-        raise _GitFailed((done.stderr or "git exited %d" % done.returncode).strip().splitlines()[0])
-    return done.stdout
+class _NotJudged(Exception):
+    pass
+
+
+def _need(rc: int, out: bytes) -> str:
+    """The text of a git answer; a failure (rc -1 or != 0) is _GitFailed with the first line."""
+    text = gitcmd.as_text(out)
+    if rc != 0:
+        raise _GitFailed(text.strip().splitlines()[0] if text.strip() else "git exited %d" % rc)
+    return text
 
 
 def _owns_gate_module():
@@ -431,30 +435,33 @@ def _owns_gate_module():
 
 
 def _worker_cut(payload: dict):
-    """(handoff_gate, dispatch_manifest, cut) of the stopping worker's dispatch, None when not found."""
+    """(handoff_gate, dispatch_manifest, cut) of the stopping worker's dispatch; None when the stop is not a
+    worker's (no agent id) -- silent; raises _NotJudged("dispatch text not found") when the worker's dispatch
+    cannot be read."""
     agent_id = payload.get("agent_id")
     if not (isinstance(agent_id, str) and agent_id):
         return None
     tp = payload.get("transcript_path")
     atp = payload.get("agent_transcript_path")
     if not (isinstance(tp, str) and tp) and not (isinstance(atp, str) and atp):
-        return None
+        return None  # no transcript named: nothing to read, nothing failed (as named_handoffs)
     hg, dm = _import_readers()
     worker_file = Path(atp) if isinstance(atp, str) and atp else hg._worker_file(tp, agent_id)
     text = hg._dispatch_text(worker_file)
     if text is None:
-        return None
+        raise _NotJudged("dispatch text not found")
     cut = dm.section_cut(text)
     if cut is None or cut.degraded:
-        return None
+        raise _NotJudged("dispatch text not found")
     return hg, dm, cut
 
 
 def _changed_paths(cwd: str) -> list:
-    """Repo-relative paths changed in the working tree (status, untracked not ignored) and committed on this
-    branch beyond origin/main. Raises _GitFailed."""
+    """Repo-relative paths changed in the working tree (status, untracked not ignored) and committed by the
+    worker's OWN commits on this branch (first-parent, no merges: what it merged in from main is not its
+    change). Raises _GitFailed."""
     out = []
-    parts = _git(cwd, "status", "--porcelain", "-z", "-uall").split("\0")
+    parts = _need(*gitcmd.git(cwd, "status", "--porcelain", "-z", "-uall")).split("\0")
     i = 0
     while i < len(parts):
         entry = parts[i]
@@ -464,16 +471,14 @@ def _changed_paths(cwd: str) -> list:
         out.append(entry[3:])
         if entry[0] in "RC":
             i += 1  # the rename source follows as its own field
-    try:
-        _git(cwd, "rev-parse", "--verify", "-q", "origin/main")
-        has_origin = True
-    except _GitFailed:
-        has_origin = False
-    if has_origin:
-        out += [p for p in _git(cwd, "diff", "--name-only", "-z", "origin/main...HEAD").split("\0") if p]
+    if gitcmd.git(cwd, "rev-parse", "--verify", "-q", "origin/main")[0] != 0:
+        raise _GitFailed("no origin/main")
+    out += _need(*gitcmd.git(cwd, "log", "--first-parent", "--no-merges", "--name-only", "-z",
+                             "--format=", "origin/main..HEAD")).split("\0")
     seen, unique = set(), []
     for p in out:
-        if p not in seen:
+        p = p.lstrip("\n")
+        if p and p not in seen:
             seen.add(p)
             unique.append(p)
     return unique
@@ -486,12 +491,24 @@ def _is_runtime(rel: str) -> bool:
 
 def owns_at_stop(payload: dict, cwd: str):
     """(message | None, note | None): the block message when the worker changed paths outside its owns, else
-    None; note is the one stderr line for a not-judged case. Silent (None, None) for a worker with no owns
-    record (no dispatch text found, no owns paths)."""
+    None; note is the one stderr line for a not-judged case. Silent (None, None) for a stop that is not a worker's
+    and for a worker whose dispatch carries no owns paths. INVARIANT: an unknown (dispatch unreadable, git
+    failed, an exception) never refuses and is never presented as checked: it is the `not judged` line."""
     try:
-        found = _worker_cut(payload)
-    except Exception:
-        return None, None
+        return _owns_at_stop(payload, cwd)
+    except _NotJudged as exc:
+        return None, "owns at stop: not judged (%s)" % exc
+    except _GitFailed as exc:
+        return None, "owns at stop: not judged (git: %s)" % exc
+    except Exception as exc:
+        first = (str(exc).strip().splitlines() or [""])[0]
+        return None, "owns at stop: not judged (%s: %s)" % (type(exc).__name__, first)
+
+
+def _owns_at_stop(payload: dict, cwd: str):
+    if gitcmd is None:
+        raise _NotJudged("gitcmd is not importable")
+    found = _worker_cut(payload)
     if found is None:
         return None, None
     hg, dm, cut = found
@@ -499,16 +516,13 @@ def owns_at_stop(payload: dict, cwd: str):
     owns = [_NEW_MARK_RE.sub("", p.path) for p in dm.owned_paths(cut)]
     if not owns:
         return None, None
-    try:
-        gdir, common = [og.normalize_path(x) for x in _git(
-            cwd, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir").split("\n")[:2]]
-        if gdir == common:
-            return None, "owns at stop: not judged (shared checkout)"
-        top = og.normalize_path(_git(cwd, "rev-parse", "--show-toplevel").strip())
-        clone = og.normalize_path(_git(cwd, "worktree", "list", "--porcelain").split("\n")[0][len("worktree "):])
-        changed = _changed_paths(cwd)
-    except _GitFailed as exc:
-        return None, "owns at stop: not judged (%s)" % exc
+    gdir, common = [og.normalize_path(x) for x in _need(*gitcmd.git(
+        cwd, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir")).split("\n")[:2]]
+    if gdir == common:
+        return None, "owns at stop: not judged (shared checkout)"
+    top = og.normalize_path(_need(*gitcmd.git(cwd, "rev-parse", "--show-toplevel")).strip())
+    clone = og.normalize_path(_need(*gitcmd.git(cwd, "worktree", "list", "--porcelain")).split("\n")[0][len("worktree "):])
+    changed = _changed_paths(cwd)
 
     def reroot(path: str) -> str:
         n = og.normalize_path(path)

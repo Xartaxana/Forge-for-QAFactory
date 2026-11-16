@@ -1462,3 +1462,40 @@ def test_owns_at_stop_git_failure_is_not_judged_one_line(tmp_path):
     payload = {"agent_id": "w1", "transcript_path": str(_worker(tmp_path / "t", _owns_dispatch(plain)))}
     message, note = dod_gate.owns_at_stop(payload, str(plain))
     assert message is None and note.startswith("owns at stop: not judged (") and "\n" not in note
+
+
+def test_owns_at_stop_unreadable_dispatch_is_declared_not_judged(tmp_path):
+    payload = {"agent_id": "w1", "transcript_path": str(tmp_path / "missing" / "main.jsonl")}
+    message, note = dod_gate.owns_at_stop(payload, str(tmp_path))
+    assert message is None and note == "owns at stop: not judged (dispatch text not found)"
+    assert dod_gate.owns_at_stop({"agent_id": "w1"}, str(tmp_path)) == (None, None)  # no transcript named: nothing to read
+    assert dod_gate.owns_at_stop({}, str(tmp_path)) == (None, None)  # not a worker's stop: silent
+
+
+def test_owns_at_stop_exception_after_the_cut_is_declared_not_judged(owns_repo, tmp_path, monkeypatch):
+    clone, work = owns_repo
+    (work / "stray.txt").write_text("x", encoding="utf-8")
+    payload = {"agent_id": "w1", "transcript_path": str(_worker(tmp_path / "t", _owns_dispatch(clone)))}
+
+    def boom():
+        raise RuntimeError("owns_gate down")
+    monkeypatch.setattr(dod_gate, "_owns_gate_module", boom)
+    message, note = dod_gate.owns_at_stop(payload, str(work))
+    assert message is None and note == "owns at stop: not judged (RuntimeError: owns_gate down)"
+
+
+def test_owns_at_stop_merged_main_commit_is_not_the_workers_own(owns_repo, tmp_path):
+    clone, work = owns_repo
+    (clone / "from_main.txt").write_text("m", encoding="utf-8")
+    _g(clone, "add", "from_main.txt")
+    _g(clone, "commit", "-q", "-m", "main moves")
+    _g(clone, "update-ref", "refs/remotes/origin/main", "HEAD")
+    _g(work, "merge", "-q", "--no-edit", "main")
+    payload = {"agent_id": "w1", "transcript_path": str(_worker(tmp_path / "t", _owns_dispatch(clone)))}
+    assert dod_gate.owns_at_stop(payload, str(work)) == (None, None)        # merged in from main: not blamed
+    (work / "own_outside.txt").write_text("x", encoding="utf-8")
+    _g(work, "add", "own_outside.txt")
+    _g(work, "commit", "-q", "-m", "own outside")
+    message, note = dod_gate.owns_at_stop(payload, str(work))
+    assert note is None and "own_outside.txt" in message and "from_main.txt" not in message
+    assert "undo your edit with Edit/Write" in message
