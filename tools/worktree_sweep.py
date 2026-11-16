@@ -1207,12 +1207,12 @@ _IS_WINDOWS = os.name == "nt"
 
 
 def spawn_detached(argv, cwd, env):
-    """The ONE place a background process is made (F1 a): no console, its own process group, out of the caller's job object
+    """The ONE place a background process is made (F1 a): a hidden console (no window; children inherit it), its own process group, out of the caller's job object
     (`git merge` and a tool call of a session must not wait for it or take it down), stdio closed. A job that forbids breakaway
     refuses the flag with OSError -- then it is made without it. Returns the pid."""
     kw = dict(cwd=str(cwd), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
     if _IS_WINDOWS:
-        flags = 0x00000008 | 0x00000200                                  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        flags = 0x08000000 | 0x00000200                                  # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
         try:
             proc = subprocess.Popen(argv, creationflags=flags | 0x01000000, **kw)    # | CREATE_BREAKAWAY_FROM_JOB
         except OSError:

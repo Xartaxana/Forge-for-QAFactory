@@ -1333,7 +1333,8 @@ def test_w8_spawn_detached_windows_flags_and_the_retry_without_breakaway(monkeyp
     monkeypatch.setattr(ws.subprocess, "Popen", popen)
     assert ws.spawn_detached(["x"], "C:/d", {"A": "1"}) == 77
     first, second = calls
-    assert first["creationflags"] == 0x8 | 0x200 | 0x01000000 and second["creationflags"] == 0x8 | 0x200
+    assert first["creationflags"] == 0x08000000 | 0x200 | 0x01000000 and second["creationflags"] == 0x08000000 | 0x200
+    assert not (first["creationflags"] & 0x8) and not (second["creationflags"] & 0x8)   # DETACHED_PROCESS must not be set
     for kw in calls:
         assert kw["stdin"] == kw["stdout"] == kw["stderr"] == subprocess.DEVNULL and kw["close_fds"] is True and kw["env"] == {"A": "1"}
     calls.clear()
