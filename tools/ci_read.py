@@ -39,6 +39,7 @@ before a member is read); one byte over is a refusal, exit 1. Output lines carry
 sanitize() (ci_read_common); the tool's own words keep their punctuation. Exit codes: 0 ok, 1 HTTP/network error or a
 refused answer, 2 missing token, a refused config, a refused argument or no usable origin."""
 
+import contextlib
 import io
 import json
 import os
@@ -49,6 +50,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 _TOOLS = Path(__file__).resolve().parent
 if str(_TOOLS) not in sys.path:
@@ -166,6 +168,13 @@ def _rows(raw: bytes, key: str) -> list:
 
 def _done(row: dict) -> str:
     return str(row.get("conclusion") or row.get("status"))
+
+
+def _state_word(row: dict) -> str:
+    """success | failure | in_progress | unknown of one run or job row (conclusion first, else its status)."""
+    w = str(row.get("conclusion") or row.get("status") or "")
+    return ("success" if w == "success" else "failure" if w in ("failure", "timed_out", "cancelled")
+            else "in_progress" if w in ("in_progress", "queued", "waiting", "pending", "requested") else "unknown")
 
 
 def make_commands(repo: str) -> dict:
@@ -298,8 +307,24 @@ def make_commands(repo: str) -> dict:
         if len(failed) > WHY_MAX_JOBS:
             emit_own("+%d more failed jobs" % (len(failed) - WHY_MAX_JOBS))
 
+    def cmd_run_state(args, token):
+        """DATA, not output: (state, failed job names) of the newest run of the commit `args.sha` (see run_state)."""
+        runs = _rows(_open("%s/actions/runs?head_sha=%s&per_page=10" % (base, urllib.parse.quote(args.sha, safe="")),
+                           token)[1], "workflow_runs")
+        runs = [r for r in runs if str(r.get("head_sha") or "") == args.sha]
+        if not runs:
+            return "none", []
+        state = _state_word(runs[0])
+        jobs = _rows(_open("%s/actions/runs/%s/jobs?per_page=100" % (base, urllib.parse.quote(str(runs[0].get("id")),
+                                                                                              safe="")), token)[1], "jobs")
+        for j in jobs:
+            if "forge-check" in str(j.get("name") or ""):
+                state = _state_word(j)
+        failed = [str(j.get("name")) for j in jobs if _state_word(j) == "failure"] if state == "failure" else []
+        return state, failed
+
     return {"pipelines": cmd_pipelines, "jobs": cmd_jobs, "log": cmd_log, "artifact": cmd_artifact,
-            "start": cmd_start, "why": cmd_why}
+            "start": cmd_start, "why": cmd_why, "run_state": cmd_run_state}
 
 
 def _check(args) -> None:
@@ -335,6 +360,25 @@ def github_backend(repo: str, root) -> common.Backend:
         missing_hint="create a GitHub token that may read Actions (and write Actions to start a run) and export it "
                      "as %s",
         commands=make_commands(repo))
+
+
+def run_state(root, sha):
+    """(state, failed_jobs) of the CI run of the commit `sha`, as DATA through the backend of the tree at `root` (the
+    same choice, token door and request function as the commands). state: success | failure | in_progress | none (no run
+    for that sha) | unknown (no usable backend, token or answer: any transport/parse error; never a pass, never a failure);
+    failed_jobs: the names of the failed jobs, empty unless failure. The job named *forge-check* decides the state of a run
+    that has one. A backend without a `run_state` command (the old one) answers unknown. Never raises, never prints."""
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            backend = backend_for(root)
+            name, _source = backend.token_env_name()
+        command, token = backend.commands.get("run_state"), os.environ.get(name)
+        if command is None or not token:
+            return "unknown", []
+        state, failed = command(SimpleNamespace(sha=str(sha)), token)
+        return state, list(failed)
+    except Exception:  # noqa: BLE001 -- information only: whatever fails is `unknown`
+        return "unknown", []
 
 
 def main(argv=None) -> int:

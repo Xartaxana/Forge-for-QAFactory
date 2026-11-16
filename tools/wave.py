@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """wave.py -- the one merge road of a wave (offload spec r2, §3.C3; mechanism M6).
 
-  python -B tools/wave.py merge <branch> --task t-NNN [--node <slug> <N> <id>] [--repo DIR]
+  python -B tools/wave.py merge <branch> --task t-NNN [--node <slug> <N> <id>] [--sha <tip>] [--repo DIR]
 
-One call: take the machine lock `main-merge` (60 s), fetch, refuse a branch unknown on origin, print the last known
+--sha pins the accepted branch tip (full or a prefix of 7+ hex digits): another tip is refused before any push. The tool
+prints `pushed: <sha>` (the tip it merges) before the merge.
+
+One call: take the machine lock `main-merge` (60 s), fetch, push the branch to origin itself when origin lacks it or is
+behind it (fast-forward only, never forced; a refusal prints origin's text and nothing is merged), refuse a branch known
+nowhere, print the last known
 `forge-check` state of the branch head (information only: it never waits, never refuses), merge `origin/<branch>` into a
 temporary detached worktree W at `origin/main` (ff, else no-ff; a conflict aborts and refuses naming the paths), with
 `--node` record the node through `piles.py status`, push `HEAD:main` (a non-fast-forward push is redone from the merge,
@@ -11,8 +16,9 @@ three attempts), commit the root's journal through a second temporary worktree (
 of the root's), refresh the root checkout when that is safe, delete the branch, print a 4-line summary.
 
 THE ROOT: wave never stashes, resets, checks out or discards anything in the root. The merge never touches it. The refresh
-is `git merge --ff-only origin/main` there, done only when the root is on `main`, its tracked changes are at most its own
-journal, its HEAD is an ancestor of origin/main and origin's journal is a byte-prefix of the root's; under the journal lock
+is `git merge --ff-only origin/main` there, tried whenever the root is on `main`, its journal has no staged change, its HEAD
+is an ancestor of origin/main and origin's journal is a byte-prefix of the root's (foreign tracked changes do not stop the
+try: git refuses on overlap and the line names its reason and up to 5 paths); under the journal lock
 the root's journal bytes are copied aside (sha256 H), the file is put to its HEAD state (or removed when HEAD lacks it),
 the merge runs, and WHATEVER its result the bytes are written back and checked against H. A mismatch keeps the copy and is
 exit 1. Exit codes: 0 done, 1 done but something named must be fixed by hand (piles refusal, journal restore mismatch),
@@ -22,6 +28,8 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
+import re
 import shutil
 import subprocess
 import sys
@@ -39,9 +47,11 @@ import worktree_sweep as ws  # noqa: E402
 
 LOCK_WAIT = 60.0                  # seconds on another wave's merge (module constant: a test moves it)
 JOURNAL_WAIT = 15.0
+SWEEP_WAIT = 20.0                 # seconds on a running worktree sweep before a worktree is left to it (C3-7)
+SHOW_PATHS = 5
 ATTEMPTS = 3
 MAIN = "main"
-CI_TIMEOUT = 15                   # seconds per ci_read call; two calls stay well under LOCK_WAIT (C3-6)
+PIN_RE = re.compile(r"[0-9a-fA-F]{7,40}", re.ASCII)
 _NONFF = ("non-fast-forward", "fetch first", "failed to update ref", "(stale info)")
 
 
@@ -70,31 +80,14 @@ def git_bytes(cwd, *args):
 
 
 def forge_check_state(root, sha):
-    """`success | failure | pending | unknown` for the commit `sha`, from tools/ci_read.py; any failure is `unknown`."""
-    def ci(*args):
-        p = subprocess.run([sys.executable, "-B", str(_TOOLS / "ci_read.py"), *args], capture_output=True,
-                           timeout=CI_TIMEOUT, cwd=str(root))
-        if p.returncode != 0:
-            raise OSError("ci_read exit %d" % p.returncode)
-        return p.stdout.decode("utf-8", "replace").splitlines()
-
-    def word(w):
-        w = (w or "").strip()
-        return ("success" if w == "success" else "failure" if w in ("failure", "timed_out", "cancelled")
-                else "pending" if w in ("in_progress", "queued", "waiting", "pending", "None") else "unknown")
-    try:
-        for line in ci("pipelines", "--n", "30"):
-            tok = line.split()
-            if len(tok) >= 5 and tok[-2] == sha[:8] and tok[0].isdigit():
-                state = word(tok[1])
-                for job in ci("jobs", tok[0]):
-                    parts = job.split()
-                    if len(parts) >= 3 and "forge-check" in parts[1:-1]:
-                        state = word(parts[-1])
-                return state
-    except Exception:  # noqa: BLE001 -- information only: whatever fails is `unknown`
-        pass
-    return "unknown"
+    """`success | failure | pending | unknown` for the commit `sha` from ci_read.run_state (the one road to the CI state:
+    its backend, its token door, its request function); a red state carries the names of its failed jobs:
+    `failure (failed: a, b)`. No run or any failure to know is `unknown`, never a guessed reason."""
+    import ci_read  # noqa: PLC0415
+    state, failed = ci_read.run_state(root, sha)
+    if state == "failure" and failed:
+        return "failure (failed: %s)" % ", ".join(failed[:3])
+    return {"success": "success", "failure": "failure", "in_progress": "pending"}.get(state, "unknown")
 
 
 def journal_rel(root):
@@ -102,13 +95,26 @@ def journal_rel(root):
     return rel
 
 
+def _atomic_write(path, data):
+    """Temp file beside it, then `os.replace`: a reader without the lock sees the old whole file or the new whole file,
+    never a truncated one (Q5b)."""
+    tmp = path.with_name(path.name + ".wave-tmp")
+    try:
+        tmp.write_bytes(data)
+        os.replace(tmp, path)
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
 def _sha(data):
     return hashlib.sha256(data or b"").hexdigest()
 
 
 class Wave:
-    def __init__(self, repo, branch, task, node=None, ci=forge_check_state, out=print):
+    def __init__(self, repo, branch, task, node=None, ci=forge_check_state, out=print, pin=None):
         self.branch, self.task, self.node, self.ci, self.out = branch, task, node, ci, out
+        self.pin = pin
         self.root = jl.common_dir(repo).parent
         self.sha = None
         self.branch_sha = None
@@ -116,6 +122,8 @@ class Wave:
         self.mismatch = None
         self.seq = 0
         self.pushed = False
+        self.ff_text = None
+        self.foreign = []
 
     # ---- helpers
     def say(self, text):
@@ -156,15 +164,53 @@ class Wave:
     # ---- steps
     def locked(self):
         self.fetch()
+        if self.branch != MAIN:
+            self.check_pin_local()
+            self.publish_branch()
         rc, sha, _e = git(self.root, "rev-parse", "--verify", "-q", "refs/remotes/origin/" + self.branch)
         if rc != 0 or self.branch == MAIN:
             raise Refuse("step 3: branch %s is not on origin (expected an existing branch other than main)" % self.branch)
+        self.check_pin(sha)
         self.branch_sha = sha
+        self.say("pushed: %s" % sha)
         self.say("forge-check: %s" % self.ci(self.root, sha))
         self.merge_and_push(sha)
         self.commit_journal()
         why = self.refresh()
         self.finish(why)
+
+    def pin_problem(self):
+        """None, or the text that refuses a malformed --sha before anything runs."""
+        if self.pin is not None and not PIN_RE.fullmatch(self.pin):
+            return "--sha %r: expected 7 to 40 hex digits (a full sha or a prefix of at least 7)" % self.pin
+        return None
+
+    def check_pin(self, tip):
+        """The branch tip that is pushed and merged is the accepted one: a mismatch refuses before any push."""
+        if self.pin is not None and not tip.lower().startswith(self.pin.lower()):
+            raise Refuse("step 3: tip %s != accepted %s; expected the tip you accepted -- re-accept the new tip, "
+                         "or pass the new sha with --sha" % (tip, self.pin))
+
+    def check_pin_local(self):
+        rc, tip, _e = git(self.root, "rev-parse", "--verify", "-q", "refs/heads/" + self.branch)
+        if rc == 0:
+            self.check_pin(tip)
+
+    def publish_branch(self):
+        """Step 3a: the accepted branch reaches origin by this road. Nothing local -> step 3 judges; origin equal to or
+        ahead of the local branch -> nothing to push (silent); else a plain fast-forward push, never forced."""
+        root, br = self.root, self.branch
+        lrc, local, _e = git(root, "rev-parse", "--verify", "-q", "refs/heads/" + br)
+        if lrc != 0:
+            return
+        rrc, remote, _e = git(root, "rev-parse", "--verify", "-q", "refs/remotes/origin/" + br)
+        if rrc == 0 and (remote == local or git(root, "merge-base", "--is-ancestor", local, remote)[0] == 0):
+            return
+        rc, _o, err = git(root, "push", "origin", "refs/heads/%s:refs/heads/%s" % (br, br))
+        if rc != 0:
+            kind = "non-fast-forward, not forced" if any(m in err for m in _NONFF) else "refused"
+            raise Refuse("step 3: push of %s to origin %s: %s" % (br, kind, err))
+        self.say("branch %s pushed to origin" % br)
 
     def merge_and_push(self, branch_sha):
         for attempt in range(ATTEMPTS):
@@ -224,6 +270,24 @@ class Wave:
         return ("%s\nrun by hand, from %s: python -B tools/piles.py status %s %s %s --set принято --hash %s --task %s"
                 " -- then commit and push the batch file" % (text, self.root, slug, n, ident, self.sha, self.task))
 
+    def main_tree(self):
+        """The clone's MAIN working tree: the first entry of `git worktree list` (the root when git cannot say)."""
+        for line in git(self.root, "worktree", "list", "--porcelain")[1].splitlines():
+            if line.startswith("worktree "):
+                return Path(line[9:])
+        return self.root
+
+    def place_dev_config(self, w):
+        """The validator reads tools/dev.config.yaml of the tree it runs in; the file is untracked and lives in the main
+        tree only. The smallest legal move: a copy into the temporary worktree, gone with it. True = a copy was placed."""
+        src = self.main_tree() / jk.DEV_CONFIG_REL
+        if not src.is_file():
+            return False
+        dst = Path(w) / jk.DEV_CONFIG_REL
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dst)
+        return True
+
     def commit_journal(self):
         rel = journal_rel(self.root)
         if rel is None:
@@ -251,10 +315,14 @@ class Wave:
                     return
                 (Path(w) / rel).parent.mkdir(parents=True, exist_ok=True)
                 (Path(w) / rel).write_bytes(data)
+                placed = self.place_dev_config(w)
                 git(w, "add", "--", rel)
                 rc, o, err = git(w, "commit", "-m", "journal: wave %s (%s)" % (self.branch, self.task))
                 if rc != 0:
-                    self.say("journal not committed: %s" % (err or o))
+                    text = err or o
+                    if not placed and jk.DEV_CONFIG_REL in text:
+                        text = "developer slug unknown (%s)" % jk.DEV_CONFIG_REL
+                    self.say("journal not committed: %s" % text)
                     return
                 if self.push(w, "step 8") == "ok":
                     return
@@ -278,10 +346,11 @@ class Wave:
         rel = journal_rel(root)
         if rel is None:
             return "this clone has no journal path"
+        self.foreign = []
         for line in git(root, "status", "--porcelain", "--untracked-files=no")[1].splitlines():
             if line[3:] != rel:
-                return "tracked changes beyond the journal: %s" % line[3:]
-            if line[0] != " ":
+                self.foreign.append(line[3:])        # foreign changes never stop the ff attempt; git judges overlap
+            elif line[0] != " ":
                 return "the journal has staged changes"
         if git(root, "merge-base", "--is-ancestor", "HEAD", "origin/" + MAIN)[0] != 0:
             return "the root HEAD is not an ancestor of origin/%s" % MAIN
@@ -311,7 +380,7 @@ class Wave:
             if head_bytes is None:
                 path.unlink(missing_ok=True)
             else:
-                path.write_bytes(head_bytes)
+                _atomic_write(path, head_bytes)
             _hook("step9-locked")
             rc, o, err = git(root, "merge", "--ff-only", "origin/" + MAIN)
             left = path.read_bytes() if path.exists() else None
@@ -330,7 +399,7 @@ class Wave:
                 path.unlink(missing_ok=True)
             else:
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(target)
+                _atomic_write(path, target)
             now = path.read_bytes() if path.exists() else None
             if _sha(now) != _sha(target) or (now is None) != (target is None):
                 self.mismatch = "JOURNAL RESTORE MISMATCH: copy kept at %s" % copy
@@ -342,7 +411,10 @@ class Wave:
             self.say("a line written during the window was appended to the journal; the copy is kept at %s" % copy)
         else:
             copy.unlink()
-        return None if rc == 0 else (err or o)
+        if rc == 0:
+            return None
+        self.ff_text = err or o
+        return self.ff_text
 
     def worktree_of(self):
         out = git(self.root, "worktree", "list", "--porcelain")[1]
@@ -368,7 +440,9 @@ class Wave:
             if same_as_root:
                 self.delete_remote()
                 return False, "kept, checked out in %s" % wt
-            git(root, "worktree", "remove", "--force", wt)
+            if not self.remove_worktree(wt):
+                self.delete_remote()
+                return False, "kept, checked out in %s (the worktree is not removed)" % wt
         rc, local, _e = git(root, "rev-parse", "--verify", "-q", "refs/heads/" + br)
         ok, text = True, "deleted"
         if rc == 0:
@@ -389,6 +463,41 @@ class Wave:
         self.delete_remote()
         return ok, text
 
+    def remove_worktree(self, wt):
+        """Under the SAME lock the background worktree sweep takes (one lock, not two): remove the folder; a folder that is
+        already gone is a report line, not an error. False = the worktree stays (the lock stayed busy for SWEEP_WAIT and it
+        is left to the sweep, or git could not remove it): the caller never deletes its branch then."""
+        sweep_dir = jl.common_dir(self.root) / ws.STATE_DIRNAME
+        deadline = time.monotonic() + SWEEP_WAIT
+        while True:
+            try:
+                lock, holder = ws.acquire_lock(sweep_dir, "wave-merge")
+            except OSError as exc:
+                self.say("worktree %s kept: the sweep lock cannot be taken (%s)" % (wt, exc))
+                return False
+            if lock is not None:
+                break
+            if time.monotonic() >= deadline:
+                self.say("worktree %s kept: a worktree sweep holds its lock since %s; the sweep removes it"
+                         % (wt, (holder or {}).get("started", "unknown")))
+                return False
+            time.sleep(0.1)
+        try:
+            _hook("before-worktree-remove")
+            gone = not Path(wt).exists()
+            if not gone:
+                rc, o, err = git(self.root, "worktree", "remove", "--force", wt)
+                if rc != 0 and Path(wt).exists():          # git could not remove it: the branch stays checked out there
+                    self.say("worktree %s kept: git worktree remove failed: %s" % (wt, err or o or "no text"))
+                    return False
+                gone = rc != 0
+            if gone:
+                git(self.root, "worktree", "prune")
+                self.say("worktree %s: folder already gone (removed by the sweep); registration pruned" % wt)
+        finally:
+            lock.release()
+        return True
+
     def delete_remote(self):
         _hook("before-delete-remote")
         lease = "--force-with-lease=refs/heads/%s:%s" % (self.branch, self.branch_sha)
@@ -399,12 +508,23 @@ class Wave:
             else:
                 self.say("remote branch not deleted: %s" % err)
 
+    def root_line(self, why):
+        if why is None:
+            return "root: refreshed to %s" % git(self.root, "rev-parse", "HEAD")[1]
+        if self.ff_text is None or why != self.ff_text:
+            return "root checkout not refreshed: %s" % why
+        lines = [ln.strip() for ln in self.ff_text.splitlines() if ln.strip()]
+        paths = list(self.foreign)
+        paths += [ln.strip() for ln in self.ff_text.splitlines() if ln.startswith(("\t", "    ")) and ln.strip()]
+        paths = list(dict.fromkeys(paths))[:SHOW_PATHS]
+        return "root not refreshed: %s; paths: %s" % (lines[0] if lines else "git refused", ", ".join(paths) or "(none named)")
+
     def finish(self, why):
         _deleted, btext = self.delete_branch(why is None)
         self.say("merge: %s" % self.sha)
         self.say("node: %s" % (" ".join(self.node) if self.node else "none"))
         self.say("branch: %s" % btext)
-        self.say("root: refreshed" if why is None else "root checkout not refreshed: %s" % why)
+        self.say(self.root_line(why))
         if self.piles_text:
             self.say("piles status not recorded (the merge is pushed without the status commit): %s" % self.piles_text)
         if self.mismatch:
@@ -413,6 +533,9 @@ class Wave:
             raise Refuse("", 1)
 
     def run(self):
+        bad = self.pin_problem()
+        if bad:
+            return self.refuse(Refuse(bad))
         try:
             with jl.machine_lock("main-merge", LOCK_WAIT, repo=self.root):
                 self.locked()
@@ -437,6 +560,8 @@ def build_parser():
     m.add_argument("branch")
     m.add_argument("--task", required=True, help="t-NNN")
     m.add_argument("--node", nargs=3, metavar=("SLUG", "N", "ID"))
+    m.add_argument("--sha", default=None, metavar="SHA",
+                   help="the accepted branch tip (full or a prefix of 7+ hex digits); a different tip is refused before any push")
     m.add_argument("--repo", default=str(_TOOLS.parent))
     return p
 
@@ -454,7 +579,7 @@ def main(argv=None):
         print("refused: --node %s: expected <slug> <N> <id> in the node grammar (slug/N/id, N from 1)" % " ".join(a.node))
         return 2
     try:
-        wave = Wave(a.repo, a.branch, a.task, a.node)
+        wave = Wave(a.repo, a.branch, a.task, a.node, pin=a.sha)
     except jl.LockError as exc:
         print("refused: %s" % exc)
         return 2

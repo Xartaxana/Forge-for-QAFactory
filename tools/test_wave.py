@@ -1,5 +1,7 @@
 """Tests of tools/wave.py (offload spec r2 §3.C3, F-T1): a temp bare "origin", a root clone and a dev clone; no network.
 Row ids carry the E-C3-n of the spec."""
+import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -13,6 +15,7 @@ TOOLS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TOOLS))
 import journal_lock as jl  # noqa: E402
 import wave  # noqa: E402
+import worktree_sweep as ws  # noqa: E402
 
 REL = "logs/journal/dev.jsonl"
 L1, L2, L3 = (b'{"n":1}\n', b'{"n":2}\n', b'{"n":3}\n')
@@ -94,7 +97,8 @@ def blob(e, rel, ref="main"):
 def test_ff_merge_refreshes_root_and_deletes_branch(env):
     branch(env, "b1", {"f.txt": "x\n"})
     rc, out, _ = go(env, "b1")
-    assert rc == 0 and "forge-check: success" in out and "branch: deleted" in out and "root: refreshed" in out
+    assert rc == 0 and "forge-check: success" in out and "branch: deleted" in out and "root: refreshed to " in out
+    assert "pushed to origin" not in out                       # up to date on origin: silent (A)
     assert g(env.origin, "rev-list", "--merges", "main") == "" and blob(env, "f.txt") == b"x\n"
     assert (env.root / "f.txt").read_text() == "x\n" and g(env.origin, "branch", "--list", "b1") == ""
     assert g(env.root, "worktree", "list").count("\n") == 0 and g(env.root, "rev-parse", "HEAD") == origin_main(env)
@@ -130,27 +134,59 @@ def test_forge_check_is_information_only(env):
     assert rc == 0 and "forge-check: failure" in out and blob(env, "f.txt") == b"x\n"
 
 
+SHA = "abcd1234" + "0" * 32
+
+
 @pytest.mark.parametrize("answer,state", [
-    (("101 success t abcd1234 push", "9 forge-check success"), "success"),
-    (("101 completed t abcd1234 push", "9 forge-check failure"), "failure"),
-    (("101 in_progress t abcd1234 push", "9 other success"), "pending"),
-    (("101 success t ffffffff push", ""), "unknown"),
-    (None, "unknown")])
-def test_forge_check_state_reads_ci_read(monkeypatch, answer, state):
-    def fake(argv, **kw):
-        if answer is None:
-            return subprocess.CompletedProcess(argv, 2, b"", b"no token")
-        text = answer[0] if argv[3] == "pipelines" else answer[1]
-        return subprocess.CompletedProcess(argv, 0, text.encode(), b"")
-    monkeypatch.setattr(wave.subprocess, "run", fake)
-    assert wave.forge_check_state(Path("."), "abcd1234" + "0" * 32) == state
+    (("success", []), "success"),
+    (("failure", ["forge-check", "unit"]), "failure (failed: forge-check, unit)"),
+    (("failure", []), "failure"),
+    (("in_progress", []), "pending"),
+    (("none", []), "unknown"),
+    (("unknown", []), "unknown")], ids=["green", "red-names", "red-no-names", "pending", "no-run", "unknown"])
+def test_forge_check_state_prints_the_run_state_of_ci_read_C3_6(monkeypatch, answer, state):
+    import ci_read
+    monkeypatch.setattr(ci_read, "run_state", lambda root, sha: answer)
+    assert wave.forge_check_state(Path("."), SHA) == state
 
 
-def test_forge_check_state_unknown_when_ci_read_raises(monkeypatch):
-    def boom(*a, **k):
-        raise OSError("no python")
-    monkeypatch.setattr(wave.subprocess, "run", boom)
-    assert wave.forge_check_state(Path("."), "a" * 40) == "unknown"
+class _Resp:
+    def __init__(self, body):
+        self._body = body.encode()
+        self.status = 200
+
+    def read(self, n=None):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+@pytest.mark.parametrize("routes,state", [
+    ({"/actions/runs?": {"workflow_runs": [{"id": 1, "head_sha": SHA, "status": "completed", "conclusion": "failure"}]},
+      "/actions/runs/1/jobs": {"jobs": [{"name": "forge-check", "conclusion": "failure"}, {"name": "unit", "conclusion": "failure"}]}},
+     "failure (failed: forge-check, unit)"),
+    ({"/actions/runs?": {"workflow_runs": [{"id": 1, "head_sha": SHA, "status": "completed", "conclusion": "success"}]},
+      "/actions/runs/1/jobs": {"jobs": [{"name": "forge-check", "conclusion": "success"}]}}, "success"),
+    ({"/actions/runs?": "not json"}, "unknown")], ids=["red", "green", "bad-answer"])
+def test_forge_check_state_goes_through_the_real_ci_read_with_a_faked_opener_C3_6(monkeypatch, tmp_path, routes, state):
+    """The junction: a rename in ci_read turns this red instead of turning the state into a silent unknown."""
+    import json
+    import urllib.request
+    monkeypatch.setenv("QA_CI_REPO", "o/r")
+    monkeypatch.setenv("GITHUB_TOKEN", "dummy-token")
+    monkeypatch.delenv("QA_DEV_CONFIG", raising=False)
+
+    def fake_urlopen(req, timeout=None):
+        for needle, answer in routes.items():
+            if needle in req.full_url:
+                return _Resp(answer if isinstance(answer, str) else json.dumps(answer))
+        raise AssertionError("unexpected request " + req.full_url)
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    assert wave.forge_check_state(tmp_path, SHA) == state
 
 
 def test_non_ff_push_retries_from_the_merge(env, monkeypatch):
@@ -178,14 +214,24 @@ def test_main_moving_three_times_refuses(env, monkeypatch):
     assert not list((env.root / ".claude" / "worktrees").glob("wave-*"))
 
 
-def test_dirty_root_still_merges_and_is_untouched_E_C3_1(env):
+def test_foreign_change_does_not_stop_the_ff_refresh_C(env):
     branch(env, "b7", {"f.txt": "x\n"})
     (env.root / "README").write_text("dirty\n")
     rc, out, _ = go(env, "b7")
     assert rc == 0 and blob(env, "f.txt") == b"x\n"
-    assert "root checkout not refreshed: tracked changes beyond the journal: README" in out
-    assert (env.root / "README").read_text() == "dirty\n" and not (env.root / "f.txt").exists()
+    assert "root: refreshed to %s" % origin_main(env) in out
+    assert (env.root / "README").read_text() == "dirty\n" and (env.root / "f.txt").read_text() == "x\n"
     assert g(env.root, "stash", "list") == ""
+
+
+def test_ff_refused_by_git_names_its_reason_and_paths_C(env):
+    branch(env, "b7r", {"README": "branch\n"})
+    (env.root / "README").write_text("dirty\n")
+    rc, out, _ = go(env, "b7r")
+    line = [ln for ln in out.splitlines() if ln.startswith("root not refreshed:")]
+    assert rc == 0 and len(line) == 1 and "would be overwritten" in line[0] and line[0].endswith("paths: README")
+    assert (env.root / "README").read_text() == "dirty\n" and g(env.root, "stash", "list") == ""
+    assert blob(env, "README") == b"branch\n"
 
 
 def test_journal_is_committed_and_root_bytes_identical(env):
@@ -328,7 +374,7 @@ def test_failed_refresh_restores_journal_and_names_git_E_C3_10(env):
     (env.root / "f.txt").write_text("untracked in the way\n")
     (env.root / REL).write_bytes(L1 + L2)
     rc, out, _ = go(env, "b16")
-    assert rc == 0 and "root checkout not refreshed:" in out and "f.txt" in out
+    assert rc == 0 and "root not refreshed: " in out and out.splitlines()[-1].endswith("paths: f.txt")
     assert (env.root / REL).read_bytes() == L1 + L2 and (env.root / "f.txt").read_text() == "untracked in the way\n"
     assert not list(jl.lock_dir(env.root).glob("wave-copy-*"))
 
@@ -495,3 +541,171 @@ def test_network_failure_names_the_step_and_leaves_no_worktree_E_C3_6(env):
     g(env.root, "remote", "set-url", "origin", str(env.tmp / "nowhere.git"))
     rc, out, _ = go(env, "b24")
     assert rc == 2 and "step 2" in out and not list((env.root / ".claude" / "worktrees").glob("wave-*"))
+
+
+def local_branch(e, name, files):
+    """A branch that exists only in the root clone (not on origin), as a worker leaves it."""
+    g(e.root, "checkout", "-q", "-b", name, "origin/main")
+    put(e.root, files, name)
+    g(e.root, "checkout", "-q", "main")
+
+
+def test_branch_only_local_is_pushed_by_wave_then_merged_A(env):
+    local_branch(env, "a1", {"f.txt": "x\n"})
+    rc, out, _ = go(env, "a1")
+    assert rc == 0 and "branch a1 pushed to origin" in out and blob(env, "f.txt") == b"x\n"
+    assert g(env.origin, "branch", "--list", "a1") == "" and g(env.root, "branch", "--list", "a1") == ""
+
+
+def test_push_of_the_branch_refused_names_origin_text_and_merges_nothing_A(env):
+    local_branch(env, "a2", {"f.txt": "x\n"})
+    hook = env.origin / "hooks" / "pre-receive"
+    hook.write_bytes(b"#!/bin/sh\necho 'POLICY: no pushes today' >&2\nexit 1\n")
+    hook.chmod(0o755)    # a hook fires only when executable (Linux); Windows ignores the bit
+    before = origin_main(env)
+    rc, out, _ = go(env, "a2")
+    assert rc == 2 and "POLICY: no pushes today" in out and "step 3" in out and origin_main(env) == before
+    assert g(env.origin, "branch", "--list", "a2") == "" and not list((env.root / ".claude" / "worktrees").glob("wave-*"))
+
+
+def test_branch_behind_local_is_pushed_and_diverged_is_refused_not_forced_A(env):
+    branch(env, "a3", {"f.txt": "x\n"})
+    g(env.root, "fetch", "-q", "origin")
+    g(env.root, "checkout", "-q", "-b", "a3", "origin/a3")
+    put(env.root, {"g.txt": "y\n"}, "local ahead")
+    g(env.root, "checkout", "-q", "main")
+    rc, out, _ = go(env, "a3")
+    assert rc == 0 and "branch a3 pushed to origin" in out and blob(env, "g.txt") == b"y\n"
+    branch(env, "a4", {"f4.txt": "x\n"})
+    g(env.root, "fetch", "-q", "origin")
+    g(env.root, "checkout", "-q", "-b", "a4", "origin/a4~1")
+    put(env.root, {"other.txt": "o\n"}, "diverged")
+    g(env.root, "checkout", "-q", "main")
+    before = origin_main(env)
+    rc, out, _ = go(env, "a4")
+    assert rc == 2 and "step 3" in out and "non-fast-forward" in out and origin_main(env) == before
+    assert g(env.origin, "show", "a4:f4.txt") == "x"
+
+
+DEV_HOOK = (b"#!/bin/sh\n[ -f tools/dev.config.yaml ] || { echo 'tools/dev.config.yaml cannot be read (no such file)' >&2; exit 1; }\n"
+            b"exit 0\n")
+
+
+def validator_hook(e):
+    hook = e.root / ".git" / "hooks" / "pre-commit"
+    hook.write_bytes(DEV_HOOK)
+    hook.chmod(0o755)    # a hook fires only when executable (Linux); Windows ignores the bit
+
+
+def test_journal_commit_gets_the_slug_from_the_main_tree_B(env):
+    branch(env, "j1", {"f.txt": "x\n"})
+    validator_hook(env)
+    (env.root / "tools").mkdir(exist_ok=True)
+    (env.root / "tools" / "dev.config.yaml").write_text("developer: dev\n")      # untracked, main tree only
+    (env.root / REL).write_bytes(L1 + L2)
+    rc, out, _ = go(env, "j1", task="t-890")
+    assert rc == 0 and blob(env, REL) == L1 + L2 and "journal not committed" not in out
+    assert blob(env, "tools/dev.config.yaml") is None and not list((env.root / ".claude" / "worktrees").glob("wave-*"))
+
+
+def test_journal_not_committed_when_the_slug_is_unknown_in_the_main_tree_too_B(env):
+    branch(env, "j2", {"f.txt": "x\n"})
+    validator_hook(env)
+    (env.root / REL).write_bytes(L1 + L2)
+    rc, out, _ = go(env, "j2")
+    assert rc == 0 and blob(env, "f.txt") == b"x\n" and blob(env, REL) == L1
+    assert "journal not committed: developer slug unknown (tools/dev.config.yaml)" in out
+
+
+def test_step_9_writes_are_atomic_a_reader_sees_a_whole_journal_Q5b(env, monkeypatch):
+    branch(env, "q1", {"f.txt": "x\n"})
+    (env.root / REL).write_bytes(L1 + L2)
+    seen, real = [], os.replace
+
+    def spy(src, dst):
+        seen.append((Path(dst).read_bytes() if Path(dst).exists() else None, Path(src).read_bytes()))
+        return real(src, dst)
+    monkeypatch.setattr(wave.os, "replace", spy)
+    rc, out, _ = go(env, "q1")
+    assert rc == 0 and (env.root / REL).read_bytes() == L1 + L2
+    # each replace: the destination still held a whole journal (never a truncated one), the new bytes were already complete
+    assert seen == [(L1 + L2, L1), (L1 + L2, L1 + L2)] and not list(env.root.glob("logs/journal/*.wave-tmp"))
+
+
+def test_worktree_already_gone_is_a_report_line_and_the_lock_is_released_C3_7(env, monkeypatch):
+    branch(env, "s1", {"f.txt": "x\n"})
+    g(env.root, "fetch", "-q", "origin")
+    g(env.root, "branch", "s1", "origin/s1")
+    wt = env.tmp / "wt-s1"
+    g(env.root, "worktree", "add", "-q", str(wt), "s1")
+    held = []
+
+    def hook(n):
+        if n == "before-worktree-remove":
+            held.append((jl.common_dir(env.root) / ws.STATE_DIRNAME / "lock").exists())   # the sweep's lock is ours now
+            shutil.rmtree(wt)                                                           # the sweep got there first
+    monkeypatch.setattr(wave, "_hook", hook)
+    rc, out, _ = go(env, "s1")
+    assert rc == 0 and held == [True] and "folder already gone" in out and "branch: deleted" in out
+    assert g(env.root, "branch", "--list", "s1") == "" and not (jl.common_dir(env.root) / ws.STATE_DIRNAME / "lock").exists()
+
+
+def test_worktree_left_to_a_running_sweep_when_its_lock_stays_busy_C3_7(env, monkeypatch):
+    branch(env, "s2", {"f.txt": "x\n"})
+    g(env.root, "fetch", "-q", "origin")
+    g(env.root, "branch", "s2", "origin/s2")
+    wt = env.tmp / "wt-s2"
+    g(env.root, "worktree", "add", "-q", str(wt), "s2")
+    monkeypatch.setattr(wave, "SWEEP_WAIT", 0.3)
+    lock, _ = ws.acquire_lock(jl.common_dir(env.root) / ws.STATE_DIRNAME, "test-sweep")
+    try:
+        rc, out, _ = go(env, "s2")
+    finally:
+        lock.release()
+    assert rc == 0 and wt.exists() and "a worktree sweep holds its lock" in out and blob(env, "f.txt") == b"x\n"
+    assert g(env.root, "branch", "--list", "s2") != ""
+
+
+def test_worktree_that_git_cannot_remove_keeps_the_branch_P4_F1(env):
+    branch(env, "s3", {"f.txt": "x\n"})
+    g(env.root, "fetch", "-q", "origin")
+    g(env.root, "branch", "s3", "origin/s3")
+    wt = env.tmp / "wt-s3"
+    g(env.root, "worktree", "add", "-q", str(wt), "s3")
+    g(env.root, "worktree", "lock", str(wt))                  # `remove --force` (once) refuses a locked worktree
+    rc, out, _ = go(env, "s3")
+    assert rc == 0 and wt.exists() and "kept: git worktree remove failed:" in out and "(the worktree is not removed)" in out
+    assert g(env.root, "branch", "--list", "s3") != "" and blob(env, "f.txt") == b"x\n"
+
+
+@pytest.mark.parametrize("pin,ok", [
+    ("full", True), ("prefix7", True), ("upper", True),
+    ("other", False), ("short", False), ("nothex", False), ("empty", False)],
+    ids=["full", "prefix7", "upper-case", "other-tip", "6-chars", "not-hex", "empty"])
+def test_sha_pin_is_checked_before_any_push_P4_Q2(env, pin, ok):
+    branch(env, "p1", {"f.txt": "x\n"})
+    tip = g(env.origin, "rev-parse", "p1")
+    main_before = origin_main(env)
+    value = {"full": tip, "prefix7": tip[:7], "upper": tip[:12].upper(), "other": "0" * 40, "short": tip[:6],
+             "nothex": "zzzzzzzz", "empty": ""}[pin]
+    out = []
+    rc = wave.Wave(env.root, "p1", "t-868", None, ci=lambda r, s: "success", out=out.append, pin=value).run()
+    text = "\n".join(out)
+    if ok:
+        assert rc == 0 and "pushed: %s" % tip in text and blob(env, "f.txt") == b"x\n"
+    else:
+        assert rc == 2 and origin_main(env) == main_before and blob(env, "f.txt") is None and "pushed:" not in text
+        assert ("!= accepted" in text and "re-accept the new tip" in text) if pin == "other" else "expected 7 to 40 hex" in text
+
+
+def test_a_local_tip_that_is_not_the_pin_is_not_pushed_P4_Q2(env):
+    branch(env, "p2", {"f.txt": "x\n"})
+    g(env.root, "fetch", "-q", "origin")
+    g(env.root, "branch", "p2", "origin/p2")
+    accepted = g(env.root, "rev-parse", "p2")
+    g(env.root, "checkout", "-q", "p2")
+    put(env.root, {"late.txt": "late\n"}, "late commit")      # a commit the worker added after acceptance
+    g(env.root, "checkout", "-q", "main")
+    out = []
+    rc = wave.Wave(env.root, "p2", "t-868", None, ci=lambda r, s: "success", out=out.append, pin=accepted).run()
+    assert rc == 2 and "!= accepted" in "\n".join(out) and g(env.origin, "rev-parse", "p2") == accepted
