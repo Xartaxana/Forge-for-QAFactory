@@ -1163,18 +1163,13 @@ def test_non_writing_dispatches_get_neither_check():
         assert run("do the survey\n", type_) == (0, "", "")
 
 
-@pytest.mark.parametrize("head, expected", [
-    ("task: t-123\n", "DESIGNER-SKIP: over the designer threshold; the hook writes "
-                      "dispatch_skipped(agent=designer) for t-123"),
-    ("", None),
-], ids=["with-task-line-hook-writes", "no-task-line-owed-and-door"])
-def test_designer_skip_note_with_and_without_task(head, expected):
+@pytest.mark.parametrize("head", ["task: t-123\n", ""], ids=["with-task-line", "no-task-line"])
+def test_designer_skip_note_says_the_hook_writes_the_event(head):
     code, msg, note = run(head + build(owns=OWNS3, designer="designer: skip -- tiny edit"))
     assert (code, msg) == (0, "")
-    if expected:
-        assert note == expected
-    else:
-        assert "owed" in note and "python -B tools/journal_write.py skip" in note and "tiny edit" in note
+    assert note == dm.DESIGNER_SKIP_NOTE_TEMPLATE
+    assert note.startswith("DESIGNER-SKIP: over the designer threshold; the hook writes dispatch_skipped(agent=designer)")
+    assert "owed" not in note.replace("nothing is owed", "")
     assert run(build(owns=OWNS3, designer="designer: resubmission t-005"))[2] == ""
 
 

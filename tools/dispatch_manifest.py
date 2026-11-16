@@ -154,12 +154,8 @@ UNCHECKED_NOTE_TEMPLATE = (
     "out; check " + ", ".join(k[1] for k in KEY_GROUPS[:-1]) + " and " + KEY_GROUPS[-1][1] + " by eye."
 )
 DESIGNER_SKIP_NOTE_TEMPLATE = (
-    "DESIGNER-SKIP: over the designer threshold; the hook writes dispatch_skipped(agent=designer) for {task}"
-)
-DESIGNER_SKIP_OWED_TEMPLATE = (
-    'DESIGNER-SKIP: over the designer threshold, "designer: skip -- {reason}"; the dispatch has no task: line, '
-    "so a dispatch_skipped(agent=designer) event is owed (CLAUDE.md rule 2): "
-    "python -B tools/journal_write.py skip ..."
+    "DESIGNER-SKIP: over the designer threshold; the hook writes dispatch_skipped(agent=designer) itself "
+    "(with or without a task: line), nothing is owed"
 )
 FORM_NOT_ENFORCED_NOTE_TEMPLATE = (
     "SIBLINGS/DESIGNER NOT ENFORCED (DISPATCH_FORM_REFUSES is off): this dispatch went out missing {items}; "
@@ -971,9 +967,7 @@ def check_cut(cut, is_builder: bool):
     if unenforced:
         skip_notes.append(FORM_NOT_ENFORCED_NOTE_TEMPLATE.format(items=_items_text(unenforced, missing)))
     if designer_skip_reason is not None:
-        task = header_ids(cut).get("task")
-        skip_notes.append(DESIGNER_SKIP_NOTE_TEMPLATE.format(task=task) if task
-                          else DESIGNER_SKIP_OWED_TEMPLATE.format(reason=designer_skip_reason))
+        skip_notes.append(DESIGNER_SKIP_NOTE_TEMPLATE)
     return 0, "", "\n".join(skip_notes), True
 
 

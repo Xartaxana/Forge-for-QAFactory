@@ -55,7 +55,8 @@ gate python tools/agents_md.py --check
 # --warn never blocks: whatever its exit code, the commit goes on (as the old `|| true`), and a crash's
 # traceback is printed in full.
 if python tools/forge_metrics.py --check --base HEAD --warn >"$tmp" 2>&1; then
-    grep 'WARN' "$tmp" || true
+    # a line `WARN: ok (...)` is the success summary calling itself WARN: hidden
+    grep 'WARN' "$tmp" | grep -v '^WARN: ok' || true
 else
     cat "$tmp"
 fi
