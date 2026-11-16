@@ -473,13 +473,13 @@ def test_fixture_world_10_commands_yields_stale_case_not_case_missing(tmp_path):
     as STALE-CASE. Distinguishes STALE-CASE from CASE-MISSING: only one
     of the two fires here."""
     # since the F5-8 merge critic_snapshot.py and owns_gate.py are not listed hooks (run by the gate), so the
-    # live set is 13 commands and this fixture drops two of them
+    # live set is 15 commands (two journal_hooks entries since the offload landing) and this fixture drops two of them
     ten = [c for c in _ALL_KIT_COMMANDS
            if c[1] not in (
                "python tools/negative_lint.py",
                "python tools/session_context.py",
            )]
-    assert len(ten) == 11
+    assert len(ten) == len(_ALL_KIT_COMMANDS) - 2
     fixture_path = _write_settings_fixture(tmp_path, ten)
 
     unreadable, case_missing, stale_case, _info = hlp.check_composition(fixture_path)
@@ -1012,4 +1012,4 @@ def test_main_cli_json_flag_produces_parseable_json(capsys):
     assert exit_code == 0
     data = json.loads(captured.out)
     assert data["no_cases"] is False
-    assert len(data["results"]) == 21
+    assert len(data["results"]) == len(hlp.CASES)
