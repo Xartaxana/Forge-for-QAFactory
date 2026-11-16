@@ -8,9 +8,7 @@ and the critic role file's rule 18 point here (B-419).
 ## The two layers (CLAUDE.md rule 3, the two-layer review rule)
 
 - **Mechanical layer** — attached by the BUILDER to its handoff, verbatim, before the critic starts:
-  the DoD run tails (D-0056, 21.10.2026: the files `scenario_walk.py --witness-for <owns>` prints — plus, until
-  `scripts/tests/test-layers.json` holds quarantine rows, the changed module's test file — and the DoD keys — no
-  neighbours, no big files, no docker); no mutation list (retired 10.11.2026, `docs/TESTING.md`); the ratchets
+  the DoD run tails (the scope: `plans/builder-rules.md` 7b); no mutation list (retired 10.11.2026, `docs/TESTING.md`); the ratchets
   (`dup_ratchet --check`, `lint_ratchet --check`) are NOT in the builder's layer: their result is the `forge-check` job of the
   branch or MR pipeline (batch level, `plans/builder-rules.md` 7b/7c; D-0033 as refined by the Lead), which the critic reads, never
   re-runs; the old-vs-new counts where the spec asks for them. A layer not attached
