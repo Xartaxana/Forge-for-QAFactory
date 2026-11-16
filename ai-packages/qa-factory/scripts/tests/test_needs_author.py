@@ -34,6 +34,7 @@ from harness import SCRIPTS, check, check_eq, check_in, check_not_in, cleanup, f
 sys.path.insert(0, str(SCRIPTS))
 import controller as CTL  # noqa: E402
 import host_dispatch as HD  # noqa: E402
+import runtime_policy  # noqa: E402
 import story_step  # noqa: E402
 from controller import Controller, repair_ledger  # noqa: E402
 
@@ -352,7 +353,7 @@ def k1_7_a_state_with_a_way_out():
     # the cap: two real cycles (author sent back, accepted, critic retried) reach the ceiling; the third is refused by the PROBE
     project, task, controller = story()
     try:
-        cap = CTL.DEFAULT_LIMITS["repair_cycles"]
+        cap = runtime_policy.DEFAULT_LIMITS["repair_cycles"]
         for number in range(cap):
             code, out = run(dispatch_id=current_critic(task))
             check_eq(f"K1-7 E12: cycle {number + 1} of the cap {cap} goes through", code, 0)

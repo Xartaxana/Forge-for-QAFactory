@@ -46,7 +46,7 @@ from hooklib import (CLOSED_AT, ORDERS_DUE, REOPENED_AT, STOP_VALUES, gate_order
                      story_closed, story_closure, story_root, story_root_at)
 import person_words
 from record_schema import validate_record
-from runtime_policy import (DEFAULT_LIMITS, repair_cap, resolve_model, checkpoint_due, cumulative_budget,
+from runtime_policy import (repair_cap, resolve_model, checkpoint_due, cumulative_budget,
                             warning_milestones, orchestrator_rollover_due)
 
 TERMINAL = {"accepted", "blocked", "incomplete", "paused"}
