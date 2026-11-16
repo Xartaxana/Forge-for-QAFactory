@@ -174,11 +174,6 @@ def _render_hygiene(name: str) -> str:
     return getattr(hygiene_gate, name)
 
 
-def _render_hygiene_wrapped() -> str:
-    # the same concatenation decide() uses for the warn-only branch (hygiene_gate.WARN_PREFIX + the one WARN text)
-    return hygiene_gate.WARN_PREFIX + hygiene_gate.MSG_WARN_PAYLOAD
-
-
 def _render_quoted_owns() -> str:
     return owns_gate.QUOTED_OWNS_WARN_MESSAGE
 
@@ -294,10 +289,8 @@ _VERB_CASES = [
     ("SEARCH_RETURNED_NOTHING", _render_search_returned_nothing, {"run"}),
     ("HYGIENE/MSG_CD_BASH", lambda: _render_hygiene("MSG_CD_BASH"), {"use"}),
     ("HYGIENE/MSG_CD_POWERSHELL", lambda: _render_hygiene("MSG_CD_POWERSHELL"), {"use"}),
-    ("HYGIENE/MSG_MUTATION", lambda: _render_hygiene("MSG_MUTATION"), {"use"}),
-    ("HYGIENE/MSG_JOURNAL_BLOCK", lambda: _render_hygiene("MSG_JOURNAL_BLOCK"), {"edit/write"}),
+    ("HYGIENE/MSG_JOURNAL_BLOCK", lambda: _render_hygiene("MSG_JOURNAL_BLOCK"), {"journal_write"}),
     ("HYGIENE/MSG_ROLLBACK", lambda: _render_hygiene("MSG_ROLLBACK"), {"undo", "restore", "leave"}),
-    ("HYGIENE/MSG_WARN_PAYLOAD", _render_hygiene_wrapped, {"use"}),
 ]
 
 
@@ -436,8 +429,6 @@ def test_c4_hygiene_registry_prefix_present(registry):
     # of registry aliases, same as test_adversarial_hygiene_both_
     # alias_forms_alive_in_module_source below.
     layer = _layer(registry, "HYGIENE")
-    wrapped = _render_hygiene_wrapped()
-    assert wrapped.startswith("Command hygiene (WARN, does not block): ")
     assert layer["literal"] == "Command hygiene: "
 
 
@@ -488,7 +479,7 @@ _CK3_SPLIT_VERDICTS = {
     "NEGATIVE_LINT": 1,
     "NEGATIVE_CLAIM": 1,
     "SEARCH_RETURNED_NOTHING": 1,
-    "HYGIENE": 6,  # MSG_CD_BASH/MSG_CD_POWERSHELL/MSG_MUTATION/MSG_JOURNAL_BLOCK/MSG_ROLLBACK/MSG_WARN_PAYLOAD
+    "HYGIENE": 4,  # MSG_CD_BASH/MSG_CD_POWERSHELL/MSG_JOURNAL_BLOCK/MSG_ROLLBACK
     "JOURNAL_ECHO_BASE": 1,  # one code path (build_context), no split needed
 }
 
@@ -547,7 +538,6 @@ def test_adversarial_hygiene_both_alias_forms_alive_in_module_source():
     # in this template's own three gates -- regression pin.
     source = (TOOLS_DIR / "hygiene_gate.py").read_text(encoding="utf-8")
     assert "Command hygiene: " in source
-    assert "Command hygiene (WARN, does not block): " in source
 
 
 def test_adversarial_no_literal_carries_open_brace():

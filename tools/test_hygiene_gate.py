@@ -1,5 +1,4 @@
-"""tools/hygiene_gate.py: four refusals (cd, content write by a literal target in a git working tree, journal write,
-rollback of dirty paths), one WARN, silence for everything else (spec docs/tasks/specs/fg-context-and-hygiene.md, C1).
+"""tools/hygiene_gate.py: three refusals (cd, journal write, rollback of dirty paths), silence for everything else (spec docs/tasks/specs/fg-context-and-hygiene.md, C1).
 
 Layer 3: ONE parameterised table over `decide()` (ROWS). The trees are made in tmp_path: `tree` and `tree2` hold a `.git`
 (a directory / a file, like a worktree), `scratch` holds none; rollback rows run in real `git init` repositories
@@ -27,7 +26,6 @@ ROOT = hg._REPO_ROOT_NAME
 DOORS = {
     "cd_bash": "( cd <dir> && ... ) subshell",
     "cd_ps": "powershell -NoProfile -Command",
-    "mutation": "Edit/Write your handoff file",
     "journal": "Reading it with grep, cat or tail is fine",
     "rollback": "leave them and tell the Lead",
 }
@@ -95,13 +93,11 @@ def _kind(output):
     if hso.get("permissionDecision") == "deny":
         return "deny"
     ctx = hso["additionalContext"]
-    if ctx.startswith(hg.WARN_PREFIX):
-        return "warn"
     return "marker" if "rollback not checked" in ctx else "other:" + ctx
 
 
-# (id, command, tool, cwd, expect): expect = "silent" | "warn" | ("deny", door) | ("marker", text)
-S, W = "silent", "warn"
+# (id, command, tool, cwd, expect): expect = "silent" | ("deny", door) | ("marker", text)
+S = "silent"
 B, P = "Bash", "PowerShell"
 JNL = "logs/journal/dev1.jsonl"
 SILENT = [
@@ -159,43 +155,21 @@ SILENT = [
     ("reset-soft", "git reset --soft HEAD~1", B, "repo", S),
     ("non-bash-tool-handled-elsewhere", "cd docs && ls", "Read", "tree", S),
 ]
-WARN_ONLY = [
-    ("py-stringio-write", "python -c \"import io; io.StringIO().write('x')\"", B, "tree", W),
-    ("py-open-variable-path", "python -c \"p='a.txt'; open(p,'w').write('x')\"", B, "tree", W),
-    ("py-exec", "python -c \"exec('x=1')\"", B, "tree", W),
-    ("py-parse-failure", 'python -c "def ("', B, "tree", W),
-    ("py-dynamic-dq", 'python -c "print($X)"', B, "tree", W),
-]
-MUTATION = [
-    ("redirect", "echo x > docs/a.md", B, "tree", ("deny", DOORS["mutation"])),
-    ("redirect-append-quoted", "echo x >> 'docs/a b.md'", B, "tree", ("deny", DOORS["mutation"])),
-    ("redirect-2gt", "echo x 2> docs/err.txt", B, "tree", ("deny", DOORS["mutation"])),
-    ("cat-heredoc", "cat > docs/a.md <<EOF\nx\nEOF", B, "tree", ("deny", DOORS["mutation"])),
-    ("sed-i", "sed -i 's/a/b/' docs/a.md", B, "tree", ("deny", DOORS["mutation"])),
-    ("sed-i-e", "sed -i -e 's/a/b/' docs/a.md", B, "tree", ("deny", DOORS["mutation"])),
-    ("perl-pi", "perl -pi -e s/a/b/ docs/a.md", B, "tree", ("deny", DOORS["mutation"])),
-    ("awk-inplace", "awk -i inplace '{print}' docs/a.md", B, "tree", ("deny", DOORS["mutation"])),
-    ("ruby-i", "ruby -i -pe '$_.upcase!' docs/a.md", B, "tree", ("deny", DOORS["mutation"])),
-    ("tee", "echo x | tee docs/a.md", B, "tree", ("deny", DOORS["mutation"])),
-    ("set-content", "Set-Content docs\\a.md x", P, "tree", ("deny", DOORS["mutation"])),
-    ("out-file", "Out-File -FilePath docs\\a.md", P, "tree", ("deny", DOORS["mutation"])),
-    ("add-content-value-first", "Add-Content -Value x docs\\a.md", P, "tree", ("deny", DOORS["mutation"])),
-    ("dotnet-write", "[IO.File]::WriteAllText('docs\\a.md','x')", P, "tree", ("deny", DOORS["mutation"])),
-    ("py-open-w", "python -c \"open('docs/a.md','w').write('x')\"", B, "tree", ("deny", DOORS["mutation"])),
-    ("py-B-c", "python -B -c \"open('docs/a.md','w').write('x')\"", B, "tree", ("deny", DOORS["mutation"])),
-    ("python3-c", "python3 -c \"open('docs/a.md','w').write('x')\"", B, "tree", ("deny", DOORS["mutation"])),
-    ("py-3-c", "py -3 -c \"open('docs/a.md','w').write('x')\"", P, "tree", ("deny", DOORS["mutation"])),
-    ("py-heredoc-open", "python - <<'PY'\nopen('docs/a.md','a').write('x')\nPY", B, "tree", ("deny", DOORS["mutation"])),
-    ("py-path-write-text", "python -c \"from pathlib import Path; Path('docs/a.md').write_text('x')\"", B, "tree",
-     ("deny", DOORS["mutation"])),
-    ("py-json-dump-open", "python -c \"import json; json.dump({}, open('docs/a.json','w'))\"", B, "tree",
-     ("deny", DOORS["mutation"])),
-    ("env-prefix", "PYTHONUTF8=1 python -c \"open('docs/a.md','w')\"", B, "tree", ("deny", DOORS["mutation"])),
-    ("cross-tree", "echo x > {tree}/docs/a.md", B, "tree2", ("deny", DOORS["mutation"])),
-    ("new-dir-inside-tree", "echo x > docs/newdir/deeper/a.md", B, "tree", ("deny", DOORS["mutation"])),
-    ("git-show-redirect", "git show HEAD:f > docs/a.md", B, "tree", ("deny", DOORS["mutation"])),
-    ("crlf", "echo x > docs/a.md\r\nls\r\n", B, "tree", ("deny", DOORS["mutation"])),
-    ("cyrillic-space-path", 'echo x > "docs/привет мир.md"', B, "tree", ("deny", DOORS["mutation"])),
+# Command hygiene point 4 is removed (owner's word 16.11.2026): a shell command may write an ordinary file in any form;
+# one pass row per recognised form, and an unresolvable python payload passes silently.
+WRITES_PASS = [
+    ("redirect", "echo x > docs/a.md", B, "tree", S),
+    ("cat-heredoc", "cat > docs/a.md <<EOF\nx\nEOF", B, "tree", S),
+    ("sed-i", "sed -i 's/a/b/' docs/a.md", B, "tree", S),
+    ("tee", "echo x | tee docs/a.md", B, "tree", S),
+    ("set-content", "Set-Content docs\\a.md x", P, "tree", S),
+    ("out-file", "Out-File -FilePath docs\\a.md", P, "tree", S),
+    ("dotnet-write", "[IO.File]::WriteAllText('docs\\a.md','x')", P, "tree", S),
+    ("py-open-w", "python -c \"open('docs/a.md','w').write('x')\"", B, "tree", S),
+    ("py-heredoc-open", "python - <<'PY'\nopen('docs/a.md','a').write('x')\nPY", B, "tree", S),
+    ("py-unresolvable-open-variable-path", "python -c \"p='a.txt'; open(p,'w').write('x')\"", B, "tree", S),
+    ("py-parse-failure", 'python -c "def ("', B, "tree", S),
+    ("other-jsonl-in-tree", "echo x > logs/out.jsonl", B, "tree", S),
 ]
 JOURNAL = [
     ("append", f"echo x >> {JNL}", B, "tree", ("deny", DOORS["journal"])),
@@ -205,6 +179,9 @@ JOURNAL = [
     ("sed-i", f"sed -i s/a/b/ {JNL}", B, "tree", ("deny", DOORS["journal"])),
     ("routing-log", "echo x >> logs/routing-log.jsonl", B, "tree", ("deny", DOORS["journal"])),
     ("outside-any-tree", "echo x >> {scratch}/logs/journal/dev1.jsonl", B, "scratch", ("deny", DOORS["journal"])),
+    ("py-unresolvable-payload-names-journal",
+     "python -c \"p='x'; open(p,'w'); print('logs/journal/dev1.jsonl')\"", B, "tree", ("deny", DOORS["journal"])),
+    ("py-unresolvable-payload-no-journal", "python -c \"p='x'; open(p,'w'); print('logs/other.jsonl')\"", B, "tree", S),
 ]
 CD = [
     ("cd-and", "cd docs && ls", B, "tree", ("deny", DOORS["cd_bash"])),
@@ -225,6 +202,7 @@ CD = [
     ("dash", "cd -", B, "tree", ("deny", DOORS["cd_bash"])),
     ("dotnet-setcwd", "[IO.Directory]::SetCurrentDirectory('x')", P, "tree", ("deny", DOORS["cd_ps"])),
     ("ps-subshell", "( cd sub; ls )", P, "tree", ("deny", DOORS["cd_ps"])),
+    ("cd-and-write-still-refused-for-the-cd", "cd x; echo y > docs/a.md", B, "tree", ("deny", DOORS["cd_bash"])),
     ("root-with-continuation", f"cd {ROOT} && ls", B, "tree", ("deny", DOORS["cd_bash"])),
 ]
 ROLLBACK = [
@@ -255,23 +233,23 @@ MARKERS = [
 BIG = "x" * 100_000
 ADVERSARIAL = [
     ("100kb-benign", "echo " + BIG, B, "tree", S),
-    ("100kb-redirect", "echo " + BIG + " > docs/a.md", B, "tree", ("deny", DOORS["mutation"])),
-    ("1mb-payload-over-limit", "python -c \"print('" + "a" * 1_000_000 + "')\"", B, "tree", W),
-    ("1mb-redirect", "echo " + "x" * 1_000_000 + " > docs/a.md", B, "tree", ("deny", DOORS["mutation"])),
-    ("many-statements", "ls; " * 20_000 + "echo x > docs/a.md", B, "tree", ("deny", DOORS["mutation"])),
+    ("100kb-journal-redirect", "echo " + BIG + " >> " + JNL, B, "tree", ("deny", DOORS["journal"])),
+    ("1mb-payload-over-limit", "python -c \"print('" + "a" * 1_000_000 + "')\"", B, "tree", S),
+    ("1mb-journal-redirect", "echo " + "x" * 1_000_000 + " >> " + JNL, B, "tree", ("deny", DOORS["journal"])),
+    ("many-statements", "ls; " * 20_000 + "echo x >> " + JNL, B, "tree", ("deny", DOORS["journal"])),
     ("65-heredoc-openers", "".join(f"cat > docs/a{i}.md <<E{i}\nbody\nE{i}\n" for i in range(65)), B, "tree", S),
-    ("2-heredoc-openers-redirect", "cat > docs/a.md <<A\nx\nA\ncat > docs/b.md <<B\ny\nB\n", B, "tree",
-     ("deny", DOORS["mutation"])),
+    ("2-heredoc-openers-journal-redirect", "cat >> " + JNL + " <<A\nx\nA\ncat > docs/b.md <<B\ny\nB\n", B, "tree",
+     ("deny", DOORS["journal"])),
     ("heredoc-inside-quotes", 'echo "<<EOF > docs/a.md"', B, "tree", S),
     ("quotes-inside-heredoc", "cat <<'EOF'\nsay \"hi > docs/a.md\" it's\nEOF", B, "tree", S),
     ("unclosed-quote", "echo 'unterminated > docs/a.md", B, "tree", S),
-    ("python-open-many-unclosed", 'python -c "' * 5000, B, "tree", W),
+    ("python-open-many-unclosed", 'python -c "' * 5000, B, "tree", S),
     ("cyrillic-scratch", "echo привет > {scratch}/файл.txt", B, "tree", S),
     ("empty-payload", 'python -c ""', B, "tree", S),
     ("unbalanced-parens", "))) ((( echo x", B, "tree", S),
-    ("nul-in-command", "echo a\x00b > docs/a.md", B, "tree", ("deny", DOORS["mutation"])),
+    ("nul-in-command", "echo a\x00b >> " + JNL, B, "tree", ("deny", DOORS["journal"])),
 ]
-MU, JO, CDB, CDP, RB = (("deny", DOORS[k]) for k in ("mutation", "journal", "cd_bash", "cd_ps", "rollback"))
+JO, CDB, CDP, RB = (("deny", DOORS[k]) for k in ("journal", "cd_bash", "cd_ps", "rollback"))
 # Round 2 (critic t-112 C1): each row was red before its fix.
 ROUND2 = [
     # B-1: a comparison is never a redirect; a real redirect after the closing bracket still is
@@ -281,9 +259,6 @@ ROUND2 = [
     ("b1-dbl-bracket", "[[ abc > abb ]] && echo yes", B, "tree", S),
     ("b1-for-arith", "for ((i=10; i > 0; i--)); do echo $i; done", B, "tree", S),
     ("b1-arith-ge", "x=$(( a >= b ? 1 : 0 ))", B, "tree", S),
-    ("b1-redirect-after-arith", "(( n > 5 )) && echo x > docs/a.md", B, "tree", MU),
-    ("b1-redirect-after-dbl-bracket", "[[ a > b ]] && echo x > docs/a.md", B, "tree", MU),
-    ("b1-powershell-row-has-no-regions", "[[ a > docs/a.md ]]", P, "tree", MU),
     # B-2: every rollback shape is measured
     ("b2-clean-then-hard", "git checkout -- docs/d.md && git reset --hard", B, "repo", RB),
     ("b2-status-then-checkout", "git status; git checkout -- f.py", B, "repo", RB),
@@ -293,49 +268,33 @@ ROUND2 = [
     ("b3-subshell-cd-rel-rollback", "( cd sub && git checkout -- s.py )", B, "repo", RB),
     ("b3-subshell-cd-nested", "( cd docs && ( cd .. && git checkout -- f.py ) )", B, "repo", RB),
     ("b3-subshell-cd-journal", "( cd logs/journal && echo x >> dev1.jsonl )", B, "tree", JO),
-    ("b3-subshell-cd-redirect", "( cd docs && echo x > a.md )", B, "tree", MU),
-    ("b3-subshell-cd-payload", "( cd docs && python -c \"open('a.md','w')\" )", B, "tree", MU),
-    ("b3-after-group-closed", "( cd sub && make ); echo x > docs/a.md", B, "tree", MU),
-    ("b3-after-substitution-closed", "d=$(cd docs && pwd); echo x > docs/a.md", B, "tree", MU),
     ("b3-nonliteral-cd-rollback", "( cd $d && git reset --hard )", B, "repo", ("marker", "unresolvable")),
     ("b3-nonliteral-cd-redirect", "( cd $d && echo x > f.txt )", B, "tree", S),
     ("b3-nonliteral-cd-journal", "( cd $d && echo x >> dev1.jsonl )", B, "tree", S),
     ("b3-nonliteral-cd-does-not-leak", "( cd $d ); git reset --hard", B, "repo", RB),
-    ("b3-absolute-cd-in-group", "( cd /nowhere-zz && cd {tree} && echo x > docs/a.md )", B, "scratch", MU),
     # F-1: tee writes every operand
-    ("f1-tee-devnull-first", "printf x | tee /dev/null docs/a.md", B, "tree", MU),
-    ("f1-tee-two-files", "printf x | tee {scratch}/x docs/a.md", B, "tree", MU),
     ("f1-tee-journal-second", "printf x | tee /dev/null logs/journal/dev1.jsonl", B, "tree", JO),
     ("f1-tee-no-operand", "printf x | tee", B, "tree", S),
     ("f1-tee-append-null-only", "printf x | tee -a /dev/null", B, "tree", S),
     ("f1-tee-outside-only", "printf x | tee -a {scratch}/x {scratch}/y", B, "tree", S),
     # F-2: aliases and an assignment prefix
-    ("f2-sc-alias", "sc docs\\a.md x", P, "tree", MU),
     ("f2-ac-alias-journal", "ac logs\\journal\\dev1.jsonl x", P, "tree", JO),
     ("f2-assign-prefix-cd", "$null = Set-Location docs", P, "tree", CDP),
-    ("f2-assign-prefix-write", "$r = Set-Content docs\\a.md x", P, "tree", MU),
     ("f2-assign-prefix-read", "$x = Get-Content docs\\a.md", P, "tree", S),
     # F-3: PowerShell quotes escape with the backtick; a trailing backslash closes the string
     ("f3-ps-trailing-backslash-cd", 'Get-Item "C:\\x\\"; Set-Location docs; "y"', P, "tree", CDP),
-    ("f3-ps-trailing-backslash-redirect", 'Get-ChildItem "C:\\QAFactory\\" > docs\\a.md', P, "tree", MU),
     ("f3-ps-trailing-backslash-journal", 'Get-Item "C:\\x\\"; Add-Content logs\\journal\\dev1.jsonl x; "y"', P, "tree", JO),
-    ("f3-ps-backtick-escaped-quote", 'Write-Output "a`"b" > docs\\a.md', P, "tree", MU),
     ("f3-ps-quote-doubled", "Write-Output 'it''s > docs\\a.md'", P, "tree", S),
     ("f3-bash-escaped-quote-still-escapes", 'echo "a\\"b > docs/a.md"', B, "tree", S),
     # F-5: an MSYS path is translated before resolution; one that still does not exist is unresolved
     ("f5-msys-git-C", "git -C {repo_msys} reset --hard", B, "scratch", RB),
-    ("f5-msys-redirect", "echo x > {tree_msys}/docs/a.md", B, "scratch", MU),
     ("f5-msys-absent-dir", "git -C /c/nonexistent-zz-dir reset --hard", B, "scratch", ("marker", "addressed directory absent")),
     ("f5-msys-absent-redirect", "echo x > /c/nonexistent-zz-dir/a.md", B, "scratch", S),
     # F-6: an alias of open
-    ("f6-io-open-alias", "python -c \"from io import open as o; o('docs/a.md','w').write('x')\"", B, "tree", MU),
     # F-7: a colon-bound parameter
     ("f7-path-colon-scratch", "Set-Content -Path:{scratch}\\o.txt hello", P, "tree", S),
-    ("f7-path-colon-tree", "Set-Content -Path:docs\\a.md hello", P, "tree", MU),
-    ("f7-value-colon-then-path", "Set-Content -Value:hello docs\\a.md", P, "tree", MU),
     # F-8: the journal is logs/journal/*.jsonl and logs/routing-log.jsonl, nothing else
     ("f8-scratch-jsonl-outside", "python -B tools/x.py > {scratch}/logs/out.jsonl", B, "tree", S),
-    ("f8-other-jsonl-in-tree", "echo x > logs/out.jsonl", B, "tree", MU),
     ("f8-routing-log-backslash", "echo x >> logs\\routing-log.jsonl", B, "tree", JO),
     ("f8-routing-log-lookalike", "echo x > {scratch}/routing-log.jsonl.bak", B, "tree", S),
     ("f8-journal-subdir-not-journal", "echo x > {scratch}/logs/journal/sub/x.txt", B, "tree", S),
@@ -343,7 +302,7 @@ ROUND2 = [
     ("f14-bash-c-write", 'bash -c "echo x > docs/a.md"', B, "tree", S),
     ("f14-cmd-c-write", 'cmd /c "echo x > docs\\a.md"', P, "tree", S),
 ]
-ROWS = SILENT + WARN_ONLY + MUTATION + JOURNAL + CD + ROLLBACK + MARKERS + ADVERSARIAL + ROUND2
+ROWS = SILENT + WRITES_PASS + JOURNAL + CD + ROLLBACK + MARKERS + ADVERSARIAL + ROUND2
 
 
 @pytest.mark.parametrize("name,command,tool,cwd,expect", ROWS, ids=[r[0] for r in ROWS])
@@ -355,10 +314,8 @@ def test_decide_table(world, monkeypatch, name, command, tool, cwd, expect):
         monkeypatch.setenv("GIT_DIR", "x")
     code, out = _decide(command, tool, world[cwd])
     assert code == 0
-    if expect in (S, W):
-        assert _kind(out) == expect, out
-        if expect == W:
-            assert out["hookSpecificOutput"]["additionalContext"] == hg.WARN_PREFIX + hg.MSG_WARN_PAYLOAD
+    if expect == S:
+        assert _kind(out) == S, out
         return
     kind, text = expect
     assert _kind(out) == ("deny" if kind == "deny" else "marker"), out
@@ -369,7 +326,7 @@ def test_decide_table(world, monkeypatch, name, command, tool, cwd, expect):
 
 
 def test_order_when_several_fire(world):
-    cmd = f"echo x >> {JNL}; git reset --hard; cd x; echo y > docs/a.md"
+    cmd = f"echo x >> {JNL}; git reset --hard; cd x"
     _code, out = _decide(cmd, B, world["repo"])
     hso = out["hookSpecificOutput"]
     assert hso["permissionDecisionReason"] == hg.MSG_JOURNAL_BLOCK
@@ -377,12 +334,6 @@ def test_order_when_several_fire(world):
     positions = [ctx.index(DOORS[k]) for k in ("journal", "rollback", "cd_bash")]
     assert positions == sorted(positions)
     assert "journal target: " + JNL in ctx
-
-
-def test_refused_command_never_gets_the_warn_as_its_reason(world):
-    _code, out = _decide("python -c \"exec('1')\"; echo x > docs/a.md", B, world["tree"])
-    hso = out["hookSpecificOutput"]
-    assert hso["permissionDecisionReason"] != hg.MSG_WARN_PAYLOAD and hg.MSG_WARN_PAYLOAD in hso["additionalContext"]
 
 
 def test_rollback_git_status_unmeasurable_passes_with_marker(world, monkeypatch):
@@ -419,8 +370,7 @@ def test_unreadable_input_is_silent(payload):
     assert hg.decide(payload) == (0, None)
 
 
-@pytest.mark.parametrize("name", ["MSG_CD_BASH", "MSG_CD_POWERSHELL", "MSG_MUTATION", "MSG_JOURNAL_BLOCK",
-                                  "MSG_ROLLBACK", "MSG_WARN_PAYLOAD"])
+@pytest.mark.parametrize("name", ["MSG_CD_BASH", "MSG_CD_POWERSHELL", "MSG_JOURNAL_BLOCK", "MSG_ROLLBACK"])
 def test_every_text_is_at_most_350_characters_and_names_a_door(name):
     text = getattr(hg, name)
     assert len(text) <= 350, (name, len(text))
@@ -431,7 +381,8 @@ def test_removed_constants_and_detectors_are_gone():
     for gone in ("MSG_CD_PREFIX", "MSG_CD_NON_ROOT_WARN", "MSG_REDIRECT_STDERR", "MSG_PYTHON_DASH_C",
                  "MSG_PYTHON_DASH_C_OPAQUE", "MSG_PYTHON_DASH_C_BLOCK", "PYC_DENY_ENABLED", "_is_journal_bypass",
                  "_has_write_form", "PRINTF_ECHO_RE", "TEE_RE", "SED_INPLACE_RE", "OPEN_WRITE_MODE_RE",
-                 "_PS_WRITE_CMDLET_RE", "_collect_redirect_signal"):
+                 "_PS_WRITE_CMDLET_RE", "_collect_redirect_signal", "MSG_MUTATION", "MSG_WARN_PAYLOAD", "WARN_PREFIX",
+                 "HYGIENE_IGNORE_ROWS", "_tree_display", "_tree_root"):
         assert not hasattr(hg, gone), gone
 
 
@@ -489,14 +440,8 @@ def test_quote_mask_is_linear_on_64kb_of_escape_pairs(world, shell, unit):
 
 def test_formatted_texts_stay_within_350_characters():
     long_path = "d/" * 100 + "file.md"
-    assert len(hg.MSG_MUTATION.format(target=hg._clip(long_path))) <= 350
     assert len(hg.MSG_ROLLBACK.format(n=99999, dir=hg._clip("C:\\" + long_path))) <= 350
     assert len(hg._clip(long_path)) == hg.SHOWN_TARGET_CHARS and hg._clip(long_path).endswith("file.md")
-
-
-def test_long_target_refusal_stays_within_350_characters(world):
-    _code, out = _decide("echo x > docs/" + "n" * 200 + "/a.md", B, world["tree"])
-    assert all(len(v) <= 350 for v in (out["hookSpecificOutput"]["permissionDecisionReason"],))
 
 
 def test_chained_rollback_names_the_first_dirty_target(world):
@@ -540,7 +485,7 @@ def _wire(command, cwd):
     ("json-null", b"null", False),
 ])
 def test_process_reader(world, name, raw, denied):
-    body = _wire("echo x > docs/a.md", world["tree"]).encode("utf-8")
+    body = _wire(f"echo x >> {JNL}", world["tree"]).encode("utf-8")
     data = body if raw is None else (raw + body if raw.startswith(b"\xef") else raw)
     done = _run_hook(data, world["tree"])
     assert done.returncode == 0 and done.stderr == b""
@@ -575,8 +520,8 @@ RUN_ALLOWED_ROWS = [
     ("git-checkout-on-a-dirty-tree", "git checkout -- .", "repo", False),
     ("cd-then-pytest", "cd tools && pytest", "clean", False),
     ("command-substitution-cd", "$(echo cd) x", "clean", False),
-    ("unresolvable-payload-is-a-warn-so-refused", 'python -c "print($X)"', "clean", False),
-    ("python-parse-failure-warn-refused", 'python -c "def ("', "clean", False),
+    ("unresolvable-payload-is-doubt-so-refused", 'python -c "print($X)"', "clean", False),
+    ("python-parse-failure-doubt-refused", 'python -c "def ("', "clean", False),
     ("size-cap-at-the-limit-is-judged", "echo " + "x" * _PAD, "clean", True),
     ("size-cap-one-over-is-refused", "echo " + "x" * (_PAD + 1), "clean", False),
     ("seventy-kb", "echo " + "x" * 70_000, "clean", False),

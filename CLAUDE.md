@@ -402,7 +402,7 @@ to a lower tier:
 
 ## Command hygiene (permission hygiene)
 
-The deployment runs in auto mode; four behaviours are refused by `tools/hygiene_gate.py`, every other form is allowed.
+The deployment runs in auto mode; three behaviours are refused by `tools/hygiene_gate.py`, every other form is allowed.
 Doors: `git -C <dir> <cmd>`, `python -B <abs path>`, a Bash `( cd <dir> && ... )` subshell, a PowerShell
 child shell, a byte copy (`cp`/`Copy-Item`) and its restore.
 
@@ -411,12 +411,8 @@ child shell, a byte copy (`cp`/`Copy-Item`) and its restore.
    the canonical form of a tool = its correctly invoked form, the invocation that finds a known sample.
 2. The proxy server — not used in this deployment: the contour is subscription and nothing in gateway/ is run.
 3. The shell's working directory never moves (`cd`, `Set-Location`): refused.
-4. File edits — only via Edit/Write tools: a redirect, `tee`, `sed -i` or `python -c` writing a git-tree file's literal path is refused.
-
-   | pt.4 | when | duty |
-   |---|---|---|
-   | a | a NAMED, committed script with its output attached | legitimate: committed and reviewable |
-   | b | a `-c`/heredoc payload that is a pure calculation/read | outside this point's scope, the gate stays silent; an unresolvable payload gets one WARN |
+4. File edits — by any tool (the owner's word 16.11.2026: the Edit/Write-only rule is retired); a worker still writes
+   only inside its `owns`, judged by the diff at acceptance.
 
 5. Log entries — through `tools/journal_write.py` only (the owner's word 14.11.2026): a redirect, tee, in-place editor
    or payload that writes `logs/journal/*.jsonl` or `logs/routing-log.jsonl` is refused; an Edit/Write of them draws a

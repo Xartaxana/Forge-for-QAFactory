@@ -359,10 +359,10 @@ def test_check_transcripts_present_no_warn_when_populated(tmp_path, capsys):
     ("python tools/foo.py 2>&1", []),                                   # an allowed form: no label at all
     ("cd tools && python foo.py", ["cd"]),
     ("Set-Location tools; python foo.py", ["cd"]),
-    ("echo x > docs/a.md", ["content write (literal target)"]),
-    ("echo '{}' >> logs/routing-log.jsonl", ["content write (literal target)", "journal write"]),
+    ("echo x > docs/a.md", []),                                         # point 4 removed: an ordinary write is no class
+    ("echo '{}' >> logs/routing-log.jsonl", ["journal write"]),
     ("git checkout -- f.py", ["rollback shape"]),
-    ('python -c "exec(\'1\')"', ["payload uncertain"]),
+    ('python -c "exec(\'1\')"', []),
     ('python -c "print(1)"', []),
     ("grep x logs/journal/dev1.jsonl 2>/dev/null", []),
 ], ids=["2to1-none", "cd", "set-location", "write", "journal", "rollback", "uncertain", "pure-payload", "read-journal"])
@@ -370,9 +370,8 @@ def test_classify_hygiene_one_row_per_label(command, expected):
     assert pa.classify_hygiene(command) == expected
 
 
-def test_the_five_labels_are_shapes_not_verdicts():
-    assert pa.HYGIENE_CLASS_LABELS == ["cd", "content write (literal target)", "journal write", "rollback shape",
-                                       "payload uncertain"]
+def test_the_three_labels_are_shapes_not_verdicts():
+    assert pa.HYGIENE_CLASS_LABELS == ["cd", "journal write", "rollback shape"]
 
 
 def test_audit_replay_of_a_rollback_shaped_command_performs_no_subprocess(monkeypatch):
@@ -424,13 +423,12 @@ def test_classify_hygiene_command_empty_string():
 
 def test_classify_hygiene_100kb_command_no_crash_and_correct():
     huge = "echo " + ("x" * 100_000) + " > docs/a.md"
-    result = pa.classify_hygiene(huge)
-    assert result == ["content write (literal target)"]
+    assert pa.classify_hygiene(huge) == []
 
 
 def test_classify_hygiene_cyrillic_and_replacement_char_no_crash():
     cmd = "echo привет мир > docs/файл.md �"
-    assert pa.classify_hygiene(cmd) == ["content write (literal target)"]
+    assert pa.classify_hygiene(cmd) == []
 
 
 # --- collect_hygiene_class_stats: both bases (all scanned, not only
@@ -474,11 +472,10 @@ def test_collect_hygiene_class_stats_double_count_one_command_multiple_classes(t
 
     class_counts, class_suspect_counts, any_class_count = pa.collect_hygiene_class_stats(None)
     assert class_counts["cd"] == 1
-    assert class_counts["content write (literal target)"] == 1
     assert class_counts["journal write"] == 1
     assert class_counts["rollback shape"] == 0
-    # one command, but the sum of class hits == 3 != the command count (1)
-    assert sum(class_counts.values()) == 3
+    # one command, but the sum of class hits == 2 != the command count (1)
+    assert sum(class_counts.values()) == 2
     assert any_class_count == 1
 
 
@@ -588,14 +585,10 @@ def _gate_attribution(cmd: str) -> set[str]:
     labels = set()
     if signals["cd"]:
         labels.add("cd")
-    if signals["write_targets"]:
-        labels.add("content write (literal target)")
     if signals["journal"]:
         labels.add("journal write")
     if signals["rollback_forms"]:
         labels.add("rollback shape")
-    if signals["payload_uncertain"]:
-        labels.add("payload uncertain")
     return labels
 
 

@@ -1,4 +1,4 @@
-"""hygiene_gate.py -- PreToolUse hook for command hygiene on the Bash and PowerShell tools: it refuses exactly four behaviours (moving the shell's working directory, writing the content of a git working-tree file by a literal target past Edit/Write, writing the journal, discarding dirty working-tree changes) and lets every other form pass silently.
+"""hygiene_gate.py -- PreToolUse hook for command hygiene on the Bash and PowerShell tools: it refuses exactly three behaviours (moving the shell's working directory, writing the journal, discarding dirty working-tree changes) and lets every other form pass silently. Writing the content of an ordinary file by a shell command is NOT refused (owner's word 16.11.2026: command hygiene point 4 removed).
 
 DELIVERY CHANNEL (verified against the installed harness): the hook answers on stdout, exit 0, as
 `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "...", "permissionDecision": "deny",
@@ -6,20 +6,18 @@ DELIVERY CHANNEL (verified against the installed harness): the hook answers on s
 auto-approve a command the operator's own prompt should see); `additionalContext` always carries the refusal reasons too,
 so a refusal degrades to a visible text if the deny channel were inert.
 
-THE FOUR REFUSALS (spec docs/tasks/specs/fg-context-and-hygiene.md section 4; each text names what is wrong, what is
+THE THREE REFUSALS (spec docs/tasks/specs/fg-context-and-hygiene.md section 4; each text names what is wrong, what is
 expected and a door the refused party can use -- FR-1, FR-2, P15):
   cd        the session shell's working directory is never moved: `cd`, `chdir`, `pushd`, `popd`, `Set-Location`, `sl`,
             `Push-Location`, `Pop-Location` at a statement start, `eval "cd x"`, `[IO.Directory]::SetCurrentDirectory`,
             `[Environment]::CurrentDirectory =`. Legal: a bare `cd <this checkout's root>` (the way back), a verb inside a
             subshell when the tool's capability row says the subshell scopes the directory (Bash), a verb inside a quoted
             child-shell argument.
-  mutation  a file of a git working tree never gets its CONTENT written by a redirect, tee / Tee-Object / Out-File /
-            Set-Content / Add-Content, a .NET file write, an in-place editor (sed -i, perl -i, awk -i inplace, ruby -i) or
-            an interpreter payload, when the target is a LITERAL path. File-level rm / mv / cp / mkdir pass (in every
-            syntax). Null sinks, non-literal targets and targets outside every working tree pass.
-  journal   a write (the same M1-M3 forms) whose literal target is a journal file (`logs/journal/*.jsonl` or
-            `logs/routing-log.jsonl`, under any directory prefix, either slash); refused wherever the file lies. Any other
-            `.jsonl` is judged only by the general tree check. Reading a journal is never refused.
+  journal   a write whose literal target is a journal file (`logs/journal/*.jsonl` or `logs/routing-log.jsonl`, under any
+            directory prefix, either slash) by a redirect, tee / Tee-Object / Out-File / Set-Content / Add-Content, a .NET
+            file write, an in-place editor (sed -i, perl -i, awk -i inplace, ruby -i) or a python payload; plus a python
+            payload the gate cannot resolve whose text names a journal path literally. Refused wherever the file lies.
+            Any other file may be written by a shell command. Reading a journal is never refused.
   rollback  `git checkout/restore/reset --hard/clean -f/switch --discard-changes/stash [push]` whose scope has changes
             `git status` shows, measured in the repository the command ADDRESSES (`git -C` composed left to right).
 
@@ -28,13 +26,12 @@ pwsh/powershell, bash/sh/zsh/dash/ksh and cmd is not read; only python is classi
 
 INVARIANT ABOVE ALL: a read or a calculation is never refused (`>` inside `(( ))`, `$(( ))`, `[[ ]]` is not a redirect),
 and no refusal is issued on a target the gate could not resolve. A refusal needs a certain form AND a resolved literal target (or a measured dirty status); everything uncertain
-passes. The one exception to silence is a single short WARN for a python payload the gate cannot resolve (a non-literal
-path or mode, an unresolved `.write`, exec/eval/subprocess, a parse failure, a payload over PYC_PAYLOAD_LIMIT).
+passes, silently. `run_allowed` (the --run road) alone refuses on doubt, including an unresolvable python payload.
 
 WHERE EACH SIGNAL IS COMPUTED: `_collect_signals(command)` is PURE (no subprocess, no filesystem, no clock) because
 permission_audit.classify_hygiene replays every historical command through it; it returns FORMS only (cd hits, literal
 write targets, the journal flag, the rollback shape, the payload classes). Everything that needs the filesystem or git
-(the working tree of a target, `git status`, statting a checkout argument) runs only in `decide()`.
+(`git status`, statting a checkout argument) runs only in `decide()`.
 
 Fail-open: a non-Bash/PowerShell tool, empty or malformed stdin, a non-dict payload or a missing command pass silently;
 an exception while classifying a real command passes too, but VISIBLY (MSG_FAIL_OPEN_TEMPLATE); a rollback that cannot be
@@ -62,7 +59,6 @@ except Exception:  # a copy of this file alone in a folder (permission_audit's C
     gitcmd = None
 
 # --- texts (P15: what is wrong, what is expected, the door; each <= 350 characters) --------------------------
-WARN_PREFIX = "Command hygiene (WARN, does not block): "
 DENY_PREFIX = "Command hygiene: "
 
 MSG_CD_BASH = (
@@ -74,11 +70,6 @@ MSG_CD_POWERSHELL = (
     "Use git -C <dir>, python -B <absolute path>, a tool's --repo/--root, or a child shell: "
     "powershell -NoProfile -Command \"Set-Location <dir>; <cmd>\"."
 )
-MSG_MUTATION = (
-    "{target} is a file of a git working tree and this command writes its content past the Edit/Write hooks. "
-    "Use Edit/Write (or a named committed script). Scratch output: write it outside the tree, or put the code in "
-    "a script under the scratchpad (python -B <path>). A reading role: Edit/Write your handoff file."
-)
 MSG_JOURNAL_BLOCK = (
     "the journal is written by `python -B tools/journal_write.py <event> ...` (the hooks write delegated/returned "
     "themselves); a redirect, tee or sed -i onto it is refused. Reading it with grep, cat or tail is fine."
@@ -87,9 +78,6 @@ MSG_ROLLBACK = (
     "{n} path(s) under {dir} have uncommitted changes that may be another session's, and this command would discard "
     "them. Your own edit: undo it with Edit/Write. A byte copy you took: restore from it. Changes that are not yours: "
     "leave them and tell the Lead."
-)
-MSG_WARN_PAYLOAD = (
-    "this python payload may write a file the gate cannot resolve; if it writes inside a repository, use Edit/Write."
 )
 MSG_ROLLBACK_NOT_CHECKED = "rollback not checked: {reason}"
 MSG_FAIL_OPEN_TEMPLATE = "hygiene_gate: internal classifier error ({exc_type}), hygiene was NOT checked"
@@ -107,9 +95,7 @@ SHELL_CAPABILITIES = {
     "PowerShell": {"subshell_scopes_cwd": False, "cd_door": MSG_CD_POWERSHELL, "dq_escape": "`",
                    "arith_regions": False, "assign_prefix": True},
 }
-SHOWN_TARGET_CHARS = 40     # the target / directory a refusal shows is clipped to its tail, so a text stays <= 350
-# A root-relative path starting with a row is not "in a working tree" for the content-write refusal (F-C3).
-HYGIENE_IGNORE_ROWS = ("ci-out/",)
+SHOWN_TARGET_CHARS = 40     # the directory a refusal shows is clipped to its tail, so a text stays <= 350
 # Statement starts: after these words the next word is a command again (t-098 F2).
 _START_WORD_RE = re.compile(r"\s*(?:then|do|else|elif|builtin|command|time|!)(?=\s|$)", re.IGNORECASE)
 _CD_VERBS = frozenset({"cd", "chdir", "pushd", "popd", "set-location", "sl", "push-location", "pop-location"})
@@ -445,6 +431,9 @@ def _cmd_name(text: str) -> str:
 
 
 _JOURNAL_RE = re.compile(r"(?:^|/)logs/(?:journal/[^/]+|routing-log)\.jsonl$")
+
+
+_JOURNAL_TEXT_RE = re.compile(r"logs/(?:journal/[^/\s'\"]+|routing-log)\.jsonl")
 
 
 def _is_journal_target(target: str) -> bool:
@@ -1337,13 +1326,21 @@ class _Walker:
         self.payloads_seen += 1
         if self.payloads_seen > _MAX_PAYLOADS_PER_COMMAND:
             self.sig["payload_uncertain"] = True
+            self._journal_in_text(texts)
             return
         targets, uncertain = _payload_verdict(texts, dynamic)
         self.sig["payload_uncertain"] = self.sig["payload_uncertain"] or uncertain
+        if uncertain:
+            self._journal_in_text(texts)
         for t in targets:
             t = t.strip("\r ")
             if t and not self._add_target("payload", t):
                 self.sig["payload_uncertain"] = True
+
+    def _journal_in_text(self, texts: list) -> None:
+        """An unresolvable payload whose text names a journal path literally is refused as a journal write."""
+        if any(_JOURNAL_TEXT_RE.search(t.replace("\\", "/").lower()) for t in texts):
+            self.sig["journal"] = True
 
     # --- rollback forms: EVERY shape in the command is kept, each with the directory it runs in
     def _rollback(self, args: list) -> None:
@@ -1422,35 +1419,6 @@ def _absolute_target(target: str, cwd: str) -> str:
     return os.path.normpath(p)
 
 
-def _tree_root(path: str):
-    """The nearest ancestor of `path` holding `.git` (file or directory), by path walk; None when there is none."""
-    d = os.path.dirname(path)
-    while True:
-        if os.path.lexists(os.path.join(d, ".git")):
-            return d
-        parent = os.path.dirname(d)
-        if parent == d:
-            return None
-        d = parent
-
-
-def _tree_display(target: str, cwd: str):
-    """The root-relative path of `target` when it lies in a git working tree (not under `.git/`, not an ignore row);
-    None otherwise. A target that cannot be resolved is not in a tree."""
-    try:
-        path = _absolute_target(target, cwd)
-        root = _tree_root(path)
-        if root is None:
-            return None
-        rel = os.path.relpath(path, root).replace("\\", "/")
-    except (ValueError, OSError):
-        return None
-    low = rel.lower()
-    if low == ".git" or low.startswith(".git/") or any(low.startswith(row) for row in HYGIENE_IGNORE_ROWS):
-        return None
-    return rel
-
-
 def _measure_rollback(form: dict, cwd: str):
     """("refuse", n, dir) | ("pass",) | ("marker", reason). Never raises."""
     try:
@@ -1511,7 +1479,7 @@ def _decide_command(tool_name: str, command: str, payload: dict):
     cwd = payload.get("cwd")
     if not isinstance(cwd, str) or not cwd:
         cwd = os.getcwd()
-    deny, notes, warn = [], [], []
+    deny, notes = [], []
     if sig["journal"]:
         deny.append(MSG_JOURNAL_BLOCK)
         shown = [t for _f, t in sig["write_targets"] if _is_journal_target(t)][:1]
@@ -1529,30 +1497,17 @@ def _decide_command(tool_name: str, command: str, payload: dict):
     capability = SHELL_CAPABILITIES[tool_name]      # decide() lets only the two rows' tools through
     if any(not h["bare_return"] and not (h["in_subshell"] and capability["subshell_scopes_cwd"]) for h in sig["cd"]):
         deny.append(capability["cd_door"])
-    for _form, target in sig["write_targets"]:
-        shown = _tree_display(target, cwd)
-        if shown is not None:
-            deny.append(MSG_MUTATION.format(target=_clip(shown)))
-            break
-    if sig["payload_uncertain"]:
-        warn.append(MSG_WARN_PAYLOAD)
     if deny:
         return 0, {"hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "permissionDecision": "deny",
             "permissionDecisionReason": deny[0],
-            "additionalContext": DENY_PREFIX + "; ".join(deny + notes + warn),
+            "additionalContext": DENY_PREFIX + "; ".join(deny + notes),
         }}
     if notes:
         return 0, {"hookSpecificOutput": {
             "hookEventName": "PreToolUse",
-            "additionalContext": DENY_PREFIX + "; ".join(notes)
-            + ("; " + "; ".join(warn) if warn else ""),
-        }}
-    if warn:
-        return 0, {"hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "additionalContext": WARN_PREFIX + "; ".join(warn),
+            "additionalContext": DENY_PREFIX + "; ".join(notes),
         }}
     return 0, None
 
@@ -1570,9 +1525,9 @@ def run_allowed(cmd, cwd) -> tuple[bool, list[str]]:
     """(ok, reasons) -- may the command text `cmd` be RUN (journal_write accept --run) from `cwd`? Offload B0, X-1/X-9.
     The same judgment as the live gate (`_decide_command` as a Bash call), but the ERROR DIRECTION is the opposite of
     decide(): this is the only check before an unhooked subprocess, so it REFUSES on doubt. ok is True only for the gate's
-    plain allow (no answer at all); a deny, a WARN-class or note answer (an unresolvable payload, an unmeasured
-    rollback), an exception, a NUL byte, a non-string, an empty command or one over RUN_COMMAND_MAX is (False, reasons).
-    The refusal classes of the live gate are unchanged."""
+    plain allow (no answer at all) with no unresolvable python payload; a deny, a note answer (an unmeasured rollback),
+    an unresolvable payload, an exception, a NUL byte, a non-string, an empty command or one over RUN_COMMAND_MAX is
+    (False, reasons). The refusal classes of the live gate are unchanged."""
     try:
         if not isinstance(cmd, str) or not cmd.strip():
             return False, ["the command is empty or not text"]
@@ -1585,6 +1540,9 @@ def run_allowed(cmd, cwd) -> tuple[bool, list[str]]:
                            "know what runs; write the command out literally, or put it in a file and pass it with --witness-file"]
         _code, out = _decide_command("Bash", cmd, {"cwd": cwd})
         if out is None:
+            if _collect_signals(cmd, "Bash")["payload_uncertain"]:       # the live gate passes it silently; this road does not
+                return False, ["a python payload in the command cannot be resolved by the gate, so it may write a journal; "
+                               "put the code in a file and pass it with --witness-file"]
             return True, []
         hso = out.get("hookSpecificOutput", {}) if isinstance(out, dict) else {}
         reason = hso.get("permissionDecisionReason") or hso.get("additionalContext") or "the gate did not give a plain allow"

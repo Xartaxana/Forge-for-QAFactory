@@ -217,6 +217,7 @@
 | `findings/20261114-dispetcher-spec-bez-uzla-hodoka-strok-vyhoda.md` | находка, id — | дефект диспетчера: в спеке P1-b не было узла, владеющего ходоком строк выхода, два билдера вернулись пустыми (t-803, t-804) | `.claude/agents/designer.md` | пачка 7, FG7-40 | нет | утренний разбор Lead 14.11; AR-25, P12 |
 | `findings/20261114-dispetcher-predpisal-stroku-judgment-none-bez-prichiny.md` | находка, id — | дефект диспетчера: предписана строка `judgment: none` без причины, гейт её отказывает (t-806) | `.claude/agents/designer.md` | пачка 7, FG7-41 | нет | утренний разбор Lead 14.11; FR-1, AR-13 |
 | `findings/20261116-razgruzka-koordinatora-ostatki-bez-vladeltsa-posle-posadki.md` | находка, id — | замечания критиков разгрузки координатора без узла: переключатель журнала на отказ, остатки `wave.py`, спека, тема SC, карточки | `tools/journal_hooks.py`, `tools/wave.py`, спека разгрузки, `plans/piles/*/README.md` | пачка 7, FG7-42…FG7-46 | нет | карта t-876, посадка 16.11; P31, AR-13 |
+| `findings/20261116-koordinator-teryaet-hody-na-svidetelyah-starte-i-vyvode-hukov.md` | находка, id — | координатор тратит ходы на перепрогон свидетеля, чтение журнала на старте и вывод хуков при успехе | `tools/journal_echo.py`, `tools/session_context.py`, `tools/dispatch_manifest.py`, `.githooks/` | пачка 7, FG7-47…FG7-49 | нет (слова владельца 16.11 даны) | ретро 13–16.11; P11, FR-55 |
 
 ## Входящие
 

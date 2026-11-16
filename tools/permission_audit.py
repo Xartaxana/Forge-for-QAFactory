@@ -174,10 +174,8 @@ CLAUDE_PROJECTS = _resolve_claude_projects(REPO)
 # report's lines line up with calibration wording without translation.
 HYGIENE_CLASS_LABELS = [
     "cd",
-    "content write (literal target)",
     "journal write",
     "rollback shape",
-    "payload uncertain",
 ]
 
 # --- commands the harness auto-allows with no allowlist entry (a practical, trimmed list) ---
@@ -472,14 +470,10 @@ def classify_hygiene(command) -> list[str]:
     classes = []
     if signals["cd"]:
         classes.append("cd")
-    if signals["write_targets"]:
-        classes.append("content write (literal target)")
     if signals["journal"]:
         classes.append("journal write")
     if signals["rollback_forms"]:
         classes.append("rollback shape")
-    if signals["payload_uncertain"]:
-        classes.append("payload uncertain")
     return classes
 
 

@@ -199,7 +199,7 @@
       "carrier": ["tools/hygiene_gate.py"],
       "symbol": null,
       "literal": "Command hygiene: ",
-      "aliases": ["Command hygiene (WARN, does not block): "],
+      "aliases": [],
       "hook_event": "PreToolUse",
       "matcher": "Bash|PowerShell",
       "denominator": "Z1",
