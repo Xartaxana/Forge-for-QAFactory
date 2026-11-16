@@ -97,10 +97,16 @@ without side effects, same as the rest of this file set.
 
 import json
 import os
+import re
 import sys
 import threading
 from datetime import datetime
 from pathlib import Path
+
+try:
+    import gitcmd
+except Exception:  # a copy of this file alone in a folder carries no gitcmd
+    gitcmd = None
 
 
 def _now_iso() -> str:
@@ -384,6 +390,173 @@ def named_handoffs(payload: dict, base: str) -> list:
         return []
 
 
+# --- owns at stop: the RESULT in git judged against the worker's owns (FG7-53) ---
+# The twin of owns_gate (Edit/Write time): the same reader of owns (dispatch_manifest.owned_paths over the
+# worker's own dispatch text, the reader owns_gate.extract_owns_paths wraps) and the same matching rule
+# (owns_gate.paths_overlap). A shell write outside owns is seen here, at the stop, in git.
+
+OWNS_SKIP_RE = re.compile(r"^\s*owns-skip:\s*(.+?)\s+--\s+\S", re.IGNORECASE | re.MULTILINE)
+_NEW_MARK_RE = re.compile(r"\s*\(new\)\s*$", re.IGNORECASE)
+# Under .claude/ only these are configuration a worker may really change; every other .claude/ folder is
+# runtime the hooks write (dod_track, snapshots, worktrees) and is never counted.
+_CLAUDE_CONFIG = {"agents", "commands", "skills", "hooks", "rules", "settings.json", "settings.local.json"}
+_OWNS_LIST_LIMIT = 10
+
+OWNS_BLOCK_MESSAGE = (
+    "Stop blocked: these changed paths are outside your owns: {paths}. Expected: changes only inside your "
+    "owns (plus the handoff report). Doors: (1) undo your edit with Edit/Write (or restore the path from "
+    "your byte copy); or (2) leave it, name it in the report under \"needed beyond the manifest\" and add "
+    "the line `owns-skip: <path> -- <reason>` to the report file{report}."
+)
+
+
+class _GitFailed(Exception):
+    pass
+
+
+class _NotJudged(Exception):
+    pass
+
+
+def _need(rc: int, out: bytes) -> str:
+    """The text of a git answer; a failure (rc -1 or != 0) is _GitFailed with the first line."""
+    text = gitcmd.as_text(out)
+    if rc != 0:
+        raise _GitFailed(text.strip().splitlines()[0] if text.strip() else "git exited %d" % rc)
+    return text
+
+
+def _owns_gate_module():
+    tools_dir = str(Path(__file__).resolve().parent)
+    if tools_dir not in sys.path:
+        sys.path.insert(0, tools_dir)
+    import owns_gate
+    return owns_gate
+
+
+def _worker_cut(payload: dict):
+    """(handoff_gate, dispatch_manifest, cut) of the stopping worker's dispatch; None when the stop is not a
+    worker's (no agent id) -- silent; raises _NotJudged("dispatch text not found") when the worker's dispatch
+    cannot be read."""
+    agent_id = payload.get("agent_id")
+    if not (isinstance(agent_id, str) and agent_id):
+        return None
+    tp = payload.get("transcript_path")
+    atp = payload.get("agent_transcript_path")
+    if not (isinstance(tp, str) and tp) and not (isinstance(atp, str) and atp):
+        return None  # no transcript named: nothing to read, nothing failed (as named_handoffs)
+    hg, dm = _import_readers()
+    worker_file = Path(atp) if isinstance(atp, str) and atp else hg._worker_file(tp, agent_id)
+    text = hg._dispatch_text(worker_file)
+    if text is None:
+        raise _NotJudged("dispatch text not found")
+    cut = dm.section_cut(text)
+    if cut is None or cut.degraded:
+        raise _NotJudged("dispatch text not found")
+    return hg, dm, cut
+
+
+def _changed_paths(cwd: str) -> list:
+    """Repo-relative paths changed in the working tree (status, untracked not ignored) and committed by the
+    worker's OWN commits on this branch (first-parent, no merges: what it merged in from main is not its
+    change). Raises _GitFailed."""
+    out = []
+    parts = _need(*gitcmd.git(cwd, "status", "--porcelain", "-z", "-uall")).split("\0")
+    i = 0
+    while i < len(parts):
+        entry = parts[i]
+        i += 1
+        if len(entry) < 4:
+            continue
+        out.append(entry[3:])
+        if entry[0] in "RC":
+            i += 1  # the rename source follows as its own field
+    if gitcmd.git(cwd, "rev-parse", "--verify", "-q", "origin/main")[0] != 0:
+        raise _GitFailed("no origin/main")
+    out += _need(*gitcmd.git(cwd, "log", "--first-parent", "--no-merges", "--name-only", "-z",
+                             "--format=", "origin/main..HEAD")).split("\0")
+    seen, unique = set(), []
+    for p in out:
+        p = p.lstrip("\n")
+        if p and p not in seen:
+            seen.add(p)
+            unique.append(p)
+    return unique
+
+
+def _is_runtime(rel: str) -> bool:
+    segs = [s for s in rel.replace("\\", "/").split("/") if s]
+    return len(segs) >= 2 and segs[0] == ".claude" and segs[1] not in _CLAUDE_CONFIG
+
+
+def owns_at_stop(payload: dict, cwd: str):
+    """(message | None, note | None): the block message when the worker changed paths outside its owns, else
+    None; note is the one stderr line for a not-judged case. Silent (None, None) for a stop that is not a worker's
+    and for a worker whose dispatch carries no owns paths. INVARIANT: an unknown (dispatch unreadable, git
+    failed, an exception) never refuses and is never presented as checked: it is the `not judged` line."""
+    try:
+        return _owns_at_stop(payload, cwd)
+    except _NotJudged as exc:
+        return None, "owns at stop: not judged (%s)" % exc
+    except _GitFailed as exc:
+        return None, "owns at stop: not judged (git: %s)" % exc
+    except Exception as exc:
+        first = (str(exc).strip().splitlines() or [""])[0]
+        return None, "owns at stop: not judged (%s: %s)" % (type(exc).__name__, first)
+
+
+def _owns_at_stop(payload: dict, cwd: str):
+    if gitcmd is None:
+        raise _NotJudged("gitcmd is not importable")
+    found = _worker_cut(payload)
+    if found is None:
+        return None, None
+    hg, dm, cut = found
+    og = _owns_gate_module()
+    owns = [_NEW_MARK_RE.sub("", p.path) for p in dm.owned_paths(cut)]
+    if not owns:
+        return None, None
+    gdir, common = [og.normalize_path(x) for x in _need(*gitcmd.git(
+        cwd, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir")).split("\n")[:2]]
+    if gdir == common:
+        return None, "owns at stop: not judged (shared checkout)"
+    top = og.normalize_path(_need(*gitcmd.git(cwd, "rev-parse", "--show-toplevel")).strip())
+    clone = og.normalize_path(_need(*gitcmd.git(cwd, "worktree", "list", "--porcelain")).split("\n")[0][len("worktree "):])
+    changed = _changed_paths(cwd)
+
+    def reroot(path: str) -> str:
+        n = og.normalize_path(path)
+        return top + n[len(clone):] if n == clone or n.startswith(clone + "/") else n
+
+    allowed = [reroot(p) for p in owns]
+    handoffs = [p for p in dm.handoff_paths(cut)]
+    allowed += [reroot(p) for p in handoffs]
+    skips = set()
+    for h in handoffs:
+        try:
+            text = Path(reroot(h)).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for m in OWNS_SKIP_RE.finditer(text):
+            sp = og.normalize_path(m.group(1).strip().strip("`"))
+            skips.add(reroot(sp) if os.path.isabs(sp) or re.match(r"^[a-z]:/", sp) else top + "/" + sp.removeprefix("./"))
+    outside = []
+    for rel in changed:
+        if _is_runtime(rel):
+            continue
+        absolute = top + "/" + og.normalize_path(rel)
+        if any(og.paths_overlap(absolute, a) for a in allowed) or absolute in skips:
+            continue
+        outside.append(rel)
+    if not outside:
+        return None, None
+    shown = ", ".join(outside[:_OWNS_LIST_LIMIT])
+    if len(outside) > _OWNS_LIST_LIMIT:
+        shown += " and %d more" % (len(outside) - _OWNS_LIST_LIMIT)
+    report = " (%s)" % handoffs[0] if handoffs else ""
+    return OWNS_BLOCK_MESSAGE.format(paths=shown, report=report), None
+
+
 def _handoff_block(track, agent_id, agent_state, handoffs, base):
     """The path to report when the once-block is due, else None."""
     if not handoffs or len(handoffs) != 1 or agent_state.get(HANDOFF_ONCE_KEY):
@@ -398,7 +571,7 @@ def _handoff_block(track, agent_id, agent_state, handoffs, base):
 
 
 def decide(track: dict, agent_id: str | None = None, handoffs=None,
-           base: str | None = None) -> tuple[int, str, dict]:
+           base: str | None = None, owns_message: str | None = None) -> tuple[int, str, dict]:
     """Pure decision logic after the track is loaded. agent_id passes
     straight through to evaluate() (see its docstring for the filter
     semantics) AND is used here for per-agent consecutive_blocks (see
@@ -426,7 +599,10 @@ def decide(track: dict, agent_id: str | None = None, handoffs=None,
         )
         return 2, HANDOFF_MISSING_MESSAGE.format(path=missing), track
 
-    violation, reason = evaluate(track, agent_id)
+    run_violation, reason = evaluate(track, agent_id)
+    violation = run_violation or bool(owns_message)
+    if not run_violation and owns_message:
+        reason = "owns-outside"  # owns_message: the "owns at stop" verdict (owns_at_stop), one counter for both checks
     consecutive = agent_state.get("consecutive_blocks", 0)
 
     if not violation:
@@ -472,7 +648,8 @@ def decide(track: dict, agent_id: str | None = None, handoffs=None,
     track.setdefault("gate_log", []).append(
         {"action": "blocked", "reason": reason, "ts": _now_iso(), "agent_id": agent_id}
     )
-    return 2, BLOCK_MESSAGE, track
+    parts = ([BLOCK_MESSAGE] if run_violation else []) + ([owns_message] if owns_message else [])
+    return 2, "\n".join(parts), track
 
 
 def _reconfigure_stderr_utf8():
@@ -603,7 +780,10 @@ def main() -> int:
 
     agent_id = _extract_agent_id_from_payload(payload)
     handoffs = named_handoffs(payload, cwd)
-    exit_code, message, updated_track = decide(track, agent_id, handoffs, cwd)
+    owns_message, owns_note = owns_at_stop(payload, cwd)
+    if owns_note:
+        sys.stderr.write(owns_note + "\n")
+    exit_code, message, updated_track = decide(track, agent_id, handoffs, cwd, owns_message)
 
     # "No edits -> pass" (see evaluate()): if the track file didn't
     # exist before AND this call adds no edits, do nothing at all --
@@ -616,7 +796,7 @@ def main() -> int:
     once_fired = bool(
         updated_track["gate_state"]["per_agent"].get(_agent_state_key(agent_id), {}).get(HANDOFF_ONCE_KEY)
     )
-    if existed_before or updated_track.get("edits") or once_fired:
+    if existed_before or updated_track.get("edits") or once_fired or owns_message:
         _save_track(path, updated_track)
 
     if message:
