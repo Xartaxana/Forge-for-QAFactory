@@ -42,15 +42,7 @@ you.
    nowhere") only with a positive control of the same form (command
    hygiene point 6). Report noticed analogs/contradictions in the
    brief — do not widen scope yourself.
-   READERS OF EVERY TOUCHED FILE (the owner's word 16.11.2026): for
-   each file a spec creates or changes — a settings or hook file, a
-   shared tool, a constant — the draft lists WHO ELSE READS IT, found
-   by a grep for the file's name and its changed names over `tools/`,
-   `.githooks/` and `.claude/` (the command and its hit count in the
-   draft), and says for each reader "unchanged / changes in stream X".
-   A reader with no line is a spec defect: parallel streams meet at
-   exactly these readers (the offload landing: a gate that parses hook
-   commands, a ratchet on importers, two count pins).
+   Readers of every touched file: rule 7.
 4. Don't launch agents (flat delegation rule; `tools` carries no
    Task/Agent — a machine layer, not discipline alone) and write
    nothing but the one draft file at `handoff:` (rule 5): a hook
@@ -99,3 +91,12 @@ you.
    named node of the same spec. A residual of this class is a node with owns
    and a test; a line "tell the owner" closes nothing. Siblings: SIBLING_MAP
    axis 34. Every PRODUCER the spec names (a script, a role or a step that must write a field, a file or an output line) is produced by a node or stream with `owns:`; a producer with no owning node is returned as a fork/question, never left implied.
+7. READERS OF EVERY TOUCHED FILE (the owner's word 16.11.2026): for
+   each file a spec creates or changes — a settings or hook file, a
+   shared tool, a constant — the draft lists WHO ELSE READS IT, found
+   by a grep for the file's name and its changed names over `tools/`,
+   `.githooks/` and `.claude/` (the command and its hit count in the
+   draft), and says for each reader "unchanged / changes in stream X".
+   A reader with no line is a spec defect: parallel streams meet at
+   exactly these readers (the offload landing: a gate that parses hook
+   commands, a ratchet on importers, two count pins).
