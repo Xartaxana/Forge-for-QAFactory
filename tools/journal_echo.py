@@ -1228,6 +1228,119 @@ def _match_witness(witness: str, runs: list):
     return matched_any, loud
 
 
+def _worker_agent_id(task_id, agent, lines: list):
+    """The agent id of the LAST `delegated` line of `task_id` whose `agent` equals `agent` (a critic-entry
+    `delegated` of the same task is another agent and never counts) and whose worker_ref is "agent:<id>"; None
+    when there is no such line."""
+    found = None
+    if not isinstance(task_id, str) or not task_id:
+        return None
+    for line in lines:
+        try:
+            obj = json.loads(line)
+        except Exception:
+            continue
+        if not isinstance(obj, dict) or obj.get("event") != "delegated" or obj.get("task_id") != task_id:
+            continue
+        if obj.get("agent") != agent:
+            continue
+        ref = obj.get("worker_ref")
+        m = AGENT_WORKER_REF_RE.match(ref) if isinstance(ref, str) else None
+        if m:
+            found = m.group(1)
+    return found
+
+
+_BOUNDARY_RE = re.compile(r"\s*(?:$|[;|&>)]|\d+>)")   # a command ends: end of text, ; | & > ), or an fd redirect (2>&1)
+
+
+def _command_vouched_in(cmd: str, hay: str) -> bool:
+    """True when the normalized command `cmd` occurs in the normalized text `hay` as a COMMAND: it ends at a command
+    boundary (see _BOUNDARY_RE) -- `cmd 2>&1 | tail -50` vouches for `cmd`, `cmd -k foo` (a narrowed run) does not --
+    and it STARTS at one (the text start, or after one of ; | & ( -- so `W=/wt; cmd` and `( cd /wt && cmd )` vouch,
+    while the command's text inside a quoted string or a heredoc script, which nothing ran, does not). The ONE
+    boundary rule of the worker lookup."""
+    if not cmd:
+        return False
+    i = hay.find(cmd)
+    while i != -1:
+        before = hay[:i].rstrip()
+        if (not before or before[-1] in ";|&(") and _BOUNDARY_RE.match(hay, i + len(cmd)):
+            return True
+        i = hay.find(cmd, i + 1)
+    return False
+
+
+def _witness_command(witness: str):
+    """The normalized backticked command of the witness's `DoD:` line (what `accept --from-worker` writes as the
+    witness's first line); None when the witness has no such line or no backticked span in it."""
+    for row in witness.splitlines():
+        if row.strip().startswith("DoD:"):
+            m = re.search(r"`([^`]+)`", row)
+            return _normalize_ws(m.group(1)) if m else None
+    return None
+
+
+def _result_text(content) -> str:
+    """The text of a tool_result's `content` (a str, or a list of text blocks)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return chr(10).join(b.get("text", "") for b in content if isinstance(b, dict) and isinstance(b.get("text"), str))
+    return ""
+
+
+def _worker_run_outcome(agent_id, cmd: str):
+    """The LATEST run in the worker's transcript (read through the ONE reader, transcripts.iter_lines/parse_line/
+    content_blocks; located by _find_agent_transcript) of a Bash command that vouches for `cmd`
+    (_command_vouched_in): (outcome "green"|"red", ts) by the same test the session track uses
+    (dod_track.determine_outcome; is_error is red). None when there is no vouching run, its tool_result is absent
+    or unreadable, or the transcript / dod_track cannot be read -- the caller keeps the soft warning."""
+    try:
+        import dod_track
+        path = _find_agent_transcript(agent_id)
+        if not path or transcripts is None:
+            return None
+        uses, results = [], {}
+        for line in transcripts.iter_lines(path):
+            obj = transcripts.parse_line(line)
+            for block in transcripts.content_blocks(obj):
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") == "tool_use" and block.get("name") == "Bash":
+                    inp = block.get("input")
+                    raw = inp.get("command") if isinstance(inp, dict) else None
+                    if isinstance(raw, str):
+                        norm = _normalize_ws(re.sub(r"\s*\n\s*", " ; ", raw))
+                        if _command_vouched_in(cmd, norm):
+                            ts = obj.get("timestamp") if isinstance(obj.get("timestamp"), str) else ""
+                            uses.append((block.get("id"), ts))
+                elif block.get("type") == "tool_result":
+                    results[block.get("tool_use_id")] = block
+        for use_id, ts in reversed(uses):                  # the LATEST vouching run with a readable outcome
+            res = results.get(use_id) if use_id else None
+            if res is None:
+                continue
+            text = _result_text(res.get("content"))
+            if (text.startswith("Exit code") or dod_track.FAILURE_INDICATORS_RE.search(text)
+                    or dod_track.SUCCESS_INDICATORS_RE.search(text)):
+                # a refusal or a background-launch notice has none of these: that run is skipped, not judged
+                return ("red" if res.get("is_error") is True else dod_track.determine_outcome(text), ts)
+        return None
+    except Exception:
+        return None
+
+
+def _worker_match(witness: str, obj: dict, lines: list):
+    """(outcome, ts) of the accepted line's worker run of the witness's DoD command, or None (no worker /
+    no command / no vouching run -> the soft warning stays)."""
+    agent_id = _worker_agent_id(obj.get("task_id"), obj.get("agent"), lines)
+    cmd = _witness_command(witness)
+    if agent_id is None or not cmd:
+        return None
+    return _worker_run_outcome(agent_id, cmd)
+
+
 def _collect_witness_events(new_lines: list, head_lines: list, payload: dict) -> list:
     """For each NEW line (the same new_lines TIER ECHO already uses
     above) with event=="accepted", agent=="builder", and a non-empty
@@ -1322,7 +1435,13 @@ def _collect_witness_events(new_lines: list, head_lines: list, payload: dict) ->
 
             matched_any, loud = _match_witness(witness, runs_cache)
             if not matched_any:
-                events.append(("warn_soft", line_no))
+                # FG7-47: the witness's DoD command is looked up in the WORKER's transcript; soft warning only
+                # when neither the session's track nor a worker run vouches for it; a red worker run is loud.
+                w = _worker_match(witness, obj, list(head_lines) + list(new_lines))
+                if w is None:
+                    events.append(("warn_soft", line_no))
+                elif w[0] == "red":
+                    events.append(("warn_loud", line_no, _witness_command(witness), w[1]))
             else:
                 for cmd, ts in loud:
                     events.append(("warn_loud", line_no, cmd, ts))
