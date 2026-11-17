@@ -5341,7 +5341,7 @@
       "stages": [
         "S8"
       ],
-      "requirement": "Hand text outside the generated tables stays within `TEST_REPORT_MAX_BYTES`; a legacy-form report carries the table of `ledger.md`; a `delivery_ready: yes|after_checks|no` line stands and agrees with `ledger.json` when it gives a word. The `delivery_ready:` line is the block's (check_delivery.py feeds it): yes, after_checks or no. Your prose outside the blocks stays under 6,144 bytes.",
+      "requirement": "Hand text outside the generated tables stays within `TEST_REPORT_MAX_BYTES`; a legacy report carries `ledger.md`'s table; a `delivery_ready: yes|after_checks|no` line stands and agrees with `ledger.json` when it gives a word. The `delivery_ready:` line is the block's (check_delivery.py feeds it): yes, after_checks or no. Your prose outside the blocks stays under 6,144 bytes.",
       "door": "edit the file and the field the refusal line names",
       "when": [
         "always"
@@ -5768,7 +5768,7 @@
       "stages": [
         "*"
       ],
-      "requirement": "What the form claims is true is true on disk; a claim code could not measure is yours to state.",
+      "requirement": "A claim the form states true is true on disk; one code could not measure is yours.",
       "door": "fix the claim or make it true",
       "when": [
         "always"
@@ -6024,8 +6024,8 @@
       "stages": [
         "*"
       ],
-      "requirement": "Each path names a field of this contract, by its index where it is a list row, not a contract-owned path; a list field gets a list and a one-value field one value; rows open in order. A source that is not UTF-8 text is refused.",
-      "door": "correct the path or the source the refusal names (it suggests \"did you mean\")",
+      "requirement": "Each path names a field of this contract, by its index where it is a list row, not a contract-owned path; a list field gets a list, any other one value; rows open in order. A non-UTF-8 source is refused.",
+      "door": "correct the path or the source the refusal names",
       "when": [
         "always"
       ],
@@ -6185,7 +6185,7 @@
       "stages": [
         "S3"
       ],
-      "requirement": "The plan validates: its rows are well formed (unique ids, owed fields, listed depth and impact); coverage revisions and revision marks are consistent (validate_plan + coverage_revision_errors + unmarked_revision_errors). Under the starter risk policy (`risk_policy_revision: factory-starter-v1`), `verification_depth: low` is accepted ONLY together with `impact: low`, `likelihood: low`, `confidence: high` and `bounded_reversible: true`, and `impact: severe` demands `critical`. `impact: unknown` can never be low. Every row needs `risk_source_refs` and `required_scenarios` non-empty.",
+      "requirement": "The plan validates: its rows are well formed; coverage revisions and revision marks are consistent (validate_plan + coverage_revision_errors + unmarked_revision_errors). Under the starter risk policy (`risk_policy_revision: factory-starter-v1`), `verification_depth: low` is accepted ONLY together with `impact: low`, `likelihood: low`, `confidence: high` and `bounded_reversible: true`, and `impact: severe` demands `critical`. `impact: unknown` can never be low. Every row needs `risk_source_refs` and `required_scenarios` non-empty.",
       "door": "fix the plan row the block names, then end the step again",
       "when": [
         "always"

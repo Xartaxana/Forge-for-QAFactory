@@ -1429,8 +1429,9 @@ def _null_outcome_view(doc, section: str, entry: dict, contract: str, art) -> tu
     header = (f"`{section}` is empty, and an empty `{section}` is accepted only when work/triage.json shows nothing "
               "to repair")
     if rows is None:
-        return [Problem(section, f"{header} - and {why}. The triage is written before this form: the failure "
-                                 f"analyst writes work/triage.json (one row per failure, with its verdict).",
+        return [Problem(section, refusal("handoff_check:null_outcome.triage",
+                                         f"{header} - and {why}. The triage is written before this form: the failure "
+                                         f"analyst writes work/triage.json (one row per failure, with its verdict)."),
                         "write work/triage.json, then run: handoff_check.py --file <form> --fix")], []
     problems, known = [], []
     field = handoff.spec(contract).get(f"{listed_in}[].verdict")

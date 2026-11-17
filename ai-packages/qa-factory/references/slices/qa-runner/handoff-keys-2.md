@@ -2,7 +2,6 @@
 
 ## What code will check of you (continued from handoff-keys.md)
 
-- [validate_artifacts:check_run_report_coverage] Every case S5 automated and every manual-agent plan row is accounted for in the run report. And every case S5 automated, plus every manual-agent row of the plan, has to appear in some lane of this report: results, manual_checks, skipped, impossible, env_blocked, manual_skipped or manual_human. Where a case went is your call; saying nothing about it is not. Door: edit the file and the field the refusal line names.
 - [validate_artifacts:check_run_report_empty] A run with zero tests and `env_preflight: pass` names its environment-blocked, manual-check or manual-skipped rows. Empty is not clean: a zero run with env_preflight pass and no env_blocked, manual_checks or manual_skipped is refused. Door: return `env_preflight: blocked` with a reason, or say where the cases went.
 - [validate_artifacts:check_run_report_head] The run report carries a non-empty `head`. `head` non-empty: evidence not bound to a sha goes stale. Door: edit the file and the field the refusal line names.
 - [validate_artifacts:check_run_report_v0] The run report carries an `execution_status` from its list, computed from the run's own evidence. A blocked `env_preflight` means `execution_status` is env_blocked - one field, one source. `execution_status` from passed|failed|env_blocked|not_executed|broken_run|timeout. Door: edit the file and the field the refusal line names.

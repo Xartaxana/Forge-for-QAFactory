@@ -143,8 +143,7 @@ def tbw_t7a_a_sites() -> None:
         ("check_case", lambda e: V.check_case(at("test-cases/TC-9.md", "no front matter" + nl), e),
          "TC-9.md: no YAML frontmatter"),
         ("check_case_form", lambda e: V.check_case_form(Path("TC-9.md"), {}, e),
-         f"TC-9.md: FORM {dash} 'task' is missing (a case with updated >= 2026-09-07: task, covers: [R-n], defect_class, basis "
-         f"{dash} inherited from the plan row)"),
+         f"TC-9.md: FORM {dash} 'task' is missing (a case with updated >= 2026-09-07: task, covers: [R-n], defect_class, basis)"),
         ("check_then_oracles", lambda e: V.check_then_oracles(Path("TC-9.md"), {"basis": "requirement:R-1"}, then, e),
          "TC-9.md: FORM - `then_oracles` is missing (a case with updated >= 2026-10-02): say where the expected value of Then 1, 2 "
          "comes from, as ONE line of JSON: then_oracles: [{\"then\": 1, \"source\": \"requirement\", \"ref\": \"R-1\"}] with source "
