@@ -5,7 +5,8 @@ The table is closed variety (FR-13, AR-1); this file carries no platform name, n
 and a value the table lacks is a hint to a role, never a refusal (AR-2). A project that has a web or API surface never reads
 the table in `declared_surfaces` / `row_for_profile` (`profiles_driven_by` reads it, RN1-3) (`table_free` rows of manual-capture-steps.json `capture_surfaces`, the same words the capture reads): the web
 road does not change by a byte. A project with a `native`, `desktop` or `cli` surface, or a word the table does not know,
-reads it, and silence is unreachable for it (P22): `declared_surfaces` says what goes to a person.
+reads it, and silence is unreachable for it (P22): `declared_surfaces` says what goes to a person, and a config that
+declares no surface at all (`undeclared`).
 
 Error direction (D-0021): `unsupported` errs toward saying too much, never toward "supported"; an unreadable table is a
 `ValueError` (factory-owned, AR-28), never an empty answer; `row_of` refuses a surface name the table lacks, so a typo
@@ -23,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 TABLE_PATH = Path(__file__).resolve().parents[1] / "references" / "surfaces.json"
 AGENT_HANDS = ("browser", "http", "driver")     # the hands of an agent; any other row's cases go to a person
 UNKNOWN = "unknown"
+UNDECLARED = "undeclared"
 
 
 def rows() -> dict:
@@ -91,7 +93,9 @@ def _who(row: dict) -> str:
 def declared_surfaces(cfg) -> dict:
     """{surface: {"hands": "agent"|"person", "stand": <name or None>, "words": str}} for what the project declares; {} when
     there is nothing to say (a web or API project, read without the table). `{"unknown": <text>}` when the profiles cannot
-    be read. Raises ValueError when the table is needed and broken (readiness publishes it as `unknown`)."""
+    be read; `{"undeclared": {...}}` when the config declares no surface at all (no capability word, no environment naming a
+    surface; `profiles` absent included): the web road is taken as before, but said out loud (U7 r2, F-1 (a); FR-4: it informs
+    and passes nothing). Raises ValueError when the table is needed and broken (readiness publishes it as `unknown`, FR-59)."""
     profiles = cfg.get("profiles") if isinstance(cfg, dict) else None
     if profiles is None:
         profiles = []
@@ -110,6 +114,9 @@ def declared_surfaces(cfg) -> dict:
                              "it declares could not be read. Expected a list of words; fix the key and run the check again"}
         capabilities.update(w for w in listed if isinstance(w, str))
     named = [e for e in _environments(cfg) if "surface" in e]
+    if not named and not capabilities:
+        # Nothing is declared: say so, with the table's own words (the table is read, so a broken one is `unknown`, never silence).
+        return {UNDECLARED: {"hands": "role", "stand": None, "words": str((rows().get("words") or {}).get("undeclared") or "")}}
     if not named and capabilities <= _table_free_words():
         return {}
     data = rows()

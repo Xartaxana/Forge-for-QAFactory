@@ -5,7 +5,8 @@
   "not_surfaces": ["unit", "event", "manual"],
   "words": {
     "unknown_word": "This project declares a test surface called \"{word}\" that the factory has no way to drive: those cases go to a person. If it is a kind of surface the factory should know, record it as a finding.",
-    "no_stand":"This project runs native-application tests, but no stand for an agent's hands is described: those cases go to a person. Describe the device stand by running the onboarding again."
+    "no_stand":"This project runs native-application tests, but no stand for an agent's hands is described: those cases go to a person. Describe the device stand by running the onboarding again.",
+    "undeclared": "This project's config declares no test surface (no capability word and no environment naming a surface), so the factory went on with its default road and took every environment as it is. The agent tries each case with what it can reach. If the project tests on something else, describe it by running the onboarding again."
   },
   "drivers": {
     "appium": {
