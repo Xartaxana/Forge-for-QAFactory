@@ -12,7 +12,7 @@ tools/model_prices.json -- a real API mechanism):
    windows: turns, accounted cost, $/day, a main/side breakdown by
    model.
 2. Delegation counterfactual: token profiles of routed sidechains,
-   re-priced at the top-tier model's rates, against the actual cost --
+   re-priced at the coordinator's model's rates (the lead binding), against the actual cost --
    gross savings in $ and %. Both sides must be whole for a figure: turns
    of a model with no price (a NULL stored cost, counted by usage_report's
    unpriced_turns) are never a $0 actual -- the line says "gross savings:
@@ -172,7 +172,7 @@ def counterfactual_summary(db: sqlite3.Connection, cond: str, params: tuple) -> 
     detail = []
     actual = cf = 0.0
     top = top_tier_model()
-    cf_priced = True  # False once the top-tier model itself has no price: the counterfactual side is not whole
+    cf_priced = True  # False once the coordinator model itself has no price: the counterfactual side is not whole
     for at, model, n, ti, to, tcw, tcr, cost in rows:
         # the aggregate has no 1-hour split: the counterfactual's cache writes are 5-minute (understates the savings)
         f = accounted_cost(top, ti or 0, to or 0, tcw or 0, tcr or 0)[0]
@@ -182,15 +182,15 @@ def counterfactual_summary(db: sqlite3.Connection, cond: str, params: tuple) -> 
         else:
             cf += f
         detail.append({"agent_type": at, "model": model, "turns": n,
-                       "actual": cost or 0, "as_fable": f})
+                       "actual": cost or 0, "as_coordinator": f})
     unpriced = unpriced_turns(db, "is_sidechain=1 and " + cond, params)
     actual_partial = bool(unpriced)
     # Both sides must be whole for a figure: a side with an unpriced model makes the savings "not measurable".
-    # A top-tier price missing leaves every sidechain turn without a counterfactual price.
+    # A coordinator-model price missing leaves every sidechain turn without a counterfactual price.
     turns = sum(d["turns"] for d in detail) if not cf_priced else sum(unpriced.values())
     models = sorted({str(m) for m in unpriced} | (set() if cf_priced else {top}))
     measurable = cf_priced and not actual_partial
-    return {"detail": detail, "actual": actual, "as_fable": cf, "top_model": top,
+    return {"detail": detail, "actual": actual, "as_coordinator": cf, "top_model": top,
             "actual_partial": actual_partial, "counterfactual_partial": not cf_priced,
             "unpriced_turns": turns, "unpriced_models": models,
             "gross_savings": cf - actual if measurable else None,
@@ -250,7 +250,7 @@ def _print_report_body(db: sqlite3.Connection, tables: set, routed_start: str, u
         print(f"  TOTAL: {w['total_turns']} turns, ${w['total_cost']:.2f},"
               f" {w['days']} days, ${w['per_day']:.2f}/day{mark}")
 
-    print("\n===== COUNTERFACTUAL: routed sidechains at the top-tier model's rates =====")
+    print("\n===== COUNTERFACTUAL: routed sidechains at the coordinator's model's rates (the lead binding) =====")
     if has_cc:
         c = counterfactual_summary(db, "ts >= ?" + until_cond,
                                    (routed_start,) + until_params)
@@ -271,16 +271,16 @@ def _print_report_body(db: sqlite3.Connection, tables: set, routed_start: str, u
 def _print_counterfactual(c: dict) -> None:
     print(f"  coordinator model: {c['top_model']} (roles.lead in delegation.config.yaml)")
     for d in c["detail"]:
-        top = "unpriced" if d["as_fable"] is None else f"${d['as_fable']:8.2f}"
+        top = "unpriced" if d["as_coordinator"] is None else f"${d['as_coordinator']:8.2f}"
         print(f"  {str(d['agent_type']):16} {d['model']:28} turns={d['turns']:4}"
-              f" actual=${d['actual']:8.2f} as-top-tier={top}")
+              f" actual=${d['actual']:8.2f} as-coordinator={top}")
     actual_mark = " (actual partial)" if c["actual_partial"] else ""
     cf_mark = " (counterfactual partial)" if c["counterfactual_partial"] else ""
     if c["gross_savings"] is None:
         savings = f"gross savings: not measurable ({partial_mark(c['unpriced_turns'], c['unpriced_models'])})"
     else:
         savings = f"gross savings=${c['gross_savings']:.2f} ({c['savings_pct']:.0f}%)"
-    print(f"  TOTAL: actual=${c['actual']:.2f}{actual_mark}  as-top-tier=${c['as_fable']:.2f}{cf_mark}  {savings}")
+    print(f"  TOTAL: actual=${c['actual']:.2f}{actual_mark}  as-coordinator=${c['as_coordinator']:.2f}{cf_mark}  {savings}")
 
 
 def _print_api_section(db: sqlite3.Connection, has_requests: bool) -> None:
