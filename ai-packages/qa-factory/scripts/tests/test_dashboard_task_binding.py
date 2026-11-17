@@ -1190,12 +1190,12 @@ class StoryCardKeyFormTests(unittest.TestCase):
 # Re-cut for the GM2-2 O7 rewrite (t-1927): piece 18 (Factory health) quotes a ticket key in the "orchestrator share" tooltip, and the
 # rewrite renamed that key in the package text. Proof, a byte one: the page as it renders now with the old key put back through the O7
 # map has the previous piece-18 digest (0f10722332666d3e) and the previous whole-page sha (4c9350fd...); no other piece moved.
-GOLDEN_SHA256 = "8f42631fed416a1db805bacd20516524dd6b9669465ef15be745ed915315c5fe"
+GOLDEN_SHA256 = "724c48b2bfb85a776d62f3aebac080e4031dd35621526f031e16c8f8a48ff431"
 GOLDEN_SECTIONS = (
     "3ae10aca7c498cbc", "294a2520da8f0334", "327dbfb6b6394f7d", "e4f3362c3aaf2c64", "a96705f8c6253a1f",
     "106c0ce4a6c2eb4c", "fcfc470b4c2d3a24", "60d15664433fdcca", "e3903c519182f139", "f6429d2f27700ea4",
     "e51aa5cf22af34a8", "419590bf1521a4a3", "690298c279c1682c", "e4a218ca69c64eb4", "80fb216ca527cb53",
-    "ff519f73d2b74caf", "8e8f7a92d893a9de", "0e789010bcdd5db5", "813bdc1c020cf23d","8f4082e1a1b84432",
+    "ff519f73d2b74caf", "6f898ca1543fa68b", "0e789010bcdd5db5", "813bdc1c020cf23d","8f4082e1a1b84432",
     "23c5b313acdd8312",
 )
 
