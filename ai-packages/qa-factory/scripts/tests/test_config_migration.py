@@ -1842,9 +1842,10 @@ def login_body_fields_one_reader() -> None:
     check_eq("OH3-17 the template's own names are the default", C.body_fields(ACCESS), default)
     check_eq("OH3-17 the ACCESS fixture has exactly the template's keys",
              sorted(ACCESS), sorted(TEMPLATE["environment"]["access"]))
+    overridden = ("kind", "url", "client_id_key", "realm_key", "user_key", "secret_key", "unauth_status")   # the keys ACCESS writes over
     check_eq("OH3-17 the ACCESS fixture overrides only person-recorded values",
              {k: v for k, v in ACCESS.items() if TEMPLATE["environment"]["access"][k] == v},
-             {k: v for k, v in TEMPLATE["environment"]["access"].items() if k in ("command", "user_field", "secret_field", "token_key", "login_probe")})
+             {k: v for k, v in TEMPLATE["environment"]["access"].items() if k not in overridden})
 
 
 def main() -> None:

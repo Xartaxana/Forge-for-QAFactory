@@ -222,8 +222,8 @@ class ToolRefusal(Refusal):
     proves the name. A refusal of the CALL (a wrong --test, an unknown instance, a lock) stays a plain `Refusal`: the role does not
     write itself a gap by a wrong call (AR-22)."""
 
-    def __init__(self, message: str = "", name_unproved: bool = False):
-        super().__init__(message)
+    def __init__(self, message: str = "", *records, name_unproved: bool = False):
+        super().__init__(message, *records)
         self.name_unproved = name_unproved
 
 
