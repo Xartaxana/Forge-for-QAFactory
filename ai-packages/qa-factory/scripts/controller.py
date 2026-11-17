@@ -42,8 +42,8 @@ import time
 import event_store
 from event_store import (DerivedViewStale, EventCommitted, EventStore, IdempotencyKeyReused, StateConflict, atomic_json,
                          content_hash, retry_shared, shared_file)
-from hooklib import (CLOSED_AT, ORDERS_DUE, REOPENED_AT, STOP_VALUES, gate_orders, load_config, sorted_paths,
-                     story_closed, story_closure, story_root, story_root_at)
+from hooklib import (CLOSED_AT, ORDERS_DUE, REOPENED_AT, STOP_VALUES, append_jsonl_line, gate_orders, load_config,
+                     sorted_paths, story_closed, story_closure, story_root, story_root_at)
 import person_words
 from record_schema import validate_record
 from runtime_policy import (repair_cap, resolve_model, checkpoint_due, cumulative_budget,
@@ -2416,36 +2416,35 @@ class Controller:
         path = self.store.root / "state" / "passed-by-person.jsonl"
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            with path.open("a", encoding="utf-8") as handle:
-                for item in passed:
-                    block = str((item or {}).get("error") or "")
-                    line = {
-                        "ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + "+00:00",
-                        "stage": str(stage or ""), "dispatch": str(dispatch_id or ""),
-                        "block": block[:400],
-                        "decision": str((item or {}).get("decision") or "")[:1000],
-                        "by": str((item or {}).get("by") or "human"),
-                    }
-                    # AR-24: the cuts above lose nothing the report needs. `word_at` is the `at` of the person's word in
-                    # `pipeline.json.stage_overrides[]` - the pointer to the word WHOLE; `finding_id` holds a block that was
-                    # cut whole in the same line. Old lines carry neither: a reader never requires them.
-                    if str((item or {}).get("at") or ""):
-                        line["word_at"] = str(item["at"])
-                    if len(block) > 400:
-                        line["finding_id"] = block
-                    # FV1-30b: the finding's own parts and WHICH instances / Thens it was about (`waiver.person_passes` reads
-                    # them back); each only when it has a value, so a pass of a finding with no subjects is the line it was.
-                    # `subjects` is cut at 200 entries with the whole count beside it: the reader names only the 200 listed, so a
-                    # cut never passes an instance it does not list.
-                    for key in ("check", "case", "tag"):
-                        if str((item or {}).get(key) or ""):
-                            line[key] = str(item[key])
-                    subjects = [s for s in ((item or {}).get("subjects") or []) if isinstance(s, dict)]
-                    if subjects:
-                        line["subjects"] = subjects[:200]
-                        if len(subjects) > 200:
-                            line["subjects_cut"] = len(subjects)
-                    handle.write(json.dumps(line, ensure_ascii=False) + "\n")
+            for item in passed:
+                block = str((item or {}).get("error") or "")
+                line = {
+                    "ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + "+00:00",
+                    "stage": str(stage or ""), "dispatch": str(dispatch_id or ""),
+                    "block": block[:400],
+                    "decision": str((item or {}).get("decision") or "")[:1000],
+                    "by": str((item or {}).get("by") or "human"),
+                }
+                # AR-24: the cuts above lose nothing the report needs. `word_at` is the `at` of the person's word in
+                # `pipeline.json.stage_overrides[]` - the pointer to the word WHOLE; `finding_id` holds a block that was
+                # cut whole in the same line. Old lines carry neither: a reader never requires them.
+                if str((item or {}).get("at") or ""):
+                    line["word_at"] = str(item["at"])
+                if len(block) > 400:
+                    line["finding_id"] = block
+                # FV1-30b: the finding's own parts and WHICH instances / Thens it was about (`waiver.person_passes` reads
+                # them back); each only when it has a value, so a pass of a finding with no subjects is the line it was.
+                # `subjects` is cut at 200 entries with the whole count beside it: the reader names only the 200 listed, so a
+                # cut never passes an instance it does not list.
+                for key in ("check", "case", "tag"):
+                    if str((item or {}).get(key) or ""):
+                        line[key] = str(item[key])
+                subjects = [s for s in ((item or {}).get("subjects") or []) if isinstance(s, dict)]
+                if subjects:
+                    line["subjects"] = subjects[:200]
+                    if len(subjects) > 200:
+                        line["subjects_cut"] = len(subjects)
+                append_jsonl_line(path, json.dumps(line, ensure_ascii=False))   # AR-14, axis 29: the one appender
         except OSError as exc:  # a record that cannot be written must not fail the pass itself
             print(f"passed-by-person: not recorded ({type(exc).__name__}: {exc})", file=sys.stderr)
 
