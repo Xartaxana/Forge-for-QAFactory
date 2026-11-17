@@ -864,6 +864,10 @@ def surfaces_said_aloud() -> None:
         got = surfaces.declared_surfaces(cfg)
         check_eq(f"{label}: undeclared, the role's, with words", (sorted(got), got["undeclared"]["hands"], bool(got["undeclared"]["words"])),
                  (["undeclared"], "role", True))
+    # a2D1 data seam: a surface the factory has no driver for is the agent role's first, in role-first words
+    for word, key in (("cli", "cli"), ("desktop", "desktop"), ("zzz", "zzz"), ("native", "native")):
+        entry = surfaces.declared_surfaces(profile(word))[key]
+        check_eq(f"{word}: the role's, and the words say the agent tries first", (entry["hands"], "agent tries" in entry["words"]), ("role", True))
     # web + API: no key and the table is not read (the web road is unchanged by a byte)
     with patch.object(surfaces, "rows", counting), patch.object(surfaces, "TABLE_PATH", broken):
         for label, cfg in (("web+api", profile("web", "api")), ("web", {"environments": [], **profile("web")})):
