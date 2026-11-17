@@ -823,6 +823,26 @@
       "joint": null
     },
     {
+      "check": "acceptance:novelty_question",
+      "stages": [
+        "S5"
+      ],
+      "producers": [
+        {
+          "code": "acceptance.py::validate_window",
+          "field": "the `probe_owed` answer on the manifest row behind the `novelty_question` gap",
+          "told": [
+            {
+              "path": "scripts/window_record.py"
+            }
+          ],
+          "demands": [],
+          "role_leg": "not walked"
+        }
+      ],
+      "joint": null
+    },
+    {
       "check": "acceptance:obligation_binding",
       "stages": [
         "S5"

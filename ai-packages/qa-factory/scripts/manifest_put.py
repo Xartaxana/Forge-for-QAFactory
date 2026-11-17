@@ -1699,6 +1699,25 @@ def critic_approval_problems(fragment, stored_tests) -> list:
     return out
 
 
+PROBE_OWED_VALUES = ("yes", "no")   # the code critic's closed answer on a `tests[]` row (C3-b1, D-b1-2)
+
+
+def probe_owed_problems(fragment) -> list:
+    """`tests[]` rows of a fragment whose `probe_owed` key is PRESENT with a value other than `yes` / `no` (a bool, a number, a list,
+    null and the empty string included): one sentence per row naming the field, the row and both allowed values, [] when none.
+    An absent key is no problem. A value check of the shape of an answer, not a judgment of it. Called by `run` before
+    the commit, never by `merge` (old journals replay as they were)."""
+    rows = fragment.get("tests") if isinstance(fragment, dict) else None
+    out = []
+    for i, row in enumerate(rows if isinstance(rows, list) else []):
+        if not isinstance(row, dict) or "probe_owed" not in row or row["probe_owed"] in PROBE_OWED_VALUES:
+            continue
+        who = row["instance_id"] if _text(row.get("instance_id")) else f"index {i}"
+        out.append(DV.refusal("manifest_put:probe_owed", f"tests[{i}] ({who}) carries probe_owed {row['probe_owed']!r}: the field takes `yes` (a live probe is owed) "
+                   "or `no` (none is owed, with a critic_note) and nothing else; send one of them, or leave the key out"))
+    return out
+
+
 def _changed_assertion_ids(fragment, stored_tests) -> list:
     """`(index, row, id)` of the `tests[]` rows of the fragment that SEND an `assertion_id` the stored row of the same instance
     does not already hold (a row with no stored twin is new, so its id is changed too). A row that re-sends its stored id, or
@@ -2463,6 +2482,12 @@ def run(task: str, fragment_path: str, wait_seconds: float = 0.0) -> int:
     approval_problems = critic_approval_problems(fragment, _current_tests(task_root))
     if approval_problems:
         print("manifest_put: " + _problems_text(task_root, "critic-approval", approval_problems)
+              + ". " + REPAIR_MARKER + ".", file=sys.stderr)
+        return EXIT_BAD_FRAGMENT
+    # A `probe_owed` that is not `yes` / `no` is refused before the commit (C3-b1): the key is the code critic's closed answer.
+    probe_problems = probe_owed_problems(fragment)
+    if probe_problems:
+        print("manifest_put: " + _problems_text(task_root, "probe-owed", probe_problems)
               + ". " + REPAIR_MARKER + ".", file=sys.stderr)
         return EXIT_BAD_FRAGMENT
     # An `assertion_id` on a line with no check is refused before the commit (TR2-1): a probe aimed there proves nothing. Rows whose id

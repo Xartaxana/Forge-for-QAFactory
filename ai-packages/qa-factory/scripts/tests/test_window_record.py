@@ -2743,7 +2743,51 @@ def fv1_30b_n6_the_three_judges_read_the_one_survivor():
         cleanup(tmp)
 
 
+def c3_b1_novelty_question_gap():
+    """C3-b1 (FR-59, AR-28; registry row `live_check_demand`, waits at window acceptance): `validate_window` asks the code critic about
+    a keyless, flagless, unhanded row of a manifest whose writer measured novelty - ONE gap `novelty_question:<iid>`, never a pass. The
+    world is BUILT (the recorded stories never reach it). Expected values: the card's item 3 and E1, E4, E6, E7."""
+    root = temp_dir("qa-novelty-question-")
+    try:
+        measured = {"tests": [{"instance_id": "A", "case": "TC-1", "file": "t.py",
+                               "novelty": {"value": "new", "basis": "b", "measured_on": {"t.py": "x"}, "measured_by": "w"}},
+                              {"instance_id": "B", "case": "TC-2", "file": "t.py"}]}
+
+        def asked(manifest, **item) -> list:
+            path = Path(C.artifact(root, "automation-manifest.json"))
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            base = {"instance_id": "B", "input_hash": "h", "outcome": "passed", "change_disposition": "unchanged",
+                    "evidence_refs": [], **item}
+            window = pure_window(instances=[base], scope_instances={"TC-2": ["B"]}, not_applicable_reason="")
+            return [g for g in validate_window(window, root) if g.startswith("novelty_question:")]
+
+        rows = [
+            ("E1: keyless, flagless, unhanded, a measured manifest: one gap", asked(measured), ["novelty_question:B"]),
+            ("the same item answered `no` (the item's copy): no gap", asked(measured, probe_owed="no"), []),
+            ("the same item answered `yes`: no gap (the probe is demanded instead)", asked(measured, probe_owed="yes"), []),
+            ("E6: a malformed answer on the item never closes it", asked(measured, probe_owed="Yes"), ["novelty_question:B"]),
+            ("E4: a flagged item is not asked", asked(measured, change_disposition="new_or_changed"), []),
+            ("E4: a handed claim the manifest does not confirm is not asked", asked(measured, outcome="handed_to_person"), []),
+            ("E3: an all-keyless manifest (the recorded stories' shape): no gap", asked({"tests": [measured["tests"][1]]}), []),
+            ("F-T5 a+: the same manifest with the writer's failure note: a gap",
+             asked({"tests": [measured["tests"][1]], "novelty_unmeasured": "novelty could not be measured (OSError)"}),
+             ["novelty_question:B"]),
+            ("the row answered in the manifest (`no`): no gap", asked(dict(measured, tests=[measured["tests"][0],
+                                                                                           dict(measured["tests"][1], probe_owed="no")])), []),
+            ("an unreadable manifest asks nothing (in-flight-safe)", asked("junk"), []),
+        ]
+        for label, got, want in rows:
+            check_eq(label, got, want)
+        # E7 (axis 34): the gap kind is on the window's one word road and has its origin and door text
+        check_in("E7: `novelty_question` is a kind of the window's word road", "novelty_question", WR.WORD_READ_KINDS)
+        check_in("the gap has its origin row, naming the critic's answer", "probe_owed", " ".join(WR.GAP_ORIGIN["novelty_question"]))
+    finally:
+        cleanup(root)
+
+
 def pure_group():
+    c3_b1_novelty_question_gap()
     fv1_30b_n6_the_three_judges_read_the_one_survivor()
     fv1_30b_word_let_go_is_the_one_predicate()
     s9_review_gap_words()

@@ -1172,7 +1172,50 @@ def _novelty_switch(made):
     check_in("ii: an answer of the wrong length is the same refusal of the measure, not a crash",
              "novelty could not be measured (ValueError)", short["notes"])
 
+    print("-- C3-b1w: the writer of novelty_unmeasured (and its reader, AR-22)")
+    with patched(Counting(answer=canned("s0", "unchanged"))):
+        measured = build_rows(project, task)["fragment"]
+    with patched(Counting(answer=canned("none", "unchanged"))):
+        bare = build_rows(project, task)["fragment"]
+    with patched(Counting(raises=RuntimeError("the measurer blew up"))):
+        broke = build_rows(project, task)["fragment"]
+    keyless = {"instance_id": "x", "case": "TC-9"}
+    for label, frag, expect in (
+            ("every unit measured -> NO key at all (not '' and not null)", measured, None),
+            ("no block for the rows (non-S0 base, unchanged) -> a non-empty string naming the count",
+             bare, "8 test row(s) got no novelty block"),
+            ("the measure raised -> a non-empty string naming the class", broke,
+             "novelty could not be measured (RuntimeError)")):
+        got = frag.get("novelty_unmeasured", "<absent>")
+        check_eq(f"C3-b1w marker: {label}", got == "<absent>" if expect is None else (isinstance(got, str) and expect in got),
+                 True)
+        # the join: the producer's fragment makes the reader ask about a keyless row, never about one with a closed answer
+        manifest = dict(frag, tests=[dict(r) for r in frag["tests"] if "novelty" not in r] + [keyless])
+        asked = PL.novelty_question_owed(keyless, manifest)
+        check_eq(f"C3-b1w join: {label} -> question owed", asked, expect is not None)
+        check_eq(f"C3-b1w join: {label} -> closed probe_owed ends it",
+                 PL.novelty_question_owed(dict(keyless, probe_owed="no"), manifest), False)
+    stub_none = Counting(answer=canned("none", "unchanged"))
+    old_notes, new_notes, out_list = [], [], []
+    keyed_pair = lambda: [({"instance_id": "test_limit"}, ("tests/test_coupon.py", (), "test_limit"))]
+    with patched(stub_none):
+        old_ret = MFT._attach_novelty(MFT.Story(TICKET, task), project, keyed_pair(), old_notes, None)
+        new_ret = MFT._attach_novelty(MFT.Story(TICKET, task), project, keyed_pair(), new_notes, None, out_list)
+    check_eq("C3-b1w old callers: return value and notes are those of the call with an out-list",
+             (old_ret, old_notes), (new_ret, new_notes))
+    check_eq("C3-b1w old callers: the out-list got its reason, the old call has nowhere to put one", len(out_list), 1)
+    with patched(Counting(raises=RuntimeError("x"))):
+        old_notes, out_list = [], []
+        MFT._attach_novelty(MFT.Story(TICKET, task), project, keyed_pair(), old_notes, None)
+        MFT._attach_novelty(MFT.Story(TICKET, task), project, keyed_pair(), [], None, out_list)
+    check_eq("C3-b1w E2: a caught exception reaches the out-list, the old note stays",
+             (out_list, old_notes), (["novelty could not be measured (RuntimeError)"],
+                                     ["novelty could not be measured (RuntimeError)"]))
     (project / "tests" / "test_only_unresolved.py").write_text(ONLY_UNRESOLVED, encoding="utf-8")
+    with patched(Counting(raises=RuntimeError("never called"))):
+        only = build_rows(project, task, files=("tests/test_only_unresolved.py",))["fragment"]
+    check("C3-b1w E1: nothing to measure (no test row) -> no marker", "novelty_unmeasured" not in only, str(only.keys()))
+
     zero = Counting()
     with patched(zero):
         nothing = build_rows(project, task, files=("tests/test_only_unresolved.py",))

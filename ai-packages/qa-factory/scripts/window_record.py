@@ -305,6 +305,8 @@ def row_field_gaps(entry, cfg=None, plan=None, known=None) -> list:
 # S9: the person's road for a `review` gap. The word's head is the gap line itself (`review:<instance id>`, case-exact);
 # `review_gap_words` reads it. ONE door text (AR-13).
 REVIEW_GAP_RECORD = person_words.door("waiver.py --task <T> --stage S5 --block \"review:<instance id>\"")
+# C3-b1: the person's road for a `novelty_question` gap; the head is the gap line itself (`novelty_question:<instance id>`).
+NOVELTY_QUESTION_RECORD = person_words.door("waiver.py --task <T> --stage S5 --block \"novelty_question:<instance id>\"")
 
 # The same table for `validate_window` gaps, whose vocabulary is its own.
 GAP_ORIGIN = {
@@ -324,6 +326,15 @@ GAP_ORIGIN = {
                "an instance the person runs); or, when the person accepts the test without the critic's verdict, the "
                "orchestrator records their words with `" + REVIEW_GAP_RECORD + "` (the S5 step passes; delivery still "
                "reads no critic verdict)"),
+    # C3-b1 (FR-59): nobody measured this test's novelty although the story's writer measured others (or its measurement failed),
+    # so the question "is a live probe owed?" goes to the code critic (AR-10: the charter states the answer). The word of a person
+    # is read through the window's word road (`WORD_READ_KINDS`, axis 34): the S5 exit reads a recorded word naming this line.
+    "novelty_question": ("no measurement of this test's novelty is recorded (its row has no `novelty`, no flag and no answer) "
+                         "while the story's writer measured novelty: the code critic is asked whether a live probe is owed",
+                         "the code critic answers in the manifest fragment through `manifest_put.py`: `probe_owed: yes` (a live "
+                         "probe is owed: the test is new or changed) or `probe_owed: no` with `critic_note` (why not), and this "
+                         "record is built again; or, when the person decides, the orchestrator records their words with `"
+                         + NOVELTY_QUESTION_RECORD + "`"),
     "stale_review": ("the review is bound to bytes the manifest no longer carries",
                      "re-review the current bytes, or record the mechanical round"),
     "mechanical_green": ("the record claims a mechanical round and no green run of its author "
@@ -1560,6 +1571,10 @@ def build(task_root: Path, dispatch_id: str) -> tuple:
             "review": {"verdict": str(entry.get("critic_verdict") or ""),
                        **(reviewed.get(identity) or {"input_hash": proof_level.claimed_test_sha(entry)})},
         }
+        if entry.get("probe_owed") in proof_level.PROBE_OWED_ANSWERS:
+            # C3-b1: the code critic's closed answer, copied beside `review` (the one writer is `manifest_put`; a value outside
+            # `yes` / `no` is not copied, so a malformed answer never closes the question in `acceptance.validate_window`)
+            item["probe_owed"] = entry["probe_owed"]
         if measured["test_code_sha"]:
             item["test_code_sha"] = measured["test_code_sha"]
         if measured["instance_identity"]:
@@ -1826,7 +1841,9 @@ def _explain(line: str, notes: list) -> str:
 # for the critic's receipts and for a missing window record and, through `word_let_go`, for the gaps it names - so a word recorded
 # against one is printed "recorded, not read by this window" (`_unread_words`). One name, so a reader added later
 # is one line here (Q7 B', t-299).
-WORD_READ_KINDS = ("quality", PROBE_GAP_KIND)
+# C3-b1 (F-T8 (a), axis 34): a `novelty_question:<iid>` line is a kind of this tuple - ONE road with `quality`, not a third: the
+# S5 exit reads a person's recorded word that names the line (`NOVELTY_QUESTION_RECORD`), so `_unread_words` does not call it unread.
+WORD_READ_KINDS = ("quality", PROBE_GAP_KIND, "novelty_question")
 NO_DOOR = "repair the artifact the line names; no recorded word is read for it"
 
 
