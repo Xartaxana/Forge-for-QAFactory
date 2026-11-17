@@ -4,8 +4,8 @@
   "tool_timeout_s": 10,
   "not_surfaces": ["unit", "event", "manual"],
   "words": {
-    "unknown_word": "This project declares a test surface called \"{word}\" that the factory has no ready way to drive: the agent tries those cases by hand with what it can reach, and only what it cannot do is left with a person. If it is a kind of surface the factory should know, record it as a finding.",
-    "no_stand":"This project runs native-application tests, but no stand for an agent's hands is described: the agent tries those cases with what it can reach, and a device or access it lacks is left with a person. Describe the device stand by running the onboarding again.",
+    "unknown_word": "This project declares a test surface called \"{word}\" that the factory has no way to drive: those cases go to a person. If it is a kind of surface the factory should know, record it as a finding.",
+    "no_stand":"This project runs native-application tests, but no stand for an agent's hands is described: those cases go to a person. Describe the device stand by running the onboarding again.",
     "undeclared": "This project's config declares no test surface (no capability word and no environment naming a surface), so the factory went on with its default road and took every environment as it is. The agent tries each case with what it can reach. If the project tests on something else, describe it by running the onboarding again."
   },
   "drivers": {
@@ -26,11 +26,11 @@
     "api": {"capability": "api", "hands": "http", "fits_levels": []},
     "cli": {
       "capability": "cli", "hands": "none", "words_only_alone": true,
-      "words": "The factory has no driver for a command-line application: the agent tries those cases by hand with what it can reach, and only what it cannot do is left with a person."
+      "words": "Agent checks on a command-line application are not supported: those cases go to a person."
     },
     "desktop": {
       "capability": "desktop", "hands": "none",
-      "words": "The factory has no driver for a desktop application: the agent tries those cases by hand with what it can reach, and only what it cannot do is left with a person."
+      "words": "Agent checks on a desktop application are not supported: those cases go to a person."
     },
     "android": {
       "capability": "native", "hands": "driver", "driver": "appium", "fits_levels": ["e2e-ui"], "host_os": [],

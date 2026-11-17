@@ -880,14 +880,16 @@ def _check_plain_environment(cfg: dict, root: Path, env: dict, stands: list) -> 
     def says_in_process(e):
         return (str(e.get("kind") or "").lower() in ("in-process", "in_process", "local-module")
                 or str(e.get("probe") or "").lower() == "none")
-    in_process = [e.get("name") or "?" for e in stands
-                  if not any(str(e.get(k) or "") for k in ("base_url", "url", "health_url")) or says_in_process(e)]
+    def names_no_address(e):
+        return not any(str(e.get(k) or "") for k in ("base_url", "url", "health_url"))
+    in_process = [e.get("name") or "?" for e in stands if names_no_address(e) or says_in_process(e)]
     if stands and len(in_process) == len(stands) and not any(str(x or "") for x in declared):
         note = "in-process environment(s), nothing to probe: " + ", ".join(in_process)
-        by_default = [e.get("name") or "?" for e in stands
-                      if not any(str(e.get(k) or "") for k in ("base_url", "url", "health_url")) and not says_in_process(e)]
+        by_default = [e.get("name") or "?" for e in stands if names_no_address(e) and not says_in_process(e)]
         if by_default:
-            note += (f"; stand {', '.join(by_default)} names no address and does not say it runs in-process: "
+            note += (f"; {'stand' if len(by_default) == 1 else 'stands'} {', '.join(by_default)} "
+                     f"{'names' if len(by_default) == 1 else 'name'} no address and "
+                     f"{'does' if len(by_default) == 1 else 'do'} not say it runs in-process: "
                      "it was taken as in-process and nothing was probed here")
         return cap(OK, "factory", note)
     if not any(str(x or "") for x in declared) and not (env.get("secret_keys") or env.get("extra_keys")):

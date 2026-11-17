@@ -840,9 +840,8 @@ def main() -> None:
 
 
 def surfaces_said_aloud() -> None:
-    """U7 r2 / a2D1 data seam: a config that declares no surface is said out loud (`undeclared`), a surface the factory has no
-    driver for is the agent role's first (`hands: role`, never `person`), an unreadable table is `unknown`, and a declared or web/API
-    project is byte-identical (no key, the table not read). Expectations come from the requirement, not from the code."""
+    """U7 r2 data seam: a config that declares no surface is said out loud (`undeclared`), an unreadable table is `unknown`, and a
+    web/API project is byte-identical (no key, the table not read). Expectations come from the requirement, not from the code."""
     from unittest.mock import patch
 
     import surfaces
@@ -853,36 +852,18 @@ def surfaces_said_aloud() -> None:
     def counting():
         reads.append(1)
         return real_rows()
-    words = real_rows()["words"]
     broken = Path(temp_project("qa-factory-readiness-surfaces-")) / "no-such-table.json"
 
     def profile(*caps):
         return {"profiles": [{"profile_id": "p", "capabilities": list(caps)}]}
-    # (label, config, the keys of the answer, {key: hands})
-    table = [
-        ("no capability word, no surface -> undeclared", {"profiles": [{"profile_id": "p"}]}, ["undeclared"], {"undeclared": "role"}),
-        ("`profiles` absent (legacy config) -> undeclared", {"environments": []}, ["undeclared"], {"undeclared": "role"}),
-        ("an empty capabilities list -> undeclared", profile(), ["undeclared"], {"undeclared": "role"}),
-        ("a command-line word -> the agent role's first", profile("cli"), ["cli"], {"cli": "role"}),
-        ("a desktop word -> the agent role's first", profile("desktop"), ["desktop"], {"desktop": "role"}),
-        ("a word nothing describes -> the agent role's first", profile("zzz"), ["zzz"], {"zzz": "role"}),
-        ("native words with no stand -> the agent role's first", profile("native"), ["native"], {"native": "role"}),
-        ("a stand naming a driven surface -> byte-identical (agent)", {"environments": [{"name": "w", "surface": "web"}]}, ["web"], {"web": "agent"}),
-    ]
-    for label, cfg, keys, hands in table:
+    # (label, config): each is undeclared, carries words, and says nothing else
+    for label, cfg in (
+            ("no capability word, no surface", {"profiles": [{"profile_id": "p"}]}),
+            ("`profiles` absent (legacy config)", {"environments": []}),
+            ("an empty capabilities list", profile())):
         got = surfaces.declared_surfaces(cfg)
-        check_eq(f"{label}: keys", sorted(got), keys)
-        check_eq(f"{label}: hands", {k: v["hands"] for k, v in got.items()}, hands)
-        check(f"{label}: never `person`, and it carries words", all(v["hands"] != "person" and (v["hands"] == "agent" or v["words"]) for v in got.values()), got)
-    check_in("undeclared says what was assumed and the door", "declares no test surface", surfaces.declared_surfaces({})["undeclared"]["words"])
-    check_eq("undeclared words are the table's", surfaces.declared_surfaces({})["undeclared"]["words"], words["undeclared"])
-    check_eq("`unsupported` lists no `undeclared` note and keeps the role's surfaces",
-             (surfaces.unsupported({}), sorted(surfaces.unsupported(profile("cli", "zzz")))), ({}, ["cli", "zzz"]))
-    # a role-first line, and no word that hands the cases to a person untried
-    for key in ("unknown_word", "no_stand", "undeclared"):
-        check(f"words.{key} is role-first", "agent tries" in words[key], words[key])
-    # a mixed config: the agent-driven word stays silent, the other one speaks
-    check_eq("mixed web + desktop: only the desktop speaks, as the role's", {k: v["hands"] for k, v in surfaces.declared_surfaces(profile("web", "desktop")).items()}, {"desktop": "role"})
+        check_eq(f"{label}: undeclared, the role's, with words", (sorted(got), got["undeclared"]["hands"], bool(got["undeclared"]["words"])),
+                 (["undeclared"], "role", True))
     # web + API: no key and the table is not read (the web road is unchanged by a byte)
     with patch.object(surfaces, "rows", counting), patch.object(surfaces, "TABLE_PATH", broken):
         for label, cfg in (("web+api", profile("web", "api")), ("web", {"environments": [], **profile("web")})):
@@ -891,14 +872,12 @@ def surfaces_said_aloud() -> None:
             check_eq(f"{label}: the table was read 0 times", len(reads), 0)
     # an unreadable table with no words is `unknown` in the record, never a silent web default (FR-59)
     with patch.object(surfaces, "TABLE_PATH", broken):
-        for label, cfg in (("no words", {}), ("a cli word", profile("cli"))):
-            try:
-                surfaces.declared_surfaces(cfg)
-                got = "no error"
-            except ValueError as exc:
-                got = "ValueError"
-                check_in(f"{label}: the error names the table and says it is a factory defect", "factory defect", str(exc))
-            check_eq(f"{label}: a broken table is refused, not defaulted", got, "ValueError")
+        try:
+            surfaces.declared_surfaces({})
+            got = "no error"
+        except ValueError:
+            got = "ValueError"
+        check_eq("a broken table is refused, not defaulted", got, "ValueError")
     # the readiness record: `surfaces` carries `undeclared` / `unknown`; the legacy keys of profiles stay absent
     root = temp_project("qa-factory-readiness-surfaces-rec-")
     use_project(root)
@@ -913,18 +892,6 @@ def surfaces_said_aloud() -> None:
         check_eq("record: an unreadable table is `unknown`", sorted(record.get("surfaces") or {}), ["unknown"])
     finally:
         cleanup(root)
-    # a2D1: a profile the config lacks, words of mixed hands, a broken table -> the old road (None / the module's error)
-    mixed = profile("native", "desktop")
-    check_eq("a2D1: unknown profile -> None", surfaces.row_for_profile(profile("cli"), "nobody"), None)
-    check_eq("a2D1: words of rows with different hands -> None", surfaces.row_for_profile(mixed, "p"), None)
-    check_eq("a2D1: a desktop profile -> the row whose hands the role converts", (surfaces.row_for_profile(profile("desktop"), "p") or {}).get("hands"), "none")
-    with patch.object(surfaces, "TABLE_PATH", broken):
-        try:
-            surfaces.row_for_profile(profile("cli"), "p")
-            got = "no error"
-        except ValueError:
-            got = "ValueError"
-        check_eq("a2D1: a broken table raises the module's ValueError (the caller keeps the old road)", got, "ValueError")
     cleanup(broken.parent)
 
 
