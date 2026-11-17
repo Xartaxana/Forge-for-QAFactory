@@ -15,8 +15,9 @@
 
 ## Which assertion catches which mutation (reasoned, not run)
 - consumer reverted to always print OK: "the gate says `not checked`" and "never `witness OK`" go red.
-- `"witness"` deleted from the `run_advisers` tuple: this test does not call `run_advisers`; the stash assertion proves only the
-  producer half (filed under source `witness`). Honest gap: the pop in `run_advisers` is not driven by this row.
+- `"witness"` deleted from the `run_advisers` tuple (second commit, Lead's answer): the row now drives `run_advisers` in the same world
+  (`_stage_detectors`, `_ticket_of`, `_live_dispatch`, `write_advice` stubbed, nothing else) and asserts the filed records equal exactly
+  `[["not checked: no evidence contract for test-plan.md"]]` and the stash key is gone; with the tuple element deleted the filed list is `[]`... in fact `write_advice` is never called and `filed` stays `[]`, so "files the witness advice exactly once" goes red.
 - consumer stops stashing: the stash assertion (`["advice"]`) goes red.
 
 ## FR walk
@@ -34,3 +35,6 @@ scripts/slow_tests.json; scenario_walk output.
 
 ## Analogs noticed
 None new. Note: the pre-existing D8 control row (fake clean run on `w.json`) now prints `witness not checked` to stdout, because w.json has no rule; harmless, the assertion there is only `[]`.
+
+## Second commit (run_advisers row)
+Re-run once: test_exit_gate_unreadable 63/63 ok, test_check_witness 34/34 ok, pyflakes clean. No new stub beyond four attributes was needed.

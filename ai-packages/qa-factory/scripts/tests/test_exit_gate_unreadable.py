@@ -142,6 +142,21 @@ def main() -> None:
             check("S7: ...and never `witness OK`", "witness OK" not in out.getvalue(), out.getvalue())
             check_eq("S7: ...one advice record filed under the witness source", [r.kind for r in EG._STASH[(ROLE, "T-1", "witness")]],
                      ["advice"])
+            # S7: `run_advisers` pops the `witness` source of the stash: the advice is filed once, the key is gone, a second stop files none
+            filed = []
+            saved_ra = {k: getattr(EG, k) for k in ("_stage_detectors", "_ticket_of", "_live_dispatch", "write_advice")}
+            EG._stage_detectors = lambda agent, task="": ("S7", [], set())
+            EG._ticket_of = lambda agent, task="": "T-1"
+            EG._live_dispatch = lambda *a, **k: None
+            EG.write_advice = lambda root, stage, role, records, unread, dispatch="": filed.append([str(r) for r in records]) or ""
+            try:
+                check_eq("S7: run_advisers blocks nothing", EG.run_advisers(ROLE, "T-1"), [])
+                check_eq("S7: ...files the witness advice exactly once", filed,
+                         [["not checked: no evidence contract for test-plan.md"]])
+                check("S7: ...and the stash key is gone", (ROLE, "T-1", "witness") not in EG._STASH)
+            finally:
+                for k, v in saved_ra.items():
+                    setattr(EG, k, v)
         finally:
             EG.witness_gates, EG.artifact_root = real_wg, real_root
             import shutil
