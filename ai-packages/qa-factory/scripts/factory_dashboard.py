@@ -3635,22 +3635,48 @@ def tab_factory(root, cfg, dd_open, sessions, journal_events, journal_exists, ne
     fb_closed = len(fb_all) - len(fb_open_list)
 
     # --- widget 1: findings about the factory + deferred decisions, by scope/type ---
-    scope_colors = [(word, SCOPE_COLOR.get(word, SCOPE_COLOR_OTHER)) for word in FINDING_SCOPES]
+    try:
+        scope_words = tuple(FINDING_SCOPES)
+        urgent_words = FINDING_SCOPES.urgent
+        scopes_refusal = None
+    except ValueError as exc:   # FR-1, P1: an unreadable data file is reported in the widget, the page is still written
+        scope_words, urgent_words, scopes_refusal = (), (), str(exc)
+
+    def scope_span(scope, bullet=False):
+        """A scope word drawn by its row of the data: a row that is `urgent` takes the warning class, any other its colour
+        (presentation: `SCOPE_COLOR`, grey for a word it lacks); text that is no word of the table is drawn plain."""
+        mark = "&#9679; " if bullet else ""
+        if scope in scope_words:
+            if scope in urgent_words:
+                return f"<span class='warn'>{mark}{esc(scope)}</span>"
+            return f"<span style='color:{SCOPE_COLOR.get(scope, SCOPE_COLOR_OTHER)}'>{mark}{esc(scope)}</span>"
+        return esc(scope) if scope else "—"
+    scope_colors = [(word, SCOPE_COLOR.get(word, SCOPE_COLOR_OTHER)) for word in scope_words]
     scope_counts: dict = defaultdict(int)
     for f in fb_open_list:
         scope_counts[f["scope"]] += 1
     # Findings the render itself computed (a task whose cost cannot be reconciled) count as
     # local-urgent here and nowhere else: a render never writes to factory-backlog.md.
-    scope_counts["local-urgent"] += len(render_findings)
-    donut_items = [(scope_counts.get(s, 0), c) for s, c in scope_colors] + [(len(dd_open), "#C084FC")]
+    # The row that counts them is the first one whose data says `urgent` (AR-1: never a literal word); with no urgent row
+    # they are still counted, in a grey slice of their own (FR-41: not dropped).
+    urgent_word = next(iter(urgent_words), None)
+    if urgent_word is not None:
+        scope_counts[urgent_word] += len(render_findings)
+    donut_items = [(scope_counts.get(s, 0), c) for s, c in scope_colors]
+    grey_slice = urgent_word is None and bool(render_findings)
+    if grey_slice:
+        donut_items.append((len(render_findings), SCOPE_COLOR_OTHER))
+    donut_items.append((len(dd_open), "#C084FC"))
     total_tails = sum(n for n, _ in donut_items)
     donut1 = donut(donut_items, str(total_tails), "open", size=150, thick=22)
-    legend1 = ("<div class='wleg'><span class='warn'>&#9679; local-urgent</span> · "
-               "<span class='skip'>&#9679; local-calibration</span> · "
-               "<span style='color:#2297F6'>&#9679; upstream-candidate</span> · "
-               "<span style='color:#C084FC'>&#9679; deferred decisions</span></div>")
+    legend1 = ("<div class='wleg'>" + "".join(f"{scope_span(word, bullet=True)} · " for word in scope_words)
+               + (f"<span style='color:{SCOPE_COLOR_OTHER}'>&#9679; unclassified (this render)</span> · " if grey_slice else "")
+               + "<span style='color:#C084FC'>&#9679; deferred decisions</span></div>")
     w1 = f"<div class='wcard'><h3>Findings about the factory and deferred decisions</h3>{donut1}{legend1}</div>"
-    if not fb_path.is_file():
+    if scopes_refusal is not None:
+        w1 = ("<div class='wcard'><h3>Findings about the factory and deferred decisions</h3>"
+              f"<p class='nd'>Unavailable: {esc(scopes_refusal)}</p></div>")
+    elif not fb_path.is_file():
         w1 = "<div class='wcard'><h3>Findings about the factory and deferred decisions</h3><p class='nd'>Unavailable: factory-backlog.md is missing.</p></div>"
 
     # --- widget 2: age of the open ones (weeks since created), oldest first, bars by id ---
@@ -3676,17 +3702,9 @@ def tab_factory(root, cfg, dd_open, sessions, journal_events, journal_exists, ne
     out = [f"<section><h2>The factory at a glance</h2><div class='wcards'>{w1}{w2}{w3}</div></section>"]
 
     # --- findings about the factory ---
-    def scope_span(scope):
-        if scope == "local-urgent":
-            return f"<span class='warn'>{esc(scope)}</span>"
-        if scope == "local-calibration":
-            return f"<span class='skip'>{esc(scope)}</span>"
-        if scope == "upstream-candidate":
-            return f"<span style='color:#2297F6'>{esc(scope)}</span>"
-        return esc(scope) if scope else "—"
     fb_rows_html = "".join(_fb_row_html(f, scope_span) for f in sorted(fb_open_list, key=lambda f: -(age_weeks_of(f["created"]) or 0)))
     fb_rows_html += "".join(
-        f"<tr><td>—</td><td>{esc(text)}</td><td class='warn'>local-urgent</td><td>this render</td><td>0 wk</td></tr>"
+        f"<tr><td>—</td><td>{esc(text)}</td><td>{scope_span(urgent_word)}</td><td>this render</td><td>0 wk</td></tr>"
         for text in render_findings)
     fb_header = (f"Findings about the factory: {len(fb_open_list) + len(render_findings)} open"
                  + (f" (+ {fb_closed} fixed)" if fb_closed else ""))

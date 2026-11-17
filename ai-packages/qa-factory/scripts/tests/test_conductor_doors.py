@@ -118,6 +118,21 @@ def row_38_names_the_three_scope_words() -> None:
         check(f"K5: row 38 names `{word}`", f"`{word}`" in row, row)
     check_eq("K5: row 38 names every word the writer accepts, and no other word of that shape",
              sorted(set(re.findall(r"`((?:local|upstream)-[a-z]+)`", row))), sorted(PD.FINDING_SCOPES))
+    # S8 (X9, data join): the template's three `- `word` - meaning` lines are the data file's words, in order, each line
+    # holding that word's meaning whole (the template may go on after it); the expected words are quoted from the spec.
+    template = (PLUGIN_ROOT / "references" / "templates" / "factory-backlog.md").read_text(encoding="utf-8")
+    lines = [" ".join(f"{w} {t}".split())
+             for w, t in re.findall(r"(?ms)^- `((?:local|upstream)-[a-z]+)` — (.*?)(?=^- |^\s*$)", template)]
+    data = json.loads((PLUGIN_ROOT / "references" / "finding-scopes.json").read_text(encoding="utf-8"))
+    check_eq("S8: the data file holds the three words of the spec, in order, each with an `urgent` flag",
+             [(w, r["urgent"]) for w, r in data.items()],
+             [("local-urgent", True), ("local-calibration", False), ("upstream-candidate", False)])
+    check_eq("S8: the writer's table is the data file's words and meanings", dict(PD.FINDING_SCOPES),
+             {w: r["meaning"] for w, r in data.items()})
+    by_word = {l.split()[0]: l for l in lines}
+    for word, scope_row in data.items():
+        check(f"S8: the template's line of `{word}` holds the data file's meaning whole",
+              f"{word} {scope_row['meaning']}" in by_word.get(word, ""), by_word.get(word, "no line"))
     check_in("K5: row 38 says the scope is never a path or a topic", "never a path or a topic", row)
     check_in("K5: row 38 names the command with its four fields", "--idempotency-key", row)
     check_in("K5: ...and still forbids a plugin edit", "never a plugin edit", row)

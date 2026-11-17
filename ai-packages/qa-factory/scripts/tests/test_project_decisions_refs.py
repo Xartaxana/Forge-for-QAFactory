@@ -128,13 +128,6 @@ def test_the_scope_words_are_listed_and_each_writes_a_row() -> None:
         # the same key and the same content is the same row, not a fourth
         again = add_finding_cli(root, WORDS[0], key="key-1")
         check_eq("a retry with the same key and content writes nothing new", (again.returncode, len(backlog_rows(root))), (0, 3))
-        # the template's own words: the three words and the meaning each refusal prints are the file's
-        template_file = Path(PD.__file__).resolve().parents[1] / "references" / "templates" / "factory-backlog.md"
-        template = " ".join(template_file.read_text(encoding="utf-8").split())
-        for word, meaning in PD.FINDING_SCOPES.items():
-            check(f"the template names `{word}`", f"`{word}`" in template)
-            lead = " ".join(meaning.replace(";", ":").replace("(", ":").split(":")[0].split())
-            check(f"and the meaning printed for `{word}` is its words ({lead!r})", lead in template, template[:300])
     finally:
         cleanup(root)
 
@@ -220,6 +213,23 @@ def test_the_dashboard_reads_the_writers_words() -> None:
     check("the dashboard's constant IS the writer's", FD.FINDING_SCOPES is PD.FINDING_SCOPES)
     check_eq("every word of the writer has a colour of its own in the dashboard", sorted(FD.SCOPE_COLOR), sorted(PD.FINDING_SCOPES))
     check("and the table has no word the writer lacks", set(FD.SCOPE_COLOR) <= set(PD.FINDING_SCOPES))
+    # S8-2 (FR-1, P1): a missing or broken data file is a widget that says so, never a render that raises
+    root = temp_project("qa-factory-project-decisions-")
+    saved_rows, saved_file = PD.FINDING_SCOPES._rows, PD.SCOPES_FILE
+    try:
+        PD.FINDING_SCOPES._rows, PD.SCOPES_FILE = None, "no-such-finding-scopes.json"
+        try:
+            PD.FINDING_SCOPES.urgent
+            refusal = ""
+        except ValueError as exc:
+            refusal = str(exc)
+        html = FD.tab_factory(root, {}, [], [], [], False)
+        check_eq("S8-2: an unreadable scope file draws the widget as Unavailable with the escaped refusal, the tab is still built",
+                 ("missing or not JSON" in refusal, f"<p class='nd'>Unavailable: {FD.esc(refusal)}</p>" in html,
+                  "<section class='findings'>" in html), (True, True, True))
+    finally:
+        PD.FINDING_SCOPES._rows, PD.SCOPES_FILE = saved_rows, saved_file
+        cleanup(root)
 
 
 if __name__ == "__main__":

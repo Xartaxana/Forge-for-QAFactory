@@ -810,6 +810,7 @@
         "scripts/plan_row.py",
         "scripts/repair_route.py",
         "scripts/project_decisions.py",
+        "references/finding-scopes.json",
         "scripts/artifact_supersede.py",
         "scripts/form_selftest.py",
         "handoffs/**",
