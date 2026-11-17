@@ -626,3 +626,12 @@ not wait. Plan critics t-1123 (two reports, both standing) → this fix round t-
 - No third plan critic: 29 of 33 fixes applied as written, the direction (C) is unchanged; the code critic judges j1 and j2
   (one pass for the topic).
 - Dispatch: j1 then j2, after the C3 wave is on main.
+
+## The owner's correction to F-j-failed (owner, 17.11.2026)
+
+«но должна сохранятся причина. А то мы по кругу будем ходить в попытках» — a failed measurement keeps no NUMBER, but its
+REASON is kept (in the same registry store, with the time and the attempt count) and is read before the next attempt:
+the same failure is not retried blindly — the next attempt names what changed, or the stage reports the kept reason to the
+conductor (AR-17, AR-28: an unknown never becomes a pass). The j1 builder card carries this as a requirement with a test
+row: failed measurement -> reason row present, number absent; second start with the reason present -> one attempt, the
+reason carried to whoever acts.

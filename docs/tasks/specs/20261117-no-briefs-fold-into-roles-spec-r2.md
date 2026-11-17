@@ -953,3 +953,8 @@ Needed beyond the manifest: the files above outside the four given specs.
 - No third plan critic (the owner's word 17.11.2026 on rounds); the code critic judges the result, one pass per topic.
 - Ordering with t-1137 (short auto-loaded text for workers): this spec's waves land FIRST; the split works from main
   after them.
+
+## The owner's answer to F-R2-5 (owner, 17.11.2026)
+
+«нет. Бриф о том как делать узел необходим, бриф который даётся роли когда у нас и так куча документов для ролей -
+лишний» — the per-batch `## Бриф` sections and their names stay: (a).
