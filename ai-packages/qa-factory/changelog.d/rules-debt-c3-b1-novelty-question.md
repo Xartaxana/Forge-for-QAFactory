@@ -18,4 +18,5 @@
   (kinds never cross, an instance never lends its word to another). A writer re-run that carries other test bytes drops the stored
   `probe_owed` / `critic_note` of the row, so the question is asked again for the new code. One reader of the closed answer:
   `proof_level.probe_owed_answer`.
-- Raised by name (AR-20): the `process_ratchet_tokens` entry of `qa-code-critic` in `references/role-load.json`, 21173 -> 21224 (the charter line of C3-b1; node K1b pays it down). The stage-joints walk pins follow the one added row `acceptance:novelty_question`: window 27 -> 28, rows 267 -> 268.
+- Raised by name (AR-20): the `process_ratchet_tokens` entry of `qa-code-critic` in `references/role-load.json`, 21173 -> 21250, and the `native_headroom` baseline in bytes 73031 -> 73134 (the charter line of C3-b1 and the joint row `manifest_put:probe_owed` with its slice; node K1b pays it down). The stage-joints walk pins follow the one added row `acceptance:novelty_question`: window 27 -> 28, rows 267 -> 268.
+- The refusal `manifest_put:probe_owed` states its requirement in a joint row (`references/stage-joints.json`, told on the code critic's key page) and its site is tagged with the row id (`manifest_put.py::_refuse_probe_owed`); the stage-joints rows pin is 269 and the dry census gains the row `manifest_put:probe_owed` (unwalked).

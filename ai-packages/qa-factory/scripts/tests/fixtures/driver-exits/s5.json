@@ -215,6 +215,10 @@
    "reach": "unwalked",
    "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
   },
+  "manifest_put:probe_owed": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
   "manifest_put:obligation_hash": {
    "reach": "unwalked",
    "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
@@ -342,7 +346,7 @@
  "ratchet": {
   "live_only": 0,
   "after": 0,
-  "unwalked": 32,
+  "unwalked": 33,
   "hook_layer": 0,
   "raised_by": [
    "unwalked | joints/controller:code_review_receipts | L1c census catch-up, 2026-11-17",

@@ -2505,9 +2505,9 @@ def run(task: str, fragment_path: str, wait_seconds: float = 0.0) -> int:
     # A `probe_owed` that is not `yes` / `no` is refused before the commit (C3-b1): the key is the code critic's closed answer.
     probe_problems = probe_owed_problems(fragment)
     if probe_problems:
-        print("manifest_put: " + _problems_text(task_root, "probe-owed", probe_problems)
-              + ". " + REPAIR_MARKER + ".", file=sys.stderr)
-        return EXIT_BAD_FRAGMENT
+        # A SOURCED site (told-before-work): the Record carries its joint row's requirement and door, and `refuse` prints them.
+        return refuse("manifest_put.py --fragment",
+                      DV.refusal("manifest_put:probe_owed", _problems_text(task_root, "probe-owed", probe_problems)))
     # An `assertion_id` on a line with no check is refused before the commit (TR2-1): a probe aimed there proves nothing. Rows whose id
     # did not change in this call are not read; unknowns (language, file, form) are notes printed at the end, never a refusal.
     line_problems, line_notes = assertion_line_problems(fragment, _current_tests(task_root), project_root())

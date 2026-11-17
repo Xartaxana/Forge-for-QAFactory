@@ -3445,6 +3445,33 @@
       "joint": null
     },
     {
+      "check": "manifest_put:probe_owed",
+      "stages": [
+        "S5"
+      ],
+      "requirement": "A `tests[]` row's `probe_owed` is `yes` or `no`.",
+      "door": "send `yes` or `no`",
+      "door_needs": "shell",
+      "when": [
+        "shell"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-code-critic"
+          ],
+          "field": "the manifest fragment sent to manifest_put.py",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
       "check": "manifest_put:novelty",
       "stages": [
         "S5"

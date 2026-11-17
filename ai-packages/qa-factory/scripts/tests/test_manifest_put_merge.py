@@ -1374,13 +1374,21 @@ def ep1_39_critic_approval() -> None:
 def c3_b1_probe_owed_value() -> None:
     """C3-b1 (D-b1-2): a `tests[]` row's `probe_owed` is `yes` / `no` or absent; anything else is refused by `run` before the commit,
     every bad row named at once (the field, the row, both values), nothing written."""
+    import role_cli as RC
+    import detector_verdict as DV
+    row_record = DV.refusal("manifest_put:probe_owed", "x")      # the row's own expected / door, read from stage-joints.json
+    check_eq("the joint row `manifest_put:probe_owed` is readable and says the closed answer",
+             ("`yes` or `no`" in row_record.expected, "`yes` or `no`" in row_record.door), (True, True))
     bad = (("maybe", "maybe"), ("empty string", ""), ("bool", True), ("number", 1), ("list", ["yes"]), ("null", None))
     with Stand() as stand:
         check_eq("run: the row is stored", stand.put({"tests": [t9(status="green")]})[0], 0)
         before = (stand.journal(), stand.tree())
         for label, value in bad:
             code, _out, err = stand.put({"tests": [{"instance_id": "test_nine[a]", "probe_owed": value}]})
-            check_eq(f"run: probe_owed {label} -> refused, nothing written", (code, (stand.journal(), stand.tree())), (MP.EXIT_BAD_FRAGMENT, before))
+            check_eq(f"run: probe_owed {label} -> refused (a sourced site: `role_cli.EXIT_REFUSED`), nothing written",
+                     (code, (stand.journal(), stand.tree())), (RC.EXIT_REFUSED, before))
+            check_in(f"run: {label} -> prints the joint row's requirement (expected)", "expected: " + row_record.expected, err)
+            check_in(f"run: {label} -> prints the joint row's door", "door: " + row_record.door, err)
             check_in(f"run: {label} -> names the field, the row and both values", "probe_owed", err)
             check_in(f"run: {label} -> names the row", "tests[0] (test_nine[a])", err)
             check_in(f"run: {label} -> names both values", "`yes` (a live probe is owed) or `no`", err)
