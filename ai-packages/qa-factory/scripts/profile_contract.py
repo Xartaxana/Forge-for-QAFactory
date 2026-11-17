@@ -13,6 +13,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import contract
+
 PROFILE_STATUSES = {"ready", "unavailable", "unsupported", "unknown"}
 # `person_confirmed` (t-300): the build under test is the person's word, not the factory's reading. It is the fifth
 # word and it is NEVER `matched`: every reader that wants a verified build refuses it unless it says otherwise.
@@ -22,7 +24,7 @@ COMMAND_KINDS = {"build", "collect", "run", "test", "typecheck", "lint", "setup"
 # names no scope, no reporter and no selectors. The factory prints it and never runs it.
 SETUP_KIND = "setup"
 REPORT_FORMATS = {"pytest", "junit-xml", "trx", "none"}
-LEVELS = {"unit", "component", "api", "integration", "e2e-ui"}
+LEVELS = frozenset(contract.PLAN_LEVELS)  # the one owner of the level words (FR-13, AR-13); membership use only
 # The words for "the files" when a content word records none; ONE constant (SC2-33, AR-13), read by `report_facts` and `manual_evidence`.
 CONTENT_FILES_FALLBACK = "the files of this story"
 
