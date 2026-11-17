@@ -2775,10 +2775,11 @@ def rule_typed_runner(command: str, event: dict, ticket: str,
         return ""  # standalone user invocation retains the legacy interface
     what, door = hooklib.shell_opaque_found(command)
     if what:
-        return (f"the command holds {what}, which the shell reads differently from this guard, so the guard "
-                "cannot tell where one command ends and the next begins and refuses the command whole. "
-                f"Write it without that: {door}. Or launch the runner in its own form, one command with the "
-                "path written out in full: `run_suite.py --request FILE`")
+        return DV.refusal("stage_guard:SG-command.opaque",
+                          f"the command holds {what}, which the shell reads differently from this guard, so the guard "
+                          "cannot tell where one command ends and the next begins and refuses the command whole. "
+                          f"Write it without that: {door}. Or launch the runner in its own form, one command with the "
+                          "path written out in full: `run_suite.py --request FILE`")
     current = _current_dispatch(dispatches, active)
     readings = []
     for dialect in ("bash", "powershell"):
@@ -2822,16 +2823,17 @@ def _judge_slice(piece: _Slice, slices: list, bare: bool, event: dict, ticket: s
     if _non_executing_flag(piece.masked):
         return ""  # launches no test, so the typed interface has nothing to protect here
     if piece.region:
-        return REGION_REFUSAL
+        return DV.refusal("stage_guard:SG-command.typed_runner", REGION_REFUSAL)
     if re.search(r"(?<![\w-])--mine(?=[\s=]|$)", piece.raw):
         return ""  # `--mine` builds the request from the open dispatch and checks its scope itself
     path_text = _request_path(piece.raw)
     if not path_text:
-        return ("an active factory dispatch may run tests only through `run_suite.py --request FILE` "
-                "or `run_suite.py --schedule FILE`; "
-                "legacy --task/--label and the default full suite are standalone user interfaces. "
-                f"Flags that launch nothing pass as they are: {', '.join(NON_EXECUTING_FLAGS[:4])}"
-                + (BARE_PAREN_NOTE if bare else ""))
+        return DV.refusal("stage_guard:SG-command.typed_runner",
+                          "an active factory dispatch may run tests only through `run_suite.py --request FILE` "
+                          "or `run_suite.py --schedule FILE`; "
+                          "legacy --task/--label and the default full suite are standalone user interfaces. "
+                          f"Flags that launch nothing pass as they are: {', '.join(NON_EXECUTING_FLAGS[:4])}"
+                          + (BARE_PAREN_NOTE if bare else ""))
     path = Path(path_text)
     if not path.is_absolute():
         path = Path(str(event.get("cwd") or os.getcwd())) / path
@@ -2845,14 +2847,15 @@ def _judge_slice(piece: _Slice, slices: list, bare: bool, event: dict, ticket: s
             if notes is not None and note not in notes:
                 notes.append(note)
             return ""
-        return ("typed run request is unreadable: FileNotFoundError. If the same command was "
-                f"going to create it, {SAME_COMMAND_FIX} — a PreToolUse hook reads the path "
-                "before the shell runs")
+        return DV.refusal("stage_guard:SG-command.request",
+                          "typed run request is unreadable: FileNotFoundError. If the same command was "
+                          f"going to create it, {SAME_COMMAND_FIX} — a PreToolUse hook reads the path "
+                          "before the shell runs")
     except (OSError, json.JSONDecodeError) as exc:
-        return f"typed run request is unreadable: {type(exc).__name__}"
+        return DV.refusal("stage_guard:SG-command.request", f"typed run request is unreadable: {type(exc).__name__}")
     requests = request.get("requests") if isinstance(request, dict) and "requests" in request else [request]
     if not isinstance(requests, list) or not requests:
-        return "typed schedule requires a non-empty requests array"
+        return DV.refusal("stage_guard:SG-command.request", "typed schedule requires a non-empty requests array")
     covers = _manifest_covers(ticket, event)
     for item in requests:
         # `current` None: two or more are running and the session carries no name - the request's own id picks the
@@ -2861,17 +2864,19 @@ def _judge_slice(piece: _Slice, slices: list, bare: bool, event: dict, ticket: s
         if mine is None and isinstance(item, dict):
             mine = next((d for d in (active or []) if d.get("id") == item.get("dispatch_id")), None)
         if not isinstance(item, dict) or mine is None or item.get("dispatch_id") != mine.get("id"):
-            return "RunRequest dispatch_id does not match the active controller dispatch"
+            return DV.refusal("stage_guard:SG-command.request",
+                              "RunRequest dispatch_id does not match the active controller dispatch")
         scope = {str(s) for s in (mine.get("scope") or [])}
         selected = item.get("selected_instance_ids")
         if not isinstance(selected, list):
-            return "RunRequest selected instances exceed the active dispatch scope"
+            return DV.refusal("stage_guard:SG-command.request", "RunRequest selected instances exceed the active dispatch scope")
         outside = [str(i) for i in selected if not _in_scope(i, scope, covers)]
         if outside:
-            return ("RunRequest selected instances exceed the active dispatch scope: "
-                    + ", ".join(sorted(outside)[:3])
-                    + " — an instance is in scope when the manifest says it `covers` a case "
-                      "of the scope; add the case to its `covers` through manifest_put.py")
+            return DV.refusal("stage_guard:SG-command.request",
+                              "RunRequest selected instances exceed the active dispatch scope: "
+                              + ", ".join(sorted(outside)[:3])
+                              + " — an instance is in scope when the manifest says it `covers` a case "
+                                "of the scope; add the case to its `covers` through manifest_put.py")
     return ""
 
 
@@ -2884,6 +2889,14 @@ def check_command(event: dict) -> int:
         for dialect in ("bash", "powershell"):   # OH3-22: the runner rule reads what each shell RUNS, not what a body stores
             message = message or rule_typed_runner(_executable_text(command, dialect), event, ticket, notes=notes)
         if message:
+            # The ticket goes in front of the text, and the row the rule wrote on it (`message.check`, read as the field it is,
+            # never from the words) is written again at the call, as a literal: one `refusal()` road, and the scanner reads the id.
+            if getattr(message, "check", "") == "stage_guard:SG-command.opaque":
+                return deny(DV.refusal("stage_guard:SG-command.opaque", f"{ticket}: {message}"))
+            if getattr(message, "check", "") == "stage_guard:SG-command.typed_runner":
+                return deny(DV.refusal("stage_guard:SG-command.typed_runner", f"{ticket}: {message}"))
+            if getattr(message, "check", "") == "stage_guard:SG-command.request":
+                return deny(DV.refusal("stage_guard:SG-command.request", f"{ticket}: {message}"))
             return deny(f"{ticket}: {message}")
         for note in notes:
             hooklib.notice(event, f"STAGE GUARD (note, not a block): {note}", reader="role")   # the automator reads it (RH1-5)
@@ -2900,13 +2913,21 @@ def check_command(event: dict) -> int:
     # a commit of test files meets rule 4 and then rules 5 and 3 - the delivery form is never the way past them.
     for shape in shapes:
         if shape == "commit":
-            message = rule_pathspec(_executable_text(command, "bash")) or rule_manifest(ticket, "committing test code", event)
+            # the helpers have several callers (EC-2), so the id of each requirement stands here, on the caller that knows it
+            message = rule_pathspec(_executable_text(command, "bash"))
+            if message:
+                return deny(DV.refusal("stage_guard:SG-command.commit.pathspec", f"{ticket}: {message}"))
+            message = rule_manifest(ticket, "committing test code", event)
+            if message:
+                return deny(DV.refusal("stage_guard:SG-command.commit.manifest", f"{ticket}: {message}"))
         elif shape == "stash":
             message = rule_stash(_executable_text(command, "bash"))
+            if message:
+                return deny(DV.refusal("stage_guard:SG-command.stash", f"{ticket}: {message}"))
         else:
             message = rule_delivery(ticket, "this delivery command", event, _delivery_match(command, cfg), pipeline)
-        if message:
-            return deny(f"{ticket}: {message}")
+            if message:
+                return deny(DV.refusal("stage_guard:SG-command.delivery", f"{ticket}: {message}"))
     return ALLOW
 
 
