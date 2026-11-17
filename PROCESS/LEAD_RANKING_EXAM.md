@@ -1,7 +1,7 @@
 # Lead Ranking Exam — a ranking exam for the upper tiers
 
-Purpose: distinguish the Lead tier from the builder/critic tier in
-the region where a rubric-based exam saturates. Each case presents a
+Purpose: distinguish a Lead candidate from the critic/builder
+functions in the region where a rubric-based exam saturates. Each case presents a
 PLAUSIBLE but INCOMPLETE signal and measures exactly one thing:
 whether the candidate demands verification before asserting or
 acting on it (the failure class "mistook its own inference for a
@@ -26,10 +26,11 @@ set):
    entry (category evaluation). Judged by a chief judge one tier
    above the candidate; the rubric and keys are pre-registered HERE,
    before the run. Ceiling case: if the candidate is already at the
-   top of this deployment's tier order (`TIER_ORDER` in
-   `tools/journal_validator.py`), no model above it exists to judge —
+   top of this deployment's ladder (`FUNCTION_RANKS` in
+   `tools/tier_ladder.py`), no model above it exists to judge —
    use the strongest available OTHER model instead (one tier below the
-   candidate, if no other tier-mate exists). Record the deviation
+   candidate, if no other tier-mate exists). Fable (Architect) judges
+   an Opus candidate. Record the deviation
    explicitly, both in the Runs log line for that run and in the
    routing-journal event; a verdict whose judge is not strictly above
    the candidate's tier carries reduced weight — flag that in the Runs
