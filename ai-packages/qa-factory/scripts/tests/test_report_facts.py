@@ -427,6 +427,19 @@ def proven_rules() -> None:
         check_in("what was not counted is said", "4 more green tests are not counted", body)
         check_in("the code critic's unverified tests are told in the verdict",
                  "1 test could not be verified by the code critic", RF.render(facts)["verdict"])
+        # RD1-29 (E2; AR-28, FR-59): a registry that cannot be read counts nothing as proven and says so as the factory's gap
+        import gate_registry
+        import gate_template as GT
+        saved = list(GT._READ)
+        GT._READ[:] = [({"rows": "x"}, gate_registry.structural_error({"rows": "x"}))]
+        try:
+            unread = RF.build(task)
+            check_eq("RD1-29 E2: an unreadable registry -> facts['tests'] is None", unread["tests"], None)
+            check_in("RD1-29 E2: ... the block says the gap is the factory's and names the registry",
+                     "Unknown which tests are proven — a gap of the factory's tool, not of the product: the gate registry cannot be read",
+                     RF.render(unread)["proven"])
+        finally:
+            GT._READ[:] = saved
     finally:
         cleanup(task.parents[2])
     task = story(extra_ledger=ledger([test_row("t_only", level=None, reason="", words="no live check")]))

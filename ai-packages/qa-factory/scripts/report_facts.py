@@ -49,6 +49,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bug_records as BR  # noqa: E402  (`reproduction_words`: the one sentence about a bug's step, HF8-16)
 import contract as C  # noqa: E402
 import detector_verdict as DV  # noqa: E402
+import gate_template  # noqa: E402  (the ONE predicate the critic's review word approves through: row `critic_review`)
 import grammar as G  # noqa: E402
 import hooklib  # noqa: E402
 import profile_contract as PC  # noqa: E402
@@ -60,7 +61,6 @@ ELLIPSIS = "…"
 RISK_WORDS_PATH = Path(__file__).resolve().parents[1] / "references" / "report-risk-words.json"
 REPORT_NAME = "test-report.md"
 HISTORY_REL = ("state", "report-history")
-APPROVING = ("approved", "approved_with_fixes")
 # Reasons a test that reached no live check still counts as proven (owner decision 30.09, V9).
 COUNTED_WITHOUT_CHECK = ("unchanged", "unmeasured")
 # A requirement whose rows hold no pass and no bug is listed under "Not proven"; these classes say how.
@@ -1510,6 +1510,12 @@ def _tests(art: Path, ledger, manifest: dict, reqs, case_index, unknown: dict):
     no live check, is not counted."""
     if ledger is None:
         return None
+    registry_reason = gate_template.registry_problem()
+    if registry_reason:
+        # AR-28: the count of proven tests rests on a word the registry cannot judge - said as the factory's gap, never a count
+        unknown["tests"] = gate_template.registry_why(registry_reason, "which green tests are proven is not known")
+        unknown["tests_code"] = "tool"
+        return None
     import ledger as L
     import proof_level as PL
     entries = T.instances_by_id(manifest)
@@ -1533,7 +1539,7 @@ def _tests(art: Path, ledger, manifest: dict, reqs, case_index, unknown: dict):
         level = row.get("proof_level")
         reason = row["proof_reason"] if "proof_reason" in row else (PL.not_required_why(entry, manifest) if entry else "")
         reached = level not in (None, L.PROOF_NOT_REQUIRED, L.PROOF_UNKNOWN, L.UNVERIFIED)
-        if entry is None or verdict not in APPROVING or not (
+        if entry is None or not gate_template.acceptable(verdict, "critic_review.proven") or not (
                 reached or (level == L.PROOF_NOT_REQUIRED and reason in COUNTED_WITHOUT_CHECK)):
             green_not_counted += 1
             continue
@@ -3662,7 +3668,7 @@ def _r_proven(facts: dict) -> str:
     built = _person_build_lines(facts)
     if tests is None:
         return (G.REPORT_BLOCK_HEADINGS["proven"] + " — unknown\n\n" + "".join(line + "\n" for line in built) + ("\n" if built else "")
-                + _unknown_line(facts, "ledger", "which tests are proven") + "\n")
+                + _unknown_line(facts, "tests" if "tests" in facts["unknown"] else "ledger", "which tests are proven") + "\n")
     out = [f"{G.REPORT_BLOCK_HEADINGS['proven']} — {_n(tests['count'], 'green test', 'green tests')}", ""]
     if built:
         out += built + [""]

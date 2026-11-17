@@ -69,10 +69,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import contract as C  # noqa: E402
+import detector_verdict  # noqa: E402  (`one_line`: the one fold of a value shown in a note)
+import gate_template  # noqa: E402  (the ONE predicate the critic's review word closes a review through: row `s5_window`)
 import person_words  # noqa: E402
 import proof_level  # noqa: E402
 import reporters  # noqa: E402
-from acceptance import (BLOCKED_OUTCOME, BLOCKED_REVIEW_VERDICT, CONTRADICTS_REQUIREMENT, HANDED_OUTCOME,  # noqa: E402
+from acceptance import (BLOCKED_OUTCOME, CONTRADICTS_REQUIREMENT, HANDED_OUTCOME,  # noqa: E402
                         HANDED_UNCONFIRMED_KIND, PROBE_GAP_KIND, PROBE_GAP_UNRECORDED_KIND, blocked_instances,
                         change_word, expectation_change_gaps, green_on_current_bytes_why, handed_instances, ran_red,
                         pending_instances, PENDING_OUTCOME, probe_gap_named, red_by_requirement, run_freshness_of, validate_window)
@@ -305,6 +307,61 @@ def row_field_gaps(entry, cfg=None, plan=None, known=None) -> list:
 # S9: the person's road for a `review` gap. The word's head is the gap line itself (`review:<instance id>`, case-exact);
 # `review_gap_words` reads it. ONE door text (AR-13).
 REVIEW_GAP_RECORD = person_words.door("waiver.py --task <T> --stage S5 --block \"review:<instance id>\"")
+# RD1-29 (AR-9, F4): ONE builder for the door of a review gap, for every kind of instance. WHICH words close the review is the
+# registry's (row `s5_window`, consumers `static_review` / `handed_review` / `review`), read through `acceptable`; the texts below
+# only say them, and `test_window_record` pins each door's backticked words to the data. Every door ends with the person's door.
+REVIEW_KIND_CLAUSE = {
+    "stopped": ", and this instance was blocked by the stand",
+    "gapped": ", and this instance's probe could not run here (a person's word or the factory names it)",
+    "handed": ", and this instance is run by the person",
+    "ran": ", and this instance ran with its proof",
+}
+_STATIC_WORDS = "the verdict of such an instance is `unverified` (a static review)"
+REVIEW_KIND_WORDS = {
+    "stopped": _STATIC_WORDS,
+    "gapped": _STATIC_WORDS,
+    "handed": "the verdict of an instance the person runs is `approved` or `unverified` (a static review)",
+    "ran": "the verdict of an instance that ran with its proof is `approved`",
+}
+_REVIEW_CRITIC_DOOR = ": the critic records it through `manifest_put.py`"
+_REVIEW_PERSON_DOOR = ("; or, when the person accepts the test without the critic's verdict, the orchestrator records their words "
+                       "with `" + REVIEW_GAP_RECORD + "` (the S5 step passes; delivery still reads no critic verdict)")
+REVIEW_SHOWN_LIMIT = 60
+
+
+def review_origin() -> tuple:
+    """`(what, door)` of a review gap for no particular instance: every kind's words in one sentence, then the person's door."""
+    return ("the manifest row's `critic_verdict` does not close the review of its instance",
+            ORIGIN["review"][1] + " (`unverified` for an instance the stand blocked or whose probe could not run here; `approved` "
+            "or `unverified` for an instance the person runs; `approved` for one that ran with its proof)" + _REVIEW_PERSON_DOOR)
+
+
+def review_note(identity, kind, said):
+    """`(identity, "review", "<what>; <door>")` when the word `said` does NOT close the review of this instance, else None.
+    `kind` is `stopped`, `handed`, `gapped` or `ran` (the kinds `acceptance.validate_window` decides by); the words that close it are
+    the registry's - the same consumer per kind as `validate_window`, so a note exists exactly when its gap does (E6). The word is
+    shown folded to one line, `;` as `,` and cut, so the first `"; "` is this builder's what/door boundary (E5). A registry that
+    cannot be read is said as that, never as a verdict on the word (AR-28)."""
+    reason = gate_template.registry_problem()
+    if reason:
+        return (identity, "review", "the review word of this instance cannot be judged; "
+                + gate_template.registry_why(reason, "repair the package install, then build this record again"))
+    if kind == "handed":
+        closed = gate_template.acceptable(said, "s5_window.handed_review")
+    elif kind == "ran":
+        closed = gate_template.acceptable(said, "s5_window.review")
+    else:
+        closed = gate_template.acceptable(said, "s5_window.static_review")
+    if closed:
+        return None
+    shown = detector_verdict.one_line(str(said) if said is not None else "").replace(";", ",")
+    if len(shown) > REVIEW_SHOWN_LIMIT:
+        shown = shown[:REVIEW_SHOWN_LIMIT] + "..."
+    what = f"the manifest row's `critic_verdict` is `{shown}`" if shown else "the manifest row carries no `critic_verdict`"
+    return (identity, "review", what + REVIEW_KIND_CLAUSE.get(kind, "") + "; " + REVIEW_KIND_WORDS.get(kind, _STATIC_WORDS)
+            + _REVIEW_CRITIC_DOOR + _REVIEW_PERSON_DOOR)
+
+
 # C3-b1: the person's road for a `novelty_question` gap; the head is the gap line itself (`novelty_question:<instance id>`).
 NOVELTY_QUESTION_RECORD = person_words.door("waiver.py --task <T> --stage S5 --block \"novelty_question:<instance id>\"")
 
@@ -321,11 +378,7 @@ GAP_ORIGIN = {
     # the word is `unverified` (a static review), which `build` says per instance in its own note. S9 (FR-57): a
     # person's recorded S5 word whose head is exactly `review:<instance id>` passes this gap's S5 STEP, read through
     # `word_let_go` (`review_gap_words`, the one reader); delivery still reads no critic verdict (`review_gap`, `no`).
-    "review": ("the manifest row's `critic_verdict` is not `approved`",
-               ORIGIN["review"][1] + " (`unverified` for an instance the stand blocked; `approved` or `unverified` for "
-               "an instance the person runs); or, when the person accepts the test without the critic's verdict, the "
-               "orchestrator records their words with `" + REVIEW_GAP_RECORD + "` (the S5 step passes; delivery still "
-               "reads no critic verdict)"),
+    "review": review_origin(),
     # C3-b1 (FR-59): nobody measured this test's novelty although the story's writer measured others (or its measurement failed),
     # so the question "is a live probe owed?" goes to the code critic (AR-10: the charter states the answer). The word of a person
     # is read through the window's word road (`WORD_READ_KINDS`, axis 34): the S5 exit reads a recorded word naming this line.
@@ -1635,19 +1688,11 @@ def build(task_root: Path, dispatch_id: str) -> tuple:
                 if field in ORIGIN:
                     notes.append((identity, field, _origin_text(field)))
         stopped = identity in blocked
-        if stopped:
-            # A test the stand blocked is reviewed statically: its verdict is `unverified`, and anything
-            # else on a test that never ran is a review gap (E5). Said in the review's own note.
-            if item["review"]["verdict"] != BLOCKED_REVIEW_VERDICT:
-                said = item["review"]["verdict"]
-                notes.append((identity, "review",
-                              (f"the manifest row's `critic_verdict` is `{said}`" if said
-                               else "the manifest row carries no `critic_verdict`")
-                              + f", and this instance was blocked by the stand; the verdict of such an instance "
-                              f"is `{BLOCKED_REVIEW_VERDICT}` (a static review): the critic records it through "
-                              "`manifest_put.py`"))
-        elif item["review"]["verdict"] != "approved":
-            notes.append((identity, "review", _origin_text("review")))
+        # E12: the kind is known here, so the review note is decided once (a probe gap below replaces it): a test the stand blocked
+        # is reviewed statically (E5), a handed one by the person's own run, any other by its proof
+        note = review_note(identity, "stopped" if stopped else "handed" if identity in handed_ok else "ran", item["review"]["verdict"])
+        if note:
+            notes.append(note)
         if not item["review"]["verdict"]:
             del item["review"]
         run = runs.get(identity)
@@ -1739,16 +1784,12 @@ def build(task_root: Path, dispatch_id: str) -> tuple:
                    if item.get("outcome") == "passed" else None)
             if gap:
                 item["probe_gap"] = gap
-                if item.get("review", {}).get("verdict") != BLOCKED_REVIEW_VERDICT:
-                    # the review of an instance whose probe never ran is the critic's static word (F5)
-                    said = item.get("review", {}).get("verdict")
-                    notes[:] = [n for n in notes if not (n[0] == identity and n[1] == "review")]
-                    notes.append((identity, "review",
-                                  (f"the manifest row's `critic_verdict` is `{said}`" if said
-                                   else "the manifest row carries no `critic_verdict`")
-                                  + f", and this instance's probe could not run here (a person's word or the factory names it); the "
-                                  f"verdict of such an instance is `{BLOCKED_REVIEW_VERDICT}` (a static review): "
-                                  "the critic records it through `manifest_put.py`"))
+                # the review of an instance whose probe never ran is the critic's static word (F5): the note of its first kind
+                # goes, and at most one - of its final kind - stays (E6, E12)
+                notes[:] = [n for n in notes if not (n[0] == identity and n[1] == "review")]
+                note = review_note(identity, "gapped", item.get("review", {}).get("verdict"))
+                if note:
+                    notes.append(note)
             elif item.get("outcome") == "failed":
                 # A red no row explains (HF2-4, A1): the critic's probe closes nothing on it and the person's word
                 # `probe gap` is not read for a red (FR-18) - both doors were dead ends. The road is the row.

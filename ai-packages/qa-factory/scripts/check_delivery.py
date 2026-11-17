@@ -48,6 +48,7 @@ import acceptance as AC  # noqa: E402  (the ONE reader of "red by the requiremen
 import contract as C  # noqa: E402
 import delivery_verdict as DV  # noqa: E402
 import detector_verdict  # noqa: E402  (the one reader of a detector's output: check_witness.py here)
+import gate_template  # noqa: E402  (the ONE predicate the critic's review word approves through: row `critic_review`)
 import ledger as L  # noqa: E402
 import proof_level as PL  # noqa: E402
 import run_history as RH  # noqa: E402
@@ -841,6 +842,11 @@ def lifecycle_reasons(artifacts: Path) -> list:
     The stamp is demanded only of a case the stamp can give (`_cases_held`, `case_stamp.instance_hold`, HF3-1): a case with a
     held instance asks nothing here, because its own reason lives elsewhere (ledger `failed:*` / `not_executed:` / `review_*`).
     When the hold cannot be computed, ONE reason says so (FR-59) instead of guessing for every case."""
+    # E12: before any per-case reason - a word the registry could not judge decides no case (AR-28, FR-59); one reason, not none
+    registry_reason = gate_template.registry_problem()
+    if registry_reason:
+        return ["case lifecycle not checked: " + gate_template.registry_why(
+            registry_reason, "the critic's review word cannot be judged - repair the package install, then run gate B again")]
     manifest = C.load_json(C.artifact(artifacts, "automation-manifest.json"))
     cases = C.case_index(artifacts)
     cfg = C.case_config(artifacts)      # F8 (t-1753, RD1-2): handed / pinned / held are read by the identity match, not the raw key
@@ -857,7 +863,7 @@ def lifecycle_reasons(artifacts: Path) -> list:
     for test in live_tests(manifest):
         verdict = str(test.get("critic_verdict") or "")
         green = str(test.get("status") or "") == "green"
-        if verdict not in ("approved", "approved_with_fixes") and not green:
+        if not gate_template.acceptable(verdict, "critic_review.lifecycle") and not green:
             continue
         if L.is_unverified(test):
             # D-0013: the critic could not complete the proof, so no receipt exists to stamp the

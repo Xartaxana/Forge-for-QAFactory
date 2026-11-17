@@ -58,6 +58,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import contract as C  # noqa: E402
 from detector_verdict import refusal  # noqa: E402
+import gate_template  # noqa: E402  (the ONE predicate the critic's review word approves through: row `critic_review`)
 import handoff  # noqa: E402
 import host_adapter  # noqa: E402
 import null_outcomes as NO  # noqa: E402
@@ -955,15 +956,18 @@ def _claim_rollcall(art):
     An approving `review.outcome` over a roll-call that leaves a case without a review (a `no` or a table with no
     `reviewed` column) is false whatever digest the form carries: `critic_rollcall.derive` puts the ceiling at `partial`
     for exactly that shape (TP1-15045: `approve_with_concerns` next to seven unreviewed rows of fifteen)."""
-    import report_facts
     doc = getattr(art, "form_doc", None)
     if doc is None:
         return (None, "no form is being checked")
     found = _rollcall(art, doc)
     if found is None:
         return (None, f"no roll-call rows in {_rollcall_file(doc)}")
+    registry_reason = gate_template.registry_problem()
+    if registry_reason:
+        # E12: before the approving test - the ceiling check is never skipped into the digest comparison (AR-28, FR-59)
+        return (None, gate_template.registry_why(registry_reason, "whether the form's outcome approves is not known"))
     outcome = str(doc.get("review.outcome") or "").strip()
-    if outcome in report_facts.APPROVING and found["verdict_ceiling"] == "partial":
+    if gate_template.acceptable(outcome, "critic_review.rollcall_claim") and found["verdict_ceiling"] == "partial":
         left = found["unreviewed"] + found["unstated"]
         return (False, f"the form says {outcome}, and the roll-call leaves {_shown(left)} without a review: "
                        "the ceiling is partial")
