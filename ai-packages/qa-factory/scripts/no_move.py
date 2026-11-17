@@ -316,9 +316,7 @@ def moves_section(spec: dict, open_ids: list, facts: dict, site=()) -> str:
     # and for the moves open here (`move:<id>`), each through `told_line` (AR-13, AR-15). After the two sections above and before
     # the state text the caller appends (E-T9c-5); every launch has the section, `none` when no row holds (E-T9c-4, E24).
     import stage_joints as SJ              # late: stage_joints reads no_move for the move ids
-    data, why = SJ.load_rows()             # the reader says WHY it cannot read; an unknown is never "none" (FR-41, FR-59)
-    if data is not None and not isinstance(data.get("joints"), list):
-        data, why = None, "stage-joints.json `joints` is not a list"
+    data, why = SJ.read_rows()             # the reader says WHY it cannot read; an unknown is never "none" (FR-41, FR-59)
     lines += ["", WHAT_CODE_CHECKS, ""]
     if data is None:                       # the page's precedent: contract_slices.requirement_section
         lines += [f"NOT KNOWN: the rows of what code checks could not be read ({why})."]
@@ -386,7 +384,7 @@ def prose_refusal(question: str, seen, spec: dict, normalize, site=()) -> str:
     is never shown to the person (FR-10). A prose that names fewer tokens than the options is shown as it is: `render_options`
     lists every token."""
     if not question.strip():
-        return "the question is empty"
+        return DV.refusal("no_move:prose", "the question is empty")
     extra = sorted((named_tokens(question, normalize) & (reserved_tokens(spec, normalize) | set(site))) - set(seen))
     if not extra:
         return ""

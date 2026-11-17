@@ -8146,7 +8146,7 @@
       "stages": [
         "*"
       ],
-      "requirement": "An `ask_person` or `stop` answer carries a list of at least two option objects (one only for the `rework` option after the person chose rework); each has a unique non-empty token that is its open move's own token (or a word the question already takes, as `site_door`), never a move that is not open or never offerable, and `says`, `factory`, `person` lines and a `story` object.",
+      "requirement": "An `ask_person` or `stop` answer carries a list of at least two option objects (one only for the `rework` option after the person chose rework); each has a unique non-empty token that is its open move's own token (or a word the question already takes, as `site_door`), never a move that is not open or never offerable, and `says`, `factory`, `person` lines and a `story` object with at least one of `unverified`, `report`, `delivery` that is not empty or `none`.",
       "door": "fix the options and answer again",
       "door_needs": "none",
       "when": [
@@ -8173,7 +8173,7 @@
       "stages": [
         "*"
       ],
-      "requirement": "The question names, in any quote style, no token of the closed vocabulary that is not one of its options.",
+      "requirement": "The question is not empty and names, in any quote style, no token of the closed vocabulary that is not one of its options.",
       "door": "rephrase or offer the token",
       "door_needs": "none",
       "when": [
@@ -8227,7 +8227,7 @@
       "stages": [
         "*"
       ],
-      "requirement": "The `rework` option's `args` name a stage that can be sent back, a role that did accepted work there, a cause from the list, and the work to redo as one kind only: cases inside the approved scope (at least one from S4), plan row ids (S1-S3), or bug candidates the story lists (S7 only, instead of cases).",
+      "requirement": "The `rework` option's `args` name a stage that can be sent back, a role that did accepted work there, a cause from the list, and at most one kind of work to redo: cases inside the approved scope (at least one from S4 on), plan row ids (S1-S3, where none is also accepted), or bug candidates the story lists (S7 only, instead of cases).",
       "door": "take the values from the list under \"Moves open here\"",
       "door_needs": "none",
       "when": [

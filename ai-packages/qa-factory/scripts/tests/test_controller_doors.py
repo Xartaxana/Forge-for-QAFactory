@@ -287,12 +287,12 @@ ARGS_KINDS = {           # what `check_args` accepts after stage, role and cause
     "candidates-with-cases": ({"candidates": ["bug-1"], "cases": ["TC-1"]}, "S7", False),
     "cases-with-rows": ({"cases": ["TC-1"], "rows": ["row-1"]}, "S5", False),
     "none-at-S5": ({}, "S5", False),
+    "none-at-S2": ({}, "S2", True),         # F1: S1-S3 accept args naming no work (`rework_args_list`: "or neither"); the row says so
 }
 
 
 def launch_unknown() -> None:
     """t-1087: an unreadable rows file is told as NOT KNOWN with the reader's reason; a readable file with no row keeps the `none` line."""
-    import json
     import no_move as NM
     import stage_joints as SJ
     folder, real = harness.temp_dir("qa-launch-unknown-"), SJ.DATA
@@ -354,7 +354,9 @@ REFUSALS = {     # case -> (verdict, expected text = the OLD file's output, the 
     "args": (verdict_of([an_option("retry", "person_does"), an_option("rework", "rework_stage", args=dict(GOOD_ARGS, cause="nope"))]),
              "\"args\" cause `nope` is not one of the causes listed", "no_move:args"),
     "empty-question": (verdict_of([an_option("retry", "person_does"), an_option("stop", "stop_here")], question=" "),
-                       "the question is empty", ""),
+                       "the question is empty", "no_move:prose"),
+    "story-empty": (verdict_of([an_option("retry", "person_does"), an_option("stop", "stop_here", story={})]),
+                    "the option `stop` lacks its says / factory / person / story lines (story is a dict)", "no_move:options"),
 }
 CLASS_HEAD = "a question to a person needs a class and what you read: `why_person` is absent and `checked` is empty; the classes are `access`"
 
