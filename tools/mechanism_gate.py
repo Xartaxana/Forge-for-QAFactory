@@ -589,7 +589,7 @@ def resolve_lead_binding(config_text: str | None) -> str:
     """The model bound to roles.lead (a thin wrapper over the ladder home, kept
     for its importers). No file, no roles.lead model, an unparsable or unusable
     config -> "fable" (DEFAULT_BINDINGS: a conservative, fail-closed default --
-    it requires an explicit declaration from anyone below the top tier). The
+    it requires an explicit declaration from anyone ranked below lead). The
     declaration itself is NOT checked for truth here (see tier_declared_ok):
     code guarantees the shape, calibration against transcripts judges the
     truth, a tier above."""

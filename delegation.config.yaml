@@ -1,7 +1,8 @@
 # delegation.config.yaml — Supervised Delegation binding point.
 #
 # This is the ONE file where function names (the policy vocabulary:
-# architect / lead / critic / designer / builder / scout -- see CLAUDE.md)
+# architect / lead / critic / builder / scout -- see CLAUDE.md; designer is
+# bound in its role file's frontmatter)
 # are bound to actual models (a property of your deployment, not of the
 # policy). CLAUDE.md and the role profiles under .claude/agents/ never
 # hardcode a model name for a function. Ranks of the functions and the one

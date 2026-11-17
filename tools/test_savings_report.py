@@ -22,7 +22,7 @@ from savings_report import (
 from usage_report import PricesError, load_prices
 
 _TABLE = load_prices()
-TOP = "claude-fable-5-1"  # the model the test config binds to roles.lead (the real delegation.config.yaml binds the same)
+TOP = "claude-fable-5-1"  # the model the test config binds to roles.lead
 _LEAD_CONFIG = ("# comment\ncontour: subscription   # subscription | api-keys | both\n"
                 "roles:\n  lead:\n    subscription:\n      model: {model}\n")
 
