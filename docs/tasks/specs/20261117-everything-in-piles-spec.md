@@ -1,18 +1,18 @@
-# Spec t-907 — «Всё в кучках»: one registry of work, leftovers that do not breed nodes (DRAFT r3, designer)
+# Spec t-907 — «Всё в кучках»: one registry of work, leftovers that do not breed nodes (DRAFT r4, designer)
 
-Status: DRAFT round 3 for Lead acceptance — fix round t-945 after the second plan critic t-943
-(`docs/tasks/specs/reviews/t-943-everything-in-piles-r2.md`, verdict GO WITH FIXES: blockers R1-R6, fixes F-a … F-n, class
-completeness lines). Every remark is closed in this round (the owner's rule 17.11.2026: nothing is queued); the table «Fix
-round t-945» at the very end maps each remark to what changed and where. Round 2 (t-926, after t-920) keeps its own table
-just above it. The critic re-pass is owed on R5 only: it is §8.2, written to be judged alone.
+Status: DRAFT round 4 for Lead acceptance — fix round t-957 on §8.2 after the critic re-pass t-952
+(`docs/tasks/specs/reviews/t-952-everything-in-piles-r3-pointer.md`, verdict NEEDS WORK: blockers B1-B6, fixes F1-F5), plus
+the owner's fourth portion (F25 decided, the main-file audit node AU, the lowest priority). Every remark is closed in this
+round (nothing queued); the table «Fix round t-957» at the very end maps each remark to what changed, where, and the real
+file line it was tested on. Round 3 (t-945, after t-943) and round 2 (t-926, after t-920) keep their tables above it.
 The six OWNER forks are DECIDED (a) by the owner, 17.11.2026 («всё по рекомендациям», the section at the very end): F1,
 F8, F14, F16, F18, F19 — the stream texts below state the (a) behaviour as the spec's statement; the fork paragraphs stay
 as the record. Words of round 2 that still stand: (W1) «ок» to the Lead's B1-B5 decisions; (W2) F5 decided "the owner or
-the batch Lead"; (W3) B5 is a CLASS — §8.
+the batch Lead"; (W3) B5 is a CLASS — §8. F25 is decided by the owner (fourth portion, end of file).
 Owner-facing rule texts are Russian; code, tool messages and data keys English (PROJECT.md «Язык»).
 
 ```
-task: t-907 (draft), fix rounds t-926, t-945 | feature: F19 | each build node gets its own task_id (CLAUDE.md rule 2 threshold per node)
+task: t-907 (draft), fix rounds t-926, t-945, t-957 | feature: F19 | each build node gets its own task_id (CLAUDE.md rule 2 threshold per node)
 designer: this file
 ```
 
@@ -60,7 +60,7 @@ separate spec, not migrated (§3); once empty the file is deleted (F8 (a), decid
 | P30 | `wave.py record_node` runs `piles.py status … --set принято --hash --task` in the temp worktree AFTER the merge, then `git commit -m "piles: <slug> <N> <id> принято (<task>)"` WITHOUT `--no-verify` — the status commit passes the commit-msg hook like any commit; a refusal prints "run by hand …" | `tools/wave.py:251-271` (re-read r3) | read |
 | P31 | `critic_verdict_check.py` is on NO execution path (the critic self-runs it; the coordinator by hand) | Grep over `tools/*.py`; t-943 re-ran it over tools/.githooks/.github/.claude/PROCESS | measured |
 | P32 | (в) compares a taken batch's node table cell by cell against origin/main with only the `Статус` cell masked | `tools/piles.py:1644-1677`; t-943 confirmed | read |
-| P33 | `tools/tests/test_role_carriers_one_owner.py`: K-OWN and K-PTR; scan set = tracked text files (`.md .py .json .yaml .yml .txt`) minus EXCLUDED (AGENTS.md, DECISIONS.md, the decisions archive, `ai-packages/`, `experiments/`, `logs/`, `kb/`, specs, handoffs, compact snapshots, task reports, `plans/piles/`, `tools/fixtures/`, itself); K-PTR = substring: `squash(anchor) in squash(target)`; POINTERS = 20 hand rows, OWNER_KEYS = 13 | `tools/tests/test_role_carriers_one_owner.py:8-11, 23-27, 53-74, 131-134` (re-read r3) | read |
+| P33 | `tools/tests/test_role_carriers_one_owner.py`: K-OWN and K-PTR; scan set = tracked text files (`.md .py .json .yaml .yml .txt`) minus EXCLUDED (AGENTS.md, DECISIONS.md, the decisions archive, `ai-packages/`, `experiments/`, `logs/`, `kb/`, specs, handoffs, compact snapshots, task reports, `plans/piles/`, `tools/fixtures/`, itself); K-PTR = substring: `squash(anchor) in squash(target)`; POINTERS = 20 hand rows, OWNER_KEYS = 13 | `tools/tests/test_role_carriers_one_owner.py:8-11, 23-27, 53-74, 131-134` (re-read r4) | read |
 | P34 | The debt-fix spec `docs/tasks/specs/20261117-rules-debt-fix-spec.md` was not on disk at round 2 (status not re-checked in r3; not load-bearing) | Glob in round 2 | measured (r2) |
 | P35 | `dod_gate.py` (SubagentStop) reads a stopping worker's dispatch (F17 (b)'s base) | `tools/dod_gate.py:356, 393-531` | read |
 | P36 | `PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md` describes `перенос:` in check 33 (line 1026) and check 39 (line 1095) | Grep; t-943 confirmed | read |
@@ -71,11 +71,19 @@ separate spec, not migrated (§3); once empty the file is deleted (F8 (a), decid
 | P41 | The commit-message doors are read ONLY in commit-msg: `.githooks/commit-msg:38-40` "the door is a commit-message line "piles-skip: …" -- this is why it runs here and not in pre-commit"; `.githooks/pre-commit` runs no message-reading gate (its gates: journal_validator, escape_check, enforcement_probe, factory_rules_index, architecture_index, agents_md, forge_metrics); CI reads a range's doors through `piles.range_messages` (`tools/piles.py:2330-2341`); forge-check runs `piles.py check --base` (`:84`) and `python -m pytest tools/ -q` (`:96`) | read / Grep r3 | read |
 | P42 | `critic_verdict_check.py` imports stdlib only (`:39-44`); its comment at `:190` "a shared module across hooks/tools is deliberately not introduced" concerns the stdin helper | read r3 | read |
 | P43 | PROJECT.md: `:333` = `   доказательств не должно. **Остатков в идеале нет вовсе**: минорные` (mid-line, 3-space indent); `:326` is the ONLY line opening item `9.`; `:337` `   **Живые прогоны не держат пачку вообще**` (a line-start bold lead-in, 3 spaces); `:96` `  **как было ДО** и …` is a WRAPPED line inside P20 that also starts with bold (a shape false positive the grammar must survive) | Grep `Остатков в идеале` → 333; Grep `^\s*9\.\|^\s*\*\*[^*]+\*\*` over PROJECT.md (read r3) | read |
-| P44 | boot-by-topic's pointer form: `rule: <file> § <section>` (Russian files `правило: <файл> § <раздел>`); its resolver contract §4.3: `<file>` exists; `<x>` equals a heading's text, or `<x>` is a number/id and a line starts with `<x>.` (or `### <x>` / `**<x>.**` / `- **<x>.**`); a numbered pointer's title equals the item's bold opener; unresolvable → RED; adversarial inputs listed. A1 accepted: "FG7-52 extends `tools/tests/test_role_carriers_one_owner.py`, no `pointer_lint.py`" | `20261116-boot-by-topic-spec.md:56, 71, 407-418, 759` (read r3) | read |
-| P45 | The forge/7 ROW of FG7-52 still reads "`tools/pointer_lint.py` … в `pre-commit` и `forge-check`", owns `tools/pointer_lint.py`, `tools/test_pointer_lint.py`, `.githooks/pre-commit` — it contradicts boot-by-topic A1 (P44) | `plans/piles/forge/batch-7-vhodyashchie-4.md:75` (read r3) | read |
+| P44 | boot-by-topic's pointer form: `rule: <file> § <section>` (Russian files `правило: <файл> § <раздел>`); its resolver contract §4.3: `<file>` exists; `<x>` equals a heading's text, or `<x>` is a number/id and a line starts with `<x>.` (or `### <x>` / `**<x>.**` / `- **<x>.**`); a numbered pointer's title equals the item's bold opener; unresolvable → RED; adversarial inputs listed. A1 accepted: "FG7-52 extends `tools/tests/test_role_carriers_one_owner.py`, no `pointer_lint.py`" | `20261116-boot-by-topic-spec.md:56, 71, 407-418, 759` (read r3, r4) | read |
+| P45 | The forge/7 ROW of FG7-52 still reads "`tools/pointer_lint.py`: пути, диапазоны FR/P/rules и числа гейтов в текстах правил сверяются с домом, в `pre-commit` и `forge-check`; пары записаны в `docs/SIBLING_MAP.md`", owns `tools/pointer_lint.py`, `tools/test_pointer_lint.py`, `.githooks/pre-commit`, depends on FG7-50 — it contradicts boot-by-topic A1 (P44) | `plans/piles/forge/batch-7-vhodyashchie-4.md:75` (read r4) | read |
 | P46 | Edit cadence of the main files: 11 CLAUDE.md commits and 10 PROJECT.md commits in 7 days; per commit 1-4 sections touched (3 commits sampled) | t-943 reruns (`git log --since=2026-11-10 … \| wc -l`; `sect.py`) — not re-measured here (no shell) | measured (t-943) |
 | P47 | Readers of `.githooks/commit-msg` among `tools/*.py`: 14 files | Grep `commit-msg` glob `*.py` over `tools/` (r3): `mechanism_gate.py`, `test_mechanism_gate.py`, `session_context.py`, `test_session_context.py`, `test_volume.py`, `wiring_check.py`, `test_wiring_check.py`, `piles.py`, `hook_liveness_probe.py`, `test_p4_stdin_deadline.py`, `test_enforcement_probe.py`, `architecture_gate.py`, `test_architecture_gate.py`, `agents_md.py` | measured |
 | P48 | `piles_vocab`, `rule_pointers`, `rule_stamps` exist nowhere in `tools/` or `.githooks/` (new names) | Grep `piles_vocab\|rule_pointers\|rule_stamps` -i → 0; positive control of the same shape `piles_vocab\|rule_pointers\|piles_split` -i over `tools/` → 5 files | measured |
+| P49 | CLAUDE.md carries THREE numbered lists: `## Routing rules` (:35) 1-13 + `   4a.` (:103) + `11a.` (:239); `## Lead degradation` (:381) 1-4 (:386, :387, :389, :392); `## Command hygiene (permission hygiene)` (:403) 1-7 (:409 … :442). Inside `## Routing rules` every id is unique | Grep `^\s*\d+[a-z]?\. ` over CLAUDE.md (r4, root checkout) | read |
+| P50 | builder-rules (S3-2 landed): each item is a heading + opener PAIR, e.g. `:8` `### 1. File ownership` / `:10` `1. **File ownership**: …`; `:36` `### 7b. Уровень билдера и уровень пачки` / `:38` `7b. **Уровень билдера и уровень пачки** (…`; headings `### 10.` … `### 20.` at `:100-:134` | Grep `^#+ \|^\s*(1\|7b\|10\|6\|11)\. ` over `plans/builder-rules.md` (r4) | read |
+| P51 | `docs/RUNBOOK.md`: numbered HEADINGS `## 1.` … `## 12.` and `### 9.0.` … `### 10.6.`; list openers `7.` also at `:228` (inside `### 9.1.`, :187) and `:614` (inside `## 12.`, :602); `## 7. CI на GitHub и BATCH CANON` at `:86` | Grep `^\s*(\*\*)?7\.\|^#+ ` over `docs/RUNBOOK.md` (r4) | read |
+| P52 | Marker pointer lines on disk TODAY in the scan set: exactly 3 — `docs/TESTING.md:80` (`правило: \`plans/builder-rules.md\` п. 7b.`), `plans/builder-rules.md:16` (`Правило: \`PROJECT.md\`, «Язык»`), `docs/FINDINGS.md:68` (`project rule: PROJECT.md "Как принимается …"`); markerless `<file> §/п. <x>` citations: 40+ lines (e.g. `CLAUDE.md:98`, `PROJECT.md:204` `…td-15-scenarios-quarantine.md\` §D.3`, `docs/RELATED_WORK.md:23` `PROJECT.md\` п. 6а`, `plans/thinking-roles-portable-to-main.md:93` `time-analysis.md\` §1`) | Grep -i `(^\|[^\w-])(rule\|правило):\s+(\`?[\w./-]+\.(md\|py\|json\|yaml\|yml\|txt)\`?\|§\|п\.)` over the scan set (r4; Cyrillic case-fold proven by the hit `Правило:`); Grep `\.(md\|py\|json\|yaml\|yml\|txt)\`?\s*(§\|п\.)` over the same set | measured |
+| P53 | Real heading tails: `CLAUDE.md:21` `## Tiers (see DELEGATION_TABLE.md; all assignments are estimates until calibrated)`; `CLAUDE.md:272` `## Routing log — logs/journal/<dev>.jsonl`; `CLAUDE.md:403` `## Command hygiene (permission hygiene)`; `docs/tasks/critic-diff-brief.md:8` `## The two layers (CLAUDE.md rule 3, the two-layer review rule)`; `PROJECT.md:279` `## Командная работа (кучки и пачки)`; `PROJECT.md:393` `## Что решать самому, что спрашивать у владельца` (a comma inside a heading) | Grep `^#+ ` over the four files (r4) | read |
+| P54 | FR/AR openers: `ai-packages/qa-factory/design/factory-rules.md:32` `**FR-1 — A refusal says what is wrong, …` (next item `:39` `**FR-2 — `); `ai-packages/qa-factory/design/architecture.md:35` `**AR-1 — Closed variety is a data row, never a list in code.**` followed by `:36` `- Invariant: …` bullets at column 0 | read r4 | read |
+| P55 | The boot path as the SessionStart BOOT BUDGET line counts it: `session_context.boot_path_files` = BOOT.md's `Read X.md` lines (`BOOT.md:14` SYSTEM_PROMPT.md, `:15` DECISIONS.md, `:27` CURRENT_CONTEXT.md) + CLAUDE.md, plus CLAUDE.md's `@` imports (PROJECT.md, docs/FACTORY_RULES_INDEX.md, docs/ARCHITECTURE_INDEX.md; after boot-by-topic S2 also docs/OWNER_PRINCIPLES_INDEX.md) | `tools/session_context.py:1155-1176, 1179-1191`; Grep `Read \S+\.md` over BOOT.md | read |
+| P56 | FG7-52's WHOLE scope (union of its carriers): (1) `правило:`/`rule:` lines resolve; (2) TOC cells of CLAUDE.md/PROJECT.md resolve; (3) TOC completeness (a later heading with no TOC row); (4) backticked paths in boot files, roles, skills, builder-rules, critic-diff-brief, TESTING, RUNBOOK exist (with an exceptions list); (5) ranges «FR-1…FR-N», «P1…PN», «rules 1-N» match the home; (6) the numbers `DESIGNER_THRESHOLD`, `PARALLEL_CAP` in rule text match code; (7) the pairs written into `docs/SIBLING_MAP.md` (Lead) | `plans/piles/forge/batch-7-vhodyashchie-4.md:75`; finding `plans/piles/forge/findings/20261116-but-odna-tema-v-mnogih-mestah-kopii-pravil-ustareli.md:55-61`; boot-by-topic `:690` (ready row), `:416-418` (§4.3 item 5) | read |
 
 ---
 
@@ -406,7 +414,7 @@ untaken file is not frozen; keyed by `(slug, id)` the move is not an "open"; car
 take forge 7 --who <Lead>`; (3) `piles.py status forge 7 --set принято`; (4) `piles.py close forge 7 --hash <the merge
 commit of its last accepted node>` — the «Остатки» and «Живые доказательства» gates must pass (legacy items by the old
 form, §6 E20). Precedent: forge/3 and forge/6 (P28). Whether a node may be accepted in an untaken batch at all is F20's
-alternative (b). FG7-52's row moves with the others, or is absorbed by K (F23).
+alternative (b). FG7-52's row moves with the others in its NARROWED form (§8.2.1, F28; r4).
 
 ### 2.5 Expected effect, told to the owner (N9)
 
@@ -485,6 +493,8 @@ Checks this spec adds or alters — owner served and class (AR-29 / P27; forge c
 | `verdict: none` / `owner-word:` / `приток:` reasons | judgment (Lead) / intent (owner) — presence only | presence |
 | close: legacy `перенос:` by the cutover commit; new `перенос:` refused | data (code) | shape (history join) |
 | §8: pointer resolves; stamp hash vs section hash; census ratchet | data (code); whether a carried block still MEANS the main rule is the re-stamper's (a role), accepted by the Lead | xref / presence / count |
+| §8.2: TOC completeness (every level-2 heading of a TOC file routed by a cell); boot-path files classified main or generated (r4) | data (code) | presence / xref |
+| §8.7 AU: do the main files contradict each other (r4) | judgment (critic, accepted by the Lead); a choice of meaning — intent (the owner) | not code |
 | "is the remark truly another topic" (path outside) | judgment (critic, accepted by Lead) | not code |
 | scope cut quotes the owner's token word | judgment (critic-on-plan) / intent (owner) | not code |
 
@@ -709,21 +719,29 @@ Refusal texts of the new reds (each: what is wrong, what is expected, a door the
 
 ### 7.1 Phases
 
-- **Phase 0 (Lead)**: the Lead forks (F3, F4, F6, F7, F9-F13, F15, F17, F20-F24, F26) and the ONE owner question left
-  (F25, the `main` list; executable on the recommendation until her answer, PROJECT п. 11); critic re-pass on §8.2 (R5)
-  only; the rest checked by the Lead against the t-943 list. The six OWNER forks of round 2 are decided (a).
+- **Priority (the owner, 17.11.2026, fourth portion — r4):** this topic is the LOWEST of the day's work: «у этого самый
+  низкий приоритет из всех перечисленных». It goes after architect-tier, the rules-debt fix, the dry story, «сказано до
+  работы» and the test rules. Consequence for every WRITING stream below (A1, C, A2, D, A3, B, K, E-k, G, K2, H, the AU fix
+  dispatch): it is dispatched only when no node of those five topics waits for a writing slot (PROJECT «Командная работа»
+  п. 12: six writers); designers, critics and scouts of this topic take no slot and may run any time. Where an order line
+  below says "after X", the priority line is an ADDITIONAL condition, never a replacement.
+- **Phase 0 (Lead)**: the Lead forks (F3, F4, F6, F7, F9-F13, F15, F17, F20-F24, F26, F27, F28); F25 decided by the owner
+  (r4); critic re-pass on §8.2 (R5) only; the rest checked by the Lead against the t-943 list. The six OWNER forks of
+  round 2 are decided (a).
 - **Phase 1**: A1 (foundation; every other code stream imports `piles_vocab.node_vocab`). D's builder may start in
   parallel (disjoint files); D merges after A2 and A3 (its home text describes their gates): `очередь:` line A3 → D.
 - **Phase 2, by volume of the leftover stream they stop**: C → A2 (critic, 34.5 %); D (owner's word 15.0 %, red CI and
   defects 13.1 %, scope cut 11.7 %, builder-noticed 6.8 %); A3 (the brake); B (readers); K (the class, L15) — K lands
-  AFTER boot-by-topic S1, S2, S3-2 and after architect-tier D6 and L (§7.3), and after D.
+  AFTER boot-by-topic S1, S2, S3-2 and after architect-tier D6 and L (§7.3), and after D. AU (the main-file audit, §8.7)
+  runs after D and boot-by-topic S1/S2 and architect-tier L (the main files' structure is final), in parallel with K
+  (disjoint files), and BEFORE K2 (K2 points service text at main sections that must already agree).
 - **Phase 3 (migration)**: E-k (M1 per pile group), G (M2, M4, M5, forge/7 as a container per F20, forge's own orphans),
-  K2 (the census worked down, §8.5).
+  K2 (the census worked down, §8.5). FG7-52 (narrowed, F28) after K.
 - **Phase 4 (close-out)**: H.
 
 The nodes live in one big-idea batch of pile `forge` with `план:` this spec (§1.2) — the Lead opens it.
 
-### 7.2 Streams (owns disjoint; `piles.py` shared by A1 → A2 → A3 → H strictly in sequence with disjoint function lists, D-0048; the carrier test shared by D → K in sequence)
+### 7.2 Streams (owns disjoint; `piles.py` shared by A1 → A2 → A3 → H strictly in sequence with disjoint function lists, D-0048; the carrier test shared by D → K → FG7-52 in sequence)
 
 | order | stream | node (file · function · behaviour) | owns (absolute) | witness (DoD command) | tier / commit |
 |---|---|---|---|---|---|
@@ -733,11 +751,12 @@ The nodes live in one big-idea batch of pile `forge` with `план:` this spec 
 | 4 | D | rule texts 5.1-5.10, 5.12, 5.14 (the instance test); `CLAUDE.md` (5.7-5.9), `.claude/agents/critic.md` (5.11), `.claude/agents/designer.md`, `PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md` handed as text, placed by the Lead IN THE SAME COMMIT; the critic exam (PROCESS/CRITIC_EXAM.md) run by the Lead BEFORE that commit, its result line written (critic.md rule 10); AGENTS.md regenerated | `C:/QAFactory/forge-repo/PROJECT.md` `C:/QAFactory/forge-repo/plans/builder-rules.md` `C:/QAFactory/forge-repo/docs/tasks/critic-diff-brief.md` `C:/QAFactory/forge-repo/tools/tests/test_role_carriers_one_owner.py` `C:/QAFactory/forge-repo/AGENTS.md` (+ `C:/QAFactory/forge-repo/docs/TEAMWORK.md` § 9 only when it exists at landing, 5.3b) | `python -m pytest tools/tests/test_role_carriers_one_owner.py tools/test_handoff_rule_anchors.py -q` + `python tools/agents_md.py --check` | builder; Lead places the mechanism-path texts and runs the exam |
 | 5 | A3 | `tools/piles.py (+flow, +_flow_reds, cmd_summary, _count_line, cmd_status, _close_batch)`: §2.4 (R3), E13, E16, E47; `приток:` through `prose_lines`; `tools/session_context.py (+flow_line call in the boot block)` | `C:/QAFactory/forge-repo/tools/piles.py` `C:/QAFactory/forge-repo/tools/session_context.py` `C:/QAFactory/forge-repo/tools/test_piles.py` `C:/QAFactory/forge-repo/tools/test_session_context.py` | `python -m pytest tools/test_piles.py tools/test_session_context.py -q` (states the measured `git log` time: F3) | builder → topic critic; Lead commits |
 | 6 | B | `tools/backlog_tree.py`: statuses through `piles` (+`type`); `tools/collect_intake.py`: `Тип: неразобран`, `Откуда: находка <file>` (E25, E26), vocab through `piles_vocab` | `C:/QAFactory/forge-repo/tools/backlog_tree.py` `C:/QAFactory/forge-repo/tools/test_backlog_tree.py` `C:/QAFactory/forge-repo/tools/collect_intake.py` `C:/QAFactory/forge-repo/tools/test_collect_intake.py` | `python -m pytest tools/test_backlog_tree.py tools/test_collect_intake.py -q` | builder (on A1's branch, merged right after A1) → topic critic |
-| 7 | K | §8: `tools/rule_pointers.py` (`resolve`, `section_bounds`, `section_hash`, `parse_markers`, `check`, `census`, `stamp`, CLI), `tools/rule_sources.json`, `tools/rule-stamps-baseline.json`, the axis-31 test reads its lists from `rule_sources.json`, scans every `rule:`/`правило:` line, gains the stamp/census rows; per F23 (a) it ABSORBS FG7-52 (boot-by-topic §4.3 contract incl. the TOC cells) | `C:/QAFactory/forge-repo/tools/rule_pointers.py` `C:/QAFactory/forge-repo/tools/rule_sources.json` `C:/QAFactory/forge-repo/tools/rule-stamps-baseline.json` `C:/QAFactory/forge-repo/tools/tests/test_role_carriers_one_owner.py` (+ the `.githooks/commit-msg` and `.github/workflows/forge-check.yml` lines handed as text — enforcement files, the Lead places them; `MECHANISM_PREFIXES` entries — Lead) | `python -m pytest tools/tests/test_role_carriers_one_owner.py -q` + `python -B tools/rule_pointers.py check --staged` (exit 0 on the tree) + `python -B tools/rule_pointers.py census` (prints the count written to the baseline) | designer → builder → critic (its own topic); Lead commits (mechanism: a gate) |
+| 7 | K | §8 (r4): `tools/rule_pointers.py` (`parse_pointers` — the carrier grammar 8.2.2-C; `resolve` — the target grammar 8.2.2-T incl. scope chains, heading NAMES, item pairs and families; `section_bounds`, `section_hash`, `parse_markers`, `toc_cells`, `toc_completeness`, `covered_rows`, `check`, `census`, `stamp`; CLI `check --msg-file <f>` / `check --base <rev>` / `check --tree`, `rows --covered`, `census [--write]`, `stamp <file>:<line>`); `tools/rule_sources.json` (`main`, `generated`, `scan_extra`, `markers`, `signs`, `toc`, `owner_keys`, `pointers`); `tools/rule-stamps-baseline.json`; the axis-31 test reads its lists from `rule_sources.json`, scans every pointer (marker lines and TOC cells), DELETES every POINTERS row the scan covers and D's `test_leftover_home_starts_its_line` (8.2.3), carries the rest as `until: "K2"` rows, gains a row per proof line of 8.2.2 (on COPIES/fixtures), the boot-path classification row (8.1) and the stamp/census rows on fixtures; per F23 (a) + F28 it builds FG7-52's pointer part (P56 items 1-3); DAY-ONE CONFORMANCE: whatever `check --tree` reds at K's start in a TOC cell of `CLAUDE.md`/`PROJECT.md` (e.g. an unscoped ambiguous id, F27) is handed as TEXT with before/after lines, placed by the Lead in K's commit | `C:/QAFactory/forge-repo/tools/rule_pointers.py` `C:/QAFactory/forge-repo/tools/rule_sources.json` `C:/QAFactory/forge-repo/tools/rule-stamps-baseline.json` `C:/QAFactory/forge-repo/tools/tests/test_role_carriers_one_owner.py` (+ the `.githooks/commit-msg` and `.github/workflows/forge-check.yml` lines and any day-one TOC cell edit handed as text — enforcement/mechanism files, the Lead places them; `MECHANISM_PREFIXES` entries — Lead) | `python -m pytest tools/tests/test_role_carriers_one_owner.py -q` + `python -B tools/rule_pointers.py check --tree` (exit 0 on the tree) + `python -B tools/rule_pointers.py rows --covered` (prints `0 covered rows`) + `python -B tools/rule_pointers.py census` (prints the count written to the baseline) | designer → builder → critic (its own topic); Lead commits (mechanism: a gate) |
 | 8 | E-k | M1 orphans, one pile group per node (`forge` and `package-ci` excluded — G owns them) | `C:/QAFactory/forge-repo/plans/piles/<slug>/` of the group's piles | `python -B tools/piles.py check --all` — the (е) line for the group's piles: 0 orphans; (д) green | scout → Lead (stale) → builder (rows) |
-| 9 | G | M2 (per F7), M4, M5, forge/7 as a container (F20), forge's and package-ci's own orphans | `C:/QAFactory/forge-repo/docs/tasks/factory-fixes.md` `C:/QAFactory/forge-repo/docs/tasks/test-diet.md` `C:/QAFactory/forge-repo/docs/tasks/onboarding-streams-2026-11-12.md` the six plan files (P25) `C:/QAFactory/forge-repo/plans/piles/forge/` `C:/QAFactory/forge-repo/plans/piles/package-ci/` (+ `docs/tasks/lead-queue-fable.md` only under F7 (a)) | `python -B tools/piles.py check --all` + doc key-presence for the `архив:` lines (doc-dispatch witness: keys verbatim, full script source, one negative control) | builder; Lead judges stale; Lead runs take/status/close for forge/7 |
-| 10 | K2 | the census worked down (§8.5): each counted block becomes a pointer, a stamped block or stays as role detail; the baseline lowered in the same commit; builder-rules' restatements of CLAUDE.md become pointers (F-d); every `critic.md` / `scout.md` commit owes its exam first (critic.md rule 10, scout.md :59) — the Lead runs it | the non-mechanism service files (`docs/tasks/*brief*.md`, `plans/builder-rules.md` restatements), `C:/QAFactory/forge-repo/tools/rule-stamps-baseline.json`; `.claude/agents/*`, `.claude/skills/*` handed as text (Lead places) | `python -B tools/rule_pointers.py check --staged` + `python -B tools/rule_pointers.py census` (lower than before) | builder; Lead places mechanism-path files and runs the exams |
+| 9 | G | M2 (per F7), M4, M5, forge/7 as a container (F20), forge's and package-ci's own orphans; the FG7-52 row text narrowed per F28 (the ready row of 8.2.6) | `C:/QAFactory/forge-repo/docs/tasks/factory-fixes.md` `C:/QAFactory/forge-repo/docs/tasks/test-diet.md` `C:/QAFactory/forge-repo/docs/tasks/onboarding-streams-2026-11-12.md` the six plan files (P25) `C:/QAFactory/forge-repo/plans/piles/forge/` `C:/QAFactory/forge-repo/plans/piles/package-ci/` (+ `docs/tasks/lead-queue-fable.md` only under F7 (a)) | `python -B tools/piles.py check --all` + doc key-presence for the `архив:` lines and the narrowed FG7-52 row (doc-dispatch witness: keys verbatim, full script source, one negative control) | builder; Lead judges stale; Lead runs take/status/close for forge/7 |
+| 10 | K2 | the census worked down (§8.5): each counted block becomes a pointer, a stamped block or stays as role detail; the baseline lowered in the same commit; builder-rules' restatements of CLAUDE.md become pointers (F-d); every `until: "K2"` row of `pointers` ended (its carrier gains a marker pointer, the row is deleted in the same commit); every `critic.md` / `scout.md` commit owes its exam first (critic.md rule 10, scout.md :59) — the Lead runs it | the non-mechanism service files (`docs/tasks/*brief*.md`, `plans/builder-rules.md` restatements, `docs/RUNBOOK.md`, `docs/TWO_VOCABULARIES.md`, `docs/CLAUDE_HOST_ADAPTATIONS_FULL.md`, `SYSTEM_PROMPT.md` pointer lines), `C:/QAFactory/forge-repo/tools/rule_sources.json` (`pointers` rows only), `C:/QAFactory/forge-repo/tools/rule-stamps-baseline.json`; `.claude/agents/*`, `.claude/skills/*` handed as text (Lead places) | `python -B tools/rule_pointers.py check --tree` + `python -B tools/rule_pointers.py census` (lower than before) + the closing commit: `pointers` holds no `until` row (each leftover row carries `why`) | builder; Lead places mechanism-path files and runs the exams |
 | 11 | H | `tools/piles.py (check_findings, FINDINGS_FROM)`: (е) one rule after M1 = 0; Lead: `.claude/settings.json` stale allow lines (P23) | `C:/QAFactory/forge-repo/tools/piles.py` `C:/QAFactory/forge-repo/tools/test_piles_findings.py` | `python -m pytest tools/test_piles_findings.py -q` | builder; Lead |
+| 12 | AU | the one-time audit of the main files against each other (the owner's word, fourth portion): critic dispatch (read-only, report) → fix dispatch in the SAME node (builder for non-mechanism main files; mechanism paths handed as text, the Lead places) → owner questions for choices of meaning; dispatch card §8.7 | audit: none (handoff only); fix: the main files the audit names, enumerated in the fix dispatch's `owns:` (absolute paths) — never a file the audit does not name | §8.7 DoD | critic (Opus) → builder → Lead (places, asks the owner) |
 
 Every new test case is a ROW (or a parametrised table) in the test file named in the stream's owns (docs/TESTING.md: no
 new test file — K's rows go into the existing axis-31 test); E15's battery is one table per input kind in the file of the
@@ -747,19 +766,22 @@ stream that reads it.
 
 | file | streams that touch it | order |
 |---|---|---|
-| `CLAUDE.md` | boot-by-topic (homes, S1 headings + TOC), architect-tier L, this D (5.7-5.9) | boot-by-topic → architect-tier → D; anchored by quoted old text; Lead places |
-| `PROJECT.md` | boot-by-topic (moves 2c/2d/9a/9b, TOC), this D | boot-by-topic first (F12); D edits each fragment in its home |
-| `docs/TEAMWORK.md` | boot-by-topic (creates), this D (5.3b in § 9 when it exists) | boot-by-topic → D |
+| `CLAUDE.md` | boot-by-topic (homes, S1 headings + TOC), architect-tier L, this D (5.7-5.9), K (day-one TOC cells, Lead-placed), AU (fixes, Lead-placed) | boot-by-topic → architect-tier → D → K → AU; anchored by quoted old text; Lead places |
+| `PROJECT.md` | boot-by-topic (moves 2c/2d/9a/9b, TOC), this D, AU | boot-by-topic first (F12); D edits each fragment in its home; AU after D |
+| `docs/TEAMWORK.md` | boot-by-topic (creates), this D (5.3b in § 9 when it exists), AU | boot-by-topic → D → AU |
 | `.claude/agents/critic.md` | architect-tier (rule 9, L), this D (rules 5, 17, 19), K2 | architect-tier → D → K2; Lead places; exam before each commit |
 | `.claude/settings.json` | architect-tier, this H | architect-tier → H; Lead |
-| `PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md` | architect-tier F (check 49), this D (checks 33, 39) | architect-tier → D; Lead |
+| `PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md` | architect-tier F (check 49), this D (checks 33, 39), AU | architect-tier → D → AU; Lead |
 | `tools/mechanism_gate.py` | architect-tier A5 (`_tier_queue_note`), this A2 and K (`MECHANISM_PREFIXES`) | architect-tier → A2 → K; disjoint functions (D-0048) |
-| `tools/session_context.py` | architect-tier C, this A3 | disjoint functions; `очередь:` line in both batch files |
-| `tools/tests/test_role_carriers_one_owner.py` | boot-by-topic S1/S2 (POINTERS rows), this D, FG7-52, K | boot-by-topic → D → K; FG7-52 is absorbed by K (F23 (a)) or lands between D and K (F23 (b)) |
-| `CLAUDE.md`, `PROJECT.md`, `plans/builder-rules.md` as K's MAIN files (their section bounds) | boot-by-topic S1 (CLAUDE.md headings), S2 (imports), S3-2 (`### <n>. <bold title>` in builder-rules) | S1, S2, S3-2 → K: K's stamps and baseline are written on the final structure (R6 (v)) |
+| `tools/session_context.py` | architect-tier C, this A3 (K's test READS `boot_path_files`, no write) | disjoint functions; `очередь:` line in both batch files |
+| `tools/tests/test_role_carriers_one_owner.py` | boot-by-topic S1/S2 (POINTERS rows), this D, K, FG7-52 (narrowed) | boot-by-topic → D → K → FG7-52 (F23 (a), F28) |
+| `tools/rule_pointers.py`, `tools/rule_sources.json` | K (creates), K2 (`pointers` rows), FG7-52 (narrowed: new `check` modes, exceptions rows) | K → K2 ∥ FG7-52 with disjoint function lists / keys (D-0048), or `очередь: K2 → FG7-52` when both touch `rule_sources.json` |
+| `CLAUDE.md`, `PROJECT.md`, `plans/builder-rules.md` as K's MAIN files (their section bounds) | boot-by-topic S1 (CLAUDE.md headings), S2 (imports), S3-2 (`### <n>. <bold title>` in builder-rules — landed, P50) | S1, S2, S3-2 → K: K's stamps and baseline are written on the final structure (R6 (v)) |
 | the service files' census | architect-tier D6 (deletes `.claude/skills/onboarding/`, `next-task/`) and L (rewrites role-file text) | D6, L → K: K's `census --write` runs after both are on `main` (F-g) |
 | `.githooks/commit-msg`, `.github/workflows/forge-check.yml` | K (one line each), boot-by-topic / architect-tier if they add lines | Lead places, appended after `piles.py check`; no reorder |
 | `.claude/agents/designer.md` | this D, K2 | D → K2 |
+| `docs/tasks/specs/20261116-boot-by-topic-spec.md` | the Lead (the amendment block of 8.2.6) | written before boot-by-topic S2 is dispatched (S2/S1 write the marked forms and scoped cells); if S2/S1 are already built, the both-worlds clause of 8.2.6 applies |
+| `plans/piles/forge/batch-7-vhodyashchie-4.md` | G (FG7-52 row narrowed, F28; forge/7 container move, F20) | G; the batch is untaken (`взял: —`, P28), so (в) does not freeze it |
 
 ### 7.4 Readers of every touched file (designer rule 7)
 
@@ -772,7 +794,10 @@ Commands (Grep tool; the root checkout, worktrees not counted): `piles\.py|impor
 `critic_verdict` over `tools/` → 9 files, over `.claude/` → `settings.json:163`, `agents/critic.md:141, 150`;
 `factory-rules-debt` → 54 files (not touched); `lead-queue-fable` → 4 files; `backlog_tree` → 17; `collect_intake` over
 `tools/` → 3; `critic-diff-brief|builder-rules` over `tools/*.{py,json}` → the anchors of P22 + `test_quarantine.py:51`,
-`test_dispatch_manifest.py:844`.
+`test_dispatch_manifest.py:844`. r4: `20261116-boot-by-topic|batch-7-vhodyashchie-4|rule_sources|rule-stamps-baseline`
+over `tools/**`, `.githooks/**`, `.claude/agents/**`, `.claude/skills/**`, `.claude/settings.json` → 0; positive control of
+the SAME shape and globs `batch-\d+-vhodyashchie|20261116-architect-tier` → 4 files (`journal_validator.py`,
+`tier_ladder.py` and their tests).
 
 | touched file | other readers | verdict |
 |---|---|---|
@@ -780,21 +805,24 @@ Commands (Grep tool; the root checkout, worktrees not counted): `piles\.py|impor
 | `tools/piles_vocab.py` (new) | after A1: `piles.py`, `collect_intake.py` (B), `critic_verdict_check.py` (C); `mechanism_gate.py` list (A2) | created in A1 |
 | `tools/piles-vocab.json` (new) | `piles_vocab.node_vocab` only; `mechanism_gate.py` list (A2) | created in A1, `carry_retired`/`confirmers` in A2 |
 | `tools/wave.py` | `test_wave.py`, `mechanism_gate.py`, `test_mechanism_gate.py` | `test_wave.py` changes in A2 |
-| `tools/session_context.py` | 36 files (hook config `settings.json:10`, its test files, `hook_liveness_probe.py`, `wiring_check.py`, gates, `install_parity_anchors.json`, `dup-baseline.json`, `skills/boot-diet/SKILL.md`) | one ADDITIVE output line; A3's DoD lists any line-count pin that moves (NOT verified line by line); architect-tier C: §7.3 |
+| `tools/session_context.py` | 36 files (hook config `settings.json:10`, its test files, `hook_liveness_probe.py`, `wiring_check.py`, gates, `install_parity_anchors.json`, `dup-baseline.json`, `skills/boot-diet/SKILL.md`); after K also the axis-31 test (imports `boot_path_files`, read-only) | one ADDITIVE output line; A3's DoD lists any line-count pin that moves (NOT verified line by line); architect-tier C: §7.3; K: unchanged (a new reader, no edit) |
 | `tools/critic_verdict_check.py`, schema | `.claude/agents/critic.md:141, 150` (rule 17 changes in D), `test_critic_verdict_check.py` (C), `install_parity_anchors.json`, `dup-baseline.json`, `md_regions.py`, `escape_check.py`, `test_p4_stdin_deadline.py`, `test_handoff_rule_anchors.py:94, 107`; after A2 `piles.py` (`check_text`) and `mechanism_gate.py` (list) | new REQUIRED field; critic.md rule 17 says so in the same wave; imports `piles_vocab` |
 | `docs/tasks/critic-diff-brief.md` | anchors P22, critic.md, CLAUDE.md rule 3, the carrier test | anchors and K-OWN keys byte-identical; D, then K2 |
-| `PROJECT.md` | CLAUDE.md import; AGENTS.md; the carrier test; boot-by-topic; K (MAIN) | AGENTS.md regenerated in D; K reads, never writes it |
+| `PROJECT.md` | CLAUDE.md import; AGENTS.md; the carrier test; boot-by-topic; K (MAIN) | AGENTS.md regenerated in D; K reads, never writes it (a day-one TOC cell edit is Lead-placed text, AGENTS.md regenerated in that commit); AU may fix text (its fix dispatch carries this row's readers) |
 | `plans/builder-rules.md` | anchors P22 (7b), `test_quarantine.py:51`, `test_dispatch_manifest.py:844`, the carrier test, K (MAIN and scanned carrier) | п. 1 only in D; restatements → pointers in K2 |
-| `CLAUDE.md` (4a, 9, 12 clauses) | AGENTS.md, `install_parity_anchors.json`, the carrier test, K (MAIN) | Lead places in D's commit |
+| `CLAUDE.md` (4a, 9, 12 clauses) | AGENTS.md, `install_parity_anchors.json`, the carrier test, K (MAIN) | Lead places in D's commit; K's day-one TOC cells and AU's fixes Lead-placed, `install_parity.py --check` in that commit when an anchored line moves |
 | `.claude/agents/critic.md`, `designer.md` | the carrier test, `install_parity_anchors.json`, K (service) | Lead places in D's commit; K2 later |
-| `tools/tests/test_role_carriers_one_owner.py` | none (only itself) | D, then K |
-| `PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md` | `mechanism_gate.py`, calibration sessions; K (MAIN under F25 (a)) | Lead, D's commit |
+| `tools/tests/test_role_carriers_one_owner.py` | none (only itself) | D, then K, then FG7-52 (narrowed) |
+| `PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md` | `mechanism_gate.py`, calibration sessions; K (MAIN under F25) | Lead, D's commit; AU fixes Lead-placed |
 | `plans/piles/_template/batch.md` | `test_pile_cards_contents.py`, `piles.py` `batch_heading_problems`; after K the axis-31 scan | headings kept |
 | `docs/tasks/lead-queue-fable.md` | P16 | per F7 |
 | `.claude/settings.json` (allow lines) | `hook_liveness_probe.py`, `test_workflows.py` (they parse hooks, not allow lines — the Lead verifies) | H, Lead |
 | `.githooks/commit-msg` (K's line) | the 14 of P47 — those that PARSE hook lines: `hook_liveness_probe.py` (+ test), `wiring_check.py` (+ test), `test_enforcement_probe.py`, `mechanism_gate.py` (path list), `agents_md.py`; the rest name it in text | K's builder hands the line; the Lead places it after `piles.py check` and runs the probe's and `wiring_check`'s narrow rows; a new probe for the line moves the count pins (482/1015 per round 2) — K's DoD names whether it does (NOT verified here) |
 | `.github/workflows/forge-check.yml` (K's line) | `test_workflows.py`, `wiring_check.py` | Lead places; their narrow rows run |
-| `tools/rule_pointers.py`, `rule_sources.json`, baseline (new) | the axis-31 test; `.githooks/commit-msg`; forge-check; `mechanism_gate.py` list (K's commit) | created in K |
+| `tools/rule_pointers.py`, `rule_sources.json`, baseline (new) | the axis-31 test; `.githooks/commit-msg`; forge-check; `mechanism_gate.py` list (K's commit); r4 grep → 0 today | created in K; K2 edits `pointers` rows; FG7-52 adds check modes |
+| `docs/tasks/specs/20261116-boot-by-topic-spec.md` (amendment block, Lead) | no code reader (r4 grep → 0, control above); human readers: its streams S1/S2 and their critic | S1/S2 write the marked forms and scoped TOC cells (8.2.6); no tool changes |
+| `plans/piles/forge/batch-7-vhodyashchie-4.md` (FG7-52 row) | no reader by file name (r4 grep → 0); readers by glob `batch-*.md`: `piles.py` (parse; (в) not applicable — untaken), `collect_intake.py`, `backlog_tree.py`, `forge_metrics.py`; the card «Строки» | unchanged code; the row keeps the 7 columns (old row, E9) |
+| main files fixed by AU | named by the audit | AU's fix dispatch carries, per file it changes, the designer-rule-7 grep (command + count) and a verdict per reader (§8.7 DoD) |
 | `ai-packages/qa-factory/design/factory-rules-debt.md` | P18 | NOT touched by this spec |
 
 ### 7.5 Producers (designer rule 6)
@@ -811,18 +839,22 @@ Commands (Grep tool; the root checkout, worktrees not counted): `piles\.py|impor
 | the flow line at SessionStart | A3 |
 | the red-CI record | F15 (a): the fixing commit's message; `defect_found` by the coordinator |
 | node rows from M1-M5 | E-k, G |
-| `rule_sources.json`, the census baseline, the stamps | K (tool and data), K2 and every later editor (`rule_pointers.py stamp` writes the hashes) |
+| `rule_sources.json` (`main`, `generated`, `markers`, `signs`, `toc`, `owner_keys`, `pointers`), the census baseline, the stamps | K (tool and data), K2 and every later editor (`rule_pointers.py stamp` writes the hashes); `pointers` rows ended by K2 |
+| the marked pointer lines and scoped TOC cells of boot-by-topic S1/S2 | boot-by-topic S1/S2 under the amendment (8.2.6); otherwise K2 (both worlds) |
+| the narrowed FG7-52 row text | G (Lead's call F28) |
+| the main-file audit report and its fixes | AU (critic → builder → Lead) |
 | `stamp-skip:` / `rule-census-raise:` lines | the committer; `rule_pointers.py check --msg-file` reads them (K) |
 
 ### 7.6 Architecture (forge analogs) and the four questions
 
 No package file changes → `architecture: none -- forge tools and rule texts only` would be the line for a package commit;
-none is planned. Forge analogs kept: AR-1 (main files and the scan set are data), AR-13 (one reader: statuses through
-`piles`; the vocabulary through `piles_vocab`; the verdict shape through `critic_verdict_check.check_text`; commit-message
-lines through `piles.prose_lines`; pointers and sections through `rule_pointers.resolve`), AR-14 (one writer: node rows by
-the pile road; stamps by `rule_pointers.py stamp`), AR-15 (one survivor: one acceptance gate (д); one pointer form and
-resolver — §8.2), AR-20 (the census ratchet only shrinks), AR-29 (the §4 class table), AR-28 (no unknown becomes a pass:
-E16, E20, E8, E37, §8.3).
+none is planned. Forge analogs kept: AR-1 (main files, the scan set, markers, signs and TOC locations are data), AR-13 (one
+reader: statuses through `piles`; the vocabulary through `piles_vocab`; the verdict shape through
+`critic_verdict_check.check_text`; commit-message lines through `piles.prose_lines`; pointers and sections through
+`rule_pointers.resolve`; the boot path through `session_context.boot_path_files`), AR-14 (one writer: node rows by the pile
+road; stamps by `rule_pointers.py stamp`), AR-15 (one survivor: one acceptance gate (д); one pointer form and resolver —
+§8.2), AR-20 (the census ratchet only shrinks), AR-29 (the §4 class table), AR-28 (no unknown becomes a pass: E16, E20, E8,
+E37, §8.3).
 
 Four questions (CLAUDE.md rule 10) for the commits of A1/A2/A3/C/D/K: the committer writes the full axis enumeration.
 Likely axes: 1 (the pointer set), 4 (debt ↔ backlog ↔ nodes), 18 (the census ratchet), 31 (one owner per aspect — the
@@ -837,34 +869,59 @@ carrier test in CI (forge-check `:96`).
 
 The owner's word (17.11.2026, W3): «это починит только одно место. А надо что бы все служебные файлы не противоречили
 основным даже если мы будем основные каждый день менять.» §5 is the first instance; this section is the mechanism for
-the whole class: stream K (+ K2 for the existing files).
+the whole class: stream K (+ K2 for the existing files), and the one-time audit AU (§8.7) for the main files among
+themselves (the owner's fourth portion).
 
 ### 8.1 Main files are DATA (AR-1)
 
-`tools/rule_sources.json` (new, K):
+`tools/rule_sources.json` (new, K) — r4, F25 decided by the owner (fourth portion: the recommended list + `DECISIONS.md`
+and `docs/RUNBOOK.md`, «как минимум всё что у нас в бут пути»):
 ```json
 {"main": ["CLAUDE.md", "PROJECT.md", "docs/TESTING.md", "plans/builder-rules.md", "docs/TEAMWORK.md",
           "ai-packages/qa-factory/design/factory-rules.md", "ai-packages/qa-factory/design/architecture.md",
-          "docs/SIBLING_MAP.md", "PROCESS/*.md"],
+          "docs/SIBLING_MAP.md", "PROCESS/*.md",
+          "DECISIONS.md", "docs/RUNBOOK.md",
+          "SYSTEM_PROMPT.md", "CURRENT_CONTEXT.md", "docs/OWNER_PRINCIPLES.md"],
+ "generated": {"AGENTS.md": "tools/agents_md.py --check",
+               "docs/FACTORY_RULES_INDEX.md": "tools/factory_rules_index.py --check",
+               "docs/ARCHITECTURE_INDEX.md": "tools/architecture_index.py --check",
+               "docs/OWNER_PRINCIPLES_INDEX.md": "tools/factory_rules_index.py --check"},
  "scan_extra": ["plans/piles/_template/"],
+ "markers": ["rule", "правило"], "signs": ["§", "п."],
+ "toc": {"CLAUDE.md": {"heading": "Contents", "column": "Where"},
+         "PROJECT.md": {"heading": "Оглавление", "column": "Раздел"}},
  "owner_keys": [...], "pointers": [...]}
 ```
-- `main` — the files whose text IS the rule. Which files are «основные» is the meaning of the owner's sentence (11a):
-  ONE owner question, F25, with the recommendation above (boot files + TESTING + TEAMWORK + the factory's rules and
-  architecture + SIBLING_MAP + PROCESS); executable on it until she answers. `docs/TEAMWORK.md` is listed only once it
-  exists (K's builder checks at K's merge; else the boot-by-topic commit adds the row).
-- **service = the axis-31 scan set minus `main`** (one definition, R5): every tracked text file the carrier test scans
-  (P33) — role files, skills, briefs, RUNBOOK, CURRENT_CONTEXT, `tools/*.py` refusal and dispatch texts — plus
-  `scan_extra` (the template, which `plans/piles/` EXCLUDED hides today; this WIDENS the scan, never shrinks it); K-OWN's
-  scope unchanged. No separate service globs exist.
+- `main` — the files whose text IS the rule. The boot path (P55: SYSTEM_PROMPT.md, DECISIONS.md, CURRENT_CONTEXT.md,
+  CLAUDE.md and its `@` imports) is covered WHOLE: each boot-path file is in `main` or in `generated` — a K test row
+  (`test_boot_path_is_classified`) reads the list through the ONE reader `session_context.boot_path_files(ROOT)` plus
+  CLAUDE.md's `@` lines (`agents_md.IMPORT_RE`) and is red naming any boot-path file in neither key (a new boot file is
+  classified in the commit that adds it). `docs/TEAMWORK.md` and `docs/OWNER_PRINCIPLES.md` are listed only once they
+  exist (K's builder checks at K's merge; else the boot-by-topic S2 commit adds the rows) — TEMPORAL: before S2 both are
+  absent and unlisted; after S2 present and listed (E34 otherwise).
+- `generated` — files a generator writes from main files; their guard is the generator's `--check` already on the commit
+  path (P38; AGENTS.md: pre-commit and forge-check). They are NOT carriers (their pointers are copies of the source's,
+  which is the one checked), never census-counted, never a stamp source (8.2.5); they ARE valid pointer targets. A K
+  test row asserts each `generated` value names an existing tool file. This is the one data row that exempts generated
+  service files (the edge «a service file generated by code»).
+- **service = the axis-31 scan set minus `main` minus `generated`** (one definition, R5): every tracked text file the
+  carrier test scans (P33) — role files, skills, briefs, `tools/*.py` refusal and dispatch texts — plus `scan_extra` (the
+  template, which `plans/piles/` EXCLUDED hides today; this WIDENS the scan, never shrinks it); K-OWN's scope unchanged.
+  No separate service globs exist.
 - A main file is still scanned as a CARRIER (its pointers and stamps are checked) but never census-counted; a main
   file restating another main file is turned into a pointer in K2 (F-d: `plans/builder-rules.md` is main for its own
-  rules; its restatements of CLAUDE.md — 7b vs rule 4, п. 1 vs rule 11 — become `правило:` pointers).
+  rules; its restatements of CLAUDE.md — 7b vs rule 4, п. 1 vs rule 11 — become `правило:` pointers). A main file inside
+  the axis-31 EXCLUDED set (`DECISIONS.md`, the two `ai-packages/qa-factory/design/` files) is a TARGET only, never a
+  carrier: its own cross-references are package or decision-record matters (the package's selftest; DECISIONS is append
+  history); its agreement with the other main files is AU's (§8.7) and calibration item (iv)'s.
 - `owner_keys` / `pointers` = today's hand lists of the axis-31 test moved into data (§8.2.3).
 - Empty outcome: `main` empty → `CannotRun` naming the key; a `main` entry or glob matching no file → `CannotRun` for a
-  literal path, one WARN line for a glob (E34).
+  literal path, one WARN line for a glob (E34); `markers`, `signs` or `toc` absent or empty → `CannotRun` naming the key
+  (no pointer could be recognised: never "every pointer resolves"); `generated` empty → legal (nothing exempt);
+  `owner_keys` empty → `CannotRun` (K-OWN would check nothing); `pointers` empty → LEGAL — it is K2's end state (8.2.3),
+  and the scan's own positive control (8.2.5) keeps "nothing checked" from passing.
 
-### 8.2 One pointer form, one resolver (R5 — SELF-CONTAINED: the critic re-pass reads this subsection alone)
+### 8.2 One pointer form, one resolver (R5; rewritten in r4 after t-952 — SELF-CONTAINED: the critic re-pass reads this subsection alone)
 
 **8.2.0 The collision.** Three pointer forms would coexist: (1) the axis-31 test's K-PTR rows — a prose pointer phrase in
 the carrier and a SUBSTRING anchor in the target (`squash(anchor) in squash(target)`, P33); (2) boot-by-topic's
@@ -873,83 +930,258 @@ the carrier and a SUBSTRING anchor in the target (`squash(anchor) in squash(targ
 line-prefix anchor in a new `rule_stamps.py`. Three resolution rules on the same pointer (P31, AR-15).
 
 **8.2.1 The survivor.**
-- **ONE FORM** = boot-by-topic's (F22 (a), recommended): `rule: <file> § <x>` in English files, `правило: <файл> § <x>`
-  in Russian files — accepted earlier, already the form of boot-by-topic's TOCs and moved-block pointers. A stamp uses the
+- **ONE FORM** = boot-by-topic's (F22 (a)): `rule: <file> § <x>` in English files, `правило: <файл> § <x>` in Russian
+  files — accepted earlier, already the form of boot-by-topic's TOCs and moved-block pointers. Its CARRIER side (what a
+  pointer looks like in the file that holds it) is 8.2.2-C; its TARGET side (where it lands) is 8.2.2-T. A stamp uses the
   SAME address: `<!-- source: <file> § <x> @ <src12>/<blk12> -->` … `<!-- /source -->` (in a `.py` file: the comment
   lines `# source: <file> § <x> @ <src12>/<blk12>` … `# /source`; other suffixes carry pointers only). `see:` is retired
   before birth: §5 and §8 use no `see:`.
-- **ONE RESOLVER** = `rule_pointers.resolve(text, x) -> Section | Miss` in the stdlib leaf `tools/rule_pointers.py` (it
-  imports `gitcmd` and, lazily in its CLI only, `piles` for `prose_lines`/`range_messages`). It implements boot-by-topic
-  §4.3 items 1-4 (that contract is kept whole) plus the bold lead-in kind and the uniqueness rule of 8.2.2. Its callers:
-  the axis-31 test (every `rule:`/`правило:` line in the scan set, every TOC cell — FG7-52's contract — and every
-  remaining hand POINTERS row), `rule_pointers.py check` (commit-msg, forge-check), `rule_pointers.py stamp` and
-  `census`. Nothing else resolves a pointer.
-- **ONE CHECKER per check kind**: pointer resolution (no door: E31/E32 are always red) is judged by the axis-31 test in
-  CI AND by `check` at commit time — the same `resolve`, two triggers; stamps and the census (they have doors, which live
-  in commit messages) are judged only by `check` (commit-msg `--msg-file`, forge-check `--base` with the range's messages
-  — 8.3). The test judges stamps and census on FIXTURES only (rows), never on the real tree (it has no message to read
-  a door from).
-- **Who builds it** (F23, Lead): (a) K ABSORBS FG7-52 (recommended): one node builds the resolver once with every kind;
-  FG7-52's forge/7 row becomes `отклонено: поглощён узлом K спеки 20261117-everything-in-piles` (its row is stale anyway:
-  it still names `tools/pointer_lint.py` and pre-commit, P45, against boot-by-topic A1); amendment line for the
-  boot-by-topic spec (the Lead writes it there, not this spec): "FG7-52 is built inside K (everything-in-piles §8.2);
-  the resolver lives in `tools/rule_pointers.py`, called by the axis-31 test — still no second checker". (b) FG7-52 → K:
-  FG7-52 builds `resolve` in `tools/rule_pointers.py` (the same amendment of its row and of A1's wording), K adds stamps
-  and census on top.
+- **ONE RESOLVER** = `rule_pointers.resolve(target_lines, address) -> Section | Miss` in the stdlib leaf
+  `tools/rule_pointers.py` (it imports `gitcmd`, `md_table` for `fence_walk` — the one fence reader — and, lazily in its
+  CLI only, `piles` for `prose_lines`/`range_messages`). Its contract = boot-by-topic §4.3 AS AMENDED by 8.2.6: §4.3
+  items 2 (a numbered pointer's title), 3 (the refusal names carrier file:line, the pointer and the nearest heading) and 4
+  (an unresolvable pointer is RED; its adversarial inputs) are kept word for word; item 1 is replaced by 8.2.2 (what
+  changes against it is listed there, «Δ §4.3»); item 5 by 8.2.3. Its callers: the axis-31 test (every pointer the scan
+  finds, every TOC cell, TOC completeness, every remaining `pointers` row), `rule_pointers.py check`, `stamp`, `census`,
+  `rows --covered`. Nothing else resolves a pointer.
+- **ONE RESOLVER, TWO TRIGGERS (B5, stated as an amendment of boot-by-topic A1, not denied):** pointer resolution (no
+  door: E31/E32 are always red) is judged by the axis-31 test in CI AND by `rule_pointers.py check` in commit-msg — the
+  same `resolve`, two triggers. A1 refused a SECOND CHECKER (`tools/pointer_lint.py` with its own grammar); it did not
+  foresee that stamps and the census have DOORS (`stamp-skip:`, `rule-census-raise:`) which live in commit messages, and
+  only commit-msg and CI can read a message (P41) — the test cannot. So `rule_pointers.py check` is the commit-path
+  trigger of the one resolver; there is still no second resolver, no second grammar and no `pointer_lint.py`. Stamps and
+  the census are judged only by `check` (commit-msg `--msg-file`, forge-check `--base` with the range's messages — 8.3);
+  the test judges them on FIXTURES only (rows), never on the real tree.
+- **Who builds it** (F23 (a), Lead, + F28 (r4, B4)): K builds the resolver once with every kind AND FG7-52's pointer part
+  — P56 items (1) pointer lines, (2) TOC cells, (3) TOC completeness (8.2.2-C «TOC completeness»). FG7-52 is NOT rejected:
+  its row is NARROWED IN PLACE to P56 items (4) backticked paths exist, (5) FR/P/rules ranges match the home, (6) gate
+  numbers match code, (7) the SIBLING_MAP pair rows (Lead) — a different check class (text facts against their home,
+  with its own false-red battery: illustrative paths, placeholders, package-relative paths) — ordered AFTER K, built as
+  modes of the same `tools/rule_pointers.py check` over the same scan set and `rule_sources.json` (so A1's direction —
+  no `pointer_lint.py`, one checker — holds), owns `tools/rule_pointers.py`, `tools/rule_sources.json`,
+  `tools/tests/test_role_carriers_one_owner.py`, `docs/SIBLING_MAP.md` (Lead). Ready row text: 8.2.6 (b). The decision
+  amends F23 (a)'s «absorbs» to «absorbs the pointer part»: fork **F28** (Lead), executable on it.
 
-**8.2.2 The address grammar and section bounds (R6).** `<x>` is one of four kinds; lines inside code fences are never
-anchors and never ends; matching strips leading whitespace and squashes inner whitespace; indentation is kept for the
-end rule.
-| kind | `<x>` written as | a line is the anchor when | the section ends before the first later line that is |
+**8.2.2 The grammar — carrier side (C) and target side (T).** Every rule below is shown on a real line, quoted verbatim
+with its path (the root checkout, 17.11.2026); each proof line is also a ROW of the axis-31 test (a copy or a fixture
+when the line is not on disk yet).
+
+**T.0 Normalisation (both sides).** Lines inside code fences (`md_table.fence_walk`) are never anchors, never ends and never
+pointers. Comparison strips leading/trailing whitespace and squashes inner whitespace (Python `str.split()` — NBSP U+00A0
+counts as whitespace, so `§\u00a0 7b` = `§ 7b`); it is CASE-SENSITIVE (boot-by-topic §4.3 item 4: «a heading renamed by
+one character» stays red — `## tiers` does not match `Tiers`); file paths are matched case-sensitively against the
+TRACKED list, never the case-insensitive Windows filesystem.
+
+**T.1 Kind dispatch and scope.** `<x>` (as cut by C.3) is: `**…**` → bold; `"…"` → literal; a full match of the ID regex
+`(?:P|FR-|AR-)?\d+(?:\.\d+)*[a-z]?` (Latin letters only) → item; anything else → heading. An address may carry ONE scope:
+`<scope> § <x>` — `<scope>` is resolved first (heading or item kind, by the same rules) and `<x>` is then resolved only
+inside the scope's section (one level; a second ` § ` inside `<x>` is part of the heading text — small choice). No scope
+→ the whole file.
+
+**T.2 The kinds** (Δ §4.3 marked):
+
+| kind | a line is a candidate when | the section ends before the first later line that is |
+|---|---|---|
+| heading | it is a `#`-heading (levels 1-6) in scope whose normalised text (after the `#` marks, trailing `#`s stripped) EQUALS `<x>`, OR whose NAME equals `<x>`; NAME = the normalised text cut before its first ` (` or ` — ` (Δ §4.3: the name rule, B2) | a heading of the same or a higher level (fewer or equal `#`) |
+| item | (h) a heading in scope whose text starts with `<x>` followed by `.` + space/EOL, by a space, or by EOL (Δ: any level; `### 1` never matches `### 10.`, B1 (i)); (l) a line that, after leading whitespace, starts with `<x>.` + space/EOL, `**<x>.**`, `- **<x>.**` or `**<x> — ` (Δ: the FR/AR opener, F1). PAIR: an (h) whose next non-blank line outside a fence is an (l) of the same `<x>` is ONE candidate, anchored at the heading (Δ, B1 (ii)). NESTING: for an UNSCOPED address, an (l) line inside the section of a numbered heading ((h)-form of any id) other than its own pair is not a candidate — it belongs to that heading's scope (`docs/RUNBOOK.md § 12 § 7`) (Δ) | (h)/pair: as a heading. (l) `<x>.`: the next numbered opener `\d+[a-z]?\.` at the same or lesser indentation, or a heading that is not a CONTINUATION heading of `<x>` (normalised text matching `^\S+ <x> · `, e.g. `Rule 2 · drafting → designer` — boot-by-topic §6 item 2 makes it the only sub-heading form inside a numbered rule; F2), or the scope's end. A plain `- ` bullet does NOT end a numbered item. (l) `- **<x>.**`: the next `- ` at the same or lesser indentation, or a heading. (l) `**<x> — `: the next `**<id> — ` line, or a heading. Ends err LONGER (more lines hashed: a false red, never a missed change) |
+| bold | after leading whitespace (and after an optional item opener) the line starts with `**<text>**` | with an opener: as an item. Without (a LEAD-IN): a line-start bold at the same or lesser indentation whose previous non-blank line ends with `.` `:` `;` `!` `?` `»` `)` (a wrapped line that merely starts with bold, PROJECT.md:96, does not end it), or an item opener at the same or lesser indentation, or a heading. F3: `stamp` REFUSES a section whose end was decided by the lead-in previous-line rule (`cannot stamp <file> § <x>: its end is a bold lead-in at <file>:<n>, which a wrapped sentence could fake -- point at it instead, or end the section with a blank line, an item or a heading`); pointers are unaffected (they need the anchor only) |
+| literal | after leading whitespace the line starts with `<prefix>` | — : pointers only; a stamp on a literal is refused (no section end) |
+
+Every address must hit EXACTLY ONE candidate in its scope: 0 → E31, 2+ → E32 (Δ §4.3: uniqueness; it errs SAFE — a false
+red, never a pointer landing on the wrong rule). E32's text names a door that resolves: the scoped address, a heading's full
+text, the bold title or a longer literal.
+
+**T.3 Proof on the real files (each a test row; the expected result is the one written):**
+
+| # | address | real lines (verbatim, path:line) | result |
 |---|---|---|---|
-| heading | the heading text (to end of line) | it is a `#`-heading whose text equals `<x>` | a heading of the same or a higher level |
-| item | an id `\d+[a-z]?` or `P\d+`/`FR-\d+`/`AR-\d+` | it opens with `<x>.` (or `### <x>`, `**<x>.**`, `- **<x>.**`, as §4.3) | an item opener (`\d+[a-z]?\.`, `- `) at the same or lesser indentation, or a heading; so `11a.` at column 0 is a SIBLING of `11.` and ends it, while `   4a.` (indented inside rule 4) belongs to rule 4's section and its own section ends at the next opener at indentation ≤ 3 |
-| bold | `**<text>**` | after leading whitespace (and after an optional item opener) the line starts with `**<text>**` | with an opener: as an item. Without (a LEAD-IN): a line-start bold at the same or lesser indentation whose previous non-blank line ends with `.` `:` `;` `!` `?` `»` `)` (a wrapped line that merely starts with bold, PROJECT.md:96, does not end it), or an item opener at the same or lesser indentation, or a heading |
-| literal | `"<prefix>"` (quoted) | after leading whitespace the line starts with `<prefix>` | — : pointers only; a stamp on a literal is refused (no section end) |
-Every kind must hit EXACTLY ONE line: 0 → E31, 2+ → E32 (§4.3 had no uniqueness rule — this is the one addition besides
-the bold and literal kinds; it errs safe). A numbered pointer line («N. **<title>** — правило: … § N») keeps §4.3 item 2
-(its title equals the item's bold opener). `section_hash` = sha256 over the section's lines with CRLF → LF and trailing
-spaces stripped.
+| T-a | `CLAUDE.md § 3` (B1) | `CLAUDE.md:70` `3. critic — a MANDATORY acceptance gate: …`; `:389` `3. Default return at the task/session boundary: …`; `:413` `3. The shell's working directory never moves (`cd`, `Set-Location`): refused.` | E32 (three (l) lines; P49). Door and the form S1 writes (F27 (a)): `CLAUDE.md § Routing rules § 3` → scope `:35` `## Routing rules` → `:70` only → resolves. Same for `§ 1` (:37 / :386 / :409) and `§ 6` (:109 / :420); `CLAUDE.md § 9` (`:140` only) resolves unscoped |
+| T-b | `plans/builder-rules.md § 7b` (B1, K's own `RULES_7B` rewrite) | `plans/builder-rules.md:36` `### 7b. Уровень билдера и уровень пачки`; `:38` `7b. **Уровень билдера и уровень пачки** (слово владельца 21.10.2026 18:3x, D-0056; …` | ONE candidate (pair); section `:36`-`:72` (ends before `:73` `### 7c. …`) |
+| T-c | `plans/builder-rules.md § 1` (B1 (i)) | `:8` `### 1. File ownership`; `:10` `1. **File ownership**: правишь только файлы своего пакета; …`; `:100` `### 10. Живой проект — только чтение` | pair `:8`/`:10` → one; `:100` is no candidate (`1` followed by `0`) |
+| T-d | `docs/RUNBOOK.md § 7` (nesting) | `docs/RUNBOOK.md:86` `## 7. CI на GitHub и BATCH CANON`; `:228` `7. **(g) Своё состояние переживает сжатие контекста.** …` (inside `:187` `### 9.1. Мандат ночного агента`); `:614` `7. A builder's hand-off written to BOTH the worktree …` (inside `:602` `## 12. Ловушки хоста агентов (Harness quirks)`) | one candidate `:86`; the two (l) lines sit under other numbered headings → excluded (P51) |
+| T-e | `docs/tasks/critic-diff-brief.md § The two layers` (B2, K's own rewrite) | `docs/tasks/critic-diff-brief.md:8` `## The two layers (CLAUDE.md rule 3, the two-layer review rule)` | NAME `The two layers` → resolves |
+| T-f | `CLAUDE.md § Tiers` (B2, accepted TOC cell) | `CLAUDE.md:21` `## Tiers (see DELEGATION_TABLE.md; all assignments are estimates until calibrated)` | NAME `Tiers` → resolves; row C-T («stays by name») holds without a rename |
+| T-g | `CLAUDE.md § Command hygiene § 6` (scope + NAME; K's rewrite of `HYGIENE_6`) | `CLAUDE.md:403` `## Command hygiene (permission hygiene)`; `:420` `6. An environment-negative claim requires verification: …`; `:442` `7. Temporary corruption (a probe) is rolled back …` | scope by NAME → `:420`; section `:420`-`:441` |
+| T-h | `PROJECT.md § Что решать самому, что спрашивать у владельца` (comma) | `PROJECT.md:393` `## Что решать самому, что спрашивать у владельца` | full text (a comma is no terminator, C.3) → resolves |
+| T-i | `PROJECT.md § 2` and its door | `PROJECT.md:187` `2. **Свидетель билдера** — …`; `:241` `2. **Разведка скаутами**: …`; `:289` `2. **Взятая пачка заморожена** (…`; `:279` `## Командная работа (кучки и пачки)` | E32; `PROJECT.md § Командная работа § 2` → `:289` only |
+| T-j | `ai-packages/qa-factory/design/factory-rules.md § FR-1` (F1) | `factory-rules.md:32` `**FR-1 — A refusal says what is wrong, what it expected, and how to satisfy it.** Any refusal — from`; `:39` `**FR-2 — The door a refusal names …` | one; section `:32`-`:38` |
+| T-k | `ai-packages/qa-factory/design/architecture.md § AR-1` (F1, bullets inside) | `architecture.md:35` `**AR-1 — Closed variety is a data row, never a list in code.**`; `:36` `- Invariant: a closed set of values lives in one …` | one; the column-0 bullets do not end it; section to before the next `**AR-2 — ` |
+| T-l | `docs/tasks/critic-diff-brief.md § 6` (F5) | `docs/tasks/critic-diff-brief.md:47` `6. **DUPLICATION AND CONSISTENCY**: does the diff implement anything …` (the only `6.` line) | one |
+| T-m | continuation (F2), after S1 | S1's sub-heading `### Rule 2 · drafting → designer` inside rule 2 (boot-by-topic §3.1 row C2b; not on disk — a fixture row) | item 2's section runs past it to before `3.`; a heading `### Rule 4 · …` inside rule 2 would end it |
+| T-n | bold lead-in (R6, the home) | after 5.3: `   **Остатков нет по правилу** (слово владельца 17.11.2026, по происхождению):`; end at `PROJECT.md:337` `   **Живые прогоны не держат пачку вообще** (владелец, 11.11.2026): …` (previous line ends with `.`) | resolves; `stamp` on it is refused (F3) — K2 points at it (8.5) |
+| T-o | one-character rename / case (§4.3 item 4, F4) | a copy of `CLAUDE.md` with `:21` → `## Tier (see …)`; another with `## tiers (see …)` | E31 each |
+| T-p | a heading only in a fence; a Cyrillic letter in an id | a copy with `## Tiers` only inside ```` ``` ````; `PROJECT.md п. 6а` (`docs/RELATED_WORK.md:23`, Cyrillic а) if written as a marker pointer | E31 each (`6а` is not an id → heading kind → no heading) |
 
-**The first real instance** (P43): after 5.3 the home is the line `   **Остатков нет по правилу** (слово владельца
-17.11.2026, по происхождению):` (3 spaces); pointer `rule: PROJECT.md § **Остатков нет по правилу**` → bold kind, a
-lead-in (no opener); its section runs to the line before `   **Живые прогоны не держат пачку вообще**` (same indentation,
-the previous line ends with `.`) — or to `10.` / a heading, whichever first. Edges (rows in the axis-31 test, each on a
-COPY of PROJECT.md):
-- AT: the anchor at a line start after 3 spaces → resolves; after 0 spaces → resolves; the section's last line is the
-  home's last sentence (5.3b's last line or the TEAMWORK pointer line).
-- BEYOND (i): the phrase only MID-line — today's `PROJECT.md:333` → E31, and the refusal adds the hint `found mid-line at
-  PROJECT.md:333 -- a bold anchor must start its line`; this is why 5.3 puts the home on its own line.
-- BEYOND (ii): a second line starting with the phrase → E32 naming both lines.
-- BEYOND (iii): the phrase only inside a fence → E31.
-- BEYOND (iv): a line-start bold at indentation 4 (deeper) inside the home → does not end it; at indentation 3 after a
-  line ending in `.` → ends it (the D text rule "no wrapped line of the home begins with `**`" keeps this from biting).
-- In the window D → K the substring K-PTR row and the grammar agree on this pointer (the home at a line start, unique).
+**The first real instance** (P43) is T-n. Edges (rows on a COPY of PROJECT.md): AT — the anchor after 3 spaces resolves,
+after 0 spaces resolves, the section's last line is the home's last sentence (5.3b's last line or the TEAMWORK pointer
+line); BEYOND (i) the phrase only MID-line — today's `PROJECT.md:333` → E31 with the hint `found mid-line at PROJECT.md:333
+-- a bold anchor must start its line`; (ii) a second line starting with the phrase → E32 naming both; (iii) the phrase only
+inside a fence → E31; (iv) a line-start bold at indentation 4 inside the home does not end it, at indentation 3 after a
+line ending in `.` ends it (D's text rule «no wrapped line of the home begins with `**`»). In the window D → K the substring
+K-PTR row and the grammar agree on this pointer.
 
-**8.2.3 What the other two become.**
-- **K-PTR (the 20 hand POINTERS rows + D's 5)**: rows move into `rule_sources.json` `pointers` and their ANCHOR is
-  resolved by `resolve` (a row's anchor is rewritten as a `<x>` of 8.2.2: `## The two layers` → `The two layers`
-  (heading); `RULES_7B` → `7b` (item); `6. **DUPLICATION…**` → `6` scoped by uniqueness in the brief, else the bold kind;
-  COST → `"Cost gates (D-0035"` (literal); `HYGIENE_6` → `"6. An environment-negative claim"` (literal: `6.` occurs twice
-  in CLAUDE.md); `scout:` in the yaml → `"scout:"` (literal)). A row disappears when K2 writes the matching `rule:` line
-  into its carrier (the scan finds it then). The substring rule is retired. Text presence pins of P22
-  (`install_parity_anchors.json`, `test_handoff_rule_anchors.py`) are not pointer checks and stay.
+**C. The carrier side — what is a pointer (B6).** The scan recognises exactly two shapes; everything else is prose.
+
+- **C.1 A marker pointer.** A word of `markers` followed by `:` — `rule:` or `правило:`, any case of its first letter
+  (`Правило:`), preceded by a line start or a non-letter — standing OUTSIDE an inline code span (a backtick pair enclosing
+  the marker) and outside a fence, followed by whitespace and then EITHER:
+  - `<file>` alone (no sign follows) → a FILE pointer: resolves iff `<file>` is tracked;
+  - `<file>` whitespace `<sign>` (whitespace optional) `<x>` → a SECTION pointer;
+  - `<sign>` `<x>` with no file → the SAME-FILE form (file = the carrier itself);
+  - anything else → NOT a pointer (ordinary prose that uses the word «Правило:»).
+- **C.2 Tokens.** `<file>` = an optionally backticked token `[A-Za-z0-9_][A-Za-z0-9_./-]*\.(md|py|json|yaml|yml|txt)`,
+  resolved from the REPO ROOT (never the carrier's directory); a token holding `<`, `>` or `*`, or starting with `/`, a
+  drive letter or `..`, is no file token — so a placeholder `<файл>` is never a pointer. `<sign>` = a word of `signs`: `§`
+  or `п.` (the Russian «пункт»; the same sign, as `правило:` is the same marker — one form in two languages, read by one
+  parser; small choice closed because `docs/TESTING.md:80` already uses it, P52).
+- **C.3 Where `<x>` ends.** Dispatch first (T.1): bold — at the closing `**`; literal — at the closing `"`; item — the ID
+  regex match, which must be followed by end of line or a character outside `[A-Za-z0-9_-]` (a `.` followed by a non-digit
+  ends it: `§ 3. При` → `3`; `§ 4.1.` → `4.1`; `§ 9 (отказы` → `9`); heading — at the first of ` § ` (a scope continues),
+  ` (`, `. `, `.` + end of line, `; `, ` — `, ` + `, ` |`, `»`, a backtick, end of line. A comma and a colon are NOT
+  terminators (real headings carry them: T-h; boot-by-topic's planned `### Пакет: проход и свидетель`).
+- **C.4 A TOC cell.** A table that stands under the heading named by `toc[<file>].heading` (matched by NAME) — its column
+  named `toc[<file>].column`; the cell is split at ` + `; each part is `<file> § <x>`, `<file>` alone (a file pointer), or
+  `<x>` alone (the same file — PROJECT's own-section TOC); text after the address's terminator inside a part is ignored
+  (T5's `plans/builder-rules.md § 7b (+ 7, 7a, 7c)` → `7b`).
+- **C.5 TOC completeness (P56 item 3).** Every level-2 heading of a `toc` file — except the title and the TOC heading
+  itself — is ROUTED: some part of some cell of either TOC resolves to that heading's section or to a section inside it.
+  Red: `<file>:<line>: heading "<h>" has no TOC row -- add a row to <toc file> § <toc heading> (the topic name and where),
+  or merge the heading into a routed section`. Level 3+ is reached through its parent (a TOC row per sub-heading would
+  break boot-by-topic's F19 byte budget — small choice). A `toc` file whose TOC heading is absent → E31 on the data row
+  (K lands after S1, §7.3, so day one has both TOCs).
+- **C.6 Not pointers (stated, so the day-one world is green).** A markerless citation `<file> § <x>` / `<file> п. <x>` is
+  prose: 40+ such lines exist in the scan set (P52), several unresolvable by design (`plans/thinking-roles-portable-to-main.md:93`
+  `` `time-analysis.md` §1 ``, a file of another repository; `PROJECT.md:204`
+  `` `docs/tasks/specs/td-15-scenarios-quarantine.md` §D.3 ``; `docs/RELATED_WORK.md:23` `` `PROJECT.md` п. 6а ``), so
+  reading them as pointers would red day one. They are the census's (a block holding only a prose citation counts as
+  unmarked, 8.4) and K2's (it turns the ones that matter into marker pointers).
+- **C.7 Restatement (the carrier's other half).** What a pointer may carry beside itself is boot-by-topic's rule (§2: the
+  human-readable citation and at most one sentence of THIS role's consequence). Whether text beside a pointer restates the
+  home is NOT the resolver's: K-OWN keys (a verbatim key in a second file → red), the census (a block of more than 30
+  words with a pointer still counts, 8.4) and the semantic read (critic question 6, calibration item (iv)).
+- **Proof on real carriers (rows):**
+
+| # | carrier line (verbatim, path:line) | reading |
+|---|---|---|
+| C-a (positive, on disk) | `docs/TESTING.md:80` `- **Что запускать по своей правке** — правило: \`plans/builder-rules.md\` п. 7b.` | marker; backticked file; sign `п.`; `<x>` = `7b` (ended by `.` + EOL) → T-b → resolves |
+| C-b (positive, on disk) | `plans/builder-rules.md:16` `… Правило: \`PROJECT.md\`, «Язык»; id историй в комментариях допустимы.` | marker (capital); file `PROJECT.md`; `,` is no sign → FILE pointer → tracked → resolves |
+| C-c (positive, on disk) | `docs/FINDINGS.md:68` `**Status (F-2).** Carried as a project rule: PROJECT.md "Как принимается изменение пакета", item 6 (loaded` | marker `rule:` after a space; file; no sign → FILE pointer → resolves (harmless) |
+| C-d (positive, S2's text, boot-by-topic §3.4b ready text) | `2. **Взятая пачка заморожена** — правило: \`docs/TEAMWORK.md\` § 2 (что меняется во взятой пачке, …`; `3. … — правило: \`docs/TEAMWORK.md\` § 3. При общем файле поздний узел …`; `8. **Двери** — правило: \`docs/TEAMWORK.md\` § 8.`; `9. … — правило: \`docs/TEAMWORK.md\` § 9 (отказы \`close\` и …` | `<x>` = `2` / `3` / `8` / `9` (ended by ` (`, `. `, `.` EOL, ` (`) → TEAMWORK items, unique there → resolve; the numbered-pointer title check (§4.3 item 2) compares `**Взятая пачка заморожена**` with TEAMWORK item 2's opener (byte-identical, boot-by-topic 2a) |
+| C-e (positive, S2) | `4. **Бэклог.** — правило: § Бэклог и находки`; `Правило: \`docs/RUNBOOK.md\` § 4.1.` | same-file heading pointer (title check not applied: `<x>` is not the line's number); `4.1` item → `### 4.1. Шаги релиза` (S2 creates it in the same commit) |
+| C-f (positive, TOC cell, S1) | `\| Tiers \| CLAUDE.md § Tiers \|`; `\| What a builder may run \| plans/builder-rules.md § 7b \|` | parts ended by ` \|` → T-f, T-b |
+| C-g (negative, on disk) | `docs/RUNBOOK.md:56` `Правило: в целевом проекте коммитить **только явным списком путей** …` | marker followed by a non-file word → prose, not a pointer |
+| C-h (negative, S2's rule text, boot-by-topic §6 item 1) | `1. Одна тема — один дом (файл и раздел). В любом другом месте — строка-указатель \`правило: <файл> § <раздел>\` и, …` | marker inside a code span, and `<файл>` is no file token → not a pointer (doubly) |
+| C-i (negative, on disk) | `CLAUDE.md:98` `(D-0056, D-0059; procedure \`docs/RUNBOOK.md\` §7) — the coordinator's duty. …` | markerless → prose (C.6) |
+| C-j (negative restatement, on disk) | `docs/tasks/critic-diff-brief.md:56` `with a severity — blocks / fix before merge / queue — never a style pass and never "I don't like it".` | no pointer, own rule words contradicting the home → a counted block (8.4); D (5.10) replaces it by a pointer |
+
+**8.2.3 What the other forms become (B3: no second reader remains without an end).**
+- **K-PTR rows.** At K's merge the list = the 20 hand rows (P33) + D's 5 (5.14) + the rows boot-by-topic S1/S2/S3 added
+  (one per TOC cell and pointer line, its §4.3 item 5). In K's commit: (1) every row whose carrier holds a recognised
+  pointer (C.1/C.4) resolving to the same (target, section start) is DELETED — `rule_pointers.py rows --covered` lists
+  them; by construction that is D's 5, every S1 TOC-cell row and every S2 marker-line row; (2) D's
+  `test_leftover_home_starts_its_line` is deleted too (the bold kind's line-start + uniqueness on the scanned pointer is
+  the same check); (3) every other row moves to `rule_sources.json` `pointers` as
+  `{"carrier", "phrase", "target", "x", "until": "K2"}` — the NAMED TEMPORARY FORM: the carrier half stays
+  `squash(phrase) in squash(carrier)` (a prose pointer the scan cannot see), the target half is `resolve(target, x)`;
+  (4) K2 ends each row: it writes a marker pointer into the carrier and deletes the row in the same commit. END
+  CONDITION (K2's DoD): `pointers` is empty, or each remaining row carries `"why"` (why its carrier cannot hold a marker
+  line) instead of `"until"`; the test is red on a row with neither field. TEMPORAL, both worlds: before K, the rows are
+  the test's hand list (substring both halves); after K, covered rows are gone and the rest are `until`/`why` rows.
+- **The 20 hand rows' `x`** (each resolves on today's files; the row id is the carrier → target pair):
+
+| carrier → target | old anchor | `x` | proof |
+|---|---|---|---|
+| PROJECT.md, builder.md, designer.md, RUNBOOK.md → builder-rules (4 rows) | `RULES_7B` `7b. **Уровень билдера и уровень пачки**` | `7b` | T-b |
+| PROJECT.md, critic.md → brief (2) | `## The two layers` | `The two layers` | T-e |
+| builder-rules → builder.md | `7. The report is a FILE; …` | `7` | `.claude/agents/builder.md:65` the only `7.` |
+| builder-rules, RUNBOOK.md, CLAUDE_HOST_ADAPTATIONS_FULL.md → CLAUDE.md (3) | `COST` `Cost gates (D-0035, D-0038, D-0040, D-0054;` | `"Cost gates (D-0035"` (literal) | `CLAUDE.md:257` `   Cost gates (D-0035, D-0038, …` (one line starts so) |
+| builder.md, critic.md → CLAUDE.md (2) | `HYGIENE_6` | `Command hygiene § 6` | T-g |
+| critic.md, CLAUDE_HOST_ADAPTATIONS_FULL.md → brief (2) | `6. **DUPLICATION AND CONSISTENCY**` | `6` | T-l |
+| critic.md → brief | `12. **ONE ROAD**` | `12` | `docs/tasks/critic-diff-brief.md:81` the only `12.` |
+| designer.md → CLAUDE.md | `11. DoD in every dispatch (…)` | `11` | `CLAUDE.md:187` the only `11.` (`11a.` is another id) |
+| brief → critic.md | `16. The report is a FILE; …` | `16` | `.claude/agents/critic.md:111` the only `16.` |
+| CLAUDE.md → brief | `7. **CODE QUALITY**` | `7` | `docs/tasks/critic-diff-brief.md:53` the only `7.` |
+| SYSTEM_PROMPT.md → CLAUDE.md | `9. Fix the class, …` | `9` | `CLAUDE.md:140` the only `9.` |
+| TWO_VOCABULARIES.md → delegation.config.yaml | `scout:` | `"scout:"` (literal) | one line (t-952 rerun, `:70`) |
+
+  Text presence pins of P22 (`install_parity_anchors.json`, `test_handoff_rule_anchors.py`) are not pointer checks and stay.
 - **`see:` and `rule_stamps.py`** (round 2): never built. Stamps, census and the CLI live in `tools/rule_pointers.py`;
   there is no `section_bounds` outside it.
-- **boot-by-topic §4.3 / FG7-52**: the contract is kept whole and implemented by `resolve` (F23).
+- **boot-by-topic §4.3 / FG7-52**: amended by 8.2.6 (a); FG7-52 narrowed by 8.2.6 (b) (F28).
 
 **8.2.4 The scan set.** One set for K-OWN, pointers, stamps and census: the axis-31 test's (tracked text files minus
-EXCLUDED, P33) + `scan_extra`. The census counts `.md` files only (its unit is a markdown block, §8.4); `.py`/`.json`/
-`.yaml` files are scanned for pointers and stamps.
+EXCLUDED, P33) + `scan_extra`, minus `generated` for pointers, stamps and census (8.1). The census counts `.md` service
+files only (its unit is a markdown block, §8.4); `.py`/`.json`/`.yaml` files are scanned for pointers and stamps.
 
-**8.2.5 Edges of the form** (F-j): a pointer may target ANY tracked file that exists (main or not) — it only has to
-resolve; a STAMP's source must be a `main` file (a stamp carries a main rule), a stamp from a non-main or generated file
-(e.g. `docs/FACTORY_RULES_INDEX.md`) → red `stamp source <f> is not a main file -- point at it, or stamp from its main
-section`; a `source:` without its `/source` → red `unclosed stamp`; two stamps nested or overlapping → red; a marker
-inside a code fence → not a marker (documentation text); a file in `main` is never in service (by definition), it is
-scanned as a carrier only; partial staging — commit-msg judges the INDEX blobs (`git show :<path>`) of both main and
-service files, never the working tree; a section that itself contains a generated block → normal (the hash covers it;
-regenerating it reds the stamps on it — the safe direction).
+**8.2.5 Edges of the form** (F-j, r4 additions marked):
+- A pointer may target ANY tracked file that exists (main, service or generated) — it only has to resolve. r4: a target
+  that exists on disk but is UNTRACKED → E31 `<file> is not tracked -- CI would not see it; add it or point elsewhere`
+  (AR-4 analog); case and NBSP: T.0; `<file>` is resolved from the repo root (C.2).
+- A STAMP's source must be a `main` file; from a non-main or generated file (e.g. `docs/FACTORY_RULES_INDEX.md`) → red
+  `stamp source <f> is not a main file -- point at it, or stamp from its main section`; a `source:` without its
+  `/source` → red `unclosed stamp`; two stamps nested or overlapping → red; a marker inside a code fence → not a marker.
+- A file in `main` is never in service (by definition), it is scanned as a carrier only (unless EXCLUDED, 8.1).
+- Partial staging — commit-msg judges the INDEX blobs (`git show :<path>`) of both main and service files, never the
+  working tree; `check --tree` (the builder's witness) judges the working tree and reads no door.
+- A section that itself contains a generated block → normal (the hash covers it; regenerating it reds the stamps on it —
+  the safe direction).
+- r4 **a main file with no headings** (or only its title — the nearest real one: `SYSTEM_PROMPT.md:1` `# System Prompt`
+  and no other heading): a heading-kind or heading-scoped pointer → E31 whose «nearest heading» reads `(the file has no
+  heading but its title)` / `(the file has no headings)` with the door «point at an item (`§ <id>`), a bold title or a
+  literal»; item, bold and literal pointers and stamps on items work; C.5 does not apply (not a `toc` file). Invariant: a
+  pointer never resolves to "the whole file" by default — only the FILE pointer form (C.1) does that, and it says so.
+- r4 **a pointer to a section renamed in the same commit**: commit-msg reads the index blobs of BOTH the carrier and the
+  target, so a commit that renames `## X` and updates every `§ X` pointer is green; a commit that renames without the
+  pointer → E31 at commit time whose «nearest heading» names the new heading (the door: update the pointer in this
+  commit); a rename staged with the pointer fix unstaged → red (the index has the old pointer). CI `--base` judges the
+  tree at the range's end, so a rename in one pushed commit and the fix in the next is green there (commit-msg reds the
+  first unless `--no-verify`). Invariant: `main` never holds a dangling pointer at a pushed head; a rename never passes
+  with the old pointer left.
+- r4 **a service file generated by code** (AGENTS.md, `docs/FACTORY_RULES_INDEX.md`, `docs/ARCHITECTURE_INDEX.md`, and
+  after S2 `docs/OWNER_PRINCIPLES_INDEX.md`): EXEMPT from carrier scan, census and stamp-source by the `generated` data
+  row (8.1), each with its generator's `--check`; a valid pointer target. Invariant: a generated copy is guarded by its
+  generator, never by a second rule; a generated file missing from `generated` is census-counted and its regeneration
+  would raise the count → red (the safe side, naming the door: add the `generated` row).
+- r4 **an empty pointer list**: `pointers: []` is legal (K2's end); a carrier with zero pointers → nothing to resolve
+  (its blocks are census-counted if it is service); the scan finding ZERO pointers in the whole tree → red `the scan found
+  no pointer at all -- a broken scan, not a clean tree` (positive control: after D at least the five home pointers exist);
+  a TOC table with zero data rows → every level-2 heading unrouted → C.5 reds (never "complete").
+
+**8.2.6 The two amendment texts (B5, B4) — exact text; the Lead writes them, this spec does not edit those files.**
+
+(a) **Appended as the LAST section of `docs/tasks/specs/20261116-boot-by-topic-spec.md`** (after «## Fix round 1 (t-912)
+— review t-903»'s table), verbatim:
+
+```
+## Amendment by docs/tasks/specs/20261117-everything-in-piles-spec.md §8.2 (17.11.2026, Lead)
+
+The pointer resolver and the TOC check are built by stream K of the everything-in-piles spec (tools/rule_pointers.py,
+called by tools/tests/test_role_carriers_one_owner.py in CI and by "rule_pointers.py check" in commit-msg and
+forge-check). Where this spec names FG7-52 as their builder, read "stream K of everything-in-piles"; FG7-52 keeps only
+paths, ranges, gate numbers and the SIBLING_MAP pairs (its narrowed row there, §8.2.6 (b)). Carriers amended:
+
+| carrier here | replacement |
+|---|---|
+| §1.3 row «Pointer and TOC rows resolve (… FG7-52 extends the scan later)» | «… (POINTERS rows of the existing test until stream K of everything-in-piles replaces them by its scan; TOC completeness too)» |
+| §1.3 row «Retellings / sections over 50 lines / a boot heading with no TOC route … (on discipline until FG7-52)» | «Retellings / sections over 50 lines … — (on discipline; a boot heading with no TOC route is code after stream K)» |
+| §1.4 non-goal «The pointer linter itself (FG7-52 extends …); §4.3 is its contract» | «The pointer resolver itself — stream K of everything-in-piles; §4.3 as amended by that spec's §8.2.2 is its contract» |
+| §4.1 «Cell grammar (§4.3): `<file> § <heading text>` or `<file> § <number>` …» and «Under F19 (a) a numbered rule is cited by number (`CLAUDE.md § 3`).» | «Cell grammar: everything-in-piles §8.2.2 C.4 (parts joined by ` + `). A numbered item is cited by number when the number is unique in its file (`CLAUDE.md § 9`), else scoped: `CLAUDE.md § Routing rules § 3`, `PROJECT.md § Командная работа § 2`. A heading is cited by its full text or by its name (the text before ` (` or ` — `): `CLAUDE.md § Tiers`.» |
+| §4.3 heading and items 1, 5 | item 1 → «everything-in-piles §8.2.2 (target side T and carrier side C)»; item 5 → «Until stream K lands: every TOC cell and pointer line this node writes is a POINTERS row of tools/tests/test_role_carriers_one_owner.py; stream K deletes those rows in its commit (its scan covers them). TOC completeness: stream K.» Items 2, 3, 4 unchanged |
+| §6 item 7 (the PROJECT.md text S2 writes) «указатели и оглавление проверяет код (строки POINTERS, затем FG7-52); до FG7-52 пересказ, раздел длиннее 50 строк и заголовок бута без строки оглавления ищет калибровочная проверка 33.» | «указатели и оглавление проверяет тест оси 31 (`tools/tests/test_role_carriers_one_owner.py`); пересказ, раздел длиннее 50 строк и заголовок бута без строки оглавления ищет калибровочная проверка 33.» (true before and after stream K) |
+| §6 (c) the check 33 line «… — each a finding; on discipline until FG7-52.» | «… — each a finding; pointer and TOC resolution are judged by the axis-31 test.» |
+| §7.2 S1/S2 pointer texts written WITHOUT a marker: C-H3 «why and how to recover: PROJECT.md § Сессия форджа»; C12b (2) «the Lead compacts by PROJECT.md § Сессия форджа»; RB-2 «(`plans/builder-rules.md` п. 7b)»; RB-3 «— `PROJECT.md` § Сессия форджа.»; B-1 «(D-0059, `docs/RUNBOOK.md` §7)»; B-5 «что интегратор гоняет локально — `docs/RUNBOOK.md` §7;» | each written with the marker: «why and how to recover — rule: PROJECT.md § Сессия форджа»; «the Lead compacts as rule: PROJECT.md § Сессия форджа says»; «(правило: `plans/builder-rules.md` § 7b)»; «— правило: `PROJECT.md` § Сессия форджа.»; «(D-0059; правило: `docs/RUNBOOK.md` § 7)»; «что интегратор гоняет локально — правило: `docs/RUNBOOK.md` § 7;». If S1/S2 are already built without them: they stay prose, their POINTERS rows become `until: "K2"` rows (everything-in-piles §8.2.3) and K2 adds the markers |
+| §7.5 row «test_role_carriers_one_owner.py … (S2, S1; FG7-52 later extends its scan)» | «… (S2, S1; stream K of everything-in-piles later replaces its POINTERS rows by the scan)» |
+| §8 E4 «POINTERS rows now, FG7-52 later» | «POINTERS rows now, stream K of everything-in-piles later» |
+| §9 «Decisions in force», A1 | append: «AMENDED 17.11.2026 (everything-in-piles §8.2.1): the one resolver lives in tools/rule_pointers.py and has TWO triggers — the axis-31 test (CI) and "rule_pointers.py check" (commit-msg, forge-check) — because the doors of its stamp and census checks live in commit messages, which only commit-msg and CI can read; there is still no second resolver, no second grammar and no pointer_lint.py.» |
+| §7.6 FG7-52 ready row | replaced by everything-in-piles §8.2.6 (b) |
+```
+
+(b) **The narrowed FG7-52 row** (F28 (a); G writes it into `plans/piles/forge/batch-7-vhodyashchie-4.md:75` in place of
+the stale row, P45 — or into the batch it moves to under F20), verbatim:
+
+```
+| FG7-52 | П2 | Факты в текстах правил сверяются с домом — остаток после потока K спеки `docs/tasks/specs/20261117-everything-in-piles-spec.md`, который построил указатели, ячейки и полноту оглавлений: (а) пути в бэктиках в файлах `main` и служебных существуют (исключения — строки данных `tools/rule_sources.json`); (б) диапазоны «FR-1…FR-N», «P1…PN», «rules 1-N» совпадают с домом (число читается из дома); (в) числа `DESIGNER_THRESHOLD`, `PARALLEL_CAP` в тексте правил совпадают с кодом; проверки — режимы `tools/rule_pointers.py check` (тот же сканер и набор файлов; отдельного `pointer_lint.py` нет — A1 с поправкой); строки пар в `docs/SIBLING_MAP.md` (та же находка, п. 3; AR-13, FR-54) | builder → critic; строки карты — Lead | `tools/rule_pointers.py`, `tools/rule_sources.json`, `tools/tests/test_role_carriers_one_owner.py`, `docs/SIBLING_MAP.md` (Lead) | K спеки 20261117-everything-in-piles | ожидает |
+```
 
 ### 8.3 The check on the commit path and in forge-check (R4: the doors are read where the check runs)
 
@@ -957,14 +1189,15 @@ regenerating it reds the stamps on it — the safe direction).
 that has the message, P41; the Lead places the line); it reads the index. `python -B tools/rule_pointers.py check --base
 "$BASE"` — in `.github/workflows/forge-check.yml` beside `piles.py check --base` (`:84`), reading the range's messages
 through `piles.range_messages`, so a door used locally is honoured in CI. NOT in pre-commit (a pre-commit hook gets no
-message; round 2's placement is withdrawn). It reads `rule_sources.json`, finds every pointer and `source:` marker in the
-scan set, and:
+message; round 2's placement is withdrawn). `check --tree` judges the working tree with no message (the builder's
+witness; a stale stamp there has no door and is red). It reads `rule_sources.json`, finds every pointer and `source:`
+marker in the scan set, and:
 
 | case | behaviour | text (what / expected / door) | invariant |
 |---|---|---|---|
 | E30 stamp `src12` ≠ the source section's current hash | red | `<file>:<line>: the block stamped from <main> § <x> @ <old12> is stale: that section now hashes <new12> (changed in <the last commit touching it>) -- re-read the block against the section and fix its meaning, then re-stamp it: python -B tools/rule_pointers.py stamp <file>:<line>; both in this commit. If you may not edit <file> (outside your owns), hand it on: add the line "stamp-skip: <file>:<line> -- handed to Lead" to the commit message` | a carried block never silently outlives a changed rule; code judges the hash, the re-stamper the meaning (AR-29) |
 | E31 address resolves to 0 lines | red, for a pointer and a stamp alike | `<file>:<line>: <main> § <x> points nowhere: <the kind's miss; for a bold or literal found only mid-line: "found mid-line at <main>:<n> -- a <kind> anchor must start its line">; nearest heading: <h> -- point it at the new place (and re-stamp a carried block), or remove it if the rule is gone` | a pointer always lands on a real rule (safe) |
-| E32 address resolves to 2+ lines | red | `<file>:<line>: <main> § <x> is ambiguous: lines <a>, <b> -- use the bold title (§ **<title>**) or a longer literal` | one address, one section |
+| E32 address resolves to 2+ lines | red | `<file>:<line>: <main> § <x> is ambiguous: lines <a>, <b>[, <c>] -- scope it (§ <heading> § <x>), or use the heading's full text, the bold title (§ **<title>**) or a longer literal` | one address, one section |
 | E33 a main file edited daily (P46: 11/10 commits a week, 1-4 sections each) | only the stamps whose SECTION hash moved go red; pointers never go red on content edits, only on E31/E32; cost = one `stamp` call + the read per affected carried block — measured bound: ~17 stamps for a commit like `7b3f1d80` IF every reference were a carried block, 0 with pointers (t-943, estimate, not measured on stamps) → K2's target is pointers by default (§8.5) | — | the price of change is per affected block, never per file |
 | E34 a literal `main` path that does not exist / a glob matching nothing | `CannotRun` / one WARN line | `rule_sources.json: main file <p> does not exist -- fix the list` | the list never points into the void silently |
 | E35 the commit edits a stamped block's text but not the stamp | red: `blk12` ≠ the block's hash | as E30, "the carried text changed since its stamp" | the stamp records that someone re-read the block |
@@ -1000,41 +1233,100 @@ main file — narrower. (c) Both.
   others' commits moving the ratchet).
 - Today's count: NOT MEASURED (the unit is defined here; t-943's approximation, 353 blocks over the 18 round-2 files, is not
   the unit). The command that measures it is K's first act: `python -B tools/rule_pointers.py census --write`; its total
-  becomes premise P49 at K's acceptance, with the command as its carrier.
+  becomes premise P57 at K's acceptance, with the command as its carrier.
 
 ### 8.5 Order of work
 
-- K (one node): `rule_sources.json`, `rule_pointers.py`, the baseline at today's count (nothing goes red on day one), the
-  carrier test reads `owner_keys`/`pointers` from the data file and gains rows: the 8.2.2 grammar and its R6 instance
-  edges, E30-E39 on fixtures, E15's battery for `rule_sources.json`, `stamp` writes nothing on an unresolvable address, a
-  negative control per red (a stamp corrupted on a COPY → named). K lands after boot-by-topic S1/S2/S3-2, architect-tier
-  D6/L and D (§7.3).
+- K (one node): `rule_sources.json`, `rule_pointers.py`, the baseline at today's count (nothing goes red on day one: the
+  covered POINTERS rows deleted, the rest `until` rows, day-one TOC cells handed as text — 8.2.3, §7.2 K), the carrier test
+  reads `owner_keys`/`pointers` from the data file and gains rows: every T and C proof row of 8.2.2, the R6 instance
+  edges, C.5 TOC completeness, the 8.2.5 r4 edges, E30-E39 on fixtures, E15's battery for `rule_sources.json`, `stamp`
+  writes nothing on an unresolvable address, the boot-path classification row (8.1), a negative control per red (a stamp
+  corrupted on a COPY → named). K lands after boot-by-topic S1/S2/S3-2, architect-tier D6/L and D (§7.3), and under the
+  priority line of §7.1.
 - K2 (F-e): the TARGET is pointers by default — a counted block becomes a `rule:`/`правило:` pointer; a STAMP only where
   the reader cannot load the main file (a dispatch template printed by `tools/dispatch_new.py`, a hook refusal text);
   otherwise role detail stays and is counted. Order: the leftover-rule carriers first (the instance the owner saw), then
-  biggest first by K's census; one file per commit; the baseline row lowered in the same commit; `critic.md` / `scout.md`
-  commits owe their exams first (the Lead runs them).
+  the `until: "K2"` rows of `pointers` (each ended by a marker line), then biggest first by K's census; one file per
+  commit; the baseline row lowered in the same commit; `critic.md` / `scout.md` commits owe their exams first (the Lead
+  runs them). K2 runs after AU (§7.1).
 
 ### 8.6 Error direction, owners, detector
 
 - The hash check errs SAFE: any byte change inside a source section reds every stamp on it (false red on a typo fix;
   door: re-read, re-stamp). The carried block's own hash (`blk12`) catches an edit of the block alone (E35).
-- The bold lead-in end errs toward a SHORTER section when a wrapped line starts with bold after a sentence end — a false
-  pass on the cut-off tail; mitigations: the previous-line rule (8.2.2), `stamp` prints the resolved first and last line
-  so the stamper sees the range, and the K row on the real home asserts its last line.
-- Pointers err SAFE (E31/E32 only); they cannot see a contradiction in prose next to them — the census and calibration.
+- Section ends err LONGER for items (a plain bullet never ends a numbered item; T.2), and the bold lead-in end — the one
+  end that can err SHORTER — is refused as a stamp boundary (F3, T.2); `stamp` prints the resolved first and last line so
+  the stamper sees the range, and the K row on the real home asserts its last line.
+- Pointers err SAFE (E31/E32 only); the NAME rule (T.2) is looser than full text but cannot land on a wrong heading: two
+  headings with one name → E32. They cannot see a contradiction in prose next to them — the census, calibration and AU.
 - Remaining roads (K1 of t-943), named: (a) an EXISTING unmarked block edited in place into a contradiction — the census
   counts blocks, not content, and the baseline grandfathers today's text: caught only by calibration item (v)'s sample
   read and K2's work-down; (c) re-stamp without reading — E39 makes it visible; (b) `rule:` laundering — closed by the
-  30-word rule (8.4); (d)/(f) main homes outside the list — F25; (e) files outside the globs — closed by the one scan set
-  (8.2.4).
-- Owners (AR-29): the hash, the resolution, the count — data (code); "does the carried block still mean the main rule" —
-  judgment of the re-stamper (a role), accepted by the Lead at the diff gate; which files are main — intent (the owner,
-  F25).
+  30-word rule (8.4); (d)/(f) main homes outside the list — F25 decided, and every boot-path file classified by a test row
+  (8.1); (e) files outside the globs — closed by the one scan set (8.2.4); (g) r4: a contradiction BETWEEN main files — AU
+  once (§8.7), then K-OWN keys (a verbatim key in two files) and calibration item (iv).
+- Owners (AR-29): the hash, the resolution, the count, TOC completeness, the boot-path classification — data (code);
+  "does the carried block still mean the main rule" — judgment of the re-stamper (a role), accepted by the Lead at the diff
+  gate; "do two main files contradict" — judgment of AU's critic, accepted by the Lead; which files are main — intent (the
+  owner, F25, decided).
 - Detector (rule 10 (c)): calibration check 33 item (v): the window's `stamp-skip:` and `rule-census-raise:` lines, the E39
-  re-stamps without a text change, the census trend (falling while K2 runs), and a sample read of five unmarked blocks
-  against the main files. What stops skipping (rule 10 (d)): `rule_pointers.py check` in commit-msg and forge-check; the
-  axis-31 test in CI; `--no-verify` is caught by forge-check's `--base` run.
+  re-stamps without a text change, the census trend (falling while K2 runs), the count of `until` rows in `pointers`, and
+  a sample read of five unmarked blocks against the main files. What stops skipping (rule 10 (d)): `rule_pointers.py
+  check` in commit-msg and forge-check; the axis-31 test in CI; `--no-verify` is caught by forge-check's `--base` run.
+
+### 8.7 AU — the one-time audit of the main files against each other (the owner's word, fourth portion; r4)
+
+The owner: «Проверь что между всеми перечисленными мы убрали все противоречия» — a one-time reconciliation, judged by a
+role (critic-class, not code); a found contradiction is fixed in the same node, or returned to the owner when it is a
+choice of meaning. Owner served: judgment (the critic), accepted by the Lead; choices of meaning: intent (the owner).
+Census class: not code. Dispatch card (the Lead fills the task ids; `dispatch_new.py` prints the header lines):
+
+**AU-1, the audit (critic, Opus, read-only):**
+- question: Do the main files contradict each other anywhere? For each contradiction: every carrier as `file:line` with
+  the conflicting sentence quoted verbatim, and its class — (i) DRIFT: one side is the topic's home (boot-by-topic's topic
+  map §2, or the newer dated owner's word / D-entry in force) and the other side lags → the exact replacement text for the
+  lagging side; (ii) CHOICE OF MEANING: no carrier decides → an owner question in plain words with the options, the cost of
+  each, and a recommendation; (iii) COMPATIBLE (one side is a narrower case of the other, boot-by-topic's R5 precedent) →
+  listed, not a contradiction.
+- completeness criterion: the walk is by TOPIC, with one verdict line per topic `T<n>: none | C<k> | compatible`: the 33
+  topics of boot-by-topic §2 plus every topic found in a main file outside that map (DECISIONS entries in force, RUNBOOK
+  procedures, PROCESS protocols, SIBLING_MAP closing rules, TESTING, SYSTEM_PROMPT principles, CURRENT_CONTEXT's stated
+  rules); the numbers each topic names (rule ranges FR-1…FR-59, P1…P31, rules 1-13; gate numbers such as
+  `designer_threshold`, `PARALLEL_CAP`, the boot budget limits) are checked against their code constants read-only; a
+  «none» verdict carries the lines read (trail). Generated files are not sides (their generator holds them); a main file
+  absent at dispatch (`docs/TEAMWORK.md`, `docs/OWNER_PRINCIPLES.md` before boot-by-topic S2) is listed as absent.
+- given: the `main` list of §8.1 enumerated inline (14 entries, `PROCESS/*.md` expanded by the Lead at dispatch),
+  `docs/tasks/specs/20261116-boot-by-topic-spec.md` §2 (topic map) and §3.3 (resolution precedent), this spec §8.1 and
+  §8.7, `tools/dispatch_manifest.py` and `tools/dispatch_gate.py` (constants, read-only), `tools/session_context.py`
+  (budget constants, read-only).
+- non-goals: service files (K/K2's); generated files; rewriting any file (the critic writes only its report); package
+  behaviour.
+- edges: a contradiction inside ONE main file → the same classes; one side is DECISIONS.md → an entry in force wins over an
+  older carrier, but a decision text is never rewritten (append-only record): the other side is fixed, or the conflict is
+  a class (ii) question; one side generated → the fix goes to the generator's source; zero contradictions → a valid result
+  with the full per-topic trail; more than 30 contradictions → all listed (no cap), grouped by topic.
+- handoff: `C:/QAFactory/forge-repo/docs/tasks/specs/reviews/<task_id>-main-files-audit.md` (the critic folder used by
+  t-952's own report).
+- DoD: the report holds a verdict line per topic, every contradiction with its carriers quoted and its class, a ready
+  replacement text for each class (i), an owner question for each class (ii); `tools/critic_verdict_check.py <report>`
+  exits 0 (its JSON block, `remarks` included once stream C has landed).
+
+**AU-2, the fix (builder, Sonnet; same node):**
+- owns: exactly the main files the AU-1 report names with a class (i) fix (absolute paths, enumerated by the Lead from the
+  report); `CLAUDE.md`, `PROCESS/*`, `docs/SIBLING_MAP.md` handed as text (the Lead places them); `AGENTS.md` regenerated
+  when CLAUDE.md or PROJECT.md changes.
+- DoD: each class (i) replacement applied verbatim from the report — witness: the DOC-DISPATCH key-presence run (keys
+  quoted from the report before the run: the winning sentence present in the home, the lagging sentence absent from the
+  other side; full script source attached; one negative control); `python -m pytest tools/tests/test_role_carriers_one_owner.py
+  tools/test_handoff_rule_anchors.py -q`; `python -B tools/rule_pointers.py check --tree` when K has landed (both worlds:
+  before K the test alone); `python tools/agents_md.py --check`; `python -B tools/install_parity.py --check` when a CLAUDE.md
+  line moved; per changed file the designer-rule-7 readers grep (command + count + verdict per reader) in the report.
+- class (ii) items: the Lead puts them to the owner as ONE question with a list (CLAUDE.md rule 12); an answer is applied
+  in this node by a second AU-2 round; until answered the node stays open (PROJECT «Командная работа» п. 11 — executable
+  on the recommendation only where the owner-away paragraph applies).
+- edges: a fix that would change a rule's meaning beyond aligning it to its home → not AU-2's: it is a class (ii) question;
+  a file another stream owns at dispatch (boot-by-topic, architect-tier, D) → AU-2 waits for that stream to merge (§7.3).
 
 ---
 
@@ -1042,7 +1334,8 @@ main file — narrower. (c) Both.
 
 Decided: **F1 (a)**, **F8 (a)**, **F14 (a)**, **F16 (a)**, **F18 (a)**, **F19 (a)** — the owner, 17.11.2026 («всё по
 рекомендациям»); **F2 (a)** — her word on leftovers; **F5** — "the owner or the batch Lead" (W2); **B1-B5 directions** —
-the Lead's, «ок» by the owner (W1). The paragraphs of decided forks below are the record.
+the Lead's, «ок» by the owner (W1); **F22 (a), F23 (a), F24 (a), F26 (a), F7 (a), F12** — the Lead (r3 decisions);
+**F25** — the owner, fourth portion. The paragraphs of decided forks below are the record.
 
 - **F1 (OWNER, DECIDED (a)) — the `Тип` words.** (a) the five + `живой-прогон` + `решение` + `неразобран`; (b) the five +
   `неразобран`; (c) the five only. Executed in §1.1, E26.
@@ -1087,24 +1380,43 @@ the Lead's, «ок» by the owner (W1). The paragraphs of decided forks below ar
   (recommended); (b) also forbid `status --set принято` on a node of an untaken batch.
 - **F21 (Lead) — the census unit.** (a) unmarked blocks with the 30-word rule (recommended); (b) verbatim copies only;
   (c) both.
-- **F22 (Lead) — the one pointer form (R5).** (a) boot-by-topic's `rule:`/`правило: <file> § <x>`, extended by the bold
-  and literal kinds and the uniqueness rule (recommended: accepted earlier, already written into the TOCs; amendment
-  line for boot-by-topic §4.3 named in 8.2.1); (b) amend boot-by-topic to `see: <file>#<anchor>` — rewrites accepted
-  text, no gain.
-- **F23 (Lead) — K and FG7-52.** (a) K absorbs FG7-52 (recommended: the resolver is built once); (b) FG7-52 → K with the
-  resolver in `tools/rule_pointers.py`. Either way the boot-by-topic spec and the forge/7 row are amended (8.2.1).
-- **F24 (Lead) — where the gate reads a verdict file.** (a) the committed tree only (recommended: CI can judge it, the
+- **F22 (Lead, DECIDED (a)) — the one pointer form (R5).** (a) boot-by-topic's `rule:`/`правило: <file> § <x>`, extended
+  by the bold and literal kinds and the uniqueness rule (amendment for boot-by-topic: 8.2.6 (a)); (b) amend boot-by-topic
+  to `see: <file>#<anchor>` — rewrites accepted text, no gain.
+- **F23 (Lead, DECIDED (a)) — K and FG7-52.** (a) K absorbs FG7-52 (the resolver is built once); (b) FG7-52 → K with the
+  resolver in `tools/rule_pointers.py`. r4: what (a) absorbs is refined by F28.
+- **F24 (Lead, DECIDED (a)) — where the gate reads a verdict file.** (a) the committed tree only (CI can judge it, the
   record is in git, no machine path, AR-4 analog; cost: the Lead commits the critic's report before or with the accepting
   commit — wave's status commit then finds it); (b) the working tree of the root checkout — CI cannot judge the join
   (presence only), and a machine path enters the record.
-- **F25 (OWNER) — which files are «основные» (F-d).** The meaning of her W3 sentence (11a). (a) main = CLAUDE.md,
-  PROJECT.md, docs/TESTING.md, plans/builder-rules.md, docs/TEAMWORK.md, design/factory-rules.md, design/architecture.md,
-  docs/SIBLING_MAP.md, PROCESS/*.md (recommended: the homes her process already treats as rules; executable on it until
-  she answers); (b) the four boot-adjacent files of round 2 only — RUNBOOK-style service files pointing at
-  PROCESS/SIBLING_MAP stay unguarded; (c) (a) + DECISIONS.md and docs/RUNBOOK.md.
-- **F26 (Lead) — a new service `.md` file and the census.** (a) baseline 0: a count > 0 needs `rule-census-raise:` and the
-  row (recommended: one definition, no silent raise by a new file; cost: one line per new non-excluded markdown file);
-  (b) a census glob subset (role files, skills, briefs, PROCESS) — cheaper, a second set beside the scan set.
+- **F25 (OWNER, DECIDED) — which files are «основные» (F-d).** The owner, fourth portion: «скорее этот вариант» — (c), the
+  recommended list plus `DECISIONS.md` and `docs/RUNBOOK.md`, and «как минимум всё что у нас в бут пути». Executed in §8.1:
+  + `SYSTEM_PROMPT.md`, `CURRENT_CONTEXT.md` (boot path, P55), `docs/OWNER_PRINCIPLES.md` (the source of an imported index);
+  the generated boot-path files are covered by `generated` and their generators; a test row classifies the boot path.
+  (Options were: (a) the recommended list; (b) the four boot-adjacent files; (c) (a) + DECISIONS.md and docs/RUNBOOK.md.)
+- **F26 (Lead, DECIDED (a)) — a new service `.md` file and the census.** (a) baseline 0: a count > 0 needs
+  `rule-census-raise:` and the row; (b) a census glob subset — a second set beside the scan set.
+- **F27 (Lead; r4, B1 (iii)) — a numbered id repeated in several lists of one file.** The day-one collision: `CLAUDE.md § 3`
+  hits three lines (T-a); `PROJECT.md § 2` three (T-i). (a) ONE road — the scoped address `<file> § <heading> § <x>`,
+  required only when the bare id is not unique (E32 tells the writer); boot-by-topic's TOC cells use it (amendment 8.2.6
+  (a), §4.1 row): `CLAUDE.md § Routing rules § 3`. Cost: ≈ 17 B per affected CLAUDE.md cell (ids 1-7 of the routing rules
+  — at most 7 cells ≈ 0.12 KB est., not measured) against boot-by-topic's thin headroom (F19 there); no convention to learn;
+  a wrong-list pointer is impossible. (b) the scoped address PLUS a per-file default scope data row (`"item_scope":
+  {"CLAUDE.md": "Routing rules"}`): bare `CLAUDE.md § 3` resolves inside `## Routing rules` — zero bytes, the accepted TOC
+  wording unchanged; but a pointer meant for hygiene point 6 written as `CLAUDE.md § 6` silently lands on rule 6 (a false
+  green the resolver cannot see; only the numbered-pointer title check and a reader catch it). (c) the TOC cites S1's
+  sub-headings or bold titles instead of numbers — CLAUDE.md's routing rules have no bold titles and F19 (a) limits
+  sub-headings, so most rules would have no citable name. **Recommended (a)** (safe direction, one road); the spec is
+  written on it (T-a, 8.2.6 (a)); if the Lead takes (b), T-a's expected result becomes «resolves via `item_scope`» and the
+  §4.1 amendment row drops its scoped clause.
+- **F28 (Lead; r4, B4) — what K absorbs of FG7-52.** FG7-52's scope is seven items (P56). (a) K absorbs the POINTER part
+  (items 1-3: pointer lines, TOC cells, TOC completeness — one resolver); FG7-52 is NARROWED IN PLACE (not rejected) to
+  items 4-7 (paths, ranges, gate numbers, SIBLING_MAP pairs), after K, as modes of the same `rule_pointers.py check`
+  (row text 8.2.6 (b)). Why: items 4-6 are another check class (facts against their home) with their own false-red battery
+  (C.6 shows 40+ prose citations, many illustrative), and K is already the largest node; nothing of FG7-52 is dropped.
+  (b) K absorbs all seven: one node, one review; K's DoD grows by three check modes and their batteries, and K's day-one
+  green gets harder (every illustrative path in the scan set must be excepted at once). **Recommended (a)**; the spec is
+  written on it (8.2.1, §7.2 G/K, §7.3).
 
 ## Small choices closed by the designer
 
@@ -1130,6 +1442,18 @@ the Lead's, «ок» by the owner (W1). The paragraphs of decided forks below ar
 - F-g: the one-off briefs stay counted files (they never rise).
 - `prose_lines` generalises `door_lines` (one reader of commit-message door lines).
 - K's module is named `tools/rule_pointers.py` (it resolves pointers first; stamps are one of its uses).
+- r4: heading NAME = the text before the first ` (` or ` — ` (B2: real tails, P53); comparison case-sensitive; levels 1-6.
+- r4: `п.` is the Russian spelling of the sign (`docs/TESTING.md:80` already uses it); markers are case-insensitive on the
+  first letter (`plans/builder-rules.md:16` `Правило:`); markers and signs are data (`rule_sources.json`).
+- r4: a marker followed by a file and no sign is a FILE pointer (C-b, C-c: on disk, both resolve).
+- r4: markerless citations are prose, never pointers (C.6: day-one green; 40+ lines, several unresolvable by design).
+- r4: a heading `<x>` ends at ` § `, ` (`, `. `, `.`EOL, `; `, ` — `, ` + `, ` |`, `»`, a backtick, EOL; never at a comma
+  or colon (T-h).
+- r4: one scope level only (`<scope> § <x>`).
+- r4: TOC completeness judges level-2 headings (sub-headings are reached through their parent; F19's byte budget).
+- r4: K's CLI gains `check --tree` (the builder's witness on its worktree; no doors) in place of r3's unnamed `--staged`.
+- r4: the AU report goes to `docs/tasks/specs/reviews/` (t-952's own folder; R11-h's role folder not re-verified against
+  `tools/dispatch_gate.py` — the Lead's dispatch prints it).
 
 ## Noticed, not widened (analogs and contradictions)
 
@@ -1140,10 +1464,22 @@ the Lead's, «ок» by the owner (W1). The paragraphs of decided forks below ar
 - `wave.py` records the node status AFTER the push (P30): a refused status never undoes a merge; after R1 the status
   commit is judged by commit-msg like any commit.
 - forge/3 and forge/6 were closed with `взял: —` (P28): F20 makes it a road.
-- The forge/7 row of FG7-52 (P45) contradicts the accepted boot-by-topic A1 — handled by F23's amendment.
+- The forge/7 row of FG7-52 (P45) contradicts the accepted boot-by-topic A1 — handled by F28's narrowed row (8.2.6 (b)).
 - The package has the same class (role files and `references/slices/*` carrying `design/*.md` rules; the slices are
   generated); §8 is forge-only; the package twin is an analog for the Lead (axis 34 / P31), not widened.
-- AGENTS.md is a generated copy of the main files (excluded from the scan) — already the generated road.
+- AGENTS.md is a generated copy of the main files (excluded from the scan) — already the generated road; r4 names it in
+  `generated` with the two indexes.
+- r4: the t-957 brief says «the amendment line for the architect spec»; the review's B5 and every pointer-form carrier are
+  in the BOOT-BY-TOPIC spec (the architect-tier spec has no pointer or FG7-52 text: Grep `FG7-52|rule_pointers|pointer|правило: `
+  -i over it → 4 unrelated hits, lines 231, 434, 611, 613, 758). 8.2.6 (a) amends boot-by-topic; the architect-tier
+  amendment stays F7's (unchanged).
+- r4: boot-by-topic's own ready texts already write `п. 7b` (§3.4d) and S3 landed two markerless pointers
+  (`docs/TESTING.md:175` `что запускает — \`plans/builder-rules.md\` п. 7b.`; the brief's S3-8 parenthetical) — prose under
+  C.6, their POINTERS rows become `until: "K2"` rows.
+- r4: `plans/builder-rules.md:69` `(слово владельца 03.11.2026, PROJECT.md п. 2)` and `docs/RELATED_WORK.md:3`
+  `Правило \`CLAUDE.md\` п. 1` are markerless citations that WOULD be ambiguous (E32) as pointers — K2 writes them scoped.
+- r4: CURRENT_CONTEXT.md is main under F25 although it changes every session; a stamp from it would go red daily — K2's
+  default (pointers) avoids that; no rule forbids such a stamp (the Lead's call whether to add one).
 
 ## Reading trail
 
@@ -1165,9 +1501,27 @@ test_role_carriers` → 0, positive control `pytest|piles\.py` → 4 lines); `to
 over `plans/piles/forge`; Grep `commit-msg` glob `*.py` over `tools/` (14); Grep `piles_vocab|rule_pointers|rule_stamps`
 over `tools/` and `.githooks/` (0) with the positive control `…|piles_split` (5 files). A repo-wide Grep for the new names
 timed out (not used as evidence).
-Not re-measured by me (no shell): P1, P4, P12, P13, P26, P28, P46 — from t-920 / t-943 reruns; the §8 census.
-Needed beyond the manifest: `PROJECT.md:322-341`, `.claude/agents/critic.md:55-62`, `plans/piles/forge/batch-7-vhodyashchie-4.md:72-75`,
-`tools/mechanism_gate.py` lines above (read-only).
+Round 4 (t-957), read: this spec whole; the t-952 review whole; `docs/tasks/specs/20261116-boot-by-topic-spec.md:52-251,
+283-862` (+ Grep of headings, `FG7-52|pointer_lint|правило: <|rule: <|§ ?4\.3|A1`); `plans/piles/forge/batch-7-vhodyashchie-4.md:75`
+(Grep `FG7-52`); the finding `plans/piles/forge/findings/20261116-but-odna-tema-v-mnogih-mestah-kopii-pravil-ustareli.md` whole;
+`tools/tests/test_role_carriers_one_owner.py` whole; `plans/builder-rules.md:1-40`; `SYSTEM_PROMPT.md` whole;
+`ai-packages/qa-factory/design/factory-rules.md:28-57`; `ai-packages/qa-factory/design/architecture.md:30-54`;
+`docs/tasks/critic-diff-brief.md:54-57`; `tools/session_context.py:1151-1210`. Greps (root checkout; `.claude/worktrees/read-main`
+does not exist — Glob error — so the root checkout is the carrier, possibly behind origin/main): CLAUDE.md `^\s*(1|3|6)\. |^#+ `
+and `^\s*\d+[a-z]?\. ` (P49); builder-rules `^#+ |^\s*(1|7b|10|6|11)\. ` (P50); critic-diff-brief `^#+ |^\s*6\. ` and
+`^\s*(\*\*|- \*\*)?(6|7|12|16)\.`; `.claude/agents/{builder,critic}.md` `^\s*(\*\*|- \*\*)?(7|16)\.|^#+ `; RUNBOOK
+`^\s*(\*\*)?7\.|^#+ ` (P51); PROJECT.md `^#+ |^\s*(12|2|9)\. `; design `^\*\*(FR|AR)-1 ` and `FR-1\b|AR-1\b`; the marker
+Grep of P52 (-i; positive control: it found the known `docs/TESTING.md:80` and the capital `Правило:`); the markerless Grep
+of P52; BOOT.md `Read \S+\.md|^## Layer`; `session_context.py` `BOOT BUDGET|CURRENT_CONTEXT|SYSTEM_PROMPT|DECISIONS\.md|BOOT\.md`;
+heading counts of SYSTEM_PROMPT/CURRENT_CONTEXT/DECISIONS/TESTING/FACTORY_RULES_INDEX; Glob `docs/{TEAMWORK,OWNER_PRINCIPLES,
+OWNER_PRINCIPLES_INDEX}.md` → none (boot-by-topic S2 not landed; consistent with PROJECT.md having no «Оглавление» and the
+`9.` item still at `:326`); the readers Grep of §7.4 (0, with its same-shape control → 4 files); the architect-tier Grep (4
+unrelated hits); `tools/dispatch_gate.py` Grep `reviews/|ROLE_FOLDERS|role_folder` → 0 (no control run; not used as
+evidence — the AU handoff folder is the t-952 precedent).
+Not re-measured by me (no shell): P1, P4, P12, P13, P26, P28, P46 — from t-920 / t-943 reruns; the §8 census; the boot
+bytes of F27 (a) (estimate).
+Needed beyond the manifest: `SYSTEM_PROMPT.md`, `BOOT.md`, `tools/session_context.py:1151-1210`, the two design files,
+`.claude/agents/{builder,critic}.md` (Grep), `docs/RUNBOOK.md` (Grep), the finding of FG7-52 (read-only).
 
 ## The owner's word on leftovers (17.11.2026, Lead session; answers to the t-906 origin table) — binds §2.2 and forks F2, F5
 
@@ -1256,3 +1610,36 @@ her word.
   найденное противоречие чинится в том же узле или выносится владельцу, если это выбор смысла).
 - Приоритет: «у этого самый низкий приоритет из всех перечисленных» — тема идёт после «Архитектора», долга правил,
   сухой стори, «сказано до работы» и правил тестов; пишущие слоты у них не отнимает.
+
+---
+
+## Fix round t-957 — the t-952 verdict and the owner's fourth portion, remark by remark
+
+| remark | what changed | where | real-file line it was tested on |
+|---|---|---|---|
+| B1 uniqueness + item kind red the accepted TOC cells and K's own rewrites | (i) an (h) heading matches only `<x>` + `.`/space/EOL; (ii) a heading + opener PAIR is one candidate; (iii) ONE road for ids repeated in several lists: the scoped address `<file> § <heading> § <x>`, required only when the bare id is ambiguous, written into boot-by-topic's TOC rule (F27 (a); (b) the default-scope row as the alternative); NESTING: list openers under another numbered heading are no candidates; (iv) a test row per instance; day-one conformance: whatever still reds at K's start in a TOC cell is handed as text and placed by the Lead in K's commit | §8.2.2 T.1, T.2, T-a…T-d, T-i; §8.2.6 (a) §4.1 row; F27; §7.2 K | `CLAUDE.md:70`/`:389`/`:413` (`3.` ×3), `:35` `## Routing rules`; `plans/builder-rules.md:36`/`:38` (7b pair), `:8`/`:10`, `:100` `### 10.`; `docs/RUNBOOK.md:86`, `:228`, `:614`; `PROJECT.md:187`/`:241`/`:289` |
+| B2 heading equality fails on real tails | heading NAME rule (text before the first ` (` or ` — `), normalisation stated (levels 1-6, `#`s and trailing `#`s stripped, whitespace squashed incl. NBSP, case-sensitive); K's rewrite `The two layers` and the TOC cell `CLAUDE.md § Tiers` resolve; C-T «stays by name» holds without a rename | §8.2.2 T.0, T.2, T-e, T-f, T-g, T-o; §8.2.6 (a) §4.1 row | `docs/tasks/critic-diff-brief.md:8`; `CLAUDE.md:21`, `:272`, `:403`; `PROJECT.md:279` |
+| B3 second readers with no end | K deletes every POINTERS row the scan covers (D's 5, S1 TOC rows, S2 marked rows) and D's `test_leftover_home_starts_its_line`; the rest become `until: "K2"` rows (carrier half substring — the named temporary form; target half `resolve`); K2 ends each by writing the marker line; END CONDITION: `pointers` empty or each row with `why`; the test reds a row with neither; both worlds stated | §8.2.3; §7.2 K, K2; §8.5; §8.6 detector | the 20 hand rows of `tools/tests/test_role_carriers_one_owner.py:53-74`, each rewritten `x` proved: `builder.md:65`, `CLAUDE.md:257`, `:420`, `:187`, `:140`, `critic.md:111`, brief `:47`, `:53`, `:81` |
+| B4 FG7-52's scope partly dropped | FG7-52's seven scope items listed (P56) with where each lives: items 1-3 in K (pointer lines, TOC cells, TOC completeness — new C.5), items 4-7 stay FG7-52, narrowed IN PLACE (not rejected), after K, as modes of the same `rule_pointers.py check`; the ready row text given; F28 returned to the Lead | P56; §8.2.1 «Who builds it»; §8.2.2 C.5; §8.2.6 (b); F28; §7.2 G; §7.3; §2.4 last sentence | `plans/piles/forge/batch-7-vhodyashchie-4.md:75`; finding `…kopii-pravil-ustareli.md:55-61`; boot-by-topic `:416-418`, `:690` |
+| B5 amendment line insufficient and self-contradictory | the line «still no second checker» withdrawn: 8.2.1 now states A1 AMENDED (one resolver, two triggers, because the doors live in commit messages, P41); the full amendment block for boot-by-topic quoted verbatim with WHERE it goes (its last section) and a row per amended carrier: §1.3 ×2, §1.4, §4.1 (+F19 (a) wording), §4.3 items 1 and 5, §6 item 7 (worded true in both worlds), §6 (c), the unmarked S1/S2 pointer texts, §7.5, §8 E4, §9 A1, §7.6 | §8.2.1; §8.2.6 (a) | boot-by-topic `:81`, `:87`, `:98`, `:397-398`, `:407-418`, `:498-499`, `:510`, `:682`, `:690`, `:708`, `:759-760` |
+| B6 carrier side undefined; literal reading reds the real S2 text | carrier grammar C.1-C.7: marker (case-insensitive first letter, not in a code span), file token (backticks optional, repo-root, placeholders excluded), sign `§`/`п.`, the FILE pointer, the same-file form, where `<x>` ends per kind, the dispatch order, TOC cell splitting at ` + `, markerless citations = prose; restatement stated; positive and negative examples from real files | §8.2.2 C, C-a…C-j | positive: `docs/TESTING.md:80`, `plans/builder-rules.md:16`, `docs/FINDINGS.md:68`, boot-by-topic `:315-:323` (S2 text); negative: `docs/RUNBOOK.md:56`, boot-by-topic `:487` (placeholder in code), `CLAUDE.md:98`, `docs/tasks/critic-diff-brief.md:56` |
+| F1 FR/AR ids match no opener | the opener `**<id> — ` added, with its own section end (next `**<id> — ` or a heading); plain bullets do not end it | §8.2.2 T.2, T-j, T-k | `factory-rules.md:32`, `:39`; `architecture.md:35`, `:36` |
+| F2 sub-headings cut a numbered rule | a CONTINUATION heading (`^\S+ <x> · `, boot-by-topic §6 item 2's only sub-heading form) does not end item `<x>`; any other heading does | §8.2.2 T.2, T-m | boot-by-topic `:169` (C2b `### Rule 2 · drafting → designer`, a fixture row: S1 not on disk) |
+| F3 bold lead-in end outside the home | `stamp` REFUSES a section whose end was decided by the lead-in previous-line rule (text given); pointers unaffected | §8.2.2 T.2, T-n; §8.6 | `PROJECT.md:337` (the home's end), `:96` (a wrapped bold line) |
+| F4 silent inputs | case-sensitive (T.0, T-o); `<file>` from the repo root (C.2); an existing but untracked target → E31 (8.2.5); NBSP = whitespace (T.0) | §8.2.2 T.0, C.2; §8.2.5 | a copy of `CLAUDE.md:21` renamed / lower-cased |
+| F5 a builder's choice for `6` | `6` written (the only `6.` in the brief) | §8.2.3 table; T-l | `docs/tasks/critic-diff-brief.md:47` |
+| the owner: F25 (main files) | decided (c) + the boot path: `main` gains DECISIONS.md, docs/RUNBOOK.md, SYSTEM_PROMPT.md, CURRENT_CONTEXT.md, docs/OWNER_PRINCIPLES.md; `generated` key for the generated boot-path files; a test row classifies the boot path through `session_context.boot_path_files`; main files in EXCLUDED are targets only | §8.1; F25; P55; §8.6 roads | `BOOT.md:14`, `:15`, `:27`; `tools/session_context.py:1155-1176` |
+| the owner: the main-file audit | node AU added (critic audit → builder fix in the same node → owner questions for choices of meaning) with its dispatch card | §8.7; §7.2 row 12; §7.1; §7.3; §7.4; §7.5; §4 class table | — (a judgment node; its DoD names the key-presence witness) |
+| the owner: lowest priority | priority line: no writing stream of this topic is dispatched while a node of the five named topics waits for a slot | §7.1 | — |
+| edge: a main file with no headings | stated with its invariant (no default whole-file landing except the FILE pointer form) | §8.2.5 | `SYSTEM_PROMPT.md:1` (title only) |
+| edge: a section renamed in the same commit | stated (index blobs of both sides; CI judges the range end) | §8.2.5 | — (fixture row) |
+| edge: generated service files | exempt by the `generated` data row, each with its generator's `--check` | §8.1; §8.2.5 | `docs/FACTORY_RULES_INDEX.md`, `docs/ARCHITECTURE_INDEX.md`, `AGENTS.md` (P38) |
+| edge: an empty pointer list | `pointers: []` legal (K2's end); zero pointers in the tree → red (positive control); an empty TOC → C.5 reds | §8.1; §8.2.5 | — |
+| sections outside §8.2 changed because §8.2 forces it | header (r4 status); Premises P33/P44/P45 re-read, P49-P56 added; §2.4 last sentence (FG7-52 narrowed); §4 class table (+2 rows); §7.1 (priority, AU, FG7-52); §7.2 K, G, K2, AU rows; §7.3 rows; §7.4 commands and rows; §7.5 rows; §7.6 AR-1/AR-13 analog wording; §8 intro (AU); §8.1; §8.3 (`check --tree`, E32 text); §8.4 (the census premise renumbered P57); §8.5; §8.6; F list (F22-F26 marked decided, F25 decided, F27, F28 new); small choices; noticed; trail. No meaning of §1-§6 changed | as listed | — |
+
+## Lead decisions on the r4 forks (17.11.2026, Fable; draft t-957 accepted for a critic re-pass)
+
+F27 -> (a) a scoped address `§ <heading> § <id>` when the bare id is ambiguous in the file. F28 -> (a) stream K takes
+FG7-52's pointer part (items 1-3); FG7-52 is narrowed to paths/ranges/gate numbers/SIBLING_MAP and runs after K. The
+amendment line belongs to the boot-by-topic spec (the brief's "architect spec" was the Lead's slip). Critic re-pass on
+§8.2 is owed; the topic is last in today's order (owner, 17.11).
