@@ -7,11 +7,12 @@ import time
 from pathlib import Path
 import hooklib
 from driver_chains import ChainKind
-from controller import MANUAL_WINDOW_CASES, lane_keys, manual_blocks, manual_done_cases, walk_lanes
+from controller import MANUAL_WINDOW_CASES, lane_keys, live_s6_scopes, manual_blocks, manual_done_cases, walk_lanes
 import project_decisions
 import waiver
 from driver_core import BY_PERSON, CODE_CLOSE_SITES, GAP_PREFIX, InfraStop, OpenWork, Person, Refusal, ReworkRefused, _read_json, open_work_reason, seam_rank
 from driver_dispatch import WALK_ACCOUNT_TRIGGERS
+
 
 
 class DriverStageS6:
@@ -329,22 +330,31 @@ class DriverStageS6:
         if not author or self.consumer_pending(stage) or self.consumer_person_pass(stage, author):
             return False
         route = self.CONSUMER_ROUTES.get(stage) or {}
-        if site in route.get("await_at", ()):
-            pipeline = self.pipeline()
-            if isinstance(pipeline, dict) and pipeline:
-                marks = pipeline.get("acceptance_awaits") if isinstance(pipeline.get("acceptance_awaits"), dict) else {}
-                marked = dict(pipeline, acceptance_awaits=dict(marks, **{stage: author}))
-                if acceptance.awaits_acceptance(state, stage, marked) == author:
-                    if acceptance.awaits_acceptance(state, stage, pipeline) != author:
-                        from event_store import atomic_json
-                        atomic_json(self.task_root / "pipeline.json", marked)
-                    print(f"{stage}: nothing is left to dispatch; {stage} awaits the acceptance of {consumer} for {author} "
-                          f"(the {route.get('who', 'consumer')} is let in; its record closes {stage})")
-                    return True
+        if site in route.get("await_at", ()) and self.consumer_await(stage, author, state, route):
+            return True
         raise Refusal(f"{stage} cannot be closed at {site}: no accept record of {consumer} stands for {author}. The consumer judges "
                       f"{(self.CONSUMER_ROUTES.get(stage) or {}).get('what', 'the handoff')} from its own form (`stage_done.py --task {self.task} "
                       f"--stage {stage} --acceptance work/handoffs/<{consumer} dispatch>.yaml`), or a person's word passes it (`waiver.py "
                       f"--task {self.task} --stage {stage} --block \"{acceptance.STAGE_ACCEPTANCE_PHRASE}\"`).")
+
+    def consumer_await(self, stage: str, author: str, state: dict, route: dict) -> bool:
+        """B1: the stage AWAITS the consumer - the marker `pipeline.acceptance_awaits[stage] = author` is written (once) only when
+        `awaits_acceptance` (the one reader) would then name exactly `author`, and only over a readable pipeline. False on an unreadable
+        pipeline or when the wait would not hold (the caller's Refusal stays the only raise)."""
+        import acceptance
+        pipeline = self.pipeline()
+        if not (isinstance(pipeline, dict) and pipeline):
+            return False
+        marks = pipeline.get("acceptance_awaits") if isinstance(pipeline.get("acceptance_awaits"), dict) else {}
+        marked = dict(pipeline, acceptance_awaits=dict(marks, **{stage: author}))
+        if acceptance.awaits_acceptance(state, stage, marked) != author:
+            return False
+        if acceptance.awaits_acceptance(state, stage, pipeline) != author:
+            from event_store import atomic_json
+            atomic_json(self.task_root / "pipeline.json", marked)
+        print(f"{stage}: nothing is left to dispatch; {stage} awaits the acceptance of {acceptance.consumer_of(stage)} for {author} "
+              f"(the {route.get('who', 'consumer')} is let in; its record closes {stage})")
+        return True
 
     def consumer_counts(self, stage: str, reviewed: str) -> tuple:
         """`(counted, cap)` of the author's repair rounds on the dispatch the consumer REVIEWED, as the controller counts them (`prepare` carries
@@ -1701,13 +1711,8 @@ class DriverStageS6:
         return ""
 
     def s6_live_scopes(self) -> list:
-        """The scopes (sets of case ids) of the S6 dispatches that are running, blocked or paused: ONE predicate for `s6_settling_lanes` and
-        `manual_lane_plan` (AR-15). Raises with its readers, as `s6_settling_lanes` did."""
-        import dispatch_identity
-        ctl = self.controller_state()
-        rows = dispatch_identity.records(ctl.get("dispatches") if isinstance(ctl, dict) else None)
-        return [{str(c) for c in r.get("scope") or [] if c} for r in rows
-                if r.get("stage") == "S6" and r.get("status") in ("running", "blocked", "paused")]
+        """The scopes of the live S6 dispatches over the driver's state: `live_s6_scopes`, the one predicate (AR-15). Raises with its readers."""
+        return live_s6_scopes(self.controller_state())
 
     def s6_settling_lanes(self, lanes: list) -> list:
         """The lanes among `lanes` that run FIRST at one at a time (t-2147 C1 items 2b and 6): those whose cases meet a running, blocked or

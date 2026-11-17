@@ -702,6 +702,7 @@
   {"name": "Driver.accepted_at", "kind": "method", "home": "driver_stage_s6", "row": 74, "note": "B-20 F1: the one reader of when an author dispatch was accepted (the age a word must exceed)"},
   {"name": "Driver.person_pass", "kind": "method", "home": "driver_stage_s6", "row": 74, "note": "t-1936 F3: the person's word recorded as a driver accept by: person; `since` binds a waiver to the critic dispatch (stage_review_exhausted)"},
   {"name": "Driver.consumer_need_record", "kind": "method", "home": "driver_stage_s6", "row": 74, "note": "X7-6/X7-6b merged: a close site needs the consumer's accept record (or a person's pass)"},
+  {"name": "Driver.consumer_await", "kind": "method", "home": "driver_stage_s6", "row": 74, "note": "FV3-21 F7: the B1 wait at an await_at site (the marker written once, only when awaits_acceptance names the author), lifted out of consumer_need_record"},
   {"name": "Driver.consumer_counts", "kind": "method", "home": "driver_stage_s6", "row": 74, "note": "X7-6c B1: the repair rounds of the reviewed dispatch from the controller's ledger, read only on a reject"},
   {"name": "Driver.consumer_round_line", "kind": "method", "home": "driver_stage_s6", "row": 74, "note": "SC-B2 B2-2: the round line the consumer's brief carries before its work (one chance / no return left / uncounted)"},
   {"name": "Driver.consumer_gap", "kind": "method", "home": "driver_stage_s6", "row": 74, "note": "SC-B2 B2-3: the gap road replaces the seam for a consumer-judged stage: the driver's accept with a `gap:` quote, then the warning; no question"},

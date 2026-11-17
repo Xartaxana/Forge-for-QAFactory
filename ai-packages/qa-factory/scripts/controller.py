@@ -687,6 +687,16 @@ def manual_done_cases(state, stage="S6") -> set:
     return done
 
 
+def live_s6_scopes(state) -> list:
+    """The scopes (sets of case ids) of the S6 dispatches that are running, blocked or paused: ONE pure predicate (AR-15) for the driver
+    (`s6_settling_lanes`, `manual_lane_plan`) and the skill road's no-stand branch (`story_step`). An empty or unreadable state reads
+    as no scope; a dispatch that names no case is a scope of its own (the empty set), so it still counts as live."""
+    import dispatch_identity
+    rows = dispatch_identity.records(state.get("dispatches") if isinstance(state, dict) else None)
+    return [{str(c) for c in r.get("scope") or [] if c} for r in rows
+            if r.get("stage") == "S6" and r.get("status") in ("running", "blocked", "paused")]
+
+
 def validate_manual_runner_block(scope, manual_case_ids, extra=()):
     """Keep human execution blocks reviewable without limiting automated runs. ONE refusal lists every problem
     (`manual_block_problems` plus the caller's `extra`, e.g. the plan-membership sentences of the Controller)."""

@@ -2618,7 +2618,7 @@ def fv3_21_the_stand_word_reaches_the_manual_half() -> None:
             eq(f"{label}: both requests hold the person's words whole, the door and `left_unchecked`", refusals(task_root), {c: want for c in CASES})
             eq(f"{label}: reduced, then closed by code at the manual close", ([m[0] for m in moves], sites),
                (["finalize", "code_only", "stage_done"], ["s6.manual_close"]))
-            line = f"S6: TC_001: not checked by hand — not checked by an agent: no stand is confirmed for this story; the person said: \""
+            line = "S6: TC_001: not checked by hand — not checked by an agent: no stand is confirmed for this story; the person said: \""
             check_in(f"{label}: the console says it", line, text)
             if console_cut:
                 check("W5 the console quote is cut at the limit and says so", ("x" * story_run.Driver.QUOTE_LIMIT + driver.CUT + '"') in text)

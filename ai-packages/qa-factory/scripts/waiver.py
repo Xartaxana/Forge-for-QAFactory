@@ -206,20 +206,23 @@ def split_overridden(errors: list, pipeline: dict, stage: str) -> tuple[list, li
     does not pass a line about `BR-3`). The error direction is toward blocking, which asks the person again. A revoked
     override is history, not a pass (`contract.live_stage_overrides`, FR-40): it acts nowhere, `*` included. A `match` that
     holds a `<placeholder>` is no word and passes nothing, an old record on disk included (it was never a name)."""
-    import contract
-    overrides = [o for o in contract.live_stage_overrides(pipeline, (stage,))
-                 if str(o.get("match") or "").strip() and not PLACEHOLDER_RE.search(str(o.get("match")))]
-    if not overrides:
-        return list(errors), []
     blocking, passed = [], []
-    for error in errors:
-        hit = next((o for o in overrides
-                    if o["match"] == "*" or contract.names_whole(o["match"], error)), None)
+    for error, hit in _override_hits(errors, pipeline, stage):
         if hit:
             passed.append({"error": error, "decision": hit["decision"], "at": hit.get("at")})
         else:
             blocking.append(error)
     return blocking, passed
+
+
+def _override_hits(errors: list, pipeline: dict, stage: str) -> list:
+    """`[(error, the live override that passes it | None)]` in the order of `errors`: the ONE matcher of `split_overridden` and
+    `stand_passing_override` (AR-13). A revoked record or a placeholder `match` passes nothing."""
+    import contract
+    overrides = [o for o in contract.live_stage_overrides(pipeline, (stage,))
+                 if str(o.get("match") or "").strip() and not PLACEHOLDER_RE.search(str(o.get("match")))]
+    return [(error, next((o for o in overrides if o["match"] == "*" or contract.names_whole(o["match"], error)), None))
+            for error in errors]
 
 
 def recheck_stage_block(task: str, stage: str, match: str, revoked: bool = False) -> str:
@@ -383,23 +386,28 @@ def stand_block(environment: str) -> str:
 STAND_STAGES = ("S5", "S6")      # the stages whose word passes the stand block: one word covers both (read in this order)
 
 
-def stand_passing_word(pipeline) -> str:
-    """The words of the person's live word that passes the stand block for this story; "" when a stand is confirmed (a name and
-    `environment_pending` false) or no such word stands. THE one reader (AR-13, axis 26) for both roads: `Driver.s6_stand_word`
-    and `story_step` (FV3-21b). Reads `split_overridden([stand_block(environment)], pipeline, stage)` over STAND_STAGES in order.
-    ERROR DIRECTION: "" (no word) sends the story to the stand question; a confirmed stand is never read as "no stand";
-    a pipeline that is not a dict reads "" (no word)."""
+def stand_passing_override(pipeline) -> dict:
+    """The live override that passes the stand block for this story, as `{"stage", "match", "decision"}`; {} when a stand is confirmed
+    (a name and `environment_pending` false) or no such word stands. THE one reader (AR-13, axis 26) for both roads: `Driver.s6_stand_word`
+    and `story_step` (FV3-21b), which also builds the revoke door from its stage and match (`run_revoke` matches both exactly).
+    Reads over STAND_STAGES in order. ERROR DIRECTION: {} (no word) sends the story to the stand question; a confirmed stand is never
+    read as "no stand"; a pipeline that is not a dict reads {} (no word)."""
     if not isinstance(pipeline, dict):
-        return ""
+        return {}
     environment = str(pipeline.get("environment") or "")
     if environment and not pipeline.get("environment_pending"):
-        return ""
+        return {}
     block = stand_block(environment)
     for stage in STAND_STAGES:
-        passed = split_overridden([block], pipeline, stage)[1]
-        if passed:
-            return str(passed[0].get("decision") or "")
-    return ""
+        hit = _override_hits([block], pipeline, stage)[0][1]
+        if hit:
+            return {"stage": stage, "match": str(hit["match"]), "decision": str(hit.get("decision") or "")}
+    return {}
+
+
+def stand_passing_word(pipeline) -> str:
+    """The words of the person's live word that passes the stand block ("" when none): `stand_passing_override`'s decision."""
+    return stand_passing_override(pipeline).get("decision", "")
 
 
 # The door in backticks that ends a refusal line: ONLY a final span that IS a door - a command (`waiver.py --block ...`), so it holds
