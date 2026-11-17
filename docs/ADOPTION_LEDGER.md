@@ -1,7 +1,7 @@
 # Adoption Ledger — QA Factory development (yml-text-factory)
 
 Template shipped by the toolkit itself; filled in by the former
-onboarding skill's "Ledger" step (skill retired 16.11.2026, D-nnnn), right
+onboarding skill's "Ledger" step (skill retired 16.11.2026, D-0067), right
 after the intake inventory step. One row per kit MECHANISM, named by
 the kit's own NOMENCLATURE (its CLAUDE.md rules, PROCESS docs, tool
 names) — not by an enumeration of whichever files a given install
@@ -20,7 +20,7 @@ copy itself lands, instead of waiting on it.
   down here so the substitution doesn't silently drift out of sync
   with either side losing track of it.
 - **deferred(\<trigger\>)** — the mechanism has no installed
-  prerequisite yet (see the PREREQUISITES table of the former onboarding skill, retired 16.11.2026 (D-nnnn));
+  prerequisite yet (see the PREREQUISITES table of the former onboarding skill, retired 16.11.2026 (D-0067));
   name the exact condition that reopens the row — a fixed defect, a
   contour change, a volume threshold crossed — never a bare "later".
 - **rejected** — the mechanism actively conflicts with something the
@@ -49,7 +49,7 @@ before this kit was ever considered for it.)
 
 An empty intake inventory — every host FUNCTION row blank (acceptance /
 journal-accounting / escalation / isolation / calibration, per the
-the former onboarding skill's step 0, retired 16.11.2026 (D-nnnn)) — means every mechanism's status is
+the former onboarding skill's step 0, retired 16.11.2026 (D-0067)) — means every mechanism's status is
 **adopt**: there is nothing at the host to compare against, so the
 bundles install whole. The ledger is still created in this case, even
 though every row says the same thing: it exists as the place a project
@@ -74,7 +74,7 @@ as the delta, once.
 
 ## Rows
 
-One row per mechanism the PREREQUISITES table of the former onboarding skill (retired 16.11.2026 (D-nnnn)) lists
+One row per mechanism the PREREQUISITES table of the former onboarding skill (retired 16.11.2026 (D-0067)) lists
 (plus any host-specific mechanism your own intake inventory surfaces —
 add rows freely, never remove the standard ones without recording why):
 
@@ -141,7 +141,7 @@ there truly is none) and `reason` filled in — an empty pair is not a
 waiver, it's an unexplained gap that `install_parity.py --check` will
 keep reporting as `MISSING`/`UNKNOWN` every time it runs. Every
 upgrade's closing parity run (the upgrade flow of the retired
-onboarding skill, 16.11.2026 (D-nnnn)) writes "Install parity: ..." as its own record line (in this
+onboarding skill, 16.11.2026 (D-0067)) writes "Install parity: ..." as its own record line (in this
 ledger's "Kit snapshot revision" note, or the upgrade commit message)
 — that record names which run this waiver table reflects.
 

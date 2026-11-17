@@ -3,7 +3,7 @@
 Auto-loaded into every session: the routing policy of this repository and its command hygiene, and nothing that not
 every session needs. History of its clauses: `docs/CLAUDE_HOST_ADAPTATIONS_FULL.md`. Full state restoration goes
 through BOOT.md ("Restore context from BOOT.md"), not here: boot context is expensive (boot-context-is-expensive
-rule). Without an auto-loaded policy, Lead ends up doing delegable work itself on the most expensive tier
+rule). Without an auto-loaded policy, Lead ends up doing delegable work itself on a tier above the work's
 (cheapest-tier-default rule).
 
 The project's own rules, principles and layout live in PROJECT.md, imported here so every session loads them:
@@ -26,10 +26,15 @@ text is read before changing the package), and the factory architecture invarian
 - **critic** (Opus) — code/architecture review, debugging unclear bugs, the acceptance gate.
 - **designer** (Opus) — spec DRAFTING from a Lead intent brief; forks are returned, never decided; the draft passes
   Lead acceptance before any dispatch uses it.
-- **Lead** (Fable) — decomposition, specs, acceptance, architecture; only Lead decides what gets delegated to whom.
+- **Lead** (Opus) — decomposition, specs, acceptance, mechanism commits after the critic; only Lead decides what gets
+  delegated to whom.
+- **architect** (Fable) — ABOVE Lead: the owner's new ideas (PROJECT.md, steps 1–4), process questions the Lead
+  escalates, the weekly calibration with its review of mechanism commits, its own `DECISIONS.md` lines. Summoned only
+  by the owner switching the session model — never a subagent, never routed to automatically (D-0067); its start
+  checklist is `PROCESS/ARCHITECT_START.md`.
 
-scout/builder/critic/designer/Lead are names of FUNCTIONS, not of models: the rules speak only in these names; the
-function→model binding is `delegation.config.yaml`; price grades of models (`docs/TWO_VOCABULARIES.md`) never appear in
+scout/builder/critic/designer/Lead/architect are names of FUNCTIONS, not of models: the rules speak only in these names; the
+function→model binding is `delegation.config.yaml` (one reader: `tools/tier_ladder.py`); price grades of models (`docs/TWO_VOCABULARIES.md`) never appear in
 a rule.
 
 ## Routing rules
@@ -112,6 +117,13 @@ a rule.
    log; reason in notes). Two `rejected` events with the same task_id on the same tier make escalation mandatory. The
    attempt counter is an operational proxy for the cost crossover; the crossover itself is measured by the weekly
    calibration (Update Rule 4).
+   ABOVE the critic's model (Opus, which is also the Lead's) «one tier up» is the architect, which is never a subagent: two `rejected` on critic- or
+   designer-class work → an item in `docs/tasks/architect-queue.md` + `escalated` with `agent: architect` (`model` =
+   the architect binding); the Lead tells the owner «лучше позвать Архитектора: <вопрос одной строкой>», that work
+   waits, unrelated work continues. The same road carries every Architect-class question: a new idea's
+   architecture, a process trade-off, a rule conflict or a critic verdict the Lead cannot settle. STAND-IN (the
+   owner's word 17.11.2026): a model ranked above a function's binding may stand in for that function while the
+   bound model is unavailable; the stand-in dispatch names the outage in its notes.
 7. Background execution by default (background-by-default rule): `run_in_background`; synchronous only when the next
    step depends on the result AND there is no other work or operator question pending. Accepting the result on
    completion is mandatory (flat delegation rule). The visible dispatch label (`description`) starts
@@ -241,7 +253,8 @@ a rule.
    deliverable) is a question for the operator, and the work on that part waits for the answer; deciding it on the
    operator's behalf is out of bounds for every tier, Lead included. The skip concession is downward only: a tier may
    skip a dispatch to a tier below itself (with an event) but may not absorb a question that belongs above its own
-   level — only escalate (rule 6; once tiers are exhausted, it queues for Lead via `escalated`). Work the coordinator
+   level — only escalate (rule 6; once the tiers up to the Lead are exhausted it queues for the Lead, and above the Lead for the
+   architect — an item in `docs/tasks/architect-queue.md` + `escalated` with `agent: architect`). Work the coordinator
    executes itself after a `dispatch_skipped` passes the same acceptance as a builder diff (Role ≠ tier); handing the
    operator something that has not cleared it is a violation. With no operator present, a substitute path exists
    only as an explicit, named clause — here the owner-away paragraph of PROJECT.md «Что решать самому, что
@@ -324,9 +337,10 @@ Event SHAPES — the typed fields each event adds on top of the five base fields
 |---|---|
 | `delegated` | `task_id`, `model`, `worker_ref`; optional `node` — the pile node `<slug>/<N>/<id>` (`forge/5/F5-2`; `journal_keys.NODE_RE`; a bare id is never a node); a REPEAT on an open task is legitimate only as: a critic-entry (another tier) / a retry with `attempt`>=2 after `rejected` / a DEAD-WORKER REPLACEMENT: a bare `replaces_worker:<prev worker_ref>` token in `notes` — not a retry, `attempt` does not grow; the handle literally matches the `worker_ref` of a prior `delegated` of the same task; the first non-whitespace token after the colon is read, so trailing punctuation breaks the match; on a closed task it is forbidden |
 | `returned` | `task_id`, `worker_ref` (the `delegated` it ends), `model`; written by the SubagentStop gate when a worker's stop passes; never closes a task — the open-dispatch scan shows it as RESULT PENDING until `accepted`/`rejected` |
-| `accepted` | `task_id`, `model`, `by` (a bare tier word); + `basis` ("critic" / "queued-to-lead") when the acceptor is not strictly above the executor; + `witness` (the verbatim run output) on builder work |
+| `accepted` | `task_id`, `model`, `by` (a bare model-family word — `haiku`/`sonnet`/`opus`/`fable`, see below); + `basis` ("critic" / "queued-to-lead") when the acceptor is not strictly above the executor; + `witness` (the verbatim run output) on builder work |
 | `rejected` | `task_id`, `model`, `by`, `attempt` (number), `failure_class` ∈ spec/capability/recon/tooling |
-| `escalated` | `task_id` (must already exist earlier in the file), `model` |
+| `escalated` | `task_id` (must already exist earlier in the file, except with `agent: architect`, which may open a task), `model` (the model the work moves to; for `architect`, the architect binding) |
+| `calibrated` | optional `reviewed_through` — the sha of the last mechanism commit the Architect reviewed |
 | `defect_found` | `task_id`, `ref` (the task_id of the original `accepted`) |
 | `dispatch_skipped` | reason inside `notes` (no extra field) |
 
@@ -337,13 +351,13 @@ against transcripts, and a discrepancy is itself a calibration event. NEW lines 
 share the checks: append-only, typed fields, ts-monotonicity, no ts from the future, task_id novelty (the legal
 repeats: the `delegated` row). The `accepted` row encodes the acceptance matrix of Role ≠ tier; work performed by a
 non-Claude model still carries a `basis` — the matrix compares FUNCTION tiers, not model ids. `by` and `model` differ
-on purpose: `by` is a bare tier keyword from `TIER_ORDER` in `tools/journal_validator.py`
-(`haiku`/`sonnet`/`opus`/`fable`) — an unknown `by`, a full model id (e.g. `"claude-opus-4-8"`) included, FAILS the
+on purpose: `by` is a bare model-family word from `FAMILIES` in `tools/tier_ladder.py`
+(`haiku`/`sonnet`/`opus`/`fable`), turned by the validator into a FUNCTION rank through the bindings — an unknown `by`, a full model id (e.g. `"claude-opus-4-8"`) included, FAILS the
 matrix outright and no `basis` legalizes it; `model` is free-form, and a full model id there is recommended. The
-validator's own failure detector is a pair of calibration checks. Events: the six of the table — `rejected` is a
+validator's own failure detector is a pair of calibration checks. Events: the rows of the table — `rejected` is a
 failed attempt (rule 6), `defect_found` a late defect in ACCEPTED work (agent = the original tier, notes: what broke
-— the false-accept stream) — plus `returned`, `decomposable`, `lead_degraded`, `lead_restored`, `journal_created`, `calibrated`
-(a calibration run happened). The journal is the evidence for the weekly calibration
+— the false-accept stream), `calibrated` a calibration run — plus `decomposable`, `lead_degraded`, `lead_restored`,
+`journal_created`. The journal is the evidence for the weekly calibration
 (PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md); DELEGATION_TABLE.md statuses move only on this data (Update Rule 1); a
 calibration overdue by more than 7 days shows as a Last Calibration line in the Boot Report.
 
@@ -351,39 +365,51 @@ calibration overdue by more than 7 days shows as a Last Calibration line in the 
 
 Three definitions that are NOT synonyms:
 
-- The TIER of a session = its ACTUAL model (verified at entry — tier-verification-at-entry rule). Fable is the
-  MODEL NAME of the top tier; "Lead" is a tier-FUNCTION (decomposition, specs, acceptance, mechanisms), not a role in
-  the conversation.
+- The TIER of a session = the FUNCTION RANK of its ACTUAL model (verified at entry — tier-verification-at-entry
+  rule): the highest function bound to that model in `delegation.config.yaml`, by exact id or by family
+  (`tools/tier_ladder.py`). Opus and Fable are a MODEL NAME each; "Lead" and "architect" are tier-FUNCTIONS
+  (decomposition, specs, acceptance, mechanisms; ideas, process, calibration), not roles in the conversation.
 - The coordinator ROLE = ROUTING, not execution. Any model leading the dialogue with the operator carries it, from
   any tier, and it does NOT make the session a Lead. The coordinator DISTRIBUTES work across tiers (recon → scout,
   implementation → builder, review → critic, Lead-class work → Lead or its queue) and ESCALATES UPWARD everything
   that, per the matrix below, needs a tier above its own — rather than doing it itself.
-- Full Lead = a coordinator whose actual tier is the top model; only it changes mechanisms, the decision log, table
-  statuses and gates.
+- Full Lead = a coordinator whose rank is lead or above (the model bound to Lead, or the architect's model doing
+  Lead work); only it changes mechanisms, the decision log, table statuses and gates.
 
-Acceptance is only from ABOVE: `accepted` is legitimate when the acceptor's tier is strictly above the executor's
-tier, OR the decision carries input from a tier above (a critic verdict), OR acceptance is explicitly queued for the
-full Lead (a note in notes). Acceptance by an equal/higher tier without that input is the session self-certifying
-(self-certification violation class). Matrix by the coordinator's actual tier:
+Acceptance is only from ABOVE: `accepted` is legitimate when the acceptor's rank is strictly above the executor's
+function rank, OR the decision carries input from a tier above (a critic verdict), OR acceptance is explicitly queued
+for the full Lead (a note in notes). Acceptance by an equal/higher tier without that input is the session
+self-certifying (self-certification violation class). An acceptance is never written from inside a worker: a critic
+or designer verdict reaches the coordinator through the worker's handoff file. Matrix by the coordinator's actual
+function rank:
 
-- **Top tier** (the model bound to Lead; Fable) — unrestricted; the "critic: skipped" waiver is available.
-- **Upper-mid tier** (the model bound to critic; Opus) — coordination, dispatches; accepts scout and builder (the
-  skip waiver is available — it sits above the executor); critic-class work goes to the Lead queue;
-  mechanisms/decision-log/statuses — no.
-- **Mid tier** (the model bound to builder; Sonnet) — coordination, dispatches; accepts scout; a builder diff — ONLY
-  with critic input (the skip waiver is unavailable); critic-class and Lead-class work — queued.
-- Below the mid tier, coordination is not supported.
+- **architect rank** (the model bound to architect; Fable) — unrestricted; it may do any Lead work with no extra
+  event (the `model` field of its journal lines records it). Routine coordination and each mechanism commit are the
+  Lead's work, not its own.
+- **lead rank** (the model bound to Lead; Opus) — full Lead: coordination, dispatches, acceptance of scout, builder,
+  critic and designer work, the "critic: skipped" waiver over builder, mechanism commits after the critic (`tier:
+  opus`), `DECISIONS.md`, statuses. Architect-class questions go by rule 6; a `Last calibration` line carrying
+  `-- overdue:` → tell the owner once per session and put one item into `docs/tasks/architect-queue.md` if none is open.
+- **builder rank** (the model bound to builder; a Sonnet coordinator) — coordination, dispatches; accepts scout; a
+  builder diff — ONLY with critic input (the skip waiver is unavailable); critic and designer work — `basis:
+  queued-to-lead`, cleared later by a Lead-ranked session writing a second `accepted` of the same task with no
+  basis (calibration check 6 (iii) lists the uncleared); Lead-class work — `docs/tasks/lead-queue.md`.
+- Below builder rank, coordination is not supported.
 
-The tier names resolve through `delegation.config.yaml`. The standard mode — "the operator coordinates from the mid
-tier, the top tier runs in batches against the queued Lead tasks" — is the same matrix; degradation (below) is an
-unplanned entry into it.
+The tier names resolve through `delegation.config.yaml`. The standard mode — the owner coordinates on the Lead's
+model and switches the session to the architect's model for architect work; a session on a model below lead (the mid-tier mode) is the
+same matrix, and degradation (below) is an unplanned entry into it.
 
 ## Lead degradation
 
-A refusal by the top-tier model (safety/dual-use, subscription limit, unavailability) OR an explicit operator switch
-to a lower tier:
+A refusal by the Lead's model (safety/dual-use, subscription limit, unavailability) OR an explicit operator switch
+to a model ranked below lead:
 
-1. Drop one tier (upper-mid, then mid: Opus, then Sonnet) + a `lead_degraded` event (reason, scope).
+1. Drop to builder rank (Sonnet) + a `lead_degraded` event (reason, scope) — ONE step. An outage of the Lead's model
+   removes critic and designer with it: builder diffs finished meanwhile WAIT — one line each in
+   `docs/tasks/lead-queue.md` («ждёт критика: <task_id>, <ветка>») and no `accepted`; critic and designer dispatches
+   are not launched (the stand-in of rule 6 is legal when the wait hurts); recon and builder work under accepted
+   specs continue.
 2. While degraded: coordination and already-authorized tasks — yes; table statuses, gates — no; new decision-log
    entries are queued for the full Lead; acceptance per Role ≠ tier.
 3. Default return at the task/session boundary: `lead_restored` + acceptance of the degraded window (log + diffs of
@@ -392,13 +418,18 @@ to a lower tier:
 4. Tier verification at BOTH points (tier-verification-at-entry rule) — neither alone is sufficient: entry is skipped
    by self-detection while degraded, and there may be no rise back at all.
    a) ENTRY — before the FIRST Lead action of a session (dispatch, acceptance, a mechanism commit, a status change):
-   check your own model against the last visible signal (system prompt; a switch command) against the Lead tier
-   (Fable); if it is lower and the journal has not opened a window → `lead_degraded` BEFORE the action.
-   b) EXIT — a visible rise back is itself PROOF a window existed, independent of the journal: in the same turn, a
-   retroactive `lead_degraded` (note + actual boundaries), acceptance of the window per point 3, `lead_restored`.
+   check your own model by the last visible signal (the SessionStart `MODEL:` line; a switch command) against the
+   lead binding; if its rank is below lead and the journal has not opened a window → `lead_degraded` BEFORE the
+   action. A model that matches no binding and no known family never reads as Lead.
+   b) EXIT — a visible rise from below lead to lead or architect rank is itself PROOF a window existed, independent
+   of the journal: in the same turn, a retroactive `lead_degraded` (note + actual boundaries), acceptance of the
+   window per point 3, `lead_restored`. A switch between the Lead's and the architect's model is NOT a window: no
+   event.
    c) EXTERNAL CROSS-CHECK — check 5 of PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md: the actual model of Lead sessions
    per transcripts vs. window coverage by matched event pairs; it catches failures of both in-session checkpoints,
    including a session that died while degraded.
+5. The architect's model unavailable or refusing is NOT a Lead degradation: no event; the items of
+   `docs/tasks/architect-queue.md` wait and the owner is told once — the architect's absence never stops Lead work.
 
 ## Command hygiene (permission hygiene)
 
