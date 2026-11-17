@@ -168,7 +168,7 @@
   },
   "test_audit_rules.py": {
    "layer": "gate_named",
-   "why": ".gitlab-ci.yml names it; builder-rules 7b DoD row for audit-rule edits",
+   "why": ".gitlab-ci.yml names it; docs/TESTING.md section \"what to run for your own edit\" DoD row for audit-rule edits",
    "covers": [
     "audit_factory.py",
     "content_size.py",
@@ -790,7 +790,7 @@
   },
   "test_console_encoding.py": {
    "layer": "gate_named",
-   "why": "builder-rules 7b DoD row (console encoding); SIBLING_MAP names it",
+   "why": "docs/TESTING.md section \"what to run for your own edit\" DoD row (console encoding); SIBLING_MAP names it",
    "covers": [
     "artifact_supersede.py",
     "check_coverage.py",
@@ -1389,7 +1389,7 @@
   },
   "test_driver_layers.py": {
    "layer": "gate_named",
-   "why": "owner of the AR-20 ratchet fixture driver-layers.json; builder-rules 7c DoD row",
+   "why": "owner of the AR-20 ratchet fixture driver-layers.json; docs/TESTING.md section \"what to run for your own edit\" DoD row",
    "covers": [
     "story_run.py",
     "driver_conductor.py",
@@ -3724,7 +3724,7 @@
   },
   "test_probe_by_code_copy.py": {
    "layer": "gate_named",
-   "why": "named by plans/builder-rules.md:37 (a history or example line of the forge, read by tools/test_quarantine.py enter); not a DoD row",
+   "why": "named by docs/TESTING.md section \"what to run for your own edit\" (a history or example line of the forge, read by tools/test_quarantine.py enter); not a DoD row",
    "covers": [
     "install_paths.py",
     "probe_by_code.py",
@@ -6307,7 +6307,7 @@
   },
   "test_story_run_words.py": {
    "layer": "gate_named",
-   "why": "builder-rules 7c DoD row (story_run words path)",
+   "why": "docs/TESTING.md section \"what to run for your own edit\" DoD row (story_run words path)",
    "covers": [
     "controller.py",
     "guard_secrets.py",
@@ -6350,7 +6350,7 @@
    "why": "AR-25 exit proof named in design/state-exits.md; also named by docs/TESTING.md",
    "named_by": [
     "design/state-exits.md:34",
-    "plans/builder-rules.md:26"
+    "docs/TESTING.md"
    ],
    "replaced_by": null,
    "covers": [

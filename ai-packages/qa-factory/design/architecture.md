@@ -220,7 +220,7 @@ The owner set four goals on 20.10.2026, one section each:
   - `scripts/tests/known_red.py`: the one loader of the known-red ledger `scripts/tests/fixtures/form-rounds.json` (`known_red`, and `not_in_world` with `pins.not_in_world`). A row carries `raised_by`; a green row still listed is refused as stale. Detector: `scripts/tests/test_field_producers.py` (the red rows equal the ledger).
   - `dev:tools/lint_ratchet.py`, second line: hand-written reader inputs (`HandReaderInput`) only go down.
 - Detector: both ratchets' `--check` (CI `forge-check`); `dev:tools/test_quarantine.py check` in the nightly CI job `quarantine-check`; calibration check 35 (b); `dev:.claude/agents/critic.md` rule 22 Q9.
-- Breakage: B-420. Pyflakes findings brought in by merges held CI red on main until 07.10 (`dev:plans/builder-rules.md` rule 7).
+- Breakage: B-420. Pyflakes findings brought in by merges held CI red on main until 07.10 (`dev:docs/TESTING.md` section "what to run for your own edit").
 - Change check: list every row added or raised (key, old -> new, reason). A new ratchet joins axis 18 and question 9 in the commit that creates it.
 
 ## D. Continuity between stages
