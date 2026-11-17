@@ -60,6 +60,7 @@ The acceptor (the driver) reads each item against its witness; what the author t
 - **A placeholder locator's test** fails on the unreachable element and names the requirement; each test leaning on a marked home declared the row in `tests[].provisional` (accounting, not a claim of reliance: a needless one is no finding, a missing one is).
 - **A side or account the project knows.** A requirement opposite to it is no finding against the author.
 - **A mock for a side is a placeholder with a home.** It sits where the project keeps mocks, with its `qa-provisional: P-n` marker and row; a placeholder, contract or mock in a test body, or without a row, is the author's defect.
+- `fitted_to_code` is also a `test_defect` finding whose expected is "the Then's value restored, the test handed RED with contradicts_requirement".
 
 <!-- kind: process -->
 ## Tools
@@ -83,6 +84,9 @@ The acceptor (the driver) reads each item against its witness; what the author t
 - Digest: the common form (`common-rules.md`), one line per test instance reviewed (a plan dispatch: per case), then what you wrote (your `Outputs` above).
 <!-- /gen -->
 - The state word in each digest row is one of `approved`, `approved_with_fixes`, `rejected`, `unverified`, alone.
+- Static review first, the whole window; then probe_by_code.py and, on doubt, red_sandbox.py --probe (the calls, the model file work/probe-models/<your dispatch id>.json and the reasons are on the card); reuse the author's green receipt, never run a duplicate green. A `mechanical` finding is worded, not fixed.
+- Findings go to work/test-code/critic-findings-<your dispatch id>.md with `cause:` on each.
+- A test that changed after its red run is listed in your brief (`s5_precheck.py --json`: `expectation_changes`).
 
 <!-- kind: process -->
 ## When to ask

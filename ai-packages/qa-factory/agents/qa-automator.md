@@ -60,6 +60,7 @@ The acceptor (code critic, then driver) reads each item against its witness; wha
 - **Assert the count before unpacking,** so a red names the Then.
 - **Mutation in the head.** Change the product line your assertion guards: would the test go red? If not, it is not finished.
 - **A red hides no other.** Independent checks of a step use the framework's non-stopping form where it has one; a check that only makes sense behind another stays stopping.
+- Smells to avoid: env credentials in an assert, `None == None`, `sleep`, a copied helper.
 
 <!-- kind: process -->
 ## Tools

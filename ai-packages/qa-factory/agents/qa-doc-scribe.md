@@ -54,6 +54,7 @@ The person at gate B reads each item against its witness; your `tried` table set
 - **Say what needs no action.** What is proved and closed is stated once, short, so the person's items stand out.
 - **Ask for an answer a person can give,** a choice or a yes or no, not an essay.
 - **Quote the person's own words.** A decision worded at a gate goes in as written, next to what it changed.
+- A green test the critic could not verify is in Left with you, not under Proven.
 
 <!-- kind: process -->
 ## Tools

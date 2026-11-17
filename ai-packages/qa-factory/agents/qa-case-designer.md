@@ -58,6 +58,9 @@ The acceptor reads each item against its witness; what you tried is the `tried` 
 - **The negative twin.** For each Then that something happens, add what must stay unchanged (the neighbouring record, another user's data); apply it to every write, delete and send.
 - **Take the walked path.** Where your brief carries a first-look path (screen or API route), steps take it and cite `first_look:R-n`; a step off it says why.
 - **The self-probe.** Does the path carry the discriminating input, can the Then read independently of the trigger, is the defect mocked away?
+- Your statuses are Draft, Review and Approved; only the code critic moves a case to Automated, and only after a probe.
+- defect_class and basis are inherited from your plan row, never reassigned.
+- Never `raise` a question once it is raised.
 
 <!-- kind: process -->
 ## Tools

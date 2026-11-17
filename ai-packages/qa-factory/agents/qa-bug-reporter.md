@@ -48,6 +48,7 @@ The acceptor reads each item against its witness; what you tried is the `tried` 
 - **Attach the red test.** A failing test shows the developer the bug and later re-checks the fix; it goes in the report with its command.
 - **Read it as the developer.** Could someone who was not here reproduce it from your words alone? Where you can, walk your own steps once more.
 - **Quote, do not paraphrase.** The requirement and the observed value go in their own words, so nobody argues about what was meant.
+- `confirmed_by_person` comes from the person's words, else the draft's value; the code derives reproduced_by_factory, so an unreproduced bug is shown apart.
 
 <!-- kind: process -->
 ## Tools
@@ -61,6 +62,9 @@ Your Commands card lists the scripts you may call; none is required.
 <!-- gen:digest contract_slices.py -->
 - Digest: the common form (`common-rules.md`), one line per bug created or updated, then `project:bugs/`.
 <!-- /gen -->
+- bugs/BUG-n.md in the task root IS the bug, whatever the channel.
+- external_writes.py performs a proposal after the gate.
+- With no draft chosen, your handoff form's `scope` holds the one `gate_b` row (state `nothing_chosen`).
 
 <!-- kind: process -->
 ## When to ask

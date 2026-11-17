@@ -76,6 +76,7 @@ The keys of your manifest and your handoff form, `tried` among them, are on your
 <!-- gen:digest contract_slices.py -->
 - Digest: the common form (`common-rules.md`), one line per source of the context manifest's inventory, then `work/context-manifest.json`.
 <!-- /gen -->
+- Build with `context_bundle.py --manifest`, then `--validate`.
 
 <!-- kind: process -->
 ## When to ask
