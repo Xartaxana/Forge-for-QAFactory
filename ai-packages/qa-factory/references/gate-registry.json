@@ -514,13 +514,13 @@
         "none": {"class": "unknown", "owner": "environment"},
         "unreadable": {"class": "unknown", "owner": "environment"}
       },
-      "accepts": {},
+      "accepts": {"reporter_rehearsal_identity.reuse": ["matched"]},
       "promotable": false,
       "unknown_branch": "rerun", "on_no_answer": "rerun", "waits_at": null,
       "closed_by": ["person"], "addressee": ["code_routes", "person"], "person_subject": "world",
       "policy_file": null, "scope_keys": [], "binding_keys": [], "question_kind": null,
       "test": "scripts/tests/test_gate_preflight.py",
-      "status": "debt", "debt_ref": "B-283", "exempt_reason": ""
+      "status": "converted", "debt_ref": "", "exempt_reason": ""
     },
     {
       "id": "environment_property_cover", "inventory": "F9", "vocabulary": "code",

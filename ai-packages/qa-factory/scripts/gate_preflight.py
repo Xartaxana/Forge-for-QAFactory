@@ -84,6 +84,7 @@ from critic_rollcall import project_root_of as _project_root  # noqa: E402
 import hooklib  # noqa: E402  (`read_json`, the one JSON reader)
 from stand_gaps import GATE_STAGE, ROLE_NAMED, ROLE_SCOPES  # noqa: E402 (gate -> the stage it stands in front of: the ONE table)
 from hooklib import sorted_paths  # noqa: E402
+from gate_template import acceptable  # noqa: E402  (the ONE predicate a gate word is accepted through: the reuse of a proof reads the registry row)
 
 FACTORY_FIXABLE = "factory_fixable"
 PERSON_DECIDES = "person_decides"
@@ -3840,7 +3841,7 @@ class Rehearsal:
             # different argv (the invariant) and never for the same words over other dependencies (FR-59).
             durable = self._rehearsal_key(profile_id, cwd, command_id, chosen, fmt, "", root)
             hit = (getattr(self, "_rehearsals", None) or {}).get(durable) if durable else None
-            if isinstance(hit, dict) and isinstance(hit.get("at"), str) and earlier["state"] == "same_command":
+            if isinstance(hit, dict) and isinstance(hit.get("at"), str) and acceptable(earlier.get("state"), "reporter_rehearsal_identity.reuse"):
                 # The hit fills the per-process map too, so the next gate call of this process does not launch again.
                 who = ("the onboarding proved it on" if hit.get("source") == "onboarding" else "rehearsed on")
                 outcome = _REPORTER_PROBES[key] = {"reused": (
