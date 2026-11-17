@@ -637,6 +637,18 @@ Numbering: axis 31 (t-1702 D3, role carriers) landed on `main` with the `local/p
 | The symmetry | A stop that fires because a set of findings came back (or a cap of rounds on a set was hit) leaves its record BEFORE it raises the person, through the one writer, with the same row shape, once. A new stop on a repeated set calls `record_repeat`, states its once-guard and joins this axis; a new `road` word is added to the collector row's reading in the same commit |
 | The detector | rows N3-a..e of FV1-22 (`test_probe_gap_door.py` `test_fv122_n3a..d` and the paid-round row, `test_story_run_loop_b_loop.py` `loop_waiver_and_journal_shapes`); the grep `record_repeat(` over `scripts/driver_*.py` finds only the writer and the five member sites; the case-insensitive grep `exit_limit(` / `finding_key(` / `same_set` over the same files finds only sites this axis names as a member, a non-member or a queued road |
 
+## Axis 38 — The dry census: a joint of `references/stage-joints.json`, a route of `driver_dispatch.KNOWN_REFUSALS` / `match_known`, a price key of `question-prices.json` or a keyless kind of the driver <-> its row in `scripts/tests/fixtures/driver-exits/<group>.json` (P1-b L1c, critic t-955 F11, 17.11.2026)
+
+| Component | Path |
+|---|---|
+| The subjects (what the driver can meet) | joints: the rows of `references/stage-joints.json`, read through `null_outcomes.load_data(stage_joints.DATA)` (the loader `dry_exits.scan_joints` uses); routes: `driver_dispatch.KNOWN_REFUSALS` / `match_known`; price keys: `question-prices.json`; keyless kinds raised by the driver (`dry_exits._code_rows`) |
+| The census | `scripts/tests/fixtures/driver-exits/<group>.json` (`gates`, `hooks`, `s0`, `s1-s4`, `s5`, `s6-s9`): one row per subject with `reach` and, when not walked, `why_unreached`; the per-group ratchet `unwalked` with `raised_by` naming every row above the base |
+| The group of a joint | by the `stages` field of its row: every stage inside one group -> that group; stages of two or more groups, or `*` -> `gates` (L1c item 2; standing exception left to the group's walk node: `branch_accounting:*` in `s1-s4`) |
+| The symmetry | A package commit that adds, renames or removes a joint, a route, a price key or a keyless kind of the driver changes its census row in the SAME commit: a new subject gets a row (`reach` + `why_unreached`, the rise named in `raised_by`), a removed one loses its row (and its `raised_by` entry; a base row lowers the base). A subject with no row and a row with no subject are both discrepancies |
+| The detector | `python -B scripts/tests/dry_exits.py --check` -> `0 discrepancies`: the line `dry-1/census` of the `full` CI job and the step of the `dry-story` job (node N5); weekly calibration reads the count |
+| The evidence | 227 joints accumulated with no row between 14.11 and 17.11.2026 while the walker lived on a branch (report `docs/tasks/specs/reports/20261117-p1b-l1-report.md`); closed mechanically by L1c |
+| The cost (rule 10 (a)) | every package commit that touches a joint, a route or a price key writes one census row; every mechanism commit of every session enumerates one more axis |
+
 ## Keeping the map up to date
 
 This map has exactly one owner: whoever is running Lead-tier work in
