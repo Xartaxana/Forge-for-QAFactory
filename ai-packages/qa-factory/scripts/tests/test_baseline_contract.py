@@ -7,6 +7,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import baseline_contract as B
+import gate_registry as GR
+import gate_template as GT
 import manual_evidence as M
 from planning_contract import validate_plan
 
@@ -133,6 +135,158 @@ class BaselineContractTests(unittest.TestCase):
             self.assertEqual(B.validate_managed_gate(request, root), [])
             request["baseline_contract"] = dict(contract(), gate_a_decision_ref="forged")
             self.assertTrue(B.validate_managed_gate(request, root))
+
+    def test_a_receipt_counts_only_by_its_accepted_status_word(self):
+        missing = "baseline evidence missing, stale or incomparable"
+        absent = object()
+        rows = [("captured", "captured", True, None), ("inconclusive", "inconclusive", False, missing),
+                ("Captured", "Captured", False, missing), ("space", " captured", False, missing),
+                ("empty", "", False, missing), ("none", None, False, missing), ("int", 5, False, missing),
+                ("list", ["captured"], False, missing), ("no key", absent, False, missing),
+                ("other revision", "captured", False, missing)]
+        broken = [("broken captured", "captured", "judged"), ("broken inconclusive", "inconclusive", "judged"),
+                  ("broken no receipt", "captured", missing), ("broken other version", "captured", missing)]
+        saved = list(GT._READ)
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                root = Path(td); evidence = root / "evidence"; evidence.mkdir()
+                capture = evidence / "before-state.json"; capture.write_text('{"old": true}', encoding="utf-8")
+                ref = {"path": "evidence/before-state.json", "sha256": hashlib.sha256(capture.read_bytes()).hexdigest()}
+                row = {"id": "TC-1", "baseline_required": True, "execution_scope": "current_task",
+                       "case_version": "v1", "baseline_revision": "old", "verification_revision": "new",
+                       "fixture_identity": "seed-1", "gate_a_decision_ref": "gate-A",
+                       "comparison_assertions": ["compare rendered graph"]}
+
+                def receipt(word, source="old", version="v1"):
+                    made = {"evidence_phase": "baseline", "case_id": "TC-1", "case_version": version,
+                            "baseline_revision": "old", "verification_revision": "new", "fixture_identity": "seed-1",
+                            "gate_a_decision_ref": "gate-A", "comparison_assertions": ["compare rendered graph"],
+                            "source_revision": source, "evidence_refs": [ref]}
+                    if word is not absent:
+                        made["status"] = word
+                    return made
+
+                for label, word, ready, reason in rows:
+                    with self.subTest(label):
+                        got = B.deployment_readiness(
+                            [row], [receipt(word, "new" if label == "other revision" else "old")], root)
+                        self.assertTrue(got["ready"])
+                        self.assertEqual(got["comparisons_ready"], ready)
+                        self.assertEqual([g["reason"] for g in got["gaps"]], [reason] if reason else [])
+                        self.assertTrue(all(g["blocks_execution"] is False for g in got["gaps"]))
+                GT._READ[:] = [({"rows": "x"}, GR.structural_error({"rows": "x"}))]
+                for label, word, expect in broken:
+                    with self.subTest(label):
+                        receipts = [] if label == "broken no receipt" else [
+                            receipt(word, version="v2" if label == "broken other version" else "v1")]
+                        got = B.deployment_readiness([row], receipts, root)
+                        self.assertTrue(got["ready"])
+                        self.assertFalse(got["comparisons_ready"])
+                        reason = got["gaps"][0]["reason"]
+                        if expect == "judged":
+                            self.assertTrue(reason.startswith("the gate registry cannot be read ("), reason)
+                            self.assertIn("baseline receipt was not judged", reason)
+                            self.assertNotIn("missing", reason)
+                        else:
+                            self.assertEqual(reason, expect)
+        finally:
+            GT._READ[:] = saved
+
+    def test_an_unknown_old_build_is_refused_never_taken(self):
+        sentence = "baseline runtime must match the approved before revision"
+        row = {"case_id": "TC-1", "case_version": "v1", "baseline_reason": "before/after",
+               "baseline_revision": "old", "verification_revision": "new", "fixture_identity": "seed-1",
+               "execution_scope": "current_task", "capture_steps": ["open old build"],
+               "comparison_assertions": ["compare graph"], "capture_artifact_refs": ["evidence/before.json"]}
+        for label, runtime in (("empty", {}), ("none", {"expected_source_revision": None}),
+                               ("blank", {"expected_source_revision": ""}),
+                               ("new", {"expected_source_revision": "new"})):
+            with self.subTest(label):
+                request = {"evidence_phase": "baseline", "baseline_contract": contract(), "runtime_provenance": runtime}
+                lines = [e for e in B.validate_baseline_request(request) if e.startswith(sentence)]
+                self.assertEqual(len(lines), 1)
+                self.assertIn("'old'", lines[0])
+                self.assertIn("baseline-inputs", lines[0])
+                with self.assertRaises(ValueError) as caught:
+                    B.build_baseline_fields(row, "gate-A", runtime)
+                self.assertIn("baseline-inputs", str(caught.exception))
+                self.assertIn(sentence, str(caught.exception))
+        with self.subTest("old accepted"):
+            runtime = {"expected_source_revision": "old"}
+            request = {"evidence_phase": "baseline", "baseline_contract": contract(), "runtime_provenance": runtime}
+            self.assertFalse([e for e in B.validate_baseline_request(request) if e.startswith(sentence)])
+            self.assertEqual(B.build_baseline_fields(row, "gate-A", runtime)["runtime_provenance"], runtime)
+        with self.subTest("no revision anywhere"):
+            bare = dict(contract()); bare.pop("baseline_revision")
+            errors = B.validate_baseline_request({"evidence_phase": "baseline", "baseline_contract": bare,
+                                                  "runtime_provenance": {}})
+            self.assertIn("baseline_contract requires baseline_revision", errors)
+
+    def test_a_malformed_baseline_block_is_named_not_crashed(self):
+        def errors_of(**fields):
+            return B.validate_baseline_request({"evidence_phase": "baseline", **fields})
+        sentence = "baseline runtime must match the approved before revision"
+        for label, value in (("str", "x"), ("list", ["x"]), ("int", 5), ("empty str", "")):
+            with self.subTest("contract " + label):
+                errors = errors_of(baseline_contract=value, runtime_provenance={"expected_source_revision": "old"})
+                self.assertTrue(any(e.startswith("baseline_contract must be a JSON object, got " + type(value).__name__)
+                                    for e in errors), errors)
+        for label, fields in (("none", {"baseline_contract": None}), ("absent", {}), ("empty", {"baseline_contract": {}})):
+            with self.subTest("contract " + label):
+                self.assertIn("baseline_contract requires case_id", errors_of(**fields))
+        for label, value in (("str", "old"), ("list", ["old"]), ("int", 5), ("empty str", "")):
+            with self.subTest("runtime " + label):
+                errors = errors_of(baseline_contract=contract(), runtime_provenance=value)
+                self.assertTrue(any(e.startswith("runtime_provenance must be a JSON object") for e in errors), errors)
+                self.assertFalse(any(e.startswith(sentence) for e in errors), errors)
+        for label, fields in (("none", {"runtime_provenance": None}), ("absent", {}), ("empty", {"runtime_provenance": {}})):
+            with self.subTest("runtime " + label):
+                lines = [e for e in errors_of(baseline_contract=contract(), **fields) if e.startswith(sentence)]
+                self.assertEqual(len(lines), 1)
+                self.assertIn("None", lines[0])
+        with self.subTest("builder"):
+            row = {"case_id": "TC-1", "case_version": "v1", "baseline_reason": "r", "baseline_revision": "old",
+                   "verification_revision": "new", "fixture_identity": "seed-1", "execution_scope": "current_task",
+                   "capture_steps": ["a"], "comparison_assertions": ["b"], "capture_artifact_refs": ["e/x.json"]}
+            with self.assertRaises(ValueError) as caught:
+                B.build_baseline_fields(row, "gate-A", "old")
+            self.assertIn("runtime_provenance", str(caught.exception))
+        with self.subTest("managed gate"):
+            with tempfile.TemporaryDirectory() as td:
+                root = Path(td); state = root / "qa-factory" / "artifacts" / "TASK-1" / "state"; state.mkdir(parents=True)
+                (state / "controller.json").write_text(json.dumps({"decisions": {"gate-A": {
+                    "id": "gate-A", "gate": "A", "status": "approved", "scope": ["TC-1"]}}}))
+                got = B.validate_managed_gate({"task": "TASK-1", "evidence_phase": "baseline",
+                                               "baseline_contract": "x"}, root)
+                self.assertTrue(got)
+        with self.subTest("managed gate derive failure: one line per world"):
+            from unittest import mock
+            plan_row = dict(contract(), id="TC-1", baseline_required=True)
+
+            class FakeController:
+                def __init__(self, root): pass
+                def state(self): return {"decisions": {"gate-A": {"id": "gate-A", "gate": "A",
+                                                                    "status": "approved", "scope": ["TC-1"]}}}
+                def _validate_gate_a_content_current(self, state): pass
+                def _plan_document(self): return [plan_row]
+                def _current_gate_a(self, state): return {"id": "gate-A"}
+            cases = (("refused: revision mismatch", contract(), {"expected_source_revision": "new"}, 0),
+                     ("refused: non-dict runtime", contract(), "old", 0),
+                     ("not refused: request revision drifted from the plan",
+                      dict(contract(), baseline_revision="new"), {"expected_source_revision": "new"}, 1))
+            for label, bcontract, runtime, want in cases:
+                with self.subTest(label), tempfile.TemporaryDirectory() as td:
+                    root = Path(td); state = root / "qa-factory" / "artifacts" / "TASK-1" / "state"
+                    state.mkdir(parents=True)
+                    (state / "controller.json").write_text("{}"); (state / "events.jsonl").write_text("")
+                    request = {"task": "TASK-1", "evidence_phase": "baseline", "baseline_contract": bcontract,
+                               "runtime_provenance": runtime}
+                    with mock.patch("controller.Controller", FakeController):
+                        got = B.validate_managed_gate(request, root)
+                    self.assertEqual(len(got), want, got)
+                    self.assertFalse(any("unreadable" in line for line in got), got)
+                    if want:
+                        self.assertIn("cannot be derived from the current approved plan", got[0])
 
 
 if __name__ == "__main__":

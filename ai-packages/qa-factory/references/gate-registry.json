@@ -353,26 +353,27 @@
       "status": "converted", "debt_ref": "", "exempt_reason": ""
     },
     {
-      "id": "baseline_identity", "inventory": "G15", "vocabulary": "target",
-      "decides": "the before-state evidence was captured on the approved old build (identity on the OLD build stays code-proven: a person's word never stands in for it)",
+      "id": "baseline_identity", "inventory": "G15", "vocabulary": "code",
+      "decides": "the before-state evidence was captured on the approved old build: a request whose runtime does not name the approved before revision is refused with its door (validate_baseline_request), and a receipt counts as before-evidence only when its status is `captured` and its identity, gate and evidence hashes match; `inconclusive`, any other word or none leaves an awaiting_baseline gap, never a pass (identity on the OLD build stays code-proven: a person's word never stands in for it)",
       "sites": [
         {"file": "baseline_contract.py", "function": "validate_baseline_request", "role": "validate"},
-        {"file": "baseline_contract.py", "function": "deployment_readiness", "role": "accept"}
+        {"file": "baseline_contract.py", "function": "deployment_readiness", "role": "accept"},
+        {"file": "baseline_contract.py", "function": "baseline_receipt", "role": "produce"},
+        {"file": "manual_evidence.py", "function": "write_baseline_receipt", "role": "produce"}
       ],
-      "field": null,
-      "words": ["matched", "mismatched", "unknown"],
+      "field": "status",
+      "words": ["captured", "inconclusive"],
       "verdict_map": {
-        "matched": {"class": "matched"},
-        "mismatched": {"class": "mismatched"},
-        "unknown": {"class": "unknown", "owner": "environment"}
+        "captured": {"class": "matched"},
+        "inconclusive": {"class": "unknown", "owner": "environment"}
       },
-      "accepts": {"provenance.baseline": ["matched", "not_applicable"]},
+      "accepts": {"baseline_identity.readiness": ["matched"]},
       "promotable": false,
       "unknown_branch": "refuse_with_door", "on_no_answer": "refuse_with_door", "waits_at": null,
       "closed_by": [], "addressee": ["code_routes"], "person_subject": null,
       "policy_file": null, "scope_keys": [], "binding_keys": [], "question_kind": null,
       "test": "scripts/tests/test_baseline_contract.py",
-      "status": "debt", "debt_ref": "B-281", "exempt_reason": ""
+      "status": "converted", "debt_ref": "", "exempt_reason": ""
     },
     {
       "id": "witness_backstop", "inventory": "G16", "vocabulary": "target",

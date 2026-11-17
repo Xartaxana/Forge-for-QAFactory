@@ -1,0 +1,2 @@
+- The baseline-evidence gate now accepts a before-state receipt only through the gate registry's `baseline_identity` row (status `captured`); an unreadable registry is reported as a factory defect instead of "evidence missing".
+- A baseline request whose runtime does not name the approved before revision is refused with the revision it found, the one it expected and what to do next; a malformed `baseline_contract` or `runtime_provenance` is refused by name instead of crashing.
