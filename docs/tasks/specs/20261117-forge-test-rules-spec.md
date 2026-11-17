@@ -665,3 +665,17 @@ Needed beyond the manifest: none (the brief named the carriers; the four in-flig
 - **Oracle (D1)**: the owner's «ок» 17.11 to «ожидаемое значение берётся оттуда [из спеки] и пишется в спеке, а не
   списывается с вывода кода» — §2.1 stands as her word.
 - **O-1**, **O-3**: asked 17.11, her word pending; drafted on the recommendation (a).
+
+## The owner's word 17.11.2026 on O-1 and O-3 — binds §4.1 and §12
+
+- **O-3**: «ок» — the `test:` line is obligatory and checked by code.
+- **O-1**: neither option as drafted. «не хочу что бы написание тестов зависило от моего слова. Какая была цель у
+  сокращения количества файлов? Вот этой цели и надо придерживаться когда решаем нужен отдельный фаил или нет».
+  So §4.1 is rewritten in the fix round: no owner's word is needed for a new test file, and no blanket ban; the rule
+  states the GOAL of the file budget as TESTING.md already measures it (`docs/TESTING.md:26-28`: run time — files
+  over 10 s; upkeep — test files edited in commits where neither code nor rule text changed; a file per script instead
+  of a story) and the decision is made by that goal: the designer names the place of the row in the spec's `test:`
+  line; a NEW file is right when the case fits no existing story, joint or table without making that file slower or
+  wider in meaning, the new file stays under 10 s, builds its world once, and holds one parameterised table; the
+  critic judges the choice (question 5). The `keep` row stays as bookkeeping. O-2 (a new forge tool gets its own
+  test file) is the same rule's instance, not an exception.
