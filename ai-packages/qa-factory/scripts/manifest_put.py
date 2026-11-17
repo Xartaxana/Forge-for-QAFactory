@@ -514,10 +514,10 @@ def _refuse_colliding_ids(entries) -> None:
         seen = by_id.get(iid)
         if iid and seen is not None and str(seen.get("file") or "") != str(entry.get("file") or ""):
             raise ValueError(
-                f"two tests[] entries resolve to the instance id {iid!r} but name different "
+                DV.refusal("manifest_put:colliding_ids", f"two tests[] entries resolve to the instance id {iid!r} but name different "
                 f"files ({seen.get('file')!r}, {entry.get('file')!r}) — one id is one test. "
                 "Give the id the parameter that tells them apart, or name the function "
-                "distinctly in the test code; do not let one row overwrite the other")
+                "distinctly in the test code; do not let one row overwrite the other"))
         if iid:
             by_id[iid] = entry
 
@@ -555,7 +555,7 @@ def novelty_row_problems(fragment) -> list:
                 bad.append("lacks " + " and ".join(missing))
         if bad:
             name = str(row.get("instance_id") or row.get("test") or f"tests[{at}]")
-            problems.append(f"the `novelty` of {name} " + " and ".join(bad))
+            problems.append(DV.refusal("manifest_put:novelty", f"the `novelty` of {name} " + " and ".join(bad)))
     return problems
 
 
@@ -585,7 +585,7 @@ def base_outcome_row_problems(fragment) -> list:
                 bad.append("names no `run`")
         if bad:
             name = str(row.get("instance_id") or row.get("test") or f"tests[{at}]")
-            problems.append(f"the `base_outcome` of {name} " + " and ".join(bad))
+            problems.append(DV.refusal("manifest_put:base_outcome", f"the `base_outcome` of {name} " + " and ".join(bad)))
     return problems
 
 
@@ -614,11 +614,11 @@ def obligation_hash_problems(fragment, stored_tests=None) -> list:
             refs = next((t.get("obligation_refs") for t in stored if spellings & _spellings(t)), None)
         refs = [r for r in refs if isinstance(r, dict)] if isinstance(refs, list) else []
         if not refs:
-            problems.append(f"tests[{at}].obligation_hash {sent} cannot be checked: the row names no obligation_refs; "
-                            "leave it out, the code builds it")
+            problems.append(DV.refusal("manifest_put:obligation_hash", f"tests[{at}].obligation_hash {sent} cannot be checked: the row names no obligation_refs; "
+                            "leave it out, the code builds it"))
         elif sent != content_hash(refs):
-            problems.append(f"tests[{at}].obligation_hash {sent} is not the hash of its obligation_refs "
-                            f"({content_hash(refs)}); leave it out, the code builds it")
+            problems.append(DV.refusal("manifest_put:obligation_hash", f"tests[{at}].obligation_hash {sent} is not the hash of its obligation_refs "
+                            f"({content_hash(refs)}); leave it out, the code builds it"))
     return problems
 
 
@@ -641,33 +641,33 @@ def helper_row_problems(current, fragment) -> list:
     rows = fragment["introduced_helpers"]
     fields = ", ".join((*HELPER_SCAFFOLD_FIELDS, *HELPER_ROLE_FIELDS))
     if not isinstance(rows, list):
-        return [f"`introduced_helpers` is a list of rows with the fields {fields}"]
+        return [DV.refusal("manifest_put:helper_rows", f"`introduced_helpers` is a list of rows with the fields {fields}")]
     standing = {_helper_id(r) for r in ((current or {}).get("introduced_helpers") or [])} \
         if isinstance((current or {}).get("introduced_helpers"), list) else set()
     written = {_helper_id(r) for r in rows if isinstance(r, dict) and "novelty" in r}
     problems = []
     for at, row in enumerate(rows):
         if not isinstance(row, dict):
-            problems.append(f"introduced_helpers[{at}] is not an object (the fields are: {fields})")
+            problems.append(DV.refusal("manifest_put:helper_rows", f"introduced_helpers[{at}] is not an object (the fields are: {fields})"))
             continue
         file, name = _helper_id(row)
         label = f"introduced_helpers[{at}] ({file}::{name})" if file and name else f"introduced_helpers[{at}]"
         extra = sorted(set(row) - set(HELPER_SCAFFOLD_FIELDS) - set(HELPER_ROLE_FIELDS))
         if extra:
-            problems.append(f"{label} carries {', '.join(extra)}, which is not a field of the row (the fields are: {fields})")
+            problems.append(DV.refusal("manifest_put:helper_rows", f"{label} carries {', '.join(extra)}, which is not a field of the row (the fields are: {fields})"))
         if not file or not name:
-            problems.append(f"{label} needs `file` and `name` (the pair that names the helper)")
+            problems.append(DV.refusal("manifest_put:helper_rows", f"{label} needs `file` and `name` (the pair that names the helper)"))
         bad = [f for f in HELPER_ROLE_FIELDS if f in row and not isinstance(row[f], str)]
         if bad:
-            problems.append(f"{label}: {', '.join(bad)} must be text")
+            problems.append(DV.refusal("manifest_put:helper_rows", f"{label}: {', '.join(bad)} must be text"))
         if "novelty" in row and row["novelty"] not in ("new", "changed", "unknown"):
-            problems.append(f"{label}: `novelty` is one of new, changed, unknown - and it is written by "
-                            "`manifest_from_tests.py`, not by a role")
+            problems.append(DV.refusal("manifest_put:helper_rows", f"{label}: `novelty` is one of new, changed, unknown - and it is written by "
+                            "`manifest_from_tests.py`, not by a role"))
         elif "novelty" not in row and file and name and (file, name) not in standing and (file, name) not in written:
-            problems.append(f"{label} names a helper the manifest holds no row for: the rows are written by "
+            problems.append(DV.refusal("manifest_put:helper_rows", f"{label} names a helper the manifest holds no row for: the rows are written by "
                             "`manifest_from_tests.py --task <T> --dispatch <id> --file <your test file>` (it lists every "
                             "new helper of your files); run it, then send only your four fields "
-                            "(purpose, searched, similar_found, keep) for the rows it wrote")
+                            "(purpose, searched, similar_found, keep) for the rows it wrote"))
     return problems
 
 
@@ -728,17 +728,17 @@ def provisional_row_problems(current, fragment) -> list:
     held = {C.provisional_id(r) for r in ((current or {}).get(BY_ID[0]) or []) if isinstance(r, dict)} \
         if isinstance((current or {}).get(BY_ID[0]), list) else set()
     if BY_ID[0] in fragment and not isinstance(rows, list):
-        out.append(f"`provisional` is a list of rows ({{id: \"P-<n>\", kind, what, status, home}}); it was sent as "
-                   f"{type(rows).__name__}")
+        out.append(DV.refusal("manifest_put:provisional", f"`provisional` is a list of rows ({{id: \"P-<n>\", kind, what, status, home}}); it was sent as "
+                   f"{type(rows).__name__}"))
     seen = set()
     for at, row in enumerate(rows if isinstance(rows, list) else []):
         pid = C.provisional_id(row)
         if not isinstance(row, dict):
-            out.append(f"provisional[{at}] is not an object (a row is {{id: \"P-<n>\", kind, what, status, home}})")
+            out.append(DV.refusal("manifest_put:provisional", f"provisional[{at}] is not an object (a row is {{id: \"P-<n>\", kind, what, status, home}})"))
         elif not C.PROVISIONAL_ID_RE.match(pid):
-            out.append(f"provisional[{at}] has the id {pid!r}, which is not of the form P-<n>")
+            out.append(DV.refusal("manifest_put:provisional", f"provisional[{at}] has the id {pid!r}, which is not of the form P-<n>"))
         elif pid in seen:
-            out.append(f"provisional[{at}] repeats the id {pid}: send one row per id")
+            out.append(DV.refusal("manifest_put:provisional", f"provisional[{at}] repeats the id {pid}: send one row per id"))
         else:
             seen.add(pid)
     for entry in fragment.get("tests") or []:
@@ -747,19 +747,19 @@ def provisional_row_problems(current, fragment) -> list:
             continue
         label = f"tests[] {entry.get('instance_id') or '(no instance_id)'}: `provisional`"
         if not isinstance(value, list):
-            out.append(f"{label} is a list of ids (e.g. [\"P-1\"]); it was sent as {type(value).__name__}")
+            out.append(DV.refusal("manifest_put:provisional", f"{label} is a list of ids (e.g. [\"P-1\"]); it was sent as {type(value).__name__}"))
         else:
-            out.extend(f"{label} holds {item!r}, which is not of the form P-<n>" for item in value
+            out.extend(DV.refusal("manifest_put:provisional", f"{label} holds {item!r}, which is not of the form P-<n>") for item in value
                        if not (isinstance(item, str) and C.PROVISIONAL_ID_RE.match(item.strip())))
     if RETRACT_PROVISIONAL in fragment:
         asked = fragment[RETRACT_PROVISIONAL]
         if not isinstance(asked, list):
-            out.append(f"{RETRACT_PROVISIONAL} is a list of ids, e.g. [\"P-1\"]; it was sent as " + type(asked).__name__)
+            out.append(DV.refusal("manifest_put:provisional", f"{RETRACT_PROVISIONAL} is a list of ids, e.g. [\"P-1\"]; it was sent as " + type(asked).__name__))
         else:
             unknown = [i for i in dict.fromkeys(str(x).strip() for x in asked if str(x).strip()) if i not in held | seen]
             if unknown:
-                out.append(f"{RETRACT_PROVISIONAL} names no provisional[] row this manifest holds: " + ", ".join(unknown)
-                           + " - the ids are the `id` of the rows already sent through `manifest_put.py --fragment`")
+                out.append(DV.refusal("manifest_put:provisional", f"{RETRACT_PROVISIONAL} names no provisional[] row this manifest holds: " + ", ".join(unknown)
+                           + " - the ids are the `id` of the rows already sent through `manifest_put.py --fragment`"))
     return out
 
 
@@ -1035,8 +1035,8 @@ def unknown_obligation_refusal(task_root, fragment: dict) -> str:
     if not unknown:
         return ""
     known = C.plan_obligation_ids(task_root)
-    return (f"obligation ids not in the plan: {', '.join(unknown)} — the plan names "
-            f"{', '.join(known)} (work/test-plan.json)")
+    return (DV.refusal("manifest_put:unknown_obligation", f"obligation ids not in the plan: {', '.join(unknown)} — the plan names "
+            f"{', '.join(known)} (work/test-plan.json)"))
 
 
 def _passed_by_word(task_root, refusal: str) -> bool:
@@ -1143,8 +1143,8 @@ def then_remainder_problems(task_root: Path, fragment: dict) -> list:
     for row in C.then_remainder_rows({"unresolved": pooled, "then_bindings": rows}):
         errors = C.then_remainder_errors(row)
         if errors:
-            out.append(f"then_bindings row {row.get('case')} Then {row.get('then')!r} is a Then left with its owner "
-                       "and is malformed: " + "; ".join(errors))
+            out.append(DV.refusal("manifest_put:then_remainder", f"then_bindings row {row.get('case')} Then {row.get('then')!r} is a Then left with its owner "
+                       "and is malformed: " + "; ".join(errors)))
     return out
 
 
@@ -1216,8 +1216,8 @@ def expectation_change_problems(incoming, existing=None) -> list:
     if incoming is None:
         return []
     if not isinstance(incoming, list):
-        return ["`expectation_changes` must be a list of objects, one per changed test "
-                "(or per set of tests that share one pair of runs)"]
+        return [DV.refusal("manifest_put:expectation_changes", "`expectation_changes` must be a list of objects, one per changed test "
+                "(or per set of tests that share one pair of runs)")]
     known: list = []
     known_rows: dict = {}  # key -> the record, the first one of a key (the merge's own rule)
     for row in existing or []:
@@ -1228,30 +1228,30 @@ def expectation_change_problems(incoming, existing=None) -> list:
     for i, row in enumerate(incoming):
         at = f"expectation_changes[{i}]"
         if not isinstance(row, dict):
-            out.append(f"{at} is not an object: write {{\"function\": <key>, \"red_attempt\": ..., "
+            out.append(DV.refusal("manifest_put:expectation_changes", f"{at} is not an object: write {{\"function\": <key>, \"red_attempt\": ..., "
                        "\"green_attempt\": ..., \"then_refs\": [{\"case\": ..., \"then\": <number>}], "
-                       "\"what_changed\": ..., \"reason\": ...}")
+                       "\"what_changed\": ..., \"reason\": ...}"))
             continue
         bad = len(out)
         if "function" in row and not _text(row["function"]):
-            out.append(f"{at}.`function` must be a non-empty string (the key `s5_precheck.py` "
-                       "prints in its finding)")
+            out.append(DV.refusal("manifest_put:expectation_changes", f"{at}.`function` must be a non-empty string (the key `s5_precheck.py` "
+                       "prints in its finding)"))
         if "functions" in row and (not isinstance(row["functions"], list) or not row["functions"]
                                    or not all(_text(n) for n in row["functions"])):
-            out.append(f"{at}.`functions` must be a non-empty list of strings (the keys "
-                       "`s5_precheck.py` prints in its findings)")
+            out.append(DV.refusal("manifest_put:expectation_changes", f"{at}.`functions` must be a non-empty list of strings (the keys "
+                       "`s5_precheck.py` prints in its findings)"))
         if "function" not in row and "functions" not in row:
-            out.append(f"{at} is missing `function` (a string) or `functions` (a list of strings): "
-                       "copy the key from the `changed-after-red` finding of s5_precheck.py")
+            out.append(DV.refusal("manifest_put:expectation_changes", f"{at} is missing `function` (a string) or `functions` (a list of strings): "
+                       "copy the key from the `changed-after-red` finding of s5_precheck.py"))
         if not _text(row.get("red_attempt")):
-            out.append(f"{at}.`red_attempt` must be a non-empty string: the run attempt in which the "
-                       "test went red, as the finding prints it")
+            out.append(DV.refusal("manifest_put:expectation_changes", f"{at}.`red_attempt` must be a non-empty string: the run attempt in which the "
+                       "test went red, as the finding prints it"))
         if "green_attempt" not in row:
-            out.append(f"{at} is missing `green_attempt`: the attempt in which it passed, as the "
-                       "finding prints it (null when the test was renamed, moved or deleted)")
+            out.append(DV.refusal("manifest_put:expectation_changes", f"{at} is missing `green_attempt`: the attempt in which it passed, as the "
+                       "finding prints it (null when the test was renamed, moved or deleted)"))
         elif row["green_attempt"] is not None and not _text(row["green_attempt"]):
-            out.append(f"{at}.`green_attempt` must be a non-empty string, or null when the test was "
-                       "renamed, moved or deleted after its red run")
+            out.append(DV.refusal("manifest_put:expectation_changes", f"{at}.`green_attempt` must be a non-empty string, or null when the test was "
+                       "renamed, moved or deleted after its red run"))
         if len(out) > bad:
             continue  # a row that names no function or run cannot be told from a new one
         key = _record_key(row)
@@ -1261,11 +1261,11 @@ def expectation_change_problems(incoming, existing=None) -> list:
             # a verdict that joins no record: say which key was asked and which exist, instead of
             # three complaints about author fields the critic has no business writing
             out.append(
-                f"{at} is a verdict for a record that cannot be told: the key ({_key_text(key)}) "
+                DV.refusal("manifest_put:expectation_changes", f"{at} is a verdict for a record that cannot be told: the key ({_key_text(key)}) "
                 + (f"is inside {len(hosts)} records, and a patch must pick ONE" if hosts
                    else "matches no record, and a patch with no author fields can only add to one")
                 + f". Existing records: {_listed(known)}. Write the `function`/`functions`, "
-                "`red_attempt` and `green_attempt` of ONE of them (or some of its functions)")
+                "`red_attempt` and `green_attempt` of ONE of them (or some of its functions)"))
             continue
         new = key not in known and len(hosts) != 1
         if new:
@@ -1273,29 +1273,29 @@ def expectation_change_problems(incoming, existing=None) -> list:
         if "then_refs" in row or new:
             refs = row.get("then_refs")
             if not isinstance(refs, list) or not refs or not all(isinstance(r, dict) for r in refs):
-                out.append(f"{at}.`then_refs` must be a non-empty list of objects "
+                out.append(DV.refusal("manifest_put:expectation_changes", f"{at}.`then_refs` must be a non-empty list of objects "
                            "{\"case\": \"TC-001\", \"then\": 2}: the Then clause(s) the changed value "
-                           "belongs to")
+                           "belongs to"))
             else:
                 for j, ref in enumerate(refs):
                     if not _text(ref.get("case")):
-                        out.append(f"{at}.then_refs[{j}].`case` must be a non-empty string, "
-                                   "the case id")
+                        out.append(DV.refusal("manifest_put:expectation_changes", f"{at}.then_refs[{j}].`case` must be a non-empty string, "
+                                   "the case id"))
                     then = ref.get("then")
                     if isinstance(then, bool) or not isinstance(then, int):
-                        out.append(f"{at}.then_refs[{j}].`then` must be an integer, the number of "
-                                   f"the Then clause in the case file (got {then!r})")
+                        out.append(DV.refusal("manifest_put:expectation_changes", f"{at}.then_refs[{j}].`then` must be an integer, the number of "
+                                   f"the Then clause in the case file (got {then!r})"))
         for field, hint in (("what_changed", "what you changed in the test, before -> after"),
                             ("reason", "why the approved case allows it")):
             if (field in row or new) and not _text(row.get(field)):
-                out.append(f"{at}.`{field}` must be a non-empty string: {hint}")
+                out.append(DV.refusal("manifest_put:expectation_changes", f"{at}.`{field}` must be a non-empty string: {hint}"))
         if "critic_verdict" in row:
             allowed = _verdicts()
             if not _text(row["critic_verdict"]) or (allowed and row["critic_verdict"] not in allowed):
-                out.append(f"{at}.`critic_verdict` must be one of {allowed} "
-                           f"(got {row['critic_verdict']!r})")
+                out.append(DV.refusal("manifest_put:expectation_changes", f"{at}.`critic_verdict` must be one of {allowed} "
+                           f"(got {row['critic_verdict']!r})"))
         if "critic_note" in row and not isinstance(row["critic_note"], str):
-            out.append(f"{at}.`critic_note` must be a string: what the critic read")
+            out.append(DV.refusal("manifest_put:expectation_changes", f"{at}.`critic_note` must be a string: what the critic read"))
         elif ("critic_verdict" in row or "critic_note" in row):
             # the note IS the reason the window is then recorded unresolved (R14a): a verdict that
             # says "I could not tell" and not why leaves the conductor with nothing to write. It is
@@ -1303,9 +1303,9 @@ def expectation_change_problems(incoming, existing=None) -> list:
             # `could_not_judge` would otherwise leave exactly that (t-149, critic).
             verdict, note = _merged_critic_fields(row, known_rows)
             if verdict in NOTE_REQUIRED_VERDICTS and not _text(note):
-                out.append(f"{at}.`critic_note` is required with `critic_verdict: {verdict}`: "
+                out.append(DV.refusal("manifest_put:expectation_changes", f"{at}.`critic_note` is required with `critic_verdict: {verdict}`: "
                            "write what you could not tell and why: the conductor records the window as "
-                           "unresolved with the reason")
+                           "unresolved with the reason"))
     return out
 
 
@@ -1493,14 +1493,14 @@ def retract_problems(fragment) -> list:
         return []
     names = fragment[RETRACT_KEY]
     if not isinstance(names, list):
-        return [f"`retract` must be a list of top-level key names, e.g. [\"then_bindings\"]; this one is {type(names).__name__}"]
+        return [DV.refusal("manifest_put:retract", f"`retract` must be a list of top-level key names, e.g. [\"then_bindings\"]; this one is {type(names).__name__}")]
     out = []
     for name in names:
         if not isinstance(name, str):
-            out.append(f"`retract` member {_key(name)} is not a key name: write the name as a string, e.g. \"then_bindings\"")
+            out.append(DV.refusal("manifest_put:retract", f"`retract` member {_key(name)} is not a key name: write the name as a string, e.g. \"then_bindings\""))
         elif name in RETRACT_DOORS:
-            out.append(f"`retract` names `{name}`, which is never replaced whole: take its rows out with "
-                       f"`{RETRACT_DOORS[name]}` instead")
+            out.append(DV.refusal("manifest_put:retract", f"`retract` names `{name}`, which is never replaced whole: take its rows out with "
+                       f"`{RETRACT_DOORS[name]}` instead"))
     return out
 
 
@@ -1694,8 +1694,8 @@ def critic_approval_problems(fragment, stored_tests) -> list:
         ids = set(_identity(row))
         if any(isinstance(s, dict) and s.get("critic_verdict") == "unverified" and ids.intersection(_identity(s))
                for s in stored_tests or []):
-            out.append(f"tests[{i}] approves over a stored unverified verdict with no critic_note: say what changed (a "
-                       "probe result, a re-read); a receipt that lacks a probe is a tooling gap, not an approval")
+            out.append(DV.refusal("manifest_put:critic_approval", f"tests[{i}] approves over a stored unverified verdict with no critic_note: say what changed (a "
+                       "probe result, a re-read); a receipt that lacks a probe is a tooling gap, not an approval"))
     return out
 
 
@@ -1766,8 +1766,8 @@ def assertion_line_problems(fragment, stored_tests, project) -> tuple:
         below = facts["nearest_below"]
         door = (f"the nearest check below it starts at line {below['line']}: the id is `{name}:{below['line']}` when that is "
                 "the Then's check" if below else f"this test has no check below line {line}")
-        problems.append(f"{shown}: line {line} of {name} holds no check (none starts or spans there), and the id is the line "
-                        f"where the Then's check starts; {door}")
+        problems.append(DV.refusal("manifest_put:assertion_line", f"{shown}: line {line} of {name} holds no check (none starts or spans there), and the id is the line "
+                        f"where the Then's check starts; {door}"))
     return problems, notes
 
 
@@ -2195,14 +2195,14 @@ def ghost_row_problems(folded: dict, fragment: dict, task: str) -> list:
     bound = sorted({str(r.get("instance_id") or "").strip() for r in rows if isinstance(r, dict)} & asked) \
         if isinstance(rows, list) else []
     if bound:
-        out.append("one fragment cannot both bind a Then to and retract an instance: " + ", ".join(bound)
-                   + " - send the Then row under the instance's new id and retract the old spelling, not the same id twice")
+        out.append(DV.refusal("manifest_put:ghost_rows", "one fragment cannot both bind a Then to and retract an instance: " + ", ".join(bound)
+                   + " - send the Then row under the instance's new id and retract the old spelling, not the same id twice"))
     for entry in fragment.get("tests") or []:
         if is_ghost_row(entry, folded):
-            out.append(f"tests[] row `{_instance(entry) or next(iter(_identity(entry)))}` changes a test this manifest "
+            out.append(DV.refusal("manifest_put:ghost_rows", f"tests[] row `{_instance(entry) or next(iter(_identity(entry)))}` changes a test this manifest "
                        f"retracted (`retracted_instances`); send the change under the test's current spelling "
                        f"(`manifest_view.py --task {task}` lists them), or, to bring the test back, send its whole row "
-                       f"with `covers` and `case_version_links`")
+                       f"with `covers` and `case_version_links`"))
     return out
 
 
@@ -2213,11 +2213,12 @@ def _refuse_unmergeable(folded: dict, fragment: dict, task: str) -> None:
     expected = fragment.get("expected_revision")
     revision = folded.get("revision", 0)
     if expected is not None and expected != revision:
-        raise _MergeRefused(
+        raise _MergeRefused(DV.refusal(
+            "manifest_put:revision",
             f"manifest revision conflict: the fragment expects revision {expected!r} and the manifest "
             f"(merged events only) is at revision {revision}. Read the revision in the file "
             f"(`manifest_view.py --task {task}`) and send the fragment again with that number as "
-            "`expected_revision`, or without the key")
+            "`expected_revision`, or without the key"))
     try:
         merge(folded, fragment)
     except ValueError as exc:
@@ -2230,7 +2231,9 @@ def _refuse_unmergeable(folded: dict, fragment: dict, task: str) -> None:
     problems = (ghost_row_problems(folded, fragment, task) + helper_row_problems(folded, fragment)
                 + provisional_row_problems(folded, fragment))
     if problems:
-        raise _MergeRefused("; ".join(problems))
+        refused = _MergeRefused("; ".join(problems))
+        refused.records = tuple(p for p in problems if getattr(p, "check", ""))     # one Record per sited problem (EC-5)
+        raise refused
 
 
 def _seed_from_legacy(task: str, store, events: list, path: Path, fragment: dict, project) -> int:
