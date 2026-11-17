@@ -1623,7 +1623,169 @@ def main() -> None:
     t1rs_sites()
     tbw_t7c_sites()
     tbw_t6_sites()
+    tbw_t7b_sites()
     finish("test_detector_verdict")
+
+
+def tbw_t7b_sites() -> None:
+    """told-before-work T7b: the twelve refusals of the S3 plan contract (`planning_contract.py`) that map to a row id write it as
+    `refusal("<id>", <text>)`. ONE table, a row per id (`regression_scope.problems` is another module's: the id is on its caller
+    `_regression_findings`, E-T7b-1). Each row provokes the function that returns the refusal lines, asserts the text is the one the
+    pre-change file printed (`old`, read from a byte copy of that file before the edit; EC-1), that each line is a Record with
+    `check == <id>` and the row's own sentence and door, and that no problem means no line (EC-5). `plan_json` is a print in the
+    detector body: the row runs the body and spies on `refusal`. `unmarked_revision_errors` stays bare (T9c)."""
+    import contextlib
+    import io
+    import planning_contract as PC
+    import stage_joints as SJ
+    from harness import use_project
+    row = {"id": "TS-1", "schema_version": 1, "impact": "moderate", "likelihood": "medium", "confidence": "medium",
+           "risk_rationale": "shared component", "risk_source_refs": ["R-1"], "risk_policy_revision": "factory-starter-v1",
+           "coverage_refs": [], "unknowns": [], "verification_depth": "normal", "required_scenarios": ["opens"],
+           "test_level_rationale": "user path", "design_review_required": False}
+    register = ("## Register\n\n| R | Requirement | source | derived_from | verifiable | ac_ref | observable | impact |\n"
+                "|---|---|---|---|---|---|---|---|\n| R-1 | a denied caller gets 403 | ac | - | yes | AC-1 | diff:src/api.py:10 | access |\n\n"
+                "## Contradiction matrix\n\n| R | parent story/feature | area cases (TC-*) | area open bugs |\n|---|---|---|---|\n"
+                "| R-1 | contradicts:\"the parent feature says 401\" (feature 3) | silent | silent |\n")
+    fence = {"missing": [{"id": "R-9", "where": "plan"}, {"id": "R-8", "where": "md"}], "candidates": [{"r": "R-7"}],
+             "waiting": [{"id": "R-6", "question": "Q2"}], "by_reference": []}
+    found = {"word": "extend", "target": "tests/x.py", "state": "absent", "file": "tests/x.py", "why": ""}
+    problem = ("new_questions[0] has key 'x'. Expected: \"new:<n>\" with n from 1 to 99")
+    old: dict = {   # the text each refusal printed before the file was sited: a byte copy of the pre-change planning_contract.py, same provocations
+        'plan depth': [
+            'TS-1: invalid verification depth (one of low, normal, critical)',
+        ],
+        'plan revision': [
+            "TS-1: coverage_contract_revision is 'v0'; this factory plans against 'coverage-observation-v1' and writes the mark itself - remove the field from the row (a row planned against another revision is re-planned, not relabelled)",
+        ],
+        'contradictions none': [
+            'R-1: the register\'s matrix records contradicts:"the parent feature says 401" (feature 3), and no plan row covers R-1 — a contradiction cannot be closed by leaving it out of the plan',
+        ],
+        'contradictions unflagged': [
+            'R-1: the register\'s matrix records contradicts:"the parent feature says 401" (feature 3); the plan row(s) TS-1 carry neither `source_conflict: true` nor `oracle_unknown: true`, so the reading you chose reaches gate A as a settled fact and nobody reviews it',
+        ],
+        'branches': [
+            'REJECT — 2 question-branch problem(s) of the plan rows; at gate A an answer would not move the plan as written. Repair them now, while S3 still holds the context:',
+            '- TS-2: Q9 is not in the register',
+            '- TS-1: no branch for Q1',
+        ],
+        'branches new_questions': [
+            'REJECT — 1 question-branch problem(s) of the plan rows; at gate A an answer would not move the plan as written. Repair them now, while S3 still holds the context:',
+            '- TS-1: new_questions[0] has key \'x\'. Expected: "new:<n>" with n from 1 to 99 - the strategist\'s rework repairs this row',
+        ],
+        'fence plan_row': [
+            'R-9: this requirement of the register has no row in the test plan. Expected: a row that names R-9 in `requirements` in work/test-plan.json and in the `R` column of test-plan.md. If it waits for a gate A question: `disposition: unverifiable`, `question_refs: ["Q2"]` and `if_answered["Q2"]` with a key for every reading letter (or `*`) and `not_needed`; the reading that keeps it in scope sets a disposition that gets a case. If it should not be checked: `disposition: skip` with the reason, and the person sees that row at gate A. A `not_planned` entry does not stand in for a row.',
+        ],
+        'fence r_column': [
+            'R-8: this requirement of the register is named in work/test-plan.json but not in the `R` column of test-plan.md; the person reads and the delivery trace follows that table. Expected: the same id in the `R` cell of the row.',
+        ],
+        'fence candidate_defects': [
+            'R-7: the register marks this requirement `bug:candidate-defect`, and no row plans a test for it. Expected: a row naming R-7 with `disposition: automate` or `manual-agent`; or, while a gate A question decides it, `unverifiable` with `question_refs` and an `if_answered` reading that sets `automate` or `manual-agent`. When the requirements do not state the expected result: `oracle_unknown: true` and a question; the current code is never the expected result.',
+        ],
+        'fence waiting_branch': [
+            'R-6 waits for Q2, and no row of it has a non-empty branch for Q2. Expected: `if_answered["Q2"]` on the row with a patch for at least one reading; or, if no answer changes the row, a person\'s word: the waiver line below.',
+        ],
+        'regression': [
+            'no `## Recommended regression` in test-plan.md: write the list, or `No regression: <reason>`',
+        ],
+        'targets': [
+            "REJECT — 1 plan target(s) name a test the project's working tree does not have; S4 would search for it:",
+            '- TS-1: `extend tests/x.py` - no file at tests/x.py under the project root or the run folder of its profile. Expected: the test as it is in the working tree, `extend <path from the project root>[::<name>]`, or a candidate id of work/context-bundle.json; when the test exists only in the change under test, `fit: new` with `fit_absent: "tests/x.py"` - the new test then writes the page objects and helpers it needs.',
+        ],
+        'requests': [
+            'TS-1: requests[0] has no `failures` (a non-empty list of strings) - fix: {"request": "<key>", "failures": ["500", "timeout"]}',
+            'TS-1: has `requests` and no `requirements` - fix: name in `requirements` the register R whose flow sends the request (the red violates that R); a request that serves no R of the story goes to top-level `request_homes` with that reason',
+            'GET /api/books (src/a.js:3): no plan row fails it with 500, timeout - fix: add {"request": "GET /api/books", "failures": ["500", "timeout"]} to `requests` of the row that checks it, or {"request": "GET /api/books", "failure": "500|timeout|*", "reason": "<why>"} to top-level `request_homes`',
+        ],
+        'requests capped': [
+            'TS-1: requests[0] has no `failures` (a non-empty list of strings) - fix: {"request": "<key>", "failures": ["500", "timeout"]}',
+            '2 more problems (3 in all); fix these first, the check runs again',
+        ],
+        'plan_json': [
+            'REJECT — 1 problem(s): the structured test plan cannot be read:',
+            '- test-plan.json is not readable JSON (Expecting property name enclosed in double quotes: line 1 column 2 (char 1)); Gate A reads this file, so it cannot stay broken',
+        ],
+    }
+    tmp = Path(tempfile.mkdtemp(prefix="tbw-t7b-"))
+    saved = os.environ.get("CLAUDE_PROJECT_DIR")
+    root = temp_project("tbw-t7b-")
+    try:
+        use_project(root)
+        task = root / "qa-factory" / "artifacts" / "QA-1"
+        (task / "work").mkdir(parents=True)
+        (task / "test-plan.md").write_text("# Plan\n", encoding="utf-8")
+        (task / "work" / "flow-requests.json").write_text(json.dumps({"requests": [
+            {"method": "GET", "url_template": "/api/books", "source": "code", "path": "src/a.js", "line": 3}]}), encoding="utf-8")
+        bad_requests = {"rows": [{"id": "TS-1", "requests": [{"request": "GET /api/books"}]}]}
+
+        def told(cid):
+            return SJ.told_text(SJ.row_for(cid)[0])
+
+        def capped(limit):
+            import branch_accounting as BA
+            real = BA.limit
+            BA.limit = lambda name, *a, **k: limit if name == "refusal_units_shown" else real(name, *a, **k)
+            try:
+                return PC._request_findings(task, bad_requests)
+            finally:
+                BA.limit = real
+
+        # (key, the id its lines carry, the lines the function returns, how many leading lines are headers, not findings)
+        rows = (
+            ("plan depth", "planning_contract:plan", lambda: PC.gate_plan_errors([dict(row, verification_depth="deep")], "legacy", 1), 0),
+            ("plan revision", "planning_contract:plan", lambda: PC.gate_plan_errors([dict(row, coverage_contract_revision="v0")], "legacy", 1), 0),
+            ("contradictions none", "planning_contract:contradictions", lambda: PC.contradiction_errors([], register), 0),
+            ("contradictions unflagged", "planning_contract:contradictions", lambda: PC.contradiction_errors([dict(row, requirement_refs=["R-1"])], register), 0),
+            ("branches", "planning_contract:branches", lambda: PC._branch_block_lines([
+                {"kind": "missing_branch", "message": "TS-1: no branch for Q1"}, {"kind": "unresolved_ref", "message": "TS-2: Q9 is not in the register"}]), 1),
+            ("branches new_questions", "planning_contract:branches.new_questions", lambda: PC._branch_block_lines(
+                PC.s3_branch_refusals(task, [], view=([], [], [("TS-1", "new:1", f"TS-1: {problem}")]))[0]), 1),
+            ("fence plan_row", "planning_contract:fence.plan_row", lambda: PC.fence_lines(dict(fence, candidates=[], waiting=[], missing=fence["missing"][:1]))[0][1], 0),
+            ("fence r_column", "planning_contract:fence.r_column", lambda: PC.fence_lines(dict(fence, candidates=[], waiting=[], missing=fence["missing"][1:]))[0][1], 0),
+            ("fence candidate_defects", "planning_contract:fence.candidate_defects", lambda: PC.fence_lines(dict(fence, missing=[], waiting=[]))[0][1], 0),
+            ("fence waiting_branch", "planning_contract:fence.waiting_branch", lambda: PC.fence_lines(dict(fence, missing=[], candidates=[]))[0][1], 0),
+            ("regression", "planning_contract:regression", lambda: PC._regression_findings(task), 0),
+            ("targets", "planning_contract:targets", lambda: PC.fit_target_block([{"where": "TS-1", "state": "absent", "line": PC._target_line("TS-1", found)}]), 1),
+            ("requests", "planning_contract:requests", lambda: PC._request_findings(task, bad_requests), 0),
+            ("requests capped", "planning_contract:requests", lambda: capped(1), 0),
+        )
+        for key, cid, produce, headers in rows:
+            lines = list(produce())
+            expected, door = told(cid)
+            check_eq(f"t7b {cid} ({key}): the printed text is the old text", [str(x) for x in lines], old.get(key))
+            check_eq(f"t7b {cid} ({key}): every finding is a Record of the row, with its sentence and door; a header stays plain",
+                     [(getattr(x, "check", ""), getattr(x, "expected", ""), getattr(x, "door", "")) for x in lines],
+                     [("", "", "")] * headers + [(cid, expected, door)] * (len(lines) - headers))
+        # EC-5: nothing wrong, nothing returned
+        check_eq("t7b no problem, no line (plan, contradictions, branches, targets, requests, regression)",
+                 (PC.gate_plan_errors([row], "legacy", 1), PC.contradiction_errors([dict(row, requirement_refs=["R-1"], source_conflict=True)], register),
+                  PC._branch_block_lines([]), PC.fit_target_block([]), PC.fence_lines(dict(fence, missing=[], candidates=[], waiting=[])),
+                  PC._request_findings(task, {"rows": [dict(row, requests=[{"request": "GET /api/books", "failures": ["500", "timeout"]}],
+                                                            requirements=["R-1"])]}),
+                  PC._regression_findings(tmp)), ([], [], [], [], [], [], []))
+        # the unmarked revision lines keep their text and stay bare (the conductor's door: node T9c)
+        bare = PC.gate_plan_errors([row], "new", 1)
+        check_eq("t7b plan: the unmarked-revision line is returned as it was, bare", (len(bare), [getattr(x, "check", "") for x in bare]), (1, [""]))
+        # plan_json: a print of the detector body; the row runs the body and watches the constructor
+        (task / "work" / "test-plan.json").write_text("{not json", encoding="utf-8")
+        asked, real_refusal, real_story = [], PC.refusal, PC.detector_story
+        PC.refusal = lambda cid, text, **kw: (asked.append(cid), real_refusal(cid, text, **kw))[1]
+        PC.detector_story = lambda *a, **k: task
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out):
+                code = PC._detector_body(None)
+        finally:
+            PC.refusal, PC.detector_story = real_refusal, real_story
+        check_eq("t7b planning_contract:plan_json: the body prints the old two lines, exits 1, and asks the constructor for the row",
+                 (out.getvalue().splitlines(), code, asked), (old.get("plan_json"), 1, ["planning_contract:plan_json"]))
+    finally:
+        if saved is None:
+            os.environ.pop("CLAUDE_PROJECT_DIR", None)
+        else:
+            os.environ["CLAUDE_PROJECT_DIR"] = saved
+        cleanup(root)
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":
