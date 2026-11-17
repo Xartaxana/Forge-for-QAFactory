@@ -12,7 +12,7 @@ A finding has one of three addressees, the `scope` field:
   project's factory before the next story;
 - `local-calibration` — an inconvenience with no acute pain (numbering, report noise): no
   deadline, revisited when several similar findings accumulate;
-- `upstream-candidate` — a candidate for the shared plugin canon. Passing upstream is a
+- `upstream-candidate` — a candidate for the shared plugin canon; passing it upstream is a
   human decision, not automatic: a local adaptation is not necessarily a canon defect.
 
 Rules:

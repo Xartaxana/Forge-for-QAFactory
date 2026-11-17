@@ -26,6 +26,7 @@ import os
 import re
 import sys
 import tempfile
+from collections.abc import Mapping
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -36,18 +37,62 @@ from hooklib import sorted_paths
 # The addressee of a finding about the factory (`scope`), and what each word means - the meanings are
 # `references/templates/factory-backlog.md`'s own words, shortened. ONE constant, imported by the dashboard
 # (`factory_dashboard.tab_factory`), by the CLI's `--scope` choices and by the refusal below.
-# FR-13 debt: closed variety living in code, not in a data file (design/factory-rules-debt.md).
+# The words are DATA (FR-13, AR-1): `references/finding-scopes.json`, `{word: {"meaning": ..., "urgent": bool}}`; the three
+# words are the factory's own contract, a project adds none (AR-3). The table is read at FIRST USE, never at import
+# (`tools/collect_intake.py` imports this module); a missing, broken or empty file is a refusal naming its door, never an
+# empty list and never a copy of the words in code (FR-59).
 # TP1-15045, 02.10: the conductor met `invalid finding scope` as a bare traceback with no word named,
 # invented the scope `handoff.py REQUIRED_LISTS / handoff_check.py / driver S7 entry`, and the finding that
 # the factory's own S7 form had no legal answer was never recorded.
-FINDING_SCOPES = {
-    "local-urgent": "breaks runs here and now (a broken schema, a dead hook): fix in this project's factory "
-                    "before the next story",
-    "local-calibration": "an inconvenience with no acute pain (numbering, report noise): no deadline, revisited "
-                         "when several similar findings accumulate",
-    "upstream-candidate": "a candidate for the shared plugin canon; passing it upstream is a human decision, "
-                          "not automatic",
-}
+SCOPES_FILE = "finding-scopes.json"
+
+
+class _ScopeTable(Mapping):
+    """`{word: meaning}`, read from `references/finding-scopes.json` on first use; `.urgent` names the words whose row says
+    `"urgent": true` (the capability the dashboard styles by, instead of a literal word). A failed read is not cached."""
+
+    def __init__(self):
+        self._rows = None
+
+    def _load(self) -> dict:
+        if self._rows is None:
+            import hooklib
+            path = hooklib.ref(SCOPES_FILE)
+            door = (f"{path} must be a JSON object of {{word: {{\"meaning\": text, \"urgent\": true|false}}}} with at least one word; "
+                    "restore it from the plugin (update or reinstall qa-factory) - nothing was recorded")
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                raise ValueError(f"the finding scopes cannot be read ({type(exc).__name__}): {door}") from None
+            rows = {}
+            if isinstance(raw, dict):
+                for word, row in raw.items():
+                    if (isinstance(row, dict) and isinstance(row.get("meaning"), str) and row["meaning"].strip()
+                            and isinstance(row.get("urgent"), bool)):
+                        rows[word] = row
+                    else:
+                        rows = {}
+                        break
+            if not rows:
+                raise ValueError(f"the finding scopes are empty or malformed: {door}")
+            self._rows = rows
+        return self._rows
+
+    def __getitem__(self, word):
+        return self._load()[word]["meaning"]
+
+    def __iter__(self):
+        return iter(self._load())
+
+    def __len__(self):
+        return len(self._load())
+
+    @property
+    def urgent(self) -> tuple:
+        return tuple(word for word, row in self._load().items() if row["urgent"])
+
+
+FINDING_SCOPES = _ScopeTable()
 SCOPE_SHOWN = 60            # how much of a refused word the refusal repeats; the rest is cut with an ellipsis
 
 
@@ -873,8 +918,12 @@ def _record_stand_frontend(args) -> dict:
 def _scope_arg(value: str) -> str:
     """`--scope` of `add-finding`: the word, or a refusal that names the three words with their meanings (the
     `choices` below lists them in `--help`, but argparse's own message for a bad choice carries no meaning)."""
-    if value not in FINDING_SCOPES:
-        raise argparse.ArgumentTypeError(scope_refusal(value))
+    try:
+        known = value in FINDING_SCOPES
+        if not known:
+            raise argparse.ArgumentTypeError(scope_refusal(value))
+    except ValueError as exc:       # the data file cannot be read: argparse would hide the text behind its generic one
+        raise argparse.ArgumentTypeError(str(exc)) from None
     return value
 
 
@@ -941,8 +990,11 @@ def _build_parser() -> argparse.ArgumentParser:
     add.add_argument("--scope", default="project"); add.add_argument("--owner", default="user")
     add.add_argument("--trigger-type", default="manual"); add.add_argument("--trigger-value", default="")
     finding = sub.add_parser("add-finding"); finding.add_argument("--essence", required=True)
-    finding.add_argument("--scope", required=True, type=_scope_arg, choices=list(FINDING_SCOPES),
-                         help="the finding's addressee: " + "; ".join(f"{w} = {m}" for w, m in FINDING_SCOPES.items()))
+    try:        # an unreadable table must not break every action: `--scope` then refuses by `_scope_arg`, with the door
+        words, helped = list(FINDING_SCOPES), "; ".join(f"{w} = {m}" for w, m in FINDING_SCOPES.items())
+    except ValueError:
+        words, helped = None, "one of the factory's finding scopes (references/finding-scopes.json)"
+    finding.add_argument("--scope", required=True, type=_scope_arg, choices=words, help="the finding's addressee: " + helped)
     finding.add_argument("--witness", help="the evidence, one line typed by code; exactly one of --witness / --words-file")
     finding.add_argument("--words-file", help="a file holding a person's own words as they were given (UTF-8), "
                                               "instead of --witness: the row holds them on one line and the key "
