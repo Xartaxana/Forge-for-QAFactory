@@ -26,7 +26,7 @@ LIVE_MARKER = ".github"
 LIVE_REL = ".github/workflows"
 DRAFT_REL = "docs/migration/forge-repo/.github/workflows"
 PACKAGE_DRAFT = ROOT / "docs" / "migration" / "qafactory-repo" / ".github" / "workflows" / "package-check.yml"
-NAMES = ("forge-check.yml", "nightly.yml", "canon.yml", "quarantine-watch.yml")
+NAMES = ("forge-check.yml", "nightly.yml", "canon.yml", "quarantine-watch.yml", "dry-story.yml")
 QUARANTINE_CONFIG = ROOT / "plans" / "test-quarantine" / "config.json"
 
 
@@ -286,12 +286,12 @@ def test_the_canon_is_named_by_its_ref_and_its_clock_runs_after_a_red_job():
     """F-19 (d): `run-name: canon ${{ inputs.ref }}` (head_branch of a dispatched run is always main). .gitlab-ci.yml:278-293:
     canon-clock, last stage, `when: always`, `canon_clock.py --created-at <output of the first job> --message <head message>`."""
     doc = load("canon.yml")
-    assert doc["run-name"] == "${{ inputs.spike && 'dry-spike' || 'canon' }} ${{ inputs.ref }}"   # a spike run never reads as a canon in the list
+    assert doc["run-name"] == "${{ inputs.dry_only && 'dry-story' || 'canon' }} ${{ inputs.ref }}"   # a door run never reads as a canon in the list
     jobs = doc["jobs"]
     assert jobs["start"]["outputs"] == {"created_at": "${{ steps.t.outputs.created_at }}"}
     assert jobs["checks"]["needs"] == "start" and jobs["full"]["needs"] == "start"
     clock = jobs["clock"]
-    assert clock["if"] == "${{ always() && !inputs.spike }}" and set(clock["needs"]) == {"start", "checks", "full"}
+    assert clock["if"] == "${{ always() && !inputs.dry_only }}" and set(clock["needs"]) == {"start", "checks", "full"}
     assert clock["env"] == {"CREATED_AT": "${{ needs.start.outputs.created_at }}"}
     (run,) = runs(clock)
     assert run == 'python tools/canon_clock.py --created-at "$CREATED_AT" --message "$(git log -1 --format=%B)"'
@@ -307,6 +307,62 @@ def test_f19e_no_run_string_splices_a_value_a_person_controls():
     assert len(strings) >= 20, "the walk found almost no run: strings"
     for where, run in strings:
         assert not F19E_FORBIDDEN.search(run), (where, run)
+
+
+DRY_STORY = "./.github/workflows/dry-story.yml"
+
+
+def test_canon_has_no_spike_input_and_no_dry_story_spike_job():
+    """P1-b N5 (F-P16 (a)): the spike is replaced by the dry_only door; a start with the old input is refused by GitHub."""
+    doc = load("canon.yml")
+    inputs = doc[True]["workflow_dispatch"]["inputs"]
+    assert "spike" not in inputs and "dry-story-spike" not in doc["jobs"]
+    assert inputs["dry_only"]["type"] == "boolean" and inputs["dry_only"]["default"] is False
+    assert "inputs.spike" not in text_of("canon.yml")
+
+
+def test_canons_dry_only_door_calls_dry_story_and_skips_checks_full_clock():
+    """The door runs the one job file; the canon without dry_only is as before (its jobs run only when the flag is false)."""
+    jobs = load("canon.yml")["jobs"]
+    assert jobs["dry-story"]["uses"] == DRY_STORY and jobs["dry-story"]["if"] == "${{ inputs.dry_only }}"
+    assert jobs["dry-story"]["with"] == {"ref": "${{ inputs.ref }}"}
+    for name in ("checks", "full"):
+        assert jobs[name]["if"] == "${{ !inputs.dry_only }}", name
+    assert jobs["clock"]["if"] == "${{ always() && !inputs.dry_only }}"
+
+
+def test_nightly_calls_dry_story_behind_the_unchanged_gate():
+    job = load("nightly.yml")["jobs"]["dry-story"]
+    assert job["uses"] == DRY_STORY and job["needs"] == "skip-if-unchanged"
+    assert job["if"] == "needs.skip-if-unchanged.outputs.run == 'true'"
+
+
+def test_dry_story_matrix_comes_from_the_list_job_and_an_empty_list_says_so():
+    """The walk groups are the files of exits/ (printed, never dropped silently); no file -> `no walk groups`, no part starts."""
+    jobs = load("dry-story.yml")["jobs"]
+    parts = jobs["parts"]
+    assert parts["needs"] == "list" and parts["strategy"]["matrix"] == {"group": "${{ fromJSON(needs.list.outputs.groups) }}"}
+    assert parts["if"] == "${{ needs.list.outputs.groups != '[]' }}" and parts["env"] == {"GROUP": "${{ matrix.group }}"}
+    (listing,) = runs(jobs["list"])
+    assert "dry-1/exits" in listing and "no walk groups" in listing and 'echo "walk groups: $names"' in listing
+    assert any("dry_exits.py --check" in r and "dry_stub.py --selftest" in r and "--part exits:selftest" in r for r in runs(jobs["tables"]))
+
+
+def test_every_dry_story_job_that_runs_the_dry_world_installs_pytest():
+    """The dry world runs `python -m pytest` as the project's profile command (dry_stub N2 (2)); a runner without the module exits 1."""
+    jobs = load("dry-story.yml")["jobs"]
+    assert "setup-python" not in str(jobs["list"]) and "pip install" not in "\n".join(runs(jobs["list"]))     # the list job stays bare
+    for name in ("parts", "tables"):
+        got = runs(jobs[name])
+        first = next(i for i, r in enumerate(got) if "python" in r and "pip install" not in r)
+        assert "pip install -q pytest" in got[:first], (name, got)
+
+
+def test_no_run_string_splices_inputs():
+    """The dry-story file's run: strings reach inputs and the matrix through env: only (F19E over every file, dry-story included)."""
+    assert any(where.startswith("dry-story.yml:") for where, _ in all_run_strings())
+    for where, run in all_run_strings():
+        assert not F19E_FORBIDDEN.search(run) and "${{ matrix." not in run, (where, run)
 
 
 def test_the_f19e_pin_can_fail():
@@ -412,7 +468,8 @@ def test_neither_schedule_starts_the_other_and_the_canon_never_runs_the_quaranti
     assert schedule_crosstalk(docs) == []
     assert docs["nightly.yml"][True]["schedule"] == [{"cron": "0 1 * * *"}]
     canon_calls = {j["uses"] for j in docs["canon.yml"]["jobs"].values() if "uses" in j}
-    assert canon_calls == {"./.github/workflows/forge-check.yml", "./.github/workflows/nightly.yml"}
+    assert canon_calls == {"./.github/workflows/forge-check.yml", "./.github/workflows/nightly.yml",
+                           "./.github/workflows/dry-story.yml"}
     for name in ("forge-check.yml", "nightly.yml", "canon.yml"):
         assert "--quarantined" not in text_of(name), name
 

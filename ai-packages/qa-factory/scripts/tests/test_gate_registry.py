@@ -53,11 +53,12 @@ EXPECTED_IDS = [
     "plan_target_on_base"]  # TQ1-21: S3 exit - the test a plan row's extend/param/reuse builds on is a file of the working tree; unknown base is a WARN, never a refusal
 # The Lead's debt-ref table (Q9-A), from the node spec - the oracle for the live data (FR-58).
 # C3-R (t-1009): seven rows converted (collected_ids, s5_coverage, delivery, case_preconditions, environment_preparation,
-# reporter_rehearsal_identity, environment_property_cover); 14 -> 7 debt rows.
+# reporter_rehearsal_identity, environment_property_cover); 14 -> 7 debt rows. Fix round (t-1032, A1): reporter_rehearsal_identity is
+# back to debt (B-283) - its acceptance `earlier['state'] == 'same_command'` sits in `_reporter_outcome`; 7 -> 8 debt rows.
 EXPECTED_DEBT = {
     "stand_identity": "B-257", "provenance_acceptance": "B-255", "test_identity": "B-217",
     "live_check_demand": "B-279", "s5_window": "B-179",
-    "baseline_identity": "B-281", "s5_stand_limits": "B-282"}
+    "baseline_identity": "B-281", "s5_stand_limits": "B-282", "reporter_rehearsal_identity": "B-283"}
 EXPECTED_EXEMPT = ["request_shape", "executor_present", "manual_evidence_shape", "witness_backstop",
                    "equivalence_metric", "source_freshness"]
 EXPECTED_CONVERTED = ["inputs_unchanged", "then_oracle", "stand_login_gate", "stand_check", "probe_verdict",
@@ -65,7 +66,7 @@ EXPECTED_CONVERTED = ["inputs_unchanged", "then_oracle", "stand_login_gate", "st
                       "s5_open_oracle_asserted", "env_block_evidence", "plan_target_on_base",
                       # C3-R (t-1009): the seven rows converted without code
                       "collected_ids", "s5_coverage", "delivery", "case_preconditions", "environment_preparation",
-                      "reporter_rehearsal_identity", "environment_property_cover"]
+                      "environment_property_cover"]
 BLIND_STEM = "a gate that compares only non-anchor words, outside any registered site, is not seen"
 CONVERTED_TEST = "scripts/tests/test_gate_registry.py"
 
@@ -243,7 +244,7 @@ def part_live_registry() -> None:
     lines = p.stdout.splitlines()
     check_eq("K-T1.2 its first line", lines[0] if lines else "", "A26 gate registry: no violations")
     check_in("K-T1.2 the second header line states the blind spot", BLIND_STEM, lines[1] if len(lines) > 1 else "")
-    check_in("K-T1.2 it lists the debt, decided and not forgotten", "7 gate(s) left as debt:", p.stdout)
+    check_in("K-T1.2 it lists the debt, decided and not forgotten", "8 gate(s) left as debt:", p.stdout)
     check_in("K-T1.2 and the exempt gates", "6 gate(s) exempt:", p.stdout)
 
     code, out = cli("--sites")
@@ -319,7 +320,7 @@ def part_live_registry() -> None:
     data = json.loads(out)
     check_eq("K-T1.14 --json keys are findings, debt, exempt", sorted(data), ["debt", "exempt", "findings"])
     check_eq("K-T1.14 findings is empty", data["findings"], [])
-    check_eq("K-T1.14 debt lists the seven rows C3-R leaves", [d["id"] for d in data["debt"]], list(EXPECTED_DEBT))
+    check_eq("K-T1.14 debt lists the eight rows left after C3-R and its fix round", [d["id"] for d in data["debt"]], list(EXPECTED_DEBT))
     check_eq("K-T1.14 a debt item has id, decides, debt_ref", sorted(data["debt"][0]), ["debt_ref", "decides", "id"])
     check_eq("K-T1.14 exempt lists the six", [d["id"] for d in data["exempt"]], EXPECTED_EXEMPT)
     check_eq("K-T1.14 an exempt item has id, decides, exempt_reason", sorted(data["exempt"][0]),
@@ -330,8 +331,9 @@ def part_live_registry() -> None:
     raw = {s: [r for r in raw_rows if r["status"] == s] for s in ("converted", "debt", "exempt")}
     # AR-20, TQ1-1 (t-684): converted 10 -> 11 - the row `s5_open_oracle_asserted` joined; RH2-9 (t-691): 11 -> 12, `env_block_evidence`; TQ1-21: 12 -> 13, `plan_target_on_base`; debt and exempt are unchanged
     # C3-R (t-1009): converted 13 -> 20, debt 14 -> 7 (the seven rows above); exempt unchanged
-    check_eq("K-T1.14 the registry file's rows split 20 converted / 7 debt / 6 exempt (C3-R converted seven debt rows)",
-             {s: len(v) for s, v in raw.items()}, {"converted": 20, "debt": 7, "exempt": 6})
+    # t-1032 (A1): converted 20 -> 19, debt 7 -> 8 (`reporter_rehearsal_identity` back to debt)
+    check_eq("K-T1.14 the registry file's rows split 19 converted / 8 debt / 6 exempt (C3-R converted six debt rows for good)",
+             {s: len(v) for s, v in raw.items()}, {"converted": 19, "debt": 8, "exempt": 6})
     check_eq("K-T1.14 --json debt = the file's debt rows (id, decides, debt_ref), in order",
              data["debt"], [{"id": r["id"], "decides": r["decides"], "debt_ref": r["debt_ref"]} for r in raw["debt"]])
     check_eq("K-T1.14 --json exempt = the file's exempt rows (id, decides, exempt_reason), in order",
@@ -925,7 +927,9 @@ D13_TRIPLES = [
     ("gate_preflight.py", "_check_one_precondition", "case_preconditions"),
     ("gate_preflight.py", "_derive_probe", "stand_identity"),
     ("gate_preflight.py", "_observed_identity", "provenance_acceptance"),
-    ("gate_preflight.py", "_rehearse_reporter", "reporter_rehearsal_identity"),   # C3-R (t-1009): `countable['state'] == 'none'`, a code word of the converted row at its registered site
+    ("gate_preflight.py", "_record_unreadable", "reporter_rehearsal_identity"),   # t-1032 (A1): `earlier.get('state') != 'unreadable'`, a produce site
+    ("gate_preflight.py", "_rehearse_reporter", "reporter_rehearsal_identity"),   # C3-R (t-1009): `countable['state'] == 'none'`, a code word of the row at its registered site
+    ("gate_preflight.py", "_reporter_outcome", "reporter_rehearsal_identity"),   # t-1032 (A1): `earlier['state'] == 'same_command'`, the reuse acceptance (an accept site, debt B-283)
     ("gate_preflight.py", "_sort_items", "case_preconditions"),
     # EP1-24 F3 (t-335-2, 454b370e): `named_container_said` has ONE comparison, `result == 'matched'`: the probe's verdict, not the
     # answered container's identity (stand_identity row, a site it registers). t-430/t-435 AR-20, the count 131 -> 134 row by row:
@@ -984,7 +988,10 @@ D13_TRIPLES = [
 # 137 -> 138 (C3-R, t-1009): `reporter_rehearsal_identity` now says `code` with the word `none`, so the scan reads
 # `countable['state'] == 'none'` in its registered site `_rehearse_reporter` (the helper's state, a coincidence of the word); no site
 # was added or removed. The raise is the decision, taken in the diff that makes it.
-D13_ITEM_COUNT = 138
+# 138 -> 140 (t-1032, A1): the reuse acceptance `earlier['state'] == 'same_command'` (`_reporter_outcome`, accept) and
+# `earlier.get('state') != 'unreadable'` (`_record_unreadable`, produce) are registered under `reporter_rehearsal_identity`, so the scan
+# attributes them (measured with `gate_registry.py --sites`: +2 lines). The raise is the decision, taken in the diff that makes it.
+D13_ITEM_COUNT = 140
 
 
 def part_site_attribution() -> None:

@@ -1,0 +1,100 @@
+# The dry story (P1-b node N5): one job file, called by three roads -- the nightly (job dry-story of nightly.yml, which the canon
+# also reaches through its `full` job) and the canon's door `dry_only` (canon.yml job dry-story, no checks/full/clock).
+# Door: python tools/ci_read.py start --ref <branch> --var dry_only=true ; read: python tools/ci_read.py jobs <run>
+#   list    the walk groups: one per file fixtures/stories/dry-1/exits/*.json; the list is printed, an empty list prints "no walk groups"
+#   parts   one job per group: test_scenario_dry_1.py --part exits:<group> (the matrix is the output of `list`, never a literal)
+#   tables  the table self-tests (dry_exits --check/--selftest, dry_stub --selftest) and the walker's own self-check part
+# A group with a file never drops out silently: the list job prints every name it found. A group without a file is not walked here;
+# the default mode of the `full` tier prints it as `unwalked`.
+name: dry-story
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: false
+        default: main
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      groups: ${{ steps.l.outputs.groups }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || 'main' }}
+      - id: l
+        run: |
+          dir=ai-packages/qa-factory/scripts/tests/fixtures/stories/dry-1/exits
+          names=""
+          if [ -d "$dir" ]; then
+            for f in "$dir"/*.json; do
+              [ -e "$f" ] || continue
+              names="$names $(basename "$f" .json)"
+            done
+          fi
+          names=$(printf '%s\n' $names | sort | tr '\n' ' ')
+          if [ -z "${names// /}" ]; then
+            echo "no walk groups"
+            echo "groups=[]" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          json=$(printf '%s\n' $names | python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))')
+          echo "walk groups: $names"
+          echo "groups=$json" >> "$GITHUB_OUTPUT"
+
+  parts:
+    needs: list
+    if: ${{ needs.list.outputs.groups != '[]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30         # until the Lead's cap (F12): 30 minutes per part, as the spike had; the measured parts are 110-385 s
+    strategy:
+      fail-fast: false          # a red part does not hide the others
+      matrix:
+        group: ${{ fromJSON(needs.list.outputs.groups) }}
+    env:
+      GROUP: ${{ matrix.group }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || 'main' }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -q pytest
+      - run: |
+          git config --global user.name "forge-ci"
+          git config --global user.email "forge-ci@invalid.example"
+          git config --global init.defaultBranch main
+      - name: one walk group
+        run: python -B ai-packages/qa-factory/scripts/tests/test_scenario_dry_1.py --part "exits:$GROUP"
+
+  tables:
+    needs: list
+    runs-on: ubuntu-latest
+    timeout-minutes: 30         # until the Lead's cap (F12)
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || 'main' }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -q pytest
+      - run: |
+          git config --global user.name "forge-ci"
+          git config --global user.email "forge-ci@invalid.example"
+          git config --global init.defaultBranch main
+      - name: the tables and the walker's self-check
+        run: |
+          T=ai-packages/qa-factory/scripts/tests
+          python -B $T/dry_exits.py --check
+          python -B $T/dry_exits.py --selftest
+          python -B $T/dry_stub.py --selftest
+          python -B $T/test_scenario_dry_1.py --part exits:selftest --exits-root $T/fixtures/stories/dry-1/selftest --ledger $T/fixtures/stories/dry-1/selftest/known_red.json

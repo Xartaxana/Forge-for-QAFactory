@@ -93,6 +93,9 @@ POINTERS = [
     ("PROJECT.md", "`.claude/skills/boot-diet/SKILL.md` § Как пишутся правила для агентов", ".claude/skills/boot-diet/SKILL.md", "## Как пишутся правила для агентов"),
     ("CLAUDE.md", "PROJECT.md § Сессия форджа", "PROJECT.md", "## Сессия форджа"),
     (TEAMWORK, "`PROJECT.md` «Командная работа» п. 3", "PROJECT.md", "3. **Зоны файлов пачек «в работе» не пересекаются** — правило: `docs/TEAMWORK.md` § 3"),
+    (RULES, "«Откуда берётся ожидаемое значение»", "docs/TESTING.md", "### Откуда берётся ожидаемое значение"),
+    (RULES, "`docs/TESTING.md` «Тест может упасть»", "docs/TESTING.md", "### Тест может упасть"),
+    (RULES, "по цели `docs/TESTING.md` «Бюджет / Файлы»", "docs/TESTING.md", "- **Файлы**"),
 ]
 
 # The cross-file Contents table of CLAUDE.md (one row per cell, T1-T33 of the boot-by-topic spec section 2) and the own-section

@@ -313,11 +313,11 @@ def test_s3_negative_control_a_copy_in_a_scratch_directory_is_an_offender(tmp_pa
 
 
 def test_s3_exact_file_match_a_neighbour_of_a_link_is_not_exempt(tmp_path):
-    # usage_report.py is outside the mechanism net (test_mechanism_gate pins it), so it is the non-exempt neighbour of this test
-    put(tmp_path, {"piles.py": COPY, "usage_report.py": COPY, "mechanism_gate.py": COPY,
+    # dup_report.py is a reporting tool no hook or githook wires in: in_chain() is False for it and it is not in KEPT, so it is the non-exempt neighbour of this test
+    put(tmp_path, {"piles.py": COPY, "dup_report.py": COPY, "mechanism_gate.py": COPY,
                    "test_mechanism_gate.py": COPY, "streams.py": COPY})
     found = offenders(tmp_path)
-    assert [f.split()[0] for f in found] == ["tools/test_mechanism_gate.py", "tools/usage_report.py"]
+    assert [f.split()[0] for f in found] == ["tools/dup_report.py", "tools/test_mechanism_gate.py"]
 
 
 def test_s3_counts_aliases_and_attribute_nodes_not_strings_and_docstrings(tmp_path):

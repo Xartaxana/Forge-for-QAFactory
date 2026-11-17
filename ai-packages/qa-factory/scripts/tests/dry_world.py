@@ -1394,7 +1394,7 @@ def walk_exits(story_id: str, rows: list, recipes: dict, ledger_path, line, *, e
         last: dict = {}
         stop_stage = next((s for s in STAGES if got["state"][s] != "done"), None)
         try:
-            main_ledger = {**known_red.load(KNOWN_RED_FILE), **known_red.load(ledger_path)}
+            main_ledger = dry_exits.merged_ledger_rows(KNOWN_RED_FILE, ledger_path)      # an absent group file keeps the shared main rows
         except known_red.LedgerError:
             main_ledger = {}
         for row in rows:
