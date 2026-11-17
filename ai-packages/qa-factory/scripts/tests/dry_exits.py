@@ -955,10 +955,6 @@ def same_ask(first: dict, second: dict) -> bool:
 
 
 # ---------------------------------------------------------------------------------------------------- the walk rows (node N4w)
-def _cut(text, n: int = 300) -> str:
-    return " ".join(str(text).split())[:n]
-
-
 def _subject_of(rid: str) -> tuple:
     """`(section, name, variant)` of a walk row id (F-W2 (a)): a bare subject is a price key (`section` "key"); `route:`, `joint:`, `kind:` name the
     section of the census. Never raises: an id with no `/` gives an empty variant, the caller refuses it."""
@@ -1027,34 +1023,19 @@ def _carrier_problem(carrier) -> str:
     return "" if 1 <= int(found.group(2)) <= lines else f"carrier {carrier!r}: the file has {lines} line(s)"
 
 
-def walk_row_problems(path, row, *, universe, seeds, class_of_subject=None, story_dir=None) -> list:
-    """The grammar of ONE walk row (spec section 8), every refusal naming the row id and the field (EW4-EW10, EW14-EW16, I2, I3). `seeds` is the
-    `recipes` mapping of `seeds/<group>.json` ({} when the file is absent); `class_of_subject(section, name) -> class word` is what C4 needs (a
-    row listing C4 with none given is refused: the class is never guessed, FR-59); `story_dir` lets `words_file` be resolved. Nothing here runs
-    a world."""
-    where = str(path)
-    rid = row.get("id") if isinstance(row, dict) else None
-    if not isinstance(rid, str):
-        return [f"{where}: a row has no id; expected a string '<subject>/<variant>'"]
-    out: list = []
-
-    def bad(text: str) -> None:
-        out.append(f"{where}: row {rid!r}: {text}")
-
-    for key in sorted(set(row) - set(WALK_ROW_KEYS)):
-        bad(f"unknown field {key!r}; expected only {list(WALK_ROW_KEYS)}")
-    section, name, variant = _subject_of(rid)
-    known = {"key": universe.prices, "routes": universe.routes, "joints": universe.joints, "kinds_without_key": universe.kinds}[section]
+def _walk_subject_problems(bad, section: str, name: str, variant: str, known, universe) -> None:
+    """The subject of a walk row: its name is in the data of its section, its variant is one the subject has."""
     if name not in known:
-        bad(f"{name!r} is not a key of question-prices.json" if section == "key" else f"{name!r} is not a {section[:-1]} of the driver")
-        if section == "key":
-            out[-1] += "; a route, joint or kind id needs its namespace `route:`/`joint:`/`kind:`"
+        bad(f"{name!r} is not a key of question-prices.json; a route, joint or kind id needs its namespace `route:`/`joint:`/`kind:`" if section == "key"
+            else f"{name!r} is not a {section[:-1]} of the driver")
     else:
         found = variant_problem(section, name, variant, universe)
         if found:
             bad(found)
-    if row.get("start") not in STARTS:
-        bad(f"start {row.get('start')!r}; expected one of {list(STARTS)} (a static `after:` belongs to `reach`, F-W14)")
+
+
+def _walk_expect_problems(bad, row: dict, section: str, name: str, known, class_of_subject) -> bool:
+    """The `expect` block of a walk row: `runnable` after its refusals (owner_question, checks, C4, owner_quote)."""
     expect = row.get("expect")
     if expect is None:
         expect = {}
@@ -1097,6 +1078,11 @@ def walk_row_problems(path, row, *, universe, seeds, class_of_subject=None, stor
             problem = _carrier_problem(quote.get("carrier"))
             if problem:
                 bad(f"expect.owner_quote {problem}")
+    return runnable
+
+
+def _walk_answer_problems(bad, row: dict, runnable: bool, variant: str, story_dir) -> None:
+    """The `answer` block of a walk row: its fields, the empty variant and the words file."""
     answer = row.get("answer")
     if answer is None:
         answer = {}
@@ -1122,6 +1108,10 @@ def walk_row_problems(path, row, *, universe, seeds, class_of_subject=None, stor
         problem = resolve_words_file(story_dir, answer["words_file"])[1]
         if problem:
             bad(problem)
+
+
+def _walk_seed_stub_problems(bad, row: dict, runnable: bool, seeds, where: str) -> None:
+    """The `seed`, `why_unreached` and `stub` fields of a walk row."""
     seed = row.get("seed")
     if seed is not None and (not isinstance(seed, str) or not seed.strip()):
         bad(f"seed {seed!r}; expected null or the id of a recipe of seeds/<group>.json")
@@ -1134,6 +1124,32 @@ def walk_row_problems(path, row, *, universe, seeds, class_of_subject=None, stor
         bad(f"`stub` is {type(stub).__name__}; expected the control grammar of the story's `stub` (an object)")
     elif isinstance(stub, dict) and "conductor" in stub and not isinstance(stub["conductor"], dict):
         bad("stub.conductor is not an object")
+
+
+def walk_row_problems(path, row, *, universe, seeds, class_of_subject=None, story_dir=None) -> list:
+    """The grammar of ONE walk row (spec section 8), every refusal naming the row id and the field (EW4-EW10, EW14-EW16, I2, I3). `seeds` is the
+    `recipes` mapping of `seeds/<group>.json` ({} when the file is absent); `class_of_subject(section, name) -> class word` is what C4 needs (a
+    row listing C4 with none given is refused: the class is never guessed, FR-59); `story_dir` lets `words_file` be resolved. Nothing here runs
+    a world."""
+    where = str(path)
+    rid = row.get("id") if isinstance(row, dict) else None
+    if not isinstance(rid, str):
+        return [f"{where}: a row has no id; expected a string '<subject>/<variant>'"]
+    out: list = []
+
+    def bad(text: str) -> None:
+        out.append(f"{where}: row {rid!r}: {text}")
+
+    for key in sorted(set(row) - set(WALK_ROW_KEYS)):
+        bad(f"unknown field {key!r}; expected only {list(WALK_ROW_KEYS)}")
+    section, name, variant = _subject_of(rid)
+    known = {"key": universe.prices, "routes": universe.routes, "joints": universe.joints, "kinds_without_key": universe.kinds}[section]
+    _walk_subject_problems(bad, section, name, variant, known, universe)
+    if row.get("start") not in STARTS:
+        bad(f"start {row.get('start')!r}; expected one of {list(STARTS)} (a static `after:` belongs to `reach`, F-W14)")
+    runnable = _walk_expect_problems(bad, row, section, name, known, class_of_subject)
+    _walk_answer_problems(bad, row, runnable, variant, story_dir)
+    _walk_seed_stub_problems(bad, row, runnable, seeds, where)
     return out
 
 
@@ -1223,79 +1239,92 @@ def rework_problem(options, author: str) -> str:
     return ""
 
 
-def judge_row(row: dict, facts: dict, *, prices: dict, class_of_subject: str = "", classes=GATE_CLASSES) -> Outcome:
-    """The ONE outcome of a row that ran, from `facts` alone (it opens no file: AR-13, AR-29 - the data is compared, the expectation is SET by the
-    row's `expect.checks`). It judges exactly the listed checks in order, then the always-checks (K15/E17 for a key subject, E18, the route record).
-    A failing check is a FAIL naming the check and the evidence (cut at 300); a listed C7/C8/C10 is a NOTE `pending judge` (EW26), never green; a C3
-    that cannot be established (`rounds unknown`, EW19) is a NOTE; every listed check passing is a PASS. `facts` keys: see `dry_world.row_facts`."""
-    rid = row["id"]
-    section, name, variant = _subject_of(rid)
-    checks = list((row.get("expect") or {}).get("checks") or [])
-    seed = facts.get("seed") or {"reached": True}
-    if facts.get("over_cap"):
-        return Outcome("fail", f"{rid}: over the cap {facts.get('cap')} s at {facts['over_cap']}")
-    if not seed.get("reached"):
-        return Outcome("fail", f"seed did not reach {name}: {_cut(seed.get('detail', ''))}")
-    ask, token = facts.get("ask"), (row.get("answer") or {}).get("token")
-    fp_ask, fp_after = facts.get("fp_ask"), facts.get("fp_after")
-    changed = None if fp_ask is None or fp_after is None else fp_ask != fp_after
-    results: list = []        # (check, "ok" | "fail" | "note", detail)
+@dataclass
+class _Ctx:
+    """What one check of `judge_row` reads: the facts of the row and the few values every check takes from them."""
+    facts: dict
+    name: str
+    token: object
+    ask: object
+    fp_ask: object
+    fp_after: object
+    class_of_subject: str
+    classes: tuple
 
-    def put(check_id, status, detail=""):
-        results.append((check_id, status, _cut(detail)))
+    @property
+    def changed(self):
+        return None if self.fp_ask is None or self.fp_after is None else self.fp_ask != self.fp_after
 
-    for check_id in checks:
-        if check_id == "C2":
-            offered = list((ask or {}).get("offered") or []) or [a for a in (facts.get("priced_at_ask") or {}).get("answers") or []]
-            records = [r for r in facts.get("answer_records") or [] if r.get("question_sha") == facts.get("ask_sha")]
-            whys, calls = list(facts.get("conductor_whys") or []), int(facts.get("conductor_calls") or 0)
-            if not ask:
-                put(check_id, "fail", "no question was pending at the target, so no variant was offered")
-            elif token and not offered:
-                put(check_id, "fail", f"the ask {ask.get('kind')!r} carries no offered set and no priced record names one; C2 cannot be established")
-            elif token and _norm(token) not in {_norm(o) for o in offered}:
-                put(check_id, "fail", f"the token {token!r} was not offered at {ask.get('kind')!r} (offered {sorted(map(str, offered))})")
-            elif not records:
-                put(check_id, "fail", f"the driver recorded no answer for this ask (no driver-answers.jsonl row with its question_sha; {len(facts.get('answer_records') or [])} row(s) added)")
-            elif "unread_answer" in whys or (calls and not whys):
-                put(check_id, "fail", "a conductor call followed the answer" + (" with why unread_answer" if "unread_answer" in whys else " and its why is not on record"))
-            else:
-                put(check_id, "ok")
-        elif check_id == "C3":
-            if fp_ask is None or fp_after is None:
-                put(check_id, "fail", "no state fingerprint was taken at the ask and after the answer")
-            elif any("rounds unknown" in str(n) for n in facts.get("fp_notes") or ()):
-                put(check_id, "note", "rounds unknown: no dispatch records, so the fingerprint cannot tell a new round with the same bytes")
-            elif not changed:
-                put(check_id, "fail", "the answer changed nothing: the state fingerprint is the one it was asked at (C3)")
-            else:
-                put(check_id, "ok")
-        elif check_id == "C4":
-            if class_of_subject not in classes:
-                put(check_id, "fail", f"C4 is the gate check; the class of {name!r} is {class_of_subject!r}")
-            elif int(facts.get("passed_lines") or 0) < 1:
-                put(check_id, "fail", "no new line in state/passed-by-person.jsonl: the person's word did not pass the block")
-            else:
-                put(check_id, "ok")
-        elif check_id == "C5":
-            put(check_id, "fail" if facts.get("loop") else "ok", facts.get("loop") or "")
-        elif check_id == "C6":
-            gates = facts.get("gates") or []
-            wrong = [g for g in gates if g.get("ready") is not True]
-            put(check_id, "fail" if wrong or not gates else "ok",
-                "no gate question was met by the row" if not gates else "; ".join(f"{g.get('kind')}: gate_ready {g.get('ready')!r} {g.get('detail', '')}" for g in wrong))
-        elif check_id == "C9":
-            rework = facts.get("rework")
-            problem = "no stage_review_exhausted ask with options was observed" if not rework else rework_problem(rework.get("options"), rework.get("author", ""))
-            put(check_id, "fail" if problem else "ok", problem)
-        elif check_id == V_EMPTY:
-            after = facts.get("asked_after") or {}
-            if not facts.get("empty_refused"):
-                put(check_id, "fail", "the driver did not refuse the empty answer (no `is empty` line); an empty answer silently taken is red")
-            elif not ask or (after.get("kind"), after.get("stage")) != (ask.get("kind"), ask.get("stage")):
-                put(check_id, "fail", f"the ask is no longer pending after the empty answer (was {ask and ask.get('kind')!r}, now {after.get('kind')!r})")
-            else:
-                put(check_id, "ok")
+
+def _check_c2(ctx: _Ctx) -> tuple:
+    facts, ask, token = ctx.facts, ctx.ask, ctx.token
+    offered = list((ask or {}).get("offered") or []) or [a for a in (facts.get("priced_at_ask") or {}).get("answers") or []]
+    records = [r for r in facts.get("answer_records") or [] if r.get("question_sha") == facts.get("ask_sha")]
+    whys, calls = list(facts.get("conductor_whys") or []), int(facts.get("conductor_calls") or 0)
+    if not ask:
+        return "fail", "no question was pending at the target, so no variant was offered"
+    if token and not offered:
+        return "fail", f"the ask {ask.get('kind')!r} carries no offered set and no priced record names one; C2 cannot be established"
+    if token and _norm(token) not in {_norm(o) for o in offered}:
+        return "fail", f"the token {token!r} was not offered at {ask.get('kind')!r} (offered {sorted(map(str, offered))})"
+    if not records:
+        return "fail", f"the driver recorded no answer for this ask (no driver-answers.jsonl row with its question_sha; {len(facts.get('answer_records') or [])} row(s) added)"
+    if "unread_answer" in whys or (calls and not whys):
+        return "fail", "a conductor call followed the answer" + (" with why unread_answer" if "unread_answer" in whys else " and its why is not on record")
+    return "ok", ""
+
+
+def _check_c3(ctx: _Ctx) -> tuple:
+    if ctx.fp_ask is None or ctx.fp_after is None:
+        return "fail", "no state fingerprint was taken at the ask and after the answer"
+    if any("rounds unknown" in str(n) for n in ctx.facts.get("fp_notes") or ()):
+        return "note", "rounds unknown: no dispatch records, so the fingerprint cannot tell a new round with the same bytes"
+    if not ctx.changed:
+        return "fail", "the answer changed nothing: the state fingerprint is the one it was asked at (C3)"
+    return "ok", ""
+
+
+def _check_c4(ctx: _Ctx) -> tuple:
+    if ctx.class_of_subject not in ctx.classes:
+        return "fail", f"C4 is the gate check; the class of {ctx.name!r} is {ctx.class_of_subject!r}"
+    if int(ctx.facts.get("passed_lines") or 0) < 1:
+        return "fail", "no new line in state/passed-by-person.jsonl: the person's word did not pass the block"
+    return "ok", ""
+
+
+def _check_c5(ctx: _Ctx) -> tuple:
+    loop = ctx.facts.get("loop")
+    return ("fail" if loop else "ok"), (loop or "")
+
+
+def _check_c6(ctx: _Ctx) -> tuple:
+    gates = ctx.facts.get("gates") or []
+    wrong = [g for g in gates if g.get("ready") is not True]
+    return ("fail" if wrong or not gates else "ok"), (
+        "no gate question was met by the row" if not gates else "; ".join(f"{g.get('kind')}: gate_ready {g.get('ready')!r} {g.get('detail', '')}" for g in wrong))
+
+
+def _check_c9(ctx: _Ctx) -> tuple:
+    rework = ctx.facts.get("rework")
+    problem = "no stage_review_exhausted ask with options was observed" if not rework else rework_problem(rework.get("options"), rework.get("author", ""))
+    return ("fail" if problem else "ok"), problem
+
+
+def _check_empty(ctx: _Ctx) -> tuple:
+    ask, after = ctx.ask, ctx.facts.get("asked_after") or {}
+    if not ctx.facts.get("empty_refused"):
+        return "fail", "the driver did not refuse the empty answer (no `is empty` line); an empty answer silently taken is red"
+    if not ask or (after.get("kind"), after.get("stage")) != (ask.get("kind"), ask.get("stage")):
+        return "fail", f"the ask is no longer pending after the empty answer (was {ask and ask.get('kind')!r}, now {after.get('kind')!r})"
+    return "ok", ""
+
+
+JUDGE_CHECKS = {"C2": _check_c2, "C3": _check_c3, "C4": _check_c4, "C5": _check_c5, "C6": _check_c6, "C9": _check_c9, V_EMPTY: _check_empty}
+
+
+def _judge_always(row: dict, facts: dict, prices: dict, put) -> None:
+    """The always-checks of `judge_row`, after the listed ones: K15/E17 for a key subject, the route record, the joint, E18 and the turn cap."""
+    section, name, _variant = _subject_of(row["id"])
     if section == "key":
         priced, rows = facts.get("priced_at_ask"), {str(r.get("answer")) for r in prices.get(name, [])}
         if not priced or priced.get("key") != name:
@@ -1311,7 +1340,35 @@ def judge_row(row: dict, facts: dict, *, prices: dict, class_of_subject: str = "
     if any(str(line.get("run_class") or "") != "dry" for line in facts.get("stub_added") or []):
         put("E18", "fail", "a stub journal line the row added does not carry run_class dry")
     if facts.get("exhausted"):
-        put("turns", "fail", f"{rid}: {facts.get('post_turns')} post-answer turns with no new ask and no loop")
+        put("turns", "fail", f"{row['id']}: {facts.get('post_turns')} post-answer turns with no new ask and no loop")
+
+
+def judge_row(row: dict, facts: dict, *, prices: dict, class_of_subject: str = "", classes=GATE_CLASSES) -> Outcome:
+    """The ONE outcome of a row that ran, from `facts` alone (it opens no file: AR-13, AR-29 - the data is compared, the expectation is SET by the
+    row's `expect.checks`). It judges exactly the listed checks in order (`JUDGE_CHECKS`: one function per check id), then the always-checks (K15/E17 for a
+    key subject, E18, the route record). A failing check is a FAIL naming the check and the evidence (cut at 300); a listed C7/C8/C10 is a NOTE `pending
+    judge` (EW26), never green; a C3 that cannot be established (`rounds unknown`, EW19) is a NOTE; every listed check passing is a PASS. `facts` keys:
+    see `dry_world.row_facts`."""
+    import dry_stub        # the one cut helper; loaded when used (it loads the harness and the driver's test commons)
+    rid = row["id"]
+    _section, name, _variant = _subject_of(rid)
+    checks = list((row.get("expect") or {}).get("checks") or [])
+    seed = facts.get("seed") or {"reached": True}
+    if facts.get("over_cap"):
+        return Outcome("fail", f"{rid}: over the cap {facts.get('cap')} s at {facts['over_cap']}")
+    if not seed.get("reached"):
+        return Outcome("fail", f"seed did not reach {name}: {dry_stub.cut(seed.get('detail', ''), 300)}")
+    ctx = _Ctx(facts, name, (row.get("answer") or {}).get("token"), facts.get("ask"), facts.get("fp_ask"), facts.get("fp_after"), class_of_subject, classes)
+    changed = ctx.changed
+    results: list = []        # (check, "ok" | "fail" | "note", detail)
+
+    def put(check_id, status, detail=""):
+        results.append((check_id, status, dry_stub.cut(detail, 300)))
+
+    for check_id in checks:
+        if check_id in JUDGE_CHECKS:
+            put(check_id, *JUDGE_CHECKS[check_id](ctx))
+    _judge_always(row, facts, prices, put)
     fails = [f"{c}: {d}" if d else c for c, s, d in results if s == "fail"]
     pending = [c for c in checks if c in CHECKS_PENDING]
     if fails:
@@ -1357,11 +1414,9 @@ def judge_group(outcomes: list, ledger_path, ids: list) -> list:
                 lines.append((rid, "note" if rid in ledger else "fail", f"red evidence: {outcome.detail}" if rid in ledger else outcome.detail))
             else:
                 lines.append((rid, "note", outcome.detail))
-    known: tuple = ()
     if ledger_all is not None:
         verdict = known_red.reconcile(results, ledger, ledger_path=str(ledger_path))
         lines += [("known_red", "fail", problem) for problem in verdict.problems] + [("known_red", "note", text) for text in verdict.known]
-        known = verdict.known
     subjects: dict = {}
     for rid in wanted:
         section, name, variant = _subject_of(rid)
@@ -2153,7 +2208,6 @@ def _selftest_cases() -> list:
 
 def _walker_cases(case, tmp) -> None:
     """The table of node N4w (spec 5.1: the pure functions get synthetic facts and files in a temp dir; `run_seed` / `drive_main` get a fake driver)."""
-    import types
     uni = _universe(routes={"r1": "continue", "r2": "ask_person", UNMATCHED: "conductor"}, joints=["exit:j1", "exit:g:*"])
 
     def wrow(rid="p.key/a", **kw):

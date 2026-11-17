@@ -85,13 +85,13 @@ def exits_part(group: str, exits_root, ledger) -> None:
     exits_root, tag = Path(exits_root), f"{dry_world.DEFAULT_STORY}/exits:{group}"
     path, universe = exits_root / "exits" / f"{group}.json", dry_exits.Universe.real()
     try:
-        census = dry_exits.load(dry_exits.EXITS_DIR)
+        census_data = dry_exits.load(dry_exits.EXITS_DIR)
     except dry_exits.ExitsUnreadable as exc:
-        census = None
+        census_data = None
         print(f"NOTE {tag}/census: {' '.join(str(exc).split())[:300]}")
 
     def unwalked(rows) -> None:
-        count, texts = dry_exits.group_unwalked(group, census, rows, universe.prices, routes=universe.routes)
+        count, texts = dry_exits.group_unwalked(group, census_data, rows, universe.prices, routes=universe.routes)
         for text in texts:
             print(f"NOTE {tag}/unwalked: {text}")
 
@@ -102,7 +102,7 @@ def exits_part(group: str, exits_root, ledger) -> None:
     story_dir = dry_world.STORIES / dry_world.DEFAULT_STORY
     try:
         recipes = dry_exits.load_seeds(exits_root / "seeds" / f"{group}.json")
-        classer = (lambda section, name: dry_exits.subject_class(section, name, census, universe)) if census else None
+        classer = (lambda section, name: dry_exits.subject_class(section, name, census_data, universe)) if census_data else None
         rows = dry_exits.load_group_file(path, strict=True, universe=universe, seeds=recipes, class_of_subject=classer, story_dir=story_dir)
     except dry_exits.ExitsUnreadable as exc:
         harness.check(f"{tag}/rows", False, str(exc))

@@ -5117,6 +5117,7 @@
     "tests/dry_driver.py",
     "tests/scenario_walk.py",
     "tests/known_red.py",
+    "tests/harness.py",
     "scripts/tests/fixtures/driver-exits",
     "scripts/tests/fixtures/stories/dry-1"
    ]

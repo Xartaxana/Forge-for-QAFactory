@@ -59,7 +59,7 @@ def package_tree() -> Path:
 
 
 def witness(paths, absent=False) -> str:
-    keep = {"test_gate.py": {"layer": "gate_named", "covers": ["z.py", "references/r.json"]}}
+    keep = {"test_gate.py": {"layer": "gate_named", "covers": ["z.py", "references/r.json", "scripts/tests/fixtures/x"]}}
     return "\n".join(W.witness_for(paths, package_tree(), {"absent": absent, "keep": {} if absent else keep}, {"exit_gate": ["a"]}))
 
 
@@ -467,6 +467,7 @@ def main() -> None:
         ("witness_for: a module in the import closure of a door names the scenario", witness(["scripts/c.py"]), "test_scenario_demo.py"),
         ("witness_for: a keep row that covers the path names the row", witness(["scripts/z.py"]), "keep test_gate.py"),
         ("witness_for: a data file is matched by covers", witness(["references/r.json"]), "keep test_gate.py"),
+        ("witness_for: a covers entry that names a folder covers the files under it", witness(["scripts/tests/fixtures/x/a.json"]), "keep test_gate.py"),
         ("witness_for: a data file is said to be one", witness(["references/r.json"]), "not a script of scripts/"),
         ("witness_for: no match runs the whole layer", witness(["scripts/other.py"]), "no scenario or keep row covers scripts/other.py"),
         ("witness_for: a deleted path counts as changed", witness(["scripts/gone.py"]), "deleted or absent on disk"),
@@ -475,6 +476,7 @@ def main() -> None:
     for name, text, needle in witness_rows:
         check_in(name, needle, text)
     check_not_in("witness_for: a keep row that does not cover the path is not named", witness(["scripts/c.py"]), "keep test_gate.py")
+    check_not_in("witness_for: a folder covers entry does not cover a sibling folder that shares its prefix", witness(["scripts/tests/fixtures/xy/a.json"]), "keep test_gate.py")
     finish("test_scenario_walk")
 
 

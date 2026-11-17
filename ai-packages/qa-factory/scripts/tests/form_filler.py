@@ -478,7 +478,7 @@ def _spread_world_rows(text: str, items: list, ctx: FillContext, fills: list, un
         if names is None:
             unfillable.append(Unfillable(group[0].path, group[0].raw, why))
         elif not names:
-            unfillable.append(Unfillable(group[0].path, group[0].raw, f"no probe record exists in {tokens[found[0]]['dir']}/ and the contract "
+            unfillable.append(Unfillable(group[0].path, group[0].raw, f"no {tokens[found[0]]['what']} exists in {tokens[found[0]]['dir']}/ and the contract "
                                                                       f"declares no empty outcome for {list_path}"))
         else:
             mine = [n for p, n in nodes.items() if p == row or p.startswith(row + ".") or p.startswith(row + "[")]

@@ -31,18 +31,23 @@ def sink_path(argv: list):
     return Path(project) / "qa-factory" / "artifacts" / task / "state" / "dry-priced.jsonl"
 
 
+def _append(sink: Path, record: str, what: str) -> None:
+    """One line to the spy's sink; a sink that cannot be written is a stderr line naming what was not recorded, never a stop of the driver."""
+    try:
+        sink.parent.mkdir(parents=True, exist_ok=True)
+        with sink.open("a", encoding="utf-8") as handle:
+            handle.write(record + "\n")
+    except OSError as exc:
+        print(f"dry_driver: cannot record {what} in {sink} ({type(exc).__name__}); expected a writable state folder", file=sys.stderr)
+
+
 def passing_spy(real, sink: Path):
     """A function with the signature of `real` that returns exactly what `real` returns and, after a successful call, appends the key and the
     answers (the `answer` id of each option the site offered, in order) as one line to `sink`."""
     def spy(key, options, *args, **kwargs):
         result = real(key, options, *args, **kwargs)
         line = json.dumps({"key": key, "answers": [str(option.get("answer")) for option in options]})
-        try:
-            sink.parent.mkdir(parents=True, exist_ok=True)
-            with sink.open("a", encoding="utf-8") as handle:
-                handle.write(line + "\n")
-        except OSError as exc:
-            print(f"dry_driver: cannot record the price key {key!r} in {sink} ({type(exc).__name__}); expected a writable state folder", file=sys.stderr)
+        _append(sink, line, f"the price key {key!r}")
         return result
     return spy
 
@@ -54,12 +59,7 @@ def route_spy(real, sink: Path):
     def spy(*args, **kwargs):
         result = real(*args, **kwargs)
         if result is not None:
-            try:
-                sink.parent.mkdir(parents=True, exist_ok=True)
-                with sink.open("a", encoding="utf-8") as handle:
-                    handle.write(json.dumps({"route": result[0] if isinstance(result, tuple) else str(result)}) + "\n")
-            except OSError as exc:
-                print(f"dry_driver: cannot record the route in {sink} ({type(exc).__name__}); expected a writable state folder", file=sys.stderr)
+            _append(sink, json.dumps({"route": result[0] if isinstance(result, tuple) else str(result)}), "the route")
         return result
     return spy
 

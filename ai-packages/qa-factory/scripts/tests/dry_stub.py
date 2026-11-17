@@ -194,28 +194,20 @@ def pending_judgments(inventory: Path, skip=()) -> str:
     return "; ".join(parts)
 
 
-def run_script(project: Path, script: str, args: list) -> tuple:
+def run_script(project: Path, script: str, args: list, *, both: bool = False) -> tuple:
     """`(exit code, stderr or stdout)` of the ONE runner of a package script in the project, as the role runs it: `harness.run_script` (no bytecode, a
-    timeout). A script that outlives the timeout is exit -9 with that text, a failed command like any other (never a traceback)."""
+    timeout). `both` (a scoped run says why it refused on stdout; N2e): the text is stdout + stderr. A script that outlives the timeout is exit -9 with that
+    text, a failed command like any other (never a traceback)."""
     try:
         done = harness.run_script(script, *args, cwd=project)
     except subprocess.TimeoutExpired:
         return -9, f"{script} did not finish within its timeout"
-    return done.returncode, (done.stderr or done.stdout)
-
-
-def run_script_both(project: Path, script: str, args: list) -> tuple:
-    """`run_script` with stdout AND stderr in the text (a scoped run says why it refused on stdout; N2e): `(exit code, stdout + stderr)`."""
-    try:
-        done = harness.run_script(script, *args, cwd=project)
-    except subprocess.TimeoutExpired:
-        return -9, f"{script} did not finish within its timeout"
-    return done.returncode, (done.stdout or "") + (done.stderr or "")
+    return done.returncode, ((done.stdout or "") + (done.stderr or "") if both else (done.stderr or done.stdout))
 
 
 def cut(text: str, limit: int = 400) -> str:
     """The head of a command's text on one line (a `live_only` carries it; the stub journal keeps the whole row)."""
-    return " ".join(text.split())[:limit]
+    return " ".join(str(text).split())[:limit]
 
 
 # ------------------------------------------------------------------------------------------------ the story kit and the runner table (node N2)
@@ -460,6 +452,17 @@ def run_command(words: list, cwd, timeout: int = 120) -> tuple:
     return done.returncode, (done.stdout + done.stderr)
 
 
+def _record(out: dict, code: int, text: str, output: str, why_head: str, case=None) -> None:
+    """The one account of a command that writes `output`: `wrote` on exit 0, else a `live_only` row (with the `case` when there is one) naming the command and its exit."""
+    if code == 0:
+        out["wrote"].append(output)
+        return
+    row = {"output": output}
+    if case is not None:
+        row["case"] = case
+    out["live_only"].append(dict(row, why=f"{why_head} exit {code}: {cut(text)}"))
+
+
 def automator_branch(project, task_dir, kit: dict, runner: dict, dispatch: str, run=run_script, manifest_overrides=None, fragments=None) -> dict:
     """What the automator role does at S5, as the journal row's keys. The test file of each automated case is the `test_file:<lang>` of the runner row's
     language, written by the filler; the command that runs the tests is the one the WORLD's profile holds (`profile_contract.profile_commands`, axis 30) -
@@ -500,20 +503,14 @@ def automator_branch(project, task_dir, kit: dict, runner: dict, dispatch: str, 
     for case in written:      # the role's documented tool reads the test file's marker and writes what only the product can: the case's CURRENT pin (`case_version_links`), the plan row, the obligation hash
         code, text = run(project, "manifest_from_tests.py", ["--task", kit["key"], "--dispatch", dispatch, "--file", test_files[case]])
         out["from_tests"] = out.get("from_tests", []) + [{"case": case, "exit": code, "text": cut(text)}]
-        if code == 0:
-            out["wrote"].append("work/automation-manifest.json")
-        else:
-            out["live_only"].append({"output": "work/automation-manifest.json", "case": case, "why": f"manifest_from_tests.py exit {code}: {cut(text)}"})
+        _record(out, code, text, "work/automation-manifest.json", "manifest_from_tests.py", case)
     for case in written:
         try:
             frag = task_dir / "state" / "dry-stub-fragments" / f"{dispatch}-{case}.json"
             frag.parent.mkdir(parents=True, exist_ok=True)
             frag.write_text(fill_output("manifest_row", kit_context(kit, dispatch, cases=[case]), manifest_overrides).files["work/automation-manifest.json"], encoding="utf-8")
             code, text = run(project, "manifest_put.py", ["--task", kit["key"], "--fragment", str(frag)])
-            if code == 0:
-                out["wrote"].append("work/automation-manifest.json")
-            else:
-                out["live_only"].append({"output": "work/automation-manifest.json", "case": case, "why": f"manifest_put.py exit {code}: {cut(text)}"})
+            _record(out, code, text, "work/automation-manifest.json", "manifest_put.py", case)
         except Unfillable as exc:
             out["live_only"].append(dict(live_row(exc), case=case))
     for at, fragment in enumerate(fragments or []):
@@ -521,12 +518,9 @@ def automator_branch(project, task_dir, kit: dict, runner: dict, dispatch: str, 
         frag.parent.mkdir(parents=True, exist_ok=True)
         frag.write_text(json.dumps(fragment, indent=1), encoding="utf-8")
         code, text = run(project, "manifest_put.py", ["--task", kit["key"], "--fragment", str(frag)])
-        if code == 0:
-            out["wrote"].append("work/automation-manifest.json")
-        else:
-            out["live_only"].append({"output": "work/automation-manifest.json", "why": f"manifest_put.py (story fragment {at}) exit {code}: {cut(text)}"})
+        _record(out, code, text, "work/automation-manifest.json", f"manifest_put.py (story fragment {at})")
     for case in written:
-        code, text = run_script_both(project, "run_suite.py", ["--task", kit["key"], "--mine", case]) if run is run_script else run(project, "run_suite.py", ["--task", kit["key"], "--mine", case])
+        code, text = run(project, "run_suite.py", ["--task", kit["key"], "--mine", case], both=True)
         out["ran_suite"].append({"case": case, "exit": code, "text": cut(text)})
         if code != 0:
             out["live_only"].append({"output": "the scoped run (run_suite.py --mine)", "case": case, "why": f"exit {code}: {cut(text, 900)}"})
@@ -726,6 +720,87 @@ def write_files(task_dir: Path, data, key: str) -> list:
     return wrote
 
 
+def _fill_form(row: dict, form: Path, contract, ctx, mine: dict, n: int, dispatch: str, task_dir: Path) -> None:
+    """The role's handover form: filled by the story's overrides and the rules (`fill_handover`), written in place; what cannot be filled is a `live_only` row."""
+    if not contract:
+        row["live_only"].append({"output": f"work/handoffs/{dispatch}.yaml", "why": "no form with a `contract:` line at that path"})
+        return
+    try:
+        over = overrides_for(mine, contract.group(1), n)
+        field = FORM_SOURCE_PATH.get(contract.group(1))
+        if field and field not in over:
+            kept = relevant_source_paths(task_dir / "work" / "source-inventory.json")
+            if len(kept) == 1:
+                over = dict(over, **{field: kept[0]})
+            else:        # the form has ONE row for "each source the scout marked relevant": none or several is the role's judgment, not the stub's
+                row["live_only"].append({"output": f"form {contract.group(1)}", "field": field,
+                                         "why": f"the inventory marks {len(kept)} source(s) relevant with a recorded file; the form's one row takes exactly one"})
+        filled = fill_handover(contract.group(1), ctx, mine.get("verdict"), over)
+        form.write_bytes(filled.text.encode("utf-8"))
+        row["wrote"].append(f"work/handoffs/{dispatch}.yaml")
+    except Unfillable as exc:
+        row["live_only"].append(dict(live_row(exc), output=f"form {contract.group(1)}"))
+
+
+def _step(row: dict, project: Path, out: str, script: str, argv: list) -> tuple:
+    """One command of a role's steps: `wrote` on exit 0, else a `live_only` row naming the script and its exit; `(code, text)`."""
+    code, text = run_script(project, script, argv)
+    (row["wrote"] if code == 0 else row["live_only"]).append(out if code == 0 else {"output": out, "why": f"{script} exit {code}: {cut(text)}"})
+    return code, text
+
+
+def _s1_steps(row: dict, role: str, diff: str, project: Path, task: str, task_dir: Path, control: dict) -> None:
+    """The scout's S1 steps: the commands that build files code owns (ROLE_STEPS), then the declared source judgments."""
+    for out, script, args in ROLE_STEPS.get(role, []):
+        if script == "stage_done.py" and not diff:       # the step records a diff as the story's source: a world with no change has none to record (AR-28)
+            row["live_only"].append({"output": out, "why": "the world holds no change: `implementation_source=diff` is not recorded"})
+            continue
+        _step(row, project, out, script, [a.format(task=task, task_root=str(task_dir)) for a in args])
+    if role in ROLE_STEPS:
+        inventory = task_dir / "work" / "source-inventory.json"
+        ran, judged, failed = judge_sources(inventory, (control.get("stub") or {}).get("source_relevance") or {},
+                                            lambda script, args: run_script(project, script, args))
+        row["ran"], row["judged"] = ran, judged
+        row["live_only"].extend(failed)
+        gap = pending_judgments(inventory, skip={f["key"] for f in failed if f.get("key")})
+        if gap:
+            row["live_only"].append({"output": "work/source-inventory.json", "why": gap})
+
+
+def _fill_outputs(row: dict, FF, role: str, stage: str, window: str, ctx, mine: dict, n: int, project: Path, task_dir: Path) -> None:
+    """The role's outputs by the plan of its kind: `fill` through the filler, `command:` through the script, anything else a refusal naming it."""
+    for out, kind in role_plan(role, stage, FF):
+        if out in FROM_STORY_DATA or (WINDOW_OUTPUTS.get((role, stage, window)) is not None and out not in WINDOW_OUTPUTS[(role, stage, window)]):
+            continue       # written from the story's data (the table), or an output this window of the role does not write (window 1 writes no plan): never the filler's text
+        if kind == "fill":
+            try:
+                FF.write_outputs(task_dir, project, fill_output(out, ctx, overrides_for(mine, out, n)))
+                row["wrote"].append(out)
+                for where, why in (FF._row_of(out).get("synthetic") or {}).items():       # a value the row declares synthetic is named, not passed as a fact
+                    row.setdefault("synthetic", []).append({"output": out, "field": where, "why": why[:120]})
+            except (Unfillable, FF.NotFillable, ValueError) as exc:
+                row["live_only"].append(live_row(exc) if isinstance(exc, Unfillable) else {"output": out, "why": str(exc)[:240]})
+        elif kind.startswith("command:"):
+            _step(row, project, out, kind[8:], [a.format(task_root=str(task_dir)) for a in COMMANDS[kind[8:]]])
+        else:
+            row["live_only"].append(live_row(Unfillable(out, "", kind[len("live_only:"):])))        # no filler kind: the same refusal, no text in its place
+
+
+def _after_steps(row: dict, role: str, stage: str, project: Path, task: str, task_dir: Path) -> None:
+    """The steps that follow the role's outputs (AFTER_STEPS); the `size` the sizing step wrote is carried to the step that records it."""
+    size = ""
+    for out, script, args in AFTER_STEPS.get((role, stage), []):
+        if "size={size}" in args and not size:
+            row["live_only"].append({"output": out, "why": "work/sizing.json holds no `size` (the step before did not write it): the size is not recorded"})
+            continue
+        code, _text = _step(row, project, out, script, [a.format(task=task, size=size) for a in args])
+        if script == "sizing.py" and code == 0:
+            try:
+                size = str(json.loads((task_dir / "work" / "sizing.json").read_text(encoding="utf-8")).get("size") or "")
+            except (OSError, ValueError):
+                size = ""
+
+
 def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Path, dispatch: str = "", n: int = 1) -> tuple:
     """`(dispatch, result text, journal row)` of one role call; see the module text. `dispatch` names the call when the prompt does not (a repair resume);
     `n` is the call's number within its dispatch (the row's `repair_on_round` reads it)."""
@@ -759,24 +834,7 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
         store = ""
         row["live_only"].append({"output": "the world's case store", "why": cut(f"contract.cases_root: {type(exc).__name__}: {exc}", 240)})
     ctx = kit_context(kit, dispatch, diff, author_dispatch=author, cases_root=store, task_root=str(task_dir)) if kit else FF.FillContext(task_key=task, dispatch_id=dispatch, impl_diff=diff, author_dispatch=author, cases_root=store, task_root=str(task_dir))
-    if not contract:
-        row["live_only"].append({"output": f"work/handoffs/{dispatch}.yaml", "why": "no form with a `contract:` line at that path"})
-    else:
-        try:
-            over = overrides_for(mine, contract.group(1), n)
-            field = FORM_SOURCE_PATH.get(contract.group(1))
-            if field and field not in over:
-                kept = relevant_source_paths(task_dir / "work" / "source-inventory.json")
-                if len(kept) == 1:
-                    over = dict(over, **{field: kept[0]})
-                else:        # the form has ONE row for "each source the scout marked relevant": none or several is the role's judgment, not the stub's
-                    row["live_only"].append({"output": f"form {contract.group(1)}", "field": field,
-                                             "why": f"the inventory marks {len(kept)} source(s) relevant with a recorded file; the form's one row takes exactly one"})
-            filled = fill_handover(contract.group(1), ctx, mine.get("verdict"), over)
-            form.write_bytes(filled.text.encode("utf-8"))
-            row["wrote"].append(f"work/handoffs/{dispatch}.yaml")
-        except Unfillable as exc:
-            row["live_only"].append(dict(live_row(exc), output=f"form {contract.group(1)}"))
+    _fill_form(row, form, contract, ctx, mine, n, dispatch, task_dir)
     if kit and window == "1":        # S3 window 1: the role labels work/grounding.yaml (no handover form); the labels are the story's data, never the stub's
         data = mine.get("grounding")
         if not isinstance(data, dict) or not data:
@@ -794,50 +852,10 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
         row["from_tests"] = done.get("from_tests", [])
         if "no_command" in done:
             row["no_command"] = done["no_command"]
-    for out, script, args in ROLE_STEPS.get(role, []) if stage == "S1" else []:
-        if script == "stage_done.py" and not diff:       # the step records a diff as the story's source: a world with no change has none to record (AR-28)
-            row["live_only"].append({"output": out, "why": "the world holds no change: `implementation_source=diff` is not recorded"})
-            continue
-        code, text = run_script(project, script, [a.format(task=task, task_root=str(task_dir)) for a in args])
-        (row["wrote"] if code == 0 else row["live_only"]).append(out if code == 0 else {"output": out, "why": f"{script} exit {code}: {cut(text)}"})
-    if stage == "S1" and role in ROLE_STEPS:
-        inventory = task_dir / "work" / "source-inventory.json"
-        ran, judged, failed = judge_sources(inventory, (control.get("stub") or {}).get("source_relevance") or {},
-                                            lambda script, args: run_script(project, script, args))
-        row["ran"], row["judged"] = ran, judged
-        row["live_only"].extend(failed)
-        gap = pending_judgments(inventory, skip={f["key"] for f in failed if f.get("key")})
-        if gap:
-            row["live_only"].append({"output": "work/source-inventory.json", "why": gap})
-    for out, kind in role_plan(role, stage, FF):
-        if out in FROM_STORY_DATA or (WINDOW_OUTPUTS.get((role, stage, window)) is not None and out not in WINDOW_OUTPUTS[(role, stage, window)]):
-            continue       # written from the story's data (the table), or an output this window of the role does not write (window 1 writes no plan): never the filler's text
-        if kind == "fill":
-            try:
-                FF.write_outputs(task_dir, project, fill_output(out, ctx, overrides_for(mine, out, n)))
-                row["wrote"].append(out)
-                for where, why in (FF._row_of(out).get("synthetic") or {}).items():       # a value the row declares synthetic is named, not passed as a fact
-                    row.setdefault("synthetic", []).append({"output": out, "field": where, "why": why[:120]})
-            except (Unfillable, FF.NotFillable, ValueError) as exc:
-                row["live_only"].append(live_row(exc) if isinstance(exc, Unfillable) else {"output": out, "why": str(exc)[:240]})
-        elif kind.startswith("command:"):
-            argv = [a.format(task_root=str(task_dir)) for a in COMMANDS[kind[8:]]]
-            code, text = run_script(project, kind[8:], argv)
-            (row["wrote"] if code == 0 else row["live_only"]).append(out if code == 0 else {"output": out, "why": f"{kind[8:]} exit {code}: {cut(text)}"})
-        else:
-            row["live_only"].append(live_row(Unfillable(out, "", kind[len("live_only:"):])))        # no filler kind: the same refusal, no text in its place
-    size = ""
-    for out, script, args in AFTER_STEPS.get((role, stage), []):
-        if "size={size}" in args and not size:
-            row["live_only"].append({"output": out, "why": "work/sizing.json holds no `size` (the step before did not write it): the size is not recorded"})
-            continue
-        code, text = run_script(project, script, [a.format(task=task, size=size) for a in args])
-        (row["wrote"] if code == 0 else row["live_only"]).append(out if code == 0 else {"output": out, "why": f"{script} exit {code}: {cut(text)}"})
-        if script == "sizing.py" and code == 0:
-            try:
-                size = str(json.loads((task_dir / "work" / "sizing.json").read_text(encoding="utf-8")).get("size") or "")
-            except (OSError, ValueError):
-                size = ""
+    if stage == "S1":
+        _s1_steps(row, role, diff, project, task, task_dir, control)
+    _fill_outputs(row, FF, role, stage, window, ctx, mine, n, project, task_dir)
+    _after_steps(row, role, stage, project, task, task_dir)
     if f"work/handoffs/{dispatch}.yaml" in row["wrote"]:
         # the first line of every form: "fill it, then: handoff_check.py --file <form> --task <T>"; `--fix` writes in what code derives (the form's own header
         # names it: a version is the sha256 of the path the row names, never a value the role makes up). What it still refuses stays a live_only row.
@@ -1339,7 +1357,6 @@ def selftest_n2(tmp: Path) -> None:
     verdict = json.loads(answer["result"].split("\n", 1)[1])
     check("N2 edge: a variant the prompt does not offer is a `stop` naming it, never an invented option", verdict["action"] == "stop" and "no-such-token" in verdict["did"], str(verdict))
     # E3: the move's own command, and the move no command fills without judgment
-    moves = NM.move_rows(spec)
     ran = conductor_execute({"move": "rework_stage", "run": [["case_versions.py", "--all"]]}, project, task_dir, "DRY-1", run=lambda *a: (0, "never"))
     check("E3: a command that is not the move's own is refused naming it and nothing runs", "is not the move's own" in ran.get("refused", "") and ran["ran"] == [], str(ran))
     seen = []

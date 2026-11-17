@@ -29,7 +29,7 @@
     "<cases_root>": "artifacts.cases_root"
   },
   "world_list_tokens": {
-    "<instance>": {"root": "task_root", "dir": "work/probes", "glob": "*.json"}
+    "<instance>": {"root": "task_root", "dir": "work/probes", "glob": "*.json", "what": "probe record"}
   },
   "context_fallback_tokens": {
     "<cases_root>": "cases_root"

@@ -913,7 +913,8 @@ def witness_for(paths, package: Path | None = None, layers: dict | None = None, 
                 hits.append(f"{rel}: scenario {test} (story {story_id})")
         candidates = {rel, rel[len("scripts/"):] if rel.startswith("scripts/") else rel}
         for name, row in sorted((layers.get("keep") or {}).items()):
-            if candidates & set(row.get("covers") or []):
+            covers = row.get("covers") or []
+            if candidates & set(covers) or any(c.startswith(cov.rstrip("/") + "/") for c in candidates for cov in covers):
                 hits.append(f"{rel}: keep {name} (layer {row.get('layer')}, covers it)")
         if hits:
             lines += hits
