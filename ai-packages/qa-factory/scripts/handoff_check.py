@@ -518,47 +518,16 @@ def _tests_list(art, doc, row=None):
 
 
 _RECORD_PRODUCER = "the record is written by runtime_probe.py when run_suite runs this dispatch's tests"
+_PROBE_RECORD_PRODUCER = ("the record is the file the stand reading cites, which run_suite takes when it launches this review's own probe: "
+                          "probe_by_code.py --dispatch <this dispatch> (or red_sandbox.py --probe) runs the probe through "
+                          "run_suite, which keeps the completed run under state/execution-jobs/")
 
 
-def window_runtime_record(task_root, dispatch) -> tuple:
-    """The ONE reader of "the record of a dispatch's run" (AR-13): `(story-relative path, source)` or `(None, why)`.
-
-    The record is `runtime_provenance.evidence_refs[0]` of the NEWEST run block of THIS dispatch that carries one
-    (`work/run-blocks/`, the order of `run_history.read_run_blocks`); never a record chosen by file name, never another
-    dispatch's, never a file outside the story. Anything that cannot be established is a named `unknown` (FR-59, AR-28):
-    the field stays blank and the refusal says why. Never raises."""
+def _story_record(task_root, ref) -> str:
+    """The story-relative path `ref` names when it is a file of THIS story, else "" (the tail after the LAST part that is the
+    story folder, so a record written on another machine still resolves, AR-4; never a path outside the story). Never raises."""
     from pathlib import PurePosixPath
-    dispatch = str(dispatch or "").strip()
-    if not dispatch:
-        return None, f"the form names no dispatch, so its own run cannot be found; {_RECORD_PRODUCER}"
-    try:
-        import run_history
-        blocks, bad = run_history.read_run_blocks(Path(task_root))
-    except Exception as exc:
-        return None, f"the run blocks could not be read ({type(exc).__name__}); {_RECORD_PRODUCER}"
-    if bad:
-        return None, (f"{len(bad)} run block(s) under work/run-blocks/ could not be read, and one of them may be this "
-                      f"dispatch's run; {_RECORD_PRODUCER}")
-    own = []
-    for block in blocks:
-        data = block.get("data") if isinstance(block, dict) else None
-        if not isinstance(data, dict) or str(data.get("dispatch_id") or "").strip() != dispatch:
-            continue
-        if isinstance(data.get("runtime_provenance"), dict) and data["runtime_provenance"]:
-            own.append(block)
-    if not own:
-        return None, (f"no run block of dispatch {dispatch} under work/run-blocks/ carries a runtime_provenance record: "
-                      f"this dispatch ran no test through run_suite, or its run was refused before it started; "
-                      f"{_RECORD_PRODUCER}")
-    newest = own[-1]
-    name = newest.get("name", "")
-    refs = newest["data"]["runtime_provenance"].get("evidence_refs")
-    ref = refs[0] if isinstance(refs, list) and refs else None
-    if not isinstance(ref, str) or not ref.strip():
-        return None, (f"the newest run of dispatch {dispatch} (work/run-blocks/{name}) carries a runtime_provenance record "
-                      f"with no evidence_refs: the probe wrote no file for it (a rehearsal, a failed write, or a record "
-                      f"from before P1B-9); {_RECORD_PRODUCER}")
-    ref = ref.strip()
+    ref = str(ref).strip()
     root = Path(task_root)
     parts = PurePosixPath(ref.replace("\\", "/")).parts
     if root.name in parts:
@@ -572,15 +541,125 @@ def window_runtime_record(task_root, dispatch) -> tuple:
         is_file = bool(rel) and (root / rel).is_file()
     except OSError:
         is_file = False
-    if not is_file:
+    return rel if is_file else ""
+
+
+def window_runtime_record(task_root, dispatch, *, probe_run: bool = False) -> tuple:
+    """The ONE reader of "the record of a dispatch's run" (AR-13): `(story-relative path, source)` or `(None, why)`.
+
+    The record is `runtime_provenance.evidence_refs[0]` of the NEWEST run block of THIS dispatch that carries one
+    (`work/run-blocks/`, the order of `run_history.read_run_blocks`); never a record chosen by file name, never another
+    dispatch's, never a file outside the story. Anything that cannot be established is a named `unknown` (FR-59, AR-28):
+    the field stays blank and the refusal says why. Never raises.
+
+    `probe_run` is the critic's probe road: when no run block of the dispatch carries a record, the record the launch
+    reading cites (`runtime_probe_before`) of the dispatch's newest completed red_probe run, read from run_suite's job store
+    (`_probe_run_record`). The run-block branch stays ABOVE it: a probe job never outranks the dispatch's own run block,
+    an unreadable run block is never hidden by a job, a form with no dispatch never reaches the job store, and with
+    `probe_run=False` every answer is byte-identical to the run-block road alone."""
+    producer = _PROBE_RECORD_PRODUCER if probe_run else _RECORD_PRODUCER
+    dispatch = str(dispatch or "").strip()
+    if not dispatch:
+        return None, f"the form names no dispatch, so its own run cannot be found; {producer}"
+    try:
+        import run_history
+        blocks, bad = run_history.read_run_blocks(Path(task_root))
+    except Exception as exc:
+        return None, f"the run blocks could not be read ({type(exc).__name__}); {producer}"
+    if bad:
+        return None, (f"{len(bad)} run block(s) under work/run-blocks/ could not be read, and one of them may be this "
+                      f"dispatch's run; {producer}")
+    own = []
+    for block in blocks:
+        data = block.get("data") if isinstance(block, dict) else None
+        if not isinstance(data, dict) or str(data.get("dispatch_id") or "").strip() != dispatch:
+            continue
+        if isinstance(data.get("runtime_provenance"), dict) and data["runtime_provenance"]:
+            own.append(block)
+    if not own:
+        if not probe_run:
+            return None, (f"no run block of dispatch {dispatch} under work/run-blocks/ carries a runtime_provenance record: "
+                          f"this dispatch ran no test through run_suite, or its run was refused before it started; "
+                          f"{producer}")
+        return _probe_run_record(task_root, dispatch, producer)
+    newest = own[-1]
+    name = newest.get("name", "")
+    refs = newest["data"]["runtime_provenance"].get("evidence_refs")
+    ref = refs[0] if isinstance(refs, list) and refs else None
+    if not isinstance(ref, str) or not ref.strip():
+        return None, (f"the newest run of dispatch {dispatch} (work/run-blocks/{name}) carries a runtime_provenance record "
+                      f"with no evidence_refs: the probe wrote no file for it (a rehearsal, a failed write, or a record "
+                      f"from before P1B-9); {producer}")
+    ref = ref.strip()
+    rel = _story_record(task_root, ref)
+    if not rel:
         return None, (f"the run block work/run-blocks/{name} names {ref}, which is not a file of this story; "
-                      f"{_RECORD_PRODUCER}")
+                      f"{producer}")
     return rel, f"the runtime_provenance of run block work/run-blocks/{name} (dispatch {dispatch})"
+
+
+def _probe_run_record(task_root, dispatch, producer) -> tuple:
+    """The probe road of `window_runtime_record`: the record the launch reading cites, of the dispatch's newest COMPLETED
+    red_probe job in run_suite's job store (`state/execution-jobs/`, read through `JobStore.jobs()`), or `(None, why)`.
+
+    Joins only (dispatch id, purpose, status, presence of the launch reading, file presence). A red probe writes no run block,
+    and its request's own `runtime_provenance` is a copy of an earlier launch's: only `runtime_probe_before` is the reading
+    run_suite took when THIS probe was launched. The job-file count restates JobStore's layout (`*.json` in one folder) and
+    may drift from it. Never raises."""
+    folder = Path(task_root) / "state" / "execution-jobs"
+    try:
+        import execution_request as ER
+        files = len(list(folder.glob("*.json"))) if folder.is_dir() else 0
+        jobs = ER.JobStore(folder).jobs()
+    except Exception as exc:
+        return None, f"the execution jobs under state/execution-jobs/ could not be read ({type(exc).__name__}); {producer}"
+    bad = max(0, files - len(jobs))
+    if bad:
+        return None, (f"{bad} execution job(s) under state/execution-jobs/ could not be read, and one of them may be this "
+                      f"review's probe run; {producer}")
+    red = [job for job in jobs if str(job["request"].get("dispatch_id") or "").strip() == dispatch
+           and job["request"].get("purpose") == "red_probe"]
+    if not red:
+        return None, (f"no run block of dispatch {dispatch} (work/run-blocks/) and no red_probe job of it (state/execution-jobs/) "
+                      f"carries a runtime_provenance record: no probe of this review ran through run_suite (none was launched, "
+                      f"every one was refused before it started, or every one was answered by an earlier probe's receipt, which "
+                      f"belongs to another dispatch); {producer}")
+    own = [job for job in red if job.get("status") == "completed"
+           and isinstance(job["request"].get("runtime_probe_before"), dict) and job["request"]["runtime_probe_before"]]
+    if not own:
+        done = [job for job in red if job.get("status") == "completed"]
+        if done and all(not job["request"].get("runtime_required", True) for job in done):
+            return None, (f"the probe runs of dispatch {dispatch} ran with no stand to read (runtime_required: false), so "
+                          f"run_suite took no stand reading; the field has no record by code")
+        last = red[-1]
+        return None, (f"{len(red)} red_probe run(s) of dispatch {dispatch} exist under state/execution-jobs/ (newest job "
+                      f"{str(last.get('job_id') or '<unknown job>')}: status {str(last.get('status') or 'absent')}), but none "
+                      f"completed with a stand reading (runtime_probe_before); {producer}")
+    newest = own[-1]
+    job = str(newest.get("job_id") or "<unknown job>")
+    refs = newest["request"]["runtime_probe_before"].get("evidence_refs")
+    ref = refs[0] if isinstance(refs, list) and refs else None
+    if not isinstance(ref, str) or not ref.strip():
+        return None, (f"the newest probe run of dispatch {dispatch} (execution job {job}) carries a stand reading with no "
+                      f"evidence_refs: the probe wrote no file for it (a rehearsal or a failed write); {producer}")
+    ref = ref.strip()
+    rel = _story_record(task_root, ref)
+    if not rel:
+        return None, (f"the probe run of dispatch {dispatch} (execution job {job}) names {ref}, which is not a file of this "
+                      f"story; {producer}")
+    return rel, f"the stand reading of red_probe run {job} (dispatch {dispatch}, state/execution-jobs/)"
 
 
 def _runtime_provenance(art, doc, row=None):
     dispatch = _form_dispatch(art, doc)
     path, why = window_runtime_record(art.root, dispatch)
+    return (path, why) if path else (None, "", why)
+
+
+def _probe_runtime_provenance(art, doc, row=None):
+    """`probes.runtime_provenance`: the record the launch reading of THIS review's own probe run cites
+    (`window_runtime_record(..., probe_run=True)`)."""
+    path, why = window_runtime_record(art.root, _form_dispatch(art, doc), probe_run=True)
     return (path, why) if path else (None, "", why)
 
 
@@ -641,7 +720,8 @@ LIST_DERIVERS = {
 
 DERIVERS = {
     "artifacts.runtime_provenance": _runtime_provenance,
-    "probes.runtime_provenance": _runtime_provenance,
+    # the critic's field names the probe's run, not the window's run (contract s5-critic-to-automator)
+    "probes.runtime_provenance": _probe_runtime_provenance,
     # The same value under the name a third contract gives it. A deriver wired into two of the
     # three paths that ask for it is not adopted (FR-17): the automator's handover to the runner
     # asked for `runtime.provenance` and got nothing, and the role typed it by hand or left it.
