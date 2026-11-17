@@ -2112,6 +2112,44 @@ def open_oracle_asserted_is_a_repair_with_a_door() -> None:
         cleanup(root)
 
 
+def open_oracle_door_is_chosen_by_the_binding_file() -> None:
+    """FL9 (RD1-22): door A's binding form is the `oracle_binding_forms` row of the test file's suffix; no row, no file or an
+    unreadable key gives the `then_bindings` road through manifest_put.py. One table, one row per case."""
+    import tempfile
+    marker = ('@pytest.mark.qa_unresolved(case="TC-500", then=[2], reason="expectation_unconfirmed", question="Q4", '
+              'observed=<what the test saw>)')
+    road = "manifest_put.py --task <T> --fragment <file>"
+    root = Path(tempfile.mkdtemp(prefix="qa-s5-oa-forms-"))
+    try:
+        no_key = root / "no-key.json"
+        no_key.write_text("{}", encoding="utf-8")
+        empty = root / "empty.json"
+        empty.write_text('{"oracle_binding_forms": []}', encoding="utf-8")
+        bad = root / "bad.json"
+        bad.write_text("{not json", encoding="utf-8")
+        for label, test_file, detectors, marker_form in (
+                (".py binding: the marker, today's text", "tests/test_x.py", None, True),
+                (".PY: suffix compared case-insensitively", "tests/TEST_X.PY", None, True),
+                (".cs binding: the manifest_put road", "tests/XTests.cs", None, False),
+                (".java binding: the manifest_put road", "src/XTest.java", None, False),
+                (".ts binding: the manifest_put road", "tests/x.spec.ts", None, False),
+                ("no binding file: the manifest_put road", "", None, False),
+                ("a file with no suffix: the manifest_put road", "tests/Makefile", None, False),
+                ("no key in the file: the manifest_put road", "tests/test_x.py", no_key, False),
+                ("an empty table: the manifest_put road", "tests/test_x.py", empty, False),
+                ("an unreadable file: the manifest_put road", "tests/test_x.py", bad, False)):
+            fix = P._open_oracle_door("TC-500", 2, "Q4", "QA-500", True, test_file, detectors)
+            check_eq(f"FL9 {label}: marker form", f"`{marker}`" in fix, marker_form)
+            check_eq(f"FL9 {label}: road", road in fix, not marker_form)
+            check_in(f"FL9 {label}: the shared rest of door A", "no waiver passes this finding", fix)
+            if not marker_form:
+                check_in(f"FL9 {label}: the row's fields", '"reason": "expectation_unconfirmed", "question": "Q4"', fix)
+        check_in("door B is unchanged", "goes back to S4", P._open_oracle_door("TC-500", 2, "", "QA-500", False, "tests/test_x.py"))
+    finally:
+        import shutil
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def open_oracle_asserted_errs_toward_firing() -> None:
     """K-ADVERSARIAL: every input the resolver reads `open`/`invalid` fires; every sourced Then stays silent."""
     import question_register as QR
@@ -5113,6 +5151,7 @@ def main() -> None:
     the_open_oracle_gate_is_never_judged()
     the_phrase_list_is_gone()
     open_oracle_asserted_is_a_repair_with_a_door()
+    open_oracle_door_is_chosen_by_the_binding_file()
     open_oracle_asserted_errs_toward_firing()
     no_word_passes_the_open_oracle_gate()
     a_test_written_to_the_owners_norm_is_not_refused()

@@ -82,6 +82,10 @@
   "copy_detector_note": "How much code is a copy (scripts/copy_detector.py, read through scripts/s5_precheck.py check_copies). min_function_statements: a function with fewer statements is not compared as a whole; fragment_window: a run of this many consecutive statements that repeats under other names is a copy; max_files: files of a story's history read as units per run (the rest is named, not checked). Positive integers. An unreadable key means the default in the code and a note (the check never switches off).",
   "baseline_names": ["before", "baseline", "original", "prev", "old"],
   "baseline_names_note": "The words that make a variable the value a test took BEFORE an action (scripts/s5_precheck.py check_relative_oracle, TQ1-18): a name is split into words (`x_before`, `beforeMove` hold `before`), and a comparison of such a value with another that nothing asks to be a working answer is advice for the code critic (an ADVICE line, never a refusal), because a refusal before and a refusal after are equal. Plain lowercase words, not regexes. An unreadable key means no word-based judging and a note: the pair of one call before and after the action is still judged.",
+  "oracle_binding_forms": [
+    {"suffixes": [".py"], "form": "@pytest.mark.qa_unresolved(case=\"{case}\", then=[{then}], reason=\"expectation_unconfirmed\", question=\"{ref}\", observed=<what the test saw>)"}
+  ],
+  "oracle_binding_forms_note": "How the author of a test file binds a Then whose expected value nobody confirmed (scripts/s5_precheck.py `open-oracle-asserted`, door A): one row per test-file kind, `suffixes` the file suffixes it covers (compared case-insensitively) and `form` the marker text with the placeholders {case}, {then} and {ref}; the part `<what the test saw>` stays literal. A file whose suffix has no row, an unknown test file, or a key that cannot be read gets the road every language has: a `then_bindings` row sent through manifest_put.py.",
   "assertion_probes": {
     "csharp": {
       "suffixes": [".cs"],

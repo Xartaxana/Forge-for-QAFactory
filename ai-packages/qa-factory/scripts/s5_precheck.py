@@ -1669,15 +1669,56 @@ def _asserting_rows(manifest: dict, case: str) -> dict:
     return out
 
 
-def _open_oracle_door(case: str, number: int, ref: str, task_name: str, door_a: bool) -> str:
+def _oracle_binding_form(test_file: str, path=None) -> str:
+    """The marker form of the `oracle_binding_forms` row whose `suffixes` hold this file's suffix (compared case-insensitively),
+    or '' (AR-1: closed variety is a data row, read by the one reader of the file, AR-13). No file, no row for the suffix, a
+    key that is absent, empty or malformed, a file that cannot be read: all '' - the caller then gives the road every language
+    has (FR-59: an unknown is never a guess of a form)."""
+    import assertion_detectors as AD
+    suffix = Path(str(test_file or "")).suffix.lower()
+    if not suffix:
+        return ""
+    try:
+        rows = AD._document(AD.detectors_path(path), "oracle_binding_forms").get("oracle_binding_forms")
+    except (AD.DetectorsError, AttributeError):
+        return ""
+    for row in rows if isinstance(rows, list) else []:
+        suffixes = row.get("suffixes") if isinstance(row, dict) else None
+        form = row.get("form") if isinstance(row, dict) else None
+        if isinstance(form, str) and form and isinstance(suffixes, list) and suffix in [
+                s.lower() for s in suffixes if isinstance(s, str)]:
+            return form
+    return ""
+
+
+def _binding_file(manifest: dict, rows: list) -> str:
+    """The test file of the instance the first asserting row of a Then names: the `file` of its `tests[]` entry, or ''."""
+    for row in rows[:1]:
+        for entry in C.manifest_tests(manifest):
+            if row.get("instance_id") and C.test_instance_id(entry) == row.get("instance_id"):
+                return str(entry.get("file") or "")
+    return ""
+
+
+def _open_oracle_door(case: str, number: int, ref: str, task_name: str, door_a: bool, test_file: str = "",
+                      detectors=None) -> str:
     """The repair line of `open-oracle-asserted`: ONE door the author can use (FR-2). Door A: the question is in the
-    register, so the Then is bound `expectation_unconfirmed` and a person settles it by answering it. Door B: the case
+    register, so the Then is bound `expectation_unconfirmed` and a person settles it by answering it; HOW it is bound is the
+    form of the test file's kind (`oracle_binding_forms`), and a file with no such form binds it through a `then_bindings`
+    row sent with manifest_put.py (AR-9: the road the author can use). Door B: the case
     names no question the register holds (an invented word, a missing or unknown ref), which is the CASE's defect (FR-46):
     the one route is back to S4, because `question_register.py --raise` alone refuses a Then that already has an oracle
     word and does not rewrite the approved case's `then_oracles`."""
     if door_a:
-        return (f"do not assert a value for Then {number}: bind it with `@pytest.mark.qa_unresolved(case=\"{case}\", "
-                f"then=[{number}], reason=\"expectation_unconfirmed\", question=\"{ref}\", observed=<what the test saw>)`, "
+        form = _oracle_binding_form(test_file, detectors)
+        if form:
+            bind = form.replace("{case}", case).replace("{then}", str(number)).replace("{ref}", ref)
+        else:
+            row = json.dumps({"then_bindings": [{"case": case, "then": number, "instance_id": None, "assertion_ref": None,
+                                                 "status": "unresolved", "reason": "expectation_unconfirmed",
+                                                 "question": ref, "observed": "<what the test saw>"}]})
+            bind = f"{FRAGMENT_ROAD}` with the fragment `{row}"
+        return (f"do not assert a value for Then {number}: bind it with `{bind}`, "
                 f"keep an assert only for the part a source establishes (bound with `qa(then=[{number}])`; a status range "
                 f"keeps `# oracle_unknown: {ref}` on its line), and re-run manifest_from_tests.py. A person settles it only "
                 f"by answering {ref} with a reading letter, recorded by the orchestrator: `"
@@ -1739,7 +1780,8 @@ def check_open_oracle_asserted(task_root: Path, case: str, text: str, manifest: 
         findings.append(_sited(
             "oracle", case,
             DV.refusal("s5_precheck:oracle", f"Then {number} of {case} has no confirmed expected value ({why}), yet the manifest binds it to {proof} as proved"),
-            _open_oracle_door(case, number, ref, task_root.name, door_a), f"{OPEN_ORACLE_ASSERTED}-{number}"))
+            _open_oracle_door(case, number, ref, task_root.name, door_a, _binding_file(manifest, asserting[number])),
+            f"{OPEN_ORACLE_ASSERTED}-{number}"))
 
 
 def _pair_tag(pair: dict, kind: str = "") -> str:
