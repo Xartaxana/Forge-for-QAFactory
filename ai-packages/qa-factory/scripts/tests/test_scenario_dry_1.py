@@ -112,8 +112,7 @@ def exits_part(group: str, exits_root, ledger) -> None:
         harness.finish("scenario dry-1")
     line = lambda name, kind, detail="": emit(scenario_walk.Result(name, kind, detail))      # noqa: E731
     try:
-        walk_ledger = ledger if Path(ledger).is_file() else dry_world.KNOWN_RED_FILE      # an absent group ledger is empty; the main rows still reach the walker
-        outcomes = dry_world.walk_exits(dry_world.DEFAULT_STORY, rows, recipes, walk_ledger, line, exits_label=f"exits:{group}", story_dir=story_dir, universe=universe,
+        outcomes = dry_world.walk_exits(dry_world.DEFAULT_STORY, rows, recipes, ledger, line, exits_label=f"exits:{group}", story_dir=story_dir, universe=universe,
                                         classer=classer)
     except (scenario_walk.StoryError, dry_world.TypesError) as exc:
         harness.check(f"{tag}/load", False, str(exc))

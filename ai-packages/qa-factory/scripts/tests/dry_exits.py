@@ -207,6 +207,19 @@ def group_ledger(group: str, directory=None) -> Path:
     return Path(directory or EXITS_DIR) / LEDGER_DIR / f"{group}.json"
 
 
+def group_ledger_rows(path) -> dict:
+    """The ONE rule "an absent group ledger file is an empty ledger": the rows of the file, `{}` when the file is absent. A present file that is
+    unreadable or malformed still raises `known_red.LedgerError` (an unknown never becomes an empty ledger, AR-28)."""
+    import known_red
+    return known_red.load(path) if Path(path).is_file() else {}
+
+
+def merged_ledger_rows(shared_path, group_path) -> dict:
+    """The shared `main/*` rows and the group's rows as one mapping; an absent group file leaves the shared rows whole (edge 2)."""
+    import known_red
+    return {**known_red.load(shared_path), **group_ledger_rows(group_path)}
+
+
 def load(directory=None) -> dict:
     """The census files glued: `{"routes": {name: row}, "joints": {...}, "kinds_without_key": {...}, "where": {(section, name): path},
     "base": {count name: sum of the bases}, "raised_by": [...], "classes": {...}, "files": [...]}`. Every `*.json` of the directory except
@@ -782,12 +795,14 @@ def _ledgers(directory: Path, ledger_path, census: dict, walk: dict, red) -> Non
     _ledger(shared, red)
     _ledger_orphans(shared, walk, red, shared=True)
     files = [shared]
-    for path in census["files"]:
-        group_file = group_ledger(path.stem, directory)
-        if group_file.is_file():
-            files.append(group_file)
-            _ledger(group_file, red)
-            _ledger_orphans(group_file, walk, red, group=path.stem)
+    stems = {path.stem for path in census["files"]}
+    for group_file in sorted((directory / LEDGER_DIR).glob("*.json")):
+        if group_file.stem not in stems:
+            red(f"{LEDGER_DIR}/{group_file.name} names no walk group; expected {LEDGER_DIR}/<group>.json for a group file of driver-exits/ - "
+                f"rename or remove it")
+        files.append(group_file)
+        _ledger(group_file, red)
+        _ledger_orphans(group_file, walk, red, group=group_file.stem)
     _ledger_twice(files, red)
 
 
@@ -1435,7 +1450,7 @@ def judge_group(outcomes: list, ledger_path, ids: list) -> list:
         by_id.setdefault(rid, []).append(outcome)
     lines: list = []
     try:
-        ledger_all = known_red.load(ledger_path) if Path(ledger_path).is_file() else {}      # an absent group file is an EMPTY ledger (edge 2)
+        ledger_all = group_ledger_rows(ledger_path)      # an absent group file is an EMPTY ledger (edge 2)
     except known_red.LedgerError as exc:
         ledger_all = None
         lines.append(("known_red", "fail", str(exc)))
@@ -1992,6 +2007,25 @@ def _selftest_cases() -> list:
         green = judge_group([("p.key/a", Outcome("pass", changed=True))], gone, ["p.key/a"])
         bad = any(k == "fail" for n, k, _d in green)
         return None if len(red) == 1 and red[0][1] == "fail" and "new red: p.key/a" in red[0][2] and not bad else f"got {red} {green}"
+
+    @case("ledger: a ledger file of no group is red naming it, and its duplicate id still shows")
+    def _():
+        directory = _tree(tmp())
+        ledger_at(directory / "known_red.json", ["main/S5"])
+        ledger_at(directory / "known_red" / "zz-typo.json", ["main/S5"])
+        got = ledger_problems(directory, {"g": ["k/own"]})
+        named = [p for p in got if "names no walk group" in p and "zz-typo.json" in p]
+        twice = [p for p in got if "two ledger files" in p and "zz-typo.json" in p]
+        return None if len(named) == 1 and len(twice) == 1 else f"got {got}"
+
+    @case("walk merge: an absent group ledger keeps the shared main rows")
+    def _():
+        directory = _tree(tmp())
+        ledger_at(directory / "known_red.json", ["main/S5"])
+        ledger_at(directory / "known_red" / "g.json", ["k/own"])
+        absent = merged_ledger_rows(directory / "known_red.json", directory / "known_red" / "gone.json")
+        both = merged_ledger_rows(directory / "known_red.json", directory / "known_red" / "g.json")
+        return None if list(absent) == ["main/S5"] and sorted(both) == ["k/own", "main/S5"] else f"got {list(absent)} {sorted(both)}"
 
     @case("ledger: a subdirectory known_red/ is no group - load reads driver-exits/*.json only, never recursively")
     def _():
