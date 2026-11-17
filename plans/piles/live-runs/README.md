@@ -96,6 +96,11 @@ dev2».
 | `findings/20261014-krasnyy-test-bez-proby-zapiraet-s5.md` | находка, id — | красный тест без пробы запирает S5; возобновление живого доказательства гейта B на копии cmp3gb (перенос из `conductor`) | `experiments/measurers/runs/cmp3gb.md` | пачка 2, C3-1, ожидает | нет | `conductor` (C3-1) |
 | `findings/20261016-zhivoe-dokazatelstvo-gejta-a-prozoy-ne-zaplanirovano.md` | находка, id — | живое доказательство «гейт A прозой» не запланировано; строка в «Живые доказательства» и прогон до гейта A (перенос из `conductor`) | `experiments/measurers/runs/` | пачка 2, C3-19, ожидает | нет | `conductor` (C3-19) |
 | `findings/20261023-oshibka-fabriki-v-bekloge-proekta-so-scope-upstream-candidate-proverit-na-zhivom.md` | находка, id — | ошибка фабрики в беклоге проекта со scope `upstream-candidate`: проверить на живом повторе 12586 (перенос из `onboarding-hooks`) | `skills/qa-story/SKILL.md`, `agents/qa-retro-analyst.md` | пачка 2, OH3-21, ожидает | дано 23.10 | `hotfix-12586` (живое доказательство /1) |
+| **Живые доказательства rules-debt (пачка 2, 17.11.2026)** | | | | | | |
+| `findings/20261117-rd2-lr-c1-reporter-i-vneshnyaya-zapis-jira.md` | находка, id — | Живое доказательство (FR-33) R9/C1: репортёр и внешняя запись на канале jira после переноса дома файла бага | `experiments/measurers/runs/` | пачка 2, LR2-2 | нет | `rules-debt/1` RD1-1 (C1) |
+| `findings/20261117-rd2-lr-c3-j-kartochka-i-zapisannyj-otvet.md` | находка, id — | Живое доказательство (FR-33) C3-j: карточка о неизмеренном пределе стенда и записанный ответ | `experiments/measurers/runs/` | пачка 2, LR2-3 | нет | `rules-debt/1` RD1-13 (C3-j) |
+| `findings/20261117-rd2-lr-c3-b-kritik-sprashivaetsya-na-priyomke-okna.md` | находка, id — | Живое доказательство (FR-33) C3-b: критик кода получает вопрос о живой пробе на приёмке окна | `experiments/measurers/runs/` | пачка 2, LR2-4 | нет | `rules-debt/1` RD1-5 (C3-b) |
+| `findings/20261117-rd2-lr-s9-slovo-na-review-probele-zhivoj.md` | находка, id — | Живое доказательство (FR-33) S9: слово человека на пробеле `review` снимает блок окна | `experiments/measurers/runs/` | пачка 2, LR2-5 | нет | `rules-debt/1` RD1-17 (S9) |
 
 ## Входящие
 
