@@ -892,11 +892,14 @@ def test_the_guard_parses_once_reads_the_form_once_and_prints_the_one_functions_
             check_eq(f"K2: {shown}: the form is read once", seen["read"], 1)
         code, text = call(root, G.handoff_write_check, values_write(form, bad))
         report = H.values_report(form, bad)
-        direct = ("PRE-TOOL GUARD: these handover values leave the form not ready; nothing was written.\n"
-                  + H.refusal_text(form, report.contract, report.problems, report.role, kept=report.kept))
+        import detector_verdict as DV
+        direct = DV.spoken(DV.refusal("guard_pre_tool:PT-handoff-values",
+                                      "PRE-TOOL GUARD: these handover values leave the form not ready; nothing was written.\n"
+                                      + H.refusal_text(form, report.contract, report.problems, report.role, kept=report.kept)))
         import hooklib
-        check_eq("K3: the block is the one function's text, byte for byte (and the guard's own closing line)", text,
-                 (direct + "\n" + hooklib.TRAPPED).strip())
+        check_in("K3: the row's id closes the block before TRAPPED (T4a, t-965)", "\n  check: guard_pre_tool:PT-handoff-values", text)
+        check_eq("K3: the block is the one function's text with the row's lines, byte for byte (and the guard's own closing line)", text,
+                 (direct.rstrip() + "\n" + hooklib.TRAPPED).strip())
     finally:
         cleanup(root)
 
