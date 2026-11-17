@@ -1446,6 +1446,8 @@ _UNKNOWN_LIST_CHARS = frozenset("$`*?[]{}()~\"'\\<>")
 def _wait_lex(masked: str, ps: bool) -> list:
     """Tokens (kind, text, position, at_statement_start); kind is `s` (a separator), `w` (a word) or `r` (a redirect)."""
     toks, ss, n = [], True, len(masked)
+    # a line continuation (PowerShell backtick-newline, Bash backslash-newline) is not a line end: blank, positions kept
+    masked = re.sub(r"`\r?\n" if ps else r"\\\r?\n", lambda c: " " * len(c.group(0)), masked)
     for m in (_PS_TOK_RE if ps else _BASH_TOK_RE).finditer(masked):
         t, p = m.group(0), m.start()
         if t == "&":
@@ -1489,8 +1491,10 @@ def _bash_loops(toks: list) -> list:
 
 def _ps_loops(toks: list) -> list:
     """Intervals of `while (c) {b}`, `for (...) {b}`, `foreach (...) {b}`, `do {b} while|until (c)` and `A..N | ForEach-Object
-    {b}`, from one bracket-matching pass (case-insensitive). A line end between `)` and `{`, `do` and `{`, or `}` and
-    `while` never hides the keyword (the Allman form is the same loop)."""
+    {b}`, from one bracket-matching pass (case-insensitive). A line end between `)` and `{`, `do` and `{`, `}` and
+    `while`, or a loop keyword and its `(` never hides the keyword (the Allman form is the same loop). The exception is the
+    pipe form: `ForEach-Object` and its `{` take no line-end tolerance here (a bare line end after the pipe form is not a
+    loop); a backtick continuation is blanked by `_wait_lex`, so it is not a line end at all."""
     match, back, st = {}, {}, []
     for k, (kind, t, _p, _s) in enumerate(toks):
         if kind == "s" and t in ("(", "{"):
@@ -1513,23 +1517,25 @@ def _ps_loops(toks: list) -> list:
         if kind != "w" or not ss:
             continue
         low = t.lower()
-        if low in ("while", "for", "foreach") and opens(k + 1, "("):
-            c = match[k + 1]
+        if low in ("while", "for", "foreach") and opens(nl(k + 1), "("):
+            q = nl(k + 1)
+            c = match[q]
             o = nl(c + 1)
             if opens(o, "{"):
                 b = match[o]
                 loops.append({"kw": low, "sense": "while" if low == "while" else None, "start": k, "end": b,
-                              "cond": (toks[k + 1][2] + 1, toks[c][2]), "body": (toks[o][2] + 1, toks[b][2])})
+                              "cond": (toks[q][2] + 1, toks[c][2]), "body": (toks[o][2] + 1, toks[b][2])})
         elif low == "do" and opens(nl(k + 1), "{"):
             o = nl(k + 1)
             b = match[o]
             w = nl(b + 1)
-            if w + 1 < len(toks) and toks[w][0] == "w" and toks[w][1].lower() in ("while", "until") and opens(w + 1, "("):
-                c = match[w + 1]
+            if w + 1 < len(toks) and toks[w][0] == "w" and toks[w][1].lower() in ("while", "until") and opens(nl(w + 1), "("):
+                q = nl(w + 1)
+                c = match[q]
                 loops.append({"kw": "do", "sense": toks[w][1].lower(), "start": k, "end": c,
-                              "cond": (toks[w + 1][2] + 1, toks[c][2]), "body": (toks[o][2] + 1, toks[b][2])})
-        elif low in ("foreach-object", "%", "foreach") and k >= 2 and toks[k - 1][1] == "|" and opens(nl(k + 1), "{"):
-            o = nl(k + 1)
+                              "cond": (toks[q][2] + 1, toks[c][2]), "body": (toks[o][2] + 1, toks[b][2])})
+        elif low in ("foreach-object", "%", "foreach") and k >= 2 and toks[k - 1][1] == "|" and opens(k + 1, "{"):    # no nl(): a cmdlet argument cannot follow a line end
+            o = k + 1
             b = match[o]
             if toks[k - 2][1] == ")" and (k - 2) in back:       # `(1..1000) | ForEach-Object`: the list is the group
                 g = back[k - 2]
@@ -1553,7 +1559,7 @@ def _sleep_words(toks: list, k: int, ps: bool) -> list:
         if kind == "s":
             break
         if kind == "r":                             # bash: `2>f`, `>&2`; the digit just before it is the fd
-            if words and last == p and words[-1].isdigit():
+            if words and last == p and (words[-1].isdigit() or words[-1] == "&"):     # `&>f`, `&>>f`: the `&` is the operator's
                 words.pop()
             skip = True
             continue
@@ -1609,15 +1615,15 @@ def _counted_count(f: dict, raw: str, ps: bool):
             return abs(int(m.group(2)) - int(m.group(1))) + 1 if m else None
         if f["kw"] == "for":
             m = re.fullmatch(r"\$(\w+)\s*=\s*(-?\d+)\s*;\s*\$\1\s+-(lt|le)\s+(\d+)\s*;"
-                             r"\s*(?:\$\1\s*\+\+|\+\+\s*\$\1|\$\1\s*\+=\s*(\d+))", text, re.IGNORECASE)
-            return _stepped(int(m.group(4)) - int(m.group(2)) + (1 if m.group(3).lower() == "le" else 0), m.group(5)) \
-                if m else None
+                             r"\s*(?:\$\1\s*\+\+|\+\+\s*\$\1|\$\1\s*\+=\s*(\d+)|\$\1\s*=\s*\$\1\s*\+\s*(\d+))", text, re.IGNORECASE)
+            return _stepped(int(m.group(4)) - int(m.group(2)) + (1 if m.group(3).lower() == "le" else 0),
+                            m.group(5) or m.group(6)) if m else None
         m = re.fullmatch(r"\$\w+\s+in\s+(-?\d+)\.\.(-?\d+)", text, re.IGNORECASE)
         return abs(int(m.group(2)) - int(m.group(1))) + 1 if m else None
     m = re.fullmatch(r"\(\(\s*(\w+)\s*=\s*(-?\d+)\s*;\s*\1\s*(<=|<)\s*(\d+)\s*;"
-                     r"\s*(?:\1\s*\+\+|\+\+\s*\1|\1\s*\+=\s*(\d+))\s*\)\)", text)
+                     r"\s*(?:\1\s*\+\+|\+\+\s*\1|\1\s*\+=\s*(\d+)|\1\s*=\s*\1\s*\+\s*(\d+))\s*\)\)", text)
     if m:
-        return _stepped(int(m.group(4)) - int(m.group(2)) + (1 if m.group(3) == "<=" else 0), m.group(5))
+        return _stepped(int(m.group(4)) - int(m.group(2)) + (1 if m.group(3) == "<=" else 0), m.group(5) or m.group(6))
     if re.match(r"\(\(\s*\w+\s*=", text):
         return None                                 # a step that is not i++ or i+=K: unknown (a `for` is never refused as uncapped)
     m = re.match(r"\w+\s+in\s+(.*)$", text, re.DOTALL)
@@ -1679,11 +1685,19 @@ def _now_epoch() -> float:
     return time.time()
 
 
-def _deadline(literal, epoch_clock: bool):
+def _local_utc_offset() -> int:
+    """Seconds the local wall clock is ahead of UTC (negative west of it); tests patch it."""
+    return int(time.localtime().tm_gmtoff or 0)
+
+
+def _deadline(literal, epoch_clock: bool, ps: bool = False):
     """The budget of a clock test's literal: seconds as written, or, when the clock yields epoch seconds and the literal is an
-    absolute epoch (>= EPOCH_MIN), the literal minus now (a deadline already past is 0). None stays None (unknown)."""
+    absolute epoch (>= EPOCH_MIN), the literal minus now (a deadline already past is 0). Windows PowerShell 5.1 prints
+    `Get-Date -UFormat %s` as the LOCAL wall clock as epoch (measured), so on `ps` now is the epoch plus the local UTC offset.
+    Accepted residual (the Lead's option a): pwsh 7 prints UTC, so in UTC+ zones the base over-shoots by the offset and the
+    count is too low. None stays None (unknown)."""
     if literal is not None and epoch_clock and literal >= EPOCH_MIN:
-        return max(0, literal - int(_now_epoch()))
+        return max(0, literal - (int(_now_epoch()) + (_local_utc_offset() if ps else 0)))
     return literal
 
 
@@ -1701,7 +1715,7 @@ def _term_cap(term: str, sense: str, f: dict, masked: str, ps: bool):
             c = _PS_CMP_RE.search(term)
             if c and "-" + c.group(1).lower() in ops:
                 lit = int(c.group(2)) if c.group(2) else None
-                return "C2", _deadline(lit, bool(re.search(r"-UFormat\s+%?s\b", term, re.IGNORECASE)))
+                return "C2", _deadline(lit, bool(re.search(r"-UFormat\s+%?s\b", term, re.IGNORECASE)), True)
         return None
     for rx in _B_CLOCK_RES:
         m = rx.fullmatch(term)
