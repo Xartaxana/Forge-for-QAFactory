@@ -29,3 +29,7 @@ Per the edge, STOP: how should the 2 ids be excepted (add a named exception set 
 
 Beyond manifest: stage_joints.py (_demands_leg), spec s4.4.
 Class: other pins with `= the file name` none seen elsewhere (grep of tests not exhaustive).
+
+## Lead decision on the question (t-1236, "решила сама") and its witness
+Decision: a named shrink-only set `NOT_YET_SITED` = {execution_request:fingerprint.build, execution_request:profile.none} in test_contract_slices.py, folded into `unproved_site` (so marked-by-proof and entry-uniform expect not-call-told) and excluded from T1rs/sited; comment names TBW1-17 (TBW-T1rc-site) as the node that empties it; new row `T1rs/sited/not-yet-sited` proves a third unsited id is still refused.
+Witness: `python -B .../stage_joints.py --check` -> `stage joints: clean`; `python -B .../tests/test_contract_slices.py` -> `=== contract slices (markup, generation, freshness, shipped map): 532/532 ok ===`, exit 0.

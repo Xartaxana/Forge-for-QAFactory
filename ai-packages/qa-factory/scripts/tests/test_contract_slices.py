@@ -982,6 +982,10 @@ def test_t1rs() -> None:
     # launch-path `store.begin` printer of `run_suite:begin` (FV2-86). `selector_args` and `window_first` left this set when
     # `test_execution_request.py` (`t1rs_sites_after_the_probe`) was file-level green in canon run 44068480897 (K1b)
     unproved_site = {er + "stand", rs + "begin"}
+    # TBW-T1rc-int (t-1236): ids of rows T1r-cards-a landed whose sites do not exist yet. SHRINK-ONLY: node TBW1-17 (told-before-work/1,
+    # TBW-T1rc-site) sites them and empties this set; they count as unproved (never call-told) until then. A third id is NOT excepted.
+    NOT_YET_SITED = {er + "fingerprint.build", er + "profile.none"}
+    unproved_site |= NOT_YET_SITED
     request = {er + k for k in ("purpose", "selection", "budget", "freshness", "runtime", "stand.reference", "fingerprint", "command",
                                 "execution", "selector", "instance_contracts")}                 # the ids `validate_request` raises
     manifest = {er + k for k in ("no_test", "selector_args", "place_rows", "profile", "case_entries")}      # judge the automator's own rows
@@ -1047,7 +1051,10 @@ def test_t1rs() -> None:
     sited = set(SJ.check_ids())
     for fam in ("execution_request", "run_suite"):
         check_eq(f"T1rs/sited/{fam}: every row id is the literal key of a site (not only a sub-id of one)",
-                 sorted(r["check"] for r in rows if r["check"].startswith(fam + ":") and r["check"] not in sited), [])
+                 sorted(r["check"] for r in rows if r["check"].startswith(fam + ":") and r["check"] not in sited | NOT_YET_SITED), [])
+    check_eq("T1rs/sited/not-yet-sited: the exception set is exactly the two named ids, and a third unsited id is still refused",
+             (sorted(NOT_YET_SITED), sorted(c for c in {er + "fingerprint.build", er + "zz_third"} if c not in sited | NOT_YET_SITED)),
+             ([er + "fingerprint.build", er + "profile.none"], [er + "zz_third"]))
     # one reading of the marker: per (row, role), `call_told` equals the proof; the other eight roles hold none of these rows
     wrong = []
     for row in rows:
