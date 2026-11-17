@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from no_reaper_wrap import hook_argv
+from no_reaper_wrap import isolated_hook_argv
 
 from session_context import (
     build_context_lines,
@@ -634,7 +634,7 @@ def test_main_stdout_deadline_timeout_exits_immediately_via_subprocess(tmp_path)
     env = dict(os.environ, OSLLM_STDOUT_TIMEOUT="0.2")
     script = Path(__file__).resolve().parent / "session_context.py"
     proc = subprocess.Popen(
-        hook_argv(script),  # no real reaper (tools/no_reaper_wrap.py)
+        isolated_hook_argv(script, tmp_path),  # copy of the file under test in tmp_path/tools; no real reaper
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
