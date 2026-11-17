@@ -5,18 +5,14 @@
   {
    "id": "s5.repair_limit/debt",
    "start": "S5",
-   "seed": "to-s5-repair-limit",
+   "seed": null,
    "answer": {
     "token": "debt",
     "words": null,
     "words_file": null
    },
-   "reach": "story",
-   "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
-    }
-   },
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 s5.repair_limit met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -27,18 +23,14 @@
   {
    "id": "s5.repair_limit/stop",
    "start": "S5",
-   "seed": "to-s5-repair-limit",
+   "seed": null,
    "answer": {
     "token": "stop",
     "words": null,
     "words_file": null
    },
-   "reach": "story",
-   "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
-    }
-   },
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 s5.repair_limit met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -49,18 +41,14 @@
   {
    "id": "s5.repair_limit/free words",
    "start": "S5",
-   "seed": "to-s5-repair-limit",
+   "seed": null,
    "answer": {
     "token": null,
     "words": "Both options were read; go on as the report says.",
     "words_file": null
    },
-   "reach": "story",
-   "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
-    }
-   },
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 s5.repair_limit met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -71,18 +59,14 @@
   {
    "id": "s5.repair_limit/empty",
    "start": "S5",
-   "seed": "to-s5-repair-limit",
+   "seed": null,
    "answer": {
     "token": null,
     "words": null,
     "words_file": null
    },
-   "reach": "story",
-   "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
-    }
-   },
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 s5.repair_limit met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "empty"
@@ -92,18 +76,14 @@
   {
    "id": "s5.nobody_review/review",
    "start": "S5",
-   "seed": "to-s5-nobody-review",
+   "seed": null,
    "answer": {
     "token": "review",
     "words": null,
     "words_file": null
    },
-   "reach": "story",
-   "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
-    }
-   },
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 s5.nobody_review met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -114,18 +94,14 @@
   {
    "id": "s5.nobody_review/debt",
    "start": "S5",
-   "seed": "to-s5-nobody-review",
+   "seed": null,
    "answer": {
     "token": "debt",
     "words": null,
     "words_file": null
    },
-   "reach": "story",
-   "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
-    }
-   },
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 s5.nobody_review met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -136,18 +112,14 @@
   {
    "id": "s5.nobody_review/stop",
    "start": "S5",
-   "seed": "to-s5-nobody-review",
+   "seed": null,
    "answer": {
     "token": "stop",
     "words": null,
     "words_file": null
    },
-   "reach": "story",
-   "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
-    }
-   },
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 s5.nobody_review met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -158,18 +130,14 @@
   {
    "id": "s5.nobody_review/free words",
    "start": "S5",
-   "seed": "to-s5-nobody-review",
+   "seed": null,
    "answer": {
     "token": null,
     "words": "Both options were read; go on as the report says.",
     "words_file": null
    },
-   "reach": "story",
-   "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
-    }
-   },
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 s5.nobody_review met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -180,18 +148,14 @@
   {
    "id": "s5.nobody_review/empty",
    "start": "S5",
-   "seed": "to-s5-nobody-review",
+   "seed": null,
    "answer": {
     "token": null,
     "words": null,
     "words_file": null
    },
-   "reach": "story",
-   "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
-    }
-   },
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 s5.nobody_review met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "empty"
@@ -201,18 +165,14 @@
   {
    "id": "s5.nobody_environment/fixed",
    "start": "S5",
-   "seed": "to-s5-nobody-environment",
+   "seed": null,
    "answer": {
     "token": "fixed",
     "words": null,
     "words_file": null
    },
-   "reach": "story",
-   "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
-    }
-   },
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 s5.nobody_environment met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -223,18 +183,14 @@
   {
    "id": "s5.nobody_environment/debt",
    "start": "S5",
-   "seed": "to-s5-nobody-environment",
+   "seed": null,
    "answer": {
     "token": "debt",
     "words": null,
     "words_file": null
    },
-   "reach": "story",
-   "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
-    }
-   },
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 s5.nobody_environment met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -245,18 +201,14 @@
   {
    "id": "s5.nobody_environment/stop",
    "start": "S5",
-   "seed": "to-s5-nobody-environment",
+   "seed": null,
    "answer": {
     "token": "stop",
     "words": null,
     "words_file": null
    },
-   "reach": "story",
-   "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
-    }
-   },
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 s5.nobody_environment met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -267,18 +219,14 @@
   {
    "id": "s5.nobody_environment/free words",
    "start": "S5",
-   "seed": "to-s5-nobody-environment",
+   "seed": null,
    "answer": {
     "token": null,
     "words": "Both options were read; go on as the report says.",
     "words_file": null
    },
-   "reach": "story",
-   "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
-    }
-   },
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 s5.nobody_environment met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -289,18 +237,14 @@
   {
    "id": "s5.nobody_environment/empty",
    "start": "S5",
-   "seed": "to-s5-nobody-environment",
+   "seed": null,
    "answer": {
     "token": null,
     "words": null,
     "words_file": null
    },
-   "reach": "story",
-   "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
-    }
-   },
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 s5.nobody_environment met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "empty"
@@ -310,18 +254,14 @@
   {
    "id": "s5.nobody_tooling/debt",
    "start": "S5",
-   "seed": "to-s5-nobody-tooling",
+   "seed": null,
    "answer": {
     "token": "debt",
     "words": null,
     "words_file": null
    },
-   "reach": "story",
-   "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
-    }
-   },
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 s5.nobody_tooling met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -332,18 +272,14 @@
   {
    "id": "s5.nobody_tooling/stop",
    "start": "S5",
-   "seed": "to-s5-nobody-tooling",
+   "seed": null,
    "answer": {
     "token": "stop",
     "words": null,
     "words_file": null
    },
-   "reach": "story",
-   "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
-    }
-   },
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 s5.nobody_tooling met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -354,18 +290,14 @@
   {
    "id": "s5.nobody_tooling/free words",
    "start": "S5",
-   "seed": "to-s5-nobody-tooling",
+   "seed": null,
    "answer": {
     "token": null,
     "words": "Both options were read; go on as the report says.",
     "words_file": null
    },
-   "reach": "story",
-   "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
-    }
-   },
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 s5.nobody_tooling met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -376,18 +308,14 @@
   {
    "id": "s5.nobody_tooling/empty",
    "start": "S5",
-   "seed": "to-s5-nobody-tooling",
+   "seed": null,
    "answer": {
     "token": null,
     "words": null,
     "words_file": null
    },
-   "reach": "story",
-   "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
-    }
-   },
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 s5.nobody_tooling met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "empty"
@@ -397,13 +325,14 @@
   {
    "id": "exit.resume_limit/stop",
    "start": "S5",
-   "seed": "to-exit-resume-limit",
+   "seed": null,
    "answer": {
     "token": "stop",
     "words": null,
     "words_file": null
    },
-   "reach": "story",
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 exit.resume_limit met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -414,13 +343,14 @@
   {
    "id": "exit.resume_limit/free words",
    "start": "S5",
-   "seed": "to-exit-resume-limit",
+   "seed": null,
    "answer": {
     "token": null,
     "words": "Both options were read; go on as the report says.",
     "words_file": null
    },
-   "reach": "story",
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 exit.resume_limit met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -431,13 +361,14 @@
   {
    "id": "exit.resume_limit/empty",
    "start": "S5",
-   "seed": "to-exit-resume-limit",
+   "seed": null,
    "answer": {
     "token": null,
     "words": null,
     "words_file": null
    },
-   "reach": "story",
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 exit.resume_limit met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "empty"
@@ -447,13 +378,14 @@
   {
    "id": "exit.resume_limit_halted/stop",
    "start": "S5",
-   "seed": "to-exit-resume-limit-halted",
+   "seed": null,
    "answer": {
     "token": "stop",
     "words": null,
     "words_file": null
    },
-   "reach": "story",
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 exit.resume_limit_halted met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -464,13 +396,14 @@
   {
    "id": "exit.resume_limit_halted/free words",
    "start": "S5",
-   "seed": "to-exit-resume-limit-halted",
+   "seed": null,
    "answer": {
     "token": null,
     "words": "Both options were read; go on as the report says.",
     "words_file": null
    },
-   "reach": "story",
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 exit.resume_limit_halted met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -481,13 +414,14 @@
   {
    "id": "exit.resume_limit_halted/empty",
    "start": "S5",
-   "seed": "to-exit-resume-limit-halted",
+   "seed": null,
    "answer": {
     "token": null,
     "words": null,
     "words_file": null
    },
-   "reach": "story",
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 exit.resume_limit_halted met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "empty"
@@ -749,13 +683,14 @@
   {
    "id": "code_close.stage/retry",
    "start": "S5",
-   "seed": "to-code-close-stage",
+   "seed": null,
    "answer": {
     "token": "retry",
     "words": null,
     "words_file": null
    },
-   "reach": "story",
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 code_close.stage met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -766,13 +701,14 @@
   {
    "id": "code_close.stage/stop",
    "start": "S5",
-   "seed": "to-code-close-stage",
+   "seed": null,
    "answer": {
     "token": "stop",
     "words": null,
     "words_file": null
    },
-   "reach": "story",
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 code_close.stage met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -783,13 +719,14 @@
   {
    "id": "code_close.stage/free words",
    "start": "S5",
-   "seed": "to-code-close-stage",
+   "seed": null,
    "answer": {
     "token": null,
     "words": "Both options were read; go on as the report says.",
     "words_file": null
    },
-   "reach": "story",
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 code_close.stage met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -800,13 +737,14 @@
   {
    "id": "code_close.stage/empty",
    "start": "S5",
-   "seed": "to-code-close-stage",
+   "seed": null,
    "answer": {
     "token": null,
     "words": null,
     "words_file": null
    },
-   "reach": "story",
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 code_close.stage met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "empty"
@@ -816,13 +754,14 @@
   {
    "id": "code_close.factory_file/retry",
    "start": "S5",
-   "seed": "to-code-close-factory-file",
+   "seed": null,
    "answer": {
     "token": "retry",
     "words": null,
     "words_file": null
    },
-   "reach": "story",
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 code_close.factory_file met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -833,13 +772,14 @@
   {
    "id": "code_close.factory_file/stop",
    "start": "S5",
-   "seed": "to-code-close-factory-file",
+   "seed": null,
    "answer": {
     "token": "stop",
     "words": null,
     "words_file": null
    },
-   "reach": "story",
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 code_close.factory_file met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -850,13 +790,14 @@
   {
    "id": "code_close.factory_file/free words",
    "start": "S5",
-   "seed": "to-code-close-factory-file",
+   "seed": null,
    "answer": {
     "token": null,
     "words": "Both options were read; go on as the report says.",
     "words_file": null
    },
-   "reach": "story",
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 code_close.factory_file met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -867,13 +808,14 @@
   {
    "id": "code_close.factory_file/empty",
    "start": "S5",
-   "seed": "to-code-close-factory-file",
+   "seed": null,
    "answer": {
     "token": null,
     "words": null,
     "words_file": null
    },
-   "reach": "story",
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 code_close.factory_file met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "empty"
@@ -933,13 +875,14 @@
   {
    "id": "code_close.behind/retry",
    "start": "S5",
-   "seed": "to-code-close-behind",
+   "seed": null,
    "answer": {
     "token": "retry",
     "words": null,
     "words_file": null
    },
-   "reach": "story",
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 code_close.behind met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -950,13 +893,14 @@
   {
    "id": "code_close.behind/stop",
    "start": "S5",
-   "seed": "to-code-close-behind",
+   "seed": null,
    "answer": {
     "token": "stop",
     "words": null,
     "words_file": null
    },
-   "reach": "story",
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 code_close.behind met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -967,13 +911,14 @@
   {
    "id": "code_close.behind/free words",
    "start": "S5",
-   "seed": "to-code-close-behind",
+   "seed": null,
    "answer": {
     "token": null,
     "words": "Both options were read; go on as the report says.",
     "words_file": null
    },
-   "reach": "story",
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 code_close.behind met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "C2",
@@ -984,13 +929,14 @@
   {
    "id": "code_close.behind/empty",
    "start": "S5",
-   "seed": "to-code-close-behind",
+   "seed": null,
    "answer": {
     "token": null,
     "words": null,
     "words_file": null
    },
-   "reach": "story",
+   "reach": "live_only",
+   "why_unreached": "measured: canon run 44119861422 -- recipe drive_until S5 code_close.behind met exit_limit at S6; the dry world has no seed op that puts S5 into this state (finding 20261117-p1b-s5-fault-states-unreachable-in-dry-world)",
    "expect": {
     "checks": [
      "empty"
