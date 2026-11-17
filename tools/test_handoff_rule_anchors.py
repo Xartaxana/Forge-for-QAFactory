@@ -102,6 +102,7 @@ def test_critic_rule_23_what_comes_back():
     assert block is not None
     assert missing_keys(block, ["`handoff:`", "rules 16-17", "critic_verdict_check.py"]) == []
     assert restated(block) == []
+    assert restated(rule_block(read(CRITIC), 16)) == [K2, K_LINE]  # negative control: restated() finds the words where they are
 
 
 def test_calibration_check_28_has_d():

@@ -272,6 +272,8 @@ scan» разделён: храповики — уровень пачки, ск�
    `slow_tests.json`, `CONTRACT_TESTS`/`TEST_TIMEOUTS` в `selftest.py`, `gate-registry.json`, `stage-joints.json`,
    `driver-layers.json`, `.gitlab-ci.yml`, `judgment-census.json`); файл, который называет гейт, не удаляется — только
    чистится.
+5. Правка не ослабляет проверку, которая остаётся: утверждение теста, которое переживает правку, не смягчается
+   (формулировка старого брифа диеты тестов: «No weakening of an assertion that stays»).
 
 ### Кто что делает
 

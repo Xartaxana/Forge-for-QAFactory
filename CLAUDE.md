@@ -229,7 +229,7 @@ a rule.
    critic checks class-wide completeness against the map, Lead owns the workaround and where the rule lives.
 
    Having named a class, FIRST apply it to every neighbor inside the SAME artifact — sibling subsections of a check,
-   clauses of a rule, entries of a list, branches of a parser — before walking the map and before queuing anything
+   clauses of a rule, entries of a list, branches of a parser — before walking the map and before moving anything out of the round
    (sweep-the-artifact-first rule). The unit is the enclosing structural block, widening to the WHOLE file only when
    this move has already read it; opening a file specially for the sweep is forbidden — move it to another pile's node instead (the rare case). Executed
    means an ENUMERATION with a verdict per neighbor (applied / not applicable — why / moved to another pile's node, with its id); prose

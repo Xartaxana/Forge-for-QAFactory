@@ -30,7 +30,7 @@ What was dropped and why: rule 13 judge text, R1-a, hygiene 2, the journal-segme
 
 ## Adaptations 5-7 (5 and 6: the reason; 7: moved verbatim)
 
-5. Rule 3, the critic gate on a diff — the rule text is `.claude/agents/critic.md` rule 22 items 6-7 (the critic role file's
+5. Rule 3, the critic gate on a diff — the rule text is `.claude/agents/critic.md` rule 22, Q6-Q7 (the critic role file's
    rule 18 points there). Why: the owner's word 06.10.2026 «поддерживать порядок» after the 0.8.1 clean-up; the role file
    gained rule 18 on 09.10.2026 (B-419) without the exam its rule 10 demands — deferred by D-0037 (forge batch 3).
 6. Cost gates — the rule text is `CLAUDE.md` rule 12, Cost gates; here only why. D-0035 (the owner's word 07.10.2026): release

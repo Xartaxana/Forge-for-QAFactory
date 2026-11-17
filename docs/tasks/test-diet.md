@@ -14,7 +14,7 @@
 
 | Узел | Что | Файлы | Статус |
 |---|---|---|---|
-| TD-0 | Правило `docs/TESTING.md`, правки `plans/builder-rules.md` 7b/7d, `docs/tasks/critic-diff-brief.md` (удалён 17.11.2026; правило — `docs/TESTING.md`) вопрос 5, `CLAUDE.md` адаптация 12 | — | сделано 10.11.2026 |
+| TD-0 | Правило `docs/TESTING.md`, правки `plans/builder-rules.md` 7b/7d (удалён 17.11.2026; правила — `docs/TESTING.md` и `.claude/agents/builder.md`), `docs/tasks/critic-diff-brief.md` (удалён 17.11.2026; правило — `docs/TESTING.md`) вопрос 5, `CLAUDE.md` адаптация 12 | — | сделано 10.11.2026 |
 | TD-1 | Удалены 3 файла пинов текстов, не являющихся правилами ролей (строки CHANGELOG, долга, текстов форджа; 280 строк). 12 файлов пинов правил ролей удалены и в тот же час ВОЗВРАЩЕНЫ по слову владельца: правило роли не должно теряться молча | список ниже | сделано 10.11.2026 |
 | TD-2 | Семейство `test_story_run_*` (27 файлов, 29 656 строк, 33 мин счёта): один мир драйвера на файл вместо подпроцесса на проверку; пины stdout-фраз свести к отказу и артефакту | `scripts/tests/test_story_run_*.py`, `story_run_common.py` | ожидает; после сдачи TR3-9 C (тот же `story_run.py`) |
 | TD-3 | Тридцать самых медленных файлов вне `story_run` (`s7_live`, `gate_repair`, `s6_lane_admission`, `infra_failure`, `no_move_seam`, `handoff_values`, `gate_b_driver`, `window_record`, `probe_by_code*`, `words_doors`, `controller_rework`, `branch_accounting`): то же правило времени | по `slow_tests.json` | ожидает |

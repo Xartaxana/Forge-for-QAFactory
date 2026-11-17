@@ -104,8 +104,8 @@ You receive a spec and implement it. The coordinator writes the spec — not you
    is a row of an existing scenario, table or junction, not a new file
    (the one exception: «Бюджет / Файлы»).
 9. Runs, cheaply. While working, run at most the changed module's test file, and not after every edit; the
-   witness is ONE run of rule 4's scope on the final state, repeated once only if code changed after it (the owner,
-   30.09.2026; the output trimming is CLAUDE.md rule 12, Cost gates). Run a test synchronously when you can; a polling wait
+   witness is CLAUDE.md rule 12's one run (Cost gates), of rule 4's scope, repeated once only if code changed after it
+   (the owner, 30.09.2026). Run a test synchronously when you can; a polling wait
    lasts no longer than the run itself and names the file it waits for and its end (a count or seconds); an unbounded polling
    loop is forbidden, and a loop you leave running is named in your report (the rule: `docs/RUNBOOK.md` §9.8).
 10. Git. No git state change in a shared tree (`stash`, `add`, `commit`, `checkout`, `reset`, `restore`,
@@ -127,8 +127,8 @@ You receive a spec and implement it. The coordinator writes the spec — not you
    new field. A new refusal names how a person's recorded decision passes it (the orchestrator records the word; a role never
    runs the waiver itself — FR-4, FR-57). A live project is read-only: no write and no `cd` there; code runs on a copy in
    temp. A new CLI script is registered in `audit_factory.py` `CLI_SCRIPTS`; every code path works with `judge.provider:
-   none`. "builder-rules N" in package comments = this rule's former numbering: 1, 9 → rule 11; 5 → rule 11; 7a → rule 9;
-   7b, 7c → `docs/TESTING.md` «Что запускать по своей правке»; 8 → FR-4, FR-57.
+   none`. "builder-rules N" in package comments = the former numbering of the builder's rules: 1, 9 → rule 11; 5 → rule 11; 7a → rule 9;
+   7b, 7c → `docs/TESTING.md` «Что запускать по своей правке»; 8 → FR-4, FR-57. Package comments that cite "builder rule 9" mean this rule's backward-compatibility clause, not rule 9 above.
 12. The readers block. When the dispatch carries the block of `tools/owns_readers.py`, you never write into a file it marks
    `quarantined`; a `slow` owned test is named "judged by the batch canon" and not run; an `absent` given or owned path is a
    question returned before work; for every `names` line you keep that reader green or return "changes needed outside owns:

@@ -46,11 +46,6 @@ you.
    nowhere") only with a positive control of the same form (command
    hygiene point 6). Report noticed analogs/contradictions in the
    brief — do not widen scope yourself.
-   The readers list is the block of `python -B
-   tools/owns_readers.py --paths <touched files> --names <changed names>` (counts by default; `--readers` lists): you have no
-   shell, so the Lead attaches it to the brief and the plan critic re-runs it on your touched-file list; quote the block and
-   give every line its answer in the forms of `.claude/agents/critic.md` rule 24, Q13 (d). A hand grep is owed only for what
-   its KNOWN MISSES name.
    Readers of every touched file: rule 7.
 4. Don't launch agents (flat delegation rule; `tools` carries no
    Task/Agent — a machine layer, not discipline alone) and write
@@ -103,9 +98,11 @@ you.
 7. READERS OF EVERY TOUCHED FILE (the owner's word 16.11.2026): for
    each file a spec creates or changes — a settings or hook file, a
    shared tool, a constant — the draft lists WHO ELSE READS IT, found
-   by a grep for the file's name and its changed names over `tools/`,
-   `.githooks/` and `.claude/` (the command and its hit count in the
-   draft), and says for each reader "unchanged / changes in stream X".
+   by the block of `python -B tools/owns_readers.py --paths <touched files> --names <changed names>` (counts by
+   default; `--readers` lists) that the Lead attaches to the brief, since you have no shell: quote it and answer every line in
+   the forms of `.claude/agents/critic.md` rule 24, Q13 (d); a hand grep over `tools/`, `.githooks/` and `.claude/`, with its
+   command and hit count, only for the block's KNOWN MISSES; the plan critic re-runs the tool only when the block is missing
+   or stale (Q13 (d)); and says for each reader "unchanged / changes in stream X".
    A reader with no line is a spec defect: parallel streams meet at
    exactly these readers (the offload landing: a gate that parses hook
    commands, a ratchet on importers, two count pins).

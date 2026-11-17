@@ -57,6 +57,7 @@ OWNER_KEYS = [
     ("routing:rule-11", "CLAUDE.md", "a spec silent on an edge that its own requirements create is a dispatcher defect"),
     ("routing:hygiene-6", "CLAUDE.md", "from an INCORRECTLY invoked tool is a miscall, not proof the object is absent"),
     ("routing:rule-9", "CLAUDE.md", "the rule against recurrence goes on the highest level that ties the siblings together"),
+    ("routing:rule-9-exit", "CLAUDE.md", "never a way to put off a rule fix while rules are being fixed"),
     ("cost:cap", "CLAUDE.md", "WARN 250K, STOP 400K"),
     ("cost:queue", "PROJECT.md", "цель держать 6 пишущих билдеров"),      # 63bbd5e: the full-queue text moved to PROJECT.md item 12; CLAUDE.md rule 12 points there; re-quoted with R1 (boot-by-topic, FG7-51)
     ("tests:oracle", "docs/TESTING.md", "тест, чьё ожидание переписано из того, что код напечатал, может только пройти"),
@@ -174,13 +175,15 @@ def is_scanned(rel):
     return rel.endswith(TEXT_SUFFIXES) and not any(rel == e or rel.startswith(e) for e in EXCLUDED)
 
 
-def tracked(root):
+def _tracked_all(root):
     if (root / ".git").exists():          # a checkout or a worktree (`.git` is a file there)
         out = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], capture_output=True, check=True).stdout
-        rels = [p for p in out.decode("utf-8", "replace").split("\0") if p]
-    else:
-        rels = [p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()]
-    return sorted(r for r in rels if is_scanned(r))
+        return [p for p in out.decode("utf-8", "replace").split("\0") if p]
+    return [p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()]
+
+
+def tracked(root):
+    return sorted(r for r in _tracked_all(root) if is_scanned(r))
 
 
 def load(root, rels):
@@ -257,7 +260,7 @@ DELETED = [                                     # (path, stem or None); wave 2 a
     ("docs/tasks/test-diet-fold-brief.md", "test-diet-fold-brief"),
     ("docs/retro/README.md", None),             # no stem: "README" is a common word
 ]
-ALLOWED = {".claude/agents/builder.md": "\"builder-rules N\" in package comments = this rule's former numbering"}
+ALLOWED = {".claude/agents/builder.md": "\"builder-rules N\" in package comments = the former numbering of the builder's rules"}
 BRIEF_PATH_RE = re.compile(r"docs/tasks/[^/\s`'\"]*brief[^/\s`'\"]*\.md")
 
 
@@ -325,13 +328,6 @@ def test_register_sees_the_main_documents():
 def test_no_main_document_names_a_deleted_file(rel):
     hits = scan(rel, read(rel))
     assert hits == [], "%s names a deleted file at %s; door: %s" % (rel, hits[:5], DOOR)
-
-
-def _tracked_all(root):
-    if (root / ".git").exists():
-        out = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], capture_output=True, check=True).stdout
-        return [p for p in out.decode("utf-8", "replace").split("\0") if p]
-    return [p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()]
 
 
 @pytest.mark.parametrize("path", [d for d, _ in DELETED])

@@ -189,16 +189,13 @@ Your job is to find what's wrong and prove it.
      selftest) is legitimate; `test_story_step.py`, `test_story_run_*.py`, full `selftest.py`, docker,
      ratchets and quarantined files are not — they are the batch canon's (D-0056); a mutation suite is
      nobody's (retired 10.11.2026); re-deriving the mechanics by reading everything is not.
-22. The standing questions — on every diff gate, each with its own verdict line (Q12 also on a plan gate):
+22. The standing questions — on every diff gate, each with its own verdict line (Q4, Q6 and Q12 also on a plan gate, rule 24):
    Q1. **Fit to the spec**: every requirement, edge and key the dispatch names — implemented as written,
       with the error direction the spec states (FR-41/FR-59: no unknown becomes a pass).
    Q2. **The builder's own decisions** on points the spec left silent: each in the safe direction, each
       consistent with the consumers named in the spec.
    Q3. **Seams**: the files other nodes own or follow on — additive, localized, nothing reordered.
-   Q4. **Class-wide completeness** (rule 9, FR-54): the SIBLING_MAP axes and the neighbours in the same artifact. A sibling is fixed in the same round. It leaves the round only when it lies in ANOTHER pile's zone or waits for the
-      owner's word (say which), and only as a node with an executor (`узел:`) or a confirmed transfer (`перенос: … | подтвердил:`)
-      in the forms of `docs/TEAMWORK.md` § 9 — the rare case, never a way to put off a rule fix while rules are being fixed
-      (the owner's word 17.11.2026). An analog outside the node's `owns` but inside this pile is named with its file so the Lead widens the fix round or sends a sibling builder. A leaving sibling comes back as a line the Lead writes into «Остатки» as is: `<what> | узел: <node id>` (a node row the Lead opens in an
+   Q4. **Class-wide completeness** (rule 9, FR-54): the SIBLING_MAP axes and the neighbours in the same artifact. A sibling is fixed in the same round; it leaves only by CLAUDE.md rule 9's exit (the rare case). An analog outside the node's `owns` but inside this pile is named with its file so the Lead widens the fix round or sends a sibling builder. A leaving sibling comes back as a line the Lead writes into «Остатки» as is: `<what> | узел: <node id>` (a node row the Lead opens in an
       untaken batch, D-0044) or `<what> | перенос: <findings/<file> | пачка N> | обоснование: <why> | подтвердил: —`; a bare queue
       line is refused by `piles.py check` (д) (F6-30).
    Q5. **Tests** (`docs/TESTING.md`, the owner's words 10.11 and 17.11.2026), each sub-question answered:
@@ -233,13 +230,13 @@ Your job is to find what's wrong and prove it.
    Q6. **DUPLICATION AND CONSISTENCY**: does the diff implement anything the repository already has a
       reader, writer, helper, data table, refusal text builder, tokenizer or path resolver for? For
       each such place: the existing one with file:line, and whether the diff should have reused it,
-      extended it, or whether the convergence is already queued (a queued analog named in the spec is
-      queued, not a finding). The positive control for "no second implementation" is a grep of the
+      extended it, or whether the convergence is already a node (Q4's exit; a node named in the spec is
+      not a finding). The positive control for "no second implementation" is a grep of the
       same shape over the package; the clone ratchet's output is read, not re-derived.
    Q7. **CODE QUALITY** beyond style-as-bug-mask: functions over roughly 60 lines or with more than three
       nesting levels in the NEW code (name them with line ranges), copy-pasted blocks inside the diff,
       dead branches, names or annotations that lie, work whose result nobody reads. Each is a finding
-      with a severity — blocks / fix before merge (Q4: no "queue" severity) — never a style pass and never "I don't like it".
+      with a severity — blocks / fix before merge (Q4: there is no "queue" severity) — never a style pass and never "I don't like it".
    Q8. **Hygiene** where the diff is in the package: FR-29/FR-30, the size caps, CRLF kept.
    Q9. **IN-TREE RATCHETS** (SIBLING_MAP axis 18, 16.10; since D-0060 the members include `scripts/tests/fixtures/judgment-census.json` `ratchet` and `role-load.json` `process_ratchet_tokens`; since P1-v N6, `experiments/scoreboards/norms.json` (tighten-only: a looser `norm`, a removed or worsened `ratchets` element, a new `raises`, `worsened_passes` or `bar_changes` entry is named with its owner's `word`); since P1-b L1c/L2, the dry census ratchets in `scripts/tests/fixtures/driver-exits/<group>.json` `ratchet` (`unwalked` / `live_only` / `after` / `hook_layer`, each raise named by one `raised_by` entry), the known-red ledger `scripts/tests/fixtures/driver-exits/known_red.json` with `pins.known_red`, its per-group files `scripts/tests/fixtures/driver-exits/known_red/<group>.json` (since P1-b N4R: one file per walk group, each with its own `pins.known_red`; a file of no group is red in `dry_exits.py --check`), and `scripts/tests/fixtures/stories/dry-1/selftest/known_red.json`)): a diff that adds or raises a row of an
       in-tree shrink-only ratchet is named in the verdict, row by row (key, old → new count, the
@@ -281,8 +278,8 @@ Your job is to find what's wrong and prove it.
    commands with verbatim output) — under about 1800 words, trail last. The review is a FILE at the dispatch's `handoff:`
    path; its form, the closing json block and the fallback with no path are rules 16-17; acceptance runs
    `python tools/critic_verdict_check.py <file>`, exit 0 required.
-24. The plan gate (critic on a plan or on a dispatch draft; CLAUDE.md rule 3): answer Q13 below and Q4 and Q12 of
-   rule 22, each sub-question with its own verdict line.
+24. The plan gate (critic on a plan or on a dispatch draft; CLAUDE.md rule 3): answer Q13 below and Q4, Q6 and Q12 of
+   rule 22 (read "the diff" as "the plan"), each sub-question with its own verdict line.
    Q13. **FACTS AND EDGES** (evidence: t-896, 65 `failure_class: spec` rejects of 11-16.11.2026 -- 42 found by the code
        critic, 4 by the plan critic). Each sub-question gets its own verdict line.
        (a) EDGES: for every limit, empty or absent input, pair of the spec's own requirements, and artifact the change
