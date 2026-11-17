@@ -84,9 +84,57 @@
   "kind:walk_supply/empty": {
    "node": "FV3-23",
    "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 6): after FV3-21 the pass past S5 stops at the conductor at S7, where the story stub holds no row for qa-failure-analyst@S7 (known_red.json main/S6, node FV3-23); the ask is inside S6, so the row starts S5 and meets that stop first; the label leaves with FV3-23"
+  },
+  "code_close.stage/retry": {
+   "node": "FV3-33",
+   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 7, Lead): \"seed did not reach code_close.stage: met the conductor at S7: a state the driver has no move for\"; no dry seed op refuses a stage close, edits a factory file or skips a stage, so the road passes S5 and meets the main stop"
+  },
+  "code_close.stage/stop": {
+   "node": "FV3-33",
+   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 7, Lead): \"seed did not reach code_close.stage: met the conductor at S7: a state the driver has no move for\"; no dry seed op refuses a stage close, edits a factory file or skips a stage, so the road passes S5 and meets the main stop"
+  },
+  "code_close.stage/free words": {
+   "node": "FV3-33",
+   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 7, Lead): \"seed did not reach code_close.stage: met the conductor at S7: a state the driver has no move for\"; no dry seed op refuses a stage close, edits a factory file or skips a stage, so the road passes S5 and meets the main stop"
+  },
+  "code_close.stage/empty": {
+   "node": "FV3-33",
+   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 7, Lead): \"seed did not reach code_close.stage: met the conductor at S7: a state the driver has no move for\"; no dry seed op refuses a stage close, edits a factory file or skips a stage, so the road passes S5 and meets the main stop"
+  },
+  "code_close.factory_file/retry": {
+   "node": "FV3-33",
+   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 7, Lead): \"seed did not reach code_close.factory_file: met the conductor at S7: a state the driver has no move for\"; no dry seed op refuses a stage close, edits a factory file or skips a stage, so the road passes S5 and meets the main stop"
+  },
+  "code_close.factory_file/stop": {
+   "node": "FV3-33",
+   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 7, Lead): \"seed did not reach code_close.factory_file: met the conductor at S7: a state the driver has no move for\"; no dry seed op refuses a stage close, edits a factory file or skips a stage, so the road passes S5 and meets the main stop"
+  },
+  "code_close.factory_file/free words": {
+   "node": "FV3-33",
+   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 7, Lead): \"seed did not reach code_close.factory_file: met the conductor at S7: a state the driver has no move for\"; no dry seed op refuses a stage close, edits a factory file or skips a stage, so the road passes S5 and meets the main stop"
+  },
+  "code_close.factory_file/empty": {
+   "node": "FV3-33",
+   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 7, Lead): \"seed did not reach code_close.factory_file: met the conductor at S7: a state the driver has no move for\"; no dry seed op refuses a stage close, edits a factory file or skips a stage, so the road passes S5 and meets the main stop"
+  },
+  "code_close.behind/retry": {
+   "node": "FV3-33",
+   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 7, Lead): \"seed did not reach code_close.behind: met the conductor at S7: a state the driver has no move for\"; no dry seed op refuses a stage close, edits a factory file or skips a stage, so the road passes S5 and meets the main stop"
+  },
+  "code_close.behind/stop": {
+   "node": "FV3-33",
+   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 7, Lead): \"seed did not reach code_close.behind: met the conductor at S7: a state the driver has no move for\"; no dry seed op refuses a stage close, edits a factory file or skips a stage, so the road passes S5 and meets the main stop"
+  },
+  "code_close.behind/free words": {
+   "node": "FV3-33",
+   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 7, Lead): \"seed did not reach code_close.behind: met the conductor at S7: a state the driver has no move for\"; no dry seed op refuses a stage close, edits a factory file or skips a stage, so the road passes S5 and meets the main stop"
+  },
+  "code_close.behind/empty": {
+   "node": "FV3-33",
+   "raised_by": "canon dry run 44189095637 on fd715e65 (t-1223 round 7, Lead): \"seed did not reach code_close.behind: met the conductor at S7: a state the driver has no move for\"; no dry seed op refuses a stage close, edits a factory file or skips a stage, so the road passes S5 and meets the main stop"
   }
  },
  "pins": {
-  "known_red": 21
+  "known_red": 33
  }
 }

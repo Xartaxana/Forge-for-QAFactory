@@ -53,7 +53,7 @@ jobs:
     needs: list
     if: ${{ needs.list.outputs.groups != '[]' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30         # until the Lead's cap (F12): 30 minutes per part, as the spike had; the measured parts are 110-385 s
+    timeout-minutes: 60         # Lead cap, round 7 t-1223: 30 -> 60 to measure the s5 part after the class 1 stubs; the measured parts were 110-385 s, a wall past 1800 s is a hang to name by row, not slowness
     strategy:
       fail-fast: false          # a red part does not hide the others
       matrix:
