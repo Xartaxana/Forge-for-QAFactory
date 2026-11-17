@@ -418,6 +418,15 @@ WAITS = [
     ("W-epoch-ps-neg-AT", "while ((Get-Date -UFormat %s) -lt 1800000000) { Start-Sleep 5 }", P, "tree", S),
     ("W-epoch-ps-neg-BEYOND", "while ((Get-Date -UFormat %s) -lt 1800000001) { Start-Sleep 5 }", P, "tree", _WP),
     ("W-ps-pipe-newline", "1..1000 | ForEach-Object\n{ Start-Sleep 20 }", P, "tree", S),
+    # t-1191 (verdict t-1189 G8, L2): a line continuation is blank; Bash epoch keeps its budget under a nonzero offset
+    ("W-ps-while-backtick-paren", "while `\n($true) { Start-Sleep 5 }", P, "tree", _WP),
+    ("W-ps-allman-backtick", "while ($true) `\n{ Start-Sleep 5 }", P, "tree", _WP),
+    ("W-ps-pipe-backtick-BEYOND", "1..1000 | ForEach-Object `\n{ Start-Sleep 20 }", P, "tree", _WP),
+    ("W-bash-while-backslash-BEYOND", "while true; do sleep \\\n20; done", B, "tree", _WB),
+    ("W-bash-for-backslash-AT", "for i in $(seq 1 180); do x; sleep \\\n20; done", B, "tree", S),
+    ("W-bash-for-backslash-BEYOND", "for i in $(seq 1 181); do x; sleep \\\n20; done", B, "tree", _WB),
+    ("W-epoch-bash-offset-AT", "until [ $(date +%s) -ge 1800003600 ]; do sleep 10; done", B, "tree", S),
+    ("W-epoch-bash-offset-BEYOND", "until [ $(date +%s) -ge 1800003601 ]; do sleep 10; done", B, "tree", _WB),
 ]
 ROWS = SILENT + WRITES_PASS + JOURNAL + CD + ROLLBACK + MARKERS + ADVERSARIAL + ROUND2 + WAITS
 
@@ -431,7 +440,7 @@ def test_decide_table(world, monkeypatch, name, command, tool, cwd, expect):
         monkeypatch.setenv("GIT_DIR", "x")
     if name.startswith("W-epoch"):
         monkeypatch.setattr(hg, "_now_epoch", lambda: 1_800_000_000)
-        offset = 3600 if "-ps-pos-" in name else -3600 if "-ps-neg-" in name else 0     # local UTC offset (PowerShell clock)
+        offset = 3600 if "-ps-pos-" in name or "-bash-offset-" in name else -3600 if "-ps-neg-" in name else 0     # local UTC offset (PowerShell clock)
         monkeypatch.setattr(hg, "_local_utc_offset", lambda: offset)
     code, out = _decide(command, tool, world[cwd])
     assert code == 0
