@@ -1,0 +1,64 @@
+{
+ "_about": "The label ledger of the walk group s6-s9 (rows of exits/s6-s9.json only), read by known_red.py through test_scenario_dry_1.py --part exits:s6-s9; `pins.known_red` is the number of rows.",
+ "known_red": {
+  "s6.stand_login/retry": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B2 (Lead decision, ledger raise approved): the ask is inside S6 (or S5 for the stand question), so the row starts S5; measured: canon 44136298524 on fd8d60f7 and a local walk of this group (snapshot S5: waiting at exit_limit (S6)) - the pass stops at the main stop's own cause, `met exit_limit at S6 with no answer in story.json (A1-E3)` (known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "s6.stand_login/by hand": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B2 (Lead decision, ledger raise approved): the ask is inside S6 (or S5 for the stand question), so the row starts S5; measured: canon 44136298524 on fd8d60f7 and a local walk of this group (snapshot S5: waiting at exit_limit (S6)) - the pass stops at the main stop's own cause, `met exit_limit at S6 with no answer in story.json (A1-E3)` (known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "s6.stand_login/go on": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B2 (Lead decision, ledger raise approved): the ask is inside S6 (or S5 for the stand question), so the row starts S5; measured: canon 44136298524 on fd8d60f7 and a local walk of this group (snapshot S5: waiting at exit_limit (S6)) - the pass stops at the main stop's own cause, `met exit_limit at S6 with no answer in story.json (A1-E3)` (known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "s6.stand_login/free words": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B2 (Lead decision, ledger raise approved): the ask is inside S6 (or S5 for the stand question), so the row starts S5; measured: canon 44136298524 on fd8d60f7 and a local walk of this group (snapshot S5: waiting at exit_limit (S6)) - the pass stops at the main stop's own cause, `met exit_limit at S6 with no answer in story.json (A1-E3)` (known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "s6.stand_login/empty": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B2 (Lead decision, ledger raise approved): the ask is inside S6 (or S5 for the stand question), so the row starts S5; measured: canon 44136298524 on fd8d60f7 and a local walk of this group (snapshot S5: waiting at exit_limit (S6)) - the pass stops at the main stop's own cause, `met exit_limit at S6 with no answer in story.json (A1-E3)` (known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "s6.gate_a_dry/empty": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B2 (Lead decision, ledger raise approved): the ask is inside S6 (or S5 for the stand question), so the row starts S5; measured: canon 44136298524 on fd8d60f7 and a local walk of this group (snapshot S5: waiting at exit_limit (S6)) - the pass stops at the main stop's own cause, `met exit_limit at S6 with no answer in story.json (A1-E3)` (known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "s6.gate_a_dry/free words": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B2 (Lead decision, ledger raise approved): the ask is inside S6 (or S5 for the stand question), so the row starts S5; measured: canon 44136298524 on fd8d60f7 and a local walk of this group (snapshot S5: waiting at exit_limit (S6)) - the pass stops at the main stop's own cause, `met exit_limit at S6 with no answer in story.json (A1-E3)` (known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "s6.gate_a_dry/go on": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B2 (Lead decision, ledger raise approved): the ask is inside S6 (or S5 for the stand question), so the row starts S5; measured: canon 44136298524 on fd8d60f7 and a local walk of this group (snapshot S5: waiting at exit_limit (S6)) - the pass stops at the main stop's own cause, `met exit_limit at S6 with no answer in story.json (A1-E3)` (known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "s6.gate_a_dry/stop": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B2 (Lead decision, ledger raise approved): the ask is inside S6 (or S5 for the stand question), so the row starts S5; measured: canon 44136298524 on fd8d60f7 and a local walk of this group (snapshot S5: waiting at exit_limit (S6)) - the pass stops at the main stop's own cause, `met exit_limit at S6 with no answer in story.json (A1-E3)` (known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "s6.stand_confirm.login/retry": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B2 (Lead decision, ledger raise approved): the ask is inside S6 (or S5 for the stand question), so the row starts S4; measured: canon 44136298524 on fd8d60f7 and a local walk of this group (snapshot S5: waiting at exit_limit (S6)) - the pass stops at the main stop's own cause, `met exit_limit at S6 with no answer in story.json (A1-E3)` (known_red.json main/S6, node FV3-21); the label leaves with FV3-21; caveat: the login variant of the stand question is asked only when the probe blocks on login, and the canon shows the pass going through S5 with no such ask, so the seed may not reach it even after FV3-21 (to re-measure when FV3-21 lands; a local walk exceeded the 240 s cap at seed turn 2 on a slow machine and did not show the stop)"
+  },
+  "s6.stand_confirm.login/go on": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B2 (Lead decision, ledger raise approved): the ask is inside S6 (or S5 for the stand question), so the row starts S4; measured: canon 44136298524 on fd8d60f7 and a local walk of this group (snapshot S5: waiting at exit_limit (S6)) - the pass stops at the main stop's own cause, `met exit_limit at S6 with no answer in story.json (A1-E3)` (known_red.json main/S6, node FV3-21); the label leaves with FV3-21; caveat: the login variant of the stand question is asked only when the probe blocks on login, and the canon shows the pass going through S5 with no such ask, so the seed may not reach it even after FV3-21 (to re-measure when FV3-21 lands; a local walk exceeded the 240 s cap at seed turn 2 on a slow machine and did not show the stop)"
+  },
+  "s6.stand_confirm.login/free words": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B2 (Lead decision, ledger raise approved): the ask is inside S6 (or S5 for the stand question), so the row starts S4; measured: canon 44136298524 on fd8d60f7 and a local walk of this group (snapshot S5: waiting at exit_limit (S6)) - the pass stops at the main stop's own cause, `met exit_limit at S6 with no answer in story.json (A1-E3)` (known_red.json main/S6, node FV3-21); the label leaves with FV3-21; caveat: the login variant of the stand question is asked only when the probe blocks on login, and the canon shows the pass going through S5 with no such ask, so the seed may not reach it even after FV3-21 (to re-measure when FV3-21 lands; a local walk exceeded the 240 s cap at seed turn 2 on a slow machine and did not show the stop)"
+  },
+  "s6.stand_confirm.login/empty": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B2 (Lead decision, ledger raise approved): the ask is inside S6 (or S5 for the stand question), so the row starts S4; measured: canon 44136298524 on fd8d60f7 and a local walk of this group (snapshot S5: waiting at exit_limit (S6)) - the pass stops at the main stop's own cause, `met exit_limit at S6 with no answer in story.json (A1-E3)` (known_red.json main/S6, node FV3-21); the label leaves with FV3-21; caveat: the login variant of the stand question is asked only when the probe blocks on login, and the canon shows the pass going through S5 with no such ask, so the seed may not reach it even after FV3-21 (to re-measure when FV3-21 lands; a local walk exceeded the 240 s cap at seed turn 2 on a slow machine and did not show the stop)"
+  },
+  "s6.stand_confirm/free words": {
+   "node": "FV3-16",
+   "raised_by": "measured (canon 44136298524 C2/C3; local walk, same C2/C3 text): the seed reaches the stand question at S5 (row starts S4) and the free words go to `_take_stand_answer` (driver_machine.py:3959), whose last branch is `self.unread(...)` and `return False` (:3983-3991): the words go to the conductor with the command to record them, no answer row is written and the state fingerprint is unchanged; same class as `kind:halt/free words` (known_red/s0.json, FV3-16: free words print 'answer for' but record no answer row); node chosen by the builder pending Lead approval of this raise (the recipe cannot declare C2 and C3 n/a: a walk row needs one check and C6 is gate-only)"
+  }
+ },
+ "pins": {
+  "known_red": 14
+ }
+}
