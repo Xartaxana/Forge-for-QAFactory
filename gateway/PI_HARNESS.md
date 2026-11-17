@@ -54,8 +54,8 @@ attempt at a looser version let a small/weak model answer from
        "not found" -- with the list of searches you actually ran.
     1. Strict READ-ONLY mode: do not create, modify, or delete files;
        bash is for search and reading only (grep, ls, cat).
-    2. Answer in DIGEST FORM v1; the grammar, the result forms and an
-       example are in docs/tasks/exchange-form.md -- read it first.
+    2. Answer in DIGEST FORM v1; the grammar and the flag list are in
+       .claude/agents/scout.md rules 10 and 11 -- read them first.
        The final message begins with the line `digest: v1 <task_id>`
        (no fence around the digest), then `## Objects` -- a table, ONE
        row per object, ONE claim per row: `| id | kind | gist | paths |

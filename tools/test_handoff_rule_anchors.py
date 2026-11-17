@@ -137,11 +137,11 @@ def test_negative_control_one_key_absent_from_a_copy():
     assert missing_keys(copy, FILE_RULE_KEYS) == [K2]
 
 
-K_SCOUT_FORM = ("digest: v1", "docs/tasks/exchange-form.md")
+K_SCOUT_FORM = ("digest: v1", "`tools/digest_form.py`")
 
 
 def test_scout_rule_10_teaches_the_digest_form_v1():
-    """F5-2 N1 (t-797 section 6): scout.md rule 10 carries the key line of the form and the note that holds its grammar; the
+    """F5-2 N1 (t-797 section 6): scout.md rule 10 carries the key line of the form and points at scout.md rules 10-11 and the fixture tools/fixtures/digest_form/t-794.md for its grammar; the
     old pins (the extraction sentence, no Write, no 25-line rule) are the test above and stay."""
     block = rule_block(read(SCOUT), 10)
     assert block is not None, "scout.md has no rule 10"

@@ -34,7 +34,7 @@ included, a line over LINE_WIDTH characters as ceil(len / LINE_WIDTH).
 The `digest=` tail (t-797 F5-2, I2): tools/digest_form.py reads the EXTRACTED text (not the file, whose first line may be
 a marker) and the tail reports what it found -- `digest=v1 objects=<n> trail=<n> flags=<n>[ first=<flag>]` for a digest
 in form v1, `digest=none` for any other text (today's prose digest is extracted as prose and says so), `digest=n/d` when
-the reader failed to import or raised. The file and the exit code never depend on it. Form: docs/tasks/exchange-form.md.
+the reader failed to import or raised. The file and the exit code never depend on it. Form: .claude/agents/scout.md rules 10-11.
 
 The trail against the transcript (t-863, F6-14): the `## Trail` rows of a digest are matched with the Read / Grep / Glob tool_use
 calls of the WHOLE transcript (tool_calls: one streaming pass, iter_lines -- never the tail window). Each unmatched row counts in
