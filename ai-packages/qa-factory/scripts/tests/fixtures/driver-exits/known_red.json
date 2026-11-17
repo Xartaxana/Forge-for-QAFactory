@@ -2,8 +2,8 @@
  "_about": "The label ledger of the main pass of the dry walk (the `main/*` rows only; a group's rows are in known_red/<group>.json), read ONLY by scripts/tests/known_red.py (P1-a spec 3.6): `known_red` holds one row per walk-row id (`<key|route|joint|kind>/<variant>`) that is red today because of a defect of main - `{node, raised_by[, note]}` - and `pins.known_red` is the number of rows (equality, both directions). Empty until the walk nodes (N3, N4) measure their first red rows; a raise is named in raised_by of the row.",
  "known_red": {
   "main/S5": {
-   "node": "FV3-5",
-   "raised_by": "stub gap: stopped at S5: the road met the conductor: a state the driver has no move for; exit gate for S5-qa-code-critic-1 (qa-code-critic, S5): 9 finding(s): - digest: your final message is not the handoff form (the code critic stub leaves the handover form unfilled)"
+   "node": "FV3-20",
+   "raised_by": "stub gap: Lead t-1047, 2026-11-17: stopped at S5: exit gate for S5-qa-code-critic-1 (qa-code-critic, S5): 3 finding(s): digest not in the handoff form; review.receipt_ref not filled (no window_record.py run); probes.runtime_provenance not filled (product gap candidate, measured after N2h-v)"
   }
  },
  "pins": {
