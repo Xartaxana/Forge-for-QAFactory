@@ -73,7 +73,7 @@ def example_block(text=None):
     return blocks[0]
 
 
-# ----- the example of the note, the clean case, no key -----------------------------------------------------------------
+# ----- the example of the fixture tools/fixtures/digest_form/t-794.md, the clean case, no key -----------------------------------------------------------------
 
 def test_the_example_of_the_note_flags_exactly_the_two_it_names():
     d = DF.parse(example_block())
@@ -111,7 +111,7 @@ def emitted_flag_names(source):
 
 def test_the_flag_name_list_is_the_one_list_the_reader_note_and_corpus_agree_with():
     """t-863 (F6-14, the third item of t-808's leftovers): FLAG_NAMES lives once, in digest_form, and is checked against the code that
-    EMITS the flags (a new flag in the reader but not in the list fails here), against the note, and against the real flags of every
+    EMITS the flags (a new flag in the reader but not in the list fails here), against scout.md rules 10-11, and against the real flags of every
     probe of this file."""
     source = Path(DF.__file__).read_text(encoding="utf-8")
     assert emitted_flag_names(source) == set(DF.FLAG_NAMES) | set(DF.TRANSCRIPT_FLAG_NAMES)
