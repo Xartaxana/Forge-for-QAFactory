@@ -1322,7 +1322,7 @@ def test_claude_imports_unreadable_claude_md_is_a_warn_not_a_traceback(tmp_path)
 def test_claude_imports_sees_the_real_repo_imports():
     repo_root = Path(__file__).resolve().parent.parent
     got = sc.claude_imports(repo_root)
-    assert [path for path, _size in got] == ["PROJECT.md", "docs/FACTORY_RULES_INDEX.md", "docs/ARCHITECTURE_INDEX.md"]
+    assert [path for path, _size in got] == ["PROJECT.md", "docs/FACTORY_RULES_INDEX.md", "docs/ARCHITECTURE_INDEX.md", "docs/OWNER_PRINCIPLES_INDEX.md"]
     assert all(size > 0 for _path, size in got)
 
 

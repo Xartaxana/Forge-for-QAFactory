@@ -18,6 +18,8 @@ text is read before changing the package), and the factory architecture invarian
 
 @docs/ARCHITECTURE_INDEX.md
 
+@docs/OWNER_PRINCIPLES_INDEX.md
+
 ## Tiers (see DELEGATION_TABLE.md; all assignments are estimates until calibrated)
 
 - **scout** (Sonnet) — reconnaissance: searching the repo, reading files, gathering context. Returns a digest with a
@@ -270,10 +272,10 @@ a rule.
    Cost gates (D-0035, D-0038, D-0040, D-0054; why: `docs/CLAUDE_HOST_ADAPTATIONS_FULL.md`): a fix round runs in a
    FRESH worker carrying only the diff and the verdict; `tools/agent_budget.py` caps a worker (WARN 250K, STOP 400K;
    the remainder goes to a fresh worker whole); ONE critic pass per topic (R13-g); critic on a plan: rule 3; a
-   re-review carries only the fix diff and the verdict; the Lead compacts at ~300K at a stage boundary, a stage
-   commit per 2–3 merges, journal notes ≤ 300 chars, CI through `tools/ci_read.py`; at most 6 parallel WRITING
-   workers and a push before a worktree launch (`tools/dispatch_gate.py`). The cap, the FULL queue, the per-topic
-   critic and merge waves: PROJECT.md «Командная работа» п. 12. Detector: check 17.
+   re-review carries only the fix diff and the verdict; the Lead compacts by PROJECT.md § Сессия форджа, a stage
+   commit per 2–3 merges, journal notes ≤ 300 chars, CI through `tools/ci_read.py`; a push before a worktree launch
+   (`tools/dispatch_gate.py`). The writers, the FULL queue, the per-topic critic and merge waves: PROJECT.md
+   «Командная работа» п. 12. Detector: check 17.
 13. Leaf routing (leaf-routing rule) — not used in this deployment: no judge is bound (`delegation.config.yaml`,
    role `judge`), so every task, leaf or graph, goes through the acceptance of rules 1-12 and Role ≠ tier; an
    acceptance with `basis: "judge"` is not legal here.

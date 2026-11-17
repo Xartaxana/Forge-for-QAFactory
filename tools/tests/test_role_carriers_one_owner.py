@@ -30,6 +30,8 @@ RULES = "plans/builder-rules.md"
 RULES_7B = "7b. **Уровень билдера и уровень пачки**"
 COST = "Cost gates (D-0035, D-0038, D-0040, D-0054;"
 HYGIENE_6 = "6. An environment-negative claim requires verification: empty output"
+TEAMWORK = "docs/TEAMWORK.md"
+RUNBOOK_7 = "## 7. CI на GitHub и BATCH CANON"
 
 # (aspect id, owner, key)
 OWNER_KEYS = [
@@ -46,7 +48,7 @@ OWNER_KEYS = [
     ("routing:hygiene-6", "CLAUDE.md", "from an INCORRECTLY invoked tool is a miscall, not proof the object is absent"),
     ("routing:rule-9", "CLAUDE.md", "the rule against recurrence goes on the highest level that ties the siblings together"),
     ("cost:cap", "CLAUDE.md", "WARN 250K, STOP 400K"),
-    ("cost:queue", "PROJECT.md", "в работе всегда шесть пишущих билдеров"),      # 63bbd5e: the full-queue text moved to PROJECT.md item 12; CLAUDE.md rule 12 points there
+    ("cost:queue", "PROJECT.md", "цель держать 6 пишущих билдеров"),      # 63bbd5e: the full-queue text moved to PROJECT.md item 12; CLAUDE.md rule 12 points there; re-quoted with R1 (boot-by-topic, FG7-51)
     ("tests:oracle", "docs/TESTING.md", "тест, чьё ожидание переписано из того, что код напечатал, может только пройти"),
     ("tests:line", "docs/TESTING.md", "Пункт без поведения (перенос текста, переименование) строки не получает"),
     ("tests:files", "docs/TESTING.md", "Новый файл верен, когда случай не ложится ни в одну из них"),
@@ -75,6 +77,22 @@ POINTERS = [
     ("docs/RUNBOOK.md", "`CLAUDE.md` rule 12, Cost gates", "CLAUDE.md", COST),
     ("docs/TESTING.md", "`docs/tasks/critic-diff-brief.md` «The two layers»", BRIEF, "## The two layers"),
     ("docs/TWO_VOCABULARIES.md", "`delegation.config.yaml`", "delegation.config.yaml", "scout:"),
+    ("PROJECT.md", "`docs/TEAMWORK.md` § 2", TEAMWORK, "2. **Взятая пачка заморожена** (`piles.py check` (в), гейт commit-msg)"),
+    ("PROJECT.md", "`docs/TEAMWORK.md` § 3", TEAMWORK, "3. **Зоны файлов пачек «в работе» не пересекаются** (`check` (б))"),
+    ("PROJECT.md", "`docs/TEAMWORK.md` § 4", TEAMWORK, "4. **`plans/BACKLOG.md` заморожен** (`check` (г))"),
+    ("PROJECT.md", "`docs/TEAMWORK.md` § 8", TEAMWORK, "8. **Двери**: строка `piles-skip: <пункт> -- <причина>`"),
+    ("PROJECT.md", "`docs/TEAMWORK.md` § 9", TEAMWORK, "9. **Пачка закрывается доделкой, не переносом**: `close <slug> <N>` отказывает"),
+    ("PROJECT.md", "`docs/OWNER_PRINCIPLES.md`", "docs/OWNER_PRINCIPLES.md", "- **P31.**"),
+    ("PROJECT.md", "`docs/RUNBOOK.md` § 4.1", "docs/RUNBOOK.md", "### 4.1. Шаги релиза"),
+    ("PROJECT.md", "`docs/RUNBOOK.md` §7", "docs/RUNBOOK.md", RUNBOOK_7),
+    ("PROJECT.md", "правило: § Бэклог и находки", "PROJECT.md", "## Бэклог и находки"),
+    ("docs/RUNBOOK.md", "`PROJECT.md` § Сессия форджа", "PROJECT.md", "## Сессия форджа"),
+    (RULES, "`docs/RUNBOOK.md` §7", "docs/RUNBOOK.md", RUNBOOK_7),
+    ("docs/TESTING.md", "`plans/builder-rules.md` п. 7b", RULES, RULES_7B),
+    (BRIEF, "`plans/builder-rules.md` 7b", RULES, RULES_7B),
+    ("PROJECT.md", "`.claude/skills/boot-diet/SKILL.md` § Как пишутся правила для агентов", ".claude/skills/boot-diet/SKILL.md", "## Как пишутся правила для агентов"),
+    ("CLAUDE.md", "PROJECT.md § Сессия форджа", "PROJECT.md", "## Сессия форджа"),
+    (TEAMWORK, "`PROJECT.md` «Командная работа» п. 3", "PROJECT.md", "3. **Зоны файлов пачек «в работе» не пересекаются** — правило: `docs/TEAMWORK.md` § 3"),
 ]
 
 
