@@ -469,7 +469,9 @@ def test_handoff_keys_pages() -> None:
             check_in(f"X1-7: {role}'s key page carries tried_note as optional", "`tried_note` (optional)", page)
     scout = (PLUGIN_ROOT / "references" / "slices" / "qa-scout" / CS.KEYS_NAME).read_text(encoding="utf-8")
     check_in("X1-7: the scout's page names the validator's keys (PHASE_JSON_KEYS)", "`acceptance_criteria`", scout)
-    check_in("X1-7: the designer's page carries the token the case identity gate demands", "= the file name",
+    # TBW-T1rc-int (t-1236): the case identity row's demands are [] after the Lead decision F1, so the old token `= the file name` judges nothing;
+    # the page now carries the row text of `exit_gate:case_identity` (the cd-1 sentence), and that is what this line judges.
+    check_in("X1-7: the designer's page carries the case identity row (the file name is the id) that the case identity gate states", "id` IS its file name",
              (PLUGIN_ROOT / "references" / "slices" / "qa-case-designer" / CS.KEYS_NAME).read_text(encoding="utf-8"))
     check_in("X1-7: the tester's page carries the token the grounding gate demands", "derived",
              (PLUGIN_ROOT / "references" / "slices" / "qa-requirements-tester" / CS.KEYS_NAME).read_text(encoding="utf-8"))

@@ -73,8 +73,8 @@ def k1_real_tree() -> None:
     print(report.line())
     check_in("K1: the summary line names the walk, the rows, the gaps by leg, the joints and the stages with no detector",
             f"walked exit 8, detector 5, window 28 | rows {len(REAL['joints'])}, gaps ", report.line())
-    check_eq("K1: the rows file holds 273 rows (40 of T1 + 227 landed by T1r; +1 acceptance:novelty_question, C3-b1; +1 manifest_put:probe_owed; +4 T9c conductor rows); a change is a named change of the file",
-             len(REAL["joints"]), 273)
+    check_eq("K1: the rows file holds 285 rows (40 of T1 + 227 landed by T1r; +1 acceptance:novelty_question, C3-b1; +1 manifest_put:probe_owed; +4 T9c conductor rows; +12 by T1r-cards-a, TBW-T1rc-int t-1236); a change is a named change of the file",
+             len(REAL["joints"]), 285)
     check_in("K1/E5: a stage with no detector is reported, not invented",
              "stages with no detector: S0, S1, S6, S7, S9", report.line())
     check_eq("K1: no walk error on the real tree", UNI[1], [])
@@ -133,12 +133,15 @@ def k6_legs() -> None:
                  lambda d: quality(d).pop("gap")))))
     check_in("K6/E1 told: no place and no gap is red", "the told leg is missing and no gap is declared",
              text_of(audit(data=mutated(lambda d: handback(d).pop("gap")))))
-    check_in("K6/E1 demands: nothing demanded of a role and no gap is red",
+    # TBW-T1rc-int (t-1236): a page-only entry owes no tokens (T1r), and after the Lead decision F1 no real entry is told by a path, so
+    # the subject of these two lines is judged on a mutated copy of the grounding row told by a path (the carrier the demands leg still judges).
+    by_path = {"told": [{"path": "references/slices/<role>/handoff-keys.md", "anchor": "## Outputs"}], "demands": []}
+    check_in("K6/E1 demands: nothing demanded of a role told by a path and no gap is red",
              "the demands leg is missing for qa-requirements-tester",
-             text_of(audit(data=mutated(lambda d: grounding(d).update(demands=[])))))
+             text_of(audit(data=mutated(lambda d: grounding(d).update(by_path)))))
     gap = {"leg": "demands", "ref": "F6-51/9", "why": "a test gap on the demands leg of this role entry"}
     check_eq("K6: the same missing demands leg WITH a declared gap is green (an informed pass)",
-             audit(data=mutated(lambda d: grounding(d).update(demands=[], gap=gap))).problems, [])
+             audit(data=mutated(lambda d: grounding(d).update(by_path, gap=gap))).problems, [])
     check_in("K6: a gap declared on a complete leg is red, saying to remove it",
              "gap declared on a complete leg (demands) - remove it",
              text_of(audit(data=mutated(lambda d: grounding(d).update(gap=gap)))))
@@ -509,10 +512,10 @@ def lookups() -> None:
               [r["check"] for r in SJ.rows_for(runner, ["S5"], {"plan": True}, data=unknown)]),
              (["u:zz", "u:plan"], ["u:zz", "u:plan"], ["u:zz"], ["u:zz", "u:plan"]))
     real_rows = SJ.rows_for(runner, ["*"])
-    check_eq("rows-for/real: since T1r the runner is told rows (108 today), each stating a requirement; +4 T9c conductor rows: with no facts the conductor is told all four, none of them the runner's",
+    check_eq("rows-for/real: since T1r the runner is told rows (112 today: +4 by T1r-cards-a, TBW-T1rc-int t-1236), each stating a requirement; +4 T9c conductor rows: with no facts the conductor is told all four, none of them the runner's",
              (len(real_rows), all(r.get("requirement") or r.get("requirement_from") for r in real_rows),
               [r["check"] for r in SJ.rows_for("conductor", ["*"])]),
-             (108, True, ["no_move:options", "no_move:prose", "no_move:class", "no_move:args"]))
+             (112, True, ["no_move:options", "no_move:prose", "no_move:class", "no_move:args"]))
 
 
 def renderers() -> None:
@@ -927,12 +930,13 @@ def told_variants() -> None:
     # lowered 150 -> 119 by T1r-sites (S-1a + S-1b sited 31 rows; the ratchet follows the measure).
     # lowered 46 -> 17 by T7a-B (10 rows) and T7a-C (19 rows), integrator t-1030.
     # lowered 17 -> 11 by T9a (sited refusals), t-1185.
-    UNSITED_CAP = 11
+    # raised 11 -> 17 by TBW-T1rc-int (t-1236): T1r-cards-a rows wait for TBW-T1rc-site (6 ids: 4 function rows + sides.provisional + sides.pending).
+    UNSITED_CAP = 17
     check_eq("K12/unsited-cap: the real tree measures the named cap (a cap above the measurement is allowed (<=), one below is red)",
              (audit().counts["unsited"], REAL["told_ratchet"]["unsited"], UNSITED_CAP,
               audit(data=mutated(lambda d: d["told_ratchet"].update(unsited=UNSITED_CAP + 3))).problems,
               len(audit(data=mutated(lambda d: d["told_ratchet"].update(unsited=UNSITED_CAP - 1))).problems) > 0),
-             (11, 11, 11, [], True))
+             (17, 17, 17, [], True))
 
     def extra_leg(d):
         """One more legacy told leg: a role entry told by a path other than its key page."""
