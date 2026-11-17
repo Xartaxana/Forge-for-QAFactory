@@ -746,7 +746,74 @@ def f5_arm_b_fixture_end_to_end():
         S.cleanup(t)
 
 
+def fv3_21b_the_stand_word_on_the_skill_road():
+    """FV3-21b rows S1-S7: a live no-stand word refuses the manual block before anything is written and every case gets a refused
+    record (the driver's reason and door, the person's words whole); no word, a confirmed stand or a revoked word -> today's start.
+    KILLS: the `return` of the `if words:` branch; a literal reason/door in place of `no_stand_refusal`; a skipped record."""
+    word = "go on"
+    reason = lambda said: f"not checked by an agent: no stand is confirmed for this story; the person said: \"{said}\""  # noqa: E731
+    door_text = manual_evidence.NO_STAND_DOOR
+
+    def put(root, stage="S6", decision=word, pending=True, environment=None, revoked=False, overrides=True):
+        data = json.loads((root / "pipeline.json").read_text(encoding="utf-8-sig"))
+        data["environment_pending"] = pending
+        if environment:
+            data["environment"] = environment
+        if overrides:
+            data["stage_overrides"] = [dict({"stage": stage, "match": "stand not confirmed", "decision": decision,
+                                             "at": "2026-11-17T10:00:00+00:00"}, **({"revoked_at": "2026-11-17T11:00:00+00:00"} if revoked else {}))]
+        (root / "pipeline.json").write_text(json.dumps(data), encoding="utf-8")
+
+    def request(root, case):
+        return json.loads(manual_evidence.request_path(root, case).read_text(encoding="utf-8"))
+
+    rows = [("S1", {}, "TC-2,TC-3", None), ("S2", {"stage": "S5"}, "TC-2,TC-3", None),
+            ("S3", {"decision": "go on\n " + chr(0xE9)}, "TC-2,TC-3", None),
+            ("S4", {}, "TC-2,TC-3", "TC-3")]
+    for name, world, scope, prepare_refuses in rows:
+        with temp_dir() as root:
+            ctl = real_story(root, MIXED_7)
+            put(root, **world)
+            before = ctl.state()["revision"]
+
+            def prepare(case, root=root, refuses=prepare_refuses):
+                if case == refuses:
+                    path = manual_evidence.request_path(root, case)
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(json.dumps({"refused": {"reason": "its own reason", "door": "its own door"}}), encoding="utf-8")
+                    return [], "its own reason", ""
+                return [f"OB-{case}"], "", ""
+            code, text, seen = start(root, ctl, scope, prepare=prepare)
+            said = " ".join(world.get("decision", word).split())
+            check_eq(f"{name}: exit 2", code, 2)
+            check_in(f"{name}: the head", "no case is checked by an agent by hand", text)
+            check_in(f"{name}: the door line names the revoke", "--revoke --stage S6", text)
+            check_in(f"{name}: the door line holds the driver's door", f"door: {door_text}", text)
+            check_eq(f"{name}: nothing dispatched", (ctl.state()["revision"], seen["scope"]), (before, []))
+            if name == "S3":
+                check_in(f"{name}: the words whole, on one line", reason("go on " + chr(0xE9)), text)
+            if name == "S4":
+                check_in(f"{name}: TC-3 keeps prepare's reason", "TC-3: not checked by hand - its own reason", text)
+                check_eq(f"{name}: TC-3's request is prepare's (no `by`)", "by" in request(root, "TC-3")["refused"], False)
+            else:
+                check_in(f"{name}: TC-3's line", "TC-3: not checked by hand - " + reason(said), text)
+                check_eq(f"{name}: TC-3's record", request(root, "TC-3"),
+                         {"refused": {"reason": reason(said), "door": door_text, "by": "left_unchecked"}})
+            check_in(f"{name}: TC-2's line", "TC-2: not checked by hand - " + reason(said), text)
+            check_eq(f"{name}: TC-2's record", request(root, "TC-2"),
+                     {"refused": {"reason": reason(said), "door": door_text, "by": "left_unchecked"}})
+    controls = [("S5", {"environment": "Local", "pending": False}), ("S6", {"overrides": False}), ("S7", {"revoked": True})]
+    for name, world in controls:
+        with temp_dir() as root:
+            ctl = real_story(root, MIXED_7)
+            put(root, **world)
+            code, text, seen = start(root, ctl, "TC-2,TC-3")
+            check_eq(f"{name}: today's start (exit 0, block registered)", (code, seen["scope"]), (0, ["TC-2,TC-3"]))
+            check_not_in(f"{name}: no no-stand reason anywhere", "no stand is confirmed", text)
+
+
 def main():
+    fv3_21b_the_stand_word_on_the_skill_road()
     f5_unprepared_case_stays_in_block()
     f5_arm_b_fixture_end_to_end()
     the_collector_lists_every_problem()

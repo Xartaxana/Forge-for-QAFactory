@@ -1057,6 +1057,23 @@ def _manual_block_check(args, controller, state) -> tuple:
     except StateConflict as exc:        # the controller's own text, rendered by its own function (one renderer, K-S5)
         return None, ["story_step: refused - " + str(exc), *door(block)], 2
     import manual_evidence
+    words = waiver.stand_passing_word(_read_pipeline(_task_root(args.task)))
+    if words:
+        # FV3-21b (AR-13/15): the driver's own reader and refusal builder; every case gets a refused record BEFORE anything else is
+        # written (the start returns here, as every refusal of this function does); prepare's own refusal keeps its record (AR-27)
+        reason, no_stand_door = manual_evidence.no_stand_refusal(words)
+        lines = []
+        for case in block:
+            why = manual_evidence.prepare_for_block(_task_root(args.task), case)[1]
+            if why:
+                lines.append(f"{case}: not checked by hand - {why}")
+            else:
+                manual_evidence.write_case_refusal(_task_root(args.task), case, reason, no_stand_door, "left_unchecked")
+                lines.append(f"{case}: not checked by hand - {reason}")
+        return None, ["story_step: refused - no case is checked by an agent by hand: no stand is confirmed for this story and the "
+                      "person said to go on", *lines,
+                      f"door: {no_stand_door}; or the person's word is taken back: "
+                      f"waiver.py --task {args.task} --revoke --stage S6 --block \"stand not confirmed\""], 2
     refused = {}
     for case in block:
         # (ids, why, unprepared): a case the FACTORY failed to prepare has `why` empty and stays IN the block (F5(c), the

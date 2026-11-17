@@ -1,0 +1,1 @@
+- The skill road's manual `start` now records each case as not checked by hand, in the person's words, under the no-stand word (as the driver does), and dispatches nothing.
