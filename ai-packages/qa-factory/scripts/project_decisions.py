@@ -60,10 +60,9 @@ class _ScopeTable(Mapping):
             path = hooklib.ref(SCOPES_FILE)
             door = (f"{path} must be a JSON object of {{word: {{\"meaning\": text, \"urgent\": true|false}}}} with at least one word; "
                     "restore it from the plugin (update or reinstall qa-factory) - nothing was recorded")
-            try:
-                raw = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, ValueError) as exc:
-                raise ValueError(f"the finding scopes cannot be read ({type(exc).__name__}): {door}") from None
+            raw = hooklib.read_json(path, None)
+            if raw is None:
+                raise ValueError(f"the finding scopes cannot be read (missing or not JSON): {door}")
             rows = {}
             if isinstance(raw, dict):
                 for word, row in raw.items():

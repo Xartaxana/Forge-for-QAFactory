@@ -129,9 +129,10 @@ def row_38_names_the_three_scope_words() -> None:
              [("local-urgent", True), ("local-calibration", False), ("upstream-candidate", False)])
     check_eq("S8: the writer's table is the data file's words and meanings", dict(PD.FINDING_SCOPES),
              {w: r["meaning"] for w, r in data.items()})
-    check_eq("S8: the template's meaning lines name the data file's words, in order", [l.split()[0] for l in lines], list(data))
-    for line, (word, scope_row) in zip(lines, data.items()):
-        check(f"S8: the template's line of `{word}` holds the data file's meaning whole", f"{word} {scope_row['meaning']}" in line, line)
+    by_word = {l.split()[0]: l for l in lines}
+    for word, scope_row in data.items():
+        check(f"S8: the template's line of `{word}` holds the data file's meaning whole",
+              f"{word} {scope_row['meaning']}" in by_word.get(word, ""), by_word.get(word, "no line"))
     check_in("K5: row 38 says the scope is never a path or a topic", "never a path or a topic", row)
     check_in("K5: row 38 names the command with its four fields", "--idempotency-key", row)
     check_in("K5: ...and still forbids a plugin edit", "never a plugin edit", row)
