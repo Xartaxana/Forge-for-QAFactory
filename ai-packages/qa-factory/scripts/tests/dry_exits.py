@@ -61,11 +61,13 @@ TIME_KEYS = ("at", "ts", "started", "finished", "stage_started", "stage_finished
 WALK_FILE_KEYS = ("schema", "group", "rows")
 WALK_ROW_KEYS = ("id", "start", "seed", "answer", "stub", "expect", "reach", "why_unreached")
 ANSWER_KEYS = ("token", "words", "words_file")
-EXPECT_KEYS = ("checks", "owner_quote", "owner_question")
+EXPECT_KEYS = ("checks", "owner_quote", "owner_question", "na")
+NA_CHECKS = ("K15", "C2", "C3")                                        # the checks a row may declare n/a with a why (never C6: a gate rehearsal is always observable)
 OWNER_QUOTE_KEYS = ("text", "carrier")
 SEED_FILE_KEYS = ("schema", "group", "recipes")
-SEED_STEP_KEYS = ("drive_until", "op")
+SEED_STEP_KEYS = ("drive_until", "op", "say")
 DRIVE_UNTIL_KEYS = ("stage", "question")
+SAY_KEYS = ("stage", "question", "words")
 CHECKS_JUDGED = ("C2", "C3", "C4", "C5", "C6", "C9", "empty")          # implemented by `judge_row`
 CHECKS_PENDING = ("C7", "C8", "C10")                                   # listed, not judged here: the row is a NOTE `pending judge` (F-W13)
 CHECK_IDS = CHECKS_JUDGED + CHECKS_PENDING
@@ -671,7 +673,7 @@ def check(directory=None, walk_dir=None, universe: Universe | None = None, ledge
     counts = _ratchets(census, walk, universe, report)
     _classes_and_doors(census, universe, red)
     _ledgers(directory, ledger_path, census, walk, red)
-    report.numbers = _numbers(census, universe, counts)
+    report.numbers = _numbers(census, universe, counts, list(walk.values()))
     return report
 
 
@@ -845,8 +847,18 @@ def _ledger_orphans(ledger: Path, walk: dict, red, *, group=None, shared=False) 
             red(f"label ledger row {rid} is not {expect}; no part can ever report it - rename, move or remove it ({ledger})")
 
 
-def _numbers(census: dict, universe: Universe, counts: dict) -> list:
+def na_counts(rows) -> tuple:
+    """`(total, {check id: count})` of the `expect.na` declarations of walk rows: visibility only (a NUMBER line), not a ratchet (card r2, F9)."""
+    by: dict = {}
+    for row in rows:
+        for check_id in (row.get("expect") or {}).get("na") or {}:
+            by[check_id] = by.get(check_id, 0) + 1
+    return sum(by.values()), by
+
+
+def _numbers(census: dict, universe: Universe, counts: dict, walk_rows=()) -> list:
     """The NUMBER lines, each with a recount command that prints the figure(s) of its own line."""
+    na_total, na_by = na_counts(walk_rows)
     minted = list(universe.minted)
     table = len(universe.routes) - len(minted) - 2
     options = sum(len(rows) for rows in universe.prices.values())
@@ -878,7 +890,9 @@ def _numbers(census: dict, universe: Universe, counts: dict) -> list:
         f"R.unpassable() if r.get('file') in R.SCANNED and r.get('kind')!='operation' and not str(r.get('unpassable_because') or '').strip()))\" in scripts/]",
         "ratchet (rows now / base): " + ", ".join(f"{k} {counts[k]}/{census['base'][k]}" for k in RATCHET_COUNTS)
         + f"; raised_by {len(census['raised_by'])}",
-        f"groups: {', '.join(census['groups'])}"]
+        f"groups: {', '.join(census['groups'])}",
+        f"na: {na_total} declarations ({', '.join(f'{k} {v}' for k, v in sorted(na_by.items())) or 'none'})   [recount: python -B -c \"import json, glob; "
+        "print(sum(len((r.get('expect') or {}).get('na') or {}) for f in glob.glob('tests/fixtures/stories/dry-1/exits/*.json') for r in json.load(open(f))['rows']))\" in scripts/]"]
 
 
 # ---------------------------------------------------------------------------------------------------- driven keys
@@ -1089,6 +1103,27 @@ def _walk_subject_problems(bad, section: str, name: str, variant: str, known, un
             bad(found)
 
 
+def _walk_na_problems(bad, row: dict, na, checks: list) -> None:
+    """`expect.na`: `{check: why}` for K15, C2 or C3 (card r2 section 4). A key outside `NA_CHECKS`, a check both listed and declared n/a, a why that is
+    not non-blank text, and C2 n/a on a row whose answer has a token (a token is always C2-judged) are refused here; the run-time guards (K15 on an ask that
+    offered, C3 on a token whose price row expects a move) are `judge_row`'s."""
+    if na is None:
+        return
+    if not isinstance(na, dict):
+        bad(f"expect.na is {type(na).__name__}; expected an object of check id -> why")
+        return
+    answer = row.get("answer") if isinstance(row.get("answer"), dict) else {}
+    for check_id, why in na.items():
+        if check_id not in NA_CHECKS:
+            bad(f"expect.na names {check_id!r}; expected one of {list(NA_CHECKS)} (C6 is never n/a: the rehearsal is always observable at a gate ask)")
+        elif check_id in checks:
+            bad(f"expect.na declares {check_id} n/a and expect.checks lists it; expected one or the other")
+        if not isinstance(why, str) or not why.strip():
+            bad(f"expect.na.{check_id} has no why; expected non-blank text")
+    if "C2" in na and answer.get("token") is not None:
+        bad("expect.na declares C2 n/a on a row whose answer has a token; a token is always C2-judged")
+
+
 def _walk_expect_problems(bad, row: dict, section: str, name: str, known, class_of_subject) -> bool:
     """The `expect` block of a walk row: `runnable` after its refusals (owner_question, checks, C4, owner_quote)."""
     expect = row.get("expect")
@@ -1116,6 +1151,7 @@ def _walk_expect_problems(bad, row: dict, section: str, name: str, known, class_
         bad("expect.checks names a check twice")
     if runnable and not checks:
         bad("a row that runs has an empty or absent expect.checks; a row with no check never passes (name the checks it judges)")
+    _walk_na_problems(bad, row, expect.get("na"), checks)
     if "C4" in checks:
         if class_of_subject is None:
             bad("C4 is listed and no class source was given; C4 is the gate check and the class is never guessed")
@@ -1208,6 +1244,29 @@ def walk_row_problems(path, row, *, universe, seeds, class_of_subject=None, stor
     return out
 
 
+def _say_problems(at: str, say) -> list:
+    """The grammar of a seed `say` step (card r2 section 5): exactly `SAY_KEYS`, all non-blank text; the stage S0..S9; the words ASCII with no line starting
+    `## ` (the stub reads such a line as a heading of the conductor's prompt); the FIRST non-empty line, normalised by `_norm`, is not an approval word of the
+    stage's gate (such words record the gate, `driver_gates.gate_approval`)."""
+    if not isinstance(say, dict) or set(say) != set(SAY_KEYS) or not all(isinstance(v, str) and v.strip() for v in say.values()):
+        return [f"{at}: say must be an object with exactly {list(SAY_KEYS)}, all non-blank text"]
+    out: list = []
+    if not re.match(r"^S[0-9]$", say["stage"]):
+        out.append(f"{at}: say.stage {say['stage']!r}; expected S0..S9")
+    words = say["words"]
+    if not words.isascii():
+        out.append(f"{at}: say.words is not ASCII; expected ASCII text")
+    if any(line.startswith("## ") for line in words.splitlines()):
+        out.append(f"{at}: say.words has a line starting `## `; expected no markdown heading in the words")
+    import driver_gates
+    import gate_brief
+    gate = next((g for g, stage in driver_gates.GATE_STAGE_OF.items() if stage == say["stage"]), "")
+    first = next((line for line in words.splitlines() if line.strip()), "")
+    if gate and _norm(first) in {_norm(w) for w in gate_brief.approval_words(gate)} - {""}:
+        out.append(f"{at}: say.words starts with the approval word {first.strip()!r} of gate {gate}; such words record the gate (expected words that are not an approval word)")
+    return out
+
+
 def _seed_problems(where: str, recipes) -> list:
     out: list = []
     if not isinstance(recipes, dict):
@@ -1226,6 +1285,8 @@ def _seed_problems(where: str, recipes) -> list:
                     out.append(f"{at}: drive_until must be an object with exactly {list(DRIVE_UNTIL_KEYS)}, both text")
                 elif not re.match(r"^S[0-9]$", until["stage"]):
                     out.append(f"{at}: drive_until.stage {until['stage']!r}; expected S0..S9")
+            elif "say" in step:
+                out.extend(_say_problems(at, step["say"]))
             else:
                 op = step["op"]
                 if not isinstance(op, list) or not op or not all(isinstance(a, str) for a in op):
@@ -1305,17 +1366,38 @@ class _Ctx:
     fp_after: object
     class_of_subject: str
     classes: tuple
+    section: str = ""
+    prices: dict = field(default_factory=dict)
 
     @property
     def changed(self):
         return None if self.fp_ask is None or self.fp_after is None else self.fp_ask != self.fp_after
 
 
+def _window(facts: dict) -> list:
+    """The records of the ask's own window (`dry_world.ask_window`) that were not priced for a conductor prompt: the judge keeps the guard too, so a record
+    written for the conductor can never satisfy a check even when a caller hands it over."""
+    return [r for r in facts.get("priced_window") or [] if isinstance(r, dict) and r.get("prompt") is not True]
+
+
+def _chosen_excused(ctx: _Ctx) -> bool:
+    """A conductor call marked `chosen` (the person's own choice, sent on by the driver) is no conductor reading the answer ONLY when the row's token is
+    one that goes to a role or the conductor by design: its price row (under the row's key) has a `factory` that is neither `record` nor `nothing`. A
+    token with no price row, or a row with no `factory`, is an unknown and excuses nothing (critic t-1077 F3; card r2 section 4 C2 amended)."""
+    rows = ctx.prices.get(ctx.name, []) if ctx.section == "key" else []
+    found = next((r for r in rows if ctx.token and _norm(r.get("answer")) == _norm(ctx.token)), None)
+    return str((found or {}).get("factory") or "") not in ("", "record", "nothing")
+
+
 def _check_c2(ctx: _Ctx) -> tuple:
     facts, ask, token = ctx.facts, ctx.ask, ctx.token
-    offered = list((ask or {}).get("offered") or []) or [a for a in (facts.get("priced_at_ask") or {}).get("answers") or []]
+    window = _window(facts)
+    record = next((r for r in reversed(window) if r.get("key") == ctx.name), None) if ctx.section == "key" else (window[-1] if window else None)
+    offered = list((ask or {}).get("offered") or []) or [a for a in (record or {}).get("answers") or []]
     records = [r for r in facts.get("answer_records") or [] if r.get("question_sha") == facts.get("ask_sha")]
     whys, calls = list(facts.get("conductor_whys") or []), int(facts.get("conductor_calls") or 0)
+    if _chosen_excused(ctx):
+        calls -= int(facts.get("conductor_chosen") or 0)
     if not ask:
         return "fail", "no question was pending at the target, so no variant was offered"
     if token and not offered:
@@ -1377,15 +1459,71 @@ def _check_empty(ctx: _Ctx) -> tuple:
 JUDGE_CHECKS = {"C2": _check_c2, "C3": _check_c3, "C4": _check_c4, "C5": _check_c5, "C6": _check_c6, "C9": _check_c9, V_EMPTY: _check_empty}
 
 
+def _k15_absent(name: str, facts: dict) -> str:
+    """The sentence of a K15 FAIL when the ask's window holds no record of the key (card r2 section 7, edges 1-3, 6, 8, 10): which of the roads of absence it is."""
+    ordinal, seen, window = facts.get("ask_ordinal"), facts.get("priced_seen") or [], facts.get("priced_window") or []
+    if ordinal is None:
+        return f"key not observed: expected {name}; the pending ask has no question record; its price records cannot be identified"
+    # the window clause guards a HAND-BUILT fact: `dry_world.ask_window` never puts a `prompt: true` record in the window, so production reaches this edge
+    # through `priced_seen` alone (judge row K15 (10))
+    if any(r.get("prompt") is True and r.get("key") == name for r in window) or any(
+            r.get("prompt") is True and r.get("key") == name and r.get("q") == ordinal for r in seen):
+        return (f"key not observed: expected {name}; only a conductor prompt priced {name} at question {ordinal}; "
+                f"the person's question carries no price record")
+    ours = _window(facts)
+    if not ours and facts.get("ask_reraised"):
+        return f"key not observed: expected {name}; the ask was raised again without pricing (held); question {ordinal}"
+    if not ours and seen and any(type(r.get("q")) is not int for r in seen):
+        return f"key not observed: expected {name}; the price records carry no ask ordinal (older spy)"
+    earlier = [r for r in seen if type(r.get("q")) is int and r["q"] < ordinal]
+    return (f"key not observed: expected {name}, observed {', '.join(str(r.get('key')) for r in ours) or 'none'} at question {ordinal}"
+            + (f"; an earlier ask's record ({earlier[-1].get('key')}) is not read" if earlier and not ours else ""))
+
+
+def _judge_k15(name: str, facts: dict, prices: dict, na: dict, put) -> None:
+    """K15 for a key subject: (i) the ask's own window holds a record of the key (the key was priced while raising THIS ask); (ii) shape: its answers are
+    non-empty and among the key's price rows; (iii) when the ask carries `offered`, every offered token (by `_norm`) is among the price rows. A declared n/a
+    is legal only when the judged ask carries no `offered` (a plain ask offers nothing and prices nothing); else FAIL."""
+    offered = [str(t) for t in (facts.get("ask") or {}).get("offered") or []]
+    if "K15" in na:
+        if offered:
+            put("K15", "fail", f"K15 declared n/a but the ask offered {offered}")
+        return
+    record = next((r for r in reversed(_window(facts)) if r.get("key") == name), None)
+    rows = {str(r.get("answer")) for r in prices.get(name, [])}
+    if record is None:
+        put("K15", "fail", _k15_absent(name, facts))
+    elif not record.get("answers") or not set(map(str, record["answers"])) <= rows:
+        put("K15", "fail", f"the answers the question offered {sorted(map(str, record.get('answers') or []))} are not all price rows of {name} ({sorted(rows)})")
+    elif [t for t in offered if _norm(t) not in {_norm(r) for r in rows}]:
+        put("K15", "fail", f"the offered tokens {[t for t in offered if _norm(t) not in {_norm(r) for r in rows}]} are not all price rows of {name} ({sorted(rows)})")
+
+
+def _na_guards(ctx: _Ctx, prices: dict, na: dict, put) -> None:
+    """The run-time guards of `expect.na` for C2 and C3 (K15's is `_judge_k15`): a declaration never hides a red. C2 n/a with a token is refused by the
+    loader, and here again. C3 n/a is legal only with no token, or when the token's price row under the row's key says `factory: nothing`."""
+    if "C2" in na and ctx.token:
+        put("C2", "fail", f"C2 declared n/a but the row has the token {ctx.token!r}")
+    if "C3" in na and ctx.token:
+        rows = prices.get(ctx.name, []) if ctx.section == "key" else []
+        found = next((r for r in rows if _norm(r.get("answer")) == _norm(ctx.token)), None)
+        factory = str((found or {}).get("factory") or "") if found else ""
+        if factory != "nothing":
+            put("C3", "fail", f"C3 declared n/a but the price row of {ctx.token} says factory {factory or 'unknown (no price row)'}")
+
+
+def _ended_text(facts: dict) -> str:
+    ended = facts.get("ended_at")
+    return f"ended at {ended.get('kind')} at {ended.get('stage') or '-'} after turn {ended.get('turn')}" if ended else ""
+
+
 def _judge_always(row: dict, facts: dict, prices: dict, put) -> None:
     """The always-checks of `judge_row`, after the listed ones: K15/E17 for a key subject, the route record, the joint, E18 and the turn cap."""
     section, name, _variant = _subject_of(row["id"])
+    expect = row.get("expect") or {}
+    na, checks = expect.get("na") or {}, list(expect.get("checks") or [])
     if section == "key":
-        priced, rows = facts.get("priced_at_ask"), {str(r.get("answer")) for r in prices.get(name, [])}
-        if not priced or priced.get("key") != name:
-            put("K15", "fail", f"key not observed: expected {name}, observed {priced.get('key') if priced else 'none'}")
-        elif not priced.get("answers") or not set(map(str, priced["answers"])) <= rows:
-            put("K15", "fail", f"the answers the question offered {sorted(map(str, priced.get('answers') or []))} are not all price rows of {name} ({sorted(rows)})")
+        _judge_k15(name, facts, prices, na, put)
     if section == "routes" and name not in (facts.get("routes_added") or []):
         put("route", "fail", f"route not observed: {name!r} was not matched by the driver during the row (state/dry-routes.jsonl)")
     if section == "joints":
@@ -1396,6 +1534,10 @@ def _judge_always(row: dict, facts: dict, prices: dict, put) -> None:
         put("E18", "fail", "a stub journal line the row added does not carry run_class dry")
     if facts.get("exhausted"):
         put("turns", "fail", f"{row['id']}: {facts.get('post_turns')} post-answer turns with no new ask and no loop")
+    ended = facts.get("ended_at")
+    if ended and facts.get("fp_after") is not None and facts.get("fp_after") == facts.get("fp_ask") and "C3" not in checks and "C3" not in na:
+        put("turns", "fail", f"{row['id']}: the answer moved nothing and the next ask is another question ({ended.get('kind')} at {ended.get('stage') or '-'}, "
+                             f"turn {ended.get('turn')}); C3 is neither listed nor declared n/a")
 
 
 def judge_row(row: dict, facts: dict, *, prices: dict, class_of_subject: str = "", classes=GATE_CLASSES) -> Outcome:
@@ -1413,7 +1555,9 @@ def judge_row(row: dict, facts: dict, *, prices: dict, class_of_subject: str = "
         return Outcome("fail", f"{rid}: over the cap {facts.get('cap')} s at {facts['over_cap']}")
     if not seed.get("reached"):
         return Outcome("fail", f"seed did not reach {name}: {dry_stub.cut(seed.get('detail', ''), 300)}")
-    ctx = _Ctx(facts, name, (row.get("answer") or {}).get("token"), facts.get("ask"), facts.get("fp_ask"), facts.get("fp_after"), class_of_subject, classes)
+    ctx = _Ctx(facts, name, (row.get("answer") or {}).get("token"), facts.get("ask"), facts.get("fp_ask"), facts.get("fp_after"), class_of_subject, classes,
+               _section, prices)
+    na = (row.get("expect") or {}).get("na") or {}
     changed = ctx.changed
     results: list = []        # (check, "ok" | "fail" | "note", detail)
 
@@ -1423,18 +1567,22 @@ def judge_row(row: dict, facts: dict, *, prices: dict, class_of_subject: str = "
     for check_id in checks:
         if check_id in JUDGE_CHECKS:
             put(check_id, *JUDGE_CHECKS[check_id](ctx))
+    _na_guards(ctx, prices, na, put)
     _judge_always(row, facts, prices, put)
     fails = [f"{c}: {d}" if d else c for c, s, d in results if s == "fail"]
     pending = [c for c in checks if c in CHECKS_PENDING]
+    # what a PASS or NOTE (and a FAIL) prints besides its verdict: each declared n/a with its why (never counted as passed), and where the turns ended
+    extra = "; ".join([f"n/a {c}: {why}" for c, why in na.items()] + ([_ended_text(facts)] if facts.get("ended_at") else []))
+    tail = (lambda text: f"{text}; {extra}" if text and extra else (text or extra))      # noqa: E731
     if fails:
-        return Outcome("fail", "; ".join(fails), changed=changed)
+        return Outcome("fail", tail("; ".join(fails)), changed=changed)
     if pending:
         done = ", ".join(f"{c} {s}" for c, s, _d in results)
-        return Outcome("note", f"pending judge {', '.join(pending)}" + (f" (judged: {done})" if done else ""), tag="pending_judge", changed=changed)
+        return Outcome("note", tail(f"pending judge {', '.join(pending)}" + (f" (judged: {done})" if done else "")), tag="pending_judge", changed=changed)
     notes = [f"{c}: {d}" for c, s, d in results if s == "note"]
     if notes:
-        return Outcome("note", "; ".join(notes), tag="rounds_unknown", changed=changed)
-    return Outcome("pass", changed=changed)
+        return Outcome("note", tail("; ".join(notes)), tag="rounds_unknown", changed=changed)
+    return Outcome("pass", extra, changed=changed)
 
 
 def judge_group(outcomes: list, ledger_path, ids: list) -> list:
@@ -1464,7 +1612,7 @@ def judge_group(outcomes: list, ledger_path, ids: list) -> list:
     for rid in wanted:
         for outcome in by_id.get(rid, []):
             if outcome.kind == "pass":
-                lines.append((rid, "pass", ""))
+                lines.append((rid, "pass", outcome.detail))
             elif outcome.kind == "fail":
                 lines.append((rid, "note" if rid in ledger else "fail", f"red evidence: {outcome.detail}" if rid in ledger else outcome.detail))
             else:
@@ -1775,6 +1923,11 @@ def _selftest_cases() -> list:
     def _():
         report = check(_tree(tmp()), universe=_universe())
         return None if not report.problems else f"got {report.problems}"
+
+    @case("check: the NUMBER list carries the `na:` line (visibility, not a ratchet; card r2 F9)")
+    def _():
+        report = check(_tree(tmp()), universe=_universe())
+        return None if any(n.startswith("na: ") and "recount:" in n for n in report.numbers) else f"got {report.numbers}"
 
     @case("isolation: a real-looking walk file where the DEFAULT walk_dir points does not change a fake-universe case's verdict")
     def _():
@@ -2356,6 +2509,11 @@ def _walker_cases(case, tmp) -> None:
         ("an owner_quote whose carrier is no file", wrow(expect={"checks": ["C3"], "owner_quote": {"text": "t", "carrier": "no/such/file.md:3"}}), "is not a file"),
         ("an owner_question that is no Q<n>", wrow(expect={"checks": ["C3"], "owner_question": "first"}), "owner_question"),
         ("C4 with no class source", wrow(expect={"checks": ["C4"]}), "no class source"),
+        ("C2 declared n/a on a row whose answer has a token", wrow(expect={"checks": ["C3"], "na": {"C2": "why"}}), "declares C2 n/a on a row whose answer has a token"),
+        ("a check both listed and declared n/a", wrow(expect={"checks": ["C3"], "na": {"C3": "why"}}), "expect.checks lists it"),
+        ("an n/a with a blank why", wrow(expect={"checks": ["C3"], "na": {"K15": "  "}}), "has no why"),
+        ("C6 declared n/a", wrow(expect={"checks": ["C3"], "na": {"C6": "why"}}), "C6 is never n/a"),
+        ("an na that is not an object", wrow(expect={"checks": ["C3"], "na": ["K15"]}), "expect.na is list"),
     ]
     for label, row, needle in refusals:
         @case(f"walk grammar: {label} is refused naming the row and the field")
@@ -2382,6 +2540,8 @@ def _walker_cases(case, tmp) -> None:
     @case("walk grammar: a complete row and a live_only row with no checks pass; `*` joints and `<why>:<token>` are in vocabulary")
     def _():
         rows = [wrow(), wrow("p.key/empty", answer={}, expect={"checks": ["empty"]}), wrow("p.key/free words", answer={"words": "w"}),
+                wrow(expect={"checks": ["C3"], "na": {"K15": "a plain ask offers nothing"}}),
+                wrow("p.key/free words", answer={"words": "w"}, expect={"checks": ["C6"], "na": {"C2": "words", "C3": "no token"}}),
                 wrow("p.key/words:long", answer={"words": "w"}), wrow("joint:exit:g:*/word", answer={"token": "x"}, expect={"checks": ["C3"]}),
                 wrow("route:r1/code move", answer={"token": "x"}), wrow("kind:k1/stage_review_exhausted:rework_stage", answer={"token": "x"}),
                 wrow("p.key/b", reach="live_only", why_unreached="needs a live dispatch", expect={"checks": []}, answer=None)]
@@ -2435,8 +2595,12 @@ def _walker_cases(case, tmp) -> None:
         if load_seeds(root / "seeds" / "g.json") != {}:
             return "absent file read as recipes"
         path = root / "seeds" / "g.json"
+        say = lambda **kw: {"r": [{"say": {"stage": "S4", "question": "gate_A", "words": "Add a case for the empty cart.", **kw}}]}      # noqa: E731
         for recipes, needle in (({"r": [{"op": ["rm", "-rf"]}]}, "closed list"), ({"r": []}, "non-empty list"), ({"r": [{"drive_until": {"stage": "S1"}}]}, "drive_until"),
-                                ({"r": [{"op": ["story_step.py"], "drive_until": {}}]}, "exactly one")):
+                                ({"r": [{"op": ["story_step.py"], "drive_until": {}}]}, "exactly one"),
+                                ({"r": [{"say": {"stage": "S4", "question": "gate_A"}}]}, "say must be an object"), (say(words="  "), "say must be an object"),
+                                (say(stage="S10"), "expected S0..S9"), (say(words="ok\n## heading"), "starting `## `"), (say(words="\nApprove\nmore"), "approval word"),
+                                (say(words="caf\u00e9"), "not ASCII"), (say(question=""), "say must be an object")):
             _write(path, {"schema": 1, "group": "g", "recipes": recipes})
             try:
                 load_seeds(path)
@@ -2446,7 +2610,10 @@ def _walker_cases(case, tmp) -> None:
                 continue
             return f"{needle}: no refusal"
         _write(path, {"schema": 1, "group": "g", "recipes": {"r": [{"drive_until": {"stage": "S8", "question": "q"}}, {"op": ["story_step.py", "--task", "{task}"]}]}})
-        return None if list(load_seeds(path)) == ["r"] else "a good recipe was refused"
+        if list(load_seeds(path)) != ["r"]:
+            return "a good recipe was refused"
+        _write(path, {"schema": 1, "group": "g", "recipes": say(words="Add a case for the empty cart.")})
+        return None if list(load_seeds(path)) == ["r"] else "a good say recipe was refused"
 
     @case("census: a ledger row that names no walk row and no main stage is an orphan, red; main/ and a written walk row are not")
     def _():
@@ -2580,15 +2747,86 @@ def _walker_cases(case, tmp) -> None:
         stuck = W.run_seed(world, step, {("S0", "halt"): "go"}, drive_fn=lambda w, *a, timeout: W.Run(0, "", 1.0, []))
         return None if outs[0] == (True, "") and not outs[1][0] and "over the cap" in outs[1][1] and not stuck[0] and "no new question" in stuck[1] else f"{outs} {stuck}"
 
+    # ---- run_seed `say`: reached only when the next ask is the same question at the same stage and offers something (F4)
+    def put_ask(task_root, asked, n_questions):
+        state = task_root / "state"
+        _write(state / "driver-state.json", {"asked": asked or {}})
+        _write(state / "driver-questions.jsonl", "".join(json.dumps({"kind": (asked or {}).get("kind", "x"), "stage": (asked or {}).get("stage", "S0"), "dispatch": ""}) + "\n"
+                                                         for _ in range(n_questions)))
+
+    say_step = [{"say": {"stage": "S4", "question": "gate_A", "words": "Add a case."}}]
+    plain, seam = {"kind": "gate_A", "stage": "S4"}, {"kind": "gate_A", "stage": "S4", "offered": ["rework", "approve"]}
+    for label, before, after, reached, needle in (
+            ("the next ask is the same kind and stage and carries `offered`", plain, seam, True, ""),
+            ("a next ask that carries no `offered`", plain, plain, False, "offers nothing"),
+            ("a pending ask before that is another question", {"kind": "s1_review", "stage": "S1"}, seam, False, "pending is s1_review at S1, expected gate_A at S4"),
+            ("a new ask of another kind", plain, {"kind": "conductor", "stage": "S4", "offered": ["go"]}, False, "pending is now conductor at S4")):
+        @case(f"run_seed say: {label} -> reached {reached}")
+        def _(before=before, after=after, reached=reached, needle=needle):
+            W, world = fake_world()
+            put_ask(world.task_root, before, 1)
+            got = W.run_seed(world, say_step, {}, drive_fn=lambda w, *a, timeout: (put_ask(w.task_root, after, 2), W.Run(0, "", 1.0, []))[1])
+            written = (world.root / "answer.md").read_bytes() if (world.root / "answer.md").is_file() else b""
+            return None if got[0] == reached and needle in got[1] and (written == b"Add a case.") == (before.get("kind") == "gate_A") else f"got {got} {written!r}"
+
+    @case("run_seed say: the words raised no new question is named, a driver exit with no new question names the exit code")
+    def _():
+        W, world = fake_world()
+        put_ask(world.task_root, plain, 1)
+        quiet = W.run_seed(world, say_step, {}, drive_fn=lambda w, *a, timeout: W.Run(0, "", 1.0, []))
+        dead = W.run_seed(world, say_step, {}, drive_fn=lambda w, *a, timeout: W.Run(3, "", 1.0, []))
+        return None if "raised no new question" in quiet[1] and "exited (3) with no new question" in dead[1] and not quiet[0] and not dead[0] else f"got {quiet} {dead}"
+
+    def exit_row(first, script, checks=("C6",)):
+        """`run_exit_row` over a fake driver: the snapshot S4 holds `first` pending with one question row; turn n of the fake driver leaves `script[n]`
+        (`(asked or None, number of question rows)`, the last one repeats). Returns `(facts, the --answer calls)`."""
+        W, world = fake_world()
+        snap = world.snaps / "dry-1" / "S4"
+        put_ask(snap / "qa-factory" / "artifacts" / "T", first, 1)
+        _write(snap / ".dry-snapshot.json", {"label": W.RUN_LABEL, "name": "S4", "type": "dry-1", "from": str(world.root)})
+        calls = []
+
+        def drive(copy, *args, timeout):
+            calls.append(args)
+            put_ask(copy.task_root, *script[min(len(calls), len(script)) - 1])
+            return W.Run(0, "", 1.0, [])
+        row = {"id": "p.key/a", "start": "S4", "seed": None, "answer": {"token": "a", "words": None, "words_file": None}, "expect": {"checks": list(checks)}}
+        saved = W.gate_ready
+        W.gate_ready = lambda w, kind: (True, "")
+        try:
+            facts = W.run_exit_row(world, row, {}, {}, world.root, drive_fn=drive)
+        finally:
+            W.gate_ready = saved
+        return facts, [c for c in calls if "--answer" in c]
+
+    @case("run_exit_row: a turn that raises another ask ends the turns at once - one driver call, the fingerprint kept, `ended_at` set, no `exhausted`, the stopped ask rehearsed")
+    def _():
+        facts, calls = exit_row(seam, [(plain, 2)])
+        want = {"turn": 1, "kind": "gate_A", "stage": "S4"}
+        return None if (len(calls) == 1 and facts["post_turns"] == 1 and facts["fp_after"] == facts["fp_ask"] and facts.get("ended_at") == want
+                        and "exhausted" not in facts and len(facts["gates"]) == 2) else f"got {len(calls)} {facts}"
+
+    @case("run_exit_row: the same ask again (same kind, stage, offered; other text) goes on to turn 2, three identical asks set `loop` and leave `ended_at` unset")
+    def _():
+        facts, calls = exit_row(seam, [(seam, 2), (seam, 3), (seam, 4)])
+        return None if len(calls) == 2 and facts["loop"] and "ended_at" not in facts and "exhausted" not in facts else f"got {len(calls)} {facts.get('loop')} {facts.get('ended_at')}"
+
+    @case("run_exit_row: a turn that wrote a question row and left no pending ask ends the turns with kind none and adds no asks entry (G3 c)")
+    def _():
+        facts, calls = exit_row(seam, [(None, 2)])
+        return None if len(calls) == 1 and facts.get("ended_at") == {"turn": 1, "kind": "none", "stage": ""} and len(facts["gates"]) == 1 else f"got {len(calls)} {facts}"
+
     # ---- judge_row, one row per check and branch
     ask = {"kind": "s1_review", "stage": "S1", "offered": ["agree", "flip"]}
-    good = {"seed": {"reached": True}, "ask": ask, "ask_sha": "q1", "priced_at_ask": {"key": "p.key", "answers": ["a", "b"]}, "fp_ask": "x", "fp_after": "y",
+    good = {"seed": {"reached": True}, "ask": ask, "ask_sha": "q1", "ask_ordinal": 0, "priced_seen": [],
+            "priced_window": [{"key": "p.key", "answers": ["a", "b"], "q": 0, "prompt": False}], "fp_ask": "x", "fp_after": "y",
             "fp_notes": [], "answer_records": [{"question_sha": "q1"}], "conductor_calls": 0, "conductor_whys": [], "gates": [], "passed_lines": 0, "loop": "",
             "stub_added": [{"run_class": "dry"}], "routes_added": [], "cap": 240}
     jrow = wrow("p.key/a", answer={"token": "agree"}, expect={"checks": ["C2", "C3"]})
 
     def judged(row=jrow, klass="", **facts):
-        return judge_row(row, {**good, **facts}, prices={"p.key": [{"answer": "a"}, {"answer": "b"}, {"answer": "c"}]}, class_of_subject=klass)
+        prices = {"p.key": [{"answer": "a", "factory": "stages_again"}, {"answer": "b", "factory": "nothing"}, {"answer": "c"}, {"answer": "agree"}, {"answer": "flip"}]}
+        return judge_row(row, {**good, **facts}, prices=prices, class_of_subject=klass)
 
     table = [
         ("a row whose checks hold is PASS", {}, "pass", ""),
@@ -2597,9 +2835,21 @@ def _walker_cases(case, tmp) -> None:
         ("C2: an unread_answer conductor call is FAIL", {"conductor_whys": ["unread_answer"]}, "fail", "unread_answer"),
         ("C3: a fingerprint that did not change is FAIL naming the check", {"fp_after": "x"}, "fail", "changed nothing"),
         ("C3: rounds unknown is a NOTE, never PASS (EW19)", {"fp_notes": ["rounds unknown: x"]}, "note", "rounds unknown"),
-        ("K15/E17: a priced record of another key is FAIL (EW18)", {"priced_at_ask": {"key": "q.key", "answers": ["a"]}}, "fail", "key not observed: expected p.key, observed q.key"),
-        ("K15/E17: no priced record is FAIL", {"priced_at_ask": None}, "fail", "key not observed"),
-        ("K15/E17: an offered answer with no price row is FAIL", {"priced_at_ask": {"key": "p.key", "answers": ["a", "zzz"]}}, "fail", "price rows"),
+        ("K15/E17: a priced record of another key is FAIL (EW18)", {"priced_window": [{"key": "q.key", "answers": ["a"], "q": 0}]}, "fail", "key not observed: expected p.key, observed q.key"),
+        ("K15/E17: no priced record is FAIL", {"priced_window": []}, "fail", "key not observed: expected p.key, observed none at question 0"),
+        ("K15/E17: an offered answer with no price row is FAIL", {"priced_window": [{"key": "p.key", "answers": ["a", "zzz"], "q": 0}]}, "fail", "price rows"),
+        ("K15 (1): the window holds nothing, an earlier ask's record exists -> FAIL naming it", {"priced_window": [], "ask_ordinal": 1,
+         "priced_seen": [{"key": "s1.review", "q": 0, "prompt": False}]}, "fail", "an earlier ask's record (s1.review) is not read"),
+        ("K15 (2): the ask offered a token outside the key's price rows -> FAIL", {"ask": {**ask, "offered": ["agree", "zzz"]}}, "fail", "offered tokens ['zzz']"),
+        ("K15 (10): the conductor-prompt record of the key only in `priced_seen` (the shape `ask_window` leaves: an empty window) -> FAIL (B3, F1)",
+         {"priced_window": [], "priced_seen": [{"key": "p.key", "q": 0, "prompt": True}], "ask_ordinal": 0}, "fail", "only a conductor prompt priced p.key at question 0"),
+        ("K15: no ordinal (no question row matches the pending ask) -> FAIL, never read from another ask", {"priced_window": [], "ask_ordinal": None},
+         "fail", "the pending ask has no question record"),
+        ("K15: a re-raised ask with an empty window -> FAIL naming the held re-raise", {"priced_window": [], "ask_ordinal": 2, "ask_reraised": True}, "fail", "raised again without pricing (held); question 2"),
+        ("K15 (F4): a seam ask with an empty window and no `held_lead` (`ask_reraised` false) -> the plain observed-none text, never the held text",
+         {"priced_window": [], "ask_ordinal": 2, "ask_reraised": False}, "fail", "observed none at question 2"),
+        ("K15: records with no integer q -> FAIL naming the older spy", {"priced_window": [], "priced_seen": [{"key": "p.key", "q": None}]}, "fail", "carry no ask ordinal (older spy)"),
+
         ("E18: a stub line with run_class '' is FAIL", {"stub_added": [{"run_class": ""}]}, "fail", "run_class"),
         ("EW17: a seed that did not reach is FAIL naming the subject", {"seed": {"reached": False, "detail": "met halt"}}, "fail", "seed did not reach p.key"),
         ("EW23: over the cap is FAIL naming the phase", {"over_cap": "answer turn 1"}, "fail", "over the cap 240 s at answer turn 1"),
@@ -2610,6 +2860,78 @@ def _walker_cases(case, tmp) -> None:
         def _(facts=facts, kind=kind, needle=needle):
             got = judged(**facts)
             return None if got.kind == kind and needle in got.detail else f"got {got}"
+
+    def na_row(token, checks, na, rid="p.key/a"):
+        return wrow(rid, answer={"token": token, "words": None if token else "w", "words_file": None}, expect={"checks": checks, "na": na})
+
+    plain_ask = {"kind": "s1_review", "stage": "S1", "offered": []}
+    for label, row, facts, kind, needles in (
+            ("G1 (11): `ended_at` set, the fingerprint unchanged, C3 neither listed nor n/a -> FAIL on `turns`", wrow(answer={"token": "agree"}, expect={"checks": ["C2"]}),
+             {"ended_at": {"turn": 1, "kind": "gate_A", "stage": "S4"}, "fp_after": "x"}, "fail", ["C3 is neither listed nor declared n/a", "ended at gate_A at S4 after turn 1"]),
+            ("K15 (3): a declared n/a on an ask that offered nothing is no FAIL and prints `n/a K15`", na_row(None, ["C3"], {"K15": "a plain ask"}, "p.key/free words"),
+             {"ask": plain_ask, "priced_window": []}, "pass", ["n/a K15: a plain ask"]),
+            ("K15 (4): a declared n/a on an ask WITH offered is FAIL", na_row(None, ["C3"], {"K15": "a plain ask"}, "p.key/free words"), {}, "fail", ["K15 declared n/a but the ask offered ['agree', 'flip']"]),
+            ("C3 (8): n/a on a token whose price row says stages_again is FAIL", na_row("a", ["C2"], {"C3": "w"}), {"ask": {**ask, "offered": ["a"]}}, "fail",
+             ["C3 declared n/a but the price row of a says factory stages_again"]),
+            ("C3 (9): n/a on a token whose price row says nothing prints `n/a C3`", na_row("b", ["C2"], {"C3": "nothing is recorded"}), {"ask": {**ask, "offered": ["b"]}}, "pass",
+             ["n/a C3: nothing is recorded"]),
+            ("C3: n/a on a token with no price row of the key is FAIL, never a pass", na_row("zzz", ["C2"], {"C3": "w"}), {"ask": {**ask, "offered": ["zzz"]}}, "fail",
+             ["C3 declared n/a but the price row of zzz says factory unknown"]),
+            ("C2: n/a with a token on the row is FAIL at run time too", na_row("a", ["C3"], {"C2": "w"}), {}, "fail", ["C2 declared n/a but the row has the token 'a'"]),
+            ("G1 (11): `ended_at` and a C3 n/a that passed its guard is no FAIL; the PASS prints where the turns ended",
+             na_row("b", ["C2"], {"C3": "nothing is recorded"}), {"ask": {**ask, "offered": ["b"]}, "ended_at": {"turn": 1, "kind": "gate_A", "stage": "S4"}, "fp_after": "x"}, "pass",
+             ["n/a C3: nothing is recorded", "ended at gate_A at S4 after turn 1"]),
+            ("G1: `ended_at` with C3 listed and the fingerprint unchanged is the C3 FAIL, with where the turns ended", wrow(expect={"checks": ["C2", "C3"]}),
+             {"ended_at": {"turn": 2, "kind": "none", "stage": ""}, "fp_after": "x"}, "fail", ["changed nothing", "ended at none at - after turn 2"]),
+            ("C2 (5): the offered set of the ask wins over the window record", wrow("p.key/a", answer={"token": "a"}, expect={"checks": ["C2"]}),
+             {"ask": {**ask, "offered": ["agree"]}}, "fail", ["was not offered"]),
+            ("C2: with no `offered` on the ask the window record of the key is the offered set", wrow("p.key/a", answer={"token": "a"}, expect={"checks": ["C2"]}),
+             {"ask": {**ask, "offered": []}}, "pass", [])):
+        @case(f"judge_row: {label}")
+        def _(row=row, facts=facts, kind=kind, needles=needles):
+            got = judged(row, **facts)
+            return None if got.kind == kind and all(n in got.detail for n in needles) else f"got {got}"
+
+    @case("row_facts: every conductor call of the cut is counted and the `chosen` ones apart (6); a call beyond the first post-answer turn that wrote a question row is not counted (7)")
+    def _():
+        W, world = fake_world()
+        lines = [{"conductor": "conductor", "chosen": True}, {"conductor": "conductor", "chosen": False}, {"dispatch": "D1"}, {"conductor": "conductor"}]
+        _write(world.task_root / "state" / "dry-stub.jsonl", "".join(json.dumps(r) + "\n" for r in lines))
+        mid, before = {"stub": 0, "answers": 0, "passed": 0}, {"stub": 0, "routes": 0}
+        got = [tuple(W.row_facts(world, before, mid, first)[k] for k in ("conductor_calls", "conductor_chosen")) for first in (None, {"stub": 1}, {"stub": 2}, {"stub": 3})]
+        return None if got == [(3, 1), (1, 1), (2, 1), (2, 1)] else f"got {got}"
+
+    # F3: a `chosen` conductor call is excused in C2 only for a token whose price row names an executor other than `record` / `nothing`
+    c2_prices = {"p.key": [{"answer": "a", "factory": "stages_again"}, {"answer": "b", "factory": "nothing"}, {"answer": "r", "factory": "record"},
+                           {"answer": "c"}, {"answer": "agree"}, {"answer": "flip"}]}
+    for label, token, calls, chosen, kind in (
+            ("a rework-class token (stages_again) with one chosen call: excused -> PASS", "a", 1, 1, "pass"),
+            ("a `record` token with a chosen call: counted -> FAIL (the misrouted approve)", "r", 1, 1, "fail"),
+            ("a `nothing` token with a chosen call: counted -> FAIL", "b", 1, 1, "fail"),
+            ("a token whose price row names no factory with a chosen call: counted -> FAIL", "c", 1, 1, "fail"),
+            ("a token with no price row with a chosen call: counted -> FAIL (an unknown is never a pass)", "zzz", 1, 1, "fail"),
+            ("a rework-class token with two calls, one chosen: the other is counted -> FAIL", "a", 2, 1, "fail")):
+        @case(f"judge_row: C2 (F3): {label}")
+        def _(token=token, calls=calls, chosen=chosen, kind=kind):
+            row = wrow("p.key/" + token, answer={"token": token}, expect={"checks": ["C2"]})
+            got = judge_row(row, {**good, "ask": {**ask, "offered": [token]}, "conductor_calls": calls, "conductor_chosen": chosen}, prices=c2_prices)
+            counted = "a conductor call followed the answer and its why is not on record" in got.detail
+            return None if got.kind == kind and counted == (kind == "fail") else f"got {got}"
+
+    @case("run_exit_row: `ask_reraised` is the driver's own `held_lead` marker, not a repeated (kind, stage, dispatch) triple (F4)")
+    def _():
+        got = []
+        for first in (seam, dict(seam, held_lead="Your answer was not clear.")):
+            facts, _calls = exit_row(first, [(None, 1)])
+            got.append(facts.get("ask_reraised"))
+        return None if got == [False, True] else f"got {got}"
+
+    @case("judge_group: a PASS line prints its n/a declarations, and the NUMBER na counts them (F9)")
+    def _():
+        ledger = ledger_file({})
+        lines = judge_group([("p.key/a", Outcome("pass", "n/a C3: why", changed=True))], ledger, ["p.key/a"])
+        total, by = na_counts([wrow(expect={"checks": ["C3"], "na": {"K15": "w", "C2": "w"}}), wrow("p.key/b", expect={"checks": ["C2"], "na": {"C3": "w", "K15": "w"}}), wrow("p.key/c")])
+        return None if ("p.key/a", "pass", "n/a C3: why") in lines and (total, by) == (4, {"K15": 2, "C2": 1, "C3": 1}) else f"got {lines} {total} {by}"
 
     @case("judge_row: C4 passes on a gate subject with a new passed-by-person line, fails without one or off the gate class")
     def _():
