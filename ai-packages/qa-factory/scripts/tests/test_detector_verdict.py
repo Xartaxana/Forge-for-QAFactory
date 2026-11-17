@@ -1603,6 +1603,198 @@ def tbw_t6_sites() -> None:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def t4a_provoke(G, HA, tmp: Path) -> dict:
+    """told-before-work T4a: every refusal of the `guard_pre_tool` / `host_adapter.role_policy` sites provoked in-process through the
+    REAL `hooklib.block`. `{row: (id, stderr)}`; the temporary root and the plugin root are written `<ROOT>` / `<PLUGIN>`. `G` and
+    `HA` are the modules under test (the pin below was captured by running the same provocations over the pre-change files)."""
+    import contextlib
+    import hooklib
+    import io
+    from types import SimpleNamespace
+    from unittest import mock
+    from harness import use_project
+    import dispatch_identity as DI
+    import planning_contract as PC
+    import handoff_check
+    root = temp_project("t4a-")
+    use_project(root)
+    cfg = json.loads((root / "qa-factory" / "config.json").read_text(encoding="utf-8"))
+    task = root / "qa-factory" / "artifacts" / "T-1"
+    (task / "state").mkdir(parents=True)
+    (task / "work" / "handoffs").mkdir(parents=True)
+    (root / "evidence").mkdir()
+    for rel, text in (("work/handoffs/D-1.yaml", "a: 1\n"), ("work/handoffs/D-1.values.yaml", "a: 2\n"), ("work/test-plan.md", "# plan\n"),
+                      ("work/test-plan.json", '[{"id": "TS-1"}]'), ("work/context-manifest.json", "{}"),
+                      ("work/automation-manifest.json", '{"tests": [{"case": "TC-1"}]}'), ("state/controller.json", '{"dispatches": {}}'),
+                      ("pipeline.json", '{"ticket": "T-1", "stages": {}}')):
+        (task / rel).write_text(text, encoding="utf-8")
+    (root / "evidence" / "a.log").write_text("x" * 9000, encoding="utf-8")
+    (root / "big.txt").write_text("y" * 100000, encoding="utf-8")
+    (root / "tests" / "api").mkdir(parents=True, exist_ok=True)
+    out: dict = {}
+
+    def err_of(fn, *args) -> str:
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            try:
+                fn(*args)
+            except SystemExit as exc:
+                if exc.code != 2:
+                    return f"exit {exc.code}"
+        text = buf.getvalue()
+        for path, tag in ((root, "<ROOT>"), (hooklib.PLUGIN_ROOT, "<PLUGIN>")):
+            for spelling in (str(path), str(path).replace("\\", "/")):
+                text = text.replace(spelling, tag)
+        return text
+
+    def put(row, cid, fn, *args):
+        out[row] = (cid, err_of(fn, *args))
+
+    def at(rel):
+        return str(task / rel)
+
+    def ev(tool, path="", role="", **tool_input):
+        event = {"tool_name": tool, "tool_input": dict({"file_path": path} if path else {}, **tool_input), "cwd": str(root)}
+        return dict(event, agent_type=role) if role else event
+    sh = lambda command, role="": ev("Bash", command=command, role=role)  # noqa: E731
+    p = "guard_pre_tool:PT-"
+    put("size", p + "command-size", G.size_check, sh("x" * 70000), cfg)
+    put("direct run", p + "direct-test-run", G.runs_check, sh("pytest -q"), cfg)
+    put("playwright test", p + "direct-test-run", G.runs_check, sh("npx playwright test"), cfg)
+    put("git config", p + "git-config", G.git_config_check, sh("git config --global user.name x"), cfg)
+    put("logs Read", p + "logs", G.logs_check, ev("Read", str(root / "evidence" / "a.log")), cfg)
+    put("logs shell", p + "logs", G.logs_check, sh(f"cat {root / 'evidence' / 'a.log'}"), cfg)
+    put("plugin read", p + "plugin-read", G.plugin_read_check, ev("Read", str(hooklib.PLUGIN_ROOT / "scripts" / "hooklib.py"), role="qa-scout"), cfg)
+    put("big read", p + "big-read", G.big_read_check, {"file_path": str(root / "big.txt")}, cfg, ev("Read", str(root / "big.txt")))
+    put("case store", p + "case-store", G.case_store_check, ev("Write", at("work/TC-001.md")), {**cfg, "cases_root": "cases"})
+    put("handoff rewrite", p + "handoff-rewrite", G.handoff_write_check, ev("Write", at("work/handoffs/D-1.yaml")), cfg)
+    put("handoff edit pending", p + "handoff-edit-pending", G.handoff_write_check, ev("Edit", at("work/handoffs/D-1.yaml")), cfg)
+    put("handoff code file", p + "handoff-code-file", G.handoff_write_check, ev("Write", at("work/handoffs/D-1.values.applied.yaml")), cfg)
+    report = SimpleNamespace(problems=["p"], blocked_said=False, contract=None, role="", kept=[])
+    with mock.patch.object(handoff_check, "values_report", return_value=report), \
+            mock.patch.object(handoff_check, "refusal_text", return_value="the lines to fix"):
+        put("handoff values", p + "handoff-values", G.handoff_values_check, ev("Write", at("work/handoffs/D-1.values.yaml"), content="a: 3\n"))
+    put("artifact rewrite", p + "artifact-rewrite", G.artifact_rewrite_check, ev("Write", at("work/context-manifest.json")), cfg)
+    put("plan rewrite", p + "plan-rewrite", G.plan_write_check, ev("Write", at("work/test-plan.json")), cfg)
+    put("plan md rewrite", p + "plan-md-rewrite", G.plan_write_check, ev("Write", at("work/test-plan.md")), cfg)
+    put("manifest shrink", p + "manifest-shrink", G.manifest_write_check, ev("Write", at("work/automation-manifest.json")), cfg)
+    put("owner story", p + "owner", G.owner_check, ev("Write", at("work/automation-manifest.json"), role="qa-scout"), cfg)
+    put("owner ledger", p + "owner", G.owner_check, ev("Write", str(root / "qa-factory" / "factory-backlog.md"), role="qa-scout"), cfg)
+    controller = {"dispatches": {i: {"id": i, "stage": "S5", "role": "qa-automator", "status": "running", "scope": [c]}
+                                 for i, c in (("S5-qa-automator-1", "TC-1"), ("S5-qa-automator-2", "TC-2"))}, "stages": {}}
+    (task / "state" / "controller.json").write_text(json.dumps(controller), encoding="utf-8")
+    saved = {k: os.environ.get(k) for k in (PC.DETECTOR_DISPATCH_ENV, DI.DRIVER_RUN_ENV)}
+    os.environ.pop(PC.DETECTOR_DISPATCH_ENV, None)
+    try:
+        test_file = ev("Write", str(root / "tests" / "api" / "test_orders.py"))
+        os.environ[DI.DRIVER_RUN_ENV] = "S5-qa-automator-1"      # the first window claims the file and passes
+        err_of(G.window_file_check, test_file, cfg)
+        os.environ[DI.DRIVER_RUN_ENV] = "S5-qa-automator-2"      # the second is refused (one refusal: no 'in a row' text)
+        put("window file", p + "window-file", G.window_file_check, test_file, cfg)
+    finally:
+        for key, value in saved.items():
+            os.environ.pop(key, None) if value is None else os.environ.__setitem__(key, value)
+    put("external writes", p + "external-writes", G.writes_check, sh("glab issue create --title x"), cfg)
+    put("human word", p + "human-word", G.human_word_check, sh("python waiver.py --stage S9 --block x", role="qa-scout"), cfg)
+    put("config write", p + "config-write", G.config_write_check, ev("Write", str(root / "qa-factory" / "config.json"), role="qa-automator"), cfg)
+    put("stand record", p + "stand-record-write",
+        G.stand_record_write_check, ev("Write", str(root / "qa-factory" / "records" / "stand-identity.json"), role="qa-scout"), cfg)
+    put("walker", p + "walker-error", G.walker_refusal, sh("x"), hooklib.WalkerError("boom"))
+    put("patch unchecked", p + "patch-unchecked", G._guard, ev("apply_patch", command="not a patch"))
+    with mock.patch.object(G, "read_event", return_value=None):
+        put("unparsed event", p + "unparsed-event", G.main)
+    h = "host_adapter:HA-"
+    codex = {"turn_id": "t-1"}
+    hcfg = {"host_tools": {}}
+    put("call shape", h + "call-shape", HA.role_policy, {"_qa_host": {"refusal": {"what": "w", "expected": "e", "door": "d"}}}, {})
+    put("no command text", h + "no-command-text", HA.role_policy,
+        dict(codex, tool_name="shell", tool_input={}, _qa_host={"name": "shell"}), hcfg)
+    put("nested delegation", h + "role-nested-delegation", HA.role_policy, dict(codex, agent_type="qa-automator", tool_name="Agent"), hcfg)
+    put("role read only", h + "role-read-only", HA.role_policy,
+        dict(codex, agent_type="qa-test-strategist", tool_name="Bash", tool_input={"command": "python x.py"}), hcfg)
+    put("stdin chars", h + "stdin-chars", HA.role_policy,
+        dict(codex, tool_name="Bash", tool_input={"chars": "x"}, _qa_host={"name": "write_stdin"}), hcfg)
+    put("exec tty", h + "exec-tty", HA.role_policy,
+        dict(codex, tool_name="Bash", tool_input={"tty": True}, _qa_host={"name": "exec_command"}), hcfg)
+    tool = {"tool_name": "mcp__x__create_thing", "_qa_host": {"name": "mcp__x__create_thing"}}
+    put("connector no shell", h + "connector-unclassified", HA.role_policy, dict(codex, agent_type="qa-test-strategist", **tool), hcfg)
+    put("connector orchestrator", h + "connector-orchestrator", HA.role_policy, dict(codex, **tool), hcfg)
+    cleanup(root)
+    return out
+
+
+def t4a_digest(err: str) -> str:
+    """The first 16 hex digits of the sha256 of the refusal's own text: stderr without the closing TRAPPED line and without the
+    row's lines that follow the problem (`expected:` / `door:` / `check:`), trailing white space cut as `block` cuts it."""
+    import hashlib
+    from hooklib import TRAPPED
+    err = err[:-1] if err.endswith("\n") else err        # the newline `print` ends the last line with
+    body = err[:-len("\n" + TRAPPED)] if err.endswith("\n" + TRAPPED) else err
+    return hashlib.sha256(body.split("\n  expected: ")[0].split("\n  check: ")[0].rstrip().encode("utf-8")).hexdigest()[:16]
+
+
+T4A_OLD: dict = {   # row -> t4a_digest of the pre-change file's stderr (byte copy of guard_pre_tool.py / host_adapter.py taken before the edit)
+    'size': 'f60c2116d5ea0e9b',
+    'direct run': '504d8a343ec1dd7d',
+    'playwright test': '19ad5ce85fd9a420',
+    'git config': '0b7737239f468b11',
+    'logs Read': 'd3dcdca4b6849d83',
+    'logs shell': 'd3dcdca4b6849d83',
+    'plugin read': 'c8455f9f8ed26987',
+    'big read': '8cb6f7047b49f287',
+    'case store': '3b95d98a22c0bbe5',
+    'handoff rewrite': '9e174afe126371ee',
+    'handoff edit pending': 'd9bdb494031a8c18',
+    'handoff code file': '022e7a003d498b7d',
+    'handoff values': '552764b4205bd4d0',
+    'artifact rewrite': '477ec5b1f34fb8f3',
+    'plan rewrite': '4e7edca5f5dd7ec1',
+    'plan md rewrite': '0c1633372b6225d4',
+    'manifest shrink': '170520564db6c6f1',
+    'owner story': '7d93f26a8ae64faf',
+    'owner ledger': '9944a5a6f8378e14',
+    'window file': '4868f8c01058fd0b',
+    'external writes': '6bbb874a5adb79fa',
+    'human word': '4da061f97df6c201',
+    'config write': '55d7e335e2690053',
+    'stand record': 'd578f4dc0afd5204',
+    'walker': 'fbd8e127dc49e34c',
+    'patch unchecked': '43ee82ddb514fd27',
+    'unparsed event': '2c77e19e3d5de451',
+    'call shape': '5da2572131407510',
+    'no command text': '2a16c97a325a52d5',
+    'nested delegation': 'a9f8cc04fffca795',
+    'role read only': '3d145d994a502a02',
+    'stdin chars': '5b33bf4592a6a966',
+    'exec tty': '460a32af2059611b',
+    'connector no shell': '2b458f52b2437f60',
+    'connector orchestrator': '5957e371a6fde6fb',
+}
+
+
+def tbw_t4a_sites() -> None:
+    """told-before-work T4a: each role-facing refusal of `guard_pre_tool.py` and `host_adapter.role_policy` is `refusal("<row id>", <the
+    text it always had>)`. ONE table, a row per site: the stderr is the old text byte for byte (digest `T4A_OLD`, captured over the pre-change
+    files), then `  expected:` / `  door:` of the row of that id and `  check: <id>` last, then the closing TRAPPED line, exit code 2."""
+    import stage_joints as SJ
+    from hooklib import TRAPPED
+    import guard_pre_tool as G
+    import host_adapter as HA
+    tmp = Path(tempfile.mkdtemp(prefix="tbw-t4a-"))
+    try:
+        got = t4a_provoke(G, HA, tmp)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    check_eq("t4a: every site is provoked", sorted(got), sorted(T4A_OLD))
+    for name, (cid, err) in got.items():
+        row, why = SJ.row_for(cid)
+        expected, door = SJ.told_text(row) if row else ("", "")
+        tail = "\n  expected: " + expected + ("\n  door: " + door if door else "") + "\n  check: " + cid
+        check(f"t4a {name} {cid}: the row states a sentence", bool(expected), str(why))
+        check(f"t4a {name} {cid}: the row's lines follow the problem, `check:` last, TRAPPED closes", err.endswith(tail + "\n" + TRAPPED + "\n"), err[-300:])
+        check_eq(f"t4a {name} {cid}: the problem text is the old one", t4a_digest(err), T4A_OLD.get(name))
+
+
 def main() -> None:
     unreadable_cases()
     one_of_cases()
@@ -1624,6 +1816,7 @@ def main() -> None:
     tbw_t7c_sites()
     tbw_t6_sites()
     tbw_t7b_sites()
+    tbw_t4a_sites()
     finish("test_detector_verdict")
 
 

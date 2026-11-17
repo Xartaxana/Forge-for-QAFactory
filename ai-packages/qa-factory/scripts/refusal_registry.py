@@ -1081,8 +1081,14 @@ def _key_text(node: ast.AST) -> str | None:
     args = getattr(node, "args", None)
     if not args:
         return None
+    first = args[0]
+    # told-before-work: a refusal built through `refusal("<literal id>", X)` is keyed by X, the text it refuses WITH, as the bare
+    # call was (an entry's `call` stays valid). Any other shape (non-literal id, fewer than two arguments) keeps today's key.
+    if (isinstance(first, ast.Call) and isinstance(first.func, ast.Name) and first.func.id == "refusal" and len(first.args) >= 2
+            and isinstance(first.args[0], ast.Constant) and isinstance(first.args[0].value, str)):
+        first = first.args[1]
     try:
-        text = ast.unparse(args[0])
+        text = ast.unparse(first)
     except Exception:
         return None
     # Drop the string prefix and the opening quotes: which quote `ast.unparse` picks depends

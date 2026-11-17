@@ -576,16 +576,19 @@ def role_policy(event, cfg):
     if isinstance(refused, dict):
         # First, before the no-config return: a call the guard cannot read fails closed in a project with no config
         # too, as the guard's own parse block does. Its text names what is wrong, what was expected and the door.
-        block("FACTORY HOST POLICY: {what}. Expected: {expected}. Door: {door}.".format_map(
-            {key: str(refused.get(key) or "") for key in ("what", "expected", "door")}))
+        from detector_verdict import refusal    # told-before-work T4a: imported on the way to a block only (a passing call pays nothing)
+        block(refusal("host_adapter:HA-call-shape", "FACTORY HOST POLICY: {what}. Expected: {expected}. Door: {door}.".format_map(
+            {key: str(refused.get(key) or "") for key in ("what", "expected", "door")})))
     if not is_codex(event) or not cfg:
         return
     if event.get('factory_diagnostic'):
         block('FACTORY DOCTOR: the context diagnostic must return its challenge without tools')
     if _carries_no_command(event):
-        block("FACTORY HOST POLICY: " + str((event.get("_qa_host") or {}).get("name")) + " carried no command text the "
-              "guard can read (expected " + FIELD_WORDS + "); the call is refused unchecked. Send the "
-              "command in one of those fields; inside a code cell, as one literal tools.exec_command({cmd: ...}) call.")
+        from detector_verdict import refusal
+        block(refusal("host_adapter:HA-no-command-text",
+                      "FACTORY HOST POLICY: " + str((event.get("_qa_host") or {}).get("name")) + " carried no command text the "
+                      "guard can read (expected " + FIELD_WORDS + "); the call is refused unchecked. Send the "
+                      "command in one of those fields; inside a code cell, as one literal tools.exec_command({cmd: ...}) call."))
     role = role_name(event.get("agent_type") or "")
     path = PLUGIN_ROOT / "agents" / (role + ".md")
     name = event.get("tool_name") or ""
@@ -595,19 +598,25 @@ def role_policy(event, cfg):
     no_shell = path.is_file() and not role_has_bash(role)
     if path.is_file():
         if name in {"Agent", "Task"}:
-            block("FACTORY ROLE: nested delegation is not permitted for " + role)
+            from detector_verdict import refusal
+            block(refusal("host_adapter:HA-role-nested-delegation", "FACTORY ROLE: nested delegation is not permitted for " + role))
         if name in {"Bash", "PowerShell"} and no_shell:
             command = str((event.get("tool_input") or {}).get("command") or "")
             why = _read_refusal(command)
             if why:
-                block("FACTORY ROLE: " + role + " may read using rg/Get-Content without shell chaining; arbitrary shell "
-                      "execution is not permitted: " + why + ". " + CODEX_DESKTOP_TOOLS)
+                from detector_verdict import refusal
+                block(refusal("host_adapter:HA-role-read-only",
+                              "FACTORY ROLE: " + role + " may read using rg/Get-Content without shell chaining; arbitrary shell "
+                              "execution is not permitted: " + why + ". " + CODEX_DESKTOP_TOOLS))
     native = event.get('_qa_host') or {}
     raw_name = tool_short_name(native.get('name') or name)
     if raw_name == 'write_stdin' and (event.get('tool_input') or {}).get('chars'):
-        block('FACTORY HOST POLICY: interactive shell input cannot be checked as a standalone command; use a guarded exec_command call')
+        from detector_verdict import refusal
+        block(refusal("host_adapter:HA-stdin-chars",
+                      'FACTORY HOST POLICY: interactive shell input cannot be checked as a standalone command; use a guarded exec_command call'))
     if raw_name == 'exec_command' and (event.get('tool_input') or {}).get('tty'):
-        block('FACTORY HOST POLICY: use non-interactive shell calls so every command passes the guard')
+        from detector_verdict import refusal
+        block(refusal("host_adapter:HA-exec-tty", 'FACTORY HOST POLICY: use non-interactive shell calls so every command passes the guard'))
     raw = str((event.get("_qa_host") or {}).get("name") or name)
     if raw.startswith("mcp__"):
         operation = raw.rsplit("__", 1)[-1]
@@ -620,9 +629,12 @@ def role_policy(event, cfg):
                 # `host_tools.read_only` is the orchestrator's door: a role without Bash registers nothing, so its
                 # refusal names what that role has instead (FR-2). A role WITH Bash and a caller with no agent file keep
                 # the text they always had - the constant says "any other shell command is refused", false for them.
-                block(lead + " " + CODEX_DESKTOP_TOOLS)
-            block(lead + " The orchestrator registers verified read-only tools in host_tools.read_only, or the exact "
-                  "call forms of a code-taking tool in host_tools.read_only_calls.")
+                from detector_verdict import refusal
+                block(refusal("host_adapter:HA-connector-unclassified", lead + " " + CODEX_DESKTOP_TOOLS))
+            from detector_verdict import refusal
+            block(refusal("host_adapter:HA-connector-orchestrator",
+                          lead + " The orchestrator registers verified read-only tools in host_tools.read_only, or the exact "
+                          "call forms of a code-taking tool in host_tools.read_only_calls."))
 
 
 # How a host hands a subagent's final report back, as data (AR-1, AR-5): the file holds the tool name, the
