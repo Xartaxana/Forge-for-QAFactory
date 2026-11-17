@@ -878,6 +878,8 @@ read from `window_record.review_gap_words` (the S9 reader, AR-13), and one row i
 `rejected` instance reads (E8: the critic rejected the test — FR-35 forbids reading that as "unverified"); its census row.
 Owns would be `ledger.py`, `delivery-verdict-kinds.json`, `check_delivery.py` (if a kind reader changes) and test rows. It
 is a meaning change of a delivery word: п. 6 (а) measurement and (б) plan critic before the builder.
+Added after critic t-1040 F2 (Lead, 17.11.2026): the recorded review pass stays under fact `other` after the gap is
+repaired by a later critic verdict; the node gives the review word its own fact, so a past pass and a live one are told apart.
 
 Closed by me (no design weight): the pass record uses fact `other` (S9). The new S9 reader lives in `window_record.py`.
 Test rows go into existing keep files, no new file. FL4: the flag is `--candidates` (plural, parallel to `--cases` /

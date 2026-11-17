@@ -2061,3 +2061,15 @@ On 2151eeef (root checkout; `.git/refs/heads/main` = `.git/refs/remotes/origin/m
 - Re-review of the t-1033 redrafts (C3-b2, C3-d, C3-rr): one plan-critic pass before their dispatch (new shapes F-T9,
   F-T11); C3-0 and C3-b1 were passed by t-1026 and are dispatched without it.
 - C3-0 report: `docs/tasks/specs/reports/20261117-rules-debt-c3-0-report.md`.
+
+## Lead decisions after t-1039 (17.11.2026, Fable; по рекомендации, до слова владельца — the owner is away)
+
+Review: `docs/tasks/specs/reviews/t-1039-rules-debt-c3-redrafts-plan.md` (needs work, 0 blocking). All of R1-R15 are
+taken into the cards in one designer fix round (t-1043), the optional ones (R7, R13, R14, R15) included.
+
+- R5 (b): the F-T11 residue is ONE story-level precondition, not a window gap kind: a read of
+  `gate_template.registry_problem()` at stage entry stops the story with the reinstall door, owner factory, reported
+  and not asked (FR-3); one controller block and one `state-exits.md` row. The per-site text branches of F-T11 (a)
+  stay as belt-and-braces. The node is "C3-reg-precondition" (pile `rules-debt`), after C3-0; its card is drafted in
+  the same fix round. C3-b2 item 4 / E5 drop "owner factory" (the critic's text edit).
+- R12: the analogs wait as findings named in the cards' `siblings:` lines; none is carded first.
