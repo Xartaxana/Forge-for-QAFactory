@@ -13,8 +13,8 @@ first sort (`result_triage_verdict`) plus two narrower checks (`result_case_defe
 analyst confirms it (s7.md 2b/7), so a winning `APP_BUG` answer is written back with
 `decided: false` and its raw choice kept under `leaning` so the analyst still sees it.
 
-`--bugs` reads every `work/bug-drafts/*.json` against the project's own `bugs/*.md` for a
-dedup hint (`result_bug_duplicate`) and a first severity guess from the damage line
+`--bugs` reads every `work/bug-drafts/*.json` against the filed bugs (this story's `bugs/`, the project's
+`qa-factory/bugs/` and every other story's `bugs/`, listed by `bug_records.filed_bug_listing`) for a dedup hint (`result_bug_duplicate`) and a first severity guess from the damage line
 (`result_bug_priority`, advisory only - a score, never a status a validator could enforce).
 
 Three one-shot forms print one decision to stdout and write no file, the same shape as
@@ -273,9 +273,21 @@ def render_triage(report: dict) -> str:
 def _project_bugs_dir(task_root: Path) -> Path:
     # Bugs live at <project>/qa-factory/bugs; the project is found by the one walk, so a story under a custom artifact_root
     # reads the same folder. A story under no project keeps the old arithmetic (two levels up): it has no config to read.
+    # NO LONGER the folder `run_bugs` lists (that is `bug_records.filed_bug_listing`, AR-13); it stays only as the one
+    # place that derives the state directory below, and as a site of `test_task_root_project_door.py` (not C1's owns).
     import runtime_paths
     project = runtime_paths.nearest_project(task_root)
     return (project / "qa-factory" if project else task_root.parent.parent) / "bugs"
+
+
+def _state_relative(task_root: Path, path: Path) -> str:
+    """`path` relative to the state directory `<project>/qa-factory` (the parent of `_project_bugs_dir`), as posix text;
+    the absolute posix path when it lies outside it (a custom artifact_root)."""
+    state = _project_bugs_dir(task_root).parent.resolve()
+    try:
+        return path.resolve().relative_to(state).as_posix()
+    except ValueError:
+        return path.resolve().as_posix()
 
 
 def _existing_bug_view(path: Path) -> dict:
@@ -324,8 +336,7 @@ def run_bugs(task_root: Path) -> dict:
         (task_root / "work/judge-bugs.json").write_text(
             json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         return report
-    bugs_dir = _project_bugs_dir(task_root)
-    existing = sorted_paths(bugs_dir.glob("BUG-*.md")) if bugs_dir.is_dir() else []
+    existing, unreadable = BR.filed_bug_listing(task_root)   # this story, the project home, other stories (AR-13)
     requests, meta = [], []
     pairs_used = 0
     for draft_path in drafts:
@@ -338,7 +349,8 @@ def run_bugs(task_root: Path) -> dict:
                 break
             requests.append(({"draft": draft_view, "existing_bug": _existing_bug_view(bug_path)},
                              {"dup": {"judgment": "result_bug_duplicate"}}))
-            meta.append({"draft": draft_path.name, "kind": "duplicate", "bug": bug_path.stem})
+            meta.append({"draft": draft_path.name, "kind": "duplicate", "bug": bug_path.stem,
+                         "file": _state_relative(task_root, bug_path)})
             pairs_used += 1
     replies = judge.ask_many(requests, workers=8, ticket=task_root.name, stage="S8",
                              project_root=task_root, cfg=cfg)
@@ -353,10 +365,12 @@ def run_bugs(task_root: Path) -> dict:
         else:
             answer = reply["answers"].get("dup") or {}
             if answer.get("value") is True or (answer.get("probability") or 0) >= 0.5:
-                row["duplicates"].append({"bug": info["bug"], "decision": answer})
+                row["duplicates"].append({"bug": info["bug"], "file": info["file"], "decision": answer})
     report.update(drafts=len(drafts), results=list(by_draft.values()),
                   advisory=replies[0]["advisory"] if replies else True,
                   input_tokens=sum(r.get("input_tokens") or 0 for r in replies))
+    if unreadable:   # a home that could not be listed is named, never read as "no bugs" (FR-59)
+        report["unreadable_bug_homes"] = unreadable
     (task_root / "work/judge-bugs.json").write_text(
         json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return report

@@ -41,7 +41,7 @@ No role knows the word "Jira" or "Xray" in its own logic; it knows "the bugs cha
 "just this once" update. What happens instead, always:
 
 1. A role (`qa-bug-reporter`, `qa-doc-scribe`) writes the artifact to its **first-class
-   local home** — a bug always gets `qa-factory/bugs/BUG-n.md` regardless of channel, and a
+   local home** — a bug always gets `bugs/BUG-n.md` in the story's own folder (`<task root>/bugs/`) regardless of channel, and a
    case always gets `<area>/<case id>.md` in the store above. The local file is the source of
    truth; nothing overwrites it.
 2. When the configured channel is not `markdown`, the same role additionally writes a
