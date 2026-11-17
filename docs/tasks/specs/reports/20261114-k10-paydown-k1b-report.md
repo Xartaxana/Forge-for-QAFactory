@@ -69,7 +69,7 @@ qa-requirements-tester 36330  36330
 qa-test-strategist 53739      53739
 qa-case-designer 39828        39828
 qa-case-critic 62574          62574
-qa-automator 79906            76472
+qa-automator 79906            76162
 qa-code-critic 73134          72717
 qa-runner 52618               51871
 qa-failure-analyst 66553      61126
@@ -77,12 +77,13 @@ qa-bug-reporter 45575         45575
 qa-doc-scribe 57743           57743
 qa-retro-analyst 42829        42829
 ```
-`role_load.py --all --json` tokens / process tokens before -> after: automator 25683/24116 -> 24824/23257; code-critic 23073/21250 -> 22969/21146; runner 18528/16919 -> 18341/16732; failure-analyst 22286/20261 -> 20930/18905; the other 8 roles unchanged.
+`role_load.py --all --json` tokens / process tokens before -> after: automator 25683/24116 -> 24747/23180; code-critic 23073/21250 -> 22969/21146; runner 18528/16919 -> 18341/16732; failure-analyst 22286/20261 -> 20930/18905; the other 8 roles unchanged.
 
 ## Ratchet rows old -> new (all down; no raise)
-- `process_ratchet_tokens`: qa-automator 24116 -> 23257; qa-code-critic 21250 -> 21146; qa-runner 16919 -> 16732; qa-failure-analyst 20261 -> 18905.
+- `process_ratchet_tokens`: qa-automator 24116 -> 23180; qa-code-critic 21250 -> 21146; qa-runner 16919 -> 16732; qa-failure-analyst 20261 -> 18905.
 - `ratchet_tokens` (excess > 1000 slack): qa-automator 26053 -> 24824; qa-failure-analyst 22442 -> 20930 (code-critic 23394 vs 22969 and runner 18906 vs 18341 are within slack, unchanged).
-- `native_headroom`: qa-automator 79909 -> 76472; qa-test-strategist 53739 unchanged; qa-code-critic 73134 -> 72717.
+- `native_headroom`: qa-automator 79909 -> 76162; qa-test-strategist 53739 unchanged; qa-code-critic 73134 -> 72717.
+- `E6 (fix round t-1134, critic t-1130 F-1): applied`: removed the `slices/qa-automator/handoff-keys-3.md` line of `inject-map.json`; `contract_slices.py --write` deleted the undeclared page (only that file besides inject-map.json changed); `--check` exit 0, 18 key pages. Before -> after: qa-automator U 76472 -> 76162 (-310 B), tokens/process 24824/23257 -> 24747/23180; `ratchet_tokens.qa-automator` stays 24824 (only 77 below, within the 1000 slack); `native_headroom.qa-automator` 76162, `process_ratchet_tokens.qa-automator` 23180.
 - `native_headroom.qa-code-critic: lowered to 72717 (E7)`. U 72,717 > H 68,400: residual 4,317 bytes for the owner (decision 7). STOP of further pay-down (F2 a); nothing else pursued.
 
 ## AR-12 lines

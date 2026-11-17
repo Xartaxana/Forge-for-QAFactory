@@ -1038,10 +1038,10 @@ def test_t1rs() -> None:
         text = (PLUGIN_ROOT / "agents" / f"{role}.md").read_text(encoding="utf-8")
         check_eq(f"T1rs/roads-of-role/{role}: the road tokens of the agent file are the constant's roads",
                  [road for road, token in road_token.items() if token in text], roads)
-    for road, stale in (("probe_by_code", CARRIED["probe_by_code"] | L_SITE["probe_by_code"]),
-                        ("red_sandbox.probe", CARRIED["red_sandbox.probe"] | L_SITE["red_sandbox.probe"]),
-                        ("red_sandbox.diagnostic", CARRIED["red_sandbox.diagnostic"])):
-        check_eq(f"T1rs/road-carries/{road}: every id of the carry and L-site sets names one of the rows", sorted(stale - ids), [])
+    # CARRIED and L_SITE are derived from the rows (they cannot go stale); the typed sets below can, so each is checked against the rows
+    for road, typed in (("run_suite", unproved_site), ("import_test_receipt", request),
+                        ("red_sandbox.probe", not_by_red_sandbox), ("red_sandbox.diagnostic", not_by_red_sandbox)):
+        check_eq(f"T1rs/road-carries/{road}: every id the constants type for the road names one of the rows", sorted(typed - ids), [])
     sited = set(SJ.check_ids())
     for fam in ("execution_request", "run_suite"):
         check_eq(f"T1rs/sited/{fam}: every row id is the literal key of a site (not only a sub-id of one)",
