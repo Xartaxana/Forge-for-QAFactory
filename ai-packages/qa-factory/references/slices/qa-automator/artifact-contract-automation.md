@@ -51,11 +51,11 @@ instance proves the cases in its `covers` and the pinned `case_version_links[]`.
 `then_bindings[]` says which test and assertion proves each Then clause:
 `{case, then (number), instance_id, assertion_ref (file:line), status covered|unresolved, reason?, detail?,
 question?, observed?}`. A case is `green` only when every partition and Then clause is covered or
-recorded unresolved with a reason. Code checks: `s5_precheck.py`, before the critic; the refusal
-names the missing row and the fragment to send. A manifest with no `then_bindings` is read, not refused.
+unresolved with a reason. Code check: `s5_precheck.py`, before the critic, names
+the missing row. A manifest with no `then_bindings` is read, not refused.
 
-A Then whose oracle is `unknown` (open question) is `{status: unresolved, reason:
-expectation_unconfirmed, question: Q-n, observed?}` with a null `instance_id`, never a literal.
+A Then whose oracle is `unknown` is `{status: unresolved, reason: expectation_unconfirmed, question: Q-n,
+observed?}`, null `instance_id`, never a literal; `manifest_put.py --open-oracle` writes it, dropping proof rows.
 
 A Then a person takes beside the case's green test is a `handed_to_person` remainder (`owner`
 `person|other_environment`, `part`, `detail` = the steps): an `unresolved` row with a null

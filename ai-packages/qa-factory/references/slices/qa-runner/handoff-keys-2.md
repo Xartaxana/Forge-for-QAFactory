@@ -2,6 +2,14 @@
 
 ## What code will check of you (continued from handoff-keys.md)
 
+- [validate_artifacts:check_run_report_empty] A run with zero tests carries `env_preflight: blocked`, or names its environment-blocked, manual-check or manual-skipped rows. Empty is not clean: a zero run with env_preflight pass and no env_blocked, manual_checks or manual_skipped is refused. Door: return `env_preflight: blocked` with a reason, or say where the cases went.
+- [validate_artifacts:check_run_report_head] The run report carries a non-empty `head`. `head` non-empty: evidence not bound to a sha goes stale. Door: edit the file and the field the refusal line names.
+- [validate_artifacts:check_run_report_v0] The run report carries an `execution_status` from its list, computed from the run's own evidence. A blocked `env_preflight` means `execution_status` is env_blocked - one field, one source. `execution_status` from passed|failed|env_blocked|not_executed|broken_run|timeout. Door: edit the file and the field the refusal line names.
+- [guard_pre_tool:*] 23 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
+- [stage_guard:*] 8 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
+- [host_adapter:*] 6 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
+- [execution_request:*] 12 checks of your test-run calls (`run_suite.py`, `red_sandbox.py`, `probe_by_code.py`) are told in the refusal of the call, with what they expect and the door; a refused call launches no test. Write a request file from `run_suite.py --template request`, never from memory.
+- [run_suite:*] 3 checks of your commands are told in the refusal of the call, with what they expect and the door.
 - [role_cli:*] 22 checks of your commands are told in the refusal of the call, with what they expect and the door. Run `execution_fingerprint.py --help`, `first_look.py --help`, `manual_capture.py --help`, `manual_evidence.py --help`, `reference_snapshot.py --help`, `walk_session.py --help` before you write an input file: it prints what each command of the script checks.
 
 ### Only in a first look (replaces "Not in a first look")

@@ -310,7 +310,7 @@ def the_walk_sizes_AT_and_BEYOND() -> None:
     check_in("K0.4 negative: a `setup` contract with a `scope`", "kind setup has no item list, and the contract carries `scope`",
              " | ".join(setup_scope.problems))
     as_map = audit_syn(VALID, kind="produce", scope="scope:\n  id: <instance id>")
-    check_in("K0.4 negative: a `scope` that is a map", "`scope` is a map, and a required item list is a list",
+    check_in("K0.4 negative: a `scope` that is a map", "`scope` is a map, and a required list is a list",
              " | ".join(as_map.problems))
     proof = "inputs_read:\n  - path: <path>\n    version: <version>"
     check_eq("K0.4: a `report` contract carrying `inputs_read` is legal - no red names it",

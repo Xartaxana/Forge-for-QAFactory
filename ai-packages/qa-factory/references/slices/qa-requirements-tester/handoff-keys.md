@@ -10,8 +10,6 @@
 
 Required at your stop (stage S2): `work/requirements-register.md`, `work/requirements-readiness.json`, `understanding.md`.
 Re-run by the gate at your stop: `sizing.py` (advice only), `branch_accounting.py`.
-The gate also reads:
-- a derived requirement for each production module the diff creates: `derived`
 
 ## Witness
 
@@ -79,6 +77,7 @@ Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): 
 - [handoff_check:blocked_problem] A row in state `blocked` carries `blocked.problem`; `blocked_by_env` is used only where `options_for_role` offers it to this role. Door: write the problem, or pick a state the role is offered.
 - [handoff_check:claims] What the form claims is true is true on disk ("the form claims this is true, and it is not"). Door: fix the claim or make it true.
 - [handoff_check:cli] The call names an existing UTF-8 form with a `contract:` line and an existing values file; `--shorten` only with `--fix`. Door: the refusal's door; a non-UTF-8 form: run `handoff_init` again.
+- [handoff_check:cli.values_rename] The waiting values file `<dispatch>.values.yaml` can be renamed `<dispatch>.values.applied.yaml` once the form is written. Door: delete the values file the refusal names, then run the check again.
 - [handoff_check:field.blank] every `required` field of your handoff form (section `Handoff form` of this page). Door: write the value as a `path: value` line in the values file, then run the check again.
 - [handoff_check:field.max_len] every `required` field of your handoff form (section `Handoff form` of this page). Door: shorten it (`--shorten` with `--fix`) or rewrite.
 - [handoff_check:field.value] every `required` field of your handoff form (section `Handoff form` of this page). Door: write one of the listed words (or `new: <word> -- <why>` where the list is open).
@@ -89,14 +88,11 @@ Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): 
 - [handoff_check:values_apply] Each path names a field of this contract, by its index where it is a list row, not a contract-owned path; a list field gets a list and a one-value field one value; rows open in order. Door: correct the path (the refusal suggests "did you mean").
 - [handoff_check:values_file] The values file is `path: value` lines (or a JSON object): valid JSON, an object not a list, each path given once, each key a field path, no nested value. Door: fix the line the refusal names (FILE_FIX).
 - [exit_gate:digest] Your final message has the digest form stated in the row [exit_gate:EG-digest-form] of this section. Door: fix the digest line the refusal names, then end the dispatch again.
-- [validate_artifacts:check_behaviour_claims] Every requirement seen only in the implementation has exactly one entry under the behaviour-claims heading, with an `origin` from its list and the fields of a claim. Door: edit the file and the field the refusal line names.
+- [exit_gate:grounding] Every production module work/impl-diff*.txt CREATES has to be cited by a `derived` row - the exit gate compares them. Door: add a `derived` row to work/requirements-register.md for each module the refusal names, with its `derived_from` and an observable `diff:<file>:<line>`.
+- [exit_gate:witness_errors.requirements-tester] In work/requirements-readiness.json a register of AC alone while a parent feature exists must be `confidence: low`. work/requirements-readiness.json: `verdict` ready|blocked agreeing with the facts, `goal_summary` >= 30 characters in your own words, `aspects` non-empty with status ready|blocked|n/a and a reason on every n/a, `open_questions[]` each with question, severity blocker|major|minor and owner_role po_ba|dev_arch|qa. Door: edit the field the refusal names in work/requirements-readiness.json.
+- [validate_artifacts:check_behaviour_claims] Every requirement seen only in the implementation has exactly one entry under the behaviour-claims heading, with an `origin` from its list and the fields of a claim. A `derived` row only the diff speaks to also gets its `## Behaviour claims` row. Door: edit the file and the field the refusal line names.
 - [validate_artifacts:check_cell_counts] A table row never holds more cells than its header; a bar inside a cell is written as `|`. Door: edit the file and the field the refusal line names.
 - [validate_artifacts:check_delta_column] With a `delta` column, every row carries `new`, `changed` or `unchanged`, and an `unchanged` row does not cite the diff as its observable. Door: edit the file and the field the refusal line names.
 - [validate_artifacts:check_manifest_reuse] Every path the register cites was recorded in the S1 context manifest. Door: edit the file and the field the refusal line names.
-- [validate_artifacts:check_register] The register's front matter carries the required fields, non-empty `ids` of the form R-n, sources from the source list and `confidence` high or low; every declared id has a full-width row under the register heading with a listed source (or a derivation), matrix cells per the grammar and an impact from the project's scale. Door: edit the file and the field the refusal line names.
+- [validate_artifacts:check_register] The register's front matter carries the required fields, non-empty `ids` of the form R-n, sources from the source list and `confidence` high or low; every declared id has a full-width row under the register heading with a listed source (or a derivation), matrix cells per the grammar and an impact from the project's scale. work/requirements-register.md: `ids` non-empty and all R-n, `by_source` within ac|story|feature|discussion|assumption|derived, `confidence` high|low. Every row's observable prefixed diff:|current-code:|expected-contract: or the word `none`; every `derived` row naming what it was derived from; `impact` from config.json impact_scale. Door: edit the file and the field the refusal line names.
 - [validate_artifacts:check_requirements_review] `requirements-review.md` carries the required front matter, a `mode` and a `verdict` from their lists, and in mode B the matrix fields. Door: edit the file and the field the refusal line names.
-- [validate_artifacts:check_understanding] The understanding file stays within `UNDERSTANDING_MAX_LINES`, has every section of `UNDERSTANDING_SECTIONS`, and names every requirement id in a "What we verify" or "What we do not verify" line. Door: edit the file and the field the refusal line names.
-- [guard_pre_tool:*] 23 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
-- [stage_guard:*] 8 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
-- [host_adapter:*] 6 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
-- [role_cli:*] 2 checks of your commands are told in the refusal of the call, with what they expect and the door. Run `artifact_producer.py --help` before you write an input file: it prints what each command of the script checks.

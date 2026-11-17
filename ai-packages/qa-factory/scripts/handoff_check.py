@@ -1218,13 +1218,17 @@ def _open_rows_from_contract(doc, contract: str, section: str, key: str, values:
     return True
 
 
+def _data_at(data, path: str):
+    """The value at the dotted `path` walked through maps (None when a step is not a map or the key is absent)."""
+    for segment in path.split("."):
+        data = data.get(segment) if isinstance(data, dict) else None
+    return data
+
+
 def _template_value_at(contract, path: str):
     """The contract's own value at the dotted `path` (None when it cannot be read): the template `only_template` compares tokens with."""
     try:
-        value = handoff.template(contract).data
-        for segment in path.split("."):
-            value = value.get(segment) if isinstance(value, dict) else None
-        return value
+        return _data_at(handoff.template(contract).data, path)
     except Exception:                                  # noqa: BLE001 - no readable template: no token rule
         return None
 
@@ -1234,11 +1238,7 @@ def _is_empty_section(doc, spec, path: str, contract=None) -> bool:
     the one reader of an untouched row). `path` is dotted: the value is walked through maps, so a list nested in a map reads the same
     as a top-level one. With `contract`, a leaf that still carries the contract's own `<...>` token counts as untouched too; with
     none there is no token rule (recursion as `only_template`)."""
-    value = doc.data
-    for segment in path.split("."):
-        if not isinstance(value, dict):
-            return True
-        value = value.get(segment)
+    value = _data_at(doc.data, path)
     if not isinstance(value, list) or not value:
         return True
     return handoff.only_template(value, _template_value_at(contract, path) if contract else None)

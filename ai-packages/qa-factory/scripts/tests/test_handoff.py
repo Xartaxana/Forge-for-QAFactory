@@ -3005,13 +3005,7 @@ def an_untouched_list_is_empty_at_every_depth_that_crosses_no_row() -> None:
         )
         for label, contract, edits, data, prefix, want in rows:
             check_eq(label, under(run(contract, edits, data), prefix), want)
-        concerns = run(crit, (("header.verdict", "concerns"),))
-        check_eq("R6 a verdict that owes findings: owed_by_verdict, unchanged", codes(concerns, "findings"), ["handoff_check:required_rows.owed_by_verdict"])
-        fresh = run(crit)
-        scope_p = [p for p in fresh if p.path == "scope"]
-        check_eq("R4 scope untouched: one required_rows", codes(fresh, "scope"), ["handoff_check:required_rows"])
-        check("R4 ...with the new sentence, and no `in scope`", "`scope` is a required list" in str(scope_p[0].text)
-              and "in scope" not in str(scope_p[0].text), str(scope_p[0].text)[:200])
+        fresh = run(crit)  # R4 and the R6 concerns half are pinned by test_detector_verdict T6 (same door, same form)
         for contract in (crit, plan):
             check_eq(f"R11 {contract}: inputs_read untouched is one required_rows", codes(run(contract), "inputs_read"), ["handoff_check:required_rows"])
         proof_p = [p for p in fresh if p.path == "inputs_read"]

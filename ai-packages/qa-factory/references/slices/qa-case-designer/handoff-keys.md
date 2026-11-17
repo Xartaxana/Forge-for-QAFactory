@@ -7,8 +7,6 @@
 - `work/test-cases/` - cases are the designer's
 
 Required at your stop (stage S4): `work/test-cases/`.
-The gate also reads:
-- a case file whose id is its file name: `= the file name`
 
 ## Witness
 
@@ -78,9 +76,11 @@ Every handoff form shares one skeleton (`common_shape` of handoffs/index.yaml): 
 - [handoff_check:values_apply] Each path names a field of this contract, by its index where it is a list row, not a contract-owned path; a list field gets a list and a one-value field one value; rows open in order. Door: correct the path (the refusal suggests "did you mean").
 - [handoff_check:values_file] The values file is `path: value` lines (or a JSON object): valid JSON, an object not a list, each path given once, each key a field path, no nested value. Door: fix the line the refusal names (FILE_FIX).
 - [exit_gate:digest] Your final message has the digest form stated in the row [exit_gate:EG-digest-form] of this section. Door: fix the digest line the refusal names, then end the dispatch again.
-- [validate_artifacts:check_case] A case file opens with YAML front matter that carries every required field, takes `status`, `priority`, `channel` and `reuse_decision` from their closed lists, carries `automated_by` (file::test) when `Automated`, a `red_lock` that names a BUG-NNN, passes the form checks, and covers register requirements (or legacy `covers_ac`). Door: edit the file and the field the refusal line names.
-- [validate_artifacts:check_case_form] `covers` names only register `R-n` ids of the task's register (or `legacy:<import reason>`), and the case inherits `defect_class` and `basis` from its plan row. Door: edit the file and the field the refusal line names.
-- [validate_artifacts:check_then_oracles] A case written on or after the oracle cutoff gives every Then an entry in `then_oracles` with a basis per the oracle grammar. Door: edit the file and the field the refusal line names.
+- [exit_gate:case_identity] A case file's `id` IS its file name, both in the form named on this brief's `Case id form:` line: `<case id>.md` declares `id: <case id>`. That is the factory's contract over any project note (a note naming another form is not read by code), and the exit gate refuses the handoff otherwise. Door: write each case again under the name the refusal shows for it, with `id:` equal to that name.
+- [gate_preflight:question_branches] A case is owed for an `unverifiable` row too (and a `skip` one) when an answer to the question it rests on would make the row tested: write it before gate A with `question_thens` on that question. Every `question_thens` is one line of JSON, a list of {question, then, readings}: `then` the number of an item under `## Then`, and a text for every reading of the question. Door: write the case or the `question_thens` entry the line names.
+- [validate_artifacts:check_case] A case file opens with YAML front matter that carries every required field, takes `status`, `priority`, `channel` and `reuse_decision` from their closed lists, carries `automated_by` (file::test) when `Automated`, a `red_lock` that names a BUG-NNN, passes the form checks, and covers register requirements (or legacy `covers_ac`). Frontmatter every case owes: id, title, area, priority P0|P1|P2|P3, status, channel auto|manual-agent|manual-human, reuse_decision new|updated|extend:<case id>|dedupe:<case id>, updated, task, covers: [R-n] that exist in that task's register (an R the register does not carry reads as invented), defect_class from the project's list (or smoke, or regression:BUG-NNN), and basis. Door: edit the file and the field the refusal line names.
+- [validate_artifacts:check_case_form] A case dated on or after the form cutoff carries `task`, `covers`, `defect_class` and `basis`; `covers` names only `R-n` ids the task's register holds (or `legacy:<import reason>`); `basis` follows the oracle grammar. Door: edit the file and the field the refusal line names.
+- [validate_artifacts:check_then_oracles] A case written on or after the oracle cutoff gives every Then an entry in `then_oracles` with a basis per the oracle grammar. A Then that waits on a question (`then_oracles` source `unknown`) goes in `question_thens` under that question's id as requirements-readiness.json has it. The question being raised (`raise`) is always a before/now question, and a case keys its texts `now` / `before`, never by letter. Door: edit the file and the field the refusal line names.
 - [guard_pre_tool:*] 17 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
 - [host_adapter:*] 7 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
 

@@ -567,7 +567,7 @@ def audit(*, index=None, stages=None, fields=None, data=None, raw=None, reader=N
         lists = [n for n in handoff.REQUIRED_LISTS if sections.get(n) == "list"]
         not_lists = [n for n in handoff.REQUIRED_LISTS if n in sections and sections[n] != "list"]
         for name in not_lists:
-            red(f"{contract}: `{name}` is a {sections[name]}, and a required item list is a list")
+            red(f"{contract}: `{name}` is a {sections[name]}, and a required list is a list")
         item_list = handoff.ITEM_LIST in lists or handoff.ITEM_LIST in not_lists
         if kind in SCOPE_KINDS:
             if not item_list:

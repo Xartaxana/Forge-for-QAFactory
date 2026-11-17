@@ -65,6 +65,14 @@
   }
  },
  "joints": {
+  "execution_request:fingerprint.build": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added by T1r-cards-a (told-before-work, cards to rows); the group's walk node writes its rows"
+  },
+  "execution_request:profile.none": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added by T1r-cards-a (told-before-work, cards to rows); the group's walk node writes its rows"
+  },
   "exit_gate:scoped": {
    "reach": "live_only",
    "why_unreached": "estimate, not verified: same road as exit_gate:digest (measured: the joint id is not in the driver's `resume <dispatch>: <class words>` line and the post-answer turn ends before the S2 role stops); this joint was not tried itself [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
@@ -264,6 +272,10 @@
   "handoff_check:cli": {
    "reach": "unwalked",
    "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "handoff_check:cli.values_rename": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added by T1r-cards-a (told-before-work, cards to rows); the group's walk node writes its rows"
   },
   "handoff_check:field.blank": {
    "reach": "unwalked",
@@ -573,7 +585,10 @@
    "unwalked | joints/stage_guard:SG-command.stash | L1c census catch-up, 2026-11-17",
    "unwalked | joints/stage_guard:SG-command.typed_runner | L1c census catch-up, 2026-11-17",
    "unwalked | joints/stage_guard:SG-walker-error | L1c census catch-up, 2026-11-17",
-   "unwalked | joints/validate_artifacts:check_remedy_rows | L1c census catch-up, 2026-11-17"
+   "unwalked | joints/validate_artifacts:check_remedy_rows | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/execution_request:profile.none | T1r-cards-a, 2026-11-17",
+   "unwalked | joints/execution_request:fingerprint.build | T1r-cards-a, 2026-11-17",
+   "unwalked | joints/handoff_check:cli.values_rename | T1r-cards-a, 2026-11-17"
   ]
  }
 }

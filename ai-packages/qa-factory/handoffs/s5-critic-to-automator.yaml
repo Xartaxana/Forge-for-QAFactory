@@ -1,9 +1,8 @@
 # S5: the code critic hands the window back — to the automator for a repair round, or on to
 # the stage's close. The same file serves both: `verdict` decides which.
 #
-# It is the mirror of s5-automator-to-critic.yaml: what the critic read, what it proved, what
-# it could not prove and why, and — when it sends the window back — what exactly the author
-# must change. A finding without a `cause` and a file is not a finding.
+# The mirror of s5-automator-to-critic.yaml: what the critic read, proved, could not prove and why,
+# and what the author must change. A finding without a `cause` and a file is not a finding.
 schema_version: 1
 contract: s5-critic-to-automator
 stage: S5
@@ -21,9 +20,8 @@ inputs:
     what: every case in scope at its pinned version
     required: true
 
-# Proof that the review read what it was handed. One line per entry of the author's
-# `inputs`, with the version or hash it read — a review of a file that has since changed is
-# not a review of this window.
+# Proof that the review read what it was handed: one line per entry of the author's `inputs`,
+# with the version or hash read (a review of a since-changed file is not a review of this window).
 inputs_read:
   - path: <path exactly as the author listed it>
     version: <pinned case version, content hash, or the file's sha256>
@@ -34,7 +32,7 @@ header:
   window: <the case ids under review>
   verdict: <one of vocabulary.header_verdicts>
 
-# The review's own conclusion about the window.
+# The review's own conclusion on it.
 review:
   outcome: <one of vocabulary.critic_verdicts>
   findings_file: work/test-code/critic-findings-<dispatch>.md     # required; the window is not receipted without it
@@ -48,13 +46,12 @@ scope:
     state: <one of vocabulary.row_states>
     reason: <= 80 characters>
 
-# Every probe this review ran, by code. One that failed at its line on a text code cannot read
-# is yours to judge (`--judge`); one that did not run is a `tooling` finding.
+# Every probe this review ran, by code. One that failed on a text code cannot read is yours to
+# judge (`--judge`); one that did not run is a `tooling` finding.
 probes:
   # The stand the probes ran on: the record of this review's own probe run.
   runtime_provenance: <path of the runtime_provenance record this review probed against>
-  # No probe ran, or the window has no new or changed test: leave `records` as it stands (the empty list) and give each such
-  # instance its `unverified` row.
+  # No probe ran, or no new or changed test: leave records untouched; give each instance its unverified row.
   records:
   - instance: <instance id>
     verdict: <one of vocabulary.probe_verdicts - intended_failure|no_failure|wrong_location|not_executed|incomplete>   # incomplete: the tool could not read the run (`cause: tooling`) or it owes your judgment (`cause: judgment`)

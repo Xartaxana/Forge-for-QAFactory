@@ -28,7 +28,7 @@ class DriverStageBuild:
     # the name kept), and the ONE place that asks is `stand_check`, at the entry of the two stages
     # that put something on a stand. A person's word passes S5 and S6 together: it is recorded for
     # the stage that asked and read for both, so the second stage never asks again.
-    STAND_STAGES = ("S5", "S6")
+    STAND_STAGES = waiver.STAND_STAGES
 
     STAND_STEPS = {"S5": "writing the automated tests and running them",
                    "automation": "running the automated tests",
@@ -36,7 +36,7 @@ class DriverStageBuild:
                    "both": "running the automated tests and carrying out the manual checks"}
 
     def stand_question_text(self, stage: str, environment: str, names: list, kind: str = "", why=None, answer=None,
-                            searched: bool = False, search_exit=None) -> str:
+                            searched: bool = False, search_exit=None, manual: bool = False) -> str:
         """The question (references/human-questions.md): what was done, why the stand cannot be
         derived, one question, the closed answers. Nothing in it is the probe's own vocabulary -
         that goes in the details file. `kind` is what the stage is about to do on the stand
@@ -128,6 +128,7 @@ class DriverStageBuild:
                                     + ", ".join(f"`{name}`" for name in others) + "; I check that one"})
         options.append({"answer": "go on", "token": "go on",
                         "says": "go on without a stand" + ("; the tests are still written, but none is run on a stand" if stage == "S5" else "")
+                                + ("; an agent checks no case by hand" if manual else "")
                                 + ", and the story carries a line saying it was your decision"})
         # C1-6b (S6, A7): the priced section replaces the lettered list; the site's own words stay in `says`, the three price lines are
         # the data row of `s6.stand_confirm` (`s6.stand_confirm.login` when the question offers `find the way in`)
@@ -195,11 +196,19 @@ class DriverStageBuild:
             search_exit = run["exit"] if searched else None
         # D5: the onboarding that asks how the project signs in is named only after a search found no way in (`way` class AND searched)
         login_door = searched and LOGIN_ANSWER_CLASS.get(answer) == "way" if isinstance(answer, str) else False
+        # K2.b (FV3-21): the `go on` option says what it does to the manual cases when the S6 manual scope is non-empty or unreadable; read
+        # only here - a confirmed stand, a passed word and a probe that exits 0 returned above, so they cost no controller call
+        try:
+            got = self.stage_scope("S6", "manual")
+            scope = got.get("scope") if isinstance(got, dict) else None
+            manual = not isinstance(scope, list) or bool(scope)
+        except Exception:      # noqa: BLE001 - a doubt says the clause (the person's price, FR-9); the clause is true in every world
+            manual = True
         # A7 (C1-6b): a seam question - `retry` / `go on` carry the seam's own moves (`person_does`, `go_on_as_is` + the block), so
         # `take_seam_answer` executes them; the stand's NAME is the site's own door (`_take_stand_answer`)
         # remains: the stand question is a seam question (priced, `offered`): retry / go on run the seam's executors, the name has its own, other words go to the seam
         person = self.site_seam_person("environment", self.stand_question_text(stage, environment, self.stand_names(), kind, why,
-                                                                               answer, searched, search_exit), stage,
+                                                                               answer, searched, search_exit, manual=manual), stage,
                                        block=waiver.STAND_NOT_CONFIRMED_BLOCK, details=details,
                                        answer_note=human_text.onboarding_note(environment, self.stand_names(), login_door=login_door))
         person.stand_stage = stage       # read by `ask()`, which sets the flag - and clears it for every other Person

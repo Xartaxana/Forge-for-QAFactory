@@ -207,11 +207,12 @@ def _walk(tree: ast.AST) -> dict:
     method is keyed by its bare name; MODULE outside any def), carried down instead of stored.
     Returns the lists the passes below read: outermost displays, Compares, Matches and assignments,
     the defs by name, and the functions that call `acceptable`."""
-    got = {"outer": {}, "assigns": [], "compares": [], "matches": [], "displays": [], "acceptable_in": set(),
+    got = {"outer": {}, "assigns": [], "compares": [], "matches": [], "displays": [], "acceptable_in": {},
            "loads": {}}
     outer, assigns, compares = got["outer"], got["assigns"], got["compares"]
     matches, displays, acceptable_in = got["matches"], got["displays"], got["acceptable_in"]
     loads = got["loads"]       # name -> how many times the module READS it (t-360 F2)
+    bound: dict = {"acceptable": {}, "gate_template": {}}   # name -> {True: the gate_template one, False: any other}
 
     def rec(node, func, cls, in_display):
         t = type(node)
@@ -232,9 +233,15 @@ def _walk(tree: ast.AST) -> dict:
             matches.append((node, func))
         elif t is ast.Call:
             callee = node.func
-            if (type(callee) is ast.Name and callee.id == "acceptable") or \
-                    (type(callee) is ast.Attribute and callee.attr == "acceptable"):
-                acceptable_in.add(func)
+            is_name = type(callee) is ast.Name and callee.id == "acceptable"
+            is_attr = type(callee) is ast.Attribute and callee.attr == "acceptable"
+            if is_name or is_attr:
+                # RD1-25: the call is judged against ITS row (below); the first literal consumer is read here
+                consumer = node.args[1] if len(node.args) > 1 else next(
+                    (k.value for k in node.keywords if k.arg == "consumer"), None)
+                literal = consumer.value if type(consumer) is ast.Constant and isinstance(consumer.value, str) else None
+                own = is_name or (type(callee.value) is ast.Name and callee.value.id == "gate_template")
+                acceptable_in.setdefault(func, []).append({"literal": literal, "own": own, "name": is_name})
             is_display = _is_setlike_call(node)
         if t in _DISPLAYS:
             is_display = True
@@ -261,6 +268,45 @@ def _walk(tree: ast.AST) -> dict:
                     rec(value, func, cls, is_display)
 
     rec(tree, MODULE, False, False)
+    # F3 (t-1218): EVERY binding of the two names counts; only `from gate_template import acceptable` /
+    # `import gate_template` is the predicate's own, any other Store binding (assign, annassign, augassign, for, with,
+    # walrus, arg, import alias, def, class, except name) makes the name not gate_template's
+    for n in ast.walk(tree):
+        tn = type(n)
+        if tn is ast.Name and type(n.ctx) is ast.Store:
+            names = [n.id]
+        elif tn is ast.arg:
+            names = [n.arg]
+        elif tn is ast.ClassDef or tn is ast.FunctionDef or tn is ast.AsyncFunctionDef:
+            names = [n.name]
+        elif tn is ast.ExceptHandler and n.name:
+            names = [n.name]
+        elif tn is ast.Import:
+            for alias in n.names:
+                bn = alias.asname or alias.name.split(".")[0]
+                if bn == "gate_template":
+                    bound["gate_template"][alias.name == "gate_template" and alias.asname is None] = True
+                elif bn == "acceptable":
+                    bound["acceptable"][False] = True
+            continue
+        elif tn is ast.ImportFrom:
+            for alias in n.names:
+                bn = alias.asname or alias.name
+                if bn == "acceptable":
+                    bound["acceptable"][n.module == "gate_template" and alias.name == "acceptable"] = True
+                elif bn == "gate_template":
+                    bound["gate_template"][False] = True
+            continue
+        else:
+            continue
+        for nm in names:
+            if nm in bound:
+                bound[nm][False] = True
+    name_is_own = bool(bound["acceptable"].get(True)) and not bound["acceptable"].get(False)
+    module_is_own = bool(bound["gate_template"].get(True)) and not bound["gate_template"].get(False)
+    for calls in acceptable_in.values():
+        for call in calls:
+            call["own"] = name_is_own if call["name"] else module_is_own
     return got
 
 
@@ -377,6 +423,27 @@ def _src(item: dict) -> str:
     return item["source"]
 
 
+def _consumer_problem(row: dict, calls: list):
+    """RD1-25 (F-b scoped to its row): why ANY `acceptable(...)` call of a converted accept site does not belong to its
+    row, or None. A site has exactly one row (analyse refuses a second), so a foreign call is never legitimate there.
+    FR-59: a consumer the scan cannot read is refused, never passed, even beside a literal call."""
+    rid = row.get("id")
+    accepts = row.get("accepts") if isinstance(row.get("accepts"), dict) else {}
+    for call in calls:
+        if call["literal"] is None:
+            return ("calls acceptable() with a consumer the scan cannot read (a variable or an f-string) - pass the "
+                    f"consumer as a plain string literal \"<gate>.<consumer>\" naming a key of row `{rid}`.accepts")
+        if not call["own"]:
+            return (f"calls an `acceptable` (consumer `{call['literal']}`) that is not gate_template's predicate - "
+                    "import it with `from gate_template import acceptable` (or call gate_template.acceptable after "
+                    "`import gate_template`) and drop any other binding of that name")
+        if call["literal"] not in accepts:
+            keys = ", ".join(f"`{k}`" for k in accepts) or "none (the row's accepts map is empty)"
+            return (f"calls acceptable() with consumer `{call['literal']}`, which is not a key of row `{rid}`.accepts "
+                    f"- keys expected: {keys}; name this row's own consumer, or register the consumer on this row")
+    return None
+
+
 _SCAN_CACHE: dict = {}
 
 
@@ -387,7 +454,7 @@ def scan_file(path: Path) -> dict:
         st = path.stat()
         key = (str(path), st.st_mtime_ns, st.st_size)
     except OSError as exc:
-        return {"error": f"cannot be read: {exc}", "items": [], "outer": {}, "acceptable_in": set()}
+        return {"error": f"cannot be read: {exc}", "items": [], "outer": {}, "acceptable_in": {}}
     if key in _SCAN_CACHE:
         return _SCAN_CACHE[key]
     try:
@@ -398,7 +465,7 @@ def scan_file(path: Path) -> dict:
         result = _scan_tree(tree)
     except (UnicodeDecodeError, SyntaxError, ValueError, RecursionError) as exc:
         result = {"error": f"does not parse: {type(exc).__name__}: {exc}", "items": [], "outer": {},
-                  "acceptable_in": set()}
+                  "acceptable_in": {}}
     _SCAN_CACHE[key] = result
     return result
 
@@ -839,6 +906,11 @@ def analyse(plugin_root=None, registry=None) -> dict:
                     findings.append(f"{row.get('id')}: converted accept site {fname}:{func} calls no acceptable() - "
                                     "a converted site goes through the one predicate (gate_template.acceptable); "
                                     "otherwise the row is not converted")
+            else:
+                for row, _ in converted_accept:
+                    why = _consumer_problem(row, scan["acceptable_in"][func])
+                    if why:
+                        findings.append(f"{row.get('id')}: converted accept site {fname}:{func} {why}")
 
     # comparisons
     for name, scan in scans.items():

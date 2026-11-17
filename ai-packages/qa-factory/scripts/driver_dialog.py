@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 import human_text
 import person_owned as PO
-from driver_core import EXIT_GAVE_UP, EXIT_PERSON, GATE_KINDS, Person, Priced, REFUSALS_PER_BOUNDARY, Refusal, STUCK_REPEATS, Stop, _append_jsonl, _now, _read_json, _read_jsonl, _write_json
+from driver_core import EXIT_GAVE_UP, EXIT_PERSON, GATE_KINDS, Person, Priced, REFUSALS_PER_BOUNDARY, Refusal, STUCK_REPEATS, Stop, _append_jsonl, _now, _read_json, _read_jsonl
 
 
 # The closed answers a question put to the person offers (C7): the code reads a token only when the WHOLE answer is
@@ -233,12 +233,8 @@ class DriverDialog:
         import manual_evidence as ME
         if plan is not None:
             plan["refused"].append((case, reason))
-        record = {"reason": reason, "by": by, "door": door} if by_first else {"reason": reason, "door": door, "by": by}
-        try:
-            _write_json(ME.request_path(self.task_root, case), {"refused": record})
-        except OSError:
-            return False        # the caller's printed line still names the case; a caller that must say it reads the False
-        return True
+        # the file write is `manual_evidence.write_case_refusal`, the one writer; a False (failed write) is the caller's to say
+        return ME.write_case_refusal(self.task_root, case, reason, door, by, by_first)
 
     # --- questions for the person ----------------------------------------------------------
 
