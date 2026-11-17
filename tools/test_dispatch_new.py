@@ -70,7 +70,25 @@ CASES = [
     ("cyrillic-and-space-path", swap(BASE, "--owns", "C:\\r\\my dir\\\u0444.py"), 0, ["`C:\\r\\my dir\\\u0444.py`"], []),
     ("critic-no-owns", ["--kind", "critic", "--task", "t-505", "--handoff", "C:\\r\\docs\\tasks\\specs\\reviews\\x.md"],
      0, ["task: t-505"], []),
+    # the readers block (tools/owns_readers.py): the REAL tool runs on this row only (the fixture stubs it elsewhere)
+    ("readers-block", BASE, 0, ["siblings: none -- single file\n\nreaders: "], []),
+    ("readers-no-note", BASE, 0, ["task: t-862"], []),  # the universal `READERS NOTE` check below is this row's assertion
+    ("names-backtick", BASE + ["--names", "a`b"], 2, [], ["ARGUMENT REFUSED", "--names"]),
+    ("names-accepted", BASE + ["--names", "f (new)", "g"], 0, ["task: t-862"], []),
 ]
+REAL_RUN = ("readers-block",)
+
+
+def _unknown_report(paths, given=(), names=(), base="origin/main", repo=None):
+    """A quick stand-in for owns_readers.report: the unresolved-base report (renders the one-line unknown form)."""
+    return dispatch_new.owns_readers.Report(ref=base)
+
+
+@pytest.fixture(autouse=True)
+def quick_readers(request, monkeypatch):
+    spec = getattr(request.node, "callspec", None)
+    if spec is None or spec.id not in REAL_RUN:
+        monkeypatch.setattr(dispatch_new.owns_readers, "report", _unknown_report)
 
 
 @pytest.mark.parametrize("argv,code,out_has,err_has", [c[1:] for c in CASES], ids=[c[0] for c in CASES])
@@ -83,6 +101,97 @@ def test_dispatch_new_table(capsys, argv, code, out_has, err_has):
         assert s in err
     if code == 2:
         assert out == ""  # a refused dispatch prints no headers
+    else:
+        assert "READERS NOTE" not in err  # the block carries the `readers:` line the note looks for
+        assert ("\n\nreaders: " in out) == ("--owns" in argv)  # a block only for a dispatch that owns paths
+
+
+EXAMPLE_B = ("readers: 253 outside owns, 4 lines below -- base origin/main 0d6f61b1 (literal mention; known misses: "
+             "tools/owns_readers.py docstring)\n"
+             "- quarantined: ai-packages/qa-factory/scripts/tests/test_import_test_receipt.py (owned) -- the canon does not "
+             "run it; a case goes to a keep file\n"
+             "- absent: name require_project_at -- not named anywhere on origin/main 0d6f61b1\n"
+             "- names: ai-packages/qa-factory/scripts/tests/test_conductor_doors.py (test) names s0_criteria\n"
+             "- more: ai-packages/qa-factory/scripts/story_run.py -- 92 test, 81 quarantined, 68 code, 12 data readers not "
+             "listed (--readers / --all lists them)\n")
+
+
+def test_block_leaves_the_manifest_reads_unchanged(capsys, monkeypatch):
+    """The position invariant: with a block as long as the worst case, check, the id reader, the owned and given paths and the
+    designer count read the same as on the headers alone."""
+    monkeypatch.setattr(dispatch_new.owns_readers, "render", lambda rep, *a, **k: EXAMPLE_B)
+    code, out, _err = run(capsys, THREE_OWNS + ["--designer", "skip -- tiny"])
+    assert code == 0 and out.endswith("\n\n" + EXAMPLE_B)
+    headers = out[:-len("\n" + EXAMPLE_B)]
+    payload = lambda text: {"tool_input": {"subagent_type": "builder", "prompt": text}}  # noqa: E731
+    assert dm.check(payload(out)) == dm.check(payload(headers))
+    cut_a, cut_b = dm.section_cut(out), dm.section_cut(headers)
+    assert dm.header_ids(cut_a) == dm.header_ids(cut_b)
+    assert dm.designer_threshold(cut_a) == dm.designer_threshold(cut_b)
+    assert dm.owned_paths(cut_a) == dm.owned_paths(cut_b)
+    assert dm.given_paths(cut_a) == dm.given_paths(cut_b)
+
+
+def test_readers_tool_raises(capsys, monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("boom\nsecond line")
+
+    monkeypatch.setattr(dispatch_new.owns_readers, "report", boom)
+    code, out, err = run(capsys, BASE)
+    assert code == 0 and out.endswith("\n\nreaders: unknown -- RuntimeError: boom\n") and err == ""
+
+
+def test_block_refused_is_replaced(capsys, monkeypatch):
+    monkeypatch.setattr(dispatch_new.owns_readers, "render", lambda rep, *a, **k: "manifest-skip: bogus -- x\n")
+    code, out, err = run(capsys, BASE)
+    assert code == 0, err
+    assert "\n\nreaders: unknown -- the manifest check refused the block (" in out and "bogus -- x\n" not in out
+    assert "OWNS_READERS: the manifest check refused the readers block" in err
+
+
+def _fail_on_block(kind):
+    """decide_full that misbehaves ONLY on a text carrying a readers block: raises, or hands back a degraded cut."""
+    real = dispatch_new.dispatch_gate.decide_full
+
+    def wrapped(payload):
+        if "\nreaders: " not in payload["tool_input"]["prompt"] or "refused the block" in payload["tool_input"]["prompt"]:
+            return real(payload)
+        if kind == "raise":
+            raise RuntimeError("checker boom")
+        return real(payload)._replace(cut=type("Cut", (), {"degraded": True})())
+
+    return wrapped
+
+
+@pytest.mark.parametrize("kind", ["raise", "degraded"])
+def test_checker_failure_on_the_block_replaces_it_and_never_hides_the_dispatch(capsys, monkeypatch, kind):
+    """F1 (spec 3.1): a checker that raises, or a degraded cut, on headers + block routes to the step-4 replacement line."""
+    monkeypatch.setattr(dispatch_new.dispatch_gate, "decide_full", _fail_on_block(kind))
+    code, out, err = run(capsys, BASE)
+    assert code == 0, err
+    assert "\n\nreaders: unknown -- the manifest check refused the block (" in out
+    assert "OWNS_READERS: the manifest check refused the readers block" in err
+
+
+def test_ids_are_read_back_on_the_final_text_too(capsys, monkeypatch):
+    """F2: `_ids_refusal` also runs on the printed text; a block that changes what the id reader sees is refused."""
+    calls = []
+    real = dispatch_new._ids_refusal
+    monkeypatch.setattr(dispatch_new, "_ids_refusal", lambda a, t: calls.append(t) or real(a, t))
+    code, out, _err = run(capsys, BASE)
+    assert code == 0 and len(calls) == 2 and calls[1] == out
+
+
+def test_names_reach_the_report(capsys, monkeypatch):
+    seen = {}
+
+    def spy(paths, given=(), names=(), base="origin/main", repo=None):
+        seen.update(paths=list(paths), given=list(given), names=list(names))
+        return _unknown_report(paths, given, names, base, repo)
+
+    monkeypatch.setattr(dispatch_new.owns_readers, "report", spy)
+    code, _out, _err = run(capsys, BASE + ["--names", "f (new)", "g"])
+    assert code == 0 and seen["names"] == ["f (new)", "g"] and seen["paths"] == [OWN]
 
 
 def test_degraded_cut_is_refused(capsys, monkeypatch):  # C1-4

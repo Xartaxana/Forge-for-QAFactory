@@ -1,0 +1,39 @@
+{
+ "note": "Data of tools/owns_readers.py (spec docs/tasks/specs/20261116-spec-facts-by-code-spec.md section 2.3, S-2). Every scope row is a git pathspec read with glob magic (:(glob)): a star never crosses a slash, a double star does. A file matching two rows takes the first of tests, data, code. Closed variety lives here, not in the code (FR-13).",
+ "caps": {"test_cap": 25, "data_cap": 12, "dir_cap": 40, "names_cap": 20},
+ "layers": {
+  "tests_dir": "ai-packages/qa-factory/scripts/tests/",
+  "quarantine_registry": "ai-packages/qa-factory/scripts/tests/test-layers.json",
+  "slow_registry": "ai-packages/qa-factory/scripts/slow_tests.json"
+ },
+ "scope": {
+  "tests": [
+   "ai-packages/qa-factory/scripts/tests/**/test_*.py",
+   "tools/test_*.py",
+   "tools/tests/**/test_*.py"
+  ],
+  "data": [
+   "tools/*.json",
+   "ai-packages/qa-factory/references/*.json",
+   "ai-packages/qa-factory/scripts/*.json",
+   "ai-packages/qa-factory/scripts/tests/*.json",
+   "ai-packages/qa-factory/scripts/tests/fixtures/*.json",
+   "ai-packages/qa-factory/design/*.json",
+   "ai-packages/qa-factory/scripts/audit_factory.py"
+  ],
+  "code": [
+   "tools/**/*.py",
+   "ai-packages/qa-factory/scripts/**/*.py",
+   ".githooks/*",
+   ".github/workflows/*",
+   ".claude/settings*.json",
+   ".claude/hooks/**",
+   ".claude/agents/*.md",
+   ".claude/skills/**/SKILL.md"
+  ],
+  "exclude": [
+   "ai-packages/qa-factory/scripts/tests/fixtures/stories/**",
+   "**/fixtures/run-*/**"
+  ]
+ }
+}

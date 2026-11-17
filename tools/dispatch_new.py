@@ -2,16 +2,21 @@
 
     python -B tools/dispatch_new.py --kind builder --task t-862 [--feature F19] [--node slug/N/id]
         --given <p>... --owns <abs>... --non-goals "<t>" --handoff <abs .md> --edges "<t>" --dod "<cmd>"
-        --siblings "<t>" [--designer <abs> | "skip -- <why>" | "resubmission t-NNN"]
+        --siblings "<t>" [--names <n>...] [--designer <abs> | "skip -- <why>" | "resubmission t-NNN"]
 
-The generator has NO grammar of its own: it only lays the values out one header per line (list values one path per line
-under their header), then asks the launch hook's own decision (dispatch_gate.decide_full: completeness, handoff folder, paths; no description,
-so no label check) and the one id reader (header_ids). Whatever the hook refuses, this refuses (exit 2, the hook's message
-with its doors on stderr, nothing on stdout); a degraded read is refused too. A `--task`, `--node` or `--feature` that
-header_ids does not read back is refused the same way. Pure output: stdout only, no file. An argument holding a newline
+The generator has NO grammar of its own: it lays the values out one header per line (list values one path per line
+under their header), appends the readers block of tools/owns_readers.py (data about the owned paths, not grammar: behind a
+blank line, after the last header; only for a dispatch that owns paths), and asks the launch hook's own decision
+(dispatch_gate.decide_full: completeness, handoff folder, paths; no description, so no label check) on headers + block, and the
+one id reader (header_ids). Whatever the hook refuses, this refuses (exit 2, the hook's message with its doors on stderr,
+nothing on stdout); a degraded read is refused too. A `--task`, `--node` or `--feature` that header_ids does not read back is
+refused the same way. A block the hook refuses is replaced by `readers: unknown -- the manifest check refused the block (...)`
+(one stderr line says so); a tool that raises gives `readers: unknown -- <ExcType>: <first line>`: a failing helper never
+blocks or hides a dispatch and never prints a count it did not measure. Stdout only, no file. An argument holding a newline
 or a backtick, and an empty `--given`/`--owns` item, are refused before anything is printed (they could forge a header,
-close the DoD span or end the section); these are the only rules of the generator's own. A new owned file is written
-`<abs path> (new)`.
+close the DoD span or end the section). A new owned file is written `<abs path> (new)`; `--names <n>...` passes the names the
+spec changes to the readers tool (` (new)` marks a name the change creates). The default (counts) block is printed, never
+`--readers`.
 
 Exit: 0 printed (hook notes: one stderr line each); 2 refused.
 """
@@ -26,6 +31,8 @@ if str(_TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(_TOOLS_DIR))
 import dispatch_gate  # noqa: E402
 import dispatch_manifest  # noqa: E402
+import gitcmd  # noqa: E402
+import owns_readers  # noqa: E402
 import streams  # noqa: E402
 
 KINDS = ("builder", "critic", "designer", "scout")
@@ -45,6 +52,7 @@ def _parser() -> argparse.ArgumentParser:
     ap.add_argument("--edges", default="")
     ap.add_argument("--dod", default="")
     ap.add_argument("--siblings", default="")
+    ap.add_argument("--names", nargs="*", default=[])
     ap.add_argument("--designer")
     return ap
 
@@ -109,6 +117,31 @@ def _ids_refusal(args, text: str) -> str:
             "letter, node <slug>/<N>/<id>, feature Fnn); nothing printed." % ", --".join(bad))
 
 
+def _decide(kind: str, text: str):
+    """The launch hook's decision on `text`, or a refusal STRING when the checker itself could not run (fail closed)."""
+    payload = {"cwd": str(_TOOLS_DIR.parent), "tool_name": "Agent",
+               "tool_input": {"subagent_type": kind, "prompt": text}}
+    try:
+        return dispatch_gate.decide_full(payload)
+    except Exception as exc:  # an unchecked text is not handed out
+        return ("DISPATCH CHECK FAILED (%s: %s): the checker could not read this text; nothing printed."
+                % (type(exc).__name__, exc))
+
+
+def _clean(decision) -> bool:
+    """True for a decision that passed and was read whole: not a refusal string, code 0, a cut that is there and not degraded."""
+    return (not isinstance(decision, str) and decision.code == 0
+            and decision.cut is not None and not decision.cut.degraded)
+
+
+def _readers_block(args) -> str:
+    """The default (counts) readers block of tools/owns_readers.py for the owned paths; a tool that raises is the unknown line."""
+    try:
+        return owns_readers.render(owns_readers.report(args.owns, args.given, args.names))
+    except Exception as exc:  # a failing helper never blocks a dispatch
+        return "readers: unknown -- %s: %s\n" % (type(exc).__name__, gitcmd.first_line(str(exc), 160))
+
+
 def main(argv=None) -> int:
     streams.utf8_stdio()
     args = _parser().parse_args(argv)
@@ -123,26 +156,49 @@ def main(argv=None) -> int:
         print("DISPATCH ARGUMENT REFUSED: --%s holds an empty item; a blank line would end the section. "
               "Drop the empty value." % name, file=sys.stderr)
         return 2
-    text = build_text(args)
-    refusal = _ids_refusal(args, text)
+    headers = build_text(args)
+    refusal = _ids_refusal(args, headers)
     if refusal:
         print(refusal, file=sys.stderr)
         return 2
-    # the launch hook's own decision (completeness, handoff folder, paths); no description, so the label check is skipped
-    payload = {"cwd": str(_TOOLS_DIR.parent), "tool_name": "Agent",
-               "tool_input": {"subagent_type": args.kind, "prompt": text}}
-    try:
-        decision = dispatch_gate.decide_full(payload)
-    except Exception as exc:  # fail closed: an unchecked text is not handed out
-        print("DISPATCH CHECK FAILED (%s: %s): the checker could not read this text; nothing printed."
-              % (type(exc).__name__, exc), file=sys.stderr)
+    # the launch hook's own decision on the headers first: a refused dispatch never runs the readers tool (the same refusal
+    # step 4 would end in)
+    decision = _decide(args.kind, headers)
+    if isinstance(decision, str):
+        print(decision, file=sys.stderr)
         return 2
     if decision.code != 0:
         print(decision.message, file=sys.stderr)
         return 2
+    text = headers
+    block = _readers_block(args) if args.owns else ""
+    if block:
+        # the hook checks exactly what is printed: the block sits behind a blank line, so it never enters a manifest section;
+        # anything but a clean pass on headers + block (a refusal, a checker that raised, a degraded cut) is not a reason to
+        # refuse the dispatch: the block is replaced by the unknown line and the text is decided once more (section 3.1)
+        full = headers + "\n" + block
+        got = _decide(args.kind, full)
+        if _clean(got):
+            text, decision = full, got
+        else:
+            why = got if isinstance(got, str) else (got.message or "the cut was degraded")
+            text = headers + "\n" + "readers: unknown -- the manifest check refused the block (%s)\n" % gitcmd.first_line(why, 160)
+            decision = _decide(args.kind, text)
+            if isinstance(decision, str):
+                print(decision, file=sys.stderr)
+                return 2
+            if decision.code != 0:
+                print(decision.message, file=sys.stderr)
+                return 2
+            print("OWNS_READERS: the manifest check refused the readers block -- a defect of tools/owns_readers.py; "
+                  "the block was replaced", file=sys.stderr)
     if decision.cut is None or decision.cut.degraded:
         print("DISPATCH CHECK FAILED: the text could only be read in a degraded way, so it was not checked; "
               "nothing printed.", file=sys.stderr)
+        return 2
+    refusal = _ids_refusal(args, text)
+    if refusal:
+        print(refusal, file=sys.stderr)
         return 2
     note = "\n".join(n for n in decision.notes if n)
     if note:
