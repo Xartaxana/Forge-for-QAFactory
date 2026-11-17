@@ -845,3 +845,7 @@ Also: the card said `probe_by_code` "writes a record" for a no-row suffix — it
 Consequence: F-O2 (a) "no probe rows for other languages now" was taken on the condition that the role's probe road
 reaches acceptance. It does not. A fix node (designer first: where the site of a junit-xml report is read, B-337) is owed;
 the red row lands with that fix (red-before). The owner is told.
+
+Владелец, 17.11.2026, о починке B-337 (расписка «проверка живая» для не-Python тестов, результат C4): «Отдельный П1 на
+потом». Сегодня не берётся; узел П1 заводится в невзятой пачке вместе со строками §5 (один малый пакет билдеру),
+красная строка C4 входит вместе с починкой.
