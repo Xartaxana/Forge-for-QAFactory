@@ -232,14 +232,31 @@ _PYTHON_PROGRAM_RE = re.compile(
     r"""(?:"([^"]+)"|'([^']+)'|([^\s"';|&]+))""", re.IGNORECASE)
 
 
+def python_program_spans(command):
+    """Yields (program, end) for every python invocation in `command`, in order: `program` is normalised (forward
+    slashes, lower case), `end` is the offset right after the program text. Empty or None command: nothing."""
+    for match in _PYTHON_PROGRAM_RE.finditer(command or ""):
+        program = next((g for g in match.groups() if g), "").replace("\\", "/").lower()
+        yield program, match.end()
+
+
+def python_programs(command):
+    """Yields the normalised program path (forward slashes, lower case) of every python invocation in `command`,
+    in order. Empty or None command: nothing."""
+    for program, _end in python_program_spans(command):
+        yield program
+
+
+def is_journal_writer_program(program: str) -> bool:
+    """True when a normalised program path is tools/journal_write.py."""
+    return program == "tools/journal_write.py" or program.endswith("/tools/journal_write.py")
+
+
 def _is_journal_writer_call(command: str) -> bool:
     """True when the first python program argument of `command` is tools/journal_write.py (any subcommand): the
     writer's own `--run` is recorded in the journal's witness, and the writer call is never a verification run."""
-    match = _PYTHON_PROGRAM_RE.search(command)
-    if match is None:
-        return False
-    program = next((g for g in match.groups() if g), "").replace("\\", "/")
-    return program == "tools/journal_write.py" or program.endswith("/tools/journal_write.py")
+    first = next(python_programs(command), None)
+    return first is not None and is_journal_writer_program(first)
 
 
 def is_verification_command(command: str) -> bool:
