@@ -49,7 +49,7 @@ Your job is to find what's wrong and prove it.
    DoD-in-every-dispatch rule) — return a request to the coordinator
    for it before starting: without a DoD, only general code quality
    is checkable, not fit to the task.
-9. When the coordinator is below the top tier (degradation, or the
+9. When the coordinator is below the Lead rank (degradation, or the
    standard mid-tier mode, per the role-vs-tier acceptance matrix),
    your verdict is a mandatory pillar of accepting builder-class
    diffs: a coordinator at the same tier as the executor may not

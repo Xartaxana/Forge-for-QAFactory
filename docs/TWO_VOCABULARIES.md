@@ -2,7 +2,7 @@
 
 The routing policy and the accounting layer name tiers differently,
 and the difference is load-bearing. CLAUDE.md's rules speak ONLY the
-FUNCTION vocabulary (scout / builder / critic / judge / Lead); grades
+FUNCTION vocabulary (scout / builder / critic / judge / Lead / Architect); grades
 (intern / junior / middle / senior — a price/capability ladder) belong
 to models and accounting, never to a rule.
 
@@ -12,7 +12,8 @@ to models and accounting, never to a rule.
 | **builder** — implementation to a written spec | code/tests, witness | Sonnet subagent | Sonnet alias (~$3/$15 per MTok; Opus-as-builder rejected by Rule #1 evidence) |
 | **critic** — review | verdict with a trail | Opus subagent | Opus alias (~$5/$25 per MTok) |
 | **judge** — leaf acceptance (rule 13) + equivalence verdicts | verdict vs pinned intent keys; calibrated instance only | subscription judge-subagent, pinned prompt (rule 13's second judge form) | `judge-sonnet` alias (calibration home; needs `drop_params: true` — Sonnet rejects `temperature=0`) |
-| **Lead** — decomposition, specs, graph acceptance | coordinator; full authority only on the Lead tier | Fable session | Fable alias (~$10/$50 per MTok) |
+| **Lead** — decomposition, specs, graph acceptance | coordinator; full authority only on the Lead tier | Opus session | Opus alias (~$5/$25 per MTok) |
+| **Architect** — new-idea analysis, process optimisation, the weekly calibration and mechanism review, hard questions the Lead escalates | owner-summoned session, never a subagent; above Lead | Fable session (owner switches the session model) | Fable alias (~$10/$50 per MTok) |
 
 The binding in force is `delegation.config.yaml` (the harness reads each role file's frontmatter `model:`, its machine copy); the default columns above are the template's defaults with CLAUDE.md Tiers applied.
 

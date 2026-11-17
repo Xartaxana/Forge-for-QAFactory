@@ -160,8 +160,7 @@ that triggers a re-run).
 
 6. **Write the result to `PROCESS/CRITIC_EXAM.md`, exactly this
    path.** A different path or filename breaks the reference this
-   skill's own re-run triggers (below) and the onboarding skill point
-   at.
+   skill's own re-run triggers (below) point at.
 
 ## PASS criterion (pre-registered)
 
@@ -179,8 +178,8 @@ the Runs log, not scored as a failure.
 
 ## On failure
 
-Mirror the flow the other exams already use (`onboarding` skill, step
-3): show the verbatim warning, fill in the brackets — "Model <model>
+Mirror the flow the other exams already use (the onboarding skill was
+retired 16.11.2026): show the verbatim warning, fill in the brackets — "Model <model>
 failed the [critic] exam (<result>). A stronger model is recommended."
 — then ask directly: replace the model, or keep it anyway. On "keep,"
 append a line to `DECISIONS.md`, in that log's own one-line format:

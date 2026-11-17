@@ -4,7 +4,9 @@ An executable checklist for the weekly calibration run. Loaded only
 for the duration of the run, not at boot. Without a single canonical
 checklist, checks tend to scatter across separate decision entries
 covering rules 1–10, and the calibrator ends up re-deriving them each
-time; this file is their canonical home. A new mechanism that
+time; this file is their canonical home. The calibration is run by an Architect session
+(PROCESS/ARCHITECT_START.md step 6; the owner's word 17.11.2026), or more often when the
+owner switches to one. A new mechanism that
 promises "calibration will catch X" is obligated to add a check here
 in the same commit — otherwise the promise is empty (a mechanism with
 no registered detector is not a mechanism, it's a wish).
@@ -108,22 +110,34 @@ for the period, and diffs to DECISIONS.md.
    journal's last event. Cross-check the actual models of Lead
    sessions in the period (main chains in the usage records, NOT
    sidechains) against window coverage by matched
-   lead_degraded/lead_restored pairs: Lead-tier activity on a model
-   below the top tier, outside a declared window, is silent
-   degradation — a failure of both in-session checkpoints (this
-   extends check 4 from workers to Lead itself; retroactive pairs are
-   found via a note in notes).
+   lead_degraded/lead_restored pairs: Lead-tier activity on a main
+   chain ranked below lead (`rank_of_model`), outside a declared
+   window, is silent degradation — a failure of both in-session
+   checkpoints (this extends check 4 from workers to Lead itself;
+   retroactive pairs are found via a note in notes). An Architect
+   (Fable) main chain doing Lead work is NOT degradation.
 6. **Acceptance.** Every completed `delegated` has a matching
    `accepted` or `rejected`. `accepted` for scout dispatches carries a
    note of a targeted spot-check (negative claims — mandatory).
    Acceptance from above: for every `accepted`, cross-check the tier
    of the accepting session (usage records, main chain at the time of
-   the event) against the tier of `agent` — strictly above: fine;
+   the event; the tier is `rank_of_model` of that main-chain model)
+   against the tier of `agent` — strictly above: fine;
    equal or below: notes must carry input from a tier above (a critic
-   verdict) or a "queued for the full Lead" note, otherwise it's a
+   verdict) or a "queued for the Lead" note, otherwise it's a
    violation (the session self-certifying). The "critic: skipped"
    waiver is legitimate only for an acceptor above the executor —
    read this together with check 5 (degradation windows).
+   Added items for the window: (i) the validator's
+   `INDEPENDENT CONTEXT` WARNs of the window
+   (`python -B tools/journal_validator.py --all --base <sha at the
+   window's start>`), each a finding unless the notes name the
+   worker; (ii) every `accepted` of critic/designer
+   work in the window has an earlier `delegated` of that agent with
+   `worker_ref: agent:<id>` whose transcript is a sidechain (check 7's
+   reader); (iii) queued-to-lead lines of the window without a later
+   lead-ranked `accepted` are listed (the clearing road is the Lead's,
+   CLAUDE.md Role != tier).
    Environment-negative claims: negative claims ABOUT THE ENVIRONMENT
    in reports/verdicts of the window (no service/command/file) are
    valid only with a positive check using the canonical form (command
@@ -532,7 +546,8 @@ for the period, and diffs to DECISIONS.md.
     record four numbers against the previous data point: (a) $/day for
     the routed window; (b) gross savings versus the delegation
     counterfactual (in $ and %: sidechains as they actually ran,
-    priced against that same token profile at top-tier rates); (c)
+    priced against that same token profile at the rates of the
+    coordinator model, i.e. the lead binding); (c)
     cost per accepted unit of delegated work (sidechain actuals /
     accepted count across your journals for the window — check 13
     supplies the count); (d) API-track accounting: a rollup by
@@ -677,8 +692,7 @@ the source's own number.
     (b) any `accepted` with `basis: "judge"` in the window is a
     self-certification finding (the same class as a role-vs-tier
     violation, CLAUDE.md's "Role != tier"). `tools/journal_validator.py`
-    still accepts the value (residual node R-1 of t-013), so (b) is
-    its only detector.
+    refuses the value (FG7-16); (b) watches for lines that bypassed it.
 21. **Durable persistence of accepted deliverables (session-handoff
     step 2a).** Class: "deliverable drift" -- work accepted against the
     working tree (a real witness at the time) gets washed out by a
@@ -1111,6 +1125,8 @@ the source's own number.
 47. **The run scoreboard: every live run has its file, norms only tighten, a red has an owner (P1-v, spec `docs/tasks/specs/20261113-p1v-run-scoreboard-spec.md` §8.1 item 1; AR-12, AR-20; SIBLING_MAP axes 6, 18).** Mechanism: `experiments/measurers/scoreboard.py` (`assemble`, `compare`, `norms`, `release-check`) and `scoreboard_bar.py` over the package's `scripts/run_counters.py` and `scripts/task_price.py`; the data `experiments/scoreboards/rows.json` and `experiments/scoreboards/norms.json` (schema `norms/2`, tighten-only); the morning step of `docs/RUNBOOK.md` §9.5 that assembles a live run's file; the PROJECT.md «Релиз» line of the spec's §8.1 item 4 is NOT written yet (held for the owner: boot budget), so `release-check` before a release is on this check alone. Per window, with the command beside every number (hygiene 6(b)): (a) every live run of the window — a notebook under `experiments/` whose «Ход прогона» holds a start line dated in the window (`grep -rln "^## Ход прогона" experiments/`; positive control: `experiments/mybooks/factory-vs-free-agent/notebook.md` must hit) — has a file `experiments/scoreboards/<stand>/<story>/<YYYYMMDD-HHMM>-<version>-factory.yaml` whose UTC start is that run's; a run with none is a finding against the morning step; while `experiments/scoreboards/` holds only `rows.json` and `norms.json`, the line says "no scoreboard yet" and every live run of the window is listed as a leak — never a pass; (b) `python -B experiments/measurers/scoreboard.py norms --check --against <old>`, where `<old>` is `experiments/scoreboards/norms.json` as it stood at the window's start, saved to the scratchpad from `git -C <repo> show <sha>:experiments/scoreboards/norms.json` (`--check` alone sees only a value looser than its own `initial` or last raise; a changed `initial`, a dropped or unset norm, appended-only raises, a removed or worsened `ratchets` element need `--against`): it prints `norms: green` and exits 0 (exit 1 with `RED:` lines is a finding; exit 2 is an unreadable file, named, never a pass); then `git log -p -- experiments/scoreboards/norms.json` over the window: every `norm` tightened, `ratchets` element added, and `raises`, `worsened_passes` or `bar_changes` entry added is listed; every raise and pass carries `raised_by`, `reason` and the owner's `word`, and the word is checked against a session with the owner (PROJECT.md «Командная работа» п. 6) — a word not found there is a finding; (c) for every scoreboard of the window, `python -B experiments/measurers/scoreboard.py compare <file>`: every `norm <id> [<row>]: red` line has a finding (a `compare --findings` file or a hand-written one in `plans/piles/*/findings/`) or the owner's pass printed beside it (`passed by the owner's word: ...`, recorded by `assemble --pass NORM WORD DATE`); every `-- worse` row line has a finding; a red or worse with neither is a finding against the Lead; `unknown` and `undecided` lines are written down with their reason and counted as neither green nor red; (d) the newest release of the window (a `vX.Y.Z` tag of `Xartaxana/QAFactory`; the version argument is the `version` of `ai-packages/qa-factory/.claude-plugin/plugin.json`, with no `v`, the spelling the scoreboard file names carry): the verbatim output of `python -B experiments/measurers/scoreboard.py release-check --release <X.Y.Z>` stands in the witness of the release's `accepted` journal event with exit 0, and every `release: owner's word needed -- ...` line has its `worsened_passes` (row, version, pair, factory model) or `bar_changes` entry in `norms.json` with the owner's word; a release with no such output is a finding; `release: warning` lines (a red unratcheted norm, an unknown row, "no live factory scoreboard of <version>: nothing judged") are listed — they do not change the exit by the owner's word (amendment `docs/tasks/specs/20261113-p1-specs-amendment-owner-words.md:482`); while `norms.json` holds no `ratchets` element the command prints `release: no previous release -- ratchet not judged` and exits 0 — written down as "nothing ratcheted", never as a pass of the release; (e) per window scoreboard, the value of row `G1u` (returns naming the `unknown` check) against the previous window's; and, while the run's task root is still on disk, `G1.unknown_check.share` and `U1.unclassified_resume_kinds` of `python -B ai-packages/qa-factory/scripts/run_counters.py --task-root <root> --json` (rows `G1us` and `U1u` of the scoreboard carry them once the file is assembled with these rows; an older file does not); a rise is a finding; a removed root gets "not readable: task root removed", never 0; (f) a window scoreboard whose `run.run_class` is not `live` is listed with its class: it judges no norm (K7) and is never counted as a green run; (g) an empty window (no live run) gets an explicit line, not a zero. Detector of this check's own leak: a notebook «Ход прогона» start line dated in the window with no scoreboard file of that run and no line (a) in the calibration record; a window whose `git log -- experiments/scoreboards/norms.json` is not empty and whose record carries no line (b).
 
 48. **Journal by code, one merge road, test volume (coordinator offload, spec `docs/tasks/specs/20261114-coordinator-offload-spec-r2.md` §6.4, §7 M2-M7; the owner's word 14.11.2026; CLAUDE.md Routing log, rule 12, hygiene pt.5).** Mechanism: `tools/journal_write.py` (the one writer, lock and counter in `tools/journal_lock.py`), `tools/journal_hooks.py` (`delegated` at PostToolUse Task|Agent, `returned` through `dod_gate` at SubagentStop, the Edit/Write WARN), `tools/wave.py merge`, `tools/dispatch_new.py`, `tools/test_volume.py` in `.githooks/commit-msg`. Per window, every count with its command (hygiene 6(b)): (a) Agent launches in the Lead transcripts (`tools/hop_metrics.py`) against `delegated` lines with `via: hook` / `via: cli` / no `via` (by hand) — target: by hand = 0 after the switch; ONE full window at 0 is the trigger of node B23-S (`journal_hooks.JOURNAL_EDIT_MODE` from `"warn"` to `"refuse"`); (b) `JOURNAL: … NOT written` lines (`tools/warn_density.py`) and whether each was followed by a CLI line; (c) `returned` coverage: every finished worker (`transcripts.is_finished`) has a `returned`; every line of `<git common dir>/forge-journal/warn.log` (the stop-side channel: a worker's stop has no reader of stderr) and every `JOURNAL: returned lost` WARN is listed; (d) `accept --run` witnesses carrying `allow-red`, listed with their reasons; (e) check 33's side: commits that drew a TEST VOLUME WARN, how many carried `tests-over:`, how many of those reasons the critic judged; (f) check 37's side: branches merged by `wave.py` against merged by hand; a `root checkout not refreshed` or `JOURNAL RESTORE MISMATCH` line standing over a day; (g) dispatches refused by `tools/dispatch_manifest.py` for a missing header line or path against dispatches whose header came from `dispatch_new.py` — a refusal class that repeats is a finding against the generator, not against the coordinator. Detector of this check's own leak: a window with `delegated` lines and no line (a) in the calibration record.
+
+49. **Architect tier (spec `docs/tasks/specs/20261116-architect-tier-spec.md` §4.6, §5.5; Lead = Opus, Architect = Fable; AR-12, AR-28).** Mechanism: the Architect function (`PROCESS/ARCHITECT_START.md`), the queue `docs/tasks/architect-queue.md`, the `calibrated` field `reviewed_through`, the `Last calibration` overdue suffix of `tools/session_context.py`, the refusal of an acceptance from inside a worker (hygiene gate). Per window, with the command beside every number (hygiene 6(b)): (a) every mechanism commit since the previous `reviewed_through` (`python -B tools/mechanism_gate.py --list --since <sha>`) appears in the review record; (b) the gap between consecutive `calibrated` lines carrying `reviewed_through` — over 7 days is a finding against the cadence, listed with the SessionStart overdue days; (c) every `escalated` with `agent: architect` of the window has an architect-queue item and vice versa (the command of `PROCESS/ARCHITECT_START.md` step 4); (d) refusals by the no-acceptance-from-a-worker rule in the window (hook stderr is not logged, so: `accepted`/`rejected` lines whose session transcript shows a sidechain author are the leak); (e) an empty window gets an explicit line. Detector of this check's own leak: a `calibrated` line after the Architect landing without `reviewed_through`.
 
 ## Closing out a run
 
