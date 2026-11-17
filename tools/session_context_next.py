@@ -1887,8 +1887,9 @@ def wiring_summary_line(root: Path) -> str:
 
 
 def waits_lines(root: Path) -> list:
-    """The WAITS block as a list of 0 or 1 line: starts this session's reaper (wait_reaper.launch, detached, never waits)
-    and reports what the LAST run of this session recorded. `launch` answers a line (no session, not started) or None; that
+    """The WAITS block as a list of 0 or 1 line: reports what the LAST run of this session recorded, THEN starts this session's
+    reaper (wait_reaper.launch, detached, never waits) -- the new run resets status.json, so the read comes first. One walk of
+    the session, one `repo_context`, at most 5 s per git call. `launch` answers a line (no session, not started) or None; that
     line is the block. Otherwise the line of `wait_reaper.waits_line` -- silent at zero. Never raises: any failure is one
     `WAITS: reaper not started (...)` line, ASCII, the reason at most 120 characters."""
     try:
@@ -1896,14 +1897,17 @@ def waits_lines(root: Path) -> list:
         import session_proc
         import worktree_sweep
 
-        launched = wait_reaper.launch("session-start", root)
+        walk = session_proc.session_process()
+        session, repo, line = walk[0], None, None
+        if session is not None:
+            try:
+                repo = worktree_sweep.repo_context(worktree_sweep.Git(timeout=5), root)
+                line = wait_reaper.waits_line(repo.common / wait_reaper.STATE_DIRNAME, session)
+            except Exception:  # noqa: BLE001 -- launch answers its own line for a repo it cannot read
+                repo, line = None, None
+        launched = wait_reaper.launch("session-start", root, walker=lambda: walk, repo=repo)
         if launched:
             return [launched]
-        session, _reason = session_proc.session_process()
-        if session is None:
-            return []
-        repo = worktree_sweep.repo_context(worktree_sweep.Git(), root)
-        line = wait_reaper.waits_line(repo.common / wait_reaper.STATE_DIRNAME, session)
         return [line] if line else []
     except Exception as e:  # noqa: BLE001 -- the boot must not fail on this block
         return ["WAITS: reaper not started (%s)" % _ascii_sanitize("%s: %s" % (type(e).__name__, e), 120)]
@@ -2450,10 +2454,7 @@ def compact_snapshot_lines(root: Path, now: datetime.datetime = None, session_id
     announced record (last COMPACT_SEEN_KEEP names) before the lines are returned. Never raises (fail-open)."""
     sid = None
     try:
-        try:
-            import compact_snapshot_next as _cs   # the candidate with narrative_identity, until the Lead places it
-        except ImportError:
-            import compact_snapshot as _cs
+        import compact_snapshot_next as _cs   # the candidate until the Lead places it (then: import compact_snapshot)
 
         sid = _cs.clean_session_id(session_id)
         now = now or datetime.datetime.now()
@@ -2500,7 +2501,7 @@ def _compact_candidates(root: Path, cs):
             try:
                 mtime = p.stat().st_mtime
                 ident = cs.snapshot_identity(p)
-                stamp = cs.narrative_identity(p) if ident is None and hasattr(cs, "narrative_identity") else None
+                stamp = cs.narrative_identity(p) if ident is None else None
             except (OSError, ValueError) as e:
                 failures.append(e)
                 continue
@@ -2542,13 +2543,14 @@ def _compact_chosen(hooks: list, announced, sid, now: datetime.datetime):
 
 
 def _session_proc_id():
-    """This session's process as the narrative stamp writes it (`<pid>-<created %.3f>`), or None when it cannot be told
-    (no session, any failure) -- None never matches a stamp. Never raises."""
+    """This session's process as the narrative stamp writes it (compact_snapshot.session_proc_stamp, the one encoder), or None
+    when it cannot be told (no session, any failure) -- None never matches a stamp. Never raises."""
     try:
+        import compact_snapshot_next as _cs
         import session_proc
 
         session, _reason = session_proc.session_process()
-        return None if session is None else "%d-%.3f" % (session["pid"], session["created"])
+        return None if session is None else _cs.session_proc_stamp(session)
     except Exception:  # noqa: BLE001
         return None
 
@@ -2576,9 +2578,10 @@ def _compact_block(hooks: list, narratives: list, chosen, sid, now: datetime.dat
         if chosen is None or n[0] > chosen[0]:
             nmin = int(max(0.0, now.timestamp() - n[0]) // 60)
             stamped = n[2]["session_proc"] if n[2] else None
-            if stamped is None or own_proc is None:     # unstamped, or this session cannot be told: never "yours"
+            # unstamped, an ODD stamp ("unknown": not another session's -- an unknown is no fact), or this session cannot be told
+            if stamped is None or stamped == "unknown" or own_proc is None:
                 lines.append(f"COMPACT NARRATIVE: newest has no session stamp ({path_of(n[1])}) -- check it is yours")
-            elif stamped != own_proc:                   # includes "unknown": an odd stamp never reads as own
+            elif stamped != own_proc:                   # a well-formed stamp of another process
                 lines.append(f"COMPACT NARRATIVE: newest is another session's ({path_of(n[1])}) -- not your state")
             else:
                 lines.append(f"COMPACT NARRATIVE: {path_of(n[1])} ({nmin} min old)")

@@ -65,7 +65,7 @@ reads in the morning, handoff verifies in the evening.
    exists (a rename that doesn't update BOOT.md breaks the next
    session's boot).
    5a. **Background waits**: `python -B tools/wait_reaper.py` (a dry list, it stops nothing) -- the trees of this session
-   older than the limit that are still running. An empty list is OK; a listed tree is stopped (`--apply`) or named in the
+   older than the limit that are still running. An empty list is OK; a listed tree is stopped (`--apply --pid <root>`) or named in the
    report with the reason it stays (a deliberate long run is started detached, RUNBOOK 9.8). A `WAITS:` line at session start
    or a `no session` answer is reported as it stands.
 6. **Retro**: a coordinator session runs the `session-retro` skill now (before step 7's final commit, and

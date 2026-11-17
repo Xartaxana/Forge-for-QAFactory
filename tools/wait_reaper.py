@@ -48,6 +48,7 @@ CREATE_NO_WINDOW = 0x08000000
 _IS_WINDOWS = os.name == "nt"
 PS_LIST = ("Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CreationDate,CommandLine "
            "| ConvertTo-Json -Compress")
+ACCESS_DENIED = 5                    # TerminateProcess on a process that is exiting reads this
 GONE_CODES = (87, 2, 3)              # ERROR_INVALID_PARAMETER (no such pid), ENOENT, ESRCH
 
 
@@ -195,7 +196,7 @@ class Selection:
     orphans: list = dataclasses.field(default_factory=list)
     unknown_roots: list = dataclasses.field(default_factory=list)      # procs
     unwrap_failed: int = 0
-    kept_never: list = dataclasses.field(default_factory=list)         # root pids kept by never_reap / self-protection
+    kept_never: list = dataclasses.field(default_factory=list)         # root procs kept by never_reap / self-protection
     reason: str = ""                                                     # why nothing could be selected ("" = judged)
 
 
@@ -216,57 +217,53 @@ def _never(tree, rows, protect):
     return False
 
 
-def select(procs, now, session, rows, *, limit=None, self_pid=None):
-    """Pure: the trees to stop, the orphans, the roots no row knows. `session` = {"pid", "created"} or None (nothing selected)."""
-    limit = rows["limit_seconds"] if limit is None else limit
-    sel = Selection()
-    if not session:
-        sel.reason = "no session"
-        return sel
-    by_pid = {p["pid"]: p for p in procs}
-    sp = by_pid.get(session["pid"])
-    if sp is None or sp["created"] is None or abs(sp["created"] - session["created"]) > PID_TOLERANCE_S:
-        sel.reason = "session process not in the list (or another process now holds its pid)"
-        return sel
-    children = {}
-    for p in procs:                                                      # F-R3: a link counts only from an OLDER parent
-        par = by_pid.get(p["ppid"])
-        if p["created"] is not None and par is not None and par["created"] is not None and par is not p \
-                and par["created"] < p["created"]:
-            children.setdefault(par["pid"], []).append(p)
-    for kids in children.values():
-        kids.sort(key=lambda k: (k["created"], k["pid"]))
-    protect, cur = set(), os.getpid() if self_pid is None else self_pid
-    while cur in by_pid and cur not in protect:                          # the reaper and its ancestors, by any link
-        protect.add(cur)
-        cur = by_pid[cur]["ppid"]
+class _Index:
+    """The process list indexed once: by pid, the older-parent child links, and the reaper's own ancestors (never stopped)."""
 
-    def tree_of(root):
+    def __init__(self, procs, self_pid=None):
+        self.by_pid = {p["pid"]: p for p in procs}
+        self.children = {}
+        for p in procs:                                                  # F-R3: a link counts only from an OLDER parent
+            par = self.by_pid.get(p["ppid"])
+            if (p["created"] is not None and par is not None and par["created"] is not None and par is not p
+                    and par["created"] < p["created"]):
+                self.children.setdefault(par["pid"], []).append(p)
+        for kids in self.children.values():
+            kids.sort(key=lambda k: (k["created"], k["pid"]))
+        self.protect, cur = set(), os.getpid() if self_pid is None else self_pid
+        while cur in self.by_pid and cur not in self.protect:            # the reaper and its ancestors, by any link
+            self.protect.add(cur)
+            cur = self.by_pid[cur]["ppid"]
+
+    def tree_of(self, root):
         tree, queue = [root], [root]
         while queue:
-            for k in children.get(queue.pop(0)["pid"], []):
+            for k in self.children.get(queue.pop(0)["pid"], []):
                 tree.append(k)
                 queue.append(k)
         return tree
 
-    def build(root, row, orphan):
-        tree = tree_of(root)
-        if _never(tree, rows, protect):
-            sel.kept_never.append(root["pid"])
-            return None
-        decode = _DECODERS.get(row.get("decode"))
-        decoded = decode(root["cmd"]) if decode else None
-        if decode and decoded is None:
-            sel.unwrap_failed += 1
-        if any(p["name"].lower().removesuffix(".exe") == "sleep" for p in tree):
-            shape = "S1"
-        elif decoded is not None and _wait_loops(decoded):
-            shape = "S3"
-        else:
-            shape = "S0"
-        return Candidate(root, tree, shape, decoded, now - root["created"], orphan)
 
-    taken = set()
+def _build(root, row, orphan, idx, rows, now, sel):
+    tree = idx.tree_of(root)
+    if _never(tree, rows, idx.protect):
+        sel.kept_never.append(root)
+        return None
+    decode = _DECODERS.get(row.get("decode"))
+    decoded = decode(root["cmd"]) if decode else None
+    if decode and decoded is None:
+        sel.unwrap_failed += 1
+    if any(p["name"].lower().removesuffix(".exe") == "sleep" for p in tree):
+        shape = "S1"
+    elif decoded is not None and _wait_loops(decoded):
+        shape = "S3"
+    else:
+        shape = "S0"
+    return Candidate(root, tree, shape, decoded, now - root["created"], orphan)
+
+
+def _candidate_pass(procs, idx, session, rows, now, limit, sel, taken):
+    """Direct children of the session process, older than the limit: a known wrapper is a candidate, any other root is reported."""
     for p in sorted(procs, key=lambda q: q["pid"]):
         if p["ppid"] != session["pid"] or p["created"] is None or not p["created"] > session["created"]:
             continue
@@ -276,27 +273,56 @@ def select(procs, now, session, rows, *, limit=None, self_pid=None):
         if row is None:
             sel.unknown_roots.append(p)
             continue
-        cand = build(p, row, False)
+        cand = _build(p, row, False, idx, rows, now, sel)
         if cand:
             sel.candidates.append(cand)
             taken.update(q["pid"] for q in cand.tree)
-    for p in sorted(procs, key=lambda q: q["pid"]):                      # a dead session's call: wrapper root, parent absent or younger
+
+
+def _orphan_pass(procs, idx, session, rows, now, limit, sel, taken):
+    """A dead session's call: a wrapper root older than the limit whose parent is absent or younger."""
+    for p in sorted(procs, key=lambda q: q["pid"]):
         if p["pid"] in taken or p["ppid"] == session["pid"] or p["created"] is None or not now - p["created"] > limit:
             continue
-        par = by_pid.get(p["ppid"])
+        par = idx.by_pid.get(p["ppid"])
         if par is not None and par["created"] is not None and par["created"] < p["created"]:
             continue
         row = match_wrapper(p, rows)
         if row is None or p["name"].lower() == "conhost.exe":
             continue
-        cand = build(p, row, True)
+        cand = _build(p, row, True, idx, rows, now, sel)
         if cand:
             sel.orphans.append(cand)
             taken.update(q["pid"] for q in cand.tree)
+
+
+def select(procs, now, session, rows, *, limit=None, self_pid=None):
+    """Pure: the trees to stop, the orphans, the roots no row knows. `session` = {"pid", "created"} or None (nothing selected)."""
+    limit = rows["limit_seconds"] if limit is None else limit
+    sel = Selection()
+    if not session:
+        sel.reason = "no session"
+        return sel
+    idx = _Index(procs, self_pid)
+    sp = idx.by_pid.get(session["pid"])
+    if sp is None or sp["created"] is None or abs(sp["created"] - session["created"]) > PID_TOLERANCE_S:
+        sel.reason = "session process not in the list (or another process now holds its pid)"
+        return sel
+    taken = set()
+    _candidate_pass(procs, idx, session, rows, now, limit, sel, taken)
+    _orphan_pass(procs, idx, session, rows, now, limit, sel, taken)
     return sel
 
 
 # --------------------------------------------------------------------------------------------------------- stop
+
+def _exited(api, handle):
+    """True only when the OS says the process has ended; any doubt reads False (the failure stays a failure)."""
+    try:
+        return bool(api.exited(handle))
+    except Exception:
+        return False
+
 
 def stop_tree(cand, api, attempted):
     """[(proc, outcome)] root first. outcome: stopped | gone | pid-reused | failed: winerror <n>. One attempt per pid per run
@@ -321,7 +347,10 @@ def stop_tree(cand, api, attempted):
                 api.terminate(handle)
                 results.append((p, "stopped"))
             except OSError as exc:
-                results.append((p, "failed: winerror %s" % session_proc.error_code(exc)))
+                code = session_proc.error_code(exc)
+                # a process already gone: its code says so, or access denied on a process that has already exited
+                gone = code in GONE_CODES or (code == ACCESS_DENIED and _exited(api, handle))
+                results.append((p, "gone" if gone else "failed: winerror %s" % code))
         except Exception as exc:                                         # never a raise out of a stop
             results.append((p, "failed: %s" % type(exc).__name__))
         finally:
@@ -348,18 +377,27 @@ def kids_field(cand, now):
     return ";".join(parts)
 
 
-def log_line(now, trigger, session, label, cand=None, proc=None):
-    """`<ts> <trigger> sess=<pid> <label> root=<pid> age=<s> shape=<S> name=<n> [orphan=yes] cmd=<...> kids=<...>`.
+def fails_field(results):
+    """`<name>/<pid>/<outcome>;...` of every process whose stop failed (the roots and the kids alike), capped like the kids."""
+    bad = [(p, o) for p, o in results if o.startswith("failed")]
+    parts = ["%s/%d/%s" % (ascii_clip(p["name"], 60), p["pid"], ascii_clip(o, 60)) for p, o in bad[:KIDS_MAX]]
+    if len(bad) > KIDS_MAX:
+        parts.append("+%d more" % (len(bad) - KIDS_MAX))
+    return ";".join(parts)
+
+
+def log_line(now, trigger, session, label, cand=None, proc=None, fails=""):
+    """`<ts> <trigger> sess=<pid> <label> root=<pid> age=<s> shape=<S> name=<n> [orphan=yes] cmd=<...> kids=<...> [fails=<...>]`.
     cmd = the decoded user command, else the raw command line (ASCII, at most 2000)."""
     sess = session["pid"] if session else "-"
     if cand is None and proc is None:
         return "%s %s sess=%s %s" % (_ts(now), trigger, sess, label)
     root = cand.root if cand else proc
     cmd = cand.decoded if cand is not None and cand.decoded is not None else root["cmd"]
-    return "%s %s sess=%s %s root=%d age=%d shape=%s name=%s%s cmd=%s kids=%s" % (
+    return "%s %s sess=%s %s root=%d age=%d shape=%s name=%s%s cmd=%s kids=%s%s" % (
         _ts(now), trigger, sess, label, root["pid"], max(0, int(now - (root["created"] or now))), cand.shape if cand else "-",
         ascii_clip(root["name"], 60), " orphan=yes" if cand is not None and cand.orphan else "",
-        ascii_clip(cmd, CMD_LOG_MAX), kids_field(cand, now) if cand else "")
+        ascii_clip(cmd, CMD_LOG_MAX), kids_field(cand, now) if cand else "", " fails=" + fails if fails else "")
 
 
 # --------------------------------------------------------------------------------------------------------- the run
@@ -422,7 +460,7 @@ def run(args, *, lister=None, api=None, now=None, walker=None, out=print, state_
                                                                                        holder.get("trigger", "unknown")))
             return 0
         status = ws.StatusFile(sdir)
-        status.update(state="running", started=ws._iso(now), finished=None, trigger=trigger, stopped=0, failed=0, reported=0,
+        status.update(state="running", started=ws._iso(now), finished=None, trigger=trigger, trees_stopped=0, procs_stopped=0, procs_failed=0, reported=0,
                       unknown_root=0, orphans=0, unwrap_failed=0, reason="")
     try:
         return _run_locked(args, session, rows, limit, now, trigger, lister, api, out, log, status)
@@ -471,7 +509,7 @@ def _run_locked(args, session, rows, limit, now, trigger, lister, api, out, log,
     todo = [c for c in sel.candidates if only is None or c.root["pid"] == only]
     orphans = [c for c in sel.orphans if only is None or c.root["pid"] == only]
     unknown = [p for p in sel.unknown_roots if only is None or p["pid"] == only]
-    counts = {"stopped": 0, "failed": 0, "reported": 0}
+    counts = {"trees_stopped": 0, "procs_stopped": 0, "procs_failed": 0, "reported": 0}
     attempted = set()
     for cand in todo + (orphans if args.orphans else []):
         if not args.apply:
@@ -480,36 +518,40 @@ def _run_locked(args, session, rows, limit, now, trigger, lister, api, out, log,
             continue
         results = stop_tree(cand, api or session_proc.default_api(), attempted)
         label = results[0][1] if results and results[0][0] is cand.root else "gone"
-        counts["stopped"] += 1 if label == "stopped" else 0
-        counts["failed"] += sum(1 for _, o in results if o.startswith("failed"))
-        emit(log_line(now, trigger, session, label, cand))
+        counts["trees_stopped"] += 1 if label == "stopped" else 0
+        counts["procs_stopped"] += sum(1 for _, o in results if o == "stopped")
+        counts["procs_failed"] += sum(1 for _, o in results if o.startswith("failed"))
+        emit(log_line(now, trigger, session, label, cand, fails=fails_field(results)))
     if not args.orphans:
         for cand in orphans:
             counts["reported"] += 1
             emit(log_line(now, trigger, session, "reported", cand))
+    for p in sel.kept_never:                                             # kept by never_reap / self-protection: said, not silent
+        if only is None or p["pid"] == only:
+            emit(log_line(now, trigger, session, "kept", proc=p))
     for p in unknown:
         emit(log_line(now, trigger, session, "unknown-root", proc=p))
-    out("wait_reaper: finished: %d stopped, %d failed, %d reported, %d unknown roots, %d orphans" % (
-        counts["stopped"], counts["failed"], counts["reported"], len(unknown), len(orphans)))
+    out("wait_reaper: finished: %d trees stopped (%d processes), %d processes failed, %d reported, %d unknown roots, %d orphans" % (
+        counts["trees_stopped"], counts["procs_stopped"], counts["procs_failed"], counts["reported"], len(unknown), len(orphans)))
     if status:
-        status.update(state="finished", finished=ws._iso(), stopped=counts["stopped"], failed=counts["failed"],
-                      reported=counts["reported"], unknown_root=len(unknown), orphans=len(orphans),
+        status.update(state="finished", finished=ws._iso(), trees_stopped=counts["trees_stopped"],
+                      procs_stopped=counts["procs_stopped"], procs_failed=counts["procs_failed"], reported=counts["reported"], unknown_root=len(unknown), orphans=len(orphans),
                       unwrap_failed=sel.unwrap_failed, reason="")
     return 0
 
 
 # --------------------------------------------------------------------------------------------------------- launcher, WAITS
 
-def launch(trigger, root=None, *, walker=None, spawn=None, runner=None):
+def launch(trigger, root=None, *, walker=None, spawn=None, runner=None, timeout=5, repo=None):
     """The hook's entry: str | None. The session is resolved IN-PROCESS first (no session: the WAITS line, nothing spawned);
-    else this tool of the MAIN checkout is spawned detached with the session's pid and creation time. Never raises, never waits."""
+    else this tool of the MAIN checkout is spawned detached with the session's pid and creation time. At most `timeout` (5 s) per
+    git call; a caller that already holds the `repo` context passes it. Never raises, never waits."""
     try:
         session, reason = (walker or session_proc.session_process)()
         if session is None:
             return "WAITS: no session (%s) -- nothing stopped" % ascii_clip(reason, REASON_MAX)
-        git = ws.Git(runner)
         try:
-            repo = ws.repo_context(git, root or os.getcwd())
+            repo = repo or ws.repo_context(ws.Git(runner, timeout=timeout), root or os.getcwd())
         except ws.Refuse as exc:
             return "WAITS: reaper not started (%s)" % ascii_clip(ws.first_line(str(exc)), REASON_MAX)
         tool = repo.main_path / "tools" / "wait_reaper.py"
@@ -536,11 +578,11 @@ def waits_line(state_root, session, now=None):
     if state == "unreadable":
         return ascii_clip("WAITS: process list unreadable (%s) -- python -B tools/wait_reaper.py" % ascii_clip(data.get("reason"), 80),
                           200)
-    n, m, u, o = (int(data.get(k) or 0) for k in ("stopped", "failed", "unknown_root", "orphans"))
+    n, m, u, o = (int(data.get(k) or 0) for k in ("trees_stopped", "procs_failed", "unknown_root", "orphans"))
     if state != "finished" or not (n or m or u or o):
         return None
     when = str(data.get("finished") or data.get("started") or "")[:19]
-    line = "WAITS: last reap %s (%s): %d stopped, %d failed, %d unknown roots" % (when, ascii_clip(data.get("trigger"), 20), n, m, u)
+    line = "WAITS: last reap %s (%s): %d trees stopped, %d processes failed, %d unknown roots" % (when, ascii_clip(data.get("trigger"), 20), n, m, u)
     if o:
         line += "; %d calls of dead sessions -- python -B tools/wait_reaper.py --orphans --apply" % o
     return ascii_clip(line, 200)

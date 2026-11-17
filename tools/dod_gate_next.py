@@ -752,16 +752,16 @@ def _record_returned(payload: dict) -> None:
         pass
 
 
-def _launch_reaper() -> None:
+def _launch_reaper(cwd=None) -> None:
     """Bounded waits (K-WIRE): a stop that PASSES starts this session's reaper (wait_reaper.launch: detached, never waits,
-    answers a line or None). A line goes to stderr after the gate's own message (unread on exit 0, like the journal hook's
+    answers a line or None) with the payload's `cwd` as the root -- never the hook's own cwd. A line goes to stderr after the gate's own message (unread on exit 0, like the journal hook's
     WARN lines); any failure, in any form, never changes this gate's exit code or message."""
     try:
         tools_dir = str(Path(__file__).resolve().parent)
         if tools_dir not in sys.path:
             sys.path.insert(0, tools_dir)
         import wait_reaper
-        line = wait_reaper.launch("subagent-stop")
+        line = wait_reaper.launch("subagent-stop", cwd if isinstance(cwd, str) and cwd else None)
         if line:
             sys.stderr.write(line + "\n")
     except Exception as e:
@@ -823,7 +823,7 @@ def main() -> int:
 
     if exit_code == 0:
         _record_returned(payload)
-        _launch_reaper()
+        _launch_reaper(payload.get("cwd"))
     return exit_code
 
 

@@ -1381,10 +1381,12 @@ def test_k_wire_a_passing_stop_launches_the_reaper_once_a_blocked_stop_never(jou
         pytest.skip("the candidate carries no reaper launch")
     import wait_reaper
     calls = []
-    monkeypatch.setattr(wait_reaper, "launch", lambda trigger, *a, **k: calls.append(trigger) or None)
+    monkeypatch.setattr(wait_reaper, "launch", lambda trigger, root=None, **k: calls.append(trigger) or roots.append(root) or None)
+    roots = []
     _write_track(journal_repo, "s-ok", {"edits": [], "runs": []})
     _stdin_of(monkeypatch, _stop_payload(str(journal_repo), "s-ok", "agent-1"))
     assert dod_gate.main() == 0 and calls == ["subagent-stop"] and "WAITS" not in capsys.readouterr().err
+    assert roots == [str(journal_repo)]                                              # the payload cwd, never the hook's own
     _write_track(journal_repo, "s-bl", {"edits": [{"ts": "t1", "tool_name": "Edit", "agent_id": "agent-1"}], "runs": []})
     _stdin_of(monkeypatch, _stop_payload(str(journal_repo), "s-bl", "agent-1"))
     assert dod_gate.main() == 2 and calls == ["subagent-stop"]                      # the blocked stop launched nothing

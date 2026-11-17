@@ -135,14 +135,19 @@ _WRITTEN_VALUE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$")
 STAMP_DOOR = "python -B tools/compact_snapshot.py --stamp-narrative <file>"
 
 
-def narrative_header_line(proc, written: datetime.datetime) -> str:
-    """The first line of a stamped narrative (the one writer of the form). `proc` = {"pid", "created"} of
-    session_proc.session_process(); a proc that is no such dict raises ValueError (never a guessed stamp)."""
+def session_proc_stamp(proc) -> str:
+    """The ONE encoder of the stamp value, `<pid>-<created %.3f>`: the writer below and the reader in session_context both call
+    it. `proc` = {"pid", "created"} of session_proc.session_process(); anything else raises ValueError (never a guessed stamp)."""
     try:
         pid, created = int(proc["pid"]), float(proc["created"])
     except (TypeError, KeyError, ValueError):
         raise ValueError("no session process to stamp")
-    return (f"{NARRATIVE_HEADER_PREFIX}; session-proc: {pid}-{created:.3f}; "
+    return f"{pid}-{created:.3f}"
+
+
+def narrative_header_line(proc, written: datetime.datetime) -> str:
+    """The first line of a stamped narrative (the one writer of the form); a `proc` that is no session process raises ValueError."""
+    return (f"{NARRATIVE_HEADER_PREFIX}; session-proc: {session_proc_stamp(proc)}; "
             f"written: {written.strftime('%Y-%m-%dT%H:%M:%S')} -->")
 
 

@@ -81,6 +81,7 @@ class WinApi:
         k.CloseHandle.argtypes = [vp]
         k.GetProcessTimes.argtypes = [vp] + [ctypes.POINTER(wintypes.FILETIME)] * 4
         k.TerminateProcess.argtypes = [vp, wintypes.UINT]
+        k.GetExitCodeProcess.argtypes = [vp, ctypes.POINTER(wintypes.DWORD)]
 
         class Entry(ctypes.Structure):
             _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
@@ -141,6 +142,13 @@ class WinApi:
         if not self.k.TerminateProcess(handle, 1):
             self._fail()
 
+    def exited(self, handle):
+        """True when the process has ended (GetExitCodeProcess is not STILL_ACTIVE); a failed query raises OSError."""
+        code = self.wt.DWORD()
+        if not self.k.GetExitCodeProcess(handle, self.ct.byref(code)):
+            self._fail()
+        return code.value != 259                                         # STILL_ACTIVE
+
     def close(self, handle):
         self.k.CloseHandle(handle)
 
@@ -178,6 +186,9 @@ class PosixApi:
     def terminate(self, handle):
         import signal
         os.kill(handle, signal.SIGTERM)
+
+    def exited(self, handle):
+        return not Path("/proc/%d" % handle).exists()
 
     def close(self, handle):
         pass

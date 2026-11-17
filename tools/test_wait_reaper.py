@@ -102,7 +102,7 @@ def test_select(name, procs, roots, extra):
         assert [[p["pid"] for p in c.tree] for c in s.candidates if c.root["pid"] == pid] == [tree]
     assert [c.root["pid"] for c in s.orphans] == extra.get("orphans", [])
     assert [p["pid"] for p in s.unknown_roots] == extra.get("unknown", [])
-    assert s.kept_never == extra.get("never", [])
+    assert [p["pid"] for p in s.kept_never] == extra.get("never", [])
     assert s.unwrap_failed == extra.get("unwrap_failed", 0)
 
 
@@ -268,8 +268,8 @@ def werr(n):
 
 
 class FakeKill:
-    def __init__(self, created, open_fail=None, term_fail=None):
-        self.created, self.open_fail, self.term_fail = created, open_fail or {}, term_fail or {}
+    def __init__(self, created, open_fail=None, term_fail=None, exited=()):
+        self.created, self.open_fail, self.term_fail, self.exit_set = created, open_fail or {}, term_fail or {}, set(exited)
         self.opened, self.terminated, self.closed = [], [], []
 
     def open_terminable(self, pid):
@@ -283,6 +283,9 @@ class FakeKill:
         if int(handle[1:]) in self.term_fail:
             raise werr(self.term_fail[int(handle[1:])])
 
+    def exited(self, handle):
+        return int(handle[1:]) in self.exit_set
+
     def close(self, handle):
         self.closed.append(handle)
 
@@ -292,20 +295,22 @@ def cand_tree():
 
 
 STOPS = [
-    ("root-first-all-stopped", {}, {}, {}, ["h200", "h201", "h202"], ["stopped"] * 3),
-    ("pid-reused-AT-tolerance-ok", {200: 1.0}, {}, {}, ["h200", "h201", "h202"], ["stopped"] * 3),
-    ("pid-reused-BEYOND", {201: 1.01}, {}, {}, ["h200", "h202"], ["stopped", "pid-reused", "stopped"]),
-    ("term-fails-error-5", {}, {}, {200: 5}, ["h200", "h201", "h202"], ["failed: winerror 5", "stopped", "stopped"]),
-    ("gone", {}, {201: 87}, {}, ["h200", "h202"], ["stopped", "gone", "stopped"]),
-    ("open-fails-error-5", {}, {200: 5}, {}, ["h201", "h202"], ["failed: winerror 5", "stopped", "stopped"]),
+    ("root-first-all-stopped", {}, {}, {}, (), ["h200", "h201", "h202"], ["stopped"] * 3),
+    ("pid-reused-AT-tolerance-ok", {200: 1.0}, {}, {}, (), ["h200", "h201", "h202"], ["stopped"] * 3),
+    ("pid-reused-BEYOND", {201: 1.01}, {}, {}, (), ["h200", "h202"], ["stopped", "pid-reused", "stopped"]),
+    ("term-fails-error-5", {}, {}, {200: 5}, (), ["h200", "h201", "h202"], ["failed: winerror 5", "stopped", "stopped"]),
+    ("term-error-5-on-an-exited-process-is-gone", {}, {}, {201: 5}, (201,), ["h200", "h201", "h202"], ["stopped", "gone", "stopped"]),
+    ("term-error-87-is-gone", {}, {}, {201: 87}, (), ["h200", "h201", "h202"], ["stopped", "gone", "stopped"]),
+    ("gone", {}, {201: 87}, {}, (), ["h200", "h202"], ["stopped", "gone", "stopped"]),
+    ("open-fails-error-5", {}, {200: 5}, {}, (), ["h201", "h202"], ["failed: winerror 5", "stopped", "stopped"]),
 ]
 
 
-@pytest.mark.parametrize("name,skew,open_fail,term_fail,terminated,outcomes", STOPS, ids=[s[0] for s in STOPS])
-def test_stop_tree(name, skew, open_fail, term_fail, terminated, outcomes):
+@pytest.mark.parametrize("name,skew,open_fail,term_fail,exited,terminated,outcomes", STOPS, ids=[s[0] for s in STOPS])
+def test_stop_tree(name, skew, open_fail, term_fail, exited, terminated, outcomes):
     cand = cand_tree()
     created = {p["pid"]: p["created"] + skew.get(p["pid"], 0) for p in cand.tree}
-    api = FakeKill(created, open_fail, term_fail)
+    api = FakeKill(created, open_fail, term_fail, exited)
     attempted = set()
     got = wr.stop_tree(cand, api, attempted)
     assert [o for _, o in got] == outcomes and api.terminated == terminated
@@ -347,14 +352,34 @@ def test_apply_stops_logs_and_writes_status(tmp_path):
     log = (tmp_path / "run.log").read_text(encoding="utf-8").splitlines()
     assert len(log) == 1 and " post-merge sess=100 stopped root=200 age=10800 shape=S1 name=bash.exe cmd=%s kids=sleep.exe/201/15/" % LOOP in log[0]
     status = json.loads(next(tmp_path.glob("100-*/status.json")).read_text(encoding="utf-8"))
-    assert status["state"] == "finished" and status["stopped"] == 1 and status["trigger"] == "post-merge"
+    assert status["state"] == "finished" and status["trees_stopped"] == 1 and status["trigger"] == "post-merge"
     assert not list(tmp_path.glob("100-*/lock"))                          # the lock is released
+
+
+def test_kid_failures_are_on_the_line_and_counts_name_their_unit(tmp_path):
+    api = FakeKill({p["pid"]: p["created"] for p in TREE}, term_fail={201: 5})
+    code, out = go(tmp_path, "--apply", procs=TREE, api=api)
+    log = (tmp_path / "run.log").read_text(encoding="utf-8").splitlines()
+    assert code == 0 and len(log) == 1 and " stopped root=200 " in log[0] and log[0].endswith(" fails=sleep.exe/201/failed: winerror 5")
+    status = json.loads(next(tmp_path.glob("100-*/status.json")).read_text(encoding="utf-8"))
+    assert (status["trees_stopped"], status["procs_stopped"], status["procs_failed"]) == (1, 1, 1)
+    assert "1 trees stopped (1 processes), 1 processes failed" in out[-1]
+
+
+def test_a_root_kept_by_never_reap_is_a_kept_line(tmp_path):
+    keep = [P(200, 100, "bash.exe", 3 * H, bash_cmd("while pgrep -f story_run.py; do sleep 60; done"))]
+    rows = dict(ROWS, never_reap={"names": [], "cmd_substrings": ["story_run.py"]})
+    out, api = [], FakeKill({})
+    a = wr.build_parser().parse_args(["--session-pid", "100", "--session-created", wr.ws._iso(SESSION["created"]), "--apply"])
+    wr.run(a, lister=lister_of(keep), api=api, now=NOW, out=out.append, state_root=tmp_path, rows=rows)
+    log = (tmp_path / "run.log").read_text(encoding="utf-8")
+    assert api.opened == [] and " kept root=200 " in log
 
 
 def test_empty_list_finishes_with_zero(tmp_path):
     code, out = go(tmp_path, "--apply", lister=lambda: [])
     status = json.loads(next(tmp_path.glob("100-*/status.json")).read_text(encoding="utf-8"))
-    assert code == 0 and status["state"] == "finished" and status["stopped"] == 0
+    assert code == 0 and status["state"] == "finished" and status["trees_stopped"] == 0
 
 
 @pytest.mark.parametrize("fault", ["timeout", "not-json", "raises"])
@@ -433,12 +458,15 @@ def test_launch_no_session_spawns_nothing_and_never_raises(tmp_path, monkeypatch
     assert wr.launch("t", walker=boom).startswith("WAITS: reaper not started (RuntimeError")
     (tmp_path / "tools").mkdir()
     (tmp_path / "tools" / "wait_reaper.py").write_text("", encoding="utf-8")
-    monkeypatch.setattr(wr.ws, "repo_context", lambda git, root: types.SimpleNamespace(main_path=tmp_path))
+    timeouts = []
+    monkeypatch.setattr(wr.ws, "repo_context", lambda git, root: timeouts.append(git.timeout) or types.SimpleNamespace(main_path=tmp_path))
     assert wr.launch("subagent-stop", walker=lambda: (SESSION, ""), spawn=lambda argv, cwd, env: spawned.append((argv, cwd))) is None
     argv, cwd = spawned[0]
     assert argv[argv.index("--session-pid") + 1] == "100" and "--apply" in argv and argv[argv.index("--trigger") + 1] == "subagent-stop"
     assert argv[argv.index("--session-created") + 1] == wr.ws._iso(SESSION["created"]) and cwd == tmp_path
-    assert str(tmp_path / "tools" / "wait_reaper.py") in argv
+    assert str(tmp_path / "tools" / "wait_reaper.py") in argv and timeouts == [5]            # one git call budget: 5 s
+    held = types.SimpleNamespace(main_path=tmp_path)                                         # a caller's repo: no second context
+    assert wr.launch("t", walker=lambda: (SESSION, ""), spawn=lambda *a: None, repo=held) is None and timeouts == [5]
 
     def refuse(argv, cwd, env):
         raise OSError("no")
@@ -447,14 +475,14 @@ def test_launch_no_session_spawns_nothing_and_never_raises(tmp_path, monkeypatch
 
 
 WAITS = [
-    ("silent-at-zero", {"state": "finished", "stopped": 0, "failed": 0, "unknown_root": 0, "orphans": 0}, None),
-    ("running-silent", {"state": "running", "stopped": 0}, None),
-    ("counts", {"state": "finished", "finished": "2026-11-17T12:00:00.5", "trigger": "post-merge", "stopped": 2, "failed": 1,
+    ("silent-at-zero", {"state": "finished", "trees_stopped": 0, "procs_failed": 0, "unknown_root": 0, "orphans": 0}, None),
+    ("running-silent", {"state": "running", "trees_stopped": 0}, None),
+    ("counts", {"state": "finished", "finished": "2026-11-17T12:00:00.5", "trigger": "post-merge", "trees_stopped": 2, "procs_failed": 1,
                 "unknown_root": 3, "orphans": 0},
-     "WAITS: last reap 2026-11-17T12:00:00 (post-merge): 2 stopped, 1 failed, 3 unknown roots"),
-    ("orphans", {"state": "finished", "finished": "2026-11-17T12:00:00", "trigger": "t", "stopped": 0, "failed": 0, "unknown_root": 0,
+     "WAITS: last reap 2026-11-17T12:00:00 (post-merge): 2 trees stopped, 1 processes failed, 3 unknown roots"),
+    ("orphans", {"state": "finished", "finished": "2026-11-17T12:00:00", "trigger": "t", "trees_stopped": 0, "procs_failed": 0, "unknown_root": 0,
                  "orphans": 2},
-     "WAITS: last reap 2026-11-17T12:00:00 (t): 0 stopped, 0 failed, 0 unknown roots; 2 calls of dead sessions -- "
+     "WAITS: last reap 2026-11-17T12:00:00 (t): 0 trees stopped, 0 processes failed, 0 unknown roots; 2 calls of dead sessions -- "
      "python -B tools/wait_reaper.py --orphans --apply"),
     ("unreadable", {"state": "unreadable", "reason": "timed out after 20 s"},
      "WAITS: process list unreadable (timed out after 20 s) -- python -B tools/wait_reaper.py"),

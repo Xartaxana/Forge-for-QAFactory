@@ -609,6 +609,13 @@ def test_write_stdout_deadline_hanging_writer_times_out_returns_false(monkeypatc
     assert elapsed < 2.0  # bounded by the 0.1s deadline, not the 3600s sleep
 
 
+# A subprocess run of the hook never starts a real reaper: the wrapper silences wait_reaper.launch, then runs the script as
+# __main__ (the same form as test_dod_gate._WRAP).
+_NO_REAPER_WRAP = ("import runpy, sys; sys.path.insert(0, sys.argv[2])\n"
+                   "try:\n    import wait_reaper; wait_reaper.launch = lambda *a, **k: None\nexcept ImportError:\n    pass\n"
+                   "sys.argv = [sys.argv[1]]; runpy.run_path(sys.argv[0], run_name='__main__')")
+
+
 def test_main_stdout_deadline_timeout_exits_immediately_via_subprocess(tmp_path):
     # main()'s own contract on a write timeout is os._exit(0) -- calling
     # that in-process would kill the pytest worker itself, so this is
@@ -630,7 +637,7 @@ def test_main_stdout_deadline_timeout_exits_immediately_via_subprocess(tmp_path)
     env = dict(os.environ, OSLLM_STDOUT_TIMEOUT="0.2")
     script = Path(__file__).resolve().parent / "session_context.py"
     proc = subprocess.Popen(
-        [sys.executable, str(script)],
+        [sys.executable, "-c", _NO_REAPER_WRAP, str(script), str(script.parent)],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -2178,23 +2185,41 @@ def _waits_world(monkeypatch, tmp_path, launched, session, status, boom):
     import session_proc
     import worktree_sweep
 
-    calls = []
+    class Calls(list):
+        pass
+
+    calls = Calls()
+    calls.events, calls.roots, calls.walks, calls.git_timeouts = [], [], [], []
 
     def launch(trigger, root=None, **kw):
         calls.append(trigger)
+        calls.events.append("launch")
+        calls.roots.append(root)
         if boom:
             raise boom
         return launched
 
+    def walk(*a, **k):
+        calls.walks.append(1)
+        return session
+
+    def context(git, root):
+        calls.git_timeouts.append(git.timeout)
+        return types.SimpleNamespace(common=tmp_path)
+
+    def read(state, sess, now=None):
+        calls.events.append("read")
+        return status
+
     monkeypatch.setattr(wait_reaper, "launch", launch)
-    monkeypatch.setattr(session_proc, "session_process", lambda *a, **k: session)
-    monkeypatch.setattr(worktree_sweep, "repo_context", lambda git, root: types.SimpleNamespace(common=tmp_path))
-    monkeypatch.setattr(wait_reaper, "waits_line", lambda state, sess, now=None: status)
+    monkeypatch.setattr(session_proc, "session_process", walk)
+    monkeypatch.setattr(worktree_sweep, "repo_context", context)
+    monkeypatch.setattr(wait_reaper, "waits_line", read)
     return calls
 
 
 _SESS = ({"pid": 7, "created": 1.0}, "")
-_REAP = "WAITS: last reap 2026-11-17T10:00:00 (subagent-stop): 2 stopped, 0 failed, 1 unknown roots"
+_REAP = "WAITS: last reap 2026-11-17T10:00:00 (subagent-stop): 2 trees stopped, 0 processes failed, 1 unknown roots"
 _UNREAD = "WAITS: process list unreadable (boom) -- python -B tools/wait_reaper.py"
 _NOSESS = "WAITS: no session (no claude.exe ancestor) -- nothing stopped"
 _NOSTART = "WAITS: reaper not started (tools/wait_reaper.py not found in x)"
@@ -2220,6 +2245,16 @@ def test_k_wire_waits_block(tmp_path, monkeypatch, launched, session, status, bo
         assert lines[0].isascii() and len(lines[0]) <= len("WAITS: reaper not started ()") + 120
     else:
         assert lines == expected
+
+
+@pytest.mark.skipif(_REAL_WAITS is None, reason="the candidate carries no WAITS block")
+def test_k_wire_waits_reads_before_it_launches_walks_once_and_launches_on_the_given_root(tmp_path, monkeypatch):
+    calls = _waits_world(monkeypatch, tmp_path, None, _SESS, _REAP, None)
+    assert _REAL_WAITS(tmp_path) == [_REAP]
+    # F3: the last run's line is read BEFORE the new run resets it; F2: one walk, one context, 5 s per git call;
+    # F5: the launcher gets the root the hook was given (a test root never reaches the live repo)
+    assert calls.events == ["read", "launch"] and len(calls.walks) == 1 and calls.git_timeouts == [5]
+    assert calls.roots == [tmp_path]
 
 
 @pytest.mark.skipif(_REAL_WAITS is None, reason="the candidate carries no WAITS block")
@@ -2261,7 +2296,7 @@ _NARRATIVE_ROWS = [
     ("own", _N_STAMPED % "7-1.500", _MINE, "COMPACT NARRATIVE: %s (5 min old)" % _N_FILE),
     ("foreign", _N_STAMPED % "9-2.000", _MINE, _FOREIGN),
     ("unstamped", "", _MINE, _NO_STAMP),
-    ("odd_field_never_own", _N_ODD, _MINE, _FOREIGN),
+    ("odd_field_never_own_never_foreign", _N_ODD, _MINE, _NO_STAMP),
     ("stamped_but_walk_none", _N_STAMPED % "7-1.500", None, _NO_STAMP),
     ("none_no_line", None, _MINE, None),
 ]

@@ -7,6 +7,10 @@ common=$(git rev-parse --git-common-dir 2>/dev/null) || exit 0
 [ -f tools/worktree_sweep.py ] || { echo "post-merge: tools/worktree_sweep.py not found; nothing swept" >&2; exit 0; }
 # bounded waits (K-WIRE): start this session's reaper BEFORE the sweep, detached; a no-session / not-started line goes to stderr
 if [ -f tools/wait_reaper.py ]; then
-  python -B -c "import sys; sys.path.insert(0, 'tools'); import wait_reaper; l = wait_reaper.launch('post-merge'); l and sys.stderr.write(l + chr(10))" || true
+  python -B -c "import sys; sys.path.insert(0, 'tools')
+try:
+    import wait_reaper; l = wait_reaper.launch('post-merge'); l and sys.stderr.write(l + chr(10))
+except Exception as e:
+    sys.stderr.write('WAITS: reaper not started (%s)' % type(e).__name__ + chr(10))" || true
 fi
 python tools/worktree_sweep.py --post-merge --squash-flag "$1" || true
