@@ -48,3 +48,6 @@ The full 83-file set ran once before the `test_contract_slices.py` fix (all gree
 - Analogs (not fixed): `estimate_record.append_record` writes no `delta`/`hit`/`ts` while the card names them (spec §4 sibling); printers above carry no `told`.
 - Needed beyond the manifest: `host_adapter.py::role_has_bash`, `detector_verdict.py`, `stage_joints.py`, `test_handoff_values_main_block.py` (read only).
 - Ratchet: `shrink: told_ratchet.unsited 17 -> 11; UNSITED_CAP 17 -> 11`.
+
+- Needed beyond the manifest (owns): ai-packages/qa-factory/changelog.d/told-before-work-1-t1rc-site.md (the CHANGELOG fragment builder rule 4 requires).
+owns-skip: ai-packages/qa-factory/changelog.d/told-before-work-1-t1rc-site.md -- CHANGELOG fragment owed by builder rule 4, not listed in owns
