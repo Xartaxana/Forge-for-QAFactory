@@ -20,6 +20,44 @@ text is read before changing the package), and the factory architecture invarian
 
 @docs/OWNER_PRINCIPLES_INDEX.md
 
+## Contents — topic → where to read
+
+| Topic | Where |
+|---|---|
+| Tiers | CLAUDE.md § Tiers |
+| Recon → scout; builder; drafting | CLAUDE.md § 1 + CLAUDE.md § 2 + CLAUDE.md § Rule 2 · drafting → designer |
+| Dispatch form: DoD, edges, manifest | CLAUDE.md § 11 |
+| Witness; acceptance by witness | CLAUDE.md § 2 |
+| What a builder may run | plans/builder-rules.md § 7b |
+| Batch canon | CLAUDE.md § Rule 4 · witness scope and the BATCH CANON + docs/RUNBOOK.md § 7. CI на GitHub и BATCH CANON |
+| Which tests are written | docs/TESTING.md |
+| Critic gate | CLAUDE.md § 3 |
+| Critic review content | docs/tasks/critic-diff-brief.md |
+| Journal | CLAUDE.md § Routing log |
+| Merge and CI reading | docs/RUNBOOK.md § 7. CI на GitHub и BATCH CANON + PROJECT.md § Командная работа |
+| Six writers, queue, merge waves | PROJECT.md § Командная работа |
+| Cost gates | CLAUDE.md § Rule 12 · Cost gates |
+| Session hygiene | CLAUDE.md § Command hygiene + PROJECT.md § Сессия форджа |
+| Command hygiene | CLAUDE.md § Command hygiene |
+| Fix the class | CLAUDE.md § 9 |
+| Mechanisms | CLAUDE.md § 10 |
+| Piles and batches | PROJECT.md § Командная работа + docs/TEAMWORK.md |
+| «Бэклог»; findings | PROJECT.md § Бэклог и находки |
+| Owner's principles | docs/OWNER_PRINCIPLES.md |
+| Package change acceptance | PROJECT.md § Как принимается изменение пакета |
+| A new idea of the owner | PROJECT.md § Как разрабатывается новая идея владельца |
+| Release | docs/RUNBOOK.md § 4.1. Шаги релиза |
+| Language | PROJECT.md § Язык |
+| Decide vs ask; owner away | PROJECT.md § Что решать самому, что спрашивать у владельца + CLAUDE.md § 11a |
+| Links in answers | PROJECT.md § Ссылки на файлы в ответах |
+| Hand-back form per role | .claude/agents/<role>.md |
+| Readers of every touched file | .claude/agents/designer.md § 7 |
+| Boot diet | .claude/skills/boot-diet/SKILL.md |
+| How rule text for agents is written | .claude/skills/boot-diet/SKILL.md § Как пишутся правила для агентов |
+| Session start/end | PROCESS/SESSION_PROTOCOL.md |
+| Degradation; Role ≠ tier | CLAUDE.md § Role ≠ tier + CLAUDE.md § Lead degradation |
+| Dispatcher duties about workers' runs | PROJECT.md § Как принимается изменение пакета + PROJECT.md § Командная работа |
+
 ## Tiers (see DELEGATION_TABLE.md; all assignments are estimates until calibrated)
 
 - **scout** (Sonnet) — reconnaissance: searching the repo, reading files, gathering context. Returns a digest with a
@@ -41,6 +79,8 @@ a rule.
 
 ## Routing rules
 
+### Rule 1 · recon → scout
+
 1. Recon → scout by default: the answer requires more than 1–2 already-known files, OR any search across the repo.
    Lead reads a file itself only when it is a single, precisely known target; up to ~4 known targets are legal ONLY
    with a `dispatch_skipped` event (reason mandatory) — skipping the dispatch silently is a violation. Recon of
@@ -55,6 +95,8 @@ a rule.
    | a | — | not used here: no scout exam set is registered, so the lifted form of acceptance never applies |
    | b | every accepted digest | Lead checks coverage of the question and spot-verifies at least one load-bearing claim; verifying a negative claim ("X is nowhere to be found") is mandatory; the check is noted in the `accepted` event |
 
+### Rule 2 · implementation → builder; acceptance by witness
+
 2. Implementation from a finished spec → builder. Lead writes the spec; builder returns missing requirements as
    questions rather than inventing them. Accepting a builder diff goes by witness (witness rule): the `accepted` event
    carries in its `witness` field the actual output of the verification run (command + result), not a paraphrase; a
@@ -63,6 +105,8 @@ a rule.
    enforcement file (a hook on the active hooks path, etc.) is never placed on its live path by builder: builder hands
    it over as content or under a neighbouring filename, and Lead puts it on the real path at acceptance
    (enforcement-file review rule) — otherwise unreviewed code gates work ahead of its own review.
+
+### Rule 2 · drafting → designer
 
    DRAFTING → designer BY DEFAULT: a WRITING dispatch whose spec carries 3 OR MORE numbered items, OR touches 3 or
    more files (counted by `dispatch_manifest.designer_threshold`), is DRAFTED by the designer from a Lead intent brief (the draft's form, edge invariants and the error
@@ -74,6 +118,9 @@ a rule.
    is a CONTINUATION of the existing spec: the Lead edits it ITSELF, with no designer dispatch and no
    `dispatch_skipped` event. Work re-badged under a NEW task_id is a NEW task and the threshold applies to it; parts
    produced after a `decomposable` event take new task_ids and each is judged against the threshold on its own.
+
+### Rule 3 · the critic gate
+
 3. critic — a MANDATORY acceptance gate: builder diffs over roughly 100 lines, or touching the data schema / core /
    money accounting; unclear bugs — BEFORE Lead starts debugging them itself. The first filter on EVERY diff is the
    executor's own self-run against its DoD (rule 11); critic does not substitute for it. Every diff gate also answers
@@ -91,11 +138,17 @@ a rule.
    forks or a schema/money change; regardless of size, in PROJECT.md's mandatory cases (a new idea of the owner —
    step 6; a spec edit that changes a meaning — package change, item 6); otherwise `critic: skipped, <reason>`. That
    review checks the plan's facts by trail; feasibility is an architectural judgment that no other gate reviews.
+
+### Rule 4 · parallel parts
+
 4. Independent parts → several parallel subagents, each with its own spec (context isolation). Parallel specs declare
    the paths they own; Lead checks for overlap before launching (the writer cap and the full queue: Cost gates, rule
    12). Parallel SESSIONS in the same repo are the same hazard: don't touch or commit another session's uncommitted
    paths (no-silent-reuse rule). A cross-deployment queue item exists only if it is written, in the same move, into a
    carrier the TARGET reads at boot; a session's own journal notes or findings log are not such a carrier.
+
+### Rule 4 · witness scope and the BATCH CANON
+
    SCOPE OF THE WITNESS RUN: for every writing node, solo or parallel, the verification run is what
    `python -B ai-packages/qa-factory/scripts/tests/scenario_walk.py --witness-for <owns>` prints
    (`plans/builder-rules.md` 7b; an owned path outside the package, where that command has no row: the test file that
@@ -107,12 +160,21 @@ a rule.
    CANON; the canon never replaces the node's own proof. A node is accepted on its own narrowed witness; a canon
    failure found after convergence is a `defect_found` against the responsible node (reopening a closed task is
    forbidden).
+
+### Rule 4a · a task DAG; team work
+
    4a. A task spanning 5 or more journal events, OR 2 or more sessions, is tracked as a markdown DAG — a pile's batch
    file or a file under docs/tasks/: nodes/statuses/tiers as the carrier; a WRITING node also declares the paths it
    owns; a node's status moves in the same turn as its journal event, not separately.
    Team work in piles and batches: the rule text is PROJECT.md «Командная работа» (D-0036; detector: check 33).
+
+### Rule 5 · flat delegation
+
 5. Flat delegation (flat delegation rule): subagents do not launch subagents. A task that turns out to be decomposable
    is returned to Lead via a `decomposable` event.
+
+### Rule 6 · escalation
+
 6. Escalation: 2 failed attempts, or an explicit "this is beyond my level" signal → escalate one tier up + an
    `escalated` event; a silent retry on the same tier is forbidden. A failed attempt = a result REJECTED at
    acceptance; every rejection is a `rejected` event (agent = the worker; fields: the `rejected` row of the Routing
@@ -126,6 +188,9 @@ a rule.
    architecture, a process trade-off, a rule conflict or a critic verdict the Lead cannot settle. STAND-IN (the
    owner's word 17.11.2026): a model ranked above a function's binding may stand in for that function while the
    bound model is unavailable; the stand-in dispatch names the outage in its notes.
+
+### Rule 7 · background by default
+
 7. Background execution by default (background-by-default rule): `run_in_background`; synchronous only when the next
    step depends on the result AND there is no other work or operator question pending. Accepting the result on
    completion is mandatory (flat delegation rule). The visible dispatch label (`description`) starts
@@ -136,6 +201,9 @@ a rule.
    declaration alone: when a journal line carries a `worker_ref` of the form `agent:<id>`, the `journal_echo` hook
    measures the worker's actual transcript models and warns on a MISMATCH against the declared model; a mismatch is
    resolved — relaunch, an honest record via `basis`, or escalation — before the result is used as that tier's word.
+
+### Rule 8 · the skip rule; small-work batching
+
 8. Universal skip rule: a task that maps to a cheaper tier, or to a function routed for context isolation, done by
    the Lead itself is legitimate ONLY with a `dispatch_skipped` event (agent = the skipped function, reason
    mandatory) — on any tier: the rule follows the ROUTING MOTIVE, not the price gap. Standing case: designer drafting
@@ -151,6 +219,9 @@ a rule.
    health check — code with no AI judgment in the coordinator's loop) is an environment operation, not a tier task:
    no `dispatch_skipped`, but the result lives in its own carrier (a runs log, journal events, a report) — a run with
    no carrier trace is a violation; in doubt (the run embeds judgment) the skip event is the safe default.
+
+### Rule 9 · fix the class
+
 9. Fix the class, not the instance (fix-the-class-not-the-instance rule): name the class; walk its siblings by the
    MAP in docs/SIBLING_MAP.md (a targeted lookup, NOT a repo scan; a class wider than the map → scout with a concrete
    question); fix now, or EXPLICITLY put the remainder in the queue/log; the rule against recurrence goes on the
@@ -167,6 +238,9 @@ a rule.
    over roughly 150 lines, or with more than 5 neighbors, goes to one scout dispatch carrying the applicability
    question, or carries a `dispatch_skipped` event. The sweep never replaces the map walk: a class living both in the
    artifact and on a map axis gets BOTH.
+
+### Rule 10 · four questions per mechanism
+
 10. Four questions for every mechanism (four-questions-per-mechanism rule). Before committing a mechanism, in writing
    — in its own text or in the commit message: (a) what compliance costs and who pays for it; (b) are the SIBLING_MAP
    axes covered — by ENUMERATION (axis-enumeration rule): one line "axis N: covered / queued / n/a <why>" for EVERY
@@ -189,6 +263,8 @@ a rule.
    treat it as one (run the four questions, or explicitly decline to); a mechanism outside the gate's net is caught
    by a recognition audit (a calibration check).
 
+### Rule 10 · a change to the package
+
    A change to the package (D-0055, D-0060; P27): it NAMES the AR-n invariants of
    `ai-packages/qa-factory/design/architecture.md` it touches and keeps them; a producer and its readers change in
    one commit. Where judgment lives: P27 and AR-29. On the path: `tools/architecture_gate.py` in commit-msg
@@ -198,6 +274,9 @@ a rule.
    `role-load.json` `process_ratchet_tokens`; the critic's standing questions 10 and 11 (JUDGMENT); the designer
    names the AR-n, and for every check the owner it serves and its census class, in §1 of a package spec. This
    paragraph, critic question 11 and designer rule 1 change together (axis 1). Detectors: calibration checks 36, 41.
+
+### Rule 11 · DoD in every dispatch
+
 11. DoD in every dispatch (DoD-in-every-dispatch rule): delegating to ANY tier states what "done" means, and how
    acceptance will check it, in a form suited to that tier. builder: acceptance criteria + a verification run whose
    output becomes the witness, AND the spec NAMES ITS EDGE BEHAVIOR: for every limit/truncation it introduces, every
@@ -209,6 +288,9 @@ a rule.
    it; (ii) POSITIONAL — when the spec prescribes WHERE in existing logic a branch goes (order, precedence,
    before/after which check), it states the INVARIANT that position must preserve (what stays unreachable, what must
    still be refused), not the location alone.
+
+### Rule 11 · which tests a DoD asks for
+
    Which tests a DoD asks for: the rule text is `docs/TESTING.md` (three layers, one parameterised test per behaviour;
    tests outside them QUARANTINED in `test-layers.json`; SCOPE CEILING: that text, nothing more). Input from OUTSIDE
    (a CLI/UI that accepts user input, a ticket, a person's words, a project config, a host answer) gets an
@@ -217,6 +299,9 @@ a rule.
    says `TEST QUARANTINE ALERT` or `READY TO DELETE`, the Lead tells the owner the same turn (detectors: check 33,
    `tools/test_quarantine.py check` in the nightly CI job
    `quarantine-check`).
+
+### Rule 11 · scout and critic DoD; the manifest; the five-point checklist
+
    scout: an explicit question and a completeness criterion; "X is nowhere to be found" is a valid outcome and
    requires a trail. critic: the dispatch attaches the spec/DoD of the work under review — otherwise only general
    quality is checkable, not fit to the task. A dispatch with no DoD is returned by the worker as questions, before
@@ -234,6 +319,9 @@ a rule.
    writing dispatch: owns/non-goals/handoff present and its witness scope named (rule 4); (5) freshness — the spec's
    load-bearing facts checked against their carrier, not memory. A checklist miss exposed by a reject or a finding
    is a spec defect of the dispatcher (a calibration case); promotion to a machine layer follows the next recurrence.
+
+### Rule 11 · inline DoD; the DOC-DISPATCH witness
+
    The DoD is written INLINE in the dispatch — named acceptance criteria plus the exact verification run; a bare
    pointer to a spec file or an earlier event is NOT a DoD. DOC-DISPATCH WITNESS: when the owns are markdown/config
    with no test set of their own, a deterministic key-presence run is a legal mechanical layer ONLY with three
@@ -250,6 +338,8 @@ a rule.
    | f | a dispatch to builder, or any dispatch whose `owns:` holds an absolute path (D-0022) | carries its manifest as HEADER LINES outside fences and quotes: `given:`, `owns:` (absolute paths, on that line or right under it, no blank line, no heading marks; a path with spaces in backticks), `non-goals:`, `handoff:`, `edges:`, `DoD:` (the verification command in backticks), `siblings:` (entries, or `none -- <why>`) and, over rule 2's threshold, `designer:` (the accepted draft's absolute path, `skip -- <reason>`, or `resubmission <task_id>`); `python -B tools/dispatch_new.py` prints these lines checked (never typed by hand); `tools/dispatch_manifest.py` refuses a dispatch without them and names what is missing; the informed pass is a line `manifest-skip: <item>[, <item>] -- <reason>` |
    | h | critic/designer dispatch | report path on `handoff:`, never `owns:`; `tools/dispatch_gate.py` refuses a dispatch whose `handoff:` names no single `.md` file in the role's folder; `tools/handoff_gate.py` lets it write only that file |
 
+### Rule 11a · question routing
+
 11a. Question routing (question-routing rule): questions route UP, work routes DOWN; the apex of the hierarchy is the
    OPERATOR — above Lead itself. An underspecified REQUIREMENT (interpreting intent, choosing the shape of a
    deliverable) is a question for the operator, and the work on that part waits for the answer; deciding it on the
@@ -262,12 +352,16 @@ a rule.
    only as an explicit, named clause — here the owner-away paragraph of PROJECT.md «Что решать самому, что
    спрашивать у владельца».
 
+### Rule 12 · the coordinator's cadence
+
 12. The coordinator's cadence runs on LARGE moves, not a series of small ones: accepting workers happens in a BATCH
    at a stage boundary (accepting everything stays mandatory — the cadence changes, not the obligation); one question
    carrying a list instead of a round of clarifications; what code can do, code does — journal lines through
    `tools/journal_write.py`, dispatch headers from `tools/dispatch_new.py`, a merge of accepted branches through
    `tools/wave.py merge`, a red pipeline through `tools/ci_read.py why` (the owner's word 14.11.2026); the boot-budget backlog is worked down as a batch at handoff
    (boot-diet). The target is roughly 15 main-turns per task — a measured goal, not a gate.
+
+### Rule 12 · Cost gates
 
    Cost gates (D-0035, D-0038, D-0040, D-0054; why: `docs/CLAUDE_HOST_ADAPTATIONS_FULL.md`): a fix round runs in a
    FRESH worker carrying only the diff and the verdict; `tools/agent_budget.py` caps a worker (WARN 250K, STOP 400K;
@@ -276,6 +370,9 @@ a rule.
    commit per 2–3 merges, journal notes ≤ 300 chars, CI through `tools/ci_read.py`; a push before a worktree launch
    (`tools/dispatch_gate.py`). The writers, the FULL queue, the per-topic critic and merge waves: PROJECT.md
    «Командная работа» п. 12. Detector: check 17.
+
+### Rule 13 · leaf routing
+
 13. Leaf routing (leaf-routing rule) — not used in this deployment: no judge is bound (`delegation.config.yaml`,
    role `judge`), so every task, leaf or graph, goes through the acceptance of rules 1-12 and Role ≠ tier; an
    acceptance with `basis: "judge"` is not legal here.
@@ -332,6 +429,8 @@ narrative; a wrong `ts` noticed later gets a note on the next event (the referen
 calibration check 13(f)). A MISSED event noticed later is repaired by a RETRO pair: append
 `delegated`/`accepted` NOW, with the current `ts`, a "retroactive" mark and the event's actual boundaries in
 `notes`; inserting lines into the past is forbidden; calibration watches the retro stream.
+
+### Routing log · event SHAPES
 
 Event SHAPES — the typed fields each event adds on top of the five base fields:
 
@@ -444,12 +543,16 @@ child shell, a byte copy (`cp`/`Copy-Item`) and its restore.
    the canonical form of a tool = its correctly invoked form, the invocation that finds a known sample.
 2. The proxy server — not used in this deployment: the contour is subscription and nothing in gateway/ is run.
 3. The shell's working directory never moves (`cd`, `Set-Location`): refused.
+   why and how to recover: PROJECT.md § Сессия форджа
 4. File edits — by any tool (the owner's word 16.11.2026: the Edit/Write-only rule is retired); a worker still writes
    only inside its `owns`, judged by the diff at acceptance.
 
 5. Log entries — through `tools/journal_write.py` only (the owner's word 14.11.2026): a redirect, tee, in-place editor
    or payload that writes `logs/journal/*.jsonl` or `logs/routing-log.jsonl` is refused; an Edit/Write of them draws a
    WARN until node B23-S makes it a refusal.
+
+### Command hygiene · point 6 — a claim needs a measurement
+
 6. An environment-negative claim requires verification: empty output or "command not found" from an INCORRECTLY
    invoked tool is a miscall, not proof the object is absent; a negative claim about the environment ("the
    service/key/file is missing") is valid only after a positive check using the canonical form (point 1). Not just
@@ -471,6 +574,8 @@ child shell, a byte copy (`cp`/`Copy-Item`) and its restore.
    | a | a project decision rests on an UNKNOWN property of the environment | run ONE experiment first; building machinery instead of measuring is legitimate only when the measurement itself doesn't port (e.g. a port number) or the experiment would be destructive |
    | b | a measured number appears in a norm/report | it carries its counting carrier (file/command) alongside it, or it isn't written at all; a comparison stays inside ONE metric |
    | c | a character-level claim (a slash, a case, a specific symbol) | valid ONLY by reading the carrier directly (the Read tool); a search tool's output is not a basis for it |
+
+### Command hygiene · point 7 — probes
 
 7. Temporary corruption (a probe) is rolled back by a BYTE COPY, never by `git checkout` /
    `git restore`: (a) take the copy BEFORE corrupting, and restore FROM IT; (b) the gate refuses these on a dirty
