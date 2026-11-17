@@ -215,7 +215,7 @@ one, which is what makes this rule a check rather than a hope.
    way, because a project's env file changes without anybody re-onboarding.
    For each selected execution profile, ask how runtime identity is read and linked to source.
    An owner statement may be retained as evidence but never upgraded to a technical match.
-   **A mobile application stand (only when phase 1 recorded a `mobile_surface` section).** One closed batch, each
+   **A mobile application stand (asked whenever phase 1 recorded a `mobile_surface` section, whether or not a driver is named; never for a project with no device evidence).** One closed batch, each
    answer offered from what phase 1 read (path:line), never from a guess: the platforms the tests drive (a row name of
    `references/surfaces.json`, as the `surface` of the stand), the Appium server address (`driver.url`, http or https, never
    with a user or a password in it), the application id (`app.id`), and the NAME of the variable that holds the device
@@ -224,7 +224,7 @@ one, which is what makes this rule a check rather than a hope.
    and without it the sign-in window of a device capture never closes). Each is one `environments[]` row (`name`, `surface`, `driver`,
    `device`, `app`) beside the API stand's own row; a project with both keeps both rows, and a second platform is a second
    row. "I do not know" on a field leaves it empty and says so in the summary: the doctor then names the stand as not
-   described instead of reading it as ready. The device itself is never asked about here (no emulator is needed to
+   described instead of reading it as ready. When no driver is named, the summary says plainly which default is taken: "the factory has no way to drive this application by itself; the agent will try these cases with what it can reach, and hands you only what it cannot". A project already onboarded without the section changes nothing until it is re-onboarded. The device itself is never asked about here (no emulator is needed to
    finish onboarding); the doctor checks it.
 
 2b. **Profile and dependency gaps.** Ask only for contours needed by known project work. For

@@ -1,6 +1,6 @@
 """Sanitized-input feed for a live subscription-judge probe: the
 carrier form of "does the judge role/prompt still reproduce its
-calibration verdicts" checks (CLAUDE.md rule 13, judge acceptance).
+calibration verdicts" checks (COORDINATOR.md rule 13, judge acceptance).
 
 Motive: periodically re-probe a live subscription-judge role (the
 judge subagent carrying the pinned JUDGE_SYSTEM_PROMPT) against a

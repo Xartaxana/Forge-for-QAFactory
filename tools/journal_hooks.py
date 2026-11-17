@@ -38,7 +38,7 @@ import tier_ladder  # noqa: E402 -- the ladder home (a leaf): the family words o
 
 JOURNAL_EDIT_MODE = "warn"          # "warn" (shipped) | "refuse" (node B23-S): the ONE constant that decides (E-B23-13)
 HOOK_LOCK_TIMEOUT = 5               # seconds: a hook never waits longer
-NOTES_MAX = 300                     # CLAUDE.md rule 12 (the CLI refuses longer notes; the hook cuts)
+NOTES_MAX = 300                     # COORDINATOR.md rule 12 (the CLI refuses longer notes; the hook cuts)
 LINE_MAX = 700                      # one hook line is cut here, whatever a validator text says
 SCAN_LINES = 3000                   # the tail of a journal copy read to find a delegated (X-8)
 PENDING_MAX_AGE = 24 * 3600         # seconds

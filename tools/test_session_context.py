@@ -1003,6 +1003,24 @@ def test_calibration_suffix_without_architect_binding_never_sends_to_an_architec
 # ==== BOOT BUDGET ==============
 
 
+_COORD_SIZE = 10  # bytes of each seeded coordinator file: small, so the top-3 breakdown keeps its big rows
+
+
+def _nf(n):
+    """The file count of a BOOT BUDGET head for n BOOT.md/CLAUDE.md files: the coordinator files count too (worker split)."""
+    return n + len(sc._coordinator_files())
+
+
+_CB = _COORD_SIZE * len(sc._coordinator_files())  # their bytes, computed from the fixture's list, never retyped
+
+
+def _seed_coordinator(root: Path):
+    for name in sc._coordinator_files():
+        target = root / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"c" * _COORD_SIZE)
+
+
 def _seed_boot_files(root: Path, file_sizes: dict, boot_md_names=None):
     """Writes BOOT.md whose body references boot_md_names via "Read
     X.md" lines (defaults to the keys of file_sizes minus CLAUDE.md,
@@ -1016,6 +1034,7 @@ def _seed_boot_files(root: Path, file_sizes: dict, boot_md_names=None):
     (root / "BOOT.md").write_text(body + "\n", encoding="utf-8")
     for name, size in file_sizes.items():
         (root / name).write_bytes(b"x" * size)
+    _seed_coordinator(root)
 
 
 def test_boot_path_files_parses_boot_md_and_always_adds_claude_md(tmp_path):
@@ -1024,18 +1043,26 @@ def test_boot_path_files_parses_boot_md_and_always_adds_claude_md(tmp_path):
         "1. Read README.md.\n2. Read PROJECT_CHARTER.md.\n", encoding="utf-8"
     )
     names = sc.boot_path_files(root)
-    assert names == ["README.md", "PROJECT_CHARTER.md", "CLAUDE.md"]
+    assert names == ["README.md", "PROJECT_CHARTER.md", *sc._coordinator_files(), "CLAUDE.md"]
+
+
+def test_boot_path_files_counts_a_coordinator_file_once_when_boot_md_names_it(tmp_path):
+    """Edge e17: BOOT.md stays the owner of its own list; a name it shares with COORDINATOR_FILES is counted once, in BOOT.md's place."""
+    (tmp_path / "BOOT.md").write_text("1. Read PROJECT.md.\n2. Read README.md.\n", encoding="utf-8")
+    names = sc.boot_path_files(tmp_path)
+    assert names.count("PROJECT.md") == 1 and names[:2] == ["PROJECT.md", "README.md"]
+    assert names[-1] == "CLAUDE.md" and set(sc._coordinator_files()) <= set(names)
 
 
 def test_boot_path_files_missing_boot_md_still_yields_claude_md(tmp_path):
-    assert sc.boot_path_files(tmp_path) == ["CLAUDE.md"]
+    assert sc.boot_path_files(tmp_path) == [*sc._coordinator_files(), "CLAUDE.md"]
 
 
 def test_boot_budget_normal_under_warn_threshold(tmp_path):
     root = tmp_path
     _seed_boot_files(root, {"README.md": 100, "CLAUDE.md": 200})
     lines = sc.boot_budget_lines(root)
-    assert lines == [f"BOOT BUDGET: 300 bytes / {sc.BOOT_BUDGET_LIMIT} (2 files) | CLAUDE.md: 200/{sc.CLAUDE_WARN}"]
+    assert lines == [f"BOOT BUDGET: {300 + _CB} bytes / {sc.BOOT_BUDGET_LIMIT} ({_nf(2)} files) | CLAUDE.md: 200/{sc.CLAUDE_WARN}"]
 
 
 def test_boot_budget_warn_includes_top3(tmp_path):
@@ -1051,10 +1078,10 @@ def test_boot_budget_warn_includes_top3(tmp_path):
         },
     )
     lines = sc.boot_budget_lines(root)
-    total = readme + 30000 + 25000 + 100
+    total = readme + 30000 + 25000 + 100 + _CB
     assert total > sc.BOOT_WARN_THRESHOLD
     assert total <= sc.BOOT_BREACH_THRESHOLD
-    assert lines[0] == f"BOOT BUDGET: {total} bytes / {sc.BOOT_BUDGET_LIMIT} (4 files) WARN | CLAUDE.md: 100/{sc.CLAUDE_WARN}"
+    assert lines[0] == f"BOOT BUDGET: {total} bytes / {sc.BOOT_BUDGET_LIMIT} ({_nf(4)} files) WARN | CLAUDE.md: 100/{sc.CLAUDE_WARN}"
     assert lines[1] == f"  {readme}  README.md"
     assert lines[2] == "  30000  PROJECT_CHARTER.md"
     assert lines[3] == "  25000  ANTI_GOALS.md"
@@ -1074,10 +1101,10 @@ def test_boot_budget_breach_includes_hint_and_top3(tmp_path):
         },
     )
     lines = sc.boot_budget_lines(root)
-    total = readme + 30000 + 20000 + 100
+    total = readme + 30000 + 20000 + 100 + _CB
     assert total > sc.BOOT_BREACH_THRESHOLD
     assert lines[0] == (
-        f"BOOT BUDGET: {total} bytes / {sc.BOOT_BUDGET_LIMIT} (4 files) BREACH -> boot-diet due "
+        f"BOOT BUDGET: {total} bytes / {sc.BOOT_BUDGET_LIMIT} ({_nf(4)} files) BREACH -> boot-diet due "
         f"(report first, operator word starts it) | CLAUDE.md: 100/{sc.CLAUDE_WARN}"
     )
     assert lines[1] == f"  {readme}  README.md"
@@ -1090,9 +1117,10 @@ def test_boot_budget_missing_file_counts_zero_and_is_flagged(tmp_path):
     # BOOT.md references a file that is never actually written.
     (root / "BOOT.md").write_text("1. Read GHOST_FILE.md.\n", encoding="utf-8")
     (root / "CLAUDE.md").write_bytes(b"x" * 50)
+    _seed_coordinator(root)
     lines = sc.boot_budget_lines(root)
     assert lines[0] == (
-        f"BOOT BUDGET: 50 bytes / {sc.BOOT_BUDGET_LIMIT} (2 files) [missing: GHOST_FILE.md]"
+        f"BOOT BUDGET: {50 + _CB} bytes / {sc.BOOT_BUDGET_LIMIT} ({_nf(2)} files) [missing: GHOST_FILE.md]"
         f" | CLAUDE.md: 50/{sc.CLAUDE_WARN}"
     )
 
@@ -1131,6 +1159,7 @@ def _seed_claude_imports(root: Path, claude_text: str, readme_size: int = _WARN_
         target = root / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(b"y" * size)
+    _seed_coordinator(root)
     return len(claude_bytes)
 
 
@@ -1138,15 +1167,15 @@ def test_boot_budget_counts_two_imports_under_claude_md(tmp_path):
     claude_text = "# rules\n@a.md\n@sub/b.md\n"
     own = _seed_claude_imports(tmp_path, claude_text, **{"a.md": 1000, "sub/b.md": 2000})
     lines = sc.boot_budget_lines(tmp_path)
-    total = _WARN_BAND_README + own + 1000 + 2000
-    assert lines[0].startswith(f"BOOT BUDGET: {total} bytes / {sc.BOOT_BUDGET_LIMIT} (2 files + 2 imports)")
+    total = _WARN_BAND_README + own + 1000 + 2000 + _CB
+    assert lines[0].startswith(f"BOOT BUDGET: {total} bytes / {sc.BOOT_BUDGET_LIMIT} ({_nf(2)} files + 2 imports)")
     assert f"| CLAUDE.md: {own}/{sc.CLAUDE_WARN} incl. imports {own + 3000}" in lines[0]
     # the per-file list (WARN band) shows each import right under CLAUDE.md
     assert lines[1] == f"  {_WARN_BAND_README}  README.md"
     assert lines[2] == f"  {own}  CLAUDE.md"
     assert lines[3] == "    @a.md  1000"
     assert lines[4] == "    @sub/b.md  2000"
-    assert len(lines) == 5
+    assert len(lines) == 6 and lines[5] == f"  {_COORD_SIZE}  {sc._coordinator_files()[0]}"  # the third row: a coordinator file
 
 
 def test_boot_budget_breach_verdict_follows_the_total_with_imports(tmp_path):
@@ -1157,14 +1186,14 @@ def test_boot_budget_breach_verdict_follows_the_total_with_imports(tmp_path):
     own = _seed_claude_imports(tmp_path, "@big.md\n", readme_size=readme, **{"big.md": big})
     lines = sc.boot_budget_lines(tmp_path)
     assert readme + own <= sc.BOOT_WARN_THRESHOLD
-    assert lines[0].startswith(f"BOOT BUDGET: {readme + own + big} bytes / {sc.BOOT_BUDGET_LIMIT} (2 files + 1 imports) BREACH")
+    assert lines[0].startswith(f"BOOT BUDGET: {readme + own + big + _CB} bytes / {sc.BOOT_BUDGET_LIMIT} ({_nf(2)} files + 1 imports) BREACH")
 
 
 def test_boot_budget_missing_import_is_size_zero_warned_and_marks_the_total_a_floor(tmp_path):
     own = _seed_claude_imports(tmp_path, "@a.md\n@ghost.md\n", **{"a.md": 1000})
     lines = sc.boot_budget_lines(tmp_path)
     # F-5: the header says the total is a floor
-    assert lines[0].startswith(f"BOOT BUDGET: {_WARN_BAND_README + own + 1000} bytes / {sc.BOOT_BUDGET_LIMIT} (2 files + 2 imports (+1 unmeasured))")
+    assert lines[0].startswith(f"BOOT BUDGET: {_WARN_BAND_README + own + 1000 + _CB} bytes / {sc.BOOT_BUDGET_LIMIT} ({_nf(2)} files + 2 imports (+1 unmeasured))")
     assert "    @ghost.md  0" in lines
     assert "BOOT IMPORT WARN: 1 not measured: ghost.md (missing)" in lines
     assert sc.claude_imports(tmp_path) == [("a.md", 1000), ("ghost.md", 0)]
@@ -1179,7 +1208,7 @@ def test_boot_budget_all_imports_measured_has_no_unmeasured_marker(tmp_path):
 
 def test_boot_budget_directory_import_is_size_zero_and_warned(tmp_path):
     _seed_claude_imports(tmp_path, "@docs\n")
-    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs").mkdir(exist_ok=True)  # the seeded coordinator index files already made it
     (tmp_path / "docs" / "f.md").write_bytes(b"z" * 500)
     assert sc.claude_imports(tmp_path) == [("docs", 0)]
     assert "BOOT IMPORT WARN: 1 not measured: docs (directory)" in sc.boot_budget_lines(tmp_path)
@@ -1274,7 +1303,7 @@ def test_boot_budget_import_inside_a_code_fence_is_not_counted(tmp_path):
     own = _seed_claude_imports(tmp_path, claude_text, **{"in_fence.md": 111, "real.md": 222})
     assert sc.claude_imports(tmp_path) == [("real.md", 222)]
     lines = sc.boot_budget_lines(tmp_path)
-    assert lines[0].startswith(f"BOOT BUDGET: {_WARN_BAND_README + own + 222} bytes / {sc.BOOT_BUDGET_LIMIT} (2 files + 1 imports)")
+    assert lines[0].startswith(f"BOOT BUDGET: {_WARN_BAND_README + own + 222 + _CB} bytes / {sc.BOOT_BUDGET_LIMIT} ({_nf(2)} files + 1 imports)")
     assert not any("in_fence" in l for l in lines)
 
 
@@ -1284,7 +1313,7 @@ def test_boot_budget_no_import_lines_has_no_imports_suffix(tmp_path):
     own = _seed_claude_imports(tmp_path, "# no imports here\n  @indented.md\nmail a@b.c\n")
     assert sc.claude_imports(tmp_path) == []
     lines = sc.boot_budget_lines(tmp_path)
-    assert lines[0].startswith(f"BOOT BUDGET: {_WARN_BAND_README + own} bytes / {sc.BOOT_BUDGET_LIMIT} (2 files)")
+    assert lines[0].startswith(f"BOOT BUDGET: {_WARN_BAND_README + own + _CB} bytes / {sc.BOOT_BUDGET_LIMIT} ({_nf(2)} files)")
     assert "imports" not in lines[0]
 
 
@@ -1293,7 +1322,7 @@ def test_boot_budget_same_file_imported_twice_is_counted_twice(tmp_path):
     own = _seed_claude_imports(tmp_path, "@a.md\n@a.md\n", **{"a.md": 1000})
     assert sc.claude_imports(tmp_path) == [("a.md", 1000), ("a.md", 1000)]
     assert sc.boot_budget_lines(tmp_path)[0].startswith(
-        f"BOOT BUDGET: {_WARN_BAND_README + own + 2000} bytes / {sc.BOOT_BUDGET_LIMIT} (2 files + 2 imports)"
+        f"BOOT BUDGET: {_WARN_BAND_README + own + 2000 + _CB} bytes / {sc.BOOT_BUDGET_LIMIT} ({_nf(2)} files + 2 imports)"
     )
 
 
@@ -1322,11 +1351,10 @@ def test_claude_imports_unreadable_claude_md_is_a_warn_not_a_traceback(tmp_path)
     assert "BOOT IMPORT WARN: CLAUDE.md unreadable" in lines
 
 
-def test_claude_imports_sees_the_real_repo_imports():
+def test_claude_imports_sees_no_import_in_the_real_claude_md():
     repo_root = Path(__file__).resolve().parent.parent
     got = sc.claude_imports(repo_root)
-    assert [path for path, _size in got] == ["PROJECT.md", "docs/FACTORY_RULES_INDEX.md", "docs/ARCHITECTURE_INDEX.md", "docs/OWNER_PRINCIPLES_INDEX.md"]
-    assert all(size > 0 for _path, size in got)
+    assert got == []  # the worker split: CLAUDE.md imports nothing (K-WORKER); the coordinator files are read on the hook line
 
 
 # ---- t-923 fix round: F-1 sanitizer, F-3 one reader, F-4 line cap, F-6 ranking ----
@@ -1342,7 +1370,7 @@ def test_boot_budget_non_ascii_import_path_is_sanitized_present_and_missing(tmp_
     )
     lines = sc.boot_budget_lines(tmp_path)
     assert all(l.isascii() for l in lines)
-    assert lines[0].startswith(f"BOOT BUDGET: {_WARN_BAND_README + own + 100} bytes / {sc.BOOT_BUDGET_LIMIT} (2 files + 2 imports (+1 unmeasured))")
+    assert lines[0].startswith(f"BOOT BUDGET: {_WARN_BAND_README + own + 100 + _CB} bytes / {sc.BOOT_BUDGET_LIMIT} ({_nf(2)} files + 2 imports (+1 unmeasured))")
     assert "    @docs/???????.md  100" in lines
     assert "    @docs/???.md  0" in lines
     assert any(l.startswith("BOOT IMPORT WARN: 1 not measured: docs/???.md (missing)") for l in lines)
@@ -1398,7 +1426,7 @@ def test_claude_imports_agrees_with_agents_md_on_the_same_claude_md(tmp_path, na
 
     text, expected = _FENCE_SAMPLES[name]
     _seed_claude_imports(tmp_path, text, **{"in.md": 5, "real.md": 7})
-    body = "\n".join(agents_md.build_body(tmp_path))
+    body = "\n".join(agents_md.build_claude_body(tmp_path))
     expanded = re.findall(r"<!-- begin (\S+) -->", body)
     counted = [path for path, _size in sc.claude_imports(tmp_path)]
     assert counted == expanded
@@ -1431,11 +1459,11 @@ def test_boot_budget_thirty_imports_print_five_rows_and_one_more_line(tmp_path):
     names = [f"i{n:02d}.md" for n in range(30)]
     own = _seed_claude_imports(tmp_path, "".join(f"@{n}\n" for n in names), **{n: 10 for n in names})
     lines = sc.boot_budget_lines(tmp_path)
-    assert lines[0].startswith(f"BOOT BUDGET: {_WARN_BAND_README + own + 300} bytes / {sc.BOOT_BUDGET_LIMIT} (2 files + 30 imports)")
+    assert lines[0].startswith(f"BOOT BUDGET: {_WARN_BAND_README + own + 300 + _CB} bytes / {sc.BOOT_BUDGET_LIMIT} ({_nf(2)} files + 30 imports)")
     rows = [l for l in lines if l.startswith("    @")]
     assert rows == [f"    @{n}  10" for n in names[:5]]
     assert "  ... +25 more imports (counted)" in lines
-    assert len(lines) == 1 + 2 + 5 + 1  # summary, README+CLAUDE rows, 5 import rows, the more-line
+    assert len(lines) == 1 + 3 + 5 + 1  # summary, README+CLAUDE+coordinator rows, 5 import rows, the more-line
 
 
 @pytest.mark.parametrize("count,more", [(5, False), (6, True)])
@@ -1454,11 +1482,11 @@ def test_boot_budget_thirty_missing_imports_fold_into_one_capped_warn_and_wiring
     names = [f"missing{n:02d}.md" for n in range(30)]
     _seed_claude_imports(root, "".join(f"@{n}\n" for n in names))
     lines = sc.boot_budget_lines(root)
-    assert "(2 files + 30 imports (+30 unmeasured))" in lines[0]
+    assert f"({_nf(2)} files + 30 imports (+30 unmeasured))" in lines[0]
     warns = [l for l in lines if l.startswith("BOOT IMPORT WARN:")]
     assert len(warns) == 1 and len(warns[0]) <= sc.IMPORT_WARN_MAX_CHARS
     assert warns[0].startswith("BOOT IMPORT WARN: 30 not measured: missing00.md (missing)")
-    assert len(lines) == 1 + 2 + 5 + 1 + 1
+    assert len(lines) == 1 + 3 + 5 + 1 + 1
     # the whole context: the cut at MAX_LINES must not take WIRING away
     full = sc.build_context_lines(root)
     assert len(full) <= sc.MAX_LINES
@@ -1476,8 +1504,9 @@ def test_boot_budget_top3_ranks_claude_md_by_its_own_bytes_plus_imports(tmp_path
     own = len("@big.md\n")
     (tmp_path / "CLAUDE.md").write_bytes(b"@big.md\n")
     (tmp_path / "big.md").write_bytes(b"y" * 40000)
+    _seed_coordinator(tmp_path)
     lines = sc.boot_budget_lines(tmp_path)
-    assert lines[0].startswith(f"BOOT BUDGET: {3 * each + own + 40000} bytes / {sc.BOOT_BUDGET_LIMIT} (4 files + 1 imports) BREACH")
+    assert lines[0].startswith(f"BOOT BUDGET: {3 * each + own + 40000 + _CB} bytes / {sc.BOOT_BUDGET_LIMIT} ({_nf(4)} files + 1 imports) BREACH")
     assert lines[1] == f"  {own}  CLAUDE.md"
     assert lines[2] == "    @big.md  40000"
     assert len([l for l in lines if l.startswith("  ") and not l.startswith("    ")]) == 3
@@ -1487,7 +1516,7 @@ def test_boot_budget_tilde_import_is_unsupported_not_missing(tmp_path):
     _seed_claude_imports(tmp_path, "@~/.claude/CLAUDE.md\n")
     lines = sc.boot_budget_lines(tmp_path)
     assert "BOOT IMPORT WARN: 1 not measured: ~/.claude/CLAUDE.md (unsupported)" in lines
-    assert "(2 files + 1 imports (+1 unmeasured))" in lines[0]
+    assert f"({_nf(2)} files + 1 imports (+1 unmeasured))" in lines[0]
 
 
 # ==== full assembly still ASCII and within MAX_LINES =========
@@ -3580,3 +3609,132 @@ def test_q1_with_no_peer_or_no_transcript_path_the_boot_text_is_unchanged(tmp_pa
     monkeypatch.setattr(_sc, "read_stdin_payload", lambda: {"transcript_path": _q1_transcripts(tmp_path)})
     assert _sc.main(root) == 0
     assert "PARALLEL SESSION" not in capsys.readouterr().out
+
+
+# ==== COORDINATOR RULES line (worker split, t-1137; spec edges e1 e2 e6 e7) =========
+
+_CR_FILES = list(sc._coordinator_files())
+
+
+def _cr_root(tmp_path, damage=None, dirname="r"):
+    """A tree with the coordinator files, 7 bytes each; `damage` = {name: "absent" | "empty" | "directory"}."""
+    root = _seed_repo(tmp_path / dirname, events=[_event("delegated", task_id="t-001")])
+    for name in _CR_FILES:
+        target = root / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"r" * 7)
+    for name, how in (damage or {}).items():
+        target = root / name
+        target.unlink()
+        if how == "empty":
+            target.write_bytes(b"")
+        elif how == "directory":
+            target.mkdir()
+    return root
+
+
+def _cr_main(root, monkeypatch, capsys, source, build=None):
+    monkeypatch.setattr(sc, "read_stdin_payload", lambda: {"source": source} if source else {})
+    if build is not None:
+        monkeypatch.setattr(sc, "build_context_lines", build)
+    assert sc.main(root) == 0
+    return capsys.readouterr().out.splitlines()
+
+
+@pytest.mark.parametrize("source,form", [("startup", "before your first dispatch, acceptance or commit"),
+                                         (None, "before your first dispatch, acceptance or commit"),
+                                         ("clear", "before your first dispatch, acceptance or commit"),
+                                         ("compact", "before your first dispatch, acceptance or commit"),
+                                         ("resume", "re-read only if your context no longer holds them")])
+def test_coordinator_line_present_for_every_source_and_resume_has_the_reread_form(tmp_path, monkeypatch, capsys, source, form):
+    root = _cr_root(tmp_path)
+    out = [l for l in _cr_main(root, monkeypatch, capsys, source) if l.startswith("COORDINATOR RULES:")]
+    n = len(_CR_FILES)
+    assert out == [f"COORDINATOR RULES: read {', '.join(_CR_FILES)} ({n} files, {7 * n} bytes) {form}; workers do not read these at boot "
+                   "-- a role reads only the section its role file names"]
+
+
+@pytest.mark.parametrize("name", _CR_FILES)
+@pytest.mark.parametrize("how", ["absent", "empty", "directory"])
+def test_coordinator_line_names_a_missing_empty_or_directory_file_with_the_git_door(tmp_path, monkeypatch, capsys, name, how):
+    root = _cr_root(tmp_path, {name: how})
+    out = [l for l in _cr_main(root, monkeypatch, capsys, "startup") if l.startswith("COORDINATOR RULES:")]
+    good = [f for f in _CR_FILES if f != name]
+    reason = {"absent": "absent", "empty": "empty", "directory": "directory"}[how]
+    assert out[0].startswith(f"COORDINATOR RULES: read {', '.join(good)} ({len(good)} files, {7 * len(good)} bytes)")
+    assert out[1:] == [f'COORDINATOR RULES: MISSING {name} ({reason}) -- read it from git: git -C "{root}" show origin/main:{name}; '
+                       "until then this session has no coordinator rules"]
+
+
+@pytest.mark.parametrize("dirname,quoted", [("my projects", True), ("проект", False)])
+def test_the_git_door_is_one_the_reader_can_use_on_a_space_a_non_ascii_and_a_long_root(tmp_path, monkeypatch, capsys, dirname, quoted):
+    root = _cr_root(tmp_path, {"PROJECT.md": "absent"}, dirname=dirname)
+    out = [l for l in _cr_main(root, monkeypatch, capsys, "startup") if "MISSING" in l]
+    door = f'git -C "{root}" show' if quoted else "git show"
+    assert len(out) == 1 and door in out[0] and "-C ?" not in out[0] and out[0].isascii()
+
+
+def test_the_git_door_names_a_long_root_whole():
+    import coordinator_rules
+
+    root = "C:/" + "p" * 250                   # a path the OS cannot create here; the door is text only
+    (line,) = [l for l in coordinator_rules.coordinator_lines(root, "startup") if "PROJECT.md (" in l]
+    assert f'git -C "{root}" show origin/main:PROJECT.md' in line
+
+
+def test_coordinator_line_with_no_file_at_all_has_only_missing_lines_and_is_ascii(tmp_path, monkeypatch, capsys):
+    root = _seed_repo(tmp_path / "\u043f\u0440\u0430", events=[_event("delegated", task_id="t-001")])
+    out = [l for l in _cr_main(root, monkeypatch, capsys, "startup") if l.startswith("COORDINATOR RULES:")]
+    assert len(out) == len(_CR_FILES) and all("MISSING" in l and l.isascii() for l in out)
+
+
+def test_coordinator_line_when_the_module_cannot_be_imported_names_the_literal_list(tmp_path, monkeypatch, capsys):
+    root = _cr_root(tmp_path)
+    monkeypatch.setitem(sys.modules, "coordinator_rules", None)       # `import coordinator_rules` raises ImportError
+    out = [l for l in _cr_main(root, monkeypatch, capsys, "startup") if "COORDINATOR RULES:" in l]
+    assert len(out) == 1 and out[0].startswith("COORDINATOR RULES: unavailable (ModuleNotFoundError")
+    assert out[0].endswith(f"-- read {', '.join(sc._COORDINATOR_FALLBACK_FILES)} yourself") and out[0].isascii()
+    assert sc.boot_path_files(root)[-1] == "CLAUDE.md"                  # the budget arithmetic falls back to the same literal
+
+
+def test_coordinator_line_when_the_module_fails_to_run_is_the_same_unavailable_line(tmp_path, monkeypatch):
+    import coordinator_rules
+
+    def boom(*_a, **_k):
+        raise RuntimeError("boom\nline")
+
+    monkeypatch.setattr(coordinator_rules, "coordinator_lines", boom)
+    (line,) = sc.coordinator_rules_lines(tmp_path, "startup")
+    assert line == f"COORDINATOR RULES: unavailable (RuntimeError: boomline) -- read {', '.join(sc._COORDINATOR_FALLBACK_FILES)} yourself"
+
+
+def test_the_fallback_list_equals_coordinator_files():
+    import coordinator_rules
+
+    assert sc._COORDINATOR_FALLBACK_FILES == coordinator_rules.COORDINATOR_FILES == tuple(sc._coordinator_files())
+
+
+def test_coordinator_lines_never_raises_on_a_hostile_root():
+    import coordinator_rules
+
+    class Bad:
+        def __str__(self):
+            raise RuntimeError("bad str")
+
+    for root in ("\x00", None, 5, "a\x00b", Bad()):
+        got = coordinator_rules.coordinator_lines(root, "startup")
+        assert got and all(l.isascii() and l.startswith("COORDINATOR RULES:") for l in got)
+    # the module's own unavailable line and the hook's fallback are ONE text (t-1250 F4: the drift pin)
+    assert coordinator_rules.coordinator_lines(Bad(), "startup") == sc.coordinator_rules_lines(Bad(), "startup") == [
+        "COORDINATOR RULES: unavailable (RuntimeError: bad str) -- read %s yourself" % ", ".join(sc._COORDINATOR_FALLBACK_FILES)]
+
+
+def test_the_coordinator_line_is_never_cut_by_max_lines_and_precedes_the_compact_pointer(tmp_path, monkeypatch, capsys):
+    root = _cr_root(tmp_path)
+    full = [f"filler {i}" for i in range(sc.MAX_LINES)]          # build_context_lines is already AT the cut
+    out = _cr_main(root, monkeypatch, capsys, "compact", build=lambda *_a, **_k: list(full))
+    at = [i for i, l in enumerate(out) if l.startswith("COORDINATOR RULES:")]
+    snap = [i for i, l in enumerate(out) if l.startswith(("COMPACT SNAPSHOT", "AFTER COMPACT"))]
+    assert len(at) == 1 and out[:sc.MAX_LINES] == full and snap and at[0] < min(snap)
+    after = [i for i, l in enumerate(out) if l.startswith("AFTER COMPACT")]
+    assert not after or after[-1] > at[0]                       # AFTER COMPACT stays after the rules line (e6)

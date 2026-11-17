@@ -406,15 +406,25 @@ def template(contract_id: str) -> Doc:
 AUTHOR_TOKEN = "<the author's dispatch>"          # the ONE token of the contracts that review a dispatch: the S4 stage critic, S7/S8 consumers (AR-15)
 
 
-def only_template(value) -> bool:
-    """Is every leaf of `value` (nested rows, lists, maps) still a placeholder? A real value anywhere - a word, a number, a
-    boolean - says the section was filled (carried, prefilled). The one reader of an untouched template row (AR-15): the
-    skeleton's emptying and the rows-owed check both call it."""
+TEMPLATE_TOKEN = re.compile(r"<[^<>]+>")
+
+
+def only_template(value, template=None) -> bool:
+    """Is every leaf of `value` (nested rows, lists, maps) still a placeholder? A real value anywhere - a word, a
+    number, a boolean - says the section was filled (carried, prefilled). The one reader of an untouched template row (AR-15):
+    the skeleton's emptying, the rows-owed check and the empty-list verdict of `handoff_check` all call it.
+    With `template` (the contract's value at the same path) a leaf that carries a `<...>` token and equals the template's leaf
+    also counts as untouched (`record: work/probes/<instance>.json` as the contract wrote it); a token the role changed does not,
+    and a row the contract has no row at the same place for is never untouched.
+    It may err only toward "not untouched", the stricter side. `template=None` is the reading without that rule."""
     if isinstance(value, dict):
-        return all(only_template(v) for v in value.values())
+        return all(only_template(v, template.get(k) if isinstance(template, dict) else None) for k, v in value.items())
     if isinstance(value, list):
-        return all(only_template(v) for v in value)
-    return is_placeholder(value)
+        rows = template if isinstance(template, list) else []
+        return all(only_template(v, rows[i] if i < len(rows) else None) for i, v in enumerate(value))      # row i against the contract's row i
+    if is_placeholder(value):
+        return True
+    return template is not None and bool(TEMPLATE_TOKEN.search(str(value))) and str(value) == str(template)
 
 
 # -------------------------------------------------------------------------------- the schema
@@ -453,10 +463,12 @@ CONTRACT_OWNED = ("schema_version", "contract", "stage", "gate", "kind", "from_r
                   "inputs", "expected_of_the_receiver", "rules", "not_shown", "message_sections",
                   "common_shape", "handoffs", "escalation", "judged_row", "judged", "null_outcome", "required_when", "rows_owed_when",
                   "acceptance_verdict_at")
-# Every contract's item list. It is the one list a role may not leave empty: a handover with no
-# items is not a handover. Every other list may legitimately be empty (`unresolved` above all).
+# `scope` is the item list a handover may not leave empty: a handover with no items is not a handover. `inputs_read` is the
+# proof that the role read what it was handed, and it may not be empty either. Every other list, at every depth that crosses no
+# list row, may legitimately be empty (`unresolved` above all), and an untouched template row is the empty list.
 # One contract may name its own exception: a `null_outcome` block (see `null_outcomes` below).
-REQUIRED_LISTS = ("scope",)
+ITEM_LIST = "scope"
+REQUIRED_LISTS = (ITEM_LIST, "inputs_read")
 
 # What a declaration is made of. An entry holding any other key is not read at all (fail closed): `joint` and
 # `only_when` are the next node's, and a key with no reader behind it must never look like a declaration.
@@ -674,6 +686,30 @@ def sections(contract_id: str) -> dict:
     """{name: 'map'|'list'|'scalar'} for the top level, so a check can tell an empty list
     (a legitimate answer) from a missing map (an unfilled form)."""
     return sections_of(template(contract_id))
+
+
+def list_paths_of(doc: Doc) -> tuple:
+    """Every list path of one parsed contract text, in document order (pure, so a detector can read a synthetic contract): the
+    dicts are walked from the top level down, a list is recorded and never entered (a list inside a list row is judged with its
+    row), and the top-level keys the contract owns and `blocked` are skipped (their blanks are never refused)."""
+    found = []
+
+    def walk(data, prefix):
+        for key, value in data.items():
+            path = prefix + str(key)
+            if not prefix and (owned_by_contract(path) or path == "blocked"):
+                continue
+            if isinstance(value, list):
+                found.append(path)
+            elif isinstance(value, dict):
+                walk(value, path + ".")
+    walk(doc.data, "")
+    return tuple(found)
+
+
+def list_paths(contract_id: str) -> tuple:
+    """The ONE reader of "which list paths a contract has" (AR-13): the check and the filler both ask it."""
+    return list_paths_of(template(contract_id))
 
 
 # ------------------------------------------------------------------------------- the filling

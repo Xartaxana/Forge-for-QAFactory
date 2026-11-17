@@ -5,7 +5,7 @@ description: Reaction procedure for a boot-budget breach (>120KB total, or >10% 
 
 # boot-diet — reacting to a boot-budget breach
 
-Boot context is a paid resource (CLAUDE.md, boot-context-is-expensive
+Boot context is a paid resource (COORDINATOR.md, boot-context-is-expensive
 rule): every session reads it. This skill is the sole owner of the
 reaction order to a breach; session-handoff's check 4 triggers it and
 does not duplicate its steps. The order is strict: cheap, reversible
@@ -20,8 +20,8 @@ the diet before anyone has seen the report.
 
 1. **Measure and diagnose.** Total size of CLAUDE.md plus every file
    BOOT.md's sequence lists (bytes, per file), INCLUDING the files
-   CLAUDE.md pulls in by `@import` lines — the hook's BOOT BUDGET block
-   (`python tools/session_context.py`) prints them under CLAUDE.md and
+   the `COORDINATOR RULES:` line names — the hook's BOOT BUDGET block
+   (`python tools/session_context.py`) prints them and
    counts them in the total (F6-27, 19.10.2026). Compare against a
    baseline — the last handoff report, the notes field of the last
    `calibrated` event, or the commit of the previous diet. Name WHICH
@@ -82,7 +82,7 @@ the diet before anyone has seen the report.
    that duplicates an index that already lives in
    docs/task_reports/README.md).
 5b. **Every-session relevance audit** (the owner's word, 20.10.2026):
-   walk EVERY file the boot loads (CLAUDE.md and its imports,
+   walk EVERY file the boot loads (CLAUDE.md and the files the `COORDINATOR RULES:` line names,
    DECISIONS.md, CURRENT_CONTEXT.md, the rest of BOOT.md's sequence)
    entry by entry and ask of each: does every future session need
    this? A node-level decision, a finding, a run's status, a batch's
@@ -96,16 +96,16 @@ the diet before anyone has seen the report.
    step's report; a decision entry that names a single node id is
    the smell.
 6. **Re-measure.** Budget restored → go to step 7. Still breached →
-   put "deep cuts" (operational homes: CLAUDE.md, SYSTEM_PROMPT.md,
+   put "deep cuts" (operational homes: CLAUDE.md, COORDINATOR.md, SYSTEM_PROMPT.md,
    and any other file your BOOT.md sequence loads every session) into
    CURRENT_CONTEXT.md's queue as an explicit operator decision — this
    is not yours to do unilaterally. Rationale for the caution: policy
-   that isn't auto-loaded gets silently skipped (CLAUDE.md's opening
+   that isn't auto-loaded gets silently skipped (COORDINATOR.md's opening
    rationale, the cheapest-tier-default rule) — don't cut an
    operational home on your own judgment.
 7. **Report and commit:** before/after per file, what was moved,
    verdicts on the pairs (step 4), remaining queue. A commit touching
-   mechanism paths needs CLAUDE.md rule 10's axis block, or an
+   mechanism paths needs COORDINATOR.md rule 10's axis block, or an
    explicit line "axes: not a mechanism (<reason>)".
 
 ## Как пишутся правила для агентов
@@ -120,7 +120,7 @@ the diet before anyone has seen the report.
 4. История, пример, разбор, замер — не в бут: в спеку, находку, пачку или `docs/*_FULL.md`; в правиле — ссылка.
 5. Номера правил не переиспользуются и не сдвигаются: переехавший пункт оставляет на своём номере строку-указатель с тем же
    жирным заголовком.
-6. Импорт `@` — только из `CLAUDE.md`, один уровень (счётчик бюджета вложенных не видит).
+6. `CLAUDE.md` не импортирует ничего: импорт грузится в каждого воркера; текст координатора — `COORDINATOR.md`.
 7. Как сокращать бут — `.claude/skills/boot-diet/SKILL.md`; указатели и оглавление проверяет код (строки POINTERS, затем FG7-52);
    до FG7-52 пересказ, раздел длиннее 50 строк и заголовок бута без строки оглавления ищет калибровочная проверка 33.
 

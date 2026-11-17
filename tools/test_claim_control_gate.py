@@ -638,6 +638,7 @@ def test_in_scope_prefixes():
     assert m._in_scope("docs/RELATED_WORK.md")
     assert m._in_scope("logs/routing-log.jsonl")
     assert m._in_scope("CLAUDE.md")
+    assert m._in_scope("COORDINATOR.md")  # FG7-58: the coordinator rules moved out of CLAUDE.md, same scope
     assert m._in_scope("BOOT.md")
     assert m._in_scope("DECISIONS.md")
     assert m._in_scope("DELEGATION_TABLE.md")

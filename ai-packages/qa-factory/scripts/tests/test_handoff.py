@@ -1157,9 +1157,11 @@ def a_section_owed_only_under_a_header_value_has_an_empty_outcome_otherwise() ->
                 check_in(f"G2 {contract} control: the edit hit, the verdict is written", "verdict: ok", with_verdict("ok"))
                 check_eq(f"G2 {contract} ok: the two blocks left as the form has them are not refused",
                          owed_problems(contract, with_verdict("ok"), view), [])
-                check_eq(f"G2 {contract} concerns: the same blocks left blank ARE refused (same call, same form)",
-                         owed_problems(contract, with_verdict("concerns"), view), sorted(owed))
-                check_eq(f"G2 {contract} verdict missing: required as before (AR-28)", owed_problems(contract, template, view), sorted(owed))
+                # FV3-19: `questions` is an optional list, so untouched it is the empty list at any verdict; `stage_acceptance` stays owed
+                still_owed = sorted(set(owed) - {"questions"})
+                check_eq(f"G2 {contract} concerns: the owed block left blank IS refused, the optional list is not (same call, same form)",
+                         owed_problems(contract, with_verdict("concerns"), view), still_owed)
+                check_eq(f"G2 {contract} verdict missing: required as before (AR-28)", owed_problems(contract, template, view), still_owed)
                 check_eq(f"G2 {contract} halt: not a concern, so not owed", owed_problems(contract, with_verdict("halt"), view), [])
                 filled = with_verdict("ok").replace("failure_class: <spec|capability|data|tooling>", "failure_class: bogus", 1)
                 check_in(f"G2 {contract} ok with a block FILLED: it is checked as before (a word outside the list is refused)",
@@ -1857,7 +1859,9 @@ def _critic_form(root: Path, dispatch: str = "S5-qa-code-critic-1", reason: str 
                         ("review.receipt_ref", "work/windows/x.json"), ("review.rounds_used", 0),
                         ("probes.runtime_provenance", "evidence/runtime-provenance-api.json"),
                         ("probes.records[0].instance", "test_one"),
-                        ("probes.records[0].verdict", "intended_failure")):
+                        ("probes.records[0].verdict", "intended_failure"),
+                        ("inputs_read[0].path", "work/handoffs/S5-qa-automator-1.yaml"),
+                        ("inputs_read[0].version", "manifest revision 1")):
         handoff.set_value(doc, path, value)
         doc = handoff.parse(doc.text())
     form.write_text(doc.text(), encoding="utf-8")
@@ -2894,6 +2898,146 @@ def the_s3_form_carries_the_grounding_and_its_claims_are_the_gates() -> None:
             check_eq(f"G1-5 refactoring_share claim, the real path: {name}", claim(H.Artifacts(Path(tmp)))[0], want)
 
 
+# item 0's `## probe5` (the card's R16 table): every list path that reads empty on the contract's own untouched form
+EMPTY_ON_UNTOUCHED = {
+    "gate-a-to-automator":
+        "environment.preconditions_accepted_as_blocked waivers handed_to_person stand_gaps contradictions_settled",
+    "gate-b-to-delivery":
+        "bugs quarantine delivery.do_not_commit",
+    "role-to-conductor":
+        "request.tried request.data",
+    "s0-setup-to-scout":
+        "repositories obligations unresolved",
+    "s1-scout-to-tester":
+        "scope person.accepted_gaps person.late_sources tried unresolved",
+    "s2-tester-to-strategist":
+        "scope contradiction_matrix tried unresolved",
+    "s3-strategist-to-designer":
+        "scope not_planned blast_radius manual_policy regression_recommendations tried unresolved product_roles",
+    "s4-case-critic-to-designer":
+        "inputs_read scope findings unverified stage_acceptance.witness_paths not_looked advice_rejected questions register_gaps",
+    "s4-designer-to-case-critic":
+        "scope review_scope.focus tried unresolved",
+    "s4-designer-to-runner":
+        "scope unresolved",
+    "s5-automator-plan-to-critic":
+        "scope",
+    "s5-automator-to-critic":
+        "scope artifacts.tests artifacts.probes plan_remarks deviations tried unresolved for_the_reviewer",
+    "s5-automator-to-runner":
+        "inputs_read scope not_in_scope artifacts.tests unresolved",
+    "s5-critic-plan-to-automator":
+        "inputs_read scope remarks",
+    "s5-critic-to-automator":
+        "inputs_read scope probes.records findings tooling_findings unverified not_looked",
+    "s6-runner-to-analyst":
+        "inputs_read scope manual_observations env_blocked tried unresolved",
+    "s7-analyst-to-automator":
+        "stage_acceptance.witness_paths scope repairs not_for_repair unresolved",
+    "s7-analyst-to-scribe":
+        "inputs_read stage_acceptance.witness_paths scope env_issues not_verified case_defects tried unresolved",
+    "s7-automator-to-analyst":
+        "inputs_read scope rounds unresolved",
+    "s8-bug-reporter-to-scribe":
+        "inputs_read scope filed not_filed quarantined tried unresolved",
+    "s8-scribe-to-gate-b":
+        "stage_acceptance.witness_paths delivery.reasons_by_owner.product delivery.reasons_by_owner.person delivery.reasons_by_owner.stand "
+        "delivery.reasons_by_owner.factory questions tried unresolved",
+    "s9-retro-to-project":
+        "scope knowledge_fold factory_backlog tried unresolved",
+}
+
+
+def an_untouched_list_is_empty_at_every_depth_that_crosses_no_row() -> None:
+    """FV3-19: a list nested in a map reads empty the way a top-level one does (AR-23), a half-filled row never does (AR-28), and the
+    proof of reading (`inputs_read`) is required beside `scope`. One table: label, contract, edits (written like a role's values), data
+    (a shape a values file cannot write), and what must hold of the problems. R10 (the dry-world filler, `tests/form_filler.py`) is not here:
+    this file's keep row of `test-layers.json` does not cover that helper. The `--fix` half of the card's R8 is the existing
+    "the test files are taken from the manifest" case: the list derives first (`check` runs the derivers before the empty verdict)."""
+    import handoff_check as H
+    gone = object()
+    crit, plan, runner, scribe = "s5-critic-to-automator", "s5-critic-plan-to-automator", "s4-designer-to-runner", "s8-scribe-to-gate-b"
+    root = Path(tempfile.mkdtemp(prefix="qa-handoff-fv319-"))
+    try:
+        task = root / "artifacts" / "QA-9"
+        (task / "work").mkdir(parents=True)
+
+        def run(contract, edits=(), data=None, doc=None):
+            doc = doc or handoff.parse(handoff.template(contract).text())
+            for path, value in edits:
+                handoff.set_value(doc, path, value)
+                doc = handoff.parse(doc.text())
+            for path, value in (data or {}).items():
+                head, _, tail = path.rpartition(".")
+                holder = doc.data
+                for segment in head.split(".") if head else ():
+                    holder = holder[segment]
+                if value is gone:
+                    holder.pop(tail, None)
+                else:
+                    holder[tail] = value
+            return H.check(doc, contract, H.Artifacts(task, dispatch="X-1"), fix=False, task="QA-9", use_judge=False)[2]
+
+        def under(problems, prefix):
+            return [p.path for p in problems if p.path == prefix or p.path.startswith(prefix + ".") or p.path.startswith(prefix + "[")]
+
+        def codes(problems, path):
+            return [getattr(p.text, "check", "") for p in problems if p.path == path]
+
+        no_problem = []
+        rows = (
+            # label, contract, edits, data, path prefix, the problem paths under it
+            ("R1 records untouched: no problem under probes.records", crit, (), None, "probes.records", no_problem),
+            ("R2 instance real, verdict a placeholder: only the verdict is blank", crit, (("probes.records[0].instance", "test_one"),), None,
+             "probes.records", ["probes.records[0].verdict"]),
+            ("R3 a real word in the note starts the row: instance and verdict are blank", crit, (("probes.records[0].note", "tool could not read"),), None,
+             "probes.records", ["probes.records[0].instance", "probes.records[0].verdict"]),
+            ("R5 a list inside a list row is judged with its row (depth boundary)", runner, (("execution[0].case", "TC-1"),), None,
+             "execution[0].preconditions", ["execution[0].preconditions[0]"]),
+            ("R6 findings untouched, verdict ok: no refusal", crit, (("header.verdict", "ok"),), None, "findings", no_problem),
+            ("R8 artifacts.tests untouched on a plain check: no refusal", "s5-automator-to-critic", (), None, "artifacts.tests", no_problem),
+            ("R13 rounds untouched beside fix_result fixed: today's behaviour, the priced risk", "s7-automator-to-analyst", (("scope[0].fix_result", "fixed"),), None,
+             "rounds", no_problem),
+            ("R14 findings untouched on the case critic: no refusal", "s4-case-critic-to-designer", (), None, "findings", no_problem),
+            ("R15 a flow list in a map, untouched: no refusal", scribe, (), None, "delivery.reasons_by_owner", no_problem),
+            ("R17 raw scalar at the nested path reads empty", crit, (), {"probes.records": "foo"}, "probes.records", no_problem),
+            ("R17 raw scalar at the top level reads empty, the same verdict", crit, (), {"findings": "foo"}, "findings", no_problem),
+        )
+        for label, contract, edits, data, prefix, want in rows:
+            check_eq(label, under(run(contract, edits, data), prefix), want)
+        fresh = run(crit)  # R4 and the R6 concerns half are pinned by test_detector_verdict T6 (same door, same form)
+        for contract in (crit, plan):
+            check_eq(f"R11 {contract}: inputs_read untouched is one required_rows", codes(run(contract), "inputs_read"), ["handoff_check:required_rows"])
+        proof_p = [p for p in fresh if p.path == "inputs_read"]
+        check("R11 ...its text names `inputs_read` as required and not `scope`", "`inputs_read` is a required list" in str(proof_p[0].text)
+              and "in scope" not in str(proof_p[0].text), str(proof_p[0].text)[:200])
+        for label, data in (("written []", {"inputs_read": []}), ("the key absent", {"inputs_read": gone})):
+            for contract in (scribe, crit):
+                check_eq(f"R12 {contract}: inputs_read {label} is required_rows", codes(run(contract, data=data), "inputs_read"), ["handoff_check:required_rows"])
+        # R7: the one reader of an untouched row, with and without the template
+        leaf = "work/probes/<instance>.json"
+        for label, value, template, want in (
+                ("a token leaf equal to the template's", {"record": leaf}, {"record": leaf}, True),
+                ("the same leaf with no template (today's reading)", {"record": leaf}, None, False),
+                ("a parametrised id carrying <lambda>", "work/probes/test_x[<lambda>].json", leaf, False),
+                ("a leaf with no token", "work/impl-diff.txt", leaf, False),
+                ("a real word beside an untouched token leaf", {"record": leaf, "note": "word"}, {"record": leaf, "note": "<only when>"}, False),
+                ("a blank leaf reads untouched, as a top-level list does", {"instance": ""}, {"instance": "<instance id>"}, True),
+                ("a word the role wrapped in angle brackets is a placeholder", "<intended_failure>", "<x>", True)):
+            check_eq(f"R7 only_template: {label}", handoff.only_template(value, template), want)
+        # R9: a values file cannot write the empty list; the note says so and the form passes on R1's terms
+        doc, applied, _problems, notes = H.apply_values(handoff.parse(handoff.template(crit).text()), crit, [("probes.records", [], 1, "")])
+        check("R9 `probes.records: []` writes nothing and says so", applied == 0 and any("nothing written" in n for n in notes), str(notes))
+        check_eq("R9 ...and the form then has no problem under probes.records", under(run(crit, doc=doc), "probes.records"), no_problem)
+        # R16: every contract's list paths that read empty on its own untouched form are exactly item 0's probe5 table
+        contracts = sorted(p.stem for p in CONTRACTS.glob("*.yaml") if p.stem not in ("index", "vocabulary"))
+        got = {c: sorted(p for p in handoff.list_paths(c) if H._is_empty_section(handoff.template(c), handoff.spec(c), p, contract=c)) for c in contracts}
+        check_eq("R16 the empty-on-untouched paths equal the probe table", {c: v for c, v in got.items() if v},
+                 {c: sorted(s.split()) for c, s in EMPTY_ON_UNTOUCHED.items()})
+    finally:
+        cleanup(root)
+
+
 def main() -> None:
     a_row_may_name_the_purpose_it_serves_and_the_window_contract_stays_what_it_was()
     the_plan_handovers_carry_what_the_readers_read()
@@ -2952,6 +3096,7 @@ def main() -> None:
     the_diff_counts_read_every_recorded_diff()
     the_production_rule_reads_the_projects_word_from_the_implementation_checkout()
     one_survivor_binds_a_diff_to_its_checkout_and_the_production_count_reads_records()
+    an_untouched_list_is_empty_at_every_depth_that_crosses_no_row()
     finish("test_handoff")
 
 

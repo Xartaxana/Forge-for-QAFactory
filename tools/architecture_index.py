@@ -1,8 +1,9 @@
 """Compact index of the factory's load-bearing invariants (AR-n), generated from architecture.md.
 
 The source is `ai-packages/qa-factory/design/architecture.md`. The index is one line per invariant
-(id and title, grouped by the four goal sections A-D) and is imported into every session through
-CLAUDE.md, so it is capped at 3072 bytes. It is generated, never hand-edited; `--check` compares it
+(id and title, grouped by the four goal sections A-D). It is no longer imported into every session:
+the coordinator reads it on the `COORDINATOR RULES:` line (tools/coordinator_rules.py), and it stays
+capped at 3072 bytes. It is generated, never hand-edited; `--check` compares it
 byte-for-byte with the file on disk so a pre-commit hook and CI can refuse a commit where the
 source changed and the index did not. tools/architecture_gate.py reads the ids from the index.
 

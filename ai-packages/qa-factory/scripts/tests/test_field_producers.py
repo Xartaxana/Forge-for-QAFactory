@@ -1558,7 +1558,30 @@ def red_rows_equal_the_known_red_ledger() -> None:
     print(f"known red rows {len(verdict.known)}, not in world rows {len(world)}, rows walked {len(WALK)}")
 
 
+def an_excused_list_stays_untouched_and_a_required_one_is_refused_when_no_file_exists() -> None:
+    """FV3-19 R10a-c (AR-23): with no `work/probes/*.json` the filler leaves `probes.records` untouched (no Unfillable), names a required list
+    as required, and `_excused` is true only for a list path that crosses no row and is not in REQUIRED_LISTS."""
+    import form_filler as FF
+    crit, runner = "s5-critic-to-automator", "s4-designer-to-runner"
+    root = harness.temp_dir()
+    try:
+        filled = FF.fill_form(crit, FF.FillContext(task_root=str(root), dispatch_id="S5-qa-code-critic-1"))
+        check_eq("R10a no work/probes/*.json: no Unfillable under probes.records",
+                 [u.path for u in filled.unfillable if u.path.startswith("probes.records")], [])
+        why = []
+        FF._spread_world_rows("scope:\n  - id: <instance>\n", [SimpleNamespace(path="scope[0].id", raw="<instance>")],
+                              FF.FillContext(task_root=str(root)), [], why, crit)
+        check("R10b a world-list token in scope, no file: Unfillable naming scope as required",
+              len(why) == 1 and "`scope` is a required list" in why[0].why, str(why)[:200])
+        for contract, path, want in ((crit, "probes.records", True), (crit, "scope", False), (crit, "inputs_read", False),
+                                     (runner, "execution.preconditions", False)):
+            check_eq(f"R10c _excused({contract}, {path})", FF._excused(contract, path), want)
+    finally:
+        harness.cleanup(root)
+
+
 def main() -> None:
+    an_excused_list_stays_untouched_and_a_required_one_is_refused_when_no_file_exists()
     every_required_field_has_a_producer_or_a_declared_gap()
     the_two_paths_this_walk_wired()
     the_sensitivity_gap_is_reported_not_hidden()

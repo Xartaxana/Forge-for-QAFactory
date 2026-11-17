@@ -3,6 +3,7 @@
     python -B tools/dispatch_new.py --kind builder --task t-862 [--feature F19] [--node slug/N/id]
         --given <p>... --owns <abs>... --non-goals "<t>" --handoff <abs .md> --edges "<t>" --dod "<cmd>"
         --siblings "<t>" [--names <n>...] [--designer <abs> | "skip -- <why>" | "resubmission t-NNN"]
+        [--facts "<claim> | <command> | <result>"... | "none -- <why>"]
 
 The generator has NO grammar of its own: it lays the values out one header per line (list values one path per line
 under their header), appends the readers block of tools/owns_readers.py (data about the owned paths, not grammar: behind a
@@ -54,21 +55,24 @@ def _parser() -> argparse.ArgumentParser:
     ap.add_argument("--siblings", default="")
     ap.add_argument("--names", nargs="*", default=[])
     ap.add_argument("--designer")
+    ap.add_argument("--facts", nargs="*", default=[])
     return ap
 
 
 def _forbidden(args) -> str:
-    """The name of the first argument holding a newline / carriage return / backtick, or ''."""
+    """The name of the first argument holding a newline / carriage return / backtick, or ''. `--facts` may hold backticks:
+    a measured result grepped from this repo's markdown usually does, and the generator wraps nothing in them for facts:."""
     for name, value in vars(args).items():
+        banned = FORBIDDEN_CHARS[:2] if name == "facts" else FORBIDDEN_CHARS
         for item in (value if isinstance(value, list) else [value]):
-            if isinstance(item, str) and any(c in item for c in FORBIDDEN_CHARS):
+            if isinstance(item, str) and any(c in item for c in banned):
                 return name
     return ""
 
 
 def _empty_item(args) -> str:
     """The name of the first list argument holding an empty or whitespace-only item (it would end the section), or ''."""
-    for name in ("given", "owns"):
+    for name in ("given", "owns", "facts"):
         if any(not p.strip() for p in getattr(args, name)):
             return name
     return ""
@@ -103,6 +107,10 @@ def build_text(args) -> str:
         is_form = bool(dispatch_manifest._DESIGNER_SKIP_RE.match(args.designer)
                        or dispatch_manifest._DESIGNER_RESUBMISSION_RE.match(args.designer))
         lines.append("designer: %s" % (args.designer if is_form else _path(args.designer)))
+    if args.facts:
+        # the Lead's measured facts (F13): one line per fact under the header, as typed (the gate reads the form only)
+        lines.append("facts:")
+        lines.extend(args.facts)
     return "\n".join(lines) + "\n"
 
 
