@@ -594,7 +594,7 @@ def part_schema() -> None:
 def part_sites() -> None:
     plain = 'def f(rec):\n    return rec["result"] == "matched"\n'
     called = 'from gate_template import acceptable\ndef f(rec):\n    acceptable(rec, "x.y")\n    return rec["result"] == "matched"\n'
-    called_attr = 'def f(rec):\n    gate_template.acceptable(rec, "x.y")\n    return rec["result"] == "matched"\n'
+    called_attr = 'import gate_template\ndef f(rec):\n    gate_template.acceptable(rec, "x.y")\n    return rec["result"] == "matched"\n'
     allow = [{"compare": "rec['result'] == 'matched'", "why": "shape"}]
     conv = lambda body, **kw: audit({"f.py": body}, row("g_conv", "converted", [site(allow=allow)]), **kw)  # noqa: E731
     got = conv(plain)
@@ -620,16 +620,28 @@ def part_sites() -> None:
         ("another row's consumer", body_of('acceptable(rec, "other.c")'), own_accepts,
          "consumer `other.c`, which is not a key of row `g_conv`.accepts - keys expected: `g_conv.c`"),
         ("an acceptable imported from another module", body_of('acceptable(rec, "g_conv.c")', imp_other), own_accepts,
-         "not gate_registry's predicate"),
+         "not gate_template's predicate"),
         ("a local def named acceptable", "def acceptable(v, c):\n    return True\n" + body_of('acceptable(rec, "g_conv.c")', ""),
-         own_accepts, "not gate_registry's predicate"),
+         own_accepts, "not gate_template's predicate"),
         ("an acceptable bound by no import", body_of('acceptable(rec, "g_conv.c")', ""), own_accepts,
-         "not gate_registry's predicate"),
+         "not gate_template's predicate"),
         ("first literal call judged: own first, foreign later", body_of('acceptable(rec, "g_conv.c") and acceptable(rec, "other.c")'),
-         own_accepts, None),
+         own_accepts, "consumer `other.c`"),
         ("first literal call judged: foreign first, own later", body_of('acceptable(rec, "other.c") and acceptable(rec, "g_conv.c")'),
          own_accepts, "consumer `other.c`"),
-        ("a non-literal call before the first literal one is skipped", body_of('acceptable(rec, c) and acceptable(rec, "g_conv.c")'),
+        ("a non-literal call beside a literal one is refused", body_of('acceptable(rec, c) and acceptable(rec, "g_conv.c")'),
+         own_accepts, "plain string literal"),
+        ("P3 acceptable assigned a lambda", body_of('acceptable(rec, "g_conv.c")') + "acceptable = lambda v, c: True\n",
+         own_accepts, "not gate_template's predicate"),
+        ("P4 acceptable is a parameter", imp + "def f(rec, acceptable):\n    acceptable(rec, 'g_conv.c')\n    return rec['result'] == 'matched'\n",
+         own_accepts, "not gate_template's predicate"),
+        ("P5 acceptable bound by import-as", body_of('acceptable(rec, "g_conv.c")', imp + "import os.path as acceptable\n"),
+         own_accepts, "not gate_template's predicate"),
+        ("P6 gate_template rebound by import-as", "import json as gate_template\n" + body_of('gate_template.acceptable(rec, "g_conv.c")', ""),
+         own_accepts, "not gate_template's predicate"),
+        ("P8 acceptable assigned inside the site", imp + "def f(rec, c):\n    acceptable = other\n    acceptable(rec, 'g_conv.c')\n    return rec['result'] == 'matched'\n",
+         own_accepts, "not gate_template's predicate"),
+        ("clean: gate_template.acceptable after import gate_template", body_of('gate_template.acceptable(rec, "g_conv.c")', "import gate_template\n"),
          own_accepts, None),
         ("a row with an empty accepts map", body_of('acceptable(rec, "g_conv.c")'), {}, "the row's accepts map is empty"),
     ]

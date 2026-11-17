@@ -212,18 +212,12 @@ def _walk(tree: ast.AST) -> dict:
     outer, assigns, compares = got["outer"], got["assigns"], got["compares"]
     matches, displays, acceptable_in = got["matches"], got["displays"], got["acceptable_in"]
     loads = got["loads"]       # name -> how many times the module READS it (t-360 F2)
-    own_imports: dict = {}     # True: `acceptable` imported from gate_template; False: bound to anything else
+    bound: dict = {"acceptable": {}, "gate_template": {}}   # name -> {True: the gate_template one, False: any other}
 
     def rec(node, func, cls, in_display):
         t = type(node)
         is_display = False
-        if t is ast.ImportFrom:
-            for alias in node.names:
-                if (alias.asname or alias.name) == "acceptable":
-                    own_imports[node.module == "gate_template" and alias.name == "acceptable"] = True
         if t is ast.FunctionDef or t is ast.AsyncFunctionDef:
-            if node.name == "acceptable":
-                own_imports[False] = True       # a def of that name: not gate_registry's predicate
             if func == MODULE:
                 outer[node.name] = outer.get(node.name, 0) + 1
                 func = node.name
@@ -274,10 +268,45 @@ def _walk(tree: ast.AST) -> dict:
                     rec(value, func, cls, is_display)
 
     rec(tree, MODULE, False, False)
-    name_is_own = bool(own_imports.get(True)) and not own_imports.get(False)
+    # F3 (t-1218): EVERY binding of the two names counts; only `from gate_template import acceptable` /
+    # `import gate_template` is the predicate's own, any other Store binding (assign, annassign, augassign, for, with,
+    # walrus, arg, import alias, def, class, except name) makes the name not gate_template's
+    for n in ast.walk(tree):
+        tn = type(n)
+        if tn is ast.Name and type(n.ctx) is ast.Store:
+            names = [n.id]
+        elif tn is ast.arg:
+            names = [n.arg]
+        elif tn is ast.ClassDef or tn is ast.FunctionDef or tn is ast.AsyncFunctionDef:
+            names = [n.name]
+        elif tn is ast.ExceptHandler and n.name:
+            names = [n.name]
+        elif tn is ast.Import:
+            for alias in n.names:
+                bn = alias.asname or alias.name.split(".")[0]
+                if bn == "gate_template":
+                    bound["gate_template"][alias.name == "gate_template" and alias.asname is None] = True
+                elif bn == "acceptable":
+                    bound["acceptable"][False] = True
+            continue
+        elif tn is ast.ImportFrom:
+            for alias in n.names:
+                bn = alias.asname or alias.name
+                if bn == "acceptable":
+                    bound["acceptable"][n.module == "gate_template" and alias.name == "acceptable"] = True
+                elif bn == "gate_template":
+                    bound["gate_template"][False] = True
+            continue
+        else:
+            continue
+        for nm in names:
+            if nm in bound:
+                bound[nm][False] = True
+    name_is_own = bool(bound["acceptable"].get(True)) and not bound["acceptable"].get(False)
+    module_is_own = bool(bound["gate_template"].get(True)) and not bound["gate_template"].get(False)
     for calls in acceptable_in.values():
         for call in calls:
-            call["own"] = call["own"] and (name_is_own or not call["name"])
+            call["own"] = name_is_own if call["name"] else module_is_own
     return got
 
 
@@ -395,22 +424,23 @@ def _src(item: dict) -> str:
 
 
 def _consumer_problem(row: dict, calls: list):
-    """RD1-25 (F-b scoped to its row): why the FIRST literal `acceptable(...)` call of a converted accept site does
-    not belong to its row, or None. FR-59: a consumer the scan cannot read is refused, never passed."""
+    """RD1-25 (F-b scoped to its row): why ANY `acceptable(...)` call of a converted accept site does not belong to its
+    row, or None. A site has exactly one row (analyse refuses a second), so a foreign call is never legitimate there.
+    FR-59: a consumer the scan cannot read is refused, never passed, even beside a literal call."""
     rid = row.get("id")
     accepts = row.get("accepts") if isinstance(row.get("accepts"), dict) else {}
-    first = next((c for c in calls if c["literal"] is not None), None)
-    if first is None:
-        return ("calls acceptable() with a consumer the scan cannot read (a variable or an f-string) - pass the "
-                f"consumer as a plain string literal \"<gate>.<consumer>\" naming a key of row `{rid}`.accepts")
-    if not first["own"]:
-        return ("calls an `acceptable` that is not gate_registry's predicate - import it with "
-                "`from gate_template import acceptable` (or call gate_template.acceptable) and drop any other "
-                "binding of that name")
-    if first["literal"] not in accepts:
-        keys = ", ".join(f"`{k}`" for k in accepts) or "none (the row's accepts map is empty)"
-        return (f"calls acceptable() with consumer `{first['literal']}`, which is not a key of row `{rid}`.accepts "
-                f"- keys expected: {keys}; name this row's own consumer, or register the consumer on this row")
+    for call in calls:
+        if call["literal"] is None:
+            return ("calls acceptable() with a consumer the scan cannot read (a variable or an f-string) - pass the "
+                    f"consumer as a plain string literal \"<gate>.<consumer>\" naming a key of row `{rid}`.accepts")
+        if not call["own"]:
+            return (f"calls an `acceptable` (consumer `{call['literal']}`) that is not gate_template's predicate - "
+                    "import it with `from gate_template import acceptable` (or call gate_template.acceptable after "
+                    "`import gate_template`) and drop any other binding of that name")
+        if call["literal"] not in accepts:
+            keys = ", ".join(f"`{k}`" for k in accepts) or "none (the row's accepts map is empty)"
+            return (f"calls acceptable() with consumer `{call['literal']}`, which is not a key of row `{rid}`.accepts "
+                    f"- keys expected: {keys}; name this row's own consumer, or register the consumer on this row")
     return None
 
 
