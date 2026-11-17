@@ -159,3 +159,11 @@ Axis 34 (one road): the reason is read only through `PK.page_load`, written only
 
 - The reporter's `timed_out` card (card fork F-j-reporter) is unchanged (j2's).
 - `check_s5_stand_limits` other states (`unreadable`, `incomplete`) do not carry the kept reason: they concern the config's own recorded limit, not this measurement.
+
+## Canon fix (canon 44138582097, t-1206 attempt 2)
+
+1. selftest limits: `references/manual-evidence.md` page-limit sentence shortened (12130 -> 12112 B); `selftest.py --limits` PASS (its cap is unchanged, not raised).
+2. `test_gate_preflight` cache-ask count: the eighth `keyed_profiles()` ask is `_page_load_due` (the card's page-load measurement); the row now says eight and names it.
+3. `test_k3_the_rehearsal_with_a_derived_probe_writes_nothing`: the new write was the page-load registry row (`records/project-knowledge.json` + `state/project-knowledge.lock`) that gate A now writes in a story with e2e rows; this row judges the probe, so its world sets `gate_rehearsal.skip_stand_limits: true` (the page-load row has its own tests); the "no file added or removed" assertion is untouched. The page-load write is the card's declared second write.
+
+Witness: selftest --limits PASS; test_gate_preflight 1555/1555 ok; test_project_knowledge 200 passed; test_manual_capture 1236/1236; test_brief_pack 1196/1196; scenario cart-1 15/15. Scenarios dry-1, local-1-0108, local-1-arm-b: not finished within the wait (slow), code unchanged by this round.

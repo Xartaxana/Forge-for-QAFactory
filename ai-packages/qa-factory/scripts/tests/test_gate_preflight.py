@@ -3204,7 +3204,8 @@ def test_k3_a_stand_that_matches_is_derived_and_shown_with_its_argv() -> None:
 
 
 def test_k3_the_rehearsal_with_a_derived_probe_writes_nothing() -> None:
-    root = cmp2_story("qa-gate-k3-ro-", config=probes_on)
+    # C3-j1: the page-load row is the rehearsal's second sanctioned write (its own row, its own test); this row judges the probe only
+    root = cmp2_story("qa-gate-k3-ro-", config=lambda cfg: (probes_on(cfg), cfg["gate_rehearsal"].__setitem__("skip_stand_limits", True)))
     try:
         use_project(root)
         task = root / "qa-factory" / "artifacts" / CMP2_TICKET
@@ -3523,8 +3524,8 @@ def test_the_users_of_the_profile_keying_are_the_ones_the_report_lists() -> None
     check_eq("`s5_profiles` is called by controller (`_handed_cases`), by the rehearsal's own cache, by "
              "`stand_profiles` (t-300) and by story_step (`_hand_detail`, C2-3), and by no other script", sorted(users),
              ["controller.py", "gate_preflight.py", "gate_preflight.py", "story_step.py"])
-    check_eq("the rehearsal asks the cache in seven places: executor, toolchain, reporter, stand "
-             "limits, runtime probe, story ids, dependencies", inside, 7)
+    check_eq("the rehearsal asks the cache in eight places: executor, toolchain, reporter, stand "
+             "limits, runtime probe, story ids, dependencies, stand page load (C3-j1, _page_load_due)", inside, 8)
 
 
 def test_the_cmp2_rehearsal_is_the_one_a_person_can_read() -> None:
