@@ -1,3 +1,5 @@
+superseded by `20261117-p1b-gate-ask-judge-report.md` (t-1069); rows red now: gate_A/stop, gate_A/rework
+
 # P1-b N4:gates report (t-1037, builder)
 
 Worktree branch `worktree-agent-a4aebd95c3ca7d59c`. Files: `fixtures/stories/dry-1/exits/gates.json` (46 rows), `fixtures/stories/dry-1/seeds/gates.json` (`recipes: {}`), `fixtures/driver-exits/gates.json` (census), this report. `known_red/gates.json` is NOT created (see "needs a label"). Node comes back RED: 6 rows of `gate_A` need a label from the Lead.

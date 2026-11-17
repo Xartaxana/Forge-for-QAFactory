@@ -1138,12 +1138,13 @@ def row_facts(copy: World, before: dict, mid: dict, first: dict | None = None) -
     (`mid` = `counts` taken when the answer was written), the stub lines the row added since `before`, the conductor calls and passes after the
     answer, the routes the wrapper recorded during the row. `conductor_calls` is the C2 cut (card r2 section 4): the calls of the answer's OWN turn -
     from the answer up to the end of the first post-answer turn that wrote a new question row (`first` = `counts` taken then; the end when None) -
-    and a stub line marked `chosen: true` (the person's own choice, sent on by the driver) is not counted. The walker's re-sent answer is never
-    judged as the person's."""
+    and `conductor_chosen` counts, apart, those of them marked `chosen: true` (the person's own choice, sent on by the driver): `_check_c2` excuses them
+    only for a token whose price row names a role or a conductor executor (F3). The walker's re-sent answer is never judged as the person's."""
     stub = _state_rows(copy, "dry-stub.jsonl", "the stub's journal")
+    cut = [r for r in stub[mid["stub"]:(first["stub"] if first else None)] if r.get("conductor")]
     return {"answer_records": _state_rows(copy, "driver-answers.jsonl", "the driver's answer records")[mid["answers"]:],
             "stub_added": [{"run_class": r.get("run_class"), "conductor": bool(r.get("conductor"))} for r in stub[before["stub"]:]],
-            "conductor_calls": sum(1 for r in stub[mid["stub"]:(first["stub"] if first else None)] if r.get("conductor") and r.get("chosen") is not True),
+            "conductor_calls": len(cut), "conductor_chosen": sum(1 for r in cut if r.get("chosen") is True),
             "passed_lines": len(_state_rows(copy, "passed-by-person.jsonl", "the passes by the person's word")) - mid["passed"],
             "routes_added": [str(r.get("route")) for r in _state_rows(copy, "dry-routes.jsonl", "the routes the wrapper recorded")[before["routes"]:]]}
 
@@ -1309,7 +1310,7 @@ def run_exit_row(world: World, row: dict, recipes: dict, answers: dict, story_di
         questions = _state_rows(copy, "driver-questions.jsonl", "the driver's question records")
         facts["priced_seen"] = [{"key": r.get("key"), "q": r.get("q"), "prompt": r.get("prompt")}
                                 for r in _state_rows(copy, "dry-priced.jsonl", "the price keys the wrapper recorded")]
-        facts["ask_reraised"] = bool(ask and facts["ask_ordinal"] is not None and ask_row(questions[:facts["ask_ordinal"]], ask) is not None)
+        facts["ask_reraised"] = bool(ask and str(ask.get("held_lead") or "").strip())      # "held" is the driver's own marker, never a repeated triple (a seam ask repeats its plain ask's)
         if not ask:
             return facts
         question = copy.task_root / "state" / "driver-question.md"

@@ -1367,6 +1367,7 @@ class _Ctx:
     class_of_subject: str
     classes: tuple
     section: str = ""
+    prices: dict = field(default_factory=dict)
 
     @property
     def changed(self):
@@ -1379,6 +1380,15 @@ def _window(facts: dict) -> list:
     return [r for r in facts.get("priced_window") or [] if isinstance(r, dict) and r.get("prompt") is not True]
 
 
+def _chosen_excused(ctx: _Ctx) -> bool:
+    """A conductor call marked `chosen` (the person's own choice, sent on by the driver) is no conductor reading the answer ONLY when the row's token is
+    one that goes to a role or the conductor by design: its price row (under the row's key) has a `factory` that is neither `record` nor `nothing`. A
+    token with no price row, or a row with no `factory`, is an unknown and excuses nothing (critic t-1077 F3; card r2 section 4 C2 amended)."""
+    rows = ctx.prices.get(ctx.name, []) if ctx.section == "key" else []
+    found = next((r for r in rows if ctx.token and _norm(r.get("answer")) == _norm(ctx.token)), None)
+    return str((found or {}).get("factory") or "") not in ("", "record", "nothing")
+
+
 def _check_c2(ctx: _Ctx) -> tuple:
     facts, ask, token = ctx.facts, ctx.ask, ctx.token
     window = _window(facts)
@@ -1386,6 +1396,8 @@ def _check_c2(ctx: _Ctx) -> tuple:
     offered = list((ask or {}).get("offered") or []) or [a for a in (record or {}).get("answers") or []]
     records = [r for r in facts.get("answer_records") or [] if r.get("question_sha") == facts.get("ask_sha")]
     whys, calls = list(facts.get("conductor_whys") or []), int(facts.get("conductor_calls") or 0)
+    if _chosen_excused(ctx):
+        calls -= int(facts.get("conductor_chosen") or 0)
     if not ask:
         return "fail", "no question was pending at the target, so no variant was offered"
     if token and not offered:
@@ -1452,6 +1464,8 @@ def _k15_absent(name: str, facts: dict) -> str:
     ordinal, seen, window = facts.get("ask_ordinal"), facts.get("priced_seen") or [], facts.get("priced_window") or []
     if ordinal is None:
         return f"key not observed: expected {name}; the pending ask has no question record; its price records cannot be identified"
+    # the window clause guards a HAND-BUILT fact: `dry_world.ask_window` never puts a `prompt: true` record in the window, so production reaches this edge
+    # through `priced_seen` alone (judge row K15 (10))
     if any(r.get("prompt") is True and r.get("key") == name for r in window) or any(
             r.get("prompt") is True and r.get("key") == name and r.get("q") == ordinal for r in seen):
         return (f"key not observed: expected {name}; only a conductor prompt priced {name} at question {ordinal}; "
@@ -1542,7 +1556,7 @@ def judge_row(row: dict, facts: dict, *, prices: dict, class_of_subject: str = "
     if not seed.get("reached"):
         return Outcome("fail", f"seed did not reach {name}: {dry_stub.cut(seed.get('detail', ''), 300)}")
     ctx = _Ctx(facts, name, (row.get("answer") or {}).get("token"), facts.get("ask"), facts.get("fp_ask"), facts.get("fp_after"), class_of_subject, classes,
-               _section)
+               _section, prices)
     na = (row.get("expect") or {}).get("na") or {}
     changed = ctx.changed
     results: list = []        # (check, "ok" | "fail" | "note", detail)
@@ -2827,11 +2841,13 @@ def _walker_cases(case, tmp) -> None:
         ("K15 (1): the window holds nothing, an earlier ask's record exists -> FAIL naming it", {"priced_window": [], "ask_ordinal": 1,
          "priced_seen": [{"key": "s1.review", "q": 0, "prompt": False}]}, "fail", "an earlier ask's record (s1.review) is not read"),
         ("K15 (2): the ask offered a token outside the key's price rows -> FAIL", {"ask": {**ask, "offered": ["agree", "zzz"]}}, "fail", "offered tokens ['zzz']"),
-        ("K15 (10): a window holding only a conductor-prompt record of the key -> FAIL (B3)", {"priced_window": [{"key": "p.key", "answers": ["a", "b"], "q": 0, "prompt": True}]},
-         "fail", "only a conductor prompt priced p.key at question 0"),
+        ("K15 (10): the conductor-prompt record of the key only in `priced_seen` (the shape `ask_window` leaves: an empty window) -> FAIL (B3, F1)",
+         {"priced_window": [], "priced_seen": [{"key": "p.key", "q": 0, "prompt": True}], "ask_ordinal": 0}, "fail", "only a conductor prompt priced p.key at question 0"),
         ("K15: no ordinal (no question row matches the pending ask) -> FAIL, never read from another ask", {"priced_window": [], "ask_ordinal": None},
          "fail", "the pending ask has no question record"),
         ("K15: a re-raised ask with an empty window -> FAIL naming the held re-raise", {"priced_window": [], "ask_ordinal": 2, "ask_reraised": True}, "fail", "raised again without pricing (held); question 2"),
+        ("K15 (F4): a seam ask with an empty window and no `held_lead` (`ask_reraised` false) -> the plain observed-none text, never the held text",
+         {"priced_window": [], "ask_ordinal": 2, "ask_reraised": False}, "fail", "observed none at question 2"),
         ("K15: records with no integer q -> FAIL naming the older spy", {"priced_window": [], "priced_seen": [{"key": "p.key", "q": None}]}, "fail", "carry no ask ordinal (older spy)"),
 
         ("E18: a stub line with run_class '' is FAIL", {"stub_added": [{"run_class": ""}]}, "fail", "run_class"),
@@ -2876,14 +2892,39 @@ def _walker_cases(case, tmp) -> None:
             got = judged(row, **facts)
             return None if got.kind == kind and all(n in got.detail for n in needles) else f"got {got}"
 
-    @case("row_facts: a `chosen` conductor call is not counted (6); a call beyond the first post-answer turn that wrote a question row is not counted (7)")
+    @case("row_facts: every conductor call of the cut is counted and the `chosen` ones apart (6); a call beyond the first post-answer turn that wrote a question row is not counted (7)")
     def _():
         W, world = fake_world()
         lines = [{"conductor": "conductor", "chosen": True}, {"conductor": "conductor", "chosen": False}, {"dispatch": "D1"}, {"conductor": "conductor"}]
         _write(world.task_root / "state" / "dry-stub.jsonl", "".join(json.dumps(r) + "\n" for r in lines))
         mid, before = {"stub": 0, "answers": 0, "passed": 0}, {"stub": 0, "routes": 0}
-        got = [W.row_facts(world, before, mid, first)["conductor_calls"] for first in (None, {"stub": 1}, {"stub": 2}, {"stub": 3})]
-        return None if got == [2, 0, 1, 1] else f"got {got}"
+        got = [tuple(W.row_facts(world, before, mid, first)[k] for k in ("conductor_calls", "conductor_chosen")) for first in (None, {"stub": 1}, {"stub": 2}, {"stub": 3})]
+        return None if got == [(3, 1), (1, 1), (2, 1), (2, 1)] else f"got {got}"
+
+    # F3: a `chosen` conductor call is excused in C2 only for a token whose price row names an executor other than `record` / `nothing`
+    c2_prices = {"p.key": [{"answer": "a", "factory": "stages_again"}, {"answer": "b", "factory": "nothing"}, {"answer": "r", "factory": "record"},
+                           {"answer": "c"}, {"answer": "agree"}, {"answer": "flip"}]}
+    for label, token, calls, chosen, kind in (
+            ("a rework-class token (stages_again) with one chosen call: excused -> PASS", "a", 1, 1, "pass"),
+            ("a `record` token with a chosen call: counted -> FAIL (the misrouted approve)", "r", 1, 1, "fail"),
+            ("a `nothing` token with a chosen call: counted -> FAIL", "b", 1, 1, "fail"),
+            ("a token whose price row names no factory with a chosen call: counted -> FAIL", "c", 1, 1, "fail"),
+            ("a token with no price row with a chosen call: counted -> FAIL (an unknown is never a pass)", "zzz", 1, 1, "fail"),
+            ("a rework-class token with two calls, one chosen: the other is counted -> FAIL", "a", 2, 1, "fail")):
+        @case(f"judge_row: C2 (F3): {label}")
+        def _(token=token, calls=calls, chosen=chosen, kind=kind):
+            row = wrow("p.key/" + token, answer={"token": token}, expect={"checks": ["C2"]})
+            got = judge_row(row, {**good, "ask": {**ask, "offered": [token]}, "conductor_calls": calls, "conductor_chosen": chosen}, prices=c2_prices)
+            counted = "a conductor call followed the answer and its why is not on record" in got.detail
+            return None if got.kind == kind and counted == (kind == "fail") else f"got {got}"
+
+    @case("run_exit_row: `ask_reraised` is the driver's own `held_lead` marker, not a repeated (kind, stage, dispatch) triple (F4)")
+    def _():
+        got = []
+        for first in (seam, dict(seam, held_lead="Your answer was not clear.")):
+            facts, _calls = exit_row(first, [(None, 1)])
+            got.append(facts.get("ask_reraised"))
+        return None if got == [False, True] else f"got {got}"
 
     @case("judge_group: a PASS line prints its n/a declarations, and the NUMBER na counts them (F9)")
     def _():

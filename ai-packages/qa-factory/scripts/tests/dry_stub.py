@@ -69,7 +69,24 @@ def parse_moves(prompt: str) -> list:
 
 
 CHOSEN_HEADING = "## The person's choice"     # the heading `driver_conductor._conductor_text` puts before the paragraph of a token the person chose
+REFUSAL_HEADING = "## The refusal"              # the heading of the driver's frame before the refusal text (`driver_conductor`, the prompt of `_ask_conductor`)
+FRAME_HEADING = "## `story_step.py where`"       # the next heading OF THE FRAME: the refusal text carries headings of its own, so the section ends here
 STUB_ONLY = ("variant", "execute")      # keys of a row's `conductor` control the stub itself reads; they are never part of the verdict it prints
+
+
+def refusal_chars(prompt: str):
+    """The length of the text the driver put between its `## The refusal` heading and its next frame heading (`## `story_step.py where``): the section
+    the driver cuts at 6000 characters. The measured length of the cut, not the prompt's (`prompt_chars` also holds the files and `where`). A pipe on
+    Windows turns every line end into CR LF: the length is taken on the text with LF line ends, as the driver cut it. `None` (never 0) when the prompt has no
+    such heading pair: the length is then unknown (FR-41)."""
+    text = prompt.replace("\r\n", "\n")
+    head = f"\n{REFUSAL_HEADING}\n"
+    start = text.find(head)
+    if start < 0:
+        return None
+    start += len(head)
+    end = text.find(f"\n\n{FRAME_HEADING}\n", start)
+    return None if end < 0 else end - start
 
 
 def move_option(move: str, token: str) -> dict:
@@ -1026,10 +1043,11 @@ def claude_main(argv: list) -> int:
         result, session = "I looked.\n" + json.dumps(verdict), f"stub-conductor-{n}"
         # `chosen`: the prompt carries a line EQUAL to the heading the driver appends for the person's own choice (`driver_conductor._conductor_text`; the
         # heading is not the last one in the prompt and a prompt cut at 6000 characters can lose it); the walker's C2 does not count such a call as the
-        # conductor reading the answer. `prompt_chars`: the prompt's length, so a cut heading is reported with the number (a product finding, never a stub gap).
+        # conductor reading the answer. `prompt_chars`: the prompt's length. `refusal_chars`: the length of the `## The refusal` section alone (`refusal_chars`), which is what
+        # the driver cuts at 6000: a cut heading is reported with that number (a product finding, never a stub gap).
         journal(task_dir, dict({"ts": now(), "conductor": "conductor", "n": n, "role": "", "wrote": [], "live_only": [], "action": verdict.get("action"),
                                 "prompt_sha": hashlib.sha256(prompt.encode("utf-8")).hexdigest(), "run_class": os.environ.get("STORY_RUN_CLASS", ""),
-                                "chosen": CHOSEN_HEADING in prompt.splitlines(), "prompt_chars": len(prompt)},
+                                "chosen": CHOSEN_HEADING in prompt.splitlines(), "prompt_chars": len(prompt), "refusal_chars": refusal_chars(prompt)},
                                **({"executed": done} if done else {})))
     ns: dict = {}
     exec(T.RECEIPT, ns)
@@ -1676,6 +1694,17 @@ def selftest_n2(tmp: Path) -> None:
     plain_row = rows(task_dir)[-1]
     check_eq("N2 edge: a prompt with a line equal to `## The person's choice` (not the last heading) journals chosen true, one without chosen false; both journal prompt_chars",
              (chosen_row["chosen"], plain_row["chosen"], plain_row["prompt_chars"], chosen_row["prompt_chars"] > plain_row["prompt_chars"]), (True, False, len(prompt), True))
+    frame = lambda body, nl="\n": nl.join(["Task: x.", "", REFUSAL_HEADING, body, "", FRAME_HEADING, "where"]) + nl      # noqa: E731 - the driver's frame, whole
+    cases = (("a frame holding a refusal of 6000", frame("r" * 6000), 6000), ("the same frame through a Windows pipe (\\r\\n)", frame("r" * 6000, "\r\n"), 6000),
+             ("a refusal with headings of its own is measured to the frame heading", frame("a\n## Moves open here\nb"), len("a\n## Moves open here\nb")),
+             ("an empty refusal is 0", frame(""), 0), ("no `## The refusal` heading is null, never 0", prompt, None),
+             ("no frame heading after it is null, never 0", f"Task: x.\n\n{REFUSAL_HEADING}\nrefusal\n", None))
+    got = []
+    for _label, text, _want in cases:
+        rc, answer, err = call(project, control, text)
+        got.append(rows(task_dir)[-1]["refusal_chars"])
+    check_eq("N2 edge (F2): the stub journals `refusal_chars`, the length of the `## The refusal` section up to the frame heading; null when the heading pair is absent",
+             got, [want for _label, _text, want in cases])
     rc, answer, err = call(project, dict(control, conductor={"variant": "no-such-token"}), prompt)
     verdict = json.loads(answer["result"].split("\n", 1)[1])
     check("N2 edge: a variant the prompt does not offer is a `stop` naming it, never an invented option", verdict["action"] == "stop" and "no-such-token" in verdict["did"], str(verdict))
@@ -1717,8 +1746,8 @@ def selftest_n2(tmp: Path) -> None:
     import ast
     import driver_conductor
 
-    def callers(source: str, name: str) -> list:
-        """The names of the functions that contain a call `self.<name>(` (innermost def)."""
+    def callers(source: str, name: str) -> tuple:
+        """`(hits, defs)`: the names of the functions that contain a call `self.<name>(` (innermost def), and the names of every def in the source."""
         class Walk(ast.NodeVisitor):
             def __init__(self):
                 self.stack, self.hits, self.defs = [], [], []

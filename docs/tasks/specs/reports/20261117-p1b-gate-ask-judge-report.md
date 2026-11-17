@@ -148,3 +148,60 @@ See the commit message on the branch (architecture / judgment / tests-over lines
 
 ## 11. Needed beyond the manifest
 `docs/tasks/specs/20261117-p1b-gate-ask-judge-card-r2.md` pages 407-551 (second read page), `scripts/driver_conductor.py` (235-250, 314-326, 679-687), `scripts/driver_machine.py` (2345-2450), `scripts/gate_brief.py`, `scripts/driver_gates.py` (GATE_STAGE_OF), `scripts/controller.py` (REPAIR_CAUSES), `scripts/no_move.py` (check_args), `scripts/driver_journal.py`.
+
+## Fix round after critic t-1077 (t-1069 attempt 2; verdict `docs/tasks/specs/reviews/t-1077-p1b-n4-gates-topic-code.md`)
+
+Tree `C:/QAFactory/forge-repo/.claude/worktrees/agent-a4aebd95c3ca7d59c`. Step 0: `git fetch origin`, `git merge origin/main` -> no conflict; merge commit `bd3a91b7` (message amended to carry the architecture / judgment / axes lines). One more commit follows with this round (sha in the handback line, not pushed).
+
+### B1 - the section 9 rework control, run once alone (`gate_A/rework`, a one-row copy of exits/seeds in the scratchpad passed by `--exits-root`; a probe wrapper prints the stub rows)
+`stub.conductor` on rows `gate_A/rework` and `gate_B/rework`: `ask_person`, ONE option = `dry_stub.move_option("rework_stage","rework")` printed as data (price lines `factory` / `person` / `delivery` as the function resolved them) + `args` taken from the closed list the prompt printed: `stage S4, role qa-case-designer, cases [TC-1], cause question_answer` (the prompt's list: `S4 -> qa-case-critic | qa-case-designer`, `cases TC-1, TC-2`, causes `test_defect | mechanical | ... | question_answer | ...`).
+```
+STUBROWS [{"n": 1, "action": "ask_person", "chosen": false, "prompt_chars": 25317, "refusal_chars": 6000}, {"n": 2, "action": "ask_person", "chosen": false, "prompt_chars": 25323, "refusal_chars": 6000}]
+ROWFACTS {... 'answer_records': [{'kind': 'gate_A', 'stage': 'S4', 'question_sha': '1a477e5a...', 'words': 'rework', 'token': 'rework', 'words_file': 'state/words/driver-answer-1794906541370.txt'}], 'conductor_calls': 1, 'conductor_chosen': 0}
+FAIL dry-1/exits:gates/gate_A/rework — C2: a conductor call followed the answer and its why is not on record
+```
+Exactly the single red of the verdict (no "no answer row", no "changed nothing": the answer row IS written, C3 holds). `refusal_chars` == 6000 on both conductor calls (n 2 is the answer's own call; `chosen: false`, so the heading is cut), `prompt_chars` 25323.
+`seam_rework`: NOT visible as a key of `driver-state.json` at the end of any of the three answer turns (printed `False` three times; the driver drops the record once the rework step has run). Seen by its effect: turn 3 output `accepted S4-qa-case-designer-2: 9 evidence files, stage open - next role of this stage` with the note `created by a rework or relaunch packet` (the author role ran again), and C3 did not fail. So "seam_rework recorded" is inferred from the rework executing, not observed as a key.
+
+### Findings F1-F6 and the labels
+- F1: judge row K15 (10) now `priced_window: []`, `priced_seen: [{key p.key, q 0, prompt true}]`, `ask_ordinal 0` -> FAIL "only a conductor prompt priced p.key at question 0". The window clause of `_k15_absent` is kept with a comment (hand-built fact guard).
+- F2: the stub journals `refusal_chars` beside `prompt_chars` (`dry_stub.refusal_chars`: text between the `## The refusal` heading and the FRAME's next heading `## `story_step.py where``; the refusal text has headings of its own). Null (never 0) when the pair is absent. Line ends are normalised CRLF -> LF before measuring: the driver's prompt reaches the stub with CR LF on Windows (measured: my text-mode dump held a doubled CR), which would add one char per line and make "== 6000" unreachable. Selftest row `N2 edge (F2)`: 6 cases (6000; the same through CRLF; a refusal with headings of its own; empty -> 0; no refusal heading -> None; no frame heading -> None), expected values from the definition.
+- F3 (Lead decided, amends card section 4 C2): `row_facts` returns `conductor_calls` (all of the cut) and `conductor_chosen`; `_chosen_excused` + `_check_c2` excuse chosen calls only when the row key's price row for the token has a `factory` that is neither `record`, `nothing` nor empty; no price row / no factory -> not excused. Judge rows: rework-class token PASS; `record` FAIL; `nothing` FAIL; no factory FAIL; no price row FAIL; rework-class with 2 calls (1 chosen) FAIL. The `row_facts` selftest (6)(7) re-expressed on `(calls, chosen)` = `[(3,1),(1,1),(2,1),(2,1)]` (counts by definition from its 4 stub lines).
+- F4: `ask_reraised` = non-empty `asked.held_lead`. A judge row (plain observed-none text at ordinal 2, `ask_reraised` false) and a `run_exit_row` case (seam without `held_lead` -> False, with it -> True).
+- F5: finding `plans/piles/live-run-fvf/findings/20261117-p1b-walker-post-answer-window-one-boundary.md`, node row FV2-95, README row. Each `why_unreached` resting on walker defect 3 now ends `[queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]`: 11 in `fixtures/driver-exits/gates.json` (5 routes + 6 exit_gate joints) and the 5 route walk rows of `fixtures/stories/dry-1/exits/gates.json` (same text, kept equal).
+- Finding (i) `20261117-p1b-conductor-refusal-cut-loses-the-persons-choice.md`, node row FV2-94, README row (FV2-93 was the last id of the table after the merge; `FV2-94|FV2-95` had 0 hits in plans/ and docs/ before).
+- F6: the superseded line at the top of `20261117-p1b-n4-gates-report.md`.
+- Labels `fixtures/driver-exits/known_red/gates.json` (new, `pins.known_red: 2`): `gate_A/stop` -> FV3-16 and `gate_A/rework` -> FV2-94, raised_by texts verbatim from Key 4(a) / 4(b); `gate_A/rework` labelled because the step-1 run showed exactly the predicted single red with refusal_chars 6000. `gate_B/rework` and `gate_B/stop`: NO label - unreachable (`after:FV3-20`, start snapshot S8 does not exist); gate_B/stop will turn red like gate_A/stop once S8 exists.
+- Notes of the verdict: applied: the `callers()` annotation/docstring in the dry_stub selftest (tuple). Not applied: N1 (cosmetic, not a one-line correction), N2, N6, N7 (verdict: acceptable), N3 (the Lead's call: observing C2 at free words), N4 and N5 (belong to node R1, the Lead's; N5 should be a line there).
+
+### Witness (each once, after all edits; verbatim tails)
+```
+( cd pkg && python -B scripts/tests/dry_exits.py --selftest )  -> dry_exits selftest: 201/201 cases
+( cd pkg && python -B scripts/tests/dry_stub.py --selftest )   -> === dry_stub --selftest: 226/226 ok ===
+( cd pkg && python -B scripts/tests/dry_exits.py --check )     -> NUMBER na: 10 declarations (C2 3, C3 6, K15 1) ... dry_exits --check: 0 discrepancies
+( cd pkg && python -B scripts/selftest.py --limits --lang )    -> PASS limits: SKILL.md / agents / references within size caps | PASS limits: every mandatory role rule of design/role-rules.json holds in its carrier | === qa-factory selftest: 4/4 ok ===
+python -B T/tools/piles.py --repo T check                      -> piles check: ok   (run after `git add` of the pile files; before staging it printed "nothing staged -- nothing to check")
+( cd pkg && python -B scripts/tests/test_scenario_dry_1.py )   -> === scenario dry-1: 9/9 ok === rc=0
+( cd pkg && python -B scripts/tests/test_scenario_dry_1.py --part exits:gates )   (the gates group once whole, rc=0)
+NOTE dry-1/exits:gates/prefix: reached S4 in 371.4 s; snapshots S0, S1, S2, S3, S4, gate-A; ...
+NOTE dry-1/exits:gates/gate_A/rework: red evidence: C2: a conductor call followed the answer and its why is not on record
+PASS dry-1/exits:gates/gate_A/approve
+PASS dry-1/exits:gates/gate_A/retry
+NOTE dry-1/exits:gates/gate_A/stop: red evidence: C2: the driver recorded no answer for this ask (no driver-answers.jsonl row with its question_sha; 0 row(s) added); n/a C3: factory nothing: the unchanged-state check is F-5 (b), queued at finding R1-a (live-run-fvf)
+PASS dry-1/exits:gates/gate_A/free words
+PASS dry-1/exits:gates/gate_A/empty
+NOTE dry-1/exits:gates/gate_B/{rework,approve,retry,stop,free words,empty}: after:FV3-20: its start snapshot S8 was not made
+NOTE dry-1/exits:gates/gate_A/words:questions-deferred: live_only: measured (t-1037): ...
+NOTE dry-1/exits:gates/known_red: known red: gate_A/rework -> FV2-94
+NOTE dry-1/exits:gates/known_red: known red: gate_A/stop -> FV3-16
+PASS dry-1/exits:gates/outcomes
+=== scenario dry-1: 5/5 ok ===
+```
+Not run: the `exits:s0` and `exits:s1-s4` groups (not in the dispatch). F3 can change them only if a row there has a `chosen` conductor call with a token that has no rework-class price row; the BATCH CANON covers them.
+
+### Deviations and facts
+- A temporary dump line in `dry_stub.py` (the prompt to a file) was used for the first probe to read the closed args list; restored by byte copy (sha256 `01a65d7f...84ae6` before and after the restore) before the real edits.
+- The owned `.py` and fixture files have CRLF; edits kept it.
+- The probe wrapper and the one-row root live in the scratchpad (`t1069_probe.py`, `root/`), not committed.
+- Analogs: the answer-row class (stop_here, seam_chosen, record_seam_rework, no_move ending in a Person) is the Lead's product node (FV3-16 widened); gate_B rows got the same control as gate_A (done); s5 and s6-s9 gate key rows take the judge in their own nodes.
+- Needed beyond the manifest: card r2 section 9 (lines 318-334), `scripts/driver_conductor.py` (300-340), `scripts/no_move.py` (args list), `references/question-prices.json`, `scripts/tests/test_scenario_dry_1.py` (the `--exits-root` / `--ledger` doors).

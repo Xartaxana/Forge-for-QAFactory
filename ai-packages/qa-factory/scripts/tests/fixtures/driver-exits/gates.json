@@ -20,7 +20,7 @@
   },
   "form_vocabulary": {
    "reach": "live_only",
-   "why_unreached": "measured (t-1037 probe: start S0, token agree at s1_review, stub qa-requirements-tester verdict bogus): FAIL route not observed; the walker's post-answer turn is one driver boundary and ends before the S2 role runs, so a refusal of a role's handoff is never read"
+   "why_unreached": "measured (t-1037 probe: start S0, token agree at s1_review, stub qa-requirements-tester verdict bogus): FAIL route not observed; the walker's post-answer turn is one driver boundary and ends before the S2 role runs, so a refusal of a role's handoff is never read [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "gate_stage": {
    "reach": "live_only",
@@ -28,11 +28,11 @@
   },
   "handoff_form": {
    "reach": "live_only",
-   "why_unreached": "measured (t-1037 probe: start S0, token agree at s1_review, stub qa-requirements-tester result_text 'I did the work.'): FAIL route not observed; the walker's post-answer turn is one driver boundary and ends before the S2 role runs, so a refusal of a role's handoff is never read"
+   "why_unreached": "measured (t-1037 probe: start S0, token agree at s1_review, stub qa-requirements-tester result_text 'I did the work.'): FAIL route not observed; the walker's post-answer turn is one driver boundary and ends before the S2 role runs, so a refusal of a role's handoff is never read [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "handover_form": {
    "reach": "live_only",
-   "why_unreached": "measured (t-1037 probe: start S0, token agree at s1_review, stub qa-requirements-tester verdict bogus (the control that leaves a form untouched is not in the stub grammar)): FAIL route not observed; the walker's post-answer turn is one driver boundary and ends before the S2 role runs, so a refusal of a role's handoff is never read"
+   "why_unreached": "measured (t-1037 probe: start S0, token agree at s1_review, stub qa-requirements-tester verdict bogus (the control that leaves a form untouched is not in the stub grammar)): FAIL route not observed; the walker's post-answer turn is one driver boundary and ends before the S2 role runs, so a refusal of a role's handoff is never read [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "known_false": {
    "reach": "live_only",
@@ -45,11 +45,11 @@
   },
   "marked_repair": {
    "reach": "live_only",
-   "why_unreached": "measured (t-1037 probe: start S0, token agree at s1_review, stub qa-requirements-tester verdict bogus): FAIL route not observed; the walker's post-answer turn is one driver boundary and ends before the S2 role runs, so a refusal of a role's handoff is never read"
+   "why_unreached": "measured (t-1037 probe: start S0, token agree at s1_review, stub qa-requirements-tester verdict bogus): FAIL route not observed; the walker's post-answer turn is one driver boundary and ends before the S2 role runs, so a refusal of a role's handoff is never read [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "missing_output": {
    "reach": "live_only",
-   "why_unreached": "measured (t-1037 probe: start S0, token agree at s1_review, stub qa-requirements-tester verdict bogus (no stub control removes an output file)): FAIL route not observed; the walker's post-answer turn is one driver boundary and ends before the S2 role runs, so a refusal of a role's handoff is never read"
+   "why_unreached": "measured (t-1037 probe: start S0, token agree at s1_review, stub qa-requirements-tester verdict bogus (no stub control removes an output file)): FAIL route not observed; the walker's post-answer turn is one driver boundary and ends before the S2 role runs, so a refusal of a role's handoff is never read [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "not_in_build": {
    "reach": "live_only",
@@ -67,27 +67,27 @@
  "joints": {
   "exit_gate:scoped": {
    "reach": "live_only",
-   "why_unreached": "estimate, not verified: same road as exit_gate:digest (measured: the joint id is not in the driver's `resume <dispatch>: <class words>` line and the post-answer turn ends before the S2 role stops); this joint was not tried itself"
+   "why_unreached": "estimate, not verified: same road as exit_gate:digest (measured: the joint id is not in the driver's `resume <dispatch>: <class words>` line and the post-answer turn ends before the S2 role stops); this joint was not tried itself [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "exit_gate:detector_errors": {
    "reach": "live_only",
-   "why_unreached": "estimate, not verified: same road as exit_gate:digest (measured: the joint id is not in the driver's `resume <dispatch>: <class words>` line and the post-answer turn ends before the S2 role stops); this joint was not tried itself"
+   "why_unreached": "estimate, not verified: same road as exit_gate:digest (measured: the joint id is not in the driver's `resume <dispatch>: <class words>` line and the post-answer turn ends before the S2 role stops); this joint was not tried itself [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "exit_gate:witness_errors": {
    "reach": "live_only",
-   "why_unreached": "estimate, not verified: same road as exit_gate:digest (measured: the joint id is not in the driver's `resume <dispatch>: <class words>` line and the post-answer turn ends before the S2 role stops); this joint was not tried itself"
+   "why_unreached": "estimate, not verified: same road as exit_gate:digest (measured: the joint id is not in the driver's `resume <dispatch>: <class words>` line and the post-answer turn ends before the S2 role stops); this joint was not tried itself [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "exit_gate:digest": {
    "reach": "live_only",
-   "why_unreached": "measured (t-1037 probe: start S0, token agree at s1_review, stub qa-requirements-tester result_text 'I did the work.'): FAIL joint not observed; the joint id is not in the driver's `resume <dispatch>: <class words>` line, the only refusal text the walker reads, and the post-answer turn ends before the S2 role stops"
+   "why_unreached": "measured (t-1037 probe: start S0, token agree at s1_review, stub qa-requirements-tester result_text 'I did the work.'): FAIL joint not observed; the joint id is not in the driver's `resume <dispatch>: <class words>` line, the only refusal text the walker reads, and the post-answer turn ends before the S2 role stops [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "exit_gate:required_outputs": {
    "reach": "live_only",
-   "why_unreached": "estimate, not verified: same road as exit_gate:digest (measured: the joint id is not in the driver's `resume <dispatch>: <class words>` line and the post-answer turn ends before the S2 role stops); this joint was not tried itself"
+   "why_unreached": "estimate, not verified: same road as exit_gate:digest (measured: the joint id is not in the driver's `resume <dispatch>: <class words>` line and the post-answer turn ends before the S2 role stops); this joint was not tried itself [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "exit_gate:text_end_after_handback": {
    "reach": "live_only",
-   "why_unreached": "estimate, not verified: same road as exit_gate:digest (measured: the joint id is not in the driver's `resume <dispatch>: <class words>` line and the post-answer turn ends before the S2 role stops); this joint was not tried itself"
+   "why_unreached": "estimate, not verified: same road as exit_gate:digest (measured: the joint id is not in the driver's `resume <dispatch>: <class words>` line and the post-answer turn ends before the S2 role stops); this joint was not tried itself [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "execution_request:active_dispatch": {
    "reach": "unwalked",
