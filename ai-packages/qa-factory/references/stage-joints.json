@@ -4067,7 +4067,7 @@
       "check": "validate_artifacts:check_cell_counts",
       "stages": [
         "S2",
-        "S4"
+        "S3"
       ],
       "requirement": "A table row never holds more cells than its header; a bar inside a cell is written as `|`.",
       "door": "edit the file and the field the refusal line names",
@@ -4077,7 +4077,6 @@
       "producers": [
         {
           "roles": [
-            "qa-case-designer",
             "qa-requirements-tester",
             "qa-test-strategist"
           ],
@@ -5392,7 +5391,6 @@
       "producers": [
         {
           "roles": [
-            "qa-case-critic",
             "qa-code-critic"
           ],
           "field": "the handover form of the dispatch",
