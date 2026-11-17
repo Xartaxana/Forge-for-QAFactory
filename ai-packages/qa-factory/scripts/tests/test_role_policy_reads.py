@@ -253,13 +253,13 @@ HEAD_TABLES = [
     ("a valid new word is added (AT the rule)", {"reader_heads": {"role_read": ["bat"]}}, FLOOR + ("bat",)),
     ("a repeat of the floor adds nothing", {"reader_heads": {"role_read": ["rg", "RG"]}}, FLOOR),
     ("writers and launchers are never read heads (launchers of run_forms and listed writers too)",
-     {"reader_heads": {"role_read": ["python", "bash", "pwsh", "node", "PYTHON", "Bash", "timeout", "uv", "rm", "Copy-Item", "ICM"]}}, FLOOR),
+     {"reader_heads": {"role_read": ["python", "bash", "pwsh", "node", "PYTHON", "Bash", "timeout", "uv", "rm", "Copy-Item", "ICM", "copy", "Cpi", "MOVE", "md"]}}, FLOOR),
     ("a path, a suffix, a glob, a blank, a non-string are skipped (BEYOND the rule)",
      {"reader_heads": {"role_read": ["/usr/bin/rg", "cat.exe", "*", "", "a b", 5, None, "1x"]}}, FLOOR),
 ]
 # heads the real guard refuses: the rstrip class, a path, .exe and case variants, the writers
 REFUSED_HEADS = ["catx f", "lsx", "rgx -n a f.json", "/usr/bin/rg -n a f.json", "cat.exe f", "CAT f", "Rg -n a f",
-                 "bash -c ls", "pwsh -c ls", "node x.js", "get-content f", "Get-Contentx f"]
+                 "bash -c ls", "pwsh -c ls", "node x.js", "get-content f", "Get-Contentx f", "copy secret.json out.json"]
 
 
 def the_read_heads_are_data() -> None:

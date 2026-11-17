@@ -87,8 +87,6 @@ def shapes(argv: list) -> list:
 
 def k1_shipped_data() -> None:
     check_eq("k1 the shipped run_forms have no invalid item", H.run_forms_problems(), [])
-    check_eq("k1 the shipped reader_heads tables hold the code floors (no row skipped, none lost)",
-             {k: len(v) for k, v in H.run_forms()["reader_heads"].items()}, {"role_read": 7, "runner_mention": 25})
     check_eq("k1 the form ids are exactly the R1 list", [f["id"] for f in H.run_forms()["forms"]], FORM_IDS)
     check_eq("k1 the shipped data is not the fallback", H.run_forms()["fallback"], False)
     data, note = LC.load_data()

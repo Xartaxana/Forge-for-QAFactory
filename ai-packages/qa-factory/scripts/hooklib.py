@@ -1188,14 +1188,15 @@ _NEVER_READ_HEADS = frozenset((
     "node", "deno", "bun", "perl", "ruby", "php", "lua", "eval", "exec", "iex", "invoke-expression", "invoke-command",
     "start-process", "env", "xargs", "nohup", "sudo", "tee", "set-content", "out-file", "add-content", "remove-item",
     "rm", "del", "erase", "rd", "rmdir", "cp", "mv", "copy-item", "move-item", "new-item", "rename-item", "tee-object",
-    "mkdir", "touch", "dd", "icm", "saps", "start", "sc", "ac", "ri", "ii"))
+    "mkdir", "touch", "dd", "icm", "saps", "start", "sc", "ac", "ri", "ii",
+    "cpi", "copy", "mi", "move", "ni", "rni", "ren", "md"))
 
 
 def _load_reader_heads(raw, never: frozenset, problems: list) -> dict:
     """The tables of launch-causes.json `reader_heads` (FR-13: `role_read`, `runner_mention`, two lists that stay two):
     {table: [valid row, ...]}. A row that is not one bare word, or is in `never` (lower-case), is skipped and NAMED in
-    `problems`; a table that is not a list is named too. The in-code floors of the consumers stay outside, in
-    `host_adapter.head_rows`."""
+    `problems`; a table that is not a list is named too. The reader is `hooklib.head_rows`; the in-code floors stay
+    with the consumers."""
     out: dict = {"role_read": [], "runner_mention": []}
     if raw is None:
         return out
