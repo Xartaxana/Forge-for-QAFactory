@@ -2259,10 +2259,6 @@ class Controller:
             receipts.append(json.loads(path.read_text(encoding="utf-8-sig")))
         state = self.state()
         self._validate_gate_a_content_current(state)
-        if not any(d.get("gate") == "A" and d.get("status") == "approved"
-                   and d.get("source_revision") == state.get("source_revision")
-                   for d in state.get("decisions", {}).values()):
-            raise StateConflict("approved Gate A required before deployment")
         return deployment_readiness(rows, receipts, self.store.root,
                                     expected_gate_ref=self._current_gate_a(state)["id"])
 
