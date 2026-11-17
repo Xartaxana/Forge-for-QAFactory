@@ -349,6 +349,9 @@ BY_SEGMENT = {
     # `_half_membership_problems`, one per cause, each with its door; an unreadable plan has the S6 person's-word block.
     # t-1455 q1: `prepare` with a derived EMPTY automated half; q3: `validate`'s empty-scope check over a plan that cannot be read
     "raise StateConflict(unreadable[0])": ("person", "the sentence of `_unreadable_plan_problems` already passed through `_passed_by_person`: a plan that cannot be read stops the empty-scope check of S6 until the person's word (`waiver.py --stage S6 --block \"S6 half membership: unreadable\"`) and of S5 until the person's word (`waiver.py --stage S5 --block \"S5 scope: unreadable\"`), or a repaired plan"),
+    # C3-reg-precondition (card item 2): ONE site, the dispatch branch of `validate`: the plugin's `references/gate-registry.json` cannot be read.
+    # A defect of the install (FR-3), refused before any dispatch is committed; the person's word passes it (FR-4).
+    "raise StateConflict(registry_blocking[0])": ("person", "a factory defect (FR-3): reinstall or update the plugin, then start the stage again; a person's recorded words pass it (`waiver.py --stage <S> --block \"gate registry unreadable\" --words-file <file>`), and the stage then runs with every converted site refusing reuse (C3-0 E2)"),
     "raise StateConflict(self.automation_half_refusal(refused))": ("command", "the refusal lists each cause with its door: a manual block for a manual-agent case, leaving a handed case out, `--operation stage-scope` with `execution_kind: automation` for the cases the half may name; a plan that cannot be read is passed by the person's word (`waiver.py --stage S6 --block \"S6 half membership: unreadable\"`)"),
     # FB-9: `build_rework_request` forwards the sentences of `_rework_kind` and `_rework_block_problems` (with the membership check of
     # `_half_membership_problems`) whole: each says what is wrong in the call's cases and carries its own door (FR-1).

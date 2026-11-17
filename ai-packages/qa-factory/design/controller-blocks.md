@@ -181,7 +181,7 @@ every edit above it. Rows are in source order.
 | `validate` | `StateConflict` | coverage migration dry_run failed: | `command` | fix what the dry-run names, then migrate |
 | `validate` | `StateConflict` | sequential task already has an active dispatch: {', '.join(running)}. Finish it first (`story_step.py finish`) | `command` | `where` answers it with `wait_existing_job`; the driver knows this one by name |
 | `validate` | `ValueError` | dispatch contract incomplete | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
-| `validate` | `StateConflict` | raise StateConflict(blocking[0]) | `person` | raised from the list `_passed_by_person` has already filtered |
+| `validate` | `StateConflict` | raise StateConflict(registry_blocking[0]) | `person` | a factory defect (FR-3): reinstall or update the plugin, then start the stage again; a person's recorded words pass it (`waiver.py --stage <S> --block "gate registry unreadable" --words-file <file>`), and the stage then runs with every converted site refusing reuse (C3-0 E2) |
 | `validate` | `StateConflict` | raise StateConflict(closed_refusal) | `command` | `--operation reopen_story --dispatch <held ids> --words-file <file>` for work that never started (`next` lists it as `held`); `--operation rework --stage <Sn> --role <role> --cases <ids> --words-file <file>` for new work |
 | `validate` | `StateConflict` | resume existing dispatch; do not replace its checkpoint | `command` | `--operation dispatch` with the retry packet `recover` prints |
 | `validate` | `StateConflict` | CASE_REVIEW_AFTER_GATE_A: use technical_normalize or semantic_reopen before a new review | `command` | `--operation technical_normalize` or `semantic_reopen` |

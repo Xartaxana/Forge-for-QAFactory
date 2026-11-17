@@ -5545,13 +5545,13 @@ class Controller:
             from gate_template import registry_problem
             registry_why = registry_problem()
             if registry_why:
-                blocking, _ = self._passed_by_person(p["stage"], [
+                registry_blocking, _ = self._passed_by_person(p["stage"], [
                     f"gate registry unreadable: the plugin's references/gate-registry.json cannot be read ({registry_why}). "
                     "Owner: factory - a defect of the install, not of the story; nothing is wanted from you. Reinstall or update "
                     "the qa-factory plugin (UPGRADE.md, step 3), then start the stage again. No stage starts until the file reads, "
                     "because every reuse and review acceptance reads it."])
-                if blocking:
-                    raise StateConflict(blocking[0])
+                if registry_blocking:
+                    raise StateConflict(registry_blocking[0])
             # THE closure test (B-331, C1-6a; M1 (d) as code on every road): the skill path can dispatch a packet by hand,
             # so the driver's question is not the only guard. After the fields are known to be there, before any other
             # check reads them.
