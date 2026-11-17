@@ -1291,10 +1291,10 @@ def inventory_unavailable(copy: World):
     path = copy.task_root / "work" / "source-inventory.json"
     if not path.is_file():
         return None
+    import source_inventory as SI
     try:
-        import source_inventory as SI
         summary = SI.completeness(SI.load_inventory(path), **SI.class_kwargs(copy.task_root))
-    except Exception:
+    except (OSError, ValueError):      # an unreadable or malformed inventory is "no world"; any other exception is a broken reader and propagates (F4)
         return None
     return bool(summary.get("unavailable") or summary.get("unavailable_materials"))
 
