@@ -31,7 +31,7 @@ OUT_NAME = "AGENTS.md"
 ENTRY_NAME = "CLAUDE.md"
 SETTINGS_REL = ".claude/settings.json"
 AGENTS_REL = ".claude/agents"
-VALIDATOR_REL = "tools/journal_validator.py"
+LADDER_REL = "tools/tier_ladder.py"       # the ladder home: tier_words reads its FAMILIES literal
 MAX_DEPTH = 5
 CODEX_LIMIT_STEP = 16384
 
@@ -196,24 +196,24 @@ def roles_rows(repo):
 
 
 def tier_words(repo):
-    """The keys of TIER_ORDER in tools/journal_validator.py, in declaration order."""
-    path = repo / VALIDATOR_REL
-    text = _read_text(path, VALIDATOR_REL)
+    """The words of FAMILIES in tools/tier_ladder.py (the ladder home), in declaration order (weakest first)."""
+    path = repo / LADDER_REL
+    text = _read_text(path, LADDER_REL)
     try:
         tree = ast.parse(text)
     except SyntaxError as exc:
-        raise SourceError("%s does not parse: %s" % (VALIDATOR_REL, exc))
+        raise SourceError("%s does not parse: %s" % (LADDER_REL, exc))
     for node in tree.body:
         if isinstance(node, ast.Assign) and any(
-                isinstance(t, ast.Name) and t.id == "TIER_ORDER" for t in node.targets):
+                isinstance(t, ast.Name) and t.id == "FAMILIES" for t in node.targets):
             try:
                 value = ast.literal_eval(node.value)
             except ValueError:
                 break
-            if isinstance(value, dict) and value:
+            if isinstance(value, (tuple, list)) and value:
                 return [str(k) for k in value]
             break
-    raise SourceError("%s has no literal TIER_ORDER dict" % VALIDATOR_REL)
+    raise SourceError("%s has no literal FAMILIES tuple" % LADDER_REL)
 
 
 def build_setup(repo):
@@ -256,14 +256,14 @@ def build_setup(repo):
             "instructions, and bind a GPT model to each role; record the binding in "
             "`delegation.config.yaml`.",
             "",
-            "Journal note: the `by` field of `logs/routing-log.jsonl` accepts only the tier words in "
-            "`TIER_ORDER` of `%s`: %s. Use the tier word of the FUNCTION level your model serves "
-            "(the table in CLAUDE.md \"Tiers\"), and the real model id in `model`. Work done by a "
-            "non-Claude model still carries a `basis` on its `accepted` event (\"critic\", "
-            "\"queued-to-lead\" or, for a leaf, \"judge\"): the acceptance matrix compares "
-            "function-tier words, not model ids, so `basis` supplies what the tier comparison "
+            "Journal note: the `by` field of `logs/routing-log.jsonl` accepts only the model-family words in "
+            "`FAMILIES` of `%s`: %s. `by` is the model-family word of the accepting session, and "
+            "the real model id goes in `model`. Work done by a "
+            "non-Claude model still carries a `basis` on its `accepted` event (\"critic\" or "
+            "\"queued-to-lead\"): the acceptance matrix compares "
+            "ranks of model families, not model ids, so `basis` supplies what the rank comparison "
             "cannot."
-            % (VALIDATOR_REL,", ".join("`%s`" % t for t in tiers))]
+            % (LADDER_REL, ", ".join("`%s`" % t for t in tiers))]
     return out
 
 

@@ -27,7 +27,7 @@ SETTINGS = {
         ],
     }
 }
-VALIDATOR = 'TIER_ORDER = {"haiku": 0, "sonnet": 1, "opus": 2, "fable": 3}\n'
+VALIDATOR = 'FAMILIES = ("haiku", "sonnet", "opus", "fable")\n'   # the content of the fixture's tools/tier_ladder.py
 ROLE = "---\nname: %s\ndescription: does %s | with a pipe\nmodel: m-%s\ntools: Read, Grep\n---\n\nbody\n"
 
 
@@ -45,7 +45,7 @@ def make_repo(root, claude="# Top\n\n@PROJECT.md\n\n@docs/IDX.md\n", extra=None)
         ".claude/settings.json": json.dumps(SETTINGS),
         ".claude/agents/alpha.md": ROLE % ("alpha", "alpha", "alpha"),
         ".claude/agents/beta.md": ROLE % ("beta", "beta", "beta"),
-        "tools/journal_validator.py": VALIDATOR,
+        "tools/tier_ladder.py": VALIDATOR,
         "tools/hook_a.py": '"""Hook A does a thing.\n\nMore text.\n"""\n',
         "tools/hook_b.py": "x = 1\n",
     }
@@ -317,18 +317,17 @@ def test_tier_words_from_validator(repo, real_copy):
     assert set(agents_md.tier_words(real_copy)) == {"haiku", "sonnet", "opus", "fable"}
 
 
-def test_tier_words_follow_the_validator_not_a_constant(tmp_path):
-    root = make_repo(tmp_path / "r", extra={"tools/journal_validator.py":
-                                            'TIER_ORDER = {"zeta": 0, "omega": 1}\n'})
+def test_tier_words_follow_the_ladder_home_not_a_constant(tmp_path):
+    root = make_repo(tmp_path / "r", extra={"tools/tier_ladder.py": 'FAMILIES = ("zeta", "omega")\n'})
     assert run("--repo", root).returncode == 0
     text = out_of(root)
     assert "`zeta`, `omega`" in text and "`fable`" not in text
 
 
-def test_missing_validator_exit_2(tmp_path):
-    root = make_repo(tmp_path / "r", extra={"tools/journal_validator.py": "x = 1\n"})
+def test_missing_ladder_home_exit_2(tmp_path):
+    root = make_repo(tmp_path / "r", extra={"tools/tier_ladder.py": "x = 1\n"})
     r = run("--repo", root)
-    assert r.returncode == 2 and "TIER_ORDER" in r.stderr
+    assert r.returncode == 2 and "FAMILIES" in r.stderr
 
 
 def test_hook_purposes_and_edges(repo):
@@ -364,8 +363,9 @@ def test_journal_note_covers_basis_for_non_claude_models(repo):
     assert run("--repo", repo).returncode == 0
     text = out_of(repo)
     assert "Work done by a non-Claude model still carries a `basis` on its `accepted` event" in text
-    assert "function-tier words, not model ids" in text
-    assert '"critic"' in text and '"queued-to-lead"' in text and '"judge"' in text
+    assert "ranks of model families, not model ids" in text
+    assert "model-family word of the accepting session" in text
+    assert '"critic"' in text and '"queued-to-lead"' in text and '"judge"' not in text
 
 
 def test_git_hooks_and_journal_sections(repo):

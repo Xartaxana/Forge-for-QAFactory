@@ -136,79 +136,31 @@ log" section):
        `witness_by` (run|file|text).
     For a new accepted/rejected/escalated/defect_found -- it must
     reference a task_id already seen earlier in the file (in HEAD or
-    earlier in this same commit); unchanged otherwise.
+    earlier in this same commit); unchanged otherwise -- except an `escalated` with agent=architect, which may OPEN a
+    task under the novelty rule of a new delegated (9a'', F6). A `calibrated` line may carry `reviewed_through`, a git
+    sha ^[0-9a-f]{7,40}$ (F9); any other event carrying it, or a bad shape, is a violation.
 10. ts of new lines is monotonic relative to HEAD's last line and to
     each other; not later than now+10 minutes (a narrative-future
     timestamp). No lower bound.
-11. The role-vs-tier acceptance matrix (NEW lines only, accepted
-    only -- rejected carries "by" with no further check, a literal
-    reading of the spec). For agent=lead the matrix doesn't apply --
-    presence of "by" is enough. For agent in {scout, builder, critic,
-    designer} (a revision after a live leak: two different sonnet-tier
-    coordinators independently accepted a sonnet-class (builder) result
-    via basis=queued-to-lead -- a bare "basis in BASIS_VALUES" set
-    membership check passed that basis regardless of WHICH by/agent
-    pair it was attached to; the check is now legality PER (by, agent)
-    PAIR instead of bare membership).
-    An enum check PRECEDES branches (a)-(f): "is by even in
-    TIER_ORDER" -- an unknown by FAILS unconditionally, BEFORE the
-    judge branch too -- judge's by-independence (branch b below)
-    applies only to LEGAL tier words; no basis of any kind legalizes an
-    acceptance from an unknown acceptor:
-
-    a) ok_tier -- tier(by) > tier(agent) (haiku<sonnet<opus<fable by
-       agent: scout=haiku, builder=sonnet, critic=opus, designer=opus
-       (designer's deployment binding, same tier as critic; see
-       .claude/agents/designer.md)) -- legal at
-       ANY basis (or none).
-    b) basis=="judge" -- legal ONLY when the line's OWN "category" is
-       ∈ {"recon", "implementation"} (a leaf-class dispatch per this
-       toolkit's own CLAUDE.md, "Leaf routing": "Judge acceptance is
-       legitimate ONLY for leaf-class dispatches (recon, or
-       implementation to a written spec)"); unchanged from before this
-       batch. CHECKED FIRST, independent of tier(by) -- a calibrated
-       judge is not a coordinator-tier resolution, so it is not
-       subject to the floor in (c).
-    c) FLOOR "below sonnet: no coordination provided for": if tier(by)
-       is KNOWN and strictly below sonnet's tier (i.e. by=="haiku")
-       AND ok_tier does not hold AND basis is not "judge" -- FAIL
-       unconditionally, no basis rescues it (this toolkit's own
-       CLAUDE.md "Role != tier" matrix: "below Sonnet | no
-       coordination is provided for | --"). Decision fork (documented
-       deliberately): the core rule's literal text ("OR the decision
-       carries a higher tier's input (a critic verdict)") would read
-       basis="critic" as rescuing ANY by, including haiku -- but the
-       matrix's "below Sonnet" row states, without exception, "no
-       coordination is provided for"; a haiku-tier session is not a
-       functioning coordinator at all in this structure. The floor
-       wins over the general "carries higher tier's input" allowance
-       for basis="critic"/"queued-to-lead" (but NOT for basis="judge"
-       -- see (b), a separate non-coordinator path).
-    d) basis=="critic" -- legal ONLY when the critic tier (opus,
-       fixed) is strictly above tier(agent), i.e. agent is
-       scout/builder-class: a critic verdict on top of the critic's
-       own class (agent=="critic") is not meaningful and NOT legal.
-    e) basis=="queued-to-lead" -- legal ONLY for agent=="critic"
-       (critic-class, tier opus) AND by ∈ {"sonnet", "opus"} (for
-       by="sonnet" the queue is legal specifically for critic-class --
-       NOT builder-class: at a sonnet coordinator, builder-class
-       acceptance is legal only via basis="critic"; for by="opus" the
-       queue is legal for critic-class as an equal-tier concession).
-    f) any other basis (including none) -- FAIL with the generic
-       role-vs-tier message.
-
-    SURFACE NARROWING (a later revision, on a critic verdict): the
-    by-shape enum gate applies ONLY to accepted with agent ∈ {scout,
-    builder, critic, designer} (designer added to AGENT_TIER, same
-    class); OUTSIDE the gate (recorded DECISIONS, not oversights):
-    rejected -- by carries no matrix check at all (a literal reading
-    of the spec, see the top of rule 11); agent=lead -- a non-tier by
-    is legal (a live precedent, by="operator", in
-    logs/routing-log.jsonl -- the operator sits at the apex of the
-    hierarchy, rule 11a); agent outside AGENT_TIER -- the matrix is
-    simply undefined by the spec (an early return before any branch).
-    Form-validation candidates for these three neighbors are queued
-    for a future calibration pass.
+11. The role-vs-tier acceptance matrix by FUNCTION RANK (NEW lines only, accepted only -- rejected carries "by" with no
+    further check). rank(by) = tools/tier_ladder.py rank_of_model(by, config) over delegation.config.yaml read from the
+    root of the repo being validated (absent there -> DEFAULT_BINDINGS; an unreadable one -> one stderr WARN and the
+    defaults, never a FAIL); rank(agent) = rank_of_function(agent). agent in {lead, architect} or outside
+    FUNCTION_RANKS: the matrix does not apply (presence of "by" is enough). For agent in {scout, builder, critic,
+    designer}, in this order:
+    (a) `by` outside FAMILIES (exact lowercase key; "lead", "claude-opus-5-5" and "Opus" included) FAILS first, with
+        the family list as its door -- no rank arithmetic ever runs on an acceptor that cannot be identified;
+    (b) basis=="judge" is REFUSED on every line (no judge is bound in this deployment, CLAUDE.md rule 13), before
+        ok_rank, so no acceptor rank makes it legal;
+    (c) ok_rank: rank(by) > rank(agent) -- legal at any basis (a model ranked above a function's binding may stand in
+        during an outage: a higher-ranked acceptor is never refused);
+    (d) FLOOR: rank(by) < builder rank -- FAIL, before every remaining basis (no basis rescues it);
+    (e) basis=="critic": legal iff critic rank > rank(agent);
+    (f) basis=="queued-to-lead": legal iff agent in {critic, designer} and builder rank <= rank(by) < lead rank;
+    (g) anything else -- FAIL with the generic role-vs-tier message.
+    WARNs on a line the matrix passed (matrix_warnings; never a FAIL): `queued to itself` (basis queued-to-lead at
+    rank(by) >= lead rank) and `INDEPENDENT CONTEXT` (critic/designer accepted at rank(by) >= lead rank with no
+    earlier delegated of that agent on that task whose worker_ref starts `agent:`).
 12. Every NEW delegated line carries worker_ref -- a non-empty handle
     by which the next session finds the worker/result; catches a
     phantom delegated whose worker was never launched.
@@ -307,6 +259,11 @@ try:
 except ImportError:  # loaded by path (tests, a hook run from another cwd): tools/ is not on sys.path yet
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import journal_keys as _jk
+try:
+    import tier_ladder as _tl     # the ladder home (a leaf): the ranks of the acceptance matrix
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import tier_ladder as _tl
 
 JOURNAL_PATH = "logs/routing-log.jsonl"
 DECLARATION_PATH = _jk.SEGMENTS_REL            # logs/journal-segments.json (B-402)
@@ -342,27 +299,11 @@ WITNESS_BY_VALUES = ("run", "file", "text")
 SESSION_RE = re.compile(r"^[A-Za-z0-9-]{1,16}\Z")
 RETURNED_DOOR = "python -B tools/journal_write.py returned --task <id> --worker <worker_ref>"
 FAILURE_CLASSES = {"spec", "capability", "recon", "tooling"}
-TIER_ORDER = {"haiku": 0, "sonnet": 1, "opus": 2, "fable": 3}
-AGENT_TIER = {
-    "scout": "haiku", "builder": "sonnet", "critic": "opus",
-    # designer added: designer's deployment binding is opus (see
-    # .claude/agents/designer.md, model: opus) -- the same tier as
-    # critic. Class of the gap before this line existed: agent=
-    # "designer" was outside AGENT_TIER, so the role-vs-tier
-    # acceptance matrix silently did not apply to its accepted lines
-    # (see the "agent not in AGENT_TIER" early return below).
-    "designer": "opus",
-}
-# The upper-mid-tier CLASS (decision, after a critic finding): branch
-# (5) basis="queued-to-lead" used to be keyed on the literal name
-# agent=="critic" -- a narrowing by NAME, not by CLASS. designer
-# carries the same tier (opus) and the same coordinator-facing
-# semantics for branch (5) -- the queue to Lead is legal for BOTH when
-# the coordinator is not strictly above. basis="critic" is NOT
-# extended to designer the same way -- branch (4) already works by a
-# NUMERIC tier comparison, not by name, so a same-tier critic input
-# already fails to legalize designer's acceptance too, without any
-# separate change (same as it already fails for agent=="critic" itself).
+# The ladder (family order, function ranks, bindings) lives in tools/tier_ladder.py -- no table of its own here.
+# The acceptor's rank = rank_of_model(by); the executor's rank = rank_of_function(agent).
+# The upper-mid-tier CLASS: basis="queued-to-lead" is keyed on the agent CLASS {critic, designer}, not on a name
+# (a data row of the matrix, not a ladder fact); its condition reads ranks (builder rank <= rank(by) < lead rank).
+# basis="critic" works by the critic FUNCTION rank against the executor's rank, for any agent.
 QUEUED_TO_LEAD_AGENTS = {"critic", "designer"}
 # Known non-judge basis string values -- a PLAIN enum/reference (external
 # consumers: PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md, log_append.py), no
@@ -371,11 +312,11 @@ QUEUED_TO_LEAD_AGENTS = {"critic", "designer"}
 # membership (closes a leak where basis=queued-to-lead passed membership
 # for ANY by/agent, including builder-class at a sonnet coordinator).
 BASIS_VALUES = {"critic", "queued-to-lead"}
+# basis="judge" is REFUSED on every line (no judge is bound in this deployment, CLAUDE.md rule 13; FG7-16).
 JUDGE_BASIS_VALUE = "judge"
-# Leaf-class categories a "judge" basis is legal for (rule 11 / this
-# toolkit's own CLAUDE.md "Leaf routing" section): "recon, or
-# implementation to a written spec".
-LEAF_CATEGORIES = {"recon", "implementation"}
+CONFIG_REL = "delegation.config.yaml"   # read from the root of the repo being validated (S2 of the architect-tier spec)
+# reviewed_through of a `calibrated` line: a git sha (the Architect's review marker, ARCHITECT_START step 8)
+REVIEWED_THROUGH_RE = re.compile(r"^[0-9a-f]{7,40}\Z")
 
 TASK_ID_RE = _jk.ID_RE      # the ONE read grammar of a task id (journal_keys.ID_RE): t-NNN[a-z]{0,2}, ASCII only
 # Dead-worker replacement marker (rule 9c2): the literal substring
@@ -645,139 +586,133 @@ def check_append_only(staged_lines: list[str], head_lines: list[str]):
     return True, ""
 
 
-def _matrix_d0058_violation(event: str, agent, by: str, obj: dict) -> str | None:
-    """Rule 11 (the pair-legality rewrite, 2026-07-24: pair-legality
-    replaces membership-in-set). Returns the violation text or None. Applies
-    ONLY to accepted (a literal reading of the spec: "accepted is
-    legal when..."; rejected carries "by" with no further tier/basis
-    check).
+_CONFIG_UNSET = object()        # config_text default: read delegation.config.yaml of the repo being validated
+_CONFIG_ROOTS: dict = {}        # cwd -> repo root (one `git rev-parse` per cwd, not per line)
+_CONFIG_WARNED: set = set()     # (root, text) already printed: the WARN is once per run
 
-    Check order is deliberately NOT a "first match wins, unexplained"
-    if-cascade -- each branch reads against one row of the CLAUDE.md
-    "Role != tier" table (see the module docstring's rule 11 for the
-    full pair table and quotes):
 
-    1) basis=="judge" -- a separate, non-coordinator acceptance path
-       (a calibrated judge, rule 13/leaf routing): legal ONLY on a
-       leaf-class category, INDEPENDENT of tier(by) -- checked first so
-       the floor in (3) never intercepts it.
-    2) ok_tier: tier(by) > tier(agent) -- legal at any basis.
-    3) FLOOR: tier(by) is known and strictly below sonnet (i.e.
-       by=="haiku") -- FAIL unconditionally, no basis (other than the
-       already-handled "judge") rescues it ("below Sonnet: no
-       coordination is provided for").
-    4) basis=="critic": legal only if tier("opus") is strictly above
-       tier(agent) -- i.e. agent is scout/builder-class, not critic.
-    5) basis=="queued-to-lead": legal ONLY for agent=="critic" AND
-       by ∈ {"sonnet", "opus"}.
-    6) otherwise -- FAIL with the generic role-vs-tier message."""
+def _config_warn(root, text: str) -> None:
+    key = (str(root), text)
+    if key not in _CONFIG_WARNED:
+        _CONFIG_WARNED.add(key)
+        print(text, file=sys.stderr)
+
+
+def read_config_text(root=None):
+    """The text of delegation.config.yaml at the ROOT of the repo being validated (`root`, default: the git root of the
+    cwd), or None when the file is absent there (the ladder then uses DEFAULT_BINDINGS: a repo with no config behaves as
+    the repository always did). An unreadable file (not utf-8, an OS error), a config the ladder cannot parse, or a
+    config with no lead model is NEVER a FAIL: one stderr WARN per run and the defaults apply (a broken config can only
+    make acceptance STRICTER than the live one, spec 2.4)."""
+    if root is None:
+        cwd = os.getcwd()
+        root = _CONFIG_ROOTS.get(cwd)
+        if root is None:
+            root = _CONFIG_ROOTS[cwd] = _repo_root()
+    fallback = f"default bindings (lead={_tl.DEFAULT_BINDINGS['lead']}) used; fix the file"
+    try:
+        text = (Path(root) / CONFIG_REL).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    except (OSError, UnicodeDecodeError) as exc:
+        _config_warn(root, f"WARN: {CONFIG_REL} unreadable ({type(exc).__name__}) -- {fallback}")
+        return None
+    found, note = _tl.bindings(text)
+    if "lead" not in found:
+        _config_warn(root, f"WARN: {CONFIG_REL} unreadable ({note or 'no lead model'}) -- {fallback}")
+    elif note:
+        _config_warn(root, f"WARN: {CONFIG_REL}: {note}")
+    return text
+
+
+def _resolve_config(config_text):
+    return read_config_text() if config_text is _CONFIG_UNSET else config_text
+
+
+def _acceptor_rank(by, config_text) -> int:
+    """rank_of_model(by); a rank the ladder cannot give counts as the floor (-1): the error direction of a resolver that
+    feeds a gate is DOWNWARD."""
+    rank = _tl.rank_of_model(by, config_text)
+    return -1 if rank is None else rank
+
+
+def _matrix_d0058_violation(event: str, agent, by: str, obj: dict, config_text=None) -> str | None:
+    """Rule 11 (the acceptance matrix by FUNCTION rank, spec 20261116-architect-tier 3.1). Returns the violation text
+    or None. Applies ONLY to accepted. rank(by) = tier_ladder.rank_of_model(by, config_text) (config_text None ->
+    DEFAULT_BINDINGS); rank(agent) = tier_ladder.rank_of_function(agent). Branch order (the positional invariants):
+
+    0) lead / architect / an agent outside FUNCTION_RANKS -- no matrix.
+    1) `by` outside FAMILIES (exact lowercase key) -- FAIL first, so no rank arithmetic runs on an acceptor that
+       cannot be identified;
+    2) basis == "judge" -- REFUSED on every line, before ok_rank: no acceptor rank makes a judge basis legal;
+    3) ok_rank: rank(by) > rank(agent) -- legal at any basis;
+    4) FLOOR: rank(by) < builder rank -- FAIL, before every remaining basis: no basis rescues it;
+    5) basis == "critic": legal iff critic rank > rank(agent);
+    6) basis == "queued-to-lead": agent in QUEUED_TO_LEAD_AGENTS and builder rank <= rank(by) < lead rank;
+    7) otherwise -- FAIL with the generic role-vs-tier message."""
     if event != "accepted":
         return None
-    if agent == "lead":
-        return None  # Lead-tier work: presence of "by" already checked above
-    if agent not in AGENT_TIER:
+    if agent in ("lead", "architect"):
+        return None  # Lead-tier / Architect-tier work: presence of "by" already checked above
+    agent_rank = _tl.rank_of_function(agent)
+    if agent_rank is None:
         return None  # unknown agent -- the matrix doesn't define one
-    if by not in TIER_ORDER:
-        # An enum/shape check ("is by even a known tier") precedes ANY
-        # matrix semantics, including judge -- no basis legalizes an
-        # acceptance from an unknown acceptor; ok_tier/floor stayed
-        # silent at by_tier=None, and basis="critic"/"judge" never
-        # looked at by at all -- this check closes that hole.
+    families = list(_tl.FAMILIES)
+    if by not in _tl.FAMILIES:
+        function_word = ""
+        if by in _tl.FUNCTION_RANKS:
+            function_word = (f" ({by!r} is a FUNCTION word; `by` is the bare model-family word of the session that "
+                             "accepts, not its function)")
         return (
             f"role-vs-tier acceptance matrix: by={by!r} is not a known "
-            f"tier ({sorted(TIER_ORDER)}) -- no basis can legalize an "
+            f"tier ({families}){function_word} -- no basis can legalize an "
             "acceptance from an acceptor whose own tier can't be "
             "identified, and the whole matrix below is unreachable while "
-            f"this holds -- set 'by' to one of {sorted(TIER_ORDER)} (an "
+            f"this holds -- set 'by' to one of {families} (an "
             "enum/shape check precedes the matrix's semantics)"
         )
-    agent_tier_name = AGENT_TIER[agent]
-    agent_tier = TIER_ORDER[agent_tier_name]
-    by_tier = TIER_ORDER.get(by)
     basis = obj.get("basis")
 
-    # (1) judge -- separate path, not a coordinator resolution; category
-    # decides everything, checked before tier/floor. NARROWED (a
-    # critic finding): the judge accepts ONLY leaf-class EXECUTORS
-    # (agent ∈ {scout,builder}) -- specs (designer) and reviews
-    # (critic) stay outside the judge's remit by policy, regardless of
-    # category (before this fix, agent="designer" + basis="judge" +
-    # category="implementation" wrongly passed, since only category
-    # was checked, never agent). Order: the category gate runs FIRST
-    # (a non-leaf category fails for ANY agent, including scout/
-    # builder -- a regression pin for the pre-existing tests), the
-    # agent gate runs SECOND, only once category is already leaf-class.
     if basis == JUDGE_BASIS_VALUE:
-        if obj.get("category") not in LEAF_CATEGORIES:
-            return (
-                f"role-vs-tier acceptance matrix: basis \"judge\" is legal "
-                "only for a leaf-class dispatch (category recon/"
-                f"implementation), got category={obj.get('category')!r} -- "
-                "a judge is not calibrated to evaluate non-executor work, "
-                "and this acceptance would go through with no critic "
-                "judgment over architecture or spec -- switch basis to "
-                "'critic'/'queued-to-lead' for the (by, agent) pair, or fix "
-                "category if the work is genuinely leaf-class"
-            )
-        if agent not in ("scout", "builder"):
-            return (
-                f"role-vs-tier acceptance matrix: basis \"judge\" is legal "
-                f"only for agent∈{{scout,builder}} (leaf-class EXECUTORS) -- "
-                f"agent={agent!r} is not eligible; a judge accepting "
-                "designer/critic-class output would bypass the mandatory "
-                "critic gate on specs and reviews -- switch basis to "
-                "'critic'/'queued-to-lead' for the (by, agent) pair, judge "
-                "is not legal for this agent regardless of category"
-            )
+        return (
+            "role-vs-tier acceptance matrix: basis \"judge\" is not legal here -- no judge is bound in this "
+            "deployment (CLAUDE.md rule 13); accept from a tier above, or use basis 'critic' / 'queued-to-lead' "
+            "for the (by, agent) pair"
+        )
+
+    by_rank = _acceptor_rank(by, config_text)
+    builder_rank = _tl.rank_of_function("builder")
+    lead_rank = _tl.rank_of_function("lead")
+    critic_rank = _tl.rank_of_function("critic")
+
+    if by_rank > agent_rank:
         return None
 
-    # (2) ok_tier -- strictly above, legal at any basis (or none).
-    if by_tier is not None and by_tier > agent_tier:
-        return None
-
-    # (3) FLOOR: by of a known tier strictly below sonnet -- no
-    # coordination provided for, no basis rescues it ("Role != tier"
-    # matrix: "below Sonnet: no coordination is provided for"). The
-    # fork against the core rule's literal "carries a higher tier's
-    # input" text is documented and resolved in the floor's favor --
-    # see the module docstring's rule 11.
-    if by_tier is not None and by_tier < TIER_ORDER["sonnet"]:
+    if by_rank < builder_rank:
         return (
             f"role-vs-tier acceptance matrix: by={by!r} -- a tier below "
             f"sonnet, and no basis={basis!r} rescues it ('below Sonnet: no "
             "coordination is provided for') -- an acceptance from a "
             f"non-functioning coordinator would legalize agent={agent!r} "
-            "with no real tier oversight -- raise 'by' to at least sonnet, "
-            "or route the acceptance through a judge on a leaf-class "
-            "dispatch"
+            "with no real tier oversight -- raise 'by' to at least sonnet"
         )
 
-    # (4) basis=="critic" -- legal if the critic (opus) is strictly
-    # above agent (agent is scout/builder-class). A NUMERIC tier
-    # comparison (not a name check) -- this already covers designer
-    # correctly with no separate change: designer is also opus-tier,
-    # tier("opus") > tier("opus") is false, the same rejection as for
-    # agent=="critic" itself today.
     if basis == "critic":
-        if TIER_ORDER["opus"] > agent_tier:
+        if critic_rank > agent_rank:
             return None
         return (
-            f"role-vs-tier acceptance matrix: agent={agent!r} (tier "
-            f"{agent_tier_name}) accepted with basis='critic', but the "
-            "critic (opus) is not strictly above the executor's own tier "
+            f"role-vs-tier acceptance matrix: agent={agent!r} (rank "
+            f"{agent_rank}) accepted with basis='critic', but the "
+            "critic's rank is not strictly above the executor's own rank "
             "-- this would legalize an acceptance this exact matrix row "
             "forbids, voiding the critic-gate guarantee for the "
             f"upper-mid tier -- the legal path for agent={agent!r} is by "
-            "strictly above opus (by='fable'), or basis='queued-to-lead' "
-            "at by∈{sonnet,opus}"
+            "a model ranked at or above lead, or basis='queued-to-lead' "
+            "at a coordinator ranked below lead"
         )
 
-    # (5) basis=="queued-to-lead" -- legal for the upper-mid-tier CLASS
-    # (QUEUED_TO_LEAD_AGENTS = {critic, designer}, see its own comment
-    # above) at by∈{sonnet,opus} (builder-class at a sonnet coordinator
-    # does NOT pass -- legal only via basis='critic').
     if basis == "queued-to-lead":
-        if agent in QUEUED_TO_LEAD_AGENTS and by in ("sonnet", "opus"):
+        if agent in QUEUED_TO_LEAD_AGENTS and builder_rank <= by_rank < lead_rank:
             return None
         return (
             f"role-vs-tier acceptance matrix: agent={agent!r} accepted "
@@ -785,23 +720,61 @@ def _matrix_d0058_violation(event: str, agent, by: str, obj: dict) -> str | None
             f"legal for {agent!r}-class at a {by!r} coordinator; accepting "
             "sonnet-class (builder) work through the lead queue would let "
             "the critic gate on that executor's work go unchecked -- the "
-            f"legal path here is basis='critic' (or judge on a leaf "
-            f"implementation, if category is leaf-class AND "
-            f"agent∈{{scout,builder}}); queued-to-lead is available only "
-            f"for the class {sorted(QUEUED_TO_LEAD_AGENTS)}"
+            "legal path here is basis='critic'; queued-to-lead is available only "
+            f"for the class {sorted(QUEUED_TO_LEAD_AGENTS)} at a coordinator ranked below lead"
         )
 
-    # (6) anything else -- generic role-vs-tier rejection.
     return (
         f"role-vs-tier acceptance matrix: agent={agent!r} accepted by={by!r} "
-        "-- by is not strictly above the executor's tier, and no valid "
+        "-- by is not strictly above the executor's rank, and no valid "
         "basis rescues it; an acceptance with no coordinator above the "
-        "executor's tier and no critic justification bypasses the whole "
+        "executor's rank and no critic justification bypasses the whole "
         "role-vs-tier acceptance matrix -- set basis='critic' (agent "
-        "strictly below opus), or 'queued-to-lead' (agent∈{critic,"
-        "designer}, by∈{sonnet,opus}), or judge on category∈{recon,"
-        "implementation} with agent∈{scout,builder}"
+        "ranked below critic), or 'queued-to-lead' (agent in {critic,"
+        "designer}, by ranked below lead)"
     )
+
+
+def matrix_warnings(new_lines: list[str], head_lines: list[str], *, seed_lines=(),
+                    config_text=_CONFIG_UNSET) -> list[str]:
+    """WARN texts (never violations) for NEW `accepted` lines the matrix PASSED; a WARN never turns a pass into a FAIL:
+    (a) `basis: queued-to-lead` at rank(by) >= lead rank -- the line queues work to itself (spec 3.2, F5);
+    (b) agent in {critic, designer} accepted at rank(by) >= lead rank when no earlier `delegated` of that agent on that
+        task carries a worker_ref starting `agent:` -- a review must come from a separate worker context (spec 2.4
+        (ii), the INDEPENDENT CONTEXT detector; calibration check 6 lists these WARNs). Earlier = earlier in the logical
+        journal: the seed, HEAD, then the new lines before this one."""
+    config_text = _resolve_config(config_text)
+    lead_rank = _tl.rank_of_function("lead")
+    isolated: set = set()            # (task_id, agent) with an earlier delegated whose worker_ref starts `agent:`
+    warns: list[str] = []
+
+    def _note(obj) -> None:
+        ref = obj.get("worker_ref")
+        if obj.get("event") == "delegated" and isinstance(ref, str) and ref.strip().startswith("agent:"):
+            isolated.add((obj.get("task_id"), obj.get("agent")))
+
+    for line in list(seed_lines) + list(head_lines):
+        obj = _try_parse_obj(line)
+        if obj is not None:
+            _note(obj)
+    for idx, line in enumerate(new_lines):
+        obj = _try_parse_obj(line)
+        if obj is None:
+            continue
+        agent, by, task_id = obj.get("agent"), obj.get("by"), obj.get("task_id")
+        if (obj.get("event") == "accepted" and isinstance(agent, str) and isinstance(by, str)
+                and agent not in ("lead", "architect") and agent in _tl.FUNCTION_RANKS and by in _tl.FAMILIES
+                and _matrix_d0058_violation("accepted", agent, by, obj, config_text) is None
+                and _acceptor_rank(by, config_text) >= lead_rank):
+            tag = f"line {len(head_lines) + idx + 1} event='accepted' task_id={task_id!r}"
+            if obj.get("basis") == "queued-to-lead":
+                warns.append(_warn_line(tag, f"queued to itself: {task_id} by={by} ranks lead or above -- drop the basis"))
+            if agent in QUEUED_TO_LEAD_AGENTS and (task_id, agent) not in isolated:
+                warns.append(_warn_line(
+                    tag, f"INDEPENDENT CONTEXT: {task_id} accepted at by={by} with no agent:<id> delegated of {agent} "
+                         "-- a review must come from a separate worker context"))
+        _note(obj)
+    return warns
 
 
 # TEXT REWRITE: every BLOCK-violation message in this module
@@ -820,12 +793,12 @@ def _matrix_d0058_violation(event: str, agent, by: str, obj: dict) -> str | None
 # (merge mode) names fields from this set; nothing else is accepted as a field.
 FORM_FIELDS = ("line", "ts", "event", "agent", "category", "notes", "model", "task_id", "attempt",
                "failure_class", "witness", "worker_ref", "ref", "by", "node", "id_band", "via", "session",
-               "witness_by")
+               "witness_by", "reviewed_through")
 # the reasons journal_keys.node_of gives to a PRESENT `node` that is not a node (a field that is absent or null is not here)
 NODE_BAD_REASONS = ("node_not_string", "node_not_form")
 
 
-def _line_form_violations(obj: dict, tag: str) -> list[tuple[str, str]]:
+def _line_form_violations(obj: dict, tag: str, config_text=None) -> list[tuple[str, str]]:
     """The per-line FORM checks (rules 2-8, 11, 12, 18) of one parsed object, as (field, text) pairs
     in check order; `text` carries the "{tag}: " prefix. Shared by validate_new_lines (texts
     only, byte-identical to what it appended inline before) and by the merge mode, which applies
@@ -867,9 +840,9 @@ def _line_form_violations(obj: dict, tag: str) -> list[tuple[str, str]]:
     if not isinstance(category, str) or not category:
         out.append(("category",
             f"{tag}: field 'category' is missing/invalid -- without "
-            "it, leaf-class dispatches (recon/implementation) can't "
-            "be told apart from the rest, and basis='judge' becomes "
-            "unverifiable -- set category (rule 2)"
+            "it, the kind of work (recon/implementation/review) "
+            "is not recorded and the journal cannot be sliced by it "
+            "-- set category (rule 2)"
         ))
     if not isinstance(notes, str) or not notes.strip():
         out.append(("notes",
@@ -963,6 +936,22 @@ def _line_form_violations(obj: dict, tag: str) -> list[tuple[str, str]]:
                 "handle (rule 12)"
             ))
 
+    reviewed_through = obj.get("reviewed_through")
+    if reviewed_through is not None:
+        # F9: the Architect's review marker -- only a `calibrated` line carries it, and only as a git sha
+        if event != "calibrated":
+            out.append(("reviewed_through",
+                f"{tag}: 'reviewed_through' belongs to a calibrated line only, got event={event!r} -- the field is "
+                "the review marker the next Architect session reads, and on another event nothing reads it -- "
+                "remove the field, or write it with `python -B tools/journal_write.py calibrated --reviewed-through <sha>`"
+            ))
+        elif not (isinstance(reviewed_through, str) and REVIEWED_THROUGH_RE.match(reviewed_through)):
+            out.append(("reviewed_through",
+                f"{tag}: 'reviewed_through' = {str(reviewed_through)[:60]!r} is not a git sha (7-40 lower-case hex "
+                "characters, ^[0-9a-f]{7,40}$) -- the next review starts from this commit, and a value that is not a "
+                "commit names no start -- write the sha of the last reviewed commit, e.g. from `git rev-parse --short HEAD`"
+            ))
+
     if event == "defect_found":
         ref = obj.get("ref")
         if not isinstance(ref, str) or not ref:
@@ -985,7 +974,7 @@ def _line_form_violations(obj: dict, tag: str) -> list[tuple[str, str]]:
                 "-- set by to the accepting tier (rule 11)"
             ))
         else:
-            mv = _matrix_d0058_violation(event, agent, by, obj)
+            mv = _matrix_d0058_violation(event, agent, by, obj, config_text)
             if mv:
                 out.append(("by", f"{tag}: {mv}"))
 
@@ -1067,7 +1056,7 @@ _ANCHOR_FROM_HEAD = object()     # validate_new_lines: "anchor ts order on the l
 def validate_new_lines(new_lines: list[str], head_lines: list[str],
                         now: datetime.datetime, ts_anchor=_ANCHOR_FROM_HEAD, *,
                         seed_lines: list[str] = (), drift: bool = True,
-                        order_report: dict | None = None) -> list[str]:
+                        order_report: dict | None = None, config_text=_CONFIG_UNSET) -> list[str]:
     """`ts_anchor`: the ts the first new line is compared with for rule 10's monotonicity. The
     default is the last line of `head_lines`. The merge mode passes HEAD's OWN last ts (or None =
     no lower bound): the lines it validates are OUR side's tail, and the kept part's last line is
@@ -1078,7 +1067,10 @@ def validate_new_lines(new_lines: list[str], head_lines: list[str],
     `drift=False` switches off the "later than now+10min" check (the CI run: the runner's clock
     is not the writer's).
     `order_report` (rule 19): a dict the call fills with `declared` (the count of order defects declared by an
-    `order-known:<ts>` token) and `warnings` (token WARN texts); None = not wanted."""
+    `order-known:<ts>` token) and `warnings` (token WARN texts); None = not wanted.
+    `config_text`: the text of delegation.config.yaml the acceptance matrix ranks by (None -> DEFAULT_BINDINGS); the
+    default reads it from the root of the repo being validated (read_config_text)."""
+    config_text = _resolve_config(config_text)
     violations: list[str] = []
     # rule 19: the ts and the order-known tokens of every line of THIS file (HEAD then new; the seed is another file)
     file_ts: list = []
@@ -1152,7 +1144,7 @@ def validate_new_lines(new_lines: list[str], head_lines: list[str],
 
         # the per-line FORM checks (rules 2-8, 11, 12, 18) live in _line_form_violations, shared with
         # the merge mode; the texts come back in exactly the order they were appended here before
-        violations.extend(text for _field, text in _line_form_violations(obj, tag))
+        violations.extend(text for _field, text in _line_form_violations(obj, tag, config_text))
 
         # rule 9e is RETIRED for new lines (offload B0): ids come from the clone counter, so a band on a NEW line is a
         # violation naming the writer. Old lines' bands still feed `band_state.top` above (read-only, temporal); a
@@ -1285,7 +1277,14 @@ def validate_new_lines(new_lines: list[str], head_lines: list[str],
                         )
                         _mark("repeated delegated on an open task with no legal reason", line_no - 1, ts, task_id)
         elif event in ("accepted", "rejected", "escalated", "defect_found") and valid_tid:
-            if task_id not in seen_task_ids:
+            if event == "escalated" and agent == "architect" and task_id not in seen_task_ids:
+                # F6: an escalation to the Architect may OPEN a task (a fresh idea has no task yet) -- the same novelty
+                # rule as a new `delegated` (9a''); any other escalated still needs an earlier event
+                reason = _novelty_reason(task_id, letter_max)
+                if reason is not None:
+                    violations.append(_novelty_text(tag, task_id, reason))
+                    _mark("task id issued out of order", line_no - 1, ts, task_id)
+            elif task_id not in seen_task_ids:
                 violations.append(
                     f"{tag}: task_id {task_id!r} does not reference "
                     "anything existing earlier in the file -- an "
@@ -1369,7 +1368,8 @@ def _novelty_text(tag: str, task_id, reason: str) -> str:
 
 def decide(staged_text: str | None, head_text: str | None,
            now: datetime.datetime | None = None, *, seed_text: str | None = None,
-           drift: bool = True, order_report: dict | None = None) -> tuple[int, list[str]]:
+           drift: bool = True, order_report: dict | None = None,
+           config_text=_CONFIG_UNSET) -> tuple[int, list[str]]:
     """Pure gate decision -- tested without git (see tools/test_journal_validator.py).
     `seed_text` (t-581): the lines that precede this file in its LOGICAL journal (the history, for
     the file that continues it) -- they seed rule 9 and the ts anchor, never the append-only
@@ -1383,7 +1383,7 @@ def decide(staged_text: str | None, head_text: str | None,
         return 1, [msg]
     new_lines = staged_lines[len(head_lines):]
     violations = validate_new_lines(new_lines, head_lines, now, seed_lines=split_lines(seed_text), drift=drift,
-                                    order_report=order_report)
+                                    order_report=order_report, config_text=config_text)
     if violations:
         return 1, violations
     return 0, []
@@ -1472,17 +1472,22 @@ def node_warnings(new_lines: list[str], head_lines: list[str]) -> list[str]:
 
 def decide_with_warnings(staged_text: str | None, head_text: str | None,
                          now: datetime.datetime | None = None, known=None, *,
-                         seed_text: str | None = None) -> tuple[int, list[str], list[str]]:
+                         seed_text: str | None = None,
+                         config_text=_CONFIG_UNSET) -> tuple[int, list[str], list[str]]:
     """decide() plus the WARN list; the exit code is exactly decide()'s -- warnings never
     change it."""
     report: dict = {}
-    code, violations = decide(staged_text, head_text, now, seed_text=seed_text, order_report=report)
+    config_text = _resolve_config(config_text)
+    code, violations = decide(staged_text, head_text, now, seed_text=seed_text, order_report=report,
+                              config_text=config_text)
     staged_lines = split_lines(staged_text)
     head_lines = split_lines(head_text)
     ok, _msg = check_append_only(staged_lines, head_lines)
     new_lines = staged_lines[len(head_lines):]
     warnings = feature_warnings(new_lines, head_lines, known) + node_warnings(new_lines, head_lines) if ok else []
     if ok:
+        warnings = warnings + matrix_warnings(new_lines, head_lines, seed_lines=split_lines(seed_text),
+                                              config_text=config_text)
         warnings = warnings + report.get("warnings", [])
         if report.get("declared"):
             warnings.append(f"order-known: {report['declared']} declared (summary: the number of distinct defective "
@@ -1636,7 +1641,7 @@ def _foreign_line_violations(line: str, staged_obj, n: int, m: int) -> list[tupl
     else:
         tag = f"staged line {m}"
         prefix = f"{tag}: "
-        pairs = list(_line_form_violations(staged_obj, tag))
+        pairs = list(_line_form_violations(staged_obj, tag, read_config_text()))
         shape = _ts_shape_violation(staged_obj.get("ts"), tag)
         if shape is not None:
             pairs.append(shape)
@@ -1939,7 +1944,8 @@ def decide_merge(staged_text: str | None, head_text: str | None, other_text: str
     seed_lines = split_lines(seed_text)
     anchor = _last_head_ts(head_lines) if head_lines else _last_head_ts(seed_lines)
     violations = validate_new_lines(tail_lines, kept_lines, now, ts_anchor=anchor, seed_lines=seed_lines)
-    warnings = feature_warnings(tail_lines, kept_lines, known) + node_warnings(tail_lines, kept_lines)
+    warnings = (feature_warnings(tail_lines, kept_lines, known) + node_warnings(tail_lines, kept_lines)
+                + matrix_warnings(tail_lines, kept_lines, seed_lines=seed_lines))
     all_violations = form_violations + placement + violations
     return (1 if all_violations else 0), all_violations, ack_warnings + warnings
 
@@ -2360,8 +2366,11 @@ def _developer_file_result(rel, staged_text, head_text, seed_text, now, *, merge
         known = set(split_lines(head_text)) | set(split_lines(merge_other))
         new_lines = [l for l in lines if l not in known]
     else:
-        _code, vv, ww = decide_with_warnings(staged_text, head_text, now, seed_text=seed_text) if drift else (
-            *decide(staged_text, head_text, now, seed_text=seed_text, drift=False), [])
+        if drift:
+            _code, vv, ww = decide_with_warnings(staged_text, head_text, now, seed_text=seed_text)
+        else:                   # --all: no clock, but the matrix WARNs do not depend on it (calibration check 6 (i))
+            _code, vv = decide(staged_text, head_text, now, seed_text=seed_text, drift=False)
+            ww = matrix_warnings(lines[len(head_lines):], head_lines, seed_lines=split_lines(seed_text))
         ow = _one_writer_violation(rel, slug, slug_why, max(0, len(lines) - len(head_lines))) if one_writer else None
         if ow:
             violations.append(ow)

@@ -76,6 +76,12 @@ LEAD_ROWS = {"lead_degraded": "coordination", "lead_restored": "process", "calib
 CONTROL_RE = re.compile("[\x00-\x1f\x7f\x85  ]")
 WITNESS_CONTROL_RE = re.compile("[\x00-\x08\x0b-\x1f\x7f]")
 NEW_TASK_EVENTS = ("delegated", "decomposable")        # the events that bring a task id into existence (others point at one)
+
+
+def _opens_task(event, agent) -> bool:
+    """NEW_TASK_EVENTS, plus an `escalated` of agent `architect` (F6): a question for the Architect may be a fresh idea
+    that has no task yet, so that line brings its id into existence."""
+    return event in NEW_TASK_EVENTS or (event == "escalated" and agent == "architect")
 SAVE_RETRY_SECONDS = 1.0                               # Windows refuses os.replace onto a file another handle has open
 
 
@@ -460,8 +466,9 @@ def _write_event(root: Path, obj: dict, via: str, lock_timeout: float) -> Result
     obj = _prepare(obj, via)
     rel = _journal_path(root)
     event = obj.get("event")
-    issuing = event == "delegated" and not obj.get("task_id")
-    new_task = event in NEW_TASK_EVENTS and bool(obj.get("task_id"))      # other events point at a task: the validator judges them
+    opens = _opens_task(event, obj.get("agent"))
+    issuing = opens and event != "decomposable" and not obj.get("task_id")
+    new_task = opens and bool(obj.get("task_id"))      # other events point at a task: the validator judges them
     need_counter = issuing or new_task
     pre = _pre_lock(root, need_counter)
     result = Result(False, path=rel)
@@ -491,7 +498,8 @@ def _write_event(root: Path, obj: dict, via: str, lock_timeout: float) -> Result
                 ordered[key] = obj[key]
         ordered.update(obj)
         line = json.dumps(ordered, ensure_ascii=False, separators=(",", ":"))
-        violations = jv.validate_new_lines([line], file_lines, now, seed_lines=seed)
+        config_text = jv.read_config_text(root)     # the ladder of THIS repo (absent -> DEFAULT_BINDINGS)
+        violations = jv.validate_new_lines([line], file_lines, now, seed_lines=seed, config_text=config_text)
         if violations:
             raise Refused(2, "\n".join(str(v) for v in violations) + "\n" + DOOR_TEXT)
         line_no = text.count("\n") + (1 if text and not text.endswith("\n") else 0) + 1
@@ -511,6 +519,7 @@ def _write_event(root: Path, obj: dict, via: str, lock_timeout: float) -> Result
     with contextlib.suppress(Exception):
         messages.extend(jv.feature_warnings([line], file_lines))
         messages.extend(jv.node_warnings([line], file_lines))
+        messages.extend(jv.matrix_warnings([line], file_lines, seed_lines=seed, config_text=config_text))
     with contextlib.suppress(Exception):
         import journal_echo
         echo = journal_echo.echo_for_lines([line], file_lines)
@@ -707,12 +716,12 @@ def _build_parser() -> argparse.ArgumentParser:
         opt=("run", "witness-file", "witness", "from-worker", "basis", "allow-red", "feature", "node", "category"))
     add("reject", req=("task", "agent", "model", "by", "attempt", "failure-class", "notes"), opt=("basis", "feature", "category"))
     add("skip", req=("agent", "notes"), opt=("feature", "category"))
-    add("escalate", req=("task", "agent", "model", "notes"), opt=("feature", "category"))
+    add("escalate", req=("agent", "model", "notes"), opt=("task", "feature", "category"))   # --task: required unless --agent architect
     add("defect", req=("task", "agent", "notes"), opt=("ref", "feature", "category"))
     add("decomposable", req=("agent", "notes"), opt=("task", "feature", "category"))
     add("degraded", req=("notes",), opt=("agent", "model", "reason", "scope", "feature", "category"))
     add("restored", req=("notes",), opt=("agent", "model", "feature", "category"))
-    add("calibrated", req=("notes",), opt=("agent", "model", "feature", "category"))
+    add("calibrated", req=("notes",), opt=("agent", "model", "feature", "category", "reviewed-through"))
     add("event", req=("json",))
     p = add("clone", flags=("claim", "show"))
     return ap
@@ -814,6 +823,9 @@ def _event_from_args(a, root: Path) -> tuple:
     if cmd == "skip":
         return _base("dispatch_skipped", a.agent, a.notes, a.category, feature=a.feature)
     if cmd == "escalate":
+        if a.task is None and a.agent != "architect":
+            raise Refused(2, "escalate needs --task <id> of the task being escalated; only an escalation to the Architect "
+                             "(--agent architect) may omit it, and then the writer issues the new task id")
         return _base("escalated", a.agent, a.notes, a.category, model=a.model, task_id=a.task, feature=a.feature)
     if cmd == "defect":
         return _base("defect_found", a.agent, a.notes, a.category, task_id=a.task, ref=a.ref or a.task, feature=a.feature)
@@ -824,7 +836,7 @@ def _event_from_args(a, root: Path) -> tuple:
     if cmd == "restored":
         return _lead_obj("lead_restored", a), None
     if cmd == "calibrated":
-        return _lead_obj("calibrated", a), None
+        return _lead_obj("calibrated", a, reviewed_through=a.reviewed_through), None
     raise Refused(2, f"unknown subcommand {cmd}")
 
 
