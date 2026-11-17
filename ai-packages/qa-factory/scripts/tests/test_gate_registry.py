@@ -866,7 +866,33 @@ def part_wiring() -> None:
         finally:
             A.CLI_SCRIPTS.clear()
             A.CLI_SCRIPTS.update(saved)
-        check_in("K-T1.13 NEG: CLI_SCRIPTS without it names gate_registry.py as dead code", "gate_registry.py", found)
+        check_not_in("K-T1.13 import-alive: CLI_SCRIPTS without it still does not name gate_registry.py (reachable through gate_template)",
+                     "gate_registry.py", found or ["-"])
+        # the fact that makes the row above true: an AST read of the real files
+
+        def imports_of(name: str) -> set:
+            t = ast.parse((SCRIPTS / name).read_text(encoding="utf-8"))
+            return ({a.name for n in ast.walk(t) if isinstance(n, ast.Import) for a in n.names}
+                    | {n.module for n in ast.walk(t) if isinstance(n, ast.ImportFrom) and n.module})
+        check_in("K-T1.13 chain: POSITIVE CONTROL: the same AST read finds hooklib among the imports of gate_template.py or gate_preflight.py",
+                 "hooklib", imports_of("gate_preflight.py") | imports_of("gate_template.py"))
+        check_in("K-T1.13 chain: gate_template.py imports gate_registry", "gate_registry", imports_of("gate_template.py"))
+        check_in("K-T1.13 chain: gate_preflight.py imports gate_template", "gate_template", imports_of("gate_preflight.py"))
+        # a real negative control on a fake root: no CLI line, no importer
+        fake = fake_package({"gate_registry.py": "X = 1\n"})
+        try:
+            (fake / "hooks").mkdir()
+            (fake / "hooks" / "hooks.json").write_text('{"hooks": {}}', encoding="utf-8")
+            A.CLI_SCRIPTS.discard("gate_registry")
+            try:
+                fake_found = A.a1_findings(fake)
+            finally:
+                A.CLI_SCRIPTS.clear()
+                A.CLI_SCRIPTS.update(saved)
+            check_in("K-T1.13 NEG: with neither the CLI line nor an importer, A1 names gate_registry.py as dead code",
+                     "gate_registry.py", fake_found)
+        finally:
+            cleanup(fake)
     finally:
         cleanup(sandbox)
 

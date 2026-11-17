@@ -43,3 +43,14 @@ Architecture: AR-13 (the reuse word is read only through gate_template.acceptabl
 No journal lines, no push.
 
 tests-over: the +33 test lines are the table rows the card asks for (E1 absent/other-case/non-str, E2 unreadable registry, A1 other key) and the S-f pin comments; the product change is the 1-line condition + import. The commit message lacked the line (hook WARN only).
+
+## Retry (attempt 2)
+What changed (test_gate_registry.py, K-T1.13 block only): the red row "NEG: CLI_SCRIPTS without it names gate_registry.py as dead code" is gone. Rows 1-2 unchanged. New rows: "import-alive: CLI_SCRIPTS without it still does not name gate_registry.py (reachable through gate_template)"; three "K-T1.13 chain:" rows (positive control of the AST read, gate_template imports gate_registry, gate_preflight imports gate_template); a real NEG on a fake root (a1_findings takes plugin_root, so E1 did not apply): "K-T1.13 NEG: with neither the CLI line nor an importer, A1 names gate_registry.py as dead code". CLI_SCRIPTS restored in finally on both discards (E2); gate_template not added (E3). Product code untouched.
+
+Run: `python -B ai-packages/qa-factory/scripts/tests/test_gate_registry.py` -> `=== test_gate_registry: 492/492 ok ===`, with
+PASS K-T1.13 import-alive: ... / PASS K-T1.13 chain: POSITIVE CONTROL ... / PASS K-T1.13 chain: gate_template.py imports gate_registry / PASS K-T1.13 chain: gate_preflight.py imports gate_template / PASS K-T1.13 NEG: with neither the CLI line nor an importer, A1 names gate_registry.py as dead code.
+Lang: `python -B ai-packages/qa-factory/scripts/selftest.py --lang` -> `=== qa-factory selftest: 2/2 ok ===`.
+Probe (fake root only, one-off script outside the repo): `no importer -> names gate_registry.py: True (row would PASS)`; `with importer -> names gate_registry.py: False (row would FAIL)`.
+Old label count in file: 0.
+
+FR pass: G - FR-29 no escape bytes written, FR-30 English only (lang selftest ok), FR-31 not load-dependent, FR-32 test replaced with a root-cause fact, FR-34 red row fixed, FR-54 siblings: K-T1.12 reads main() only, none affected. A-F: not applicable (test rows only).
