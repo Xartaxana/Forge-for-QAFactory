@@ -57,6 +57,7 @@ from typing import NamedTuple
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import contract as C  # noqa: E402
+from detector_verdict import refusal  # noqa: E402
 import handoff  # noqa: E402
 import host_adapter  # noqa: E402
 import null_outcomes as NO  # noqa: E402
@@ -1236,7 +1237,8 @@ def _binding_problems(art, rows, section: str) -> list:
     said = _binding_texts(ambiguous, multiple)
     if not said:
         return []
-    return [Problem(section, f"work/triage.json holds rows that cannot be a verdict: {'; '.join(said)}.",
+    return [Problem(section, refusal("handoff_check:binding",
+                                     f"work/triage.json holds rows that cannot be a verdict: {'; '.join(said)}."),
                     "triage every failure in work/triage.json with ONE row under that failure's own instance_id, then "
                     "run this check again")]
 
@@ -1376,34 +1378,39 @@ def _null_outcome_view(doc, section: str, entry: dict, contract: str, art) -> tu
         covered.update(ids)
     if repairs:
         problems.append(Problem(
-            section, f"{header} - and it holds {len(repairs)} repair verdict(s): {_shown(repairs)}. A repair "
+            section, refusal("handoff_check:null_outcome.repairs",
+                     f"{header} - and it holds {len(repairs)} repair verdict(s): {_shown(repairs)}. A repair "
                      f"belongs in `{section}`, one row per instance (id, state, reason, case, round); \"nothing "
                      f"to repair\" means no {_or_list(verdicts)} row at all"
                      # the clause is about a FLAKY row, so it is said only while FLAKY is a repair verdict here
                      + (", a FLAKY row already fixed included" if "FLAKY" in verdicts else "")
                      # a row that asks for the `reorder` round is a repair too (FR-1: the refusal must not say otherwise)
-                     + (", and no row that asks for a `reorder`." if reordered else "."),
+                     + (", and no row that asks for a `reorder`." if reordered else ".")),
             f"fill the `{section}` rows in the form, then run this check again"))
     if unknown:
         problems.append(Problem(
-            section, f"{header} - and a triage row has no verdict this check knows: {_shown(unknown)}. Every "
-                     f"failure carries one of {', '.join(verdicts + allowed)}.",
+            section, refusal("handoff_check:null_outcome.verdict",
+                     f"{header} - and a triage row has no verdict this check knows: {_shown(unknown)}. Every "
+                     f"failure carries one of {', '.join(verdicts + allowed)}."),
             "correct the verdict in work/triage.json, then run this check again"))
     if nameless:
         problems.append(Problem(
-            section, f"{header} - and {len(nameless)} triage row(s) name no instance (`instance_id`, `test` or, "
-                     "for a manual check, `case`), so nobody can tell which failure they answer.",
+            section, refusal("handoff_check:null_outcome.names",
+                     f"{header} - and {len(nameless)} triage row(s) name no instance (`instance_id`, `test` or, "
+                     "for a manual check, `case`), so nobody can tell which failure they answer."),
             "give each triage row its instance_id (or case), then run this check again"))
     # t-323 B4/F2: a run report that cannot be read, or shows no results list, is ONE refusal with ONE text and ONE
     # door - zero rows or rows present alike. This check cannot tell which failures exist, so it never says "a failure
     # has no verdict", and the zero-row door "triage every failure" (unusable for such a report) is not offered.
     cannot_tell = _report_unreadable(art)
     if cannot_tell:
-        problems.append(Problem(section, f"{header} - {cannot_tell} - {REPORT_TELL}.", REPORT_DOOR))
+        problems.append(Problem(section, refusal("handoff_check:null_outcome.report",
+                                                 f"{header} - {cannot_tell} - {REPORT_TELL}."), REPORT_DOOR))
     unshown = "" if (rows or cannot_tell) else _no_failure_shown(art)
     if unshown:
         problems.append(Problem(
-            section, f"{header} - work/triage.json holds no row, and {unshown}, so a failure has no verdict.",
+            section, refusal("handoff_check:null_outcome.failures",
+                             f"{header} - work/triage.json holds no row, and {unshown}, so a failure has no verdict."),
             "triage every failure in work/triage.json, then run this check again"))
     untriaged, unnamed, ambiguous, multiple = (_untriaged_failures(art, rows) if rows and not cannot_tell
                                                else ([], [], [], []))
@@ -1415,7 +1422,7 @@ def _null_outcome_view(doc, section: str, entry: dict, contract: str, art) -> tu
             said.append(f"{len(unnamed)} failure(s) carry no name a row could answer to: {_shown(unnamed)}")
         said += _binding_texts(ambiguous, multiple)
         problems.append(Problem(
-            section, f"{header} - and {'; '.join(said)}, so a failure has no verdict.",
+            section, refusal("handoff_check:null_outcome.failures", f"{header} - and {'; '.join(said)}, so a failure has no verdict."),
             "triage every failure in work/triage.json, one row per failure under that failure's own instance_id "
             "(the analyst writes that file; a failure answers to the instance_id or test the run report names it by, "
             "a manual check to its case), then run this check again"))
@@ -1428,16 +1435,18 @@ def _null_outcome_view(doc, section: str, entry: dict, contract: str, art) -> tu
                 "`where_it_went`") if not got else (f"add a row to `{listed_in}` for each: id, verdict, "
                                                     "where_it_went")
         problems.append(Problem(
-            listed_in, f"{len(missing)} triage row(s) are not listed here: {_shown([ids[0] for ids in missing])}. "
-                       f"With an empty `{section}` this list is the whole triage, so the automator can see its "
-                       "window is complete.", door))
+            listed_in, refusal("handoff_check:null_outcome.listing",
+                               f"{len(missing)} triage row(s) are not listed here: {_shown([ids[0] for ids in missing])}. "
+                               f"With an empty `{section}` this list is the whole triage, so the automator can see its "
+                               "window is complete."), door))
     extra = [i for i in got if not any(C.same_id(i, c) for c in covered)]
     if extra:
         problems.append(Problem(
-            listed_in, f"{_shown(extra)} {'is' if len(extra) == 1 else 'are'} listed here, and no row of "
-                       "work/triage.json is named so (a row is named by its instance_id, its test or, for a manual "
-                       "check, its case): that names a failure nobody triaged, and a failure with no triage row "
-                       "has no verdict.",
+            listed_in, refusal("handoff_check:null_outcome.listing",
+                               f"{_shown(extra)} {'is' if len(extra) == 1 else 'are'} listed here, and no row of "
+                               "work/triage.json is named so (a row is named by its instance_id, its test or, for a manual "
+                               "check, its case): that names a failure nobody triaged, and a failure with no triage row "
+                               "has no verdict."),
             "triage it in work/triage.json (the analyst writes that file), or write the id the triage row "
             "carries"))
     openable = []
@@ -1517,11 +1526,13 @@ def _investigation_view(doc, section: str, entry: dict, contract: str, art) -> t
     for name in ("scope", "not_for_repair"):
         value = doc.data.get(name)
         if value is not None and not isinstance(value, list):
-            problems.append(Problem(name, f"`{name}` must be a list; an investigation hands back `scope: []`",
+            problems.append(Problem(name, refusal("handoff_check:investigation",
+                                                  f"`{name}` must be a list; an investigation hands back `scope: []`"),
                                     f"write `{name}: []`"))
         elif not _is_empty_section(doc, None, name):
-            problems.append(Problem(name, "an investigation hands nothing for repair and relists no triage row: "
-                                          f"`{name}` is not empty; the triage is not yours to change",
+            problems.append(Problem(name, refusal("handoff_check:investigation",
+                                                  "an investigation hands nothing for repair and relists no triage row: "
+                                                  f"`{name}` is not empty; the triage is not yours to change"),
                                     f"empty `{name}` (write `{name}: []`)"))
     return problems, []
 
@@ -1575,8 +1586,9 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
                     problems += (_investigation_view if investigating else _null_outcome_impl(nulled[section]))(doc, section, nulled[section], contract, art)[0]
                     continue
                 problems.append(Problem(
-                    section, "no rows. One row per item in scope: the id, a state and a reason "
-                             f"of at most 80 characters. {_row_sentence(row_form(spec, section, _template_nodes(contract), contract=contract)[1])}",
+                    section, refusal("handoff_check:required_rows",
+                             "no rows. One row per item in scope: the id, a state and a reason "
+                             f"of at most 80 characters. {_row_sentence(row_form(spec, section, _template_nodes(contract), contract=contract)[1])}"),
                     "write the rows as index lines in the values file, then run this check again"))
     # F4 (AR-10, AR-28, AR-29): a verdict that sends the window back owes the sections the contract's `rows_owed_when`
     # lists; an empty one (nothing, or only the template row) is a presence gap returned to the role. Only the
@@ -1589,8 +1601,9 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
         keys = row_form(spec, section, _template_nodes(contract), contract=contract)[1]             # this contract's own row paths: S2-S4 rows are not S5 rows
         cause = f"; cause is one of {', '.join(handoff.allowed('repair_causes'))}" if any(k.endswith(".cause") for k in keys) else ""
         problems.append(Problem(
-            section, f"no rows. The verdict {verdict_word} sends the window back, so each thing the author must change "
-                     f"is a row: {_row_sentence(keys)}{cause}",
+            section, refusal("handoff_check:required_rows.owed_by_verdict",
+                     f"no rows. The verdict {verdict_word} sends the window back, so each thing the author must change "
+                     f"is a row: {_row_sentence(keys)}{cause}"),
             f"write the rows as index lines in the values file ({', '.join(keys)}), then run this check again"))
     for section, entry in nulled.items():
         if _is_empty_section(doc, spec, section):
@@ -1610,8 +1623,9 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
                 continue
             rows_in_scope = len(doc.data.get(section) or [])
             problems.append(Problem(
-                path, f"`{said['word']}` says {said['means']}, and `{section}` lists {rows_in_scope} row(s). "
-                      f"`{said['word']}` belongs only to the empty `{section}` of the null outcome.",
+                path, refusal("handoff_check:required_rows.null_word",
+                      f"`{said['word']}` says {said['means']}, and `{section}` lists {rows_in_scope} row(s). "
+                      f"`{said['word']}` belongs only to the empty `{section}` of the null outcome."),
                 f'--set {path}="{handoff.template(contract).get(path) or "<the value of the field>"}"'))
     for path, node in list(doc.nodes.items()):
         if handoff.owned_by_contract(path) or path.split("[")[0].split(".")[0] in empty_sections:
@@ -1658,9 +1672,9 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
             if field.optional or path.startswith("blocked.") or path.split("[")[0].split(".")[0] in relaxed:
                 continue
             options = handoff.options_for_role(field, role, vocab) if path.endswith(".state") else field.options
-            problems.append(Problem(path, f"not filled. {field.hint}"
+            problems.append(Problem(path, refusal("handoff_check:field.blank", f"not filled. {field.hint}"
                                     + (f" One of: {', '.join(options)}" if options else "")
-                                    + (f" Code could not fill it: {underived}" if underived else ""), kind="blank"))
+                                    + (f" Code could not fill it: {underived}" if underived else "")), kind="blank"))
             continue
         # `true` read back from the file is a Python bool: compare in the form's own spelling
         text = "true" if value is True else "false" if value is False else str(value)
@@ -1690,20 +1704,23 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
             # conductor and then the person, because the known-refusal table was written from the
             # wordings it had already met and this was not one of them.
             if door:
-                problems.append(Problem(path, "; ".join(door) + f".{advice} {REPAIR_MARKER}."))
+                problems.append(Problem(path, refusal("handoff_check:field.value",
+                                                      "; ".join(door) + f".{advice} {REPAIR_MARKER}.")))
                 continue
             problems.append(Problem(
-                path, f"`{text[:60]}` is not a value of this field. Write one of: "
+                path, refusal("handoff_check:field.value",
+                      f"`{text[:60]}` is not a value of this field. Write one of: "
                       + ", ".join(options)
                       + (", or a word the list lacks as `new: <word> -- <why>` (the stage critic judges it)" if opened else "")
-                      + f".{advice} {REPAIR_MARKER}."))
+                      + f".{advice} {REPAIR_MARKER}.")))
             continue
         if field.max_len and len(text) > field.max_len:
             # Counting characters is nobody's judgement: the same marker as the closed list, so a
             # driver routes it to the role instead of spending a conductor session on it.
-            problems.append(Problem(path, f"{len(text)} characters, at most {field.max_len}. "
-                                          "The explanation belongs in the artifact, not in the "
-                                          f"form. {REPAIR_MARKER}.", limit=field.max_len))
+            problems.append(Problem(path, refusal("handoff_check:field.max_len",
+                                                  f"{len(text)} characters, at most {field.max_len}. "
+                                                  "The explanation belongs in the artifact, not in the "
+                                                  f"form. {REPAIR_MARKER}."), limit=field.max_len))
     if fix:
         # P3: every deriver of the loop has written by now, so a verifier sees the form as `--fix` leaves it, whatever
         # order the sections are in.
@@ -1781,8 +1798,9 @@ def tried_errors(doc, contract: str) -> list:
         return []
     meaning = TRIED_MEANING.get(contract)
     what = f" ({meaning})" if meaning else ""
-    return [Problem("tried", f"no rows and no tried_note. One row per attempt{what}: requirement, technique, observation, "
-                             "evidence - or tried_note with why nothing was tried",
+    return [Problem("tried", refusal("handoff_check:tried",
+                                     f"no rows and no tried_note. One row per attempt{what}: requirement, technique, observation, "
+                                     "evidence - or tried_note with why nothing was tried"),
                     "write the rows (or tried_note) in the values file, then run this check again")]
 
 
@@ -1815,8 +1833,9 @@ def _blocked_row_problems(doc, spec, role: str = "", vocab: dict | None = None) 
                       "`blocked.tried` filled")
         numbered = "; ".join(f"({n}) {text}" for n, text in enumerate(shapes, 1))
         out.append(Problem(
-            path, "`blocked` says something outside you stops this row, and `blocked.problem` does not say what. "
-                  f"Write it as one of {'three' if stand else 'two'} things: {numbered}. {REPAIR_MARKER}.",
+            path, refusal("handoff_check:blocked_problem",
+                  "`blocked` says something outside you stops this row, and `blocked.problem` does not say what. "
+                  f"Write it as one of {'three' if stand else 'two'} things: {numbered}. {REPAIR_MARKER}."),
             '--set blocked.problem="<what stops the row>"  ('
             + (f'or for the stand: --set {path}="blocked_by_env"; or ' if stand else "or ")
             + "set header.verdict=halt)",
@@ -1852,9 +1871,10 @@ def check_findings(doc, contract: str, task: str, use_judge: bool) -> tuple:
         if cause == "tooling" and fid not in listed:
             problems.append(Problem(
                 f"findings[{index}].cause",
-                f"{fid} names the factory's own tool, so it is not a repair round for the author: "
-                f"repeat it under `tooling_findings` with the tool and a backlog row, and leave "
-                f"the instances it blocks in `unverified` with `would_settle_it`",
+                refusal("handoff_check:findings_tooling",
+                        f"{fid} names the factory's own tool, so it is not a repair round for the author: "
+                        f"repeat it under `tooling_findings` with the tool and a backlog row, and leave "
+                        f"the instances it blocks in `unverified` with `would_settle_it`"),
                 "add the tooling_findings row, or name a cause the author can act on"))
             continue
         if cause and not handoff.is_placeholder(cause):
@@ -1911,11 +1931,13 @@ def _fill_claims(doc, art, spec=None) -> tuple:
         elif spec is not None and spec[path].optional:
             continue
         elif verdict is None:
-            problems.append(Problem(path, f"not filled. code could not measure it: {reason}; write your own word",
+            problems.append(Problem(path, refusal("handoff_check:claims",
+                                                  f"not filled. code could not measure it: {reason}; write your own word"),
                                     kind="blank"))
         else:
-            problems.append(Problem(path, f"code measured this as false: {reason}; write false and name it in "
-                                          "`unresolved`, or repair the work",
+            problems.append(Problem(path, refusal("handoff_check:claims",
+                                                  f"code measured this as false: {reason}; write false and name it in "
+                                                  "`unresolved`, or repair the work"),
                                     "repair the work, or write false and name it in `unresolved`"))
     return doc, fixed, derived, problems
 
@@ -1939,7 +1961,7 @@ def _check_claims(doc, art) -> list:
             continue
         if got and not got[0]:
             out.append(Problem(f"claims.{name}",
-                               f"the form claims this is true, and it is not: {got[1]}",
+                               refusal("handoff_check:claims", f"the form claims this is true, and it is not: {got[1]}"),
                                "repair the work, or write false and name it in `unresolved`"))
     return out
 
@@ -2417,7 +2439,7 @@ def parse_values(text: str, label: str = "values", *, contract: str = "") -> tup
     hint, aim = hints.hint, hints.aim
 
     def bad(number, what, also=()):
-        problems.append(Problem(f"{label} line {number}", what, FILE_FIX, also=also))
+        problems.append(Problem(f"{label} line {number}", refusal("handoff_check:values_file", what), FILE_FIX, also=also))
 
     def said(base: str, sentence: str) -> str:
         return f"{base}; {sentence}" if sentence else base
@@ -2619,7 +2641,7 @@ def _apply_one(doc, contract: str, spec: dict, path: str, value, raw: bool) -> t
     generic = INDEXED.sub("[]", path)
 
     def refuse(text, fix=""):
-        return doc, False, Problem(path, text, fix), ""
+        return doc, False, Problem(path, refusal("handoff_check:values_apply", text), fix), ""
 
     if raw and path in doc.nodes:              # `--set` of a line the form holds: as it always was, the typed text
         # a write that changes nothing says so (FR-41) - only for a word the field can hold: a placeholder typed with
@@ -2698,7 +2720,8 @@ def _text_of(label: str, read) -> tuple:
     try:
         return read().decode("utf-8-sig"), None
     except (OSError, UnicodeDecodeError) as exc:
-        return "", Problem(label, f"cannot be read as UTF-8 text ({exc})", "write it again as plain UTF-8 text")
+        return "", Problem(label, refusal("handoff_check:values_apply", f"cannot be read as UTF-8 text ({exc})"),
+                           "write it again as plain UTF-8 text")
 
 
 def _writable_lines(doc, contract: str, pairs: list) -> list:
@@ -3117,10 +3140,10 @@ def main() -> int:
 
     path = Path(args.file)
     if args.shorten and not args.fix:
-        print("handoff_check: --shorten needs --fix (the driver passes both; a role's own --fix never cuts)")
+        print(refusal("handoff_check:cli", "handoff_check: --shorten needs --fix (the driver passes both; a role's own --fix never cuts)"))
         return 2
     if not path.is_file():
-        print(f"handoff_check: no such file: {path}")
+        print(refusal("handoff_check:cli", f"handoff_check: no such file: {path}"))
         return 2
     try:
         form_text = path.read_text(encoding="utf-8-sig")      # a BOM is no part of the form (as `form_view` reads it)
@@ -3131,24 +3154,24 @@ def main() -> int:
         # (story_run.py), and the door is its tail. `--dispatch` is part of the door: without it `handoff_init.py` writes
         # the default `-1` form and leaves this one broken.
         to_flag, unsure = _door_to(path)
-        print(f"handoff_check: {path.name} is not UTF-8, left untouched. {unsure}Start it again: "
-              f"handoff_init.py --task <T> --stage <S> --role <role>{to_flag} --dispatch {path.stem} --force")
+        print(refusal("handoff_check:cli", f"handoff_check: {path.name} is not UTF-8, left untouched. {unsure}Start it again: "
+                      f"handoff_init.py --task <T> --stage <S> --role <role>{to_flag} --dispatch {path.stem} --force"))
         return 2
     doc = handoff.parse(form_text)
     contract = str(doc.get("contract") or "")
     if not contract:
-        print("handoff_check: the form does not name its `contract:` - it was not written by "
-              "handoff_init.py. Start it with: handoff_init.py --task <T> --stage <S> --role <role>. "
-              + TWO_CONTRACTS_NOTE)
+        print(refusal("handoff_check:cli", "handoff_check: the form does not name its `contract:` - it was not written by "
+                      "handoff_init.py. Start it with: handoff_init.py --task <T> --stage <S> --role <role>. "
+                      + TWO_CONTRACTS_NOTE))
         return 2
     try:
         handoff.spec(contract)
     except FileNotFoundError as exc:
-        print(f"handoff_check: {exc}")
+        print(refusal("handoff_check:cli", f"handoff_check: {exc}"))
         return 2
 
     if args.values not in (None, "-") and not Path(args.values).is_file():
-        print(f"handoff_check: no such values file: {args.values}")      # a NAMED file is never read as an empty one
+        print(refusal("handoff_check:cli", f"handoff_check: no such values file: {args.values}"))      # a NAMED file is never read as an empty one
         return 2
 
     # The role's words go in first (P1): before `untouched` is measured and before `--fix` derives anything.
@@ -3180,8 +3203,9 @@ def main() -> int:
         except OSError as exc:
             consumed, pending = None, sibling_values(path).name
             problems.append(Problem(sibling_values(path).name,
-                                    f"was applied to the form but could not be renamed to {applied_name} ({exc}); "
-                                    "it would be applied again over the form",
+                                    refusal("handoff_check:cli",
+                                            f"was applied to the form but could not be renamed to {applied_name} ({exc}); "
+                                            "it would be applied again over the form"),
                                     f"delete {sibling_values(path).name}"))
 
     out = _Outcome(contract=contract, doc=doc, role=role, kept=kept, problems=problems, source_problems=source_problems,
