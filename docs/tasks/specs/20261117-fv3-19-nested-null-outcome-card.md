@@ -178,3 +178,11 @@ Verdict: `docs/tasks/specs/reviews/t-1215-fv3-19-card-plan.md`. These decisions 
 - N3: §6 edge 4 sentence corrected (a raw `--set probes.records=foo` writes a scalar that reads empty, the same at top level); one R row pins the raw-scalar case at both depths.
 - §6 edge 1 now reads: the only top-level verdict changes are the closed list in B1 above; any other change stops the node.
 - Re-review: one narrow critic pass on these decisions only (package p.6(б): a spec edit that changes a meaning), then the builder.
+
+## Lead decisions on the re-review t-1219 (Lead, 17.11.2026, Opus; «решила сама»)
+
+Verdict: `docs/tasks/specs/reviews/t-1219-fv3-19-card-rereview.md`. Overrides the `inputs_read` and `rounds` lines of the t-1215 decisions above.
+
+- R1 = (A): one rule by name (P31): `handoff.REQUIRED_LISTS = ("scope", "inputs_read")`. "AS DATA" is withdrawn: the requirement is the tuple. All 15 carriers of `inputs_read` (probe4) get a verdict each; the 14 SCOPE_KINDS carriers get NE homes in `null-outcomes.json` with the guard `handoff_check.py::check refuses the empty list`; W1 tells the item list `scope` from a proof-of-reading list, so kind `report` (`s8-scribe-to-gate-b`) carrying `inputs_read` is legal; the two s5-critic flips (untouched `inputs_read` → refused) and a written `inputs_read: []` → refused join the closed list of verdict changes. The row sentence drops "in scope" for every required list and comes from `row_form` (contract-derived), no new data reader. `null_outcomes.py`, `references/null-outcomes.json`, `test_s7_null_outcome.py` (its pin "REQUIRED_LISTS is unchanged" moves to the new tuple) and `test_null_outcomes.py` move into owns; §7 readers row, §5 siblings line (axis 38: road B now adds the `inputs_read` refusal) and the DoD are rewritten.
+- R2 = (a): s7-automator-to-analyst `rounds` is empty-legal like the s4 lists. The priced risk is written in the card: `fix_result: fixed` beside an untouched `rounds` passes until the live condition lands. A finding in `live-run-fvf/findings` opens a node for a live `sibling_in`-style condition over `scope[].fix_result` (road A machinery, its own owns); FV3-19 does not wait for it.
+- The card goes to the designer for r2 (resubmission of t-1211): every Lead decision folded into §2, §5, §6, §7 so a weaker model reads one body, not override sections.
