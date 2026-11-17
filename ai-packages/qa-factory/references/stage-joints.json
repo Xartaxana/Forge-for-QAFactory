@@ -8227,7 +8227,7 @@
       "stages": [
         "*"
       ],
-      "requirement": "The `rework` option's `args` name a stage that can be sent back, a role that did accepted work there, cases inside the approved scope (at least one from S4) or plan rows (never both), and a cause from the list.",
+      "requirement": "The `rework` option's `args` name a stage that can be sent back, a role that did accepted work there, a cause from the list, and the work to redo as one kind only: cases inside the approved scope (at least one from S4), plan row ids (S1-S3), or bug candidates the story lists (S7 only, instead of cases).",
       "door": "take the values from the list under \"Moves open here\"",
       "door_needs": "none",
       "when": [

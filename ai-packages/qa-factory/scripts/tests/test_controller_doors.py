@@ -271,6 +271,55 @@ def launch_section() -> None:
     check_eq("launch-section/nothing: no row holds -> the `none` line (E24, E-T9c-4)", text.split(LAUNCH_HEAD)[-1].strip(), NM.NOTHING_CHECKED)
 
 
+UNREADABLE_ROWS = {      # what the rows file holds -> the reason the first line of the section ends with (t-1087, FR-41 / FR-59)
+    "absent": (None, "absent.json cannot be read (FileNotFoundError))."),
+    "empty-file": ("", "empty-file.json is not valid JSON"),
+    "not-json": ("{nope", "not-json.json is not valid JSON"),
+    "not-object": ("[]", "not-object.json is not an object)."),
+    "joints-not-list": ('{"schema_version": 2, "joints": 5}', "stage-joints.json `joints` is not a list)."),
+    "readable-no-rows": ('{"schema_version": 2, "joints": []}', None),
+}
+ARGS_KINDS = {           # what `check_args` accepts after stage, role and cause (the branches of its code) -> (args extras, stage, accepted)
+    "cases": ({"cases": ["TC-1"]}, "S5", True),
+    "plan-rows": ({"rows": ["row-1"]}, "S2", True),
+    "candidates": ({"candidates": ["bug-1"]}, "S7", True),
+    "candidates-before-S7": ({"candidates": ["bug-1"]}, "S5", False),
+    "candidates-with-cases": ({"candidates": ["bug-1"], "cases": ["TC-1"]}, "S7", False),
+    "cases-with-rows": ({"cases": ["TC-1"], "rows": ["row-1"]}, "S5", False),
+    "none-at-S5": ({}, "S5", False),
+}
+
+
+def launch_unknown() -> None:
+    """t-1087: an unreadable rows file is told as NOT KNOWN with the reader's reason; a readable file with no row keeps the `none` line."""
+    import json
+    import no_move as NM
+    import stage_joints as SJ
+    folder, real = harness.temp_dir("qa-launch-unknown-"), SJ.DATA
+    try:
+        for label, (content, expected) in UNREADABLE_ROWS.items():
+            SJ.DATA = folder / f"{label}.json"
+            if content is not None:
+                SJ.DATA.write_text(content, encoding="utf-8")
+            first = NM.moves_section(NM.data(), ["stop_here"], CONDUCTOR_FACTS).split(LAUNCH_HEAD)[-1].strip().splitlines()[0]
+            if expected is None:
+                check_eq(f"launch-unknown/{label}: readable, no rows -> the `none` line", first, NM.NOTHING_CHECKED)
+            else:
+                check(f"launch-unknown/{label}: NOT KNOWN with the reader's reason, never `none`", first.startswith("NOT KNOWN: the rows of what code checks could not be read (" + expected), first)
+    finally:
+        SJ.DATA = real
+    rows, _why = SJ.load_rows()
+    sentence = next(r["requirement"] for r in rows["joints"] if r.get("check") == "no_move:args")
+    check("args-row: the sentence names every kind check_args accepts (cases, plan rows, candidates)",
+          all(word in sentence for word in ("cases", "plan row", "candidates", "S7")), sentence)
+    facts = dict(CONDUCTOR_FACTS, rework_stages=["S2", "S5", "S7"], candidates=["bug-1"],
+                 rework_roles={"S2": ["qa-planner"], "S5": ["qa-automator"], "S7": ["qa-analyst"]})
+    roles = {"S2": "qa-planner", "S5": "qa-automator", "S7": "qa-analyst"}
+    for label, (extra, stage, accepted) in ARGS_KINDS.items():
+        got, _why = NM.check_args(dict({"stage": stage, "role": roles[stage], "cause": "test_defect"}, **extra), facts)
+        check_eq(f"args-kinds/{label}: check_args accepts it", got is not None, accepted)
+
+
 def launch_prompt() -> None:
     """The prompt body the driver hands `conductor` (the one caller of `moves_section`) for a boundary holds the section after the moves."""
     import story_run
@@ -380,6 +429,7 @@ def main() -> None:
 
     doors_open_end_to_end(rows)
     launch_section()
+    launch_unknown()
     launch_prompt()
     refusal_texts()
 

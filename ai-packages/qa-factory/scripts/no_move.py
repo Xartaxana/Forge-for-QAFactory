@@ -316,9 +316,15 @@ def moves_section(spec: dict, open_ids: list, facts: dict, site=()) -> str:
     # and for the moves open here (`move:<id>`), each through `told_line` (AR-13, AR-15). After the two sections above and before
     # the state text the caller appends (E-T9c-5); every launch has the section, `none` when no row holds (E-T9c-4, E24).
     import stage_joints as SJ              # late: stage_joints reads no_move for the move ids
-    rows_held = SJ.rows_for("conductor", ["*"], {"moves": list(open_ids)})
+    data, why = SJ.load_rows()             # the reader says WHY it cannot read; an unknown is never "none" (FR-41, FR-59)
+    if data is not None and not isinstance(data.get("joints"), list):
+        data, why = None, "stage-joints.json `joints` is not a list"
     lines += ["", WHAT_CODE_CHECKS, ""]
-    lines += [SJ.told_line(row) for row in rows_held] or [NOTHING_CHECKED]
+    if data is None:                       # the page's precedent: contract_slices.requirement_section
+        lines += [f"NOT KNOWN: the rows of what code checks could not be read ({why})."]
+    else:
+        rows_held = SJ.rows_for("conductor", ["*"], {"moves": list(open_ids)}, data)
+        lines += [SJ.told_line(row) for row in rows_held] or [NOTHING_CHECKED]
     return "\n".join(lines)
 
 

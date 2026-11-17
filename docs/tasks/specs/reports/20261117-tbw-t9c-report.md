@@ -181,3 +181,41 @@ Item 3 note: the prompt row calls `story_run.Driver._conductor_text` (the one ca
 and `scripts/tests/test_conductor_doors.py` (a prompt rig), `scripts/slow_tests.json`, `scripts/tests/dry_exits.py` and
 `fixtures/driver-exits/` (Q2), `scripts/contract_slices.py` (`requirement_section`), `scripts/refusal_registry.py` via the walk. The finish spec
 sections for the T1r-cards `stage_done:set` sentence were not in the given.
+
+## Follow-up t-1087
+
+Three Lead answers made (Q2, Q4, Q5); Q1 and Q3 untouched (a siting node).
+
+1. Q2: `fixtures/driver-exits/gates.json` gained the four joints `no_move:args|class|options|prose` (joints table, reach `unwalked`, why `T9c conductor rows, 2026-11-17: reached by the gate rows' conductor calls, not yet judged by a row of their own`) and four `raised_by` lines `unwalked | joints/<id> | <same reason>`. NAMED MOVE: the group's `unwalked` credit (raised_by entries) +4 (227 -> 231; rows 287 -> 291). The group's `ratchet.unwalked` base number stays 21: raising it made `--check` red ("stale raise credit: 231 entries, 227 rows above base"), because base + named credits must equal the rows; the base is the floor, the raise is the entries. No other pin named; no file outside owns touched.
+2. Q4: the `no_move:args` sentence now reads: "...name a stage that can be sent back, a role that did accepted work there, a cause from the list, and the work to redo as one kind only: cases inside the approved scope (at least one from S4), plan row ids (S1-S3), or bug candidates the story lists (S7 only, instead of cases)." Derived from `check_args` branches (candidates: S7 only, never with cases/rows, from `facts["candidates"]`; cases and rows never together; rows are not judged by `check_args`). No pin of the text existed in `test_stage_joints.py`; `test_controller_doors.py` got table `ARGS_KINDS` (7 rows, expectation from the branches) and a sentence row.
+3. Q5: `no_move.moves_section` now calls `stage_joints.load_rows()` itself (the public reader that already returns the reason, so no change outside `no_move.py`), treats a `joints` that is not a list as unreadable, prints `NOT KNOWN: the rows of what code checks could not be read (<why>).` and keeps `NOTHING_CHECKED` for a readable file with no rows. Precedent wording and form: `contract_slices.requirement_section` (`scripts/contract_slices.py:729`). Table `UNREADABLE_ROWS` (6 rows: absent, 0 bytes, not JSON, not object, joints-not-list, readable-no-rows) in `test_controller_doors.py`.
+
+Analog noticed: `stage_joints.rows_for` still returns `[]` for both unreadable and empty (documented); other callers of it that print "none" would have the same fault (not searched).
+
+Witness (verbatim tails):
+```
+dry_exits --check: 0 discrepancies
+NUMBER ratchet (rows now / base): live_only 31/0, after 0/0, unwalked 291/60, hook_layer 77/77; raised_by 262
+dry_exits selftest: 160/160 cases
+stage joints: clean   (rows 273, told counters: hand_cards 12, legacy_legs 0, unsited 17)
+=== test_controller_doors: 67/67 ok ===
+=== test_stage_joints: 340/340 ok ===
+=== judgment_census: 25/25 ok ===
+=== conductor doors: 224/224 ok ===
+=== no_move seam_c26_g27_f2: 87/87 ok ===
+=== no_move seam_k4s: 73/73 ok ===
+=== no_move seam_n1_n9: 119/119 ok ===
+=== no_move seam_n2b_n15: 188/188 ok ===
+=== no_move seam_sites: 506/506 ok ===
+PASS limits: every mandatory role rule of design/role-rules.json holds in its carrier
+=== qa-factory selftest: 4/4 ok ===
+```
+Negative control (byte copy of `no_move.py`, the NOT KNOWN branch turned off):
+```
+sha256 before  9a7981c586274d8c05663ad44c2a6af29d2131bd6cd413e3af43397cf4abf10b
+FAIL launch-unknown/absent|empty-file|not-json|not-object|joints-not-list: NOT KNOWN with the reader's reason, never `none` -- - none: code checks nothing ...
+=== test_controller_doors: 62/67 ok ===
+restore by cp from the copy
+sha256 after   9a7981c586274d8c05663ad44c2a6af29d2131bd6cd413e3af43397cf4abf10b   (equal)
+```
+Needed beyond the manifest: `scripts/stage_joints.py` (`load_rows`, `rows_for`), `scripts/contract_slices.py`, `scripts/null_outcomes.py`, `scripts/tests/dry_exits.py` (read only).

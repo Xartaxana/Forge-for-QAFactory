@@ -361,6 +361,22 @@
    "reach": "unwalked",
    "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
   },
+  "no_move:args": {
+   "reach": "unwalked",
+   "why_unreached": "T9c conductor rows, 2026-11-17: reached by the gate rows' conductor calls, not yet judged by a row of their own"
+  },
+  "no_move:class": {
+   "reach": "unwalked",
+   "why_unreached": "T9c conductor rows, 2026-11-17: reached by the gate rows' conductor calls, not yet judged by a row of their own"
+  },
+  "no_move:options": {
+   "reach": "unwalked",
+   "why_unreached": "T9c conductor rows, 2026-11-17: reached by the gate rows' conductor calls, not yet judged by a row of their own"
+  },
+  "no_move:prose": {
+   "reach": "unwalked",
+   "why_unreached": "T9c conductor rows, 2026-11-17: reached by the gate rows' conductor calls, not yet judged by a row of their own"
+  },
   "role_cli:artifact_producer.py publish": {
    "reach": "unwalked",
    "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
@@ -501,6 +517,10 @@
    "unwalked | joints/host_adapter:HA-role-nested-delegation | L1c census catch-up, 2026-11-17",
    "unwalked | joints/host_adapter:HA-role-read-only | L1c census catch-up, 2026-11-17",
    "unwalked | joints/host_adapter:HA-stdin-chars | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/no_move:args | T9c conductor rows, 2026-11-17: reached by the gate rows' conductor calls, not yet judged by a row of their own",
+   "unwalked | joints/no_move:class | T9c conductor rows, 2026-11-17: reached by the gate rows' conductor calls, not yet judged by a row of their own",
+   "unwalked | joints/no_move:options | T9c conductor rows, 2026-11-17: reached by the gate rows' conductor calls, not yet judged by a row of their own",
+   "unwalked | joints/no_move:prose | T9c conductor rows, 2026-11-17: reached by the gate rows' conductor calls, not yet judged by a row of their own",
    "unwalked | joints/role_cli:artifact_producer.py publish | L1c census catch-up, 2026-11-17",
    "unwalked | joints/role_cli:artifact_producer.py validate-batch | L1c census catch-up, 2026-11-17",
    "unwalked | joints/role_cli:case_versions.py --pin | L1c census catch-up, 2026-11-17",
