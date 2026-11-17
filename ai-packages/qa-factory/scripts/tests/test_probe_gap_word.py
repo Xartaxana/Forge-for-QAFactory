@@ -401,8 +401,8 @@ def k7_the_review_word():
         TW.write(manifest_path, manifest)
         out = TB.run_window_cli(project)
         check_eq("K7: the build with `approved` exits 1", out.returncode, 1)
-        check_in("K7: and the review line says the verdict of such an instance is `unverified`",
-                 "the verdict of such an instance is `unverified`", out.stdout)
+        check_in("K7: and the review line says the verdict of an instance whose probe could not run here is `unverified`",
+                 "the verdict of an instance whose probe could not run here is `unverified`", out.stdout)
     finally:
         cleanup(project)
 
