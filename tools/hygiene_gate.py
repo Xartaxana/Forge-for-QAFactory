@@ -74,6 +74,11 @@ MSG_JOURNAL_BLOCK = (
     "the journal is written by `python -B tools/journal_write.py <event> ...` (the hooks write delegated/returned "
     "themselves); a redirect, tee or sed -i onto it is refused. Reading it with grep, cat or tail is fine."
 )
+MSG_WORKER_ACCEPT = (
+    "an acceptance or rejection is written by the coordinator's main chain, not by a worker -- put your verdict in "
+    "your handoff file; the coordinator records it."
+)
+WORKER_VERDICT_VERBS = frozenset({"accept", "reject"})      # AR-1: the journal_write verbs a worker never runs
 MSG_ROLLBACK = (
     "{n} path(s) under {dir} have uncommitted changes that may be another session's, and this command would discard "
     "them. Your own edit: undo it with Edit/Write. A byte copy you took: restore from it. Changes that are not yours: "
@@ -1474,6 +1479,24 @@ def _clip(text: str) -> str:
     return text if len(text) <= SHOWN_TARGET_CHARS else "..." + text[-(SHOWN_TARGET_CHARS - 3):]
 
 
+_VERB_WORD_RE = re.compile(r"""\s+(?:-\S*\s+)*["']?([A-Za-z_-]+)""")
+
+
+def _worker_verdict_call(command: str) -> bool:
+    """True when ANY python program invocation in `command` is tools/journal_write.py with the first positional
+    `accept` or `reject` (a worker never writes a verdict, B4 (i)). Reuses dod_track's program recogniser (the one
+    form of `py -3`, `-X utf8`, quoted paths) and scans ALL its matches, so a second `;`/`&&`/`|` segment counts. The
+    import is lazy: a broken one raises into decide()'s visible fail-open, never into a silent pass or a refusal."""
+    import dod_track
+    for program, end in dod_track.python_program_spans(command):
+        if not dod_track.is_journal_writer_program(program):
+            continue
+        verb = _VERB_WORD_RE.match(command, end)
+        if verb and verb.group(1).lower() in WORKER_VERDICT_VERBS:
+            return True
+    return False
+
+
 def _decide_command(tool_name: str, command: str, payload: dict):
     sig = _collect_signals(command, tool_name)
     cwd = payload.get("cwd")
@@ -1485,6 +1508,9 @@ def _decide_command(tool_name: str, command: str, payload: dict):
         shown = [t for _f, t in sig["write_targets"] if _is_journal_target(t)][:1]
         if shown:
             notes.append("journal target: " + shown[0][:120])
+    agent_id = payload.get("agent_id")          # a subagent's payload carries it; the main thread's does not (P38)
+    if isinstance(agent_id, str) and agent_id and _worker_verdict_call(command):
+        deny.append(MSG_WORKER_ACCEPT)
     for form in sig["rollback_forms"]:          # every shape is measured; the first one that hits a dirty tree refuses
         verdict = _measure_rollback(form, cwd)
         if verdict[0] == "refuse":

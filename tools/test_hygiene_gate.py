@@ -325,6 +325,59 @@ def test_decide_table(world, monkeypatch, name, command, tool, cwd, expect):
         assert text in hso["additionalContext"] and "hookEventName" in hso
 
 
+JW = "tools/journal_write.py"
+# (id, command, tool, agent_id, deny): B4 (i), a worker never writes accept/reject; agent_id is the payload's key
+WORKER_VERDICT_ROWS = [
+    ("accept-relative", f"python -B {JW} accept t-1 --by opus", B, "a1", True),
+    ("reject", f"python -B {JW} reject t-1 --reason x", B, "a1", True),
+    ("py-launcher", f"py -3 {JW} accept t-1", B, "a1", True),
+    ("x-flag-quoted-path-with-spaces", f'python -X utf8 "C:/x y/{JW}" accept t-1', B, "a1", True),
+    ("second-segment-semicolon", f"python -m pytest tools/x.py -q; python -B {JW} accept t-1", B, "a1", True),
+    ("second-segment-and", f"echo go && python -B {JW} reject t-1", B, "a1", True),
+    ("second-segment-pipe", f"echo go | python -B {JW} accept t-1", B, "a1", True),
+    ("subshell-absolute", f"( cd C:/wt && python -B C:/wt/{JW} reject t-1 )", B, "a1", True),
+    ("backslashes", "python -B C:\\wt\\tools\\journal_write.py accept t-1", B, "a1", True),
+    ("single-quoted-path", f"python '{JW}' accept t-1", B, "a1", True),
+    ("powershell-call-operator", f"& python {JW} accept t-1", P, "a1", True),
+    ("upper-case-dir", "python TOOLS/journal_write.py accept --task t-1", B, "a1", True),
+    ("mixed-case-file", "python tools/Journal_Write.py accept", B, "a1", True),
+    ("dot-slash", f"python ./{JW} accept t-1", B, "a1", True),
+    ("returned-verb", f"python -B {JW} returned t-1", B, "a1", False),
+    ("skip-verb", f"python -B {JW} skip t-1", B, "a1", False),
+    ("next-verb", f"python -B {JW} next", B, "a1", False),
+    ("mention-in-grep", f'grep "journal_write.py accept" f', B, "a1", False),
+    ("other-program-accept", "python -B tools/other.py accept t-1", B, "a1", False),
+    ("main-thread-no-agent-id", f"python -B {JW} accept t-1", B, None, False),
+    ("null-agent-id", f"python -B {JW} accept t-1", B, None, False),
+    ("empty-agent-id", f"python -B {JW} accept t-1", B, "", False),
+    ("non-string-agent-id", f"python -B {JW} accept t-1", B, 7, False),
+    ("unparsable-quote", f'python -B "{JW} accept t-1', B, "a1", False),
+    ("unparsable-garbage", "python -B ((( ;;; |||", B, "a1", False),
+    ("no-verb", f"python -B {JW}", B, "a1", False),
+]
+
+
+@pytest.mark.parametrize("name,command,tool,agent_id,deny", WORKER_VERDICT_ROWS, ids=[r[0] for r in WORKER_VERDICT_ROWS])
+def test_worker_never_writes_a_verdict(world, name, command, tool, agent_id, deny):
+    payload = {"tool_name": tool, "tool_input": {"command": command}, "cwd": str(world["tree"])}
+    if name != "main-thread-no-agent-id":
+        payload["agent_id"] = agent_id
+    code, out = hg.decide(payload)
+    assert code == 0
+    if not deny:
+        assert out is None, out
+        return
+    hso = out["hookSpecificOutput"]
+    assert hso["permissionDecision"] == "deny" and hso["permissionDecisionReason"] == hg.MSG_WORKER_ACCEPT, out
+    assert hso["additionalContext"].startswith(hg.DENY_PREFIX + hg.MSG_WORKER_ACCEPT) and len(hg.MSG_WORKER_ACCEPT) <= 350
+
+
+def test_worker_verdict_rule_never_unrefuses_an_existing_refusal(world):
+    payload = {"tool_name": B, "tool_input": {"command": f"cd x; python -B {JW} returned t-1"}, "agent_id": "a1",
+               "cwd": str(world["tree"])}
+    assert hg.decide(payload)[1]["hookSpecificOutput"]["permissionDecisionReason"] == hg.MSG_CD_BASH
+
+
 def test_order_when_several_fire(world):
     cmd = f"echo x >> {JNL}; git reset --hard; cd x"
     _code, out = _decide(cmd, B, world["repo"])
