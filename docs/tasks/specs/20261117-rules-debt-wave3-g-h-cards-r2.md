@@ -1002,3 +1002,12 @@ F-k4 = (b) (Lead, 17.11.2026). Replacement texts:
 - H-2: the choice (a)/(b) is the owner's (what a person gets after naming a container); asked 17.11. C3-h is dispatched unchanged meanwhile.
 - E4 SLOT of C3-h: canon run 44059237092 (branch `worktree-agent-ac40b44fb0a175afa`, full canon, `python -B tools/ci_read.py why 44059237092` -> "success: nothing failed"; the package-full-report job ran).
 - No second plan-critic pass: round 2 applies the verdict t-1090 and adds no architecture change; the Lead checked §8 (every remark placed) and §5.
+
+## Owner's decision on H-2 (the owner, 17.11.2026, in the session)
+
+H-2 = (a): one road, the named-container road also registers the probe on `unknown`. The owner's words: «"неизвестно" это про
+версию которая стояла на стенде? Если человек подтвердил, то уже известно. Но если человек сказал не знаю, то в отчёте по
+тестированию пишем что версия на стенде не известна. Проба-то как от этого зависит? Она либо прошла, либо нет». So: registration
+does not depend on the verdict about the build; an unknown build is written into the test report as unknown (FR-41), never a pass.
+Node C3-h2 (after C3-h, serial on the HOT file): `gate_preflight.named_container_said` and the probe loop of
+`driver_machine.py`, one test row (an `unknown` named-container answer registers the probe and records nothing passed).
