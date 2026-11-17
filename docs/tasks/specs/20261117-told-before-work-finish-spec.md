@@ -672,3 +672,10 @@ Q-O1 (owner): asked; until her word the recommended answer holds — no growth o
 Wave A launch: T6 and T7a-A now (four slots are held by rules-debt phase 2); T4a, T7b, T7c next as slots free; T5r
 after rules-debt FL9 merges (both edit `s5_precheck.py`, function-disjoint, queued to avoid a merge on a hot file).
 M9 and the §11 readers run are still owed by the Lead before T3b.
+
+## Слово владельца 17.11.2026 по Q-O1 (предел размера страниц) — меняет F-6
+
+«не в ущерб правилам. Если не влезет можно поднять». Следствие: при переносе карточек правил в строки страниц текст
+правил НЕ режется и не сокращается ради предела; если не помещается — предел роли поднимается именованной записью
+(роль, сколько байт, почему), и узел идёт дальше. F-6 читается как (b) с записью, а не (a) «рост = стоп». Карточка
+T1r-cards-R и её билдер получают это как условие.
