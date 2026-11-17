@@ -275,7 +275,7 @@ class DriverStageS8s9:
                       extra=(["Chosen drafts: " + ", ".join(str(d) for d in drafts)] if drafts else
                              ["S7 left no bug drafts, so nothing is pre-chosen: read the gate-B decision "
                               "below and file exactly what the person's own words order there — a local "
-                              "proposal under qa-factory/bugs, grounded in the register and the report, "
+                              "proposal under <task root>/bugs/, grounded in the register and the report, "
                               "submitted nowhere. If their words order no bug, file none and say so in "
                               "your digest: that is a complete answer, not a gap."]) +
                             [f"Gate B decision: {words[:2000]}",
