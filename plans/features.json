@@ -1028,6 +1028,7 @@
         "scripts/tests/no_claude.py",
         "scripts/tests/test_audit_rules.py",
         "scripts/gate_registry.py",
+        "scripts/gate_template.py",
         "references/gate-registry.json",
         "scripts/stage_joints.py",
         "references/stage-joints.json",
