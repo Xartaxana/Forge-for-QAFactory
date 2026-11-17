@@ -1,0 +1,125 @@
+# Scout t-1238 — overlaps of U7 sites with open pile batches (frozen digest, 17.11.2026)
+
+Verbatim hand-back of the scout, extracted from its transcript by the coordinator (scouts cannot write files). Frozen: not edited after extraction.
+
+digest: v1 t-1238
+
+Method: 106 batch files; "open" = header status other than `закрыта`. Overlap is judged by function/key/table name where a row names one, else by owns file ("file-level"). The tables are below. Note the rules-debt/1 anomaly and the `Not done` list.
+
+## Objects
+
+| id | kind | gist | paths | status | owner | links | ev |
+|---|---|---|---|---|---|---|---|
+| r1 | site-row | p1-discovery.md:43 mobile_surface/Appium: no node names it; file-level only via XT2-1, TQ1-6, OH3-35 | ai-packages/qa-factory/skills/qa-onboarding/phases/p1-discovery.md:43 | file-level | — | n:XT2-1,n:TQ1-6,n:OH3-35 | T1,T6,T11 |
+| r2 | site-row | surfaces.py::declared_surfaces: no open or closed pile names surfaces.py, declared_surfaces or AGENT_HANDS | ai-packages/qa-factory/scripts/surfaces.py:113 | absent | — | a2D1,s6.unknownword | T1,T7,T9 |
+| r3 | site-row | readiness.py::_check_plain_environment: function unnamed anywhere; file-level readiness.py nodes only | ai-packages/qa-factory/scripts/readiness.py:882 | file-level | — | n:readiness-set | T1,T9,T11 |
+| r4 | site-row | execution_request.py:29 reporter none: no node names it; EP4-1 edits _probe_refusal, RD1-14 same file | ai-packages/qa-factory/scripts/execution_request.py:29 | file-level | — | n:EP4-1,n:RD1-14,n:RD1-24 | T1,T6,T11 |
+| r5 | site-row | probe_by_code.py::_no_entry: not named; neighbours RD1-24 (language without probe row), PC4-2 splits file | ai-packages/qa-factory/scripts/probe_by_code.py:1455 | file-level | — | n:RD1-24,n:PC4-2,n:probe-set | T1,T9,T11 |
+| r8 | site-row | gate_preflight.py::check_s5_executor: not named; RD1-13, EP1-26, PC4-4 touch same file or neighbours | ai-packages/qa-factory/scripts/gate_preflight.py:2815 | file-level | — | n:RD1-13,n:EP1-26,n:PC4-4 | T1,T9,T11 |
+| r9 | site-row | driver_s0.py::Driver.s0_rest: named only inside C5-8 critic-queue text (Q-5 92 lines); owns lack driver_s0.py | ai-packages/qa-factory/scripts/driver_s0.py:2408 | mention-only | — | n:C5-8,n:FV2-37 | T1,T6,T10,T15 |
+| r10 | site-row | driver_stage_build.py::stand_check: OF5-5 names stand_check and STAND_STAGES (driver_stage_build.py:24); same function | ai-packages/qa-factory/scripts/driver_stage_build.py:139 | overlap | — | n:OF5-5,n:DH2-1,n:FV3-21,n:FV2-38 | T1,T6,T10,T16 |
+| r11 | site-row | driver_stage_s5.py::stage_S5: no open pile names it or the file (only closed conductor/1 mentions stage_S5) | ai-packages/qa-factory/scripts/driver_stage_s5.py:230 | absent | — | — | T1,T9 |
+| r12 | site-row | gate_preflight.py::check_s5_runtime_probe: not named; EP1-26 checks stand capability before S5 in same file | ai-packages/qa-factory/scripts/gate_preflight.py:4254 | file-level | — | n:EP1-26,n:RD1-13 | T1,T9,T20 |
+| s6.unknownword | site-row | surfaces.py:127-141 capability word/native stand door to person: surfaces.py not named by any pile | ai-packages/qa-factory/scripts/surfaces.py:127 | absent | — | r2 | T2,T7,T9 |
+| a2D1 | site-row | surfaces.py:24 AGENT_HANDS tuple: AGENT_HANDS named in no pile file | ai-packages/qa-factory/scripts/surfaces.py:24 | absent | — | r2 | T2,T7,T9 |
+| an1 | site-row | AR-1 tuples: COMMAND_ADAPTERS, BUILTIN_TICKET_ADAPTERS, _TRACKER_CLIS unnamed; ticket_adapter.py touched by other functions | ai-packages/qa-factory/scripts/ticket_adapter.py:184 | file-level | — | n:ticket-set | T2,T9,T11 |
+| ax7A4 | site-row | stand_access.KINDS: FV2-61 adds sibling tuple SIGN_IN_KEYS in same file; CX2-15 edits _safe | ai-packages/qa-factory/scripts/stand_access.py:73 | file-level | — | n:FV2-61,n:CX2-15 | T3,T6,T13 |
+| ax11A1 | site-row | sizing.py:601-606 cap table: SC5-6 names the XS2/S5/M10/L18/XL28 table and XXL; same topic | ai-packages/qa-factory/scripts/sizing.py:601 | overlap | — | n:SC5-6,n:G1-17,n:G1-19,n:CD1-32 | T3,T11,T18 |
+| ax10D1 | site-row | common-rules.md:150 English artifact language: OF4-15, RC1-15, OH8-5 edit same file; OH8-5 names lines 131-140 | ai-packages/qa-factory/references/common-rules.md:150 | file-level | — | n:OH8-5,n:OF4-15,n:RC1-15 | T3,T11,T22 |
+| ax10D2 | site-row | validate_artifacts.py BUG_FORM_SECTIONS:504: constant unnamed; SS1-16 touches :518 (tracker-key regex), others other functions | ai-packages/qa-factory/scripts/validate_artifacts.py:504 | file-level | — | n:SS1-16,n:TBW1-18,n:SC2-7,n:G2-16,n:G2-17,n:FV2-4 | T3,T9,T11 |
+| ax10D3 | site-row | driver_gates.py:1117 non-English approval word: FV1-7, FV1-8, FV1-16, FV2-35 write file; GW1-50, C3-21 same concept | ai-packages/qa-factory/scripts/driver_gates.py:1117 | file-level | — | n:FV1-7,n:FV1-8,n:FV1-16,n:FV2-35,n:GW1-50,n:C3-21 | T3,T11,T14 |
+| n:OF5-5 | node | onboarding-forge/5 line 32: one reader of "stand word given"; check stand_check vs stand_word matchers, then merge into waiver | plans/piles/onboarding-forge/batch-5-ostatki-hf8-4-i-oh3-42.md:32 | ожидает | batch ожидает, взял — | r10 | T16 |
+| n:DH2-1 | node | driver-hosts/2: rename price key s6.stand_confirm in driver_stage_build::stand_question_text; behaviour unchanged | plans/piles/driver-hosts/batch-2-driver-hosts-sources-words.md:77 | ожидает | batch ожидает, взял — | r10 | T15 |
+| n:FV3-21 | node | live-run-fvf/3: manual half of S6 ignores s6_no_stand; edits manual_lane_plan and stand_question_text | plans/piles/live-run-fvf/batch-3-live-run-fvf.md:50 | ожидает | batch в работе, dev1, 17.11.2026 | r10 | T14 |
+| n:FV2-38 | node | live-run-fvf/2: login-retry text in driver_stage_build.py, only after a Lead decision (FV1-15, FV1-28) | plans/piles/live-run-fvf/batch-2-live-run-fvf.md:65 | ожидает | batch ожидает, взял — | r10 | T13 |
+| n:FV2-37 | node | live-run-fvf/2: driver_s0.py::probe_reason and env_probe; different function from s0_rest | plans/piles/live-run-fvf/batch-2-live-run-fvf.md:64 | ожидает | batch ожидает, взял — | r9 | T13 |
+| n:C5-8 | node | driver-hosts/2: critic-queue item list incl. Q-5 s0_rest 92 lines and ticket_adapter.py:624 raw_decode idiom | plans/piles/driver-hosts/batch-2-driver-hosts-sources-words.md:32 | ожидает | batch ожидает, взял — | r9,an1 | T15 |
+| n:EP4-1 | node | execution-probes/4: execution_request.py::_probe_refusal door for --mine without environment probe | plans/piles/execution-probes/batch-4-vhodyashchie.md:27 | ожидает | batch ожидает, взял — | r4 | T11 |
+| n:RD1-14 | node | rules-debt/1: C3-k provenance_acceptance unknown provenance becomes question; owns execution_request, gate_preflight, run_suite | plans/piles/rules-debt/batch-1-phase-2.md:42 | ожидает | batch ожидает, взял — (see anomaly) | r4,r8 | T17,T11 |
+| n:RD1-13 | node | rules-debt/1: C3-j check_s5_stand_limits, unmeasured stand limits become one gap card; gate_preflight, environment_record | plans/piles/rules-debt/batch-1-phase-2.md:41 | ожидает | batch ожидает, взял — | r8,r12 | T17,T11 |
+| n:RD1-24 | node | rules-debt/1: red_sandbox --probe for language without probe row leaves no receipt (B-337); red_sandbox, reporters | plans/piles/rules-debt/batch-1-phase-2.md:52 | ожидает | batch ожидает, взял — | r5,r4 | T17 |
+| n:RD1-15 | node | rules-debt/1: C4 language without probe row goes role-probe road; one table row in test_probe_by_code.py only | plans/piles/rules-debt/batch-1-phase-2.md:43 | принято: 4bb5b3f4 (t-961) | batch ожидает, взял — | r5 | T17 |
+| n:EP1-26 | node | execution-report/1: stand capability checked before S5 to pick verification step; runtime_probe, gate_preflight, s5_precheck | plans/piles/execution-report/batch-1-execution-evidence.md:42 | ожидает | batch ожидает, взял — | r8,r12 | T20 |
+| n:PC4-4 | node | package-ci/4: splits gate_preflight.py class Rehearsal (~165 check_* methods) into mixins; whether r8/r12 move is inferred | plans/piles/package-ci/batch-4-dieta-testov-td-11-td-15.md:25 | ожидает | batch ожидает, взял — | r8,r12 | T25 |
+| n:PC4-2 | node | package-ci/4: wave 1 splits probe_by_code.py (B-PBC) with report_facts, story_step, gate_brief, stage_guard | plans/piles/package-ci/batch-4-dieta-testov-td-11-td-15.md:23 | ожидает | batch ожидает, взял — | r5 | T25 |
+| n:probe-set | node-set | probe_by_code.py other-function writers: TR2-2 (thinking-roles/5:26), TR4-17 (/6:26), FG7-11 (forge/7:36), FV2-43/44 (live-run-fvf/2:70-71), EP1-46, EP1-2, EP1-47 | plans/piles/thinking-roles/batch-5-hvosty-p2.md:26 | ожидает | all ожидает, взял — | r5 | T11,T12,T26,T23 |
+| n:OH9-1 | node | onboarding-hooks/9: judgment-census rows file::function for probe_by_code (23+23), execution_request (14), ticket_adapter (1); scripts read only | plans/piles/onboarding-hooks/batch-9-perepis-podklassov-oh8-7b-h.md:25 | ожидает | batch ожидает, взял — | r4,r5,an1 | T22 |
+| n:FV2-61 | node | live-run-fvf/2: adds tuple SIGN_IN_KEYS to stand_access.py, plus project_decisions.record_stand_login | plans/piles/live-run-fvf/batch-2-live-run-fvf.md:88 | ожидает | batch ожидает, взял — | ax7A4 | T13 |
+| n:CX2-15 | node | execution-report/1: stand_access._safe URL-scrubber twin; gate_preflight stand-address rule | plans/piles/execution-report/batch-1-execution-evidence.md:38 | ожидает | batch ожидает, взял — | ax7A4,r8 | T20 |
+| n:SC5-6 | node | words-gates/1: cap table and plan_case_budget in sizing.py; writer of size derivation is OH3-15 (closed onboarding-hooks/3) | plans/piles/words-gates/batch-1-slova-i-gejty.md:55 | ожидает | batch ожидает, взял — | ax11A1 | T18 |
+| n:G1-17 | node | driver-hosts/2: sizing.py:227,:255 deferred-marker reader; G1-19 (line 73) sizing.py:174,:107-116; other lines than 601-606 | plans/piles/driver-hosts/batch-2-driver-hosts-sources-words.md:72 | ожидает | batch ожидает, взял — | ax11A1 | T11,T15 |
+| n:G1-19 | node | driver-hosts/2: sizing.py:174 and :107-116 JSON read; project_decisions.resolve text | plans/piles/driver-hosts/batch-2-driver-hosts-sources-words.md:73 | ожидает | batch ожидает, взял — | ax11A1 | T11 |
+| n:CD1-32 | node | execution-report/2: sizing.nearest_precedents unit filter; different function from cap table | plans/piles/execution-report/batch-2-execution-report-tails.md:59 | ожидает | batch ожидает, взял — | ax11A1 | T11 |
+| n:OH8-5 | node | onboarding-hooks/8: CLAUDE_PLUGIN_ROOT literal rule at common-rules.md:131-140, after one experiment | plans/piles/onboarding-hooks/batch-8-ostatki-t-282-t-254-t-287.md:36 | ожидает | batch в работе, dev1 (Opus coord), 13.11.2026 | ax10D1 | T22 |
+| n:OF4-15 | node | onboarding-forge/4: common-rules.md and slices, external-writes, test-report template, contract_slices | plans/piles/onboarding-forge/batch-4-hvosty-onbordinga-i-forzha.md:45 | ожидает | batch в работе, dev1 (Opus coord), 12.11.2026 | ax10D1 | T11 |
+| n:RC1-15 | node | onboarding-forge/2: common-rules.md and slices regenerated with contract_slices --write | plans/piles/onboarding-forge/batch-2-onboarding-roles-forge-p3.md:51 | ожидает | batch в работе, dev1 (Opus coord), 12.11.2026 | ax10D1 | T11 |
+| n:SS1-16 | node | driver-hosts/1: validate_artifacts.py:518 and contract BUG_TRACKER_ID_RE read key form from adapter_forms | plans/piles/driver-hosts/batch-1-driver-hosts-sources.md:63 | ожидает | batch ожидает, взял — | ax10D2 | T11 |
+| n:TBW1-18 | node | told-before-work: validate_artifacts.check_case_form refusal text "inherited from the plan row" | plans/piles/told-before-work/batch-1-finish.md:45 | ожидает | batch ожидает, взял — | ax10D2 | T19 |
+| n:SC2-7 | node | driver-hosts/2: validate_artifacts, guard_pre_tool:1040, coverage_contract plan_rows reader; G2-16 ORACLE_NOTES (75), G2-17 table cells (76) | plans/piles/driver-hosts/batch-2-driver-hosts-sources-words.md:71 | ожидает | batch ожидает, взял — | ax10D2 | T11 |
+| n:G2-16 | node | driver-hosts/2: validate_artifacts ORACLE_NOTES reader | plans/piles/driver-hosts/batch-2-driver-hosts-sources-words.md:75 | ожидает | batch ожидает, взял — | ax10D2 | T11 |
+| n:G2-17 | node | driver-hosts/2: validate_artifacts cell-count check for S2 registry sections | plans/piles/driver-hosts/batch-2-driver-hosts-sources-words.md:76 | ожидает | batch ожидает, взял — | ax10D2 | T11 |
+| n:FV2-4 | node | live-run-fvf/2: owns only validate_artifacts.py, depends FV2-1, FV2-2; content not read | plans/piles/live-run-fvf/batch-2-live-run-fvf.md:31 | ожидает | batch ожидает, взял — | ax10D2 | T11 |
+| n:FV1-7 | node | live-run-fvf/1: gate A shown before readiness; owns driver_gates.py (FV1-8 line 41, FV1-16 line 48 too) | plans/piles/live-run-fvf/batch-1-live-run-fvf.md:40 | ожидает | batch ожидает, взял — | ax10D3 | T14 |
+| n:FV1-8 | node | live-run-fvf/1: gate A requires answer deferred to report; owns driver_gates.py | plans/piles/live-run-fvf/batch-1-live-run-fvf.md:41 | ожидает | batch ожидает, взял — | ax10D3 | T14 |
+| n:FV1-16 | node | live-run-fvf/1: S5 asks if tests-repo commit is deployed on stand; owns driver_gates.py | plans/piles/live-run-fvf/batch-1-live-run-fvf.md:48 | ожидает | batch ожидает, взял — | ax10D3 | T14 |
+| n:FV2-35 | node | live-run-fvf/2: FV1-9 tail merge; owns driver_dispatch, driver_gates, driver_machine | plans/piles/live-run-fvf/batch-2-live-run-fvf.md:62 | ожидает | batch ожидает, взял — | ax10D3 | T13 |
+| n:GW1-50 | node | driver-hosts/2: gate B gets "what you approve" line; approval word from gate-approval-words.json; owns not read | plans/piles/driver-hosts/batch-2-driver-hosts-sources-words.md:63 | ожидает | batch ожидает, взял — | ax10D3 | T11 |
+| n:C3-21 | node | driver-hosts/2: approve only with words file, three places in story_run (gate_fallback_question, last_resort) | plans/piles/driver-hosts/batch-2-driver-hosts-sources-words.md:24 | ожидает | batch ожидает, взял — | ax10D3 | T11 |
+| n:XT2-1 | node | execution-report/1: coarse product map at onboarding; owns p1-discovery.md, config-keys, onboard_apply | plans/piles/execution-report/batch-1-execution-evidence.md:50 | ожидает | batch ожидает, взял — | r1 | T11 |
+| n:TQ1-6 | node | execution-report/1: fixture-cleanup-gap smell; owns p1-discovery.md and p4-generate.md among others | plans/piles/execution-report/batch-1-execution-evidence.md:30 | ожидает | batch ожидает, взял — | r1 | T11 |
+| n:OH3-35 | node | onboarding-forge/1: interview diet, code derives profile extensions and commands; owns p1/p2/p4 phases; owner decision needed | plans/piles/onboarding-forge/batch-1-onboarding-roles-forge.md:36 | ожидает | batch в работе, dev1 (Opus coord), 12.11.2026 | r1 | T11 |
+| n:readiness-set | node-set | readiness.py other-function writers: OF5-9 (remedy.steps :301-307), SS1-2, GW1-4, C3-8 (:660), OF3-4, OF1-4 | plans/piles/onboarding-forge/batch-5-ostatki-hf8-4-i-oh3-42.md:36 | ожидает | various | r3 | T11,T16,T18 |
+| n:ticket-set | node-set | ticket_adapter.py other-function writers: DC1-6, SS1-2, SC2-8, C5-8 (:624), FV2-28/33/53 (source_inventory), OH5-12 (accepted) | plans/piles/driver-hosts/batch-1-driver-hosts-sources.md:38 | ожидает | various | an1 | T11,T12 |
+| n:rd1-anomaly | anomaly | rules-debt/1 header says ожидает, взял —, yet RD1-1..RD1-12, RD1-15, RD1-30, RD1-31 and RD1-25 are принято (9e21d266, t-1221) | plans/piles/rules-debt/batch-1-phase-2.md:3 | — | header | r4,r5,r8 | T17 |
+
+## File-level neighbours (task item 2: same file, other functions; pile/batch/node only)
+
+- surfaces.py: none found.
+- readiness.py: onboarding-forge/5 OF5-9; driver-hosts/1 SS1-2; driver-hosts/2 C3-8; words-gates/1 GW1-4; onboarding-forge/3 OF3-4; onboarding-forge/1 OF1-4.
+- execution_request.py: execution-probes/4 EP4-1; rules-debt/1 RD1-14; live-run-fvf/2 FV2-3 and FV2-43; execution-report/1 EP1-?:39 (S6 close) and :44; execution-report/2 line 36 and line 31; onboarding-forge/5 OF5-4; driver-hosts/1 EP1-23; onboarding-forge/2 line 49; told-before-work none.
+- probe_by_code.py: n:probe-set and PC4-2, OH9-1/OH9-2.
+- gate_preflight.py: words-gates/1 GW1-24, GW1-4, GW1-5, C3-17 and others (lines 26-41); live-run-fvf/2 FV2-45/46/49; rules-debt/1 RD1-13, RD1-14; onboarding-forge/5 OF5-6; driver-hosts/2 lines 56-57; PC4-4; told-before-work TBW1-17; project-knowledge/2 lines 36,38 (gate_preflight.py named); thinking-roles/6 TR4-16.
+- driver_s0.py: live-run-fvf/2 FV2-37 only.
+- driver_stage_build.py: rules-debt/1 RD1-11 (принято fb9e79c2); live-run-fvf/2 FV2-17 (line 45).
+- stand_access.py, ticket_adapter.py, sizing.py, validate_artifacts.py, driver_gates.py, common-rules.md, p1-discovery.md: see site rows.
+
+## Trail
+
+| tid | op | target | pattern / range | flags | result | control |
+|---|---|---|---|---|---|---|
+| T1 | grep | C:/QAFactory/forge-repo/docs/tasks/specs/reports/20261117-universality-scout-t-1203-mobile-stage-walk.md | `^\| (r1\|r2\|r3\|r4\|r5\|r8\|r9\|r10\|r11\|r12\|s6\.unknownword) \|` | content | found 11; 20261117-universality-scout-t-1203-mobile-stage-walk.md:55 | — |
+| T2 | grep | C:/QAFactory/forge-repo/docs/tasks/specs/reports/20261117-universality-scout-t-1200-axes-1-6.md | `^\| (a2D1\|an1\|s6\.unknownword) \|` | content | found 2; 20261117-universality-scout-t-1200-axes-1-6.md:35 | — |
+| T3 | grep | C:/QAFactory/forge-repo/docs/tasks/specs/reports/20261117-universality-scout-t-1201-axes-7-13.md | `^\| (ax7A4\|ax11A1\|ax10D1\|ax10D2\|ax10D3) \|` | content | found 5; 20261117-universality-scout-t-1201-axes-7-13.md:16 | — |
+| T4 | grep | C:/QAFactory/forge-repo/plans/piles | `^кучка: .*статус: [^\|]*\|[^\|]*` | content glob=batch-*.md | found 106; plans/piles/github-move/batch-3-pervyj-reliz.md:3 | — |
+| T5 | grep | C:/QAFactory/forge-repo/plans/piles | `readiness\.py\|execution_request\.py\|probe_by_code\.py\|gate_preflight\.py\|driver_s0\.py\|driver_stage_build\.py\|driver_stage_s5\.py\|stand_access\.py\|validate_artifacts\.py\|driver_gates\.py\|sizing\.py\|ticket_adapter\.py\|guard_pre_tool\|common-rules\|p1-discovery\|surfaces\.py` | -i count glob=batch-*.md | count 457 | — |
+| T6 | grep | C:/QAFactory/forge-repo/plans/piles | `_check_plain_environment\|in-process\|_no_entry\|assertion_probes\|check_s5_executor\|s0_rest\|stand_check\|stage_S5\|check_s5_runtime_probe\|AGENT_HANDS\|declared_surfaces\|COMMAND_ADAPTERS\|BUILTIN_TICKET_ADAPTERS\|_TRACKER_CLIS\|BUG_FORM_SECTIONS\|stand_access\|KINDS\|mobile_surface\|Appium\|reporter` | -i content glob=batch-*.md | found 120; plans/piles/onboarding-forge/batch-5-ostatki-hf8-4-i-oh3-42.md:32 | — |
+| T7 | grep | C:/QAFactory/forge-repo/plans/piles | `surfaces\.py` | -i content | absent | T8 |
+| T8 | grep | C:/QAFactory/forge-repo/plans/piles | `surfaces` | -i content | found 3; plans/piles/release-next/batch-1-release-0-10-9.md:30 | — |
+| T9 | grep | C:/QAFactory/forge-repo/plans/piles | `AGENT_HANDS\|declared_surfaces\|COMMAND_ADAPTERS\|BUILTIN_TICKET_ADAPTERS\|_TRACKER_CLIS\|BUG_FORM_SECTIONS\|mobile_surface\|check_s5_executor\|check_s5_runtime_probe\|_check_plain_environment\|_no_entry\|driver_stage_s5\|surfaces\.py` | -i count glob=batch-*.md | count 0 | T10 |
+| T10 | grep | C:/QAFactory/forge-repo/plans/piles | `s0_rest\|stand_check\|nearest_precedents\|stand_access` | -i count glob=batch-*.md | count 20 | — |
+| T11 | grep | C:/QAFactory/forge-repo/plans/piles | `\| (designer\|builder\|Lead\|critic)[^\|]*\| [^\|]*(driver_stage_build\|stand_access\|execution_request\|probe_by_code\|gate_preflight\|ticket_adapter\|driver_gates\|driver_s0\|validate_artifacts\|surfaces\|readiness\|driver_stage_s5\|sizing\|p1-discovery\|common-rules)[^\|]*\| [^\|]*\| (ожидает\|в работе\|сдано\|отклонено)[^\|]*\|\s*$` (owns column, open status) | content glob=batch-*.md | found 107; plans/piles/execution-probes/batch-4-vhodyashchie.md:27 | — |
+| T12 | grep | C:/QAFactory/forge-repo/plans/piles/thinking-roles | `^\| (TR[0-9]+-[0-9]+\|[A-Z]+[0-9]-[0-9]+) \| [^\|]*\| .{0,260}` | content glob=batch-[56]*.md | found 30; plans/piles/thinking-roles/batch-5-hvosty-p2.md:26 | — |
+| T13 | read | C:/QAFactory/forge-repo/plans/piles/live-run-fvf/batch-2-live-run-fvf.md | rows 30,64,65,70-71,88 | — | read plans/piles/live-run-fvf/batch-2-live-run-fvf.md:30-88 | — |
+| T14 | read | C:/QAFactory/forge-repo/plans/piles/live-run-fvf/batch-3-live-run-fvf.md | row 50; also batch-1 rows 40-41,48 | — | read plans/piles/live-run-fvf/batch-3-live-run-fvf.md:50 | — |
+| T15 | read | C:/QAFactory/forge-repo/plans/piles/driver-hosts/batch-2-driver-hosts-sources-words.md | rows 32,77 | — | read plans/piles/driver-hosts/batch-2-driver-hosts-sources-words.md:32-77 | — |
+| T16 | read | C:/QAFactory/forge-repo/plans/piles/onboarding-forge/batch-5-ostatki-hf8-4-i-oh3-42.md | rows 32,36 | — | read plans/piles/onboarding-forge/batch-5-ostatki-hf8-4-i-oh3-42.md:32-36 | — |
+| T17 | read | C:/QAFactory/forge-repo/plans/piles/rules-debt/batch-1-phase-2.md | header 1-12 and row 52; owns/status tails by grep for rows 29-60 | — | read plans/piles/rules-debt/batch-1-phase-2.md:1-12 | — |
+| T18 | read | C:/QAFactory/forge-repo/plans/piles/words-gates/batch-1-slova-i-gejty.md | rows 30,32,55,61 | — | read plans/piles/words-gates/batch-1-slova-i-gejty.md:30-61 | — |
+| T19 | read | C:/QAFactory/forge-repo/plans/piles/told-before-work/batch-1-finish.md | rows 44-45 | — | read plans/piles/told-before-work/batch-1-finish.md:44-45 | — |
+| T20 | read | C:/QAFactory/forge-repo/plans/piles/execution-report/batch-1-execution-evidence.md | rows 38-42,72 | — | read plans/piles/execution-report/batch-1-execution-evidence.md:38-72 | — |
+| T22 | read | C:/QAFactory/forge-repo/plans/piles/onboarding-hooks/batch-8-ostatki-t-282-t-254-t-287.md | rows 35-36; batch-5 rows 35,44; batch-9 rows 23-33 via grep | — | read plans/piles/onboarding-hooks/batch-8-ostatki-t-282-t-254-t-287.md:35-36 | — |
+| T23 | read | C:/QAFactory/forge-repo/plans/piles/forge/batch-7-vhodyashchie-4.md | row 36 | — | read plans/piles/forge/batch-7-vhodyashchie-4.md:36 | — |
+| T25 | grep | C:/QAFactory/forge-repo/plans/piles/package-ci/batch-4-dieta-testov-td-11-td-15.md | `^\| [A-Za-z0-9]+-[A-Za-z0-9-]+ \| [^\|]*\| .{0,330}` | content | found 19; plans/piles/package-ci/batch-4-dieta-testov-td-11-td-15.md:23 | — |
+| T26 | grep | C:/QAFactory/forge-repo/plans/piles/execution-report | `^\| (EP1-[0-9]+\|TQ1-[0-9]+\|OH1-[0-9]+\|XT2-[0-9]+) \| [^\|]*\| .{0,300}` | content glob=batch-*.md | found 12; plans/piles/execution-report/batch-1-execution-evidence.md:24 | — |
+
+## Not done
+
+- Open batches (header status not `закрыта`): github-move/3 (в работе, dev1 05.11), package-ci/3,4, forge/7, words-gates/1, driver-hosts/1,2, told-before-work/1, live-runs/2, onboarding-hooks/4,5,6,7,8,9 (4,5,6,8 в работе; 7 в работе, взята —; 9 ожидает), exploratory/3, roles-context/2, live-run-fvf/1,2 (ожидает) and /3 (в работе, dev1 17.11.2026), thinking-roles/5,6, cost-dashboard/2, report-delivery/2, test-code-quality/2, onboarding-forge/1-4 (в работе, dev1 Opus coord 12.11) and /5 (ожидает), project-knowledge/2, speed-cost/6, collect/4, pre-code/3, execution-report/1,2, rules-debt/1, release-next/2, execution-probes/4. (T4.)
+- onboarding-hooks/4, 6, 7, github-move/3, exploratory/3, roles-context/2, cost-dashboard/2, test-code-quality/2, speed-cost/6, collect/4, pre-code/3, release-next/2, live-runs/2: only file-name counts (T5) and the T11 owns-column filter, no row read. T5 file hits there: hooks/4 (1), hooks/6 (not listed in the T5 output), hooks/7 (none listed). They are not verified as overlap-free; the owns-column filter in T11 covers only rows whose Пишет в cell names a site file and whose status is open.
+- T11 misses nodes whose owns cell does not name a site file by name (for example "files named by the spec") and rows whose status cell carries other text. Node rows in which a site file appears only in prose (for example C5-8 naming s0_rest, OH8-5 naming common-rules lines) were found by the T5/T6 greps and read.
+- Not checked: whether a file-level neighbour touches the same lines or the same section as the site (package code was not read, per the non-goals). PC4-4 and PC4-2 (file splits) may move r5, r8, r12 and others; whether those functions are among the moved ones is inferred from "check_* methods" and not verified.
+- Did not read: GW1-50 and C3-21 owns cells; FV2-4 content; execution-report/2 line 37 (names sizing.py, id not read); project-knowledge/2 rows 36,38 (PK-? ids not read; they name gate_preflight.py only).
+- Mismatch: OF5-5 places `stand_check` in driver_stage_s6.py (s6_no_stand, stand_check) and `STAND_STAGES` in driver_stage_build.py:24; the t-1203 digest r10 places stand_check at driver_stage_build.py:139. Whether the function lives in one file or both was not checked.
+- Header anomaly: rules-debt/1 header says `ожидает`, `взял: —`, yet about half of its nodes are `принято` (journal t-1221; commit 9e21d266 merged). Likewise live-run-fvf/1 has `принято` nodes under `ожидает`. Header status does not tell which nodes are live in these batches; read node statuses.
+- Closed batches and the digests' objects r6, r7 were out of scope.
+- A trail gap: tids T21 and T24 are not used (merged into other rows); T22 and T17 each stand for several reads or greps named in their target cell.

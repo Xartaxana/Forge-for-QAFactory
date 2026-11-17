@@ -28,6 +28,14 @@
    "reach": "live_only",
    "why_unreached": "the family refuses a handoff inside a stage turn (S3); the walker reads the refusal line of the answer turns only (dry_world.py run_exit_row), so a seed turn's refusal is not observed"
   },
+  "exit_gate:witness_errors.requirements-tester": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added by T1r-cards-a (told-before-work, cards to rows); the group's walk node writes its rows"
+  },
+  "gate_preflight:question_branches": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added by T1r-cards-a (told-before-work, cards to rows); the group's walk node writes its rows"
+  },
   "planning_contract:*": {
    "reach": "live_only",
    "why_unreached": "the family refuses a handoff inside a stage turn (S3); the walker reads the refusal line of the answer turns only (dry_world.py run_exit_row), so a seed turn's refusal is not observed"
@@ -111,6 +119,10 @@
   "role_cli:plan_row.py": {
    "reach": "unwalked",
    "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "source_preflight:check_source_inventory": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added by T1r-cards-a (told-before-work, cards to rows); the group's walk node writes its rows"
   },
   "validate_artifacts:check_behaviour_claims": {
    "reach": "unwalked",
@@ -252,7 +264,10 @@
    "unwalked | joints/validate_artifacts:check_register | L1c census catch-up, 2026-11-17",
    "unwalked | joints/validate_artifacts:check_requirements_review | L1c census catch-up, 2026-11-17",
    "unwalked | joints/validate_artifacts:check_then_oracles | L1c census catch-up, 2026-11-17",
-   "unwalked | joints/validate_artifacts:check_understanding | L1c census catch-up, 2026-11-17"
+   "unwalked | joints/validate_artifacts:check_understanding | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/source_preflight:check_source_inventory | T1r-cards-a, 2026-11-17",
+   "unwalked | joints/exit_gate:witness_errors.requirements-tester | T1r-cards-a, 2026-11-17",
+   "unwalked | joints/gate_preflight:question_branches | T1r-cards-a, 2026-11-17"
   ]
  }
 }

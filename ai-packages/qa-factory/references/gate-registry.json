@@ -5,7 +5,7 @@
   "anchor_words": ["matched", "mismatched", "person_confirmed"],
   "rows": [
     {
-      "id": "stand_identity", "inventory": "G1", "vocabulary": "target",
+      "id": "stand_identity", "inventory": "G1", "vocabulary": "code",
       "decides": "the stand under test runs the build the story is about (the ladder of references/build-identity-methods.json, the person's word recorded in records/stand-identity.json)",
       "sites": [
         {"file": "runtime_probe.py", "function": "conclude", "role": "produce"},
@@ -32,7 +32,7 @@
       "binding_keys": ["environment_id", "profile_id", "expected_source_revision", "image"],
       "question_kind": "stand_identity",
       "test": "scripts/tests/test_stand_identity.py",
-      "status": "debt", "debt_ref": "B-257", "exempt_reason": ""
+      "status": "converted", "debt_ref": "", "exempt_reason": ""
     },
     {
       "id": "provenance_acceptance", "inventory": "G2", "vocabulary": "target",

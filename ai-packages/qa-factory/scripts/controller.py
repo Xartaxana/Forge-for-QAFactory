@@ -687,6 +687,16 @@ def manual_done_cases(state, stage="S6") -> set:
     return done
 
 
+def live_s6_scopes(state) -> list:
+    """The scopes (sets of case ids) of the S6 dispatches that are running, blocked or paused: ONE pure predicate (AR-15) for the driver
+    (`s6_settling_lanes`, `manual_lane_plan`) and the skill road's no-stand branch (`story_step`). An empty or unreadable state reads
+    as no scope; a dispatch that names no case is a scope of its own (the empty set), so it still counts as live."""
+    import dispatch_identity
+    rows = dispatch_identity.records(state.get("dispatches") if isinstance(state, dict) else None)
+    return [{str(c) for c in r.get("scope") or [] if c} for r in rows
+            if r.get("stage") == "S6" and r.get("status") in ("running", "blocked", "paused")]
+
+
 def validate_manual_runner_block(scope, manual_case_ids, extra=()):
     """Keep human execution blocks reviewable without limiting automated runs. ONE refusal lists every problem
     (`manual_block_problems` plus the caller's `extra`, e.g. the plan-membership sentences of the Controller)."""
@@ -6592,13 +6602,13 @@ class Controller:
         # wording. The waiver line stays: the repair is the role's, accepting the
         # window without it is the person's, and those are two different things.
         from role_cli import REPAIR_MARKER
-        return [(StateConflict,
+        return [(StateConflict, DV.refusal("controller:code_review_receipts",
                  "; ".join(blocking) + ". These are the review's own receipts, not the "
                  f"person's to produce. {REPAIR_MARKER}. If a person accepts the window "
                  "without them: `"
                  + person_words.door(f"waiver.py --task {self._ticket()} --stage "
                                      f"{d.get('stage') or 'S5'} --block \"not receipted\"")
-                 + "`.")]
+                 + "`."))]
 
     # --- SC1-14 B1b: the plan before the windows ---------------------------------------------------------------------------
     # The refusals below are collected (`_raise_all`) so a request meets every gap at once. A refusal a person's word can pass
@@ -6992,13 +7002,15 @@ class Controller:
         root, problems = self.store.root, []
         end = f". {REPAIR_MARKER}: return it to {d.get('role')} in one message"
         if p.get("stage_complete"):
-            problems.append((StateConflict, f"a plan never closes S5 (accepting {d.get('id')} with stage_complete: true): accept it with "
-                                            "`story_step.py finish` and no `--complete`, the windows follow" + end))
+            problems.append((StateConflict, DV.refusal("controller:s5_plan_accept",
+                             f"a plan never closes S5 (accepting {d.get('id')} with stage_complete: true): accept it with "
+                             "`story_step.py finish` and no `--complete`, the windows follow" + end)))
         if d.get("role") == "qa-automator":
             findings = SP.check(root, self)
             if findings:
-                problems.append((StateConflict, f"the plan has {len(findings)} gap(s): " + "; ".join(findings[:6])
-                                 + ("; ..." if len(findings) > 6 else "") + end))
+                problems.append((StateConflict, DV.refusal("controller:s5_plan_gaps",
+                                 f"the plan has {len(findings)} gap(s): " + "; ".join(findings[:6])
+                                 + ("; ..." if len(findings) > 6 else "") + end)))
             elif d.get("rework_of") and not d.get("person_words"):
                 # A person's word on THIS dispatch lifts the bound (P13). The word is read by `contract.stage_override_values` (the
                 # ONE reader of a prefixed word, AR-13): the id is compared for EQUALITY, so the word given for `S5-qa-automator-5`
@@ -7032,13 +7044,14 @@ class Controller:
         try:
             chain, plan = SP.reviews(self.store.root, state), SP.load(self.store.root)
         except SP.PlanUnreadable as exc:
-            return [(StateConflict, str(exc))]
+            return [(StateConflict, DV.refusal("controller:s5_plan_gaps.rework_rows", str(exc)))]
         if not chain or plan is None:
             return []
         last = chain[-1]
         if last["unreadable"]:
-            return [(StateConflict, f"the rows the rework may change cannot be told: the review {last['dispatch']} cannot be read "
-                                    f"({last['unreadable']})" + end)]
+            return [(StateConflict, DV.refusal("controller:s5_plan_gaps.rework_rows",
+                                               f"the rows the rework may change cannot be told: the review {last['dispatch']} cannot be read "
+                                               f"({last['unreadable']})" + end))]
         changed, new = SP.moved_cases(plan, last["rows_sha"])
         bound = SP.blocker_cases(plan, last["remarks"], last.get("tests"))   # a test the blocker names is read by the receipt's map
         if bound is None:
@@ -7052,12 +7065,13 @@ class Controller:
         if extra:
             note = "" if isinstance(stamp_tests, dict) else (
                 f" (the receipt of {last['dispatch']} keeps no tests map, so the neighbours of a dropped case are read by the new plan alone)")
-            return [(StateConflict, f"the rework changed the rows of {', '.join(extra)}, which no blocker of {last['dispatch']} names and "
+            return [(StateConflict, DV.refusal("controller:s5_plan_gaps.rework_rows",
+                                    f"the rework changed the rows of {', '.join(extra)}, which no blocker of {last['dispatch']} names and "
                                     "which share no test with a new or a dropped case; only the blocker rows, the new cases and the cases "
                                     "that share a test with a new or dropped case change, the rest of the plan stays as the critic saw it"
                                     + note + (f". If a person asked for these rows to change, record their words: `{person_door}` and "
                                               "finish again; a rework built with `--words-file` is not bound either" if person_door else "")
-                                    + end)]
+                                    + end))]
         return []
 
     def _plan_review_problems(self, d, state, end):
@@ -7072,15 +7086,17 @@ class Controller:
         problems = []
         disagree = SP.verdict_problem(element)
         if disagree:
-            problems.append((StateConflict, f"the review contradicts itself: {disagree}" + end))
+            problems.append((StateConflict, DV.refusal("controller:s5_plan_review", f"the review contradicts itself: {disagree}" + end)))
         if now is None or element["plan_sha256"] != now:
-            problems.append((StateConflict, f"the plan changed after this review was stamped ({d['id']} saw other bytes than "
-                                            f"{SP.PLAN_REL} holds now): the critic looks again at the current plan" + end))
+            problems.append((StateConflict, DV.refusal("controller:s5_plan_review",
+                                            f"the plan changed after this review was stamped ({d['id']} saw other bytes than "
+                                            f"{SP.PLAN_REL} holds now): the critic looks again at the current plan" + end)))
         used = {r["id"] for e in chain for r in e["remarks"]}
         repeated = sorted(r["id"] for r in element["remarks"] if r["id"] in used)
         if repeated:
-            problems.append((StateConflict, f"remark id(s) {', '.join(repeated)} repeat the ids of an earlier review of the plan: "
-                                            "a look after a review continues the numbering (PR-n)" + end))
+            problems.append((StateConflict, DV.refusal("controller:s5_plan_review",
+                                            f"remark id(s) {', '.join(repeated)} repeat the ids of an earlier review of the plan: "
+                                            "a look after a review continues the numbering (PR-n)" + end)))
         missed = self._plan_look_missed(d, chain, root)
         if missed:
             previous, missing, moved, unread = missed
@@ -7719,7 +7735,7 @@ class Controller:
             if left:
                 # the plan's head and its text stay as they were; the grounding lines follow under their own head
                 blocking = left + (["S3 grounding: " + held[0]] + held[1:] if held else [])
-                raise StateConflict("S3 structured test plan invalid: " + "; ".join(blocking) + door)
+                raise StateConflict(DV.refusal("controller:s3_plan", "S3 structured test plan invalid: " + "; ".join(blocking) + door))
             blocking = held
             raise StateConflict("S3 grounding: " + "; ".join(blocking) + door)
         print("S3 structured test plan: passed by a person's recorded word — "

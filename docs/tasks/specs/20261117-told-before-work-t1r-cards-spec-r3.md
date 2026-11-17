@@ -965,3 +965,7 @@ Needed beyond the manifest: `dry_exits.py`, the driver-exits fixtures, `executio
   lines and uses the "after wave B" numbers of §4.4.
 - **Order.** K1b (FV2-79) waits for the C3 topic branch (C3-b1 raises the `qa-code-critic` share that K1b pays down); -a waits for K1b.
 - New nodes to enter in the pile at the next status pass: TBW-T1rc-int, TBW-T1rc-site, TBW-T1rc-ec8.
+
+## Lead decision on ra-2 (Lead, 17.11.2026, Opus; «решила сама»)
+
+ra-2 is DROPPED from `agents/qa-retro-analyst.md`: the retro reads only `work/retro-numbers.json` (X7-6), and the pinned test `test_charters_s5_s9.py::test_retro_reads_only_the_numbers` keeps the journal and the cost files out of its charter on purpose. How the spend is counted (journal authoritative, cost files provisional, the gap printed, unknown never rounded) is the producer's duty under FR-24/25/41, not the role's craft. Builder t-1214 stopped on it correctly; no code change follows.

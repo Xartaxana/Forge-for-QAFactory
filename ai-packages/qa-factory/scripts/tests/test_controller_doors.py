@@ -387,6 +387,66 @@ def refusal_texts() -> None:
             check_eq(f"refusal-text/{label}: one id per problem", [r["check"] for r in DV.told_fields(exc).get("told", [])], ids)
 
 
+REPAIR_END = ". This is a repair, not a question for the person: return it to {role} in one message"
+
+
+def road_b_units() -> None:
+    """T9a (mech 5.3a): the five role-resumed units of controller.py write their row id at the site; the text is the OLD file's, byte for
+    byte (literal expectations, REPAIR_MARKER kept: the driver reads it). One row per unit; the id is read off the Record the site carries."""
+    with synthetic_world() as task:
+        ctl = Controller(task)
+        (task / "work" / "s5-plan.json").write_text("{not json", encoding="utf-8")        # the plan cannot be read
+        (task / "work" / "test-plan.json").write_text('{"rows": [{}]}', encoding="utf-8")   # a plan with a row that holds nothing
+        plan = {"stage": "S5", "id": "S5-qa-automator-1", "role": "qa-automator", "purpose": C.S5_PLAN}
+        review = dict(plan, id="S5-qa-code-critic-1", role="qa-code-critic")
+
+        def s3_gate():
+            try:
+                ctl._s3_completion_gate({"stage": "S3", "id": "S3-qa-test-strategist-1", "role": "qa-test-strategist"},
+                                        {"stage_complete": True}, ctl.state())
+            except StateConflict as refused:
+                return [(StateConflict, refused.args[0])]
+            return []
+
+        def receipts():
+            ctl._code_review_problems = lambda p: ["the review names no findings file"]      # what the unit refuses with is its input
+            return ctl._code_review_refusal({"stage": "S5", "role": "qa-code-critic"}, {})
+
+        rows = {      # unit -> (the call, the texts that open/close the problems it returns, ids it carries in order)
+            "s3": (s3_gate, "S3 structured test plan invalid: ", ["controller:s3_plan"]),
+            "receipts": (receipts, "the review names no findings file. These are the review's own receipts, not the person's to produce. "
+                                   "This is a repair, not a question for the person. If a person accepts the window without them: `",
+                         ["controller:code_review_receipts"]),
+            "accept": (lambda: ctl._s5_plan_accept_problems(plan, {"stage_complete": True}, ctl.state()),
+                       "a plan never closes S5 (accepting S5-qa-automator-1 with stage_complete: true): accept it with `story_step.py finish` "
+                       "and no `--complete`, the windows follow" + REPAIR_END.format(role="qa-automator"),
+                       ["controller:s5_plan_accept", "controller:s5_plan_gaps"]),
+            "rework-rows": (lambda: ctl._plan_rework_rows_problems(ctl.state(), ""), "", ["controller:s5_plan_gaps.rework_rows"]),
+            "review": (lambda: ctl._plan_review_problems(review, ctl.state(), REPAIR_END.format(role="qa-code-critic")),
+                       "the review contradicts itself: the verdict is `approved` but the form lists 1 remark(s) (PR-1)" + REPAIR_END.format(role="qa-code-critic"),
+                       ["controller:s5_plan_review"] * 3),
+        }
+        import s5_plan as SP
+        held = {name: getattr(SP, name) for name in ("review_of", "reviews", "plan_sha256")}
+        element = {"unreadable": "", "dispatch": "S5-qa-code-critic-0", "outcome": "approved", "plan_sha256": "old", "remarks": [{"id": "PR-1", "kind": "remark"}]}
+        for label, (call, text, want) in rows.items():
+            if label == "review":      # a readable review that contradicts itself, is stamped on other bytes and repeats an id
+                SP.review_of, SP.reviews, SP.plan_sha256 = (lambda *_a: element), (lambda *_a: [element]), (lambda *_a: "new")
+            try:
+                found = call()
+            except Exception as exc:      # noqa: BLE001 - a unit that raises is a red row of its own, the others still run
+                check(f"road-b/{label}: the unit returns its problems", False, f"{type(exc).__name__}: {str(exc)[:160]}")
+                continue
+            finally:
+                for name, original in held.items():
+                    setattr(SP, name, original)
+            ids = [getattr(problem, "check", "") for _cls, problem in found]
+            check_eq(f"road-b/{label}: class and id of each problem", ([cls for cls, _p in found], ids), ([StateConflict] * len(want), want))
+            if text:
+                check(f"road-b/{label}: the first text is the old file's", str(found[0][1]).startswith(text), str(found[0][1])[:200])
+            check(f"road-b/{label}: the row's expected sentence rides on the Record", all(getattr(p, "expected", "") for _c, p in found), str(found)[:160])
+
+
 def main() -> None:
     rows = command_rows()
     check(f"the walk has a `command` route to check ({len(rows)} rows)", len(rows) > 50, str(len(rows)))
@@ -434,6 +494,7 @@ def main() -> None:
     launch_unknown()
     launch_prompt()
     refusal_texts()
+    road_b_units()
 
     harness.finish("test_controller_doors")
 

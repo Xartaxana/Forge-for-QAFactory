@@ -61,8 +61,9 @@ EXPECTED_IDS = [
 # C3-b2 (t-1080, AR-20): test_identity converted (B-217; its reuse sites read the row through `gate_template.acceptable`); 6 -> 5 debt rows.
 # Merged (t-1083): both cards on one branch; 6 -> 4 debt rows.
 # C3-g (t-1157, AR-20): baseline_identity converted (B-281; the receipt's status word through the predicate); 4 -> 3 debt rows.
+# C3-h (RD1-11, t-1179, AR-20): stand_identity converted (B-257; no code, the probe's own result words); 3 -> 2 debt rows.
 EXPECTED_DEBT = {
-    "stand_identity": "B-257", "provenance_acceptance": "B-255",
+    "provenance_acceptance": "B-255",
     "s5_stand_limits": "B-282"}
 EXPECTED_EXEMPT = ["request_shape", "executor_present", "manual_evidence_shape", "witness_backstop",
                    "equivalence_metric", "source_freshness"]
@@ -77,7 +78,8 @@ EXPECTED_CONVERTED = ["inputs_unchanged", "then_oracle", "stand_login_gate", "st
                       "live_check_demand",      # C3-b1 (t-1051): the question to the code critic, no predicate
                       "s5_window",              # C3-d (t-1081): the critic's review word through the predicate (three consumers)
                       "test_identity",          # C3-b2 (t-1080): the reuse sites accept through the predicate
-                      "baseline_identity"]      # C3-g (t-1157, AR-20): the receipt's status word through the predicate
+                      "baseline_identity",      # C3-g (t-1157, AR-20): the receipt's status word through the predicate
+                      "stand_identity"]         # C3-h (t-1179, AR-20): the probe's own result words; the unknown branch pinned by test
 BLIND_STEM = "a gate that compares only non-anchor words, outside any registered site, is not seen"
 CONVERTED_TEST = "scripts/tests/test_gate_registry.py"
 
@@ -94,7 +96,7 @@ def row(rid="g_one", status="debt", sites=None, **over) -> dict:
         "id": rid, "inventory": "G1", "decides": "is the thing valid", "sites": sites or [], "field": "result",
         "words": ["matched", "unknown"],
         "verdict_map": {"matched": {"class": "matched"}, "unknown": {"class": "unknown", "owner": "environment"}},
-        "accepts": {}, "promotable": False, "unknown_branch": "rerun", "on_no_answer": "rerun",
+        "accepts": {"x.y": ["matched"]} if status == "converted" else {}, "promotable": False, "unknown_branch": "rerun", "on_no_answer": "rerun",
         "waits_at": None, "closed_by": [], "addressee": ["code_routes"], "person_subject": None,
         "policy_file": None, "scope_keys": [], "binding_keys": [], "question_kind": None,
         "vocabulary": "code" if status == "converted" else "target",
@@ -255,7 +257,7 @@ def part_live_registry() -> None:
     lines = p.stdout.splitlines()
     check_eq("K-T1.2 its first line", lines[0] if lines else "", "A26 gate registry: no violations")
     check_in("K-T1.2 the second header line states the blind spot", BLIND_STEM, lines[1] if len(lines) > 1 else "")
-    check_in("K-T1.2 it lists the debt, decided and not forgotten", "3 gate(s) left as debt:", p.stdout)
+    check_in("K-T1.2 it lists the debt, decided and not forgotten", "2 gate(s) left as debt:", p.stdout)
     check_in("K-T1.2 and the exempt gates", "6 gate(s) exempt:", p.stdout)
 
     code, out = cli("--sites")
@@ -336,7 +338,7 @@ def part_live_registry() -> None:
     data = json.loads(out)
     check_eq("K-T1.14 --json keys are findings, debt, exempt", sorted(data), ["debt", "exempt", "findings"])
     check_eq("K-T1.14 findings is empty", data["findings"], [])
-    check_eq("K-T1.14 debt lists the three rows left after C3-R, its fix round, C3-b1, C3-d, C3-b2 and C3-g", [d["id"] for d in data["debt"]], list(EXPECTED_DEBT))
+    check_eq("K-T1.14 debt lists the two rows left after C3-R, its fix round, C3-b1, C3-d, C3-b2, C3-g and C3-h", [d["id"] for d in data["debt"]], list(EXPECTED_DEBT))
     check_eq("K-T1.14 a debt item has id, decides, debt_ref", sorted(data["debt"][0]), ["debt_ref", "decides", "id"])
     check_eq("K-T1.14 exempt lists the six", [d["id"] for d in data["exempt"]], EXPECTED_EXEMPT)
     check_eq("K-T1.14 an exempt item has id, decides, exempt_reason", sorted(data["exempt"][0]),
@@ -354,8 +356,9 @@ def part_live_registry() -> None:
     # C3-b2 (t-1080, AR-20): converted 21 -> 22, debt 6 -> 5 (`test_identity`: the reuse sites accept through `acceptable`)
     # merged (t-1083): converted 21 -> 23, debt 6 -> 4
     # C3-g (t-1157): baseline_identity converted, converted 23 -> 24, debt 4 -> 3
-    check_eq("K-T1.14 the registry file's rows split 24 converted / 3 debt / 6 exempt (C3-R converted six debt rows for good)",
-             {s: len(v) for s, v in raw.items()}, {"converted": 24, "debt": 3, "exempt": 6})
+    # C3-h (t-1179): stand_identity converted, converted 24 -> 25, debt 3 -> 2
+    check_eq("K-T1.14 the registry file's rows split 25 converted / 2 debt / 6 exempt (C3-R converted six debt rows for good)",
+             {s: len(v) for s, v in raw.items()}, {"converted": 25, "debt": 2, "exempt": 6})
     check_eq("K-T1.14 --json debt = the file's debt rows (id, decides, debt_ref), in order",
              data["debt"], [{"id": r["id"], "decides": r["decides"], "debt_ref": r["debt_ref"]} for r in raw["debt"]])
     check_eq("K-T1.14 --json exempt = the file's exempt rows (id, decides, exempt_reason), in order",
@@ -438,7 +441,7 @@ def part_scanner() -> None:
                  audit({"f.py": body}, row("g_role", "debt", [site(role=role)]))["findings"], [])
     got = audit({"f.py": body}, row("g_conv", "converted", [site()]))
     check("K-T1.3 inside a converted accept site, the comparison is F-a", len(a_findings(got)) == 1, "\n".join(got["findings"]))
-    with_call = 'def f(rec):\n    acceptable(rec, "x.y")\n    return rec["result"] == "matched"\n'
+    with_call = 'from gate_template import acceptable\ndef f(rec):\n    acceptable(rec, "x.y")\n    return rec["result"] == "matched"\n'
     allow = [{"compare": 'rec["result"] == "matched"', "why": "not an acceptance: a shape check"}]
     check_eq("K-T1.3 with the allow entry equal to the whole comparison (double quotes) and the acceptable() call, none",
              audit({"f.py": with_call}, row("g_conv", "converted", [site(allow=allow)]))["findings"], [])
@@ -448,7 +451,7 @@ def part_scanner() -> None:
           any("nothing like this" in f and "matches no comparison" in f for f in got["findings"]), "\n".join(got["findings"]))
     check_eq("K-T1.3 and only that", len(got["findings"]), 1)
     # the row's own words count inside its own sites (Q3-A)
-    own = 'def f(r):\n    acceptable(r, "x.y")\n    return r == "not_applicable"\n'
+    own = 'from gate_template import acceptable\ndef f(r):\n    acceptable(r, "x.y")\n    return r == "not_applicable"\n'
     check("K-T1.3 a non-anchor word of the row's `words` counts inside the row's converted site",
           len(a_findings(audit({"f.py": own}, row("g_conv", "converted", [site()],
                                                   words=["matched", "not_applicable"],
@@ -590,8 +593,8 @@ def part_schema() -> None:
 
 def part_sites() -> None:
     plain = 'def f(rec):\n    return rec["result"] == "matched"\n'
-    called = 'def f(rec):\n    acceptable(rec, "x.y")\n    return rec["result"] == "matched"\n'
-    called_attr = 'def f(rec):\n    gate_template.acceptable(rec, "x.y")\n    return rec["result"] == "matched"\n'
+    called = 'from gate_template import acceptable\ndef f(rec):\n    acceptable(rec, "x.y")\n    return rec["result"] == "matched"\n'
+    called_attr = 'import gate_template\ndef f(rec):\n    gate_template.acceptable(rec, "x.y")\n    return rec["result"] == "matched"\n'
     allow = [{"compare": "rec['result'] == 'matched'", "why": "shape"}]
     conv = lambda body, **kw: audit({"f.py": body}, row("g_conv", "converted", [site(allow=allow)]), **kw)  # noqa: E731
     got = conv(plain)
@@ -604,6 +607,51 @@ def part_sites() -> None:
               'def f(rec):\n    acceptable_provenance(rec)\n    return rec["result"] == "matched"\n')["findings"]))
     check("K-T1.7 a converted row on a produce site needs no call (F-b is for accept sites)",
           not any("calls no acceptable()" in f for f in audit({"f.py": plain}, row("g_conv", "converted", [site(role="produce")]))["findings"]))
+    # RD1-25: the call is scoped to the site's own row (one table; synthetic sites, the live registry untouched)
+    imp, imp_other = "from gate_template import acceptable\n", "from elsewhere import acceptable\n"
+    def body_of(call: str, pre: str = imp) -> str:
+        return pre + "def f(rec, c):\n    " + call + "\n    return rec['result'] == 'matched'\n"
+    own_accepts = {"g_conv.c": ["matched"]}
+    scoped = [  # (case, source, accepts of row g_conv, expected fragment of the finding or None)
+        ("clean: own consumer", body_of('acceptable(rec, "g_conv.c")'), own_accepts, None),
+        ("clean: consumer by keyword", body_of('acceptable(rec, consumer="g_conv.c")'), own_accepts, None),
+        ("a variable consumer", body_of("acceptable(rec, c)"), own_accepts, "plain string literal"),
+        ("an f-string consumer", body_of('acceptable(rec, f"g_conv.{c}")'), own_accepts, "plain string literal"),
+        ("another row's consumer", body_of('acceptable(rec, "other.c")'), own_accepts,
+         "consumer `other.c`, which is not a key of row `g_conv`.accepts - keys expected: `g_conv.c`"),
+        ("an acceptable imported from another module", body_of('acceptable(rec, "g_conv.c")', imp_other), own_accepts,
+         "not gate_template's predicate"),
+        ("a local def named acceptable", "def acceptable(v, c):\n    return True\n" + body_of('acceptable(rec, "g_conv.c")', ""),
+         own_accepts, "not gate_template's predicate"),
+        ("an acceptable bound by no import", body_of('acceptable(rec, "g_conv.c")', ""), own_accepts,
+         "not gate_template's predicate"),
+        ("first literal call judged: own first, foreign later", body_of('acceptable(rec, "g_conv.c") and acceptable(rec, "other.c")'),
+         own_accepts, "consumer `other.c`"),
+        ("first literal call judged: foreign first, own later", body_of('acceptable(rec, "other.c") and acceptable(rec, "g_conv.c")'),
+         own_accepts, "consumer `other.c`"),
+        ("a non-literal call beside a literal one is refused", body_of('acceptable(rec, c) and acceptable(rec, "g_conv.c")'),
+         own_accepts, "plain string literal"),
+        ("P3 acceptable assigned a lambda", body_of('acceptable(rec, "g_conv.c")') + "acceptable = lambda v, c: True\n",
+         own_accepts, "not gate_template's predicate"),
+        ("P4 acceptable is a parameter", imp + "def f(rec, acceptable):\n    acceptable(rec, 'g_conv.c')\n    return rec['result'] == 'matched'\n",
+         own_accepts, "not gate_template's predicate"),
+        ("P5 acceptable bound by import-as", body_of('acceptable(rec, "g_conv.c")', imp + "import os.path as acceptable\n"),
+         own_accepts, "not gate_template's predicate"),
+        ("P6 gate_template rebound by import-as", "import json as gate_template\n" + body_of('gate_template.acceptable(rec, "g_conv.c")', ""),
+         own_accepts, "not gate_template's predicate"),
+        ("P8 acceptable assigned inside the site", imp + "def f(rec, c):\n    acceptable = other\n    acceptable(rec, 'g_conv.c')\n    return rec['result'] == 'matched'\n",
+         own_accepts, "not gate_template's predicate"),
+        ("clean: gate_template.acceptable after import gate_template", body_of('gate_template.acceptable(rec, "g_conv.c")', "import gate_template\n"),
+         own_accepts, None),
+        ("a row with an empty accepts map", body_of('acceptable(rec, "g_conv.c")'), {}, "the row's accepts map is empty"),
+    ]
+    for case, src, accepts, want in scoped:
+        got = audit({"f.py": src}, row("g_conv", "converted", [site(allow=allow)], accepts=accepts))["findings"]
+        if want is None:
+            check_eq(f"RD1-25 {case}: no finding", got, [])
+        else:
+            check(f"RD1-25 {case}: refused naming the row, with a door",
+                  len(got) == 1 and "g_conv: converted accept site f.py:f" in got[0] and want in got[0], "\n".join(got))
     # F-c
     got = audit({"f.py": plain}, row("g_a", "debt", [site(function="gone")]))
     check("F-c a site whose function is gone is stale, naming row, file and function",
@@ -719,7 +767,7 @@ def part_fix_pass() -> None:
               for i in GR.analyse(PLUGIN_ROOT)["items"]))
 
     # F3: an allow entry is the WHOLE comparison
-    body = 'def f(rec):\n    acceptable(rec, "x.y")\n    return rec["result"] == "matched"\n'
+    body = 'from gate_template import acceptable\ndef f(rec):\n    acceptable(rec, "x.y")\n    return rec["result"] == "matched"\n'
     conv = lambda allow: audit({"f.py": body}, row("g_conv", "converted", [site(allow=allow)]))  # noqa: E731
     got = conv([{"compare": "rec['result'] ==", "why": "w"}])
     check("F3 a PREFIX entry is one finding: allow must be the whole comparison, naming the entry and the comparison",
@@ -736,12 +784,12 @@ def part_fix_pass() -> None:
     got = conv([{"compare": "something else entirely", "why": "w"}])
     check("F3 an entry that matches nothing is the stale finding, and the line stays F-a",
           len(a_findings(got)) == 1 and any("matches no comparison" in f for f in got["findings"]))
-    two_lines = ('def f(rec):\n    acceptable(rec, "x.y")\n    a = rec["result"] == "matched"\n'
+    two_lines = ('from gate_template import acceptable\ndef f(rec):\n    acceptable(rec, "x.y")\n    a = rec["result"] == "matched"\n'
                  '    b = rec["state"] == "matched"\n    return a, b\n')
     got = audit({"f.py": two_lines}, row("g_conv", "converted", [site(allow=[{"compare": 'rec["result"] == "matched"', "why": "w"}])]))
     check("F3 the exact text whitelists exactly its line: the other comparison stays F-a",
           len(got["findings"]) == 1 and "rec['state'] == 'matched'" in got["findings"][0], "\n".join(got["findings"]))
-    twice = ('def f(rec):\n    acceptable(rec, "x.y")\n    a = rec["result"] == "unknown"\n'
+    twice = ('from gate_template import acceptable\ndef f(rec):\n    acceptable(rec, "x.y")\n    a = rec["result"] == "unknown"\n'
              '    b = rec["result"] == "unknown"\n    return a, b\n')
     check_eq("F3 two comparisons of IDENTICAL text in one site are both covered by one entry (the stated limit)",
              audit({"f.py": twice}, row("g_conv", "converted", [site(allow=[{"compare": 'rec["result"] == "unknown"', "why": "w"}])]))["findings"], [])
@@ -760,6 +808,7 @@ def part_fix_pass() -> None:
                      "reporter_rehearsal_identity", "environment_property_cover",
                      "s5_window",     # C3-d (t-1081): target -> code (the words `approved` / `unverified`)
                      "baseline_identity",   # C3-g (t-1157): target -> code (the receipt's words `captured` / `inconclusive`)
+                     "stand_identity",      # C3-h (t-1179): target -> code (the probe's own `result` words)
                      "stand_login_gate", "stand_check", "probe_verdict", "finish_exit_gate", "exploratory_oracle", "branch_accounting",
                      "s3_grounding", "regression_on_main", "s5_open_oracle_asserted", "env_block_evidence", "plan_target_on_base"]))
     check("F4 no live converted row says target",
@@ -794,7 +843,7 @@ def part_fix_pass() -> None:
 
     # F6: --sites labels, three forms
     root = fake_package({
-        "f.py": 'def f(rec):\n    acceptable(rec, "x.y")\n    return rec["result"] == "matched"\n',
+        "f.py": 'from gate_template import acceptable\ndef f(rec):\n    acceptable(rec, "x.y")\n    return rec["result"] == "matched"\n',
         "h.py": 'def g(r):\n    return r == "mismatched"\n',
         "k.py": 'def k(r):\n    return r == "matched"\n'})
     try:
@@ -811,9 +860,9 @@ def part_fix_pass() -> None:
         lines = {line.split("  ")[0]: line for line in out.splitlines()}
         check_in("F6 a registered row: [<row>]", "  [g_debt]", lines["k.py:2"])
         check_in("F6 a converted accept site outside its allow list: [<row> NOT ALLOWED], not UNREGISTERED",
-                 "  [g_conv NOT ALLOWED]", lines["f.py:3"])
+                 "  [g_conv NOT ALLOWED]", lines["f.py:4"])
         check_in("F6 a site in no row: [UNREGISTERED]", "  [UNREGISTERED]", lines["h.py:2"])
-        check_not_in("F6 and only that one is called UNREGISTERED", "UNREGISTERED", lines["f.py:3"] + lines["k.py:2"])
+        check_not_in("F6 and only that one is called UNREGISTERED", "UNREGISTERED", lines["f.py:4"] + lines["k.py:2"])
         listed = {i["file"]: i for i in json.loads(out_json)}
         check_eq("F6 JSON: unregistered = no rows", (listed["h.py"]["rows"], listed["h.py"]["allowed"]), ([], False))
         check_eq("F6 JSON: not allowed = rows set, allowed false", (listed["f.py"]["rows"], listed["f.py"]["allowed"]),

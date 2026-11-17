@@ -63,6 +63,7 @@ Before you stop, read each item against its witness yourself: no critic judges t
 - **Smoke before depth.** When the flow is new end to end, one thin row on the main flow first: if it is red, the deep rows behind it tell nothing.
 - **Extend before you add.** An existing test that already walks the area is extended or parametrised; a new file is for what nothing covers.
 - **What a walk changes:** a manual check that changes a record other checks read says which kind and whether it must be its own.
+- Repeating the detector's sentence in a note is not evidence.
 
 <!-- kind: process -->
 ## Tools
@@ -75,6 +76,9 @@ You run no script: code checks the plan when you save it, and the S3 exit refuse
 <!-- gen:digest contract_slices.py -->
 - Digest: the common form (`common-rules.md`), one line per plan row, then `test-plan.md`.
 <!-- /gen -->
+- planning_contract.py and observation_contract.py will check, so write to them in fields, not in prose.
+- A no-write obligation's `positive_control_ref` names a MUTATING check, not one of the four sequence refs.
+- An oracle you cannot settle is `oracle_unknown: true`; add `source_conflict: true` when the sources disagree.
 
 <!-- kind: process -->
 ## When to ask

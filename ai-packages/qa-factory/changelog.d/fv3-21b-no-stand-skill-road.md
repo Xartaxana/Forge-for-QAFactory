@@ -1,0 +1,2 @@
+- The skill road's manual `start` now records each case as not checked by hand, in the person's words, under the no-stand word (as the driver does), and dispatches nothing.
+- The skill road skips a case an accepted manual block already carried and takes the usual start while an S6 dispatch is live, as the driver does.

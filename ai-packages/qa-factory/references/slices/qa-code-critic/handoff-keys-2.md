@@ -2,6 +2,8 @@
 
 ## What code will check of you (continued from handoff-keys.md)
 
+- [execution_request:profile_command] The profile's one-test command in `qa-factory/config.json` is readable: `commands.one_test.argv` present and in shape, its `env` in shape, and a `selectors.join` rule (when the profile has one) of the form `{"option", "separator", "group"?}`. Door: report it in your digest as an onboarding gap, and write this one run with `run_suite.py --template request`.
+- [execution_request:sandbox] A run in a sandbox clone runs in the profile's own directory inside the clone: the profile's `commands.one_test.cwd` (when set) lies inside the project root; the sandbox root is a directory; the run directory resolves inside the clone (no link out of it) and exists there; and every test file the run needs is a file the clone holds. Door: name it as `tooling` in your digest (the card's rule for an incomplete probe); a test file the clone lacks: add it to the repository or run the probe on a tracked copy - see **F-P2-5**.
 - [execution_request:scope] A dispatch runs only the cases it was given: every asked case is in the dispatch's scope (a stale live check of a qa-code-critic red probe is admitted by code; anything else passes only on a person's recorded word). Door: hand the case back in your digest; the conductor dispatches it or records the person's word (`waiver.py`, block "outside its scope").
 - [execution_request:selector_args] A manifest row of a profile that does not run pytest carries `selector_args` (the framework's own arguments) and `report_test_id`, unless the factory can build the selection from a `run_forms` direct form. Door: give the row `selector_args` and `report_test_id` through `manifest_put.py` once; until then run through `--template request`.
 - [execution_request:stand] The stand the run would stand on can be looked at now, and it runs this story's build. Door: name it as `environment` in your digest (`stand_health.py --probe --env <environment>`); a stand that runs another build: the person's word at the build question of the stage entry.
@@ -23,6 +25,10 @@
 - [controller:s5_plan_accept] A plan dispatch never closes S5: it is accepted without `stage_complete` (no `--complete`). Door: finish the plan dispatch without `--complete`.
 - [controller:s5_plan_review] Your plan review does not contradict itself, is stamped on the plan bytes now on disk, reuses no remark id of an earlier review, and leaves no blocking remark undecided. Door: rewrite the review on the current plan with new remark ids.
 - [exit_gate:EG-s5-plan-outputs] Before you end an S5 dispatch, every output the S5 plan names for your role is written. Door: write the output the refusal names before you end the dispatch.
+
+### Only in a window (replaced by "Only in a plan dispatch")
+
+- [manifest_put:expectation_changes] An expectation change names its function(s), red_attempt, green_attempt (or null), then_refs as `[{case, then: int}]`, what_changed, and a reason for a new row; the patch verdict joins; critic_verdict is one word of `expectation_change_verdicts`, critic_note a string, and a note stands for each NOTE_REQUIRED_VERDICTS verdict. A value you invented may change after a red run only with an `expectation_changes[]` row through manifest_put.py: `then_refs` [{case, then}] it still proves, `what_changed`, `reason`. Give each row ONE verdict through manifest_put.py, a patch with its function, `red_attempt` and `green_attempt` plus `critic_verdict` legitimate_correction|fitted_to_code|could_not_judge and `critic_note` (owed with `could_not_judge`). Door: fix the entry the refusal names.
 
 ### Not yet in rows
 

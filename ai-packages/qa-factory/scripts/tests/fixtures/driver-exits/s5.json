@@ -295,9 +295,17 @@
    "reach": "unwalked",
    "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
   },
+  "s5_precheck:sides.pending": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added by T1r-cards-a (told-before-work, cards to rows); the group's walk node writes its rows"
+  },
   "s5_precheck:sides.placeholders": {
    "reach": "unwalked",
    "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "s5_precheck:sides.provisional": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added by T1r-cards-a (told-before-work, cards to rows); the group's walk node writes its rows"
   },
   "s5_precheck:sides.settled": {
    "reach": "unwalked",
@@ -424,7 +432,9 @@
    "live_only | joints/acceptance:probe_evidence | N4:s5 t-1193, census row",
    "live_only | joints/acceptance:mechanical_green | N4:s5 t-1193, census row",
    "live_only | joints/acceptance:probe_mutation_kind | N4:s5 t-1193, census row",
-   "live_only | joints/manifest_put:probe_owed | N4:s5 t-1193, census row"
+   "live_only | joints/manifest_put:probe_owed | N4:s5 t-1193, census row",
+   "unwalked | joints/s5_precheck:sides.provisional | T1r-cards-a, 2026-11-17",
+   "unwalked | joints/s5_precheck:sides.pending | T1r-cards-a, 2026-11-17"
   ]
  }
 }
