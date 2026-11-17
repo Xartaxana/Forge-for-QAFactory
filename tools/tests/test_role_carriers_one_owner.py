@@ -9,13 +9,21 @@ Scanned: tracked files (`git ls-files`; a tree with no `.git` - every file) with
 generated copy (AGENTS.md), the decision record, history and quotations (specs, handoffs, snapshots, task reports, piles,
 experiments, logs), the package, test fixtures, this file. Blind spot (a false pass, named): a restatement in another
 language does not match an English key - axis 31's rule and the critic's question 6 cover it.
+K-NOBRIEF / K-REG (no-briefs spec section 8, owner's word 17.11.2026 "we do not create extra documents"): the register of MAIN
+documents is the axis-31 table of docs/SIBLING_MAP.md read by code; no MAIN document names a DELETED file by path or by stem
+(false red is the allowed side); a deleted file stays untracked; no brief file sits at the top of docs/tasks/.
 Run from the repo root: python -m pytest tools/tests/test_role_carriers_one_owner.py -q
 """
 import os
 import pathlib
+import re
 import subprocess
+import sys
 
 import pytest
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+import md_table  # noqa: E402  (the one table reader: SIBLING_MAP axis 31 is read through it)
 
 REAL = pathlib.Path(__file__).resolve().parents[2]
 ROOT = pathlib.Path(os.environ.get("ROLE_CARRIERS_ROOT") or REAL)
@@ -25,9 +33,11 @@ EXCLUDED = ("AGENTS.md", "DECISIONS.md", "docs/DECISIONS_ARCHIVE.md", "ai-packag
             "docs/tasks/specs/", "docs/tasks/handoffs/", "docs/tasks/compact-snapshots/", "docs/task_reports/",
             "plans/piles/", "tools/fixtures/", SELF)
 
-BRIEF = "docs/tasks/critic-diff-brief.md"
-RULES = "plans/builder-rules.md"
-RULES_7B = "7b. **Уровень билдера и уровень пачки**"
+CRITIC = ".claude/agents/critic.md"
+TESTING = "docs/TESTING.md"
+TESTING_RUN = "### Что запускать по своей правке"
+CRIT_21 = "21. The two layers of a diff gate"
+CRIT_Q6 = "Q6. **DUPLICATION AND CONSISTENCY**"
 COST = "Cost gates (D-0035, D-0038, D-0040, D-0054;"
 HYGIENE_6 = "6. An environment-negative claim requires verification: empty output"
 TEAMWORK = "docs/TEAMWORK.md"
@@ -39,14 +49,15 @@ OWNER_KEYS = [
     ("hand-back:critic", ".claude/agents/critic.md", "the verdict line and the number of blocking findings"),
     ("hand-back:designer", ".claude/agents/designer.md", "`1 drafted | 2 fork | 3 not drafted -- <one clause>`"),
     ("hand-back:scout", ".claude/agents/scout.md", "the Lead extracts it to a file in"),
-    ("scope:builder", RULES, "не регрессия, не соседи, не большие файлы"),
+    ("scope:builder", TESTING, "не регрессия, не соседи, не большие файлы"),
     # scope:mutation retired by the owner's word 28.10 and 10.11.2026 (docs/TESTING.md): the mutation list is no longer written
-    ("scope:tests", RULES, "Покрасневший пин удаляется, а не чинится"),
-    ("review:critic", BRIEF, "functions over roughly 60 lines or with more than three nesting levels in the NEW code"),
-    ("review:one-road", BRIEF, "a line for the coordinator to tell someone is itself a finding"),
+    ("scope:tests", TESTING, "Покраснел пин из таблицы выше — удаляется, не чинится"),
+    ("review:critic", CRITIC, "functions over roughly 60 lines or with more than three nesting levels in the NEW code"),
+    ("review:one-road", CRITIC, "a line for the coordinator to tell someone is itself a finding"),
     ("routing:rule-11", "CLAUDE.md", "a spec silent on an edge that its own requirements create is a dispatcher defect"),
     ("routing:hygiene-6", "CLAUDE.md", "from an INCORRECTLY invoked tool is a miscall, not proof the object is absent"),
     ("routing:rule-9", "CLAUDE.md", "the rule against recurrence goes on the highest level that ties the siblings together"),
+    ("routing:rule-9-exit", "CLAUDE.md", "never a way to put off a rule fix while rules are being fixed"),
     ("cost:cap", "CLAUDE.md", "WARN 250K, STOP 400K"),
     ("cost:queue", "PROJECT.md", "цель держать 6 пишущих билдеров"),      # 63bbd5e: the full-queue text moved to PROJECT.md item 12; CLAUDE.md rule 12 points there; re-quoted with R1 (boot-by-topic, FG7-51)
     ("tests:oracle", "docs/TESTING.md", "тест, чьё ожидание переписано из того, что код напечатал, может только пройти"),
@@ -56,26 +67,26 @@ OWNER_KEYS = [
 
 # (carrier, pointer text it must hold, target, anchor the target must still hold)
 POINTERS = [
-    ("PROJECT.md", "`plans/builder-rules.md` п. 7b", RULES, RULES_7B),
-    ("PROJECT.md", "`docs/tasks/critic-diff-brief.md`", BRIEF, "## The two layers"),
-    (RULES, "правило 7 `.claude/agents/builder.md`", ".claude/agents/builder.md", "7. The report is a FILE; the final message is its digest."),
-    (RULES, "`CLAUDE.md` rule 12, Cost gates", "CLAUDE.md", COST),
-    (".claude/agents/builder.md", "`plans/builder-rules.md` 7b", RULES, RULES_7B),
+    ("PROJECT.md", "`docs/TESTING.md` «Что запускать по своей правке»", TESTING, TESTING_RUN),
+    ("PROJECT.md", "`.claude/agents/critic.md` rule 21", CRITIC, CRIT_21),
+    (".claude/agents/builder.md", "`docs/TESTING.md` «Что запускать по своей правке»", TESTING, TESTING_RUN),
     (".claude/agents/builder.md", "the rule is CLAUDE.md command hygiene point 6", "CLAUDE.md", HYGIENE_6),
     (".claude/agents/critic.md", "the rule is CLAUDE.md command hygiene point 6", "CLAUDE.md", HYGIENE_6),
-    (".claude/agents/critic.md", "docs/tasks/critic-diff-brief.md items 6-7", BRIEF, "6. **DUPLICATION AND CONSISTENCY**"),
-    (".claude/agents/critic.md", "docs/tasks/critic-diff-brief.md «The two layers»", BRIEF, "## The two layers"),
-    (".claude/agents/critic.md", "docs/tasks/critic-diff-brief.md item 12", BRIEF, "12. **ONE ROAD**"),
+    (CRITIC, "the rule text is rule 22, Q6-Q7", CRITIC, CRIT_Q6),
+    (CRITIC, "(its size: rule 21)", CRITIC, CRIT_21),
+    (CRITIC, "the question is rule 22, Q12", CRITIC, "Q12. **ONE ROAD**"),
     (".claude/agents/designer.md", "the text is CLAUDE.md rule 11", "CLAUDE.md", "11. DoD in every dispatch (DoD-in-every-dispatch rule)"),
-    (".claude/agents/designer.md", "`plans/builder-rules.md` 7b", RULES, RULES_7B),
-    (BRIEF, "`.claude/agents/critic.md` rules 16-17", ".claude/agents/critic.md", "16. The report is a FILE; the final message is its digest."),
-    ("CLAUDE.md", "`docs/tasks/critic-diff-brief.md` items 6-7", BRIEF, "7. **CODE QUALITY**"),
-    ("docs/CLAUDE_HOST_ADAPTATIONS_FULL.md", "the rule text is `docs/tasks/critic-diff-brief.md`", BRIEF, "6. **DUPLICATION AND CONSISTENCY**"),
+    (CRITIC, "docs/TESTING.md «Бюджет»", TESTING, "### Бюджет"),
+    ("CLAUDE.md", "`docs/TESTING.md` «Что запускать по своей правке»", TESTING, TESTING_RUN),
+    (".claude/agents/designer.md", "`docs/TESTING.md` («Что запускать по своей правке», «Строка теста в DoD»", TESTING, "### Строка теста в DoD"),
+    (".claude/agents/designer.md", "`.claude/agents/critic.md` rule 24, Q13 (d)", CRITIC, "Q13. **FACTS AND EDGES**"),
+    ("CLAUDE.md", "`.claude/agents/critic.md` rule 22, Q6-Q7", CRITIC, "Q7. **CODE QUALITY**"),
+    ("docs/CLAUDE_HOST_ADAPTATIONS_FULL.md", "the rule text is `.claude/agents/critic.md` rule 22", CRITIC, CRIT_Q6),
     ("docs/CLAUDE_HOST_ADAPTATIONS_FULL.md", "the rule text is `CLAUDE.md` rule 12, Cost gates", "CLAUDE.md", COST),
     ("SYSTEM_PROMPT.md", "CLAUDE.md rule 9", "CLAUDE.md", "9. Fix the class, not the instance (fix-the-class-not-the-instance"),
-    ("docs/RUNBOOK.md", "`plans/builder-rules.md` п. 7b", RULES, RULES_7B),
+    ("docs/RUNBOOK.md", "`docs/TESTING.md` «Что запускать по своей правке»", TESTING, TESTING_RUN),
     ("docs/RUNBOOK.md", "`CLAUDE.md` rule 12, Cost gates", "CLAUDE.md", COST),
-    ("docs/TESTING.md", "`docs/tasks/critic-diff-brief.md` «The two layers»", BRIEF, "## The two layers"),
+    ("docs/TESTING.md", "правилу 21 `.claude/agents/critic.md`", CRITIC, CRIT_21),
     ("docs/TWO_VOCABULARIES.md", "`delegation.config.yaml`", "delegation.config.yaml", "scout:"),
     ("PROJECT.md", "`docs/TEAMWORK.md` § 2", TEAMWORK, "2. **Взятая пачка заморожена** (`piles.py check` (в), гейт commit-msg)"),
     ("PROJECT.md", "`docs/TEAMWORK.md` § 3", TEAMWORK, "3. **Зоны файлов пачек «в работе» не пересекаются** (`check` (б))"),
@@ -87,15 +98,10 @@ POINTERS = [
     ("PROJECT.md", "`docs/RUNBOOK.md` §7", "docs/RUNBOOK.md", RUNBOOK_7),
     ("PROJECT.md", "правило: § Бэклог и находки", "PROJECT.md", "## Бэклог и находки"),
     ("docs/RUNBOOK.md", "`PROJECT.md` § Сессия форджа", "PROJECT.md", "## Сессия форджа"),
-    (RULES, "`docs/RUNBOOK.md` §7", "docs/RUNBOOK.md", RUNBOOK_7),
-    ("docs/TESTING.md", "`plans/builder-rules.md` п. 7b", RULES, RULES_7B),
-    (BRIEF, "`plans/builder-rules.md` 7b", RULES, RULES_7B),
+    ("docs/TESTING.md", "`docs/RUNBOOK.md` §7", "docs/RUNBOOK.md", RUNBOOK_7),
     ("PROJECT.md", "`.claude/skills/boot-diet/SKILL.md` § Как пишутся правила для агентов", ".claude/skills/boot-diet/SKILL.md", "## Как пишутся правила для агентов"),
     ("CLAUDE.md", "PROJECT.md § Сессия форджа", "PROJECT.md", "## Сессия форджа"),
     (TEAMWORK, "`PROJECT.md` «Командная работа» п. 3", "PROJECT.md", "3. **Зоны файлов пачек «в работе» не пересекаются** — правило: `docs/TEAMWORK.md` § 3"),
-    (RULES, "«Откуда берётся ожидаемое значение»", "docs/TESTING.md", "### Откуда берётся ожидаемое значение"),
-    (RULES, "`docs/TESTING.md` «Тест может упасть»", "docs/TESTING.md", "### Тест может упасть"),
-    (RULES, "по цели `docs/TESTING.md` «Бюджет / Файлы»", "docs/TESTING.md", "- **Файлы**"),
 ]
 
 # The cross-file Contents table of CLAUDE.md (one row per cell, T1-T33 of the boot-by-topic spec section 2) and the own-section
@@ -111,12 +117,12 @@ TOC_POINTERS = [
     (_TOC_CL, "CLAUDE.md § Rule 2 · drafting → designer", "CLAUDE.md", "### Rule 2 · drafting → designer"),
     (_TOC_CL, "| CLAUDE.md § 11 |", "CLAUDE.md", "11. DoD in every dispatch (DoD-in-every-dispatch rule)"),
     (_TOC_CL, "| Witness; acceptance by witness | CLAUDE.md § 2 |", "CLAUDE.md", "2. Implementation from a finished spec → builder"),
-    (_TOC_CL, "| What a builder may run | plans/builder-rules.md § 7b |", RULES, RULES_7B),
+    (_TOC_CL, "| What a builder may run | docs/TESTING.md § Что запускать по своей правке |", TESTING, TESTING_RUN),
     (_TOC_CL, "CLAUDE.md § Rule 4 · witness scope and the BATCH CANON", "CLAUDE.md", "### Rule 4 · witness scope and the BATCH CANON"),
     (_TOC_CL, "docs/RUNBOOK.md § 7. CI на GitHub и BATCH CANON", _RS, RUNBOOK_7),
     (_TOC_CL, "| Which tests are written | docs/TESTING.md |", "docs/TESTING.md", "# Как фордж пишет тесты"),
     (_TOC_CL, "| Critic gate | CLAUDE.md § 3 |", "CLAUDE.md", "3. critic — a MANDATORY acceptance gate"),
-    (_TOC_CL, "| Critic review content | docs/tasks/critic-diff-brief.md |", BRIEF, "# Standing brief for the critic gate on a builder diff"),
+    (_TOC_CL, "| Critic review content | .claude/agents/critic.md § 21-24 |", CRITIC, CRIT_21),
     (_TOC_CL, "| Journal | CLAUDE.md § Routing log |", "CLAUDE.md", "## Routing log — logs/journal/<dev>.jsonl"),
     (_TOC_CL, "| Six writers, queue, merge waves | PROJECT.md § Командная работа |", _PRJ, _TW_HEAD),
     (_TOC_CL, "| Cost gates | CLAUDE.md § Rule 12 · Cost gates |", "CLAUDE.md", "### Rule 12 · Cost gates"),
@@ -169,13 +175,15 @@ def is_scanned(rel):
     return rel.endswith(TEXT_SUFFIXES) and not any(rel == e or rel.startswith(e) for e in EXCLUDED)
 
 
-def tracked(root):
+def _tracked_all(root):
     if (root / ".git").exists():          # a checkout or a worktree (`.git` is a file there)
         out = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], capture_output=True, check=True).stdout
-        rels = [p for p in out.decode("utf-8", "replace").split("\0") if p]
-    else:
-        rels = [p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()]
-    return sorted(r for r in rels if is_scanned(r))
+        return [p for p in out.decode("utf-8", "replace").split("\0") if p]
+    return [p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()]
+
+
+def tracked(root):
+    return sorted(r for r in _tracked_all(root) if is_scanned(r))
 
 
 def load(root, rels):
@@ -240,14 +248,118 @@ def test_negative_control_scope():
     assert is_scanned("CLAUDE.md") and is_scanned(".claude/agents/critic.md")
 
 
-def test_negative_control_real_key_in_a_copy(tmp_path):
-    """A real key pasted into a COPY of a pointer file -> named (a check that cannot fail is not a check)."""
-    _, owner, key = OWNER_KEYS[6]                      # review:critic
-    for rel in (owner, ".claude/agents/critic.md"):
-        dst = tmp_path / rel
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        dst.write_text(read(rel), encoding="utf-8")
-    with (tmp_path / ".claude/agents/critic.md").open("a", encoding="utf-8") as f:
-        f.write("\n" + key + "\n")
-    assert violations(key, owner, load(tmp_path, tracked(tmp_path))) == [
-        ".claude/agents/critic.md restates the owner %s" % owner]
+# ---- K-REG / K-NOBRIEF ----
+SIBLING_MAP = "docs/SIBLING_MAP.md"
+DOOR = "fold the text into a main document, or move the file under docs/tasks/specs/"
+DELETED = [                                     # (path, stem or None); wave 2 adds docs/tasks/exchange-form.md
+    ("docs/tasks/critic-diff-brief.md", "critic-diff-brief"),
+    ("plans/builder-rules.md", "builder-rules"),
+    ("docs/tasks/pre-release-0.9-brief-common.md", "pre-release-0.9-brief-common"),
+    ("docs/tasks/pre-release-0.9-critic-brief.md", "pre-release-0.9-critic-brief"),
+    ("docs/tasks/test-diet-brief.md", "test-diet-brief"),
+    ("docs/tasks/test-diet-fold-brief.md", "test-diet-fold-brief"),
+    ("docs/retro/README.md", None),             # no stem: "README" is a common word
+]
+ALLOWED = {".claude/agents/builder.md": "\"builder-rules N\" in package comments = the former numbering of the builder's rules"}
+BRIEF_PATH_RE = re.compile(r"docs/tasks/[^/\s`'\"]*brief[^/\s`'\"]*\.md")
+
+
+def main_documents(root):
+    """MAIN = the files of axis 31 whose Owner / pointer cell starts with owner or procedure (E11: a missing table or a
+    malformed row yields fewer documents, never a pass: test_register_sees_the_main_documents)."""
+    lines = (root / SIBLING_MAP).read_text(encoding="utf-8").splitlines()
+    table = md_table.table_after(lines, "Axis 31")
+    if table is None:
+        return []
+    header, rows = table
+    names = [h.casefold() for h in header]
+    if "file" not in names or "owner / pointer" not in names:
+        return []
+    fi, oi = names.index("file"), names.index("owner / pointer")
+    out = set()
+    for cells, _ in rows:
+        if len(cells) <= max(fi, oi) or not cells[oi].casefold().startswith(("owner", "procedure")):
+            continue
+        m = re.match(r"`([^`]+\.md)`", cells[fi])
+        if not m:
+            continue
+        path = m.group(1)
+        if "*" in path:
+            out.update(q.relative_to(root).as_posix() for q in root.glob(path))
+        elif (root / path).is_file():
+            out.add(path)
+    return sorted(out)
+
+
+def forbidden_hits(text):
+    t = text.casefold().replace("\\", "/")
+    hits = BRIEF_PATH_RE.findall(t)
+    for path, stem in DELETED:
+        hits += [path.casefold()] * (path.casefold() in t)
+        hits += [stem] * bool(stem and stem in t)
+    return hits
+
+
+def strip_allowed(rel, text):
+    """Blank the ONE allowed sentence of its file (through its final period), keeping line breaks."""
+    start = ALLOWED.get(rel)
+    if not start:
+        return text
+    m = re.search(r"\s+".join(re.escape(w) for w in start.split()) + r".*?\.(?=\s|$)", text, re.S)
+    if not m:
+        return text
+    return text[:m.start()] + re.sub(r"[^\n]", " ", m.group(0)) + text[m.end():]
+
+
+def scan(rel, text):
+    return [(n, h) for n, line in enumerate(strip_allowed(rel, text).splitlines(), 1) for h in forbidden_hits(line)]
+
+
+MAIN = main_documents(ROOT)
+
+
+def test_register_sees_the_main_documents():
+    """Positive control: a broken parse of the axis-31 table fails here, never passes with an empty MAIN."""
+    need = ["CLAUDE.md", "docs/TESTING.md", ".claude/agents/critic.md", "ai-packages/qa-factory/design/architecture.md"]
+    assert [n for n in need if n not in MAIN] == []
+
+
+@pytest.mark.parametrize("rel", MAIN)
+def test_no_main_document_names_a_deleted_file(rel):
+    hits = scan(rel, read(rel))
+    assert hits == [], "%s names a deleted file at %s; door: %s" % (rel, hits[:5], DOOR)
+
+
+@pytest.mark.parametrize("path", [d for d, _ in DELETED])
+def test_deleted_files_stay_untracked(path):
+    assert path not in _tracked_all(ROOT), "%s is tracked again; door: %s" % (path, DOOR)
+
+
+def test_no_brief_file_at_the_top_of_docs_tasks():
+    bad = [p for p in _tracked_all(ROOT) if re.fullmatch(r"docs/tasks/[^/]*brief[^/]*\.md", p, re.I)]
+    assert bad == [], "%s; door: %s" % (bad, DOOR)
+
+
+_BR = ".claude/agents/builder.md"
+_OWN = ALLOWED[_BR] + ": 1, 9 -> rule 11; 7b, 7c -> `docs/TESTING.md` x; 8 -> FR-4."
+FORBIDDEN_ROWS = [      # (rel, text, hit expected)
+    ("x.md", "docs\\tasks\\Critic-Diff-Brief.md", True),
+    ("x.md", "builder-rules 7b", True),                                   # B6 false-green class: a bare stem
+    ("x.md", "(builder-rules п. 13)", True),
+    ("x.md", "critic-diff-brief question 9", True),
+    ("x.md", "docs/tasks/specs/td-11-lead-brief.md", False),
+    ("x.md", "INTENT BRIEF", False),
+    ("x.md", '"notes":"brief: what was delegated"', False),
+    ("x.md", "```\nplans/builder-rules.md\n```", True),                    # fences are not exempt
+    (_BR, _OWN, False),
+    (_BR, _OWN + " Elsewhere: builder-rules 7b.", True),                  # the same stem in another sentence
+    (_BR, "Other sentence builder-rules N. " + _OWN, True),
+    ("x.md", _OWN, True),                                                 # the allowance is for builder.md only
+    ("x.md", "docs/retro/inbox/x.md", False),
+    ("x.md", "docs/retro/README.md", True),
+]
+
+
+@pytest.mark.parametrize("rel,text,hit", FORBIDDEN_ROWS, ids=[str(i) for i in range(len(FORBIDDEN_ROWS))])
+def test_forbidden_hits(rel, text, hit):
+    assert bool(scan(rel, text)) is hit, (rel, text, scan(rel, text))

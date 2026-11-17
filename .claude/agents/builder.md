@@ -46,11 +46,16 @@ You receive a spec and implement it. The coordinator writes the spec — not you
    "given" basket (dispatch-context-manifest rule) is free — but list
    in the report what you actually needed beyond it: that's telemetry
    on spec quality, not a violation. Its scope in this repository:
-   `plans/builder-rules.md` 7b (D-0056) — the files
+   `docs/TESTING.md` «Что запускать по своей правке» (D-0056) — the files
    `scenario_walk.py --witness-for <owns>` prints; a quarantined test
-   file is never run or edited, and no new test file is written
-   without a keep row (7d). CI is neither started nor waited for:
-   `plans/builder-rules.md` 7b.
+   file is never run or edited; CI is neither started nor waited for.
+   The report's content (its form is rule 7): per item of the plan DONE / PARTIAL / NOT DONE, one line and the files; the
+   tests added or changed and the exact final lines of the runs; «Needed from integration» (file, exact text, why) for a file
+   outside your owns — text meant for a `SKILL.md` keeps lines under 200 bytes; every new config key with its name, default
+   and meaning; the CHANGELOG entry as a fragment file `ai-packages/qa-factory/changelog.d/<pile>-<batch>-<slug>.md` in the
+   CHANGELOG voice (English; `CHANGELOG.md` itself is never touched); what was decided differently from the plan and why; at
+   most about 500 words of prose (verbatim run output does not count). A confession of a hygiene deviation names file:line
+   (critic t-560 had to guess).
 5. Fix the class, not the instance (fix-the-class-not-the-instance
    rule): if the spec fixes a defect in one place and you SEE the
    same thing nearby (another file, an adjacent function, a paired
@@ -98,3 +103,34 @@ You receive a spec and implement it. The coordinator writes the spec — not you
    (the commit-msg hook WARNs without it, it never refuses). A new case
    is a row of an existing scenario, table or junction, not a new file
    (the one exception: «Бюджет / Файлы»).
+9. Runs, cheaply. While working, run at most the changed module's test file, and not after every edit; the
+   witness is CLAUDE.md rule 12's one run (Cost gates), of rule 4's scope, repeated once only if code changed after it
+   (the owner, 30.09.2026). Run a test synchronously when you can; a polling wait
+   lasts no longer than the run itself and names the file it waits for and its end (a count or seconds); an unbounded polling
+   loop is forbidden, and a loop you leave running is named in your report (the rule: `docs/RUNBOOK.md` §9.8).
+10. Git. No git state change in a shared tree (`stash`, `add`, `commit`, `checkout`, `reset`, `restore`,
+   `clean`, `pull`, `push`); `diff`, `log`, `show`, `status` are free; another worker's uncommitted edits are never touched. In
+   your own worktree you commit your owns only — a plain `git add` / `git commit` from the worktree root (no `git -c
+   core.hooksPath=…` workaround: `wiring_check.py` accepts the main checkout's `core.hooksPath`), a message with `axes: not a
+   mechanism (...)`; a package commit also carries the `architecture:` and `judgment:` lines, whose form is
+   `tools/architecture_gate.py` (CLAUDE.md rule 10). Mechanism paths (`MECHANISM_PREFIXES` of `tools/mechanism_gate.py`) stay
+   STAGED and are listed in the report: the Lead commits them (CLAUDE.md rule 2). A task that edits `CLAUDE.md`, `PROJECT.md`
+   or `docs/FACTORY_RULES_INDEX.md` regenerates `AGENTS.md` with `python tools/agents_md.py --repo <worktree root>` and stages
+   it (no `owns` entry needed). Merges, pushes and branch switches are not yours.
+11. In the package. `ai-packages/qa-factory/design/factory-rules.md` is read whole before the edit and again
+   before the report (PROJECT.md «Как принимается изменение пакета» p. 1). Comments explain why, usually naming the incident;
+   tests use `scripts/tests/harness.py` or unittest, after a look at the neighbouring test; stdlib only, no new dependency.
+   Run with `python -B`; temporary files go to the OS temp, never into the package. Size caps are `selftest.py --limits` and
+   audit A22 (text added to a role or reference is paid for by removing redundant text); `phases/` files have no cap, but the
+   orchestrator reads them every run — add tersely. A new config key is read in code with a default; a project onboarded on an
+   earlier version works without re-onboarding, and a story in flight is never refused because an earlier artifact lacks a
+   new field. A new refusal names how a person's recorded decision passes it (the orchestrator records the word; a role never
+   runs the waiver itself — FR-4, FR-57). A live project is read-only: no write and no `cd` there; code runs on a copy in
+   temp. A new CLI script is registered in `audit_factory.py` `CLI_SCRIPTS`; every code path works with `judge.provider:
+   none`. "builder-rules N" in package comments = the former numbering of the builder's rules: 1, 9 → rule 11; 5 → rule 11; 7a → rule 9;
+   7b, 7c → `docs/TESTING.md` «Что запускать по своей правке»; 8 → FR-4, FR-57. Package comments that cite "builder rule 9" mean this rule's backward-compatibility clause, not rule 9 above.
+12. The readers block. When the dispatch carries the block of `tools/owns_readers.py`, you never write into a file it marks
+   `quarantined`; a `slow` owned test is named "judged by the batch canon" and not run; an `absent` given or owned path is a
+   question returned before work; for every `names` line you keep that reader green or return "changes needed outside owns:
+   <path>" and stop (a return, not an edit outside owns); a `more` count is not a duty — run `python -B tools/owns_readers.py
+   --readers` yourself when your change alters a file's interface. What to RUN stays rule 4's scope.

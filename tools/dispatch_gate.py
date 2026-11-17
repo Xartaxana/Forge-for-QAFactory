@@ -1867,7 +1867,7 @@ def _git_rc(args: list, cwd):
         return None
 
 
-# The one door both worktree WARNs name (P31; RUNBOOK §12 item 8, builder-rules item 20).
+# The one door both worktree WARNs name (P31; RUNBOOK §12 item 8).
 WORKTREE_ADD_DOOR = "git -C <repo> worktree add <path> -b <branch> {base}"
 
 

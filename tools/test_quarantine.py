@@ -48,7 +48,7 @@ STATE_REL = "plans/test-quarantine"
 CONFIG_REL, WATCH_REL, VERDICTS_REL = (STATE_REL + "/" + n for n in ("config.json", "watch.jsonl", "verdicts.jsonl"))
 MIN_STORIES = 3
 BASELINE_RUNS = 3
-FORGE_CARRIERS = ("plans/builder-rules.md", ".gitlab-ci.yml", "docs/SIBLING_MAP.md", "PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md")
+FORGE_CARRIERS = ("docs/TESTING.md", ".gitlab-ci.yml", "docs/SIBLING_MAP.md", "PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md")
 PACKAGE_PROSE = (PKG + "/design/architecture.md", PKG + "/design/factory-rules.md")
 SELFTEST_JOB, SELFTEST_ART = "package-full-report", "ci-out/selftest.txt"
 # .gitlab-ci.yml, job package-full (parallel: 2): jobs "package-full 1/2", "package-full 2/2", each keeps ci-out/selftest-shard-<i>-of-2.txt

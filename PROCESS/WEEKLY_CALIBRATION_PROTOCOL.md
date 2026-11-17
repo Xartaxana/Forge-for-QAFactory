@@ -389,7 +389,7 @@ for the period, and diffs to DECISIONS.md.
     any builder node, parallel or solo): a builder `witness` that
     names `test_story_step.py`, every `test_story_run_*.py` at once,
     a full `selftest.py`, a docker run or a mutation RUN is the leak —
-    those are the batch canon's (`plans/builder-rules.md` 7b); the
+    those are the batch canon's (`docs/TESTING.md` «Что запускать по своей правке»); the
     DoD that asked for it is the dispatcher's defect, a run nobody
     asked for is the builder's. An empty window (no
     concurrent `delegated` groups) is noted explicitly — "no
@@ -1043,6 +1043,7 @@ the source's own number.
     the three batches closed before the gate (forge/1, forge/2, forge/4)
     are the baseline, named once, not re-judged.
     (h) Boot form (boot-by-topic, FG7-51): sample CLAUDE.md and PROJECT.md for a rule sentence restated outside its home (topic map), a section over 50 lines without a table, a `##` heading of the boot that no TOC row routes to — each a finding; on discipline until FG7-52.
+    (i) Standing documents (PROJECT.md «Лишних документов нет», the owner's word 17.11.2026): sample the role files, CLAUDE.md, PROJECT.md and the window's new specs for a sentence that sends a role to read, every time, a file that is not an `owner`/`procedure` row of axis 31 (`docs/SIBLING_MAP.md`), and the tracked files added in the window outside the not-extra class of that rule — each a finding; the name pin is `tools/tests/test_role_carriers_one_owner.py` (K-NOBRIEF).
 34. **Exchange form (F5-2).** (t-797 spec §3.4; the scout digest form v1,
     the brief as pointers, the `node` field of a `delegated` line.)
     Mechanism: `tools/digest_form.py` read by `tools/handback_extract.py`

@@ -386,7 +386,7 @@ def _build_enter(root):
     W(root, tq.LAYERS_REL, json.dumps(doc))
     W(root, PLUGIN, json.dumps({"version": "0.10.9"}))
     W(root, tq.CONFIG_REL, json.dumps({"branch": "br", "max_gap_days": 4}))
-    W(root, "plans/builder-rules.md", "the gate test_gate.py is run\n")
+    W(root, "docs/TESTING.md", "the gate test_gate.py is run\n")
     W(root, tq.SLOW_REL, json.dumps({"measured_on": "x", "source": "y", "thresholds": {"slow_over_s": 10, "fast_under_s": 5}, "max_drift": 5,
                                      "files": {"test_old1.py": 12.4, "test_gate.py": 30}}))
     return commit(root, "base")
@@ -410,7 +410,7 @@ def _coverage_gap(root, ci, mp):
 
 
 def _gate_names_moving(root, ci, mp):
-    W(root, "plans/builder-rules.md", "the gate test_old1.py is run\n")
+    W(root, "docs/TESTING.md", "the gate test_old1.py is run\n")
 
 
 def _other_sha(root, ci, mp):
@@ -838,7 +838,7 @@ def test_enter_phase2_table(tmp_path, capsys, case):
         doc["pin_holds"] = {"test_det.py": "role pin"}
         W(root, tq.LAYERS_REL, json.dumps(doc))
     elif extra:
-        W(root, "plans/builder-rules.md", extra)
+        W(root, "docs/TESTING.md", extra)
     assert tq.main(["enter", "--root", str(root), "--pipeline", "100", *flags], ci=ci) == (0 if case == "ok" else 1)
     assert text in capsys.readouterr().out
     if case == "ok":
@@ -1486,7 +1486,7 @@ def pg_base(tmp_path_factory):
         T + "fixtures/driver-layers.json": PG_DRIVER,
         "ai-packages/qa-factory/references/stage-joints.json": json.dumps({"joints": [{"fixture": "lit_joint"}]}),
         "plans/features.json": PG_FEATURES,
-        "plans/builder-rules.md": "see test_q1.py for the rule\n",
+        "docs/TESTING.md": "see test_q1.py for the rule\n",
     }
     for rel, text in files.items():
         W(root, rel, text)
@@ -1610,7 +1610,7 @@ def test_purge_deletes_exactly_the_cohort_and_what_only_it_used(pg, capsys):
     assert pg.lint == [str(root)]
     for piece in ("quarantine purge: 2 test files deleted (", "1 fixture folders deleted (2 kept: used by ",
                   "2 helpers deleted; registries: TEST_TIMEOUTS -2, slow_tests.json -1, driver-layers.json -2, features.json -2; "
-                  "still named in text: plans/builder-rules.md:1; commit: git commit -F ci-out/quarantine-purge-msg.txt"):
+                  "still named in text: docs/TESTING.md:1; commit: git commit -F ci-out/quarantine-purge-msg.txt"):
         assert piece in out, out
     assert "lint ratchet --check: exit 0" in out
     # what remains is a coherent quarantine: c1 is gone, c2 is still judged by status

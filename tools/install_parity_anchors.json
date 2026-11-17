@@ -19,7 +19,7 @@
       "PRIMARY draft. A RESUBMISSION",
       "NEW task_id is a NEW task",
       "3. critic — a MANDATORY acceptance gate:",
-      "`docs/tasks/critic-diff-brief.md` items 6-7",
+      "`.claude/agents/critic.md` rule 22, Q6-Q7",
       "TWO-LAYER CRITIC ENTRY",
       "starts with EMPIRICS",
       "Critic-on-plan:",
