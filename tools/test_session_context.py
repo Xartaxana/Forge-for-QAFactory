@@ -48,6 +48,8 @@ from session_context import (
 # the Lead places it, the tests below that go through `sc` exercise the draft, the ones that import
 # names from `session_context` above exercise the live module.
 # K-WIRE: SESSION_CONTEXT_PATH names the candidate file the tests below judge instead of the live one (under_test).
+import compact_snapshot as _cs_live  # noqa: E402  (the live pair, bound before a candidate takes the module name)
+import session_context as _scm_live  # noqa: E402
 sc = load_under_test("SESSION_CONTEXT_PATH", "session_context")
 
 REQUESTS_SCHEMA = """
@@ -3286,8 +3288,8 @@ def test_td157_quarantine_line_real_function_no_records_no_line(tmp_path):
 
 # ---- A1 (fg-context-and-hygiene): the block after a compaction, identity by the header of the first line ----
 
-import compact_snapshot as _cs_mod
-import session_context as _scm
+_cs_mod = _cs_live  # header_line / prefix only; the snapshot_identity patches below target sys.modules["compact_snapshot"] (the name _scm_live resolves lazily)
+_scm = _scm_live
 
 _A1_NOW = datetime.datetime(2026, 11, 12, 13, 0, 0)
 _A1_DIR = "docs/tasks/compact-snapshots"
@@ -3445,14 +3447,14 @@ def test_a1_compact_block(tmp_path, monkeypatch, capsys, files, record, session,
 
         monkeypatch.setattr(Path, "write_text", refuse)
     if mode == "newer_unreadable":
-        real_identity = _cs_mod.snapshot_identity
+        real_identity = sys.modules["compact_snapshot"].snapshot_identity
 
         def identity(p):
             if "1258" in str(p):
                 raise OSError("denied")
             return real_identity(p)
 
-        monkeypatch.setattr(_cs_mod, "snapshot_identity", identity)
+        monkeypatch.setattr(sys.modules["compact_snapshot"], "snapshot_identity", identity)
     if mode == "startup":
         (tmp_path / "logs").mkdir()
         monkeypatch.setattr(sys, "stdin", _A1Stdin(json.dumps({"source": "startup", "session_id": session})))
@@ -3492,7 +3494,7 @@ def test_a1_clock_skew_reads_as_age_zero(tmp_path):
 
 def test_a1_unreadable_file_is_skipped_and_all_failing_is_unavailable(tmp_path, monkeypatch):
     _a1_put(tmp_path, [("2026-11-12-1257-manual.md", "s1", 3)])
-    monkeypatch.setattr(_cs_mod, "snapshot_identity", lambda p: (_ for _ in ()).throw(OSError("denied")))
+    monkeypatch.setattr(sys.modules["compact_snapshot"], "snapshot_identity", lambda p: (_ for _ in ()).throw(OSError("denied")))
     lines = _scm.compact_snapshot_lines(tmp_path, _A1_NOW, "s1")
     assert lines[0] == f"COMPACT SNAPSHOT: unavailable (OSError: denied) -- write it now: {_A1_DOOR} --session s1", lines
     assert lines[1].startswith("AFTER COMPACT: read the snapshot above") and len(lines) == 2, lines   # F3
