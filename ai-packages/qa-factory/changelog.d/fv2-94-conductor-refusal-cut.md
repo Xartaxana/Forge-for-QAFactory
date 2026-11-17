@@ -1,0 +1,1 @@
+- The conductor prompt's refusal section is cut at 6000 characters as before, but the gate's priced options and the person's choice now stand before the factory's own words, so a long refusal loses only the tail of those words and never the token the person chose or an option's price (FV2-94).

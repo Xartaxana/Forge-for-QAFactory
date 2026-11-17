@@ -4,13 +4,9 @@
   "gate_A/stop": {
    "node": "FV3-16",
    "raised_by": "product gap (critic t-1077): an answer take_answer has read whose branch raises a Person (here the held stop question, driver_machine.py:2395-2397) leaves no driver-answers.jsonl row: record_answer_row runs only at the end of take_answer (driver_machine.py:3614) and the run-level handler settles only a Refusal (:2033-2040), not a Person (:2031-2032); same class as FV3-16"
-  },
-  "gate_A/rework": {
-   "node": "FV2-94",
-   "raised_by": "product gap (critic t-1077, card r2 edge 12): the person's choice paragraph ## The person's choice is appended last to _conductor_text (driver_conductor.py:687) and the whole text is cut at 6000 characters as ## The refusal (:320), so the conductor's chosen call carries no token (stub journals chosen false) and is counted by C2; the gate's priced options (:684-685) are cut the same way"
   }
  },
  "pins": {
-  "known_red": 2
+  "known_red": 1
  }
 }

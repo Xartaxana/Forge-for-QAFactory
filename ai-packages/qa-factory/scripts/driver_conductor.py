@@ -312,12 +312,17 @@ class DriverConductor:
         words_note = ([f"The person's words are in {words_path}; pass them as --words-file {words_path}. That is the file of "
                        "the answer you are reading now. For a `rework`, never pass a file that holds only a token."]
                       if words and words_path else [])    # a call with no words (why=chosen) names its file in its own note
+        # The refusal is cut at 6000 characters; the head `_conductor_text` set (the gate's prices and the person's choice, FV2-94) is
+        # never cut - when it is longer than the cap the factory's words get what is left, which may be nothing.
+        cut_text = refusal.strip()
+        keep = getattr(self, "conductor_head", "")
+        cap = max(6000, len(keep)) if keep and cut_text.startswith(keep) else 6000
         prompt = "\n".join([
             f"Task: {self.task}. Project root: {self.project}. Plugin root: {self.plugin}.",
             f"Task root: {self.task_root}. Boundary: {self.boundary}. Model: {self.model}.",
             f"Stand remedy: {self.stand_remedy()}.",
             f"Driver flags: branch suffix `{self.flags.branch_suffix or ''}`.",
-            "", "## The refusal", refusal.strip()[:6000], "", "## `story_step.py where`", where.strip()[:2000],
+            "", "## The refusal", cut_text[:cap], "", "## `story_step.py where`", where.strip()[:2000],
             "", "## The person's words" if words else "",
             (words.strip()[:NO_MOVE_WORDS_IN_PROMPT]
              + (f"\n(cut; the whole answer is in {words_path})" if len(words.strip()) > NO_MOVE_WORDS_IN_PROMPT else "")) if words else "",
@@ -689,10 +694,15 @@ class DriverConductor:
         found, not on the details file alone - then the moves open here, the factory's words, the gate's priced options, and for a
         token the person chose the paragraph of their choice."""
         lead = str(state.get("lead") or "").strip()
-        text = (lead + "\n\n" if lead else "") + NM.moves_section(NM.data(), open_ids, facts, site) + "\n\n" + str(state.get("text") or "")
-        if facts.get("gate"):
-            text += "\n\n" + self.gate_prices(str(facts["gate"]), open_ids, facts, has_words=bool(state.get("words_file")))
-        return text + ("\n\n## The person's choice\n" + self.chosen_note(state, open_ids) if chosen else "")
+        head = (lead + "\n\n" if lead else "") + NM.moves_section(NM.data(), open_ids, facts, site)
+        plain = head
+        if facts.get("gate"):                           # FV2-94 (FR-8, FR-9, AR-24): the prices and the person's choice come BEFORE the
+            head += "\n\n" + self.gate_prices(str(facts["gate"]), open_ids, facts, has_words=bool(state.get("words_file")))
+        if chosen:                                      # factory's words, so the refusal's cut in `conductor` can only take their tail
+            head += "\n\n## The person's choice\n" + self.chosen_note(state, open_ids)
+        # What the cut in `conductor` must not touch: everything up to the last of them; none of them -> "" and the cut is as before.
+        self.conductor_head = head.strip() if head != plain else ""
+        return head + "\n\n" + str(state.get("text") or "")
 
     def _verdict_rule(self, verdict: dict, facts: dict, open_ids: list, site, chosen: bool, chosen_move: str) -> tuple:
         """`(options, rule, again)` of one conductor answer: `rule` is why it is unusable ("" when it is usable); `again` - the conductor
