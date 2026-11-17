@@ -294,7 +294,10 @@ def gate_plan_errors(rows, plan_contract_mode="legacy", coverage_contract_versio
     ours = coverage_revision_errors(rows)
     named = tuple(f"{line.split(':', 1)[0]}: unsupported coverage_contract_revision " for line in ours)
     kept = [error for error in errors if not error.startswith(named)] + ours
-    return [refusal("planning_contract:plan", error) for error in kept] + unmarked_revision_errors(rows, plan_contract_mode)
+    # a line that already names its row (`coverage_contract:obligations*` from `validate_obligations`) keeps it: the inner id wins, as in
+    # `_branch_block_lines`; `refusal()` rebuilds from the text and the outer id would relabel it
+    return [error if getattr(error, "check", "") else refusal("planning_contract:plan", error)
+            for error in kept] + unmarked_revision_errors(rows, plan_contract_mode)
 
 
 def plan_warnings(rows):

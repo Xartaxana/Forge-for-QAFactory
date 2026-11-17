@@ -4445,7 +4445,7 @@ class _Window:
         return text.replace("<one of vocabulary.plan_deviation_kinds>", kind) if kind else text
 
     def add(self, case: str, message: str, fix: str, tag: str) -> None:
-        self.findings.append(_plan_finding(case, message, fix, tag))
+        self.findings.append(_sited("plan", case, DV.refusal("s5_precheck:plan", message), fix, tag))
 
     def declared(self, kinds: tuple, key: str, tid: str) -> bool:
         return _declared(self.deviations, kinds, key, tid)

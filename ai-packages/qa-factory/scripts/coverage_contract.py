@@ -320,137 +320,140 @@ def _version_door(row):
 
 def validate_obligations(rows, require_v2=False):
     errors, ids = [], set()
+
+    def bad(text):
+        errors.append(refusal("coverage_contract:obligations", text))
     for row in rows:
         if not isinstance(row, dict):
             continue  # base plan validator reports this
         version = row.get("schema_version", 1)
         if version not in (1, 2) or (require_v2 and version != 2):
-            errors.append(refusal("coverage_contract:obligations", f"{row.get('id')}: coverage schema version 2 required" + _version_door(row)))
+            bad(f"{row.get('id')}: coverage schema version 2 required" + _version_door(row))
         if version == 1:
             continue
         revision = row.get("coverage_contract_revision")
         if revision not in (None, COVERAGE_CONTRACT_REVISION):
-            errors.append(refusal("coverage_contract:obligations", f"{row.get('id')}: unsupported coverage_contract_revision {revision}"))
+            bad(f"{row.get('id')}: unsupported coverage_contract_revision {revision}")
         obligations = row.get("coverage_obligations")
         if not isinstance(obligations, list) or not obligations:
-            errors.append(refusal("coverage_contract:obligations", f"{row.get('id')}: coverage_obligations required"))
+            bad(f"{row.get('id')}: coverage_obligations required")
             continue
         for ob in obligations:
             if not isinstance(ob, dict):
-                errors.append(refusal("coverage_contract:obligations", "obligation must be an object"))
+                bad("obligation must be an object")
                 continue
             oid = ob.get("obligation_id")
             if not oid or oid in ids:
-                errors.append(refusal("coverage_contract:obligations", "obligation IDs must be nonempty and unique"))
+                bad("obligation IDs must be nonempty and unique")
             ids.add(oid)
             # Every message below names the FIELD and the value it expects in one sentence (FR-1; F-cmp2-14):
             # a role without Bash reads these through a hook and has nothing else to go on. `missing {field}`
             # stays the prefix of the first one: a variant check matches it by text.
             for field in ("behavior", "observation_boundary", "completion_condition"):
                 if not ob.get(field):
-                    errors.append(refusal("coverage_contract:obligations", f"{oid}: missing {field}: {field} needs a non-empty sentence"))
+                    bad(f"{oid}: missing {field}: {field} needs a non-empty sentence")
             for field, shape in (("requirement_refs", "{ref, revision} objects"),
                                  ("applicable_scenarios", "scenario ids")):
                 if not isinstance(ob.get(field), list) or not ob[field]:
-                    errors.append(refusal("coverage_contract:obligations", f"{oid}: {field} needs a non-empty list of {shape}"))
+                    bad(f"{oid}: {field} needs a non-empty list of {shape}")
             refs = ob.get("requirement_refs", [])
             if isinstance(refs, list):
                 bad_refs = [i for i, r in enumerate(refs)
                             if not isinstance(r, dict) or not r.get("ref") or not r.get("revision")]
                 if bad_refs:
-                    errors.append(refusal("coverage_contract:obligations", f"{oid}: " + ", ".join(f"requirement_refs[{i}]" for i in bad_refs)
-                                  + " needs {ref, revision}, both non-empty"))
+                    bad(f"{oid}: " + ", ".join(f"requirement_refs[{i}]" for i in bad_refs)
+                        + " needs {ref, revision}, both non-empty")
             if ob.get("oracle_status") not in {"resolved", "unresolved"}:
-                errors.append(refusal("coverage_contract:obligations", f"{oid}: oracle_status: not filled. One of: resolved | unresolved"))
+                bad(f"{oid}: oracle_status: not filled. One of: resolved | unresolved")
             if ob.get("oracle_status") == "resolved" and not ob.get("oracle_source_ref"):
-                errors.append(refusal("coverage_contract:obligations", f"{oid}: oracle_source_ref needs the independent source (a requirement or "
-                              "spec reference, not the code under test) when oracle_status is resolved"))
+                bad(f"{oid}: oracle_source_ref needs the independent source (a requirement or "
+                    "spec reference, not the code under test) when oracle_status is resolved")
             if ob.get("decision") not in {"reuse", "extend", "new", "manual-agent", "manual-human", "unresolved"}:
-                errors.append(refusal("coverage_contract:obligations", f"{oid}: decision: not filled. One of: reuse | extend | new | manual-agent | "
-                              "manual-human | unresolved"))
+                bad(f"{oid}: decision: not filled. One of: reuse | extend | new | manual-agent | "
+                    "manual-human | unresolved")
             if ob.get("execution_scope") not in {"current_task", "recommended_regression"}:
-                errors.append(refusal("coverage_contract:obligations", f"{oid}: execution_scope: not filled. One of: current_task | recommended_regression"))
+                bad(f"{oid}: execution_scope: not filled. One of: current_task | recommended_regression")
             if ob.get("oracle_status") == "unresolved" and ob.get("decision") != "unresolved":
-                errors.append(refusal("coverage_contract:obligations", f"{oid}: decision needs unresolved while oracle_status is unresolved "
-                              "(an unresolved oracle cannot authorize execution)"))
+                bad(f"{oid}: decision needs unresolved while oracle_status is unresolved "
+                    "(an unresolved oracle cannot authorize execution)")
             review = ob.get("sufficiency_review") or {}
             if not all(review.get(k) for k in ("author_dispatch_id", "input_hash", "rationale")):
-                errors.append(refusal("coverage_contract:obligations", f"{oid}: sufficiency_review required: {{author_dispatch_id, input_hash, rationale}}, all non-empty"))
+                bad(f"{oid}: sufficiency_review required: {{author_dispatch_id, input_hash, rationale}}, all non-empty")
             links = ob.get("coverage_links")
             if not isinstance(links, list):
-                errors.append(refusal("coverage_contract:obligations", f"{oid}: coverage_links needs a list of links ([] when no existing test is linked)"))
+                bad(f"{oid}: coverage_links needs a list of links ([] when no existing test is linked)")
                 links = []
             if ob.get("decision") == "reuse" and not links:
-                errors.append(refusal("coverage_contract:obligations", f"{oid}: coverage_links needs at least one link when decision is reuse"))
+                bad(f"{oid}: coverage_links needs at least one link when decision is reuse")
             if ob.get("decision") in {"extend", "new", "manual-agent", "manual-human"} and not ob.get("planned_check_refs"):
-                errors.append(refusal("coverage_contract:obligations", f"{oid}: planned_check_refs needs at least one check id when decision is "
-                              "extend | new | manual-agent | manual-human"))
+                bad(f"{oid}: planned_check_refs needs at least one check id when decision is "
+                    "extend | new | manual-agent | manual-human")
             for i, link in enumerate(links):
                 at = f"coverage_links[{i}]"
                 if not isinstance(link, dict):
-                    errors.append(refusal("coverage_contract:obligations", f"{oid}: {at} needs an object {{candidate_id or test_ref, assessment, "
-                                  "assessment_reason, does_not_prove}"))
+                    bad(f"{oid}: {at} needs an object {{candidate_id or test_ref, assessment, "
+                        "assessment_reason, does_not_prove}")
                     continue
                 if not (link.get("candidate_id") or link.get("test_ref")):
-                    errors.append(refusal("coverage_contract:obligations", f"{oid}: {at} needs candidate_id (CAND-n) or test_ref (a test node id)"))
+                    bad(f"{oid}: {at} needs candidate_id (CAND-n) or test_ref (a test node id)")
                 if link.get("assessment") not in {"sufficient", "partial", "none", "unknown"} or not link.get("assessment_reason"):
-                    errors.append(refusal("coverage_contract:obligations", f"{oid}: {at} needs assessment: one of sufficient | partial | none | unknown, "
-                                  "and assessment_reason"))
+                    bad(f"{oid}: {at} needs assessment: one of sufficient | partial | none | unknown, "
+                        "and assessment_reason")
                 if not isinstance(link.get("does_not_prove"), list):
-                    errors.append(refusal("coverage_contract:obligations", f"{oid}: {at} needs does_not_prove: a list ([] when nothing is left unproven)"))
+                    bad(f"{oid}: {at} needs does_not_prove: a list ([] when nothing is left unproven)")
                 if link.get("assessment") == "sufficient" and (not link.get("assertion_refs") or not link.get("proves")):
-                    errors.append(refusal("coverage_contract:obligations", f"{oid}: {at} with assessment sufficient needs assertion_refs and proves, "
-                                  "both non-empty lists"))
+                    bad(f"{oid}: {at} with assessment sufficient needs assertion_refs and proves, "
+                        "both non-empty lists")
                 if any(_implementation_ref(ref) for ref in link.get("assertion_refs") or []):
-                    errors.append(refusal("coverage_contract:obligations", f"{oid}: {at}.assertion_refs needs test assertion ids, not production code references"))
+                    bad(f"{oid}: {at}.assertion_refs needs test assertion ids, not production code references")
                 # Candidate metadata is owned by the context bundle. When supplied here as a
                 # projection, it can rule out an inflated coverage claim without rejecting
                 # older v2 plans that have not yet been enriched.
                 kind = link.get("candidate_kind")
                 if kind not in {None, "test", "suite", "helper"}:
-                    errors.append(refusal("coverage_contract:obligations", f"{oid}: {at}.candidate_kind: one of test | suite | helper (or leave it out)"))
+                    bad(f"{oid}: {at}.candidate_kind: one of test | suite | helper (or leave it out)")
                 if kind == "helper" and link.get("assessment") == "sufficient":
-                    errors.append(refusal("coverage_contract:obligations", f"{oid}: helper cannot be sufficient executable coverage"))
+                    bad(f"{oid}: helper cannot be sufficient executable coverage")
                 if kind == "test" and not link.get("executable_selector"):
-                    errors.append(refusal("coverage_contract:obligations", f"{oid}: test candidate needs executable selector"))
+                    bad(f"{oid}: test candidate needs executable selector")
                 if kind == "suite" and link.get("assessment") == "sufficient" and not link.get("expanded_selectors"):
-                    errors.append(refusal("coverage_contract:obligations", f"{oid}: suite needs expanded selectors for sufficient coverage"))
+                    bad(f"{oid}: suite needs expanded selectors for sufficient coverage")
             parts = ob.get("parts")
             if parts is not None:
                 if not isinstance(parts, list) or not parts:
-                    errors.append(refusal("coverage_contract:obligations", f"{oid}: parts must be a nonempty list when supplied"))
+                    bad(f"{oid}: parts must be a nonempty list when supplied")
                 elif any(not isinstance(part, dict) or not part.get("part_id") or
                          part.get("status") not in {"sufficient", "partial", "unresolved"}
                          for part in parts):
-                    errors.append(refusal("coverage_contract:obligations", f"{oid}: every part needs ID and explicit status"))
+                    bad(f"{oid}: every part needs ID and explicit status")
                 elif any(part.get("status") == "sufficient" and
                          (not isinstance(part.get("covered_by"), list) or not part["covered_by"])
                          for part in parts):
-                    errors.append(refusal("coverage_contract:obligations", f"{oid}: sufficient part needs explicit covered_by evidence"))
+                    bad(f"{oid}: sufficient part needs explicit covered_by evidence")
             comparison = ob.get("comparison")
             if comparison is not None and (not isinstance(comparison, dict) or
                                            not comparison.get("left") or not comparison.get("right") or
                                            not comparison.get("caller_ref")):
-                errors.append(refusal("coverage_contract:obligations", f"{oid}: comparison needs both inputs and caller reference"))
+                bad(f"{oid}: comparison needs both inputs and caller reference")
             parity = ob.get("parity")
             if parity is not None and (not isinstance(parity, dict) or not parity.get("partitions")):
-                errors.append(refusal("coverage_contract:obligations", f"{oid}: parity needs independent input partitions"))
+                bad(f"{oid}: parity needs independent input partitions")
             if ob.get("decision") == "unresolved" and not ob.get("remaining_gap"):
-                errors.append(refusal("coverage_contract:obligations", f"{oid}: unresolved gap must be named"))
+                bad(f"{oid}: unresolved gap must be named")
             if ob.get("decision") == "manual-agent":
                 # F5(a) (B-15): the policy is ONE word of POLICIES (the one set, manual_evidence's); a dict, a list, a
                 # blank or an unknown word is refused here, at the S3 exit, with the allowed words (FR-38, FR-1)
                 from manual_evidence import POLICIES
                 policy = ob.get("evidence_policy")
                 if not isinstance(policy, str) or policy.strip() not in POLICIES:
-                    errors.append(refusal("coverage_contract:obligations", f"{oid}: {POLICY_SHAPE_ERROR} {'|'.join(sorted(POLICIES))}; evidence kinds, phases "
-                                  "and the completion condition go in completion_condition and the observation fields"))
+                    bad(f"{oid}: {POLICY_SHAPE_ERROR} {'|'.join(sorted(POLICIES))}; evidence kinds, phases "
+                        "and the completion condition go in completion_condition and the observation fields")
             elif ob.get("decision") == "manual-human":
                 policy = ob.get("evidence_policy")
                 if not isinstance(policy, str):
-                    errors.append(refusal("coverage_contract:obligations", f"{oid}: {POLICY_TYPE_ERROR}, not a list or a record"))
+                    bad(f"{oid}: {POLICY_TYPE_ERROR}, not a list or a record")
                 elif not policy.strip():
-                    errors.append(refusal("coverage_contract:obligations", f"{oid}: manual evidence_policy required before Gate A"))
+                    bad(f"{oid}: manual evidence_policy required before Gate A")
             from observation_contract import validate_observation_contract
             errors.extend(refusal("coverage_contract:obligations.observation", line)
                           for line in validate_observation_contract(

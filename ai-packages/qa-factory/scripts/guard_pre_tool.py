@@ -892,16 +892,14 @@ def big_read_check(ti: dict, cfg: dict, event: dict | None = None) -> None:
             f"{normalized}` gives you the line. For a diff, `scripts/diff_pass.py --diff <path>` prints the "
             "changed files and their changed lines in one call. If you genuinely need the whole file, read it in "
             "ranges and say in your findings why.")
+    text = (f"PRE-TOOL GUARD: reading {normalized} whole is blocked — it is {size:,} bytes "
+            f"(the limit is {applied_cap:,}), and everything you read is billed again on every "
+            f"remaining turn of this dispatch. " + door)
     if is_pdf or _is_picture(path_raw):
         # picture / PDF branch: its own door says not to grep, the row's door says to; bare until the row is split (needs its own row id)
-        block(f"PRE-TOOL GUARD: reading {normalized} whole is blocked — it is {size:,} bytes "
-              f"(the limit is {applied_cap:,}), and everything you read is billed again on every "
-              f"remaining turn of this dispatch. " + door)
+        block(text)
     from detector_verdict import refusal
-    block(refusal("guard_pre_tool:PT-big-read",
-                  f"PRE-TOOL GUARD: reading {normalized} whole is blocked — it is {size:,} bytes "
-                  f"(the limit is {applied_cap:,}), and everything you read is billed again on every "
-                  f"remaining turn of this dispatch. " + door))
+    block(refusal("guard_pre_tool:PT-big-read", text))
 
 
 def _is_case_file(raw: str, cfg: dict | None = None) -> bool:

@@ -840,10 +840,11 @@ def t5r_findings(project: Path) -> dict:
     P.check_environment(task, {"unresolved": [{"case": "TC-1", "reason": "blocked_by_env"}]}, ["TC-1"], {}, {}, out, [])
     cases["s5_precheck:environment"] = out
     (task / "work").mkdir(exist_ok=True)
-    (task / "work" / "test-plan.json").write_text(json.dumps({"rows": [{"id": "TS-1", "schema_version": 2, "coverage_obligations": [
-        {"obligation_id": "TS-1-O1", "decision": "automate", "execution_scope": "current_task"}]}]}), encoding="utf-8")
+    plan_row = "TS-1"       # one id for the plan and for the case's line: the line is built from it, not typed as a reader input
+    (task / "work" / "test-plan.json").write_text(json.dumps({"rows": [{"id": plan_row, "schema_version": 2, "coverage_obligations": [
+        {"obligation_id": plan_row + "-O1", "decision": "automate", "execution_scope": "current_task"}]}]}), encoding="utf-8")
     out = []
-    P.check_obligations(task, {"tests": [row()]}, ["TC-1"], {"TC-1": "Plan row: TS-1\n"}, set(), out)
+    P.check_obligations(task, {"tests": [row()]}, ["TC-1"], {"TC-1": f"Plan row: {plan_row}\n"}, set(), out)
     cases["s5_precheck:obligations"] = out
     cases["s5_precheck:plan"] = t5r_plan_missing(project)
     task = story(project, {"tests": [row()]})
@@ -890,6 +891,14 @@ def tbw_t5r_sites() -> None:
             check_eq(f"T5r {rid}: told names the row, with its sentence", (hit["told"][0]["check"], bool(hit["told"][0].get("expected"))), (rid, True))
             check_eq(f"T5r {rid}: _names - the whole id and the tag pass it, the row id and a part of the text do not",
                      (P._names(hit, fid), P._names(hit, P._finding_tag(hit)), P._names(hit, rid), P._names(hit, "fix")), (True, True, False, False))
+        # F2: every `_Window.add` finding (here a C1 deviation) states the plan row's requirement, so it carries the row too
+        manifest = {"tests": [row(case="TC-9")]}
+        win_out: list = []
+        win = P._Window(story(project, manifest), manifest, {"asked": ["TC-1"]}, {}, win_out, [])
+        win.c1({"id": "T-1"}, "T-1", "tests/test_ui.py::test_a", ["TC-1"], "test T-1", win.all_instances)
+        check_eq("T5r s5_precheck:plan: a C1 deviation of a window carries the plan row, `told` last",
+                 [(f["id"], f["told"][0]["check"], list(f)[-1]) for f in win_out],
+                 [("plan:TC-1:c1-T-1-TC-1", "s5_precheck:plan", "told")])
         task = story(project, {"tests": [row()]})
         base = P._sited("oracle", "TC-1", DV.refusal("s5_precheck:oracle", "x"), "f", "changed-after-red-test_a")
         base["pair_at"] = "2026-11-02T00:00:00+00:00"

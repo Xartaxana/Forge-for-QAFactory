@@ -1606,7 +1606,24 @@ def tbw_t6_sites() -> None:
 def t4a_provoke(G, HA, tmp: Path) -> dict:
     """told-before-work T4a: every refusal of the `guard_pre_tool` / `host_adapter.role_policy` sites provoked in-process through the
     REAL `hooklib.block`. `{row: (id, stderr)}`; the temporary root and the plugin root are written `<ROOT>` / `<PLUGIN>`. `G` and
-    `HA` are the modules under test (the pin below was captured by running the same provocations over the pre-change files)."""
+    `HA` are the modules under test (the pin below was captured by running the same provocations over the pre-change files).
+    The project root, `CLAUDE_PROJECT_DIR` and `hooklib._PROJECT_ROOT_CACHE` are put back, and the root removed, whatever happens."""
+    import hooklib
+    saved_env, saved_cache = os.environ.get("CLAUDE_PROJECT_DIR"), hooklib._PROJECT_ROOT_CACHE
+    root = temp_project("t4a-")
+    try:
+        return t4a_provoke_in(G, HA, root)
+    finally:
+        if saved_env is None:
+            os.environ.pop("CLAUDE_PROJECT_DIR", None)
+        else:
+            os.environ["CLAUDE_PROJECT_DIR"] = saved_env
+        hooklib._PROJECT_ROOT_CACHE = saved_cache
+        cleanup(root)
+
+
+def t4a_provoke_in(G, HA, root: Path) -> dict:
+    """The body of `t4a_provoke`, inside the project `root` it made."""
     import contextlib
     import hooklib
     import io
@@ -1616,7 +1633,6 @@ def t4a_provoke(G, HA, tmp: Path) -> dict:
     import dispatch_identity as DI
     import planning_contract as PC
     import handoff_check
-    root = temp_project("t4a-")
     use_project(root)
     cfg = json.loads((root / "qa-factory" / "config.json").read_text(encoding="utf-8"))
     task = root / "qa-factory" / "artifacts" / "T-1"
@@ -1719,7 +1735,6 @@ def t4a_provoke(G, HA, tmp: Path) -> dict:
     tool = {"tool_name": "mcp__x__create_thing", "_qa_host": {"name": "mcp__x__create_thing"}}
     put("connector no shell", h + "connector-unclassified", HA.role_policy, dict(codex, agent_type="qa-test-strategist", **tool), hcfg)
     put("connector orchestrator", h + "connector-orchestrator", HA.role_policy, dict(codex, **tool), hcfg)
-    cleanup(root)
     return out
 
 
@@ -1851,6 +1866,9 @@ def tbw_t7b_sites() -> None:
         'plan revision': [
             "TS-1: coverage_contract_revision is 'v0'; this factory plans against 'coverage-observation-v1' and writes the mark itself - remove the field from the row (a row planned against another revision is re-planned, not relabelled)",
         ],
+        'plan obligation': [
+            'TS-1: coverage_obligations required',
+        ],
         'contradictions none': [
             'R-1: the register\'s matrix records contradicts:"the parent feature says 401" (feature 3), and no plan row covers R-1 — a contradiction cannot be closed by leaving it out of the plan',
         ],
@@ -1927,6 +1945,9 @@ def tbw_t7b_sites() -> None:
         rows = (
             ("plan depth", "planning_contract:plan", lambda: PC.gate_plan_errors([dict(row, verification_depth="deep")], "legacy", 1), 0),
             ("plan revision", "planning_contract:plan", lambda: PC.gate_plan_errors([dict(row, coverage_contract_revision="v0")], "legacy", 1), 0),
+            # F3: an obligation line that came out of `validate_plan` as a `coverage_contract:obligations` Record keeps its own row
+            ("plan obligation", "coverage_contract:obligations", lambda: [e for e in PC.gate_plan_errors(
+                [dict(row, schema_version=2, coverage_obligations=[])], "legacy", 2) if "coverage_obligations required" in e], 0),
             ("contradictions none", "planning_contract:contradictions", lambda: PC.contradiction_errors([], register), 0),
             ("contradictions unflagged", "planning_contract:contradictions", lambda: PC.contradiction_errors([dict(row, requirement_refs=["R-1"])], register), 0),
             ("branches", "planning_contract:branches", lambda: PC._branch_block_lines([
