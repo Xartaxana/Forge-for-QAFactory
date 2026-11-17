@@ -1595,8 +1595,8 @@ def tbw_t6_sites() -> None:
         wanted = sorted("handoff_check:" + i for i in (
             "field.blank field.value field.max_len required_rows required_rows.owed_by_verdict required_rows.null_word tried blocked_problem "
             "findings_tooling claims null_outcome.repairs null_outcome.verdict null_outcome.names null_outcome.report null_outcome.failures "
-            "null_outcome.listing values_file values_apply cli binding investigation").split())
-        check_eq("tbw-t6 the scanner reads the 21 ids as literals of handoff_check.py",
+            "null_outcome.listing values_file values_apply cli cli.values_rename binding investigation").split())   # TBW1-17 sited cli.values_rename
+        check_eq("tbw-t6 the scanner reads the 22 ids as literals of handoff_check.py",
                  sorted({r["check"] for r in records if r.get("check")}), wanted)
     finally:
         sys.argv = saved_argv

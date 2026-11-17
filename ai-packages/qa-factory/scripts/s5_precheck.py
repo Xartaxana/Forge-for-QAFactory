@@ -2155,7 +2155,7 @@ def _sides_provisional(ctx) -> None:
     """C3 / C4: the provisional rows of the window and the markers in its test files."""
     add, sides, names, cfg = ctx.add, ctx.sides, ctx.names, ctx.cfg
     for sentence in ctx.prov["skipped"]:
-        add("", f"provisional registry: {sentence}", "repair the row or field through `manifest_put.py --fragment`",
+        add("", DV.refusal("s5_precheck:sides.provisional", f"provisional registry: {sentence}"), "repair the row or field through `manifest_put.py --fragment`",
             "provisional-unreadable-" + hashlib.sha256(sentence.encode("utf-8")).hexdigest()[:8])
     kinds = C.provisional_kinds()
     kinds = None if kinds is None else set(kinds)
@@ -2167,26 +2167,26 @@ def _sides_provisional(ctx) -> None:
             continue
         kind = str(row.get("kind") or "")
         if kinds is None:
-            add("", f"provisional {pid}: the kinds file {PROVISIONAL_KINDS_PATH.name} could not be read, so its kind {kind!r} "
-                "is not verified", "report it as a defect of the installed package; nothing here can settle it",
+            add("", DV.refusal("s5_precheck:sides.provisional", f"provisional {pid}: the kinds file {PROVISIONAL_KINDS_PATH.name} could not be read, so its kind {kind!r} "
+                "is not verified"), "report it as a defect of the installed package; nothing here can settle it",
                 f"provisional-kind-unverified-{pid}")
         elif kind not in kinds:
-            add("", f"provisional {pid}: kind {kind!r} is not one of {', '.join(sorted(kinds))}",
+            add("", DV.refusal("s5_precheck:sides.provisional", f"provisional {pid}: kind {kind!r} is not one of {', '.join(sorted(kinds))}"),
                 "use a kind of references/provisional-kinds.json", f"provisional-kind-{pid}")
         side = str(row.get("settles_on") or "")
         if side not in sides:
-            add("", f"provisional {pid}: `settles_on` {side!r} is not a side of this story (its sides: {names})",
+            add("", DV.refusal("s5_precheck:sides.provisional", f"provisional {pid}: `settles_on` {side!r} is not a side of this story (its sides: {names})"),
                 "name the side whose becoming real settles the row, exactly as the story records it", f"provisional-side-{pid}")
         home = row.get("home") if isinstance(row.get("home"), dict) else {}
         file = str(home.get("file") or "").strip()
         if not file:
-            add("", f"provisional {pid}: the row names no home file", "send `home: {file, line_hint}` - the project's one place for "
+            add("", DV.refusal("s5_precheck:sides.provisional", f"provisional {pid}: the row names no home file"), "send `home: {file, line_hint}` - the project's one place for "
                 "the locator, contract or mock", f"provisional-home-{pid}")
         else:
             # the WRITER's root (`manifest_put.stamp_provisional` hashes against `hooklib.project_root()`): one function for both (F8)
             _digest, why = C.marked_line_hash(hooklib.project_root(), file, pid)
             if why:
-                add("", f"provisional {pid}: {why}", f"put the comment `qa-provisional: {pid}` on the line of the placeholder in "
+                add("", DV.refusal("s5_precheck:sides.provisional", f"provisional {pid}: {why}"), f"put the comment `qa-provisional: {pid}` on the line of the placeholder in "
                     f"{file} (the test language's comment syntax), or correct `home.file`", f"provisional-home-{pid}")
         dependents = row.get("dependents")
         for dep in dependents if isinstance(dependents, list) else []:
@@ -2194,11 +2194,11 @@ def _sides_provisional(ctx) -> None:
                 C.case_matches(bc, str(dep.get("case") or ""), cfg=cfg) and bt == C.then_number(dep.get("then"))
                 for bc, bt in bound)
             if not ok:
-                add("", f"provisional {pid}: dependent {dep!r} is not a (case, Then) of `then_bindings`",
+                add("", DV.refusal("s5_precheck:sides.provisional", f"provisional {pid}: dependent {dep!r} is not a (case, Then) of `then_bindings`"),
                     "list only Thens that are bound in `then_bindings`, as `{case, then}`",
                     f"provisional-dependent-{pid}-{str(dep.get('case') if isinstance(dep, dict) else dep)}")
         if dependents is not None and not isinstance(dependents, list):
-            add("", f"provisional {pid}: `dependents` is {type(dependents).__name__}, not a list", "send `dependents` as "
+            add("", DV.refusal("s5_precheck:sides.provisional", f"provisional {pid}: `dependents` is {type(dependents).__name__}, not a list"), "send `dependents` as "
                 "`[{case, then}]`", f"provisional-dependents-{pid}")
     held = {str(r.get("id")) for r in ctx.prov["rows"]}
     seen_files: set = set()
@@ -2213,8 +2213,8 @@ def _sides_provisional(ctx) -> None:
         except OSError:
             continue
         for pid in sorted({m.group(1) for m in ANY_MARKER_RE.finditer(text)} - held):
-            add(str(entry.get("case") or ""), f"{relative} carries the marker `qa-provisional: {pid}` and the manifest has no "
-                f"provisional[] row {pid}", "send the row through `manifest_put.py --fragment` (kind, what, assumed_from, home, "
+            add(str(entry.get("case") or ""), DV.refusal("s5_precheck:sides.provisional", f"{relative} carries the marker `qa-provisional: {pid}` and the manifest has no "
+                f"provisional[] row {pid}"), "send the row through `manifest_put.py --fragment` (kind, what, assumed_from, home, "
                 "settles_on), or take the marker out of the file", f"provisional-marker-{pid}")
 
 
@@ -2235,15 +2235,15 @@ def _sides_pending(ctx) -> None:
         excused = AC.pending_instances(manifest, [{"instance_id": n} for n in named], None, sides)
         for iid, run in zip(named, got):
             if iid not in excused and run is None:
-                add(case, f"{iid} is listed as `pending_implementation`, but no side it declares is `absent` in the story "
-                    f"(its sides: {names}; the test declares {by_alias[iid].get('sides')!r}): it can run, so it owes its run",
+                add(case, DV.refusal("s5_precheck:sides.pending", f"{iid} is listed as `pending_implementation`, but no side it declares is `absent` in the story "
+                    f"(its sides: {names}; the test declares {by_alias[iid].get('sides')!r}): it can run, so it owes its run"),
                     "run it (`run_suite.py --mine <case>`) and retract the row, or declare the absent side in the test's "
                     "`sides` when one really is", f"pending-not-excused-{iid}")
         if named and all(g is not None for g in got) and all(
                 _stamp_is_real(g, s, ctx.plain) for n, g in zip(named, got)
                 for s in (by_alias[n]["sides"] if isinstance(by_alias[n].get("sides"), dict) else {})):
-            add(case, f"the `pending_implementation` row of {case or '-'} still stands, and every instance it names "
-                f"({', '.join(named)}) has run stamped real on every side its test names",
+            add(case, DV.refusal("s5_precheck:sides.pending", f"the `pending_implementation` row of {case or '-'} still stands, and every instance it names "
+                f"({', '.join(named)}) has run stamped real on every side its test names"),
                 f"retract it so the runs decide: `{_road(ctx.task_root.name)}` with `{{\"retracted_unresolved\": [\"{case}\"]}}` "
                 "(a slice row is kept by design until the automator retracts it)", f"pending-row-leftover-{case}")
 

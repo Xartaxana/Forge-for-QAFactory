@@ -1825,10 +1825,11 @@ def _profile_for(cfg: dict, files: list, wanted: str, entries: list, precedent_j
         # TP2-2553: `profiles` was absent from config.json, so this refusal met the
         # automator inside S5 with no name for what was missing and no way out but typing 106
         # request files by hand. The gap belongs to the onboarding, and the gate asks about it.
-        raise MineRefusal(f"no execution profile in qa-factory/config.json runs {subject}; this "
-                          "is a gap of the onboarding, not of your test — the gate-A rehearsal "
-                          "asks the person (answer a/b/c); to onboard now: "
-                          "`/qa-factory:qa-onboarding`")
+        raise MineRefusal(refusal("execution_request:profile.none",
+                                  f"no execution profile in qa-factory/config.json runs {subject}; this "
+                                  "is a gap of the onboarding, not of your test — the gate-A rehearsal "
+                                  "asks the person (answer a/b/c); to onboard now: "
+                                  "`/qa-factory:qa-onboarding`"))
     names = ", ".join(str(p["profile_id"]) for p in selected)
     raise MineRefusal(f"the factory cannot tell which execution profile runs {', '.join(files) or 'these cases'} "
                       f"(profiles: {names}); name it: " + ("--profile ID" if profile_door
@@ -3391,6 +3392,9 @@ def build_mine_request(project_root: Path, cases: list, *, cfg: dict | None = No
                                ordinary or [j for j in jobs if j["request"].get("purpose") != "red_probe"],
                                cases, profile_door=profile_door, notes=notes)
     except MineRefusal as exc:          # a helper with several callers (B3): its text stays bare there, this caller names its row
+        # ... except the refusal the helper sited itself (`profile.none`, TBW1-17): its own row is the one told, not the parent's
+        if getattr(exc.args[0] if exc.args else None, "check", ""):
+            raise
         raise MineRefusal(refusal("execution_request:profile", str(exc))) from exc
     # `precedent` is the story's newest ORDINARY typed run on the profile, whatever it did: the
     # fingerprint file list and the source revision are read from it. Only the COMMAND is chosen
@@ -3775,7 +3779,7 @@ def build_mine_request(project_root: Path, cases: list, *, cfg: dict | None = No
             "dependency_files": dependencies, "runtime_provenance": seen_by_fingerprint,
             "profile_id": profile, "project_config": str(config_file)})
     except ValueError as exc:
-        raise MineRefusal(f"the inputs of this run could not be fingerprinted: {exc}") from exc
+        raise MineRefusal(refusal("execution_request:fingerprint.build", f"the inputs of this run could not be fingerprinted: {exc}")) from exc
 
     # -- what each instance depends on, on its own -----------------------------------------
     # The conftest chain first, nearest to the test first: that is the order pytest resolves a

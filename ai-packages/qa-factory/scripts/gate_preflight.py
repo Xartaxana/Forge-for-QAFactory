@@ -84,6 +84,7 @@ from critic_rollcall import project_root_of as _project_root  # noqa: E402
 import hooklib  # noqa: E402  (`read_json`, the one JSON reader)
 from stand_gaps import GATE_STAGE, ROLE_NAMED, ROLE_SCOPES  # noqa: E402 (gate -> the stage it stands in front of: the ONE table)
 from hooklib import sorted_paths  # noqa: E402
+from detector_verdict import refusal  # noqa: E402  (the one constructor of a refusal that tells its row; the id is a literal at each site, TBW1-17)
 from gate_template import acceptable  # noqa: E402  (the ONE predicate a gate word is accepted through: the reuse of a proof reads the registry row)
 
 FACTORY_FIXABLE = "factory_fixable"
@@ -2150,7 +2151,7 @@ class Rehearsal:
             self.unavailable(check, f"planning_contract.variant_errors ({type(exc).__name__}: {exc})")
             return
         for item in found:
-            message = "question branches - " + item["message"]
+            message = refusal("gate_preflight:question_branches", "question branches - " + item["message"])
             try:
                 from waiver import split_overridden
                 # ONE word passes the finding wherever it was recorded (t-721 3.6): at S4 (the block quoting the

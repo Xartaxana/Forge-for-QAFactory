@@ -8,7 +8,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from detector_verdict import compound
+from detector_verdict import compound, refusal
 import event_store
 from event_store import content_hash, hold_file_lock
 import runtime_paths as RP
@@ -73,12 +73,15 @@ FACTS_KEYS = FACTS_REQUIRED + FACTS_OPTIONAL
 
 def facts_problems(facts) -> list[str]:
     """Every problem of a facts file, in key order; `[]` when it is acceptable. A non-object is told alone (nothing
-    in it can be read); an absent `drivers` is legal, an absent `forecast` or `actual` is not."""
+    in it can be read); an absent `drivers` is legal, an absent `forecast` or `actual` is not. Each problem is the
+    refusal of the row `estimate_record:facts_problems` (TBW1-17: the id is a literal here so the row has a site; the text
+    is unchanged)."""
     if not isinstance(facts, dict):
-        return ["estimate facts must be an object"]
-    problems = [f"estimate facts {key} must be an object" for key in FACTS_REQUIRED if not isinstance(facts.get(key), dict)]
+        return [refusal("estimate_record:facts_problems", "estimate facts must be an object")]
+    problems = [refusal("estimate_record:facts_problems", f"estimate facts {key} must be an object")
+                for key in FACTS_REQUIRED if not isinstance(facts.get(key), dict)]
     if not isinstance(facts.get("drivers", []), list):
-        problems.append("estimate facts drivers must be an array")
+        problems.append(refusal("estimate_record:facts_problems", "estimate facts drivers must be an array"))
     return problems
 
 

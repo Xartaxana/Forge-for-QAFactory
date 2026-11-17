@@ -931,12 +931,13 @@ def told_variants() -> None:
     # lowered 46 -> 17 by T7a-B (10 rows) and T7a-C (19 rows), integrator t-1030.
     # lowered 17 -> 11 by T9a (sited refusals), t-1185.
     # raised 11 -> 17 by TBW-T1rc-int (t-1236): T1r-cards-a rows wait for TBW-T1rc-site (6 ids: 4 function rows + sides.provisional + sides.pending).
-    UNSITED_CAP = 17
+    # lowered 17 -> 11 by TBW1-17 (TBW-T1rc-site): the 6 ids are sited (the 4 function rows and sides.provisional / sides.pending).
+    UNSITED_CAP = 11
     check_eq("K12/unsited-cap: the real tree measures the named cap (a cap above the measurement is allowed (<=), one below is red)",
              (audit().counts["unsited"], REAL["told_ratchet"]["unsited"], UNSITED_CAP,
               audit(data=mutated(lambda d: d["told_ratchet"].update(unsited=UNSITED_CAP + 3))).problems,
               len(audit(data=mutated(lambda d: d["told_ratchet"].update(unsited=UNSITED_CAP - 1))).problems) > 0),
-             (17, 17, 17, [], True))
+             (11, 11, 11, [], True))
 
     def extra_leg(d):
         """One more legacy told leg: a role entry told by a path other than its key page."""

@@ -981,10 +981,11 @@ def test_t1rs() -> None:
     # the ids with no site proved by a row that ran green: the `stand` site of `run_suite.main` (needs a live probe) and the
     # launch-path `store.begin` printer of `run_suite:begin` (FV2-86). `selector_args` and `window_first` left this set when
     # `test_execution_request.py` (`t1rs_sites_after_the_probe`) was file-level green in canon run 44068480897 (K1b)
-    unproved_site = {er + "stand", rs + "begin"}
-    # TBW-T1rc-int (t-1236): ids of rows T1r-cards-a landed whose sites do not exist yet. SHRINK-ONLY: node TBW1-17 (told-before-work/1,
-    # TBW-T1rc-site) sites them and empties this set; they count as unproved (never call-told) until then. A third id is NOT excepted.
-    NOT_YET_SITED = {er + "fingerprint.build", er + "profile.none"}
+    # `fingerprint.build` and `profile.none` (T1r-cards-a rows) have a site since TBW1-17 but no provoking row that ran green: not proved
+    unproved_site = {er + "stand", rs + "begin", er + "fingerprint.build", er + "profile.none"}
+    # TBW-T1rc-int (t-1236) excepted two ids of rows T1r-cards-a landed whose sites did not exist yet; TBW1-17 (TBW-T1rc-site) sited
+    # both (`execution_request.py` `_profile_for`, `build_mine_request`) and emptied this set. SHRINK-ONLY: a new id is NOT excepted.
+    NOT_YET_SITED: set = set()
     unproved_site |= NOT_YET_SITED
     request = {er + k for k in ("purpose", "selection", "budget", "freshness", "runtime", "stand.reference", "fingerprint", "command",
                                 "execution", "selector", "instance_contracts")}                 # the ids `validate_request` raises
@@ -1052,9 +1053,9 @@ def test_t1rs() -> None:
     for fam in ("execution_request", "run_suite"):
         check_eq(f"T1rs/sited/{fam}: every row id is the literal key of a site (not only a sub-id of one)",
                  sorted(r["check"] for r in rows if r["check"].startswith(fam + ":") and r["check"] not in sited | NOT_YET_SITED), [])
-    check_eq("T1rs/sited/not-yet-sited: the exception set is exactly the two named ids, and a third unsited id is still refused",
-             (sorted(NOT_YET_SITED), sorted(c for c in {er + "fingerprint.build", er + "zz_third"} if c not in sited | NOT_YET_SITED)),
-             ([er + "fingerprint.build", er + "profile.none"], [er + "zz_third"]))
+    check_eq("T1rs/sited/not-yet-sited: the exception set is empty, the two sited ids stay sited, and a third unsited id is still refused",
+             (sorted(NOT_YET_SITED), sorted(c for c in {er + "fingerprint.build", er + "profile.none", er + "zz_third"} if c not in sited | NOT_YET_SITED)),
+             ([], [er + "zz_third"]))
     # one reading of the marker: per (row, role), `call_told` equals the proof; the other eight roles hold none of these rows
     wrong = []
     for row in rows:

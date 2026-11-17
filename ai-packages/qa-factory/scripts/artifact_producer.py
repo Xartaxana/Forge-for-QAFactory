@@ -7,7 +7,7 @@ from pathlib import Path
 import hooklib
 import stand_identity as SI
 from event_store import atomic_json, content_hash
-from detector_verdict import one_of
+from detector_verdict import one_of, refusal
 from role_cli import RefusingParser, command_from_argv, epilog, refuse, run_guarded
 
 NAMES = {'readiness': 'requirements-readiness.json', 'triage': 'triage.json'}
@@ -103,8 +103,8 @@ def validate(kind, data, task_root=None, not_checked=None):
                 for i, row in enumerate(data.get('triage') or []):
                     absent = [key for key in TRIAGE_ROW_IDS if not row.get(key)]
                     if absent:
-                        errors.append(f'triage[{i}]: ' + ' and '.join(TRIAGE_ROW_IDS) + ' required (missing: '
-                                      + ', '.join(absent) + ')')
+                        errors.append(refusal('artifact_producer:validate', f'triage[{i}]: ' + ' and '.join(TRIAGE_ROW_IDS)
+                                              + ' required (missing: ' + ', '.join(absent) + ')'))
         except (TypeError, AttributeError, ValueError) as exc:
             errors.append('invalid artifact structure: ' + str(exc))
     elif kind in {'bug', 'case'}:

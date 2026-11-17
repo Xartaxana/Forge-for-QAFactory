@@ -3280,11 +3280,19 @@ def main() -> int:
             os.replace(consumed, path.with_name(applied_name))
         except OSError as exc:
             consumed, pending = None, sibling_values(path).name
+            # the door is a deletion: a role with no shell cannot make it (FR-2, E-10), so it is told to say so and the orchestrator
+            # removes the file; an unreadable role or host is no shell (the safe default, FR-59)
+            try:
+                import host_adapter
+                shell = bool(host_adapter.role_has_bash(role, HERE.parent))
+            except Exception:  # noqa: BLE001 - nothing is known: the door that needs no tool
+                shell = False
             problems.append(Problem(sibling_values(path).name,
-                                    refusal("handoff_check:cli",
+                                    refusal("handoff_check:cli.values_rename",
                                             f"was applied to the form but could not be renamed to {applied_name} ({exc}); "
                                             "it would be applied again over the form"),
-                                    f"delete {sibling_values(path).name}"))
+                                    f"delete {sibling_values(path).name}" if shell else
+                                    f"say in your digest that {sibling_values(path).name} could not be renamed; the orchestrator removes it"))
 
     out = _Outcome(contract=contract, doc=doc, role=role, kept=kept, problems=problems, source_problems=source_problems,
                    fixed=fixed, shortened=shortened, judged=judged, untouched=untouched, no_verdict=art.no_verdict,
