@@ -5,14 +5,13 @@
   {
    "id": "s6.stand_login/retry",
    "start": "S6",
-   "seed": null,
+   "seed": "to-s6.stand_login",
    "answer": {
     "token": "retry",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when the stand's login fails at S6; the dry world holds no stand to log in to (known_red main/S6 text), so the ask cannot be set up",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -23,14 +22,13 @@
   {
    "id": "s6.stand_login/by hand",
    "start": "S6",
-   "seed": null,
+   "seed": "to-s6.stand_login",
    "answer": {
     "token": "by hand",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when the stand's login fails at S6; the dry world holds no stand to log in to (known_red main/S6 text), so the ask cannot be set up",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -41,14 +39,13 @@
   {
    "id": "s6.stand_login/go on",
    "start": "S6",
-   "seed": null,
+   "seed": "to-s6.stand_login",
    "answer": {
     "token": "go on",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when the stand's login fails at S6; the dry world holds no stand to log in to (known_red main/S6 text), so the ask cannot be set up",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -59,14 +56,13 @@
   {
    "id": "s6.stand_login/free words",
    "start": "S6",
-   "seed": null,
+   "seed": "to-s6.stand_login",
    "answer": {
     "token": null,
     "words": "Both options were read; go on as the report says.",
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when the stand's login fails at S6; the dry world holds no stand to log in to (known_red main/S6 text), so the ask cannot be set up",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -77,14 +73,13 @@
   {
    "id": "s6.stand_login/empty",
    "start": "S6",
-   "seed": null,
+   "seed": "to-s6.stand_login",
    "answer": {
     "token": null,
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when the stand's login fails at S6; the dry world holds no stand to log in to (known_red main/S6 text), so the ask cannot be set up",
+   "reach": "story",
    "expect": {
     "checks": [
      "empty"
@@ -92,52 +87,15 @@
    }
   },
   {
-   "id": "s6.stand_confirm/stand name",
-   "start": "S5",
-   "seed": null,
-   "answer": {
-    "token": "stand name",
-    "words": null,
-    "words_file": null
-   },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked at the S5/S6 boundary to confirm which stand the tests run against; the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it, and its offer depends on the stand config (conditionally offered answers: FV3-17 class, F-P4)",
-   "expect": {
-    "checks": [
-     "C2",
-     "C3"
-    ]
-   }
-  },
-  {
-   "id": "s6.stand_confirm/retry",
-   "start": "S5",
-   "seed": null,
-   "answer": {
-    "token": "retry",
-    "words": null,
-    "words_file": null
-   },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked at the S5/S6 boundary to confirm which stand the tests run against; the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it, and its offer depends on the stand config (conditionally offered answers: FV3-17 class, F-P4)",
-   "expect": {
-    "checks": [
-     "C2",
-     "C3"
-    ]
-   }
-  },
-  {
    "id": "s6.stand_confirm/go on",
    "start": "S5",
-   "seed": null,
+   "seed": "to-s6.stand_confirm",
    "answer": {
     "token": "go on",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked at the S5/S6 boundary to confirm which stand the tests run against; the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it, and its offer depends on the stand config (conditionally offered answers: FV3-17 class, F-P4)",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -148,14 +106,13 @@
   {
    "id": "s6.stand_confirm/free words",
    "start": "S5",
-   "seed": null,
+   "seed": "to-s6.stand_confirm",
    "answer": {
     "token": null,
     "words": "Both options were read; go on as the report says.",
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked at the S5/S6 boundary to confirm which stand the tests run against; the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it, and its offer depends on the stand config (conditionally offered answers: FV3-17 class, F-P4)",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -166,14 +123,13 @@
   {
    "id": "s6.stand_confirm/empty",
    "start": "S5",
-   "seed": null,
+   "seed": "to-s6.stand_confirm",
    "answer": {
     "token": null,
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked at the S5/S6 boundary to confirm which stand the tests run against; the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it, and its offer depends on the stand config (conditionally offered answers: FV3-17 class, F-P4)",
+   "reach": "story",
    "expect": {
     "checks": [
      "empty"
@@ -181,52 +137,15 @@
    }
   },
   {
-   "id": "s6.stand_confirm.login/find the way in",
-   "start": "S5",
-   "seed": null,
-   "answer": {
-    "token": "find the way in",
-    "words": null,
-    "words_file": null
-   },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: the login-way variant of s6.stand_confirm: asked only when the recorded way in is not the stand's way in; same road as s6.stand_confirm",
-   "expect": {
-    "checks": [
-     "C2",
-     "C3"
-    ]
-   }
-  },
-  {
-   "id": "s6.stand_confirm.login/stand name",
-   "start": "S5",
-   "seed": null,
-   "answer": {
-    "token": "stand name",
-    "words": null,
-    "words_file": null
-   },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: the login-way variant of s6.stand_confirm: asked only when the recorded way in is not the stand's way in; same road as s6.stand_confirm",
-   "expect": {
-    "checks": [
-     "C2",
-     "C3"
-    ]
-   }
-  },
-  {
    "id": "s6.stand_confirm.login/retry",
    "start": "S5",
-   "seed": null,
+   "seed": "to-s6.stand_confirm.login",
    "answer": {
     "token": "retry",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: the login-way variant of s6.stand_confirm: asked only when the recorded way in is not the stand's way in; same road as s6.stand_confirm",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -237,14 +156,13 @@
   {
    "id": "s6.stand_confirm.login/go on",
    "start": "S5",
-   "seed": null,
+   "seed": "to-s6.stand_confirm.login",
    "answer": {
     "token": "go on",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: the login-way variant of s6.stand_confirm: asked only when the recorded way in is not the stand's way in; same road as s6.stand_confirm",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -255,14 +173,13 @@
   {
    "id": "s6.stand_confirm.login/free words",
    "start": "S5",
-   "seed": null,
+   "seed": "to-s6.stand_confirm.login",
    "answer": {
     "token": null,
     "words": "Both options were read; go on as the report says.",
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: the login-way variant of s6.stand_confirm: asked only when the recorded way in is not the stand's way in; same road as s6.stand_confirm",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -273,14 +190,13 @@
   {
    "id": "s6.stand_confirm.login/empty",
    "start": "S5",
-   "seed": null,
+   "seed": "to-s6.stand_confirm.login",
    "answer": {
     "token": null,
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: the login-way variant of s6.stand_confirm: asked only when the recorded way in is not the stand's way in; same road as s6.stand_confirm",
+   "reach": "story",
    "expect": {
     "checks": [
      "empty"
@@ -288,34 +204,15 @@
    }
   },
   {
-   "id": "s6.gate_a_dry/reapprove",
-   "start": "S6",
-   "seed": null,
-   "answer": {
-    "token": "reapprove",
-    "words": null,
-    "words_file": null
-   },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked at S6 when gate A was approved with no stand run; depends on the S6 manual half that FV3-21 reworks on another branch, so its outcome is a report line, not a guess",
-   "expect": {
-    "checks": [
-     "C2",
-     "C3"
-    ]
-   }
-  },
-  {
    "id": "s6.gate_a_dry/go on",
    "start": "S6",
-   "seed": null,
+   "seed": "to-s6.gate_a_dry",
    "answer": {
     "token": "go on",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked at S6 when gate A was approved with no stand run; depends on the S6 manual half that FV3-21 reworks on another branch, so its outcome is a report line, not a guess",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -326,14 +223,13 @@
   {
    "id": "s6.gate_a_dry/stop",
    "start": "S6",
-   "seed": null,
+   "seed": "to-s6.gate_a_dry",
    "answer": {
     "token": "stop",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked at S6 when gate A was approved with no stand run; depends on the S6 manual half that FV3-21 reworks on another branch, so its outcome is a report line, not a guess",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -344,14 +240,13 @@
   {
    "id": "s6.gate_a_dry/free words",
    "start": "S6",
-   "seed": null,
+   "seed": "to-s6.gate_a_dry",
    "answer": {
     "token": null,
     "words": "Both options were read; go on as the report says.",
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked at S6 when gate A was approved with no stand run; depends on the S6 manual half that FV3-21 reworks on another branch, so its outcome is a report line, not a guess",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -362,14 +257,13 @@
   {
    "id": "s6.gate_a_dry/empty",
    "start": "S6",
-   "seed": null,
+   "seed": "to-s6.gate_a_dry",
    "answer": {
     "token": null,
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked at S6 when gate A was approved with no stand run; depends on the S6 manual half that FV3-21 reworks on another branch, so its outcome is a report line, not a guess",
+   "reach": "story",
    "expect": {
     "checks": [
      "empty"
@@ -377,34 +271,15 @@
    }
   },
   {
-   "id": "s7.repair_limit/round",
-   "start": "S7",
-   "seed": null,
-   "answer": {
-    "token": "round",
-    "words": null,
-    "words_file": null
-   },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when the S7 repair rounds are used up; the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it, and no stub control keeps a test failing past the rounds; the offer is conditional (round only when countable)",
-   "expect": {
-    "checks": [
-     "C2",
-     "C3"
-    ]
-   }
-  },
-  {
    "id": "s7.repair_limit/debt",
    "start": "S7",
-   "seed": null,
+   "seed": "to-s7.repair_limit",
    "answer": {
     "token": "debt",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when the S7 repair rounds are used up; the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it, and no stub control keeps a test failing past the rounds; the offer is conditional (round only when countable)",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -415,14 +290,13 @@
   {
    "id": "s7.repair_limit/stop",
    "start": "S7",
-   "seed": null,
+   "seed": "to-s7.repair_limit",
    "answer": {
     "token": "stop",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when the S7 repair rounds are used up; the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it, and no stub control keeps a test failing past the rounds; the offer is conditional (round only when countable)",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -433,14 +307,13 @@
   {
    "id": "s7.repair_limit/free words",
    "start": "S7",
-   "seed": null,
+   "seed": "to-s7.repair_limit",
    "answer": {
     "token": null,
     "words": "Both options were read; go on as the report says.",
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when the S7 repair rounds are used up; the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it, and no stub control keeps a test failing past the rounds; the offer is conditional (round only when countable)",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -451,14 +324,13 @@
   {
    "id": "s7.repair_limit/empty",
    "start": "S7",
-   "seed": null,
+   "seed": "to-s7.repair_limit",
    "answer": {
     "token": null,
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when the S7 repair rounds are used up; the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it, and no stub control keeps a test failing past the rounds; the offer is conditional (round only when countable)",
+   "reach": "story",
    "expect": {
     "checks": [
      "empty"
@@ -468,14 +340,13 @@
   {
    "id": "s7.open_work/close",
    "start": "S7",
-   "seed": null,
+   "seed": "to-s7.open_work",
    "answer": {
     "token": "close",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when the stage was kept open for work that may be done; the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it (FV3-23: the S7 analyst stub)",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -486,14 +357,13 @@
   {
    "id": "s7.open_work/stop",
    "start": "S7",
-   "seed": null,
+   "seed": "to-s7.open_work",
    "answer": {
     "token": "stop",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when the stage was kept open for work that may be done; the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it (FV3-23: the S7 analyst stub)",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -504,14 +374,13 @@
   {
    "id": "s7.open_work/free words",
    "start": "S7",
-   "seed": null,
+   "seed": "to-s7.open_work",
    "answer": {
     "token": null,
     "words": "Both options were read; go on as the report says.",
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when the stage was kept open for work that may be done; the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it (FV3-23: the S7 analyst stub)",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -522,14 +391,13 @@
   {
    "id": "s7.open_work/empty",
    "start": "S7",
-   "seed": null,
+   "seed": "to-s7.open_work",
    "answer": {
     "token": null,
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when the stage was kept open for work that may be done; the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it (FV3-23: the S7 analyst stub)",
+   "reach": "story",
    "expect": {
     "checks": [
      "empty"
@@ -539,14 +407,13 @@
   {
    "id": "closed.held/run again",
    "start": "S9",
-   "seed": null,
+   "seed": "to-closed.held",
    "answer": {
     "token": "run again",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when a closed story is held and run again; the main pass never closes the story",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -557,14 +424,13 @@
   {
    "id": "closed.held/leave",
    "start": "S9",
-   "seed": null,
+   "seed": "to-closed.held",
    "answer": {
     "token": "leave",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when a closed story is held and run again; the main pass never closes the story",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -575,14 +441,13 @@
   {
    "id": "closed.held/stop",
    "start": "S9",
-   "seed": null,
+   "seed": "to-closed.held",
    "answer": {
     "token": "stop",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when a closed story is held and run again; the main pass never closes the story",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -593,14 +458,13 @@
   {
    "id": "closed.held/free words",
    "start": "S9",
-   "seed": null,
+   "seed": "to-closed.held",
    "answer": {
     "token": null,
     "words": "Both options were read; go on as the report says.",
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when a closed story is held and run again; the main pass never closes the story",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -611,14 +475,13 @@
   {
    "id": "closed.held/empty",
    "start": "S9",
-   "seed": null,
+   "seed": "to-closed.held",
    "answer": {
     "token": null,
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when a closed story is held and run again; the main pass never closes the story",
+   "reach": "story",
    "expect": {
     "checks": [
      "empty"
@@ -628,14 +491,13 @@
   {
    "id": "s8.report_match/no delivery",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.report_match",
    "answer": {
     "token": "no delivery",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when the report keeps lines that do not match the gate B answers; the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -646,14 +508,13 @@
   {
    "id": "s8.report_match/stop",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.report_match",
    "answer": {
     "token": "stop",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when the report keeps lines that do not match the gate B answers; the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -664,14 +525,13 @@
   {
    "id": "s8.report_match/free words",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.report_match",
    "answer": {
     "token": null,
     "words": "Both options were read; go on as the report says.",
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when the report keeps lines that do not match the gate B answers; the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -682,14 +542,13 @@
   {
    "id": "s8.report_match/empty",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.report_match",
    "answer": {
     "token": null,
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when the report keeps lines that do not match the gate B answers; the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "empty"
@@ -699,14 +558,13 @@
   {
    "id": "s8.delivery_check/retry",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.delivery_check",
    "answer": {
     "token": "retry",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when the delivery check could not run; the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -717,14 +575,13 @@
   {
    "id": "s8.delivery_check/no delivery",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.delivery_check",
    "answer": {
     "token": "no delivery",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when the delivery check could not run; the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -735,14 +592,13 @@
   {
    "id": "s8.delivery_check/stop",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.delivery_check",
    "answer": {
     "token": "stop",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when the delivery check could not run; the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -753,14 +609,13 @@
   {
    "id": "s8.delivery_check/free words",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.delivery_check",
    "answer": {
     "token": null,
     "words": "Both options were read; go on as the report says.",
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when the delivery check could not run; the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -771,14 +626,13 @@
   {
    "id": "s8.delivery_check/empty",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.delivery_check",
    "answer": {
     "token": null,
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when the delivery check could not run; the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "empty"
@@ -788,14 +642,13 @@
   {
    "id": "s8.delivery.yes/go on",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.delivery.yes",
    "answer": {
     "token": "go on",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: the delivery ask for a story ready to ship (one of three conditional variants, F-P4 class); the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -806,14 +659,13 @@
   {
    "id": "s8.delivery.yes/retry",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.delivery.yes",
    "answer": {
     "token": "retry",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: the delivery ask for a story ready to ship (one of three conditional variants, F-P4 class); the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -824,14 +676,13 @@
   {
    "id": "s8.delivery.yes/no delivery",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.delivery.yes",
    "answer": {
     "token": "no delivery",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: the delivery ask for a story ready to ship (one of three conditional variants, F-P4 class); the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -842,14 +693,13 @@
   {
    "id": "s8.delivery.yes/stop",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.delivery.yes",
    "answer": {
     "token": "stop",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: the delivery ask for a story ready to ship (one of three conditional variants, F-P4 class); the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -860,14 +710,13 @@
   {
    "id": "s8.delivery.yes/free words",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.delivery.yes",
    "answer": {
     "token": null,
     "words": "Both options were read; go on as the report says.",
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: the delivery ask for a story ready to ship (one of three conditional variants, F-P4 class); the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -878,14 +727,13 @@
   {
    "id": "s8.delivery.yes/empty",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.delivery.yes",
    "answer": {
     "token": null,
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: the delivery ask for a story ready to ship (one of three conditional variants, F-P4 class); the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "empty"
@@ -895,14 +743,13 @@
   {
    "id": "s8.delivery.after_checks/go on",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.delivery.after_checks",
    "answer": {
     "token": "go on",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: the delivery ask for a story ready after the person's checks (conditional variant, F-P4 class); the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -913,14 +760,13 @@
   {
    "id": "s8.delivery.after_checks/retry",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.delivery.after_checks",
    "answer": {
     "token": "retry",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: the delivery ask for a story ready after the person's checks (conditional variant, F-P4 class); the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -931,14 +777,13 @@
   {
    "id": "s8.delivery.after_checks/no delivery",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.delivery.after_checks",
    "answer": {
     "token": "no delivery",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: the delivery ask for a story ready after the person's checks (conditional variant, F-P4 class); the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -949,14 +794,13 @@
   {
    "id": "s8.delivery.after_checks/stop",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.delivery.after_checks",
    "answer": {
     "token": "stop",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: the delivery ask for a story ready after the person's checks (conditional variant, F-P4 class); the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -967,14 +811,13 @@
   {
    "id": "s8.delivery.after_checks/free words",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.delivery.after_checks",
    "answer": {
     "token": null,
     "words": "Both options were read; go on as the report says.",
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: the delivery ask for a story ready after the person's checks (conditional variant, F-P4 class); the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -985,14 +828,13 @@
   {
    "id": "s8.delivery.after_checks/empty",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.delivery.after_checks",
    "answer": {
     "token": null,
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: the delivery ask for a story ready after the person's checks (conditional variant, F-P4 class); the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "empty"
@@ -1002,14 +844,13 @@
   {
    "id": "s8.delivery.no/go on",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.delivery.no",
    "answer": {
     "token": "go on",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: the delivery ask for a story not ready to ship (conditional variant, F-P4 class); the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -1020,14 +861,13 @@
   {
    "id": "s8.delivery.no/retry",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.delivery.no",
    "answer": {
     "token": "retry",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: the delivery ask for a story not ready to ship (conditional variant, F-P4 class); the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -1038,14 +878,13 @@
   {
    "id": "s8.delivery.no/no delivery",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.delivery.no",
    "answer": {
     "token": "no delivery",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: the delivery ask for a story not ready to ship (conditional variant, F-P4 class); the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -1056,14 +895,13 @@
   {
    "id": "s8.delivery.no/stop",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.delivery.no",
    "answer": {
     "token": "stop",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: the delivery ask for a story not ready to ship (conditional variant, F-P4 class); the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -1074,14 +912,13 @@
   {
    "id": "s8.delivery.no/free words",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.delivery.no",
    "answer": {
     "token": null,
     "words": "Both options were read; go on as the report says.",
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: the delivery ask for a story not ready to ship (conditional variant, F-P4 class); the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -1092,14 +929,13 @@
   {
    "id": "s8.delivery.no/empty",
    "start": "S8",
-   "seed": null,
+   "seed": "to-s8.delivery.no",
    "answer": {
     "token": null,
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: the delivery ask for a story not ready to ship (conditional variant, F-P4 class); the main pass stops at S6 today (known_red main/S6 -> FV3-21; then S7, FV3-23) and makes no start snapshot past it",
+   "reach": "story",
    "expect": {
     "checks": [
      "empty"
