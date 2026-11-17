@@ -862,13 +862,34 @@ def check_findings_file(task_dir: Path, dispatch: str, key: str) -> None:
                        "(the critic's review text; the window is not receipted without it)")
 
 
+NEWEST_WORD = re.compile(r"<newest:([^<>]+)>")      # in a string override of a form field: the path (task-relative) of the newest file the glob finds
+
+
+def resolve_newest(over: dict, task_dir: Path, key: str) -> dict:
+    """The overrides with every `<newest:GLOB>` replaced by the task-relative path of the newest file under the task root that GLOB matches (the modified time, then the name): a
+    role cites a record whose name carries a clock (`evidence/runtime-provenance-<profile>-<ts>.json`), a story file cannot hold that name. Nothing matching, an absolute
+    glob or one that climbs out of the task root is a `KitError` naming the key and the override (never a path made up, never a hint left in a field)."""
+    done = {}
+    for path, value in over.items():
+        def pick(found, path=path):
+            glob = found.group(1)
+            if Path(glob).is_absolute() or ".." in Path(glob).parts:
+                raise KitError(f"{key}: override `{path}` names `<newest:{glob}>`; expected a glob relative to the task root with no `..`")
+            files = sorted((p for p in task_dir.glob(glob) if p.is_file()), key=lambda p: (p.stat().st_mtime_ns, p.name))
+            if not files:
+                raise KitError(f"{key}: override `{path}` names `<newest:{glob}>` and no file of the task root matches it")
+            return files[-1].relative_to(task_dir).as_posix()
+        done[path] = NEWEST_WORD.sub(pick, value) if isinstance(value, str) else value
+    return done
+
+
 def _fill_form(row: dict, form: Path, contract, ctx, mine: dict, n: int, dispatch: str, task_dir: Path) -> None:
     """The role's handover form: filled by the story's overrides and the rules (`fill_handover`), written in place; what cannot be filled is a `live_only` row."""
     if not contract:
         row["live_only"].append({"output": f"work/handoffs/{dispatch}.yaml", "why": "no form with a `contract:` line at that path"})
         return
     try:
-        over = overrides_for(mine, contract.group(1), n)
+        over = resolve_newest(overrides_for(mine, contract.group(1), n), task_dir, f"{row['role']}@{row.get('stage', '')}.overrides[{contract.group(1)}]")
         field = FORM_SOURCE_PATH.get(contract.group(1))
         if field and field not in over:
             kept = relevant_source_paths(task_dir / "work" / "source-inventory.json")
@@ -1988,6 +2009,33 @@ def selftest_n2c(tmp: Path) -> None:
     check_eq("FV3-20: the review is an approval that names the instance and the case of the window (whole words, as the ledger's pointer reads them) and has no finding row",
              (bool(re.search(r"(?<![\w-])TC-1(?![\w-])", own_text)), "test_the_case" in own_text, "Verdict: approve" in own_text.splitlines(), "<dispatch>" in own_text),
              (True, True, True, False))
+    # FV3-20 (S6): `<newest:GLOB>` in a form override, and the story's S6 runner row read by the product's own digest check and form filler
+    runner_task = tmp / "fv320-s6" / "T"
+    for name in ("evidence/runtime-provenance-p-1.json", "evidence/runs/k/initial-k-1.json"):
+        (runner_task / name).parent.mkdir(parents=True, exist_ok=True)
+        (runner_task / name).write_text("{}", encoding="utf-8")
+    os.utime(runner_task / "evidence/runtime-provenance-p-1.json", (1, 1))
+    (runner_task / "evidence/runtime-provenance-p-2.json").write_text("{}", encoding="utf-8")
+    check_eq("FV3-20: `<newest:GLOB>` is the task-relative path of the newest match (the modified time, so `-2` over `-1`), inside a longer text too, and a non-text value passes through",
+             resolve_newest({"a": "<newest:evidence/runtime-provenance-*.json>", "b": "see <newest:evidence/runs/*/initial-*.json>.", "c": True, "d": "plain"}, runner_task, "k"),
+             {"a": "evidence/runtime-provenance-p-2.json", "b": "see evidence/runs/k/initial-k-1.json.", "c": True, "d": "plain"})
+    for name, glob in (("no match", "evidence/none-*.json"), ("an absolute glob", str(runner_task / "evidence" / "*.json")), ("a climbing glob", "../*.json")):
+        try:
+            resolve_newest({"f.x": f"<newest:{glob}>"}, runner_task, "k")
+            got_text = "no error"
+        except KitError as exc:
+            got_text = str(exc)
+        check(f"FV3-20: `<newest:GLOB>` with {name} is a KitError naming the key and the override", got_text.startswith("k: override `f.x`") and "<newest:" in got_text, got_text)
+    import role_digest
+    runner = stub_control({"stub": story}, "qa-runner", "S6")
+    check_eq("FV3-20: the story's S6 runner digest is the handoff form (the product's `role_digest.check`: a path line, a row for TC-1) and its verdict is the form's",
+             (role_digest.check(runner["result_text"], ["TC-1"]), runner["verdict"], runner["result_text"].splitlines()[0].endswith("· " + runner["verdict"])), ([], "ok", True))
+    kit_s6 = load_kit("dry-1")
+    filled_s6 = fill_handover("s6-runner-to-analyst", kit_context(kit_s6, "S6-qa-runner-1", task_root=str(runner_task)), runner["verdict"],
+                              resolve_newest(overrides_for(runner, "s6-runner-to-analyst", 1), runner_task, "k"))
+    check("FV3-20: the story's S6 row fills the form: every row the role fills is its own (the case, the stand, the probe records), and no row says blocked, unresolved or env_blocked",
+          filled_s6.data["scope"][0]["id"] == "TC-1" and filled_s6.data["run"]["environment"] == "dry-world" and filled_s6.data["run"]["probe_after"].startswith("evidence/runtime-provenance-")
+          and filled_s6.data["env_blocked"] == [] and filled_s6.data["unresolved"] == [] and "blocked" not in filled_s6.data and "filled" not in filled_s6.text.replace("filled by code", ""), filled_s6.text[:300])
     # N2e: the automator's story fragments (`qa-automator@S5.manifest_fragments`) and its row of the story
     for name, bad in (("a string", "x"), ("an empty object in the list", [{}]), ("a non-object in the list", [3]), ("an object, not a list", {"then_bindings": []})):
         try:
