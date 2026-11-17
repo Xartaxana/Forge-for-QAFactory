@@ -1,6 +1,6 @@
 # Every block in the controller, and the route through it
 
-`controller.py` refuses **353** times: 353 raises or collected `(Class, message)` problems (a request's problems are gathered and refused whole by `_raise_all`), as `DerivedViewStale`, `EventCommitted`, `IdempotencyKeyReused`, `ProjectionStale`, `StateConflict`, `ValueError` - two kinds that do not
+`controller.py` refuses **352** times: 352 raises or collected `(Class, message)` problems (a request's problems are gathered and refused whole by `_raise_all`), as `DerivedViewStale`, `EventCommitted`, `IdempotencyKeyReused`, `ProjectionStale`, `StateConflict`, `ValueError` - two kinds that do not
 mean the same thing. `StateConflict` says the request is fine and the story's recorded state is not
 ready for it (`DerivedViewStale`, a subclass of it, says the event IS committed and only what
 follows it failed); `ValueError` says the request itself is malformed and the story was never consulted. The
@@ -18,7 +18,7 @@ evidence.
 | route | blocks | what it means |
 |---|---|---|
 | `person` | 17 | their recorded words pass it: `waiver.py --stage <S> --block "<part of the line>" --words-file <file>` |
-| `command` | 221 | a factory command clears it. The person decides, the command records; the message names it |
+| `command` | 220 | a factory command clears it. The person decides, the command records; the message names it |
 | `caller` | 102 | the call was built wrong. Whoever built it fixes it, and no person is involved |
 | `unpassable` | 13 | no word passes it, and the reason is here. These are invariants of the record itself: passing one would destroy what the block protects |
 
@@ -52,7 +52,6 @@ every edit above it. Rows are in source order.
 | `prepare` | `StateConflict` | raise StateConflict(self.automation_half_refusal(refused)) | `command` | the refusal lists each cause with its door: a manual block for a manual-agent case, leaving a handed case out, `--operation stage-scope` with `execution_kind: automation` for the cases the half may name; a plan that cannot be read is passed by the person's word (`waiver.py --stage S6 --block "S6 half membership: unreadable"`) |
 | `prepare` | `ValueError` | (ValueError, issue) | `caller` | a reference in the request that does not resolve - the path is not there, or its sha does not match; fix the call |
 | `baseline_inputs` | `ValueError` | baseline requires exactly one approved current-task plan row | `command` | the plan carries one baseline row; revise the plan |
-| `deployment_inputs` | `StateConflict` | approved Gate A required before deployment | `command` | the gate decision itself (`gate-decision`) |
 | `_plan_document` | `StateConflict` | managed lifecycle requires work/test-plan.json | `command` | the strategist writes the plan; `plan_row.py --add-row` adds one row |
 | `_plan_document` | `StateConflict` | structured test plan is unreadable | `unpassable` | nothing can be decided about a document that cannot be parsed - not by a person either. The file is repaired first, and then the decision is real |
 | `_case_rows` | `StateConflict` | structured test plan rows must be a list | `unpassable` | the same: a shape nothing can read carries no decision, so passing it would only move the failure further down |

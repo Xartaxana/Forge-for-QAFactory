@@ -20,14 +20,13 @@ Two checks, in the order they pay:
      state, the `BASE` synthetic world otherwise.
 """
 import contextlib
-import os
 import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import harness  # noqa: E402
-from harness import check, check_eq, check_in, check_not_in  # noqa: E402
+from harness import check, check_eq, check_in  # noqa: E402
 
 sys.path.insert(0, str(harness.SCRIPTS))
 import controller as C  # noqa: E402
@@ -63,16 +62,9 @@ def command_rows() -> list:
 def pinned(project):
     """The hook layer reads THIS project for the length of the block; env and cache are restored (E5)."""
     import hooklib
-    cached, hooklib._PROJECT_ROOT_CACHE = hooklib._PROJECT_ROOT_CACHE, None
-    old_env = os.environ.get("CLAUDE_PROJECT_DIR")
-    os.environ["CLAUDE_PROJECT_DIR"] = str(project)
-    try:
+    with hooklib.selftest_root_restored():
+        hooklib.pin_project_root(project)
         yield
-    finally:
-        os.environ.pop("CLAUDE_PROJECT_DIR", None)
-        if old_env is not None:
-            os.environ["CLAUDE_PROJECT_DIR"] = old_env
-        hooklib._PROJECT_ROOT_CACHE = cached
 
 
 @contextlib.contextmanager
@@ -81,8 +73,7 @@ def synthetic_world():
     root = harness.temp_dir("qa-controller-doors-")
     try:
         with pinned(root):
-            (root / "qa-factory").mkdir(parents=True, exist_ok=True)
-            (root / "qa-factory" / "config.json").write_text("{}", encoding="utf-8")
+            harness.mark_project(root)
             task = root / "qa-factory" / "artifacts" / root.name
             (task / "work").mkdir(parents=True)
             Controller(task).apply("initialize", {"scope": ["TC-1"], "source_revision": "src-1",
@@ -119,6 +110,7 @@ def gate_a_statuses(controller) -> list:
 
 
 def row_checkpoint(needle, task):
+    """The request goes through `controller.apply("checkpoint", ...)`: the operation's body, not the CLI flags of `--operation checkpoint`."""
     controller = Controller(task)
     BASE.accept_stage(controller, task, "S0")
     controller.apply("dispatch", {"id": "d-live", "stage": "S1", "role": "qa-scout",
@@ -131,7 +123,7 @@ def row_checkpoint(needle, task):
         controller.apply("revise_plan", dict(revise))
         check("checkpoint: active work blocks a scope revision", False)
     except (StateConflict, ValueError) as refusal:
-        check_in("checkpoint: and the block names the door", "checkpoint active work", str(refusal))
+        check_in("checkpoint: and the block names the door", needle, str(refusal))
 
     controller.apply("checkpoint", {"id": "d-live", "status": "paused",
                                     "checkpoint": {"completed": [], "next": "resume the scout"},
@@ -156,11 +148,12 @@ def row_gate_decision(needle, task):
     check_in("gate-decision: a decision bound to a stale source revision is refused, naming the block", needle,
              refusal_of(lambda: controller.apply("decision", dict(hand_built))))
     check_eq("gate-decision: and nothing is recorded", gate_a_statuses(controller), [])
-    # the door: `--operation gate-decision` builds the request from the revision the story holds now
-    built = controller.build_gate_decision("A", "approve - the person's word (fixture)")
-    check_eq("gate-decision: the built request binds the current source revision",
-             built["source_revision"], controller.state()["source_revision"])
-    controller.apply("decision", built)
+    # the door itself: `--operation gate-decision` (pins the project, builds the request from the revision the story holds now, records)
+    words = task / "work" / "gate-a-words.txt"
+    words.write_text("approve - the person's word (fixture)", encoding="utf-8")
+    code, out, err = harness.run_controller_inprocess(
+        ["--task-root", str(task), "--operation", "gate-decision", "--gate", "A", "--words-file", str(words)], task.parents[2])
+    check("gate-decision: the door exits 0", code == 0, f"exit {code}: {err[-300:]}")
     check_eq("gate-decision: after the door the same decision is recorded", gate_a_statuses(controller), ["approved"])
 
 
@@ -184,6 +177,7 @@ def row_semantic_reopen(needle, task):
 
 
 def row_recover(needle, task):
+    """The door is `controller.recover()`: the operation's body (`--operation recover` calls exactly it)."""
     import dashboard_refresh
     controller = Controller(task)
     original = dashboard_refresh.refresh_for_task
