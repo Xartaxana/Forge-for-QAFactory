@@ -10,7 +10,7 @@ optimised. The reasons live only in this session's context, so the retro runs HE
 before the session closes; a week later the transcript still shows what happened but not why.
 
 A retro entry is raw material, not a task. It goes to a separate place (`docs/retro/inbox/`); nodes are opened
-only after the weekly reduction has merged the repeats and chosen a SYSTEMIC fix (`docs/retro/README.md`).
+only after the weekly reduction has merged the repeats and chosen a SYSTEMIC fix (section «Недельное сведение» below).
 A patch per entry per session is exactly what this skill must not produce.
 
 ## Steps
@@ -39,8 +39,39 @@ A patch per entry per session is exactly what this skill must not produce.
 
 ## What happens to the entries
 
-`docs/retro/README.md` — the weekly reduction: who reads the inbox, how repeats become one class, when a class
+Section «Недельное сведение» below — the weekly reduction: who reads the inbox, how repeats become one class, when a class
 becomes a finding and a node, where processed entries go.
 
 Detector for a skipped retro: `session-handoff` step 6 reports "retro: written <path>" or "retro: skipped --
 <reason>"; a week with coordinator sessions and an empty inbox is a line of the weekly reduction.
+
+## Недельное сведение (weekly reduction)
+
+### Что где лежит
+
+| Путь | Что |
+|---|---|
+| `docs/retro/inbox/` | сырые записи сессий, файл на сессию: `<ГГГГММДД>-<ЧЧММ>-<dev>.md`. Пишет только скилл `session-retro` |
+| `docs/retro/classes.md` | классы после сведения: класс, сколько записей и каких, выбранная починка, находка и узел |
+| `docs/retro/done/` | сведённые записи (переносятся из `inbox/` тем же ходом, что строка класса) |
+
+
+### Порядок
+
+Делает Архитектор при включении (пока его функция не введена — Lead на еженедельной калибровке). Порядок:
+
+1. Прочитать все файлы `inbox/`.
+2. Сгруппировать пункты по классу фабрики или форджа (не по сессии и не по файлу): «диспатч не называет читателей
+   файла», а не «в t-889 не нашли пин».
+3. По каждому классу решить одно из трёх и записать строкой в `classes.md`:
+   - **чиним системно** — названо, что меняется (код, правило, инструмент) и почему это закрывает все записи класса;
+     тогда — находка в `findings/` своей кучки и узел в невзятой пачке (PROJECT «Командная работа» п. 2);
+   - **уже чинится** — ссылка на узел, который закрывает класс;
+   - **не чиним** — причина; класс остаётся в `classes.md`, чтобы следующая запись того же класса увеличила счёт,
+     а не открыла разбор заново.
+4. Класс с одной записью узла не получает, пока не повторится, — кроме случая, когда запись называет дефект, из-за
+   которого работа встала.
+5. Вопросы владельцу из записей, оставшиеся без ответа, — одним списком владельцу.
+6. Перенести сведённые файлы в `done/`.
+
+Запись в `inbox/` старше двух недель — строка недельного сведения «сведение пропущено».

@@ -652,6 +652,7 @@ aspect — the pointer row), 34 (one road: the §2.7 split and C6))
   change item 2) — one line: "deleting the quarantine section also deletes `tools/owns_readers.py::_quarantine_status`,
   its `quarantined` kind, the `Q quarantined` part of `more` and the T1 rows `quarantine-*`; if `tools/test_quarantine.py`
   goes too, `_slow_status`'s loader moves first (F-13)".
+- Supersede (Lead, 17.11.2026): L1, L2, L4, L5 superseded by t-1117/t-1133 (critic.md rule 24; the POINTERS row to rule 24 Q13; TESTING «Что запускать по своей правке» and builder.md rule 12); L3 lands as t-1133 card C3's designer.md rule 3 line, re-pointed to critic.md rule 24, Q13 (d); stream L writes no critic.md rule.
 
 **Rule 10's four questions, short**: (a) cost — one tool run per writing dispatch (~0.2 s per grep, measured by the
 critic), a default block of 2-3 lines plus up to 38 per name (§2.4), the builder's stop on a names line, one or two

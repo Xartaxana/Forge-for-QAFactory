@@ -25,6 +25,7 @@ from harness import (SCRIPTS, check, check_eq, check_in, check_not_in, finish, m
 sys.path.insert(0, str(SCRIPTS))
 import controller as CTL  # noqa: E402
 import hooklib  # noqa: E402
+import waiver  # noqa: E402
 from controller import Controller  # noqa: E402
 from event_store import StateConflict  # noqa: E402
 # The REAL reader of the combined refusal (C2-1): the head and the `N) ` lines the controller writes are
@@ -293,6 +294,49 @@ def a_legacy_opener_is_credited_only_by_its_own_evidence():
                  "author 'ghost' is not an S4 qa-case-designer", wrong)
         check_in("and the acceptance sentence", "must be accepted", wrong)
         check_in("and the input hash sentence", "input_hash", wrong)
+        # RD1-31 (F, `_design_review_problems`): a person's word at S4 passes the review. A decision refused LATER (a stale source
+        # revision) leaves no row; the decision that COMMITS leaves exactly one, stage S4, naming the block
+        pipeline = waiver.apply_stage_override({}, "S4", "design review", "the person read the review", waiver.now_iso())
+        (root / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
+        decision = dict(controller.build_gate_decision("A", WORDS))
+        rows_file = root / "state" / "passed-by-person.jsonl"
+        controller.open_gate_items = lambda *a, **k: ([], [])    # the open-items rehearsal is not what this row is about
+        try:
+            controller.apply("decision", dict(decision, source_revision="src-stale", idempotency_key="gate-a-stale"))
+        except StateConflict:
+            pass
+        check("RD1-31 design review: a word present and a LATER refusal leave no row", not rows_file.exists())
+        controller.apply("decision", dict(decision, idempotency_key="gate-a-ok"))
+        rows = [json.loads(line) for line in rows_file.read_text(encoding="utf-8").splitlines()]
+        check_eq("RD1-31 design review: the committed decision leaves one row, stage S4, the block of the review",
+                 [(r["stage"], "design review" in r["block"] or "review" in r["block"], r["by"]) for r in rows], [("S4", True, "human")])
+    finally:
+        cleanup(root)
+
+    # RD1-31 (F, `open_gate_items`, the rehearsal that cannot list the items): a person's word at S4 passes it. The read happens BEFORE the
+    # store lock (the memo pass of `apply`) and again inside `validate`; the row is one, stage S4, only for the decision that COMMITS
+    root = temp_project("qa-gate-items-word-")
+    try:
+        controller = story(root)
+        controller._read_gate_items = lambda gate, fresh=False: {"status": "unreadable", "why": "the rehearsal did not run"}
+        decision = dict(controller.build_gate_decision("A", WORDS))
+        rows_file = root / "state" / "passed-by-person.jsonl"
+        try:
+            controller.apply("decision", dict(decision, idempotency_key="gate-a-no-word"))
+        except StateConflict:
+            pass
+        check("RD1-31 items unreadable: no word, a refusal and no row", not rows_file.exists())
+        pipeline = waiver.apply_stage_override({}, "S4", CTL.GATE_A_ITEMS_UNREADABLE, "the person read the items", waiver.now_iso())
+        (root / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
+        try:
+            controller.apply("decision", dict(decision, source_revision="src-stale", idempotency_key="gate-a-stale"))
+        except StateConflict:
+            pass
+        check("RD1-31 items unreadable: a word present and a LATER refusal leave no row", not rows_file.exists())
+        controller.apply("decision", dict(decision, idempotency_key="gate-a-ok"))
+        rows = [json.loads(line) for line in rows_file.read_text(encoding="utf-8").splitlines()]
+        check_eq("RD1-31 items unreadable: the committed decision leaves exactly one row, stage S4",
+                 [(r["stage"], r["block"].startswith("the gate A open items could not be listed")) for r in rows], [("S4", True)])
     finally:
         cleanup(root)
 

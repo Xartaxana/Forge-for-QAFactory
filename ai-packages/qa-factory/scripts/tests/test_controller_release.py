@@ -517,11 +517,10 @@ def a_persons_word_passes_the_review_rule():
                                     "accept it, the findings are in the chat and I read them",
                                     waiver.now_iso())
         (root / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
-        controller.apply("accept", {"id": "S5-qa-code-critic-1", "status": "accepted",
-                                    "stage_complete": False, "unresolved": True,
-                                    "reason": "the window's second half is not reviewed yet",
-                                    "evidence_refs": [BASE.evidence_ref(root, "digest.txt")],
-                                    "idempotency_key": "a-critic"})
+        request = {"id": "S5-qa-code-critic-1", "status": "accepted", "stage_complete": False, "unresolved": True,
+                   "reason": "the window's second half is not reviewed yet",
+                   "evidence_refs": [BASE.evidence_ref(root, "digest.txt")], "idempotency_key": "a-critic"}
+        controller.apply("accept", request)
         check_eq("a person's recorded word passes it, like every other block here",
                  controller.state()["dispatches"]["S5-qa-code-critic-1"]["status"], "accepted")
     finally:

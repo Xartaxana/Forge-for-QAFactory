@@ -28,11 +28,11 @@ text is read before changing the package), and the factory architecture invarian
 | Recon → scout; builder; drafting | CLAUDE.md § 1 + CLAUDE.md § 2 + CLAUDE.md § Rule 2 · drafting → designer |
 | Dispatch form: DoD, edges, manifest | CLAUDE.md § 11 |
 | Witness; acceptance by witness | CLAUDE.md § 2 |
-| What a builder may run | plans/builder-rules.md § 7b |
+| What a builder may run | docs/TESTING.md § Что запускать по своей правке |
 | Batch canon | CLAUDE.md § Rule 4 · witness scope and the BATCH CANON + docs/RUNBOOK.md § 7. CI на GitHub и BATCH CANON |
 | Which tests are written | docs/TESTING.md |
 | Critic gate | CLAUDE.md § 3 |
-| Critic review content | docs/tasks/critic-diff-brief.md |
+| Critic review content | .claude/agents/critic.md § 21-24 |
 | Journal | CLAUDE.md § Routing log |
 | Merge and CI reading | docs/RUNBOOK.md § 7. CI на GitHub и BATCH CANON + PROJECT.md § Командная работа |
 | Six writers, queue, merge waves | PROJECT.md § Командная работа |
@@ -124,8 +124,7 @@ a rule.
 3. critic — a MANDATORY acceptance gate: builder diffs over roughly 100 lines, or touching the data schema / core /
    money accounting; unclear bugs — BEFORE Lead starts debugging them itself. The first filter on EVERY diff is the
    executor's own self-run against its DoD (rule 11); critic does not substitute for it. Every diff gate also answers
-   DUPLICATION and CODE QUALITY: the rule text is `docs/tasks/critic-diff-brief.md` items 6-7 (the critic role file's
-   rule 18 points there); the clone ratchet is the deterministic layer. Acceptance still rests with Lead (flat
+   DUPLICATION and CODE QUALITY: the rule text is `.claude/agents/critic.md` rule 22, Q6-Q7 (its rule 18 points there); the clone ratchet is the deterministic layer. Acceptance still rests with Lead (flat
    delegation rule). Small diffs: a "critic: skipped, <reason>" note inside the `accepted` event is a waiver available
    ONLY to an acceptor whose tier is above the executor's. TWO-LAYER CRITIC ENTRY (two-layer review rule): a
    MECHANICAL layer — test re-runs, control values, smoke matrices — is executed by the submitting builder or a script
@@ -151,7 +150,7 @@ a rule.
 
    SCOPE OF THE WITNESS RUN: for every writing node, solo or parallel, the verification run is what
    `python -B ai-packages/qa-factory/scripts/tests/scenario_walk.py --witness-for <owns>` prints
-   (`plans/builder-rules.md` 7b; an owned path outside the package, where that command has no row: the test file that
+   (`docs/TESTING.md` «Что запускать по своей правке»; an owned path outside the package, where that command has no row: the test file that
    judges the path, named in the DoD) — never its big neighbours, never a quarantined file, and not merely the files
    the worker judges to be its own; another worker's uncommitted state can break a shared full run. The full sets are
    the BATCH CANON: the CI pipeline on the batch branch after the branches converge, never a run on this machine
@@ -224,16 +223,16 @@ a rule.
 
 9. Fix the class, not the instance (fix-the-class-not-the-instance rule): name the class; walk its siblings by the
    MAP in docs/SIBLING_MAP.md (a targeted lookup, NOT a repo scan; a class wider than the map → scout with a concrete
-   question); fix now, or EXPLICITLY put the remainder in the queue/log; the rule against recurrence goes on the
+   question); fix now, in the same round; a sibling leaves the round only when it lies in ANOTHER pile's zone or waits for the owner's word (say which), and only as a node with an executor or a confirmed transfer in the forms of `docs/TEAMWORK.md` § 9 — the rare case, never a way to put off a rule fix while rules are being fixed (the owner's word 17.11.2026); the rule against recurrence goes on the
    highest level that ties the siblings together; a new symmetry is a new axis in the map, same commit. Silently
    leaving a known sibling unfixed is a violation. Workers REPORT analogs they notice (without widening their scope),
    critic checks class-wide completeness against the map, Lead owns the workaround and where the rule lives.
 
    Having named a class, FIRST apply it to every neighbor inside the SAME artifact — sibling subsections of a check,
-   clauses of a rule, entries of a list, branches of a parser — before walking the map and before queuing anything
+   clauses of a rule, entries of a list, branches of a parser — before walking the map and before moving anything out of the round
    (sweep-the-artifact-first rule). The unit is the enclosing structural block, widening to the WHOLE file only when
-   this move has already read it; opening a file specially for the sweep is forbidden — queue it instead. Executed
-   means an ENUMERATION with a verdict per neighbor (applied / not applicable — why / queued with a pointer); prose
+   this move has already read it; opening a file specially for the sweep is forbidden — move it to another pile's node instead (the rare case). Executed
+   means an ENUMERATION with a verdict per neighbor (applied / not applicable — why / moved to another pile's node, with its id); prose
    saying "neighbors checked" is not execution; no neighbors found gets an explicit line "no neighbors: <why>". A unit
    over roughly 150 lines, or with more than 5 neighbors, goes to one scout dispatch carrying the applicability
    question, or carries a `dispatch_skipped` event. The sweep never replaces the map walk: a class living both in the
@@ -323,7 +322,11 @@ a rule.
 ### Rule 11 · inline DoD; the DOC-DISPATCH witness
 
    The DoD is written INLINE in the dispatch — named acceptance criteria plus the exact verification run; a bare
-   pointer to a spec file or an earlier event is NOT a DoD. DOC-DISPATCH WITNESS: when the owns are markdown/config
+   pointer to a spec file or an earlier event is NOT a DoD. A brief carries FACTS by pointer: `given:` names the frozen
+   file (a hand-back report, a digest) and the digest's objects by their exact ids (`q2a, q2b`), never by a prefix, so a
+   scout's reservation travels with its object; changing code is pointed at by `path::symbol`, not a line range. The
+   DoD, the edges and the non-goals stay inline. Prose outside the manifest is at most about 8 counted lines (a target
+   read by calibration check 34, not a gate). DOC-DISPATCH WITNESS: when the owns are markdown/config
    with no test set of their own, a deterministic key-presence run is a legal mechanical layer ONLY with three
    properties: (i) the keys are quoted VERBATIM from the DoD as written BEFORE the run; (ii) the script is attached in
    FULL source with the witness in the report, never committed as a test; (iii) the run includes a NEGATIVE control
@@ -364,8 +367,7 @@ a rule.
 ### Rule 12 · Cost gates
 
    Cost gates (D-0035, D-0038, D-0040, D-0054; why: `docs/CLAUDE_HOST_ADAPTATIONS_FULL.md`): a fix round runs in a
-   FRESH worker carrying only the diff and the verdict; `tools/agent_budget.py` caps a worker (WARN 250K, STOP 400K;
-   the remainder goes to a fresh worker whole); ONE critic pass per topic (R13-g); critic on a plan: rule 3; a
+   FRESH worker carrying only the diff and the verdict; `tools/agent_budget.py` caps a worker (WARN 250K, STOP 400K; the remainder goes to a fresh worker whole); a worker trims run output before it enters its context (`-q`, a 30-line tail, `Read` with a limit over 400 lines, `Grep` instead of reading a whole file) and closes a round with ONE witness run after all edits, never one after each edit (D-0035); ONE critic pass per topic (R13-g); critic on a plan: rule 3; a
    re-review carries only the fix diff and the verdict; the Lead compacts by PROJECT.md § Сессия форджа, a stage
    commit per 2–3 merges, journal notes ≤ 300 chars, CI through `tools/ci_read.py`; a push before a worktree launch
    (`tools/dispatch_gate.py`). The writers, the FULL queue, the per-topic critic and merge waves: PROJECT.md

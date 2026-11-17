@@ -1585,6 +1585,50 @@ def rh1_9_same_instance_bytes_asks_the_one_comparator() -> None:
                                          {"instance_contracts": {"t": {"instance_content_sha": "c2"}}}, "t"), False)
 
 
+def c3_b2_match_reads_the_identity_through_the_registry_row() -> None:
+    """C3-b2 item 5 (row `test_identity`, consumer `run_reuse`): `_match` reuses an earlier run over other whole-file fingerprints only
+    when `compare_identity`'s word is one the row accepts. Expected from the row's `decides` (a non-match runs again) and the
+    docstring's order of differences (the bytes rank), never from `_match`'s earlier output. The unreadable registry refuses the
+    reuse at the SAME rank and names itself, not 'instance bytes differ' (FR-41)."""
+    import execution_request as ER
+    import gate_registry as GR
+    import gate_template as GT
+    policy = ER._fallback_policy()
+    purpose = policy["result_purposes"][0]
+    selector = {"t": ["x::t"]}
+    shas = {"instance_content_sha": "c", "instance_code_sha": "k"}
+
+    def job(contract):
+        return {"status": "completed", "freshness": "fresh", "execution_status": "passed",
+                "request": {"purpose": purpose, "selected_instance_ids": ["t"], "input_fingerprint": "fp-old",
+                            "command": {"selector_args": selector}, "instance_contracts": {"t": contract}}}
+
+    def request(contract):
+        return {"input_fingerprint": "fp-new", "command": {"selector_args": selector}, "instance_contracts": {"t": contract}}
+    differ = ER._match(job(shas), request(dict(shas, instance_code_sha="k2")), "t", policy, "", None)
+    check_eq("item 5 (i): earlier job, other instance bytes -> not reused, the bytes' sentence and rank",
+             differ, ("", "instance bytes differ: the test, or something it depends on, was edited since the earlier run",
+                      ER._WHY_RANK["bytes"]))
+    check_eq("item 5 control: the same identity over other whole-file fingerprints -> the result is reused",
+             ER._match(job(shas), request(dict(shas)), "t", policy, "", None)[:2], ("passed", ""))
+    check_eq("item 5: no identity on either side -> unknown -> not reused",
+             ER._match(job({}), request({}), "t", policy, "", None)[0], "")
+    saved = list(GT._READ)
+    GT._READ[:] = [({"rows": "x"}, GR.structural_error({"rows": "x"}))]
+    try:
+        got = ER._match(job(shas), request(dict(shas)), "t", policy, "", None)
+        same_file = ER._match(dict(job(shas), request=dict(job(shas)["request"], input_fingerprint="fp-new")),
+                              request(dict(shas)), "t", policy, "", None)
+    finally:
+        GT._READ[:] = saved
+    check_eq("item 5 (ii): the registry unreadable, the same identity -> not reused, at the bytes' rank", (got[0], got[2]),
+             ("", ER._WHY_RANK["bytes"]))
+    check_in("item 5 (ii): ...and the why names the registry", "the gate registry cannot be read", got[1])
+    check_not_in("item 5 (ii): ...and does not say the bytes differ", "instance bytes differ", got[1])
+    check_eq("item 5 (E1): the same whole-file fingerprint short-circuits first - reused even when the registry is unreadable",
+             same_file[:2], ("passed", ""))
+
+
 def hf8_18_c_k11_a_row_of_another_spelling_is_admitted_outside_the_scope() -> None:
     """C-K11 (HF8-18 N1 widens the door `_admitted_outside` asks): the critic's red probe of a case OUTSIDE its dispatch is admitted
     when the row holds a receipt of another spelling of the same test on other bytes (the row had no probe of its own); the row
@@ -2221,6 +2265,7 @@ def main() -> None:
     ep1_1_b371_instance_file_is_looked_for_in_the_run_directory_first()
     ep1_28_stand_probe_spec()
     rh1_9_same_instance_bytes_asks_the_one_comparator()
+    c3_b2_match_reads_the_identity_through_the_registry_row()
     hf8_18_c_k11_a_row_of_another_spelling_is_admitted_outside_the_scope()
     if ROOT.exists():
         shutil.rmtree(ROOT)

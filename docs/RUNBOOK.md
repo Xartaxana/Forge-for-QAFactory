@@ -122,7 +122,7 @@ pipelines`; красное — сразу `python -B tools/ci_read.py why` (вс
 GitHub её мерят (FK-4), дверь — строка `canon-over-hour: <причина>` в
 сообщении головного коммита ветки (проходы считает калибровка, проверка 40). Свидетель канона — id пайплайна, статусы задач и
 строка `canon wall time`, дописанные в `witness` последнего `accepted` пачки с меткой BATCH CANON (правило 4 `CLAUDE.md`). Что
-канон покрывает — `plans/builder-rules.md` п. 7b.
+канон покрывает — `docs/TESTING.md` «Что запускать по своей правке».
 
 **Что остаётся локально и почему.** Мутаций канон не гоняет: что тест может упасть, показывают билдер (строка дефекта красная до правки) и критик (проба) — `docs/TESTING.md` «Тест может упасть». Локальный прогон (докер) — запасной путь,
 только когда CI недоступен или красный по причине раннера, а не кода (слово владельца 03.11.2026: канон — на CI). Локальный прогон и локальный докер — только запасной путь, только по слову владельца и никогда не параллельно с другим; когда лог CI не читается — сначала сказать об этом владельцу. (оба условия вместе — слово владельца 17.11.2026). Тогда исходники — клон ветки без перевода
@@ -215,7 +215,7 @@ qa-factory, а не только Test Project 1. Копия — рабочее �
 2. **(b) Чинит блокеры фабрики.** Блокер фабрики — падение драйвера (выход 1), отказ без двери (FR-2, FR-57),
    дефект пакета. Разбор: хвост лога и `.err`, `qa-factory/artifacts/<ТИКЕТ>/state/driver-runs.jsonl`,
    `state/driver-question.md`. Починка идёт **в пакете этого репозитория**, а не в копии проекта и не обходом:
-   корень причины, тест, проверка по `plans/builder-rules.md` п. 7b, проход по затронутым
+   корень причины, тест, проверка по `docs/TESTING.md` «Что запускать по своей правке», проход по затронутым
    разделам `design/factory-rules.md` (`PROJECT.md`, «Как принимается изменение пакета», п. 1-3), файл в `findings/` своей кучки и строка в невзятой пачке
    (`PROJECT.md`, «Командная работа» п. 2). Если пакет на время прогона заморожен копией, исправленный пакет синхронизируется в копию
    только на остановке драйвера и после зелёных тестов (п. 9.2.2). Затем драйвер перезапускается (п. 9.4).
@@ -234,9 +234,7 @@ qa-factory, а не только Test Project 1. Копия — рабочее �
    где тикет, AC и документы молчат; последнее по P20 закрывается не выбором, а записью пробела
    (`unresolved`) — и это (a), прогон едет. Всё остальное — (a). Тогда вопрос пишется в тетрадь под заголовком «Утром
    владельцу», а всё, что от него не зависит, продолжается: разбор лога, строки бэклога, утренний отчёт.
-6. **(f) Ждёт прогон, а не человека.** Фоновый цикл `until` по `driver-runs.jsonl` и хвосту лога, с потолком
-   инструмента не больше 10 минут на вызов, повторяемый, либо инструмент Monitor (форма цикла не взята из
-   тетрадей: **не проверено на живом прогоне**). Сообщений владельцу ночью нет.
+6. **(f) Ждёт прогон, а не человека.** Ожидание — ограниченный цикл (`for i in $(seq 1 30); do <проверка driver-runs.jsonl / хвоста лога> && break; sleep 20; done`, не больше 3600 с на вызов, §9.8), повторяемый, либо инструмент Monitor. Сообщений владельцу ночью нет.
 7. **(g) Своё состояние переживает сжатие контекста.** Носитель — тетрадь: pid, номер текущего лога, что ждёт и
    что уже решено, записываются в неё сразу. Хук PreCompact (`tools/compact_snapshot.py`, файлы в
    `docs/tasks/compact-snapshots/`) сохраняет только факты репозитория (незакоммиченные файлы, открытые диспатчи,
@@ -377,7 +375,7 @@ qa-factory, а не только Test Project 1. Копия — рабочее �
   другая ветка ночью — вопрос под «Утром владельцу» (9.1(e)).
 - **Слово владельца не присваивается.** Ответ ночного агента помечен «мои» с причиной и живёт только в тетради
   эксперимента; слова владельца в журнале помечены «владельца» (так в тетради cmp2, пример Test Project 1).
-- **Починка пакета ночью — настоящая починка**: корень причины, тест, проверка по `plans/builder-rules.md` п. 7b, файл в `findings/` своей кучки и строка в невзятой пачке
+- **Починка пакета ночью — настоящая починка**: корень причины, тест, проверка по `docs/TESTING.md` «Что запускать по своей правке», файл в `findings/` своей кучки и строка в невзятой пачке
   (`PROJECT.md`, «Как принимается изменение пакета»); никогда не заплатка в копии проекта.
 - Каждый вызов без `cd … &&` (раздел 4 и `CLAUDE.md`, гигиена команд).
 
@@ -392,13 +390,12 @@ qa-factory, а не только Test Project 1. Копия — рабочее �
 
 ### 9.8. Фоновые ожидания
 
-Фоновый цикл ожидания (`until grep -q DONE <файл>; do sleep 20; done`) не кончается, если воркер, которого он ждёт, умер: 16.10.2026
-после потери сети два таких цикла шли три часа, пока владелец не заметила («опять задачи зависли»). Причина: у цикла нет
-предела и нет хозяина после сжатия контекста, а harness держит его в списке фоновых задач. Правила: предпочитать разовую
-проверку или уведомление harness; цикл — только ограниченный (`for i in $(seq 1 30)`), с названным файлом и концом ожидания
-(builder-rules п. 13). После смерти воркера или потери сети СНАЧАЛА просмотреть список фоновых задач и остановить зависшие
-(инструмент `TaskStop`); id устаревшей задачи без контекста находится по времени создания её файла `.output` в папке `tasks/`
-сессии (пустой — у молчащего цикла).
+Ожидание в фоне ограничено (слово владельца 17.11.2026, спека t-1122). `tools/hygiene_gate.py` отказывает циклу `until`/`while`
+со `sleep` без предела и циклу, чей бюджет больше 3600 с; отказ несёт форму, которую вставить (`for i in $(seq 1 30); do
+<проверка> && break; sleep 20; done`). Лучше разовая проверка, уведомление harness или инструмент Monitor. Отчёт воркера
+называет цикл, оставленный позади. После смерти воркера или потери сети СНАЧАЛА просмотреть список фоновых задач и
+остановить зависшие (`TaskStop`); id устаревшей задачи без контекста находится по времени создания её файла `.output` в
+папке `tasks/` сессии.
 
 ### 9.9. После слияния
 
@@ -614,11 +611,13 @@ PostgreSQL на том же `localhost:5433` и по отдельной базе
 ## 12. Ловушки хоста агентов (Harness quirks)
 
 Перенесено из прежнего `CURRENT_CONTEXT.md` (разбор критика t-1925, F-4). Нумерация — прежняя; пункты 1, 5 и 6 живут в
-адаптации хоста 6 `CLAUDE.md`, в `PROJECT.md` («Рабочий каталог шелла не меняется никогда») и в `plans/builder-rules.md` п. 18.
+адаптации хоста 6 `CLAUDE.md`, в `PROJECT.md` («Рабочий каталог шелла не меняется никогда») и в `.claude/agents/builder.md` rule 10.
 
-2. A hand-back can be LOST from the transcript (the critic t-572's report arrived as a message but
-   `extract_handback.py` found nothing); a resumed agent's later reports are not in the transcript either —
-   transcribe by hand from the message into `docs/tasks/handoffs/`, at once.
+2. A hand-back can be LOST from the transcript (the critic t-572's report arrived as a message, the extractor found
+   nothing), and an empty `tasks/*.output` is not a lost report (79 of 412 were empty; the full transcripts are in
+   `subagents/agent-<id>.jsonl`): extract with `python tools/handback_extract.py --agent <id> <report path>`, never
+   retype; a resumed agent's or critic's later reports may be absent from the transcript — transcribe them from the
+   message into `docs/tasks/handoffs/` at once.
 3. A resume of a finished worktree agent fails "worktree could not be verified" about half the time — retry up
    to three times (it passes when git is idle); then replace the worker (`replaces_worker:` in the journal).
 4. Two worktree creations in one second fail: one launch per turn; the orphan is removed with
@@ -627,8 +626,7 @@ PostgreSQL на том же `localhost:5433` и по отдельной базе
    merge («untracked working tree files would be overwritten») — move the copy aside, then merge; if the branch did NOT
    track it, move it back after the merge (t-856) — the template of item 11 prevents this.
 8. The Agent tool often gives a builder NO worktree, and when it does, the worktree is cut from the PUSHED
-   refs/remotes/origin/main, never from a pile, wip or conv branch the dispatch names (F6-35; plans/builder-rules.md item
-   20). A builder that must start from another base gets a worktree the coordinator creates — git -C <repo> worktree add
+   refs/remotes/origin/main, never from a pile, wip or conv branch the dispatch names (F6-35). A builder that must start from another base gets a worktree the coordinator creates — git -C <repo> worktree add
    <path> -b <branch> <base> — and is dispatched without isolation, its owns inside that path; the dispatch gate WARNs
    (WORKTREE BASE) on an isolation dispatch naming a branch origin/main lacks.
 9. (By-hand merges only — `tools/wave.py merge` works in its own temporary tree and meets neither this nor item 7.)

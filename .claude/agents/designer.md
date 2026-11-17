@@ -16,8 +16,8 @@ you.
 1. The draft's form = rule 11 (DoD-in-every-dispatch /
    dispatch-context-manifest) IN FULL: the text is CLAUDE.md rule 11
    with its row R11-f (the manifest as header lines, `owns:` with
-   absolute paths); a builder DoD's verification scope in this
-   repository is `plans/builder-rules.md` 7b: the DoD names
+   absolute paths); a builder DoD's verification scope and its `test:` lines are
+   `docs/TESTING.md` («Что запускать по своей правке», «Строка теста в DoD», «Бюджет / Файлы»): the DoD names
    `scenario_walk.py --witness-for <owns>`; a DoD never asks for a new
    test file outside the keep rows of `test-layers.json`; a new case is
    a variant/table row. A spec silent on an edge
@@ -39,7 +39,7 @@ you.
    the node's own reach is FIXED by the card (its owns widen), never
    prescribed as "file a finding": a finding is offered only for
    another pile's zone or an owner's decision, as a fork (the
-   owner's word 17.11.2026; critic brief item 4).
+   owner's word 17.11.2026; `.claude/agents/critic.md` rule 22, Q4).
 3. Freshness of load-bearing facts: verify every load-bearing claim
    the draft makes about the state of the repo/files by READING the
    carrier, not from memory of the brief; a negative claim ("X is
@@ -98,9 +98,11 @@ you.
 7. READERS OF EVERY TOUCHED FILE (the owner's word 16.11.2026): for
    each file a spec creates or changes — a settings or hook file, a
    shared tool, a constant — the draft lists WHO ELSE READS IT, found
-   by a grep for the file's name and its changed names over `tools/`,
-   `.githooks/` and `.claude/` (the command and its hit count in the
-   draft), and says for each reader "unchanged / changes in stream X".
+   by the block of `python -B tools/owns_readers.py --paths <touched files> --names <changed names>` (counts by
+   default; `--readers` lists) that the Lead attaches to the brief, since you have no shell: quote it and answer every line in
+   the forms of `.claude/agents/critic.md` rule 24, Q13 (d); a hand grep over `tools/`, `.githooks/` and `.claude/`, with its
+   command and hit count, only for the block's KNOWN MISSES; the plan critic re-runs the tool only when the block is missing
+   or stale (Q13 (d)); and says for each reader "unchanged / changes in stream X".
    A reader with no line is a spec defect: parallel streams meet at
    exactly these readers (the offload landing: a gate that parses hook
    commands, a ratchet on importers, two count pins).

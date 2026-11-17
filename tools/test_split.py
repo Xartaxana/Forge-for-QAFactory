@@ -1840,7 +1840,7 @@ def row_block(plan) -> list:
     out.append(f"  slow_tests.json: remove `{old}`; add each part, provisional seconds = round(old x part check sites / {total}, 1)")
     out.append(f"  selftest.py TEST_TIMEOUTS: remove the row of `{old}` if it has one (parts get no row)")
     out.append(f"  carrier search (spec 2.7): git grep -n \"{plan.src_stem}.py\" -- ai-packages docs/SIBLING_MAP.md "
-               "plans/builder-rules.md .github .gitlab-ci.yml")
+               "docs/TESTING.md .github .gitlab-ci.yml")
     return out
 
 

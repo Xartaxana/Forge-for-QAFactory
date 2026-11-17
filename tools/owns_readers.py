@@ -23,7 +23,7 @@ grep exited <rc>`), and the rest of the block is kept. When NO owned path was se
 cap, a control character, an empty list) the header is `readers: unknown -- no owned path was searched (<k> unsearched
 below)`; when some were skipped the count stays and the header gains `; unsearched: <k> paths`.
 
-KNOWN MISSES (the plan critic's duty starts here; each one is answered in docs/tasks/critic-diff-brief.md item 13 (d)):
+KNOWN MISSES (the plan critic's duty starts here; each one is answered in .claude/agents/critic.md rule 24, Q13 (d)):
   1. transitive readers (a test imports `a`, which imports the owned `b`): for a package path `scenario_walk.py
      --witness-for` is the transitive list;
   2. a path built from pieces, a name read from data, `importlib` with a computed string;
@@ -52,7 +52,7 @@ deleted TOGETHER with the quarantine section of test-layers.json. Until then the
 section present it reports, with the section gone (keep present) it is quiet. If tools/test_quarantine.py goes too,
 `_slow_status`'s loader (`_pkg_module`) moves first.
 
-TWO QUESTIONS, TWO ANSWERS (spec section 2.7; plans/builder-rules.md 7b): `scenario_walk.py --witness-for <path>` answers what
+TWO QUESTIONS, TWO ANSWERS (spec section 2.7; docs/TESTING.md «Что запускать по своей правке»): `scenario_walk.py --witness-for <path>` answers what
 to RUN for a package path (the keep `covers` plus the import closure; the DoD names it); this tool answers what must not
 break or be edited (literal readers, layer status, presence). Their convergence is node C6 of the spec (§6 L9), opened by the Lead; not stated here.
 

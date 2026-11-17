@@ -918,14 +918,21 @@ def s9_a_review_word_at_the_controller():
         head = "review:" + IID
         reason = "the manifest row carries no `critic_verdict`"
 
-        def problems(win=None, p=None, gaps=None) -> list:
+        def problems(win=None, p=None, gaps=None, commit=True) -> list:
+            """What `validate` gets back; with `commit` the rows are written the way `apply` writes them (RD1-31): the passes the helper
+            NOTED become rows only when the event stands, i.e. no problem came back. `commit=False` is a helper called outside `apply`."""
             real = AC.validate_window
             if gaps is not None:
                 AC.validate_window = lambda *_a, **_k: list(gaps)
+            controller._passes = [] if commit else None
             try:
-                return [text for _kind, text in controller._s5_gap_problems(dispatch, {} if p is None else p, win or window)]
+                got = [text for _kind, text in controller._s5_gap_problems(dispatch, {} if p is None else p, win or window)]
             finally:
                 AC.validate_window = real
+                noted, controller._passes = controller._passes, None
+            if commit and not got:
+                controller._record_noted_passes(dispatch["id"], noted)
+            return got
 
         def words(match, decision=WORDS, **kw) -> None:
             (task / "pipeline.json").unlink(missing_ok=True)
@@ -934,6 +941,8 @@ def s9_a_review_word_at_the_controller():
         check_eq("S9: no word: the window is refused as unresolved", problems(), ["unresolved window: " + head])
         check_eq("S9: ... and nothing is recorded", passed_lines(task), [])
         words(f"{head} — {reason}")
+        check_eq("S9 (a): the exact word closes the gap: no problem (outside `apply`)", problems(commit=False), [])
+        check_eq("S9 (a): ... and a helper called outside `apply` writes no row", passed_lines(task), [])
         check_eq("S9 (a): the exact word closes the gap: no problem", problems(), [])
         lines = passed_lines(task)
         check_eq("S9 (a): ONE line: stage, block, the words whole, `by`",

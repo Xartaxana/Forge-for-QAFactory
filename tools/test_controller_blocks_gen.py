@@ -15,6 +15,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 TOOLS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TOOLS))
 
@@ -141,3 +143,41 @@ def test_caller_functions_names_only_functions_the_controller_defines():
     assert functions_missing(gen.CALLER_FUNCTIONS, CONTROLLER) == set()
     # NEGATIVE control: the same helper names a function that is gone (`validate_known_paths`, deleted by C3-11)
     assert functions_missing(gen.CALLER_FUNCTIONS | {"validate_known_paths"}, CONTROLLER) == {"validate_known_paths"}
+
+
+# t-1108 (F-10): a command refusal carries its row id at the site, `DV.refusal(id, text)`; the walk reads it as the bare message.
+# The package twin (`test_controller_blocks.py`) has the same table.
+WRAPPED = [
+    ('raise StateConflict("the story is closed for this")', 'raise StateConflict(DV.refusal("a:b", "the story is closed for this"))'),
+    ('raise ValueError("a bare name")', 'raise ValueError(refusal("a:b", "a bare name"))'),
+    ('problems.append((ValueError, "a collected one"))', 'problems.append((ValueError, DV.refusal("a:b", "a collected one")))'),
+    ('raise ValueError("inner text")', 'raise ValueError(DV.refusal("a:b", DV.refusal("c:d", "inner text")))'),
+    ('raise ValueError(f"stage {s!r} is bad")', 'raise ValueError(DV.refusal("a:b", f"stage {s!r} is bad"))'),
+    ('raise StateConflict(blocking[0] + ". then")', 'raise StateConflict(DV.refusal("a:b", blocking[0] + ". then"))'),
+    ("raise StateConflict(refusal)", "raise StateConflict(refusal)"),
+]
+# NOT unwrapped (the error direction: only toward NOT unwrapping): the head is the id or the call, never the text behind it
+NOT_UNWRAPPED = [
+    ('raise ValueError(DV.refusal(check="row:id", problem="the problem"))', "row:id"),
+    ('raise ValueError(self.refusal("row:id", "the method text"))', "row:id"),
+    ('raise ValueError(other.refusal("row:id", "the other text"))', "row:id"),
+    ('raise ValueError(refusal("only a text"))', "only a text"),
+]
+
+
+def walked(statement: str) -> list:
+    rows = gen.collect_rows("def f():\n    " + statement + "\n", CLASSES)
+    gen.route_rows(rows)
+    return [(row["head"], row["seg"], row["route"]) for row in rows]
+
+
+@pytest.mark.parametrize("bare, wrapped", WRAPPED)
+def test_a_wrapped_message_is_walked_as_its_bare_one(bare, wrapped):
+    assert walked(wrapped) == walked(bare) and len(walked(bare)) == 1
+
+
+@pytest.mark.parametrize("statement, head", NOT_UNWRAPPED)
+def test_a_wrapper_the_walk_does_not_recognise_keeps_its_own_head(statement, head):
+    """NEGATIVE control: loud, never a hidden or misrouted block - the head stays the first literal of the unchanged source."""
+    got = walked(statement)
+    assert len(got) == 1 and got[0][0] == head and got[0][2] == "?"

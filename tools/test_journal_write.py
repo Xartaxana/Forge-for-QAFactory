@@ -620,3 +620,39 @@ def test_hooks_call_the_library_with_a_short_timeout_and_never_get_an_exception(
     assert res.written and last(repo)["via"] == "hook"                         # the 300 limit is the CLI's
     assert jw.write_event(repo / "missing", {"event": "x"}).written is False
     assert jw.write_event(repo, {"event": "dispatch_skipped"}).written is False
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="creationflags exist on Windows only")
+@pytest.mark.parametrize("site", ["_find_bash", "_kill_tree", "run_witness"])
+def test_every_spawn_hides_the_console_window_and_is_never_detached(site, repo, monkeypatch):
+    """K-WIN: each spawn of the writer carries CREATE_NO_WINDOW (0x08000000) and never DETACHED_PROCESS (0x8)."""
+    seen = []
+
+    class Proc:
+        pid, returncode, stdout = 1, 0, b""
+
+        def communicate(self, timeout=None):
+            return b"", None
+
+        def kill(self):
+            pass
+
+    def fake_run(*a, **kw):
+        seen.append(kw.get("creationflags", 0))
+        return subprocess.CompletedProcess(a, 0, b"", b"")
+
+    def fake_popen(*a, **kw):
+        seen.append(kw.get("creationflags", 0))
+        return Proc()
+
+    monkeypatch.setattr(jw.subprocess, "run", fake_run)
+    monkeypatch.setattr(jw.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(jw.shutil, "which", lambda name: "bash")
+    if site == "_find_bash":
+        jw._find_bash(repo)
+    elif site == "_kill_tree":
+        jw._kill_tree(Proc())
+    else:
+        monkeypatch.setattr(jw, "_find_bash", lambda root: "bash")
+        jw.run_witness("echo hi", repo, allow_red=None)
+    assert seen and all(f & 0x08000000 and not f & 0x8 for f in seen)

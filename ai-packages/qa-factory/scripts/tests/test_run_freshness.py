@@ -110,6 +110,20 @@ def the_run_is_fresh_or_stale_by_the_code_it_ran():
         check_eq("K1 (g): the function renamed, the run's row is the old one - stale", s.state()[0], "stale")
         s.restore()
         check_eq("K1: back to the original bytes - fresh again", s.state(), FRESH)
+        # (p) C3-b2 (E5, E8): the gate registry cannot be read - the reuse is refused (the run reads stale, it runs again), and the
+        # why names the registry, never a change of the test (FR-41). Expected from the rule list of `run_freshness` and FR-59.
+        import gate_registry as GR
+        import gate_template as GT
+        saved = list(GT._READ)
+        GT._READ[:] = [({"rows": "x"}, GR.structural_error({"rows": "x"}))]
+        try:
+            got = s.state()
+        finally:
+            GT._READ[:] = saved
+        check_eq("K1 (p): the registry unreadable, the very bytes that ran - stale, never fresh", got[0], "stale")
+        check_in("K1 (p): ...and the why names the registry", "the gate registry cannot be read", got[1])
+        check_not_in("K1 (p): ...and does not say the test changed", "changed since", got[1])
+        check_eq("K1 (p) control: the registry readable again - fresh", s.state(), FRESH)
     finally:
         s.close()
 

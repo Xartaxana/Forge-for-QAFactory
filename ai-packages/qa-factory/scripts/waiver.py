@@ -1255,21 +1255,22 @@ def record_refusals(match: str) -> list:
     import contract
     import test_path_grants
     if is_stand_gap_block(match) and not contract.stand_gap_id(match):
-        return [NO_GAP_ID]
+        return [DV.refusal("waiver:block.stand_gap_id", NO_GAP_ID)]
     if test_path_grants.is_grant_block(match):
         cfg = load_config()
-        return test_path_grants.pattern_errors(test_path_grants.pattern_of(match), cfg, resolve_app_root(cfg))
+        return [DV.refusal("waiver:block.grant_pattern", e)
+                for e in test_path_grants.pattern_errors(test_path_grants.pattern_of(match), cfg, resolve_app_root(cfg))]
     if is_stand_gap_block(match) or str(match).strip() == "*":
         return []
     found = PLACEHOLDER_RE.search(str(match))
     if found:
         import person_words
-        return [f'waiver: the block "{match}" still holds the placeholder {found.group(0)}, which names nothing, so recording it '
+        return [DV.refusal("waiver:WV-placeholder-block", f'waiver: the block "{match}" still holds the placeholder {found.group(0)}, which names nothing, so recording it '
                 f"would pass nothing. Expected: the real value in its place (the id of the test, the case or the profile the "
                 f"person means). Record again with that --block and the same words. If the <...> is the refusal's own text, "
                 f"give a part of the line without it. If the person's words name nothing "
                 f"the check shows, keep them without a pass: "
-                f"{person_words.door('waiver.py --task <T> --remark --stage <S>')}. Nothing was recorded."]
+                f"{person_words.door('waiver.py --task <T> --remark --stage <S>')}. Nothing was recorded.")]
     return []
 
 
@@ -1352,7 +1353,7 @@ def run_stage(task: str, stage: str, match: str, decision: str, by: str, classed
               f"a pass: {remark}. Nothing was recorded.", file=sys.stderr)
         return EXIT_BAD_ARGS
     if kind == "unmatched":
-        print(unmatched_text(task, stage, match, standing), file=sys.stderr)
+        print(DV.refusal("waiver:block.standing", unmatched_text(task, stage, match, standing)), file=sys.stderr)
         return EXIT_BAD_ARGS
     record_stage_overrides(path, task, [(stage, match, decision)], by, pipeline,
                            fields={(stage, match): class_fields(classed)} if classed else None)
@@ -1976,11 +1977,16 @@ def main() -> None:
     try:
         words = person_words.read(ns.text if ns.remark else ns.decision, ns.words_file, flag)
     except person_words.WordsRefused as exc:
+        # the id follows the dispatch order of the forms below (remark, revoke, stage/block, gate): a revoke or a gate form carries none
+        if ns.remark:
+            ap.error(DV.refusal("waiver:remark.call", str(exc)))
+        if not ns.revoke and (ns.stage or ns.block):
+            ap.error(DV.refusal("waiver:block.call", str(exc)))
         ap.error(str(exc))
     classed = _classed(ap, ns.why_person)    # BEFORE any pipeline.json read or write (E-5): a refusal leaves the words in state/words/
     if ns.remark:
         if not (ns.task and ns.stage and str(words or "").strip()):
-            ap.error("--remark needs --task, --stage and --text or --words-file (the person's words)")
+            ap.error(DV.refusal("waiver:remark.call", "--remark needs --task, --stage and --text or --words-file (the person's words)"))
         sys.exit(_noted(run_remark(ns.task, ns.stage.upper(), words.strip(), ns.by, classed), classed))
     if ns.revoke:
         if not (ns.task and ns.stage and ns.block and str(words or "").strip()):
@@ -1989,8 +1995,8 @@ def main() -> None:
         sys.exit(_noted(run_revoke(ns.task, ns.stage.upper(), ns.block.strip(), words.strip(), ns.by, classed), classed))
     if ns.stage or ns.block:
         if not (ns.task and ns.stage and ns.block and str(words or "").strip()):
-            ap.error("--task, --stage, --block and --decision or --words-file (the person's words) "
-                     "are all required")
+            ap.error(DV.refusal("waiver:block.call", "--task, --stage, --block and --decision or --words-file (the person's words) "
+                                "are all required"))
         sys.exit(_noted(run_stage(ns.task, ns.stage.upper(), ns.block.strip(), words.strip(), ns.by, classed), classed))
     if not (ns.task and ns.gate and ns.requirement and words):
         ap.error("--task, --gate, --requirement and --decision or --words-file are all required")

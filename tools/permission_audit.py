@@ -176,6 +176,7 @@ HYGIENE_CLASS_LABELS = [
     "cd",
     "journal write",
     "rollback shape",
+    "unbounded wait",
 ]
 
 # --- commands the harness auto-allows with no allowlist entry (a practical, trimmed list) ---
@@ -474,6 +475,8 @@ def classify_hygiene(command) -> list[str]:
         classes.append("journal write")
     if signals["rollback_forms"]:
         classes.append("rollback shape")
+    if signals.get("wait_loops"):       # .get: a gate copy older than G1 (the CLI's folder copy) has no such key
+        classes.append("unbounded wait")
     return classes
 
 

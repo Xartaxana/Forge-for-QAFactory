@@ -125,28 +125,44 @@
       "id": "test_identity", "inventory": "G5", "vocabulary": "code",
       "decides": "an old result or probe still speaks for this test (the same test); a non-match is an unknown and the answer is to run again",
       "sites": [
-        {"file": "proof_level.py", "function": "same_test", "role": "accept"},
+        {"file": "proof_level.py", "function": "same_test", "role": "produce"},
         {"file": "proof_level.py", "function": "instance_identity", "role": "produce"},
-        {"file": "proof_level.py", "function": "already_probed", "role": "accept"},
+        {"file": "proof_level.py", "function": "already_probed", "role": "accept", "allow": [
+          {"compare": "hit['holds'] in ('instance_code', 'file_code')", "why": "picks the words shown, not an acceptance"}]},
+        {"file": "proof_level.py", "function": "_product_receipt_repeat", "role": "accept"},
+        {"file": "proof_level.py", "function": "_run_freshness", "role": "accept", "allow": [
+          {"compare": "('unknown', WHY_RUN_NO_IDENTITY)", "why": "a state the function returns to its caller, not an acceptance of an identity word"},
+          {"compare": "('unknown', why or WHY_RUN_NOT_COMPARED)", "why": "a state the function returns to its caller, not an acceptance of an identity word"}]},
+        {"file": "proof_level.py", "function": "_evaluate", "role": "accept", "allow": [
+          {"compare": "how in ('instance_code', 'file_code')", "why": "the over-comments display flag, not an acceptance"}]},
+        {"file": "proof_level.py", "function": "_stale_receipt", "role": "produce"},
         {"file": "execution_request.py", "function": "instance_shas", "role": "produce"},
         {"file": "execution_request.py", "function": "_match", "role": "accept"},
-        {"file": "execution_request.py", "function": "green_over_same_bytes", "role": "accept"}
+        {"file": "execution_request.py", "function": "green_over_same_bytes", "role": "validate"}
       ],
       "field": null,
-      "words": ["raw", "instance", "instance_code", "file_code"],
+      "words": ["raw", "instance", "instance_code", "file_code", "same", "different", "unknown"],
       "verdict_map": {
         "raw": {"class": "matched"},
         "instance": {"class": "matched"},
         "instance_code": {"class": "matched"},
-        "file_code": {"class": "matched"}
+        "file_code": {"class": "matched"},
+        "same": {"class": "matched"},
+        "different": {"class": "mismatched"},
+        "unknown": {"class": "unknown", "owner": "environment"}
       },
-      "accepts": {},
+      "accepts": {
+        "test_identity.probe_repeat": ["matched"],
+        "test_identity.run_reuse": ["matched"],
+        "test_identity.run_fresh": ["matched"],
+        "test_identity.receipt_holds": ["matched"]
+      },
       "promotable": false,
       "unknown_branch": "rerun", "on_no_answer": "rerun", "waits_at": null,
       "closed_by": [], "addressee": ["code_routes", "role:qa-automator"], "person_subject": null,
       "policy_file": null, "scope_keys": [], "binding_keys": [], "question_kind": null,
       "test": "scripts/tests/test_proof_level.py",
-      "status": "debt", "debt_ref": "B-217", "exempt_reason": ""
+      "status": "converted", "debt_ref": "", "exempt_reason": ""
     },
     {
       "id": "collected_ids", "inventory": "G6", "vocabulary": "code",
@@ -227,26 +243,30 @@
       "status": "converted", "debt_ref": "", "exempt_reason": ""
     },
     {
-      "id": "s5_window", "inventory": "G10", "vocabulary": "target",
-      "decides": "the S5 window is acceptable: run blocks, receipts, reviews and expectation changes agree (an unmeasured detector is a gap closed by the critic, never a pass)",
+      "id": "s5_window", "inventory": "G10", "vocabulary": "code",
+      "decides": "the S5 window is acceptable: run blocks, receipts, reviews and expectation changes agree; the critic's review word closes an instance's review only as the instance allows - `approved` for a test that ran with its proof, `unverified` (a static review) for one the stand blocked or whose probe could not run here, either for one handed to the person; `unverified` closes the review only: the instance stays unresolved (`story_step.py finish` derives the pair, and the report lists it as left with the person, D-0013), so it is never a pass - and any other word or none is a review gap the critic closes; a detector that could not measure is said as an INFO line with its reason (owner role: the critic reads it in the window), never a pass and never silence",
       "sites": [
         {"file": "acceptance.py", "function": "validate_window", "role": "accept"},
-        {"file": "window_record.py", "function": "verdict", "role": "accept"}
+        {"file": "window_record.py", "function": "verdict", "role": "produce"},
+        {"file": "window_record.py", "function": "build", "role": "produce"}
       ],
       "field": null,
-      "words": ["matched", "mismatched", "unknown"],
+      "words": ["approved", "unverified"],
       "verdict_map": {
-        "matched": {"class": "matched"},
-        "mismatched": {"class": "mismatched"},
-        "unknown": {"class": "unknown", "owner": "role"}
+        "approved": {"class": "matched"},
+        "unverified": {"class": "not_applicable", "reason_code": "static_review"}
       },
-      "accepts": {},
+      "accepts": {
+        "s5_window.review": ["matched"],
+        "s5_window.static_review": ["not_applicable:static_review"],
+        "s5_window.handed_review": ["matched", "not_applicable:static_review"]
+      },
       "promotable": false,
       "unknown_branch": "question", "on_no_answer": "wait", "waits_at": "window_acceptance",
       "closed_by": ["role:qa-code-critic", "person"], "addressee": ["role:qa-code-critic"], "person_subject": null,
       "policy_file": null, "scope_keys": [], "binding_keys": [], "question_kind": null,
       "test": "scripts/tests/test_window_record.py",
-      "status": "debt", "debt_ref": "B-179", "exempt_reason": ""
+      "status": "converted", "debt_ref": "", "exempt_reason": ""
     },
     {
       "id": "delivery", "inventory": "G11", "vocabulary": "code",
@@ -333,26 +353,27 @@
       "status": "converted", "debt_ref": "", "exempt_reason": ""
     },
     {
-      "id": "baseline_identity", "inventory": "G15", "vocabulary": "target",
-      "decides": "the before-state evidence was captured on the approved old build (identity on the OLD build stays code-proven: a person's word never stands in for it)",
+      "id": "baseline_identity", "inventory": "G15", "vocabulary": "code",
+      "decides": "the before-state evidence was captured on the approved old build: a request whose runtime does not name the approved before revision is refused with its door (validate_baseline_request), and a receipt counts as before-evidence only when its status is `captured` and its identity, gate and evidence hashes match; `inconclusive`, any other word or none leaves an awaiting_baseline gap, never a pass (identity on the OLD build stays code-proven: a person's word never stands in for it)",
       "sites": [
         {"file": "baseline_contract.py", "function": "validate_baseline_request", "role": "validate"},
-        {"file": "baseline_contract.py", "function": "deployment_readiness", "role": "accept"}
+        {"file": "baseline_contract.py", "function": "deployment_readiness", "role": "accept"},
+        {"file": "baseline_contract.py", "function": "baseline_receipt", "role": "produce"},
+        {"file": "manual_evidence.py", "function": "write_baseline_receipt", "role": "produce"}
       ],
-      "field": null,
-      "words": ["matched", "mismatched", "unknown"],
+      "field": "status",
+      "words": ["captured", "inconclusive"],
       "verdict_map": {
-        "matched": {"class": "matched"},
-        "mismatched": {"class": "mismatched"},
-        "unknown": {"class": "unknown", "owner": "environment"}
+        "captured": {"class": "matched"},
+        "inconclusive": {"class": "unknown", "owner": "environment"}
       },
-      "accepts": {"provenance.baseline": ["matched", "not_applicable"]},
+      "accepts": {"baseline_identity.readiness": ["matched"]},
       "promotable": false,
       "unknown_branch": "refuse_with_door", "on_no_answer": "refuse_with_door", "waits_at": null,
       "closed_by": [], "addressee": ["code_routes"], "person_subject": null,
       "policy_file": null, "scope_keys": [], "binding_keys": [], "question_kind": null,
       "test": "scripts/tests/test_baseline_contract.py",
-      "status": "debt", "debt_ref": "B-281", "exempt_reason": ""
+      "status": "converted", "debt_ref": "", "exempt_reason": ""
     },
     {
       "id": "witness_backstop", "inventory": "G16", "vocabulary": "target",

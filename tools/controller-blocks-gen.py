@@ -349,6 +349,9 @@ BY_SEGMENT = {
     # `_half_membership_problems`, one per cause, each with its door; an unreadable plan has the S6 person's-word block.
     # t-1455 q1: `prepare` with a derived EMPTY automated half; q3: `validate`'s empty-scope check over a plan that cannot be read
     "raise StateConflict(unreadable[0])": ("person", "the sentence of `_unreadable_plan_problems` already passed through `_passed_by_person`: a plan that cannot be read stops the empty-scope check of S6 until the person's word (`waiver.py --stage S6 --block \"S6 half membership: unreadable\"`) and of S5 until the person's word (`waiver.py --stage S5 --block \"S5 scope: unreadable\"`), or a repaired plan"),
+    # C3-reg-precondition (card item 2): ONE site, the dispatch branch of `validate`: the plugin's `references/gate-registry.json` cannot be read.
+    # A defect of the install (FR-3), refused before any dispatch is committed; the person's word passes it (FR-4).
+    "raise StateConflict(registry_blocking[0])": ("person", "a factory defect (FR-3): reinstall or update the plugin, then start the stage again; a person's recorded words pass it (`waiver.py --stage <S> --block \"gate registry unreadable\" --words-file <file>`), and the stage then runs with every converted site refusing reuse (C3-0 E2)"),
     "raise StateConflict(self.automation_half_refusal(refused))": ("command", "the refusal lists each cause with its door: a manual block for a manual-agent case, leaving a handed case out, `--operation stage-scope` with `execution_kind: automation` for the cases the half may name; a plan that cannot be read is passed by the person's word (`waiver.py --stage S6 --block \"S6 half membership: unreadable\"`)"),
     # FB-9: `build_rework_request` forwards the sentences of `_rework_kind` and `_rework_block_problems` (with the membership check of
     # `_half_membership_problems`) whole: each says what is wrong in the call's cases and carries its own door (FR-1).
@@ -371,6 +374,33 @@ BY_SEGMENT = {
 }
 
 
+def unwrapped_segment(src, node, message):
+    """The source of `node` with the MESSAGE node read as its bare one. A message that is `refusal(id, text)` or
+    `DV.refusal(id, text)` with at least two positional arguments (t-1108: a command refusal carries its row id at the
+    site) reads as `text`, unwrapped again while it is itself such a call. ERROR DIRECTION: only toward NOT unwrapping;
+    a call this does not recognise stays wrapped, its head becomes the id, and the walk fails loudly."""
+    segment = ast.get_source_segment(src, node) or ""
+    inner = message
+    while is_refusal_wrapper(inner):
+        inner = inner.args[1]
+    if inner is message:
+        return segment
+    wrapper, bare = ast.get_source_segment(src, message), ast.get_source_segment(src, inner)
+    if not wrapper or bare is None or wrapper not in segment:
+        return segment
+    return segment.replace(wrapper, bare, 1)
+
+
+def is_refusal_wrapper(node) -> bool:
+    if not (isinstance(node, ast.Call) and len(node.args) >= 2
+            and not any(isinstance(arg, ast.Starred) for arg in node.args[:2])):
+        return False
+    func = node.func
+    return ((isinstance(func, ast.Name) and func.id == "refusal")
+            or (isinstance(func, ast.Attribute) and func.attr == "refusal"
+                and isinstance(func.value, ast.Name) and func.value.id == "DV"))
+
+
 def collect_rows(src: str, classes) -> list:
     """Every block of `src` - a `raise <refusal class>(...)` and a collected `(Class, message)` pair - as
     {line, fn, cls, seg, head}. `src` is the controller's text unless a test hands its own."""
@@ -388,8 +418,8 @@ def collect_rows(src: str, classes) -> list:
 
         visit_AsyncFunctionDef = visit_FunctionDef
 
-        def block(self, node, cls_name):
-            seg = " ".join((ast.get_source_segment(src, node) or "").split())
+        def block(self, node, cls_name, message=None):
+            seg = " ".join((unwrapped_segment(src, node, message) if message is not None else ast.get_source_segment(src, node) or "").split())
             lit = LIT.search(seg)
             text = (lit.group(1) if lit else "").strip()
             # A literal that is only a joiner (`"; "`, `". "`) says nothing about the
@@ -402,7 +432,7 @@ def collect_rows(src: str, classes) -> list:
         def visit_Raise(self, node):
             exc = node.exc
             if isinstance(exc, ast.Call) and isinstance(exc.func, ast.Name) and exc.func.id in classes:
-                self.block(node, exc.func.id)
+                self.block(node, exc.func.id, exc.args[0] if exc.args else None)
             self.generic_visit(node)
 
         def visit_ExceptHandler(self, node):
@@ -417,7 +447,7 @@ def collect_rows(src: str, classes) -> list:
             first, second = (node.elts + [None, None])[:2]
             if (len(node.elts) == 2 and isinstance(first, ast.Name) and first.id in classes
                     and not (isinstance(second, ast.Name) and second.id in classes)):
-                self.block(node, first.id)
+                self.block(node, first.id, second)
             self.generic_visit(node)
 
     V().visit(tree)

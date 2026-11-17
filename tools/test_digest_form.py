@@ -2,7 +2,7 @@
 
 The invariant under test is I1: the reader may flag too much but must never say "no flags" about a claim without a trail, or a
 negative without a positive control of the same call shape; and I2: it only reports. The example of the form is read from the
-note docs/tasks/exchange-form.md, so the note and the reader cannot drift apart. Edges are the spec's section 5 (E1-E11).
+fixture tools/fixtures/digest_form/t-794.md and the flag list from .claude/agents/scout.md, so the docs and the reader cannot drift apart. Edges are the spec's section 5 (E1-E11).
 
 Run from the repo root: python -m pytest tools/test_digest_form.py -q
 """
@@ -23,7 +23,8 @@ sys.path.insert(0, str(TOOLS))
 import digest_form as DF  # noqa: E402
 import md_table  # noqa: E402
 
-NOTE = ROOT / "docs" / "tasks" / "exchange-form.md"
+FIXTURE = ROOT / "tools" / "fixtures" / "digest_form" / "t-794.md"
+SCOUT = ROOT / ".claude" / "agents" / "scout.md"
 HARNESS = ROOT / "gateway" / "PI_HARNESS.md"
 DASH = "—"
 
@@ -65,14 +66,14 @@ def flags_of(text):
 
 
 def example_block(text=None):
-    """The t-794 example of the note: the fenced block that starts with its key line."""
-    text = NOTE.read_text(encoding="utf-8") if text is None else text
+    """The t-794 example of the fixture: the fenced block that starts with its key line."""
+    text = FIXTURE.read_text(encoding="utf-8") if text is None else text
     blocks = re.findall(r"^```\n(digest: v1 t-794\n.*?)\n```$", text, re.S | re.M)
-    assert len(blocks) == 1, "the note must carry the t-794 example exactly once"
+    assert len(blocks) == 1, "the fixture must carry the t-794 example exactly once"
     return blocks[0]
 
 
-# ----- the example of the note, the clean case, no key -----------------------------------------------------------------
+# ----- the example of the fixture tools/fixtures/digest_form/t-794.md, the clean case, no key -----------------------------------------------------------------
 
 def test_the_example_of_the_note_flags_exactly_the_two_it_names():
     d = DF.parse(example_block())
@@ -110,12 +111,12 @@ def emitted_flag_names(source):
 
 def test_the_flag_name_list_is_the_one_list_the_reader_note_and_corpus_agree_with():
     """t-863 (F6-14, the third item of t-808's leftovers): FLAG_NAMES lives once, in digest_form, and is checked against the code that
-    EMITS the flags (a new flag in the reader but not in the list fails here), against the note, and against the real flags of every
+    EMITS the flags (a new flag in the reader but not in the list fails here), against scout.md rules 10-11, and against the real flags of every
     probe of this file."""
     source = Path(DF.__file__).read_text(encoding="utf-8")
     assert emitted_flag_names(source) == set(DF.FLAG_NAMES) | set(DF.TRANSCRIPT_FLAG_NAMES)
     assert len(set(DF.FLAG_NAMES)) == len(DF.FLAG_NAMES)
-    note = NOTE.read_text(encoding="utf-8")
+    note = SCOUT.read_text(encoding="utf-8")
     assert [n for n in DF.FLAG_NAMES if n not in note] == []
     seen = {f.split(":")[0] for _, text in UNCOMFORTABLE for f in flags_of(text)} | {f.split(":")[0] for f in flags_of(example_block())}
     assert seen <= set(DF.FLAG_NAMES)
@@ -668,7 +669,7 @@ def test_the_pi_harness_teaches_the_v1_form_with_the_names_of_the_reader():
     constants, so a rename in the reader fails here; and the old form ("End with a Trail block") is gone."""
     text = " ".join(HARNESS.read_text(encoding="utf-8").split())            # the prompt is wrapped: compare single-spaced
     wanted = ["digest: v1 <task_id>", *("## " + name for name in DF.KNOWN_SECTIONS),
-              "`| " + " | ".join(DF.OBJECTS_HEADER) + " |`", "`| " + " | ".join(DF.TRAIL_HEADER) + " |`", "docs/tasks/exchange-form.md"]
+              "`| " + " | ".join(DF.OBJECTS_HEADER) + " |`", "`| " + " | ".join(DF.TRAIL_HEADER) + " |`", ".claude/agents/scout.md"]
     assert [w for w in wanted if w not in text] == []
     assert "End with a" not in text and "Answer as a DIGEST" not in text
 

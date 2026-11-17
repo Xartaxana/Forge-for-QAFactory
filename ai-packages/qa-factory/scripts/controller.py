@@ -42,8 +42,9 @@ import time
 import event_store
 from event_store import (DerivedViewStale, EventCommitted, EventStore, IdempotencyKeyReused, StateConflict, atomic_json,
                          content_hash, retry_shared, shared_file)
-from hooklib import (CLOSED_AT, ORDERS_DUE, REOPENED_AT, STOP_VALUES, gate_orders, load_config, sorted_paths,
-                     story_closed, story_closure, story_root, story_root_at)
+from hooklib import (CLOSED_AT, ORDERS_DUE, REOPENED_AT, STOP_VALUES, append_jsonl_line, gate_orders, load_config,
+                     sorted_paths, story_closed, story_closure, story_root, story_root_at)
+import detector_verdict as DV
 import person_words
 from record_schema import validate_record
 from runtime_policy import (repair_cap, resolve_model, checkpoint_due, cumulative_budget,
@@ -2416,43 +2417,42 @@ class Controller:
         path = self.store.root / "state" / "passed-by-person.jsonl"
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            with path.open("a", encoding="utf-8") as handle:
-                for item in passed:
-                    block = str((item or {}).get("error") or "")
-                    line = {
-                        "ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + "+00:00",
-                        "stage": str(stage or ""), "dispatch": str(dispatch_id or ""),
-                        "block": block[:400],
-                        "decision": str((item or {}).get("decision") or "")[:1000],
-                        "by": str((item or {}).get("by") or "human"),
-                    }
-                    # AR-24: the cuts above lose nothing the report needs. `word_at` is the `at` of the person's word in
-                    # `pipeline.json.stage_overrides[]` - the pointer to the word WHOLE; `finding_id` holds a block that was
-                    # cut whole in the same line. Old lines carry neither: a reader never requires them.
-                    if str((item or {}).get("at") or ""):
-                        line["word_at"] = str(item["at"])
-                    if len(block) > 400:
-                        line["finding_id"] = block
-                    # FV1-30b: the finding's own parts and WHICH instances / Thens it was about (`waiver.person_passes` reads
-                    # them back); each only when it has a value, so a pass of a finding with no subjects is the line it was.
-                    # `subjects` is cut at 200 entries with the whole count beside it: the reader names only the 200 listed, so a
-                    # cut never passes an instance it does not list.
-                    for key in ("check", "case", "tag"):
-                        if str((item or {}).get(key) or ""):
-                            line[key] = str(item[key])
-                    subjects = [s for s in ((item or {}).get("subjects") or []) if isinstance(s, dict)]
-                    if subjects:
-                        line["subjects"] = subjects[:200]
-                        if len(subjects) > 200:
-                            line["subjects_cut"] = len(subjects)
-                    handle.write(json.dumps(line, ensure_ascii=False) + "\n")
+            for item in passed:
+                block = str((item or {}).get("error") or "")
+                line = {
+                    "ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + "+00:00",
+                    "stage": str(stage or ""), "dispatch": str(dispatch_id or ""),
+                    "block": block[:400],
+                    "decision": str((item or {}).get("decision") or "")[:1000],
+                    "by": str((item or {}).get("by") or "human"),
+                }
+                # AR-24: the cuts above lose nothing the report needs. `word_at` is the `at` of the person's word in
+                # `pipeline.json.stage_overrides[]` - the pointer to the word WHOLE; `finding_id` holds a block that was
+                # cut whole in the same line. Old lines carry neither: a reader never requires them.
+                if str((item or {}).get("at") or ""):
+                    line["word_at"] = str(item["at"])
+                if len(block) > 400:
+                    line["finding_id"] = block
+                # FV1-30b: the finding's own parts and WHICH instances / Thens it was about (`waiver.person_passes` reads
+                # them back); each only when it has a value, so a pass of a finding with no subjects is the line it was.
+                # `subjects` is cut at 200 entries with the whole count beside it: the reader names only the 200 listed, so a
+                # cut never passes an instance it does not list.
+                for key in ("check", "case", "tag"):
+                    if str((item or {}).get(key) or ""):
+                        line[key] = str(item[key])
+                subjects = [s for s in ((item or {}).get("subjects") or []) if isinstance(s, dict)]
+                if subjects:
+                    line["subjects"] = subjects[:200]
+                    if len(subjects) > 200:
+                        line["subjects_cut"] = len(subjects)
+                append_jsonl_line(path, json.dumps(line, ensure_ascii=False))   # AR-14, axis 29: the one appender
         except OSError as exc:  # a record that cannot be written must not fail the pass itself
             print(f"passed-by-person: not recorded ({type(exc).__name__}: {exc})", file=sys.stderr)
 
     def _record_s5_word_passes(self, d, state):
         """Record, by name, every finding of the S5 exit that a person's recorded word passed (FV1-30a): the one road is
-        `s5_precheck.word_passes` (PURE; the same judgment the exit gate made, `*` and a tag word included) and the one writer
-        `_record_person_pass`. Called only for an ACCEPTED S5 completion. A recording that cannot be made - `s5_precheck` does not
+        `s5_precheck.word_passes` (PURE; the same judgment the exit gate made, `*` and a tag word included) and the one note road
+        `_note_pass` (the row is written by `apply` once the event is in). Called only for an ACCEPTED S5 completion. A recording that cannot be made - `s5_precheck` does not
         import, `word_passes` raises - never refuses the completion and is never silent: one stderr line, like an `OSError`
         in the writer. The same completion accepted twice may write the same line twice; the reader collapses them (no state here
         to prevent it)."""
@@ -2462,10 +2462,30 @@ class Controller:
         except Exception as exc:
             print(f"passed-by-person: not recorded ({type(exc).__name__}: {exc})", file=sys.stderr)
             return
-        self._record_person_pass("S5", d.get("id"), [
+        self._note_pass("S5", [
             {"error": row["finding_id"], "decision": row["decision"], "at": row["at"], "by": "human",
              "check": row.get("check"), "case": row.get("case"), "tag": row.get("tag"), "subjects": row.get("subjects")}
             for row in rows])
+
+    _passes = None   # [(stage, item)] the person's passes `validate` met, while `apply` holds one commit open; else None
+
+    def _note_pass(self, stage, passed):
+        """RD1-31 (FR-4, P13, AR-24): a block that a person's word passed is KEPT, not dropped. `_note_pass` is the ONE note road: `_passed_by_person` calls it for a split word, the hand-built passes
+        (the person_words look, the window record's probe-gap and review words, `s5_precheck.word_passes`) call it directly. `apply`
+        records what was noted once the event is in, so an operation refused later (by any other block) leaves no row. One row per passed block: the same block met twice in one operation is noted once."""
+        if self._passes is None:
+            return
+        for item in passed or ():
+            if (stage, item) not in self._passes:
+                self._passes.append((stage, item))
+
+    def _record_noted_passes(self, dispatch_id, noted):
+        """Write what `_note_pass` collected, grouped by stage in the order met (`_record_person_pass` is the one writer)."""
+        by_stage = {}
+        for stage, item in noted or ():
+            by_stage.setdefault(stage, []).append(item)
+        for stage, items in by_stage.items():
+            self._record_person_pass(stage, dispatch_id, items)
 
     def _passed_by_person(self, stage, errors):
         """(still blocking, passed by a person's recorded word) — the factory's standing rule.
@@ -2477,9 +2497,11 @@ class Controller:
         try:
             pipeline = json.loads((self.store.root / "pipeline.json").read_text(encoding="utf-8"))
             from waiver import split_overridden
-            return split_overridden(list(errors), pipeline if isinstance(pipeline, dict) else {}, stage)
+            blocking, passed = split_overridden(list(errors), pipeline if isinstance(pipeline, dict) else {}, stage)
         except (OSError, ValueError, ImportError):
             return list(errors), []
+        self._note_pass(stage, passed)
+        return blocking, passed
 
     def _case_rows(self, state):
         """case id -> plan row id for the approved scope, with every row's disposition.
@@ -3735,21 +3757,21 @@ class Controller:
         problems = []
         stage_ok = stage.startswith("S") and stage[1:].isdigit() and 0 <= int(stage[1:]) <= 9
         if not stage_ok:
-            problems.append((ValueError, f"stage {stage!r} must be one of: " + ", ".join(f"S{i}" for i in range(10))))
+            problems.append((ValueError, DV.refusal("controller:rework.args", f"stage {stage!r} must be one of: " + ", ".join(f"S{i}" for i in range(10)))))
         if purpose not in PURPOSES:
-            problems.append((ValueError, f"purpose {purpose!r} must be one of: " + ", ".join(sorted(PURPOSES))))
+            problems.append((ValueError, DV.refusal("controller:rework.args", f"purpose {purpose!r} must be one of: " + ", ".join(sorted(PURPOSES)))))
         reopen = self._reopen_stamp(state, reason)
         if not str(reason or "").strip():
             if reopen:
-                problems.append((ValueError, "this story is closed (gate B is decided and S8 is done), and "
+                problems.append((ValueError, DV.refusal("controller:rework.args", "this story is closed (gate B is decided and S8 is done), and "
                                              "rework of a closed story REOPENS it — which is a person's "
                                              "decision, not the factory's. `--reason \"<their own words>\"` "
                                              "records it; it is written into pipeline.json as "
-                                             "`reopened_by_words` beside `reopened_at`."))
+                                             "`reopened_by_words` beside `reopened_at`.")))
             else:
-                problems.append((ValueError, "--reason must say what this round repairs; it is what the role reads"))
+                problems.append((ValueError, DV.refusal("controller:rework.args", "--reason must say what this round repairs; it is what the role reads")))
         if cause and cause not in REPAIR_CAUSES:
-            problems.append((ValueError, f"--cause {cause!r} must be one of: " + ", ".join(REPAIR_CAUSES)))
+            problems.append((ValueError, DV.refusal("controller:rework.args", f"--cause {cause!r} must be one of: " + ", ".join(REPAIR_CAUSES))))
         # t-2181 PC-6 (C12; t-2277 J-C8): a story HELD FOR CODE refuses the rework of any stage from `held_from` (the story's state,
         # so a StateConflict, FR-46) and, once the person stopped the wait, any rework of the stages below it that is not their
         # words. INVARIANT: no dispatch of a stage the hold keeps closed is built here, and a STOPPED story is reopened only by
@@ -3783,15 +3805,15 @@ class Controller:
             import check_delivery
             author = (acceptance.stage_def_of("S7").get("roles") or [""])[0]
             if stage != "S7" or role != author:
-                problems.append((ValueError, f"--candidates sends the S7 failure analyst back over bug candidates; for {stage} {role} name "
-                                             "`--cases` (S4 and later) or `--rows` (S1-S3)"))
+                problems.append((ValueError, DV.refusal("controller:rework.args", f"--candidates sends the S7 failure analyst back over bug candidates; for {stage} {role} name "
+                                             "`--cases` (S4 and later) or `--rows` (S1-S3)")))
             if wanted or wanted_rows:
-                problems.append((ValueError, "--candidates and --cases/--rows together: name one of them"))
+                problems.append((ValueError, DV.refusal("controller:rework.args", "--candidates and --cases/--rows together: name one of them")))
             found, unreadable = check_delivery.bug_candidates(self.store.root)
             known_refs = [item["ref"] for item in found]
             refused = [ref for ref in wanted_candidates if ref not in known_refs]
             if refused:
-                problems.append((ValueError, check_delivery.candidate_refusal(refused, known_refs, unreadable)))
+                problems.append((ValueError, DV.refusal("controller:rework.args", check_delivery.candidate_refusal(refused, known_refs, unreadable))))
         sent_back = (self._consumer_reject_parent(state, stage, role)
                      if stage_ok and not wanted and not wanted_candidates else None)
         if sent_back:
@@ -3800,20 +3822,20 @@ class Controller:
             # RH1-10 (DC1-13, B-AC4): the refusal names a door. Its receivers are the direct `--operation rework` callers (the
             # driver's roads never reach it: `no_move.check_args` and `answer_pairs_owed` stop an empty S4+ list first). It names
             # only what `rework` takes: `--cases`; `execution_kind` is a `stage-scope` parameter, not a `rework` one.
-            problems.append((ValueError, "--cases must name at least one case of the approved scope: `controller.py --operation "
+            problems.append((ValueError, DV.refusal("controller:rework.args", "--cases must name at least one case of the approved scope: `controller.py --operation "
                                          "stage-scope` lists them"
                                          + (f"; S6 is reworked one half per call: `--cases` of the manual half (at most "
                                             f"{MANUAL_BLOCK_CASES}) or of the automated half — `stage-scope` with `execution_kind` "
                                             "lists each" if stage == "S6" and role == "qa-runner"
-                                            and state.get("plan_contract_mode") == "new" else "")))
+                                            and state.get("plan_contract_mode") == "new" else ""))))
         # N-3: `wanted` is canonicalised ONCE, by the helper `dispatch` refuses with (I1: a person writes `TC-004`, or
         # `session-feedback/TC-004`); the canonical list feeds the scope, the pins' links and `_rerun_stamp` alike.
         canonical, outside = self._outside_approved(wanted, state.get("scope") or [])
         unknown = [member for member, _ in outside]
         if unknown:
-            problems.append((ValueError, f"case(s) outside the approved scope: {', '.join(unknown)}; the approved "
+            problems.append((ValueError, DV.refusal("controller:rework.args", f"case(s) outside the approved scope: {', '.join(unknown)}; the approved "
                                          f"scope is {', '.join(sorted(map(str, state.get('scope') or []))) or 'empty'}"
-                                         + self._scope_door(state.get("scope"), wanted)))
+                                         + self._scope_door(state.get("scope"), wanted))))
         if wanted_rows:
             known = []
             try:
@@ -3824,8 +3846,8 @@ class Controller:
                 known = []
             missing = [row for row in wanted_rows if known and row not in known]
             if missing:
-                problems.append((ValueError, f"plan row(s) not in the approved plan: {', '.join(missing)}; "
-                                             f"the plan has {', '.join(known)}"))
+                problems.append((ValueError, DV.refusal("controller:rework.args", f"plan row(s) not in the approved plan: {', '.join(missing)}; "
+                                             f"the plan has {', '.join(known)}")))
         prior = [d for d in state.get("dispatches", {}).values()
                  if d.get("stage") == stage and d.get("role") == role and d.get("status") == "accepted"]
         # FB-9 (R12): a new-mode qa-runner packet says which half it runs, and a manual rework is a manual BLOCK. The kind comes
@@ -3834,7 +3856,7 @@ class Controller:
         kind = None
         if stage_ok and role == "qa-runner" and state.get("plan_contract_mode") == "new":
             kind, kind_problems = self._rework_kind(stage, state, canonical, prior)
-            problems.extend((ValueError, text) for text in kind_problems)
+            problems.extend((ValueError, DV.refusal("controller:rework.runner_half", text)) for text in kind_problems)
             if kind:
                 prior = [d for d in prior if self._record_kind(d) == kind]
             if kind == "manual":
@@ -3858,23 +3880,23 @@ class Controller:
                     if d.get("stage") == stage and d.get("role") == role and d.get("status") in OPEN_AFTER_CLOSURE
                     and (stage != "S5" or (s5_part_of(d) == "plan") == (purpose == S5_PLAN))]
             if stage == "S5" and purpose == S5_PLAN and not live:
-                problems.append((ValueError, f"no accepted S5 plan dispatch of {role} to rework; a plan never accepted is "
-                                             f"dispatched with `story_step.py start --purpose s5_plan`"))
+                problems.append((ValueError, DV.refusal("controller:rework.args", f"no accepted S5 plan dispatch of {role} to rework; a plan never accepted is "
+                                             f"dispatched with `story_step.py start --purpose s5_plan`")))
             elif stage == "S5" and other_kind and not live:
-                problems.append((ValueError, f"no accepted S5 window of {role} yet; the plan is reworked with "
-                                             f"`--purpose s5_plan`"))
+                problems.append((ValueError, DV.refusal("controller:rework.args", f"no accepted S5 window of {role} yet; the plan is reworked with "
+                                             f"`--purpose s5_plan`")))
             elif live:
                 found = live[-1]
-                problems.append((ValueError, f"no accepted {role} dispatch on {stage} to rework: {found.get('id')} is "
+                problems.append((ValueError, DV.refusal("controller:rework.args", f"no accepted {role} dispatch on {stage} to rework: {found.get('id')} is "
                                              f"{found.get('status')}, not accepted, and a rework sends back accepted work only. "
                                              f"To give {found.get('id')} another turn, the driver resumes it (answer `continue` "
                                              "after recording nothing); to start it again from its brief, "
                                              f"`release --dispatch {found.get('id')} --words-file <their words>` and `next` "
-                                             f"relaunches it; accepted roles on {stage}: {', '.join(roles) or 'none'}"))
+                                             f"relaunches it; accepted roles on {stage}: {', '.join(roles) or 'none'}")))
             else:
-                problems.append((ValueError, f"no accepted {role} dispatch on {stage} to rework"
+                problems.append((ValueError, DV.refusal("controller:rework.args", f"no accepted {role} dispatch on {stage} to rework"
                                              + (f" ({kind} half)" if kind else "") + f"; accepted roles on "
-                                             f"{stage}: {', '.join(roles) or 'none'}"))
+                                             f"{stage}: {', '.join(roles) or 'none'}")))
         parent, resumable = None, True       # None: the last accepted record of the kind (S1-S4, S6-S9, the plan)
         if stage_ok and kind == "manual" and prior:
             # E25: the parent of a manual rework is the block that HOLDS the case (the last accepted one of the half meeting the
@@ -3886,11 +3908,11 @@ class Controller:
         if stage_ok and stage == "S5" and purpose != S5_PLAN and prior:
             parent, resumable, spans = self._s5_window_parent(state, prior, canonical)
             if len(spans) > 1 and not words_given:      # F5: a person's words over several windows are not refused
-                problems.append((ValueError, f"--cases meets {len(spans)} windows of S5 ({'; '.join(spans)}); a rework of a window "
+                problems.append((ValueError, DV.refusal("controller:rework.args", f"--cases meets {len(spans)} windows of S5 ({'; '.join(spans)}); a rework of a window "
                                              f"names the cases of ONE window. Door: rework each window by its own cases (`controller.py "
                                              f"--operation rework --stage S5 --role {role} --cases <the cases of one window> --reason "
                                              "<what to mend> --brief`); a rework over several windows is a person's words (`--words-file "
-                                             "<their words>`)"))
+                                             "<their words>`)")))
         if not stage_ok:   # FR-59: the two checks that did not run say so, they never read as a pass
             problems = self._noted(problems, "(the cases-required and accepted-dispatch checks did not run: "
                                              "they read the stage as a number)")
@@ -5204,13 +5226,25 @@ class Controller:
         # the plan baseline, which the dashboard should already see), then the derived-view
         # refresh when the block ends. A refresh failure therefore never skips `_after_commit`
         # and never undoes the commit.
+        # RD1-31: the collector is open for EVERY event (an event with no person pass notes nothing and writes nothing); a re-entrant
+        # `apply` keeps its own list and gives the outer one back, so one event's notes never reach another.
+        outer_passes, self._passes = self._passes, []
         try:
             with self.store.deferred_after_commit():
                 receipt = self.store.commit(EVENT_KIND.get(operation, operation), request, key, revision,
                                             lambda events, p: self.validate(operation, p, projection(events)),
                                             self.project)
+                # RD1-31. POSITION: right after the commit, BEFORE `_after_commit` and the derived-view refresh the block's exit runs
+                # (the dashboard reads these rows). INVARIANT: an operation refused (or never committed) leaves NO pass row; a
+                # committed one leaves exactly one row per block a person's word passed; no word at all writes nothing.
+                noted, self._passes = self._passes, None
+                self._record_noted_passes(request.get("id"), noted)
                 self._after_commit(operation, request, key=key, revision=revision)
         except StateConflict as exc:
+            if isinstance(exc, EventCommitted) and self._passes:
+                # `ProjectionStale` raised INSIDE `commit`: the event is durable, the collector still open. (`DerivedViewStale` comes at
+                # block exit, after the rows were written.) The row exists iff the event is committed.
+                self._record_noted_passes(request.get("id"), self._passes)
             committed = self._replayed_with_other_scope(exc, operation, request, current) if operation == "dispatch" else None
             if committed is None:
                 fields = self._revise_key_fields(exc, operation)
@@ -5236,6 +5270,8 @@ class Controller:
             raise IdempotencyKeyReused("idempotency key reused with different inputs: dispatch " + str(request.get("id"))
                                        + self._other_scope_text(committed, request, respelled),
                                        key=exc.key, fields=exc.fields) from exc
+        finally:
+            self._passes = outer_passes
         if expansions and isinstance(receipt, dict):
             # m-13: the receipt (the CLI's output, never the payload) lists the members written otherwise than spelt
             receipt = dict(receipt, scope_expansions=expansions)
@@ -5537,6 +5573,21 @@ class Controller:
             required = ("id", "stage", "role", "input_hash", "scope", "budget", "known_paths")
             if any(k not in p for k in required) or not p["input_hash"]:
                 raise ValueError("dispatch contract incomplete")
+            # C3-reg-precondition (F-T12 (a), F-T14 (a); AR-9, AR-15, AR-28). ONE stop for "the gate registry cannot be read", before
+            # any converted site refuses or loops on it. POSITION: after the contract check (a malformed request is the call's fault
+            # and stays a ValueError first, FR-46) and before the closure test; it reads only `p["stage"]`, which `required` gave.
+            # INVARIANT: no dispatch is committed on a registry that cannot be read; a registry that reads is never stopped here
+            # (a missing consumer is the site's own cause). The person's word passes it (FR-4); a cached failure only ever stops.
+            from gate_template import REGISTRY_BLOCK, registry_problem, registry_why
+            registry_reason = registry_problem()
+            if registry_reason:
+                registry_blocking, _ = self._passed_by_person(p["stage"], [
+                    f"{REGISTRY_BLOCK}: " + registry_why(registry_reason, "the plugin's references/gate-registry.json is missing or damaged. "
+                    "Owner: factory - a defect of the install, not of the story; nothing is wanted from you. Reinstall or update "
+                    "the qa-factory plugin (UPGRADE.md, step 3), then start the stage again. No stage starts until the file reads, "
+                    "because every reuse and review acceptance reads it.")])
+                if registry_blocking:
+                    raise StateConflict(registry_blocking[0])
             # THE closure test (B-331, C1-6a; M1 (d) as code on every road): the skill path can dispatch a packet by hand,
             # so the driver's question is not the only guard. After the fields are known to be there, before any other
             # check reads them.
@@ -5668,11 +5719,11 @@ class Controller:
                     blocking, _ = self._passed_by_person(p["stage"], errors)
                     if blocking:
                         raise StateConflict(
-                            blocking[0] + ". A mechanical fix is closed by the author's own "
+                            DV.refusal("controller:rework.cap", blocking[0] + ". A mechanical fix is closed by the author's own "
                             "green run on the new bytes, never by another review; a review "
                             "that has something new to say about the test is a `test_defect` "
                             "round. If a person wants the review anyway: "
-                            + repair_doors(p["stage"], [key]) + ".")
+                            + repair_doors(p["stage"], [key]) + "."))
                 elif cause == "mechanical":
                     allowed = self._dispatch_setting("mechanical_rounds")
                     had = mechanical_rounds(state["dispatches"], p)
@@ -5683,10 +5734,10 @@ class Controller:
                         blocking, _ = self._passed_by_person(p["stage"], errors)
                         if blocking:
                             raise StateConflict(
-                                blocking[0] + ". A second list of mechanical fixes means the "
+                                DV.refusal("controller:rework.cap", blocking[0] + ". A second list of mechanical fixes means the "
                                 "first was not applied as worded: send it as a `test_defect` "
                                 "round, or carry it as a named debt to the gate. If a person "
-                                "wants one more: " + repair_doors(p["stage"], [key]) + ".")
+                                "wants one more: " + repair_doors(p["stage"], [key]) + "."))
                 elif (cause == "test_defect" and ledger["opened"]
                       and cap is not None and spent >= cap):
                     counted = [r["id"] for r in ledger["rounds"] if r["cause"] == "test_defect"]
@@ -5702,7 +5753,7 @@ class Controller:
                     blocking, _ = self._passed_by_person(p["stage"], errors)
                     if blocking:
                         raise StateConflict(
-                            blocking[0] + ". " + free + "Otherwise carry what is left as a "
+                            DV.refusal("controller:rework.cap", blocking[0] + ". " + free + "Otherwise carry what is left as a "
                             "named debt to the gate instead of another round; a mechanical "
                             "fix the last review worded goes to the author as "
                             "`repair_cause: mechanical` and is closed by the author's own "
@@ -5711,7 +5762,7 @@ class Controller:
                             "author's and the critic's, from the same words: "
                             # The block words must be IN the refused line: `--block "repair
                             # cap"` was advertised here through 0.7.7 and matched nothing.
-                            + repair_doors(p["stage"], list(passes.values())) + ".")
+                            + repair_doors(p["stage"], list(passes.values())) + "."))
             if p.get("purpose") and p["purpose"] not in PURPOSES:
                 # "unsupported purpose; regression is user-owned" answered a question nobody
                 # had asked: a free-text purpose was rejected without naming one that works.
@@ -5945,10 +5996,10 @@ class Controller:
                     # without `acceptance_by` (S0, S1, S5, S8, S9) is refused nothing new; S4, S6 and S7 do not close without an `accept`
                     # record for the author's last dispatch, or a person's recorded word (P13).
                     from acceptance import stage_acceptance_refusal
-                    refusal, passed = stage_acceptance_refusal(self._pipeline(), d, state, self._passed_by_person)
+                    # the pass of a `stage acceptance` block is noted by `_passed_by_person`, the `split` handed over (RD1-31)
+                    refusal, _ = stage_acceptance_refusal(self._pipeline(), d, state, self._passed_by_person)
                     if refusal:
                         raise StateConflict(refusal)
-                    self._record_person_pass(d["stage"], d.get("id"), passed)
                 if d["stage"] == "S5" and p.get("stage_complete"):
                     # ONE list (K1): every independent gap of the window at once, in tiers; the
                     # tiers and what each one stops are in `_s5_completion_problems`.
@@ -5956,7 +6007,9 @@ class Controller:
                     self._raise_all(self._s5_running_beside_problems(d, state)
                                     + self._s5_completion_problems(d, p, state, review))
                     # POSITION (FV1-30a): only here, after the line above did not raise, i.e. when this S5 completion is ACCEPTED.
-                    # INVARIANT: a refused completion writes nothing.
+                    # INVARIANT: a refused completion writes nothing (the notes become rows only once the event is in).
+                    # `s5_precheck.word_passes` judges the manifest's findings and never names `mechanical round`: that block's pass
+                    # is noted by `_passed_by_person` where the round is judged.
                     self._record_s5_word_passes(d, state)
                 if d["stage"] == "S6" and p.get("stage_complete"):
                     # t-2147 TR3-9d (the S6 twin of the S5 backstop above): the code gate UNDER the driver's close predicate.
@@ -5980,6 +6033,7 @@ class Controller:
                             + person_words.door(f"waiver.py --task {self._ticket()} --stage S6 "
                                                 "--block \"derived scope\"") + "`."))
                     self._raise_all(s6_gaps)
+                    # RD1-31: the pass of `derived scope` is noted by `_passed_by_person` above; a refused S6 completion leaves no row.
             elif p["status"] == "accepted":
                 raise ValueError("checkpoint is not acceptance; use accept with validated evidence")
             elif not p.get("checkpoint") or not p.get("reason"):
@@ -6162,10 +6216,13 @@ class Controller:
             counts[str(message)] = counts.get(str(message), 0) + 1
         merged, seen = [], set()
         for cls, message in problems:
-            message = str(message)
-            if message not in seen:
-                seen.add(message)
-                merged.append((cls, message if counts[message] == 1 else f"{message} (×{counts[message]})"))
+            text = str(message)
+            if text not in seen:
+                seen.add(text)
+                # a problem that stands once keeps its own object (a `Record` keeps its `check`, t-1108); a folded one is a plain
+                # `str` and loses it
+                merged.append((cls, message if counts[text] == 1 and isinstance(message, str) else
+                               text if counts[text] == 1 else f"{text} (×{counts[text]})"))
         return merged
 
     @classmethod
@@ -6186,7 +6243,9 @@ class Controller:
         lines = [cls.COMPOUND_HEAD.format(n=len(merged))]
         lines += [f"{number}) " + message.replace("\n", "\n   ")
                   for number, (_, message) in enumerate(merged, 1)]
-        raise merged[0][0]("\n".join(lines))
+        exc = merged[0][0]("\n".join(lines))
+        exc.records = [message for _, message in merged if getattr(message, "check", "")]   # an attribute, never a constructor keyword
+        raise exc
 
     @staticmethod
     def _same_set(left, right):
@@ -6520,8 +6579,8 @@ class Controller:
         return request
 
     def _code_review_refusal(self, d, p):
-        """The code critic's unreceipted window as a one-item problem list, or [] (not a critic,
-        or nothing blocks). A person's recorded word passes a receipt, as at every other check."""
+        """The code critic's unreceipted window as a one-item problem list, or [] (not a critic, or nothing blocks).
+        A person's recorded word passes a receipt, as at every other check."""
         if d.get("role") != "qa-code-critic":
             return []
         blocking, _ = self._passed_by_person(d.get("stage") or "S5", self._code_review_problems(p))
@@ -6953,8 +7012,7 @@ class Controller:
                 except (OSError, ValueError):
                     said = []
                 if said:
-                    self._record_person_pass("S5", d.get("id"), [{"error": f"S5 {word}", "decision": said[0].get("decision"),
-                                                                  "by": said[0].get("by")}])
+                    self._note_pass("S5", [{"error": f"S5 {word}", "decision": said[0].get("decision"), "by": said[0].get("by")}])
                 else:
                     problems += self._plan_rework_rows_problems(
                         state, end, person_door=person_words.door(f"waiver.py --task {self._ticket()} --stage S5 --block \"{word}\""))
@@ -7037,16 +7095,14 @@ class Controller:
                     f"--cases {','.join(moved)} --reason <what changed> --brief`")
             line = f"S5 {WORD_PLAN_BEFORE_WINDOWS}: {what}"
             if d.get("person_words"):       # P13: the look was ordered in the person's own words; the pass is kept, not silent
-                self._record_person_pass("S5", d.get("id"), [{"error": line, "by": "human",
-                                                              "decision": "the look is a rework ordered in the person's own words"}])
+                self._note_pass("S5", [{"error": line, "by": "human",
+                                        "decision": "the look is a rework ordered in the person's own words"}])
             else:
-                blocking, passed = self._passed_by_person("S5", [line])
+                blocking, _ = self._passed_by_person("S5", [line])
                 if blocking:
                     problems.append((StateConflict, blocking[0] + ". " + then + end + " If a person decides, the conductor records "
                                      "their words: `" + person_words.door(f"waiver.py --task {self._ticket()} --stage S5 --block "
                                                                           f"\"{WORD_PLAN_BEFORE_WINDOWS}\"") + "`."))
-                else:
-                    self._record_person_pass("S5", d.get("id"), passed)
         return problems
 
     def _plan_look_missed(self, d, chain, root):
@@ -7128,7 +7184,6 @@ class Controller:
                     "(the other window checks did not run: they read the record)")
             if review:
                 return review  # the word passed the missing record, not the unreceipted review
-            self._record_person_pass("S5", d.get("id"), passed)
             print("S5 window acceptance record: passed by a person's recorded word — "
                   + str((passed[0] or {}).get("decision") or "")[:300])
             return []
@@ -7257,9 +7312,8 @@ class Controller:
         what = (f"{d.get('id')} would complete {stage} while {', '.join(str(o.get('id')) for o in running)} "
                 f"{'is' if len(running) == 1 else 'are'} still running"
                 + (f" (cases {', '.join(cases)})" if cases else ""))
-        blocking, passed = self._passed_by_person(stage, [f"{stage} {word}: {what}"])
+        blocking, _ = self._passed_by_person(stage, [f"{stage} {word}: {what}"])
         if not blocking:
-            self._record_person_pass(stage, d.get("id"), passed)
             return None
         return blocking, cases
 
@@ -7557,7 +7611,7 @@ class Controller:
             # not from the window) and who. Only when nothing else refuses the window.
             # The factory names no gap of its own (t-1968 N2): every named gap is a person's word.
             named = probe_gap_named(window, self.store.root)
-            self._record_person_pass("S5", d.get("id"), [
+            self._note_pass("S5", [
                 {"error": g, "decision": (named.get(g.partition(":")[2]) or {}).get("words", ""),
                  "by": "human"} for g in probe_gaps])
         if not problems:
@@ -7566,7 +7620,7 @@ class Controller:
             passed = [{"error": g, "decision": review_words[iid]["words"], "at": review_words[iid]["at"], "by": "human",
                        "check": "review", "case": "", "tag": iid, "subjects": [{"instance_id": iid}]}
                       for g in _let_go for iid in [g.partition(":")[2]] if g.startswith("review:") and iid in review_words]
-            self._record_person_pass("S5", d.get("id"), passed)
+            self._note_pass("S5", passed)
         return problems
 
     @staticmethod
@@ -7668,7 +7722,6 @@ class Controller:
                 raise StateConflict("S3 structured test plan invalid: " + "; ".join(blocking) + door)
             blocking = held
             raise StateConflict("S3 grounding: " + "; ".join(blocking) + door)
-        self._record_person_pass("S3", d.get("id"), passed)
         print("S3 structured test plan: passed by a person's recorded word — "
               + str((passed[0] or {}).get("decision") or "")[:300])
 
@@ -8236,17 +8289,18 @@ class Controller:
         if not identifier:
             open_ones = [d for d in dispatches.values() if d.get("status") in releasable]
             if len(open_ones) != 1:
-                problems.append((ValueError, "--dispatch names the dispatch to release; open dispatches: "
-                                             + (", ".join(sorted(str(d.get("id")) for d in open_ones)) or "none")))
+                problems.append((ValueError, DV.refusal("controller:release.call", "--dispatch names the dispatch to release; open dispatches: "
+                                             + (", ".join(sorted(str(d.get("id")) for d in open_ones)) or "none"))))
             else:
                 identifier = str(open_ones[0].get("id"))
         if not str(words or "").strip():
-            problems.append((ValueError, "--words records the person's own words: a release is their decision, "
+            problems.append((ValueError, DV.refusal("controller:release.call", "--words records the person's own words: a release is their decision, "
                                          "not the factory's. Pass --words-file <path to their words, as they were "
-                                         "given>"))
+                                         "given>")))
         dispatch = dispatches.get(identifier) if identifier else None
         if identifier and not dispatch:
-            problems.append(self._unknown_dispatch(identifier, dispatches))
+            unknown_cls, unknown_text = self._unknown_dispatch(identifier, dispatches)
+            problems.append((unknown_cls, DV.refusal("controller:release.call", unknown_text)))
         if not identifier:   # no id to look up while the first item stands: that check did not run (FR-59)
             problems = self._noted(problems, "(the unknown-dispatch check did not run: no dispatch is named)")
         self._raise_all(problems)
@@ -10006,6 +10060,10 @@ def main():
     # The story folder and the operation are settled FIRST (K1, one refusal for all of it): a wrong root must not
     # cost the person's words a read, nor any byte on disk (CX1-10).
     root, problems = _cli_story_root(a)
+    if a.operation == "rework":     # the id rides only on the operation whose requirement it names (one literal per branch)
+        problems = [(cls, DV.refusal("controller:rework.call", m)) if cls is ValueError else (cls, m) for cls, m in problems]
+    elif a.operation == "release":
+        problems = [(cls, DV.refusal("controller:release.call", m)) if cls is ValueError else (cls, m) for cls, m in problems]
     Controller._raise_all(problems)
     # The person's words are resolved ONCE, here, before any state is read or written: a refusal
     # (both options, a bad file, inline words through the cmd launcher) leaves no event behind.
@@ -10015,7 +10073,12 @@ def main():
     if a.operation in ("gate-decision", "release", "reopen_story", "leave_unlaunched", "settle_order",
                        "stop_waiting", "first_look_continue"):
         import person_words
-        words = person_words.read(a.words, a.words_file, "--words")
+        try:
+            words = person_words.read(a.words, a.words_file, "--words")
+        except person_words.WordsRefused as exc:
+            if a.operation == "release":
+                raise person_words.WordsRefused(DV.refusal("controller:release.call", str(exc))) from exc
+            raise
     a.risks_text = None
     a.answers_text, a.shown, a.remedies, a.risks_text = None, {}, {}, None
     if a.operation == "gate-decision":
@@ -10031,7 +10094,10 @@ def main():
     reason = a.reason
     if a.operation == "rework" and a.words_file is not None:
         import person_words
-        reason = person_words.read(a.reason, a.words_file, "--reason")
+        try:
+            reason = person_words.read(a.reason, a.words_file, "--reason")
+        except person_words.WordsRefused as exc:
+            raise person_words.WordsRefused(DV.refusal("controller:rework.call", str(exc))) from exc
     # The wait is chosen HERE, at the command's entry, and handed to the controller: a hook that
     # builds a Controller and calls the same methods (SubagentStop's record_return) never
     # inherits it. Read from the module at call time so a test can shorten it.

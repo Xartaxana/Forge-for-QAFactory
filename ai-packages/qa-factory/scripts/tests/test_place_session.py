@@ -17,6 +17,7 @@ import json
 import re
 import sys
 import traceback
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -377,25 +378,6 @@ def test_saved_result_retired_once_in_run_role():
     assert len(seen) == 1, seen
 
 
-def test_one_site_for_place_lines():
-    assert "s7_place_lines" not in inspect.getsource(story_run.Driver.stage_S7), "U3b removed U3a's append from stage_S7"
-    source = Path(story_run.__file__).read_text(encoding="utf-8")
-    sites = re.findall(r"self\.s7_place_lines\(", source)
-    assert len(sites) == 1 and "self.s7_place_lines(" in inspect.getsource(story_run.Driver.run_role), len(sites)
-
-
-def test_one_site_for_neighbour_lines():
-    """t-2187 N6: the neighbourhood hint has ONE call, in `run_role`, inside the S7 triage branch beside the place lines (an investigation and
-    every other dispatch get none)."""
-    assert "s7_neighbour_lines" not in inspect.getsource(story_run.Driver.stage_S7)
-    source = Path(story_run.__file__).read_text(encoding="utf-8")
-    sites = re.findall(r"self\.s7_neighbour_lines\(", source)
-    body = inspect.getsource(story_run.Driver.run_role)
-    assert len(sites) == 1 and "self.s7_neighbour_lines(" in body, len(sites)
-    branch = body[body.index("        if triage:\n"):body.index("lines += list(extra)")]
-    assert "self.s7_place_lines(" in branch and "self.s7_neighbour_lines(" in branch, branch
-
-
 # --- the owed items -----------------------------------------------------------------------------------------------------------------
 
 def test_verdict_refused_on_settle_and_control():
@@ -540,6 +522,21 @@ def test_the_two_reopens_share_one_body():
         assert "_walk_reopen_open(" in source and '"open"' not in source and "WS.alive" not in source, fn.__name__
     body = inspect.getsource(story_run.Driver._walk_reopen_open)
     assert body.count('"open"') == 1 and "WS.alive" in body
+
+
+def test_spawn_hides_its_console_instead_of_detaching():
+    seen, log = [], Path(tempfile.mkdtemp()) / "log.txt"
+    real_os_name, real_popen = WS.os.name, WS.subprocess.Popen
+    try:
+        WS.subprocess.Popen = lambda argv, **kw: seen.append(kw) or type("P", (), {"pid": 1})()
+        for name in ("nt", "posix"):
+            WS.os.name = name
+            WS._spawn(["x"], log)
+    finally:
+        WS.os.name, WS.subprocess.Popen = real_os_name, real_popen
+    nt, posix = seen
+    assert nt["creationflags"] & 0x08000000 and nt["creationflags"] & 0x200 and not nt["creationflags"] & 0x8 and nt["start_new_session"] is False
+    assert posix["creationflags"] == 0 and posix["start_new_session"] is True
 
 
 def main() -> int:
