@@ -430,6 +430,44 @@ def the_blank_provenance_field_says_why_code_could_not_fill_it() -> None:
         cleanup(root)
 
 
+def the_review_receipt_is_the_form_own_dispatch_window_and_no_other() -> None:
+    """P-a (t-1071): `--fix` fills `review.receipt_ref` from `work/windows/<form stem>.json` of THIS form only; the critic
+    form carries no `header.dispatch`, so the stem (`_form_dispatch`) is the only road. Rows: (a) own window present,
+    (b) absent, (c) only another dispatch's window, (d) a stem that is no dispatch id, (e) header.dispatch differs from the stem."""
+    import handoff_check as H
+    import hooklib
+    own = "S5-qa-code-critic-1"
+    cases = [  # case, stem, window files present, header.dispatch, expected receipt_ref
+        ("a own window present", own, [own], None, f"work/windows/{own}.json"),
+        ("b no window file", own, [], None, None),
+        ("c only another dispatch's window", own, ["S5-qa-code-critic-2"], None, None),
+        ("d stem is no dispatch id", f"{own}.values", [own], None, None),
+        ("e header.dispatch differs: the stem wins", own, [own, "S5-other-7"], "S5-other-7", f"work/windows/{own}.json"),
+    ]
+    for case, stem, windows, header, want in cases:
+        root = temp_project("qa-handoff-pa-")
+        try:
+            task = root / "qa-factory" / "artifacts" / "QA-1"
+            (task / "work" / "windows").mkdir(parents=True)
+            for name in windows:
+                (task / "work" / "windows" / f"{name}.json").write_text("{}", encoding="utf-8")
+            doc = handoff.parse(handoff.template("s5-critic-to-automator").text())
+            if header:
+                handoff.set_value(doc, "header.dispatch", header)
+                doc = handoff.parse(doc.text())
+            with hooklib.selftest_root_restored():
+                hooklib.pin_project_root(root)
+                out, _fixed, _problems, _judged, derived = H.check(
+                    doc, "s5-critic-to-automator", H.Artifacts(task, dispatch=stem), fix=True, task="QA-1", use_judge=False)
+            got = out.get("review.receipt_ref")
+            if want is None:
+                check(f"P-a {case}: the field stays blank", handoff.is_placeholder(got), str(got))
+            else:
+                check_eq(f"P-a {case}: the receipt path", got, want)
+        finally:
+            cleanup(root)
+
+
 def a_word_outside_the_list_is_refused_with_the_list() -> None:
     root = Path(tempfile.mkdtemp(prefix="qa-handoff-"))
     try:
@@ -2652,6 +2690,7 @@ def main() -> None:
     a_form_is_written_and_then_repaired_by_code()
     the_runtime_record_is_the_windows_own()
     the_blank_provenance_field_says_why_code_could_not_fill_it()
+    the_review_receipt_is_the_form_own_dispatch_window_and_no_other()
     a_word_outside_the_list_is_refused_with_the_list()
     what_cannot_be_filled_goes_to_the_conductor()
     a_blocked_row_says_what_blocks_it()
