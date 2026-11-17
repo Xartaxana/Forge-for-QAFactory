@@ -33,10 +33,9 @@ else:
     SCRIPT = Path(__file__).resolve().parent / "dod_gate.py"
 
 # The hook run as a subprocess never starts a real reaper (a passing stop would, under a real session): the shared wrapper.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from no_reaper_wrap import WRAP as _WRAP  # noqa: E402
+from no_reaper_wrap import hook_argv  # noqa: E402
 
-HOOK = [sys.executable, "-c", _WRAP, str(SCRIPT), str(Path(__file__).resolve().parent)]
+HOOK = hook_argv(SCRIPT)
 
 
 def _run_hook(payload: dict, cwd: Path) -> subprocess.CompletedProcess:

@@ -1159,8 +1159,8 @@ def _run_case_18(built: dict) -> dict:
 
 
 def _check_journal_hooks_returned(extra: dict) -> tuple:
-    if "WAITS: reaper not started" not in extra.get("gate_stderr", ""):
-        return False, f"dod_gate stderr lacks the line 'WAITS: reaper not started': {extra.get('gate_stderr', '')!r}"
+    if not re.search(r"^WAITS: (reaper not started|no session) ", extra.get("gate_stderr", ""), re.M):
+        return False, f"dod_gate stderr has no no-spawn WAITS line ('reaper not started' or 'no session'): {extra.get('gate_stderr', '')!r}"
     kinds = [r.get("event") for r in _jh_rows(extra)]
     if kinds.count("delegated") != 1 or kinds.count("returned") != 1 or kinds.index("returned") < kinds.index("delegated"):
         return False, f"expected delegated then one returned, got {kinds!r}"

@@ -2312,6 +2312,16 @@ def test_k_wire_compact_narrative_names_whose_it_is(tmp_path, monkeypatch, head,
     assert [l for l in lines if l.startswith("COMPACT NARRATIVE")] == ([expected] if expected else []), lines
 
 
+def test_session_proc_id_is_the_stamp_the_writer_encodes(monkeypatch):
+    # the reader's own process id goes through the one encoder: a patched walk {pid 7, created 1.5} reads "7-1.500"
+    import session_proc
+
+    if not hasattr(sc, "_session_proc_id"):
+        pytest.skip("the candidate carries no narrative stamp reading")
+    monkeypatch.setattr(session_proc, "session_process", lambda *a, **k: ({"pid": 7, "created": 1.5}, ""))
+    assert sc._session_proc_id() == "7-1.500"
+
+
 # ---------------------------------------------------------------------
 # worktrees_line (F6-38) -- the leak detector of tools/worktree_sweep.py
 # ---------------------------------------------------------------------
