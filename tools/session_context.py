@@ -218,10 +218,15 @@ _ALWAYS_INCLUDE_BOOT_FILE = "CLAUDE.md"
 # by this port): a fixed WARN constant with >=15% headroom over a
 # measured baseline, re-derived by hand when it goes stale.
 #
-# Re-derived 2026-11-17 (boot by topic S1, FG7-51): CLAUDE.md was 50808 bytes AT THE TIME OF THIS MEASUREMENT.
+# Re-derived 2026-11-17 (t-1137): CLAUDE.md 14495 bytes AT THE TIME OF THIS MEASUREMENT (the worker block; the
+# coordinator's rules moved to COORDINATOR.md and the files of coordinator_rules.COORDINATOR_FILES).
 # WARN = ceil(measured * 1.15 / 100) * 100:
-# ceil(50808 * 1.15 / 100) * 100 = 58500 (margin over measured:
-# (58500 - 50808) / 50808 = ~15.14%, >= the 15% floor).
+# ceil(14495 * 1.15 / 100) * 100 = 16700 (margin over measured:
+# (16700 - 14495) / 14495 = ~15.2%, >= the 15% floor).
+# NAMED LOWERING 58500 -> 16700; cause: the worker split (a moved paragraph of >= ~2.3 KB landing back in
+# CLAUDE.md fires this WARN).
+# Prior measurement (2026-11-17, boot by topic S1, FG7-51): CLAUDE.md 50808 bytes ->
+# ceil(50808 * 1.15 / 100) * 100 = 58500.
 # NAMED RAISE: CLAUDE_WARN 47800 -> 58500; cause: boot by topic S1: the Contents table and topic headings (FG7-51);
 # raised by the Lead 17.11.2026 on the owner's word about size limits (17.11.2026: не в ущерб правилам; если не
 # влезет — можно поднять).
@@ -232,7 +237,46 @@ _ALWAYS_INCLUDE_BOOT_FILE = "CLAUDE.md"
 # ceil(os.path.getsize("CLAUDE.md") * 1.15 / 100) * 100 whenever it goes
 # stale (kit CLAUDE.md size drifted) -- lowering is always safe; raising
 # should keep the same >=15% margin.
-CLAUDE_WARN = 58500
+CLAUDE_WARN = 16700
+
+# The ONE fallback copy of coordinator_rules.COORDINATOR_FILES, used only when that module cannot be
+# imported (edge e2: the hook never fails the session start and the read duty still appears). A test row
+# pins it equal to the module's tuple, so the two cannot drift apart.
+_COORDINATOR_FALLBACK_FILES = (
+    "COORDINATOR.md",
+    "PROJECT.md",
+    "docs/FACTORY_RULES_INDEX.md",
+    "docs/ARCHITECTURE_INDEX.md",
+    "docs/OWNER_PRINCIPLES_INDEX.md",
+)
+
+
+def _coordinator_files() -> tuple:
+    """coordinator_rules.COORDINATOR_FILES, or the fallback literal when the module cannot be read."""
+    try:
+        import coordinator_rules
+
+        files = tuple(coordinator_rules.COORDINATOR_FILES)
+        if files and all(isinstance(f, str) and f for f in files):
+            return files
+    except Exception:  # noqa: BLE001 -- fail-open, same reason as the N4 import block
+        pass
+    return _COORDINATOR_FALLBACK_FILES
+
+
+def coordinator_rules_lines(root, source) -> list:
+    """The `COORDINATOR RULES:` line(s) (tools/coordinator_rules.py owns the text). Never raises: an import
+    or run failure is the one `unavailable` line naming the literal fallback list (edge e2)."""
+    try:
+        import coordinator_rules
+
+        return list(coordinator_rules.coordinator_lines(root, source))
+    except Exception as exc:  # noqa: BLE001 -- the hook must never fail the session start
+        try:
+            detail = _ascii_sanitize(f"{type(exc).__name__}: {exc}", 160)
+        except Exception:  # noqa: BLE001
+            detail = f"{type(exc).__name__}: <unprintable exception>"
+        return [f"COORDINATOR RULES: unavailable ({detail}) -- read {', '.join(_COORDINATOR_FALLBACK_FILES)} yourself"]
 
 _WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
@@ -1175,6 +1219,12 @@ def boot_path_files(root: Path) -> list:
         text = ""
     for m in re.finditer(r"Read ([A-Z_]+\.md)", text):
         name = m.group(1)
+        if name not in names:
+            names.append(name)
+    # The coordinator's files are read on the `COORDINATOR RULES:` line, not auto-loaded, but a coordinator
+    # session pays for them: they count here (BOOT.md stays the owner of its own list, e17 -- it never names them,
+    # and the dedupe keeps a name that does from counting twice).
+    for name in _coordinator_files():
         if name not in names:
             names.append(name)
     if _ALWAYS_INCLUDE_BOOT_FILE not in names:
@@ -2688,6 +2738,11 @@ def main(root: Path = None) -> int:
                 lines = lines + layer_a_lines(resolved_root)
             except Exception as _layer_a_exc:
                 lines = lines + [_layer_a_unavailable_line(_layer_a_exc)]
+
+        # Outside build_context_lines, so MAX_LINES never cuts it (e7); before the compact pointer, so
+        # `AFTER COMPACT:` stays the last line before the peer note (e6). Every source prints it: a resumed or
+        # compacted coordinator may have lost the rules (resume prints the "re-read only if" form).
+        lines = lines + coordinator_rules_lines(resolved_root, source)
 
         if source == "compact":
             # After the cut: this line must survive build_context_lines'

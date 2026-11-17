@@ -11,7 +11,7 @@ without git):
    auto-message would be a false positive that trains toward
    --no-verify.
 3. Skip line "axes: not a mechanism (<reason>)" (this template's
-   English phrasing, CLAUDE.md rule 10) works ONLY from the commit
+   English phrasing, COORDINATOR.md rule 10) works ONLY from the commit
    message -- a written statement by the committer, the same pattern
    as `dispatch_skipped`. Not looked up in the diff: decision text that
    quotes the skip syntax would otherwise bypass the gate. Inside the
@@ -59,7 +59,7 @@ without git):
 5. The map can't be read / has zero axes -> fail-closed (a silent skip
    of the check is indistinguishable from passing it).
 6. Net: known homes of mechanisms in this template (CLAUDE.md,
-   DECISIONS.md, docs/SIBLING_MAP.md, PROCESS/, .claude/agents/,
+   COORDINATOR.md, DECISIONS.md, docs/SIBLING_MAP.md, PROCESS/, .claude/agents/,
    .claude/skills/, BOOT.md) plus self-protection of the enforcement
    chain itself -- NAMED, one entry per script this template's OWN
    live wiring (.claude/settings.json's hook commands, .githooks/
@@ -214,6 +214,7 @@ TIER_LINE_RE = re.compile(r"^\s*tier\s*:\s*(\S.*?)\s*$", re.IGNORECASE | re.MULT
 
 MECHANISM_PREFIXES = (
     "CLAUDE.md",
+    "COORDINATOR.md",               # the coordinator's rules, moved out of CLAUDE.md (worker split, t-1137)
     "DECISIONS.md",
     "docs/SIBLING_MAP.md",
     "PROCESS/",
@@ -224,6 +225,7 @@ MECHANISM_PREFIXES = (
     ".githooks/",
     # SessionStart hook duties are future-session obligations too.
     "tools/session_context.py",
+    "tools/coordinator_rules.py",   # owns the list of coordinator files and the SessionStart line that names them
     ".claude/settings.json",
     # Named net, not a directory (point 6 above): every tools/*.py this
     # template's OWN .claude/settings.json / .githooks/ actually wires
