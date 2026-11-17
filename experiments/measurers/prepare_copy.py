@@ -192,7 +192,7 @@ def copy_factory_files(live_project: Path, copy_project: Path) -> list:
 def start_lines(project, plugin, ticket, name, runs=None) -> list:
     """The lines that tell a person how to start a story in the copy: PowerShell, `Start-Process -WorkingDirectory`
     (docs/RUNBOOK.md 9.3), never `cd <project>`. A shell whose cwd is inside the project fires the hooks of the live
-    session on everything it runs (builder-rules 10), and a driver started from the tool's own shell dies with it
+    session on everything it runs (`.claude/agents/builder.md` rule 11), and a driver started from the tool's own shell dies with it
     (the 02.10 rehearsal's process died at 05:38 and its log held nothing: PYTHONUNBUFFERED is set for that reason,
     B-178, FR-43). The driver's output goes to `<runs>/<name>-1.log` / `.err` (default: this experiment's `runs/`),
     `-PassThru` prints the pid the start line of the notebook needs. The interactive session is the same form
