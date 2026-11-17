@@ -13,7 +13,7 @@
   "to-s6.stand_confirm": [
    {
     "drive_until": {
-     "stage": "S5",
+     "stage": "S6",
      "question": "s6.stand_confirm"
     }
    }
@@ -21,7 +21,7 @@
   "to-s6.stand_confirm.login": [
    {
     "drive_until": {
-     "stage": "S5",
+     "stage": "S6",
      "question": "s6.stand_confirm.login"
     }
    }
