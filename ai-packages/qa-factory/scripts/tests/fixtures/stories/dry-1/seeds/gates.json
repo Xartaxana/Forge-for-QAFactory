@@ -1,0 +1,8 @@
+{
+ "schema": 1,
+ "group": "gates",
+ "recipes": {
+  "to-gate-A-priced": [{"say": {"stage": "S4", "question": "gate_A", "words": "Before approving, add a case for the empty cart."}}],
+  "to-gate-B-priced": [{"say": {"stage": "S8", "question": "gate_B", "words": "Before approving, add a case for the empty cart."}}]
+ }
+}

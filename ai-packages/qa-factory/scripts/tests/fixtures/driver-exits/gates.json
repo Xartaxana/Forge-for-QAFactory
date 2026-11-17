@@ -3,91 +3,91 @@
  "group": "gates",
  "routes": {
   "active_dispatch": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: the text comes from the controller when a step starts while a dispatch is in flight; the dry driver is sequential and no allowed seed op makes the controller print it to the driver"
   },
   "already_done": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: the text comes from the controller or stage_done when a stage already accepted is recorded again; no stub control or seed op makes the driver read it"
   },
   "committed_event": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: needs the controller to commit an event and then fail in the derived view; the stub cannot make the projection fail"
   },
   "dead_dispatch": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: needs a wait_existing_job on a dispatch that is abandoned or never started; the stub never abandons a dispatch"
   },
   "form_vocabulary": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "measured (t-1037 probe: start S0, token agree at s1_review, stub qa-requirements-tester verdict bogus): FAIL route not observed; the walker's post-answer turn is one driver boundary and ends before the S2 role runs, so a refusal of a role's handoff is never read [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "gate_stage": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: stage_done refusing a stage the controller already accepted at gate entry; not seen in the main pass or in any seed tried, no control produces it"
   },
   "handoff_form": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "measured (t-1037 probe: start S0, token agree at s1_review, stub qa-requirements-tester result_text 'I did the work.'): FAIL route not observed; the walker's post-answer turn is one driver boundary and ends before the S2 role runs, so a refusal of a role's handoff is never read [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "handover_form": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "measured (t-1037 probe: start S0, token agree at s1_review, stub qa-requirements-tester verdict bogus (the control that leaves a form untouched is not in the stub grammar)): FAIL route not observed; the walker's post-answer turn is one driver boundary and ends before the S2 role runs, so a refusal of a role's handoff is never read [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "known_false": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: a refusal raised by a G step (driver_core.gate_refusal); no G step of the dry world fails"
   },
   "marked_person": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:gates writes the rows of this group",
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: needs a refusal text with the person marker; no stub control writes it and the walker reads no route record before an answer",
    "class_source": "route:marked_person"
   },
   "marked_repair": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "measured (t-1037 probe: start S0, token agree at s1_review, stub qa-requirements-tester verdict bogus): FAIL route not observed; the walker's post-answer turn is one driver boundary and ends before the S2 role runs, so a refusal of a role's handoff is never read [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "missing_output": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "measured (t-1037 probe: start S0, token agree at s1_review, stub qa-requirements-tester verdict bogus (no stub control removes an output file)): FAIL route not observed; the walker's post-answer turn is one driver boundary and ends before the S2 role runs, so a refusal of a role's handoff is never read [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "not_in_build": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: needs a refusal 'is not in this build'; the dry world is a full build and no control asks for a missing capability"
   },
   "stale_revision": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: needs a revision conflict of the controller state; the dry world runs one writer and no seed op races it"
   },
   "unmatched": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: needs a refusal text no row matches; the stub writes only texts the factory's own checks produce"
   }
  },
  "joints": {
   "exit_gate:scoped": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: same road as exit_gate:digest (measured: the joint id is not in the driver's `resume <dispatch>: <class words>` line and the post-answer turn ends before the S2 role stops); this joint was not tried itself [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "exit_gate:detector_errors": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: same road as exit_gate:digest (measured: the joint id is not in the driver's `resume <dispatch>: <class words>` line and the post-answer turn ends before the S2 role stops); this joint was not tried itself [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "exit_gate:witness_errors": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: same road as exit_gate:digest (measured: the joint id is not in the driver's `resume <dispatch>: <class words>` line and the post-answer turn ends before the S2 role stops); this joint was not tried itself [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "exit_gate:digest": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "measured (t-1037 probe: start S0, token agree at s1_review, stub qa-requirements-tester result_text 'I did the work.'): FAIL joint not observed; the joint id is not in the driver's `resume <dispatch>: <class words>` line, the only refusal text the walker reads, and the post-answer turn ends before the S2 role stops [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "exit_gate:required_outputs": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: same road as exit_gate:digest (measured: the joint id is not in the driver's `resume <dispatch>: <class words>` line and the post-answer turn ends before the S2 role stops); this joint was not tried itself [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "exit_gate:text_end_after_handback": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: same road as exit_gate:digest (measured: the joint id is not in the driver's `resume <dispatch>: <class words>` line and the post-answer turn ends before the S2 role stops); this joint was not tried itself [queued: walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md, node FV2-95]"
   },
   "execution_request:active_dispatch": {
    "reach": "unwalked",
@@ -446,9 +446,46 @@
  "ratchet": {
   "live_only": 0,
   "after": 0,
-  "unwalked": 21,
+  "unwalked": 0,
   "hook_layer": 0,
   "raised_by": [
+   "live_only | routes/marked_repair | N4:gates t-1037, census row",
+   "live_only | walk/route:marked_repair/code move | N4:gates t-1037, same reason as routes/marked_repair",
+   "live_only | routes/form_vocabulary | N4:gates t-1037, census row",
+   "live_only | walk/route:form_vocabulary/code move | N4:gates t-1037, same reason as routes/form_vocabulary",
+   "live_only | routes/handover_form | N4:gates t-1037, census row",
+   "live_only | walk/route:handover_form/code move | N4:gates t-1037, same reason as routes/handover_form",
+   "live_only | routes/missing_output | N4:gates t-1037, census row",
+   "live_only | walk/route:missing_output/code move | N4:gates t-1037, same reason as routes/missing_output",
+   "live_only | routes/handoff_form | N4:gates t-1037, census row",
+   "live_only | walk/route:handoff_form/code move | N4:gates t-1037, same reason as routes/handoff_form",
+   "live_only | routes/active_dispatch | N4:gates t-1037, census row",
+   "live_only | walk/route:active_dispatch/code move | N4:gates t-1037, same reason as routes/active_dispatch",
+   "live_only | routes/already_done | N4:gates t-1037, census row",
+   "live_only | walk/route:already_done/code move | N4:gates t-1037, same reason as routes/already_done",
+   "live_only | routes/committed_event | N4:gates t-1037, census row",
+   "live_only | walk/route:committed_event/code move | N4:gates t-1037, same reason as routes/committed_event",
+   "live_only | routes/dead_dispatch | N4:gates t-1037, census row",
+   "live_only | walk/route:dead_dispatch/code move | N4:gates t-1037, same reason as routes/dead_dispatch",
+   "live_only | routes/gate_stage | N4:gates t-1037, census row",
+   "live_only | walk/route:gate_stage/code move | N4:gates t-1037, same reason as routes/gate_stage",
+   "live_only | routes/known_false | N4:gates t-1037, census row",
+   "live_only | walk/route:known_false/code move | N4:gates t-1037, same reason as routes/known_false",
+   "live_only | routes/marked_person | N4:gates t-1037, census row",
+   "live_only | walk/route:marked_person/free words | N4:gates t-1037, same reason as routes/marked_person",
+   "live_only | routes/not_in_build | N4:gates t-1037, census row",
+   "live_only | walk/route:not_in_build/code move | N4:gates t-1037, same reason as routes/not_in_build",
+   "live_only | routes/stale_revision | N4:gates t-1037, census row",
+   "live_only | walk/route:stale_revision/code move | N4:gates t-1037, same reason as routes/stale_revision",
+   "live_only | routes/unmatched | N4:gates t-1037, census row",
+   "live_only | walk/route:unmatched/code move | N4:gates t-1037, same reason as routes/unmatched",
+   "live_only | joints/exit_gate:scoped | N4:gates t-1037, census row",
+   "live_only | joints/exit_gate:detector_errors | N4:gates t-1037, census row",
+   "live_only | joints/exit_gate:witness_errors | N4:gates t-1037, census row",
+   "live_only | joints/exit_gate:digest | N4:gates t-1037, census row",
+   "live_only | joints/exit_gate:required_outputs | N4:gates t-1037, census row",
+   "live_only | joints/exit_gate:text_end_after_handback | N4:gates t-1037, census row",
+   "live_only | walk/gate_A/words:questions-deferred | N4:gates t-1037: FV1-8 state needs the question register, no writer",
    "unwalked | joints/execution_request:active_dispatch | L1c census catch-up, 2026-11-17",
    "unwalked | joints/execution_request:case_entries | L1c census catch-up, 2026-11-17",
    "unwalked | joints/execution_request:mine_call | L1c census catch-up, 2026-11-17",

@@ -3,7 +3,7 @@
  "known_red": {
   "main/S5": {
    "node": "FV3-20",
-   "raised_by": "product gap: Lead t-1070, 2026-11-17: stopped at S5: exit gate for S5-qa-code-critic-1 (qa-code-critic, S5): 1 finding: probes.runtime_provenance not filled (window_runtime_record reads run blocks only; the critic's red_probe writes none, its probe request carries the record; node P-b). review.receipt_ref is filled since P-a (t-1071)."
+   "raised_by": "stub gap: Lead t-1076, 2026-11-17, measured on the P-b branch: the exit gate for S5-qa-code-critic-1 passes (review.receipt_ref since P-a t-1071, probes.runtime_provenance since P-b t-1076); stopped at S5: story_step finish S5-qa-code-critic-1 refused - the qa-code-critic window is not receipted: no findings file in the accepted evidence (the dry stub's critic writes no work/test-code/critic-findings-<dispatch>.md)"
   }
  },
  "pins": {
