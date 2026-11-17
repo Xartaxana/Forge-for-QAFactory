@@ -277,6 +277,9 @@ RULES = {
 }
 
 
+NOT_CHECKED_NO_CONTRACT = "not checked: no evidence contract for {name}"
+
+
 def check_code_review(text: str) -> list:
     errors = []
     if "independent_run" not in text:
@@ -300,7 +303,10 @@ def main() -> None:
     else:
         rule = RULES.get(path.name)
         if rule is None:
-            print(f"OK (no rule for {path.name} — contract undefined, add it to RULES)")
+            # FR-59, AR-28: no contract is "not checked", never "OK"; the existing advice form (detector_verdict, form 1 (e)),
+            # exit 0 stays (the backstop is fail-open by design)
+            print("ADVICE — 1")
+            print(f"- {NOT_CHECKED_NO_CONTRACT.format(name=path.name)}")
             _print_next_step(path.name)
             sys.exit(0)
         try:

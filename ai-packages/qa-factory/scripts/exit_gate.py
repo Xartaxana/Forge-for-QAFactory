@@ -114,6 +114,7 @@ WITNESS_FRESH_HOURS = 4
 
 def witness_errors(agent: str, task: str = "") -> list:
     """Re-run check_witness over the role's artifact. An empty list means nothing blocks."""
+    _stash_advice(agent, task, "witness", [])    # every call REPLACES its entry: an early return leaves no stale advice
     name = witness_gates().get(agent)
     if not name or name.endswith("/"):
         return []  # a directory witness (e.g. test-cases/) has no single-file schema to re-check
@@ -155,6 +156,12 @@ def witness_errors(agent: str, task: str = "") -> list:
                             script=name, kind="summary")
         # `script` stays the artifact's name (a person's word is judged against it); the check that RAN is check_witness (P1-v W0)
         return detector_records(name, r.returncode, verdict, words="gate", producer="check_witness.py") + [summary]
+    advice = advice_records("check_witness.py", verdict)
+    _stash_advice(agent, task, "witness", advice)      # filed as the gate files advice (`run_advisers` writes it), never a block
+    if any(str(r).startswith("not checked: no evidence contract") for r in advice):
+        # FR-59, AR-28: no contract is not a pass - the artifact was not checked, and the line says so
+        print(f"witness not checked: {art.name} has no evidence contract")
+        return []
     print(f"witness OK (re-run by the exit gate): {art.name} - the orchestrator needs no second run")
     return []
 
@@ -686,7 +693,7 @@ def run_advisers(agent: str, task: str = "") -> list:
 
     No file is written for a stage that declares nothing for the role (E-X2-2b: S6, S7) unless there is something to file."""
     stage, scripts, advisers = _stage_detectors(agent, task)
-    records = [r for source in ("detector", "digest") for r in _STASH.pop((agent, task, source), [])]
+    records = [r for source in ("detector", "digest", "witness") for r in _STASH.pop((agent, task, source), [])]
     unread = []
     for script in scripts:
         if script not in advisers:
