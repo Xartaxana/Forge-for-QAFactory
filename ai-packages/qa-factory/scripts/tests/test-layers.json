@@ -85,8 +85,8 @@
    ]
   },
   "test_arch_check.py": {
-   "layer": "gate_named",
-   "why": "named by plans/builder-rules.md:71 (a history or example line of the forge, read by tools/test_quarantine.py enter); not a DoD row",
+   "layer": "data_join",
+   "why": "data join: the rows of references/detectors.json (keys sleep, locator) reach arch_check.check_files — shipped rows, missing keys, a broken file, custom rows (test_arch_check.py:163-188); its former forge carrier plans/builder-rules.md item 14 was dissolved (t-1133)",
    "covers": [
     "arch_check.py",
     "references/detectors.json",
@@ -6347,7 +6347,7 @@
   },
   "test_story_step.py": {
    "layer": "detector",
-   "why": "AR-25 exit proof named in design/state-exits.md; also named by plans/builder-rules.md",
+   "why": "AR-25 exit proof named in design/state-exits.md; also named by docs/TESTING.md",
    "named_by": [
     "design/state-exits.md:34",
     "plans/builder-rules.md:26"
