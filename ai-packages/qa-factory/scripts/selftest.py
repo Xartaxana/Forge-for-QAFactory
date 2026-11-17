@@ -610,6 +610,8 @@ def layers_problems(raw, tests_dir: Path) -> list[str]:
         return ['"fixture_owners" must be an object mapping a fixture file name to its owning test_*.py file']
     if not isinstance(raw.get("enforce_listing", False), bool):
         return ['"enforce_listing" must be true or false']
+    if "canon_only" in raw and not (isinstance(raw["canon_only"], list) and all(isinstance(g, str) for g in raw["canon_only"])):
+        return ['"canon_only" must be a list of test file name globs']
     keep, quarantine = raw.get("keep", {}), raw.get("quarantine", {})
     pins, cohorts = raw.get("pin_holds", {}), raw.get("cohorts", {})
     out: list[str] = []
@@ -665,7 +667,9 @@ def test_layers(path: Path | None = None) -> dict:
             "pin_holds": dict(raw.get("pin_holds", {})), "cohorts": dict(raw.get("cohorts", {})),
             "fixture_owners": dict(raw.get("fixture_owners", {})),
             "enforce_listing": raw.get("enforce_listing", False), "layers": list(raw.get("layers", LAYER_WORDS)),
-            "story_coverage_required": list(raw.get("story_coverage_required", [])), "absent": False}
+            "story_coverage_required": list(raw.get("story_coverage_required", [])), "absent": False,
+            # None = the key is absent (a tree older than the key): the witness command and the dispatch gate say so
+            "canon_only": list(raw["canon_only"]) if "canon_only" in raw else None}
 
 
 _PROOF_IN_BACKTICKS = re.compile(r"`(test_[a-z0-9_]+\.py)`")
