@@ -77,7 +77,9 @@ STATUS_RETRY_S = 0.2                 # a status write that meets a reader on Win
 DOOR = "python tools/worktree_sweep.py --apply"
 STATES = ("running", "finished", "refused", "crashed", "not-started")
 ARCHIVE_PREFIX = "refs/worktree-sweep/"
-ARCHIVE_KEEP_DAYS = 30               # an archive ref is old when its commit's committer date is MORE than this many days back (F-A1)
+UNMERGED_KEEP_DAYS = 3               # an unmerged branch whose last commit is MORE than this many days old (and not locked) is archived and removed
+SALVAGE_NAME = "salvage"             # the archive namespace of a leftover commit: refs/worktree-sweep/salvage/<branch>/<sha12>
+ARCHIVE_KEEP_DAYS = 30              # an archive ref is old when its commit's committer date is MORE than this many days back (F-A1)
 ARCHIVE_SAFE_REF = DEFAULT_REF       # ... and it expires only when its commit is reachable from this pushed reference
 REMOTE_MAIN_FULL = "refs/remotes/" + DEFAULT_REF   # git calls name the remote main by its FULL refname: a local branch or tag `origin/main` shadows the short name
 
@@ -390,6 +392,8 @@ class Eval:
     merged: str = ""
     own: str = "no"
     traces: list = dataclasses.field(default_factory=list)
+    leftover: list = dataclasses.field(default_factory=list)   # real (non-junk) paths of a merged copy that still has files
+    cls: str = ""               # the class a --dry-run prints; "" = the kind
 
 
 def merged_verdict(git, repo_root, head, ref):
@@ -410,7 +414,7 @@ def merged_verdict(git, repo_root, head, ref):
 
 def evaluate(ctx, wt):
     if wt.locked is not None:
-        return Eval("keep", "locked (%s)" % (wt.locked or "no reason given"))
+        return Eval("keep", "locked (%s)" % (wt.locked or "no reason given"), cls="locked")
     if wt.prunable is not None:
         return Eval("prunable")
     if wt.bare:
@@ -423,7 +427,17 @@ def evaluate(ctx, wt):
     last, last_why = read_activity(admin, wt.path, ctx.junk, created)
     merged, detail = merged_verdict(ctx.git, ctx.repo.root, wt.head, ctx.ref)
     if merged == "unmerged":
-        return Eval("keep", "unmerged (%s commits not in %s)" % (detail, ctx.ref))
+        keep = "unmerged (%s commits not in %s)" % (detail, ctx.ref)
+        if not wt.short:                                                  # a detached HEAD has no branch to age: kept as before
+            return Eval("keep", keep)
+        stale = _stale_head(ctx, wt)
+        if not stale:
+            return Eval("keep", keep, cls="unmerged-young")
+        real, traces, _ = _read_status(ctx, wt)
+        if real:                                                          # an archive ref holds commits, not files: never lose a leftover (Q1)
+            return Eval("keep", "%s, last commit older than %d days but real changes: %s" % (keep, UNMERGED_KEEP_DAYS, _shown(real)),
+                        cls="unmerged-stale-dirty")
+        return Eval("candidate", merged="unmerged", own="yes", traces=traces, cls="unmerged-stale")
     if merged == "unknown":
         return Eval("keep", "unknown (merge check: %s)" % detail)
     ev = Eval("candidate", merged=merged, own="yes" if own else "no")
@@ -436,16 +450,79 @@ def evaluate(ctx, wt):
             if own is None:
                 return Eval("keep", "unknown (worktree reflog: %s)" % why)
             return Eval("keep", "no own commits, active %dh ago (< %dh)" % (age // 3600, ctx.T // 3600))
+    real, traces, entries = _read_status(ctx, wt)
+    ev.traces = traces
+    if real:                                                              # a leftover: equal to the pushed main (no salvage) or saved first
+        kind, why = classify_leftover(ctx, wt, entries, real)
+        ev.leftover = real
+        ev.cls = "merged-leftover-equal" if kind == "equal" else "merged-leftover-salvage"
+        ev.text = why
+        return ev
+    ev.cls = "merged-clean"
+    return ev
+
+
+def _shown(real):
+    return ", ".join(real[:SHOW_PATHS]) + (" (+%d more)" % (len(real) - SHOW_PATHS) if len(real) > SHOW_PATHS else "")
+
+
+def _read_status(ctx, wt):
+    """(real paths, junk paths, entries) of the copy. A failing status is an exception: evaluate's caller turns it into one KEEP line."""
     rc, out, err = ctx.git(wt.path, "--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=all")
     if rc != 0:
-        return Eval("keep", "unknown (status: %s)" % first_line(err or gitcmd.as_text(out)))
-    real, traces = real_changes(gitcmd.parse_status_z(out), ctx.junk)
-    if real:
-        shown = ", ".join(real[:SHOW_PATHS]) + (" (+%d more)" % (len(real) - SHOW_PATHS) if len(real) > SHOW_PATHS else "")
-        return Eval("keep", "real changes: %s -- to let it go: save them (git -C \"%s\" diff; copy the untracked files), then "
-                            "git worktree remove --force \"%s\"" % (shown, wt.path, wt.path))
-    ev.traces = traces
-    return ev
+        raise RuntimeError("status: %s" % first_line(err or gitcmd.as_text(out)))
+    entries = gitcmd.parse_status_z(out)
+    real, traces = real_changes(entries, ctx.junk)
+    return real, traces, entries
+
+
+def _stale_head(ctx, wt):
+    """True when the last commit of the copy is older than UNMERGED_KEEP_DAYS (strict: exactly that is young; a future date is young)."""
+    rc, out, err = ctx.git(ctx.repo.root, "log", "-1", "--format=%ct", wt.head)
+    text = gitcmd.as_text(out).strip()
+    if rc != 0 or not re.fullmatch(r"\d+", text):
+        raise RuntimeError("last commit date: %s" % first_line(err or text))
+    return ctx.now - int(text) > UNMERGED_KEEP_DAYS * 86400
+
+
+def _origin_blob(ctx, path):
+    """bytes of `path` in the reference; None when the path is not a file there. A git call that did not run is an exception."""
+    rc, out, err = ctx.git(ctx.repo.root, "cat-file", "blob", "%s:%s" % (git_ref(ctx.ref), path))
+    if rc == -1:
+        raise RuntimeError("cat-file: %s" % first_line(err))
+    return out if rc == 0 else None
+
+
+def _leftover_equal(ctx, wt, xy, path):
+    """True only when the path in the copy equals the reference's content ignoring CR before LF. A binary, unreadable, link,
+    directory, renamed or conflicted path is never equal: it is never compared as text (Q5)."""
+    if any(c in xy for c in "RCU") or xy in ("AA", "DD"):
+        return False
+    p = Path(wt.path) / path
+    if os.path.lexists(str(p)):
+        if _is_link(p) or not p.is_file():
+            return False
+        try:
+            mine = p.read_bytes()
+        except OSError:
+            return False
+        theirs = _origin_blob(ctx, path)
+        if theirs is None or b"\0" in mine or b"\0" in theirs:
+            return False
+        return mine.replace(b"\r\n", b"\n") == theirs.replace(b"\r\n", b"\n")
+    if _origin_blob(ctx, path) is not None:                               # deleted here, a file there
+        return False
+    rc, out, err = ctx.git(ctx.repo.root, "ls-tree", "-z", git_ref(ctx.ref), "--", path)   # a directory there is not "absent" either
+    return rc == 0 and not out.strip(b"\0")
+
+
+def classify_leftover(ctx, wt, entries, real):
+    """('equal' | 'differs', text): equal = every leftover path equals the reference (the CRLF-only copies): nothing to save."""
+    xy_of = {path: xy for xy, path in entries}
+    diff = [p for p in real if not _leftover_equal(ctx, wt, xy_of.get(p, "??"), p)]
+    if not diff:
+        return "equal", "leftover: %d files equal %s ignoring CR" % (len(real), ctx.ref)
+    return "differs", "leftover: %d of %d files differ from %s: %s" % (len(diff), len(real), ctx.ref, _shown(diff))
 
 
 # --------------------------------------------------------------------------------------------------------- apply
@@ -578,6 +655,46 @@ def _q(path):
     return '"%s"' % path
 
 
+def salvage_leftover(ctx, wt, ev):
+    """(ok, archive ref or message): the leftover paths as ONE commit (parent: the copy's HEAD) on `refs/worktree-sweep/salvage/
+    <name>/<sha12>`. The copy's own index is the scratch index (the copy is about to go); nothing outside the copy and the ref
+    namespace is written. A commit that is not in origin/main is never expired by the archive rule."""
+    git = ctx.git
+    paths = list(ev.leftover)
+    for i in range(0, len(paths), 100):                                   # a command line has a length limit on Windows
+        rc, out, err = git(wt.path, "--literal-pathspecs", "add", "-A", "--", *paths[i:i + 100])
+        if rc != 0:
+            return False, "add: %s" % first_line(err or gitcmd.as_text(out))
+    rc, out, err = git(wt.path, "write-tree")
+    tree = gitcmd.as_text(out).strip()
+    if rc != 0 or not tree:
+        return False, "write-tree: %s" % first_line(err or tree)
+    rc, out, err = git(wt.path, "-c", "user.name=worktree-sweep", "-c", "user.email=worktree-sweep@localhost", "-c",
+                       "commit.gpgsign=false", "commit-tree", tree, "-p", wt.head, "-m",
+                       "worktree_sweep salvage: %d leftover files of %s" % (len(paths), wt.short or Path(wt.path).name))
+    commit = gitcmd.as_text(out).strip()
+    if rc != 0 or not commit:
+        return False, "commit-tree: %s" % first_line(err or commit)
+    name = "%s/%s" % (SALVAGE_NAME, wt.short or detached_name(ctx, wt))
+    return archive_head(git, ctx.repo.root, name, commit)
+
+
+def _leftover_changed(ctx, wt, ev):
+    """'' when the copy holds nothing beyond what was read (and, for a salvage, saved); else what changed. Run right before the
+    forced remove: a file that appeared or was edited since the read is kept, not deleted."""
+    real, traces, entries = _read_status(ctx, wt)
+    if ev.cls == "merged-leftover-salvage":
+        allowed = set(ev.leftover)
+        for xy, path in entries:
+            if xy == "??" and is_junk_path(path, ctx.junk):
+                continue
+            if path not in allowed or xy[1] != " ":
+                return path
+        return ""
+    kind, why = classify_leftover(ctx, wt, entries, real)
+    return "" if kind == "equal" else why
+
+
 def apply_one(ctx, wt, ev, rep):
     git, root = ctx.git, ctx.repo.root
     archive = ""
@@ -601,7 +718,28 @@ def apply_one(ctx, wt, ev, rep):
             rep.add("KEEP %s: HEAD moved since the read (%s -> %s); judged again at the next run" % (
                 _q(wt.path), (wt.head or "")[:12], now_head[:12]))
             return
-    rc, out, err = git(root, "worktree", "remove", wt.path)              # never --force: git refuses a file that appeared since the read
+    force = False
+    if ev.cls == "unmerged-stale":                                        # the commits go to an archive ref first, then the copy and the branch
+        ok, info = archive_head(git, root, wt.short, wt.head)
+        if not ok:
+            rep.kept += 1
+            rep.add("KEEP %s: %s" % (_q(wt.path), info))
+            return
+    elif ev.leftover:
+        if ev.cls == "merged-leftover-salvage":
+            ok, info = salvage_leftover(ctx, wt, ev)
+            if not ok:                                                    # Q6: a failed salvage never removes
+                rep.kept += 1
+                rep.add("KEEP %s: salvage failed (%s)" % (_q(wt.path), info))
+                return
+            archive += ", salvage: " + info
+        problem = _leftover_changed(ctx, wt, ev)
+        if problem:
+            rep.kept += 1
+            rep.add("KEEP %s: changed during sweep (%s)" % (_q(wt.path), problem))
+            return
+        force = True                                                      # git refuses a dirty copy; the leftover is saved or equal to main
+    rc, out, err = git(root, "worktree", "remove", *(["--force"] if force else []), wt.path)   # else never --force: git refuses a file that appeared since the read
     if rc != 0:
         msg = first_line(err or gitcmd.as_text(out))
         if is_timeout(rc, err):
@@ -628,7 +766,7 @@ def apply_one(ctx, wt, ev, rep):
     if wt.short:
         ok, info = archive_and_delete_branch(git, root, wt.short, wt.head)
         if ok:
-            archive = ", archive: " + info
+            archive = (archive + ", archive: " + info) if ev.leftover else ", archive: " + info
         else:
             extra.append("KEEP branch %s: %s" % (wt.short, info))
     rep.done += 1
@@ -733,7 +871,7 @@ def expire_archive_refs(git, root, now, rep, *, apply):
 
 
 def sweep(root, *, ref=DEFAULT_REF, apply=False, now=None, T=T_SECONDS, runner=None, junk=None, ref_note="", out=None,
-          should_stop=None, progress=None):
+          should_stop=None, progress=None, show_classes=False):
     """One pass over ALL registered worktrees. Each copy is judged by its state at ITS turn (a fresh `worktree list`), not by
     the snapshot of the start: a commit made in a copy during a long run is not lost, a copy locked since stays. `should_stop()`
     true before a copy ends the pass (the sweep lock was lost); `progress(seen, registered)` follows every copy; `out(line)`
@@ -765,7 +903,7 @@ def sweep(root, *, ref=DEFAULT_REF, apply=False, now=None, T=T_SECONDS, runner=N
     for w in junk.warnings:
         rep.add(w)
     rep.add("judged against %s at %s (%s)%s" % (ref, sha[:7], date, ref_note))
-    prunable, stopped = [], False
+    prunable, stopped, classes = [], False, {}
     for seen, listed in enumerate(linked, 1):
         if should_stop is not None and should_stop():
             rep.add("STOPPED: the sweep lock was lost -- the rest is left for the next run")
@@ -789,6 +927,9 @@ def sweep(root, *, ref=DEFAULT_REF, apply=False, now=None, T=T_SECONDS, runner=N
             ev = evaluate(ctx, wt)
         except Exception as exc:                                         # one copy never stops the others (E24)
             ev = Eval("keep", "unknown (%s: %s)" % (type(exc).__name__, first_line(str(exc))))
+        classes[ev.cls or ev.kind] = classes.get(ev.cls or ev.kind, 0) + 1
+        if show_classes:
+            rep.add("CLASS %s: %s" % (ev.cls or ev.kind, _q(wt.path)))
         if ev.kind == "prunable":
             prunable.append(wt)
             rep.add("PRUNABLE %s" % _q(wt.path))
@@ -799,8 +940,8 @@ def sweep(root, *, ref=DEFAULT_REF, apply=False, now=None, T=T_SECONDS, runner=N
             rep.add("KEEP %s: %s" % (_q(wt.path), ev.text))
         elif not apply:
             rep.done += 1
-            rep.add("CAN REMOVE %s (branch %s, merged: %s, own commits: %s, junk: %d files)" % (
-                _q(wt.path), wt.short or "(detached)", ev.merged, ev.own, len(ev.traces)))
+            rep.add("CAN REMOVE %s (branch %s, merged: %s, own commits: %s, junk: %d files%s)" % (
+                _q(wt.path), wt.short or "(detached)", ev.merged, ev.own, len(ev.traces), ", " + ev.text if ev.text else ""))
             scratch, state = scratch_of(wt.path, registered)
             if state == "link":
                 rep.add("KEEP scratch %s: link" % _q(scratch))
@@ -843,6 +984,9 @@ def sweep(root, *, ref=DEFAULT_REF, apply=False, now=None, T=T_SECONDS, runner=N
         expire_archive_refs(git, repo.root, now, rep, apply=apply)
         for p in _orphan_scratch(wts, registered):
             rep.add("ORPHAN SCRATCH %s" % _q(p))
+    if show_classes:
+        for name in sorted(classes):
+            rep.add("classes: %s = %d" % (name, classes[name]))
     rep.add("worktree_sweep: %d registered, %d %s, %d kept, %d failed" % (
         rep.registered, rep.done, "removed" if apply else "can go", rep.kept, rep.failed))
     return rep
@@ -1320,6 +1464,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="worktree_sweep", description=__doc__.split("\n")[0])
     ap.add_argument("--ref", default=None, help="what `merged` is judged against (default %s)" % DEFAULT_REF)
     ap.add_argument("--apply", action="store_true", help="remove the candidates (default: a dry run)")
+    ap.add_argument("--dry-run", action="store_true", help="print the class of every copy and the counts per class; removes and writes nothing")
     ap.add_argument("--repo", default=None, help="the repository (default: the current directory)")
     ap.add_argument("--post-merge", action="store_true", help="the hook form: start the full sweep in the background")
     ap.add_argument("--squash-flag", default="0", help="the hook's argument: 1 after merge --squash (the sweep does not depend on it)")
@@ -1327,6 +1472,8 @@ def main(argv=None):
     ap.add_argument("--background-run", action="store_true", help="internal: the detached run started by the hook / close")
     ap.add_argument("--token", default=None, help="internal: the token of the lock the detached run was started under")
     args = ap.parse_args(argv)
+    if args.dry_run and args.apply:
+        ap.error("--dry-run and --apply exclude each other")
     root = args.repo or os.getcwd()
     if args.background_run:
         return _background_run(root, args.token or "")
@@ -1362,7 +1509,7 @@ def main(argv=None):
         if state is not None and state.kind == "running":
             print("NOTE: a sweep is running since %s (%s) -- copies it is removing may still be listed" % (
                 state.data.get("started", "unknown"), state.data.get("trigger", "unknown")))
-    rep = sweep(root, ref=ref, apply=args.apply)
+    rep = sweep(root, ref=ref, apply=args.apply, show_classes=args.dry_run)
     for line in rep.lines:
         print(line)
     return rep.exit_code

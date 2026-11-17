@@ -220,41 +220,106 @@ def test_merged_junk_only_traces_are_removed_by_the_tool_and_remove_runs_without
     assert (repo.main / "logs" / ".search-ledger" / "keep.txt").exists()
 
 
-def test_merged_real_change_is_kept_with_the_path_and_the_door(repo):
+def _salvage_refs(repo):
+    return git(repo.main, "for-each-ref", "--format=%(refname)", "refs/worktree-sweep/salvage/").split()
+
+
+def test_merged_leftover_that_differs_is_saved_as_one_commit_on_a_salvage_ref_then_the_copy_goes(repo):
     wt = repo.merged_wt("r")
+    head = git(wt, "rev-parse", "HEAD")
     (wt / "notes.txt").write_text("work")
-    (wt / "bash.exe.stackdump").write_text("trace")
+    (wt / "r.txt").write_text("edited\n")                                  # tracked, differs from main
+    (wt / "bash.exe.stackdump").write_text("trace")                        # junk: neither compared nor saved
+    rep = repo.sweep(show_classes=True)
+    assert line(rep, "CLASS ").startswith("CLASS merged-leftover-salvage:") and "classes: merged-leftover-salvage = 1" in rep.lines
+    assert "2 of 2 files differ" in line(rep, "CAN REMOVE") and wt.exists() and not _salvage_refs(repo)        # a dry run writes nothing
     rep = repo.sweep(apply=True)
-    k = line(rep, "KEEP")
-    assert k.startswith('KEEP "%s": real changes: notes.txt -- to let it go: save them' % ws.parse_worktrees(
-        gitcmd.git(repo.main, "worktree", "list", "--porcelain", "-z")[1])[1].path)
-    assert 'git -C "' in k and "git worktree remove --force" in k and "bash.exe.stackdump" not in k.split(" -- ")[0]
-    assert wt.exists() and "r" in repo.branches() and rep.lines[-1].startswith("worktree_sweep: 1 registered, 0 removed, 1 kept")
+    assert rep.exit_code == 0 and not wt.exists() and "r" not in repo.branches() and rep.lines[-1].startswith("worktree_sweep: 1 registered, 1 removed")
+    (ref,) = _salvage_refs(repo)
+    assert ref.startswith("refs/worktree-sweep/salvage/r/") and git(repo.main, "rev-parse", ref + "^") == head
+    assert sorted(git(repo.main, "diff", "--name-only", head, ref).split()) == ["notes.txt", "r.txt"]
+    assert git(repo.main, "show", ref + ":notes.txt") == "work" and git(repo.main, "rev-parse", "refs/worktree-sweep/r/" + head[:12]) == head
+    assert ws.expire_archive_refs(ws.Git(), repo.main, time.time() + 90 * 86400, ws.Report(), apply=True) is None and _salvage_refs(repo) == [ref]
 
 
-def test_k7_negative_control_the_real_change_predicate_is_what_keeps_the_copy(repo, monkeypatch):
+def test_merged_leftover_equal_to_main_ignoring_cr_goes_without_a_salvage(repo):
+    wt = repo.merged_wt("e")
+    (wt / "base.txt").write_bytes(b"1\r\n2\r\n3\r\n")                       # CRLF-only copy of a tracked file
+    (wt / "e.txt").unlink()                                                # a tracked file deleted here ...
+    git(repo.main, "rm", "-q", "e.txt")                                    # ... and deleted in main too
+    git(repo.main, "commit", "-qm", "rm")
+    git(repo.main, "push", "-q", "origin", "main")
+    rep = repo.sweep(show_classes=True)
+    assert "classes: merged-leftover-equal = 1" in rep.lines, rep.lines
+    rep = repo.sweep(apply=True)
+    assert not wt.exists() and "e" not in repo.branches() and not _salvage_refs(repo) and rep.exit_code == 0
+
+
+@pytest.mark.parametrize("name,body", [("bin.dat", b"\0\1\2"), ("same.bin", None), ("absent.txt", b"new\n"), ("base.txt", b"1\n2\n4\n"),
+                                       ("lone.txt", b"1\r2\r3\r")])
+def test_leftover_binary_absent_or_different_is_saved_never_compared_as_text(repo, name, body):
+    wt = repo.merged_wt("d")
+    if name == "same.bin":
+        (repo.main / "same.bin").write_bytes(b"\0x")                       # binary equal to main: still salvaged, not compared as text
+        git(repo.main, "add", "-A")
+        git(repo.main, "commit", "-qm", "bin")
+        git(repo.main, "push", "-q", "origin", "main")
+        body = b"\0x"
+    (wt / name).write_bytes(body)
+    rep = repo.sweep(show_classes=True)
+    assert "classes: merged-leftover-salvage = 1" in rep.lines, rep.lines
+
+
+def test_a_failed_salvage_keeps_the_copy_with_the_reason(repo, monkeypatch):
+    wt = repo.merged_wt("f")
+    (wt / "notes.txt").write_text("work")
+    monkeypatch.setattr(ws, "archive_head", lambda *a: (False, "archive ref failed (boom)"))
+    rep = repo.sweep(apply=True)
+    assert 'salvage failed (archive ref failed (boom))' in line(rep, "KEEP") and wt.exists() and "f" in repo.branches() and rep.exit_code == 0
+    assert rep.lines[-1].startswith("worktree_sweep: 1 registered, 0 removed, 1 kept")
+
+
+def test_k7_negative_control_the_real_change_predicate_is_what_classes_the_copy(repo, monkeypatch):
     wt = repo.merged_wt("n")
     (wt / "notes.txt").write_text("work")
-    assert has(repo.sweep(), "KEEP")
+    assert "classes: merged-leftover-salvage = 1" in repo.sweep(show_classes=True).lines
     monkeypatch.setattr(ws, "real_changes", lambda entries, junk: ([], []))
-    assert has(repo.sweep(), "CAN REMOVE") and not has(repo.sweep(), "KEEP")
-
-
-def test_tracked_change_under_a_junk_directory_is_a_real_change(repo):
-    wt = repo.merged_wt("t")
-    (wt / "logs" / ".search-ledger" / "keep.txt").write_text("edited\n")
-    k = line(repo.sweep(), "KEEP")
-    assert "real changes: logs/.search-ledger/keep.txt" in k
+    assert "classes: merged-clean = 1" in repo.sweep(show_classes=True).lines
 
 
 @pytest.mark.parametrize("count,tail", [(5, ""), (6, " (+1 more)")])
-def test_real_change_paths_are_cut_at_five_with_a_count(repo, count, tail):
+def test_leftover_paths_are_cut_at_five_with_a_count(repo, count, tail):
     wt = repo.merged_wt("p")
     names = ["f%d.txt" % i for i in range(count)]
     for n in names:
         (wt / n).write_text("x")
-    k = line(repo.sweep(), "KEEP").split(": real changes: ")[1].split(" -- ")[0]
+    k = line(repo.sweep(), "CAN REMOVE").split("differ from origin/main: ")[1][:-1]
     assert k == ", ".join(names[:5]) + tail
+
+
+@pytest.mark.parametrize("age_days,cls", [(3.5, "unmerged-stale"), (2.9, "unmerged-young")])
+def test_unmerged_branch_is_archived_and_removed_only_after_three_days(repo, age_days, cls):
+    wt = repo.add_wt("u3")
+    head = repo.commit(wt, "u3.txt", "u")
+    now = time.time() + age_days * 86400 - 5                               # the commit was made "just now" by the test's clock
+    rep = repo.sweep(now=now, show_classes=True, apply=cls == "unmerged-stale")
+    assert "classes: %s = 1" % cls in rep.lines or has(rep, "CLASS " + cls)
+    if cls == "unmerged-young":
+        assert wt.exists() and "u3" in repo.branches() and "unmerged (1 commits" in line(rep, "KEEP")
+        return
+    assert not wt.exists() and "u3" not in repo.branches() and git(repo.main, "rev-parse", "refs/worktree-sweep/u3/" + head[:12]) == head
+
+
+def test_unmerged_stale_with_a_leftover_or_locked_is_kept(repo):
+    dirty = repo.add_wt("ud")
+    repo.commit(dirty, "ud.txt", "u")
+    (dirty / "wip.txt").write_text("work")
+    locked = repo.add_wt("ul")
+    repo.commit(locked, "ul.txt", "u")
+    git(repo.main, "worktree", "lock", "--reason", "agent", str(locked))
+    rep = repo.sweep(now=time.time() + 10 * 86400, apply=True, show_classes=True)
+    assert dirty.exists() and locked.exists() and not has(rep, "REMOVED")
+    assert "last commit older than 3 days but real changes: wip.txt" in "\n".join(rep.lines) and "classes: locked = 1" in rep.lines
 
 
 def test_unmerged_is_kept(repo):
@@ -375,8 +440,8 @@ def test_locked_is_kept_with_its_reason(repo):
 
 def test_scratch_goes_with_its_copy_and_stays_with_a_kept_one_and_orphans_are_only_listed(repo):
     ok = repo.merged_wt("k1")
-    kept = repo.merged_wt("k2")
-    (kept / "w.txt").write_text("work")
+    kept = repo.add_wt("k2")
+    repo.commit(kept, "k2.txt", "unmerged and young: kept")
     for w in (ok, kept):
         pathlib.Path(str(w) + "-scratch").mkdir()
     orphan = repo.wts / "gone-scratch"
@@ -535,7 +600,9 @@ def test_r1_archive_refs_expire_only_when_old_and_in_origin_main(repo, case):
     N = ws.ARCHIVE_KEEP_DAYS
     sha = git(repo.main, "rev-parse", "origin/main")
     if case == "unmerged":
-        sha = repo.commit(repo.add_wt("um"), "um.txt", "unmerged work")
+        um = repo.add_wt("um")
+        sha = repo.commit(um, "um.txt", "unmerged work")
+        git(repo.main, "worktree", "lock", str(um))                        # FG7-66: an unmerged copy older than 3 days would otherwise be swept too
     cdate = int(git(repo.main, "log", "-1", "--format=%ct", sha))
     ref = "refs/worktree-sweep/t/" + sha[:12]
     git(repo.main, "update-ref", ref, sha)
@@ -662,8 +729,8 @@ def test_path_with_a_space_is_printed_whole_and_the_form_separates_path_from_rea
     m = re.match(r'^CAN REMOVE "(.+)" \(branch ', l1)
     assert m and m.group(1) == listed
     (wt / "w.txt").write_text("work")
-    l2 = line(repo.sweep(), "KEEP")
-    m = re.match(r'^KEEP "(.+?)": real changes: ', l2)
+    l2 = line(repo.sweep(), "CAN REMOVE")
+    m = re.match(r'^CAN REMOVE "(.+?)" \(branch .*differ from', l2)
     assert m and m.group(1) == listed
     assert sys.platform != "win32" or re.match(r"^[A-Za-z]:", listed)      # the drive colon sits INSIDE the quoted path
 
@@ -684,7 +751,7 @@ def test_junk_file_absent_or_broken_makes_traces_real_changes(repo, tmp_path):
             path.write_text(content)
         junk = ws.load_junk(path)
         rep = repo.sweep(junk=junk)
-        assert has(rep, "KEEP") and "real changes: bash.exe.stackdump" in line(rep, "KEEP"), name
+        assert "differ from origin/main: bash.exe.stackdump" in line(rep, "CAN REMOVE"), name
         assert bool(junk.warnings) == (name != "empty.json")
 
 
@@ -1012,7 +1079,8 @@ def test_k2_no_trace_names_and_no_protected_main_literal_in_the_code():
 def test_k2_no_force_in_the_git_arguments():
     tree = ast.parse(SOURCE)
     constants = [n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)]
-    assert not [c for c in constants if c in ("--force", "-f", "--force-delete")]
+    assert not [c for c in constants if c in ("-f", "--force-delete")]
+    assert constants.count("--force") == 1          # FG7-66: only the remove of a copy whose leftover is saved or equal to main (apply_one `force`)
     remove_calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and [a.value for a in n.args if isinstance(a, ast.Constant)][:2] == ["worktree", "remove"]]
     assert len(remove_calls) == 1                                                                   # positive control: the call is found
 
@@ -1407,13 +1475,13 @@ def test_w11_the_full_run_removes_every_merged_copy_without_a_limit_and_keeps_th
     (changed / "work.txt").write_text("real work")
     rep = run_body(repo)
     removed = [l for l in rep.lines if l.startswith("REMOVED ")]
-    assert len(removed) == 7 and not has(rep, "deferred") and not older.exists()
+    assert len(removed) == 8 and not has(rep, "deferred") and not older.exists()
     assert all(not (repo.wts / n).exists() for n in names)
     keeps = [l for l in rep.lines if l.startswith("KEEP ")]
-    assert any("no own commits, active" in l for l in keeps) and any("real changes: work.txt" in l for l in keeps)
-    assert young.exists() and changed.exists()
+    assert any("no own commits, active" in l for l in keeps)
+    assert young.exists() and not changed.exists() and any("salvage: " in l for l in removed)       # the changed copy is saved, then removed
     status = _status(_sd(repo))
-    assert status["state"] == "finished" and status["removed"] == 7 and status["kept"] == 2 and status["registered"] == 9
+    assert status["state"] == "finished" and status["removed"] == 8 and status["kept"] == 1 and status["registered"] == 9
     assert status["passes"] == 1 and status["pid"] == os.getpid() and "judged against main at" in (_sd(repo) / "run.log").read_text()
 
 
