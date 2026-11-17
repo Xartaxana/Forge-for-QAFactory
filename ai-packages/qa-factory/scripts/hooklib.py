@@ -1178,6 +1178,70 @@ def _load_reader_runs(raw, problems: list) -> dict:
     return {"flags": flags, "words": frozenset(w for words in flags.values() for w in words), "patterns": patterns}
 
 
+# A bare word of a read-head row: a letter, then letters, digits, `_` or `-` (no path, no `.exe`, no space, no glob).
+_HEAD_WORD = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
+# The in-code floor of what is NEVER a read head, whatever a launch-causes.json `reader_heads` row says (a broken or absent
+# table keeps it, never opens it): programs that run other programs or code, and file writers/deleters with the aliases of
+# the cmdlets listed. The launchers and shells of `run_forms` (the table's own data) are added at load time. Lower-case.
+_NEVER_READ_HEADS = frozenset((
+    "python", "python3", "pythonw", "py", "bash", "sh", "zsh", "dash", "ksh", "fish", "pwsh", "powershell", "cmd",
+    "node", "deno", "bun", "perl", "ruby", "php", "lua", "eval", "exec", "iex", "invoke-expression", "invoke-command",
+    "start-process", "env", "xargs", "nohup", "sudo", "tee", "set-content", "out-file", "add-content", "remove-item",
+    "rm", "del", "erase", "rd", "rmdir", "cp", "mv", "copy-item", "move-item", "new-item", "rename-item", "tee-object",
+    "mkdir", "touch", "dd", "icm", "saps", "start", "sc", "ac", "ri", "ii"))
+
+
+def _load_reader_heads(raw, never: frozenset, problems: list) -> dict:
+    """The tables of launch-causes.json `reader_heads` (FR-13: `role_read`, `runner_mention`, two lists that stay two):
+    {table: [valid row, ...]}. A row that is not one bare word, or is in `never` (lower-case), is skipped and NAMED in
+    `problems`; a table that is not a list is named too. The in-code floors of the consumers stay outside, in
+    `host_adapter.head_rows`."""
+    out: dict = {"role_read": [], "runner_mention": []}
+    if raw is None:
+        return out
+    if not isinstance(raw, dict):
+        problems.append("`reader_heads` is not an object")
+        return out
+    for name in out:
+        rows = raw.get(name)
+        if rows is None:
+            continue
+        if not isinstance(rows, list):
+            problems.append(f"reader_heads.{name} is not a list")
+            continue
+        for row in rows:
+            if not (isinstance(row, str) and _HEAD_WORD.fullmatch(row)):
+                problems.append(f"reader_heads.{name} row {row!r} is not one bare word")
+            elif row.lower() in never:
+                problems.append(f"reader_heads.{name} row {row!r} runs other programs or writes files")
+            else:
+                out[name].append(row)
+    return out
+
+
+def reader_heads(data: dict | None = None) -> dict:
+    """The parsed `reader_heads` tables {table: [row, ...]}: from `run_forms()` (the one reader), or from a parsed
+    launch-causes.json `data` checked against the same deny set (rows skipped, problems dropped: a caller's probe)."""
+    form = run_forms()
+    if data is None:
+        return form["reader_heads"]
+    return _load_reader_heads(data.get("reader_heads") if isinstance(data, dict) else None,
+                              form["never_read_heads"], [])
+
+
+def head_rows(name, floor, data=None):
+    """The effective heads of the `reader_heads.<name>` table: `floor` (the consumer's in-code list, always there) first,
+    then each valid row of the table not already there, in table order. `data` is a parsed launch-causes.json (default:
+    the one `run_forms()` read, where a missing or broken file gives no rows)."""
+    out = list(floor)
+    seen = {head.lower() for head in out}
+    for row in reader_heads(data).get(name, ()):
+        if row.lower() not in seen:
+            out.append(row)
+            seen.add(row.lower())
+    return tuple(out)
+
+
 def reader_runs_words(data: dict) -> frozenset:
     """Every flag of the table: the word after one of them is a program (`-exec pytest`)."""
     return data["reader_runs"]["words"]
@@ -1254,6 +1318,8 @@ def _load_run_forms(path) -> dict:
             continue
         shells[row["program"].lower()] = (row["flag_style"], row["dialect"])
     reader_runs = _load_reader_runs(raw.get("reader_runs"), problems)
+    never_read = _NEVER_READ_HEADS | frozenset(launchers) | frozenset(shells)
+    heads = _load_reader_heads(raw.get("reader_heads"), never_read, problems)
     fallback = not any([f["argv"] == ["pytest"] for f in forms])
     if fallback:
         forms.append(dict(_FALLBACK_PYTEST))
@@ -1273,7 +1339,8 @@ def _load_run_forms(path) -> dict:
             "_diagnostics_text": list(diagnostics),
             "subcommand_diagnostics": frozenset(w.lower() for w in sub_diagnostics),
             "launchers": launchers, "verbs": frozenset(w.lower() for w in verbs), "shells": shells,
-            "reader_runs": reader_runs, "problems": problems, "fallback": fallback, "prefilter": prefilter}
+            "reader_runs": reader_runs, "reader_heads": heads, "never_read_heads": never_read,
+            "problems": problems, "fallback": fallback, "prefilter": prefilter}
 
 
 def run_forms() -> dict:

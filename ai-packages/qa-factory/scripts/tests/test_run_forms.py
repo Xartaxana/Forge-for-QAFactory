@@ -87,6 +87,8 @@ def shapes(argv: list) -> list:
 
 def k1_shipped_data() -> None:
     check_eq("k1 the shipped run_forms have no invalid item", H.run_forms_problems(), [])
+    check_eq("k1 the shipped reader_heads tables hold the code floors (no row skipped, none lost)",
+             {k: len(v) for k, v in H.run_forms()["reader_heads"].items()}, {"role_read": 7, "runner_mention": 25})
     check_eq("k1 the form ids are exactly the R1 list", [f["id"] for f in H.run_forms()["forms"]], FORM_IDS)
     check_eq("k1 the shipped data is not the fallback", H.run_forms()["fallback"], False)
     data, note = LC.load_data()
@@ -271,6 +273,17 @@ def k6_fallback_and_invalid_items() -> None:
         {"id": "diag", "argv": ["ok"], "diagnostics": "no"},  # not a list
         {"argv": ["noid"]}], "shells": [{"program": "sh", "flag_style": "weird", "dialect": "bash"}]}},
         partly_invalid)
+
+    # G15/S10: the `reader_heads` rows are read here too; a skipped row is named (FR-4), the good rows stay
+    def bad_heads():
+        problems = H.run_forms_problems()
+        check_eq("k6 reader_heads: three skipped rows, three problems", len(problems), 3)
+        check("k6 reader_heads: each names its table and row",
+              all("reader_heads." in p for p in problems) and any("'python'" in p for p in problems)
+              and any("'cat.exe'" in p for p in problems) and any("'rm'" in p for p in problems), str(problems))
+        check_eq("k6 reader_heads: the valid rows stay", H.reader_heads(None), {"role_read": ["bat"], "runner_mention": ["ok"]})
+    with_data({"run_forms": {"forms": [{"id": "jest", "argv": ["jest"]}]},
+               "reader_heads": {"role_read": ["bat", "python", "cat.exe"], "runner_mention": ["rm", "ok"]}}, bad_heads)
 
     # the loader is restored: the shipped data rules again
     check_eq("k6 the shipped data is back after the test worlds", H.run_forms_problems(), [])

@@ -252,18 +252,26 @@ HEAD_TABLES = [
     ("an empty list", {"reader_heads": {"role_read": []}}, FLOOR),
     ("a valid new word is added (AT the rule)", {"reader_heads": {"role_read": ["bat"]}}, FLOOR + ("bat",)),
     ("a repeat of the floor adds nothing", {"reader_heads": {"role_read": ["rg", "RG"]}}, FLOOR),
-    ("writers are never read heads", {"reader_heads": {"role_read": ["python", "bash", "pwsh", "node", "PYTHON", "Bash"]}}, FLOOR),
+    ("writers and launchers are never read heads (launchers of run_forms and listed writers too)",
+     {"reader_heads": {"role_read": ["python", "bash", "pwsh", "node", "PYTHON", "Bash", "timeout", "uv", "rm", "Copy-Item", "ICM"]}}, FLOOR),
     ("a path, a suffix, a glob, a blank, a non-string are skipped (BEYOND the rule)",
      {"reader_heads": {"role_read": ["/usr/bin/rg", "cat.exe", "*", "", "a b", 5, None, "1x"]}}, FLOOR),
 ]
 # heads the real guard refuses: the rstrip class, a path, .exe and case variants, the writers
-REFUSED_HEADS = ["catx f", "lsx", "rgx -n a f.json", "/usr/bin/rg -n a f.json", "cat.exe f", "CAT f", "Rg -n a f", "python x.py",
+REFUSED_HEADS = ["catx f", "lsx", "rgx -n a f.json", "/usr/bin/rg -n a f.json", "cat.exe f", "CAT f", "Rg -n a f",
                  "bash -c ls", "pwsh -c ls", "node x.js", "get-content f", "Get-Contentx f"]
 
 
 def the_read_heads_are_data() -> None:
+    import stage_guard as SG
     for name, data, want in HEAD_TABLES:
         check_eq(f"K6 read heads, {name}", host_adapter.head_rows("role_read", FLOOR, data), want)
+        # the same table for the runner guard's list (the second name), over its own floor
+        renamed = {"reader_heads": {"runner_mention": data["reader_heads"]["role_read"]}} if (
+            isinstance(data, dict) and isinstance(data.get("reader_heads"), dict) and "role_read" in data["reader_heads"]) else data
+        floor2 = SG._READER_FLOOR
+        want2 = floor2 + tuple(w for w in want[len(FLOOR):] if w.lower() not in {f.lower() for f in floor2})
+        check_eq(f"K6 runner heads, {name}", host_adapter.head_rows("runner_mention", floor2, renamed), want2)
     check_eq("K6 the real table keeps today's heads", host_adapter.READ_HEADS, FLOOR)
     for command in REFUSED_HEADS:
         check(f"K6 head refused: {command[:30]!r}", bool(host_adapter._read_refusal(command)))

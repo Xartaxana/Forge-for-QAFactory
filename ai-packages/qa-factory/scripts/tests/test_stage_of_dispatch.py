@@ -309,24 +309,15 @@ def test_guard_keeps_what_it_refused(tmp):
 # --- R6: the runner guard's reader heads are data with a floor (G15, S10); no other file judges `_is_reader` ----------------
 
 def test_reader_heads_are_data_with_a_floor():
-    import host_adapter as HA
-    floor = SG._READER_FLOOR
-    # the real table keeps today's heads
-    assert SG.READER_COMMANDS == frozenset(floor)
-    # an absent or malformed table leaves the floor; a valid row is added; a writer, a path, a suffix, a glob are skipped
-    cases = [({}, floor), ([], floor), ({"reader_heads": {"runner_mention": 5}}, floor),
-             ({"reader_heads": {"runner_mention": ["bat"]}}, floor + ("bat",)),
-             ({"reader_heads": {"runner_mention": ["python", "bash", "pwsh", "node", "Python"]}}, floor),
-             ({"reader_heads": {"runner_mention": ["/usr/bin/rg", "cat.exe", "*", "", None]}}, floor)]
-    for data, want in cases:
-        assert HA.head_rows("runner_mention", floor, data) == want, data
+    # the real table keeps today's heads; the table rows themselves are the rows of test_role_policy_reads (both names)
+    assert SG.READER_COMMANDS == frozenset(SG._READER_FLOOR)
 
 
 def test_is_reader_takes_a_suffix_not_characters():
     for name in ("cat", "cat.exe", "CAT.EXE", "Get-Content", "rg.exe", "select-string"):
         assert SG._is_reader(name), name
     # the rstrip class (`catx` was `cat`), the writers, a path, a doubled suffix, the empty name
-    for name in ("catx", "lsx", "rgx", "grepe", "cate", "python", "bash", "pwsh", "node", "python.exe", "/usr/bin/rg",
+    for name in ("catx", "lsx", "rgx", "grepe", "cate", "python", "bash", "pwsh", "node", "python.exe",
                  "cat.exe.exe", "cat.", "", ".exe"):
         assert not SG._is_reader(name), name
 
@@ -337,6 +328,8 @@ def test_a_reader_mention_is_exempt_and_a_lookalike_is_not():
     assert not SG._launches_runner(SG._slices("CAT.exe " + mention, "powershell")[0][0])
     assert SG._launches_runner(SG._slices("catx " + mention, "bash")[0][0])
     assert SG._launches_runner(SG._slices("python " + mention, "bash")[0][0])
+    # junction pin: `_reader_head` takes the path off, so a path-headed reader is a mention too (today's door)
+    assert not SG._launches_runner(SG._slices("/usr/bin/rg " + mention, "bash")[0][0])
 
 
 def main() -> int:

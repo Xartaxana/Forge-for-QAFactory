@@ -77,7 +77,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from hooklib import artifact_root, artifacts_dir, load_ref_json, load_config, role_name  # noqa: E402
 import adapter_forms as AF  # noqa: E402
-from host_adapter import head_rows  # noqa: E402
 import detector_verdict as DV  # noqa: E402
 import hooklib  # noqa: E402
 import runtime_paths as RP  # noqa: E402
@@ -2508,14 +2507,14 @@ NON_EXECUTING_FLAGS = ("--reparse-block", "--recover", "--detail", "--help", "-h
 # LOOKING the runner up (three of them to find out which flags exist, because the refusal
 # had just told them the interface had changed).
 # The list is closed variety (FR-13, AR-1): launch-causes.json `reader_heads.runner_mention`, read through
-# `host_adapter.head_rows` over this in-code floor (today's list; an absent or broken table leaves exactly it, and a row
-# naming a program that runs other programs or code is skipped). It stays a list of its own: the no-Bash role's one
+# `hooklib.head_rows` over this in-code floor (today's list; an absent or broken table leaves exactly it, and a row
+# naming a launcher, a shell or a writer is skipped and named in `hooklib.run_forms_problems`). It stays a list of its own: the no-Bash role's one
 # plain read (`host_adapter.READ_HEADS`) is another table.
 _READER_FLOOR = (
     "grep", "rg", "find", "ls", "cat", "head", "tail", "sed", "awk", "wc", "stat", "file",
     "less", "more", "type", "cp", "mv", "diff", "which", "dirname", "basename", "echo",
     "md5sum", "sha256sum", "select-string", "get-content", "get-childitem")
-READER_COMMANDS = frozenset(head.lower() for head in head_rows("runner_mention", _READER_FLOOR))
+READER_COMMANDS = frozenset(head.lower() for head in hooklib.head_rows("runner_mention", _READER_FLOOR))
 
 # Shapes that create a file. Used only to tell "the request is about to be written by this
 # very command" from "the path is wrong".
@@ -2594,7 +2593,9 @@ def _reader_head(masked: str) -> str:
 
 def _is_reader(name: str) -> bool:
     """Whether the program name is a reader head: the name, or the name with ONE `.exe` suffix taken off (never the
-    characters `.`, `e`, `x`: `catx` and `lsx` are no reader), lower-case. A name holding a path is none."""
+    characters `.`, `e`, `x`: `catx` and `lsx` are no reader), lower-case. The caller (`_reader_head`) has already taken
+    the path off, so a path is not tested here. Only `.exe` comes off, unlike `hooklib._name`, which also takes `.cmd`,
+    `.bat`, `.com`, `.ps1`: a reader with those suffixes may be a script a role wrote."""
     low = str(name).lower()
     return low.removesuffix(".exe") in READER_COMMANDS or low in READER_COMMANDS
 

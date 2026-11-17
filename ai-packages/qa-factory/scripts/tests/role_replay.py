@@ -27,7 +27,7 @@ import harness  # noqa: E402
 sys.path.insert(0, str(harness.SCRIPTS))
 import host_adapter as HA  # noqa: E402
 
-# The heads of a plain read command are the guard's own list (`HA._READ_HEAD`, SIBLING_MAP axis 11): built from it, so
+# The heads of a plain read command are the guard's own list (`HA.READ_HEADS`, SIBLING_MAP axis 11): built from it, so
 # a read command the guard learns is a command this replay extracts. `named_commands` is an INDEPENDENT oracle of what
 # a text instructs (prose -> command); it does not share an extractor with role_permissions' INLINE_RUN_RE / FENCE_RE.
 _READ_ALTS = "|".join(HA.READ_HEADS)    # the guard's effective heads (floor + the launch-causes.json table): bare words
