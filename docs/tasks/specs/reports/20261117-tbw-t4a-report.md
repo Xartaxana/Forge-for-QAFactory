@@ -145,3 +145,18 @@ fails. A sentence-vs-body mismatch (EC-8 class); the row is stage-joints data (n
 
 `ai-packages/qa-factory/scripts/refusal_registry.py` (`sites`, `_key_text`, `_covers`, `findings`), `hooklib.py` (`block`, `TRAPPED`), `detector_verdict.py`, `references/stage-joints.json` (rows),
 `references/artifact-writers.json`, `tests/test_guard_write_owners.py`, `tests/test_guard_window_files.py`, `tests/test_codex_tool_guidance.py` (fixtures), `tests/harness.py`, `scripts/slow_tests.json`, `test-layers.json`.
+
+## Round 2 (Lead answers to Q1, Q2; one new commit on top of 86ce4caf)
+
+- Q1 done: `refusal_registry.py` `_key_text` only: a first argument `refusal("<literal id>", X)` (two or more arguments, literal str id) is keyed by X; any other shape keeps today's key.
+- Q2 done: bare site: guard_pre_tool big_read_check:~896, picture/PDF branch - needs its own row id (row split), queue to T1r-cards-R. The text-file branch of the same function stays `refusal("guard_pre_tool:PT-big-read", ...)`.
+- Verbatim witness after the change:
+```
+$ python -B ai-packages/qa-factory/scripts/tests/test_refusal_registry.py       => === test_refusal_registry: 528/528 ok ===
+$ python -B ai-packages/qa-factory/scripts/tests/test_guard_big_read_sections.py => === test_guard_big_read_sections: 248/248 ok ===
+$ python -B ai-packages/qa-factory/scripts/tests/test_detector_verdict.py       => === test_detector_verdict: 570/570 ok ===
+$ python -B ai-packages/qa-factory/scripts/refusal_registry.py --check          => A24 refusal registry: no violations (rc=0; was 68 violations)
+$ python -B ai-packages/qa-factory/scripts/stage_joints.py --check              => ... told counters: hand_cards 12, legacy_legs 0, unsited 119 / stage joints: clean
+$ python -B ai-packages/qa-factory/scripts/selftest.py --limits --lang          => === qa-factory selftest: 4/4 ok ===
+```
+No test row added to test_refusal_registry (its existing rows are green; the unwrap is proved by the 68 -> 0 of `--check`).
