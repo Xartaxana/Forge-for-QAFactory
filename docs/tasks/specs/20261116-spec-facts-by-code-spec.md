@@ -865,3 +865,8 @@ needed beyond the manifest: the files in the trail other than the two given.
 | Owner F-9 «да» | T1 home `tools/test_owns_readers.py`; fallback dropped | §5, F-9 |
 | Owner quarantine question (open) | quarantine as one isolated function + one row group, deleted with the section; both worlds stated; L10 on the deletion carrier | §2.3 (ii)-q, E-3d, T1, L10 |
 | Superseded statements | the old "Lead decisions" and "owner's word" blocks replaced by "Decisions and the owner's words"; old Examples A/B (`ok`, `to act on`), the 12/40 flat caps, the threshold slow rule, the "1-15 lines" claim and the F-9 fallback removed | whole file |
+
+## The owner's word 17.11.2026 on the measure
+
+«ок» to the Lead's statement of what the mechanism must remove: rejects of the class "the spec states a wrong fact
+about the code" (30 of 65 in the week 11-16.11, scout t-896). M-1/M-2 judge it by that class and no other.

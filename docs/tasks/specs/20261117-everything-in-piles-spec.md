@@ -1011,3 +1011,8 @@ the same day — W2 in the status block: "the owner or the batch Lead". B5's cla
 | N10 F12 fragment level, gate-criterion shift | edits named per fragment (2c, 9a, 9c, 9d); the 9d criterion shift is part of F12 | §5 intro, F12, P37 |
 | key 7: F10 marked OWNER | relabelled Lead (reversible) | F10 |
 | t-906 marker in §2.1 | replaced by the measured origin table; streams re-ordered by volume | §2.1, P27, §7.1-§7.2 |
+
+## The owner's word on the OWNER forks (17.11.2026, Lead session)
+
+«всё по рекомендациям» — **F1 (a)**, **F8 (a)**, **F14 (a)**, **F16 (a)**, **F18 (a)**, **F19 (a)**. The streams are
+built on these answers; the fork paragraphs above stay as the record of the alternatives.

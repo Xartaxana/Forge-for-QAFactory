@@ -627,3 +627,14 @@ in `audit_factory.py` checked against `A27` found in the same file earlier).
   A language with no row that stops the factory is a defect (P22).
 - **F-O3** (a fourth finding addressee) and **F-O1** (`s5_stand_limits` and the other three unknown branches): the owner
   asked what these are; explained in chat 17.11, her word is pending. S8 stays executable on (a).
+
+### The owner's word 17.11.2026 (second portion) on F-O1 and F-O3
+
+- **F-O3** (a fourth finding addressee): «ок» to (a) — no; the three words are the factory's own contract. S8 stands.
+- **F-O1, `s5_stand_limits`**: «ок. Ответ не забыть записать в реестр энвайроментов» — the unknown branch is a
+  QUESTION AT STAGE ENTRY (an unmeasured limit is asked, never run on a guess), and the person's answer is WRITTEN to
+  the environment registry, so the same stand is not asked again (FR-7; the conversion node owns the writer and its
+  reader in one commit, AR-22). A node that asks and does not persist the answer is incomplete.
+- **F-O1, the other three `debt` branches** (`collected_ids` -> rerun; `live_check_demand` -> question to the code
+  critic at window acceptance; `delivery` -> refuse_with_door): no separate word yet; drafted on the recommendation
+  (reversible registry edits), built after her answer.
