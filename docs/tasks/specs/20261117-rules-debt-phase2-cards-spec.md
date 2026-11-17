@@ -2297,3 +2297,20 @@ None of them reopens F-T1..F-T11. Each card executes on the recommendation.
 - F-T13 (a): no `KNOWN_REFUSALS` row; the refusal goes to the conductor.
 - F-T14 (a): "stage entry" is every `dispatch`, in `validate`'s dispatch branch.
 - F-T15 (a): one table in `test_controller_state.py`.
+
+## Lead decisions after the C3-b1 return (t-1051, 17.11.2026; made in the owner's absence, by the safest reversible option)
+
+The builder's report (`docs/tasks/specs/reports/20261117-rules-debt-c3-b1-report.md` on its branch) found three divergences of card C3-b1
+from the code. The card is continued under the same task id with these decisions:
+
+- **D-b1-1 (item 8, the `novelty_unmeasured` writer).** `window_record._attach_novelty` gets an optional out-parameter and `build` gets the merge
+  line(s) that carry the marker into the fragment — on BOTH exits of `build` (the normal one and the early return). `build` joins the owns. The
+  clone ratchet (`dup-baseline.json`) must not grow; if the merge line moves a clone group, the builder stops and reports the group.
+- **D-b1-2 (item 4, the value refusal).** `manifest_put.CRITIC_FIELDS` is the wrong set (critic fields of an `expectation_changes[]` record): the
+  name `probe_owed` is REMOVED from it again. The refusal is a new function in the style of `critic_approval_problems` plus one call in `run`:
+  a `tests[]` row whose `probe_owed` is present and is not `yes` / `no` is refused, naming the field, the row and both values (FR-1); an absent
+  key is not a refusal.
+- **D-b1-3 (the two red checks).** The role-load baseline of `qa-code-critic` is raised BY NAME to the measured share (owner, 16.11.2026: a limit
+  may be raised when the rule's text does not fit); the raise is named in the commit and in the changelog fragment. The joint
+  `acceptance:novelty_question` gets its row in `references/stage-joints.json` (model rows `acceptance:stale_run`, `acceptance:review`) and, same
+  commit, its row in the dry census (`dry_exits.py --check`, axis 38).
