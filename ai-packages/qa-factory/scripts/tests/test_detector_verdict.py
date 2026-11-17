@@ -1357,7 +1357,7 @@ def tbw_t7c_sites() -> None:
 # byte copy of the file before the siting edit; a path is `<ROOT>` / `<PKG>`, a backslash folded to `/`)
 T6_OLD = {
     'field.blank / fresh form, header.verdict': '316827b3057015e3',
-    'required_rows / fresh form, scope': '89b508a97cf4a629',
+    'required_rows / fresh form, scope': '2aacb18285053e98',
     'field.value / closed list, bogus word': 'd32e1ba7378d22c4',
     'required_rows.owed_by_verdict / concerns owes findings': '5ee8a34a35a0d267',
     'findings_tooling / tooling finding not repeated': '96a349b9717df61b',
@@ -1575,9 +1575,9 @@ def tbw_t6_sites() -> None:
                 check_eq(f"tbw-t6 {key}: the Record carries the id and the row's sentence",
                          (getattr(record, "check", ""), getattr(record, "expected", "")), (rid, SJ.told_text(SJ.row_for(rid)[0])[0]))
         check_eq("tbw-t6 every provocation has an old text", sorted(set(T6_OLD) - set(got)), [])
-        # one Record per problem, in order (EC-5): a fresh critic form says one `required_rows` and seven blank fields
+        # one Record per problem, in order (EC-5): a fresh critic form says two `required_rows` (`scope`, `inputs_read`) and five blank fields
         check_eq("tbw-t6 several problems: one Record per problem, in order", [getattr(p.text, "check", "") for p in fresh5],
-                 ["handoff_check:required_rows"] + ["handoff_check:field.blank"] * 7)
+                 ["handoff_check:required_rows"] * 2 + ["handoff_check:field.blank"] * 5)
         check_eq("tbw-t6 no problem: a clean triage and an empty scope say nothing of the null outcome",
                  [p.path for p in problems(s7_form(), s7c, t7) if p.path in ("scope", "not_for_repair")], [])
         # an unreadable row: the text is unchanged, the sentence says the factory could not read it (EC-4, FR-59)
