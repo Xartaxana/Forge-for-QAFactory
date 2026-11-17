@@ -950,7 +950,7 @@ def c26_the_rework_option_carries_args_and_a_chosen_call_may_decide() -> None:
     """t-722 C2-6 (§4.2, §4.3, §L-5): the form the conductor answers in names `args` in the places it reads that are data (the role file,
     the `rework_stage` row; the prompt of the driver was a source pin, deleted), and the role file names the one-option answer of a chosen call."""
     text = CONDUCTOR.read_text(encoding="utf-8")
-    check_in("C26: conductor.md 'Your answer' names args in the option form", '"args": {"stage", "role", "cases"|"rows", "cause"}', text)
+    check_in("C26: conductor.md 'Your answer' names args in the option form", '"args": {"stage", "role", "cases"|"rows"|"candidates", "cause"}', text)
     check_in("C26: conductor.md names the one-option answer of a chosen call (L-5)", "ask_person may carry exactly ONE option", text)
     row = next(m for m in json.loads(ACTIONS.read_text(encoding="utf-8"))["moves"] if m["id"] == "rework_stage")
     check_in("C26: the rework_stage row names args", '"args"', row["run"])
