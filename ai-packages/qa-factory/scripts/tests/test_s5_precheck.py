@@ -5004,7 +5004,9 @@ def fv1_30b_findings_carry_subjects() -> None:
         check_eq("(c) two rows missing their refs: two subjects, the instance and its fields",
                  found.get("subjects") if found else None,
                  [{"instance_id": "r1", "fields": ["obligation_refs"]}, {"instance_id": "r2", "fields": ["obligation_refs"]}])
-        check_eq("(c) the finding's other keys are the six it always had", [k for k in found if k != "subjects"], list(plain))
+        check_eq("(c) the finding's other keys are the six it always had", [k for k in found if k not in ("subjects", "told")], list(plain))
+        check_eq("(c) ... and `told` stands last, naming its row (T5r, 2d84d1f1)",
+                 (list(found)[-1], [t.get("check") for t in found["told"]]), ("told", ["s5_precheck:row_fields"]))
         one, _ = refs_finding(refs_story(root, [refs_row("r1", "TC-500", "TS-1", obligation_refs=[]), refs_row("r3", "TC-500", "TS-1")]))
         check_eq("(c) only the rows with a gap are subjects", [s["instance_id"] for s in (one or {}).get("subjects") or []], ["r1", "r3"])
     finally:

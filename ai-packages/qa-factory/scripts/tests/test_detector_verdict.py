@@ -1680,7 +1680,7 @@ def t4a_provoke_in(G, HA, root: Path) -> dict:
     put("git config", p + "git-config", G.git_config_check, sh("git config --global user.name x"), cfg)
     put("logs Read", p + "logs", G.logs_check, ev("Read", str(root / "evidence" / "a.log")), cfg)
     put("logs shell", p + "logs", G.logs_check, sh(f"cat {root / 'evidence' / 'a.log'}"), cfg)
-    put("plugin read", p + "plugin-read", G.plugin_read_check, ev("Read", str(hooklib.PLUGIN_ROOT / "scripts" / "hooklib.py"), role="qa-scout"), cfg)
+    put("plugin read", p + "plugin-read", G.plugin_read_check, ev("Read", (hooklib.PLUGIN_ROOT / "scripts" / "hooklib.py").as_posix(), role="qa-scout"), cfg)
     put("big read", p + "big-read", G.big_read_check, {"file_path": str(root / "big.txt")}, cfg, ev("Read", str(root / "big.txt")))
     put("case store", p + "case-store", G.case_store_check, ev("Write", at("work/TC-001.md")), {**cfg, "cases_root": "cases"})
     put("handoff rewrite", p + "handoff-rewrite", G.handoff_write_check, ev("Write", at("work/handoffs/D-1.yaml")), cfg)
@@ -1755,7 +1755,7 @@ T4A_OLD: dict = {   # row -> t4a_digest of the pre-change file's stderr (byte co
     'git config': '0b7737239f468b11',
     'logs Read': 'd3dcdca4b6849d83',
     'logs shell': 'd3dcdca4b6849d83',
-    'plugin read': 'c8455f9f8ed26987',
+    'plugin read': '577c1db84a62bfdb',   # the POSIX spelling on every OS (was c8455f9f..., the Windows spelling); PLUGIN_READ_MSG unchanged since 9ac00f09
     'big read': '8cb6f7047b49f287',
     'case store': '3b95d98a22c0bbe5',
     'handoff rewrite': '9e174afe126371ee',
