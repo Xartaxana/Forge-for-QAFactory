@@ -1847,7 +1847,7 @@ def verify_node_ids(request: dict, cfg: dict, *, mined: dict | None = None) -> d
     if kept:
         notes.append(kept)
     if checked.get("collect_error"):
-        notes.append("collect failed: " + str(checked["collect_error"])[:400])
+        notes.append("node ids were not verified: collect failed: " + str(checked["collect_error"])[:400])
     missing = checked.get("missing") or []
     if missing:
         task_root = artifacts_dir(request["task"])
