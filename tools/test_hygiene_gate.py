@@ -602,7 +602,8 @@ RUN_ALLOWED_ROWS += [
 
 
 @pytest.mark.parametrize("row,cmd,cwd_key,ok", RUN_ALLOWED_ROWS, ids=[r[0] for r in RUN_ALLOWED_ROWS])
-def test_run_allowed_battery(world, row, cmd, cwd_key, ok):
+def test_run_allowed_battery(world, monkeypatch, row, cmd, cwd_key, ok):
+    monkeypatch.chdir(world["clean"])             # the process cwd is a CLEAN tree on every machine: a swap to os.getcwd() turns rows red
     got_ok, reasons = hg.run_allowed(cmd, world[cwd_key])
     assert got_ok is ok, (row, reasons)
     assert isinstance(reasons, list) and all(isinstance(r, str) and r for r in reasons)
@@ -628,7 +629,21 @@ def test_run_allowed_an_exception_inside_the_gate_is_a_refusal_with_the_class_na
     assert ok is False and reasons
 
 
-def test_run_allowed_keeps_the_refusal_classes_of_the_live_gate(world):
+def test_run_allowed_cwd_types_edge_and_beyond(world, monkeypatch):
+    monkeypatch.chdir(world["clean"])
+    cmd = "git checkout -- ."
+    # AT the edge: a Path cwd and a str cwd of the same world give the same verdict (a dirty tree: refused, never the clean cwd's)
+    assert hg.run_allowed(cmd, world["repo"]) == hg.run_allowed(cmd, str(world["repo"]))
+    assert hg.run_allowed(cmd, world["repo"])[0] is False
+    assert hg.run_allowed("echo hello", world["clean"]) == hg.run_allowed("echo hello", str(world["clean"])) == (True, [])
+    # BEYOND: a cwd that is not a usable path is refused with the reason, never measured on the process cwd
+    for bad in (None, "", 5, object(), str(world["clean"] / "no-such-dir"), world["clean"] / "no-such-dir"):
+        ok, reasons = hg.run_allowed("echo hello", bad)
+        assert ok is False and len(reasons) == 1 and "working directory" in reasons[0] and "expected" in reasons[0], bad
+
+
+def test_run_allowed_keeps_the_refusal_classes_of_the_live_gate(world, monkeypatch):
+    monkeypatch.chdir(world["clean"])
     # the same judgment as decide(): whatever decide() denies for a Bash call, run_allowed refuses (parity on the rows above)
     for cmd in (f"echo x >> {JNL}", "git reset --hard", "cd x; echo y > docs/a.md"):
         _code, out = _decide(cmd, B, world["repo"])

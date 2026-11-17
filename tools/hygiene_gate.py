@@ -1564,6 +1564,12 @@ def run_allowed(cmd, cwd) -> tuple[bool, list[str]]:
         if _DYNAMIC_COMMAND_WORD_RE.search(cmd):
             return False, ["the command word is dynamic ($(...), backticks or a variable in command position), so the gate cannot "
                            "know what runs; write the command out literally, or put it in a file and pass it with --witness-file"]
+        if isinstance(cwd, os.PathLike):
+            cwd = os.fspath(cwd)
+        if not isinstance(cwd, str) or not cwd or not os.path.isdir(cwd):
+            # never fall through to _decide_command: it would swap a bad cwd for os.getcwd(), a tree the caller did not name
+            return False, ["the working directory is not an existing directory path, so the gate cannot measure a rollback "
+                           "there; refused (expected: the path of the directory the command will run in, as text or a path object)"]
         _code, out = _decide_command("Bash", cmd, {"cwd": cwd})
         if out is None:
             if _collect_signals(cmd, "Bash")["payload_uncertain"]:       # the live gate passes it silently; this road does not

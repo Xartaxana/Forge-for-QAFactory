@@ -112,7 +112,7 @@ def test_mechanism_paths_template_homes_and_self_protection():
     assert mg.mechanism_paths(extra) == extra
     # Narrowness is deliberate (ported from the source deployment):
     # other tools/ and gateway/ files stay outside the net.
-    assert mg.mechanism_paths(["tools/usage_report.py",
+    assert mg.mechanism_paths(["tools/hop_metrics.py",
                                "tools/test_mechanism_gate.py",
                                "gateway/config.yaml",
                                ".claude/settings.local.json",
@@ -961,7 +961,7 @@ def _tools_module_names(tools_dir=TOOLS_DIR):
 
 
 def _ast_tool_imports(source_text, tools_module_names):
-    """Real (AST, not a string grep) top-level `import X` / `from X
+    """Real (AST, not a string grep) every `import X` in the module, nested ones included: `import X` / `from X
     import ...` in *source_text*, X resolved ONLY against
     *tools_module_names* -- a standard-library/gateway/etc. import is
     simply not in that set and is silently excluded (not an error). A

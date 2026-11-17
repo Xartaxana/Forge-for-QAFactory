@@ -274,6 +274,7 @@ MECHANISM_PREFIXES = (
     "tools/md_table.py",            # imported by tools/piles.py (the table reader, t-797 F5-2 N3) - live wiring closure
     "tools/dispatch_manifest.py",   # imported by tools/dispatch_gate.py (completeness check)
     "tools/transcripts.py",         # imported by dispatch_gate, journal_echo, tier_echo, agent_budget (B-467, F2-11)
+    "tools/usage_report.py",        # imported (lazily, --node-cost only) by tools/forge_metrics.py (t-905); the closure counts it
     "tools/agents_md.py",           # run by .githooks/pre-commit (AGENTS.md --check)
     "tools/worktree_sweep.py",      # run by .githooks/post-merge (F6-38; self-activating, placed by the Lead) and imported by session_context.py / piles.py
     "tools/worktree-junk.json",     # DATA that decides what worktree_sweep.py deletes (untracked traces, protected branches): an edit widens the deletion set
