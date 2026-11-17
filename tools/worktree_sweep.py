@@ -79,7 +79,8 @@ STATES = ("running", "finished", "refused", "crashed", "not-started")
 ARCHIVE_PREFIX = "refs/worktree-sweep/"
 UNMERGED_KEEP_DAYS = 3               # an unmerged branch whose last commit is MORE than this many days old (and not locked) is archived and removed
 SALVAGE_NAME = "salvage"             # the archive namespace of a leftover commit: refs/worktree-sweep/salvage/<branch>/<sha12>
-ARCHIVE_KEEP_DAYS = 30              # an archive ref is old when its commit's committer date is MORE than this many days back (F-A1)
+SALVAGE_CLASSES = ("merged-leftover-salvage", "unmerged-stale-dirty")   # the classes whose leftover is committed before the copy goes
+ARCHIVE_KEEP_DAYS = 30             # an archive ref is old when its commit's committer date is MORE than this many days back (F-A1)
 ARCHIVE_SAFE_REF = DEFAULT_REF       # ... and it expires only when its commit is reachable from this pushed reference
 REMOTE_MAIN_FULL = "refs/remotes/" + DEFAULT_REF   # git calls name the remote main by its FULL refname: a local branch or tag `origin/main` shadows the short name
 
@@ -428,15 +429,12 @@ def evaluate(ctx, wt):
     merged, detail = merged_verdict(ctx.git, ctx.repo.root, wt.head, ctx.ref)
     if merged == "unmerged":
         keep = "unmerged (%s commits not in %s)" % (detail, ctx.ref)
-        if not wt.short:                                                  # a detached HEAD has no branch to age: kept as before
-            return Eval("keep", keep)
-        stale = _stale_head(ctx, wt)
-        if not stale:
+        if not _stale_head(ctx, wt):                                      # a detached HEAD is aged by its HEAD commit the same way
             return Eval("keep", keep, cls="unmerged-young")
         real, traces, _ = _read_status(ctx, wt)
-        if real:                                                          # an archive ref holds commits, not files: never lose a leftover (Q1)
-            return Eval("keep", "%s, last commit older than %d days but real changes: %s" % (keep, UNMERGED_KEEP_DAYS, _shown(real)),
-                        cls="unmerged-stale-dirty")
+        if real:                                                          # an archive ref holds commits, not files: the leftover is salvaged first (Lead, Q1)
+            return Eval("candidate", merged="unmerged", own="yes", traces=traces, leftover=real, cls="unmerged-stale-dirty",
+                        text="leftover: %d files saved first: %s" % (len(real), _shown(real)))
         return Eval("candidate", merged="unmerged", own="yes", traces=traces, cls="unmerged-stale")
     if merged == "unknown":
         return Eval("keep", "unknown (merge check: %s)" % detail)
@@ -683,7 +681,7 @@ def _leftover_changed(ctx, wt, ev):
     """'' when the copy holds nothing beyond what was read (and, for a salvage, saved); else what changed. Run right before the
     forced remove: a file that appeared or was edited since the read is kept, not deleted."""
     real, traces, entries = _read_status(ctx, wt)
-    if ev.cls == "merged-leftover-salvage":
+    if ev.cls in SALVAGE_CLASSES:
         allowed = set(ev.leftover)
         for xy, path in entries:
             if xy == "??" and is_junk_path(path, ctx.junk):
@@ -719,14 +717,14 @@ def apply_one(ctx, wt, ev, rep):
                 _q(wt.path), (wt.head or "")[:12], now_head[:12]))
             return
     force = False
-    if ev.cls == "unmerged-stale":                                        # the commits go to an archive ref first, then the copy and the branch
+    if ev.cls.startswith("unmerged-stale") and wt.short:                  # the commits go to an archive ref first, then the copy and the branch (a detached HEAD was archived above)
         ok, info = archive_head(git, root, wt.short, wt.head)
         if not ok:
             rep.kept += 1
             rep.add("KEEP %s: %s" % (_q(wt.path), info))
             return
-    elif ev.leftover:
-        if ev.cls == "merged-leftover-salvage":
+    if ev.leftover:
+        if ev.cls in SALVAGE_CLASSES:
             ok, info = salvage_leftover(ctx, wt, ev)
             if not ok:                                                    # Q6: a failed salvage never removes
                 rep.kept += 1

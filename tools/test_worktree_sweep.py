@@ -297,29 +297,42 @@ def test_leftover_paths_are_cut_at_five_with_a_count(repo, count, tail):
     assert k == ", ".join(names[:5]) + tail
 
 
-@pytest.mark.parametrize("age_days,cls", [(3.5, "unmerged-stale"), (2.9, "unmerged-young")])
-def test_unmerged_branch_is_archived_and_removed_only_after_three_days(repo, age_days, cls):
-    wt = repo.add_wt("u3")
+@pytest.mark.parametrize("detach", [False, True])
+@pytest.mark.parametrize("dirty", [False, True])
+@pytest.mark.parametrize("age_days,stale", [(3.5, True), (2.9, False)])
+def test_unmerged_copy_is_archived_and_removed_only_after_three_days_a_leftover_saved_first(repo, age_days, stale, dirty, detach):
+    wt = repo.add_wt("u3", detach=detach)
     head = repo.commit(wt, "u3.txt", "u")
+    if dirty:
+        (wt / "wip.txt").write_text("work")
+    cls = ("unmerged-stale-dirty" if dirty else "unmerged-stale") if stale else "unmerged-young"
     now = time.time() + age_days * 86400 - 5                               # the commit was made "just now" by the test's clock
-    rep = repo.sweep(now=now, show_classes=True, apply=cls == "unmerged-stale")
-    assert "classes: %s = 1" % cls in rep.lines or has(rep, "CLASS " + cls)
-    if cls == "unmerged-young":
-        assert wt.exists() and "u3" in repo.branches() and "unmerged (1 commits" in line(rep, "KEEP")
+    rep = repo.sweep(now=now, show_classes=True, apply=stale)
+    assert "classes: %s = 1" % cls in rep.lines, rep.lines
+    refs = git(repo.main, "for-each-ref", "--format=%(refname)", "refs/worktree-sweep/").split()
+    if not stale:
+        assert wt.exists() and not refs and ("u3" in repo.branches()) == (not detach) and "unmerged (1 commits" in line(rep, "KEEP")
         return
-    assert not wt.exists() and "u3" not in repo.branches() and git(repo.main, "rev-parse", "refs/worktree-sweep/u3/" + head[:12]) == head
+    assert not wt.exists() and "u3" not in repo.branches()
+    assert any(r.endswith("/" + head[:12]) and "/salvage/" not in r for r in refs)           # the branch tip / detached HEAD is archived
+    salv = [r for r in refs if "/salvage/" in r]
+    assert len(salv) == int(dirty)
+    if dirty:
+        assert git(repo.main, "rev-parse", salv[0] + "^") == head and git(repo.main, "show", salv[0] + ":wip.txt") == "work"
 
 
-def test_unmerged_stale_with_a_leftover_or_locked_is_kept(repo):
+def test_unmerged_stale_locked_is_kept_and_a_failed_salvage_keeps_the_dirty_one(repo, monkeypatch):
     dirty = repo.add_wt("ud")
     repo.commit(dirty, "ud.txt", "u")
     (dirty / "wip.txt").write_text("work")
+    monkeypatch.setattr(ws, "archive_head", lambda *a: (False, "archive ref failed (boom)"))
     locked = repo.add_wt("ul")
     repo.commit(locked, "ul.txt", "u")
     git(repo.main, "worktree", "lock", "--reason", "agent", str(locked))
     rep = repo.sweep(now=time.time() + 10 * 86400, apply=True, show_classes=True)
     assert dirty.exists() and locked.exists() and not has(rep, "REMOVED")
-    assert "last commit older than 3 days but real changes: wip.txt" in "\n".join(rep.lines) and "classes: locked = 1" in rep.lines
+    assert dirty.exists() and "ud" in repo.branches()                       # kept whole: the archive step failed first
+    assert any("archive ref failed (boom)" in l for l in rep.lines if l.startswith("KEEP ")) and "classes: locked = 1" in rep.lines
 
 
 def test_unmerged_is_kept(repo):
