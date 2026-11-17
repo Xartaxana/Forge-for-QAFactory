@@ -291,6 +291,24 @@ def _advice(check: str, case: str, message: str, fix: str, tag: str) -> dict:
     return _finding(check, case, message, fix, tag, level="advice")
 
 
+def _sited(check: str, case: str, message, fix: str, tag: str, level: str = "repair", subjects=None) -> dict:
+    """`_finding` for a refusal that tells before it blames (told-before-work T5r, AR-13, AR-18): `message` is the `Record` of
+    `detector_verdict.refusal("s5_precheck:<row id>", <the text>)`. The dict is `_finding`'s, byte for byte (its `message` is the
+    text, its `check` the FAMILY label that the finding id and `_names` read), plus `told` as its LAST key: `[{check, expected,
+    door}]` of the row (`told_fields`). A `message` that is a bare `str` (a finding nobody sited) adds nothing."""
+    out = _finding(check, case, str(message), fix, tag, level, subjects)
+    out.update(DV.told_fields(message))
+    return out
+
+
+def _told_last(finding: dict) -> dict:
+    """`finding` with its `told` key moved to the end, so a key a copy or a later write adds (`refused`, `judge`, `pair_at`) never
+    stands after it (EC-6). Same dict; no `told`, no change."""
+    if "told" in finding:
+        finding["told"] = finding.pop("told")
+    return finding
+
+
 # --- the case text ---------------------------------------------------------------------------
 
 def then_clauses(text: str) -> list:
@@ -1030,9 +1048,9 @@ def check_manifest(manifest: dict, cases: list, findings: list, store_root=None,
         if not iid:
             continue  # an entry with no identity at all is validate_artifacts' finding
         if iid in seen:
-            findings.append(_finding(
+            findings.append(_sited(
                 "manifest", str(entry.get("case") or ""),
-                f"two tests[] entries carry the instance id {iid!r}",
+                DV.refusal("s5_precheck:manifest", f"two tests[] entries carry the instance id {iid!r}"),
                 "one row per test: rewrite the fragment with contract.instance_id(function, "
                 "parameter) and re-run manifest_put.py --fragment", f"dup-{iid}"))
         seen[iid] = entry
@@ -1041,10 +1059,10 @@ def check_manifest(manifest: dict, cases: list, findings: list, store_root=None,
         # fix round, critic t-045 F2); `entries_for_case` is the one predicate.
         if C.entries_for_case([entry], iid, cfg) or iid == str(entry.get("case") or ""):
             said, do_first = _legacy_note([entry])
-            findings.append(_finding(
+            findings.append(_sited(
                 "manifest", str(entry.get("case") or ""),
-                f"instance id {iid!r} names the CASE, not one test — a case with several test "
-                "functions then gets one reporter row for all of them" + said,
+                DV.refusal("s5_precheck:manifest", f"instance id {iid!r} names the CASE, not one test — a case with several test "
+                "functions then gets one reporter row for all of them" + said),
                 do_first + "one tests[] entry per test function/parameter, id "
                 "`<function>[<parameter>]` (contract.instance_id); the cases it proves go in "
                 "`covers`", f"shape-{iid}"))
@@ -1085,10 +1103,10 @@ def check_manifest(manifest: dict, cases: list, findings: list, store_root=None,
                 stale = [t for t in greens if set(C.instance_id_aliases(t, cfg)) & (mine | named)]
                 if stale:
                     ids = ", ".join(sorted({C.test_instance_id(t) for t in stale}))
-                    findings.append(_finding(
+                    findings.append(_sited(
                         "manifest", case,
-                        f"{ids} is `green` while its unresolved[] row says {BLOCKED_BY_ENV} - a test that passed "
-                        "was not blocked, and the row hides a real result",
+                        DV.refusal("s5_precheck:manifest", f"{ids} is `green` while its unresolved[] row says {BLOCKED_BY_ENV} - a test that passed "
+                        "was not blocked, and the row hides a real result"),
                         "send the green tests[] entry through manifest_put.py: it drops the stale blocked row "
                         "(or removes the instance from its `instance_ids`). Never hand-edit "
                         "automation-manifest.json", "blocked-but-green"))
@@ -1102,10 +1120,10 @@ def check_manifest(manifest: dict, cases: list, findings: list, store_root=None,
             stale = [t for t in greens if set(C.instance_id_aliases(t, cfg)) & named]
             if stale:
                 ids = ", ".join(sorted({C.test_instance_id(t) for t in stale}))
-                findings.append(_finding(
+                findings.append(_sited(
                     "manifest", case,
-                    f"{ids} is `green` while its unresolved[] row says {AC.PENDING_OUTCOME} - a test that passed was not pending, "
-                    "and the row hides a real result",
+                    DV.refusal("s5_precheck:manifest", f"{ids} is `green` while its unresolved[] row says {AC.PENDING_OUTCOME} - a test that passed was not pending, "
+                    "and the row hides a real result"),
                     "send the green tests[] entry through manifest_put.py and retract the pending row "
                     f"(`{{\"retracted_unresolved\": [\"{case}\"]}}`), or remove the instance from its `instance_ids`. Never hand-edit "
                     "automation-manifest.json", "pending-but-green"))
@@ -1113,9 +1131,9 @@ def check_manifest(manifest: dict, cases: list, findings: list, store_root=None,
         if reason == BLOCKED_BY_CHECK:
             # That reason is a Then's (`then_bindings`), never a whole case's: a case row that says it hides which
             # Thens the red stops. The row is named, not read as anything else (no `both-lists`, no `partial-green`).
-            findings.append(_finding(
+            findings.append(_sited(
                 "manifest", case,
-                f"{case}'s unresolved[] row says {BLOCKED_BY_CHECK}; that reason belongs to a Then, not to a whole case",
+                DV.refusal("s5_precheck:manifest", f"{case}'s unresolved[] row says {BLOCKED_BY_CHECK}; that reason belongs to a Then, not to a whole case"),
                 "record each Then the red stops as a `then_bindings` row {case, then, instance_id, status: unresolved, "
                 f"reason: {BLOCKED_BY_CHECK}, blocking_check, detail}}, retract this row with "
                 f"`retracted_unresolved: [\"{case}\"]`, and send both through `{_road()}`", "blocked-check-row"))
@@ -1133,19 +1151,19 @@ def check_manifest(manifest: dict, cases: list, findings: list, store_root=None,
             # The other sanctioned way a case is in both lists: the test exists and was
             # reviewed, and nothing here ran it — by the person's own decision.
             if greens:
-                findings.append(_finding(
+                findings.append(_sited(
                     "manifest", case,
-                    f"{case} is `green` while its unresolved[] row says {HANDED} — nothing in "
-                    "this session ran it, so `green` is a claim with no run behind it",
+                    DV.refusal("s5_precheck:manifest", f"{case} is `green` while its unresolved[] row says {HANDED} — nothing in "
+                    "this session ran it, so `green` is a claim with no run behind it"),
                     "leave the instance without an outcome of its own and keep the "
                     f"unresolved[] row with `{HANDED}`; the person runs it when they choose",
                     "handed-but-green"))
             continue
         if not partitions:
-            findings.append(_finding(
+            findings.append(_sited(
                 "manifest", case,
-                f"{case} is in tests[] and in unresolved[] at the same time — the two lists "
-                "disagree about whether it ran",
+                DV.refusal("s5_precheck:manifest", f"{case} is in tests[] and in unresolved[] at the same time — the two lists "
+                "disagree about whether it ran"),
                 "manifest_put.py owns this invariant: send the decision as a fragment (a green "
                 "tests[] entry drops the whole-case unresolved row). Never hand-edit "
                 "automation-manifest.json", "both-lists"))
@@ -1159,11 +1177,11 @@ def check_manifest(manifest: dict, cases: list, findings: list, store_root=None,
             said, do_first = _legacy_note(greens)
             ids = sorted({C.test_instance_id(g) for g in greens if C.test_instance_id(g)})
             claimed = ", ".join(ids[:2]) + (f" and {len(ids) - 2} more" if len(ids) > 2 else "")
-            findings.append(_finding(
+            findings.append(_sited(
                 "manifest", case,
-                f"{case} is `green` while {len(partitions)} of its partitions are unresolved "
+                DV.refusal("s5_precheck:manifest", f"{case} is `green` while {len(partitions)} of its partitions are unresolved "
                 f"({', '.join(partitions)}) — the green is claimed by "
-                f"{claimed or 'a row with no instance id'} and stands for the whole case" + said,
+                f"{claimed or 'a row with no instance id'} and stands for the whole case" + said),
                 do_first + "split tests[] into one instance per covered partition, or move the "
                 "case to unresolved[] with its reason; green may not stand for the remainder "
                 "(the covered partitions keep their existing runs — nothing here asks for a rerun); or, "
@@ -1179,10 +1197,10 @@ def check_manifest(manifest: dict, cases: list, findings: list, store_root=None,
     for i, fix in enumerate(manifest.get("self_fixes") or []):
         token = json.dumps(fix, ensure_ascii=False, sort_keys=True, default=str)
         if token in keys:
-            findings.append(_finding(
+            findings.append(_sited(
                 "manifest", str((fix or {}).get("test") or "") if isinstance(fix, dict) else "",
-                f"self_fixes[{i}] is byte-identical to an earlier entry — it reads as two "
-                "repairs of the same line",
+                DV.refusal("s5_precheck:manifest", f"self_fixes[{i}] is byte-identical to an earlier entry — it reads as two "
+                "repairs of the same line"),
                 "manifest_put.py drops an identical repeat; remove the copy and re-send the "
                 "fragment", f"dup-fix-{i}"))
         keys.append(token)
@@ -1250,20 +1268,20 @@ def check_bindings(manifest: dict, case: str, text: str, files: list, targets: l
     for entry in instances_of_case(manifest, case):
         if MP.is_ghost_row(entry, manifest):
             instance = C.test_instance_id(entry)
-            findings.append(_finding(
+            findings.append(_sited(
                 "bindings", case,
-                f"tests[] row {instance!r} is the ghost of an instance this manifest retracted: it carries no `covers` "
-                f"or `case_version_links`, proves no case, and makes that id look covered",
+                DV.refusal("s5_precheck:bindings", f"tests[] row {instance!r} is the ghost of an instance this manifest retracted: it carries no `covers` "
+                f"or `case_version_links`, proves no case, and makes that id look covered"),
                 f"retract it again with `{FRAGMENT_ROAD}` carrying "
                 + json.dumps({"retracted_instances": [instance]}) + " (this also takes out the Then rows still bound "
                 "to it), or, to bring the test back, send its whole row with `covers` and `case_version_links`",
                 f"ghost-{instance}"))
     bindings = bindings_of_case(manifest, case)
     if not bindings:
-        findings.append(_finding(
+        findings.append(_sited(
             "bindings", case,
-            f"bindings missing: {case} has {len(clauses)} Then clause(s) and no `then_bindings` "
-            "row — nothing says which test and which assertion proves each one",
+            DV.refusal("s5_precheck:bindings", f"bindings missing: {case} has {len(clauses)} Then clause(s) and no `then_bindings` "
+            "row — nothing says which test and which assertion proves each one"),
             "add then_bindings[] to the fragment: {case, then, instance_id, assertion_ref, "
             "status} per clause; an uncovered clause is `status: unresolved` with a reason",
             "no-bindings", subjects=[{"case": case, "then": number} for number, _clause in clauses]))
@@ -1274,10 +1292,10 @@ def check_bindings(manifest: dict, case: str, text: str, files: list, targets: l
         for number, _clause in clauses:
             if number in bound or number in recorded:
                 continue
-            findings.append(_finding(
+            findings.append(_sited(
                 "bindings", case,
-                f"Then {number} of {case} has no `then_bindings` row — neither a test and "
-                "assertion that proves it nor a recorded reason it is unresolved",
+                DV.refusal("s5_precheck:bindings", f"Then {number} of {case} has no `then_bindings` row — neither a test and "
+                "assertion that proves it nor a recorded reason it is unresolved"),
                 "bind it to an instance and an assertion line, or record it in unresolved[] "
                 "with a reason from the closed list", f"unbound-{number}", subjects=[{"case": case, "then": number}]))
         # a clause of case B may be bound to a test of any shape, as long as that test
@@ -1288,10 +1306,10 @@ def check_bindings(manifest: dict, case: str, text: str, files: list, targets: l
             instance = str(row.get("instance_id") or "")
             if not instance or instance in covering:
                 continue
-            findings.append(_finding(
+            findings.append(_sited(
                 "bindings", case,
-                f"Then {row.get('then')} of {case} is bound to {instance!r}, and no tests[] "
-                f"entry with that id lists {case} among the cases it covers",
+                DV.refusal("s5_precheck:bindings", f"Then {row.get('then')} of {case} is bound to {instance!r}, and no tests[] "
+                f"entry with that id lists {case} among the cases it covers"),
                 f"add {case} to that instance's `covers` (and its pinned `case_version_links`) "
                 "through manifest_put.py — one test may prove several cases, but only the "
                 "cases it names", f"unlinked-{instance}-{row.get('then')}"))
@@ -1313,10 +1331,10 @@ def check_bindings(manifest: dict, case: str, text: str, files: list, targets: l
         for number, clause in clauses:
             named = sorted({p for p in PARTITION_RE.findall(clause) if C.partition_key(p) in uncovered})
             if named:
-                findings.append(_finding(
+                findings.append(_sited(
                     "bindings", case,
-                    f"Then {number} of {case} rests on {', '.join(named)}, which unresolved[] "
-                    f"records as not covered, while {case} is green",
+                    DV.refusal("s5_precheck:bindings", f"Then {number} of {case} rests on {', '.join(named)}, which unresolved[] "
+                    f"records as not covered, while {case} is green"),
                     "green cannot stand for a clause nothing proved: bind the clause to a test, "
                     "or record the clause itself (not only the partition) as unresolved",
                     f"uncovered-partition-{number}"))
@@ -1344,10 +1362,10 @@ def check_bindings(manifest: dict, case: str, text: str, files: list, targets: l
     for number, clause in clauses:
         tokens = clause_tokens(clause)
         if tokens and number not in handed and not any(token.lower() in corpus for token in tokens):
-            findings.append(_finding(
+            findings.append(_sited(
                 "bindings", case,
-                f"Then {number} of {case} has no assertion: none of the names it demands "
-                f"({', '.join(tokens[:4])}) occurs anywhere in the test code of this case",
+                DV.refusal("s5_precheck:bindings", f"Then {number} of {case} has no assertion: none of the names it demands "
+                f"({', '.join(tokens[:4])}) occurs anywhere in the test code of this case"),
                 "write the assertion, or record the clause in unresolved[] with the reason it "
                 "cannot be checked — a Then nothing reads is not covered", f"no-assert-{number}"))
         for field in {m.group(1) for m in NULL_DEMAND_RE.finditer(clause)}:
@@ -1355,11 +1373,11 @@ def check_bindings(manifest: dict, case: str, text: str, files: list, targets: l
             for pyfile, node in asserts:
                 fragment = pyfile.source(node)
                 if word.search(fragment) and NOT_NONE_RE.search(fragment):
-                    findings.append(_finding(
+                    findings.append(_sited(
                         "bindings", case,
-                        f"Then {number} of {case} demands `{field}` be null/empty, and "
+                        DV.refusal("s5_precheck:bindings", f"Then {number} of {case} demands `{field}` be null/empty, and "
                         f"{pyfile.path.name}:{node.lineno} asserts it is NOT none — the test "
-                        "contradicts the clause it claims to prove",
+                        "contradicts the clause it claims to prove"),
                         ORACLE_FIX, f"contradicted-{number}-{field}"))
                     break
         # The same contradiction in its two other detectable shapes: a status code the clause
@@ -1368,11 +1386,11 @@ def check_bindings(manifest: dict, case: str, text: str, files: list, targets: l
         demanded = clause_status_codes(clause)
         asserted = _asserted_status_codes(asserts)
         if demanded and asserted and not set(demanded) & set(asserted):
-            findings.append(_finding(
+            findings.append(_sited(
                 "bindings", case,
-                f"Then {number} of {case} fixes status {'/'.join(demanded)}, and the tests of "
+                DV.refusal("s5_precheck:bindings", f"Then {number} of {case} fixes status {'/'.join(demanded)}, and the tests of "
                 f"this case assert only {', '.join(asserted)} — the test contradicts the clause "
-                "it claims to prove",
+                "it claims to prove"),
                 ORACLE_FIX, f"contradicted-status-{number}"))
         for field, literal in sorted({(m.group(1), m.group(2))
                                       for m in LITERAL_DEMAND_RE.finditer(clause)}):
@@ -1383,11 +1401,11 @@ def check_bindings(manifest: dict, case: str, text: str, files: list, targets: l
                     continue
                 if leaf not in _referenced_names(node):
                     continue
-                findings.append(_finding(
+                findings.append(_sited(
                     "bindings", case,
-                    f"Then {number} of {case} fixes `{field}` at {literal!r}, and "
+                    DV.refusal("s5_precheck:bindings", f"Then {number} of {case} fixes `{field}` at {literal!r}, and "
                     f"{pyfile.path.name}:{node.lineno} compares it with {constants[0]!r} — the "
-                    "test contradicts the clause it claims to prove",
+                    "test contradicts the clause it claims to prove"),
                     ORACLE_FIX, f"contradicted-literal-{number}-{leaf}"))
                 break
 
@@ -1583,9 +1601,9 @@ def check_then_remainders(task_root: Path, manifest: dict, cases: list, texts: d
                 continue
             errors = C.then_remainder_errors(row)
             if errors:
-                findings.append(_finding(
+                findings.append(_sited(
                     "bindings", case,
-                    f"the row of {case} that leaves Then {then!r} with its owner is malformed: " + "; ".join(errors),
+                    DV.refusal("s5_precheck:bindings", f"the row of {case} that leaves Then {then!r} with its owner is malformed: " + "; ".join(errors)),
                     "rewrite the marker `qa_unresolved(case=, then=[n], reason=\"handed_to_person\", owner=, part=, "
                     "detail=<steps>)` and re-run manifest_from_tests.py", f"{THEN_REMAINDER_TAG}shape-{tag}"))
                 continue
@@ -1593,27 +1611,27 @@ def check_then_remainders(task_root: Path, manifest: dict, cases: list, texts: d
                 continue
             seen.add(then)
             if not numbers:
-                findings.append(_finding(
+                findings.append(_sited(
                     "bindings", case,
-                    f"Then {then} of {case} is left with its owner, but the case file was not found (or states "
-                    "no Then), so the Then cannot be checked",
+                    DV.refusal("s5_precheck:bindings", f"Then {then} of {case} is left with its owner, but the case file was not found (or states "
+                    "no Then), so the Then cannot be checked"),
                     f"make the case file {case}.md readable under the story's test-cases folder, or correct `case` "
                     "in the row; a Then that cannot be found is not left with anybody",
                     f"{THEN_REMAINDER_TAG}unknown-{tag}"))
                 continue
             if then not in numbers:
-                findings.append(_finding(
+                findings.append(_sited(
                     "bindings", case,
-                    f"Then {then} is not a Then of {case} (its Thens are numbered {', '.join(map(str, numbers))})",
+                    DV.refusal("s5_precheck:bindings", f"Then {then} is not a Then of {case} (its Thens are numbered {', '.join(map(str, numbers))})"),
                     "correct `then` in the marker to the number of the clause the owner takes, and re-run "
                     "manifest_from_tests.py", f"{THEN_REMAINDER_TAG}unknown-{tag}"))
                 continue
             valid.append(row)
             owner = row.get("owner") if row.get("owner") in C.THEN_REMAINDER_OWNERS else C.THEN_REMAINDER_DEFAULT_OWNER
             if then in covered:
-                findings.append(_finding(
+                findings.append(_sited(
                     "bindings", case,
-                    f"Then {then} of {case} is both proved by a test and left with {_OWNER_WORDS[owner]}",
+                    DV.refusal("s5_precheck:bindings", f"Then {then} of {case} is both proved by a test and left with {_OWNER_WORDS[owner]}"),
                     f"a Then is proved by a test or left with its owner, never both: drop the covered binding of "
                     f"Then {then} (name what the owner checks with `part=`), or bind the Then and drop the remainder",
                     f"{THEN_REMAINDER_TAG}conflict-{tag}"))
@@ -1621,10 +1639,10 @@ def check_then_remainders(task_root: Path, manifest: dict, cases: list, texts: d
             word = words.get((str(row.get("case") or "").strip(), then))
             if word is None:
                 block = f"{C.THEN_HANDED_MATCH_PREFIX} {str(row.get('case') or '').strip()}#{then}"
-                findings.append(_finding(
+                findings.append(_sited(
                     "bindings", case,
-                    f"Then {then} of {case} is left with {_OWNER_WORDS[owner]} and no word of the person's is "
-                    "recorded for it",
+                    DV.refusal("s5_precheck:bindings", f"Then {then} of {case} is left with {_OWNER_WORDS[owner]} and no word of the person's is "
+                    "recorded for it"),
                     "A role does not record anybody's word: return this item in your digest. The orchestrator asks "
                     "the person (or re-records words they already gave for this Then, without asking again) with `"
                     + door(f"waiver.py --task {task_root.name} --stage S5 --block \"{block}\"") + "`",
@@ -1633,9 +1651,9 @@ def check_then_remainders(task_root: Path, manifest: dict, cases: list, texts: d
             notes.append(f"{case} Then {then} is left with {_OWNER_WORDS[owner]} by the person's word: "
                          f"{word['words']}")
         if numbers and valid and {r["then"] for r in valid} >= set(numbers):
-            findings.append(_finding(
+            findings.append(_sited(
                 "bindings", case,
-                f"no Then of {case} is proved by a test: every one is left with its owner, which is a whole-case hand-off",
+                DV.refusal("s5_precheck:bindings", f"no Then of {case} is proved by a test: every one is left with its owner, which is a whole-case hand-off"),
                 "move the case to unresolved[] with `handed_to_person` (the whole case: s5.md \"A test I cannot run at "
                 "all\"); green never stands for a case none of whose Thens it proves", THEN_REMAINDER_TAG + "all"))
 
@@ -1718,9 +1736,9 @@ def check_open_oracle_asserted(task_root: Path, case: str, text: str, manifest: 
         else:
             why = f"its oracle is `unknown` ({ref or 'no ref'}): {state.get('why')}"
         door_a = bool(state) and state.get("state") == "open" and ref in questions
-        findings.append(_finding(
+        findings.append(_sited(
             "oracle", case,
-            f"Then {number} of {case} has no confirmed expected value ({why}), yet the manifest binds it to {proof} as proved",
+            DV.refusal("s5_precheck:oracle", f"Then {number} of {case} has no confirmed expected value ({why}), yet the manifest binds it to {proof} as proved"),
             _open_oracle_door(case, number, ref, task_root.name, door_a), f"{OPEN_ORACLE_ASSERTED}-{number}"))
 
 
@@ -1795,11 +1813,11 @@ def check_expectation_changes(task_root: Path, changes: dict, cases: list, findi
                          + (f"the critic's verdict is {verdict}" if verdict else "not judged yet"))
             problems = _then_ref_problems(task_root, record, cases)
             if problems:
-                findings.append(_finding(
+                findings.append(_sited(
                     "oracle", where,
-                    f"the expectation_changes[] record for {pair['function']} "
+                    DV.refusal("s5_precheck:oracle", f"the expectation_changes[] record for {pair['function']} "
                     f"(red {pair['red_attempt']}, green {pair['green_attempt']}) has `then_refs` "
-                    "that do not resolve: " + "; ".join(problems),
+                    "that do not resolve: " + "; ".join(problems)),
                     _record_fix(task_root, pair, groups, "refs"), _pair_tag(pair, "refs")))
             continue
         if pair["orphan"]:
@@ -1814,10 +1832,11 @@ def check_expectation_changes(task_root: Path, changes: dict, cases: list, findi
                        f"({pair['sha_basis']} sha) — nothing records what was changed or why"
                        + (f" [{pair['note']}]" if pair["note"] else ""))
         message += f"; the red run's own report is {pair['red_evidence']}" if pair["red_evidence"] else ""
-        findings.append(_finding("oracle", where, message, _record_fix(task_root, pair, groups),
+        findings.append(_sited("oracle", where, DV.refusal("s5_precheck:oracle", message), _record_fix(task_root, pair, groups),
                                  _pair_tag(pair)))
         pair["finding_id"] = findings[-1]["id"]
         findings[-1]["pair_at"] = pair.get("pair_at", "")  # read by `passed_by_word`: a broad word covers what existed
+        _told_last(findings[-1])
     for why in changes.get("unmeasured") or []:
         notes.append("expectation changes not measured: " + why)
 
@@ -1871,12 +1890,12 @@ def check_case_is_oracle(manifest: dict, cases: list, findings: list) -> None:
         detail = " ".join(str(entry.get("detail") or "").split())
         disputes = str(entry.get("disputes") or "").strip().lower()
         if disputes not in C.UNRESOLVED_DISPUTES:
-            findings.append(_finding(
+            findings.append(_sited(
                 "oracle", case,
-                f"{case} is unresolved with `{reason}` and the row does not say what it disputes"
+                DV.refusal("s5_precheck:oracle", f"{case} is unresolved with `{reason}` and the row does not say what it disputes"
                 + (f" (\"{detail[:120]}\")" if detail else "")
                 + f" — `disputes` is one of {list(C.UNRESOLVED_DISPUTES)}"
-                + (f", and `{disputes}` is not" if disputes else ""),
+                + (f", and `{disputes}` is not" if disputes else "")),
                 "say it in the row: `manifest_put.py --task <T> --fragment "
                 "'{\"unresolved\": [{\"case\": \"" + case + "\", \"reason\": \"" + reason + "\", "
                 "\"disputes\": \"derivation\"}]}'` — `derivation` when the expected value cannot "
@@ -1887,12 +1906,12 @@ def check_case_is_oracle(manifest: dict, cases: list, findings: list) -> None:
             continue
         if disputes != "case_expectation":
             continue
-        findings.append(_finding(
+        findings.append(_sited(
             "oracle", case,
-            f"{case} is unresolved with `{reason}` and the row says it disputes the case's own "
+            DV.refusal("s5_precheck:oracle", f"{case} is unresolved with `{reason}` and the row says it disputes the case's own "
             f"expectation (\"{detail[:140]}\") — after gate A the approved case is the oracle "
             "for S5, and this role has no \"the case is wrong\" route: only `"
-            + CONTRADICTS + "` or `impossible`",
+            + CONTRADICTS + "` or `impossible`"),
             ORACLE_FIX, "case-is-oracle"))
 
 
@@ -1955,8 +1974,8 @@ def check_run_mapping(case: str, entries: list, targets: list, rows: list, findi
                        if by_instance.get(alias)), [])
         if not series:
             why = _why_no_row(entry, rows)
-            findings.append(_finding(
-                "run_mapping", case, f"no run block carries a result row for {iid} — {why}",
+            findings.append(_sited(
+                "run_mapping", case, DV.refusal("s5_precheck:run_mapping", f"no run block carries a result row for {iid} — {why}"),
                 ("`run_suite.py --task <TICKET> --reparse-block <block> --mapping "
                  "<instance->report_test_id JSON>` — the run named above happened, only the row "
                  "is unmapped; a rerun adds nothing"
@@ -1967,10 +1986,10 @@ def check_run_mapping(case: str, entries: list, targets: list, rows: list, findi
             continue
         last = series[-1]
         if last.get("report_matched") is False or str(last.get("status")) == "not_run":
-            findings.append(_finding(
+            findings.append(_sited(
                 "run_mapping", case,
-                f"{iid}: the newest run block says {str(last.get('status'))!r} "
-                f"({last.get('reason') or 'no reporter row'}) while the manifest claims it",
+                DV.refusal("s5_precheck:run_mapping", f"{iid}: the newest run block says {str(last.get('status'))!r} "
+                f"({last.get('reason') or 'no reporter row'}) while the manifest claims it"),
                 # Both flags, in the order run_suite.py demands them: printing the command
                 # without --task made the one sanctioned remedy error out (0.7.7 review).
                 "`run_suite.py --task <TICKET> --reparse-block " + str(last.get("block"))
@@ -2056,16 +2075,16 @@ def _sides_declared(ctx) -> None:
         case = str(entry.get("case") or "")
         declared = entry.get("sides")
         if non_real and declared is None:
-            add(case, f"{iid}: the story has a side that is not real ({', '.join(non_real)}) and this test declares no `sides`",
+            add(case, DV.refusal("s5_precheck:sides.declared", f"{iid}: the story has a side that is not real ({', '.join(non_real)}) and this test declares no `sides`"),
                 "send `sides` for the test through `manifest_put.py --fragment` - `{side: real|substituted|absent}` for every side "
                 "it touches, `{}` when it touches none (an empty declaration is read conservatively, never as proof)",
                 f"{SIDES_UNDECLARED}-{iid}")
         elif declared is not None and not isinstance(declared, dict):
-            add(case, f"{iid}: `sides` is {type(declared).__name__}, not an object of side -> reality",
+            add(case, DV.refusal("s5_precheck:sides.declared", f"{iid}: `sides` is {type(declared).__name__}, not an object of side -> reality"),
                 "send `sides` as `{side: real|substituted|absent}`", f"sides-shape-{iid}")
         elif isinstance(declared, dict):
             for name in sorted(str(n) for n in declared if str(n) not in sides):
-                add(case, f"{iid}: `sides` names {name!r}, which is not a side of this story (its sides: {names})",
+                add(case, DV.refusal("s5_precheck:sides.declared", f"{iid}: `sides` names {name!r}, which is not a side of this story (its sides: {names})"),
                     "use a side name exactly as the story records it (case and spelling), or drop the key", f"sides-name-{iid}-{name}")
     for row in ctx.manifest.get("then_bindings") or []:
         if not isinstance(row, dict) or row.get("about") is None or not _scope_has(ctx, row.get("case")):
@@ -2073,11 +2092,11 @@ def _sides_declared(ctx) -> None:
         case, about = str(row.get("case") or ""), row.get("about")
         label = f"Then {row.get('then')} of {case or '-'}"
         if not isinstance(about, list):
-            add(case, f"{label}: `about` is {type(about).__name__}, not a list of sides", "send `about` as `[<side>, ...]`",
+            add(case, DV.refusal("s5_precheck:sides.declared", f"{label}: `about` is {type(about).__name__}, not a list of sides"), "send `about` as `[<side>, ...]`",
                 f"about-shape-{case}-{row.get('then')}")
             continue
         for name in sorted({str(n) for n in about if str(n) not in sides}):
-            add(case, f"{label}: `about` names {name!r}, which is not a side of this story (its sides: {names})",
+            add(case, DV.refusal("s5_precheck:sides.declared", f"{label}: `about` names {name!r}, which is not a side of this story (its sides: {names})"),
                 "use a side name exactly as the story records it, or drop it from `about`",
                 f"about-name-{case}-{row.get('then')}-{name}")
 
@@ -2187,8 +2206,8 @@ def _sides_settled(ctx) -> None:
         pid, status = str(row.get("id")), str(row.get("status") or "")
         side = str(row.get("settles_on") or "")
         if status == "open" and (sides.get(side) or {}).get("reality") == "real" and not _accounting_row(ctx, row):
-            add("", f"provisional {pid} is still open and its side {side!r} is now real - a placeholder that outlived its side "
-                f"({row.get('what') or 'no description'})",
+            add("", DV.refusal("s5_precheck:sides.settled", f"provisional {pid} is still open and its side {side!r} is now real - a placeholder that outlived its side "
+                f"({row.get('what') or 'no description'})"),
                 f"settle it in the bind round (run the test on the real side, then status settled_matched or settled_edited with "
                 f"`evidence.run`), or retract it; when the person decides the substitute stays, the automator marks it "
                 f"kept_by_decision citing their word `substitute kept: {side}`", f"{PROVISIONAL_OPEN_ON_REAL}-{pid}")
@@ -2199,32 +2218,32 @@ def _sides_settled(ctx) -> None:
         fix = (f"run the test on the real side, then send the row with `status` and `evidence: {{run: <the run block id>}}` for "
                f"{pid} through `manifest_put.py --fragment` - the tool records the hash of the marked line itself")
         if not run:
-            add("", f"provisional {pid} is {status} and cites no run block (`evidence.run`)", fix, f"provisional-evidence-{pid}")
+            add("", DV.refusal("s5_precheck:sides.settled", f"provisional {pid} is {status} and cites no run block (`evidence.run`)"), fix, f"provisional-evidence-{pid}")
             continue
         blocks = _run_blocks(ctx)
         block = next((i["data"] for i in blocks if run in (str(i["data"].get("block_id") or ""), i["name"][:-5])), None)
         collects = [r for r in manifest.get("runs") or [] if isinstance(r, dict) and r.get("kind") == "collect"
                     and run in (str(r.get("label") or ""), str(r.get("block_id") or ""))]
         if block is None or str(block.get("kind") or "") == "collect" or collects:
-            add("", f"provisional {pid} cites {run!r} as its run, and " + ("that is a collect, which runs nothing"
-                if (block is not None or collects) else "no run block has that id"), fix, f"provisional-evidence-{pid}")
+            add("", DV.refusal("s5_precheck:sides.settled", f"provisional {pid} cites {run!r} as its run, and " + ("that is a collect, which runs nothing"
+                if (block is not None or collects) else "no run block has that id")), fix, f"provisional-evidence-{pid}")
             continue
         if not _stamp_is_real(block, side, ctx.plain):
-            add("", f"provisional {pid} is {status} on run {run!r}, whose stamp does not say side {side!r} was real",
+            add("", DV.refusal("s5_precheck:sides.settled", f"provisional {pid} is {status} on run {run!r}, whose stamp does not say side {side!r} was real"),
                 "settle it on a run made while that side was real (the run block's `sides_met`)", f"provisional-stamp-{pid}")
         file = str((row.get("home") or {}).get("file") or "") if isinstance(row.get("home"), dict) else ""
         digest, why = C.marked_line_hash(hooklib.project_root(), file, pid)
         before, after = str(row.get("home_hash") or ""), str(evidence.get("home_hash_after") or "")
         if why:
-            add("", f"provisional {pid} is {status}, but its marked line cannot be compared: {why}",
+            add("", DV.refusal("s5_precheck:sides.settled", f"provisional {pid} is {status}, but its marked line cannot be compared: {why}"),
                 f"keep the comment `qa-provisional: {pid}` on the line in {file or 'its home file'}", f"provisional-hash-{pid}")
         elif status == "settled_matched" and digest != before:
-            add("", f"provisional {pid} is settled_matched, but the marked line changed since its `home_hash` was recorded",
+            add("", DV.refusal("s5_precheck:sides.settled", f"provisional {pid} is settled_matched, but the marked line changed since its `home_hash` was recorded"),
                 "record it settled_edited: send the row with `status: settled_edited` and `evidence.run` through "
                 "`manifest_put.py --fragment` - the tool records the hash of the line as it is now", f"provisional-hash-{pid}")
         elif status == "settled_edited" and (digest == before or after != digest):
-            add("", f"provisional {pid} is settled_edited, but " + ("the marked line is unchanged" if digest == before
-                else "the marked line changed after the tool recorded its `evidence.home_hash_after`"),
+            add("", DV.refusal("s5_precheck:sides.settled", f"provisional {pid} is settled_edited, but " + ("the marked line is unchanged" if digest == before
+                else "the marked line changed after the tool recorded its `evidence.home_hash_after`")),
                 "record settled_matched, or send the row again (`status` and `evidence.run`) through `manifest_put.py --fragment` "
                 "- the tool records the hash of the marked line as it is now", f"provisional-hash-{pid}")
 
@@ -2340,7 +2359,7 @@ def _sides_placeholders(ctx) -> None:
         iid = C.test_instance_id(entry)
         for pid in ctx.prov["by_test"].get(iid, []):
             if pid not in held:
-                add(str(entry.get("case") or ""), f"{iid}: `provisional` names {pid}, which is no row of `provisional[]`",
+                add(str(entry.get("case") or ""), DV.refusal("s5_precheck:sides.placeholders", f"{iid}: `provisional` names {pid}, which is no row of `provisional[]`"),
                     "name only rows the manifest holds (send the row first), or drop the id from the test's `provisional`",
                     f"provisional-unknown-{iid}-{pid}")
     opened = L.open_placeholder_rows(ctx.manifest)
@@ -2350,28 +2369,28 @@ def _sides_placeholders(ctx) -> None:
             continue
         why = _basis_refusal(ctx, row)
         if why:
-            add("", f"provisional {pid} is the accounting row of a red test on a real side (`{row.get('assumed_from')}`), and {why}",
+            add("", DV.refusal("s5_precheck:sides.placeholders", f"provisional {pid} is the accounting row of a red test on a real side (`{row.get('assumed_from')}`), and {why}"),
                 "retract the row (`status: retracted` through `manifest_put.py --fragment`): the test then runs on the real side and a red "
                 "stays red; when the first look is what is missing or old, ask the conductor for a new one - a row on a real side is "
                 "never a license, only the account of what the first look saw", f"placeholder-basis-{pid}")
         for entry in _linked_tests(ctx, row):
             iid, case = C.test_instance_id(entry), str(entry.get("case") or "")
             if pid not in ctx.prov["by_test"].get(iid, []):
-                add(case, f"{iid} is linked to the open placeholder {pid} (a Then of its `dependents` is bound to it) and does not declare it",
+                add(case, DV.refusal("s5_precheck:sides.placeholders", f"{iid} is linked to the open placeholder {pid} (a Then of its `dependents` is bound to it) and does not declare it"),
                     f"send `provisional: [{pid}]` for {iid} through `manifest_put.py --fragment` - the declaration is accounting, not a claim "
                     f"that the test leans on the placeholder; a needless one costs a re-pass line, a missing one a green on a placeholder",
                     f"placeholder-undeclared-{iid}-{pid}")
             if _env_blocked(ctx, entry):
-                add(case, f"{iid} is tied to the open placeholder {pid} and sits in an `unresolved[]` row `blocked_by_env`",
+                add(case, DV.refusal("s5_precheck:sides.placeholders", f"{iid} is tied to the open placeholder {pid} and sits in an `unresolved[]` row `blocked_by_env`"),
                     "take it out of that row and run it: its red on the real side is the account of the placeholder, not an env block",
                     f"placeholder-test-blocked-{iid}-{pid}")
             if _handed(ctx, entry):
-                add(case, f"{iid} is tied to the open placeholder {pid} and its case is handed to the person",
+                add(case, DV.refusal("s5_precheck:sides.placeholders", f"{iid} is tied to the open placeholder {pid} and its case is handed to the person"),
                     "remove the hand-off row and run the test: it fails on the real side, and the red names the requirement",
                     f"placeholder-test-handed-{iid}-{pid}")
             if not _terminal_run_of(ctx, entry):
-                add(case, f"{iid} is tied to the open placeholder {pid} and no run block holds a passed/failed row of it "
-                    "(missing, skipped, xfail, deselected or collect-only)", "run it once (`run_suite.py --mine <case>`): the row of the open "
+                add(case, DV.refusal("s5_precheck:sides.placeholders", f"{iid} is tied to the open placeholder {pid} and no run block holds a passed/failed row of it "
+                    "(missing, skipped, xfail, deselected or collect-only)"), "run it once (`run_suite.py --mine <case>`): the row of the open "
                     "placeholder never excuses the run", f"placeholder-test-norun-{iid}-{pid}")
 
 
@@ -2396,7 +2415,7 @@ def check_sides(manifest: dict, sides: dict, task_root, findings: list, scope=No
         return          # (a test that declares a P-n is read even when no row exists: `provisional-unknown-*`, J-C9 (a))
 
     def add(case: str, message: str, fix: str, tag: str) -> None:
-        findings.append(_finding("sides", case, message, fix, tag))
+        findings.append(_sited("sides", case, message, fix, tag))
 
     ids = None if scope is None else {str(i) for v in scope.values() if isinstance(v, list) for i in v if i}
     ctx = SimpleNamespace(
@@ -3553,7 +3572,7 @@ def check_environment(task_root: Path, manifest: dict, owned: list, texts: dict,
 
         def record(message: str, fix: str, tag: str, _case=case, _mine=mine) -> None:
             if _mine:
-                findings.append(_finding("environment", _case, message, fix, tag))
+                findings.append(_sited("environment", _case, DV.refusal("s5_precheck:environment", message), fix, tag))
             else:
                 notes.append(f"{_case or 'a case'}: {message} — a row this dispatch does not "
                              "own, so it is a note here, not a repair")
@@ -3749,7 +3768,7 @@ def check_env_evidence(task_root: Path, manifest: dict, owned: list, findings: l
                f"timeout marker, run it again with run_suite.py --mine {case}, and record the result; if you still hold it is the "
                "stand, say so in your digest with the control you ran - the conductor can lift this line with the person's "
                'words (waiver.py --stage S5 --block "no environment evidence").')
-        findings.append(_finding("environment", case, message, fix, "env-evidence-missing"))
+        findings.append(_sited("environment", case, DV.refusal("s5_precheck:environment", message), fix, "env-evidence-missing"))
 
 
 def case_plan_row(task_root: Path, case: str, text: str, entries: list) -> str:
@@ -3837,7 +3856,7 @@ def check_row_fields(task_root: Path, manifest: dict, cases: list, findings: lis
             gaps.append((C.test_instance_id(entry) or "(a row with no instance_id)", fields))
     if gaps:
         message, fix = _row_fields_text(gaps, Path(task_root).name)
-        findings.append(_finding("manifest", "", message, fix, ROW_FIELDS_TAG,
+        findings.append(_sited("manifest", "", DV.refusal("s5_precheck:row_fields", message), fix, ROW_FIELDS_TAG,
                                  subjects=[{"instance_id": iid, "fields": [field for field, _problem in fields]}
                                            for iid, fields in gaps]))
 
@@ -3915,12 +3934,12 @@ def check_obligations(task_root: Path, manifest: dict, cases: list, texts: dict,
                     if stale:
                         reported.add(oid)
                         what, fix = _stale_binding_text(oid, case, stale, _road(task_root.name))
-                        findings.append(_finding("obligations", case, what, fix, f"binding-stale-{oid}"))
+                        findings.append(_sited("obligations", case, DV.refusal("s5_precheck:obligations", what), fix, f"binding-stale-{oid}"))
                 continue
-            findings.append(_finding(
+            findings.append(_sited(
                 "obligations", case,
-                f"{oid} ({case}) has no obligation binding — the projection will count it as "
-                "a gap" + named,
+                DV.refusal("s5_precheck:obligations", f"{oid} ({case}) has no obligation binding — the projection will count it as "
+                "a gap" + named),
                 f"add obligation_bindings[] with instance_ids through manifest_put.py, "
                 f"spelling the id exactly as the plan's `coverage_obligations[].obligation_id` "
                 f"({oid}); manifest_put.py refuses any other spelling",
@@ -4052,9 +4071,9 @@ def _judge_words(task_root: Path, findings: list, notes: list) -> tuple:
             # `refused` is read by `report`, which prints the `WORDS_REFUSED_AT_SOURCE ... predating` line;
             # the text names the word as it was recorded (its `match`), not the constant
             given = next((str(w.get("match")).strip() for w in named if str(w.get("at")) == left_out[0]), CHANGED_AFTER_RED)
-            out.append(dict(finding, refused="predating", message=finding["message"] + (
+            out.append(_told_last(dict(finding, refused="predating", message=finding["message"] + (
                 f"; the stage-wide word `{given}` (given {left_out[0]}) predates this run, so it "
-                "does not pass this pair - a person sees it now")))
+                "does not pass this pair - a person sees it now"))))
         else:
             out.append(finding)
     return out, passes
@@ -4270,7 +4289,7 @@ def passed_by_judge(task_root: Path, findings: list, hints: list, notes: list,
                 notes.append(f"{verdict['note']}: {str(finding.get('message'))[:140]}")
             kept.append(finding)
             continue
-        hints.append(dict(finding, level="hint", judge=verdict["note"]))
+        hints.append(_told_last(dict(finding, level="hint", judge=verdict["note"])))
         notes.append(f"{finding['case'] or 'a case'}: {finding['message']} — downgraded to a "
                      f"hint by the judge ({verdict['note']}); it is still yours to read, and "
                      "the gate brief lists every block the judge let through")
@@ -4562,12 +4581,12 @@ def check_plan_conformance(task_root, manifest: dict, cases: list, findings: lis
             notes.append(f"no S5 plan for this story ({why}): conformance not checked")
             return
         if SP.load(task_root) is None:
-            findings.append(_plan_finding("", f"the story's S5 is on the plan form and {SP.PLAN_REL} does not exist ({why}), so the window cannot be checked against it",
+            findings.append(_sited("plan", "", DV.refusal("s5_precheck:plan", f"the story's S5 is on the plan form and {SP.PLAN_REL} does not exist ({why}), so the window cannot be checked against it"),
                                           "restore the plan (the plan dispatch writes it) or ask the conductor for `plan before windows`", "plan-missing"))
             return
         piece = SP.window_slice(task_root, cases=list(cases), state=state)
     except SP.PlanUnreadable as exc:
-        findings.append(_plan_finding("", f"the plan cannot be read for this window: {exc}", "repair what is named, then run the check again", "plan-unreadable"))
+        findings.append(_sited("plan", "", DV.refusal("s5_precheck:plan", f"the plan cannot be read for this window: {exc}"), "repair what is named, then run the check again", "plan-unreadable"))
         return
     rows = {"plan_remarks": None, "deviations": [], "origins": {}}
     from story_step import FORM_REL
@@ -4577,13 +4596,13 @@ def check_plan_conformance(task_root, manifest: dict, cases: list, findings: lis
         try:
             data = handoff_check.form_view(path).data
         except (OSError, ValueError) as exc:
-            findings.append(_plan_finding("", f"the window's form {FORM_REL.format(dispatch_id=dispatch_id)} cannot be read ({exc}), so its remark rows and declared deviations cannot be counted",
+            findings.append(_sited("plan", "", DV.refusal("s5_precheck:plan", f"the window's form {FORM_REL.format(dispatch_id=dispatch_id)} cannot be read ({exc}), so its remark rows and declared deviations cannot be counted"),
                                           "repair the form (handoff_check.py --file <form>), then run the check again", "form-unreadable"))
             return
         for name in ("plan_remarks", "deviations"):
             value = data.get(name) if isinstance(data, dict) else None
             if value is not None and not isinstance(value, list):
-                findings.append(_plan_finding("", f"`{name}` of the window's form is not a list", f"write `{name}` as a list of rows (or the empty list)", "form-" + name))
+                findings.append(_sited("plan", "", DV.refusal("s5_precheck:plan", f"`{name}` of the window's form is not a list"), f"write `{name}` as a list of rows (or the empty list)", "form-" + name))
                 value = None
             rows[name] = value if name == "plan_remarks" else (value or [])
         scope = data.get("scope") if isinstance(data, dict) else None
