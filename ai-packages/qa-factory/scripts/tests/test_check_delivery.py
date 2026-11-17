@@ -293,6 +293,7 @@ def main() -> None:
     stopped_story_reads_awaiting_implementation()
     first_look_stop_reads_awaiting_implementation()
     a_diff_story_pending_implementation_is_not_the_awaiting_kind()
+    fl4_candidate_rows()
     finish("test_check_delivery")
 
 
@@ -2124,6 +2125,55 @@ def a_diff_story_pending_implementation_is_not_the_awaiting_kind() -> None:
     check_eq("a diff story's `not_implemented` requirement keeps its own kind", [r["kind"] for r in recs], ["pending_implementation"])
     check_eq("... decides `no`, and the story is not held for code", (DV.decide([r["kind"] for r in recs])[0], C.awaiting(C.load_json(task / "pipeline.json"))["state"]),
              ("no", "none"))
+
+
+def fl4_candidate_rows() -> None:
+    """FL4 (FR-22, FR-41; spec s9-fl-cards 3b.4, items 1): `bug_candidates` is the ONE reader of the story's bug candidates and never raises;
+    `candidate_refusal` is the ONE text of the refusal of a ref outside them, and says "not in this story" only when every input was read.
+    Expected values: the docstring of `_grounding_candidates` ("never read as 'no candidates'") and FR-41, not the code."""
+    root = temp_project("qa-fl4-candidates-")
+    try:
+        task = root / "cart-1"
+        shutil.copytree(SCRIPTS / "tests" / "fixtures" / "stories" / "cart-1", task)
+        found, unreadable = D.bug_candidates(task)
+        check_eq("FL4: cart-1 holds the candidate R-13 and every input was read", ([c["ref"] for c in found], unreadable), (["R-13"], []))
+        (task / "work" / "requirements-register.md").write_bytes(b"")
+        check_eq("FL4: an empty register is an unreadable input, never 'no candidates'", D.bug_candidates(task), ([], ["the requirements register"]))
+        check_eq("FL4: a task root that is no folder never raises", D.bug_candidates(root / "nowhere")[0], [])
+        # F4 (E7 total): each input is one of three states; only a file that does not exist is silent, every other partial read is "unreadable"
+        register = task / "work" / "requirements-register.md"
+        good_register = (SCRIPTS / "tests" / "fixtures" / "stories" / "cart-1" / "work" / "requirements-register.md").read_bytes()
+        register.write_bytes(good_register)
+        table = task / "work" / "grounding.yaml"
+        table.unlink()
+        check_eq("FL4 F4 E1: no grounding table at all is silent, the register is read", ([c["ref"] for c in D.bug_candidates(task)[0]], D.bug_candidates(task)[1]),
+                 (["R-13"], []))
+        table.mkdir()
+        check_eq("FL4 F4 (a): a grounding table path that exists and is no readable file is the unreadable table, not 'no table'",
+                 ([c["ref"] for c in D.bug_candidates(task)[0]], D.bug_candidates(task)[1]), (["R-13"], ["the grounding table"]))
+        register.write_bytes(good_register.replace(b"## Register", b"## Registr"))
+        check_eq("FL4 F4 (b) + E6: a register with text and no `## Register` table is unreadable, never 'holds nothing'; both inputs named in stable order",
+                 D.bug_candidates(task), ([], ["the grounding table", "the requirements register"]))
+        table.rmdir()
+        check_eq("FL4 F4 (b): the misspelled table alone", D.bug_candidates(task), ([], ["the requirements register"]))
+        register.write_bytes(good_register)
+        import unittest.mock as mock
+        with mock.patch.object(C, "candidate_marks", lambda: ()):
+            check_eq("FL4 F4 (c): a mark vocabulary that cannot be read makes the register unreadable, not 'no candidate'",
+                     D.bug_candidates(task), ([], ["the candidate marks of the vocabulary"]))
+        check_eq("FL4 F4 control: the same register with the marks readable gives R-13 again", [c["ref"] for c in D.bug_candidates(task)[0]], ["R-13"])
+        said = D.candidate_refusal(["K-1"], *D.bug_candidates(task))
+        check_not_in("FL4 F4: the refusal of a ref over a fully read story still says 'not in this story' (the control of the rows above)", "could not be read", said)
+    finally:
+        cleanup(root)
+    said = D.candidate_refusal(["R-99"], ["R-13"], [])
+    check("FL4: every input read: 'not in this story: R-99' and the known refs", "not in this story: R-99" in said and "R-13" in said, said)
+    said = D.candidate_refusal(["K-1"], ["R-13"], ["the grounding table"])
+    check("FL4 (FR-41): an unreadable input: 'not known', the input named, never 'not in this story'",
+          "could not be read, so a candidate there is not known" in said and "the grounding table" in said and "not in this story" not in said, said)
+    check_in("FL4: nothing known reads 'none'", "none", D.candidate_refusal(["R-1"], [], []))
+    check("FL4: arguments that are no lists give a string, never a raise",
+          all(isinstance(D.candidate_refusal(a, b, c), str) for a, b, c in ((None, None, None), ("R-1", 5, {"x"}), (7, [], "the grounding table"))))
 
 
 def fv1_30b_n2_no_run_row_names_the_word() -> None:

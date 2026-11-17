@@ -32,6 +32,10 @@
    }
   },
   "qa-code-critic@S5": {
+   "result_text": "qa-code-critic S5 TC-1 · ok\nTC-1 · approved · the probe breaks the total check and the test goes red\nwork/handoffs/S5-qa-code-critic-1.yaml",
+   "manifest_fragments": [
+    {"tests": [{"instance_id": "test_the_case", "file": "qa-factory/tests/TC-1_test.py", "covers": ["TC-1"], "critic_verdict": "approved"}]}
+   ],
    "files": {
     "work/probe-models/S5-qa-code-critic-1.json": [
      "{\"models\": [",

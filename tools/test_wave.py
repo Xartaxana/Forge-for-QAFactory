@@ -73,9 +73,9 @@ def push_main(e, files):
     g(e.dev, "push", "-q", "origin", "HEAD:main")
 
 
-def go(e, name, node=None, ci=None, task="t-868"):
+def go(e, name, node=None, ci=None, task="t-868", piles_skip=None):
     out = []
-    w = wave.Wave(e.root, name, task, node, ci=ci or (lambda r, s: "success"), out=out.append)
+    w = wave.Wave(e.root, name, task, node, ci=ci or (lambda r, s: "success"), out=out.append, piles_skip=piles_skip)
     return w.run(), "\n".join(out), w
 
 
@@ -110,6 +110,27 @@ def test_no_ff_merge_message(env):
     rc, out, w = go(env, "b2", task="t-901")
     assert rc == 0 and g(env.origin, "log", "-1", "--format=%s", "main") == "wave: merge b2 (t-901)"
     assert len(g(env.origin, "rev-list", "--merges", "main").split()) == 1 and w.sha == origin_main(env)
+
+
+@pytest.mark.parametrize("moved", [False, True])
+def test_piles_skip_door_is_the_third_line_of_a_no_ff_merge(env, moved):
+    branch(env, "b2d", {"f.txt": "x\n"})
+    if moved:
+        push_main(env, {"g.txt": "y\n"})
+    rc, out, w = go(env, "b2d", task="t-902", piles_skip="б, frozen -- reason here")
+    assert rc == 0 and len(g(env.origin, "rev-list", "--parents", "-1", "main").split()) == 3
+    assert g(env.origin, "log", "-1", "--format=%B", "main").splitlines() == [
+        "wave: merge b2d (t-902)", "", "piles-skip: б, frozen -- reason here"]
+
+
+@pytest.mark.parametrize("value", ["a -- r", "placement", "placement -- ", "bogus -- r", "", "placement -- r\nx"])
+def test_piles_skip_malformed_is_refused_before_anything(env, value, capsys):
+    branch(env, "b2e", {"f.txt": "x\n"})
+    before, tip = origin_main(env), g(env.origin, "rev-parse", "b2e")
+    assert wave.main(["merge", "b2e", "--task", "t-868", "--piles-skip", value, "--repo", str(env.root)]) == 2
+    out = capsys.readouterr().out
+    assert "expected" in out and "piles-skip: <item> -- <reason>" in out and "placement" in out
+    assert origin_main(env) == before and g(env.origin, "rev-parse", "b2e") == tip
 
 
 def test_conflict_refuses_names_paths_and_changes_nothing_E_C3_8(env):

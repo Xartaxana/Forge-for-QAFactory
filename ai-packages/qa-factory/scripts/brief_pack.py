@@ -4502,6 +4502,9 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
         head.append(f"Rework of {dispatch['rework_of']}.")
         if dispatch.get("plan_rows"):
             head.append("Plan rows of this dispatch: " + ", ".join(str(row) for row in dispatch["plan_rows"]) + ".")
+        if dispatch.get("bug_candidates"):
+            import check_delivery
+            head.append(check_delivery.BUG_CANDIDATES_LINE.format(refs=", ".join(str(ref) for ref in dispatch["bug_candidates"])) + ".")
     if dispatch.get("purpose"):
         head.append(_head_words("Purpose: ", dispatch["purpose"]))
     if first_look:

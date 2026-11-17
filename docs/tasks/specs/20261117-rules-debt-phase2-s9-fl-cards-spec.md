@@ -1028,3 +1028,28 @@ file); Grep `` `skip` `` over the package `*.md`; Grep of the skip brief texts o
 `glob: !worktrees/**` timed out inside the worktrees and was a miscall (the `!**/worktrees/**` form excluded them).
 One Grep with a brace glob mixing a path (`{controller.py,tests/fixtures/judgment-census.json}`) returned nothing and is
 counted as a miscall, not as an absence (the `_raise_all` facts above come from the direct-path Grep).
+
+## Lead decisions after the FL4 code critic (t-1059, 17.11.2026; made in the owner's absence)
+
+Verdict `docs/tasks/specs/reviews/t-1059-rules-debt-fl4-code.md`: needs work, B1 + F1-F5. All are fixed in ONE round under t-1050:
+
+- **B1.** `references/controller-api.md` goes back under its 12000-byte cap by merging the new sentence into the `--rows` one; the cap is not raised.
+- **F3 — the critic's proposal is taken.** The analyst's instruction moves from the charter to the conditional packet line (`Bug candidates of this
+  dispatch: ...`), written once as a constant beside `bug_candidates` and read by `story_step._packet_lines` and the `brief_pack` rework head (N1);
+  the charter line is dropped; the Lead's raise of `process_ratchet_tokens.qa-failure-analyst` (20261 -> 20306) is REVERTED. Card item 7's key moves
+  to the packet-line row.
+- **F4 — fixed here, owns widened.** `_grounding_candidates`: an existing path that is not a readable file is "the grounding table unreadable"; a
+  register with text and no `## Register` table is "the requirements register unreadable"; an unreadable mark vocabulary is unreadable too. None of
+  the three may print "not in this story".
+- **F1, F2, F5, N5** fixed as the verdict states. **N2, N3, N4** go to the pile as lines.
+
+## Lead decisions on FL2 (17.11.2026, Fable; made in the owner's absence, by the recommendation — until the owner's word)
+
+- **F-L2-B: (c)** — the `skip class` column in the md `## Plan` table, checked by `check_plan_v0`, read by the ledger from the
+  row it already reads; the strategist is told by the plan contract line. Reason: one reader of the plan in the ledger stays one
+  (P31, AR-13); (a) would add a md-to-JSON join and two unknown-state edges.
+- **PL-1 measured** (the command of §5, run on main `509722e0`): `{'automate': 48, 'manual-agent': 7, 'skip': 2, 'unverifiable': 1}`
+  over the recorded stories; both `skip` rows are in `local-1-0108` (a cosmetic check; "the owner's answer leaves no implemented
+  quick-view add path to verify" — the R3 row). The critic's `skip 3` was wrong, t-1034's 2 is right; the R3 class count is 1.
+- L-2..L-6 went to scout t-1067; the card is redrafted by a designer into a NEW file after the digest, then the plan critic
+  (PROJECT.md п. 6 (б): the meaning of a delivery word changes), then the builder.

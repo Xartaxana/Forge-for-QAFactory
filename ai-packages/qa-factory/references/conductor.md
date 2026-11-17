@@ -91,7 +91,7 @@ Say in a line or two what you ran, then end with exactly one JSON object on its 
 {"action": "continue|retry|ask_person|stop", "did": "<the commands you ran and their one-line results>", "question": "<the question for the person, only with ask_person or stop>", "why_person": "<id>", "checked": "<what you read>", "options": [{"token", "move", "says", "factory", "person", "story": {"unverified", "report", "delivery"}}]}
 ```
 
-`ask_person` and `stop` carry `options`: one per move whose precondition holds, three lines each. `options` outranks the prose `question`, which names no token that is not an option; a repeated or unknown token, or `options` with `continue` / `retry`, is malformed. Only the `rework` option adds `"args": {"stage", "role", "cases"|"rows", "cause"}`, never a person's words; "Moves open here" says which moves take it and which are never options. When "## The person's choice" says the person chose `rework`, ask_person may carry exactly ONE option, the rework option with "args": your decision; the driver runs it without asking.
+`ask_person` and `stop` carry `options`: one per move whose precondition holds, three lines each. `options` outranks the prose `question`, which names only option tokens; a repeated or unknown token, or `options` with `continue` / `retry`, is malformed. Only the `rework` option adds `"args": {"stage", "role", "cases"|"rows"|"candidates", "cause"}`, never a person's words; "Moves open here" says which moves take it and which are never options. When "## The person's choice" says the person chose `rework`, ask_person may carry exactly ONE option, the rework option with "args": your decision; the driver runs it without asking.
 
 A person's word you record gets `--why-person <id>` of the class you asked.
 
