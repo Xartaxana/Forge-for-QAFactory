@@ -166,3 +166,30 @@ factory rules index: up to date (59 rules)
 factory rules index is stale: run python tools/factory_rules_index.py and stage docs/OWNER_PRINCIPLES_INDEX.md
 ```
 Everything is staged (report included); commit message ready at C:/Users/i_mas/AppData/Local/Temp/msg1051.txt.
+
+## C3-b1w (t-1062) - the writer of `novelty_unmeasured`
+
+Code: `manifest_from_tests._attach_novelty(..., helpers=None, unmeasured=None)` (out-list, default None = old behaviour); `build` passes `unmeasured` and, after `stamp_obligation_refs`, sets `fragment["novelty_unmeasured"] = "; ".join(unmeasured)` only when the list is non-empty.
+
+Unmeasured branches of `_attach_novelty` (enumerated):
+1. no keyed rows and no helpers -> early `return []`: nothing to measure, NO marker (E1).
+2. keyed empty but helpers present and the call raises -> no marker (no test row exists to be unmeasured; helpers return `unknown`, their own stored value) (E1).
+3. the measure raised (or wrong answer length -> ValueError), keyed non-empty -> marker "novelty could not be measured (<Exc>)" (E2; the old note and `_keep_stored_novelty` stay).
+4. the call returned, `_novelty_block` is None for a key (V2: non-S0 base and value not new/changed) -> marker "N test row(s) got no novelty block (...)". NOTE for acceptance: this counts "returned no value for a unit" as unmeasured, per the spec; it means every build against a non-S0 base (head_now / no git) with an `unchanged`/`unknown` row now asks the critic the question. If that is too wide, it is one `if` (branch 4) to drop.
+5. helper unit answer not a dict -> `unknown` helper value; no marker (not a test row).
+Early return near the old line 1528 (`fragment == {}`): structurally unreachable with a marker (fragment empty means no tests/unresolved/bindings, so `keyed` is empty and units are empty; branch 1). So the marker is NOT added there and the early return is unchanged (E6 not triggered; `main` still treats `{}` as "nothing to write"). Spec item 2 asked for the key on that exit too: it cannot ever be non-empty there; asked as a question only if the Lead wants dead code added.
+
+Rows (one block in `_novelty_switch`, file test_manifest_from_tests.py): marker absent when everything measured; marker on normal exit when blocks missing; marker on normal exit when the measure raised; old callers (no out-list) byte-identical return and notes; out-list reason on exception (E2); no marker when no test row (E1); JOIN x3: `proof_level.novelty_question_owed` true for a keyless row with the producer's fragment, false when nothing unmeasured, false once `probe_owed: no` is on the row.
+
+Verbatim runs (from the tree):
+- `python -B ai-packages/qa-factory/scripts/tests/test_manifest_from_tests.py` -> `=== test_manifest_from_tests: 549/549 ok ===` (the file IS in slow_tests.json, 79 s; it was run whole)
+- `test_proof_level.py` -> `=== test_proof_level: 607/607 ok ===`
+- `selftest.py --lang` -> `=== qa-factory selftest: 2/2 ok ===`
+- E5 before/after (git stash for before): stage_joints `stage joints: clean` both, same summary line (rows 268, gaps 4); contract_slices `slices: 44 declared, all present and fresh; 19 key pages; 12 charters carry a generated digest line` both; gate_registry check tail identical both; dry_exits (scripts/tests/dry_exits.py) `dry_exits --check: 0 discrepancies` both. Judgment census: `_attach_novelty` row unchanged, no new function added (not run separately; the census test is not in the witness list).
+- E4: `python -B tools/dup_ratchet.py --check` scripts: `9 groups, 8 known, 0 new, 0 grown, 1 carried, 1 shrunk/gone (1 diverged)` identical before and after (the carried group is `_has_factory_activity`, unrelated).
+- negative control: sha256 of manifest_from_tests.py `e72a6c77efbaea0d...` before; merge line replaced by `pass` on the file after a byte copy -> `=== test_manifest_from_tests: 545/549 ok ===` with FAIL on both "marker" rows and both "question owed" join rows (broke, bare); restored from copy, sha256 `e72a6c77efbaea0d...` equal to the copy's.
+- witness-for run (non-slow): test_manifest_put_keep_unsent 91/91, test_manifest_put_merge 452/452, test_oracle_provenance 296/296, test_provisional 76/76, test_then_remainder 354/354, test_proof_level 607/607, scenario cart-1 15/15, scenario dry-1 9/9. NOT run (slow_tests.json): test_blocked_by_env_window, test_brief_pack, test_brief_pack_s5_plan, test_field_producers, test_node_ids, test_s5_precheck, test_window_record, scenario local-1-0108, local-1-arm-b. Not run (fast, listed, skipped by me): test_manifest_from_tests covers; test_manifest_put... all done above; none else.
+
+FR walk: A - no refusal text changed. B - no text to a person changed (marker is data). C - FR-14 shape: one new top-level string key, read by `proof_level.novelty_question_owed` (producer and reader meet, join row). D - FR-59/FR-41: unmeasured is a marker, never recorded as measured-not-novel. E - delivery untouched. F - no measurement code changed. G - FR-30 English only (selftest --lang ok), FR-32 test rows added, FR-54 siblings: other `_attach_novelty` callers none (grep: one call, in build).
+Architecture: AR-22 (the reader's field now has a producer, on the normal exit), AR-28 (unknown never becomes a pass); AR-13/AR-14 unaffected.
+Needed beyond manifest: proof_level.py, manifest_from_tests main (callers), slow_tests.json, tools/dup_ratchet.py.

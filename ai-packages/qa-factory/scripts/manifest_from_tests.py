@@ -887,7 +887,8 @@ def _keep_stored_novelty(story: Story, keyed: list, notes: list) -> None:
         notes.append(f"the stored novelty of {kept} row(s) was kept as it was, not refreshed")
 
 
-def _attach_novelty(story: Story, project, keyed: list, notes: list, helpers: list | None = None) -> list:
+def _attach_novelty(story: Story, project, keyed: list, notes: list, helpers: list | None = None,
+                    unmeasured: list | None = None) -> list:
     """Write `novelty` on the rows (R3) from ONE `measure_many` call: one mirror, one git batch, one
     parse cache (V3, FR-55: a mirror per test cost 4-5 s per function). `keyed` is [(row, function
     key)]; parametrized rows of one function share one measurement and each carries its own copy.
@@ -897,7 +898,11 @@ def _attach_novelty(story: Story, project, keyed: list, notes: list, helpers: li
 
     `helpers` are the `(rel, class chain, name)` units of `_helper_units` (TQ1-7): they ride in the SAME call (one mirror,
     one git batch; a second call per build is the cost V3 removed) and their `value`s come back as the return, in order -
-    `unknown` for every unit when the call fails, `[]` when there are none."""
+    `unknown` for every unit when the call fails, `[]` when there are none.
+
+    `unmeasured` (C3-b1w) is an optional out-list: when novelty could NOT be measured for a test row, the reason is appended
+    as text - the whole call failed, or the measurer gave a row no stored block (V2). Nothing to measure appends nothing.
+    A helper unit that came back `unknown` is its own stored value, not a reason here."""
     helpers = list(helpers or [])
     if not keyed and not helpers:
         return []
@@ -922,8 +927,15 @@ def _attach_novelty(story: Story, project, keyed: list, notes: list, helpers: li
         values = [str(r.get("value")) if isinstance(r, dict) else "unknown" for r in results[len(order):]]
     except Exception as exc:
         notes.append(f"novelty could not be measured ({type(exc).__name__})")
+        if unmeasured is not None and keyed:
+            unmeasured.append(f"novelty could not be measured ({type(exc).__name__})")
         _keep_stored_novelty(story, keyed, notes)
         return ["unknown"] * len(helpers)
+    if unmeasured is not None:
+        bare = [row for row, key in keyed if blocks[key] is None]
+        if bare:
+            unmeasured.append(f"{len(bare)} test row(s) got no novelty block (the measure was not new or changed "
+                              "against a base that is not a recorded S0 base)")
     for row, key in keyed:
         if blocks[key] is not None:
             block = copy.deepcopy(blocks[key])           # the measurement of THIS call, never merged
@@ -1512,7 +1524,8 @@ def build(story: Story, files: list, dispatch_id: str, project=None, prior_probl
                   for iid in _unique(named_ids) if iid not in held_ids]
 
     units = _helper_units(project, files, notes) if (tests or unresolved or bindings or whole_unresolved) else []
-    helper_values = _attach_novelty(story, project, keyed, notes, units)
+    unmeasured: list = []
+    helper_values = _attach_novelty(story, project, keyed, notes, units, unmeasured)
 
     fragment = {}
     if tests:
@@ -1543,6 +1556,8 @@ def build(story: Story, files: list, dispatch_id: str, project=None, prior_probl
     fragment, stamp_problems = C.stamp_obligation_refs(fragment, getattr(story, "_obligation_map", None) or C.plan_obligation_map(story.root))
     if stamp_problems:
         raise Refusal("obligation_refs: " + "; ".join(stamp_problems))
+    if unmeasured:                       # only when something was not measured: never "" (manifest_put's scalar loop would overwrite)
+        fragment["novelty_unmeasured"] = "; ".join(unmeasured)
     return {"fragment": fragment, "notes": notes, "scope": scope,
             "cases": _case_picture(story, cases_named, bindings, whole_unresolved)}
 

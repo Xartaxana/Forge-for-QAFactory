@@ -8,3 +8,6 @@
   values; an absent key is no refusal. `references/stage-joints.json` gains the joint `acceptance:novelty_question`.
 - Raised by name (AR-20): the `qa-code-critic` plugin-share baseline in `references/role-load.json`, 72828 -> 73031 (the charter
   paragraph that tells the critic the `probe_owed` answer does not fit the old figure).
+- `manifest_from_tests.py` now writes the marker the question reads: when novelty could not be measured for a test row (the measure
+  raised, or the measurer gave a row no stored block) the fragment carries a top-level `novelty_unmeasured` text naming why; a fully
+  measured story carries no such key, and a story with nothing to measure carries none either.
