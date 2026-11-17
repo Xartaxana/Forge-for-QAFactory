@@ -96,11 +96,16 @@ def test_a_binding_the_price_file_does_not_know_is_unpriced_never_zero(db, _lead
     assert c["unpriced_models"] == ["claude-fable-9"] and c["counterfactual_partial"] is True
 
 
-@pytest.mark.parametrize("text", ["contour: subscription\n", "roles: {}\n", "roles:\n  lead:\n    subscription:\n      model:\n",
-                                  "not: yaml: [broken\n"], ids=["no-roles", "empty-roles", "empty-model", "broken-yaml"])
-def test_an_unresolvable_binding_is_a_prices_error_naming_the_config_never_a_default(db, _lead_binding, text):
+@pytest.mark.parametrize("text, reason", [
+    ("contour: subscription\n", "no roles mapping"), ("roles: {}\n", "no coordination function"),
+    ("roles:\n  lead:\n    subscription:\n      model:\n", "no coordination function"),
+    ("roles:\n  critic:\n    subscription:\n      model: claude-opus-5-5\n", "roles.lead names no model"),
+    ("not: yaml: [broken\n", "not readable YAML"),
+    ("a: &a [*a, *a]\nroles:\n  lead:\n    subscription:\n      model: claude-opus-5-5\n", "alias"),
+], ids=["no-roles", "empty-roles", "empty-model", "lead-missing", "broken-yaml", "alias-bomb"])
+def test_an_unresolvable_binding_is_a_prices_error_naming_the_config_never_a_default(db, _lead_binding, text, reason):
     _lead_binding.write_text(text, encoding="utf-8")
-    with pytest.raises(PricesError, match="roles.lead names no model") as e:
+    with pytest.raises(PricesError, match=reason) as e:
         top_tier_model()
     assert str(_lead_binding) in str(e.value)
     with pytest.raises(PricesError):

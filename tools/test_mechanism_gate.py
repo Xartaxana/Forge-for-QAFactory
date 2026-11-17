@@ -638,6 +638,9 @@ TIER_CONFIGS = {
     "no-lead-architect-opus": _roles(architect="claude-opus-5"),
     "duplicate-model-id": _roles(builder="claude-fable-5", lead="llama-3.3-70b-versatile", architect="claude-fable-5"),
     "reserve-key-not-read": _roles(lead="claude-opus-5", reserve="claude-fable-5"),
+    # an operator who bound opus and slipped: the gate falls back to the defaults and must SAY so (spec 2.4)
+    "broken-yaml-opus": _roles(lead="claude-opus-5-5") + "not: yaml: [broken\n",
+    "oversize-opus": _roles(lead="claude-opus-5-5") + "# " + "x" * 65536 + "\n",
 }
 
 
@@ -652,7 +655,7 @@ TIER_CONFIGS = {
     ("after-no-architect", "fable", True), ("after-no-architect", "claude-fable-5-2", True),
     ("after-no-architect", "sonnet", False), ("today-key-bound", "fable", True), ("today-key-bound", "opus", False),
     # the same model on lead and critic: the max rank (lead) wins
-    ("lead-equals-critic-opus", "claude-opus-5-5", True),
+    ("lead-equals-critic-opus", "opus", True),
     # no config / a fable binding: nothing above fable, opus and sonnet stay refused
     ("none", "fable", True), ("none", "claude-fable-5", True), ("none", "sonnet", False), ("none", "opus", False),
     ("fable-lead", "claude-fable-5", True), ("fable-lead", "fable", True), ("fable-lead", "sonnet", False),
@@ -694,12 +697,24 @@ def test_tier_declared_ok_table(config, declared, ok):
     ("after", "opus", 0, ""), ("after", "claude-opus-5-5", 0, ""), ("after", "fable", 0, ""),
     ("after", "sonnet", 1, "Not lead tier"),
     ("after-no-architect", "fable", 0, ""), ("today-key-bound", "fable", 0, ""),
+    # the refusal says what passes (F2a)
+    ("fable-lead", "opus", 1, "expected the lead binding or a model ranked lead or above"),
+    # a fallback road keeps its reason in the refusal (F1): broken / oversize config binding opus, `tier: opus`
+    ("broken-yaml-opus", "opus", 1, "not readable YAML"), ("oversize-opus", "opus", 1, "over 64 KB"),
+    ("broken-yaml-opus", "fable", 0, ""), ("oversize-opus", "fable", 0, ""),
 ])
 def test_decide_full_tier_line_table(config, tier, code, fragment):
     got, reason = mg.decide_full(
         msg=f"feat: mechanism X\n\naxis 1: covered\ntier: {tier}", block_extra="", staged=["CLAUDE.md"],
         map_text="## Axis 1 --\n", config_text=TIER_CONFIGS[config])
     assert got == code and fragment in reason
+
+
+def test_decide_full_no_tier_line_refusal_carries_the_config_note_too():
+    got, reason = mg.decide_full(
+        msg="feat: mechanism X\n\naxis 1: covered", block_extra="", staged=["CLAUDE.md"],
+        map_text="## Axis 1 --\n", config_text=TIER_CONFIGS["broken-yaml-opus"])
+    assert got == 1 and "No \"tier: <value>\" line" in reason and "not readable YAML" in reason
 
 
 @pytest.mark.parametrize("config, lead, family", [
@@ -1397,6 +1412,16 @@ def test_list_commits_table(since, commits, code, lines, fragment):
     assert got == code and len(report.splitlines()) == lines and fragment in report
     if not code and commits is _LIST_COMMITS:  # the non-mechanism commit is not listed; paths are indented
         assert "cccc2222" not in report and "docs/RELATED_WORK.md" not in report
+
+
+@pytest.mark.parametrize("since, hint", [("20261116", True), ("abcdef1", True), ("2026-11-16", False)],
+                         ids=["date-without-dashes-read-as-sha", "sha", "iso-date"])
+def test_list_commits_git_failure_hints_the_sha_reading_in_sha_mode_only(since, hint):
+    def broken(*args):
+        raise mg.AuditError("git log failed with exit 128: bad revision")
+    code, report = mg.list_commits(since, git=broken)
+    assert code == 1 and "bad revision" in report
+    assert ("7-40 hex digits is read as a commit sha; a date is YYYY-MM-DD" in report) is hint
 
 
 def test_list_commits_git_failure_exits_1_and_the_cli_needs_since(capsys):

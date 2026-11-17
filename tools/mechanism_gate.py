@@ -768,6 +768,10 @@ def decide_full(msg: str, block_extra: str, staged: list[str],
     if not hits or merging or _skip_declared(msg, scan_result):
         return 0, ""
     binding = resolve_lead_binding(config_text)
+    config_note = tier_ladder.effective_bindings(config_text)[1]
+    # spec 2.4: a fallback road never drops its reason -- both refusals carry the config note
+    note = (f" (delegation.config.yaml: {config_note} -- the default bindings apply where no lead is read, "
+            "lead=" + binding + "; fix the file)") if config_note else ""
     # ALL found tier lines must pass -- reject if even ONE does not
     # match the binding (see find_tier_declarations()'s docstring for
     # the chosen semantics). Region-aware selection (see the docstring
@@ -776,13 +780,14 @@ def decide_full(msg: str, block_extra: str, staged: list[str],
     if not declared_list:
         return 1, ("commit touches mechanism files:\n  " + "\n  ".join(hits)
                     + "\nNo \"tier: <value>\" line (lead binding: "
-                    + binding + ") -- " + _tier_queue_note())
+                    + binding + ")" + note + " -- " + _tier_queue_note())
     bad = [d for d in declared_list if not tier_declared_ok(d, binding, config_text)]
     if bad:
         return 1, ("commit touches mechanism files:\n  " + "\n  ".join(hits)
                     + "\nNot lead tier: \"tier: " + bad[0]
                     + "\" does not match the binding (" + binding
-                    + ") -- " + _tier_queue_note())
+                    + "); expected the lead binding or a model ranked lead or above on "
+                    "tools/tier_ladder.py" + note + " -- " + _tier_queue_note())
     return 0, ""
 
 
@@ -937,7 +942,8 @@ def list_commits(since: str, git=_git_strict) -> tuple[int, str]:
     a commit sha (the window is `<sha>..HEAD`). Exit 1 on a bad value (the
     message names both forms) or a git failure; an empty window is "0 commits",
     exit 0. It lists; the review verdict is a tier above's."""
-    if _SINCE_SHA_RE.fullmatch(since or ""):
+    sha_mode = bool(_SINCE_SHA_RE.fullmatch(since or ""))
+    if sha_mode:
         args = ["log", f"{since}..HEAD"]
     elif _since_ok(since or ""):
         args = ["log", f"--since={since}"]
@@ -958,7 +964,9 @@ def list_commits(since: str, git=_git_strict) -> tuple[int, str]:
             out.append(f"{sha[:8]} {when.isoformat()} {tiers} {subject}")
             out.extend(f"    {p}" for p in hits)
     except AuditError as exc:
-        return 1, f"mechanism_gate list: {exc}"
+        hint = (" (a value of 7-40 hex digits is read as a commit sha; a date is YYYY-MM-DD)"
+                if sha_mode else "")
+        return 1, f"mechanism_gate list: {exc}{hint}"
     return 0, "\n".join(out) if commits else "0 commits"
 
 

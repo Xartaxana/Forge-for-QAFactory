@@ -102,12 +102,24 @@ def test_config_size_limit(config, expected):
     (RESERVE_UNCOMMENTED, {"lead": OPUS}, "rename it to roles.architect"),
     ("roles:\n  lead:\n    subscription:\n      model:\n    api:\n      model: llama-x\n", {"lead": "llama-x"}, None),
     ("roles:\n  lead:\n    subscription:\n      model: 12\n", {}, "no coordination function"),
+    # judge / analyst / designer are never read (designer is an executor rank only), whatever model they name
+    (_cfg(lead=FABLE, judge=FABLE, analyst=FABLE, designer=FABLE), {"lead": FABLE}, None),
+    # an architect key with an empty model beside a bound lead: no architect rung (the AFTER config mid-edit)
+    ("roles:\n  lead:\n    subscription:\n      model: claude-opus-5-5\n  architect:\n    subscription:\n      model:\n",
+     {"lead": OPUS}, None),
 ], ids=["today", "after", "none", "empty", "alias-bomb", "broken-yaml", "roles-not-mapping", "roles-empty",
-        "reserve-not-read", "api-fallback", "non-string-model"])
+        "reserve-not-read", "api-fallback", "non-string-model", "judge-analyst-designer-not-read",
+        "architect-empty-model-no-rung"])
 def test_bindings_table(config, found, note_part):
     got, note = tl.bindings(config)
     assert got == found
     assert (note is None) if note_part is None else (note_part in note)
+
+
+def test_a_designer_id_never_ranks_through_the_config():
+    # a designer-only non-Claude id is no rung (a rung would rank it 3 or 4 by exact match): it matches nothing
+    config = _cfg(lead=OPUS, designer="zz-designer-model")
+    assert tl.rank_of_model("zz-designer-model", config) is None
 
 
 def test_pyyaml_import_failure_gives_default_bindings_and_a_note(monkeypatch):
@@ -154,13 +166,20 @@ def test_rank_of_function_table(name, rank):
     ("opus", LEAD_IS_ARCHITECT, ("builder", "unbound family")),
     ("haiku", TODAY, (None, "below builder")), ("lead", TODAY, (None, "matches no binding")),
     (None, TODAY, (None, "matches no binding")),
-    ("fable", BROKEN_YAML, ("lead", "config unreadable: default bindings")),
-    ("sonnet", None, ("builder", "config unreadable: default bindings")),
 ], ids=["today-family", "after-family", "after-exact-fable", "after-exact-opus", "today-exact-sonnet", "today-opus-family",
-        "after-no-key", "unbound-family", "below-builder", "function-word", "none", "broken-config", "absent-config"])
+        "after-no-key", "unbound-family", "below-builder", "function-word", "none"])
 def test_function_of_session_table(model, config, expected):
     assert tl.function_of_session(model, config) == expected
 
+
+@pytest.mark.parametrize("model, config, function, reason", [
+    ("fable", BROKEN_YAML, "lead", "not readable YAML"), ("sonnet", None, "builder", "config absent"),
+    ("fable", LEAD_MISSING, "lead", "roles.lead names no model"),  # a READABLE config: the note must not say unreadable
+    ("fable", ALIAS_BOMB, "lead", "alias"),
+], ids=["broken-config", "absent-config", "no-lead", "alias-bomb"])
+def test_function_of_session_on_default_bindings_names_the_real_reason(model, config, function, reason):
+    got_function, note = tl.function_of_session(model, config)
+    assert got_function == function and note.startswith("default bindings used (") and reason in note
 
 def test_families_aliases_and_default_bindings_are_one_order_one_table():
     assert tl.FAMILIES == ("haiku", "sonnet", "opus", "fable") and tl.ALIASES == {"mythos": "fable"}

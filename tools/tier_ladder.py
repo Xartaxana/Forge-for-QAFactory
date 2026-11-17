@@ -190,7 +190,7 @@ def function_of_session(model_id, config_text) -> tuple[str | None, str]:
     """(coordination function of the session's rank, a note naming the road taken).
     Derived from the one matcher, never a matcher of its own; designer is never a
     session function."""
-    found, _note, defaulted = _effective(config_text)
+    found, config_note, defaulted = _effective(config_text)
     rank, road, bound = _resolve(model_id, found)
     if rank is None:
         return None, "matches no binding"
@@ -198,7 +198,7 @@ def function_of_session(model_id, config_text) -> tuple[str | None, str]:
         return None, "below builder"
     function = next(f for f in COORDINATION_FUNCTIONS if FUNCTION_RANKS[f] == rank)
     if defaulted:
-        return function, "config unreadable: default bindings"
+        return function, f"default bindings used ({config_note})"
     if road == "exact":
         return function, ""
     if road == "family":

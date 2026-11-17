@@ -130,10 +130,13 @@ def top_tier_model(path=None) -> str:
     except (OSError, UnicodeDecodeError) as e:
         raise PricesError(f"delegation config {config}: cannot be read ({getattr(e, 'strerror', None) or e});"
                           " the counterfactual prices at the model bound to roles.lead there")
-    model = tier_ladder.bindings(text)[0].get("lead")
+    found, note = tier_ladder.bindings(text)
+    model = found.get("lead")
     if not model:
-        raise PricesError(f"delegation config {config}: roles.lead names no model (subscription.model or"
-                          " api.model); the counterfactual prices at the model bound to roles.lead")
+        reason = note if found == {} and note else ("roles.lead names no model (subscription.model or api.model)"
+                                                    + (f"; {note}" if note else ""))
+        raise PricesError(f"delegation config {config}: {reason}; the counterfactual prices at the model bound to"
+                          " roles.lead")
     return model
 
 
