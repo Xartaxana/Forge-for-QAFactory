@@ -18,7 +18,9 @@ you.
    with its row R11-f (the manifest as header lines, `owns:` with
    absolute paths); a builder DoD's verification scope and its `test:` lines are
    `docs/TESTING.md` («Что запускать по своей правке», «Строка теста в DoD», «Бюджет / Файлы»): the DoD names
-   `scenario_walk.py --witness-for <owns>`; a DoD never asks for a new
+   its witness files explicitly - at most three whole-run test files, none of the canon-only class (a slow-list or
+   `canon_only` file is checked by a narrow call of the changed functions) and never `--witness-for` (the dispatch gate
+   refuses all three; door `manifest-skip: dod-run -- <reason>`); a DoD never asks for a new
    test file outside the keep rows of `test-layers.json`; a new case is
    a variant/table row. `test:` lines are ONE PER BEHAVIOUR that reaches
    a door - never one per critic finding, function or spec edge - and
