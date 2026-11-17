@@ -65,7 +65,8 @@
         {"file": "gate_registry.py", "function": "_token_problem", "role": "library"},
         {"file": "gate_registry.py", "function": "_check_row", "role": "library"},
         {"file": "gate_registry.py", "function": "_check_registry", "role": "library"},
-        {"file": "gate_registry.py", "function": "<module>", "role": "vocabulary"}
+        {"file": "gate_registry.py", "function": "<module>", "role": "vocabulary"},
+        {"file": "gate_template.py", "function": "acceptable", "role": "library"}
       ],
       "field": "result",
       "words": ["matched", "mismatched", "unknown", "not_applicable", "person_confirmed"],

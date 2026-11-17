@@ -750,10 +750,18 @@ def part_fix_pass() -> None:
         check_eq(f"F4 CONTROL: a {status} row that says code is clean", audit(page, row("a", status, vocabulary="code"))["findings"], [])
     for status in ("debt", "exempt"):
         check_eq(f"F4 CONTROL: a {status} row that says target is clean", audit(page, row("a", status, vocabulary="target"))["findings"], [])
-    # C3-R (t-1009): s5_coverage is `code` now; `s5_window` is a live debt row that still says `target`
-    flipped = mutated(registry, "s5_window", status="converted", test="scripts/tests/test_window_record.py", debt_ref="")
-    check("F4 flipping a live `target` row to converted names the row and the key",
-          any(f.startswith("s5_window.vocabulary:") for f in GR.analyse(PLUGIN_ROOT, flipped)["findings"]))
+    # C3-0 (t-1038): the control runs on an in-memory COPY row, never on a live row's status, so converting the last live `target`
+    # row kills nothing. Expected from `_check_row`: "a converted row must say `code`".
+    probe_row = copy.deepcopy(registry["rows"][0])
+    probe_row.update(id="flip_probe", vocabulary="target", status="converted", test="scripts/tests/test_window_record.py",
+                     debt_ref="", exempt_reason="", sites=[], accepts={})
+    flipped = copy.deepcopy(registry)
+    flipped["rows"].append(probe_row)
+    check("F4 flipping a `target` row to converted names the row and the key",
+          any(f.startswith("flip_probe.vocabulary:") for f in GR.analyse(PLUGIN_ROOT, flipped)["findings"]))
+    probe_row["vocabulary"] = "code"
+    check("F4 CONTROL: the same copy row saying `code` raises no finding on `vocabulary`",
+          not any(f.startswith("flip_probe.vocabulary:") for f in GR.analyse(PLUGIN_ROOT, flipped)["findings"]))
 
     # F5: the forms the scan does not see are in the scope text, one line each
     for form in ("x == V.OK", 'def f(ok="matched")', "operator.eq(x", ".split()", '.startswith("match")',
@@ -940,6 +948,7 @@ D13_TRIPLES = [
     ("gate_registry.py", "_check_registry", "provenance_acceptance"),
     ("gate_registry.py", "_check_row", "provenance_acceptance"),
     ("gate_registry.py", "_token_problem", "provenance_acceptance"),
+    ("gate_template.py", "acceptable", "provenance_acceptance"),    # C3-0 (t-1038): the one predicate of a true accept site, a `library` site
     # HF8-19 N1a: the two acceptance comparisons of `validate` moved to `_provenance_errors` (one function for a record's own
     # pair and each joined profile's), and the joined pair's revision bypass is a third comparison in `_other_profile_errors`
     ("manual_evidence.py", "_other_profile_errors", "provenance_acceptance"),
@@ -991,7 +1000,10 @@ D13_TRIPLES = [
 # 138 -> 140 (t-1032, A1): the reuse acceptance `earlier['state'] == 'same_command'` (`_reporter_outcome`, accept) and
 # `earlier.get('state') != 'unreadable'` (`_record_unreadable`, produce) are registered under `reporter_rehearsal_identity`, so the scan
 # attributes them (measured with `gate_registry.py --sites`: +2 lines). The raise is the decision, taken in the diff that makes it.
-D13_ITEM_COUNT = 140
+# 140 -> 146 (C3-0, t-1038, AR-20): the new `library` site `gate_template.acceptable` registers six comparisons of the predicate
+# (`cls == 'matched'`, `'matched' in tokens`, `cls == 'person_confirmed'`, `'person_confirmed' in tokens`, `cls == 'not_applicable'`,
+# `'not_applicable' in tokens`; measured with `gate_registry.py --sites`: 140 before, 146 after). No row converts, so no other pin moves.
+D13_ITEM_COUNT = 146
 
 
 def part_site_attribution() -> None:
@@ -1019,6 +1031,99 @@ def part_site_attribution() -> None:
     check_eq("D13 NEG: ... with no registry finding at all (the count and the set are the only witnesses)", reduced["findings"], [])
 
 
+# --- C3-0 (t-1038): the one predicate of a true accept site ------------------------------------------------------------
+# Expected values come from FR-59 ("never a pass") and the registry grammar (`accepts` tokens are class tokens; a row's `words` and
+# `verdict_map` say which word is which class; `promotable` gates `person_confirmed`), never from the predicate's output.
+
+def predicate_cases() -> list:
+    """(case id, value, consumer, registry, expected) rows; the registries are in-memory copies of real rows."""
+    live = live_registry()
+    ident = copy.deepcopy(next(r for r in live["rows"] if r["id"] == "test_identity"))
+    ident["accepts"] = {"test_identity.probe_repeat": ["matched"]}
+    rec = row("rec_row", field="status", words=["captured", "inconclusive"],
+              verdict_map={"captured": {"class": "matched"}, "inconclusive": {"class": "unknown", "owner": "environment"}},
+              accepts={"rec_row.use": ["matched"]})
+    broken = row("broken_row", words=["u", "m"],
+                 verdict_map={"u": {"class": "unknown", "owner": "environment"}, "m": {"class": "mismatched"}},
+                 accepts={"broken_row.use": ["unknown", "mismatched", "matched"]})
+
+    def person(promotable):
+        return row("person_row", words=["said"], verdict_map={"said": {"class": "person_confirmed"}}, promotable=promotable,
+                   accepts={"person_row.use": ["person_confirmed"]})
+
+    na = row("na_row", words=["na_a", "na_b"],
+             verdict_map={"na_a": {"class": "not_applicable", "reason_code": "no_changed_file"},
+                          "na_b": {"class": "not_applicable", "reason_code": "local_source"}},
+             accepts={"na_row.reason": ["not_applicable:no_changed_file"], "na_row.bare": ["not_applicable"]})
+    big = reg(ident, rec, broken, person(False), na)
+    p_no, p_yes = reg(person(False)), reg(person(True))
+    rows = [("word-matched", "instance", "test_identity.probe_repeat", big, True)]
+    rows += [("empty-word", "", "test_identity.probe_repeat", big, False),
+             ("other-case", "Instance", "test_identity.probe_repeat", big, False),
+             ("padded", " instance", "test_identity.probe_repeat", big, False)]
+    rows += [(f"other-shape-{n}", v, "test_identity.probe_repeat", big, False)
+             for n, v in enumerate((["instance"], {"x": 1}, None, 5, b"instance"))]
+    rows += [("unknown-consumer", "instance", "test_identity.nope", big, False),
+             ("consumer-not-str", "instance", None, big, False),
+             ("consumer-malformed", "instance", "nodot", big, False),
+             ("wrong-row", "captured", "test_identity.probe_repeat", big, False),
+             ("record-true", {"status": "captured"}, "rec_row.use", big, True),
+             ("record-unknown", {"status": "inconclusive"}, "rec_row.use", big, False),
+             ("record-empty", {}, "rec_row.use", big, False),
+             ("record-none", {"status": None}, "rec_row.use", big, False),
+             ("record-under-null-field", {"result": "instance"}, "test_identity.probe_repeat", big, False),
+             ("record-field-null-with-key", {"status": "instance"}, "test_identity.probe_repeat", big, False),
+             ("never-unknown", "u", "broken_row.use", big, False),
+             ("never-mismatched", "m", "broken_row.use", big, False),
+             ("person-not-promotable", "said", "person_row.use", p_no, False),
+             ("person-promotable", "said", "person_row.use", p_yes, True),
+             ("na-reason-listed", "na_a", "na_row.reason", big, True),
+             ("na-reason-unlisted", "na_b", "na_row.reason", big, False),
+             ("na-bare-any-a", "na_a", "na_row.bare", big, True),
+             ("na-bare-any-b", "na_b", "na_row.bare", big, True),
+             ("registry-rows-not-list", "instance", "test_identity.probe_repeat", {"rows": "x"}, False),
+             ("registry-not-object", "instance", "test_identity.probe_repeat", [], False),
+             ("registry-no-rows-key", "instance", "test_identity.probe_repeat", {}, False)]
+    # a row missing a part of its vocabulary never accepts
+    for part in ("words", "verdict_map", "accepts"):
+        cut = copy.deepcopy(ident)
+        cut.pop(part)
+        rows.append((f"row-without-{part}", "instance", "test_identity.probe_repeat", reg(cut), False))
+    rows.append(("class-outside-the-five", "instance", "test_identity.probe_repeat",
+                 reg(dict(ident, verdict_map={"instance": {"class": "matchd"}}, words=["instance"])), False))
+    # the live registry's grammar: provenance.rehearsal takes `not_applicable:no_changed_file` and no bare token
+    rows += [("live-matched", "matched", "provenance.rehearsal", None, True),
+             ("live-unknown", "unknown", "provenance.rehearsal", None, False),
+             ("live-na-needs-reason", "not_applicable", "provenance.rehearsal", None, False),
+             ("live-na-bare-token", "not_applicable", "provenance.fingerprint", None, True),
+             ("live-record", {"result": "person_confirmed"}, "provenance.manual", None, True)]
+    return rows
+
+
+def part_predicate() -> None:
+    import gate_template as GT
+    for case, value, consumer, registry, want in predicate_cases():
+        check_eq(f"C3-0 acceptable {case}", GT.acceptable(value, consumer, registry=registry), want)
+    # an unreadable registry never accepts, and says why (E2); the live one reads
+    saved_root, saved_read = GR.PLUGIN_ROOT, list(GT._READ)
+    empty = temp_dir("qa-factory-gates-empty-")
+    try:
+        GR.PLUGIN_ROOT = empty
+        GT._READ.clear()
+        check_eq("C3-0 registry-unreadable: no registry file, nothing accepts",
+                 [GT.acceptable("matched", c) for c in ("provenance.rehearsal", "provenance.manual", "x.y")], [False] * 3)
+        check_in("C3-0 registry-problem: no registry file names the reason", "absent", GT.registry_problem())
+    finally:
+        GR.PLUGIN_ROOT = saved_root
+        GT._READ.clear()
+        GT._READ.extend(saved_read)
+        cleanup(empty)
+    check_in("C3-0 registry-problem: a registry without a rows list", "rows", GT.registry_problem(registry={"rows": "x"}))
+    check("C3-0 registry-problem: a non-object registry has a reason", bool(GT.registry_problem(registry=[])))
+    check_eq("C3-0 registry-problem: an in-memory registry that reads", GT.registry_problem(registry=reg(row("a"))), "")
+    check_eq("C3-0 registry-problem: the live registry", GT.registry_problem(), "")
+
+
 def main() -> None:
     part_scanner()
     part_schema()
@@ -1027,6 +1132,7 @@ def main() -> None:
     part_registry_file()
     part_live_registry()
     part_site_attribution()
+    part_predicate()
     part_wiring()
     part_text()
     finish("test_gate_registry")
