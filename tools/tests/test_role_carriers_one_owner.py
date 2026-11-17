@@ -251,7 +251,7 @@ def test_negative_control_scope():
 # ---- K-REG / K-NOBRIEF ----
 SIBLING_MAP = "docs/SIBLING_MAP.md"
 DOOR = "fold the text into a main document, or move the file under docs/tasks/specs/"
-DELETED = [                                     # (path, stem or None); wave 2 adds docs/tasks/exchange-form.md
+DELETED = [                                     # (path, stem or None)
     ("docs/tasks/critic-diff-brief.md", "critic-diff-brief"),
     ("plans/builder-rules.md", "builder-rules"),
     ("docs/tasks/pre-release-0.9-brief-common.md", "pre-release-0.9-brief-common"),
@@ -259,6 +259,7 @@ DELETED = [                                     # (path, stem or None); wave 2 a
     ("docs/tasks/test-diet-brief.md", "test-diet-brief"),
     ("docs/tasks/test-diet-fold-brief.md", "test-diet-fold-brief"),
     ("docs/retro/README.md", None),             # no stem: "README" is a common word
+    ("docs/tasks/exchange-form.md", "exchange-form"),
 ]
 ALLOWED = {".claude/agents/builder.md": "\"builder-rules N\" in package comments = the former numbering of the builder's rules"}
 BRIEF_PATH_RE = re.compile(r"docs/tasks/[^/\s`'\"]*brief[^/\s`'\"]*\.md")

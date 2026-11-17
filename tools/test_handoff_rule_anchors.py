@@ -137,7 +137,7 @@ def test_negative_control_one_key_absent_from_a_copy():
     assert missing_keys(copy, FILE_RULE_KEYS) == [K2]
 
 
-K_SCOUT_FORM = ("digest: v1", "docs/tasks/exchange-form.md")
+K_SCOUT_FORM = ("digest: v1", "`tools/digest_form.py`")
 
 
 def test_scout_rule_10_teaches_the_digest_form_v1():

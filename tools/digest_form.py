@@ -10,7 +10,7 @@ about a claim without a trail or a negative without a control of the same form (
     trail_backing_flags(d, calls)    the Trail rows against the worker's tool_use calls (t-863, F6-14): [] / trail_unbacked:<n> /
                                      trail_unchecked (no transcript). Pure: the caller (handback_extract) reads the transcript.
 
-The grammar, the flag list and two examples live in docs/tasks/exchange-form.md; the closed `result` grammar is RESULT_* below.
+The grammar and the flag list live in .claude/agents/scout.md rules 10-11; the example is tools/fixtures/digest_form/t-794.md; the closed `result` grammar is RESULT_* below.
 FLAG_NAMES is the ONE list of the names flags(d) can return, TRANSCRIPT_FLAG_NAMES of the two trail_backing_flags can.
 Tables are read through tools/md_table.py (a leaf: stdlib `re` only), NEVER through `piles`: this module is imported by
 tools/handback_extract.py, which must not break because `piles` pulls six other modules (spec t-797 F9).
@@ -36,7 +36,7 @@ NO_VALUE = ("", "—")                        # an empty cell and the em dash bo
 REQUIRED = ("Objects", "Trail")                 # Forks and Not done are optional
 KNOWN_SECTIONS = ("Objects", "Trail", "Forks", "Not done")
 
-# The names of the flags (the part before the first colon). The ONE list: the note exchange-form.md must carry every FLAG_NAMES
+# The names of the flags (the part before the first colon). The ONE list: scout.md rule 11 must carry every FLAG_NAMES
 # entry and the module must emit no other name (tools/test_digest_form.py pins both directions; t-863, F6-14).
 FLAG_NAMES = ("zero_no_control", "control_unknown", "control_shape", "zero_case", "bad_result", "dup_tid", "tid_space", "bad_row",
               "no_id", "id_space", "dup_id", "gist_over", "no_ev", "ev_unknown", "zero_uncontrolled", "absent_no_negative",
