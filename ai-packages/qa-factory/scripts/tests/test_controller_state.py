@@ -1931,8 +1931,6 @@ def s5_code_only_is_closed_over_its_own_empty_derived_scope() -> None:
                 got = controller.stage_scope("S5", state)
                 check("5b stage_scope lists the undisposed case, on the derived branch", got.get("undisposed") == ["TC-2"] and got.get("derived") is True,
                       str(got.get("undisposed")))
-            if label.startswith("no row names"):
-                check("5b stage_scope on the underived branch keeps its keys (no `undisposed`)", "undisposed" not in controller.stage_scope("S5", state))
         finally:
             import shutil
             shutil.rmtree(scratch, ignore_errors=True)

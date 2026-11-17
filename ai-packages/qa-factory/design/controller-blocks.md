@@ -125,7 +125,7 @@ every edit above it. Rows are in source order.
 | `_validate_rerun_after` | `ValueError` | rerun_after.stages must be a stage after {p['stage']}, up to S8 | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
 | `_validate_rerun_after` | `ValueError` | rerun_after.reviews must be an accepted dispatch of {p['stage']} by its | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
 | `_validate_rerun_after` | `ValueError` | rerun_after.decisions must be an approved gate decision a rework of | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
-| `_s5_code_only_problems` | `StateConflict` | code-only receipts are allowed only for S0, S6, S7 or S8, and for S5 only over its own empty derived | `command` | a stage with a role is closed by that role, not by code |
+| `_s5_code_only_problems` | `StateConflict` | code-only receipts are allowed only for S0, S6, S7 or S8, and for S5 only over its own empty derived | `command` | rework S3 or record dispositions, then S5 runs again; or S5 runs its author and critic for the cases that need tests |
 | `_coverage_contract_revisions` | `StateConflict` | COVERAGE_CONTRACT_REVISION_REQUIRED | `command` | `--operation coverage_migration` with its dry-run receipt |
 | `_coverage_contract_revisions` | `StateConflict` | COVERAGE_CONTRACT_REVISION_REQUIRED | `command` | `--operation coverage_migration` with its dry-run receipt |
 | `_validate_gate_a_content_current` | `StateConflict` | current Gate A decision required | `command` | `gate-decision --words-file <file>` records the person's approval |
