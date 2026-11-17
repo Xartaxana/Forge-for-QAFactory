@@ -45,6 +45,9 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from journal_write import CREATE_NO_WINDOW  # noqa: E402  the one name of the flag
+
 NO_CONTEXT = "(no context)"
 NOTE = ("NOTE: line coverage only; a file with zero unique lines may still hold the only assertion on a "
         "behaviour - a candidate for a reader, not a verdict.")
@@ -70,7 +73,7 @@ def kill_tree(proc):
     """Kill the process and everything it started: taskkill /T on Windows, the process group on POSIX."""
     if os.name == "nt":
         subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True, check=False,
-                       creationflags=0x08000000)
+                       creationflags=CREATE_NO_WINDOW)
     else:
         import signal
         try:
@@ -87,7 +90,7 @@ def run_one(path, package, out, timeout, env_base):
     env = dict(env_base)
     env["QA_TEST_CONTEXT"] = path.name
     env["COVERAGE_PROCESS_START"] = str(out / "coveragerc")
-    kwargs = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
+    kwargs = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW} if os.name == "nt" else {"start_new_session": True}
     t0 = time.monotonic()
     timed_out = False
     with open(out / "logs" / (path.name + ".txt"), "wb") as log:
