@@ -97,6 +97,15 @@
       "sed": ["(?:^|[;{}\\n])\\s*(?:(?:\\d+|\\$|/[^/\\n]*/)(?:,(?:\\d+|\\$|\\+\\d+|/[^/\\n]*/))?\\s*!?\\s*)?e\\s+\\S"]
     }
   },
+  "reader_heads": {
+    "about": "The heads of read commands, two lists that stay two lists (FR-13, AR-1). `role_read`: the one plain read a role without Bash may make (host_adapter.py `READ_HEADS`; matched as written, case-sensitive, then a blank or the end). `runner_mention`: the heads whose command only MENTIONS run_suite.py instead of launching it (stage_guard.py `READER_COMMANDS`; matched lower-case, one `.exe` suffix off). A row is one bare word: a letter, then letters, digits, `_` or `-`; a path, a suffix, a space or a glob is skipped, and so is a launcher or shell of `run_forms` (the `wrappers`, `run_forms.launchers` and `run_forms.shells` of this file) or a listed writer (`hooklib._NEVER_READ_HEADS`: rm, cp, mv, Copy-Item, python, bash ...); every skipped row is named in `hooklib.run_forms_problems`. A head that can run a program through a flag or a script (`fd -x`, `git -c`) needs its `reader_runs` row in the same edit. The code keeps today's lists as a floor that is always part of the heads (so `cp` and `mv`, writers kept for `runner_mention` by the floor, are not rows here): an absent or unreadable table leaves exactly the floor, never any head. Read by `hooklib.head_rows`.",
+    "role_read": ["rg", "cat", "ls", "pwd", "Get-Content", "Get-ChildItem", "Select-String"],
+    "runner_mention": [
+      "grep", "rg", "find", "ls", "cat", "head", "tail", "sed", "awk", "wc", "stat", "file",
+      "less", "more", "type", "diff", "which", "dirname", "basename", "echo",
+      "md5sum", "sha256sum", "select-string", "get-content", "get-childitem"
+    ]
+  },
   "causes": [
     {
       "id": "executable_not_found",

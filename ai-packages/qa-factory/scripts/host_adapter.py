@@ -11,7 +11,8 @@ import re
 import sys
 from pathlib import Path
 
-from hooklib import argv_text, command_segments, parse_frontmatter, reader_runs, role_name, shell_opaque_found
+from hooklib import (argv_text, command_segments, parse_frontmatter, head_rows, reader_runs, role_name,
+                     shell_opaque_found)
 
 # The Codex host's native tool names, by what they carry. The ONE list: `tool_short_name` resolves a
 # spelling to a name in it, `is_codex` reads it, and `hooks/codex.json`'s matchers are checked against it
@@ -449,7 +450,23 @@ def _carries_no_command(event):
     return not str((tool_input if isinstance(tool_input, dict) else {}).get("command") or "").strip()
 
 
-_READ_HEAD = re.compile(r"(?:rg|cat|ls|pwd|Get-Content|Get-ChildItem|Select-String)(?:\s|$)")
+# The read heads are closed variety (FR-13, AR-1): launch-causes.json `reader_heads`, two tables that stay two lists -
+# `role_read` (the one plain read a role without Bash may make; here) and `runner_mention` (the heads the runner guard
+# lets MENTION run_suite.py; stage_guard.READER_COMMANDS). The IN-CODE FLOOR below is today's list and is always part of
+# the effective heads: an absent, unreadable or malformed table leaves exactly the floor, never "any head" (FR-59). The
+# tables are read through `hooklib.head_rows` (the one reader of the file; a skipped row is named in
+# `hooklib.run_forms_problems`): a row adds a head only when it is one bare word and not a launcher or shell of
+# `run_forms`, nor a listed writer (`hooklib._NEVER_READ_HEADS`, lower-case); the floor and the deny set win over the table.
+_READ_HEAD_FLOOR = ("rg", "cat", "ls", "pwd", "Get-Content", "Get-ChildItem", "Select-String")
+
+
+def read_head_regex(heads):
+    """The pattern of a plain read command's head: one of `heads` (case-sensitive, as always), then a blank or the end."""
+    return re.compile("(?:" + "|".join(re.escape(head) for head in heads) + r")(?:\s|$)")
+
+
+READ_HEADS = head_rows("role_read", _READ_HEAD_FLOOR)
+_READ_HEAD = read_head_regex(READ_HEADS)
 # What a read command may not hold even inside quotes (the shell's own forms the tokenizer does not model are
 # `hooklib.SHELL_OPAQUE_BAN`, read first): a substitution, a redirect, a backtick, a line end.
 _READ_BAN = re.compile(r"[`$<>\r\n]")
@@ -537,7 +554,7 @@ def _read_refusal(command):
     if not text.strip():
         return "the command is empty"
     if not _READ_HEAD.match(text.strip()):
-        return "it does not start with a read command (rg, cat, ls, pwd, Get-Content, Get-ChildItem, Select-String)"
+        return "it does not start with a read command (" + ", ".join(READ_HEADS) + ")"
     what, door = shell_opaque_found(text)
     if what:
         return f"it holds {what}, which the shell reads differently from the guard; {door}"
