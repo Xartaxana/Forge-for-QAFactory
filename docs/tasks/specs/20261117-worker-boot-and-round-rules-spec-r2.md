@@ -635,3 +635,18 @@ forge pile's zone). designer.md on disk is newer than the role text this session
 - F16 = `reviewed:<sha>` token in the critic `delegated` notes; absent → `nobase` re-review.
 - F17 = B1 starts after the bounded-waits r2 stream merges into `main`.
 - Next: a critic re-review of r2 against verdict t-1174 (revision table + §10 decisions), then the cards.
+
+## Lead amendments after the re-review t-1202 (Lead, 17.11.2026; verdict fit_with_fixes, 0 blockers)
+
+All eight fixes of `docs/tasks/specs/reviews/t-1202-worker-boot-r2-rereview.md` § «Fixes» apply AS WRITTEN there and
+override the r2 text they name; every card dispatch carries that verdict file in `given:`. In short: (1) F12' — the counter
+is widened (line-start return/raise/break/continue/yield/with/assert/del, mid-line `for`, the wider write list); (2) F16 —
+the Lead writes `reviewed:<sha>` as the first token after the model label in the critic Agent `description`, and commits
+the reviewed state before each critic dispatch (otherwise the fix round is `nobase`); (3) F8' cites 9616b6f4, axis 2
+`queued -- exam not run after the critic.md edit; debt F3-1`; (4) F5-r — a `*_PATH` value ending in `.py.next` must name an
+existing file or the session fails loudly; `.py` values are ignored; (5) Card B2's DoD and §7 step 2 add
+test_dispatch_cut, test_dispatch_gate_md, test_owns_gate, test_handoff_gate; (6) F17 — §7 step 3 opens with the Lead merging
+origin/main (after bounded-waits) into the integration branch, overlaps journal_write.py / session-handoff SKILL.md /
+test_compact_snapshot.py resolved as the verdict says; (7) F1' — the Lead replaces «owner word pending» with the owner's
+word and date in commit #2 before `wave.py merge`; on a refusal the topic stops before the merge and B2's F13 and the §5
+texts need a new home; (8) BOOT after the split ≈ 117.1 KB, headroom ≈ 2.9 KB.
