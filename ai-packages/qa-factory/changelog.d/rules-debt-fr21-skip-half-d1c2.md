@@ -1,0 +1,1 @@
+- The FR-21 row of the factory rules debt file is narrowed to the D1-C2 road (a skip row whose obligation carries a declared gap is asked at gate A and answered with the product-gap word); a documentation change only, no behaviour change.
