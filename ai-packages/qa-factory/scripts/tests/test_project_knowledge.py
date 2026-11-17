@@ -985,7 +985,7 @@ def test_lessons_problem_is_not_no_lesson(proj, monkeypatch):           # E40 an
 # --- phase 1 (OF3-1a): the catalogue and the one reader (AR-1, AR-9, AR-13, AR-28) -----------------------------------------------
 
 FIVE_KEYS = ["product.roles", "environments.credentials_by_role", "product.sides", "environments.sides", "environments.reference_for",
-             "environments.stand_lessons", "environments.sign_in"]       # the name is kept from the five of PC-1b; SS1-11 added the sixth, FV1-28 C1 the seventh
+             "environments.stand_lessons", "environments.sign_in", "environments.page_load"]       # the name is kept from the five of PC-1b; SS1-11 added the sixth, FV1-28 C1 the seventh, t-1132 (C3-j1) the eighth
 
 
 def test_keys_are_derived_from_the_catalogue_in_todays_order():
@@ -996,7 +996,8 @@ def test_keys_are_derived_from_the_catalogue_in_todays_order():
                        "environments.sides": {"scope": "stand", "compare": "exact"},
                        "environments.reference_for": {"scope": "stand", "compare": "exact"},
                        "environments.stand_lessons": {"scope": "stand", "compare": "exact"},
-                       "environments.sign_in": {"scope": "stand", "compare": "exact"}}
+                       "environments.sign_in": {"scope": "stand", "compare": "exact"},
+                       "environments.page_load": {"scope": "stand", "compare": "exact"}}
     assert [row["key"] for row in PK.rows() if row["store"] in ("registry", "config+registry")] == FIVE_KEYS
     assert [row["key"] for row in PK.rows("artifact_root")] == ["artifact_root"] and PK.rows("no.such.key") == []
 
@@ -1316,6 +1317,119 @@ def test_sign_in_record_join(tmp_path, monkeypatch, case):
         assert way["surface"] == "ui" and way["id"] == "PK-1" and way["story"] == "QA-1" and len(proj.rows()) == 1
         assert way["value"]["url"] == "/login" and not set(way["value"]) & set(PK.SIGN_IN_NOT_KEPT)     # the reader's value is what the walker found
         assert proj.rows()[0]["provenance"]["source"] == "role" and "Signed in through the page" in proj.rows()[0]["provenance"]["words"]
+
+
+# --- C3-j1 (t-1132): the stand's page load, measured by the factory (AR-3, AR-13, AR-14, AR-25; P8) --------------------------------
+
+import datetime as _dt  # noqa: E402
+
+import stand_identity as _SI  # noqa: E402
+
+PL_STAND = {"name": "dev", "base_url": "http://localhost:8080", "frontend_url": "http://localhost:5173/start?x=1"}
+
+
+def _iso_ago(days):
+    return (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=days)).isoformat(timespec="seconds")
+
+
+def pl_value(stand=PL_STAND, **over):
+    value = {"load_s": 70.0, "at_least": False, "address": "http://localhost:5173/start", "definition_sha": _SI.definition_sha(stand),
+             "at": _iso_ago(0)}
+    value.update(over)
+    return value
+
+
+def pl_record(proj, value=None, **over):
+    args = dict(key=PK.PAGE_LOAD_KEY, environment="dev", element=PK.PAGE_LOAD_ELEMENT, state="known", scope="stand",
+                value=pl_value() if value is None else value, words=PK.HOW_PAGE_LOAD, source="measured", story="T-1", by="gate")
+    args.update(over)
+    return PK.record(proj.root, **args)
+
+
+def _pl_proj(tmp_path, monkeypatch, **stand_over):
+    return Proj(tmp_path, monkeypatch, stands=[dict(PL_STAND, **stand_over)])
+
+
+@pytest.mark.parametrize("label, over, element, fault", [
+    ("valid", {}, "frontend", ""),
+    ("element ui", {}, "ui", "the element of environments.page_load"),
+    ("load_s zero", {"load_s": 0}, "frontend", "load_s"),
+    ("load_s negative", {"load_s": -1}, "frontend", "load_s"),
+    ("load_s a bool", {"load_s": True}, "frontend", "load_s"),
+    ("load_s NaN", {"load_s": float("nan")}, "frontend", "load_s"),
+    ("load_s a string", {"load_s": "12"}, "frontend", "load_s"),
+    ("extra key", {"note": "x"}, "frontend", "carries exactly"),
+    ("address with user:pw", {"address": "http://user:pw@host/"}, "frontend", "user name or password"),
+    ("address not http", {"address": "ftp://host/"}, "frontend", "http or https"),
+    ("missing at", {"at": None}, "frontend", "carries exactly"),
+    ("at not a moment", {"at": "yesterday"}, "frontend", "value.at"),
+    ("at_least not a bool", {"at_least": "no"}, "frontend", "at_least"),
+    ("empty definition_sha", {"definition_sha": ""}, "frontend", "definition_sha"),
+], ids=lambda x: x if isinstance(x, str) and " " not in x else None)
+def test_page_load_record_shape(label, over, element, fault):
+    value = pl_value(**{k: v for k, v in over.items() if v is not None})
+    for key, v in over.items():
+        if v is None:
+            del value[key]
+    problems = PK.record_problems(PK.PAGE_LOAD_KEY, "dev", element, "known", "stand", PK.HOW_PAGE_LOAD, "measured", "gate", value=value)
+    if fault:
+        assert problems and any(fault in p for p in problems) and all(p.endswith("nothing was recorded") for p in problems), problems
+    else:
+        assert problems == []
+    assert not any("user:pw" in p for p in problems)           # no refusal echoes the address
+
+
+def test_page_load_state_table(tmp_path, monkeypatch):
+    proj = _pl_proj(tmp_path, monkeypatch)
+    assert PK.page_load(proj.root, None, "dev")["state"] == "none"                                      # absent file
+    row, problem, created = pl_record(proj)
+    assert (problem, created) == ("", True) and row["provenance"]["source"] == "measured" and row["provenance"]["by"] == "gate"
+    got = PK.page_load(proj.root, None, "dev")                                                        # a recorded row reads back
+    assert (got["state"], got["load_s"], got["at_least"], got["address"]) == ("measured", 70.0, False, "http://localhost:5173/start")
+    assert PK.page_load(proj.root, None, "")["state"] == "none" and PK.page_load(proj.root, None, PK.PLACEHOLDER_STAND)["why"] == "no stand"
+    assert PK.page_load(proj.root, None, "other")["state"] == "none"                                   # another stand has no row
+    proj.stands[0] = dict(PL_STAND, base_url="http://localhost:9999")                                  # another definition
+    proj.write_config()
+    got = PK.page_load(proj.root, None, "dev")
+    assert (got["state"], got["why"]) == ("none", "another stand definition")
+    other = dict(PL_STAND, frontend_url="http://localhost:6000/")                                      # the definition fits, the address does not
+    pl_record(proj, value=pl_value(stand=other))
+    proj.stands[0] = other
+    proj.write_config()
+    got = PK.page_load(proj.root, None, "dev")
+    assert (got["state"], got["why"]) == ("none", "another address")
+
+
+@pytest.mark.parametrize("days, expected", [(6, "measured"), (8, "none")], ids=["six_days", "eight_days"])
+def test_page_load_age_is_seven_days(tmp_path, monkeypatch, days, expected):
+    proj = _pl_proj(tmp_path, monkeypatch)
+    assert pl_record(proj, value=pl_value(at=_iso_ago(days)))[1] == ""
+    assert PK.page_load(proj.root, None, "dev")["state"] == expected
+
+
+def test_page_load_older_than_the_stands_verification_is_none(tmp_path, monkeypatch):
+    proj = _pl_proj(tmp_path, monkeypatch, verified=_iso_ago(0)[:10])
+    stand = dict(PL_STAND, verified=_iso_ago(0)[:10])
+    pl_record(proj, value=pl_value(stand=stand, at=_iso_ago(3)))
+    got = PK.page_load(proj.root, None, "dev")
+    assert got["state"] == "none" and "may describe another build" in got["why"]
+
+
+def test_page_load_revoked_unreadable_and_no_trace_and_a_non_ascii_stand(tmp_path, monkeypatch):
+    proj = _pl_proj(tmp_path, monkeypatch)
+    row = pl_record(proj)[0]
+    assert PK.revoke(proj.root, row["id"], "wrong number")[1] == "" and PK.page_load(proj.root, None, "dev")["state"] == "none"   # AR-25
+    proj.path().write_text("{not json", encoding="utf-8")
+    got = PK.page_load(proj.root, None, "dev")
+    assert got["state"] == "unreadable" and got["why"] and got["load_s"] is None                      # an unknown, never a number
+    (tmp_path / "b").mkdir()
+    plain = Proj(tmp_path / "b", monkeypatch, stands=[dict(PL_STAND, name="stand \u0430")], pipeline={"ticket": "T-1", "no_trace": True})
+    row, problem, created = pl_record(plain, environment="stand \u0430", task_root=plain.task)
+    assert row is None and problem == PK.NO_TRACE_WORDS and not plain.path().exists()                  # P8: an experiment writes nothing
+    assert PK.page_load(plain.root, None, "stand \u0430")["state"] == "none"
+    (tmp_path / "c").mkdir()
+    keep = Proj(tmp_path / "c", monkeypatch, stands=[dict(PL_STAND, name="stand \u0430")])
+    assert pl_record(keep, environment="stand \u0430")[1] == "" and PK.page_load(keep.root, None, "stand \u0430")["state"] == "measured"
 
 
 if __name__ == "__main__":

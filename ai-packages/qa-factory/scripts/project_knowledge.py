@@ -29,9 +29,17 @@ exactly, the person's words are stored whole and are the payload, `wait_s` is an
 interprets the words. A lesson leaves with `revoke`; revoking the newest row of a subject shows the previous live row again, so
 removing a lesson means revoking every live row of the subject (`show` lists them). KNOWN RESIDUAL: a lesson belongs to the stand's
 exact name, so a stand renamed in the config orphans its lessons; `show` still lists them.
+
+THE STAND'S PAGE LOAD (`environments.page_load`, C3-j1): the time the stand's start page took to load, SIGNED OUT, which the factory
+measures itself at gate A and uses (the S5 and S7 briefs carry it; the manual capture's page limit is 180 s or this + 30 s when that
+is longer). It is a FLOOR: pages behind the sign-in can be slower, so it only ever lengthens a limit. Its ONE writer is
+`gate_preflight.check_stand_page_load` through `record` (source `measured`, by `gate`; refused in a story that leaves no trace); its
+ONE reader is `page_load`, which says `none` when the row is another stand definition, another address, older than 7 days or older
+than the stand's last verification; its exit is `revoke`. A failed measurement keeps no number.
 """
 import copy
 import json
+import math
 import re
 import sys
 from contextlib import contextmanager
@@ -70,6 +78,14 @@ SIGN_IN_NOT_KEPT = ("evidence", "quote", "req", "why")
 # `manual_capture.login.ui` for a ui reader); then "factory_default". A role-recorded way ranks above the onboarding config ON
 # PURPOSE (finding item 3: a probe's guess never overrides this record); a stale recorded way has ONE exit, `revoke`.
 SIGN_IN_PRECEDENCE = ("recorded", "project", "factory_default")
+# C3-j1: the stand's page load, measured by the factory at gate A. Stand scope; ONE subject per stand (the element names what was
+# measured: the stand's frontend start page); `value` is `{load_s, at_least, address, definition_sha, at}`. The ONE writer is
+# `gate_preflight.check_stand_page_load` through `record`; the ONE reader is `page_load`.
+PAGE_LOAD_KEY = "environments.page_load"
+PAGE_LOAD_ELEMENT = "frontend"
+PAGE_LOAD_REUSE_DAYS = 7
+HOW_PAGE_LOAD = "measured by the factory's headless browser at gate A, signed out, one full load of the start page"
+PAGE_LOAD_VALUE_KEYS = {"load_s", "at_least", "address", "definition_sha", "at"}
 
 # S15 / phase 1: the catalogue (references/config-keys.json, section `knowledge`) is the ONE table of project facts, read through
 # `config_contract.config_keys()` (AR-13). `KEYS` is DERIVED from its registry rows, once, at import: the comparator a row names compares
@@ -126,8 +142,8 @@ KEYS, CATALOGUE_PROBLEM = _derive_keys()
 KNOWN, NOT_NEEDED, NOTICED, UNKNOWN = "known", "not_needed", "noticed_unconfirmed", "unknown"
 # `asked` is RESERVED for phase 2 (no producer here); `unreachable` is run-scoped and never stored. A row in any other state is skipped.
 STATES = (KNOWN, NOT_NEEDED, NOTICED)
-SOURCES = ("person", "role", "legacy_config")
-BY = ("conductor", "driver")
+SOURCES = ("person", "role", "legacy_config", "measured")
+BY = ("conductor", "driver", "gate")
 SIGN_INS = ("account", "none")
 NO_TRACE_WORDS = "an experiment leaves no trace: the answer stays in this story's words (waiver); nothing was recorded"
 PLACEHOLDER_STAND = "this stand"
@@ -522,6 +538,71 @@ def sign_in(root, stand) -> dict:
     return out
 
 
+def stale_against_verified(at, verified) -> str:
+    """Why a measurement cannot stand for the stand as it is now, or ''. A stand verified AFTER the measurement may be a different
+    build; both are read as the date they START with and a value that carries no date says nothing (it is never read as stale)."""
+    pattern = re.compile(r"\s*(\d{4}-\d{2}-\d{2})")
+    measured, checked = pattern.match(str(at or "")), pattern.match(str(verified or ""))
+    if measured and checked and measured.group(1) < checked.group(1):
+        return (f"the measurement of {measured.group(1)} is older than the stand's last "
+                f"verification ({checked.group(1)}), so it may describe another build")
+    return ""
+
+
+def page_load(root, cfg, stand) -> dict:
+    """`{"state", "load_s", "at_least", "address", "at", "why"}`: what the factory measured of the stand's page load (the ONE reader,
+    AR-13). `state` is `measured` (a row that still speaks for this stand), `none` (nothing usable: no stand, no row, a revoked row,
+    a malformed one, another definition or address, older than 7 days or than the stand's verification: the default limit is the
+    safe side) or `unreadable` (the registry or the catalogue could not be read: an unknown, never a number, FR-59). PURE: writes
+    nothing, never raises. `why` says which."""
+    out = {"state": "none", "load_s": None, "at_least": False, "address": "", "at": "", "why": ""}
+    try:
+        stand = str(stand or "")
+        if not stand.strip() or stand == PLACEHOLDER_STAND:
+            out["why"] = "no stand"
+            return out
+        if PAGE_LOAD_KEY not in KEYS:
+            out.update(state="unreadable", why=CATALOGUE_PROBLEM or _cut(f"the catalogue has no row for {PAGE_LOAD_KEY}"))
+            return out
+        rows, problem = load(root)
+        if problem:
+            out.update(state="unreadable", why=problem)
+            return out
+        row = _latest(rows, PAGE_LOAD_KEY, stand, PAGE_LOAD_ELEMENT)
+        if row is None:
+            return out
+        value = row.get("value")
+        if _page_load_value_faults(row["element"], value):
+            out["why"] = "malformed"
+            return out
+        card = environment(stand, root, cfg)
+        if not card["found"]:
+            out["why"] = card["problem"]
+            return out
+        import env_probe
+        import manual_capture
+        import stand_identity
+        data = _config(root, cfg)
+        if value["definition_sha"] != stand_identity.definition_sha_for(data, stand):
+            out["why"] = "another stand definition"
+            return out
+        address = manual_capture._safe_url(env_probe.frontend_of(data, stand, root=root)["url"])
+        if value["address"] != address:
+            out["why"] = "another address"
+            return out
+        if ER._moment(ER.now_iso()) - ER._moment(value["at"]) > PAGE_LOAD_REUSE_DAYS * 86400:
+            out["why"] = f"older than {PAGE_LOAD_REUSE_DAYS} days"
+            return out
+        stale = stale_against_verified(value["at"], card["entry"].get("verified"))
+        if stale:
+            out["why"] = stale
+            return out
+        out.update(state="measured", load_s=value["load_s"], at_least=value["at_least"], address=value["address"], at=value["at"])
+    except Exception as exc:    # a reader never stops a gate: what it could not read is unknown, not a number
+        out.update(state="unreadable", load_s=None, why=f"the record of project knowledge could not be read ({type(exc).__name__})")
+    return out
+
+
 def roster(root, cfg, stand) -> dict:
     """`{"elements": [...], "removed": [...], "problem"}`: the product's roles. PURE: writes nothing, never raises.
 
@@ -621,6 +702,39 @@ def _side_value_faults(key, value) -> list:
         return [f"{key} carries {{\"reality\": one of {', '.join(str(w) for w in words)}}}, not {value!r}; "
                 "record it with `side --reality <word>`; nothing was recorded"]
     return []
+
+
+# part of the record_problems unit (shape of a measured page load); not a unit of its own
+def _page_load_value_faults(element, value) -> list:
+    """The shape of a measured page load: its element and its `value`. Form only (AR-29): whether the number is right is the
+    measurement's. No refusal text echoes the address (it may carry a secret)."""
+    out = []
+    if element != PAGE_LOAD_ELEMENT:
+        out.append(f"the element of {PAGE_LOAD_KEY} is `{PAGE_LOAD_ELEMENT}` (the stand's start page); nothing was recorded")
+    if not isinstance(value, dict) or set(value) != PAGE_LOAD_VALUE_KEYS:
+        return out + [f"{PAGE_LOAD_KEY} carries exactly {{{', '.join(sorted(PAGE_LOAD_VALUE_KEYS))}}}; nothing was recorded"]
+    load = value["load_s"]
+    if isinstance(load, bool) or not isinstance(load, (int, float)) or not math.isfinite(load) or load <= 0:
+        out.append("`value.load_s` is a finite number of seconds above zero; nothing was recorded")
+    if not isinstance(value["at_least"], bool):
+        out.append("`value.at_least` is true or false; nothing was recorded")
+    address = value["address"]
+    if not isinstance(address, str) or not re.match(r"https?://", address):
+        out.append("`value.address` is an http or https address; nothing was recorded")
+    else:
+        from urllib.parse import urlsplit
+        try:
+            parts = urlsplit(address)
+            userinfo = parts.username or parts.password
+        except ValueError:
+            userinfo = True
+        if userinfo:
+            out.append("`value.address` carries a user name or password; it is never kept; nothing was recorded")
+    if not isinstance(value["definition_sha"], str) or not value["definition_sha"]:
+        out.append("`value.definition_sha` is the stand definition's hash; nothing was recorded")
+    if not isinstance(value["at"], str) or ER._moment(value["at"]) == float("-inf"):
+        out.append("`value.at` is the moment of the measurement; nothing was recorded")
+    return out
 
 
 def _wait_ok(number) -> bool:
@@ -733,6 +847,8 @@ def record_problems(key, environment, element, state, scope, words, source, by, 
                        "of the story's record (`sides.<name>.<attribute>=<value>`); nothing was recorded")
     elif key == LESSONS_KEY:     # BEFORE the role rules: a lesson subject never meets them, and a role key never skips them
         out += _lesson_value_faults(element, value)
+    elif key == PAGE_LOAD_KEY:     # BEFORE the role rules: a page-load row never meets them, and a role key never skips them
+        out += _page_load_value_faults(element, value)
     elif key == SIGN_IN_KEY:     # BEFORE the role rules: a surface word never meets them, and a role key never skips them
         try:
             out += _sign_in_value_faults(element, value)

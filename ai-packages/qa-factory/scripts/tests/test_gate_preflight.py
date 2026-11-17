@@ -61,6 +61,18 @@ def _install_the_tripwire() -> None:
 
 _install_the_tripwire()
 
+
+def _no_browser_in_this_test(cfg, stand_name, project_root) -> dict:
+    return {"state": "failed", "cause": "no_browser", "why": "no browser in this test"}
+
+
+# C3-j1: gate A measures the stand's page load with a headless browser. No test of this file launches one: every run of the gate
+# here meets this stub unless a row puts its own recording fake in `MC.PAGE_LOAD` (and puts this one back).
+import manual_capture as _MC0  # noqa: E402
+_MC0.PAGE_LOAD = _no_browser_in_this_test
+DEFAULT_PAGE_LOAD = _no_browser_in_this_test
+
+
 def plan_row(row_id: str, **extra) -> dict:
     """A plan row that satisfies the planning contract, so a finding in these tests is the one
     the test asked for and never a field the fixture forgot."""
@@ -3648,7 +3660,7 @@ def test_c2_the_stand_limit_card_offers_only_doors_that_have_an_executor() -> No
 # the literals of every message the new checks write (static: nothing there may even be a `.py`), and
 # the messages those checks actually produce on the cmp2 story (runtime: what the values add).
 
-NEW_CHECK_FUNCTIONS = ("_e2e_limit", "check_s5_stand_limits", "_stand_limit_card", "check_s5_runtime_probe",
+NEW_CHECK_FUNCTIONS = ("_e2e_limit", "check_s5_stand_limits", "_stand_limit_card", "check_stand_page_load", "check_s5_runtime_probe",
                        "_probe_derived", "_probe_card", "_probe_defect", "_derive_probe",
                        # t-683 D12: the sentences that moved out of `_derive_probe` stay under the same scan
                        "_probe_refused", "_probe_no_container", "_probe_no_candidates", "_probe_which_container",
@@ -3806,7 +3818,7 @@ def test_c3_the_new_checks_speak_in_the_storys_words() -> None:
     source = (SCRIPTS / "gate_preflight.py").read_text(encoding="utf-8")
     literals = message_literals(source)
     check_eq("the scan reaches the messages of every new check that writes one literally",
-             sorted({"_e2e_limit", "check_s5_stand_limits", "_stand_limit_card", "_probe_card",
+             sorted({"_e2e_limit", "check_s5_stand_limits", "_stand_limit_card", "check_stand_page_load", "_probe_card",
                      "_probe_defect", "_derive_probe", "_none_card", "none_card_lead",
                      "not_asked_line", "_stand_account", "check_s5_runtime_probe", "check_s5_credentials"}
                     - {fn for fn, _ in literals}), [])
@@ -5975,7 +5987,7 @@ class _ProbeWorld:
 
     def __init__(self, lands=(PROBE_USER, PROBE_ADMIN), form_missing=False, no_browser=False):
         self.lands, self.form_missing, self.no_browser = set(lands), form_missing, no_browser
-        self.opened, self.closed, self.logins, self.now = 0, 0, [], 0.0
+        self.opened, self.closed, self.logins, self.now, self.limits = 0, 0, [], 0.0, []
 
 
 class _ProbeBrowser:
@@ -5986,6 +5998,7 @@ class _ProbeBrowser:
 
     def open(self, timeout_s, allowed_hosts, local_storage=None, element_wait_s=None, profile_dir=None):
         self.world.opened += 1
+        self.world.limits.append(timeout_s)
 
     def login(self, recipe, credentials, frontend_url):
         if self.world.form_missing:
@@ -6156,6 +6169,188 @@ def test_actor_sign_in_k_p5_keys_outside_the_files_the_runner_reads_are_that_acc
         cleanup(root)
 
 
+# --- C3-j1 (t-1132): gate A measures the stand's page load, once, and says so ---------------------------------------------------------
+
+class _PageLoadFake:
+    """`MC.PAGE_LOAD` that records its calls and answers what it was given (`result` is a dict or a function of the call number)."""
+
+    def __init__(self, result=None):
+        self.calls = []
+        self.result = result
+
+    def __call__(self, cfg, stand_name, project_root):
+        self.calls.append(stand_name)
+        if callable(self.result):
+            return self.result(len(self.calls))
+        if self.result is not None:
+            return self.result
+        import stand_identity
+        stand = next(e for e in cfg["environments"] if e["name"] == stand_name)
+        return {"state": "measured", "load_s": 160.0, "at_least": False, "address": "http://localhost:5173",
+                "definition_sha": stand_identity.definition_sha(stand),
+                "at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(timespec="seconds")}
+
+
+def _pl_world(fake, root, steps=("stand_page_load",)):
+    import manual_capture as MC
+    MC.PAGE_LOAD = fake
+    try:
+        return cmp2_run(root, steps=steps)
+    finally:
+        MC.PAGE_LOAD = DEFAULT_PAGE_LOAD
+
+
+def _pl_registry(root) -> list:
+    path = root / "qa-factory" / "records" / "project-knowledge.json"
+    return json.loads(path.read_text(encoding="utf-8"))["facts"] if path.is_file() else []
+
+
+def _pl_plan(root, disposition) -> None:
+    path = root / "qa-factory" / "artifacts" / CMP2_TICKET / "work" / "test-plan.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    for row in data["rows"]:
+        row["disposition"] = disposition(row)
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_c3_j1_the_page_load_is_measured_once_kept_and_reused_and_no_finding_is_ever_raised() -> None:
+    root = cmp2_story("qa-gate-pl-")
+    try:
+        fake = _PageLoadFake()
+        result = _pl_world(fake, root)
+        notes = info_of(result, "stand_page_load")
+        check_eq("an e2e row and no record: ONE note, no finding, the fake called once", (len(notes), result["findings"], fake.calls),
+                 (1, [], ["localhost"]))
+        check("the note says what was measured, signed out, and that the sign-in pages can be slower",
+              all(x in notes[0] for x in ("loaded in 160 s", "measured now", "while signed out", "pages behind the sign-in can be slower")), notes[0])
+        rows = _pl_registry(root)
+        check_eq("one registry row of the stand, measured by the gate",
+                 [(r["key"], r["environment"], r["element"], r["provenance"]["source"], r["provenance"]["by"]) for r in rows],
+                 [("environments.page_load", "localhost", "frontend", "measured", "gate")])
+        result = _pl_world(fake, root)
+        notes = info_of(result, "stand_page_load")
+        check_eq("a second rehearsal reuses it: a reuse note and no second call", (len(notes), "measured on " in notes[0], len(fake.calls)), (1, True, 1))
+        check_eq("and the registry holds the same one row", len(_pl_registry(root)), 1)
+        for label, edit in (("another definition", lambda cfg: cfg["environments"][0].__setitem__("base_url", "http://localhost:9090")),
+                            ("another address", lambda cfg: cfg["environments"][0].__setitem__("frontend_url", "http://localhost:6000"))):
+            cmp2_edit(root, edit)
+            _pl_world(fake, root)
+            check_eq(f"{label}: measured again", len(fake.calls), 2 if label == "another definition" else 3)
+    finally:
+        cleanup(root)
+
+
+def test_c3_j1_an_at_least_load_and_a_long_address_are_said_whole_and_cut_at_120() -> None:
+    root = cmp2_story("qa-gate-pl-")
+    try:
+        import stand_identity
+        long_url = "http://localhost:5173/" + "p" * 150
+        cmp2_edit(root, lambda cfg: cfg["environments"][0].__setitem__("frontend_url", long_url))
+        stand = json.loads((root / "qa-factory" / "config.json").read_text(encoding="utf-8"))["environments"][0]
+        fake = _PageLoadFake({"state": "measured", "load_s": 180.0, "at_least": True, "address": long_url,
+                              "definition_sha": stand_identity.definition_sha(stand), "at": "2026-11-17T10:00:00+00:00"})
+        notes = info_of(_pl_world(fake, root), "stand_page_load")
+        check("the load that did not finish is `at least`, never a plain number", "takes at least that long" in notes[0] and "loaded in" not in notes[0], notes[0])
+        check("the address is cut at 120 characters with an ellipsis", ("p" * 98 + "\u2026") in notes[0] and ("p" * 99) not in notes[0], notes[0])
+    finally:
+        cleanup(root)
+
+
+def test_c3_j1_a_failed_measurement_names_its_owner_blocks_nothing_and_keeps_nothing() -> None:
+    for cause, said in (("no_browser", "this machine has no browser"), ("unreachable", "the stand did not answer"),
+                        ("outside_hosts", "outside the stand's hosts"), ("credentials_in_address", "user name or password"),
+                        ("factory", "a defect of the factory (boom)")):
+        root = cmp2_story("qa-gate-pl-")
+        try:
+            fake = _PageLoadFake({"state": "failed", "cause": cause, "why": "boom"})
+            result = _pl_world(fake, root)
+            notes = info_of(result, "stand_page_load")
+            check_eq(f"{cause}: one note, no finding", (len(notes), result["findings"]), (1, []))
+            check_in(f"{cause}: the note names its owner", said, notes[0])
+            check_in(f"{cause}: and what the limit is meanwhile", "Manual checks wait 180 s per page; it is measured again at the next rehearsal.", notes[0])
+            check_eq(f"{cause}: only the factory's own cause says `a defect of the factory`", "defect of the factory" in notes[0], cause == "factory")
+            check_eq(f"{cause}: nothing was recorded", _pl_registry(root), [])
+            _pl_world(fake, root)
+            check_eq(f"{cause}: the next rehearsal calls again", len(fake.calls), 2)
+        finally:
+            cleanup(root)
+
+
+def test_c3_j1_nothing_uses_the_load_or_the_switch_is_on_or_the_stand_has_no_page_or_is_not_one_stand() -> None:
+    root = cmp2_story("qa-gate-pl-")
+    try:
+        _pl_plan(root, lambda row: "skip")
+        fake = _PageLoadFake()
+        result = _pl_world(fake, root)
+        check_eq("no e2e row and no manual row: no call, no note", (fake.calls, info_of(result, "stand_page_load")), ([], []))
+    finally:
+        cleanup(root)
+    root = cmp2_story("qa-gate-pl-", config=lambda cfg: cfg["gate_rehearsal"].__setitem__("skip_stand_limits", True))
+    try:
+        fake = _PageLoadFake()
+        result = _pl_world(fake, root)
+        check_eq("skip_stand_limits: no call, no note, nothing recorded", (fake.calls, info_of(result, "stand_page_load"), _pl_registry(root)), ([], [], []))
+    finally:
+        cleanup(root)
+    handed = {"stage_overrides": [{"stage": "S5", "match": "executor unavailable: e2e-ui", "decision": "run it myself", "at": "2026-11-01T10:00:00"}]}
+    root = cmp2_story("qa-gate-pl-", pipeline=handed)
+    try:
+        _pl_plan(root, lambda row: "automate")
+        fake = _PageLoadFake()
+        result = _pl_world(fake, root)
+        check_eq("only a handed profile and no manual row: nothing", (fake.calls, info_of(result, "stand_page_load")), ([], []))
+    finally:
+        cleanup(root)
+    root = cmp2_story("qa-gate-pl-", config=lambda cfg: cfg["environments"].append(dict(cfg["environments"][0])))
+    try:
+        fake = _PageLoadFake()
+        notes = info_of(_pl_world(fake, root), "stand_page_load")
+        check_eq("two stands named localhost: the duplicate note, no call, nothing recorded",
+                 (len(notes), "two stands are named localhost" in notes[0], fake.calls, _pl_registry(root)), (1, True, [], []))
+    finally:
+        cleanup(root)
+    root = cmp2_story("qa-gate-pl-", config=lambda cfg: cfg["environments"][0].pop("frontend_url"))
+    try:
+        fake = _PageLoadFake({"state": "n/a", "why": "the stand has no web address"})
+        result = _pl_world(fake, root)
+        check_eq("a stand with no frontend (n/a): no note, no finding, nothing recorded",
+                 (info_of(result, "stand_page_load"), result["findings"], _pl_registry(root)), ([], [], []))
+    finally:
+        cleanup(root)
+
+
+def test_c3_j1_a_story_that_leaves_no_trace_measures_and_says_it_was_not_kept() -> None:
+    root = cmp2_story("qa-gate-pl-", pipeline={"no_trace": True})
+    try:
+        fake = _PageLoadFake()
+        notes = info_of(_pl_world(fake, root), "stand_page_load")
+        check_eq("no-trace: measured, used in this note, not kept", (len(fake.calls), "loaded in 160 s" in notes[0], "It was not kept for the next stories" in notes[0]),
+                 (1, True, True))
+        check_eq("no-trace: no registry file at all", (root / "qa-factory" / "records" / "project-knowledge.json").exists(), False)
+    finally:
+        cleanup(root)
+
+
+def test_c3_j1_a_recorded_load_lengthens_the_sign_in_probes_limit_and_never_shortens_it() -> None:
+    root = _probe_story([(1, "user")])
+    try:
+        world = _ProbeWorld()
+        _probe_run(root, world)
+        check_eq("nothing measured: the sign-in probe opens with 180 s", world.limits, [180])
+        fake = _PageLoadFake()
+        import stand_identity
+        cfg = json.loads((root / "qa-factory" / "config.json").read_text(encoding="utf-8"))
+        fake.result = {"state": "measured", "load_s": 160.0, "at_least": False, "address": "http://localhost:5173",
+                       "definition_sha": stand_identity.definition_sha(cfg["environments"][0]),
+                       "at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(timespec="seconds")}
+        _pl_world(fake, root)
+        world = _ProbeWorld()
+        _probe_run(root, world)
+        check_eq("a recorded 160 s: the sign-in probe opens with 190 s", world.limits, [190])
+    finally:
+        cleanup(root)
+
+
 if __name__ == "__main__":
     test_actor_sign_in_k_p1_both_accounts_land_two_ok_rows_and_the_reader_accepts_them()
     test_actor_sign_in_k_p2_an_account_the_stand_refuses_is_the_persons_question_and_never_ok()
@@ -6298,5 +6493,11 @@ if __name__ == "__main__":
     test_d1b_k_b6_a_finding_made_for_a_subject_keeps_its_id_between_rehearsals()
     test_c3r_reporter_rehearsal_identity_an_unknown_is_rehearsed_again_never_reused()
     test_d1b_k_b7_the_norms_question_rule_runs_at_gate_a_and_the_marker_is_read()
+    test_c3_j1_the_page_load_is_measured_once_kept_and_reused_and_no_finding_is_ever_raised()
+    test_c3_j1_an_at_least_load_and_a_long_address_are_said_whole_and_cut_at_120()
+    test_c3_j1_a_failed_measurement_names_its_owner_blocks_nothing_and_keeps_nothing()
+    test_c3_j1_nothing_uses_the_load_or_the_switch_is_on_or_the_stand_has_no_page_or_is_not_one_stand()
+    test_c3_j1_a_story_that_leaves_no_trace_measures_and_says_it_was_not_kept()
+    test_c3_j1_a_recorded_load_lengthens_the_sign_in_probes_limit_and_never_shortens_it()
     test_t357_every_text_of_every_run_of_this_file_obeys_the_owners_rule()
     finish("gate rehearsal")

@@ -2893,6 +2893,42 @@ def stand_lesson_lines(project, stand) -> list:
         return [f"- Stand lessons: could not be read ({type(exc).__name__})"]
 
 
+# C3-j1 (AR-10, AR-11): the (stage, role) pairs that write or judge waits against the stand's page load. The S5 plan dispatch writes none.
+STAND_LOAD_ROLES = {("S5", "qa-automator"), ("S5", "qa-code-critic"), ("S7", "qa-failure-analyst")}
+STAND_LOAD_ADDRESS_CHARS = 120
+
+
+def stand_page_load_lines(project, cfg: dict, env_name: str) -> list:
+    """At most ONE `- Stand page load: ` line: what the factory measured of the stand's start page, signed out (`PK.page_load`, the one
+    reader, AR-13). It reports and judges nothing (P1, AR-7): fitting the waits to it is the role's. EMPTY OUTCOME (AR-23): no line when
+    nothing is measured (`none`), no stand is chosen or the stand is ambiguous (`_stand_pick` finds no row); the brief claims nothing
+    then. An unreadable record is one line that says so (FR-59). Never raises: an exception is one line saying so."""
+    try:
+        import project_knowledge as PK
+        entry, name, _said = _stand_pick(cfg if isinstance(cfg, dict) else {}, str(env_name or ""))
+        if entry is None:
+            return []
+        got = PK.page_load(project, cfg, name)
+        if got["state"] == "unreadable":
+            return [f"- Stand page load: could not be read ({got['why']})"]
+        if got["state"] != "measured":
+            return []
+        address = str(got["address"])
+        if len(address) > STAND_LOAD_ADDRESS_CHARS:
+            address = address[:STAND_LOAD_ADDRESS_CHARS] + "\u2026"
+        import manual_capture as MC
+        cap = MC.DEFAULT_TIMEOUT_S
+        day = str(got["at"])[:10]
+        if got["at_least"]:
+            return [f"- Stand page load: the start page {address} did not finish loading within {cap} s ({day}, the factory's browser, "
+                    f"signed out), so it takes at least that long. Fit your waits to the slowest load your own runs show, never below {cap} s."]
+        return [f"- Stand page load: the start page {address} loaded in {got['load_s']:g} s ({day}, the factory's browser, signed out); "
+                "pages behind the sign-in or heavier routes can be slower. Fit your waits to the slowest load your own runs show, "
+                "never below this."]
+    except Exception as exc:  # noqa: BLE001
+        return [f"- Stand page load: not read ({type(exc).__name__}), a defect of the factory"]
+
+
 def manual_stand_lines(task_root: Path, project: Path, cfg: dict, scope: list, env_name: str = "", repo: dict | None = None) -> list:
     """The lines of `## The stand` in the brief of a MANUAL runner block: where the stand is, which accounts the role may sign in
     as (roles, and the NAMES of the env file's secret-looking keys: a role gives the pair to `--as env:USER/SECRET`), which cases
@@ -4557,6 +4593,8 @@ def build(task: str, stage: str, role: str, dispatch_id: str, write: bool = True
     # person's words (FV1-4: the full block, never a shorter form).
     approach = approach_forms(role, project, task_root)
     head += [line for line in [test_timeout_line(project, role)] if line] if stage in ("S5", "S7") else []
+    if (stage, role) in STAND_LOAD_ROLES and s5_kind != "plan":     # C3-j1: the plan dispatch writes no waits
+        head += stand_page_load_lines(project, hooklib.load_config() or {}, str(pipeline.get("environment") or ""))
 
     digest_lines, digest_full = digests(pipeline, controller, stage, dispatch_id)
 

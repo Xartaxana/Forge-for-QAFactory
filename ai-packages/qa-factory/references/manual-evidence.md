@@ -53,8 +53,8 @@ dispatch the factory ran `manual_evidence.py prepare`; its answer per case is
   `fill-account` and do the seed through the screens, in a new attempt; the block goes on. Never
   `build` a blocked attempt. Code probes the stand's build at the start and the end, hashes
   every file and refuses a host that is not a configured stand. Authorization, Cookie and Set-Cookie are saved
-  as `[redacted]`; a text matching `secret_content_patterns` is not saved. A step may take the stand's measured
-  page load + 30 s (else 180 s); a body is stored up to 2 MB, cut beyond with a limitation. A failed step stops
+  as `[redacted]`; a text matching `secret_content_patterns` is not saved. A step may take 180 s, or the stand's
+  measured page load + 30 s when that is longer; a body is stored up to 2 MB, cut beyond with a limitation. A failed step stops
   the case.
 - On a container with no sources (a built bundle) the probe cannot compare files; it reads the image's label
   or a file the person named, and when it can read nothing it answers `unknown`. A capture never proceeds on an

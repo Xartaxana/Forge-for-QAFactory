@@ -193,15 +193,9 @@ def run_probe(argv, cwd, timeout) -> dict:
 
 
 def measurement_is_stale(at, verified) -> str:
-    """Why a measurement cannot stand for the stand as it is now, or ''. A stand verified AFTER
-    the measurement may be a different build; both are read as the date they START with and a
-    value that carries no date says nothing (it is never read as stale)."""
-    pattern = re.compile(r"\s*(\d{4}-\d{2}-\d{2})")
-    measured, checked = pattern.match(str(at or "")), pattern.match(str(verified or ""))
-    if measured and checked and measured.group(1) < checked.group(1):
-        return (f"the measurement of {measured.group(1)} is older than the stand's last "
-                f"verification ({checked.group(1)}), so it may describe another build")
-    return ""
+    """Why a measurement cannot stand for the stand as it is now, or ''. One body, in `project_knowledge` (AR-15)."""
+    import project_knowledge
+    return project_knowledge.stale_against_verified(at, verified)
 
 
 # The package's one JSON reader. This module's direction: whatever goes wrong while reading is `default`, None unless passed.
@@ -2805,7 +2799,7 @@ class Rehearsal:
         backend = MC.BACKEND_FACTORY() if MC.BACKEND_FACTORY is not None else MC.PlaywrightBackend()
         try:
             hosts = set(MC.stand_hosts(self.config, root=self.project_root))
-            backend.open(MC.timeout_for(stand), hosts, recipe.get("local_storage"), MC.element_wait_for(self.config))
+            backend.open(MC.timeout_for(self.project_root, self.config, stand), hosts, recipe.get("local_storage"), MC.element_wait_for(self.config))
             return MC.sign_in(backend, self.config, self.project_root, actor, stand, task_root=self.task_root, hosts=hosts)
         finally:
             backend.close()
@@ -3216,6 +3210,112 @@ class Rehearsal:
                          profile=profile_id, missing=limit["missing"], fields=limit["fields"])
             elif state == "over":
                 self._stand_limit_card(check, profile_id, limit)
+
+    def _page_load_due(self) -> bool:
+        """Does something of this story use the stand's page load? True when a keyed profile that is not handed has a case whose
+        automate row is an e2e one (the page objects' waits are fitted to it), or the plan holds a `manual-agent` row (every manual
+        capture takes its page limit from `timeout_for`). No browser opens for a number nothing uses."""
+        handed = self._handed()
+        rows = dict(self.automate_rows())
+        for profile_id, entry in sorted(self.keyed_profiles().items()):
+            if profile_id in handed:
+                continue
+            if any(str((rows.get(case) or {}).get("level") or "") == E2E_LEVEL for case in entry.get("cases") or []):
+                return True
+        return bool(plan_rows_of(self.task_root, ("manual-agent",)))
+
+    def check_stand_page_load(self) -> None:
+        """Measure the chosen stand's page load once (headless, signed out) or reuse the measurement the project already holds, and say
+        so in ONE note. It blocks nothing and asks nobody anything (FR-3; the owner, 17.11.2026: the number is the factory's to
+        measure and use). The measurement is a FLOOR (pages behind the sign-in can be slower): it only lengthens a limit.
+
+        The ONE writer of the registry row `environments.page_load` (`project_knowledge.record`; refused in a story that leaves no
+        trace, P8). Reused while `project_knowledge.page_load` says `measured`. A failure keeps no number and names its owner in the
+        note. No project, `gate_rehearsal.skip_stand_limits: true`, nothing that uses the number, no stand, a stand with no web page
+        (a device or API-only stand): nothing, no note."""
+        if self.project_root is None or self._gate_switch("skip_stand_limits") or not self._page_load_due():
+            return
+        name = str(self._selected_environment().get("name") or "")
+        if not name:
+            return
+        import project_knowledge as PK
+        import manual_capture as MC
+        check = "stand_page_load"
+        card = PK.environment(name, cfg=self.config)
+        if not card["found"]:
+            if "two stands are named" in card["problem"]:
+                self.note(check, f"two stands are named {name}; the page load is not measured until one name is unique",
+                          state="none", why=card["problem"])
+            else:
+                self.note(check, f"the stand {name} could not be read ({card['problem']}); the page load is not measured this time",
+                          state="none", why=card["problem"])
+            return
+        got = PK.page_load(self.project_root, self.config, name)
+        if got["state"] == "measured":
+            self.note(check, self._page_load_text(got, "measured on " + str(got["at"])[:10]), state="measured", load_s=got["load_s"],
+                      at_least=got["at_least"], address=got["address"], why="reused")
+            return
+        if got["state"] == "unreadable":
+            self.note(check, f"what the factory keeps about this project could not be read ({got['why']}), so the page load is not "
+                             "measured this time", state="unreadable", why=got["why"])
+            return
+        result = (MC.PAGE_LOAD or MC.measure_page_load)(self.config, name, self.project_root)
+        state = result.get("state")
+        if state == "n/a":
+            return
+        if state != "measured":
+            self._page_load_failed(check, name, result)
+            return
+        value = {k: result[k] for k in ("load_s", "at_least", "address", "definition_sha", "at")}
+        try:
+            _, problem, _ = PK.record(self.project_root, key=PK.PAGE_LOAD_KEY, environment=name, element=PK.PAGE_LOAD_ELEMENT,
+                                      state=PK.KNOWN, scope="stand", value=value, words=PK.HOW_PAGE_LOAD, source="measured",
+                                      story=self.task_root.name, by="gate", where="gate A", task_root=self.task_root)
+        except TimeoutError:
+            problem = "the record was busy"
+        text = self._page_load_text(result, "measured now")
+        if problem:
+            text += f" It was not kept for the next stories ({problem})."
+        self.note(check, text, state="measured", load_s=result["load_s"], at_least=result["at_least"], address=result["address"],
+                  why=problem or "measured now")
+
+    @staticmethod
+    def _page_load_address(address) -> str:
+        text = str(address or "")
+        return text if len(text) <= 120 else text[:120] + "\u2026"
+
+    def _page_load_text(self, got, when) -> str:
+        """The ONE sentence of a measurement, used by a fresh note and a reused one: it says SIGNED OUT, says the number is a floor,
+        and never writes an unfinished load as its true value (FR-41)."""
+        import manual_capture as MC
+        head = f"The stand's start page ({self._page_load_address(got.get('address'))}) "
+        if got.get("at_least"):
+            head += f"had not finished loading after {MC.DEFAULT_TIMEOUT_S} s (so it takes at least that long)"
+        else:
+            head += f"loaded in {got['load_s']:g} s"
+        return (head + f", {when} by the factory's browser while signed out; pages behind the sign-in can be slower. The S5 and S7 "
+                f"briefs carry it, and manual checks wait at least {MC.DEFAULT_TIMEOUT_S} s, longer when this load needs it.")
+
+    def _page_load_failed(self, check, name, result) -> None:
+        """ONE note for a failed measurement, by the owner of the failure (FR-19). Nothing is recorded: a machine fact never enters a
+        carried record (AR-4). Only `factory` says "a defect of the factory"."""
+        import manual_capture as MC
+        cause = str(result.get("cause") or "factory")
+        why = str(result.get("why") or "")
+        address = ""
+        if cause == "unreachable":
+            try:
+                import env_probe
+                address = self._page_load_address(MC._safe_url(env_probe.frontend_of(self.config, name, root=self.project_root)["url"]))
+            except Exception:    # noqa: BLE001 - a note is never stopped by its own address
+                address = ""
+        reasons = {"no_browser": "this machine has no browser the factory can start",
+                   "unreachable": f"the stand did not answer at {address}" if address else "the stand did not answer",
+                   "outside_hosts": "the start page leads to a host outside the stand's hosts",
+                   "credentials_in_address": "the stand's web address carries a user name or password, so it is not opened or kept"}
+        reason = reasons.get(cause) or f"a defect of the factory ({why})"
+        self.note(check, f"The factory could not measure the stand's page load: {reason}. Manual checks wait {MC.DEFAULT_TIMEOUT_S} s "
+                         "per page; it is measured again at the next rehearsal.", state="failed", cause=cause, why=why, address=address)
 
     def check_stand_lessons(self) -> None:
         """ONE note with what a person taught about the chosen stand (`project_knowledge.py lesson`), so the approval sees it.
@@ -6076,8 +6176,10 @@ class Rehearsal:
 
 
 def run(task_root, gate: str = "A") -> dict:
-    """The rehearsal. Read-only except for ONE file: gate A's `check_actor_sign_in` writes `state/sign-in-probe.json` (the
-    sign-in proof of each manual account, rewritten whole each run); no other state file is written by this call or anything it calls."""
+    """The rehearsal. Read-only except for ONE file and ONE registry row: gate A's `check_actor_sign_in` writes `state/sign-in-probe.json`
+    (the sign-in proof of each manual account, rewritten whole each run), and gate A's `check_stand_page_load` writes the stand's page load
+    through `project_knowledge.record` (project level, `records/project-knowledge.json`; refused in a story that leaves no trace); no other
+    state file is written by this call or anything it calls."""
     gate = str(gate or "A").upper()
     if gate not in GATE_STAGE:
         raise ValueError(f"gate must be one of: {', '.join(sorted(GATE_STAGE))}")
@@ -6087,7 +6189,7 @@ def run(task_root, gate: str = "A") -> dict:
                  r.check_role_permissions, r.check_cases, r.check_planning_contract,
                  r.check_vcs, r.check_stand, r.check_case_environment_gaps, r.check_role_accounts, r.check_actor_sign_in,
                  r.check_s5_executor, r.check_s5_dependencies, r.check_s5_toolchain, r.check_s5_stand_limits,
-                 r.check_stand_lessons,
+                 r.check_stand_page_load, r.check_stand_lessons,
                  r.check_s5_reporter, r.check_s5_runtime_probe,
                  r.check_s5_credentials,
                  r.check_case_preconditions, r.check_open_questions, r.check_unraised_questions,
