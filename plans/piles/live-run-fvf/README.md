@@ -22,6 +22,7 @@
 |---|---|---|---|---|---|---|---|
 | 1 | фабрика доходит до тестов без ручной помощи оператора; слова человека доходят и исполняются | FV1-1…FV1-30 | L | ожидает | — | — | — |
 | 2 | читатели и носители, найденные критиками 13.11.2026: `_plan_row_of`, `BY_LEAF`, `py.test`, выходы без читателя и мелкие хвосты | FV2-1…FV2-78 | L | ожидает | — | — | — |
+| 3 | сухая стори идёт в CI на main: посадка ветки, перепись, метки, задача CI, обход всех групп, перепись ключей | FV3-1…FV3-19 | L | ожидает | — | — | — |
 
 Статусы пачки: `ожидает` → `в работе` → `сдано` → `принято` → `закрыта`. Размер — по узлам: S ≤ 4 узлов,
 M 5–9, L 10–15 (больше — две пачки). Взятая пачка заморожена: её файл правит только взявший, новое
@@ -150,6 +151,12 @@ M 5–9, L 10–15 (больше — две пачки). Взятая пачка
 | `findings/20261114-pechat-request-error-bez-told-fields-scheduler-i-probe.md` | находка, id — | `execution_scheduler.py` 709 и `onboarding_probe.py` 279 печатают `RequestError` без записей: один путь печати (S6) | `scripts/execution_scheduler.py`, `scripts/onboarding_probe.py`, `scripts/tests/test_detector_verdict.py` | пачка 2, FV2-84 | нет | критик темы K10 (S6); P31, AR-13 |
 | `findings/20261114-obshchij-stroitel-mira-red-sandbox-v-dvuh-testah.md` | находка, id — | строитель мира красной песочницы скопирован в два теста: один помощник (аналог K1a) | `scripts/tests/test_red_sandbox_probe.py`, `scripts/tests/test_red_sandbox_diagnostic.py` | пачка 2, FV2-85 | нет | критик темы K10 (B1, аналог K1a); FR-54, AR-15 |
 | `findings/20261114-ochered-q1-q7-spek-k10-paydown.md` | находка, id — | очередь Q1-Q7 спеки K10 pay-down без носителя: фикстуры, дубли, разведка `controller:*`, перепись, проза L12, код-детектор строки выше U, Appendix A | `references/stage-joints.json`, `scripts/role_load.py`, `scripts/tests/fixtures/judgment-census.json` | пачка 2, FV2-86…FV2-92 | Q7: да, после двух починок и с замером; сборку файла — на код (владелец, 14.11.2026) | спека K10 r2 §7; критик темы K10 (B1); AR-20, AR-11 |
+| **Пачка 3** | | | | | | |
+| `findings/20261117-p1b-2f-obligation-refs-hesh-trebuet-i-otkazyvaet.md` | находка, id — | `row_field_gaps` требует `obligation_hash`, а контракт и `manifest_put.py` хеш от роли отказывают (бывшая метка `P1B-2f`) | `scripts/window_record.py`, `scripts/tests/fixtures/form-rounds.json` | пачка 3, FV3-18 | нет | отчёт N2f (№ 8); FV2-71; AR-22, FR-11 |
+| `findings/20261117-p1b-s0-halt-svobodnye-slova-ne-dohodyat.md` | находка, id — | свободные слова на вопросе `halt` не доходят до роли; причина не установлена — драйвер или стык заглушки (бывшая `N4S0-1`) | `scripts/driver_machine.py`, `scripts/tests/dry_stub.py` | пачка 3, FV3-16 | нет | отчёт N4:s0 (`:67`); AR-24, FR-8 |
+| `findings/20261117-p1b-uslovnyj-otvet-bez-usloviya-u-hodoka.md` | находка, id — | ответ ключа цен предлагается условно, у ходока нет условия: строка красная без дефекта продукта (бывшая `N4S14-1`; класс F-P4 (в)) | `scripts/tests/dry_exits.py`, `scripts/tests/dry_world.py` | пачка 3, FV3-17 | нет | отчёт N4:s1-s4 (`:55`); N4W-1; AR-1, AR-28 |
+| `findings/20261117-p1b-s5-zaglushka-kritika-ne-zapuskaet-probu.md` | находка, id — | заглушка критика кода S5 не зовёт `probe_by_code.py`: главный проход сухой стори встаёт на S5 (метка `main/S5`; `stub gap`) | `scripts/tests/dry_stub.py`, `scripts/tests/fixtures/stories/dry-1/story.json` | пачка 3, FV3-5 | нет | отчёт s5stub (`:43-47`); F-P7, F-P18; AR-29 |
+| `findings/20261117-p1b-probes-records-bez-pustogo-ishoda.md` | находка, id — | у вложенного списка `probes.records` нет объявленного пустого исхода: `null_outcomes` ключуется разделами верхнего уровня | `scripts/handoff.py`, `scripts/handoff_check.py` | пачка 3, FV3-19 | нет | отчёт s5stub (`:49-50`); FV3-5; AR-23, FR-23 |
 
 ## Входящие
 
