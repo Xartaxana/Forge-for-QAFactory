@@ -1784,6 +1784,13 @@ def _record_collect_gaps(request: dict, mined, asked: list, checked) -> str:
         return f"collect-gaps.json was not kept ({type(exc).__name__}: {exc})"[:300]
 
 
+def collect_failed_note(collect_error) -> str:
+    """The note for a failed collect: what was not established, then the head of the error (400 chars, as before)."""
+    if not collect_error:
+        return ""
+    return "node ids were not verified: collect failed: " + str(collect_error)[:400]
+
+
 def verify_node_ids(request: dict, cfg: dict, *, mined: dict | None = None) -> dict | None:
     """Check the pytest node ids of a request against a real collect, BEFORE a job is begun.
 
@@ -1847,7 +1854,7 @@ def verify_node_ids(request: dict, cfg: dict, *, mined: dict | None = None) -> d
     if kept:
         notes.append(kept)
     if checked.get("collect_error"):
-        notes.append("node ids were not verified: collect failed: " + str(checked["collect_error"])[:400])
+        notes.append(collect_failed_note(checked["collect_error"]))
     missing = checked.get("missing") or []
     if missing:
         task_root = artifacts_dir(request["task"])
