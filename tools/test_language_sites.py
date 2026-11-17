@@ -1,7 +1,7 @@
 """Tests of tools/language_sites.py (spec t-2065 node N1; TR2-15): every test builds its own tree under tmp_path, with a
 synthetic git repository where a mode needs one. No test reads the live package (CI's single whole scan is that).
 
-Mutations the suite is built to kill (named, not run by the builder -- builder-rules 7b):
+Mutations the suite is built to kill (named, not run by the builder -- docs/TESTING.md «Что запускать по своей правке»):
   M-1 drop the `predicate-call` form (file_keys skips `cand in preds`)  -> test_a_chain_through_er_is_flagged,
       test_a_read_python_shape_is_flagged, test_c6_a_stale_list_is_red_and_predicates_clears_it
   M-2 take line numbers into the key                                    -> test_e1_edit_above_a_site_is_not_an_event

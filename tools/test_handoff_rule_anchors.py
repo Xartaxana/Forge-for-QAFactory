@@ -2,11 +2,10 @@
 dispatch's `handoff:` path, the final message is its pointer plus a per-item status of at most 2,000 characters and 3 + N lines" sits in the numbered rule that check 28 (a)
 of PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md anchors (critic 16, builder 7, designer 5), scout.md carries only its one extraction
 sentence (F-1 B: no Write, no 25-line rule), judge.md is untouched (E-25), check 28 (d) carries its
-key, and the brief and builder-rules carry a POINTER to the role file (F6-33, t-1206: one owner per aspect) and no copy of the
+key, and critic.md rule 23 carries a POINTER to rules 16-17 (F6-33, t-1206: one owner per aspect) and no copy of the
 rule.
 
-The keys K1, K2 are quoted VERBATIM from spec t-744 section 3.3 ("the file at `handoff:`", "at most 25 lines"; replaced by the 2,000-character cap, spec fg-context-and-hygiene B1); K3 is the
-pointer of builder-rules rule 11 (t-1206 section 2 E1d), K4 from t-744 section 6 ("(d) Hand-back carrier"); the line definition (F-7 B, `ceil(len/200)`) from section L; the
+The keys K1, K2 are quoted VERBATIM from spec t-744 section 3.3 ("the file at `handoff:`", "at most 25 lines"; replaced by the 2,000-character cap, spec fg-context-and-hygiene B1); K4 from t-744 section 6 ("(d) Hand-back carrier"); the line definition (F-7 B, `ceil(len/200)`) from section L; the
 fallback ("never lost, never shortened") from section 3.3. The scout keys are the F-1 B sentence of section L.
 Run from the repo root: python -m pytest tools/test_handoff_rule_anchors.py -q
 A tree elsewhere (the negative control of the witness): HANDOFF_ANCHORS_ROOT=<copy of the files, same relative paths>.
@@ -22,10 +21,8 @@ ROOT = pathlib.Path(os.environ.get("HANDOFF_ANCHORS_ROOT") or REAL)
 
 K1 = "the file at `handoff:`"
 K2 = "at most 2,000 characters"
-K3 = "правило 7 `.claude/agents/builder.md`"
 K4 = "(d) Hand-back carrier"
 K_LINE = "ceil(len/200)"
-K_BRIEF = "`.claude/agents/critic.md` rules 16-17"
 RESTATED = [K2, K_LINE, "не длиннее 25 строк", "2 000 символов", "2000 символов"]
 K_FALLBACK = "never lost, never shortened"
 K_SCOUT = ("`tools/handback_extract.py`", "`docs/tasks/specs/reports/`")
@@ -35,8 +32,6 @@ BUILDER = ".claude/agents/builder.md"
 SCOUT = ".claude/agents/scout.md"
 DESIGNER = ".claude/agents/designer.md"
 JUDGE = ".claude/agents/judge.md"
-BRIEF = "docs/tasks/critic-diff-brief.md"
-RULES = "plans/builder-rules.md"
 PROTOCOL = "PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md"
 
 # role file -> number of the rule that carries the report (check 28 (a) anchors keep their numbers)
@@ -101,18 +96,11 @@ def test_critic_rule_17_not_renumbered():
         assert rule_block(text, n) is not None
 
 
-def test_brief_what_comes_back():
-    """F6-33: the brief POINTS to critic.md rules 16-17 and carries no copy of the hand-back rule."""
-    text = read(BRIEF)
-    assert missing_keys(text, ["`handoff:`", K_BRIEF, "critic_verdict_check.py"]) == []
-    assert restated(text) == []
-
-
-def test_builder_rules_p11():
-    """F6-33: rule 11 points to builder.md rule 7 for the form and keeps only the report's content."""
-    block = rule_block(read(RULES), 11)
+def test_critic_rule_23_what_comes_back():
+    """F6-33: critic.md rule 23 POINTS to rules 16-17 and carries no copy of the hand-back rule."""
+    block = rule_block(read(CRITIC), 23)
     assert block is not None
-    assert missing_keys(block, [K3, "`handoff:`"]) == []
+    assert missing_keys(block, ["`handoff:`", "rules 16-17", "critic_verdict_check.py"]) == []
     assert restated(block) == []
 
 
@@ -164,9 +152,3 @@ def test_negative_control_scout_form_key_absent_from_a_copy():
     block = rule_block(read(SCOUT), 10)
     copy = squash(block).replace(K_SCOUT_FORM[0], "digest form")
     assert missing_keys(copy, list(K_SCOUT_FORM)) == [K_SCOUT_FORM[0]]
-
-
-def test_negative_control_restatement_in_a_pointer_copy():
-    """The old brief paragraph pasted back into a copy of the brief -> restated() names the keys (a check that cannot fail is not a check)."""
-    copy = read(BRIEF) + "\nanswer in chat with at most 2,000 characters; a line over 200 characters counts as ceil(len/200)\n"
-    assert restated(copy) == [K2, K_LINE]
