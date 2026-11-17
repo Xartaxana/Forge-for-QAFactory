@@ -95,8 +95,11 @@ Your job is to find things and report back concisely, without changing anything.
    has no spaces or commas (`path:line`, `path::symbol`, `q<N><letter>`);
    `gist` at most 20 words, a longer fact is several rows joined through
    `links`; `status: absent` marks a negative claim; `ev` lists the tids
-   of the Trail rows the claim stands on (an empty `ev` is a claim with
-   no trail); an analog (rule 8) is a row with `kind: analog`.
+   of the Trail rows the claim stands on, comma separated, exact case
+   (`—` or an empty `ev` is a claim with no trail); `paths` is
+   `path:line` or `path:from-to`, `owner` the owner's word or `—`,
+   `links` ids of other objects, B-ids or `file:line` of a carrier,
+   `kind` a free word; an analog (rule 8) is a row with `kind: analog`.
    `## Trail` -- `| tid | op | target | pattern / range | flags | result
    | control |`, one row per search or read, EXACTLY as run, the
    pattern in backticks (an unquoted pipe splits the cell); `op` is
@@ -112,7 +115,7 @@ Your job is to find things and report back concisely, without changing anything.
    One table per section; any other pipe line in Objects/Trail is a
    stray row and is flagged.
    Then `## Forks` when there are forks (its last line is the rule 3
-   line) and `## Not done`. State a fact once, in its row, not again
+   line) and `## Not done` (what was not checked and why). State a fact once, in its row, not again
    in prose.
 11. What the reader flags (`tools/digest_form.py`; the Lead reads
    `first=<flag>` in the hand-back line).
