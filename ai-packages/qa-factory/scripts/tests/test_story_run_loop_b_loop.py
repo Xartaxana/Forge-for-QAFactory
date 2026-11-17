@@ -666,7 +666,11 @@ def s5_window_rounds_are_capped() -> None:
         for n in range(3):
             outcome, _said = handle(s3, story_run.Refusal("story_step finish S3-qa-test-strategist-1 (exit 2):\nS3 same findings",
                                                           dispatch="S3-qa-test-strategist-1"))
-            check_eq(f"an uncapped stage (S3, queued): call {n + 1} goes to the conductor", outcome, "continue")
+            if n == 0:
+                check_eq("an uncapped stage (S3, queued): call 1 goes to the conductor", outcome, "continue")
+            else:       # FV1-22 N2: the conductor-round stop covers every stage; the identical repeat is the person's
+                check(f"an uncapped stage (S3, queued): call {n + 1}, the identical repeat, is the person's",
+                      isinstance(outcome, story_run.Person), repr(outcome))
         # `gate_repair` hands over through `conductor_round` and never meets the cap
         gate = driver_at("S5-qa-code-critic-2")
         gate.boundary = "gate_A"
