@@ -444,13 +444,47 @@ def _binding_says_new(entry: dict, manifest) -> bool:
     return False
 
 
+PROBE_OWED_ANSWERS = ("yes", "no")     # the code critic's closed answer to the novelty question (`probe_owed`, C3-b1)
+
+
+def probe_owed_answer(entry) -> str:
+    """The ONE reader of the code critic's closed answer (AR-13): the row's `probe_owed` when it is one of `PROBE_OWED_ANSWERS`,
+    else `""` (absent, or not answered: a malformed value never closes the question and never adds a requirement - exact text,
+    no case folding). `manifest_put`, `acceptance` and `window_record` read the answer through it."""
+    value = entry.get("probe_owed") if isinstance(entry, dict) else None
+    return value if isinstance(value, str) and value in PROBE_OWED_ANSWERS else ""
+
+
+def novelty_question_owed(entry, manifest) -> bool:
+    """Is the code critic owed the question "is a live probe owed for this test?" (C3-b1, FR-59). True iff `entry` is a row
+    with NO `novelty` key, no flag (`sensitivity_proof_required`, `new_or_changed`, `change_disposition == new_or_changed`),
+    not handed, no closed `probe_owed` answer, AND the manifest shows its writer measured novelty: some `tests[]` row carries
+    a `novelty` key, or the manifest's top-level `novelty_unmeasured` is a NON-EMPTY string (STICKY: set once a writer run
+    could not measure a row; a later run does not clear it, because the writer builds per file subset and a later subset
+    must not erase an earlier subset's failure). A manifest with neither (written before the writer, or by hand) is never asked: a story in flight is
+    never held over a field its artifacts do not have (builder-rules 9). A stored `unknown` is not asked - it already demands
+    its probe. Pure; any doubt (not a dict, a malformed `tests`) is False, the in-flight-safe side."""
+    if not isinstance(entry, dict) or not isinstance(manifest, dict):
+        return False
+    if "novelty" in entry or probe_owed_answer(entry) or _wanted(entry, manifest) or _handed(entry, manifest):
+        return False
+    marker = manifest.get("novelty_unmeasured")
+    if isinstance(marker, str) and marker:
+        return True
+    tests = manifest.get("tests")
+    return isinstance(tests, list) and any(isinstance(row, dict) and "novelty" in row for row in tests)
+
+
 def _wanted(entry: dict, manifest) -> bool:
     """Before the handed exemption: does any layer say this row is new or changed. The row's own
     flags decide alone when the row carries no `novelty` key (today's rule, and a binding's
     disposition is not read); when it carries the key, the measured value and the manifest's
-    obligation bindings can each only ADD a requirement."""
+    obligation bindings can each only ADD a requirement. The code critic's closed answer `probe_owed:
+    yes` (C3-b1) adds the requirement on any row; `no` adds nothing and never overrules a flag."""
     if (entry.get("sensitivity_proof_required") or entry.get("new_or_changed")
             or entry.get("change_disposition") == "new_or_changed"):
+        return True
+    if probe_owed_answer(entry) == "yes":
         return True
     if "novelty" not in entry:
         return False
@@ -470,7 +504,8 @@ def proof_required(entry, manifest) -> bool:
     nothing can be asked to have been proven (TP2-2536). Order:
       (a) `entry` is not an object: False.
       (b) no `novelty` key: only the row's own flags count (`sensitivity_proof_required`,
-          `new_or_changed`, `change_disposition == new_or_changed`) - a story in flight is never
+          `new_or_changed`, `change_disposition == new_or_changed`) and the code critic's answer
+          `probe_owed: yes` (C3-b1: a closed answer that can only ADD) - a story in flight is never
           refused over a field it does not have (builder-rules 9), and a binding is not read.
       (c) the key is there: required when a flag says so, OR `novelty_of(entry)` is new, changed or
           unknown, OR an obligation binding lists the row (any live alias) as new_or_changed. A layer

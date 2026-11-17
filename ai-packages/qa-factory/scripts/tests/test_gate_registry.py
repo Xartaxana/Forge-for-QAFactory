@@ -55,10 +55,12 @@ EXPECTED_IDS = [
 # C3-R (t-1009): seven rows converted (collected_ids, s5_coverage, delivery, case_preconditions, environment_preparation,
 # reporter_rehearsal_identity, environment_property_cover); 14 -> 7 debt rows. Fix round (t-1032, A1): reporter_rehearsal_identity is
 # back to debt (B-283) - its acceptance `earlier['state'] == 'same_command'` sits in `_reporter_outcome`; 7 -> 8 debt rows.
+# C3-rr (t-1055, AR-20): the reuse goes through `gate_template.acceptable`, the row is converted again; 8 -> 7 debt rows.
+# C3-b1 (t-1051): live_check_demand converted (B-279; the question to the code critic); on the merged tree 8 -> 6 debt rows.
 EXPECTED_DEBT = {
     "stand_identity": "B-257", "provenance_acceptance": "B-255", "test_identity": "B-217",
-    "live_check_demand": "B-279", "s5_window": "B-179",
-    "baseline_identity": "B-281", "s5_stand_limits": "B-282", "reporter_rehearsal_identity": "B-283"}
+    "s5_window": "B-179",
+    "baseline_identity": "B-281", "s5_stand_limits": "B-282"}
 EXPECTED_EXEMPT = ["request_shape", "executor_present", "manual_evidence_shape", "witness_backstop",
                    "equivalence_metric", "source_freshness"]
 EXPECTED_CONVERTED = ["inputs_unchanged", "then_oracle", "stand_login_gate", "stand_check", "probe_verdict",
@@ -66,7 +68,10 @@ EXPECTED_CONVERTED = ["inputs_unchanged", "then_oracle", "stand_login_gate", "st
                       "s5_open_oracle_asserted", "env_block_evidence", "plan_target_on_base",
                       # C3-R (t-1009): the seven rows converted without code
                       "collected_ids", "s5_coverage", "delivery", "case_preconditions", "environment_preparation",
-                      "environment_property_cover"]
+                      "environment_property_cover",
+                      # C3-rr (t-1055): the reuse goes through the predicate, so the row is converted again
+                      "reporter_rehearsal_identity",
+                      "live_check_demand"]      # C3-b1 (t-1051): the question to the code critic, no predicate
 BLIND_STEM = "a gate that compares only non-anchor words, outside any registered site, is not seen"
 CONVERTED_TEST = "scripts/tests/test_gate_registry.py"
 
@@ -244,7 +249,7 @@ def part_live_registry() -> None:
     lines = p.stdout.splitlines()
     check_eq("K-T1.2 its first line", lines[0] if lines else "", "A26 gate registry: no violations")
     check_in("K-T1.2 the second header line states the blind spot", BLIND_STEM, lines[1] if len(lines) > 1 else "")
-    check_in("K-T1.2 it lists the debt, decided and not forgotten", "8 gate(s) left as debt:", p.stdout)
+    check_in("K-T1.2 it lists the debt, decided and not forgotten", "6 gate(s) left as debt:", p.stdout)
     check_in("K-T1.2 and the exempt gates", "6 gate(s) exempt:", p.stdout)
 
     code, out = cli("--sites")
@@ -320,7 +325,7 @@ def part_live_registry() -> None:
     data = json.loads(out)
     check_eq("K-T1.14 --json keys are findings, debt, exempt", sorted(data), ["debt", "exempt", "findings"])
     check_eq("K-T1.14 findings is empty", data["findings"], [])
-    check_eq("K-T1.14 debt lists the eight rows left after C3-R and its fix round", [d["id"] for d in data["debt"]], list(EXPECTED_DEBT))
+    check_eq("K-T1.14 debt lists the six rows left after C3-R, its fix round and C3-b1", [d["id"] for d in data["debt"]], list(EXPECTED_DEBT))
     check_eq("K-T1.14 a debt item has id, decides, debt_ref", sorted(data["debt"][0]), ["debt_ref", "decides", "id"])
     check_eq("K-T1.14 exempt lists the six", [d["id"] for d in data["exempt"]], EXPECTED_EXEMPT)
     check_eq("K-T1.14 an exempt item has id, decides, exempt_reason", sorted(data["exempt"][0]),
@@ -332,8 +337,10 @@ def part_live_registry() -> None:
     # AR-20, TQ1-1 (t-684): converted 10 -> 11 - the row `s5_open_oracle_asserted` joined; RH2-9 (t-691): 11 -> 12, `env_block_evidence`; TQ1-21: 12 -> 13, `plan_target_on_base`; debt and exempt are unchanged
     # C3-R (t-1009): converted 13 -> 20, debt 14 -> 7 (the seven rows above); exempt unchanged
     # t-1032 (A1): converted 20 -> 19, debt 7 -> 8 (`reporter_rehearsal_identity` back to debt)
-    check_eq("K-T1.14 the registry file's rows split 19 converted / 8 debt / 6 exempt (C3-R converted six debt rows for good)",
-             {s: len(v) for s, v in raw.items()}, {"converted": 19, "debt": 8, "exempt": 6})
+    # C3-rr (t-1055, AR-20): converted 19 -> 20, debt 8 -> 7 (`reporter_rehearsal_identity` converted through `acceptable`)
+    # C3-b1 (t-1051): converted 19 -> 20, debt 8 -> 7 (`live_check_demand`: the question to the code critic); merged: 19 -> 21, debt 8 -> 6
+    check_eq("K-T1.14 the registry file's rows split 21 converted / 6 debt / 6 exempt (C3-R converted six debt rows for good)",
+             {s: len(v) for s, v in raw.items()}, {"converted": 21, "debt": 6, "exempt": 6})
     check_eq("K-T1.14 --json debt = the file's debt rows (id, decides, debt_ref), in order",
              data["debt"], [{"id": r["id"], "decides": r["decides"], "debt_ref": r["debt_ref"]} for r in raw["debt"]])
     check_eq("K-T1.14 --json exempt = the file's exempt rows (id, decides, exempt_reason), in order",
@@ -750,10 +757,18 @@ def part_fix_pass() -> None:
         check_eq(f"F4 CONTROL: a {status} row that says code is clean", audit(page, row("a", status, vocabulary="code"))["findings"], [])
     for status in ("debt", "exempt"):
         check_eq(f"F4 CONTROL: a {status} row that says target is clean", audit(page, row("a", status, vocabulary="target"))["findings"], [])
-    # C3-R (t-1009): s5_coverage is `code` now; `s5_window` is a live debt row that still says `target`
-    flipped = mutated(registry, "s5_window", status="converted", test="scripts/tests/test_window_record.py", debt_ref="")
-    check("F4 flipping a live `target` row to converted names the row and the key",
-          any(f.startswith("s5_window.vocabulary:") for f in GR.analyse(PLUGIN_ROOT, flipped)["findings"]))
+    # C3-0 (t-1038): the control runs on an in-memory COPY row, never on a live row's status, so converting the last live `target`
+    # row kills nothing. Expected from `_check_row`: "a converted row must say `code`".
+    probe_row = copy.deepcopy(registry["rows"][0])
+    probe_row.update(id="flip_probe", vocabulary="target", status="converted", test="scripts/tests/test_window_record.py",
+                     debt_ref="", exempt_reason="", sites=[], accepts={})
+    flipped = copy.deepcopy(registry)
+    flipped["rows"].append(probe_row)
+    check("F4 flipping a `target` row to converted names the row and the key",
+          any(f.startswith("flip_probe.vocabulary:") for f in GR.analyse(PLUGIN_ROOT, flipped)["findings"]))
+    probe_row["vocabulary"] = "code"
+    check("F4 CONTROL: the same copy row saying `code` raises no finding on `vocabulary`",
+          not any(f.startswith("flip_probe.vocabulary:") for f in GR.analyse(PLUGIN_ROOT, flipped)["findings"]))
 
     # F5: the forms the scan does not see are in the scope text, one line each
     for form in ("x == V.OK", 'def f(ok="matched")', "operator.eq(x", ".split()", '.startswith("match")',
@@ -854,7 +869,33 @@ def part_wiring() -> None:
         finally:
             A.CLI_SCRIPTS.clear()
             A.CLI_SCRIPTS.update(saved)
-        check_in("K-T1.13 NEG: CLI_SCRIPTS without it names gate_registry.py as dead code", "gate_registry.py", found)
+        check_not_in("K-T1.13 import-alive: CLI_SCRIPTS without it still does not name gate_registry.py (reachable through gate_template)",
+                     "gate_registry.py", found or ["-"])
+        # the fact that makes the row above true: an AST read of the real files
+
+        def imports_of(name: str) -> set:
+            t = ast.parse((SCRIPTS / name).read_text(encoding="utf-8"))
+            return ({a.name for n in ast.walk(t) if isinstance(n, ast.Import) for a in n.names}
+                    | {n.module for n in ast.walk(t) if isinstance(n, ast.ImportFrom) and n.module})
+        check_in("K-T1.13 chain: POSITIVE CONTROL: the same AST read finds hooklib among the imports of gate_template.py or gate_preflight.py",
+                 "hooklib", imports_of("gate_preflight.py") | imports_of("gate_template.py"))
+        check_in("K-T1.13 chain: gate_template.py imports gate_registry", "gate_registry", imports_of("gate_template.py"))
+        check_in("K-T1.13 chain: gate_preflight.py imports gate_template", "gate_template", imports_of("gate_preflight.py"))
+        # a real negative control on a fake root: no CLI line, no importer
+        fake = fake_package({"gate_registry.py": "X = 1\n"})
+        try:
+            (fake / "hooks").mkdir()
+            (fake / "hooks" / "hooks.json").write_text('{"hooks": {}}', encoding="utf-8")
+            A.CLI_SCRIPTS.discard("gate_registry")
+            try:
+                fake_found = A.a1_findings(fake)
+            finally:
+                A.CLI_SCRIPTS.clear()
+                A.CLI_SCRIPTS.update(saved)
+            check_in("K-T1.13 NEG: with neither the CLI line nor an importer, A1 names gate_registry.py as dead code",
+                     "gate_registry.py", fake_found)
+        finally:
+            cleanup(fake)
     finally:
         cleanup(sandbox)
 
@@ -929,7 +970,6 @@ D13_TRIPLES = [
     ("gate_preflight.py", "_observed_identity", "provenance_acceptance"),
     ("gate_preflight.py", "_record_unreadable", "reporter_rehearsal_identity"),   # t-1032 (A1): `earlier.get('state') != 'unreadable'`, a produce site
     ("gate_preflight.py", "_rehearse_reporter", "reporter_rehearsal_identity"),   # C3-R (t-1009): `countable['state'] == 'none'`, a code word of the row at its registered site
-    ("gate_preflight.py", "_reporter_outcome", "reporter_rehearsal_identity"),   # t-1032 (A1): `earlier['state'] == 'same_command'`, the reuse acceptance (an accept site, debt B-283)
     ("gate_preflight.py", "_sort_items", "case_preconditions"),
     # EP1-24 F3 (t-335-2, 454b370e): `named_container_said` has ONE comparison, `result == 'matched'`: the probe's verdict, not the
     # answered container's identity (stand_identity row, a site it registers). t-430/t-435 AR-20, the count 131 -> 134 row by row:
@@ -940,6 +980,7 @@ D13_TRIPLES = [
     ("gate_registry.py", "_check_registry", "provenance_acceptance"),
     ("gate_registry.py", "_check_row", "provenance_acceptance"),
     ("gate_registry.py", "_token_problem", "provenance_acceptance"),
+    ("gate_template.py", "acceptable", "provenance_acceptance"),    # C3-0 (t-1038): the one predicate of a true accept site, a `library` site
     # HF8-19 N1a: the two acceptance comparisons of `validate` moved to `_provenance_errors` (one function for a record's own
     # pair and each joined profile's), and the joined pair's revision bypass is a third comparison in `_other_profile_errors`
     ("manual_evidence.py", "_other_profile_errors", "provenance_acceptance"),
@@ -991,7 +1032,15 @@ D13_TRIPLES = [
 # 138 -> 140 (t-1032, A1): the reuse acceptance `earlier['state'] == 'same_command'` (`_reporter_outcome`, accept) and
 # `earlier.get('state') != 'unreadable'` (`_record_unreadable`, produce) are registered under `reporter_rehearsal_identity`, so the scan
 # attributes them (measured with `gate_registry.py --sites`: +2 lines). The raise is the decision, taken in the diff that makes it.
-D13_ITEM_COUNT = 140
+# 140 -> 146 (C3-0, t-1038, AR-20): the new `library` site `gate_template.acceptable` registers six comparisons of the predicate
+# (`cls == 'matched'`, `'matched' in tokens`, `cls == 'person_confirmed'`, `'person_confirmed' in tokens`, `cls == 'not_applicable'`,
+# `'not_applicable' in tokens`; measured with `gate_registry.py --sites`: 140 before, 146 after). No row converts, so no other pin moves.
+# 146 -> 145 (C3-rr, t-1055, AR-20): the reuse acceptance `earlier['state'] == 'same_command'` (`_reporter_outcome`) becomes an
+# `acceptable(...)` call, so the triple `("gate_preflight.py", "_reporter_outcome", "reporter_rehearsal_identity")` leaves the set and
+# the count falls by that one comparison.
+# C3-b1 (t-1051) moves no count (140 -> 140 on its base: no comparison added or removed).
+# Merged tree value 145 items / 49 triples (measured with GR.analyse on the merged tree).
+D13_ITEM_COUNT = 145
 
 
 def part_site_attribution() -> None:
@@ -1019,6 +1068,99 @@ def part_site_attribution() -> None:
     check_eq("D13 NEG: ... with no registry finding at all (the count and the set are the only witnesses)", reduced["findings"], [])
 
 
+# --- C3-0 (t-1038): the one predicate of a true accept site ------------------------------------------------------------
+# Expected values come from FR-59 ("never a pass") and the registry grammar (`accepts` tokens are class tokens; a row's `words` and
+# `verdict_map` say which word is which class; `promotable` gates `person_confirmed`), never from the predicate's output.
+
+def predicate_cases() -> list:
+    """(case id, value, consumer, registry, expected) rows; the registries are in-memory copies of real rows."""
+    live = live_registry()
+    ident = copy.deepcopy(next(r for r in live["rows"] if r["id"] == "test_identity"))
+    ident["accepts"] = {"test_identity.probe_repeat": ["matched"]}
+    rec = row("rec_row", field="status", words=["captured", "inconclusive"],
+              verdict_map={"captured": {"class": "matched"}, "inconclusive": {"class": "unknown", "owner": "environment"}},
+              accepts={"rec_row.use": ["matched"]})
+    broken = row("broken_row", words=["u", "m"],
+                 verdict_map={"u": {"class": "unknown", "owner": "environment"}, "m": {"class": "mismatched"}},
+                 accepts={"broken_row.use": ["unknown", "mismatched", "matched"]})
+
+    def person(promotable):
+        return row("person_row", words=["said"], verdict_map={"said": {"class": "person_confirmed"}}, promotable=promotable,
+                   accepts={"person_row.use": ["person_confirmed"]})
+
+    na = row("na_row", words=["na_a", "na_b"],
+             verdict_map={"na_a": {"class": "not_applicable", "reason_code": "no_changed_file"},
+                          "na_b": {"class": "not_applicable", "reason_code": "local_source"}},
+             accepts={"na_row.reason": ["not_applicable:no_changed_file"], "na_row.bare": ["not_applicable"]})
+    big = reg(ident, rec, broken, person(False), na)
+    p_no, p_yes = reg(person(False)), reg(person(True))
+    rows = [("word-matched", "instance", "test_identity.probe_repeat", big, True)]
+    rows += [("empty-word", "", "test_identity.probe_repeat", big, False),
+             ("other-case", "Instance", "test_identity.probe_repeat", big, False),
+             ("padded", " instance", "test_identity.probe_repeat", big, False)]
+    rows += [(f"other-shape-{n}", v, "test_identity.probe_repeat", big, False)
+             for n, v in enumerate((["instance"], {"x": 1}, None, 5, b"instance"))]
+    rows += [("unknown-consumer", "instance", "test_identity.nope", big, False),
+             ("consumer-not-str", "instance", None, big, False),
+             ("consumer-malformed", "instance", "nodot", big, False),
+             ("wrong-row", "captured", "test_identity.probe_repeat", big, False),
+             ("record-true", {"status": "captured"}, "rec_row.use", big, True),
+             ("record-unknown", {"status": "inconclusive"}, "rec_row.use", big, False),
+             ("record-empty", {}, "rec_row.use", big, False),
+             ("record-none", {"status": None}, "rec_row.use", big, False),
+             ("record-under-null-field", {"result": "instance"}, "test_identity.probe_repeat", big, False),
+             ("record-field-null-with-key", {"status": "instance"}, "test_identity.probe_repeat", big, False),
+             ("never-unknown", "u", "broken_row.use", big, False),
+             ("never-mismatched", "m", "broken_row.use", big, False),
+             ("person-not-promotable", "said", "person_row.use", p_no, False),
+             ("person-promotable", "said", "person_row.use", p_yes, True),
+             ("na-reason-listed", "na_a", "na_row.reason", big, True),
+             ("na-reason-unlisted", "na_b", "na_row.reason", big, False),
+             ("na-bare-any-a", "na_a", "na_row.bare", big, True),
+             ("na-bare-any-b", "na_b", "na_row.bare", big, True),
+             ("registry-rows-not-list", "instance", "test_identity.probe_repeat", {"rows": "x"}, False),
+             ("registry-not-object", "instance", "test_identity.probe_repeat", [], False),
+             ("registry-no-rows-key", "instance", "test_identity.probe_repeat", {}, False)]
+    # a row missing a part of its vocabulary never accepts
+    for part in ("words", "verdict_map", "accepts"):
+        cut = copy.deepcopy(ident)
+        cut.pop(part)
+        rows.append((f"row-without-{part}", "instance", "test_identity.probe_repeat", reg(cut), False))
+    rows.append(("class-outside-the-five", "instance", "test_identity.probe_repeat",
+                 reg(dict(ident, verdict_map={"instance": {"class": "matchd"}}, words=["instance"])), False))
+    # the live registry's grammar: provenance.rehearsal takes `not_applicable:no_changed_file` and no bare token
+    rows += [("live-matched", "matched", "provenance.rehearsal", None, True),
+             ("live-unknown", "unknown", "provenance.rehearsal", None, False),
+             ("live-na-needs-reason", "not_applicable", "provenance.rehearsal", None, False),
+             ("live-na-bare-token", "not_applicable", "provenance.fingerprint", None, True),
+             ("live-record", {"result": "person_confirmed"}, "provenance.manual", None, True)]
+    return rows
+
+
+def part_predicate() -> None:
+    import gate_template as GT
+    for case, value, consumer, registry, want in predicate_cases():
+        check_eq(f"C3-0 acceptable {case}", GT.acceptable(value, consumer, registry=registry), want)
+    # an unreadable registry never accepts, and says why (E2); the live one reads
+    saved_root, saved_read = GR.PLUGIN_ROOT, list(GT._READ)
+    empty = temp_dir("qa-factory-gates-empty-")
+    try:
+        GR.PLUGIN_ROOT = empty
+        GT._READ.clear()
+        check_eq("C3-0 registry-unreadable: no registry file, nothing accepts",
+                 [GT.acceptable("matched", c) for c in ("provenance.rehearsal", "provenance.manual", "x.y")], [False] * 3)
+        check_in("C3-0 registry-problem: no registry file names the reason", "absent", GT.registry_problem())
+    finally:
+        GR.PLUGIN_ROOT = saved_root
+        GT._READ.clear()
+        GT._READ.extend(saved_read)
+        cleanup(empty)
+    check_in("C3-0 registry-problem: a registry without a rows list", "rows", GT.registry_problem(registry={"rows": "x"}))
+    check("C3-0 registry-problem: a non-object registry has a reason", bool(GT.registry_problem(registry=[])))
+    check_eq("C3-0 registry-problem: an in-memory registry that reads", GT.registry_problem(registry=reg(row("a"))), "")
+    check_eq("C3-0 registry-problem: the live registry", GT.registry_problem(), "")
+
+
 def main() -> None:
     part_scanner()
     part_schema()
@@ -1027,6 +1169,7 @@ def main() -> None:
     part_registry_file()
     part_live_registry()
     part_site_attribution()
+    part_predicate()
     part_wiring()
     part_text()
     finish("test_gate_registry")

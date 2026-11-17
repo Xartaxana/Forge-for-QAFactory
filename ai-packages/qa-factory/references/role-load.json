@@ -28,7 +28,7 @@
     "qa-case-designer": 13512,
     "qa-case-critic": 18795,
     "qa-automator": 24116,
-    "qa-code-critic": 21173,
+    "qa-code-critic": 21250,
     "qa-runner": 16919,
     "qa-failure-analyst": 20261,
     "qa-bug-reporter": 15447,
@@ -37,7 +37,7 @@
   },
   "native_headroom": {
     "qa-automator": 79909,
-    "qa-code-critic": 72828,
+    "qa-code-critic": 73134,
     "qa-test-strategist": 53739
   },
   "target_tokens": 6000,

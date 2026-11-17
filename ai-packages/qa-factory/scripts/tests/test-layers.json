@@ -2044,6 +2044,7 @@
     "exploratory_findings.py",
     "gate_preflight.py",
     "gate_registry.py",
+    "gate_template.py",
     "manual_capture.py",
     "manual_evidence.py",
     "planning_contract.py",

@@ -5207,18 +5207,33 @@ def test_c3r_reporter_rehearsal_identity_an_unknown_is_rehearsed_again_never_reu
         argv = ("python", "x")
         ctx = gate_preflight.ReporterCtx("s5_reporter", "api", root, root, argv, "junit-xml", "junit-xml", 30, argv)
         report = root / "report.xml"
-        for state, reused in (("same_command", True), ("none", False), ("command_changed", False), ("unreadable", False)):
+        import gate_registry
+        import gate_template as GT
+        saved_read = list(GT._READ)
+        # (state, reused, variant): variant "" = the key hits; "absent" = the record carries no `state`; "other_key" = the map holds
+        # ANOTHER key only (a same_command whose key misses is rehearsed again, A1); "registry" = the registry cannot be read (C3-0 E2)
+        for state, reused, variant in (("same_command", True, ""), ("none", False, ""), ("command_changed", False, ""),
+                                       ("unreadable", False, ""), ("Same_command", False, ""), (None, False, ""),
+                                       ("", False, "absent"), ("same_command", False, "other_key"), ("same_command", False, "registry")):
             r = gate_preflight.Rehearsal(task_root, "A")
             calls = []
             r._probe_reporter = lambda *a, **k: calls.append(a) or {"timed_out": True}
             r._observed_identity = lambda *a, **k: ""
             key = r._rehearsal_key("api", root, list(argv), "tests/a", "junit-xml", "", root)
-            check(f"{state}: the proof's key is built (the control of the table)", bool(key), key)
-            r._rehearsals = {key: {"at": "2026-11-01T00:00:00", "source": "onboarding"}}
+            check(f"{state}/{variant}: the proof's key is built (the control of the table)", bool(key), key)
+            other = r._rehearsal_key("api", root, list(argv), "tests/b", "junit-xml", "", root)
+            check(f"{state}/{variant}: the other key differs (the control of the table)", bool(other) and other != key, other)
+            r._rehearsals = {(other if variant == "other_key" else key): {"at": "2026-11-01T00:00:00", "source": "onboarding"}}
+            earlier = {"at": ""} if variant == "absent" else {"state": state, "at": ""}
             gate_preflight._REPORTER_PROBES.clear()
-            outcome = r._reporter_outcome(ctx, "tests/a", list(argv), report, {"state": state, "at": ""})
+            try:
+                if variant == "registry":
+                    GT._READ[:] = [({"rows": "x"}, gate_registry.structural_error({"rows": "x"}))]
+                outcome = r._reporter_outcome(ctx, "tests/a", list(argv), report, earlier)
+            finally:
+                GT._READ[:] = saved_read
             gate_preflight._REPORTER_PROBES.clear()
-            check_eq(f"reporter_rehearsal_identity `{state}`: reused={reused}, and the command is run {0 if reused else 1} time(s)",
+            check_eq(f"reporter_rehearsal_identity `{state}`/{variant or 'key hits'}: reused={reused}, and the command is run {0 if reused else 1} time(s)",
                      ("reused" in outcome, len(calls)), (reused, 0 if reused else 1))
     finally:
         cleanup(root)
