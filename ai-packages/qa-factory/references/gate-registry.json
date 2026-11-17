@@ -248,7 +248,7 @@
     },
     {
       "id": "delivery", "inventory": "G11", "vocabulary": "code",
-      "decides": "delivery_verdict: the aggregator that maps every typed record of every other gate to a kind (references/delivery-verdict-kinds.json) and the kinds to one of three words - yes, after_checks (ready once the person finishes the checks left with them) or no; a kind the file does not hold is no (it never asks)",
+      "decides": "delivery_verdict: the aggregator that maps every typed record of every other gate to a kind (references/delivery-verdict-kinds.json) and the kinds to one of three words - yes, after_checks (ready once the person finishes the checks left with them) or no; a kind the file does not hold, or a kinds file that cannot be read, is no (it never asks): refused with the kinds-file door (owner: factory); after_checks is not a refusal, it hands the person their checks (P21)",
       "sites": [
         {"file": "delivery_verdict.py", "function": "decide", "role": "produce"},
         {"file": "check_delivery.py", "function": "assess", "role": "produce"},
@@ -497,9 +497,11 @@
     },
     {
       "id": "reporter_rehearsal_identity", "inventory": "F9", "vocabulary": "code",
-      "decides": "an earlier proof that a test command leaves a report the factory can read is reused only for exactly that command: the key holds the profile, the argv itself (its digest is what `onboarding_probe.earlier_proof` compares), the test, the report format, the folder and the dependency bytes - no stand and no deployed identity (B-220 F11). `matched`: the same command, and the key hits - reused, the test is not run again. `mismatched`: the same command is rehearsed again and leaves no report (it stopped working) - it goes to the factory's helper first, once per command since its last proof (B-416, D-0031: every reader the code has is tried, then the conductor reads the kept report and records what it changed or understood), and a card for the person comes only after the helper's turn, never a pass. `unknown`: no row of this command (`none`, or only rows of the old form), another command's rows only (`command_changed`), or a record or reader that cannot be read (`unreadable`) - nothing is reused: the command is rehearsed again, and a rehearsal that cannot finish says the record could not be read; a record of the helper's turns that cannot be read reads as a turn taken (the card), never as none. An unknown never keys a proof as the same",
+      "decides": "an earlier proof that a test command leaves a report the factory can read is reused only for exactly that command: the key holds the profile, the argv itself (its digest is what `onboarding_probe.earlier_proof` compares), the test, the report format, the folder and the dependency bytes - no stand and no deployed identity (B-220 F11). `matched`: the earlier proof is of the same command (`same_command`) AND the durable key hits - reused, the test is not run again; a `same_command` whose key misses is rehearsed again. `mismatched`: the same command is rehearsed again and leaves no report (it stopped working) - it goes to the factory's helper first, once per command since its last proof (B-416, D-0031: every reader the code has is tried, then the conductor reads the kept report and records what it changed or understood), and a card for the person comes only after the helper's turn, never a pass. `unknown`: no row of this command (`none`, or only rows of the old form), another command's rows only (`command_changed`), or a record or reader that cannot be read (`unreadable`) - nothing is reused: the command is rehearsed again, and a rehearsal that cannot finish says the record could not be read; a record of the helper's turns that cannot be read reads as a turn taken (the card), never as none. An unknown never keys a proof as the same",
       "sites": [
         {"file": "gate_preflight.py", "function": "_rehearse_reporter", "role": "validate"},
+        {"file": "gate_preflight.py", "function": "_reporter_outcome", "role": "accept"},
+        {"file": "gate_preflight.py", "function": "_record_unreadable", "role": "produce"},
         {"file": "gate_preflight.py", "function": "_read_probe_report", "role": "measure"},
         {"file": "driver_gates.py", "function": "hand_to_conductor", "role": "dispatch"}
       ],
@@ -517,7 +519,7 @@
       "closed_by": ["person"], "addressee": ["code_routes", "person"], "person_subject": "world",
       "policy_file": null, "scope_keys": [], "binding_keys": [], "question_kind": null,
       "test": "scripts/tests/test_gate_preflight.py",
-      "status": "converted", "debt_ref": "", "exempt_reason": ""
+      "status": "debt", "debt_ref": "B-283", "exempt_reason": ""
     },
     {
       "id": "environment_property_cover", "inventory": "F9", "vocabulary": "code",
