@@ -2266,6 +2266,83 @@ def test_tr4_7_the_s6_close_context_reads_liveness_through_the_same_helper():
             controller_module_.Controller = real
 
 
+# C3-reg-precondition (AR-28, FR-4): the ONE stop in validate's dispatch branch for a gate registry that cannot be read.
+# Row = (id, how the registry reads, reason words the refusal must carry, the person's word, the request key to drop, outcome).
+# `how`: "live" (the real file), "absent" (the plugin root swapped to an empty dir), or the cached read `(registry, reason)` that
+# `gate_registry.load_registry` would have returned (the seam of test_gate_registry.py:1108-1119: `gate_template._READ`).
+# Expectations are the card's: refused = StateConflict, prefix `gate registry unreadable:`, the reason named, nothing recorded;
+# `recorded` = the dispatch is in the state; `malformed` = the call's fault comes first (ValueError, not the install's).
+REG_PRECONDITION_ROWS = (
+    ("absent", "absent", "the file is absent", False, None, "refused"),
+    ("zero-bytes", (None, "the file is 0 bytes"), "0 bytes", False, None, "refused"),
+    ("not-json", (None, "it is not valid JSON (Expecting value: line 1 column 1 (char 0))"), "not valid JSON", False, None, "refused"),
+    ("not-utf8", (None, "it is not valid UTF-8 (invalid start byte)"), "not valid UTF-8", False, None, "refused"),
+    ("no-rows", ({"rows": "x"}, "it carries no `rows` list"), "no `rows` list", False, None, "refused"),
+    ("passed-by-word", ({"rows": "x"}, "it carries no `rows` list"), "", True, None, "recorded"),
+    ("live", "live", "", False, None, "recorded"),
+    ("malformed-first", ({"rows": "x"}, "it carries no `rows` list"), "", False, "input_hash", "malformed"),
+    ("after-reinstall", "absent", "the file is absent", False, None, "refused-then-recorded"),
+)
+
+
+def test_c3_reg_precondition_one_stop_for_an_unreadable_registry():
+    import gate_registry
+    import gate_template
+    real_root, real_read = gate_registry.PLUGIN_ROOT, list(gate_template._READ)
+    real_record = controller_module.validate_record
+
+    def seam(how, empty):
+        gate_registry.PLUGIN_ROOT = empty if how == "absent" else real_root
+        gate_template._READ.clear()
+        if how not in ("absent", "live"):
+            gate_template._READ.append(how)
+
+    def attempt(c, key, drop=None):
+        request = {"id": "S0-" + key, "stage": "S0", "role": "qa-worker", "scope": ["TC-1"], "input_hash": "h", "budget": {},
+                   "known_paths": {}, "idempotency_key": key}
+        if drop:
+            del request[drop]
+        try:
+            c.apply("dispatch", request)
+        except (StateConflict, ValueError) as exc:
+            return exc
+        return None
+
+    try:
+        for rid, how, words, by_word, drop, outcome in REG_PRECONDITION_ROWS:
+            with tempfile.TemporaryDirectory(prefix="qa-regpre-") as td, tempfile.TemporaryDirectory(prefix="qa-regpre-empty-") as empty:
+                root = mark_project(Path(td))
+                c = Controller(root)
+                c.apply("initialize", {"scope": ["TC-1"], "source_revision": "r", "known_paths": {"root": str(root)}, "idempotency_key": "init"})
+                if by_word:
+                    add_override(root, "S0", "gate registry unreadable")
+                # `record-schemas.json` Dispatch requires the same keys as the branch's `required` check, so `validate_record`
+                # refuses first and `dispatch contract incomplete` is unreachable through `apply`: the row lifts that one earlier
+                # check to pin the POSITION (the registry stop sits after `required`, never before it).
+                controller_module.validate_record = (lambda *a, **k: None) if outcome == "malformed" else real_record
+                seam(how, Path(empty))
+                before = len(c.store.read())
+                got = attempt(c, "d1", drop)
+                if outcome in ("refused", "refused-then-recorded"):
+                    assert isinstance(got, StateConflict), (rid, repr(got))
+                    said = str(got)
+                    assert said.startswith("gate registry unreadable:") and words in said, (rid, said)
+                    assert "Reinstall or update the qa-factory plugin" in said and "nothing is wanted from you" in said, (rid, said)
+                    assert not c.state()["dispatches"] and len(c.store.read()) == before, (rid, "a dispatch was recorded")
+                elif outcome == "malformed":
+                    assert type(got) is ValueError and str(got) == "dispatch contract incomplete", (rid, repr(got))
+                else:
+                    assert got is None and "S0-d1" in c.state()["dispatches"], (rid, repr(got))
+                if outcome == "refused-then-recorded":
+                    seam("live", Path(empty))     # the reinstall: the root is restored and the cached failure is dropped (a new process)
+                    again = attempt(c, "d2")
+                    assert again is None and "S0-d2" in c.state()["dispatches"], (rid, repr(again))
+    finally:
+        controller_module.validate_record = real_record
+        gate_registry.PLUGIN_ROOT = real_root
+        gate_template._READ[:] = real_read
+
+
 def main() -> int:
     if os.environ.get("CHAINS_CAPTURE"):   # the BEFORE run of C3-11: print what each chain refuses alone, nothing else
         controller_chains_are_refused_whole()
@@ -2723,7 +2800,8 @@ def main() -> int:
                   test_tr4_7_an_event_committed_in_between_is_not_let_through_by_the_caller_revision,
                   test_tr4_7_an_admitted_s5_window_never_repairs_a_sibling,
                   test_tr4_7_a_repair_leaves_a_row_that_is_no_longer_running_alone,
-                  test_tr4_7_invalidate_reads_liveness_for_the_named_dispatches_only):
+                  test_tr4_7_invalidate_reads_liveness_for_the_named_dispatches_only,
+                  test_c3_reg_precondition_one_stop_for_an_unreadable_registry):
         try:
             tr4_7()
             check(tr4_7.__name__, True)

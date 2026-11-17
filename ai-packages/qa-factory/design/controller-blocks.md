@@ -1,6 +1,6 @@
 # Every block in the controller, and the route through it
 
-`controller.py` refuses **355** times: 355 raises or collected `(Class, message)` problems (a request's problems are gathered and refused whole by `_raise_all`), as `DerivedViewStale`, `EventCommitted`, `IdempotencyKeyReused`, `ProjectionStale`, `StateConflict`, `ValueError` - two kinds that do not
+`controller.py` refuses **356** times: 356 raises or collected `(Class, message)` problems (a request's problems are gathered and refused whole by `_raise_all`), as `DerivedViewStale`, `EventCommitted`, `IdempotencyKeyReused`, `ProjectionStale`, `StateConflict`, `ValueError` - two kinds that do not
 mean the same thing. `StateConflict` says the request is fine and the story's recorded state is not
 ready for it (`DerivedViewStale`, a subclass of it, says the event IS committed and only what
 follows it failed); `ValueError` says the request itself is malformed and the story was never consulted. The
@@ -17,7 +17,7 @@ evidence.
 
 | route | blocks | what it means |
 |---|---|---|
-| `person` | 17 | their recorded words pass it: `waiver.py --stage <S> --block "<part of the line>" --words-file <file>` |
+| `person` | 18 | their recorded words pass it: `waiver.py --stage <S> --block "<part of the line>" --words-file <file>` |
 | `command` | 220 | a factory command clears it. The person decides, the command records; the message names it |
 | `caller` | 105 | the call was built wrong. Whoever built it fixes it, and no person is involved |
 | `unpassable` | 13 | no word passes it, and the reason is here. These are invariants of the record itself: passing one would destroy what the block protects |
@@ -181,6 +181,7 @@ every edit above it. Rows are in source order.
 | `validate` | `StateConflict` | coverage migration dry_run failed: | `command` | fix what the dry-run names, then migrate |
 | `validate` | `StateConflict` | sequential task already has an active dispatch: {', '.join(running)}. Finish it first (`story_step.py finish`) | `command` | `where` answers it with `wait_existing_job`; the driver knows this one by name |
 | `validate` | `ValueError` | dispatch contract incomplete | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
+| `validate` | `StateConflict` | raise StateConflict(blocking[0]) | `person` | raised from the list `_passed_by_person` has already filtered |
 | `validate` | `StateConflict` | raise StateConflict(closed_refusal) | `command` | `--operation reopen_story --dispatch <held ids> --words-file <file>` for work that never started (`next` lists it as `held`); `--operation rework --stage <Sn> --role <role> --cases <ids> --words-file <file>` for new work |
 | `validate` | `StateConflict` | resume existing dispatch; do not replace its checkpoint | `command` | `--operation dispatch` with the retry packet `recover` prints |
 | `validate` | `StateConflict` | CASE_REVIEW_AFTER_GATE_A: use technical_normalize or semantic_reopen before a new review | `command` | `--operation technical_normalize` or `semantic_reopen` |

@@ -5537,6 +5537,21 @@ class Controller:
             required = ("id", "stage", "role", "input_hash", "scope", "budget", "known_paths")
             if any(k not in p for k in required) or not p["input_hash"]:
                 raise ValueError("dispatch contract incomplete")
+            # C3-reg-precondition (F-T12 (a), F-T14 (a); AR-9, AR-15, AR-28). ONE stop for "the gate registry cannot be read", before
+            # any converted site refuses or loops on it. POSITION: after the contract check (a malformed request is the call's fault
+            # and stays a ValueError first, FR-46) and before the closure test; it reads only `p["stage"]`, which `required` gave.
+            # INVARIANT: no dispatch is committed on a registry that cannot be read; a registry that reads is never stopped here
+            # (a missing consumer is the site's own cause). The person's word passes it (FR-4); a cached failure only ever stops.
+            from gate_template import registry_problem
+            registry_why = registry_problem()
+            if registry_why:
+                blocking, _ = self._passed_by_person(p["stage"], [
+                    f"gate registry unreadable: the plugin's references/gate-registry.json cannot be read ({registry_why}). "
+                    "Owner: factory - a defect of the install, not of the story; nothing is wanted from you. Reinstall or update "
+                    "the qa-factory plugin (UPGRADE.md, step 3), then start the stage again. No stage starts until the file reads, "
+                    "because every reuse and review acceptance reads it."])
+                if blocking:
+                    raise StateConflict(blocking[0])
             # THE closure test (B-331, C1-6a; M1 (d) as code on every road): the skill path can dispatch a packet by hand,
             # so the driver's question is not the only guard. After the fields are known to be there, before any other
             # check reads them.
