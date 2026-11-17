@@ -215,6 +215,10 @@
    "reach": "unwalked",
    "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
   },
+  "manifest_put:node_id": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node RD1-19 adds the joint; the group's walk node writes its rows"
+  },
   "manifest_put:probe_owed": {
    "reach": "unwalked",
    "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
@@ -380,6 +384,7 @@
    "unwalked | joints/manifest_put:expectation_changes | L1c census catch-up, 2026-11-17",
    "unwalked | joints/manifest_put:ghost_rows | L1c census catch-up, 2026-11-17",
    "unwalked | joints/manifest_put:helper_rows | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/manifest_put:node_id | RD1-19, 2026-11-17",
    "unwalked | joints/manifest_put:novelty | L1c census catch-up, 2026-11-17",
    "unwalked | joints/manifest_put:obligation_hash | L1c census catch-up, 2026-11-17",
    "unwalked | joints/manifest_put:provisional | L1c census catch-up, 2026-11-17",
