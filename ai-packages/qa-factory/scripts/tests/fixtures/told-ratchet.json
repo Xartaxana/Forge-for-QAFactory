@@ -68,6 +68,10 @@
    "bare": 1,
    "tagged": 0
   },
+  "controller.py::_s3_completion_gate": {
+   "bare": 3,
+   "tagged": 1
+  },
   "critic_rollcall.py::_level_errors": {
    "bare": 4,
    "tagged": 0

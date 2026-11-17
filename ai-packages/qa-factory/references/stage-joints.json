@@ -8305,7 +8305,7 @@
   "told_ratchet": {
     "hand_cards": 12,
     "legacy_legs": 0,
-    "unsited": 17
+    "unsited": 11
   },
   "call_told_families": [
     "guard_pre_tool",

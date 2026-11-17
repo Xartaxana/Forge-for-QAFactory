@@ -1,0 +1,1 @@
+- `controller.py`: the S5 plan-accept, plan-gaps, plan-rework-rows, plan-review, code-review-receipts and S3 plan refusals now carry their requirement row id, so the transport can print the row's expected sentence and door; the refusal text itself is unchanged.
