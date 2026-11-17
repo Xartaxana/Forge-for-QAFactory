@@ -1184,7 +1184,65 @@ def stuck_text_names_the_open_decision() -> None:
         rig_.done()
 
 
+# ------------------------------------------------------------------------------------------------------ U7 7a
+def u7_7a_a_not_executed_a_role_can_triage_enters_s7() -> None:
+    """U7 7a (N2, B-006 ii): `stage_S7` admits a `not_executed` report of a FINISHED S6 whose undecided rows are manual targets
+    (`s7_pretriage.triageable_not_executed`), and keeps the refusal word for word for a mixed story whose automated half broke,
+    and for a report with nothing a role can triage. The S6 stage record is a stand-in for the controller's."""
+    import controller as CTL
+    refusal = ("S7 entry: run-report.json execution_status is `not_executed` — nothing to triage yet; "
+               "the S6 halt that produced it stands")
+
+    class Stage:
+        def __init__(self, stage):
+            self.stage = stage
+
+        def __call__(self, _root):
+            return self
+
+        def state(self):
+            return {"stages": {"S6": self.stage}}
+
+    def enter(rep, stage):
+        root, task_root, env = seed(TASK)
+        saved = CTL.Controller
+        try:
+            write(task_root, rep, {"tests": [], "unresolved": []}, {"schema_version": 2, "triage": []})
+            driver, moves, launched = rig(root, env)
+            CTL.Controller = Stage(stage)
+            raised = None
+            try:
+                with Verdict(True):
+                    quietly(driver.stage_S7)
+            except story_run.Refusal as exc:
+                raised = str(exc)
+            return raised, [m[0] for m in moves if m[0] == "code_only"], [(e["stage"], e["role"]) for e in launched], told(launched)
+        finally:
+            CTL.Controller = saved
+            harness.cleanup(root)
+
+    def null(results=(), manual=()):
+        return dict(report(results, manual), execution_status="not_executed")
+
+    done = {"status": "completed"}
+    unprepared = check_row("TC-8", "", unprepared={"not_walked": "no capture surface here"})
+    for label, rep, stage, want in (
+            ("inconclusive only -> triaged by code (the run recorded why), no role", null(manual=[check_row("TC-9")]), done,
+             (None, ["code_only"], [], [])),
+            ("unprepared only -> triaged: the analyst is dispatched for that walk", null(manual=[unprepared]), done,
+             (None, [], [("S7", "qa-failure-analyst")], ["Failures to triage: manual TC-8"])),
+            ("manual target + automated not_run (a broken half) -> refused as today", null([result("t_a", "not_run")], [check_row("TC-9")]),
+             done, (refusal, [], [], [])),
+            ("no target (zero rows) -> refused as today", null(), done, (refusal, [], [], [])),
+            ("S6 not finished -> refused as today", null(manual=[check_row("TC-9")]), {"status": "running"}, (refusal, [], [], [])),
+            ("code-only S6 -> as today: nothing to triage, S7 closes by code", null(), {"status": "completed", "code_only": True},
+             (None, ["code_only"], [], []))):
+        got = enter(rep, stage)
+        check_eq(f"U7 7a: {label}", (got[0], got[1], got[2], got[3][:1]), (want[0], want[1], want[2], want[3][:1]))
+
+
 def main() -> None:
+    u7_7a_a_not_executed_a_role_can_triage_enters_s7()
     tl5_the_analyst_is_only_as_fresh_as_the_triage()
     ts1_life_keeps_two_triages_apart()
     ts2_debt_is_final_for_its_test()

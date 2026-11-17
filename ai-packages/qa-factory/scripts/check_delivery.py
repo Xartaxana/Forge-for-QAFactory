@@ -1293,6 +1293,16 @@ def run_reasons(artifacts: Path) -> list:
             # cases decide, each through its own typed kind (a handed case is the third verdict, a plan row nobody
             # answers is `no`). Without that receipt the status is the refusal it always was.
             return []
+        if status == "not_executed":
+            # U7 7a (N2): S7's twin through ONE predicate. A FINISHED S6 whose undecided rows are manual targets (an
+            # `inconclusive`, an `unprepared` walk) is no run failure: the cases decide, each through its own kind. A mixed
+            # story whose automated half broke is False there, so it keeps this refusal and its honest `no`.
+            try:
+                import s7_pretriage
+                if s7_pretriage.triageable_not_executed(artifacts):
+                    return []
+            except Exception:
+                pass      # a doubt never lets a run that did not execute through
         return [f"run-report.json: execution_status is '{status}' — only "
                 f"{list(DELIVERABLE_STATUSES)} can deliver"]
     return []

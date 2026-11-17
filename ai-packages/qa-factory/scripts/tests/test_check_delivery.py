@@ -131,6 +131,31 @@ def main() -> None:
                              "\n".join(said))
         finally:
             s7_pretriage.s6_closed_by_code = real_receipt
+        # U7 7a (N2): the twin of S7's entry through ONE predicate (`s7_pretriage.triageable_not_executed`). A FINISHED S6 whose
+        # undecided rows are manual targets is no run failure (the cases decide, each by its own kind); a mixed story whose
+        # automated half broke, a report with nothing a role can triage, an S6 still running keep `run_not_deliverable`'s refusal.
+        import controller as CTL
+        manual_row = {"case": "TC-9", "attempt_id": "a1", "result": "inconclusive", "evidence_validated": True}
+        broken = {"instance_id": "t_a", "test_id": "m::t_a", "attempt_id": "x1", "status": "not_run"}
+        real_controller = CTL.Controller
+        try:
+            for label, results, manual, stage, refused in (
+                    ("not_executed + a manual inconclusive of a finished S6", [], [manual_row], {"status": "completed"}, False),
+                    ("not_executed + an unprepared walk of a finished S6", [], [{"case": "TC-8", "attempt_id": "a1", "unprepared": {"not_walked": "x"}}],
+                     {"status": "completed"}, False),
+                    ("mixed story, the automated half broke (not_run)", [broken], [manual_row], {"status": "completed"}, True),
+                    ("no target a role can triage", [], [], {"status": "completed"}, True),
+                    ("S6 not finished", [], [manual_row], {"status": "running"}, True)):
+                report = {"execution_status": "not_executed", "current_results": results, "current_manual_checks": manual}
+                (art / "work" / "run-report.json").write_text(json.dumps(report), encoding="utf-8")
+                CTL.Controller = lambda _root, said=stage: type("S", (), {"state": lambda self: {"stages": {"S6": said}}})()
+                said = D.run_reasons(art)
+                check_eq(f"U7 7a: {label} -> {'run_not_deliverable refusal stands' if refused else 'no run reason'}", bool(said), refused)
+                if refused:
+                    check_in(f"U7 7a: {label}: the refusal is today's text", "only ['passed', 'failed'] can deliver", "\n".join(said))
+        finally:
+            CTL.Controller = real_controller
+        report = C.load_json(GOOD / "work" / "run-report.json")
         report["execution_status"] = "passed"
         (art / "work" / "run-report.json").write_text(json.dumps(report), encoding="utf-8")
 

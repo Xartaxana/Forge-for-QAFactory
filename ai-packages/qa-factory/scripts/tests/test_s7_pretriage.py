@@ -572,7 +572,94 @@ def the_whole_sentence_is_what_the_live_writer_produces() -> None:
         scaffold.cleanup(t)
 
 
+def triageable_not_executed_table() -> None:
+    """U7 7a (N2): the ONE predicate S7's entry and delivery's `run_reasons` both read. One row per rule 1-5 and per adversarial
+    input; the controller is a stand-in for the S6 stage record (`s6_closed_by_code`'s own read is pinned in test_story_run_s7 K10)."""
+    import controller as CTL
+    ghost = result("t_ghost", "not_run", current_reason="instance_manifest_join_failed")
+    passed = result("t_ok", "passed")
+    unprepared = check_row("TC-8", "", unprepared={"not_walked": "no capture surface here"})
+    noted = check_row("TC-7", "pass", observations=[{"text": "the badge looked off"}])
+
+    def rep(results=(), manual=(), **over) -> dict:
+        return dict(report(results, manual), execution_status="not_executed", **over)
+
+    class Stage:
+        def __init__(self, stage):
+            self.stage = stage
+
+        def __call__(self, _root):
+            return self
+
+        def state(self):
+            if isinstance(self.stage, Exception):
+                raise self.stage
+            return {"stages": {"S6": self.stage}}
+
+    done = {"status": "completed"}
+    rows = [
+        # (label, report, S6 record, awaiting, expected)
+        ("rule 5: a manual inconclusive only", rep(manual=[check_row("TC-9")]), done, "", True),
+        ("rule 5: an unprepared walk only", rep(manual=[unprepared]), done, "", True),
+        ("rule 5: a green check that carries an observation only", rep(manual=[noted]), done, "", True),
+        ("rule 4+3: a passed automated row and a passed manual row beside the inconclusive one",
+         rep([passed], [check_row("TC-1", "pass"), check_row("TC-9")]), done, "", True),
+        ("rule 3: a join-failed ghost is excluded as the reducer excludes it", rep([ghost, passed], [check_row("TC-9")]), done, "", True),
+        ("rule 1: execution_status failed", dict(rep(manual=[check_row("TC-9")]), execution_status="failed"), done, "", False),
+        ("rule 1: execution_status passed", dict(rep(manual=[check_row("TC-9")]), execution_status="passed"), done, "", False),
+        ("rule 1: execution_status broken_run (an S6 halt)", dict(rep(manual=[check_row("TC-9")]), execution_status="broken_run"), done, "", False),
+        ("rule 1: a report that is not an object", [1, 2], done, "", False),
+        ("rule 2: S6 running, nothing awaits", rep(manual=[check_row("TC-9")]), {"status": "running"}, "", False),
+        ("rule 2: S6 has no record", rep(manual=[check_row("TC-9")]), {}, "", False),
+        ("rule 2: S6 running but its runner dispatch awaits its consumer", rep(manual=[check_row("TC-9")]), {"status": "running"}, "S6-runner-1", True),
+        ("rule 2: the controller raises", rep(manual=[check_row("TC-9")]), OSError("no state"), "", False),
+        ("rule 3: a mixed story - an automated not_run beside the inconclusive", rep([result("t_a", "not_run")], [check_row("TC-9")]), done, "", False),
+        ("rule 3: an automated partial", rep([result("t_a", "partial")], [check_row("TC-9")]), done, "", False),
+        ("rule 3: an automated skipped", rep([result("t_a", "skipped")], [check_row("TC-9")]), done, "", False),
+        ("rule 3: a manual pass beside an automated not_run, no manual target", rep([result("t_a", "not_run")], [check_row("TC-1", "pass")]), done, "", False),
+        ("rule 3: current_results is not a list", rep(manual=[check_row("TC-9")], current_results="x"), done, "", False),
+        ("rule 3: an automated row that is not an object", rep(["x"], [check_row("TC-9")]), done, "", False),
+        ("rule 4: a manual row with no result and no unprepared", rep(manual=[check_row("TC-9"), check_row("TC-6", "")]), done, "", False),
+        ("rule 4: an observation on a row with no result is no passed row", rep(manual=[check_row("TC-6", "", observations=[{"text": "x"}])]), done, "", False),
+        ("rule 4: current_manual_checks is not a list", rep(current_manual_checks="x"), done, "", False),
+        ("rule 4: a manual row that is not an object", rep(manual=["x", check_row("TC-9")]), done, "", False),
+        ("rule 5: zero rows", rep(), done, "", False),
+        ("rule 5: only passed manual rows, nothing to triage", rep([passed], [check_row("TC-1", "pass")]), done, "", False),
+    ]
+    saved = CTL.Controller
+    try:
+        for label, rep_, stage, awaiting, want in rows:
+            task = a_task(rep_)
+            try:
+                CTL.Controller = Stage(stage)
+                check_eq(f"triageable_not_executed - {label} -> {want}", S.triageable_not_executed(task, awaiting=awaiting), want)
+            finally:
+                cleanup(task)
+        task = a_task(None)
+        try:
+            CTL.Controller = Stage(done)
+            check_eq("triageable_not_executed - rule 1: no run report -> False", S.triageable_not_executed(task), False)
+        finally:
+            cleanup(task)
+        task = a_task("{broken")
+        try:
+            check_eq("triageable_not_executed - rule 1: a report that is not JSON -> False", S.triageable_not_executed(task), False)
+        finally:
+            cleanup(task)
+        task = a_task(rep(manual=[check_row("TC-9")]))
+        try:
+            before = (task / "work" / "run-report.json").read_bytes()
+            S.triageable_not_executed(task)
+            check_eq("triageable_not_executed - reads only: the report is byte for byte as it was (execution_status is never rewritten)",
+                     (task / "work" / "run-report.json").read_bytes(), before)
+        finally:
+            cleanup(task)
+    finally:
+        CTL.Controller = saved
+
+
 def main() -> None:
+    triageable_not_executed_table()
     k1_the_decision_table()
     k2_the_adversarial_battery()
     k3_a_code_row_binds_to_exactly_its_failure()

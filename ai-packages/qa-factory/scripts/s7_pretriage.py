@@ -318,6 +318,58 @@ def s6_closed_by_code(task_root) -> bool:
     return stage.get("status") == "completed" and stage.get("code_only") is True
 
 
+def triageable_not_executed(task_root, *, awaiting: str = "") -> bool:
+    """Is this `not_executed` report one a ROLE can triage - the ONE home read by S7's entry (`failures_to_triage`) and by
+    delivery's twin (`check_delivery.run_reasons`), AR-13/AR-19 (U7 7a, B-006 ii)? True only when ALL hold:
+      1. `work/run-report.json` reads as an object and its `execution_status` is `not_executed`;
+      2. S6 FINISHED: the controller's `stages.S6.status` is `completed` (read as `s6_closed_by_code` reads it), or `awaiting`
+         is non-empty (S6's runner dispatch awaits its consumer; `stage_S7` already holds that word);
+      3. every deciding automated row (`current_results`, join-failed ghosts excluded exactly as the reducer excludes them)
+         reads `passed`;
+      4. every current manual check reads `passed` or is a manual triage target of `contract.triage_targets` (a failure
+         result, an `inconclusive`, an `unprepared` walk);
+      5. at least one manual target or one observation exists - otherwise there is nothing for a role to triage.
+    What this is NOT: a halted run, a mixed story whose automated half broke (`not_run`, `partial`, `skipped`), a manual row
+    with no result and no `unprepared`, a report with no rows. `execution_status` is never rewritten, and code never turns an
+    unread row into `passed` (FR-58).
+    ERROR DIRECTION: toward False (S7 refuses, delivery says `no`); any exception, unreadable controller or unreadable report is
+    False, so a doubt never admits a row no role can triage (AR-28)."""
+    try:
+        task = Path(task_root)
+        report = json.loads((task / REPORT_REL).read_text(encoding="utf-8-sig"))
+        if not isinstance(report, dict) or report.get("execution_status") != "not_executed":
+            return False
+        if not awaiting:
+            from controller import Controller
+            stage = (Controller(task).state().get("stages") or {}).get("S6") or {}
+            if stage.get("status") != "completed":
+                return False
+        import finalize_task
+        automated, manual = report.get("current_results"), report.get("current_manual_checks")
+        if not isinstance(automated, list) or not isinstance(manual, list):
+            return False
+        for row in automated:
+            if not isinstance(row, dict):
+                return False
+            if str(row.get("current_reason") or "") == finalize_task.JOIN_FAILED:
+                continue
+            if C.result_status(row) != "passed":
+                return False
+        target = False
+        for row in manual:
+            if not isinstance(row, dict):
+                return False
+            seen = C.triage_targets({"current_manual_checks": [row]})
+            if seen["manual"] or seen["unnamed_manual"]:
+                target = True
+            elif C.result_status({"status": row.get("result") or row.get("status")}) != "passed":
+                return False
+            target = target or bool(seen["observations"])
+        return target
+    except Exception:
+        return False
+
+
 def pretriage(task_root) -> dict:
     """Read the run report, the manifest and the triage of one task; write the code rows `decide` asks for, once and
     atomically (`atomic_json`); say what is left. Idempotent: a second call finds the rows it wrote answering their
