@@ -1,12 +1,7 @@
 {
  "_about": "The label ledger of the walk group gates (rows of exits/gates.json only), read by known_red.py through test_scenario_dry_1.py --part exits:gates; `pins.known_red` is the number of rows.",
- "known_red": {
-  "gate_A/stop": {
-   "node": "FV3-16",
-   "raised_by": "product gap (critic t-1077): an answer take_answer has read whose branch raises a Person (here the held stop question, driver_machine.py:2395-2397) leaves no driver-answers.jsonl row: record_answer_row runs only at the end of take_answer (driver_machine.py:3614) and the run-level handler settles only a Refusal (:2033-2040), not a Person (:2031-2032); same class as FV3-16"
-  }
- },
+ "known_red": {},
  "pins": {
-  "known_red": 1
+  "known_red": 0
  }
 }
