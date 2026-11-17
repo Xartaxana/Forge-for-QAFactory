@@ -88,7 +88,7 @@
   },
   {
    "id": "s6.stand_confirm/go on",
-   "start": "S5",
+   "start": "S6",
    "seed": "to-s6.stand_confirm",
    "answer": {
     "token": "go on",
@@ -105,7 +105,7 @@
   },
   {
    "id": "s6.stand_confirm/free words",
-   "start": "S5",
+   "start": "S6",
    "seed": "to-s6.stand_confirm",
    "answer": {
     "token": null,
@@ -122,7 +122,7 @@
   },
   {
    "id": "s6.stand_confirm/empty",
-   "start": "S5",
+   "start": "S6",
    "seed": "to-s6.stand_confirm",
    "answer": {
     "token": null,
@@ -138,7 +138,7 @@
   },
   {
    "id": "s6.stand_confirm.login/retry",
-   "start": "S5",
+   "start": "S6",
    "seed": "to-s6.stand_confirm.login",
    "answer": {
     "token": "retry",
@@ -155,7 +155,7 @@
   },
   {
    "id": "s6.stand_confirm.login/go on",
-   "start": "S5",
+   "start": "S6",
    "seed": "to-s6.stand_confirm.login",
    "answer": {
     "token": "go on",
@@ -172,7 +172,7 @@
   },
   {
    "id": "s6.stand_confirm.login/free words",
-   "start": "S5",
+   "start": "S6",
    "seed": "to-s6.stand_confirm.login",
    "answer": {
     "token": null,
@@ -189,7 +189,7 @@
   },
   {
    "id": "s6.stand_confirm.login/empty",
-   "start": "S5",
+   "start": "S6",
    "seed": "to-s6.stand_confirm.login",
    "answer": {
     "token": null,
