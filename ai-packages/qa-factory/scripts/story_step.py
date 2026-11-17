@@ -222,7 +222,8 @@ JUDGE_GUIDANCE = {
                           "asks of such a red.",
     "qa-bug-reporter": "Judge: work/judge-bugs.json pairs each draft with the existing bugs it may duplicate and "
                        "scores its priority from the damage line. A duplicate is a proposal to the person, never "
-                       "a reason to drop a draft they chose.",
+                       "a reason to drop a draft they chose. `unreadable_bug_homes` and `pairs_dropped` name what it "
+                       "could not compare: say so, never read it as no duplicate.",
     "qa-retro-analyst": "Judge: for a recurring trap you are about to fold, `python "
                         "<plugin>/scripts/judge_results.py --trap \"<the paragraph>\"` says which document owns "
                         "it (test-strategy / framework-rules / faq / none). Audit A21 fails a section written to "

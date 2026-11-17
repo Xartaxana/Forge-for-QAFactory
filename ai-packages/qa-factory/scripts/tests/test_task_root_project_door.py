@@ -12,7 +12,6 @@ from harness import SCRIPTS, check_eq, cleanup, finish, temp_dir, temp_project  
 sys.path.insert(0, str(SCRIPTS))
 import branch_accounting  # noqa: E402
 import judge_diff  # noqa: E402
-import judge_results  # noqa: E402
 import walk_timing  # noqa: E402
 
 
@@ -32,7 +31,6 @@ def _diff_task(home: Path, task: Path):
 
 # site -> (what it derives from a story folder, expected from (home, project))
 SITES = {
-    "judge_results._project_bugs_dir:275": (lambda t: judge_results._project_bugs_dir(t), lambda h, p: h / "bugs", None),
     "judge_diff._diff_files:68": (lambda t: judge_diff._diff_files({"implementations": [{"diff_path": "d/x.diff"}]}, t),
                                   lambda h, p: [h / "d" / "x.diff"], _diff_task),
     "walk_timing.walk_report:171": (lambda t: walk_timing._home_and_project(t), lambda h, p: (h, p), None),
@@ -64,7 +62,6 @@ def main() -> None:
     try:
         lone = (bare / "a" / "b" / "STORY-T217").resolve()
         lone.mkdir(parents=True)
-        check_eq("t-217 (no project) judge_results: two levels up", judge_results._project_bugs_dir(lone), lone.parent.parent / "bugs")
         check_eq("t-217 (no project) walk_timing: parents 1 and 2", walk_timing._home_and_project(lone), (lone.parents[1], lone.parents[2]))
         check_eq("t-217 (no project) branch_accounting: two levels up", branch_accounting.story_home(lone), lone.parents[1])
     finally:

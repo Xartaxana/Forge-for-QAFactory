@@ -157,27 +157,28 @@ def _listing(directory: Path | None, pattern: str, not_bug_pattern: str | None =
         return True, [], [], f"cannot list: {exc}"
 
 
-def filed_bug_listing(task_root, project_root=None) -> tuple:
-    """`(paths, unreadable)`: every filed BUG file a duplicate check compares a draft against (AR-13: the one reader of
-    the bug folders). Order: this story's `<task>/bugs/`, then the project home `<project>/qa-factory/bugs/`, then
-    every OTHER story's `bugs/` folder under this story's artifact root (sorted by story name); each folder in the
-    natural order of `_listing`. A path met twice (resolved) is returned once; two same-name files of two homes are
-    both returned. A folder that is absent adds nothing; one that cannot be listed (or the artifact root, when it
-    cannot be listed) adds a `"<where>: cannot list: <reason>"` line to `unreadable`, never an empty read (FR-59)."""
+def filed_bug_tiers(task_root, project_root=None) -> tuple:
+    """`(tiers, unreadable)`: the filed BUG files a duplicate check compares a draft against (AR-13: the one reader of
+    the bug folders), as THREE tiers in this order: [0] this story's `<task>/bugs/`, [1] the project home
+    `<project>/qa-factory/bugs/`, [2] every OTHER story's `bugs/` folder under this story's artifact root (only a
+    folder that is a story by `_story_exists`, sorted by name). Inside a tier the natural order of `_listing`. A path met
+    twice (resolved) is kept once, in its first tier; two same-name files of two homes are both kept. A folder that is
+    absent adds nothing; one that cannot be listed (or the artifact root, when it cannot be listed) adds a
+    `"<where>: cannot list: <reason>"` line to `unreadable`, never an empty read (FR-59)."""
     task = Path(task_root).resolve()
-    homes = [("story", task / "bugs"), ("project", _project_home(task, project_root))]
+    homes = [(0, "story", task / "bugs"), (1, "project", _project_home(task, project_root))]
     unreadable: list = []
     try:
         siblings = sorted(p.name for p in task.parent.iterdir()
-                          if p.is_dir() and p.name.casefold() != task.name.casefold())
+                          if p.is_dir() and p.name.casefold() != task.name.casefold() and _story_exists(task.parent, p.name))
     except OSError as exc:
         siblings = []
         if task.parent.is_dir():
             unreadable.append(f"stories folder: cannot list: {exc}")
-    homes += [(f"story {name}", task.parent / name / "bugs") for name in siblings]
-    paths: list = []
+    homes += [(2, f"story {name}", task.parent / name / "bugs") for name in siblings]
+    tiers: list = [[], [], []]
     seen: set = set()
-    for label, home in homes:
+    for tier, label, home in homes:
         _, files, _, error = _listing(home, BUG_GLOB)
         if error:
             unreadable.append(f"{label}: {error}")
@@ -185,8 +186,14 @@ def filed_bug_listing(task_root, project_root=None) -> tuple:
             key = path.resolve()
             if key not in seen:
                 seen.add(key)
-                paths.append(path)
-    return paths, unreadable
+                tiers[tier].append(path)
+    return tiers, unreadable
+
+
+def filed_bug_listing(task_root, project_root=None) -> tuple:
+    """`(paths, unreadable)`: `filed_bug_tiers` with the three tiers laid end to end (this story, project home, others)."""
+    tiers, unreadable = filed_bug_tiers(task_root, project_root)
+    return [p for tier in tiers for p in tier], unreadable
 
 
 # ----------------------------------------------------------------- the drafts of a story (G1-9, t-1078)

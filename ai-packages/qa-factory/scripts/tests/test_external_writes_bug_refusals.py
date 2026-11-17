@@ -138,6 +138,14 @@ def test_refusals_in_front_of_the_transport(rig: Rig) -> None:
     rig.write(bug_file="bugs/BUG-5.md")
     check_eq("T6b: a file only in the state directory still resolves (E5, an older proposal)",
              [row[0] for row in rig.run()], ["OK"])
+    # C1-5: the factory's own layout: the proposal in `<task root>/work/proposals/` is resolved against the TASK ROOT
+    layout = rig.root / "qa-factory" / "artifacts" / "T" / "work" / "proposals"
+    layout.mkdir(parents=True)
+    (rig.root / "qa-factory" / "artifacts" / "T" / "bugs").mkdir()
+    (rig.root / "qa-factory" / "artifacts" / "T" / "bugs" / "BUG-1.md").write_text("# BUG-1 of T\n", encoding="utf-8")
+    check_eq("T6b: the factory layout (<task root>/work/proposals): the file of THAT story, not the state directory's",
+             EW.resolve_bug_file(layout / "bug-1.json", "bugs/BUG-1.md"),
+             rig.root.resolve() / "qa-factory" / "artifacts" / "T" / "bugs" / "BUG-1.md")
     rig.calls.clear()    # the three runs above delivered (fake invoke); the rows below count calls from zero
 
     # 7. "comment needs an external_id (create the bug first)"
