@@ -35,6 +35,138 @@
   "critic_rollcall:*": {
    "reach": "live_only",
    "why_unreached": "the family refuses the critic's handoff inside a stage turn (S2-S4); the walker reads the refusal line of the answer turns only (dry_world.py run_exit_row), so a seed turn's refusal is not observed"
+  },
+  "controller:s3_plan": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "coverage_contract:obligations": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "coverage_contract:obligations.observation": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "planning_contract:branches": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "planning_contract:branches.new_questions": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "planning_contract:contradictions": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "planning_contract:fence.candidate_defects": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "planning_contract:fence.plan_row": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "planning_contract:fence.r_column": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "planning_contract:fence.waiting_branch": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "planning_contract:plan": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "planning_contract:plan_json": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "planning_contract:regression": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "planning_contract:requests": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "planning_contract:targets": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:context_bundle.py": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:critic_rollcall.py --store": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:grounding_section.py": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:plan_row.py": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_behaviour_claims": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_case": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_case_form": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_cell_counts": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_context_manifest_v0": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_delta_column": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_manifest_reuse": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_phase_json.context-manifest.json": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_plan": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_plan_v0": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_register": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_requirements_review": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_then_oracles": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_understanding": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
   }
  },
  "kinds_without_key": {
@@ -87,7 +219,40 @@
    "live_only | kinds_without_key/s1_gap | N4:s1-s4 t-827, census row",
    "live_only | walk/route:s1_gap/code move | N4:s1-s4 t-827, walk row",
    "live_only | walk/route:s1_review/code move | N4:s1-s4 t-827, walk row",
-   "live_only | walk/route:structured_artifact/code move | N4:s1-s4 t-827, walk row"
+   "live_only | walk/route:structured_artifact/code move | N4:s1-s4 t-827, walk row",
+   "unwalked | joints/controller:s3_plan | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/coverage_contract:obligations | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/coverage_contract:obligations.observation | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/planning_contract:branches | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/planning_contract:branches.new_questions | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/planning_contract:contradictions | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/planning_contract:fence.candidate_defects | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/planning_contract:fence.plan_row | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/planning_contract:fence.r_column | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/planning_contract:fence.waiting_branch | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/planning_contract:plan | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/planning_contract:plan_json | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/planning_contract:regression | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/planning_contract:requests | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/planning_contract:targets | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:context_bundle.py | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:critic_rollcall.py --store | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:grounding_section.py | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:plan_row.py | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_behaviour_claims | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_case | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_case_form | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_cell_counts | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_context_manifest_v0 | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_delta_column | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_manifest_reuse | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_phase_json.context-manifest.json | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_plan | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_plan_v0 | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_register | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_requirements_review | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_then_oracles | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_understanding | L1c census catch-up, 2026-11-17"
   ]
  }
 }
