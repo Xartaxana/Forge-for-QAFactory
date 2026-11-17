@@ -580,6 +580,7 @@ def triageable_not_executed_table() -> None:
     passed = result("t_ok", "passed")
     unprepared = check_row("TC-8", "", unprepared={"not_walked": "no capture surface here"})
     noted = check_row("TC-7", "pass", observations=[{"text": "the badge looked off"}])
+    unread = result("t_u", "not_run", reason_code=C.REPORT_UNREAD_CODE)
 
     def rep(results=(), manual=(), **over) -> dict:
         return dict(report(results, manual), execution_status="not_executed", **over)
@@ -623,6 +624,9 @@ def triageable_not_executed_table() -> None:
         ("rule 4: an observation on a row with no result is no passed row", rep(manual=[check_row("TC-6", "", observations=[{"text": "x"}])]), done, "", False),
         ("rule 4: current_manual_checks is not a list", rep(current_manual_checks="x"), done, "", False),
         ("rule 4: a manual row that is not an object", rep(manual=["x", check_row("TC-9")]), done, "", False),
+        ("7b-A rules 3+5: one unread (coded not_run) row only", rep([unread]), done, "", True),
+        ("7b-A rule 5: the code on a passed row is no target", rep([result("t_u", "passed", reason_code=C.REPORT_UNREAD_CODE)]), done, "", False),
+        ("7b-A rule 3: a not_run without the code beside an unread one", rep([unread, result("t_a", "not_run")]), done, "", False),
         ("rule 5: zero rows", rep(), done, "", False),
         ("rule 5: only passed manual rows, nothing to triage", rep([passed], [check_row("TC-1", "pass")]), done, "", False),
     ]
@@ -650,7 +654,32 @@ def triageable_not_executed_table() -> None:
         CTL.Controller = saved
 
 
+def build_run_block_codes_only_a_run_that_read_nothing() -> None:
+    """U7 7b-A (F1): a run block row is coded `report_unread` only when the run reported nothing it could read and exited 0;
+    every other summary leaves it uncoded (the refusal and `no` stay), and a project timeout wins over the code."""
+    import run_suite as RS
+    run_none = {"exit_code": 0, "reporter": "none", "no_junitxml": "nothing to parse", "execution_status": "not_executed"}
+    other = {"test_id": "mod::t_other", "status": "passed"}
+    rows = [
+        ("not_executed + reporter none, exit 0", run_none, C.REPORT_UNREAD_CODE),
+        ("an inconclusive run", dict(run_none, execution_status="inconclusive"), ""),
+        ("a broken_run (exit != 0)", dict(run_none, exit_code=1, execution_status="broken_run"), ""),
+        ("a project timeout wins", dict(run_none, timeout={"how": "failed_in_report", "tests": ["mod::t_u"]}), RS.PROJECT_TIMEOUT_CODE),
+        ("a node-id block", dict(run_none, blocked=RS.NODE_ID_BLOCK), ""),
+        ("a declared reporter whose file is missing", dict(run_none, reporter="junit-xml"), ""),
+        ("an inferred reporter", dict(run_none, reporter="pytest", reporter_inferred_from="cure-row"), ""),
+        ("a report row exists (another test)", dict(run_none, results=[other]), ""),
+    ]
+    for label, summary, want in rows:
+        block = RS.build_run_block({"selected_instance_ids": ["t_u"], "instance_contracts": {"t_u": {"report_test_id": "mod::t_u"}}},
+                                   summary, "a1")
+        row = block["results"][0]
+        check_eq(f"build_run_block - {label}: status not_run, reason_code {want!r}", (row["status"], row.get("reason_code", "")),
+                 ("not_run", want))
+
+
 def main() -> None:
+    build_run_block_codes_only_a_run_that_read_nothing()
     triageable_not_executed_table()
     k1_the_decision_table()
     k2_the_adversarial_battery()

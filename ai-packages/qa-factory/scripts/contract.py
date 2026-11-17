@@ -4446,6 +4446,27 @@ def _link_values(entry: dict) -> list:
     return [link.get("case_id") if isinstance(link, dict) else link for link in links]
 
 
+def _result_row_keys(row: dict, cfg) -> list:
+    """The keys one result row is stored under in `run_results` - the ONE key expression, shared with `unread_case_reading`
+    (U7 7b-A N2, AR-13), area-alias drop included."""
+    # `case_version_links` as well as `case`: Since 0.7.7 an instance id spells no case,
+    # so a consolidated result row's only statement about TC-004 is its links, and a
+    # projection reading `case` alone would report that case as never executed.
+    # D2-B3 (E-B3, AR-13, AR-28): the bare id an AREA row names is an ALIAS and a bare key matches any area, so it is
+    # NOT stored (the red of `api/TC-4` would read as the result of `web/TC-4`); readers go through `case_lookup`. A source
+    # that names no area (a bare row, a compound cell) keeps its plain key as before.
+    area_of = {}
+    for source in (row.get("case"), *_link_values(row)):
+        ids = case_ids(source, cfg=cfg)
+        area = _split_case_key(source, cfg)[0] if len(ids) == 1 else ""
+        for one in ids:
+            area_of.setdefault(one, area)
+    keys = (*case_ids(row.get("case"), cfg=cfg), row.get("case"), result_id(row), *manifest_test_links(row, cfg),
+            *(v for v in _link_values(row) if v and _split_case_key(v, cfg)[0]))      # a link that spells its area stays a key
+    # the bare id of an AREA row is no key at all (D2-B3, Lead Q1 a): readers go through `case_lookup`
+    return [str(key) for key in keys if key and not area_of.get(str(key))]
+
+
 def run_results(report: dict, cfg=None) -> dict:
     """Legacy test/case -> conservative status projection.
 
@@ -4457,26 +4478,7 @@ def run_results(report: dict, cfg=None) -> dict:
     grouped: dict = {}
     for row in current_instance_results(report).values():
         status = result_status(row)
-        # `case_version_links` as well as `case`: Since 0.7.7 an instance id spells no case,
-        # so a consolidated result row's only statement about TC-004 is its links, and a
-        # projection reading `case` alone would report that case as never executed.
-        # D2-B3 (E-B3, AR-13, AR-28): the bare id an AREA row names is an ALIAS and a bare key matches any area, so it is
-        # NOT stored (the red of `api/TC-4` would read as the result of `web/TC-4`); readers go through `case_lookup`. A source
-        # that names no area (a bare row, a compound cell) keeps its plain key as before.
-        area_of = {}
-        for source in (row.get("case"), *_link_values(row)):
-            ids = case_ids(source, cfg=cfg)
-            area = _split_case_key(source, cfg)[0] if len(ids) == 1 else ""
-            for one in ids:
-                area_of.setdefault(one, area)
-        keys = (*case_ids(row.get("case"), cfg=cfg), row.get("case"), result_id(row), *manifest_test_links(row, cfg),
-                *(v for v in _link_values(row) if v and _split_case_key(v, cfg)[0]))      # a link that spells its area stays a key
-        for key in keys:
-            if not key:
-                continue
-            key = str(key)
-            if area_of.get(key):
-                continue        # the bare id of an AREA row is no key at all (D2-B3, Lead Q1 a): readers go through `case_lookup`
+        for key in _result_row_keys(row, cfg):
             grouped.setdefault(key, []).append(status)
     current_manual = {}
     for row in (report.get("current_manual_checks") if isinstance(report.get("current_manual_checks"), list)
@@ -4592,6 +4594,16 @@ def same_id(a, b) -> bool:
     return bool(a and b) and (a == b or b in id_spellings(a) or a in id_spellings(b))
 
 
+REPORT_UNREAD_CODE = "report_unread"    # `run_suite.build_run_block` writes it, `triage_targets` reads it: ONE definition (AR-13)
+
+
+def _result_names(row: dict) -> list:
+    """The names a triage row answers a result row by: instance_id, test_instance_id, test_id, test - non-empty, in that
+    order (the one list behind `triage_targets` and the unread loop of `triage_failures`, N3)."""
+    names = [str(row.get(key) or "").strip() for key in ("instance_id", "test_instance_id", "test_id", "test")]
+    return [name for name in names if name]
+
+
 def triage_targets(report) -> dict:
     """The ONE definition of "a failure that needs triage", read from a run report (t-309).
 
@@ -4622,6 +4634,7 @@ def triage_targets(report) -> dict:
                  AR-27) one `<case>#sur-<id>` per entry of the check's `surprises[]` that no observation cites with `"surprise": "<id>"`,
                  the first `surprise.max_per_attempt` of them, and ONE `<case>#sur-overflow` for the rest (`_surprise_split`); a check
                  with no `surprises` yields what it did before. Code lists the lines; whether one is a bug is the analyst's (AR-29).
+    `unread` (U7 7b-A) names[0] of each `not_run` result row coded `reason_code: report_unread`; not in `names`.
     A manual check with no `case` and no `instance_id` is named by its `test` when it has one. A report with
     no `current_results` LIST (a legacy one with `results[]`) is read through `current_instance_results`, the
     contract's own projection; a `current_results` list, even an empty one, always wins over the legacy
@@ -4629,13 +4642,26 @@ def triage_targets(report) -> dict:
     that is not an object, or a list of checks that is not a list, yields empty sets (the caller's own shape
     check says so); a row that is not an object is ignored."""
     out = {"all": set(), "results": set(), "manual": set(), "unnamed": set(), "unnamed_manual": set(),
-           "names": [], "observations": set()}
+           "names": [], "observations": set(), "unread": set()}
     if not isinstance(report, dict):
         return out
     results = report.get("current_results")
     if not isinstance(results, list):
         results = list(current_instance_results(report).values())
     for index, row in enumerate(results):
+        # U7 7b-A: a `not_run` row the producer coded `report_unread` (the run reported nothing it could read and exited 0)
+        # is a target of the failure analyst's reading, kind `unread`; it is NOT in `names` (`triage_failures` makes it its own
+        # kind). A code on any other status, or a nameless coded row (a note), adds nothing else.
+        if isinstance(row, dict) and result_status(row) == "not_run" \
+                and str(row.get("reason_code") or "") == REPORT_UNREAD_CODE:
+            names = _result_names(row)
+            if names:
+                out["unread"].add(names[0])
+                for name in names:
+                    out["all"] |= id_spellings(name)
+            else:
+                out["unnamed"].add(f"unread result row #{index + 1} has no instance_id, test_instance_id, test_id or test")
+            continue
         if not isinstance(row, dict) or result_status(row) not in ("failed", "error"):
             continue
         # t-323 A1 (critic t-322 probe 2) + BL-2 (critic t-327): the names a triage row is matched against are the
@@ -4643,8 +4669,7 @@ def triage_targets(report) -> dict:
         # `{case: C1}` would answer `t::a` and `t::b` both; and a failed result row that carries only a `case` has no
         # name a row could answer to - it is a failure with no id (fail-closed: S7 and gate B refuse it through
         # `unnamed`), never a failure named by its case.
-        names = [str(row.get(key) or "").strip() for key in ("instance_id", "test_instance_id", "test_id", "test")]
-        names = [name for name in names if name]
+        names = _result_names(row)
         if not names:
             out["unnamed"].add(f"failed result row #{index + 1} has no instance_id, test_instance_id, test_id or test")
             continue
@@ -4695,7 +4720,7 @@ def triage_failures(report) -> tuple:
     """`({(kind, name): {"names": [...], "attempts": {...}}}, [notes])` - every failure that needs a verdict, as
     `triage_targets` reads it, ready for `bind_triage` (t-323 A1: moved here from `check_delivery`, so every reader
     binds the same units).
-    `kind` is `result`, `manual` or `observation` (P26: one per `<case>#obs<n>` of a manual check, whatever its result, and, X8-3,
+    `kind` is `result`, `manual`, `unread` (U7 7b-A: a coded `report_unread` result row) or `observation` (P26: one per `<case>#obs<n>` of a manual check, whatever its result, and, X8-3,
     one per uncited surprise line `<case>#sur-<id>` plus the `<case>#sur-overflow` of the lines past the cap);
     `name` is the failure's first name; `names` every name a row may answer it by
     (merged over the rows that share the key); `ids` the subset the EXACT step of `bind_triage` reads - a result
@@ -4724,16 +4749,22 @@ def triage_failures(report) -> tuple:
         if old:
             got["old"].add(attempt)
 
+    def add_result(kind: str, names: list, row: dict) -> None:
+        attempt = str(row.get("attempt_id") or "").strip()
+        ident = str(row.get("instance_id") or row.get("test_instance_id") or "").strip() or test_instance_id(row)
+        recorded = [r for r in history.get(ident, []) if isinstance(r, dict) and not r.get("stale")]
+        latest = str(recorded[-1].get("attempt_id") or "").strip() if recorded else ""
+        # t-323 F7: the instance ids alone - a result row's `test` is the base its siblings share, so the EXACT
+        # step of `bind_triage` never binds by it
+        ids = [str(row.get(key) or "").strip() for key in ("instance_id", "test_instance_id", "test_id")]
+        add(kind, names, [i for i in ids if i], attempt, old=bool(attempt and latest and attempt != latest))
+
     for row in report["current_results"]:
-        for names in triage_targets({"current_results": [row]})["names"]:
-            attempt = str(row.get("attempt_id") or "").strip()
-            ident = str(row.get("instance_id") or row.get("test_instance_id") or "").strip() or test_instance_id(row)
-            recorded = [r for r in history.get(ident, []) if isinstance(r, dict) and not r.get("stale")]
-            latest = str(recorded[-1].get("attempt_id") or "").strip() if recorded else ""
-            # t-323 F7: the instance ids alone - a result row's `test` is the base its siblings share, so the EXACT
-            # step of `bind_triage` never binds by it
-            ids = [str(row.get(key) or "").strip() for key in ("instance_id", "test_instance_id", "test_id")]
-            add("result", names, [i for i in ids if i], attempt, old=bool(attempt and latest and attempt != latest))
+        seen = triage_targets({"current_results": [row]})
+        for names in seen["names"]:
+            add_result("result", names, row)
+        if seen["unread"]:      # U7 7b-A: kind `unread`, named by the same four keys as the target reader (N3), never the first alone
+            add_result("unread", _result_names(row), row)
     manual = report.get("current_manual_checks") or report.get("manual_checks")
     for row in manual if isinstance(manual, list) else []:
         for names in triage_targets({"current_manual_checks": [row]})["names"]:
@@ -4817,8 +4848,55 @@ def bind_triage(failures: dict, rows: list) -> dict:
     for key, bound in matched.items():
         named = [r for r in bound if str(r.get("attempt_id") or "").strip() in failures[key]["attempts"]]
         matched[key] = named or bound
-    multiple = {key: rows_ for key, rows_ in matched.items() if key[0] == "result" and len(rows_) > 1}
+    multiple = {key: rows_ for key, rows_ in matched.items() if key[0] in ("result", "unread") and len(rows_) > 1}
     return {"matched": matched, "ambiguous": ambiguous, "ambiguous_rows": ambiguous_rows, "multiple": multiple}
+
+
+def unread_readings(report, rows) -> dict:
+    """`{instance name: verdict}` for every `unread` failure of `report` (`triage_failures`): the verdict of its ONE bound row
+    (`bind_triage`), `""` when no row, several rows or an ambiguous row answers it. Never raises (a doubt is `{}`). The one
+    join of a coded run row to the analyst's reading (U7 7b-A, AR-13)."""
+    try:
+        failures, _notes = triage_failures(report)
+        matched = bind_triage(failures, [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else [])["matched"]
+        return {key[1]: (str(found[0].get("verdict") or "").strip() if len(found) == 1 else "")
+                for key, found in matched.items() if key[0] == "unread"}
+    except Exception:
+        return {}
+
+
+def _reading_of(verdicts) -> str:
+    """The ONE rule that turns the readings of a set of unread instances into a word (N5, N7): `"red"` when ANY reading is a
+    verdict other than NOT_EXECUTED (a red is never hidden behind an unanswered sibling); else `"unanswered"` when some
+    reading is `""`; else `"read"` (every reading NOT_EXECUTED); `""` for no reading at all. Error direction: toward the
+    caller's `no`."""
+    verdicts = [str(v or "").strip() for v in verdicts]
+    if not verdicts:
+        return ""
+    if any(v and v != "NOT_EXECUTED" for v in verdicts):
+        return "red"
+    return "unanswered" if "" in verdicts else "read"
+
+
+def unread_case_reading(report, rows, case, cfg=None) -> str:
+    """The reading of one CASE over the current result rows that name it (`_result_row_keys` + `names_case`, the keys of
+    `run_results`): `""` when no row names it or ANY of them is not coded `report_unread` (a mixed case keeps its rolled-up
+    word); else `_reading_of` over each coded instance's own reading (`unread_readings`). `"read"` only when every instance
+    has its own NOT_EXECUTED row. Never raises."""
+    try:
+        cfg = _cfg_of(None, cfg)
+        readings, found = unread_readings(report, rows), []
+        for row in report.get("current_results") if isinstance(report.get("current_results"), list) else []:
+            if not isinstance(row, dict) or not names_case(_result_row_keys(row, cfg), case, cfg):
+                continue
+            coded = result_status(row) == "not_run" and str(row.get("reason_code") or "") == REPORT_UNREAD_CODE
+            names = _result_names(row)
+            if not coded:
+                return ""
+            found.append(readings.get(names[0], "") if names else "")
+        return _reading_of(found)
+    except Exception:
+        return ""
 
 
 OBSERVATION_TARGET_RE = re.compile(
