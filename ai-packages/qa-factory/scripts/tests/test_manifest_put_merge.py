@@ -1413,7 +1413,93 @@ def fv1_19e_projection_reads_the_currency() -> None:
                  (item["design_assessment"], item["code_validity"]), ("sufficient", "unverified"))
 
 
+def t5r_refusals(project: Path) -> dict:
+    """The first refusal each manifest_put row id writes, provoked on one input each: `{row id: the problem text or the exception}`."""
+    (project / "tests").mkdir(exist_ok=True)
+    (project / "tests" / "t.py").write_text("x = 1\n\n\ndef test_t():\n    assert 1 == 1\n", encoding="utf-8")
+    saved = C.unknown_obligation_ids, C.plan_obligation_ids
+    C.unknown_obligation_ids, C.plan_obligation_ids = (lambda ids, root: ["OB-1"]), (lambda root: ["TS-1-O1"])
+    try:
+        unknown = MP.unknown_obligation_refusal(project, {"obligation_bindings": [{"obligation_id": "OB-1"}]})
+    finally:
+        C.unknown_obligation_ids, C.plan_obligation_ids = saved
+    out: dict = {"manifest_put:unknown_obligation": unknown}
+    try:
+        MP._refuse_colliding_ids([{"instance_id": "t[a]", "file": "a.py"}, {"instance_id": "t[a]", "file": "b.py"}])
+    except ValueError as exc:
+        out["manifest_put:colliding_ids"] = exc
+    try:
+        MP._refuse_unmergeable({"revision": 2}, {"expected_revision": 1}, "T")
+    except MP._MergeRefused as exc:
+        out["manifest_put:revision"] = exc
+    sent = {"tests": [{"instance_id": "t", "novelty": "x", "base_outcome": {"outcome": "x"}, "obligation_hash": "h",
+                       "critic_verdict": "approved", "assertion_id": "tests/t.py:1"}]}
+    then_row = {"case": "TC-1", "then": 0, "instance_id": None, "status": "unresolved", "reason": C.HANDED_TO_PERSON}
+    for rid, got in (
+            ("novelty", MP.novelty_row_problems(sent)), ("base_outcome", MP.base_outcome_row_problems(sent)),
+            ("obligation_hash", MP.obligation_hash_problems(sent)),
+            ("helper_rows", MP.helper_row_problems({}, {"introduced_helpers": "x"})),
+            ("provisional", MP.provisional_row_problems({}, {"provisional": "x"})),
+            ("then_remainder", MP.then_remainder_problems(project, {"then_bindings": [then_row]})),
+            ("expectation_changes", MP.expectation_change_problems("x")), ("retract", MP.retract_problems({"retract": "x"})),
+            ("critic_approval", MP.critic_approval_problems(sent, [{"instance_id": "t", "critic_verdict": "unverified"}])),
+            ("assertion_line", MP.assertion_line_problems(sent, [], project)[0]),
+            ("ghost_rows", MP.ghost_row_problems({}, {"retracted_instances": ["a"], "then_bindings": [{"instance_id": "a"}]}, "T"))):
+        out[f"manifest_put:{rid}"] = got[0] if got else None
+    return out
+
+
+# (row id, the start of the text as the OLD file printed it, captured before the edit)
+T5R_OLD = [
+    ("colliding_ids", "two tests[] entries resolve to the instance id 't[a]' but name different files ('a.py', 'b.py')"),
+    ("revision", "manifest revision conflict: the fragment expects revision 1 and the manifest (merged events only) is at revision 2."),
+    ("novelty", "the `novelty` of t is not an object"),
+    ("base_outcome", "the `base_outcome` of t has `outcome` 'x', which is not one of refused, working and names no `run`"),
+    ("obligation_hash", "tests[0].obligation_hash h cannot be checked: the row names no obligation_refs; leave it out"),
+    ("helper_rows", "`introduced_helpers` is a list of rows with the fields file, name, novelty, purpose, searched"),
+    ("provisional", "`provisional` is a list of rows ({id: \"P-<n>\", kind, what, status, home}); it was sent as str"),
+    ("unknown_obligation", "obligation ids not in the plan: OB-1 "),
+    ("then_remainder", "then_bindings row TC-1 Then 0 is a Then left with its owner and is malformed: `then` must"),
+    ("expectation_changes", "`expectation_changes` must be a list of objects, one per changed test (or per set of test"),
+    ("retract", "`retract` must be a list of top-level key names, e.g. [\"then_bindings\"]; this one is str"),
+    ("critic_approval", "tests[0] approves over a stored unverified verdict with no critic_note: say what changed"),
+    ("assertion_line", "tests[0].assertion_id tests/t.py:1: line 1 of tests/t.py holds no check"),
+    ("ghost_rows", "one fragment cannot both bind a Then to and retract an instance: a - send the Then row"),
+]
+
+
+def tbw_t5r_sites() -> None:
+    """T5r: each manifest_put refusal row id is written at its site - the text is the one the OLD file printed (start captured before the
+    edit; `str(exc)` of a raise too), the `Record` rides beside it (`told_fields`), and one problem list becomes one `records` tuple."""
+    import detector_verdict as DV
+    project = harness.temp_project("qa-t5r-mp-")
+    harness.use_project(project)
+    try:
+        got = t5r_refusals(project)
+        for rid, start in T5R_OLD:
+            obj = got.get(f"manifest_put:{rid}")
+            check(f"T5r manifest_put:{rid}: the provocation refused", obj is not None, str(sorted(got)))
+            if obj is None:
+                continue
+            check(f"T5r manifest_put:{rid}: the text starts as it did", str(obj).startswith(start), str(obj))
+            told = DV.told_fields(obj).get("told") or [{}]
+            check_eq(f"T5r manifest_put:{rid}: the row rides with it", (told[0].get("check"), bool(told[0].get("expected"))),
+                     (f"manifest_put:{rid}", True))
+        ghost = {"introduced_helpers": "x", "provisional": "x"}
+        try:
+            MP._refuse_unmergeable({}, ghost, "T")
+            many = None
+        except MP._MergeRefused as exc:
+            many = exc
+        check("T5r: two problems of one refusal keep their two Records, and the text is the old `; ` join",
+              many is not None and [r.check for r in many.records] == ["manifest_put:helper_rows", "manifest_put:provisional"]
+              and "keep; `provisional` is a list of rows" in str(many), str(many))
+    finally:
+        harness.cleanup(project)
+
+
 def main() -> None:
+    tbw_t5r_sites()
     fv1_19e_projection_reads_the_currency()
     pc3_provisional_beside_the_other_lists()
     ep1_39_then_row_keeps_tests()

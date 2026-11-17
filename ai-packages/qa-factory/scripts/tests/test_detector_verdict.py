@@ -1353,6 +1353,463 @@ def tbw_t7c_sites() -> None:
              (bool(sentence(obligations)), bool(sentence(observation))), (True, True))
 
 
+# told-before-work T6: the sha256[:16] of the text the OLD `handoff_check.py` printed for each provocation of `tbw_t6_sites` (captured from a
+# byte copy of the file before the siting edit; a path is `<ROOT>` / `<PKG>`, a backslash folded to `/`)
+T6_OLD = {
+    'field.blank / fresh form, header.verdict': '316827b3057015e3',
+    'required_rows / fresh form, scope': '89b508a97cf4a629',
+    'field.value / closed list, bogus word': 'd32e1ba7378d22c4',
+    'required_rows.owed_by_verdict / concerns owes findings': '5ee8a34a35a0d267',
+    'findings_tooling / tooling finding not repeated': '96a349b9717df61b',
+    'field.value / open list, `new:` without a reason': '515f115e87617c95',
+    'tried / fresh S2 form': '7c483d84567c9e2b',
+    'blocked_problem / a blocked row, blocked.problem empty': 'f400591efd3c5ffe',
+    'field.max_len / a reason of 90': 'ed605c3ddb7dbd95',
+    'field.value / row state bogus': '39ad2113f0644a71',
+    'required_rows.null_word / window none beside a row': 'a626be7fa8e21883',
+    'null_outcome.repairs / a TEST_BUG row': '6d2894cb59a86b27',
+    'null_outcome.verdict / a verdict nobody knows': 'e7b372af87a70593',
+    'null_outcome.names / a row with no instance': 'f1487fcc2ad932d8',
+    'null_outcome.report / no run report': 'db8dca98c5281d69',
+    'null_outcome.failures / no row, report shows a failure': 'e666b5d0d1cd3646',
+    'null_outcome.failures / a failure with no row among rows': '2ad69ca10eb73b89',
+    'null_outcome.listing / a triage row not listed': '10e29ffe4e6996aa',
+    'null_outcome.listing / an id listed nobody triaged': '24187593815ecf5b',
+    'binding / non-empty scope, a row names two failures': '9d45df4f31d94fda',
+    'null_outcome.failures / empty scope, ambiguous rows': 'a53a53319ae4f9b4',
+    'investigation / scope not empty': 'd4cebebd1e33db83',
+    'investigation / scope not a list': '60a051ac25c00d9d',
+    'claims / _check_claims, claimed true and false on disk': 'f8877a8cc91074c8',
+    'claims / _fill_claims, measured false': '6520dad9c12aba69',
+    'claims / _fill_claims, could not measure': '45ff1775d2712a4f',
+    'values_file / not a path line': '4c23b82a7490e15f',
+    'values_file / invalid JSON': '4ad5c2ad421e626f',
+    'values_file / a JSON list': '7975cb1ac3302610',
+    'values_file / given twice': 'd9eb0d09f0dcf663',
+    'values_file / nested': 'c77f5585660c7737',
+    'values_apply / not a field': 'fba9f456f57e9c98',
+    "values_apply / a list row's end": '24433d1e66ce75ad',
+    'values_apply / contract-owned': '35e23da64af5a868',
+    'values_apply / a list for one value': 'df9202230c7ab8f0',
+    'values_apply / a row out of order': '33e64f8d9396afba',
+    'values_apply / _text_of, not UTF-8': '2ce7a1b828bfb5c5',
+    'cli / --shorten without --fix': '5fa94ae13215a545',
+    'cli / no such file': '74a692e1910cc058',
+    'cli / not UTF-8': '1264eb6f8686bff7',
+    'cli / no contract line': 'ba75c5b63e193591',
+    'cli / unknown contract': '6d1b6caab72bfc8d',
+    'cli / no such values file': '8eda50354c04ec33',
+}
+
+
+def tbw_t6_sites() -> None:
+    """told-before-work T6: every refusal of `handoff_check.py` that maps to one of the 21 rows is `refusal("handoff_check:<id>", <text>)`
+    and its text is the one it always was. ONE table, a row per (id, provocation): the problem builder is called in-process (`check`,
+    `parse_values`, `apply_values`, `_text_of`, `_fill_claims`, `_check_claims`, `main`), the text hashes to the OLD file's text (`T6_OLD`),
+    the Problem's text is a Record with `check == <id>` and the row's sentence as `expected` (the `cli` prints are bare text: the last
+    stdout line is the reason a caller reads), and the scanner reads exactly the 21 ids in `handoff_check.py`. `refusal_text`, `--json` and
+    the exit codes are not touched (K11 and K12 of test_handoff_values_main_block pin them)."""
+    import contextlib
+    import hashlib
+    import io
+    import handoff
+    import handoff_check as H
+    import handoff_init
+    import refusal_registry
+    import stage_joints as SJ
+    s7c, s5c, s2c, ticket = "s7-analyst-to-automator", "s5-critic-to-automator", "s2-tester-to-strategist", "QA-9"
+    tmp = Path(tempfile.mkdtemp(prefix="t6-"))
+    got, saved_argv = {}, sys.argv
+
+    def head(contract, role, stage, disp):
+        text = (handoff.CONTRACTS / f"{contract}.yaml").read_text(encoding="utf-8")
+        return handoff_init.fill_head(text, task=ticket, dispatch=disp, role=role, stage=stage, scope="")
+
+    def section(text, name, body):
+        return re.sub(r"(?ms)^" + re.escape(name) + r":.*?(?=^\S)", body.rstrip("\n") + "\n\n", text, count=1)
+
+    def s7_form(scope=(), nfr=(), window="none", reason="the test waits for a race"):
+        doc = handoff.parse(head(s7c, "qa-failure-analyst", "S7", "S7-qa-failure-analyst-1"))
+        for path, value in (("inputs_read[0].version", "v1"), ("inputs_read[0].failures", 7), ("inputs_read[1].path", "work/triage.json"),
+                            ("inputs_read[1].version", "v2"), ("header.verdict", "concerns"), ("header.window", window),
+                            ("claims.every_repair_names_evidence_expected_and_check", True),
+                            ("claims.no_app_bug_expectation_was_handed_for_repair", True),
+                            ("claims.every_flaky_verdict_carries_three_isolated_reruns_and_a_mechanism", True)):
+            handoff.set_value(doc, path, value)
+            doc = handoff.parse(doc.text())
+        rows = ["scope:"] + [x for i, st in scope for x in (f"  - id: {i}", f"    state: {st}", f"    reason: {reason}",
+                                                           f"    case: {ticket}_TC_001", "    round: 1 of 2")]
+        text = section(doc.text(), "scope", "\n".join(rows) if scope else "scope: []")
+        text = section(section(text, "repairs", "repairs: []"), "unresolved", "unresolved: []")
+        kept = ["not_for_repair:"] + [x for i, v in nfr for x in (f"  - id: {i}", f"    verdict: {v}", "    where_it_went: x/y.json")]
+        return section(text, "not_for_repair", "\n".join(kept) if nfr else "not_for_repair: []")
+
+    def task(triage, report="clean"):
+        root = Path(tempfile.mkdtemp(prefix="t6w-", dir=tmp))
+        (root / "work").mkdir()
+        if triage is not None:
+            (root / "work" / "triage.json").write_text(json.dumps({"triage": triage}), encoding="utf-8")
+        if report == "clean":
+            report = {"execution_status": "passed", "current_results": [], "current_totals": {"passed": 1}, "current_manual_checks": []}
+        if report is not None:
+            (root / "work" / "run-report.json").write_text(json.dumps(report), encoding="utf-8")
+        return root
+
+    def row(i, verdict):
+        return {"test": "tests/t.py::" + i, "instance_id": i, "verdict": verdict, "evidence": "e.json", "attempt_id": "a1"}
+
+    def problems(text, contract, root, dispatch="S7-qa-failure-analyst-1"):
+        return H.check(handoff.parse(text), contract, H.Artifacts(root, dispatch=dispatch), use_judge=False)[2]
+
+    def add(key, source, path=None, kind=None, has=None):
+        if isinstance(source, list):
+            source = next((p for p in source if path in (None, p.path) and kind in (None, p.kind) and (has or "") in str(p.text)), None)
+            check(f"tbw-t6 {key}: the provocation raised its problem", source is not None)
+            if source is None:
+                return
+        got[key] = (str(getattr(source, "text", source)), getattr(source, "text", source), isinstance(source, str))
+
+    def with_triage(rows, report="clean", form=None):
+        names = [(r.get("instance_id"), r["verdict"] if r["verdict"] in ("APP_BUG", "ENV_ISSUE") else "ENV_ISSUE")
+                 for r in rows if r.get("instance_id")]
+        return problems(form or s7_form(nfr=names), s7c, task(rows, report))
+
+    def edited(text, contract, root, dispatch, **sets):
+        doc = handoff.parse(text)
+        for path, value in sets.items():
+            handoff.set_value(doc, re.sub(r"__(\d+)__", r"[\1].", path).replace("__", "."), value)
+            doc = handoff.parse(doc.text())
+        return problems(doc.text(), contract, root, dispatch)
+
+    def digest(text):
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+    failing = {"execution_status": "failed", "current_manual_checks": [], "current_totals": {"failed": 1},
+               "current_results": [{"instance_id": "z[1]", "status": "failed"}]}
+    ambiguous = {"execution_status": "failed", "current_manual_checks": [], "current_totals": {"failed": 2},
+                 "current_results": [{"instance_id": "s[json]", "status": "failed"}, {"instance_id": "s[multi]", "status": "failed"}]}
+    try:
+        s5, s2 = head(s5c, "qa-code-critic", "S5", "S5-qa-code-critic-1"), head(s2c, "qa-requirements-tester", "S2", "S2-qa-requirements-tester-1")
+        t5, t7, s5d, s2d = task(None, report=None), task([]), "S5-qa-code-critic-1", "S2-qa-requirements-tester-1"
+        fresh5 = problems(s5, s5c, t5, s5d)
+        add("field.blank / fresh form, header.verdict", fresh5, "header.verdict", "blank")
+        add("required_rows / fresh form, scope", fresh5, "scope")
+        add("field.value / closed list, bogus word", edited(s5, s5c, t5, s5d, header__verdict="bogus"), "header.verdict")
+        add("required_rows.owed_by_verdict / concerns owes findings", edited(s5, s5c, t5, s5d, header__verdict="concerns"), "findings")
+        add("findings_tooling / tooling finding not repeated",
+            edited(s5, s5c, t5, s5d, findings__0__id="F-1", findings__0__cause="tooling"), "findings[0].cause")
+        add("field.value / open list, `new:` without a reason", edited(s2, s2c, t5, s2d, header__verdict="new: x"), "header.verdict")
+        add("tried / fresh S2 form", problems(s2, s2c, t5, s2d), "tried")
+        add("blocked_problem / a blocked row, blocked.problem empty", edited(s2, s2c, t5, s2d, scope__0__state="blocked"), "scope[0].state")
+        add("field.max_len / a reason of 90", problems(s7_form(scope=[("a[1]", "red")], window=ticket, reason="x" * 90), s7c, t7), "scope[0].reason")
+        add("field.value / row state bogus", problems(s7_form(scope=[("a[1]", "bogus")], window=ticket), s7c, t7), "scope[0].state")
+        add("required_rows.null_word / window none beside a row", problems(s7_form(scope=[("a[1]", "red")]), s7c, t7), "header.window")
+        add("null_outcome.repairs / a TEST_BUG row", with_triage([row("a[1]", "TEST_BUG")]), "scope")
+        add("null_outcome.verdict / a verdict nobody knows", with_triage([row("a[1]", "WHATEVER")]), "scope")
+        add("null_outcome.names / a row with no instance", with_triage([{"verdict": "ENV_ISSUE"}]), "scope")
+        add("null_outcome.report / no run report", with_triage([row("a[1]", "ENV_ISSUE")], report=None), "scope")
+        add("null_outcome.failures / no row, report shows a failure", with_triage([], failing, s7_form()), "scope")
+        add("null_outcome.failures / a failure with no row among rows", with_triage([row("a[1]", "ENV_ISSUE")], failing), "scope")
+        add("null_outcome.failures / empty scope, ambiguous rows", with_triage([row("s", "TEST_BUG")], ambiguous, s7_form(nfr=[("s", "ENV_ISSUE")])),
+            "scope", has="so a failure has no verdict")
+        pair = [row("a[1]", "ENV_ISSUE"), row("b[1]", "ENV_ISSUE")]
+        add("null_outcome.listing / a triage row not listed", with_triage(pair, form=s7_form(nfr=[("a[1]", "ENV_ISSUE")])), "not_for_repair")
+        add("null_outcome.listing / an id listed nobody triaged",
+            with_triage(pair, form=s7_form(nfr=[("a[1]", "ENV_ISSUE"), ("b[1]", "ENV_ISSUE"), ("ghost[1]", "ENV_ISSUE")])), "not_for_repair")
+        add("binding / non-empty scope, a row names two failures",
+            with_triage([row("s", "TEST_BUG")], ambiguous, s7_form(scope=[("s[json]", "red")], window=ticket)), "scope")
+        entry = handoff.null_outcomes(s7c)["scope"]
+        loaded = handoff.parse(s7_form(scope=[("a[1]", "red")], window=ticket))
+        add("investigation / scope not empty", H._investigation_view(loaded, "scope", entry, s7c, H.Artifacts(t7))[0], "scope")
+        loaded = handoff.parse(s7_form())
+        loaded.data["scope"] = "x"
+        add("investigation / scope not a list", H._investigation_view(loaded, "scope", entry, s7c, H.Artifacts(t7))[0], "scope")
+        kept_claims = dict(H.CLAIMS)
+        H.CLAIMS["t6_false"], H.CLAIMS["t6_none"] = (lambda art: (False, "the table is not on disk")), (lambda art: (None, "no way to measure"))
+        try:
+            add("claims / _check_claims, claimed true and false on disk",
+                H._check_claims(handoff.parse("claims:\n  t6_false: true\n"), H.Artifacts(t7)), "claims.t6_false")
+            filled = H._fill_claims(handoff.parse("claims:\n  t6_false: <true|false>\n  t6_none: <true|false>\n"), H.Artifacts(t7))[3]
+            add("claims / _fill_claims, measured false", filled, "claims.t6_false")
+            add("claims / _fill_claims, could not measure", filled, "claims.t6_none")
+        finally:
+            H.CLAIMS.clear()
+            H.CLAIMS.update(kept_claims)
+        for label, text in (("not a path line", "just words\n"), ("invalid JSON", "{nope"), ("a JSON list", "[1]"),
+                            ("given twice", "a.b: 1\na.b: 2\n"), ("nested", "scope: {a: 1}\n")):
+            add(f"values_file / {label}", H.parse_values(text, "v.yaml", contract=s5c)[1])
+        for label, one in (("not a field", ("nosuch.field", "x", 1, "")), ("a list row's end", ("scope[0]", "x", 1, "")),
+                           ("contract-owned", ("contract", "x", 1, "")), ("a list for one value", ("header.verdict", ["a"], 1, "")),
+                           ("a row out of order", ("scope[7].id", "x", 1, ""))):
+            add(f"values_apply / {label}", H.apply_values(handoff.parse(s5), s5c, [one])[2])
+        add("values_apply / _text_of, not UTF-8", H._text_of("v.yaml", lambda: b"\xff\xfe\x00bad\x80")[1])
+
+        def folded(text):
+            text = text.replace(str(SCRIPTS.parent), "<PKG>").replace(SCRIPTS.parent.as_posix(), "<PKG>")
+            text = text.replace(str(tmp), "<ROOT>").replace(tmp.as_posix(), "<ROOT>")
+            return re.sub(r"<(ROOT|PKG)>\S*", lambda m: m.group(0).replace("\\", "/"), text)
+        good = tmp / "work" / "handoffs" / "S5-qa-code-critic-1.yaml"
+        good.parent.mkdir(parents=True)
+        good.write_text(s5, encoding="utf-8")
+        for name, content in (("bad8.yaml", b"contract: x\n\xff\n"), ("nc.yaml", b"a: 1\n"), ("unk.yaml", b"contract: no-such-contract\n")):
+            (tmp / name).write_bytes(content)
+        for label, argv in (("--shorten without --fix", ("--file", str(good), "--shorten")), ("no such file", ("--file", str(tmp / "none.yaml"))),
+                            ("not UTF-8", ("--file", str(tmp / "bad8.yaml"))), ("no contract line", ("--file", str(tmp / "nc.yaml"))),
+                            ("unknown contract", ("--file", str(tmp / "unk.yaml"))),
+                            ("no such values file", ("--file", str(good), "--values", str(tmp / "nv.yaml"), "--task-root", str(tmp)))):
+            buf = io.StringIO()
+            sys.argv = ["handoff_check.py", *argv]
+            try:
+                with contextlib.redirect_stdout(buf):
+                    code = H.main()
+            finally:
+                sys.argv = saved_argv
+            check_eq(f"tbw-t6 cli / {label}: exit 2", code, 2)
+            add(f"cli / {label}", folded(buf.getvalue().strip()))
+        for key, (text, record, bare) in got.items():
+            rid = "handoff_check:" + key.split(" / ")[0]
+            if digest(text) != T6_OLD.get(key):
+                print(f"T6 {key}: the text is now\n{text}")
+            check_eq(f"tbw-t6 {key}: the text is the old file's, byte for byte", digest(text), T6_OLD.get(key))
+            if not bare:
+                check_eq(f"tbw-t6 {key}: the Record carries the id and the row's sentence",
+                         (getattr(record, "check", ""), getattr(record, "expected", "")), (rid, SJ.told_text(SJ.row_for(rid)[0])[0]))
+        check_eq("tbw-t6 every provocation has an old text", sorted(set(T6_OLD) - set(got)), [])
+        # one Record per problem, in order (EC-5): a fresh critic form says one `required_rows` and seven blank fields
+        check_eq("tbw-t6 several problems: one Record per problem, in order", [getattr(p.text, "check", "") for p in fresh5],
+                 ["handoff_check:required_rows"] + ["handoff_check:field.blank"] * 7)
+        check_eq("tbw-t6 no problem: a clean triage and an empty scope say nothing of the null outcome",
+                 [p.path for p in problems(s7_form(), s7c, t7) if p.path in ("scope", "not_for_repair")], [])
+        # an unreadable row: the text is unchanged, the sentence says the factory could not read it (EC-4, FR-59)
+        real_row_for = SJ.row_for
+        SJ.row_for = lambda check_id, data=None: (None, "x")
+        try:
+            mark = next(p for p in problems(s2, s2c, t5, s2d) if p.path == "tried")
+        finally:
+            SJ.row_for = real_row_for
+        check_eq("tbw-t6 unreadable row: the text is unchanged, the sentence says so",
+                 (digest(str(mark.text)), "could not be read" in getattr(mark.text, "expected", "")), (T6_OLD["tried / fresh S2 form"], True))
+        # the scanner: the 21 ids of the rows are the literals of `handoff_check.py`, and no other id is there (E1)
+        names = ["handoff_check.py"]
+        records = refusal_registry.sites(SCRIPTS.parent, names, raises=refusal_registry.raise_family(SCRIPTS.parent, names, wide=True))
+        wanted = sorted("handoff_check:" + i for i in (
+            "field.blank field.value field.max_len required_rows required_rows.owed_by_verdict required_rows.null_word tried blocked_problem "
+            "findings_tooling claims null_outcome.repairs null_outcome.verdict null_outcome.names null_outcome.report null_outcome.failures "
+            "null_outcome.listing values_file values_apply cli binding investigation").split())
+        check_eq("tbw-t6 the scanner reads the 21 ids as literals of handoff_check.py",
+                 sorted({r["check"] for r in records if r.get("check")}), wanted)
+    finally:
+        sys.argv = saved_argv
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def t4a_provoke(G, HA, tmp: Path) -> dict:
+    """told-before-work T4a: every refusal of the `guard_pre_tool` / `host_adapter.role_policy` sites provoked in-process through the
+    REAL `hooklib.block`. `{row: (id, stderr)}`; the temporary root and the plugin root are written `<ROOT>` / `<PLUGIN>`. `G` and
+    `HA` are the modules under test (the pin below was captured by running the same provocations over the pre-change files).
+    The project root, `CLAUDE_PROJECT_DIR` and `hooklib._PROJECT_ROOT_CACHE` are put back, and the root removed, whatever happens."""
+    import hooklib
+    saved_env, saved_cache = os.environ.get("CLAUDE_PROJECT_DIR"), hooklib._PROJECT_ROOT_CACHE
+    root = temp_project("t4a-")
+    try:
+        return t4a_provoke_in(G, HA, root)
+    finally:
+        if saved_env is None:
+            os.environ.pop("CLAUDE_PROJECT_DIR", None)
+        else:
+            os.environ["CLAUDE_PROJECT_DIR"] = saved_env
+        hooklib._PROJECT_ROOT_CACHE = saved_cache
+        cleanup(root)
+
+
+def t4a_provoke_in(G, HA, root: Path) -> dict:
+    """The body of `t4a_provoke`, inside the project `root` it made."""
+    import contextlib
+    import hooklib
+    import io
+    from types import SimpleNamespace
+    from unittest import mock
+    from harness import use_project
+    import dispatch_identity as DI
+    import planning_contract as PC
+    import handoff_check
+    use_project(root)
+    cfg = json.loads((root / "qa-factory" / "config.json").read_text(encoding="utf-8"))
+    task = root / "qa-factory" / "artifacts" / "T-1"
+    (task / "state").mkdir(parents=True)
+    (task / "work" / "handoffs").mkdir(parents=True)
+    (root / "evidence").mkdir()
+    for rel, text in (("work/handoffs/D-1.yaml", "a: 1\n"), ("work/handoffs/D-1.values.yaml", "a: 2\n"), ("work/test-plan.md", "# plan\n"),
+                      ("work/test-plan.json", '[{"id": "TS-1"}]'), ("work/context-manifest.json", "{}"),
+                      ("work/automation-manifest.json", '{"tests": [{"case": "TC-1"}]}'), ("state/controller.json", '{"dispatches": {}}'),
+                      ("pipeline.json", '{"ticket": "T-1", "stages": {}}')):
+        (task / rel).write_text(text, encoding="utf-8")
+    (root / "evidence" / "a.log").write_text("x" * 9000, encoding="utf-8")
+    (root / "big.txt").write_text("y" * 100000, encoding="utf-8")
+    (root / "tests" / "api").mkdir(parents=True, exist_ok=True)
+    out: dict = {}
+
+    def err_of(fn, *args) -> str:
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            try:
+                fn(*args)
+            except SystemExit as exc:
+                if exc.code != 2:
+                    return f"exit {exc.code}"
+        text = buf.getvalue()
+        for path, tag in ((root, "<ROOT>"), (hooklib.PLUGIN_ROOT, "<PLUGIN>")):
+            for spelling in (str(path), str(path).replace("\\", "/")):
+                text = text.replace(spelling, tag)
+        return text
+
+    def put(row, cid, fn, *args):
+        out[row] = (cid, err_of(fn, *args))
+
+    def at(rel):
+        return str(task / rel)
+
+    def ev(tool, path="", role="", **tool_input):
+        event = {"tool_name": tool, "tool_input": dict({"file_path": path} if path else {}, **tool_input), "cwd": str(root)}
+        return dict(event, agent_type=role) if role else event
+    sh = lambda command, role="": ev("Bash", command=command, role=role)  # noqa: E731
+    p = "guard_pre_tool:PT-"
+    put("size", p + "command-size", G.size_check, sh("x" * 70000), cfg)
+    put("direct run", p + "direct-test-run", G.runs_check, sh("pytest -q"), cfg)
+    put("playwright test", p + "direct-test-run", G.runs_check, sh("npx playwright test"), cfg)
+    put("git config", p + "git-config", G.git_config_check, sh("git config --global user.name x"), cfg)
+    put("logs Read", p + "logs", G.logs_check, ev("Read", str(root / "evidence" / "a.log")), cfg)
+    put("logs shell", p + "logs", G.logs_check, sh(f"cat {root / 'evidence' / 'a.log'}"), cfg)
+    put("plugin read", p + "plugin-read", G.plugin_read_check, ev("Read", str(hooklib.PLUGIN_ROOT / "scripts" / "hooklib.py"), role="qa-scout"), cfg)
+    put("big read", p + "big-read", G.big_read_check, {"file_path": str(root / "big.txt")}, cfg, ev("Read", str(root / "big.txt")))
+    put("case store", p + "case-store", G.case_store_check, ev("Write", at("work/TC-001.md")), {**cfg, "cases_root": "cases"})
+    put("handoff rewrite", p + "handoff-rewrite", G.handoff_write_check, ev("Write", at("work/handoffs/D-1.yaml")), cfg)
+    put("handoff edit pending", p + "handoff-edit-pending", G.handoff_write_check, ev("Edit", at("work/handoffs/D-1.yaml")), cfg)
+    put("handoff code file", p + "handoff-code-file", G.handoff_write_check, ev("Write", at("work/handoffs/D-1.values.applied.yaml")), cfg)
+    report = SimpleNamespace(problems=["p"], blocked_said=False, contract=None, role="", kept=[])
+    with mock.patch.object(handoff_check, "values_report", return_value=report), \
+            mock.patch.object(handoff_check, "refusal_text", return_value="the lines to fix"):
+        put("handoff values", p + "handoff-values", G.handoff_values_check, ev("Write", at("work/handoffs/D-1.values.yaml"), content="a: 3\n"))
+    put("artifact rewrite", p + "artifact-rewrite", G.artifact_rewrite_check, ev("Write", at("work/context-manifest.json")), cfg)
+    put("plan rewrite", p + "plan-rewrite", G.plan_write_check, ev("Write", at("work/test-plan.json")), cfg)
+    put("plan md rewrite", p + "plan-md-rewrite", G.plan_write_check, ev("Write", at("work/test-plan.md")), cfg)
+    put("manifest shrink", p + "manifest-shrink", G.manifest_write_check, ev("Write", at("work/automation-manifest.json")), cfg)
+    put("owner story", p + "owner", G.owner_check, ev("Write", at("work/automation-manifest.json"), role="qa-scout"), cfg)
+    put("owner ledger", p + "owner", G.owner_check, ev("Write", str(root / "qa-factory" / "factory-backlog.md"), role="qa-scout"), cfg)
+    controller = {"dispatches": {i: {"id": i, "stage": "S5", "role": "qa-automator", "status": "running", "scope": [c]}
+                                 for i, c in (("S5-qa-automator-1", "TC-1"), ("S5-qa-automator-2", "TC-2"))}, "stages": {}}
+    (task / "state" / "controller.json").write_text(json.dumps(controller), encoding="utf-8")
+    saved = {k: os.environ.get(k) for k in (PC.DETECTOR_DISPATCH_ENV, DI.DRIVER_RUN_ENV)}
+    os.environ.pop(PC.DETECTOR_DISPATCH_ENV, None)
+    try:
+        test_file = ev("Write", str(root / "tests" / "api" / "test_orders.py"))
+        os.environ[DI.DRIVER_RUN_ENV] = "S5-qa-automator-1"      # the first window claims the file and passes
+        err_of(G.window_file_check, test_file, cfg)
+        os.environ[DI.DRIVER_RUN_ENV] = "S5-qa-automator-2"      # the second is refused (one refusal: no 'in a row' text)
+        put("window file", p + "window-file", G.window_file_check, test_file, cfg)
+    finally:
+        for key, value in saved.items():
+            os.environ.pop(key, None) if value is None else os.environ.__setitem__(key, value)
+    put("external writes", p + "external-writes", G.writes_check, sh("glab issue create --title x"), cfg)
+    put("human word", p + "human-word", G.human_word_check, sh("python waiver.py --stage S9 --block x", role="qa-scout"), cfg)
+    put("config write", p + "config-write", G.config_write_check, ev("Write", str(root / "qa-factory" / "config.json"), role="qa-automator"), cfg)
+    put("stand record", p + "stand-record-write",
+        G.stand_record_write_check, ev("Write", str(root / "qa-factory" / "records" / "stand-identity.json"), role="qa-scout"), cfg)
+    put("walker", p + "walker-error", G.walker_refusal, sh("x"), hooklib.WalkerError("boom"))
+    put("patch unchecked", p + "patch-unchecked", G._guard, ev("apply_patch", command="not a patch"))
+    with mock.patch.object(G, "read_event", return_value=None):
+        put("unparsed event", p + "unparsed-event", G.main)
+    h = "host_adapter:HA-"
+    codex = {"turn_id": "t-1"}
+    hcfg = {"host_tools": {}}
+    put("call shape", h + "call-shape", HA.role_policy, {"_qa_host": {"refusal": {"what": "w", "expected": "e", "door": "d"}}}, {})
+    put("no command text", h + "no-command-text", HA.role_policy,
+        dict(codex, tool_name="shell", tool_input={}, _qa_host={"name": "shell"}), hcfg)
+    put("nested delegation", h + "role-nested-delegation", HA.role_policy, dict(codex, agent_type="qa-automator", tool_name="Agent"), hcfg)
+    put("role read only", h + "role-read-only", HA.role_policy,
+        dict(codex, agent_type="qa-test-strategist", tool_name="Bash", tool_input={"command": "python x.py"}), hcfg)
+    put("stdin chars", h + "stdin-chars", HA.role_policy,
+        dict(codex, tool_name="Bash", tool_input={"chars": "x"}, _qa_host={"name": "write_stdin"}), hcfg)
+    put("exec tty", h + "exec-tty", HA.role_policy,
+        dict(codex, tool_name="Bash", tool_input={"tty": True}, _qa_host={"name": "exec_command"}), hcfg)
+    tool = {"tool_name": "mcp__x__create_thing", "_qa_host": {"name": "mcp__x__create_thing"}}
+    put("connector no shell", h + "connector-unclassified", HA.role_policy, dict(codex, agent_type="qa-test-strategist", **tool), hcfg)
+    put("connector orchestrator", h + "connector-orchestrator", HA.role_policy, dict(codex, **tool), hcfg)
+    return out
+
+
+def t4a_digest(err: str) -> str:
+    """The first 16 hex digits of the sha256 of the refusal's own text: stderr without the closing TRAPPED line and without the
+    row's lines that follow the problem (`expected:` / `door:` / `check:`), trailing white space cut as `block` cuts it."""
+    import hashlib
+    from hooklib import TRAPPED
+    err = err[:-1] if err.endswith("\n") else err        # the newline `print` ends the last line with
+    body = err[:-len("\n" + TRAPPED)] if err.endswith("\n" + TRAPPED) else err
+    return hashlib.sha256(body.split("\n  expected: ")[0].split("\n  check: ")[0].rstrip().encode("utf-8")).hexdigest()[:16]
+
+
+T4A_OLD: dict = {   # row -> t4a_digest of the pre-change file's stderr (byte copy of guard_pre_tool.py / host_adapter.py taken before the edit)
+    'size': 'f60c2116d5ea0e9b',
+    'direct run': '504d8a343ec1dd7d',
+    'playwright test': '19ad5ce85fd9a420',
+    'git config': '0b7737239f468b11',
+    'logs Read': 'd3dcdca4b6849d83',
+    'logs shell': 'd3dcdca4b6849d83',
+    'plugin read': 'c8455f9f8ed26987',
+    'big read': '8cb6f7047b49f287',
+    'case store': '3b95d98a22c0bbe5',
+    'handoff rewrite': '9e174afe126371ee',
+    'handoff edit pending': 'd9bdb494031a8c18',
+    'handoff code file': '022e7a003d498b7d',
+    'handoff values': '552764b4205bd4d0',
+    'artifact rewrite': '477ec5b1f34fb8f3',
+    'plan rewrite': '4e7edca5f5dd7ec1',
+    'plan md rewrite': '0c1633372b6225d4',
+    'manifest shrink': '170520564db6c6f1',
+    'owner story': '7d93f26a8ae64faf',
+    'owner ledger': '9944a5a6f8378e14',
+    'window file': '4868f8c01058fd0b',
+    'external writes': '6bbb874a5adb79fa',
+    'human word': '4da061f97df6c201',
+    'config write': '55d7e335e2690053',
+    'stand record': 'd578f4dc0afd5204',
+    'walker': 'fbd8e127dc49e34c',
+    'patch unchecked': '43ee82ddb514fd27',
+    'unparsed event': '2c77e19e3d5de451',
+    'call shape': '5da2572131407510',
+    'no command text': '2a16c97a325a52d5',
+    'nested delegation': 'a9f8cc04fffca795',
+    'role read only': '3d145d994a502a02',
+    'stdin chars': '5b33bf4592a6a966',
+    'exec tty': '460a32af2059611b',
+    'connector no shell': '2b458f52b2437f60',
+    'connector orchestrator': '5957e371a6fde6fb',
+}
+
+
+def tbw_t4a_sites() -> None:
+    """told-before-work T4a: each role-facing refusal of `guard_pre_tool.py` and `host_adapter.role_policy` is `refusal("<row id>", <the
+    text it always had>)`. ONE table, a row per site: the stderr is the old text byte for byte (digest `T4A_OLD`, captured over the pre-change
+    files), then `  expected:` / `  door:` of the row of that id and `  check: <id>` last, then the closing TRAPPED line, exit code 2."""
+    import stage_joints as SJ
+    from hooklib import TRAPPED
+    import guard_pre_tool as G
+    import host_adapter as HA
+    tmp = Path(tempfile.mkdtemp(prefix="tbw-t4a-"))
+    try:
+        got = t4a_provoke(G, HA, tmp)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    check_eq("t4a: every site is provoked", sorted(got), sorted(T4A_OLD))
+    for name, (cid, err) in got.items():
+        row, why = SJ.row_for(cid)
+        expected, door = SJ.told_text(row) if row else ("", "")
+        tail = "\n  expected: " + expected + ("\n  door: " + door if door else "") + "\n  check: " + cid
+        check(f"t4a {name} {cid}: the row states a sentence", bool(expected), str(why))
+        check(f"t4a {name} {cid}: the row's lines follow the problem, `check:` last, TRAPPED closes", err.endswith(tail + "\n" + TRAPPED + "\n"), err[-300:])
+        check_eq(f"t4a {name} {cid}: the problem text is the old one", t4a_digest(err), T4A_OLD.get(name))
+
+
 def main() -> None:
     unreadable_cases()
     one_of_cases()
@@ -1372,7 +1829,177 @@ def main() -> None:
     contract_run()
     t1rs_sites()
     tbw_t7c_sites()
+    tbw_t6_sites()
+    tbw_t7b_sites()
+    tbw_t4a_sites()
     finish("test_detector_verdict")
+
+
+def tbw_t7b_sites() -> None:
+    """told-before-work T7b: the twelve refusals of the S3 plan contract (`planning_contract.py`) that map to a row id write it as
+    `refusal("<id>", <text>)`. ONE table, a row per id (`regression_scope.problems` is another module's: the id is on its caller
+    `_regression_findings`, E-T7b-1). Each row provokes the function that returns the refusal lines, asserts the text is the one the
+    pre-change file printed (`old`, read from a byte copy of that file before the edit; EC-1), that each line is a Record with
+    `check == <id>` and the row's own sentence and door, and that no problem means no line (EC-5). `plan_json` is a print in the
+    detector body: the row runs the body and spies on `refusal`. `unmarked_revision_errors` stays bare (T9c)."""
+    import contextlib
+    import io
+    import planning_contract as PC
+    import stage_joints as SJ
+    from harness import use_project
+    row = {"id": "TS-1", "schema_version": 1, "impact": "moderate", "likelihood": "medium", "confidence": "medium",
+           "risk_rationale": "shared component", "risk_source_refs": ["R-1"], "risk_policy_revision": "factory-starter-v1",
+           "coverage_refs": [], "unknowns": [], "verification_depth": "normal", "required_scenarios": ["opens"],
+           "test_level_rationale": "user path", "design_review_required": False}
+    register = ("## Register\n\n| R | Requirement | source | derived_from | verifiable | ac_ref | observable | impact |\n"
+                "|---|---|---|---|---|---|---|---|\n| R-1 | a denied caller gets 403 | ac | - | yes | AC-1 | diff:src/api.py:10 | access |\n\n"
+                "## Contradiction matrix\n\n| R | parent story/feature | area cases (TC-*) | area open bugs |\n|---|---|---|---|\n"
+                "| R-1 | contradicts:\"the parent feature says 401\" (feature 3) | silent | silent |\n")
+    fence = {"missing": [{"id": "R-9", "where": "plan"}, {"id": "R-8", "where": "md"}], "candidates": [{"r": "R-7"}],
+             "waiting": [{"id": "R-6", "question": "Q2"}], "by_reference": []}
+    found = {"word": "extend", "target": "tests/x.py", "state": "absent", "file": "tests/x.py", "why": ""}
+    problem = ("new_questions[0] has key 'x'. Expected: \"new:<n>\" with n from 1 to 99")
+    old: dict = {   # the text each refusal printed before the file was sited: a byte copy of the pre-change planning_contract.py, same provocations
+        'plan depth': [
+            'TS-1: invalid verification depth (one of low, normal, critical)',
+        ],
+        'plan revision': [
+            "TS-1: coverage_contract_revision is 'v0'; this factory plans against 'coverage-observation-v1' and writes the mark itself - remove the field from the row (a row planned against another revision is re-planned, not relabelled)",
+        ],
+        'plan obligation': [
+            'TS-1: coverage_obligations required',
+        ],
+        'contradictions none': [
+            'R-1: the register\'s matrix records contradicts:"the parent feature says 401" (feature 3), and no plan row covers R-1 — a contradiction cannot be closed by leaving it out of the plan',
+        ],
+        'contradictions unflagged': [
+            'R-1: the register\'s matrix records contradicts:"the parent feature says 401" (feature 3); the plan row(s) TS-1 carry neither `source_conflict: true` nor `oracle_unknown: true`, so the reading you chose reaches gate A as a settled fact and nobody reviews it',
+        ],
+        'branches': [
+            'REJECT — 2 question-branch problem(s) of the plan rows; at gate A an answer would not move the plan as written. Repair them now, while S3 still holds the context:',
+            '- TS-2: Q9 is not in the register',
+            '- TS-1: no branch for Q1',
+        ],
+        'branches new_questions': [
+            'REJECT — 1 question-branch problem(s) of the plan rows; at gate A an answer would not move the plan as written. Repair them now, while S3 still holds the context:',
+            '- TS-1: new_questions[0] has key \'x\'. Expected: "new:<n>" with n from 1 to 99 - the strategist\'s rework repairs this row',
+        ],
+        'fence plan_row': [
+            'R-9: this requirement of the register has no row in the test plan. Expected: a row that names R-9 in `requirements` in work/test-plan.json and in the `R` column of test-plan.md. If it waits for a gate A question: `disposition: unverifiable`, `question_refs: ["Q2"]` and `if_answered["Q2"]` with a key for every reading letter (or `*`) and `not_needed`; the reading that keeps it in scope sets a disposition that gets a case. If it should not be checked: `disposition: skip` with the reason, and the person sees that row at gate A. A `not_planned` entry does not stand in for a row.',
+        ],
+        'fence r_column': [
+            'R-8: this requirement of the register is named in work/test-plan.json but not in the `R` column of test-plan.md; the person reads and the delivery trace follows that table. Expected: the same id in the `R` cell of the row.',
+        ],
+        'fence candidate_defects': [
+            'R-7: the register marks this requirement `bug:candidate-defect`, and no row plans a test for it. Expected: a row naming R-7 with `disposition: automate` or `manual-agent`; or, while a gate A question decides it, `unverifiable` with `question_refs` and an `if_answered` reading that sets `automate` or `manual-agent`. When the requirements do not state the expected result: `oracle_unknown: true` and a question; the current code is never the expected result.',
+        ],
+        'fence waiting_branch': [
+            'R-6 waits for Q2, and no row of it has a non-empty branch for Q2. Expected: `if_answered["Q2"]` on the row with a patch for at least one reading; or, if no answer changes the row, a person\'s word: the waiver line below.',
+        ],
+        'regression': [
+            'no `## Recommended regression` in test-plan.md: write the list, or `No regression: <reason>`',
+        ],
+        'targets': [
+            "REJECT — 1 plan target(s) name a test the project's working tree does not have; S4 would search for it:",
+            '- TS-1: `extend tests/x.py` - no file at tests/x.py under the project root or the run folder of its profile. Expected: the test as it is in the working tree, `extend <path from the project root>[::<name>]`, or a candidate id of work/context-bundle.json; when the test exists only in the change under test, `fit: new` with `fit_absent: "tests/x.py"` - the new test then writes the page objects and helpers it needs.',
+        ],
+        'requests': [
+            'TS-1: requests[0] has no `failures` (a non-empty list of strings) - fix: {"request": "<key>", "failures": ["500", "timeout"]}',
+            'TS-1: has `requests` and no `requirements` - fix: name in `requirements` the register R whose flow sends the request (the red violates that R); a request that serves no R of the story goes to top-level `request_homes` with that reason',
+            'GET /api/books (src/a.js:3): no plan row fails it with 500, timeout - fix: add {"request": "GET /api/books", "failures": ["500", "timeout"]} to `requests` of the row that checks it, or {"request": "GET /api/books", "failure": "500|timeout|*", "reason": "<why>"} to top-level `request_homes`',
+        ],
+        'requests capped': [
+            'TS-1: requests[0] has no `failures` (a non-empty list of strings) - fix: {"request": "<key>", "failures": ["500", "timeout"]}',
+            '2 more problems (3 in all); fix these first, the check runs again',
+        ],
+        'plan_json': [
+            'REJECT — 1 problem(s): the structured test plan cannot be read:',
+            '- test-plan.json is not readable JSON (Expecting property name enclosed in double quotes: line 1 column 2 (char 1)); Gate A reads this file, so it cannot stay broken',
+        ],
+    }
+    tmp = Path(tempfile.mkdtemp(prefix="tbw-t7b-"))
+    saved = os.environ.get("CLAUDE_PROJECT_DIR")
+    root = temp_project("tbw-t7b-")
+    try:
+        use_project(root)
+        task = root / "qa-factory" / "artifacts" / "QA-1"
+        (task / "work").mkdir(parents=True)
+        (task / "test-plan.md").write_text("# Plan\n", encoding="utf-8")
+        (task / "work" / "flow-requests.json").write_text(json.dumps({"requests": [
+            {"method": "GET", "url_template": "/api/books", "source": "code", "path": "src/a.js", "line": 3}]}), encoding="utf-8")
+        bad_requests = {"rows": [{"id": "TS-1", "requests": [{"request": "GET /api/books"}]}]}
+
+        def told(cid):
+            return SJ.told_text(SJ.row_for(cid)[0])
+
+        def capped(limit):
+            import branch_accounting as BA
+            real = BA.limit
+            BA.limit = lambda name, *a, **k: limit if name == "refusal_units_shown" else real(name, *a, **k)
+            try:
+                return PC._request_findings(task, bad_requests)
+            finally:
+                BA.limit = real
+
+        # (key, the id its lines carry, the lines the function returns, how many leading lines are headers, not findings)
+        rows = (
+            ("plan depth", "planning_contract:plan", lambda: PC.gate_plan_errors([dict(row, verification_depth="deep")], "legacy", 1), 0),
+            ("plan revision", "planning_contract:plan", lambda: PC.gate_plan_errors([dict(row, coverage_contract_revision="v0")], "legacy", 1), 0),
+            # F3: an obligation line that came out of `validate_plan` as a `coverage_contract:obligations` Record keeps its own row
+            ("plan obligation", "coverage_contract:obligations", lambda: [e for e in PC.gate_plan_errors(
+                [dict(row, schema_version=2, coverage_obligations=[])], "legacy", 2) if "coverage_obligations required" in e], 0),
+            ("contradictions none", "planning_contract:contradictions", lambda: PC.contradiction_errors([], register), 0),
+            ("contradictions unflagged", "planning_contract:contradictions", lambda: PC.contradiction_errors([dict(row, requirement_refs=["R-1"])], register), 0),
+            ("branches", "planning_contract:branches", lambda: PC._branch_block_lines([
+                {"kind": "missing_branch", "message": "TS-1: no branch for Q1"}, {"kind": "unresolved_ref", "message": "TS-2: Q9 is not in the register"}]), 1),
+            ("branches new_questions", "planning_contract:branches.new_questions", lambda: PC._branch_block_lines(
+                PC.s3_branch_refusals(task, [], view=([], [], [("TS-1", "new:1", f"TS-1: {problem}")]))[0]), 1),
+            ("fence plan_row", "planning_contract:fence.plan_row", lambda: PC.fence_lines(dict(fence, candidates=[], waiting=[], missing=fence["missing"][:1]))[0][1], 0),
+            ("fence r_column", "planning_contract:fence.r_column", lambda: PC.fence_lines(dict(fence, candidates=[], waiting=[], missing=fence["missing"][1:]))[0][1], 0),
+            ("fence candidate_defects", "planning_contract:fence.candidate_defects", lambda: PC.fence_lines(dict(fence, missing=[], waiting=[]))[0][1], 0),
+            ("fence waiting_branch", "planning_contract:fence.waiting_branch", lambda: PC.fence_lines(dict(fence, missing=[], candidates=[]))[0][1], 0),
+            ("regression", "planning_contract:regression", lambda: PC._regression_findings(task), 0),
+            ("targets", "planning_contract:targets", lambda: PC.fit_target_block([{"where": "TS-1", "state": "absent", "line": PC._target_line("TS-1", found)}]), 1),
+            ("requests", "planning_contract:requests", lambda: PC._request_findings(task, bad_requests), 0),
+            ("requests capped", "planning_contract:requests", lambda: capped(1), 0),
+        )
+        for key, cid, produce, headers in rows:
+            lines = list(produce())
+            expected, door = told(cid)
+            check_eq(f"t7b {cid} ({key}): the printed text is the old text", [str(x) for x in lines], old.get(key))
+            check_eq(f"t7b {cid} ({key}): every finding is a Record of the row, with its sentence and door; a header stays plain",
+                     [(getattr(x, "check", ""), getattr(x, "expected", ""), getattr(x, "door", "")) for x in lines],
+                     [("", "", "")] * headers + [(cid, expected, door)] * (len(lines) - headers))
+        # EC-5: nothing wrong, nothing returned
+        check_eq("t7b no problem, no line (plan, contradictions, branches, targets, requests, regression)",
+                 (PC.gate_plan_errors([row], "legacy", 1), PC.contradiction_errors([dict(row, requirement_refs=["R-1"], source_conflict=True)], register),
+                  PC._branch_block_lines([]), PC.fit_target_block([]), PC.fence_lines(dict(fence, missing=[], candidates=[], waiting=[])),
+                  PC._request_findings(task, {"rows": [dict(row, requests=[{"request": "GET /api/books", "failures": ["500", "timeout"]}],
+                                                            requirements=["R-1"])]}),
+                  PC._regression_findings(tmp)), ([], [], [], [], [], [], []))
+        # the unmarked revision lines keep their text and stay bare (the conductor's door: node T9c)
+        bare = PC.gate_plan_errors([row], "new", 1)
+        check_eq("t7b plan: the unmarked-revision line is returned as it was, bare", (len(bare), [getattr(x, "check", "") for x in bare]), (1, [""]))
+        # plan_json: a print of the detector body; the row runs the body and watches the constructor
+        (task / "work" / "test-plan.json").write_text("{not json", encoding="utf-8")
+        asked, real_refusal, real_story = [], PC.refusal, PC.detector_story
+        PC.refusal = lambda cid, text, **kw: (asked.append(cid), real_refusal(cid, text, **kw))[1]
+        PC.detector_story = lambda *a, **k: task
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out):
+                code = PC._detector_body(None)
+        finally:
+            PC.refusal, PC.detector_story = real_refusal, real_story
+        check_eq("t7b planning_contract:plan_json: the body prints the old two lines, exits 1, and asks the constructor for the row",
+                 (out.getvalue().splitlines(), code, asked), (old.get("plan_json"), 1, ["planning_contract:plan_json"]))
+    finally:
+        if saved is None:
+            os.environ.pop("CLAUDE_PROJECT_DIR", None)
+        else:
+            os.environ["CLAUDE_PROJECT_DIR"] = saved
+        cleanup(root)
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":

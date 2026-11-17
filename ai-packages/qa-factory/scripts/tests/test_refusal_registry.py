@@ -91,6 +91,29 @@ def part_scanner() -> None:
         finally:
             cleanup(root)
 
+    # told-before-work F1: the A24 key of a wrapped refusal is read by the same recogniser as the wide scan; the key is the text
+    # refused WITH, whatever the shape of the wrapper (bare, alias, module attribute, non-literal id, with_check).
+    for row, imports, wrapped in (
+            ("bare", "from detector_verdict import refusal", "refusal('x:y', 'the text')"),
+            ("alias", "from detector_verdict import refusal as R", "R('x:y', 'the text')"),
+            ("attribute", "import detector_verdict as DV", "DV.refusal('x:y', 'the text')"),
+            ("non-literal id", "from detector_verdict import refusal; CID = 'x:y'", "refusal(CID, 'the text')"),
+            ("with_check", "from detector_verdict import with_check", "with_check('the text', 'x:y')")):
+        root = _fake_package(f'''
+            {imports}
+
+            def deny(message):
+                return 2
+
+            def check_dispatch(event):
+                return deny({wrapped})
+        ''')
+        try:
+            check_eq(f"A24 key of a wrapped refusal ({row}) is the text it refuses with",
+                     [s["call"] for s in RR.sites(root)], ["the text'"])
+        finally:
+            cleanup(root)
+
 
 def part_door_texts() -> None:
     """OH5-2 A (AR-8, FR-15): the doors the guard builds name existing scripts of the copy that runs it (E4, E10); the card head

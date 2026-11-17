@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 # `named` is `detector_verdict.named`; the alias is because `variant_errors` has a local set of that name
 from detector_verdict import EXIT_UNREADABLE, unreadable_line  # noqa: E402  (the third state of a detector: it could not run, RH1-5)
 from detector_verdict import named as named_ids, one_line, one_of  # noqa: E402  (a finding is one physical line in a detector's output)
+from detector_verdict import refusal  # noqa: E402  (told-before-work: a refusal of the S3 exit carries the row of its requirement; its text is unchanged)
 from person_words import WHOLE_PART, door  # noqa: E402
 import contract  # noqa: E402
 import grammar as G  # noqa: E402
@@ -284,11 +285,19 @@ def unmarked_revision_errors(rows, plan_contract_mode="legacy"):
 
 
 def gate_plan_errors(rows, plan_contract_mode="legacy", coverage_contract_version=1):
-    """Exactly what `controller.py --operation gate-inputs` will require of the plan."""
+    """Exactly what `controller.py --operation gate-inputs` will require of the plan.
+
+    Every line of `validate_plan` and of `coverage_revision_errors` is the requirement of the row `planning_contract:plan` (the id is
+    written here, at the caller that knows it: `validate_plan` has other callers, EC-2); the text of a line is unchanged. The
+    `unmarked_revision_errors` lines stay bare: their door is the conductor's, its own row lands with node T9c (F-W4 (b))."""
     errors = validate_plan(rows, require_v2=(coverage_contract_version == 2))
     ours = coverage_revision_errors(rows)
     named = tuple(f"{line.split(':', 1)[0]}: unsupported coverage_contract_revision " for line in ours)
-    return [error for error in errors if not error.startswith(named)] + ours + unmarked_revision_errors(rows, plan_contract_mode)
+    kept = [error for error in errors if not error.startswith(named)] + ours
+    # a line that already names its row (`coverage_contract:obligations*` from `validate_obligations`) keeps it: the inner id wins, as in
+    # `_branch_block_lines`; `refusal()` rebuilds from the text and the outer id would relabel it
+    return [error if getattr(error, "check", "") else refusal("planning_contract:plan", error)
+            for error in kept] + unmarked_revision_errors(rows, plan_contract_mode)
 
 
 def plan_warnings(rows):
@@ -1481,16 +1490,18 @@ def contradiction_errors(rows, register_text: str) -> list:
         matching = [row for row in (rows if isinstance(rows, list) else [])
                     if isinstance(row, dict) and rid in row_requirements(row)]
         if not matching:
-            errors.append(f"{rid}: the register's matrix records {quote}, and no plan row covers "
-                          f"{rid} — a contradiction cannot be closed by leaving it out of the plan")
+            errors.append(refusal("planning_contract:contradictions",
+                                  f"{rid}: the register's matrix records {quote}, and no plan row covers "
+                                  f"{rid} — a contradiction cannot be closed by leaving it out of the plan"))
             continue
         unflagged = [str(row.get("id") or "?") for row in matching
                      if not (row.get("source_conflict") or row.get("oracle_unknown"))]
         if len(unflagged) == len(matching):
-            errors.append(f"{rid}: the register's matrix records {quote}; the plan row(s) "
-                          f"{', '.join(unflagged)} carry neither `source_conflict: true` nor "
-                          "`oracle_unknown: true`, so the reading you chose reaches gate A as a "
-                          "settled fact and nobody reviews it")
+            errors.append(refusal("planning_contract:contradictions",
+                                  f"{rid}: the register's matrix records {quote}; the plan row(s) "
+                                  f"{', '.join(unflagged)} carry neither `source_conflict: true` nor "
+                                  "`oracle_unknown: true`, so the reading you chose reaches gate A as a "
+                                  "settled fact and nobody reviews it"))
     return errors
 
 
@@ -3259,7 +3270,8 @@ def s3_branch_refusals(task_root, rows, view=None) -> tuple:
     try:
         scoped, virtual, problems = view if view is not None else plan_questions_view(rows)
         found = [{"kind": "bad_branch", "owner": "strategist", "where": rid, "question": key,
-                  "message": f"{text} - {BRANCH_WAY['strategist']}"} for rid, key, text in problems]
+                  "message": refusal("planning_contract:branches.new_questions", f"{text} - {BRANCH_WAY['strategist']}")}
+                 for rid, key, text in problems]
         created = plan_created(task_root)
         if not has_branch_fields(scoped, (), created):
             return found, ""
@@ -3957,29 +3969,33 @@ def fence_lines(fence: dict) -> list:
     if plan_side:
         blocks.append((f"REJECT — {len(plan_side)} requirement(s) of the register have no plan row; each would leave the story unseen "
                        "at gate A (a question's answer would have no row to change):",
-                       [f"{rid}: this requirement of the register has no row in the test plan. Expected: a row that names {rid} in "
-                        f"`requirements` in work/test-plan.json and in the `R` column of test-plan.md. If it waits for a gate A question: "
-                        "`disposition: unverifiable`, `question_refs: [\"Q2\"]` and `if_answered[\"Q2\"]` with a key for every reading "
-                        "letter (or `*`) and `not_needed`; the reading that keeps it in scope sets a disposition that gets a case. If it "
-                        "should not be checked: `disposition: skip` with the reason, and the person sees that row at gate A. A "
-                        "`not_planned` entry does not stand in for a row." for rid in plan_side]))
+                       [refusal("planning_contract:fence.plan_row",
+                                f"{rid}: this requirement of the register has no row in the test plan. Expected: a row that names {rid} in "
+                                f"`requirements` in work/test-plan.json and in the `R` column of test-plan.md. If it waits for a gate A question: "
+                                "`disposition: unverifiable`, `question_refs: [\"Q2\"]` and `if_answered[\"Q2\"]` with a key for every reading "
+                                "letter (or `*`) and `not_needed`; the reading that keeps it in scope sets a disposition that gets a case. If it "
+                                "should not be checked: `disposition: skip` with the reason, and the person sees that row at gate A. A "
+                                "`not_planned` entry does not stand in for a row.") for rid in plan_side]))
     if md_side:
         blocks.append((f"REJECT — {len(md_side)} requirement(s) of the register are named in work/test-plan.json but not in test-plan.md:",
-                       [f"{rid}: this requirement of the register is named in work/test-plan.json but not in the `R` column of "
-                        "test-plan.md; the person reads and the delivery trace follows that table. Expected: the same id in the `R` "
-                        "cell of the row." for rid in md_side]))
+                       [refusal("planning_contract:fence.r_column",
+                                f"{rid}: this requirement of the register is named in work/test-plan.json but not in the `R` column of "
+                                "test-plan.md; the person reads and the delivery trace follows that table. Expected: the same id in the `R` "
+                                "cell of the row.") for rid in md_side]))
     if fence["candidates"]:
         blocks.append((f"REJECT — {len(fence['candidates'])} candidate defect(s) of the register have no planned test:",
-                       [f"{c['r']}: the register marks this requirement `bug:candidate-defect`, and no row plans a test for it. "
-                        f"Expected: a row naming {c['r']} with `disposition: automate` or `manual-agent`; or, while a gate A question "
-                        "decides it, `unverifiable` with `question_refs` and an `if_answered` reading that sets `automate` or "
-                        "`manual-agent`. When the requirements do not state the expected result: `oracle_unknown: true` and a "
-                        "question; the current code is never the expected result." for c in fence["candidates"]]))
+                       [refusal("planning_contract:fence.candidate_defects",
+                                f"{c['r']}: the register marks this requirement `bug:candidate-defect`, and no row plans a test for it. "
+                                f"Expected: a row naming {c['r']} with `disposition: automate` or `manual-agent`; or, while a gate A question "
+                                "decides it, `unverifiable` with `question_refs` and an `if_answered` reading that sets `automate` or "
+                                "`manual-agent`. When the requirements do not state the expected result: `oracle_unknown: true` and a "
+                                "question; the current code is never the expected result.") for c in fence["candidates"]]))
     if fence["waiting"]:
         blocks.append((f"REJECT — {len(fence['waiting'])} requirement(s) wait for a gate A question and no answer would change their row:",
-                       [f"{w['id']} waits for {w['question']}, and no row of it has a non-empty branch for {w['question']}. Expected: "
-                        f"`if_answered[\"{w['question']}\"]` on the row with a patch for at least one reading; or, if no answer "
-                        "changes the row, a person's word: the waiver line below." for w in fence["waiting"]]))
+                       [refusal("planning_contract:fence.waiting_branch",
+                                f"{w['id']} waits for {w['question']}, and no row of it has a non-empty branch for {w['question']}. Expected: "
+                                f"`if_answered[\"{w['question']}\"]` on the row with a patch for at least one reading; or, if no answer "
+                                "changes the row, a person's word: the waiver line below.") for w in fence["waiting"]]))
     return blocks
 
 
@@ -3991,21 +4007,29 @@ def _branch_block_lines(findings: list) -> list:
     order = {kind: place for place, kind in enumerate(BRANCH_KINDS)}
     lines = [f"REJECT — {len(findings)} question-branch problem(s) of the plan rows; at gate A an answer would not move the plan as "
              "written. Repair them now, while S3 still holds the context:"]
-    lines += ["- " + one_line(item["message"]) for item in sorted(findings, key=lambda item: order.get(item["kind"], len(order)))]
+    for item in sorted(findings, key=lambda item: order.get(item["kind"], len(order))):
+        line = "- " + one_line(item["message"])
+        if getattr(item["message"], "check", "") == "planning_contract:branches.new_questions":    # `s3_branch_refusals` named its row: kept
+            lines.append(refusal("planning_contract:branches.new_questions", line))
+        else:
+            lines.append(refusal("planning_contract:branches", line))
     return lines
 
 
 def _regression_findings(task_root) -> list:
     """RG1-2: the problems of the plan's `## Recommended regression` (`regression_scope.problems`, the one checker), as lines for the
-    S3 exit. No `test-plan.md` on disk: `[]` (other checks answer for the plan file). A check that cannot run is a WARN line and
-    `[]`, never `UNREADABLE` and never a finding: the regression is a recommendation and never holds a story (P24)."""
+    S3 exit. No `test-plan.md` on disk: `[]` (other checks answer for the plan file). A check that CANNOT RUN is a WARN line and
+    `[]`, never `UNREADABLE` and never a finding: the regression is a recommendation, so a check that could not run never holds a
+    story. A problem the check FINDS is a REJECT of the S3 exit (P24: the list is right the first time); each carries the row
+    `planning_contract:regression` (written here, the caller of `regression_scope`, which is not edited: E-T7b-1)."""
     try:
         if not (Path(task_root) / "test-plan.md").is_file():
             return []
         import regression_scope   # lazy: it reaches git; an exit that never gets here pays nothing
         import runtime_paths
         project = runtime_paths.project_for_task(task_root)
-        return regression_scope.problems(task_root, project, regression_scope.project_config(project))
+        found = regression_scope.problems(task_root, project, regression_scope.project_config(project))
+        return [refusal("planning_contract:regression", problem) for problem in found]
     except Exception as exc:  # noqa: BLE001
         print(one_line(f"WARN regression check could not run: {type(exc).__name__}: {exc}"))
         return []
@@ -4330,7 +4354,7 @@ def fit_target_block(refused) -> list:
     if not refused:
         return []
     return ([f"REJECT — {len(refused)} plan target(s) name a test the project's working tree does not have; S4 would search for it:"]
-            + ["- " + one_line(item["line"]) for item in refused])
+            + [refusal("planning_contract:targets", "- " + one_line(item["line"])) for item in refused])
 
 
 REQUEST_ROW_FIX = '{"request": "<key>", "failures": ["500", "timeout"]}'
@@ -4430,7 +4454,7 @@ def _request_findings(task_root, doc, unknown=None) -> list:
         shown = BA.limit("refusal_units_shown")
         if len(lines) > shown:
             lines = lines[:shown] + [f"{len(lines) - shown} more problems ({len(lines)} in all); fix these first, the check runs again"]
-        return lines
+        return [refusal("planning_contract:requests", line) for line in lines]
     except Exception as exc:  # noqa: BLE001
         reason = f"the request closure could not run: {type(exc).__name__}: {exc}"
         print(one_line(f"WARN {reason}"))
@@ -4462,8 +4486,8 @@ def _detector_body(root):
         data = json.loads(plan.read_text(encoding="utf-8"))
     except Exception as exc:
         print("REJECT — 1 problem(s): the structured test plan cannot be read:")
-        print("- " + one_line(f"{plan.name} is not readable JSON ({exc}); Gate A reads this file, so it "
-                              "cannot stay broken"))
+        print("- " + one_line(refusal("planning_contract:plan_json", f"{plan.name} is not readable JSON ({exc}); Gate A reads this file, so it "
+                                                                         "cannot stay broken")))
         return 1
     rows = data.get("rows") if isinstance(data, dict) else data
     mode, version = story_contract_mode(task_root)

@@ -794,7 +794,139 @@ def s10_words() -> None:
         cleanup(project)
 
 
+T5R_TWO = sides_of(ui="real", backend="absent")
+
+
+def t5r_plan_missing(project: Path) -> list:
+    """A story whose S5 began with a plan dispatch and whose plan file is gone: the `plan` family's own finding (M27)."""
+    import s5_plan as SP
+    task = story(project, {"tests": [row()]})
+    state = {"dispatches": {"P1": {"id": "P1", "stage": "S5", "role": "qa-automator", "status": "accepted",
+                                   "request_binding": {"purpose": "s5_plan"}},
+                            "W1": {"id": "W1", "stage": "S5", "role": "qa-automator", "status": "running", "scope": ["TC-1"],
+                                   "request_binding": {"purpose": "repair_verify"}}}}
+    (task / "state").mkdir(exist_ok=True)
+    (task / "state" / "controller.json").write_text(json.dumps(state), encoding="utf-8")
+    out: list = []
+    P.check_plan_conformance(task, {"tests": [row()]}, ["TC-1"], out, [], "W1")
+    del SP
+    return out
+
+
+def t5r_findings(project: Path) -> dict:
+    """The finding each s5_precheck row id writes, provoked on one fixture each: `{row id: [findings of that check function]}`."""
+    cases: dict = {}
+    task = story(project, {"tests": [row(), row()]})
+    out: list = []
+    P.check_manifest({"tests": [row(), row()]}, ["TC-1"], out)
+    cases["s5_precheck:manifest"] = out
+    saved, out = P.dispatch_scope, []
+    P.dispatch_scope = lambda root, dispatch: ["TC-1"]
+    try:
+        P.check_row_fields(task, {"tests": [row()]}, ["TC-1"], out, [], "D1")
+    finally:
+        P.dispatch_scope = saved
+    cases["s5_precheck:row_fields"] = out
+    out = []
+    P.check_bindings({"tests": [row()], "then_bindings": []}, "TC-1", "## Then\n1. The body carries `x`.\n", [], [], out)
+    cases["s5_precheck:bindings"] = out
+    out = []
+    P.check_case_is_oracle({"unresolved": [{"case": "TC-1", "reason": "deferred_by_decision:x"}]}, ["TC-1"], out)
+    cases["s5_precheck:oracle"] = out
+    out = []
+    P.check_run_mapping("TC-1", [row()], [], [], out)
+    cases["s5_precheck:run_mapping"] = out
+    out = []
+    P.check_environment(task, {"unresolved": [{"case": "TC-1", "reason": "blocked_by_env"}]}, ["TC-1"], {}, {}, out, [])
+    cases["s5_precheck:environment"] = out
+    (task / "work").mkdir(exist_ok=True)
+    plan_row = "TS-1"       # one id for the plan and for the case's line: the line is built from it, not typed as a reader input
+    (task / "work" / "test-plan.json").write_text(json.dumps({"rows": [{"id": plan_row, "schema_version": 2, "coverage_obligations": [
+        {"obligation_id": plan_row + "-O1", "decision": "automate", "execution_scope": "current_task"}]}]}), encoding="utf-8")
+    out = []
+    P.check_obligations(task, {"tests": [row()]}, ["TC-1"], {"TC-1": f"Plan row: {plan_row}\n"}, set(), out)
+    cases["s5_precheck:obligations"] = out
+    cases["s5_precheck:plan"] = t5r_plan_missing(project)
+    task = story(project, {"tests": [row()]})
+    cases["s5_precheck:sides.declared"] = found(task, T5R_TWO)
+    task = story(project, {"tests": [row(sides={"backend": "substituted"})], "provisional": [prov(status="open")]})
+    cases["s5_precheck:sides.settled"] = found(task, sides_of(ui="real", backend="real"))
+    cases["s5_precheck:sides.placeholders"] = found(fl_case(project, declared=False), REAL)
+    return cases
+
+
+# (row id, the finding's id, its keys and the start of its message as the OLD file printed them, before any `told`)
+BASE = ["id", "check", "case", "message", "fix", "level"]
+T5R_OLD = [
+    ("s5_precheck:manifest", "manifest:TC-1:dup-test_a", BASE, "two tests[] entries carry the instance id 'test_a'"),
+    ("s5_precheck:row_fields", "manifest:-:row-fields-missing", BASE + ["subjects"], "1 tests[] row(s) of this window miss 4 field(s)"),
+    ("s5_precheck:bindings", "bindings:TC-1:no-bindings", BASE + ["subjects"], "bindings missing: TC-1 has 1 Then clause(s)"),
+    ("s5_precheck:oracle", "oracle:TC-1:dispute-unstated", BASE, "TC-1 is unresolved with `deferred_by_decision:x`"),
+    ("s5_precheck:run_mapping", "run_mapping:TC-1:no-row-test_a", BASE + ["subjects"], "no run block carries a result row for test_a"),
+    ("s5_precheck:environment", "environment:TC-1:remedy-missing", BASE, "`blocked_by_env` with no `remedy`"),
+    ("s5_precheck:obligations", "obligations:TC-1:obligation-id-TS-1-O1", BASE, "TS-1-O1 (TC-1) has no obligation binding"),
+    ("s5_precheck:plan", "plan:-:plan-missing", BASE, "the story's S5 is on the plan form and work/s5-plan.json does not exist"),
+    ("s5_precheck:sides.declared", "sides:TC-1:sides-undeclared-test_a", BASE, "test_a: the story has a side that is not real (backend)"),
+    ("s5_precheck:sides.settled", "sides:-:provisional-open-on-real-P-1", BASE, "provisional P-1 is still open and its side 'backend' is now real"),
+    ("s5_precheck:sides.placeholders", "sides:TC-1:placeholder-undeclared-test_a-P-1", BASE, "test_a is linked to the open placeholder P-1"),
+]
+
+
+def tbw_t5r_sites() -> None:
+    """T5r: every finding of a sited s5_precheck row carries the row (`told`, LAST key) and is otherwise the finding the OLD file wrote
+    (keys, order, message start captured before the edit); a recorded word passes exactly what it passed (`_names` reads the whole id
+    and the tag, never the row id); `told` stays last in the two copies `_judge_words` and `passed_by_judge` make."""
+    import detector_verdict as DV
+    project = temp_project("qa-t5r-sites-")
+    use_project(project)
+    try:
+        got = t5r_findings(project)
+        for rid, fid, keys, start in T5R_OLD:
+            hit = next((f for f in got[rid] if f["id"] == fid), None)
+            check(f"T5r {rid}: the provocation wrote {fid}", hit is not None, str([f["id"] for f in got[rid]]))
+            if hit is None:
+                continue
+            check_eq(f"T5r {rid}: the old keys in the old order, then `told` last", list(hit), keys + ["told"])
+            check(f"T5r {rid}: the message starts as it did", hit["message"].startswith(start), hit["message"])
+            check_eq(f"T5r {rid}: told names the row, with its sentence", (hit["told"][0]["check"], bool(hit["told"][0].get("expected"))), (rid, True))
+            check_eq(f"T5r {rid}: _names - the whole id and the tag pass it, the row id and a part of the text do not",
+                     (P._names(hit, fid), P._names(hit, P._finding_tag(hit)), P._names(hit, rid), P._names(hit, "fix")), (True, True, False, False))
+        # F2: every `_Window.add` finding (here a C1 deviation) states the plan row's requirement, so it carries the row too
+        manifest = {"tests": [row(case="TC-9")]}
+        win_out: list = []
+        win = P._Window(story(project, manifest), manifest, {"asked": ["TC-1"]}, {}, win_out, [])
+        win.c1({"id": "T-1"}, "T-1", "tests/test_ui.py::test_a", ["TC-1"], "test T-1", win.all_instances)
+        check_eq("T5r s5_precheck:plan: a C1 deviation of a window carries the plan row, `told` last",
+                 [(f["id"], f["told"][0]["check"], list(f)[-1]) for f in win_out],
+                 [("plan:TC-1:c1-T-1-TC-1", "s5_precheck:plan", "told")])
+        task = story(project, {"tests": [row()]})
+        base = P._sited("oracle", "TC-1", DV.refusal("s5_precheck:oracle", "x"), "f", "changed-after-red-test_a")
+        base["pair_at"] = "2026-11-02T00:00:00+00:00"
+        P._told_last(base)
+        check_eq("T5r: pair_at keeps its place, told is last", list(base), BASE + ["pair_at", "told"])
+        word = {"stage": "S5", "match": "changed-after-red", "decision": "d", "at": "2026-11-01T00:00:00+00:00", "by": "human"}
+        (task / "pipeline.json").write_text(json.dumps({"stage_overrides": [word]}), encoding="utf-8")
+        out, passes = P._judge_words(task, [dict(base)], [])
+        check_eq("T5r _judge_words: a stage-wide word given before the run keeps the finding; `refused` is new, `told` still last",
+                 (passes, list(out[0])), ([], BASE + ["pair_at", "refused", "told"]))
+        import judge
+        saved = (P._judge_plan, judge.settings, judge.active, judge.judged_refusal)
+        P._judge_plan = lambda *a: ("s", "j", "r")
+        judge.settings, judge.active = (lambda root: {}), (lambda cfg: True)
+        judge.judged_refusal = lambda *a, **k: {"passed": True, "note": "n"}
+        try:
+            hints: list = []
+            P.passed_by_judge(task, [dict(base)], hints, [])
+        finally:
+            P._judge_plan, judge.settings, judge.active, judge.judged_refusal = saved
+        check_eq("T5r passed_by_judge: the hint copy keeps its keys, `judge` is new, `told` still last",
+                 (len(hints), list(hints[0])), (1, BASE + ["pair_at", "judge", "told"]))
+    finally:
+        cleanup(project)
+
+
 def main() -> None:
+    tbw_t5r_sites()
     c1_c2()
     c3_c4()
     c5_and_pending()
