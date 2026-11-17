@@ -1832,6 +1832,7 @@ def main() -> None:
     tbw_t6_sites()
     tbw_t7b_sites()
     tbw_t4a_sites()
+    tbw_t4b_sites()
     finish("test_detector_verdict")
 
 
@@ -2000,6 +2001,143 @@ def tbw_t7b_sites() -> None:
             os.environ["CLAUDE_PROJECT_DIR"] = saved
         cleanup(root)
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def tbw_t4b_sites(sg=None, capture: bool = False):
+    """told-before-work T4b: each role-facing refusal of `stage_guard.check_command` that maps to a row of `stage-joints.json` (rows 25-30 of
+    mech 5.3, row 28 as two sub-ids) is `refusal("<id>", <the text it always had>)`: the runner's three (`opaque`, `typed_runner`,
+    `request`, written where the rule knows the requirement, carried through the ticket prefix) and the commit / stash / delivery ones
+    (written in `check_command`, the caller: `rule_pathspec`, `rule_manifest`, `rule_stash` and `rule_delivery` have other callers, EC-2).
+    ONE table, a row per site, driven through the REAL `check_command` and its `deny`: the stderr is `STAGE GUARD: ` + the old text byte for
+    byte (the digest in `old`, captured by running the same rows over a byte copy of the file taken before the edit; EC-1), then the
+    row's `  expected:` / `  door:` and `  check: <id>` last (EC-6); the code is DENY. Controls: a command nothing refuses prints nothing
+    and allows (EC-5). `sg` is the module under test (the scratch capture of `old` passes the byte copy and `capture=True`: `{row: digest}`).
+    The walker's door (`SG-walker-error`) is the last row, driven through the real `check` with the walker raising; every dispatch-time refusal stays bare: a refusal with no row prints no `check:` line."""
+    import contextlib
+    import hashlib
+    import io
+    from unittest import mock
+    import hooklib
+    import stage_joints as SJ
+    from harness import reader_patched, use_project
+    if sg is None:
+        import stage_guard as sg
+    old = {   # row -> sha256[:16] of the problem text the pre-change file printed (a byte copy of stage_guard.py, same rows)
+        "opaque": "13194e9a98d58b21",
+        "typed_runner no path": "a6332152cf00feea",
+        "typed_runner region": "0656d3600256ff56",
+        "request missing file": "45fb2f1593e58732",
+        "request unreadable": "f188b6c039344c52",
+        "request no requests": "5b2c099e9922b22e",
+        "request other dispatch": "52a392fac1c0e2e0",
+        "request selection not a list": "8c31c182696ee4aa",
+        "request outside scope": "a392b839c038f258",
+        "commit pathspec": "de89fde49f65e866",
+        "commit manifest": "3e92949a32bb21fd",
+        "stash": "94d0fa72ac580e08",
+        "delivery": "e364cb85432891cb",
+    }
+    saved_env, saved_cache = os.environ.get("CLAUDE_PROJECT_DIR"), hooklib._PROJECT_ROOT_CACHE
+    from harness import cleanup, temp_project
+    root = temp_project("tbw-t4b-")
+    try:
+        use_project(root)
+        task = root / "qa-factory" / "artifacts" / "QA-3"
+        (task / "work").mkdir(parents=True)
+        (task / "state").mkdir()
+        (task / "pipeline.json").write_text(json.dumps({"ticket": "QA-3", "stages": {"S1": {"status": "running"}}}), encoding="utf-8")
+        (task / "work" / "ledger.json").write_text(json.dumps(
+            {"delivery_verdict": "no", "delivery_ready": False, "rows": [], "reasons": ["x"]}), encoding="utf-8")
+        (task / "state" / "controller.json").write_text(json.dumps({"dispatches": {"d-1": {
+            "id": "d-1", "stage": "S5", "role": "qa-automator", "status": "running", "scope": ["TC-012"]}}}), encoding="utf-8")
+
+        def request(name, body):
+            path = root / name
+            path.write_text(body if isinstance(body, str) else json.dumps(body), encoding="utf-8")
+            return path.as_posix()
+
+        bad_json = request("bad.json", "{not json")
+        empty = request("empty.json", {"requests": []})
+        other = request("other.json", {"dispatch_id": "zz", "selected_instance_ids": ["TC-012"]})
+        notlist = request("notlist.json", {"dispatch_id": "d-1", "selected_instance_ids": "TC-012"})
+        outside = request("outside.json", {"dispatch_id": "d-1", "selected_instance_ids": ["TC-099::t[x]"]})
+        inside = request("inside.json", {"dispatch_id": "d-1", "selected_instance_ids": ["TC-012::t[x]"]})
+        p = "stage_guard:SG-command."
+        # (row, the id its refusal carries, the command, a stub of `rule_manifest` or None)
+        rows = (
+            ("opaque", p + "opaque", "echo a\\(b; python run_suite.py --mine TC-012", None),
+            ("typed_runner no path", p + "typed_runner", "python run_suite.py --task X --label all", None),
+            ("typed_runner region", p + "typed_runner", "python run_suite.py --request $(echo f.json)", None),
+            ("request missing file", p + "request", "python run_suite.py --request work/requests/nothing.json", None),
+            ("request unreadable", p + "request", f"python run_suite.py --request {bad_json}", None),
+            ("request no requests", p + "request", f"python run_suite.py --request {empty}", None),
+            ("request other dispatch", p + "request", f"python run_suite.py --request {other}", None),
+            ("request selection not a list", p + "request", f"python run_suite.py --request {notlist}", None),
+            ("request outside scope", p + "request", f"python run_suite.py --request {outside}", None),
+            ("commit pathspec", p + "commit.pathspec", "git commit -a -m x tests/t.py", None),
+            ("commit manifest", p + "commit.manifest", "git commit -m x -- tests/t.py", "committing test code: unresolved cases without a reason"),
+            ("stash", p + "stash", "git stash push -u", None),
+            ("delivery", p + "delivery", "gh pr create --fill", None),
+        )
+        digests = {}
+
+        def run(command, stub=None):
+            event = {"tool_name": "Bash", "cwd": str(root), "task_id": "QA-3", "tool_input": {"command": command}}
+            buf = io.StringIO()
+            patch = mock.patch.object(sg, "rule_manifest", return_value=stub) if stub is not None else contextlib.nullcontext()
+            with contextlib.redirect_stderr(buf), patch:
+                code = sg.check_command(event)
+            text = buf.getvalue()
+            for spelling in (str(root), str(root).replace("\\", "/")):
+                text = text.replace(spelling, "<ROOT>")
+            return code, text
+
+        for name, cid, command, stub in rows:
+            code, err = run(command, stub)
+            problem = err[:-1] if err.endswith("\n") else err
+            problem = problem.split("\n  expected: ")[0].split("\n  check: ")[0]
+            assert problem.startswith("STAGE GUARD: "), (name, err)
+            digests[name] = hashlib.sha256(problem[len("STAGE GUARD: "):].rstrip().encode("utf-8")).hexdigest()[:16]
+            if capture:
+                continue
+            row, why = SJ.row_for(cid)
+            expected, door = SJ.told_text(row) if row else ("", "")
+            tail = "\n  expected: " + expected + ("\n  door: " + door if door else "") + "\n  check: " + cid + "\n"
+            check_eq(f"t4b {name} {cid}: the guard denies", code, sg.DENY)
+            check(f"t4b {name} {cid}: the row states a sentence", bool(expected), str(why))
+            check(f"t4b {name} {cid}: the row's lines follow the problem, `check:` last", err.endswith(tail), err[-300:])
+            check_eq(f"t4b {name} {cid}: the problem text is the old one", digests[name], old.get(name))
+        if capture:
+            return digests
+        # EC-5: nothing refused, nothing printed
+        for command in ("python run_suite.py --mine TC-012", f"python run_suite.py --request {inside}", "git stash push -u -- src/a.py"):
+            check_eq(f"t4b control {command[:44]!r}: allowed, nothing printed", run(command), (sg.ALLOW, ""))
+        # the walker's door (`SG-walker-error`, F3 of the topic critic): the REAL `check` with the walker made to raise - a deny whose
+        # problem is `WALKER_DOOR` filled with the walker's own failure, then the row's lines from stage-joints.json, `check:` last
+        wid = "stage_guard:SG-walker-error"
+        wrow, wwhy = SJ.row_for(wid)
+        wexpected, wdoor = SJ.told_text(wrow) if wrow else ("", "")
+
+        def boom(self, *args, **kwargs):
+            raise IndexError("synthetic walker failure")
+        with reader_patched("_code", lambda real: boom):
+            with contextlib.redirect_stderr(io.StringIO()) as buf:
+                wcode = sg.check({"tool_name": "Bash", "cwd": str(root), "tool_input": {"command": "git commit -m x tests/t.py"}})
+        wtail = ("\n  expected: " + wexpected + ("\n  door: " + wdoor if wdoor else "") + "\n  check: " + wid + "\n")
+        wproblem = "STAGE GUARD: " + hooklib.WALKER_DOOR.format(reason="IndexError: synthetic walker failure")
+        check_eq(f"t4b the walker's door {wid}: the guard denies", wcode, sg.DENY)
+        check(f"t4b the walker's door {wid}: the row states a sentence", bool(wexpected), str(wwhy))
+        check(f"t4b the walker's door {wid}: the old problem text, then the row's lines, `check:` last",
+              buf.getvalue() == wproblem + wtail, buf.getvalue()[-300:])
+        check_eq("t4b every id of the table is a row of stage-joints.json",
+                 sorted({cid for _name, cid, _c, _s in rows if SJ.row_for(cid)[0] is None}), [])
+    finally:
+        if saved_env is None:
+            os.environ.pop("CLAUDE_PROJECT_DIR", None)
+        else:
+            os.environ["CLAUDE_PROJECT_DIR"] = saved_env
+        hooklib._PROJECT_ROOT_CACHE = saved_cache
+        cleanup(root)
 
 
 if __name__ == "__main__":

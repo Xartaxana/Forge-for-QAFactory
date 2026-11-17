@@ -1,4 +1,4 @@
-# Rules-debt phase 2 — dispatch cards (t-954, F19; fix round t-994)
+# Rules-debt phase 2 — dispatch cards (t-954, F19; fix rounds t-994, t-1033)
 
 Designer draft for the Lead. Parent spec: `docs/tasks/specs/20261117-rules-debt-fix-spec.md` (accepted; called "the
 spec" below). Owner forks F-O1..F-O6 are decided (the spec's three closing sections, :614-655); Lead forks F-L1..F-L13
@@ -16,6 +16,17 @@ directly), and the git status snapshot shows only `logs/journal/dev1.jsonl` modi
 command was RUN here; where a fact rests on a run, the run is the critic's (quoted with its trail) and is marked "not
 re-run". The round's ledger is the table «Fix round t-994» at the end; the forks it opens are «Forks returned (t-994)».
 
+**Fix round t-1033 (17.11.2026).** Cards C3-0, C3-b1, C3-b2, C3-d, the new card C3-rr, the B1 lines of C3-g, C3-h, C3-j
+and C3-k, the A2 line of C3-k, the C3 shared items (new S-f), the E-c tables, §1, §3, §5, §7, §8 and F-T5 were edited
+under the plan critic t-1026 (`docs/tasks/specs/reviews/t-1026-rules-debt-wave2-code-and-cards.md`, findings A1, A2, B1,
+B2, B3, B4, B5, B9, B10, "C3-b1 other keys") and the Lead's decision on A1 (option (a)). Facts of this round were read in
+the root checkout at `2151eeef9162a16abf5af2e58d6d95e4fc46b569`: `.git/refs/heads/main` and
+`.git/refs/remotes/origin/main` both hold it (read directly). No shell in this dispatch either: nothing was RUN; every
+run named below is a command for the Lead or the builder, or the critic's run marked "not re-run". In the cards this
+round changed, `owns:` and `given:` carry absolute paths under `C:/QAFactory/forge-repo/` (a worktree dispatch
+substitutes the worktree root). The round's ledger is «Fix round t-1033» at the end; its forks are «Forks returned
+(t-1033)».
+
 ## §0. Three facts that change the cards (read before dispatch)
 
 1. **The one predicate the spec names for FR-59 conversions does not exist.** The spec (§2 G-rows, §3 "FR-59 conversion
@@ -28,7 +39,9 @@ re-run". The round's ledger is the table «Fix round t-994» at the end; the for
    `references/gate-registry.json:1-717`): every conversion so far was done by the note's second clause ("its unknown
    branch is pinned by `test`", :3) with sites in produce/validate/dispatch roles (precedent `finish_exit_gate`, :596
    "Registered as a validate site because the site compares no verdict word and calls no acceptable()"). → fork F-D1
-   (decided (b), Lead 17.11; the predicate is card C3-0).
+   (decided (b), Lead 17.11; the predicate is card C3-0). (t-1033: still true on 2151eeef — Glob
+   `ai-packages/qa-factory/scripts/gate_*.py` lists `gate_registry.py`, `gate_shown.py`, `gate_preflight.py`,
+   `gate_brief.py`, no `gate_template.py`.)
 2. **The bug-file home has a writer-side reader the critic did not list.** `external_writes.py:653`
    (`process_bug_proposal`) resolves a proposal's `bug_file` as `state_dir() / bug_file_rel`, and `record_result`
    (:858) does the same at :893-901. `common-rules.md:116` is exactly the frame rule for that field ("`bug_file` …
@@ -44,7 +57,7 @@ re-run". The round's ledger is the table «Fix round t-994» at the end; the for
    `test_node_ids.py`, `test_probe_by_code.py`, `test_probe_gap_word.py`, `test_proof_level.py`, `test_s5_precheck.py`,
    `test_stand_identity.py`, `test_window_record.py` (all over the file's `slow_over_s` 10); `builder-rules.md:53-55`
    forbids the builder to run them (and `test_controller_*`): "judged by the batch canon". Quarantined (section
-   `quarantine` starts `test-layers.json:7182` on a6df7fd1): `test_judge_results.py`, `test_form_selftest.py`,
+   `quarantine` starts `test-layers.json:7182` on a6df7fd1; `:7207` on 2151eeef, t-1033): `test_judge_results.py`, `test_form_selftest.py`,
    `test_s1_s2_contract.py` (the spec's S1 DoD names it as a reader — it is not run), `test_run_suite_mine.py` (:9674).
    Every DoD below therefore is `scenario_walk.py --witness-for <owns>` + the printed files that are neither slow nor
    quarantined + the named fast CLIs; the slow ones are named "judged by the batch canon". Also slow (read
@@ -64,6 +77,8 @@ input, and a test pins it. A new gate is a registry row with its unknown branch"
 change adds or alters, name its class … and the owner it serves … Run `test_judgment_census.py`; a raised count is named
 in the verdict (AR-20)"; AR-13 :166 "grep SIBLING_MAP for the file or fact. If an axis names a survivor, call it"; AR-15
 :180 "grep for the problem, not the helper (FR-17), and list every site … A new survivor gets an axis in the same commit".
+AR-20 (t-1033, S-f): every pin of `test_gate_registry.py` a card moves (debt / converted / split / D13 count) is named in
+the diff with its reason, in the comment form of `test_gate_registry.py:969-986`.
 
 Checks added or altered (AR-29: owner and census class). Census classes are those of
 `scripts/tests/fixtures/judgment-census.json` (header :3: shape, xref, word-list, meaning-proxy, meaning, safety; a unit
@@ -76,9 +91,11 @@ builder cannot read from the census test returns a question (spec S6 E1 preceden
 | `external_writes` `bug_file` resolution (task root, then state dir) | C1 on D-1 (ii) | data | shape | refuses a missing file, as today |
 | door families executed (test only) | C2 | data | none | no |
 | the seven registry rows of C3-R: status, words, roles, branch (no code) | C3-R | data | none (no check unit moves; registry rows are not census units) | unchanged |
-| `gate_template.acceptable(value, consumer)` — is this word/record one the consumer may take | C3-0 | data (a join between a word and the registry row) | xref, only if a unit exists: the card forbids a refusal site, so no unit is expected | no (a boolean the caller acts on) |
+| `gate_template.acceptable(value, consumer)` — is this word/record one the consumer may take; `registry_problem()` (on F-T11 (a)) | C3-0 | data (a join between a word and the registry row) | xref, only if a unit exists: the card forbids a refusal site, so no unit is expected | no (a boolean the caller acts on) |
+| `reporter_rehearsal_identity` reuse through the predicate (`_reporter_outcome`) | C3-rr (t-1033) | data | none: `_reporter_outcome` has no census row (grep of `judgment-census.json`, control `validate_window` found at :7) and the change adds no refusal site | no (a reuse is refused: the command is rehearsed) |
 | `live_check_demand`: a keyless, flagless, unhanded row asks the code critic "is a live probe owed?" at window acceptance | C3-b1 | judgment of `role:qa-code-critic`, accepted at window acceptance (the tier above reads it); code checks only the presence and the closed value of the typed answer | xref (presence of a typed answer); the gap is list transport, no unit; `manifest_put`'s refusal of a value outside {yes, no} sits in an existing rowed function (class unchanged) | yes (waits at window acceptance) |
-| `test_identity` accept sites through the predicate | C3-b2 | data | unchanged (no new unit) | unchanged |
+| `test_identity` accept sites through the predicate (`already_probed`, `_product_receipt_repeat`, `_run_freshness`, `_match`; `_evaluate` on F-T10 (a)) | C3-b2 | data | unchanged (no new unit; none of these functions has a census row — grep, control `validate_window`) | unchanged |
+| `s5_window`: the critic's review word accepted through the predicate (`validate_window`, three consumers) | C3-d (t-1033, rec (i) + F-T9 (a)) | data (a join of the critic's word to the row; the review itself stays the critic's judgment, accepted at window acceptance) | unchanged: `validate_window`'s census row is `shape`, owner data (`judgment-census.json:7`); its unit is the `ValueError` at `acceptance.py:1073`; the gaps are list transport | unchanged (a review gap holds, as today) |
 | `s5_window` unmeasured detector | C3-d | rec (i): none moves (INFO stays); (ii): judgment of the critic | (i) none; (ii) xref | (i) no; (ii) yes |
 | `s5_stand_limits` unmeasured -> card; record cover | C3-j | intent (the person's word, P13) for the answer; data for the cover lookup | xref (a key join, as `environment_property_cover`) | yes (waits at the declared place) |
 | no-row probe road reaches acceptance (test only) | C4 | data | none | no |
@@ -91,7 +108,7 @@ accepts (the only carrier of that grammar; not copied here). Each card gives the
 
 ## §2. Cards
 
-Card ids: C1 (item 1), C2 (item 2), C3-R, C3-0, C3-b1, C3-b2, C3-d, C3-g, C3-h, C3-j, C3-k (item 3; C3-a, C3-c, C3-e,
+Card ids: C1 (item 1), C2 (item 2), C3-R, C3-0, C3-rr (t-1033), C3-b1, C3-b2, C3-d, C3-g, C3-h, C3-j, C3-k (item 3; C3-a, C3-c, C3-e,
 C3-f and C3-i are folded into C3-R), C4 (item 4), C5 (item 5), S9, S10, FL1, FL2, FL4, FL9 (item 6), S1b (item 7).
 
 ---
@@ -250,11 +267,13 @@ Edges:
 
 ---
 
-### C3 — FR-59 conversion cards (F-O1, decided whole; fix round t-994)
+### C3 — FR-59 conversion cards (F-O1, decided whole; fix rounds t-994, t-1033)
 
 Every C3 card needs the PLAN CRITIC before code (spec §7, "each FR-59 conversion"); the plan critic of the topic is
 t-989 (R13-g: one pass per topic). C3-R is dispatchable after the Lead accepts this round; C3-0, C3-b1 and C3-d carry
-open forks of «Forks returned (t-994)»; C3-b2, C3-g, C3-h, C3-j and C3-k are wave 3.
+open forks of «Forks returned (t-994)»; C3-b2, C3-g, C3-h, C3-j and C3-k are wave 3. (t-1033: C3-R merged as `5751426c`;
+its row `reporter_rehearsal_identity` goes back to debt in the fix round t-1032 (critic t-1026 A1, Lead option (a)), and
+its conversion is the new card C3-rr, wave 3. The second plan critic of the topic is t-1026.)
 
 Shared items of every C3 card (each card adds its own):
 - S-a. The gate's unknown branch behaves as the decided branch (table below). Where code already does it, no code moves.
@@ -275,7 +294,41 @@ Shared items of every C3 card (each card adds its own):
 - S-e. A card that adds or changes a check unit in `scripts/*.py` owns
   `ai-packages/qa-factory/scripts/tests/fixtures/judgment-census.json` (its own rows only, class per the §1 table) and is
   based on `main` after `wave-a/integrate` lands (that branch edits the same file). A card that moves no code does not
-  touch the census.
+  touch the census. (t-1033: `wave-a/integrate` is merged — `71d36190 wave: merge wave-a/integrate (t-993)`, the critic's
+  `git log origin/main --grep=wave-a` run in t-1026, not re-run here — so the order is satisfied for every card based on
+  today's main.)
+- S-f (t-1033, critic t-1026 B1). **The pins of `ai-packages/qa-factory/scripts/tests/test_gate_registry.py` move with
+  every conversion.** Every converting card owns that file for ITS OWN ROW'S pins only (line numbers read on 2151eeef):
+  `EXPECTED_DEBT` (:57-60: the row's id leaves), `EXPECTED_CONVERTED` (:63-68: the id joins), the K-T1.2 text
+  `"N gate(s) left as debt:"` (:246: N-1), the K-T1.14 debt list (:322: it reads `EXPECTED_DEBT`, no edit of its own) and
+  the split pin (:331-334: converted +1, debt -1, with its AR-20 comment line naming the card and task), the F4 `code`
+  list (:729-738: the id joins only when the row's `vocabulary` turns `target` -> `code`), and `D13_TRIPLES` /
+  `D13_ITEM_COUNT` (:907-987). Item of every converting card: **"re-measure D13 with `GR.analyse(PLUGIN_ROOT)` before
+  and after the change (the set of `(file, function, row)` triples and `len(items)`), and name every added or removed
+  triple and the count's move in a comment line in the form of :969-986 (`N -> M (<card>, <task>): <which comparisons
+  in which site>`)"**. Expected values come from the status rule (one row moves from debt to converted) and from the list
+  of comparisons the card adds to or removes from its sites; the D13 count is the one pin whose new value is a
+  measurement, and its reason is that list, never the scanner's number alone. The consumer pins F1 (:627-647) and
+  K-N2.12 NEG (:285-292) move only in C3-g (`provenance.baseline`) and C3-k (`provenance.environment_preparation`).
+  The F4 flip control (:751-754) flips the live debt row `s5_window`; C3-0 moves it onto an in-memory copy row (C3-0
+  item 7), so it survives the conversion of the last `target` debt row.
+  TEMPORAL, both worlds. The numbers a card applies are DELTAS from the main it is based on, never absolute.
+
+  Main at t-1043:
+  - t-1032 is merged (critic t-1039: `7f2f6f78`). Its pins are on main: `test_gate_registry.py:55-61`, :247 "8", :334-336 (19 converted / 8 debt / 6 exempt), :930-932 (the triples `_record_unreadable` and `_reporter_outcome`), :991-994 (`D13_ITEM_COUNT = 140`).
+  - C3-0 (t-1038) is not on main yet (Glob: no `gate_template.py` on the root). On its branch `worktree-agent-aa11322709a274e56` (a4aca646) it moves only D13:
+    - `D13_TRIPLES` gains `("gate_template.py", "acceptable", "provenance_acceptance")`;
+    - `D13_ITEM_COUNT` goes 140 -> 146: six comparisons of `acceptable`, the two `not_applicable` ones included (`test_gate_registry.py:1003-1006` there).
+
+  So every converting card is based on main AFTER C3-0 merges, and its D13 base is 146 plus whatever merged in between.
+
+  Main line numbers (t-1043): EXPECTED_DEBT :58-61, EXPECTED_CONVERTED :64-69, K-T1.2 :247, split :334-336, F4 flip :753-756 (C3-0 rewrites it; :760 on its branch), D13 :913-994. The F4 `code` list (:729-738) and K-T1.14 (:322) were not re-read. A card whose
+  base predates a sibling's merge merges main into its tree (D-0048), re-derives every pin of its own row from the
+  merged state, re-measures D13 on the merged tree, and never resolves a conflict by keeping either side's number.
+  INVARIANT: the pins always equal the live registry (K-T1.14 compares them to the file, :329-336) — no merge lands with
+  another card's row reverted in a pin, and no card's diff edits another row's pin.
+  Expected merge order on the file (from the dependencies; the binding rule is D-0048's, above): t-1032 -> C3-0 -> C3-rr
+  -> C3-b1 -> C3-b2 -> C3-g -> C3-d -> C3-j -> C3-k -> C3-h.
 - DoD of every C3 card: `scenario_walk.py --witness-for <owns>`, `python -B ai-packages/qa-factory/scripts/gate_registry.py --check`
   (exit 0, and the row's id is absent from the `N gate(s) left as debt:` block that `--check` prints — the block is
   printed by `gate_registry.py:968-971`), the printed non-slow files; the row's `test` and `test_gate_registry.py` are
@@ -287,10 +340,10 @@ Shared items of every C3 card (each card adds its own):
   accepts a record; the plan critic judged each one (table "Re-roles judged by the plan critic (E-c)" below).
   INVARIANT: a re-role never hides a literal acceptance. E-d — `gate-registry.json` is shared by all C3 cards and S7
   (`witness_backstop` row): each card edits ONLY its own rows; later merges resolve (row-disjoint, the D-0048 form
-  applied to rows).
+  applied to rows). E-e (t-1033) — `test_gate_registry.py` is shared by every converting card: S-f.
 - architecture content (every C3): `AR-28 -- the unknown branch is declared and pinned by the row's test`; `AR-29 --
-  <class> unchanged / changed as the §1 table says`; judgment `none -- <why>` only where the table says owner data and
-  nothing moves into judgment.
+  <class> unchanged / changed as the §1 table says`; `AR-20 -- the registry pins move by the named delta, D13 re-measured`
+  (t-1033, S-f); judgment `none -- <why>` only where the table says owner data and nothing moves into judgment.
 
 Decided branches (registry today -> after):
 
@@ -298,48 +351,61 @@ Decided branches (registry today -> after):
 |---|---|---|---|---|
 | C3-h | stand_identity (:35) | question / wait / stage_entry | keep | none |
 | C3-k | provenance_acceptance (:91) | question / wait / stage_entry | keep | designer (C3-k) |
-| C3-b2 | test_identity (:148) | rerun | keep | `already_probed`, `_match`, `green_over_same_bytes` (t-994: fork F-T1 on the last two) |
+| C3-b2 | test_identity (:148) | rerun | keep | `already_probed`, `_match`, `green_over_same_bytes` (t-994: fork F-T1 on the last two); t-1033 (B4): + `_product_receipt_repeat`, `_run_freshness`; `_evaluate` on F-T10 |
 | C3-R (was C3-a) | collected_ids (:170) | **debt** | **rerun** (owner) | none (validate) |
 | C3-b1 | live_check_demand (:208) | **debt** | **question / wait / window_acceptance, addressee role:qa-code-critic** | none |
 | C3-R (was C3-c) | s5_coverage (:229) | question / wait / window_acceptance | keep | none |
-| C3-d | s5_window (:251) | question / wait / window_acceptance | keep (t-994: fork F-T7) | not judged (C3-d) |
+| C3-d | s5_window (:251) | question / wait / window_acceptance | keep (t-994: fork F-T7) | t-1033 (B3): `acceptance.validate_window` (the critic's review word) |
 | C3-R (was C3-e) | delivery (:274) | **debt** | **refuse_with_door** (a kind not in the kinds file -> `no`, the kind named as a factory defect, FR-19) | none |
 | C3-R (was C3-i) | case_preconditions (:314) | question / wait / gate_a | keep | none |
 | C3-R (was C3-f) | environment_preparation (:336) | question / wait / authorization | **refuse_with_door** (Lead, 17.11.2026, по рекомендации критика, до слова владельца) | none |
 | C3-g | baseline_identity (:358) | refuse_with_door | keep | `deployment_readiness` (t-994: fork F-T3) |
 | C3-j | s5_stand_limits (:501) | **debt** | **question; the person's answer persisted in the environment record** (owner) | none |
-| C3-R (was C3-i) | reporter_rehearsal_identity (:524) | rerun | keep | none |
+| C3-R (was C3-i) -> t-1032 debt -> C3-rr | reporter_rehearsal_identity (:524) | rerun | keep | t-1033 (A1): `gate_preflight._reporter_outcome` |
 | C3-R (was C3-i) | environment_property_cover (:547) | question / wait / gate_a | keep | none |
 
 (Line numbers = the 14 rows' `status: debt` lines in `gate-registry.json`; re-read on a6df7fd1 for the rows of C3-R,
-C3-0, C3-b and C3-g: :148, :170, :208, :229, :251, :274, :314, :336, :358, :524, :547 hold.)
+C3-0, C3-b and C3-g: :148, :170, :208, :229, :251, :274, :314, :336, :358, :524, :547 hold. On 2151eeef, after C3-R,
+the rows' `status` lines are test_identity :148, live_check_demand :206, s5_window :247, baseline_identity :353,
+s5_stand_limits :496, reporter_rehearsal_identity :520 — read t-1033.)
 
 Re-roles judged by the plan critic (E-c) — t-989 F-S5, applied as written (Lead decision 1). The column "t-994 read" is
 this round's check of the critic's reading on a6df7fd1; where it disagrees, the disagreement is a returned fork, not an
-edit of the critic's judgment.
+edit of the critic's judgment. The rows marked t-1033 are the plan critic t-1026's corrections (A1, B3, B4) and their
+class sweep, read on 2151eeef.
 
 | row | site | today | judgment | why (critic) | t-994 read |
 |---|---|---|---|---|---|
 | test_identity | `proof_level.same_test` (:850) | accept | **produce** | it RETURNS the row's words (`raw`/`instance`/`instance_code`/`file_code`/`""`); it consumes none | holds (`proof_level.py:850-892`) |
 | test_identity | `proof_level.already_probed` (:1404) | accept | **true accept** | compares `hit['holds'] in ('instance_code','file_code')` (:1520): it consumes the word to reuse a probe | holds, with a nuance: the reuse ACCEPTANCE is the truthiness of `same_test(...)` at :1492 and :1507 (any non-empty word); the comparison at :1520 only picks the words shown (`held_words`). C3-b2 allow-lists :1520 and routes :1492/:1507 through the predicate |
 | test_identity | `execution_request._match` (:2078), `green_over_same_bytes` (:2169) | accept | **true accept** | they decide whether an old job or green is reused for this request | the decision holds, but neither consumes a word of this row: `_match` calls `same_instance_bytes` (:2099-2101), which compares `proof_level.compare_identity(...)[0] == "same"` (:2065-2075, vocabulary same/different/unknown); `green_over_same_bytes` reads identity only through `covered` -> `_match` (:2182-2183) and compares `execution_status == "passed"` → fork F-T1 |
+| test_identity (t-1033, B4) | `proof_level._product_receipt_repeat` (:1365; the test :1378-1379) | not registered | **true accept** | the reuse of a product receipt by the truthiness of `same_test(now, proof_identity(record))`, the shape of :1492/:1507; called from `already_probed` :1514 | t-1033: holds (`proof_level.py:1365-1401`) |
+| test_identity (t-1033, B4) | `proof_level._run_freshness` (:924; the test :939) | not registered | **true accept** (designer's choice on the critic's recommendation, §7) | `same_test(...) in ("instance", "instance_code")` decides whether a run row still speaks for the test (`fresh`) | t-1033: at :939 both sides carry a kept per-test identity (`now` checked at :932; `bound` holds only `instance_identity` built from `run_identity`, which requires both shas, :911-921), so `same_test` decides by its rule 1 and returns only `instance`, `instance_code` or `""` (:878-883): routing through a `["matched"]` consumer accepts exactly what the literal accepts |
+| test_identity (t-1033, class sweep, F-T10) | `proof_level._evaluate` (:1580; :1604-1605), `holds_over_comments` (:1552; :1562), `_stale_receipt` (:1886; :1898) | not registered | `_evaluate`: true accept (a receipt counts by the truthiness of `same_test`); `_stale_receipt`: produce (a why); `holds_over_comments`: no production caller (grep `holds_over_comments\(` over `scripts/`: the def and `tests/test_proof_level.py:1499-1500` only) | not judged by a critic → fork F-T10 | t-1033 read only |
 | live_check_demand | `proof_level.proof_required` (:467) | accept | **produce** | it produces the demand (flags, `_NOVELTY_DEMANDS` membership, handed) and accepts no record | holds (`proof_level.py:467-483`) |
 | s5_coverage | `s5_precheck.run` (:4598) | accept | **validate** | it produces findings and `unchecked[]` over the author's artifacts; no verdict word is compared | holds (`s5_precheck.py:4598`, return :4736-4739: `ok`, findings, `unchecked`) |
 | delivery | `delivery_verdict.decide` (:119) | accept | **produce** | it computes the word | not re-read |
 | delivery | `check_delivery.assess` (:2558) | accept | **produce** | it FINALISES the word and writes `delivery_verdict`; its `in ('no', None)` reads go through `DV.verdict_of_kind` and err toward `no` | not re-read |
 | delivery | `check_delivery.ledger_reasons` (:1740) | accept | **produce** | it returns the texts of the blocking ledger records | not re-read |
 | baseline_identity | `baseline_contract.deployment_readiness` (:175) | accept | **true accept** | it accepts `provenance.baseline` receipts (registry `accepts`) | it accepts BASELINE RECEIPTS by `status == "captured"` + revision, gate ref and file-hash equalities (`baseline_contract.py:185-214`); it reads no provenance word and no registry entry; the consumer id `provenance.baseline` is read by no `scripts/*.py` (grep `provenance\.baseline` over `scripts/`: hits only in `tests/test_gate_registry.py:284-288,626,635`; positive control: the same grep found `"captured"` at `baseline_contract.py:134,199`) → fork F-T3 |
-| reporter_rehearsal_identity + environment_property_cover | `gate_preflight._rehearse_reporter` (:3577) | accept (two rows) | **validate**, under `reporter_rehearsal_identity` only | the reuse decision is a key join; no verdict word is compared | not re-read |
+| reporter_rehearsal_identity + environment_property_cover | `gate_preflight._rehearse_reporter` (:3577) | accept (two rows) | **validate**, under `reporter_rehearsal_identity` only | the reuse decision is a key join; no verdict word is compared | not re-read. t-1033: the critic withdrew the reasoning (t-1026 A1): the reuse decision is in the extracted `_reporter_outcome`; `_rehearse_reporter` stays `validate` (its `countable['state'] == 'none'` is `report_adapt.countable`'s vocabulary, `gate_preflight.py:3876-3880`, a coincidence of the word) |
+| reporter_rehearsal_identity (t-1033, A1) | `gate_preflight._reporter_outcome` (:3824; the test :3843) | not registered (t-1032 registers it `accept`) | **true accept** | `earlier["state"] == "same_command"` consumes the row's word to reuse a proof | t-1033: holds (`gate_preflight.py:3836-3851`); C3-rr routes it through the predicate |
+| reporter_rehearsal_identity (t-1033, A1) | `gate_preflight._record_unreadable` (:3966; :3969) | not registered (t-1032 registers it `produce`) | **produce** | it returns the tail of a sentence for the `unreadable` state | t-1033: holds (`gate_preflight.py:3965-3971`) |
 | reporter_rehearsal_identity | `driver_gates.hand_to_conductor` (:1024) | accept | **dispatch** | it hands the state to the conductor | not re-read |
 | environment_property_cover | `gate_preflight.check_case_preconditions` (:5460) | accept (+ dispatch under case_preconditions) | **drop from this row** | it stays only under `case_preconditions` (dispatch) | registry :293 (dispatch under case_preconditions) and :531 (accept here) hold |
 | environment_property_cover | `gate_preflight._environment_cover` (:4214) | not registered | **validate** (new registration) | it holds the whole gate A cover decision | `_environment_cover` is a method of `Rehearsal` (a26 keys a method by its bare name, `gate_registry.py:206-207`); uniqueness of the name in the file is checked by `--check` (F-e) |
 | environment_property_cover | `stand_gaps.gate_b_split` (:962) | accept | **validate** | the gate B cover is a key join | not re-read |
 | s5_stand_limits | `gate_preflight.check_s5_stand_limits` (:3165) | accept | **produce** | it measures and cards; it accepts no record | not re-read |
 | s5_window | `acceptance.validate_window`, `window_record.verdict` | accept | not judged here | C3-d is unfit (F-d1) | C3-d below |
+| s5_window (t-1033, B3) | `acceptance.validate_window` (:1052; :1156, :1161, :1167, :1171) | accept | **true accept — stays `accept`** | it accepts the critic's review word to close a review (`!= "approved"` :1171, `not in HANDED_REVIEW_VERDICTS` :1161, `!= BLOCKED_REVIEW_VERDICT` :1156/:1167); a `validate` role would allow these silently (`gate_registry.py:37-41`) | t-1033: holds (`acceptance.py:1154-1174`, :33-34, :42-44) |
+| s5_window (t-1033, B3) | `window_record.verdict` (:1816) | accept | **produce** | it builds the problem lines and `info` | t-1033: holds (`window_record.py:1816-1913`) |
+| s5_window (t-1033, class sweep) | `window_record.build` (:1332; :1532 `item["review"]["verdict"] != "approved"`) | not registered | **produce** (new registration in C3-d) | it writes the review NOTE (the door text), not an acceptance | t-1033 read; the comparison at :1524/:1625 uses the imported `BLOCKED_REVIEW_VERDICT` (invisible to A26, docstring :63-66) |
 
 Result (critic): under (b) the predicate is needed for exactly **test_identity** (three sites), **baseline_identity**
 (one) and **provenance_acceptance** (C3-k). Every other row converts with no `acceptable()` call. (t-994: forks F-T1 and
-F-T3 ask the Lead whether two of those four sites need the predicate in the form decided.)
+F-T3 ask the Lead whether two of those four sites need the predicate in the form decided.) (t-1033, critic t-1026: the
+list grows by **reporter_rehearsal_identity** (`_reporter_outcome`, C3-rr), **s5_window** (`validate_window`, C3-d) and
+two more test_identity sites (`_product_receipt_repeat`, `_run_freshness`, C3-b2; `_evaluate` on F-T10).)
 
 #### C3-R — registry conversions with no code (C3-a + C3-c + C3-e + C3-f + C3-i; F-K7, Lead decision 2) — wave 2, one builder node
 
@@ -466,29 +532,37 @@ Edges:
 
 #### C3-0 — the one predicate for true accept sites (F-D1 (b), Lead 17.11) — designer draft (this), then plan critic
 
-Needed by C3-b2 (test_identity: `already_probed`, `_match`, `green_over_same_bytes` — fork F-T1), C3-g
+Needed by C3-b2 (test_identity: `already_probed`, `_match`, `green_over_same_bytes` — fork F-T1; t-1033:
+`_product_receipt_repeat`, `_run_freshness`), C3-rr (t-1033, `_reporter_outcome`), C3-d (t-1033, `validate_window`), C3-g
 (`deployment_readiness` — fork F-T3) and C3-k. Not a wave 2 builder dispatch until the plan critic passes this card
-(PROJECT.md п. 6 (в): a reused shape in a gate role) and the Lead answers F-T1/F-T2.
+(PROJECT.md п. 6 (в): a reused shape in a gate role) and the Lead answers F-T1/F-T2. (t-1033: the plan critic t-1026
+passed it "dispatchable after listed edits (B1, B2, B10)"; the edits are in; K3 (error direction) and F-T1 (a) / F-T2 (a)
+agreed by the critic; the Lead's answers are still owed. Based on main AFTER t-1032 merges, S-f.)
 
-given: `ai-packages/qa-factory/design/factory-rules.md` (whole), `plans/builder-rules.md`, `docs/TESTING.md`; this card;
-read: `scripts/gate_registry.py:1-80,110-146,205-264,427-457,467-483,485-681,684-743,786-842`,
-`references/gate-registry.json` (rows test_identity :123-149, baseline_identity :338-359, provenance_acceptance :37-92,
-exploratory_oracle :422-441), `scripts/profile_contract.py:877-923` (`acceptable_provenance`, the precedent and the
-error-direction model), `scripts/proof_level.py:850-892`, `scripts/tests/test_gate_registry.py` (its table helpers)
+given: `C:/QAFactory/forge-repo/ai-packages/qa-factory/design/factory-rules.md` (whole),
+`C:/QAFactory/forge-repo/plans/builder-rules.md`, `C:/QAFactory/forge-repo/docs/TESTING.md`; this card and the C3
+shared items (S-a..S-f); read, under `C:/QAFactory/forge-repo/ai-packages/qa-factory/`:
+`scripts/gate_registry.py:1-80,110-146,205-264,427-457,467-483,485-681,684-743,786-842`,
+`references/gate-registry.json` (rows test_identity :123-149, baseline_identity :333-354, provenance_acceptance :37-92,
+exploratory_oracle :417-436 — lines on 2151eeef), `scripts/profile_contract.py:877-923` (`acceptable_provenance`, the
+precedent and the error-direction model), `scripts/proof_level.py:850-892`, `scripts/tests/test_gate_registry.py` (its
+table helpers; the S-f lines :55-68, :240-250, :316-339, :728-755, :907-1012)
 owns:
-- `ai-packages/qa-factory/scripts/gate_template.py` (new: `acceptable`, a module docstring, no CLI)
-- `ai-packages/qa-factory/references/gate-registry.json` (ONE site line in row `provenance_acceptance`: `{"file": "gate_template.py", "function": "acceptable", "role": "library"}`, beside the `gate_registry.py` library sites :65-68)
-- `ai-packages/qa-factory/scripts/tests/test_gate_registry.py` (one table of rows, item 4)
-- `ai-packages/qa-factory/scripts/tests/test-layers.json` (one string `"gate_template.py"` in the `covers` list of the keep row `test_gate_registry.py`, :2031-2059)
-non-goals: any consumer site (`proof_level`, `execution_request`, `baseline_contract`, `profile_contract` and the
-provenance sites are wired by C3-b2 / C3-g / C3-k); any `accepts` entry in the registry (the consumers add theirs in the
-commit that wires them, AR-22); `profile_contract.acceptable_provenance` (F-T2); `gate_registry.py` (its finding texts
-already name `gate_template.acceptable`, :840, :878); the census (no unit, item 3)
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/gate_template.py` (new: `acceptable`, `registry_problem` on F-T11 (a), a module docstring, no CLI)
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/references/gate-registry.json` (ONE site line in row `provenance_acceptance`: `{"file": "gate_template.py", "function": "acceptable", "role": "library"}`, beside the `gate_registry.py` library sites :65-68)
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/test_gate_registry.py` (one table of rows, item 4; the F4 flip control, item 7; the D13 triple and count of the new library site, item 8)
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/test-layers.json` (one string `"gate_template.py"` in the `covers` list :2035-2076 of the keep row `test_gate_registry.py`, :2032-2033)
+non-goals: any consumer site (`proof_level`, `execution_request`, `baseline_contract`, `profile_contract`, `gate_preflight`,
+`acceptance` and the provenance sites are wired by C3-b2 / C3-rr / C3-d / C3-g / C3-k); any `accepts` entry in the
+registry (the consumers add theirs in the commit that wires them, AR-22); `profile_contract.acceptable_provenance` (F-T2);
+`gate_registry.py` (its finding texts already name `gate_template.acceptable`, :840, :878); the census (no unit, item 3);
+the debt/converted/split pins (C3-0 converts no row, S-f)
 handoff: report path given by the Lead
-edges: E1-E9 below
-DoD: `python -B ai-packages/qa-factory/scripts/gate_registry.py --check` exits 0 (the new module's comparisons sit in a
-registered `library` site; the debt block is unchanged at its count before the node); then
-`python -B ai-packages/qa-factory/scripts/tests/scenario_walk.py --witness-for ai-packages/qa-factory/scripts/gate_template.py ai-packages/qa-factory/scripts/tests/test_gate_registry.py ai-packages/qa-factory/scripts/tests/test-layers.json ai-packages/qa-factory/references/gate-registry.json`
+edges: E1-E10 below
+DoD: `python -B C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/gate_registry.py --check` exits 0 (the new
+module's comparisons sit in a registered `library` site; the debt block is unchanged at its count before the node — 8
+after t-1032); then
+`python -B C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/scenario_walk.py --witness-for C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/gate_template.py C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/test_gate_registry.py C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/test-layers.json C:/QAFactory/forge-repo/ai-packages/qa-factory/references/gate-registry.json`
 and the printed non-slow files; `python -B ai-packages/qa-factory/scripts/tests/test_console_encoding.py` is not owed (no
 console output). `test_gate_registry.py` and `test_judgment_census.py` are slow — judged by the batch canon, named in the
 report
@@ -524,7 +598,7 @@ Items:
    census's units are refusal sites, `judgment-census.json:3`); if the builder needs a raise anywhere, the node stops and
    returns a question (the row would be `{"file": "gate_template.py", "function": "acceptable", "class": "xref",
    "owner": "data"}`, S-e).
-4. **Test — one table in `test_gate_registry.py`** (keep, layer `gate_named`, `test-layers.json:2028-2030`; slow: canon),
+4. **Test — one table in `test_gate_registry.py`** (keep, layer `gate_named`, `test-layers.json:2032-2033`; slow: canon),
    on an in-memory registry built from copies of the real rows (expected values from FR-59 "never a pass" and the rows'
    own `words` / `verdict_map` / `promotable`, never from the predicate's output). Rows, id = the case:
    - `word-matched`: test_identity words with a consumer `test_identity.probe_repeat: ["matched"]`; `"instance"` -> True
@@ -541,18 +615,35 @@ Items:
    - `not-applicable`: reason `no_changed_file` with token `not_applicable:no_changed_file` -> True, reason `local_source`
      -> False, bare token `not_applicable` -> True for any reason;
    - `registry-unreadable`: `registry={"rows": "x"}` and a plugin root with no registry -> False for every consumer.
+   - (t-1033, on F-T11 (a)) `registry-problem`: `registry_problem(registry={"rows": "x"})` and a plugin root with no
+     registry -> a non-empty reason (the `load_registry` / `structural_error` text); the live registry -> `""`.
 5. **Covers line.** `"gate_template.py"` joins the `covers` of keep row `test_gate_registry.py`, so `--witness-for
    scripts/gate_template.py` names that file instead of "run the whole scenario layer" (`scenario_walk.py:913-921`).
 6. **Registration.** `gate_template.py:acceptable` registered as a `library` site in `provenance_acceptance` (precedent:
    `gate_registry.py:_token_problem` / `_check_row` / `_check_registry` are `library` sites there, registry :65-67). Why a
    site at all: the body compares the anchor words `matched` / `person_confirmed` (`ANCHOR_FLOOR`, :119), and A26 flags an
    anchor comparison in any unregistered function (docstring :28-29).
+7. **(t-1033, B1 (3)) The F4 flip control moves onto an in-memory copy row.** Today it flips the live debt row
+   `s5_window` (`test_gate_registry.py:751-754`), which C3-d converts with `vocabulary: code`; after that (and after the
+   last `target` debt row converts) the control would flip nothing. Rewrite: deep-copy the live registry, add to the copy
+   one row copied from a live row with `vocabulary: "target"`, `status: "converted"`, `test` set to an existing test file
+   and `debt_ref: ""` (a fresh id), run `GR.analyse(PLUGIN_ROOT, copy)`, and assert a finding starting `<that id>.vocabulary:`.
+   expected from: `_check_row` rule "a converted row must say `code`" (`gate_registry.py:516-519`). The check id and
+   message stay as at :753 ("F4 flipping a live `target` row …" becomes "… a `target` row …").
+8. **(t-1033, S-f) D13.** The new library site's anchor comparisons are counted: `D13_TRIPLES` gains
+   `("gate_template.py", "acceptable", "provenance_acceptance")`; `D13_ITEM_COUNT` rises by the number of comparisons the
+   scan attributes to it, measured with `GR.analyse` before and after and named in a comment line (S-f form). No other
+   pin of S-f moves (C3-0 converts no row).
+9. **(t-1033, on F-T11 (a)) `registry_problem(*, registry=None) -> str`.** `""` when the registry reads and has `rows`,
+   else the reason `load_registry` / `structural_error` gives (the same read, the same once-per-process cache as item 1).
+   Pure, never raises. It is the one source a converted site uses to say WHY a reuse or a review was not accepted when
+   the cause is the registry, not the word (C3-b2 E8, C3-d E3). No comparison of a row word in its body.
 
 architecture content: `AR-13 -- the registry is read only through gate_registry.load_registry`; `AR-15 -- one predicate
 for a true accept site; acceptable_provenance is named as the provenance survivor (F-T2)`; `AR-28 -- every unknown,
 absent or malformed input is not acceptable, pinned by the table`; `AR-29 -- xref (a word joined to its registry row),
-owner data, no census unit`. judgment content: `none -- a membership join; what the word means stays with the producer
-(same_test, compare_identity) and the consumer`.
+owner data, no census unit`; `AR-20 -- D13 +1 triple, count re-measured and named`. judgment content: `none -- a
+membership join; what the word means stays with the producer (same_test, compare_identity) and the consumer`.
 
 Edges:
 - E1 (empty / absent): `value` `""`, `None`, `{}` or a record without its field -> False. INVARIANT: an absent word is
@@ -565,21 +656,128 @@ Edges:
   `compare_identity(now, before)`) and passes it. INVARIANT: "a receipt measured on other bytes never counts" is kept by
   the producer returning `""` / `different` / `unknown`, all of which are not acceptable here.
 - E5 (limit): none introduced (no size or count limit).
-- E6 TEMPORAL: before C3-b2/C3-g/C3-k, no consumer id exists in the registry, so every real call would be False — and no
-  real call exists; the table runs on an in-memory registry. The file `gate_template.py` and its covers line are created
-  by this node; before it, `gate_registry.py`'s texts name a function that does not exist (:840, :878), after it they name
-  this one. INVARIANT: no consumer is wired before its `accepts` entry lands in the same commit.
-- E7 POSITIONAL: none in C3-0 (consumer positions are C3-b2's E-rows).
+- E6 TEMPORAL (corrected t-1033, B2): seven consumer ids exist in the registry today — five under `provenance_acceptance`
+  (`provenance.automation`, `.fingerprint`, `.manual`, `.manual_capture`, `.rehearsal`, registry :80-84),
+  `provenance.environment_preparation` (:325) and `provenance.baseline` (:347) — and no `scripts/*.py` outside
+  `scripts/tests/` reads any of them (Grep `provenance\.(automation|fingerprint|manual|manual_capture|rehearsal|environment_preparation|baseline)\b`
+  over `scripts/*.py`: hits only `tests/test_gate_registry.py:287-291, 630-640`; those hits are the positive control of the
+  same call). The two outside `provenance_acceptance` are dead consumers: C3-k removes `provenance.environment_preparation`
+  (A2), C3-g removes or moves `provenance.baseline` (F-T3); the five are C3-k's. No real call of `acceptable` exists
+  before C3-b2 / C3-rr / C3-d; the table runs on an in-memory registry. The file `gate_template.py` and its covers line
+  are created by this node; before it, `gate_registry.py`'s texts name a function that does not exist (:840, :878), after
+  it they name this one. INVARIANT: no consumer is wired before its `accepts` entry lands in the same commit, and no
+  `accepts` entry is added without its reader in that commit (AR-22).
+- E7 POSITIONAL: none in C3-0 (consumer positions are the consumer cards' E-rows).
 - E8 (conflict with C3-k on `provenance_acceptance`): C3-0 adds one site line; C3-k runs after C3-0. INVARIANT: the line
   is additive and row-local.
 - E9 (one road, P31): every true accept site of every converted row calls this one function; no row gets its own
   predicate. INVARIANT: a second acceptance reader is a finding (F-b), not a variant.
+- E10 TEMPORAL (t-1033, S-f): C3-0 is based on main after t-1032; it edits `test_gate_registry.py` in three places of its
+  own (item 4 table, item 7 control, item 8 D13 line) and no debt/converted/split pin. INVARIANT: the flip control never
+  depends on a live row's status, so no later conversion kills it.
+
+#### C3-rr — reporter_rehearsal_identity: the reuse through the predicate (t-1026 A1, Lead option (a); B-283) — wave 3, after C3-0 (t-1032 merged); gate_preflight queue position 1
+
+The fix round t-1032 is merged (critic t-1039: `7f2f6f78`; pins on main, S-f). It put the row back to `status: debt`, `debt_ref: B-283`,
+registers `gate_preflight._reporter_outcome` as `accept` and `_record_unreadable` as `produce`, and keeps the t-1009 test
+row as the pin. Row on main: `gate-registry.json:498-523` (status :522; `_reporter_outcome` accept :503, `_record_unreadable` produce :504); +1 line after C3-0. The reuse decision is still `gate_preflight.py:3843` (`_reporter_outcome` :3824-3869), re-read in t-1043. This card converts the row again by routing the reuse decision through the predicate. Fact read t-1033:
+the reuse decision is `gate_preflight.py:3843`, `if isinstance(hit, dict) and isinstance(hit.get("at"), str) and
+earlier["state"] == "same_command":` inside `_reporter_outcome` (:3824-3869); `earlier` comes from `_earlier_proof`
+(:3954-3963), always a dict with `state` (`onboarding_probe.earlier_proof`, or `{"state": "unreadable", …}` when the reader
+cannot be imported).
+
+given: `C:/QAFactory/forge-repo/ai-packages/qa-factory/design/factory-rules.md` (whole),
+`C:/QAFactory/forge-repo/plans/builder-rules.md`, `C:/QAFactory/forge-repo/docs/TESTING.md`; this card and the C3 shared
+items (S-a..S-f); `C:/QAFactory/forge-repo/docs/tasks/specs/reviews/t-1026-rules-debt-wave2-code-and-cards.md` (A1); the
+accepted C3-0 card and its diff; read, under `C:/QAFactory/forge-repo/ai-packages/qa-factory/`:
+`scripts/gate_preflight.py:3824-3869,3954-3971`, `references/gate-registry.json` (row `reporter_rehearsal_identity`, :498-523 on main (t-1043)), `scripts/tests/test_gate_preflight.py:5199-5224`, `scripts/tests/test_gate_registry.py`
+(the S-f lines), `gate_template.py` on C3-0's tree (:29-57)
+owns:
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/gate_preflight.py` (`_reporter_outcome` only: the reuse condition at :3843 and the import it needs) — HOT
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/references/gate-registry.json` (row `reporter_rehearsal_identity` only: `accepts`, `status`, `debt_ref`)
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/test_gate_preflight.py` (rows of the table of `test_c3r_reporter_rehearsal_identity_an_unknown_is_rehearsed_again_never_reused`, :5210, only)
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/test_gate_registry.py` (S-f pins of this row only)
+non-goals: `_rehearse_reporter`, `_record_unreadable`, `_earlier_proof`, `_rehearsal_key`, `_record_rehearsal`,
+`onboarding_probe.earlier_proof` (the producer of the state words); `driver_gates.hand_to_conductor`; the row's words,
+`verdict_map`, sites and roles (t-1032's); `gate_template.py` (C3-0's); `judgment-census.json` (no unit: `_reporter_outcome`
+has no census row and no refusal site is added); any new test function or file
+handoff: report path given by the Lead
+edges: E1-E7 below
+DoD: `python -B C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/gate_registry.py --check` exits 0,
+`reporter_rehearsal_identity` is absent from the `N gate(s) left as debt:` block, and no F-b line names
+`_reporter_outcome`; then
+`python -B C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/scenario_walk.py --witness-for C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/gate_preflight.py C:/QAFactory/forge-repo/ai-packages/qa-factory/references/gate-registry.json C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/test_gate_preflight.py C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/test_gate_registry.py`
+and the printed non-slow files; `test_gate_preflight.py` and `test_gate_registry.py` are slow — judged by the batch
+canon, named in the report
+siblings: A1's class "a converted row's word compared in an unregistered function" — `_record_unreadable` (produce,
+t-1032), `_rehearse_reporter`'s coincident `countable['state'] == 'none'` (stays a `validate` site: report_adapt's word);
+the other sweep items of t-1026 q4 (`red_sandbox.py:2292`, `execution_request.py:3187`, `environment_preparation.py:444,616`,
+`stand_gaps._c4`) are the critic's queue lines, not this card; axis 5 (`docs/SIBLING_MAP.md:143`, gate rows <-> sites <-> prose twins): the row's words do not change, so no prose twin is walked. Waiting finding (R12 (b)): `profile_contract.selector_contract:417` (`if state == "same_command": return result(True, …)`) is a second reader of `onboarding_probe.earlier_proof`'s word, registered in no row. It decides 'selector verified', not reuse, and its docstring bounds the error (:361-363, 'a wrong True never gives a pass … Error direction: False when in doubt'). One finding in the rules-debt pile, not carded.
+designer: `C:\QAFactory\forge-repo\docs\tasks\specs\20261117-rules-debt-phase2-cards-spec.md` (C3-rr, t-1033)
+
+Items:
+1. **Registry.** Row `reporter_rehearsal_identity`: `accepts: {"reporter_rehearsal_identity.reuse": ["matched"]}`,
+   `status: converted`, `debt_ref: ""`; `_reporter_outcome` stays `accept`; words and `verdict_map` unchanged
+   (`same_command` -> matched; `command_changed`, `none`, `unreadable` -> unknown, owner environment, registry :507-513).
+   expected from: A1 (a) and the row's `decides` ("`matched`: the same command, and the key hits", :500).
+2. **The reuse condition.** `gate_preflight.py:3843` becomes
+   `if isinstance(hit, dict) and isinstance(hit.get("at"), str) and acceptable(earlier.get("state"), "reporter_rehearsal_identity.reuse"):`
+   — the two hit checks stay first; the literal `earlier["state"] == "same_command"` is gone. Import: `from gate_template
+   import acceptable` at the module's top, or at the point of use when the import would cycle (the builder reads the
+   import chain; `gate_template` imports `gate_registry`, which imports `hooklib`). (Small choice: `.get("state")`, not
+   `["state"]` — an absent state is False, never a `KeyError`; §7.) Module-top `from gate_template import acceptable` is cycle-free: `gate_registry.py` imports only stdlib and `hooklib` (:97-104), and `hooklib` only stdlib (`hooklib.py:2-13`). The builder re-checks against the merged C3-0.
+3. **Tests.** Rows added to the table at `test_gate_preflight.py:5210` (tuples of `(state, reused)`, no new function):
+   `("Same_command", False)`; a non-str state `(None, False)`; an absent state (the call gets `{"at": ""}` with no `state`;
+   the builder adds one optional field to the tuple for it) -> not reused; and, only if no case of the file pins it (the
+   builder greps first), `same_command` with the `_rehearsals` map holding ANOTHER key -> rehearsed (A1: "a `same_command`
+   whose key misses is rehearsed again"). One row for the unreadable registry : `same_command` with a hit -> rehearsed, nothing reused. The unreadable-registry row patches the registry cache of `gate_template` named in C3-0's accepted diff. At a4aca646 that is `_READ`, a module list holding one `(registry, reason)` pair (`gate_template.py:31-37` there). Save `list(GT._READ)`, set `GT._READ[:] = [({"rows": "x"}, GR.structural_error({"rows": "x"}))]`, and restore it in `finally` (precedent: `test_gate_registry.py:1108-1119` on that branch). If the merged C3-0 names the cache otherwise, use that name; if it exposes no cache, the node stops with a question.
+   expected from: the row's `decides` ("An unknown never keys a proof as the same", :500), FR-59 and C3-0 E2 — never from
+   `_reporter_outcome`'s output before the change.
+4. **S-f pins.** `EXPECTED_DEBT` loses `reporter_rehearsal_identity`; `EXPECTED_CONVERTED` gains it; K-T1.2 N-1; split
+   converted +1 / debt -1; F4 unchanged (the row already says `code`); D13: the triple
+   `("gate_preflight.py", "_reporter_outcome", "reporter_rehearsal_identity")` leaves the set when no comparison of a row
+   word is left in the function — expected to leave: the only one is :3843 (`_reporter_outcome` read whole, :3824-3869;
+   `hit.get("source") == "onboarding"` holds no row word) — and the count falls by one from the base (140 after t-1032, 146 after C3-0's library-site comparisons, a4aca646, S-f; plus whatever merged between C3-0 and this node); measured with
+   `GR.analyse` before and after and named (S-f).
+5. **No text moves.** On "not acceptable" the function rehearses exactly as before; the person-facing sentence keyed by
+   the state word (`_EARLIER_SAYS`, :4075, read at :4180) is unchanged. On F-T11 (a) nothing is added here: this branch
+   prints no reason for the non-reuse. (R5/R15) An unreadable registry is stopped earlier, at the next dispatch, by C3-reg-precondition. Inside a stage that began before, this branch rehearses with no word about the registry: cost only, not a dead end (critic t-1039 R5). `registry_problem()` does not cover a registry that parses but lacks the consumer; there `acceptable` is False and the command is rehearsed (C3-0 R15 note, F-T11).
+
+architecture content: `AR-13 -- the reuse word is read only through gate_template.acceptable`; `AR-22 -- the consumer
+reporter_rehearsal_identity.reuse and its reader land in one commit`; `AR-28 -- an absent, malformed or unaccepted state
+rehearses, pinned by the table`; `AR-29 -- xref (a state word joined to its registry row), owner data, no census unit`;
+`AR-20 -- debt -1, converted +1, D13 -1 triple, named`. judgment content: `none -- a membership join of the producer's
+state word; the durable key hit stays code's data check`.
+
+Edges:
+- E1 (absent / empty / other case / non-str state): not acceptable -> the command is rehearsed. INVARIANT: an unknown never
+  keys a proof as the same (the row's `decides`).
+- E2 (unreadable registry): every call rehearses; cost: one rehearsal per command per process (the per-process map
+  `_REPORTER_PROBES` still keeps the outcome). INVARIANT: a broken registry never reuses a proof.
+- E3 POSITIONAL: the two hit checks stay BEFORE the predicate. INVARIANT: a missing or malformed hit is never reused,
+  whatever the state says; the predicate is never the only guard (the key still has to hit: same words, test, report
+  format, dependency files, :3836-3840).
+- E4 TEMPORAL: before C3-rr (main since t-1032 merged) the row is debt and the literal at :3843 is allowed (a debt accept site);
+  after, the row is converted and F-b is satisfied by the `acceptable` call. C3-rr cannot be built before C3-0 merges (`gate_template.py` is absent on main at t-1043: Glob, with the worktree hit as the control). Durable records written before (onboarding, earlier gates) are read the same
+  way: the state words are the producer's, unchanged. INVARIANT: for every state word that exists today the behaviour is
+  identical (`same_command` reused iff the key hits; every other word rehearsed); no recorded proof changes meaning.
+- E5 TEMPORAL (S-f): the pins are deltas from the main the card is based on (after t-1032 and C3-0). INVARIANT: S-f.
+- E6 (limit): none introduced.
+- E7 (conflict on `gate_preflight.py`, HOT): function-disjoint with C3-j (`_e2e_limit`, `check_s5_stand_limits`,
+  `_stand_limit_card`), C3-k (`_observed_identity`) and C3-h (code only if its S-b is red); the file is still one stream at a
+  time: `очередь: C3-rr → C3-j → C3-k → C3-h` (gate_preflight.py). INVARIANT: no two open nodes edit the HOT file at once.
+
+Measurement (п. 6 (а)): not a meaning change (the same words accepted, the same refused). Not measured here (no shell);
+the control for the Lead or the builder: `python -B C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/gate_registry.py --sites`
+before and after, filtered for `_reporter_outcome` — one line (`earlier['state'] == 'same_command'`) before, none after.
 
 #### C3-a — folded into C3-R (item 1)
 
 #### C3-b1 — live_check_demand -> question to the code critic (B-279) — designer draft (this), then plan critic; wave 2½, after S9
 
 Split out of C3-b (F-b5, Lead decision 5). No predicate: `proof_required` and `novelty_of` are `produce` (E-c table).
+(t-1033: the plan critic t-1026 found K1, K2, K4 holding and agreed F-T4 (a), F-T8 (a); its edits B1 and B5 are in: the S-f
+pins, and F-T5 (a+) with the writer's manifest-level marker.)
 
 **What changes, and what does not (F-b1, Lead decision 5: NO existing block is relaxed).** A stored `unknown` novelty
 already DEMANDS a live probe: `_NOVELTY_DEMANDS = ("new", "changed", "unknown")` (`proof_level.py:327`) and
@@ -595,27 +793,36 @@ replaced by a question).
 `"change_disposition": "new_or_changed"` counts 24 and 45), and the critic's per-row probe (t-989 trail: `novelty_of` /
 `proof_required` / `not_required_why` over every `tests[]` row — cart-1 18 rows all `(None, required=True, why='')`,
 local-1-0108 34 rows the same: 0 of 52 asked; not re-run here, no shell). The change bites only on a keyless, flagless,
-unhanded row; the test row must BUILD that world.
+unhanded row; the test row must BUILD that world. (t-1033: the marker of F-T5 (a+) is a new field, absent from every
+recorded manifest by construction; its premise is not measurable on fixtures — the command for a live story after the
+node: `python -B -c "import json,sys; m=json.load(open(sys.argv[1],encoding='utf-8')); print(repr(m.get('novelty_unmeasured')), sum('novelty' in r for r in m.get('tests',[])))" <task root>/work/automation-manifest.json`.)
 
-given: factory-rules.md (whole), builder-rules.md, TESTING.md; this card; t-989 F-b1..F-b5; read:
+given: `C:/QAFactory/forge-repo/ai-packages/qa-factory/design/factory-rules.md` (whole),
+`C:/QAFactory/forge-repo/plans/builder-rules.md`, `C:/QAFactory/forge-repo/docs/TESTING.md`; this card and the C3 shared
+items (S-a..S-f); t-989 F-b1..F-b5; t-1026 B5; read, under `C:/QAFactory/forge-repo/ai-packages/qa-factory/`:
 `scripts/proof_level.py:320-501`, `scripts/acceptance.py:1052-1230` (`validate_window`: the review and `sensitivity:`
 gaps), `scripts/window_record.py:1460-1500` (the item build: `review`, `novelty`), `scripts/manifest_put.py:75-95,
-1085, 1285-1330` (`CRITIC_FIELDS`, the critic's write road), the S9 card's accepted draft (the word road for a window gap)
+158-172, 1085, 1285-1330` (`SCALAR_EXEMPT` and the "a scalar the fragment carries wins" loop, `CRITIC_FIELDS`, the critic's
+write road), `scripts/manifest_from_tests.py:825-940` (V2, `_novelty_block`, `_keep_stored_novelty`, `_attach_novelty`),
+the S9 card's accepted draft (the word road for a window gap), `scripts/tests/test_gate_registry.py` (the S-f lines)
 owns:
-- `ai-packages/qa-factory/scripts/proof_level.py` (`_wanted`: a `probe_owed: "yes"` adds the requirement on a keyless row; new `novelty_question_owed(entry, manifest) -> bool`)
-- `ai-packages/qa-factory/scripts/acceptance.py` (`validate_window`: one gap `novelty_question:<instance>`)
-- `ai-packages/qa-factory/scripts/window_record.py` (the item copies `probe_owed` from its row beside `review`; `WORD_READ_KINDS` gains `novelty_question` — after S9)
-- `ai-packages/qa-factory/scripts/manifest_put.py` (`CRITIC_FIELDS` gains `probe_owed`; a value outside `yes`/`no` refused with its field name)
-- `ai-packages/qa-factory/agents/qa-code-critic.md` (one paragraph: the question, the two answers, where they are written — AR-10/FR-38: the requirement reaches the role before the work)
-- `ai-packages/qa-factory/references/gate-registry.json` (row `live_check_demand` only)
-- `ai-packages/qa-factory/scripts/tests/test_proof_level.py` (rows), `ai-packages/qa-factory/scripts/tests/test_window_record.py` (one row)
-- `ai-packages/qa-factory/scripts/tests/fixtures/judgment-census.json` (S-e: own rows only, if the wide scan finds a new unit; based after `wave-a/integrate`)
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/proof_level.py` (`_wanted`: a `probe_owed: "yes"` adds the requirement on a keyless row; new `novelty_question_owed(entry, manifest) -> bool`)
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/acceptance.py` (`validate_window`: one gap `novelty_question:<instance>`)
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/window_record.py` (the item copies `probe_owed` from its row beside `review`; `WORD_READ_KINDS` gains `novelty_question` — after S9)
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/manifest_put.py` (`CRITIC_FIELDS` gains `probe_owed`; a value outside `yes`/`no` refused with its field name)
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/manifest_from_tests.py` (`_attach_novelty` only: the `novelty_unmeasured` marker, item 8 — on F-T5 (a+))
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/agents/qa-code-critic.md` (one paragraph: the question, the two answers, where they are written — AR-10/FR-38: the requirement reaches the role before the work)
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/references/gate-registry.json` (row `live_check_demand` only)
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/test_proof_level.py` (rows), `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/test_window_record.py` (one row)
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/test_gate_registry.py` (S-f pins of `live_check_demand` only)
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/fixtures/judgment-census.json` (S-e: own rows only, if the wide scan finds a new unit)
 non-goals: any change to `proof_required` for a row that carries `novelty` or a flag; `novelty_of`; `manifest_from_tests`
-(the one novelty writer); `probe_debt.py`; the ledger words (`words_for`); `s5_precheck.py`
+beyond `_attach_novelty`'s marker (the one novelty writer: V2, `_novelty_block` and `_keep_stored_novelty` unchanged);
+`probe_debt.py`; the ledger words (`words_for`); `s5_precheck.py`
 handoff: report path given by the Lead
-edges: E1-E9 below
-DoD: `python -B ai-packages/qa-factory/scripts/gate_registry.py --check` (exit 0; `live_check_demand` absent from the debt
-block); `python -B ai-packages/qa-factory/scripts/tests/scenario_walk.py --witness-for <every owns path>` and the printed
+edges: E1-E11 below
+DoD: `python -B C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/gate_registry.py --check` (exit 0; `live_check_demand` absent from the debt
+block); `python -B C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/scenario_walk.py --witness-for <every owns path>` and the printed
 non-slow files; `test_proof_level.py`, `test_window_record.py`, `test_judgment_census.py`, `test_gate_registry.py` are
 slow — judged by the batch canon
 siblings: axis 34 (one road: a person's word passes the new gap through the window's word road, `WORD_READ_KINDS`, as S9
@@ -623,14 +830,18 @@ makes it pass a `review` gap — not a third road); axis 32 (census, S-e); axis 
 `handed` exemption (`_handed`, :460-464) is kept as it is, decided first
 designer: `C:\QAFactory\forge-repo\docs\tasks\specs\20261117-rules-debt-phase2-cards-spec.md` (C3-b1, after the plan critic and F-T4/F-T5/F-T8)
 
-Items (on the recommendations of F-T4, F-T5, F-T8):
+Items (on the recommendations of F-T4, F-T5 (a+), F-T8):
 1. `proof_level.novelty_question_owed(entry, manifest) -> bool`: True iff `entry` is a dict, has NO `novelty` key, no
    flag (`sensitivity_proof_required`, `new_or_changed`, `change_disposition == "new_or_changed"`), is not handed
    (`_handed`), carries no `probe_owed` in {`yes`, `no`}, AND the manifest holds at least one `tests[]` row that carries a
-   `novelty` key (F-T5 observable: the writer of this version ran). test: rows in `test_proof_level.py` — the keyless,
-   flagless row in a manifest with one measured row -> True; the same row in an all-keyless manifest (the recorded
-   stories' shape) -> False; flagged -> False; handed -> False; `probe_owed: "no"` -> False; stored `novelty: unknown` ->
-   False (it is already required). expected from: registry `decides` (:189), F-b1, the owner's «да» (F-O1).
+   `novelty` key (F-T5 observable: the writer of this version ran) OR — on F-T5 (a+) — the manifest's top-level
+   `novelty_unmeasured` is a non-empty string (the writer ran and its measurement failed, item 8). test: rows in
+   `test_proof_level.py` — the keyless, flagless row in a manifest with one measured row -> True; the same row in an
+   all-keyless manifest (the recorded stories' shape) -> False; the same all-keyless manifest with
+   `novelty_unmeasured: "novelty could not be measured (OSError)"` -> True; with `novelty_unmeasured: ""` -> False; with
+   `novelty_unmeasured: 5` or `[]` -> False (E10); flagged -> False; handed -> False; `probe_owed: "no"` -> False; stored
+   `novelty: unknown` -> False (it is already required). expected from: registry `decides` (:187), F-b1, t-1026 B5, the
+   owner's «да» (F-O1).
 2. `_wanted`: a keyless row with `probe_owed: "yes"` is wanted (the answer only ADDS a requirement); `"no"` adds nothing.
    test: `proof_required` row: keyless + `probe_owed: "yes"` -> True; keyless + `"no"` -> False (as today); flagged +
    `"no"` -> True (a flag is never overruled). expected from: `proof_required` (c) "a layer can only add a requirement"
@@ -651,21 +862,40 @@ Items (on the recommendations of F-T4, F-T5, F-T8):
    `new/changed/unchanged/unknown` are the code's, `proof_level.py:326`), `verdict_map.unknown.owner: "role"` (small choice:
    the critic answers it now; `factory` would claim our defect), `decides` rewritten to the new behaviour, `status:
    converted`, `debt_ref: ""`.
+7. (t-1033, S-f) The pins of `live_check_demand`: `EXPECTED_DEBT` loses it, `EXPECTED_CONVERTED` gains it, K-T1.2 N-1,
+   split +1/-1; F4 unchanged (the row already says `code`, registry :186); re-measure D13 with `GR.analyse` before and
+   after and name the move (the row's sites `proof_required` / `novelty_of` and the new `novelty_question_owed` if the
+   builder registers it — `("proof_level.py", "novelty_of", "live_check_demand")` is in the set today, :957).
+8. (t-1033, on F-T5 (a+)) `manifest_from_tests._attach_novelty` writes the top-level fragment key `novelty_unmeasured`
+   on EVERY call that measures: the failure note (`"novelty could not be measured (<ExcName>)"`, the text it already
+   appends at :924) when the call fails, `""` when it succeeds. The key reaches the manifest through `manifest_put`'s
+   scalar loop ("a scalar the fragment carries wins", `manifest_put.py:161-166`); the builder confirms by reading the merge
+   and the manifest schema that a top-level string is taken — if `manifest_put` refuses or drops it, the node stops and
+   returns the refusal as a question (owns stay as they are). test: one row in `test_proof_level.py` is item 1's; the
+   writer's half rides on an existing `manifest_from_tests` keep test only if `--witness-for` names one, else a report line
+   "no keep row drives `_attach_novelty`'s failure branch". expected from: t-1026 B5 ("the writer's failure note becomes a
+   manifest-level marker").
 
 architecture content: `AR-28 -- an unmeasured novelty is asked, never passed silently`; `AR-29 -- the probe-owed decision
 is the code critic's judgment, accepted at window acceptance; code checks the presence of a closed typed answer (xref)`;
 `AR-22 -- probe_owed has one writer (manifest_put, the critic's fragment) and its readers (proof_level, window) in the
-same commit`; `AR-10 -- the charter states the answer before the window asks`.
+same commit; novelty_unmeasured has one writer (manifest_from_tests) and its reader (novelty_question_owed) in the same
+commit`; `AR-10 -- the charter states the answer before the window asks`; `AR-20 -- debt -1, converted +1, D13
+re-measured`.
 
 Edges:
 - E1 (absent key, the real change): keyless + flagless + unhanded + measured manifest -> asked. INVARIANT: an
   unmeasured novelty never passes silently in a story whose writer measures.
 - E2 (stored unknown): unchanged — demanded probe, never a question. INVARIANT: no existing block is relaxed (Lead
   decision 5).
-- E3 TEMPORAL (in-flight stories, F-b4): a manifest with no `novelty` row (written before the writer of this version, or
-  by hand) is never asked (F-T5). The field `probe_owed` and the gap kind exist only after this node; before it, no
-  window carries them and nothing reads them. INVARIANT: builder-rules 9 — a story in flight is never held over a field
-  its artifacts do not have.
+- E3 TEMPORAL (in-flight stories, F-b4; consequence corrected t-1033): a manifest with no `novelty` row and no
+  `novelty_unmeasured` marker (written before the writer of this version, or by hand) is never asked (F-T5). The field
+  `probe_owed`, the marker and the gap kind exist only after this node; before it, no window carries them and nothing
+  reads them; after it, the marker is written by the next `manifest_from_tests` run of a story, so a story in flight is
+  asked only from its next writer run on. Not every in-flight story stays un-asked: a row V2 left keyless
+  (`manifest_from_tests.py:835-840`) in a manifest where another row measured `new`/`changed` IS asked (F-T5, case 2).
+  INVARIANT: builder-rules 9 — a story in flight is never held over a field its artifacts do not have (cases 3 and 4 of
+  F-T5); the one exception (case 2) is named in F-T5 for the Lead.
 - E4 POSITIONAL: the gap is added after the review checks and before `sensitivity:`; INVARIANT: it never replaces a review
   gap or a sensitivity gap, and it never fires on a handed, stopped or pending item (they are decided first, as at
   `acceptance.py:1154-1207`).
@@ -676,54 +906,127 @@ Edges:
   malformed answer never closes the question.
 - E7 (person, FR-4/P13): a person's recorded word passes the gap through the window's word road (axis 34, after S9).
   INVARIANT: the person passes every block, by the one road.
-- E8 (limit): none introduced.
+- E8 (limit): none introduced (the marker carries the writer's note, already bounded by `type(exc).__name__`).
 - E9 (outside input): the critic's fragment is a role's output (internal): no battery beyond E6.
+- E10 (t-1033, the marker's own edges): absent, `""`, or a non-string (`5`, `[]`, `null`, a hand edit) -> "not marked"
+  (the in-flight-safe side: the marker is the writer's own output, and only the writer's non-empty note means "the writer
+  ran and failed"); a stale marker from an earlier failed run is overwritten by the next successful call's `""`.
+  INVARIANT: a manifest is asked on the marker only when its last writer run failed.
+- E11 (t-1033, S-f TEMPORAL): the pins are deltas from the main C3-b1 is based on (after t-1032, C3-0 and C3-rr in the
+  expected order); D-0048 re-derivation when a sibling merged first. INVARIANT: S-f.
 
 #### C3-b2 — test_identity through the predicate (B-217) — wave 3, after C3-0 (and F-T1)
 
-given: factory-rules.md (whole), builder-rules.md, TESTING.md; this card; the accepted C3-0 card and its diff; read:
-`scripts/proof_level.py:815-892,1404-1532`, `scripts/execution_request.py:2065-2183`, registry row test_identity
-:123-149
+(t-1033: redrafted under t-1026 B1 and B4 — two reuse decisions added, `_product_receipt_repeat` and `_run_freshness` —
+and the class sweep returned as fork F-T10.)
+
+given: `C:/QAFactory/forge-repo/ai-packages/qa-factory/design/factory-rules.md` (whole),
+`C:/QAFactory/forge-repo/plans/builder-rules.md`, `C:/QAFactory/forge-repo/docs/TESTING.md`; this card and the C3 shared
+items (S-a..S-f); the accepted C3-0 card and its diff; t-1026 B4; read, under
+`C:/QAFactory/forge-repo/ai-packages/qa-factory/`: `scripts/proof_level.py:815-974,1365-1532` (and `:1580-1620`,
+`:1886-1905` on F-T10 (a)), `scripts/execution_request.py:2065-2183`, `references/gate-registry.json` row test_identity
+:123-149, `scripts/tests/test_gate_registry.py` (the S-f lines)
 owns:
-- `ai-packages/qa-factory/references/gate-registry.json` (row `test_identity` only: `accepts`, words on F-T1, sites, status)
-- `ai-packages/qa-factory/scripts/proof_level.py` (`already_probed` only)
-- `ai-packages/qa-factory/scripts/execution_request.py` (`_match`; `green_over_same_bytes` only on F-T1 as decided)
-- `ai-packages/qa-factory/scripts/tests/test_proof_level.py` (one row), `ai-packages/qa-factory/scripts/tests/test_execution_request.py` (one row)
-non-goals: `same_test`, `compare_identity`, `same_instance_bytes` (it keeps serving `_same_identity_for_count`, the budget
-side, `execution_request.py:2070-2072`); the receipt path of `already_probed` (it relies on `reached`)
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/references/gate-registry.json` (row `test_identity` only, :123-149 on main, +1 after C3-0: `accepts`, words (F-T1 (a)), sites, status)
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/proof_level.py` (`already_probed`, `_product_receipt_repeat`, `_run_freshness`, `_evaluate` (F-T10 (a), decided), and the import line it needs)
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/execution_request.py` (`_match` and the import it needs; ONE docstring sentence of `same_instance_bytes`, :2069-2072, R14; `green_over_same_bytes` only as re-roled in the registry, F-T1 (a))
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/test_proof_level.py` (rows: item 2 one, item 3 one, item 6 two)
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/test_execution_request.py` (two rows, item 5)
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/test_run_freshness.py` (one row, item 4)
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/test_gate_registry.py` (S-f pins of `test_identity` only)
+non-goals: `same_test`, `compare_identity`, the code of `same_instance_bytes` (it keeps serving `_same_identity_for_count`, the budget side; only its docstring sentence that names `_match` as a caller changes, R14); the receipt path of `already_probed` (it relies on `reached`); the public
+`run_freshness` wrapper (:945-974) and `acceptance.run_freshness_of`; `holds_over_comments` (finding, F-T10 (a)); the code of `_stale_receipt` (registered `produce` only) and `probe_freshness` (R2 residue, E8);
+`judgment-census.json` (none of the owned functions has a census row — grep, control `validate_window` found at :7 — and
+no refusal site is added)
 handoff: report path given by the Lead
-edges: E1-E6 below
-DoD: `python -B ai-packages/qa-factory/scripts/gate_registry.py --check` (exit 0; `test_identity` absent from the debt
-block; no F-b for its accept sites); `scenario_walk.py --witness-for <owns>` and printed non-slow files;
-`test_proof_level.py`, `test_execution_request.py`, `test_gate_registry.py` slow — canon
+edges: E1-E11 below
+DoD: `python -B C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/gate_registry.py --check` (exit 0; `test_identity` absent from the debt
+block; no F-b for its accept sites); `python -B C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/scenario_walk.py --witness-for <every owns path>`
+and the printed non-slow files; `test_proof_level.py`, `test_execution_request.py`, `test_gate_registry.py` slow — canon
 siblings: axis 7 (per-test identity: one predicate `compare_identity`, its readers fold `unknown` themselves —
-`proof_level.py:824-827`)
+`proof_level.py:824-827`); axis 25 (freshness predicates: `_run_freshness` is the run side of `same_test`, `proof_level.py:895-900`)
+- axis 5 (`docs/SIBLING_MAP.md:143`): F-T1 (a) changes `test_identity`'s words. The axis's prose twins (`references/execution-lifecycle.md` + slice, `manual-evidence.md`, `environment-preparation.md`, `phases/s5.md`/`s6.md`) are walked by the builder by grep for `instance_code|file_code|same_test|compare_identity`. Each hit gets a report line 'checked, no edit (meaning unchanged)' or an edit named as a finding. Not walked by the designer.
+- Waiting findings (R12): (a) `probe_verdict`'s words are accepted in functions no probe_verdict site names: `proof_level.already_probed:1463` (`== "intended_failure"`) and :1491 (`in ("no_failure", "wrong_location")`), `_product_receipt_repeat:1378`, and `acceptance.validate_window:1211`. After C3-b2/C3-d those functions are converted accept sites of other rows, and A26 refuses a second registration of a converted accept site (`gate_registry.py:831-836`, 'give each row its own function'). Any later fix therefore needs a function split. One finding. (d) 'delete or wire `holds_over_comments`' (no production caller; F-T10 (a)). One finding.
 designer: `C:\QAFactory\forge-repo\docs\tasks\specs\20261117-rules-debt-phase2-cards-spec.md` (C3-b2, after C3-0)
 
-Items: (1) registry: `same_test` re-roled `produce`; consumers `test_identity.probe_repeat: ["matched"]` and
-`test_identity.run_reuse: ["matched"]`; on F-T1 (a) the row's words gain `same` -> matched, `different` -> mismatched,
-`unknown` -> unknown (owner environment) and `green_over_same_bytes` is re-roled `validate`; status converted. (2)
-`already_probed`: the two reuse tests at :1491-1492 and :1506-1507 call `acceptable(same_test(now, proof_identity(record)),
-"test_identity.probe_repeat")` in place of the bare truthiness; the display comparison at :1520 gets an `allow` entry in
-the `ast.unparse` form `hit['holds'] in ('instance_code', 'file_code')` with why "picks the words shown, not an
-acceptance". (3) `_match`: `not same_instance_bytes(a, b)` becomes `not acceptable(proof_level.compare_identity(a, b)[0],
-"test_identity.run_reuse")`, inside the same `author_run_reading != "per_story"` condition. S-b rows: an old probe record
-whose identity does not match -> `{"probed": False}` (run again); an earlier job whose instance bytes differ -> `_match`
-returns `""` with the bytes reason. expected from: the row's `decides` (:125) "a non-match is an unknown and the answer is
-to run again".
-architecture content: `AR-13`, `AR-28`; judgment `none -- the reuse decision is a join of a computed identity word to the
-registry`.
-Edges: E1 POSITIONAL (`_match`): the predicate is reached only when the whole-file fingerprints differ (the `identical`
-short-circuit at :2091-2093 stays first) and only off `per_story`; INVARIANT: no request that reuses today on equal
-fingerprints is refused, and no result over other bytes is reused. E2 POSITIONAL (`already_probed`): the predicate sits
-where the truthiness was; INVARIANT: a record over other bytes never answers the repeat (`same_test` -> `""`). E3 (empty
-identity): `compare_identity` -> `unknown` -> not acceptable -> run again. E4 TEMPORAL: jobs recorded before
-`instance_code_sha` compare by content (unchanged rule). E5 (unreadable registry): every reuse refused -> the probe / run
-happens (cost, never a false pass). E6: `очередь: C3-b2 → C3-k` (execution_request.py).
+Items:
+1. **Registry.** `same_test` re-roled `produce`; new sites `{"file": "proof_level.py", "function":
+   "_product_receipt_repeat", "role": "accept"}` and `{"file": "proof_level.py", "function": "_run_freshness", "role":
+   "accept"}` (on F-T10 (a) also `_evaluate` accept and `_stale_receipt` produce); consumers
+   `test_identity.probe_repeat: ["matched"]` (already_probed, _product_receipt_repeat), `test_identity.run_reuse:
+   ["matched"]` (_match), `test_identity.run_fresh: ["matched"]` (_run_freshness) (on F-T10 (a) also
+   `test_identity.receipt_holds: ["matched"]`); on F-T1 (a) the row's words gain `same` -> matched, `different` ->
+   mismatched, `unknown` -> unknown (owner environment) and `green_over_same_bytes` is re-roled `validate`; status
+   converted.
+2. **`already_probed`.** The two reuse tests at :1491-1492 and :1506-1507 call `acceptable(same_test(now,
+   proof_identity(record)), "test_identity.probe_repeat")` in place of the bare truthiness; the display comparison at
+   :1520 gets an `allow` entry in the `ast.unparse` form `hit['holds'] in ('instance_code', 'file_code')` with why "picks
+   the words shown, not an acceptance". S-b row (moved from item 5, R3) in `test_proof_level.py`: an old probe record (`no_failure`) whose identity does not match the test now -> `already_probed` answers `{"probed": False}` (the probe runs). Expected from: the row's `decides` (`gate-registry.json:125`).
+3. **(t-1033, B4) `_product_receipt_repeat`.** The test at :1378-1379 calls `acceptable(same_test(now,
+   proof_identity(record)), "test_identity.probe_repeat")` in place of the bare `same_test(...)` truthiness; `"holds":
+   same_test(...)` at :1400 is display and stays. S-b row in `test_proof_level.py`: a product record `intended_failure`
+   over OTHER test bytes (its identity does not match) with a holding receipt -> `_product_receipt_repeat` returns None,
+   `already_probed(kind="product")` answers `{"probed": False}` (the probe runs). expected from: the row's `decides`
+   (:125) "a non-match is an unknown and the answer is to run again", and the function's own contract that the record must
+   be "on the same test bytes (`same_test`)" (docstring :1371) — never from its output before the change.
+4. **`_run_freshness`.** The test at :939 becomes `if acceptable(same_test(now, {"instance_identity": dict(shas, job_id="")}), "test_identity.run_fresh"): return "fresh", ""`. On False the `stale` return stays, with its why `WHY_RUN_CHANGED` (:903, :941-942). On F-T11 (a), when `gate_template.registry_problem()` is non-empty, the why names the registry instead: 'the gate registry cannot be read (<reason>): a factory defect, not a change of the test'. The why names the registry; the `stale_run` gap's owner and door stay as they are (`_run_freshness` returns `(state, why)` only; the gap's owner and door come from the window's origin table). The re-run loop is the node C3-reg-precondition's.
+   Pins (R1): `test_proof_level.py` has no run_freshness table (critic grep: only :1554-1556, an import; not re-read here). The table is `scripts/tests/test_run_freshness.py` (keep, layer `gate_named`, `test-layers.json:4702`), function `the_run_is_fresh_or_stale_by_the_code_it_ran` (:73). It already pins both rows: K1 (b) :80-86 (a comment, docstring or blank lines in the test -> fresh, the `instance_code` case) and K1 (f) :104-106 (a variable renamed -> stale). K1 (d) :92-98 pins the `WHY_RUN_CHANGED` sentence. These are NAMED in the report and get no new row (S-b). ONE new row beside them: the unreadable registry (the `gate_template` cache patched as in C3-rr item 3, restored in `finally`) -> `stale`, with a why that names the registry and does not say 'changed since'. Expected from: the docstring rule list of `run_freshness` (`proof_level.py:952-960`, rule 4) and FR-59.
+5. **`_match`.** Inside the same `author_run_reading != "per_story"` condition (`execution_request.py:2099-2103`), `not same_instance_bytes(a, b)` becomes `not acceptable(proof_level.compare_identity(a, b)[0], "test_identity.run_reuse")` (`import proof_level` in the function, as `same_instance_bytes` does at :2074; `from gate_template import acceptable`). The return stays `("", <why>, _WHY_RANK["bytes"])`. The why is 'instance bytes differ: …' (:2102-2103) or, when `registry_problem()` is non-empty, 'the gate registry cannot be read (<reason>): a factory defect, the earlier run was not judged'. The rank stays `bytes` in both cases, so the order of the first difference is unchanged (docstring :2080-2082). Two rows in `test_execution_request.py`: (i) an earlier job whose instance bytes differ -> `("", "instance bytes differ: …", _WHY_RANK["bytes"])`; (ii) the unreadable registry (cache patched, restored in `finally`) -> `("", <a why that names the registry>, _WHY_RANK["bytes"])`. Expected from: the row's `decides` (:125) and the docstring's order, never from `_match`'s output before the change. The R14 docstring sentence: `same_instance_bytes`'s 'the two callers fold it … `_match` …' (:2070-2072) is rewritten to name its one caller, `_same_identity_for_count`, and to say that `_match` reads `compare_identity` through the predicate.
+6. **(F-T10 (a), decided) `_evaluate`.** `if not how:` at :1605 becomes `if not acceptable(how,
+   "test_identity.receipt_holds"):` (the same words are matched-class, so the same receipts count); `over_comments = how in
+   ("instance_code", "file_code")` (:1613) gets an `allow` entry (display flag, as :1520); `_stale_receipt` registered
+   `produce` (it builds a why). On F-T11 (a) (R2): when `gate_template.registry_problem()` is non-empty, the issue reads 'the gate registry cannot be read (<reason>): a factory defect, the receipt was not judged' instead of the bytes sentence (:1606-1612). Two rows in `test_proof_level.py`: a receipt for other code -> not valid; the unreadable registry (cache patched) -> not valid, and the issue names the registry, not 'other bytes'. `holds_over_comments`
+   is not touched (no production caller): its delete-or-wire question goes to a finding of the rules-debt pile (F-T10).
+7. **(t-1033, S-f) Pins.** `EXPECTED_DEBT` loses `test_identity`, `EXPECTED_CONVERTED` gains it, K-T1.2 N-1, split
+   +1/-1; F4 unchanged (the row already says `code`, registry :124); D13 re-measured with `GR.analyse` before and after. Expected: +2 triples:
+   - `("proof_level.py", "same_test", "test_identity")`: `:881 verdict == 'same'` is counted once F-T1 (a)'s words land; allowed, because `same_test` becomes `produce`;
+   - `("proof_level.py", "_evaluate", "test_identity")`: `:1613 how in ('instance_code', 'file_code')`, covered by item 6's `allow`.
+
+   `D13_ITEM_COUNT` +2 from the base (146 after C3-0, plus what merged since; S-f). `_run_freshness:939` is not counted after the change (its literal is gone). `already_probed:1520` stays counted, with its allow. `_product_receipt_repeat` and `_stale_receipt` hold no row word (critic t-1039 R4, `GR.analyse` on in-memory copies; not re-run here). A different measurement is a stop and a question.
+
+architecture content: `AR-13 -- every test_identity reuse word is read through gate_template.acceptable`; `AR-28 -- a
+non-match, an absent identity or an unreadable registry runs again, pinned`; `AR-29 -- xref, owner data, no census unit`;
+`AR-20 -- debt -1, converted +1, D13 re-measured`; judgment `none -- the reuse decision is a join of a computed identity
+word to the registry`.
+
+Edges:
+- E1 POSITIONAL (`_match`): the predicate is reached only when the whole-file fingerprints differ (the `identical`
+  short-circuit at :2091-2093 stays first) and only off `per_story`; INVARIANT: no request that reuses today on equal
+  fingerprints is refused, and no result over other bytes is reused.
+- E2 POSITIONAL (`already_probed`, `_product_receipt_repeat`): the predicate sits where the truthiness was, after the
+  record's verdict check and before `_mutated_files_hold`; INVARIANT: a record over other bytes never answers the repeat
+  (`same_test` -> `""`), and a record that does not say `no_failure`/`wrong_location`/`survived`/`intended_failure` is
+  never asked about identity at all.
+- E3 (empty identity): `compare_identity` -> `unknown` -> not acceptable -> run again.
+- E4 TEMPORAL: jobs recorded before `instance_code_sha` compare by content (unchanged rule); run rows without both shas
+  stay `unknown` (`_run_freshness` :929-931, before the predicate).
+- E5 (unreadable registry): every reuse is refused, so the probe or run happens (cost, never a false pass). Every run reads `stale`, so each instance that ran gets a `stale_run:` gap. The why names the registry (F-T11 (a)); the `stale_run` gap's owner and door stay as they are; the re-run loop is the node C3-reg-precondition's. INVARIANT: a broken registry never lets an old result or probe speak for a test.
+- E6: `очередь: C3-b2 → C3-k` (execution_request.py).
+- E7 POSITIONAL (`_run_freshness`, t-1033): the predicate replaces only the comparison at :939, after the file check
+  (:927-928), the run-identity check (:929-931) and the measurement check (:932-938). INVARIANT: a missing file is still
+  `stale`, a run with no identity is still `unknown`, an unmeasurable helper is still `stale`; `fresh` is reachable only
+  through `instance` / `instance_code` (at :939 `same_test` decides by its rule 1 — both identities are kept — so `raw` and
+  `file_code` cannot reach the call; error direction: toward `stale`).
+- E8 (t-1033, F-T11) TEXT: a refusal caused by the registry never claims the test or its bytes changed. INVARIANT: FR-41
+  — an unknown is never reported as a fact. `_evaluate`'s issue and `_match`'s why name the registry (items 5, 6). Known residue (R2): `_stale_receipt` keeps the bare truthiness (a produce site, :1898). On a broken registry `probe_freshness` therefore returns `missing` with `WHY_PROBE_MISSING` (:1814, :1972), a second false cause. Its code is not in owns. C3-reg-precondition closes it in practice (no dispatch on a broken registry); inside a stage that began before, it stays a residue named in that node.
+- E9 (conflict on `proof_level.py`): C3-b1 owns `_wanted` and the new `novelty_question_owed`; C3-b2 owns `already_probed`,
+  `_product_receipt_repeat`, `_run_freshness` (and `_evaluate` on F-T10 (a)) — function-disjoint (D-0048 form).
+- E10 (S-f TEMPORAL): the pins are deltas from the main C3-b2 is based on. INVARIANT: S-f.
+- E11 (one row, two producers' vocabularies, F-T1 (a)): after F-T1 the row's `words` hold both `same_test`'s words and `compare_identity`'s, so `acceptable("same", "test_identity.probe_repeat")` is True. That cannot happen today: `same_test` never returns `same` (:876-892), and `compare_identity` never returns `instance` (:834-847). INVARIANT: each consumer is fed by exactly one producer (`probe_repeat`, `run_fresh`, `receipt_holds` <- `same_test`; `run_reuse` <- `compare_identity`). A call that feeds a consumer another producer's word is a review finding.
+
+Measurement (п. 6 (а)). The command below, run by critic t-1039 (verbatim in its trail), gives all 18 recorded instances `('unknown', 'the run recorded no per-test identity')`. With a spy on `same_test`, `reached()` over both recorded manifests (cart-1, 18 rows; local-1-0108, 34 rows) calls it 0 times. So no recorded story reaches `:939`, `:1379`, `:1492`, `:1507` or `:1605`, and 'the six lists equal' is vacuous. The run stays as a smoke check, not as evidence.
+   The premise 'not a meaning change' rests on a code trace, re-read in t-1043:
+   - `same_test` returns only `raw`, `instance`, `instance_code`, `file_code` or `""` (`proof_level.py:876-892`);
+   - the four words are all class `matched` (`gate-registry.json:136-141`);
+   - every new consumer lists only `["matched"]`, so the predicate is True exactly when the old truthiness was.
+
+   At `:939` both sides keep their identity (:929-938), so only `instance`, `instance_code` or `""` reach it (E7). The command:
+`python -B -c "import json,sys,glob; sys.path.insert(0,'C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts'); import acceptance as A; [print(p, [A.run_freshness_of(i)[0] for i in json.load(open(p,encoding='utf-8')).get('instances',[]) if isinstance(i,dict)]) for p in glob.glob('C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/fixtures/stories/*/work/windows/*.json')]"`
+before and after: the six lists equal.
 
 #### C3-c — folded into C3-R (item 2)
 
-#### C3-d — s5_window (B-179) — designer draft (this); fork F-T7 to the Lead; queue after S9
+#### C3-d — s5_window (B-179) — designer draft; fork F-T7 to the Lead; queue after S9, C3-b1 and C3-0 (redrafted t-1033)
 
 **Fact (F-d1, re-read t-994 on a6df7fd1).** Today an unmeasured detector of the window is an INFO line, never a gap:
 `window_record.verdict` (:1816) fills `info` with `_comment_only`, `_run_freshness_unknown` (:1790-1802, "not a gap - the
@@ -731,6 +1034,15 @@ story goes on"), `_reason_detail_notes`, `_unknown_target_notes` (:659-667), `_p
 the window carries `expectation_changes_unmeasured`, the line "expectation changes not measured: <why>" (:1831-1836,
 "Not a problem and not a gap"). `acceptance.py:1146-1147` says the same of an unknown run freshness. The row's `decides`
 ("an unmeasured detector is a gap closed by the critic, never a pass", registry :233) does not describe the code.
+
+**Fact (t-1026 B3, re-read t-1033 on 2151eeef).** `acceptance.validate_window` ACCEPTS the critic's review word to close
+an instance's review: for an instance that ran, `item.get("review", {}).get("verdict") != "approved"` -> `review:<iid>`
+(:1171); for a handed instance, `not in HANDED_REVIEW_VERDICTS` (`("approved", "unverified")`, :34) (:1161); for a stopped
+or probe-gapped instance, `!= BLOCKED_REVIEW_VERDICT` (`"unverified"`, :44) (:1156, :1167). Re-roled `validate`, these
+acceptances would be allowed silently once the row's words are `code` (the role-allow rule, `gate_registry.py:37-41`) —
+what E-c forbids. So `validate_window` stays `accept`, and C3-d needs C3-0. The window item's review word is the
+manifest row's `critic_verdict` or `""` (`window_record.py:1474`); the critic's four words are `approved`,
+`approved_with_fixes`, `rejected`, `unverified` (`contract.py:2212-2215`, charter `agents/qa-code-critic.md:84`).
 
 **Measured premise (п. 6 (а)).** `expectation_changes_unmeasured` is present in 4 of the 6 recorded S5 windows of cart-1
 (`S5-qa-code-critic-4..7.json`; Grep over `fixtures/stories/cart-1/work/windows`, 4 files; the 6 files listed by Glob
@@ -740,41 +1052,206 @@ the window carries `expectation_changes_unmeasured`, the line "expectation chang
 carried a blocking gap waiting on the critic. The other INFO classes (run freshness unknown, unknown target, probe scope)
 were not measured: it needs `window_record.verdict(..., info=[])` over each recorded window (no shell here; the command
 for the Lead or the plan critic: a three-line script calling `window_record.verdict(task_root, json.load(window), [],
-info)` per file and counting `info` lines by their prefix).
+info)` per file and counting `info` lines by their prefix). (t-1033: the review acceptance is meant to be
+behaviour-preserving; not measured — the control: `acceptance.validate_window(window, task_root)` over the six recorded
+windows before and after, the six gap lists equal.) (t-1043, critic t-1039 R10) The review acceptance was emulated on a copy of `acceptance.py` with a C3-0-shaped predicate over item 3's row: all six windows give equal gap lists. A broken consumer (`static_review: ["matched"]`) gives DIFFER on 3 of 6, so the harness can fail. Limit: the recorded windows exercise only the probe-gapped branch (17 `unverified`) and one ran instance (`approved`, failed). The stopped and handed branches rest on item 5's table alone. For F-T7 (ii) (owner question, no edit): `window_record.verdict(..., info)` gives 'run freshness not measured' in windows -2, -3, -6, -7 (18 lines) and 'expectation changes not measured' in -4..-7.
 
-**Recommended direction (i), executable until the Lead answers F-T7:**
-given: factory-rules.md (whole), builder-rules.md, TESTING.md; this card; read: `scripts/window_record.py:633-667,
-1785-1845`, `scripts/acceptance.py:1052-1060,1140-1150`, registry row s5_window :231-252
+**Recommended direction (i) with F-T9 (a), executable until the Lead answers F-T7 and F-T9:**
+given: `C:/QAFactory/forge-repo/ai-packages/qa-factory/design/factory-rules.md` (whole),
+`C:/QAFactory/forge-repo/plans/builder-rules.md`, `C:/QAFactory/forge-repo/docs/TESTING.md`; this card and the C3 shared
+items (S-a..S-f); the accepted C3-0 card and its diff; t-1026 B3, B9; read, under
+`C:/QAFactory/forge-repo/ai-packages/qa-factory/`: `scripts/acceptance.py:25-50,240-252,1052-1180`,
+`scripts/window_record.py:633-667,1460-1540,1600-1640,1785-1913`, `handoffs/vocabulary.yaml:293-303`
+(`expectation_change_words`), `scripts/contract.py:2209-2215`, `agents/qa-code-critic.md:68-84`,
+`references/gate-registry.json` row s5_window :227-248, `scripts/tests/test_gate_registry.py` (the S-f lines)
 owns:
-- `ai-packages/qa-factory/references/gate-registry.json` (row `s5_window` only)
-- `ai-packages/qa-factory/scripts/tests/test_window_record.py` (one row, only if the INFO line is not pinned — the builder greps `expectation changes` and `not measured` in it first)
-non-goals: `window_record.py` and `acceptance.py` code (S9 owns `verdict`; nothing moves under (i)); the run-freshness rule
-(axis 25); C3-b1's gap
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/references/gate-registry.json` (row `s5_window` only)
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/acceptance.py` (`validate_window`: the review branch :1154-1174; the constant `HANDED_REVIEW_VERDICTS` :33-34, and the import line it needs)
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/test_window_record.py` (one table of rows, item 5; item 6: no row, the pin exists, R7)
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/test_gate_registry.py` (S-f pins of `s5_window` only)
+non-goals: `window_record.py` code (S9 owns `verdict`; `build` is only registered, item 2); the run-freshness rule (axis 25:
+`run_freshness_of(item)[0] == "stale"` at `acceptance.py:1148` and `_run_freshness` are C3-b2's); C3-b1's gap; the probe
+comparisons of `validate_window` (`probe.get("verdict") != "intended_failure"` :1211 and the rest of :1210-1218 — words of
+other rows, not this card's; noticed analog, «Not done (t-1033)»); `BLOCKED_REVIEW_VERDICT` (:44, imported by
+`window_record.py:75` for its note text); the census (item 8)
 handoff: report path given by the Lead
-edges: E1-E5 below
-DoD: `python -B ai-packages/qa-factory/scripts/gate_registry.py --check` (exit 0; `s5_window` absent from the debt block);
-`scenario_walk.py --witness-for <owns>`; `test_window_record.py` and `test_gate_registry.py` slow — canon
-siblings: axis 25 (freshness predicates): `run_freshness_of` is named, unchanged; axis 32 n/a (no unit moves)
-designer: `C:\QAFactory\forge-repo\docs\tasks\specs\20261117-rules-debt-phase2-cards-spec.md` (C3-d, after S9 and F-T7)
-Items: (1) `decides` corrected to the code: "the S5 window is acceptable: run blocks, receipts, reviews and expectation
-changes agree; a detector that could not measure is said as an INFO line with its reason (owner role: the critic reads it
-in the window), never a pass and never silence". (2) Sites: `window_record.verdict` re-roled `produce` and
-`acceptance.validate_window` re-roled `validate` — **these two re-roles are NOT judged by t-989** (its table says "not
-judged here"); the plan critic of this card judges them (E-c) before dispatch. (3) `unknown_branch` / `on_no_answer` /
-`waits_at` stay `question / wait / window_acceptance` (the window's unknowns that DO block — a missing review, a missing
-probe — are gaps the critic closes), `vocabulary: code` with the words the plan critic confirms from `--sites` on the two
-files (F-S1 rule), status converted. (4) S-b: the INFO line for `expectation_changes_unmeasured` (a window carrying the key
--> `info` holds "expectation changes not measured: <why>", the problem list unchanged), expected from `verdict`'s own
-docstring rule (FR-41: "the reader is told what was NOT looked at").
-architecture content: `AR-28 -- an unmeasured detector is said, never read as measured`; judgment `none -- the window's
-reading is unchanged; the registry row is corrected to it`.
-Edges: E1 TEMPORAL: none (no behaviour change under (i)). E2 (absent key): no INFO line (AR-23: absent says nothing).
-E3 (empty reason): "no reason was recorded" (:1834). E4 (conflict with C3-b1): C3-b1's gap is a real gap, not an INFO
-line; INVARIANT: (i) never downgrades a gap to INFO. E5: `очередь: S9 → C3-d` (window_record), and `C3-b1 → C3-d`
-(acceptance.validate_window, if C3-d's plan critic moves code).
-Under (ii) instead: the listed detectors become gaps closed by the critic; owns add `window_record.verdict`,
-`acceptance.validate_window`, the census rows (S-e) and one row per detector; a plan critic on the meaning change; cost:
-the four cart-1 windows above would have held.
+edges: E1-E10 below
+DoD: `python -B C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/gate_registry.py --check` (exit 0; `s5_window`
+absent from the debt block; no F-b for `validate_window`); `python -B C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/scenario_walk.py --witness-for <every owns path>`
+and the printed non-slow files; `test_window_record.py` and `test_gate_registry.py` slow — canon
+siblings: axis 25 (freshness predicates): `run_freshness_of` is named, unchanged; axis 32 (census): unchanged, item 8;
+axis 34 (one road for a person's word on a `review` gap): S9's road, untouched; A1's class: `window_record.build` registered
+`produce` (item 2)
+- axis 5 (`docs/SIBLING_MAP.md:143`, gate rows <-> sites <-> prose twins), not 'axis 26' (`docs/SIBLING_MAP.md:453` is the word `stand not confirmed`). C3-d changes `s5_window`'s words. Prose twins walked: `skills/qa-story/phases/s5.md:162` ('records the verdict `unverified`' for a probe that cannot run here) and :184 ('the critic's `approved` stands'); `references/code-review-rubric.md:92-93` ('`unverified` is not a pass … only for a window where the test could not run'): checked, no edit (meaning unchanged).
+- Waiting findings (R12): (a) `probe_verdict`'s words accepted in `validate_window:1211` and in `proof_level` (see C3-b2 siblings); a later fix needs a function split (`gate_registry.py:831-836`). (c) The critic's review word is read outside the registry: `check_delivery.py:860` and `case_stamp.APPROVING` :317 (twin `report_facts.APPROVING`) accept `{approved, approved_with_fixes}`. Inside the window, `window_record.build` (:1524, :1532, :1625) and `GAP_ORIGIN["review"]` (:318-319) carry the per-kind rule as door text: three copies beside the registry (P31 drift; `build`'s code is outside owns). One finding each, not carded. (Not re-read in t-1043: check_delivery:860, case_stamp:317, window_record:318-319.)
+designer: `C:\QAFactory\forge-repo\docs\tasks\specs\20261117-rules-debt-phase2-cards-spec.md` (C3-d, after S9, C3-b1, C3-0, F-T7 and F-T9)
+Items:
+1. `decides` corrected to the code: "the S5 window is acceptable: run blocks, receipts, reviews and expectation changes
+   agree; the critic's review word closes an instance's review only as the instance allows — `approved` for a test that
+   ran with its proof, `unverified` (a static review) for one the stand blocked or whose probe could not run here, either
+   for one handed to the person; `unverified` closes the review only: the instance stays unresolved (`story_step.py finish` derives the pair, and the report lists it as left with the person, D-0013), so it is never a pass — and any other word or none is a review gap the critic closes; a detector that could not
+   measure is said as an INFO line with its reason (owner role: the critic reads it in the window), never a pass and never
+   silence". The charter fact behind it: `agents/qa-code-critic.md:76` says `unverified` is 'could not verify'. `window_record.py:36-41` and :344-351 (PROBE_GAP_KIND, 'S8 reads it as the critic's `unverified`') were re-read. The verdict_map entry is unchanged.
+2. Sites: `acceptance.validate_window` stays `accept` (B3); `window_record.verdict` re-roled `produce` (B3: it builds
+   problems and `info`); `window_record.build` registered `produce` (new: its `item["review"]["verdict"] != "approved"` at
+   :1532 writes the review note, the door text, not an acceptance; `build` is defined once in the file, :1332).
+3. Row: `vocabulary: code`; `field: null` (the word is passed as a string); `words: ["approved", "unverified"]` — the
+   literal words the sites compare (S-c; `approved_with_fixes` and `rejected` are compared nowhere and are refused by
+   being outside `words`); `verdict_map: {"approved": {"class": "matched"}, "unverified": {"class": "not_applicable",
+   "reason_code": "static_review"}}`; `accepts` (on F-T9 (a)): `"s5_window.review": ["matched"]`,
+   `"s5_window.static_review": ["not_applicable:static_review"]`, `"s5_window.handed_review": ["matched",
+   "not_applicable:static_review"]`; `promotable: false` unchanged; `unknown_branch` / `on_no_answer` / `waits_at` stay
+   `question / wait / window_acceptance` (the window's unknowns that DO block — a missing review, a missing probe — are
+   gaps the critic closes); status converted, `debt_ref: ""`. expected from: the charter `qa-code-critic.md:76`
+   (`unverified` = "could not verify", a static review, not a rejection) and `:84` (the four words), `_token_problem`'s
+   grammar (`gate_registry.py:467-482`), C3-0 item 2.
+4. `validate_window`: the four review comparisons become calls of the predicate on `item.get("review", {}).get("verdict")`
+   — stopped (:1156) and gapped (:1167): `not acceptable(<word>, "s5_window.static_review")`; handed (:1161): `not
+   acceptable(<word>, "s5_window.handed_review")`; ran (:1171): `not acceptable(<word>, "s5_window.review")`. The branch
+   order and the `_bound_to` / `stale_review:` / `mechanical_green:` follow-ups are unchanged. `HANDED_REVIEW_VERDICTS`
+   (:34) is deleted (no reader left: grep over the package finds it only at `acceptance.py:34,1161`).
+5. S-b and the review table: ONE table in `test_window_record.py` (rows of (kind, word) -> review gap or none): ran:
+   `approved` -> none; `unverified`, `approved_with_fixes`, `rejected`, `""`, `"Approved"`, no `review` key ->
+   `review:<iid>`; stopped: `unverified` -> none, `approved` -> `review:<iid>`; probe-gapped: `unverified` -> none,
+   `approved` -> `review:<iid>`; handed: `approved` and `unverified` -> none, `rejected` -> `review:<iid>`; the unreadable registry (the `gate_template` cache patched as in C3-rr item 3, restored in `finally`; if the merged C3-0 exposes no cache, the node stops with a question) -> `review:<iid>` for every kind and word. The absent word is the row's unknown (S-b). expected
+   from: the corrected `decides` (item 1), the charter lines of item 3 and FR-59 — never from `validate_window`'s output
+   before the change. The builder greps `review:` in `test_window_record.py` first and adds rows to an existing table if
+   one pins these; pins found in other files are named in the report, not edited.
+6. INFO line (B9): a window carrying `expectation_changes_unmeasured` -> `info` holds `"expectation changes " +` the
+   `not_measured` row of `expectation_change_words` in `handoffs/vocabulary.yaml` (:300, `"not measured: {why}"`) with
+   `why` substituted, the problem list unchanged; the test reads that row from the vocabulary file (the data), never the
+   literal "expectation changes not measured: <why>". Already pinned: named, no new row. `test_window_record.py:2110-2111` (`line.startswith("expectation changes not measured: ")`) and :2117 (the CLI prints the note) pin the line. The literal in that pin equals the data row (`handoffs/vocabulary.yaml:300`, `not_measured: "not measured: {why}"`). Re-sourcing it is optional; recommended: leave it. expected from: the data row and FR-41 ("the reader is told what was
+   NOT looked at").
+7. (S-f) Pins: `EXPECTED_DEBT` loses `s5_window`, `EXPECTED_CONVERTED` gains it, K-T1.2 N-1, split +1/-1; the F4 `code`
+   list gains `s5_window` (`target` -> `code`); the F4 flip control already runs on an in-memory row (C3-0 item 7 — C3-d is
+   not dispatchable before C3-0 merges); D13 re-measured. Expected: +1 triple `("window_record.py", "build", "s5_window")`, `D13_ITEM_COUNT` +1 from the base (exactly `:1532 item["review"]["verdict"] != "approved"`).
+   - The four comparisons of `validate_window` (`acceptance.py:1156, 1161, 1167, 1171`) are removed by item 4.
+   - :1524 and :1625 use the imported `BLOCKED_REVIEW_VERDICT` (`window_record.py:75`), which A26 cannot see (docstring `gate_registry.py:63-66`).
+
+   Critic t-1039 measured this on an in-memory copy; not re-run here. A different measurement is a stop and a question.
+8. Census: unchanged. `validate_window`'s row is `{"class": "shape", "owner": "data"}` (`judgment-census.json:7`); its unit
+   is the `ValueError` at :1073; the review gaps are list transport (`gaps.append`, census header :3) — no unit, no class
+   change. If `test_judgment_census.py` reads otherwise, the node stops with a question.
+architecture content: `AR-13 -- the critic's review word is read through gate_template.acceptable`; `AR-22 -- the three
+s5_window consumers land with their reader`; `AR-28 -- an absent or unaccepted review word is a review gap; an unmeasured
+detector is said, never read as measured`; `AR-29 -- shape unchanged (validate_window's unit); the review acceptance is a
+join, owner data`; `AR-20 -- debt -1, converted +1, F4 +1, D13 re-measured`; judgment `none -- the critic's review stays
+the critic's judgment, accepted at window acceptance as today; the registry carries which word closes which kind`.
+Edges:
+- E1 TEMPORAL: behaviour identical for every word the critic writes, per kind (the predicate reproduces the four
+  comparisons); after C3-d `validate_window` reads the registry at run time through `gate_template` (once per process).
+  Windows recorded before are judged at their next validation exactly as today. INVARIANT: no window that closes today
+  is held, and none held today closes.
+- E2 (absent / empty review): `""` or no `review` key -> not acceptable -> `review:<iid>`. INVARIANT: no word, no closed
+  review.
+- E3 (unreadable registry): every review is a gap; the window holds (never a pass). The gap's door ("the critic records
+  the verdict") cannot close it while the file is broken — a dead end (FR-57) for that case: F-T11 (a) + R5 (b), decided: the dead end is closed by C3-reg-precondition (no dispatch starts while the file cannot be read). Inside a stage that began before, the gap stays, and the per-site why branches are belt-and-braces. INVARIANT: a broken registry never closes a review.
+- E4 POSITIONAL: the order stopped -> handed -> gapped -> ran is unchanged and each branch calls its own consumer.
+  INVARIANT: `approved` never closes a test that never ran (stopped) or whose probe never ran (gapped), and `unverified`
+  never closes a test that ran with its proof.
+- E5 (case and shape): `"Approved"`, `" approved"`, `["approved"]`, `None` -> not acceptable -> gap (C3-0 E3).
+- E6 (conflict with C3-b1, same function): C3-b1 adds `novelty_question:` after the review checks; C3-d is based after
+  C3-b1 merges. INVARIANT: neither replaces the other's gap.
+- E7 (limit): none introduced.
+- E8 queue: `очередь: S9 → C3-b1 → C3-d` (window_record / acceptance), `C3-0 → C3-d` (gate_template), S-f order on the pins.
+- E9 (INFO lines): absent key -> no line (AR-23: absent says nothing); empty reason -> "no reason was recorded" (:1834).
+- E10 (conflict with C3-b1's gap kind): C3-b1's gap is a real gap, not an INFO line. INVARIANT: (i) never downgrades a gap to
+  INFO.
+Under (ii) instead: the listed detectors become gaps closed by the critic; owns add `window_record.verdict`, the census
+rows (S-e) and one row per detector; a plan critic on the meaning change; cost: the four cart-1 windows above would have
+held. Items 2-8 above hold under (ii) too.
+
+#### C3-reg-precondition — one stop when the gate registry cannot be read (F-T11 residue, critic t-1039 R5 (b), Lead 17.11) — after C3-0; controller.py queue after FL4
+
+Why: with an unreadable registry, every converted site refuses, and three of them loop: `_run_freshness` gives a stale_run gap whose re-run reads stale again; `_evaluate` refuses every receipt, so the probe runs again; `validate_window` gives a review gap no verdict closes. They also answer the same cause five ways (P31). This card puts one survivor in front of all of them (AR-15). The per-site why branches of C3-b2/C3-d stay as belt-and-braces (Lead decision).
+
+given: `C:/QAFactory/forge-repo/ai-packages/qa-factory/design/factory-rules.md` (whole), `C:/QAFactory/forge-repo/plans/builder-rules.md`, `C:/QAFactory/forge-repo/docs/TESTING.md`; this card; the accepted C3-0 card and its diff (`gate_template.py`: `registry_problem(*, registry=None) -> str`, cache `_READ`). Read, under `C:/QAFactory/forge-repo/ai-packages/qa-factory/`:
+- `scripts/controller.py:5364-5377` (validate head), `:5493-5529` (dispatch branch head), `:5185-5189` (`apply` runs `validate` in the commit), `:2470-2482` (`_passed_by_person`), `:5612` (a dispatch-branch use of it), `:2109-2147` (`prepare`, read-only), `:9206-9236` (the stage loop's `prepare_stage`);
+- `scripts/gate_registry.py:16-19, 97-106, 427-456`;
+- `design/controller-blocks.md:1-38` and rows :50-53 (the row form);
+- `design/state-exits.md:1-20, 138-143`;
+- `scripts/tests/test_state_exits.py:43-54, 124-128`;
+- `scripts/refusal_registry.py:41-44` (controller.py is one `operation` entry);
+- `scripts/driver_dispatch.py:38-107` (KNOWN_REFUSALS, unchanged);
+- `UPGRADE.md:71-90` (the reinstall steps);
+- seam precedent: `scripts/tests/test_gate_registry.py:1108-1119` on C3-0's branch.
+
+owns:
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/controller.py` (`Controller.validate`, the `dispatch` branch only: one block and the import it needs) — HOT
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/design/controller-blocks.md` (one row in source order; the header counts it moves)
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/design/state-exits.md` (one row in "What an infrastructure failure leaves", :138)
+- `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/test_controller_state.py` (one table, item 4)
+
+non-goals:
+- `gate_template.py`, `gate_registry.py`;
+- any call of `gate_registry.analyse` / `--check` / `main` from the controller (`gate_registry.py:16-19`), and `audit_factory.py` (the doctor);
+- `gate-registry.json`, `test_gate_registry.py` (no row-word comparison is added; D13 unchanged), `judgment-census.json` (no new unit);
+- `driver_dispatch.KNOWN_REFUSALS` (F-T13 (a)); `prepare`, `next_action`, `_next_action_for_state` (F-T14 (a));
+- the `accept` / `checkpoint` / `resume` / `initialize` branches;
+- the per-site texts of C3-b2/C3-d;
+- `docs/SIBLING_MAP.md` (its axis-5 line is the Lead's at acceptance, item 5).
+
+handoff: report path given by the Lead
+edges: E1-E11 below
+DoD: `python -B C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/gate_registry.py --check` exits 0 (no registry edit; the debt block unchanged). Then `python -B C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/scenario_walk.py --witness-for C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/controller.py C:/QAFactory/forge-repo/ai-packages/qa-factory/design/controller-blocks.md C:/QAFactory/forge-repo/ai-packages/qa-factory/design/state-exits.md C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/test_controller_state.py`, and the printed non-slow files. `test_controller_state.py` and `test_controller_blocks.py` are `test_controller_*` (builder-rules 7b): judged by the batch canon and named in the report. `test_state_exits.py` is run if printed and not slow.
+siblings: axis 5 (`docs/SIBLING_MAP.md:143`): this is the one stop for "the registry cannot be read" (AR-15: a new survivor is named on its axis, item 5). The per-site texts (C3-b2 items 4-6, C3-d E3) are belt-and-braces. `_stale_receipt` / `probe_freshness` `missing` is the residue named in C3-b2 E8. Open C3-0 finding (its report :54): audit A1 says `gate_template.py` is reachable from nothing; whether this import from `controller.py` (a CLI script) clears it is not established.
+designer: `C:\QAFactory\forge-repo\docs\tasks\specs\20261117-rules-debt-phase2-cards-spec.md` (C3-reg-precondition, t-1043)
+
+Items:
+1. **The block.** In `validate`'s `dispatch` branch, right after the contract check `required` (:5515-5517: `raise ValueError("dispatch contract incomplete")`) and before the closure test (:5518-5523):
+   - read `problem = registry_problem()` (`from gate_template import registry_problem` at the point of use, the file's "late" import style);
+   - when it is non-empty, build one text with the stable prefix `gate registry unreadable:`, e.g. "gate registry unreadable: the plugin's references/gate-registry.json cannot be read (<problem>). Owner: factory - a defect of the install, not of the story; nothing is wanted from you. Reinstall or update the qa-factory plugin (UPGRADE.md, step 3), then start the stage again. No stage starts until the file reads, because every reuse and review acceptance reads it.";
+   - pass it through `blocking, _ = self._passed_by_person(p["stage"], [text])`, as the branch's other blocks do (:5612), and `raise StateConflict(blocking[0])` when it is still blocking (F-T12 (a)).
+
+   The text reports and does not ask (FR-3: a factory reason is never put as a choice); the person's word is the standing FR-4 road. The builder reads `waiver.split_overridden` for whether a pass over a factory-owned block is filed as a factory finding (FR-4); this was not read here. Expected from: AR-28 / FR-59 (an unknown never becomes a pass at a stage boundary), FR-4, AR-9's change check (`architecture.md:111`: the door and the person's-word route), the Lead decision R5 (b).
+2. **controller-blocks.md row** (source order, beside the other `validate` rows): `| \`validate\` | \`StateConflict\` | gate registry unreadable: the plugin's references/gate-registry.json cannot be read | \`person\` | a factory defect (FR-3): reinstall or update the plugin, then start the stage again; a person's recorded words pass it (\`waiver.py --stage <S> --block "gate registry unreadable" --words-file <file>\`), and the stage then runs with every converted site refusing reuse (C3-0 E2) |`. The header counts (352 blocks, route `person` 17, `controller-blocks.md:3,20`) move by one. If `tools/controller-blocks-gen.py` places the row, its output is used. If `test_controller_blocks.py` does not pin the header counts, they still move (the file is the walk).
+3. **state-exits.md row** in "What an infrastructure failure leaves" (:138-143): `| a story whose next dispatch is refused because the plugin's \`references/gate-registry.json\` cannot be read (absent, 0 bytes, not UTF-8, not JSON, duplicate keys, not an object, no \`rows\` list) | a broken or partial install or update of the plugin | reinstall or update the plugin (UPGRADE.md step 3); the next \`dispatch\`, in a new process, reads the file again and goes through; a person's recorded word passes it (\`waiver.py\`) | \`test_controller_state.py\` |`. `test_state_exits.py` reads the first backticked token of column 1 (:43-54); extra names are harmless. The doors it checks (`dispatch`, a test file on disk, :124-128) exist.
+4. **Test: one table in `test_controller_state.py`** (keep, layer `detector`, covers `controller.py`, `test-layers.json:1082`). The builder greps for an existing dispatch-refusal table first. If there is none, it adds one parameterised function (no new file). Rows (id -> expected):
+   - `absent`: `gate_registry.PLUGIN_ROOT` swapped to an empty temp dir and `gate_template._READ.clear()` (restored in `finally`, the precedent seam) -> the dispatch is refused with `StateConflict`, the text starts with `gate registry unreadable:`, names "the file is absent", and the journal records no dispatch;
+   - `zero-bytes`, `not-json`, `not-utf8`, `no-rows`: `_READ[:] = [(None, <the load_registry reason>)]` or `[({"rows": "x"}, "it carries no `rows` list")]` -> refused, each naming its reason;
+   - `passed-by-word`: `no-rows` plus a recorded waiver for the block `gate registry unreadable` -> the dispatch is recorded;
+   - `live`: the live registry -> the dispatch is recorded (control);
+   - `malformed-first` (POSITIONAL): `no-rows` and a request missing `input_hash` -> `ValueError("dispatch contract incomplete")`, not the registry text;
+   - `after-reinstall` (TEMPORAL): refused; then the root restored and `_READ` cleared -> the next dispatch is recorded.
+
+   Expected from: AR-28, FR-4 and the decided text above; never from the code's output.
+5. **SIBLING_MAP axis-5 line (the Lead's, at acceptance):** "one stop for an unreadable registry: `controller.validate` dispatch branch via `gate_template.registry_problem()` (C3-reg-precondition); per-site why texts are belt-and-braces". It is a mechanism path (`tools/mechanism_gate.py`, 7 `SIBLING_MAP` hits; prefix not read), so the builder reports it under "Needed from integration".
+
+architecture content: `architecture: AR-9, AR-13, AR-15, AR-25, AR-28 -- <how kept>`, in the gate's own form (`tools/architecture_gate.py`; the grammar is not copied here). Points:
+- AR-9: the refusal names what it expected and two doors (reinstall; the person's word). Change check `architecture.md:111`: controller-blocks row, `test_controller_blocks.py`, `refusal_registry.py --check` (controller is one `operation` entry, `refusal_registry.py:41-44`).
+- AR-13: read only through `load_registry`, via `registry_problem()` (:166).
+- AR-15: one survivor, named on axis 5 (:180).
+- AR-25: a `state-exits.md` row with its reversing command (:261).
+- AR-28: an unreadable registry never becomes a pass at a stage boundary, pinned by item 4 (:282).
+- AR-29 (:155): the check is class `shape` (a package file reads and has `rows`), owner data; it sits in the existing unit `controller.py::validate` (`judgment-census.json:245`, shape/data), so there is no new census row. If the builder places the raise in a helper (a new unit), the node stops with a question.
+- judgment: `judgment: none -- a readability check of a package data file inside the existing shape unit controller.validate; the person's pass is the existing waiver road`. Per check: the readability check serves DATA (code), census class shape; the pass serves INTENT (the person, FR-4).
+
+Edges:
+- E1 (empty / absent): an absent file, 0 bytes or no `rows` gives a reason, so the dispatch is refused. INVARIANT: no stage starts on a registry that cannot be read (AR-28).
+- E2 (present but incomplete, R15): `registry_problem()` covers a registry that cannot be read, not a missing consumer. A file that parses, with `rows`, but lacks a consumer, `words` or `verdict_map` gives "", so the precondition passes; the site's `acceptable` is False and the site prints its usual cause. INVARIANT: the precondition never stops a registry that reads (no false stop). That blind spot is held by CI (A26 `--check`; the positive rows of every consumer table turn red on a consumer-id typo).
+- E3 TEMPORAL:
+  - (i) the registry appears after a reinstall. `gate_template` caches per process, and a failure is cached as such (`_READ`, :31-37 at a4aca646). A CLI call is a new process, so the next call reads the file again. The driver imports `controller` in-process (`driver_dispatch.py:2141` and others), so a driver running across a reinstall keeps the cached failure until it restarts. UPGRADE.md:71 asks to stop active factory work before a reinstall; the door says "then start the stage again".
+  - (ii) Before C3-0 merges, `gate_template.py` is absent, so this node cannot be built (order).
+  - (iii) Before this node, a broken registry loops at the sites (R5); after it, the first dispatch stops.
+  - INVARIANT: a fixed registry is read by the next process, and a cached failure only ever stops, never passes.
+- E4 POSITIONAL: after `validate_record("Dispatch", p)`, the running-dispatch refusal (:5501-5514) and `required` (:5515-5517); before the closure test (:5518-5523) and every later check. INVARIANTS:
+  - (i) a malformed request is still refused as `ValueError` first (the call's fault before the install's, FR-46);
+  - (ii) the running-dispatch refusal keeps its text byte for byte (finishing a running dispatch is an `accept`, which is not blocked);
+  - (iii) no dispatch is committed while the file cannot be read, on any road that commits one: `story_step.py start`, `rework`, relaunch and retry packets, the driver. All of them go through `apply` -> `store.commit` -> `validate` (:5188);
+  - (iv) the closure test and every later check still run on an admitted dispatch;
+  - (v) the block reads only `p["stage"]`, which `required` guarantees.
+- E5 one road (P31, AR-15): one precondition for every stage and role alike, keyed on no stage, language or project; no per-site variant.
+- E6 (not covered, by design): `accept`, `checkpoint` and `resume` of an admitted dispatch (the stage is already entered; its sites refuse with the registry why), and `initialize` (it runs no converted site). INVARIANT: a broken registry is a pass nowhere (the sites err toward not-acceptable, C3-0 E2); the precondition only stops it early.
+- E7 doctor separation: this is a read through `registry_problem()` (`load_registry` + `structural_error`, `gate_registry.py:427-456`), never `analyse`, `--check` or `main`. `gate_registry.py:16-19` forbids the A26 AUDIT in the project doctor; a read is not the audit. INVARIANT: no A26 audit runs in a project.
+- E8 (limit): none introduced. The reason is passed whole; `load_registry`'s sentences are short, and a JSON error carries its position.
+- E9 (cost): one file read and parse per process at its first dispatch (cached); nothing on other operations.
+- E10 (conflicts):
+  - `controller.py` is HOT: S9 owns `_s5_gap_problems`; FL4 owns `BINDING_KEYS`, `build_rework_request` and `main`'s rework parsing (S9/FL spec :334-336). This node owns `validate`'s dispatch branch: function-disjoint.
+  - `controller-blocks.md` is row-disjoint, but the header counts are shared if S9/FL4 add blocks: the later merger re-derives them (D-0048).
+  - `очередь: S9 → FL4 → C3-reg-precondition` (controller.py, controller-blocks.md); `C3-0 → C3-reg-precondition` (gate_template).
+- E11 (driver): the refusal matches no `KNOWN_REFUSALS` row (`driver_dispatch.py:38-107`), so it goes to the conductor (FR-48, F-T13 (a)). The conductor cannot reinstall; it reports the defect (FR-3). INVARIANT: no silent pass and no question about our own defect; the same refusal repeats until the reinstall.
+
+Measurement (п. 6 (а)): not a meaning change for any story on a sound install (`registry_problem()` is "" on the live registry: the C3-0 row "registry-problem: the live registry", `test_gate_registry.py:1124` on its branch). Not measured here (no shell).
 
 #### C3-e — folded into C3-R (item 3)
 
@@ -788,20 +1265,26 @@ candidate; t-994 read: it returns an error list, and the raises are in `build_ba
 `deployment_readiness` never refuses (docstring :175-182: `ready` "is always true", gaps carry `blocks_execution: False`,
 :216-221) and goes through `acceptable(…)` — under fork F-T3 with a consumer of its own and the receipt's `status` as the
 row's field, not `provenance.baseline` (read by no script).
+(t-1033, B1) Also owns `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/test_gate_registry.py` (S-f pins of
+`baseline_identity` only, plus — under F-T3 (a) — the `provenance.baseline` consumer pins F1 :630, :639-647 and K-N2.12 NEG
+:285-292); item: re-measure D13 with `GR.analyse` before and after and name the move (S-f); F4 `code` list gains
+`baseline_identity` (`target` -> `code`). TEMPORAL: S-f.
 
-#### C3-h — stand_identity (B-257) — wave 3, gate_preflight queue position 3
+#### C3-h — stand_identity (B-257) — wave 3, gate_preflight queue position 4
 
 owns: gate-registry.json (row `stand_identity`); `ai-packages/qa-factory/scripts/tests/test_stand_identity.py` (one row);
 code sites only if S-b is red (the row's produce/validate sites in `runtime_probe.py`, `gate_preflight.py`,
-`driver_stage_build.py`)
+`driver_stage_build.py`); (t-1033, B1) `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/test_gate_registry.py`
+(S-f pins of `stand_identity` only: debt/converted/split, F4 `code` list `target` -> `code`, D13 re-measured and named)
 Item: no accept site — converts by S-b/S-c alone (F-D1 does not apply). Row edit: `vocabulary: code`, words unchanged
 (`_derive_probe` compares all five, critic's read); sites keep their roles (produce/dispatch: none is accept). S-b: a
 stand whose build cannot be identified -> the `stand_identity` question before the stage, the stage waits; the person's
-word recorded in the row's policy file covers the same scope keys next time. expected from: the registry row.
+word recorded in the row's policy file covers the same scope keys next time. expected from: the registry row. TEMPORAL
+(t-1033): S-f — C3-h is last in the expected order.
 
 #### C3-i — folded into C3-R (items 5-8); it leaves the gate_preflight queue (no code)
 
-#### C3-j — s5_stand_limits -> question, answer persisted (B-282) — wave 3, gate_preflight queue position 1
+#### C3-j — s5_stand_limits -> question, answer persisted (B-282) — wave 3, gate_preflight queue position 2
 
 The registry: "the environment registry" of the owner's word is **the environment record**,
 `qa-factory/records/environment-properties.json` (`environment_record.py:33 RECORD_REL`; its docstring: what a person
@@ -818,6 +1301,7 @@ owns:
 - `ai-packages/qa-factory/scripts/tests/test_environment_record.py`, `ai-packages/qa-factory/scripts/tests/test_gate_preflight.py` (rows)
 - `ai-packages/qa-factory/scripts/stand_gaps.py` (`collect` and the function that calls `record_lasting`, so a `stand_limit` gap row is collected and its `accept always` recorded) and the answer-vocabulary row that offers `accept always` on a stand-gap card (`references/question-vocabulary.json` `stand_gap_words`); the new card is a GAP ROW of the stand-gap flow (`scope: "stand_limit"`, `property_key` from `lasting`), not a `PERSON_DECIDES` finding; test: one row in `test_environment_record.py` or the stand-gap test that drives answer -> `record_lasting` -> a record row under the stand_limit key -> the next rehearsal covers it (the AR-22 round trip)
 - `ai-packages/qa-factory/scripts/tests/fixtures/judgment-census.json` (S-e; based after `wave-a/integrate`)
+- (t-1033, B1) `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/test_gate_registry.py` (S-f pins of `s5_stand_limits` only: debt/converted/split, F4 `code` list `target` -> `code`, D13 re-measured and named — `check_s5_stand_limits` re-roled `produce` moves its comparisons' attribution)
 non-goals: writing `config.json` `environments[].measured`; `manual_capture` readers of the config measurement
 Items:
 1. Today `unmeasured` is a note, never a card (`check_s5_stand_limits` :3191-3194). After: `unmeasured` builds ONE gap
@@ -837,6 +1321,8 @@ Items:
 4. Registry row: `unknown_branch: question`, `on_no_answer: wait`, `waits_at: gate_a` (F-C1 (a)), closed by and
    addressed to the person; `check_s5_stand_limits` re-roled `produce` (E-c table; no accept site after C3-j: the record
    read is `_environment_cover`'s).
+5. (t-1033, S-f) Re-measure D13 with `GR.analyse` before and after and name the move; debt/converted/split and F4 by the
+   S-f deltas.
 Edges:
 - E1 (absent stand name / placeholder): no key, the card is shown without `accept always`. INVARIANT: nothing is
   recorded under a placeholder key.
@@ -855,11 +1341,13 @@ Edges:
   BEYOND its existing limit if the test table does not hold them.
 - E9 (temporal, FR-4): a waiver already recorded for `e2e stand limit: <profile>` still passes the new card. INVARIANT: an
   informed word recorded before the change is never re-asked.
+- E10 (t-1033, S-f TEMPORAL): pins are deltas from the main C3-j is based on; C3-j follows C3-rr on `gate_preflight.py`.
+  INVARIANT: S-f.
 architecture content: `AR-22 -- the answer's writer and its gate reader in one commit`; `AR-24 -- the person's words
 reach the record whole`; `AR-28 -- an unmeasured limit is asked, never run on a guess`; `AR-29 -- owner intent for the
 answer, the cover is a key join (xref)`.
 
-#### C3-k — provenance_acceptance (B-255) — designer first; wave 3, gate_preflight queue position 2
+#### C3-k — provenance_acceptance (B-255) — designer first; wave 3, gate_preflight queue position 3
 
 Many accept sites across many files; the row's `decides` lists its own residue. Not dispatchable from this text: designer
 refines (after C3-0 under F-D1 (b)) into per-file steps, settling F-T2's second half (whether `acceptable` delegates the
@@ -868,8 +1356,25 @@ record check to `profile_contract.acceptable_provenance`, and the bare `not_appl
 `profile_contract.py:877`); `очередь: C3-b2 → C3-k` (execution_request.py), `C3-R → C3-k` (run_suite.py is not touched by
 C3-R; the queue is kept only for the registry file).
 
-gate_preflight queue (HOT, one stream at a time): **C3-j → C3-k → C3-h** (C3-i left it: no code, F-i2), each after any
-open node of a TAKEN batch that owns `gate_preflight.py` (§4).
+(t-1033, A2) **The dead consumer `provenance.environment_preparation` is removed.** It sits in the row
+`environment_preparation` (`gate-registry.json:325`, `accepts: {"provenance.environment_preparation": ["matched"]}`); after
+C3-R no word of that row maps to `matched` (words `blocked`/`unknown`, both unknown, :320-324), so under C3-0 it can accept
+nothing, and no `scripts/*.py` reads it (Grep over `scripts/*.py`: only `tests/test_gate_registry.py:631-632, 640`, which are
+the positive control). Direction chosen: C3-k's registry commit REMOVES it from the row `environment_preparation`; when
+C3-k wires `environment_preparation._run_step` (a `provenance_acceptance` accept site, registry :49; the deploy's proof
+step, as the row's own `decides` says at :314) through `acceptable`, the consumer that reader calls is added in THAT
+commit, under a row whose `promotable` is false (the guard F1 pins, `test_gate_registry.py:637-647`: a person's word never
+stands in for the deploy's proof) — never moved ahead of its reader (AR-22; the same class as F-T3's `provenance.baseline`).
+The F1 lines `:631-632` and the `environment_preparation` pair of the loop `:639-647` move in the same commit.
+
+(t-1033, B1) Also owns `C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/test_gate_registry.py` (S-f pins of
+`provenance_acceptance` only, plus the A2 consumer pins above); item: re-measure D13 with `GR.analyse` before and after
+and name the move (S-f: `provenance_acceptance` holds the most triples of the set, :915-955); F4 `code` list gains
+`provenance_acceptance` (`target` -> `code`). TEMPORAL: S-f; C3-k is based after C3-g (the F1 block is shared with C3-g's
+`provenance.baseline` lines).
+
+gate_preflight queue (HOT, one stream at a time): **C3-rr → C3-j → C3-k → C3-h** (C3-i left it: no code, F-i2; C3-rr joined
+it in t-1033), each after any open node of a TAKEN batch that owns `gate_preflight.py` (§4).
 
 ---
 
@@ -1039,56 +1544,72 @@ sub-passes (after wave 2, after wave 3). E6 — axis 4: each moved FR-59 row's B
 architecture content: `none -- <reason>` in the form `tools/architecture_gate.py` accepts (design doc rows, two Check
 lines and one test control); judgment `none -- the debt file and Check lines name carriers, no check moves`.
 
-## §3. Waves (rewritten t-994)
+## §3. Waves (rewritten t-994; updated t-1033)
 
 **Wave 1 — launched (Lead, 17.11):** C1, C2, C4, FL9; C5 (Lead procedure, any time). FL9 stopped at its E1 with no diff
 (t-962, `a18336d2`); C4's row was red on real code (t-961, «C4 result» below).
 
-**Wave 2 — now:** **C3-R** (one builder node, registry conversions with no code: rows `collected_ids`, `s5_coverage`,
-`delivery`, `case_preconditions`, `environment_preparation`, `reporter_rehearsal_identity`,
-`environment_property_cover`, each per its item; pin rows per item; witness `gate_registry.py --check` + witness-for; a
-code edit of any site is OUT of C3-R: a pin red on real code stops the node with the red output). In parallel, designer
-and plan-critic work (no builder): C3-0 (this draft -> plan critic -> Lead answers F-T1/F-T2), C3-b1 (this draft -> plan
-critic -> F-T4/F-T5/F-T8), C3-d (fork F-T7 to the Lead), and the second designer's S9, FL2, FL4
-(`docs/tasks/specs/20261117-rules-debt-phase2-s9-fl-cards-spec.md`). Before dispatch the Lead answers F-T6 (C3-R's words).
+**Wave 2 — done / in flight (t-1033):** **C3-R** merged (`5751426c`, t-1009; plan-and-code critic t-1026: "needs work,
+one fix round"); its fix round **t-1032** is merged (critic t-1039: `7f2f6f78`) (registry and tests only: A1 — `reporter_rehearsal_identity`
+back to debt B-283 with `_reporter_outcome` accept and `_record_unreadable` produce —, A3, A4, A5). The second designer's
+S9, FL2, FL4 (`docs/tasks/specs/20261117-rules-debt-phase2-s9-fl-cards-spec.md`) passed their plan critic in t-1026 with
+edits (B6-B8, B11-B13) owned by that file. Before dispatch the Lead answers F-T6 (C3-R's words; still open in the forks).
 
-**Wave 2½ — after their plan critics:** C3-0 (builder) — no file overlap with C3-R except the registry (row-disjoint:
-one site line in `provenance_acceptance`); C3-b1 after S9 lands (window_record `WORD_READ_KINDS`; S-e: also after
-`wave-a/integrate`).
+**Wave 2½ — after t-1032 merges:** **C3-0** (builder) — first writer of `test_gate_registry.py` after t-1032 (S-f); no
+other overlap except the registry (row-disjoint: one site line in `provenance_acceptance`) and `test-layers.json` (queue
+line below). C3-b1 after S9 lands (window_record `WORD_READ_KINDS`); `wave-a/integrate` is merged (`71d36190`, the critic's
+run), so S-e holds for every card based on today's main. C3-0 built at a4aca646 (branch `worktree-agent-aa11322709a274e56`), not on main at t-1043.
 
-**Wave 3 — serial on hot files:** after C3-0: C3-b2 (proof_level, execution_request) and C3-g (baseline_contract);
-gate_preflight: **C3-j → C3-k → C3-h** (C3-j also after `wave-a/integrate`, S-e; C3-k after C3-0 and C3-b2);
-window_record / acceptance: **S9 → C3-b1 → C3-d** (C3-d after F-T7; under rec (i) it moves no code and only the registry
-row waits); controller.py: FL4 after S9 (second designer's file); FL2 after C3-R (its unknown-kind branch is pinned by
-C3-R item 3); S10 after the taken stage_guard/host_adapter rows are read; FL1 after TR4-17 and the taken manifest_put rows.
+**Wave 3 — serial on hot files, after C3-0:**
+- **C3-rr** (gate_preflight `_reporter_outcome`, registry row, its test rows) — first on the gate_preflight queue: **C3-rr →
+  C3-j → C3-k → C3-h**.
+- **C3-b2** (proof_level `already_probed` / `_product_receipt_repeat` / `_run_freshness` [/ `_evaluate`], execution_request
+  `_match`) and **C3-g** (baseline_contract) after C3-0; C3-k after C3-0, C3-b2 and C3-g.
+- window_record / acceptance: **S9 → C3-b1 → C3-d** (C3-d also after C3-0, F-T7 and F-T9; under rec (i) C3-d now moves
+  code in `acceptance.validate_window`).
+- controller.py: FL4 after S9 (second designer's file); FL2 after C3-R (its unknown-kind branch is pinned by C3-R item 3);
+  S10 after the taken stage_guard/host_adapter rows are read; FL1 after TR4-17 and the taken manifest_put rows.
+- **C3-reg-precondition** (controller `validate` dispatch branch, controller-blocks.md, state-exits.md, test_controller_state.py) after C3-0; on controller.py after S9 and FL4.
+- `test_gate_registry.py` (every converting card, S-f): expected merge order **t-1032 → C3-0 → C3-rr → C3-b1 → C3-b2 →
+  C3-g → C3-d → C3-j → C3-k → C3-h**; a card ready before its turn may merge first only by D-0048's rule (it merges main
+  into its tree, re-derives its own row's pins and re-measures D13 on the merged tree; both sides' pins green).
 
 **Wave 4:** S1b (two sub-passes allowed), then the BATCH CANON on CI (builder-rules 7b; coordinator).
 
-**Collisions and order (t-989 K6, folded):**
-- `references/gate-registry.json`: every C3 card; C3-R is wave 2's one writer; C3-0 adds one site line in another row;
-  S7 may edit `witness_backstop`. Row-disjoint, the later merge resolves (E-d).
-- `scripts/tests/fixtures/judgment-census.json`: edited by `wave-a/integrate` (unmerged; `+_load` row, critic :834) —
-  C3-j, C3-b1, S9 and any code-moving card start after that merge (S-e). C3-R and C3-0 do not touch it.
-- `s5_precheck.py`: `wave-a/integrate` changes it (not `run`); C3-R moves no code there, so no queue against FL9 or
-  `wave-a/integrate`.
-- `gate_preflight.py` (HOT): C3-j → C3-k → C3-h; C3-i left the queue (no code).
-- `window_record.py` / `acceptance.py`: S9 → C3-b1 → C3-d. `controller.py` (HOT): S9 → FL4. Designer-first cards collide
-  with nothing tonight.
+**Collisions and order (t-989 K6, folded; t-1033 updated):**
+- `references/gate-registry.json`: every C3 card; t-1032 edits rows `reporter_rehearsal_identity`, `environment_preparation`
+  (A3, optional), `delivery` (A4 text); C3-0 adds one site line in another row; C3-rr edits `reporter_rehearsal_identity`
+  after t-1032; S7 may edit `witness_backstop`. Row-disjoint, the later merge resolves (E-d).
+- `scripts/tests/test_gate_registry.py` (t-1033, B1): owned by t-1032 (A1 pins), C3-0 (table, flip control, its D13 line)
+  and every converting card (its own row's pins, S-f). Shared pins (the split counts, `D13_ITEM_COUNT`) are touched by
+  every one of them: the expected order and D-0048 re-derivation of S-f; C3-g before C3-k on the F1 consumer block.
+- `scripts/tests/fixtures/judgment-census.json`: `wave-a/integrate` is merged (`71d36190`, critic's run) — C3-j, C3-b1, S9 and
+  any code-moving card start from today's main (S-e). C3-R, C3-0, C3-rr, C3-b2 and C3-d do not touch it (no unit moves).
+- `s5_precheck.py`: `wave-a/integrate` changed it (not `run`); C3-R moves no code there, so no queue against FL9.
+- `gate_preflight.py` (HOT): **C3-rr → C3-j → C3-k → C3-h**; C3-i left the queue (no code). C3-rr owns `_reporter_outcome`
+  only.
+- `window_record.py` / `acceptance.py`: S9 → C3-b1 → C3-d; C3-b1 and C3-d both edit `acceptance.validate_window` (C3-b1 a
+  gap after the review checks, C3-d the review branch): serial. C3-d edits no `window_record.py` code (it only registers
+  `build` and re-roles `verdict` in the registry). `controller.py` (HOT): S9 → FL4 → C3-reg-precondition (also `design/controller-blocks.md` header counts).
 - `delivery-verdict-kinds.json`: FL2 only (C3-R moves no code).
-- `proof_level.py`: C3-b1 (`_wanted`, new function) and C3-b2 (`already_probed`) — function-disjoint (D-0048 form);
-  `execution_request.py`: C3-b2 → C3-k.
+- `proof_level.py`: C3-b1 (`_wanted`, new function) and C3-b2 (`already_probed`, `_product_receipt_repeat`,
+  `_run_freshness`, and `_evaluate` on F-T10 (a)) — function-disjoint (D-0048 form); `execution_request.py`: C3-b2 → C3-k.
 - `manifest_put.py`: C3-b1 (`CRITIC_FIELDS`) and FL1 (store path) — function-disjoint.
+- `manifest_from_tests.py` (t-1033): C3-b1 only, `_attach_novelty` (F-T5 (a+)); no other card owns it.
 - `scripts/tests/test-layers.json`: C3-0 adds one string to a `covers` list; `pile/live-run-fvf/batch-3` (dry story:
   `dry_*.py`, fixtures, `slow_tests.json`, `test-layers.json`, `selftest.py`, `scenario_walk.py`,
   `test_form_selftest.py`) also edits the file → `очередь: live-run-fvf/batch-3 → C3-0` for that one file, or the later
   merge resolves a one-line conflict (rec: the queue line). C3-R adds rows to existing keep files only: `test-layers.json`
-  untouched.
+  untouched. (Whether batch-3 has merged was not read in t-1033.)
 - Taken batches (§4): the Lead decision (dev1's batches do not hold each other) stands; no new hit beyond §4's list.
-- Afterwards: C3-0 → {C3-b2, C3-g, C3-k}; C3-b1 after its draft, S9 and the wave-a merge; C3-j after the wave-a merge;
-  C3-d after S9 (and C3-b1 if it moves code).
+- Afterwards: t-1032 → C3-0 → {C3-rr, C3-b2, C3-g, C3-d, C3-k}; C3-b1 after S9; C3-d after C3-b1.
 
 **Plan critic needed:** C3-0, C3-b1, C3-b2 (one pass with C3-0: the same predicate, R13-g), C3-d (its two re-roles),
 C3-g, C3-k, and the S9/FL2/FL4 file. Not needed: C3-R (judged in t-989; F-T6 is the Lead's answer), C2, C4, FL9, S1b.
+(t-1033: t-1026 was that pass for C3-0, C3-b1, C3-b2, C3-d and the S9/FL file. The t-1033 redrafts of C3-b2 and C3-d and
+the new C3-rr are fix-round text; whether they need a re-review is the Lead's call under PROJECT.md «new idea» step 6 —
+"only if the fixes change the architecture": C3-d's three consumers (F-T9) and F-T11 are new shapes, rec: the Lead
+reviews them himself unless F-T9 is answered other than (a).)
 
 ## §4. Taken pile batches (collisions)
 
@@ -1121,9 +1642,10 @@ D-0044 — the findings are this draft's cards):
 - `RD2-C1 | П1 | bug file homes: writer <-> readers (F-O6 (a), critic F8, external_writes bug_file) | builder | owns of C1 | D-1, D-3 | ожидает`
 - `RD2-C2 | П1 | four command-door families as one table (F-O5 (b)) | builder | test_controller_doors.py | B-2 | ожидает`
 - `RD2-C3-R | П1 | FR-59 registry conversions with no code: collected_ids, s5_coverage, delivery, case_preconditions, environment_preparation, reporter_rehearsal_identity, environment_property_cover (F-O1, t-989 F-K7) | builder | gate-registry.json (7 rows), test_node_ids.py, test_third_verdict.py, test_gate_preflight.py (1 row each) | F-T6 | ожидает`
-- `RD2-C3-0 | П1 | the one predicate gate_template.acceptable for true accept sites (F-D1 (b)) | designer -> plan critic -> builder | gate_template.py, gate-registry.json (1 site), test_gate_registry.py, test-layers.json (covers) | F-T1, F-T2; очередь live-run-fvf/batch-3 → C3-0 | ожидает`
-- `RD2-C3-b1 | П1 | live_check_demand: question to the code critic on a keyless, flagless row (F-O1) | designer -> plan critic -> builder | proof_level, acceptance, window_record, manifest_put, qa-code-critic.md, gate-registry.json, tests, census | F-T4, F-T5, F-T8; S9 → C3-b1 | ожидает`
-- `RD2-C3-b2 | П1 | test_identity through the predicate (F-O1) | builder (after C3-0) | gate-registry.json, proof_level.already_probed, execution_request._match | F-T1; C3-0 → C3-b2 → C3-k | ожидает`
+- `RD2-C3-0 | П1 | the one predicate gate_template.acceptable for true accept sites (F-D1 (b)) | designer -> plan critic -> builder | gate_template.py, gate-registry.json (1 site), test_gate_registry.py, test-layers.json (covers) | F-T1, F-T2, F-T11; t-1032 → C3-0; очередь live-run-fvf/batch-3 → C3-0 | ожидает`
+- `RD2-C3-rr | П1 | reporter_rehearsal_identity reuse through the predicate (t-1026 A1 (a), B-283) | builder (after t-1032 and C3-0) | gate_preflight._reporter_outcome, gate-registry.json (1 row), test_gate_preflight.py (table rows), test_gate_registry.py (pins) | C3-0 → C3-rr → C3-j | ожидает` (t-1033)
+- `RD2-C3-b1 | П1 | live_check_demand: question to the code critic on a keyless, flagless row (F-O1) | designer -> plan critic -> builder | proof_level, acceptance, window_record, manifest_put, manifest_from_tests (_attach_novelty), qa-code-critic.md, gate-registry.json, tests, census | F-T4, F-T5, F-T8; S9 → C3-b1 | ожидает`
+- `RD2-C3-b2 | П1 | test_identity through the predicate (F-O1) | builder (after C3-0) | gate-registry.json, proof_level (already_probed, _product_receipt_repeat, _run_freshness), execution_request._match, tests | F-T1, F-T10, F-T11; C3-0 → C3-b2 → C3-k | ожидает`
 - `RD2-C3-<x> | П1 | FR-59 conversion: <gate> (F-O1) | designer -> plan critic -> builder | owns of the card | per card | ожидает` (one row each for d, g, h, j, k)
 - `RD2-C4 | П1 | the no-probe-row road reaches acceptance (F-O2 condition) | builder | test_probe_by_code.py | B-1 | ожидает`
 - `RD2-C5 | П1 | conductor prompt replace vs append: one experiment (F-O4) | Lead | experiments/conductor-system-prompt/ | F-E1 | ожидает`
@@ -1133,6 +1655,10 @@ D-0044 — the findings are this draft's cards):
 - `RD2-S1b | П1 | debt file second pass + K0.15 control + FR-5/FR-23 Check lines | builder | three owns | all above | ожидает`
 - live-runs rows (FR-33): R9/C1 (reporter + external write on the jira channel), C3-j (the card and the recorded
   answer), C3-b1 (critic asked at window acceptance), S9, and B-373 (F-O2's live proof, already owed).
+- NOTE (t-1043): `plans/piles/rules-debt/` holds only `batch-1-phase-2.md` (Glob), and a grep there for `C3-rr|residue|holds_over|reg-precondition|RD1-7` finds only `RD1-7` (:18, :35, :45, the control). So C3-rr, the residue node and the findings have no carrier yet: the Lead/integrator opens one.
+- `RD2-C3-reg-precondition | П1 | one stop when the gate registry cannot be read (F-T11 residue, R5 (b)) | builder (after C3-0) | controller.validate, controller-blocks.md, state-exits.md, test_controller_state.py | F-T12..F-T15; C3-0 → it; S9 → FL4 → it | ожидает`
+- findings, one file each, `id: —`: `holds_over_comments` delete-or-wire (F-T10); probe_verdict accepted in unregistered functions, split needed (R12 a); `selector_contract:417` second reader of `same_command` (R12 b); the critic's review word read outside the registry and three door-text copies (R12 c).
+- Batch row RD1-7 still describes C3-d by the (ii) direction (critic R11): the Lead updates it under TEAMWORK §2 (frozen batch).
 
 ## §6. Forks (returned, not decided)
 
@@ -1197,6 +1723,24 @@ Owner: none new — F-C1 and B-1 may need her confirmation (Lead's call).
 - t-994: C3-0's test rows go into the existing keep file `test_gate_registry.py` (no new test file, builder-rules 7d) and
   its `covers` gains `gate_template.py`.
 - t-994: C3-b1's gap sits after the review checks and before `sensitivity:` (it never shadows either).
+- t-1033: the A1 conversion is a NEW small card C3-rr, not an item of C3-0 (C3-0 wires no consumer, its non-goals) nor of
+  C3-k (designer-first, many files): C3-rr's owns are one function, one row, one test table and its pins.
+- t-1033: C3-rr reads `earlier.get("state")`, not the brief's `earlier["state"]`: an absent state is "not acceptable"
+  (rehearse), never a `KeyError`; the hit checks stay before the predicate (E3).
+- t-1033: the binding rule on `test_gate_registry.py` is D-0048's (the later merger re-derives its own row's pins and
+  re-measures D13 on the merged tree); the order list in S-f is the expected order from the dependencies, not a lock.
+- t-1033: `_run_freshness` takes the predicate (true accept), not a named residue: at :939 the predicate accepts exactly
+  the words the literal accepts (E-c table, t-1033 row), so the conversion is behaviour-preserving and keeps one road.
+- t-1033: C3-d's `words` are only the words its sites compare (`approved`, `unverified`), per S-c; `approved_with_fixes`
+  and `rejected` are refused by being outside `words`.
+- t-1033: `HANDED_REVIEW_VERDICTS` is deleted after C3-d (no reader left); `BLOCKED_REVIEW_VERDICT` stays (its only other
+  readers are `window_record`'s note texts).
+- t-1033: `window_record.build` is registered `produce` under `s5_window` (A1's class: the row's word compared in an
+  unregistered function, here for a note).
+- t-1033: A2's direction — remove `provenance.environment_preparation` in C3-k and add the consumer `_run_step` calls only
+  in the commit that wires `_run_step`, under a promotable-false row (F1's guard kept, AR-22).
+- t-1033: the F-T5 (a+) marker counts only as a non-empty string; every other value reads "not marked" (E10).
+- t-1033: cards edited in this round carry absolute `owns:` / `given:` paths; the untouched cards keep repo-relative ones.
 
 ## §8. Readers of every touched file (rule 7)
 
@@ -1215,22 +1759,51 @@ t-994 command: Grep (count) over `tools/` for
 `commit-msg`. NOT split per name (one combined count; the split is owed before C3-0/C3-b1 dispatch — one Grep per name,
 `output_mode: content`); `.claude/` not grepped in t-994.
 
+t-1033 command (the names this round adds to owns): Grep (count) over `tools/` for
+`test_gate_registry|manifest_from_tests|gate_template|acceptance\.py|gate_preflight` -> 7 hits in 4 files:
+`dup-baseline.json` 1 (:92, `manifest_from_tests.py` `build` in a clone group), `fixtures/dispatch_manifest/K8.txt` 1,
+`source-split-carriers.json` 2 (:15 the registry carrier verified by `test_gate_registry.py`; :25 `test_gate_registry.py`
+as a `py-triple` carrier: "set literal of ('<file>', '<function>', '<gate>') rows (check D13): only the file changes"),
+`source_split.py` 3 (:2812-2826, selftest strings of a `test_gate_registry.py` SITES literal). Over `.githooks/` with the
+control `architecture_gate`: 1 hit (`commit-msg:37`, the control) -> 0 for the names. Over `.claude/settings.json` with the
+control `hygiene_gate`: 1 hit (:38, the control) -> 0. Over `.claude/agents/` with the control `designer`: 3 hits, all
+`designer.md` (the control) -> 0. (A grep over the whole `.claude/` tree ran into `.claude/worktrees/` copies and stopped
+at its time limit: not used.)
+
+Commands (t-1043):
+- Grep (count) over `tools/` for `state-exits|controller-blocks\.md|gate_template`: 3 hits — `controller-blocks-gen.py:1`, `test_controller_blocks_gen.py:1`, `test_test_quarantine.py:863` (a fixture string `design/state-exits.md:34`).
+- `controller\.py` over `tools/`: 12 hits in 5 files (`controller-blocks-gen.py` 4, `test_forge_metrics.py` 5, `test_collect_intake.py` 1, `test_controller_blocks_gen.py` 1, `test_dispatch_gate.py` 1).
+- Over `.githooks/` with the control `architecture_gate`: 1 hit (the control), so 0 for the names.
+- Over `.claude/settings.json` with the control `hygiene_gate`: 1 (the control), so 0.
+- Over `.claude/agents/` with the control `designer`: 3, all `designer.md`, so 0.
+- `SIBLING_MAP` over `tools/`: 44 hits in 25 files (mechanism_gate.py 7); over `.githooks/`: 0. No positive control was run in that dir for this exact pattern; the earlier combined grep there found `architecture_gate`.
+
 | touched | reader | verdict |
 |---|---|---|
 | bug_records.py (C1) | `tools/source_split.py:2810-2821,3028-3033` | unchanged — a new function is additive; if source_split lists functions, a report line |
-| gate-registry.json (C3-R, C3-0, C3-b1, C3-b2, C3-d, C3-g, C3-j, C3-k) | `tools/source_split.py:2753-2891`, `tools/test_quarantine.py:2199`; package: `gate_registry.py` (A26), `test_gate_registry.py`, `test_branch_accounting.py` (greps the name) | unchanged by row edits (file name unchanged); builder confirms they read the path, not row ids; `test_gate_registry.py` pins: C3-R item 9 |
-| gate_template.py (C3-0, new) | `gate_registry.py` finding texts (:840, :878) name it; tools: not split (combined count above) | unchanged (texts already name it) |
+| gate-registry.json (C3-R, C3-0, C3-rr, C3-b1, C3-b2, C3-d, C3-g, C3-j, C3-k) | `tools/source_split.py:2753-2891`, `tools/test_quarantine.py:2199`, `tools/source-split-carriers.json:15`; package: `gate_registry.py` (A26), `test_gate_registry.py`, `test_branch_accounting.py` (greps the name); at run time after C3-0's consumers: `gate_template.py` (new) | unchanged by row edits (file name unchanged); builder confirms they read the path, not row ids; `test_gate_registry.py` pins: S-f |
+| gate_template.py (C3-0, new) | `gate_registry.py` finding texts (:840, :878) name it; consumers after wiring: `gate_preflight.py` (C3-rr), `proof_level.py` / `execution_request.py` (C3-b2), `acceptance.py` (C3-d), `baseline_contract.py` (C3-g), provenance sites (C3-k); tools: 0 hits (t-1033 grep) | unchanged (texts already name it); each consumer changes in its own card |
+| test_gate_registry.py (t-1032, C3-0 and every converting card, S-f) | `tools/source-split-carriers.json:15,25` (D13 py-triple carrier), `tools/source_split.py:2812-2826` (selftest strings only); `test-layers.json:2032` keep row | unchanged — every S-f edit keeps the `(file, function, row)` tuple form the carrier reads; the shared pins change in every converting stream (S-f order, D-0048) |
 | test-layers.json (C3-0 covers line) | `scripts/selftest.py` (`test_layers()`), `scenario_walk.py --witness-for` (:913-916), `tools/test_quarantine.py` (writes quarantine/cohorts) | unchanged — a `covers` string is read by witness-for only; `test_quarantine.py` does not write `covers` (file note :3); changes in stream `live-run-fvf/batch-3` (queue line, §3) |
-| judgment-census.json (C3-b1, C3-j: own rows only if a unit appears) | `tools/architecture_gate.py` (the `ratchet` object, census header :3), `test_judgment_census.py` | unchanged unless a counted class grows (then AR-20: named in the verdict); changes in `wave-a/integrate` (S-e order) |
-| proof_level.py (C3-b1, C3-b2) | tools: in the combined count (not split); package readers of `proof_required` / `not_required_why`: `ledger.py:1081,1610`, `case_stamp.py:557`, `probe_debt.py:303-304`, `report_facts.py:1534,1644`, `acceptance.py:1153,1207`, `window_record.py:1782` | unchanged for every row that carries `novelty` or a flag; a keyless row with `probe_owed: "yes"` becomes required (adds only) — readers show it as required, which is the intent |
-| acceptance.py, window_record.py (C3-b1; C3-d only under (ii)) | `tools/controller-blocks-gen.py` (block routes, if a gap route changes) | changes in C3-b1 only if a new gap route enters `controller-blocks.md` (builder runs the generator's check) |
+| judgment-census.json (C3-b1, C3-j: own rows only if a unit appears) | `tools/architecture_gate.py` (the `ratchet` object, census header :3), `test_judgment_census.py` | unchanged unless a counted class grows (then AR-20: named in the verdict); `wave-a/integrate` merged (S-e) |
+| proof_level.py (C3-b1, C3-b2) | tools: in the combined count (not split); package readers of `proof_required` / `not_required_why`: `ledger.py:1081,1610`, `case_stamp.py:557`, `probe_debt.py:303-304`, `report_facts.py:1534,1644`, `acceptance.py:1153,1207`, `window_record.py:1782`; of `run_freshness`: `acceptance.run_freshness_of` (`acceptance.py:1148`), `window_record._run_freshness_unknown` (:1798) | unchanged for every row that carries `novelty` or a flag; a keyless row with `probe_owed: "yes"` becomes required (adds only) — readers show it as required, which is the intent; `run_freshness` answers the same words (C3-b2 E7), and on an unreadable registry `stale` with the registry why (F-T11) |
+| acceptance.py (C3-b1; C3-d) | `tools/controller-blocks-gen.py` (block routes, if a gap route changes); tools: 0 hits for `acceptance\.py` (t-1033 grep); package callers of `validate_window`: `driver_dispatch.py:1011`, `coverage_contract.py:258`, `controller.py:7445`, `story_step.py:1629`, `window_record.py:1849` | C3-b1: changes only if a new gap route enters `controller-blocks.md` (builder runs the generator's check); C3-d: unchanged for every caller (the same gaps for the same words, E1); `HANDED_REVIEW_VERDICTS` has no reader outside `acceptance.py` (grep) |
+| window_record.py (C3-b1; C3-d registry only) | `tools/controller-blocks-gen.py` | changes in C3-b1 only if a new gap route enters `controller-blocks.md`; C3-d moves no code |
 | manifest_put.py (C3-b1, FL1) | `tools/controller-blocks-gen.py:138,190-193` | changes in C3-b1/FL1 only if a block route text changes |
+| manifest_from_tests.py (C3-b1 on F-T5 (a+), t-1033) | `tools/dup-baseline.json:92` (clone group of `build`) | unchanged — C3-b1 edits `_attach_novelty`, not `build`; the clone ratchet re-reads it in CI |
+| gate_preflight.py (C3-rr, C3-j, C3-k, C3-h) | tools: 0 hits for `gate_preflight` (t-1033 grep) | unchanged |
 | baseline_contract.py, execution_request.py (C3-g, C3-b2) | tools: combined count (not split) | owed split before wave 3 |
 | stage_guard.py / host_adapter.py (S10) | `tools/controller-blocks-gen.py:342`, `tools/test_collect_intake.py:543` | unchanged (they use names S10 does not change) |
 | factory-rules-debt.md (S1b) | `tools/piles.py:2381`, `tools/test_piles_close_id.py:87-89` | unchanged — rows move, the file and its bullet form stay |
 | factory-rules.md (S1b) | `tools/factory_rules_index.py` | unchanged — a Check line is not a title |
 | controller.py (S9, FL4) | `tools/controller-blocks-gen.py` | changes in S9/FL4 if a block route changes |
 | judge_results, external_writes, common-rules, external-writes.md, test-report.md, form_selftest, test_controller_doors, environment_record, launch-causes, delivery-verdict-kinds | no hit in tools/ or .githooks/ (pre-t-994 grep) | — |
+| controller.py (C3-reg-precondition) | `tools/controller-blocks-gen.py` (reads raises); `test_forge_metrics.py`, `test_collect_intake.py`, `test_dispatch_gate.py` (name strings) | the generator must place the new `person`-route block (or the row is hand-written, `controller-blocks.md:25-29`); the others unchanged |
+| design/controller-blocks.md | `tools/controller-blocks-gen.py`, `tools/test_controller_blocks_gen.py`, package `test_controller_blocks.py` | one row in source order; header counts also move in S9/FL4 if they add blocks (D-0048) |
+| design/state-exits.md | package `test_state_exits.py`; `tools/test_test_quarantine.py:863` (fixture string only) | unchanged by an added row |
+| test_controller_state.py | `test-layers.json:1082` keep row | unchanged |
+| test_run_freshness.py (C3-b2, one row) | `test-layers.json:4702` keep row; imported by test_proof_level.py (its `why`) | unchanged |
+| docs/SIBLING_MAP.md (Lead's line) | `tools/mechanism_gate.py` and 24 more tools files | a mechanism path: the Lead commits it with the axis block |
 
 `tools/owns_readers.py` / `owns_readers.json` (6 + 1 hits of the combined pattern) is a tool that maps owned paths to
 their readers: the Lead runs it on each card's owns before dispatch (its CLI not read in t-994).
@@ -1379,13 +1952,29 @@ the card says so.
   reads (still a new field; and whether `manifest_put` lets the critic write the flag was not read); (c) a window-only
   answer (an item field), not on the row (the next window asks again: FR-7 risk). **Rec (a)**: one field for both answers,
   one writer, readers in the same commit (AR-22).
-- **F-T5 — the observable that keeps in-flight stories un-asked** (C3-b1, F-b4, builder-rules 9). (a) the question applies
-  only when the manifest holds at least one `tests[]` row with a `novelty` key (the writer of this version ran); on the
-  recorded stories that is never (0 novelty keys); (b) every window built after the change asks (in-flight stories are
-  held at their next window — against builder-rules 9); (c) the owner accepts that in-flight stories are asked.
-  **Rec (a)**. Consequence to say plainly: with (a), a story whose manifest was written entirely before the novelty writer
-  is never asked — the owner's «да» then bites only on rows added by hand into a measured manifest. If the owner meant every
-  legacy row, it is (c) and the Lead takes it to her.
+- **F-T5 — the observable that keeps in-flight stories un-asked** (C3-b1, F-b4, builder-rules 9; the consequence
+  corrected in t-1033 under t-1026 B5, before anyone answers). Options: (a) the question applies only when the manifest
+  holds at least one `tests[]` row with a `novelty` key (the writer of this version ran); on the recorded stories that is
+  never (0 novelty keys); (a+) (a), plus the writer marks a manifest whose measurement failed: `_attach_novelty` writes a
+  top-level `novelty_unmeasured` (its failure note) on a failed call and `""` on a successful one, and the question also
+  applies when that marker is a non-empty string (a new field; both worlds in C3-b1 E3/E10, item 8); (b) every window
+  built after the change asks (in-flight stories are held at their next window — against builder-rules 9); (c) the owner
+  accepts that in-flight stories are asked. **Consequence of (a), from the writer's facts** (`manifest_from_tests.py`):
+  the question FIRES on (1) a row added by hand into a measured manifest, and (2) a row the writer itself left keyless by
+  policy V2 — against a base that is not a recorded S0 base, a value outside `NOVELTY_KEPT_WITHOUT_S0` (`new`, `changed`)
+  gets no key (`_novelty_block` returns None, :835-840; V2 note :826-831) — whenever another row of the same manifest
+  measured `new` or `changed`; such a manifest is typically a story in flight against a non-S0 base, so (a) DOES ask in
+  some in-flight stories (a wait at window acceptance; the answer can only add a requirement) — the one place (a) meets
+  builder-rules 9. The question NEVER fires on (3) a manifest written before the novelty writer, and (4) a manifest whose
+  whole measuring call failed: the `except` at :923-926 notes "novelty could not be measured", copies back only blocks the
+  manifest already held (`_keep_stored_novelty`, :855-887) and leaves every other row keyless — with no stored block
+  anywhere it reads exactly like a legacy manifest, so the case where nobody measured anything is the one that escapes.
+  (a+) closes (4) for manifests this writer writes from now on; (2) stays under (a) and (a+), and (b)/(c) widen it to
+  every in-flight row. **Rec (a+)** (critic t-1026 B5): in-flight safety of (a) plus the whole-failure case; cost: one
+  marker field with one writer and one reader in C3-b1's commit. If the Lead declines (a+), the owner is told in plain
+  words: «если замер новизны тестов целиком не удался, фабрика не спросит критика, нужна ли живая проба этим тестам». In
+  either case the owner is told case (2): «в историях, начатых до замера, критика иногда спросят про тесты, которые замер
+  счёл неизменными». If the owner meant every legacy row, it is (c) and the Lead takes it to her.
 - **F-T6 — three C3-R rows' as-written words are not all written by the code** (C3-R items 2, 6, 7; Lead decision 1 applied
   them as written). Facts: `s5_precheck.run` writes no `"matched"`/`"mismatched"` literal; `unchecked` is a result KEY
   (:4366, :4737); `reporter_rehearsal_identity`: `onboarding_probe.earlier_proof` returns the states `none`,
@@ -1399,7 +1988,8 @@ the card says so.
   "command_changed", "none", "unreadable"]` (same_command -> matched, the rest -> unknown, owner environment);
   environment_property_cover `["command", "reason", "address"]` (the near-miss whys, mismatched) — matched and unknown
   carry no word because the code writes none (the test_identity precedent: words of one class); (c) leave those three rows
-  `debt` until a word exists. **Rec (b)**; cost: none in code, three row texts.
+  `debt` until a word exists. **Rec (b)**; cost: none in code, three row texts. (t-1033 note: the merged registry on
+  2151eeef already carries (b)'s words for all three rows, :215-217, :507-513, :530-535.)
 - **F-T7 — C3-d: correct the row, or make unmeasured detectors gaps** (C3-d, F-d1; a MEANING change, AR-28). (i) the
   row's `decides` is corrected to the code (INFO line, owner role) and converted as is; (ii) the listed unmeasured
   detectors become gaps closed by the critic. Premise measured above: 4 of 6 recorded cart-1 windows carry
@@ -1462,3 +2052,265 @@ the card says so.
 | Standing q6 (duplication: new rows for C3-c/C3-e) | C3-R items 2-3 (no duplicate rows; the unreadable-kinds row is new because unpinned) |
 | Standing q12 (one road) | C3-0 E9; C3-b1 F-T8; FL2 in the S9/FL file |
 | Standing q5 (tests) | C3-R E9 (M-B3 world into keep); no new test file in any card |
+
+## Forks returned (t-1033)
+
+Each is the Lead's (technical); none is decided here; every card named executes on the recommendation.
+
+- **F-T9 — the shape of C3-d's review acceptance** (C3-d; t-1026 B3 offered two forms). The critic's word closes a review
+  differently by the instance's kind: `approved` only (ran), `unverified` only (stopped, probe-gapped), either (handed).
+  One word has one class in `verdict_map`, so one consumer cannot say all three. (a) three consumers on the `s5_window`
+  row — `s5_window.review: ["matched"]`, `s5_window.static_review: ["not_applicable:static_review"]`,
+  `s5_window.handed_review: ["matched", "not_applicable:static_review"]` — with `approved` -> matched and `unverified` ->
+  not_applicable (reason `static_review`: the live check did not apply, the critic read the test); one call per decision,
+  `validate_window` stays the row's accept site; (b) the review acceptance as a row of its own (`window_review`) with the
+  same words and consumers — but `validate_window` would then be registered by two rows with a converted accept site,
+  which A26 refuses ("registered more than once", `gate_registry.py:832-836`), so (b) needs the review branch moved into a
+  function of its own (a code split); (c) keep `s5_window` debt and only correct `decides` (no conversion). **Rec (a)**:
+  no code split, the grammar already holds `not_applicable:<reason>` (`gate_registry.py:477-480`), the predicate already
+  accepts it (C3-0 item 2); cost: a class word (`not_applicable`) given a meaning ("static review") the Lead approves.
+- **F-T10 — test_identity's other `same_test` readers** (C3-b2; found by the t-1033 class sweep of B4, not judged by a
+  critic). `_evaluate` (:1580; `how = same_test(...)`, `if not how:` -> the receipt is not valid, :1604-1605) is a receipt
+  acceptance by truthiness — a true accept, unregistered; `_stale_receipt` (:1886; :1898) builds a why (produce);
+  `holds_over_comments` (:1552; :1562 `in ("instance_code", "file_code")`) has no production caller (grep
+  `holds_over_comments\(` over `scripts/`: its def and `tests/test_proof_level.py:1499-1500` only; control: the same grep
+  finds the def). (a) C3-b2 also routes `_evaluate` through `acceptable(how, "test_identity.receipt_holds")` (matched-class
+  words = the truthy words: the same receipts count), allow-lists the display flag at :1613, registers `_stale_receipt`
+  `produce`, and files a finding "delete or wire `holds_over_comments`" in the rules-debt pile; (b) queue all three to a
+  follow-up node after C3-b2 (the row converts while a truthiness acceptance stays outside the predicate — invisible to
+  A26, docstring :63-66). **Rec (a)**: one card for one row's accept sites (E-c: "a re-role never hides a literal
+  acceptance" — here an unregistered one); cost: one function and one test row more in C3-b2.
+- **F-T11 — what a converted site says when the registry itself cannot be read** (C3-0, C3-b2, C3-d; an edge the C3-0
+  E2 invariant creates). `acceptable` returns only a boolean, so a site that refuses on a broken registry would print its
+  usual reason: `_run_freshness` "the test … changed since its run", `_match` the bytes reason (both false, FR-41), and
+  `validate_window` a `review:<iid>` gap whose door (the critic records a verdict) cannot close it (a dead end, FR-57).
+  (a) C3-0 adds `registry_problem()` (C3-0 item 9); a site that prints a WHY (`_run_freshness`, `_match`) names the
+  registry when it is non-empty (owner factory); `validate_window`'s gaps stay as they are and the dead end is a residue
+  node: a window-level gap kind (e.g. `gate_registry:`) with a controller route and the door "the plugin's
+  `references/gate-registry.json` cannot be read: reinstall or update the plugin" — a mechanism (controller-blocks) the
+  Lead opens as its own node; (b) no helper: accept the false reasons, because the registry is a package file checked by
+  CI (`test_gate_registry.py`) and never changed by a project (`gate_registry.py:16-19`), so a broken one is a broken
+  install; (c) an in-code floor of accepted words when the registry cannot be read (a second road, P31 — not
+  recommended). **Rec (a)** with the residue node; cost: one pure function in C3-0, a branch of text in two sites, one node.
+  Until the Lead answers, C3-b2 and C3-d execute on (a) without the residue node.
+
+## Fix round t-1033 — where each t-1026 finding went
+
+| finding | what changed | section |
+|---|---|---|
+| B1 (pins of `test_gate_registry.py` move with every conversion; same-file collision with no order) | new shared item S-f: the pins by line (2151eeef), the D13 re-measure item, TEMPORAL both worlds (today / after t-1032 / after each sibling, D-0048 re-derivation), expected merge order; `owns:` line + item in C3-b1 (item 7, E11), C3-b2 (item 7, E10), C3-d (item 7), C3-g, C3-h, C3-j (item 5, E10), C3-k, C3-rr (item 4, E5); C3-0 item 7 moves the F4 flip control onto an in-memory row, item 8 its own D13 triple, E10 | C3 shared items S-f, E-e; C3-0; C3-rr; C3-b1; C3-b2; C3-d; C3-g; C3-h; C3-j; C3-k; §3 |
+| B2 (C3-0 E6 false negative) | E6 rewritten: seven consumer ids exist, none read by a script (grep with its positive control), the two dead ones go in C3-k (A2) / C3-g (F-T3); no real `acceptable` call before C3-b2 / C3-rr / C3-d; invariant widened (no `accepts` without its reader) | C3-0 E6 |
+| B3 (`validate_window` is a true acceptance of the critic's review word) | C3-d redrafted: `validate_window` stays `accept`, words `approved`/`unverified`, three consumers (fork F-T9, rec (a)), the four comparisons through the predicate, `HANDED_REVIEW_VERDICTS` deleted, `window_record.verdict` produce, `window_record.build` produce (new), review table, census unchanged (shape), queue C3-0 → C3-d; E-c table rows | C3-d; E-c table; Decided branches; §1; §3 |
+| B4 (two test_identity reuse decisions missing) | C3-b2 redrafted: `_product_receipt_repeat` (item 3, S-b row) and `_run_freshness` (item 4, rows, E7 with the error direction) through the predicate, owns +2 functions, consumer `test_identity.run_fresh`, siblings axis 25; the class sweep's three more readers → fork F-T10 | C3-b2; E-c table; fork F-T10 |
+| B5 (F-T5's consequence incomplete) | F-T5 rewritten with the writer's carriers (V2 :826-840, the whole-failure `except` :923-926, `_keep_stored_novelty` :855-887): cases (1)-(4); new option (a+) (the marker) recommended; plain-words lines for the owner; C3-b1 item 1, item 8, owns `_attach_novelty`, E3, E10 follow | Forks returned (t-994) F-T5; C3-b1 |
+| B9 (C3-d S-b expected value) | expected = `"expectation changes " +` the `not_measured` row of `expectation_change_words` (`handoffs/vocabulary.yaml:300`) with `why` substituted, read from the data file | C3-d item 6 |
+| B10 (C3-0 other keys; keep row line drift) | `test-layers.json:2028-2030` → `:2032-2033` (keep row), covers list `:2035-2076`; quarantine start `:7207`; registry row lines in `given` refreshed for 2151eeef; K3 / F-T1 (a) / F-T2 (a) agreement noted | C3-0 header and item 4; §0.3 |
+| C3-b1 other keys (K1, K2, K4, K9 hold) | no edit owed; noted in the card head; F-T4 (a) and F-T8 (a) stand as recommended | C3-b1 head |
+| A1 (`reporter_rehearsal_identity`'s true accept site unregistered; Lead option (a)) | new card C3-rr (header-ready): `accepts` consumer `reporter_rehearsal_identity.reuse`, `acceptable(earlier.get("state"), …)` after the hit checks at `gate_preflight.py:3843`, table rows, S-f pins (D13 -1 triple); E-c rows for `_reporter_outcome` (true accept) and `_record_unreadable` (produce); Decided-branches row; gate_preflight queue C3-rr → C3-j → C3-k → C3-h; §5 row | C3-rr; E-c table; Decided branches; C3-k queue line; §3; §5 |
+| A2 (`provenance.environment_preparation` a dead consumer) | C3-k line: removed in C3-k's registry commit; the consumer `_run_step` calls is added only with that reader, under a promotable-false row; the F1 pins move with it (S-f) | C3-k |
+| (beyond the list, found while reading) | F4/F1/K-N2.12 consumer pins (:285-292, :627-647) named in S-f for C3-g/C3-k; the registry-doubt reason edge → fork F-T11 with `registry_problem()` (C3-0 item 9); F-T6 note: the merged registry already carries (b)'s words | S-f; C3-0; forks |
+
+## Not done / not established (t-1033)
+
+- Nothing was RUN (no shell): `gate_registry.py --check` / `--sites`, `GR.analyse` before/after, the
+  `validate_window` / `run_freshness_of` controls over the recorded windows — each is named as a command in its card.
+- t-1032's exact diff is not read (in flight): the S-f "after t-1032" numbers (debt 8 / converted 19, the two D13 triples,
+  count ≈ 140) follow the verdict's A1 (a) text and the journal line `dev1.jsonl:2642`; C3-0 and every converting card
+  re-derive from main after it merges. (t-1043: superseded — t-1032 is merged and its pins are on main, S-f; D13 is 140 after it and 146 after C3-0, a4aca646.)
+- Whether `manifest_put` takes a top-level string key from a fragment through its scalar loop was read only at
+  `manifest_put.py:158-172` (the loop's exemption list), not the loop body or the manifest schema: C3-b1 item 8 carries a
+  stop rule.
+- Whether `gate_preflight` importing `gate_template` cycles was not read (C3-rr item 2 leaves the import place to the
+  builder's read). (t-1043: closed — `gate_registry.py:97-104` stdlib + `hooklib`, `hooklib.py:2-13` stdlib only; the builder re-checks against the merged C3-0.)
+- Noticed analogs of A1's class, not carded (reported, scope not widened): `validate_window`'s probe comparisons
+  (`probe.get("verdict") != "intended_failure"` and the rest of `acceptance.py:1210-1218`) compare words of rows that do not
+  register `validate_window`; `window_record.build`'s `BLOCKED_REVIEW_VERDICT` comparisons (:1524, :1625) use an imported
+  name invisible to A26.
+- C3-g, C3-h, C3-j and C3-k gained only their B1 lines (and C3-k the A2 line); they stay designer-first sketches, not
+  header-ready, as before this round.
+- Whether `pile/live-run-fvf/batch-3` merged (the C3-0 `test-layers.json` queue line) was not read.
+- The S9/FL findings of t-1026 (B6, B7, B8, B11, B12, B13) belong to `20261117-rules-debt-phase2-s9-fl-cards-spec.md` and
+  were not touched; A3-A6 are t-1032's.
+
+## Reading trail (t-1033)
+
+On 2151eeef (root checkout; `.git/refs/heads/main` = `.git/refs/remotes/origin/main` = 2151eeef…, read directly):
+- the verdict `docs/tasks/specs/reviews/t-1026-rules-debt-wave2-code-and-cards.md` (whole, :1-383);
+- this spec (whole, :1-1465 of the t-994 text);
+- `scripts/tests/test_gate_registry.py` :36-71, :278-292, :310-339, :620-647, :720-759, :900-1013 (+ grep of the pin names);
+- `references/gate-registry.json` :38-92, :120-354, :496-543 (+ greps of `id`/`vocabulary`/`status`/`debt_ref`; of
+  `run_freshness|_product_receipt_repeat|validate_window|"build"|_reporter_outcome|_record_unreadable|held_words|holds_over_comments`:
+  `validate_window` :231 and `execution_fingerprint` `build` :44 only — the hits are the control);
+- `scripts/gate_registry.py` :1-150, :425-484, :485-681, :780-979;
+- `scripts/gate_preflight.py` :3820-3888, :3950-3974 (+ grep of `_reporter_outcome|_record_unreadable|same_command|earlier`);
+- `scripts/tests/test_gate_preflight.py` :5199-5238 (+ grep `c3r|command_changed|same_command`, case-insensitive);
+- `scripts/acceptance.py` :25-50, :240-259, :1052-1231 (+ grep of the review constants);
+- `scripts/window_record.py` def list, :1505-1540, :1600-1640, :1771-1914 (+ grep of the review build at :1474);
+- `scripts/contract.py` :2205-2219; `agents/qa-code-critic.md` :68-84 (+ grep `unverified`); `handoffs/vocabulary.yaml` :290-303;
+- `scripts/proof_level.py` :815-974, :1360-1564, :1585-1614, :1880-1905 (+ greps of `same_test(`, `holds_over_comments(`);
+- `scripts/manifest_from_tests.py` :800-949 (+ grep of `notes`/`fragment[`); `scripts/manifest_put.py` :158-172 (+ grep);
+- `scripts/tests/test-layers.json` :2030-2076 (+ grep of the keep row and `"quarantine"` :7207);
+- `scripts/tests/fixtures/judgment-census.json` :1-6 (+ grep of the owned functions: `validate_window` :7 only);
+- Glob `scripts/gate_*.py` (4 files, no `gate_template.py`); grep `provenance\.(…)\b` over `scripts/*.py` (test hits only);
+  grep `HANDED_REVIEW_VERDICTS|BLOCKED_REVIEW_VERDICT` over the package; grep `validate_window\(` over `scripts/*.py`
+  (production callers listed in §8); grep `acceptable_provenance\(|def _run_step|ACCEPTS` over `scripts/*.py`;
+- `logs/journal/dev1.jsonl` grep `t-1032` (:2642-2643);
+- rule 7 greps of §8 over `tools/`, `.githooks/commit-msg`, `.claude/settings.json`, `.claude/agents/` with their controls;
+  `tools/dup-baseline.json` :82-96; `tools/source_split.py` / `tools/source-split-carriers.json` (grep).
+
+## Lead decisions after t-1033 (17.11.2026, Fable; по рекомендации, до слова владельца — the owner is away)
+
+- F-T1 (a), F-T2 (a) (agreed by critic t-1026). F-T6: the merged registry's words (b) stand.
+- F-T5 (a+): the `novelty_unmeasured` marker. The plain-words lines for the owner go into the morning report.
+- F-T7 (i): the row's `decides` is corrected to the code and converted as is; (ii) stays an owner question.
+- F-T9 (a): three consumers on the `s5_window` row; `not_applicable:static_review` approved as the class word.
+- F-T10 (a): C3-b2 also routes `_evaluate` through the predicate; finding "delete or wire `holds_over_comments`".
+- F-T11 (a): `registry_problem()` in C3-0; the window-level gap kind for an unreadable registry is a residue node.
+- Re-review of the t-1033 redrafts (C3-b2, C3-d, C3-rr): one plan-critic pass before their dispatch (new shapes F-T9,
+  F-T11); C3-0 and C3-b1 were passed by t-1026 and are dispatched without it.
+- C3-0 report: `docs/tasks/specs/reports/20261117-rules-debt-c3-0-report.md`.
+
+## Lead decisions after t-1039 (17.11.2026, Fable; по рекомендации, до слова владельца — the owner is away)
+
+Review: `docs/tasks/specs/reviews/t-1039-rules-debt-c3-redrafts-plan.md` (needs work, 0 blocking). All of R1-R15 are
+taken into the cards in one designer fix round (t-1043), the optional ones (R7, R13, R14, R15) included.
+
+- R5 (b): the F-T11 residue is ONE story-level precondition, not a window gap kind: a read of
+  `gate_template.registry_problem()` at stage entry stops the story with the reinstall door, owner factory, reported
+  and not asked (FR-3); one controller block and one `state-exits.md` row. The per-site text branches of F-T11 (a)
+  stay as belt-and-braces. The node is "C3-reg-precondition" (pile `rules-debt`), after C3-0; its card is drafted in
+  the same fix round. C3-b2 item 4 / E5 drop "owner factory" (the critic's text edit).
+- R12: the analogs wait as findings named in the cards' `siblings:` lines; none is carded first.
+
+## Forks returned (t-1043)
+
+None of them reopens F-T1..F-T11. Each card executes on the recommendation.
+- **F-T12 — the precondition's route.** (a) person-passable: `_passed_by_person` and the controller-blocks route `person`. The text reports a factory defect and does not ask (FR-3); the waiver is the standing FR-4 road. A pass runs the stage with every converted site refusing reuse, so it is cost, not a false pass. (b) route `command`, no word passes (strict reading of "reported and not asked"). **Rec (a)**: FR-4 ("a person's word passes any block"), P13, builder-rules 8 and AR-9's change check (`architecture.md:111`, "its person's-word route") all demand it. The Lead's "not asked" holds because the text asks nothing. Cost: one line.
+- **F-T13 — the driver's routing of the new refusal.** (a) no `KNOWN_REFUSALS` row: it is unmatched and goes to the conductor (FR-48), who reports it. (b) a row `("gate_registry", r"gate registry unreadable", "error")` beside `no_project` (`driver_dispatch.py:106`): it stops with no paid call, but costs a driver_dispatch.py edit, the dry_exits recount (21 -> 22, `tests/dry_exits.py:491,860`) and a driver-layers.json note. **Rec (a)**: a broken install is rare, and a phrase row adds to a table FR-12 is moving out of code (N5).
+- **F-T14 — what "stage entry" means.** (a) every `dispatch`, in `validate`'s dispatch branch: the one road all stage starts take (start, rework, relaunch, retry, driver). (b) `prepare` / `_next_action_for_state` (`prepare_stage`): `prepare` is read-only and rework and relaunch bypass it, which would be a second road (P31). (c) also `accept` and `resume`. **Rec (a)**; (c) is not needed, because the sites already err toward not-acceptable (E6).
+- **F-T15 — the test layer.** (a) one table in `test_controller_state.py` (keep detector; judged by canon). (b) a `variants.json` row of a recorded story at the walker's `start` door: a better layer, but whether a variant can break a PACKAGE file (not a story file) was not read. **Rec (a)**, executable now; (b) is a scout question if the Lead wants layer 1.
+
+## Fix round t-1043 — where each t-1039 finding went
+
+| finding | where edited (section, item) | what changed |
+|---|---|---|
+| R1 | C3-b2 item 4; owns | the existing pins named (test_run_freshness.py:73, K1 (b) :80-86, K1 (f) :104-106, K1 (d) :92-98); one registry row there; owns gains test_run_freshness.py |
+| R2 | C3-b2 item 6; E8 | `_evaluate` names the registry; a second row; the `_stale_receipt`/`probe_freshness` `missing` residue named |
+| R3 | C3-b2 items 2, 5; owns | probe-record row moved to item 2; `_match` rows return `("", why, _WHY_RANK["bytes"])` for bytes and for the registry; test_execution_request.py gets two rows |
+| R4 | C3-b2 item 7 | D13 expected +2 triples (same_test:881, _evaluate:1613), count +2 from base 146; a different measurement stops |
+| R5 | C3-b2 item 4, E5; new card C3-reg-precondition; C3-d E3; C3-rr item 5 | "owner factory" dropped; the gap's owner and door stay; the loop is the new node's; node drafted (R5 (b)) |
+| R6 | C3-d item 1 | `decides`: `unverified` closes the review only, the instance stays unresolved (D-0013) |
+| R7 | C3-d item 6; owns | the pin exists (test_window_record.py:2110-2111, :2117): named, no row |
+| R8 | C3-d item 7 | D13 exactly +1 triple build:1532, count +1 |
+| R9 | C3-rr item 3; C3-b2 items 4-6; C3-d item 5; owns | the seam is C3-0's `_READ` cache (a4aca646 :31-37), patched and restored in `finally`, or stop; owns name the import lines; the cycle question closed |
+| R10 | C3-b2 Measurement; C3-d Measured premise | C3-b2: the run is vacuous, the premise rests on a code trace; C3-d: emulation 6/6 equal, negative control, branch limit |
+| R11 | S-f TEMPORAL; C3-rr head, given, item 4, E4; §3; «Not done»; §5 | t-1032 merged; D13 140 -> 146 (C3-0) as base; main line numbers refreshed; batch carriers missing (grep) -> §5 |
+| R12 | C3-b2 siblings (a, d); C3-d siblings (a, c, e); C3-rr siblings (b, e) | analogs as waiting findings; axis 26 -> axis 5 :143 with the prose-twin line |
+| R13 | C3-b2 E11 | one producer per consumer invariant |
+| R14 | C3-b2 owns, non-goals, item 5 | the `same_instance_bytes` docstring sentence (:2069-2072) owned and rewritten |
+| R15 | C3-rr item 5; new card E2 | what `registry_problem()` covers (unreadable file) and not (missing consumer/words); the CI backstop |
+
+## Facts of the fix round t-1043
+
+(read in t-1043, root checkout; main HEAD 60c41e39 per the session git snapshot, not re-run)
+
+- C3-0 is NOT on main. Glob `ai-packages/qa-factory/scripts/gate_template.py` on the root found nothing; the same Glob over `.claude/worktrees/*/…` found it in `agent-aa11322709a274e56` (positive control).
+- That worktree's branch is `worktree-agent-aa11322709a274e56`, ref `a4aca64694799c8c649449d9ce0dd8f054240487` (read from `.git/refs/heads/…`). I read the worktree's checkout, not `git show a4aca646:`, so I could not confirm the tree has no uncommitted edits.
+- `gate_template.py` on that tree:
+  - :29 `import gate_registry`;
+  - :31-37 `_READ = []`, which holds one `(registry, reason)` from `gate_registry.load_registry(gate_registry.PLUGIN_ROOT)`, read once per process; a failure is cached as such;
+  - :40-43 `_registry_and_reason`: with `registry=` given, it returns `(registry, structural_error(registry))`;
+  - :46 `def registry_problem(*, registry=None) -> str`, which returns "" or the reason, `"it is not available"` when there is no data, or `"it cannot be read (<Exc>)"`, and never raises;
+  - :60 `def acceptable(value, consumer, *, registry=None) -> bool`, False on every doubt, never raises;
+  - :87-94: the six counted comparisons.
+- `test_gate_registry.py` on that tree:
+  - :951 has the new triple;
+  - :1003-1006 reads `140 -> 146 (C3-0, t-1038)`, `D13_ITEM_COUNT = 146`;
+  - :1108-1119 is the cache seam precedent: save `list(GT._READ)`, swap `GR.PLUGIN_ROOT` to an empty dir, `GT._READ.clear()`, restore in `finally`.
+- The C3-0 report (on that tree, `docs/tasks/specs/reports/20261117-rules-debt-c3-0-report.md`):
+  - :11 has 140 -> 146 with six comparisons, the two `not_applicable` ones included;
+  - :54 has an OPEN audit A1 finding, "gate_template.py is reachable from nothing".
+- t-1032 is merged on main:
+  - `test_gate_registry.py:55-61` EXPECTED_DEBT with `reporter_rehearsal_identity: B-283`;
+  - :334-336 split 19/8/6; :247 K-T1.2 "8";
+  - :930-932 the `_record_unreadable` / `_reporter_outcome` triples; :991-994 `138 -> 140`, `D13_ITEM_COUNT = 140`;
+  - journal `dev1.jsonl:2649` `accepted` t-1032.
+  - The merge sha 7f2f6f78 is the critic's run (t-1039), not re-run here.
+- Main line numbers in `test_gate_registry.py`: EXPECTED_DEBT :58-61, EXPECTED_CONVERTED :64-69, K-T1.2 :247, split :334-336, F4 flip :753-756 (:760 on C3-0's tree), D13 :913-994.
+- `gate-registry.json` on main:
+  - test_identity :123-149 (words :135, verdict_map :136-141, status :148);
+  - s5_window :227-248;
+  - reporter_rehearsal_identity :498-523 (sites :502-506, words :509, status :522).
+  - C3-0 adds one line in `provenance_acceptance`, so every later row is +1 on its tree.
+
+- Conflicts between findings or Lead decisions: None found. R9's "if C3-0 exposes no reset" is settled by `_READ`. R2's residue is now a residue of the R5 (b) node.
+
+## Small choices closed (t-1043)
+
+- Test seam = `gate_template._READ` (a private module list): C3-0's own test uses it (:1108-1119 on its branch).
+- The new card's raise sits in `validate` (the existing census unit), not in a helper (a new unit).
+- The import of `gate_template` in controller.py is at the point of use (the file's late-import style).
+- The registry-why wording is one family across sites: "the gate registry cannot be read (<reason>): a factory defect, …".
+
+## Not read (t-1043)
+
+(never written as checked)
+
+- `git show a4aca646 --stat` and `git show a4aca646:…` (no shell). The worktree checkout was read instead (branch ref = a4aca646); whether that tree has no uncommitted edits is not established.
+- The merge sha 7f2f6f78 (critic's run).
+- `test_proof_level.py:1554-1556` (no run_freshness table: the critic's grep).
+- The F4 `code` list :729-738.
+- `check_delivery.py:860`, `case_stamp.py:317`, `window_record.py:318-319`, `test_window_record.py` helpers.
+- `waiver.split_overridden` (whether a pass over a factory block is filed as a finding).
+- Whether `test_controller_blocks.py` pins the header counts.
+- `controller-blocks-gen.py`'s classifier for a `person` row.
+- Whether `test_state_exits.py` is in SLOW_TESTS.
+- Whether a controller.py import clears audit A1 for gate_template.
+- `tools/mechanism_gate.py`'s prefix list.
+- The axis-5 prose twins for test_identity's words (left to the builder).
+- `scenario_walk.py --witness-for` output for the new owns.
+- No run of `GR.analyse` / `--check` / `--sites` (D13 deltas are the critic's measurement plus C3-0's report).
+
+## Reading trail (t-1043)
+
+- review `docs/tasks/specs/reviews/t-1039-rules-debt-c3-redrafts-plan.md` (whole);
+- spec :270-409, :529-773, :910-1170, :1458-1707, :1940-2076;
+- C3-0 tree: `gate_template.py` (whole), `test_gate_registry.py` (grep of pins; :995-1009, :1095-1143), the C3-0 report (whole), `.git/worktrees/…/HEAD`, `.git/refs/heads/worktree-agent-aa11322709a274e56`;
+- main `test_gate_registry.py` :55-70, :328-339, :745-758, :910-997; `gate-registry.json` ids (grep), :122-151, :226-249, :497-524;
+- `gate_registry.py` :1-110, :425-469, :829-837; `hooklib.py` imports;
+- `gate_preflight.py` imports and :3824-3871 (+ grep); `profile_contract.py` :345-363, :417-418 (grep);
+- `proof_level.py` :815-974, :1365-1401, :1462-1463, :1485-1524, :1578-1617 (+ grep :1814, :1886, :1898, :1947, :1972); `execution_request.py` :2062-2113;
+- `test_run_freshness.py` :1-125; `test-layers.json` :871-882, :1082-1093, :4702-4710, :5528-5539 (+ grep :7207);
+- `acceptance.py` :30-45, :1140-1179 (+ grep :1211); `window_record.py` imports/defs (grep), :28-47, :340-353;
+- `agents/qa-code-critic.md` :74-84; `handoffs/vocabulary.yaml` :293-302; `test_window_record.py` :2100-2119;
+- `docs/SIBLING_MAP.md` :136-147, :448-456; `phases/s5.md` (grep), :158-187; `code-review-rubric.md` (grep), :90-94;
+- `controller.py` defs (grep), :2030-2244, :2470-2483, :5170-5194, :5364-5383, :5488-5547, :8704-8751, :9012-9273, :10050-10083 (+ greps of `self.validate(`, `_passed_by_person(`);
+- `design/controller-blocks.md` :1-60 (+ greps); `design/state-exits.md` :1-20, :136-145 (+ heading grep); `test_state_exits.py` :1-131; `test_controller_blocks.py` (grep);
+- `judgment-census.json` :1-8 (+ grep :238, :245); `refusal_registry.py` :38-47; `driver_dispatch.py` :30-144; `architecture.md` change-check grep (:111, :155, :166, :180, :261, :282);
+- `factory-rules.md` :47-64; `plans/builder-rules.md` (whole); the S9/FL spec :334-337 (+ grep);
+- `plans/piles/rules-debt` (Glob + grep with control); `logs/journal/dev1.jsonl` :2642-2649 (grep);
+- rule-7 greps as in B8.
+
+## Lead decisions on forks F-T12..F-T15 (17.11.2026, Fable; по рекомендации, до слова владельца — the owner is away)
+
+- F-T12 (a): the precondition's refusal is person-passable (FR-4, P13); its text reports and asks nothing (FR-3).
+- F-T13 (a): no `KNOWN_REFUSALS` row; the refusal goes to the conductor.
+- F-T14 (a): "stage entry" is every `dispatch`, in `validate`'s dispatch branch.
+- F-T15 (a): one table in `test_controller_state.py`.
+
+## Lead decisions after the C3-b1 return (t-1051, 17.11.2026; made in the owner's absence, by the safest reversible option)
+
+The builder's report (`docs/tasks/specs/reports/20261117-rules-debt-c3-b1-report.md` on its branch) found three divergences of card C3-b1
+from the code. The card is continued under the same task id with these decisions:
+
+- **D-b1-1 (item 8, the `novelty_unmeasured` writer).** `window_record._attach_novelty` gets an optional out-parameter and `build` gets the merge
+  line(s) that carry the marker into the fragment — on BOTH exits of `build` (the normal one and the early return). `build` joins the owns. The
+  clone ratchet (`dup-baseline.json`) must not grow; if the merge line moves a clone group, the builder stops and reports the group.
+- **D-b1-2 (item 4, the value refusal).** `manifest_put.CRITIC_FIELDS` is the wrong set (critic fields of an `expectation_changes[]` record): the
+  name `probe_owed` is REMOVED from it again. The refusal is a new function in the style of `critic_approval_problems` plus one call in `run`:
+  a `tests[]` row whose `probe_owed` is present and is not `yes` / `no` is refused, naming the field, the row and both values (FR-1); an absent
+  key is not a refusal.
+- **D-b1-3 (the two red checks).** The role-load baseline of `qa-code-critic` is raised BY NAME to the measured share (owner, 16.11.2026: a limit
+  may be raised when the rule's text does not fit); the raise is named in the commit and in the changelog fragment. The joint
+  `acceptance:novelty_question` gets its row in `references/stage-joints.json` (model rows `acceptance:stale_run`, `acceptance:review`) and, same
+  commit, its row in the dry census (`dry_exits.py --check`, axis 38).

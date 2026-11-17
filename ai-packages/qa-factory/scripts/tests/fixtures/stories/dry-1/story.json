@@ -31,6 +31,21 @@
     ]
    }
   },
+  "qa-code-critic@S5": {
+   "result_text": "qa-code-critic S5 TC-1 · ok\nTC-1 · approved · the probe breaks the total check and the test goes red\nwork/handoffs/S5-qa-code-critic-1.yaml",
+   "manifest_fragments": [
+    {"tests": [{"instance_id": "test_the_case", "file": "qa-factory/tests/TC-1_test.py", "covers": ["TC-1"], "critic_verdict": "approved"}]}
+   ],
+   "files": {
+    "work/probe-models/S5-qa-code-critic-1.json": [
+     "{\"models\": [",
+     "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+     "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+     "   \"actual\": \"8\"}",
+     "]}"
+    ]
+   }
+  },
   "qa-automator@S5": {
    "result_text": "qa-automator S5 window · ok\nTC-1 · green · the test checks the cart total with a quantity\nwork/automation-manifest.json",
    "manifest_fragments": [
