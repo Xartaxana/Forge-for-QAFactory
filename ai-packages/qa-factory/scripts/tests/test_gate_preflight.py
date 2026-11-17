@@ -6181,8 +6181,10 @@ class _PageLoadFake:
     def __call__(self, cfg, stand_name, project_root):
         self.calls.append(stand_name)
         if callable(self.result):
-            return self.result(len(self.calls))
-        if self.result is not None:
+            answer = self.result(len(self.calls))     # None: the default measurement below
+            if answer is not None:
+                return answer
+        elif self.result is not None:
             return self.result
         import stand_identity
         stand = next(e for e in cfg["environments"] if e["name"] == stand_name)
@@ -6256,7 +6258,7 @@ def test_c3_j1_an_at_least_load_and_a_long_address_are_said_whole_and_cut_at_120
         cleanup(root)
 
 
-def test_c3_j1_a_failed_measurement_names_its_owner_blocks_nothing_and_keeps_nothing() -> None:
+def test_c3_j1_a_failed_measurement_names_its_owner_blocks_nothing_and_keeps_its_reason_not_a_number() -> None:
     for cause, said in (("no_browser", "this machine has no browser"), ("unreachable", "the stand did not answer"),
                         ("outside_hosts", "outside the stand's hosts"), ("credentials_in_address", "user name or password"),
                         ("factory", "a defect of the factory (boom)")):
@@ -6267,13 +6269,94 @@ def test_c3_j1_a_failed_measurement_names_its_owner_blocks_nothing_and_keeps_not
             notes = info_of(result, "stand_page_load")
             check_eq(f"{cause}: one note, no finding", (len(notes), result["findings"]), (1, []))
             check_in(f"{cause}: the note names its owner", said, notes[0])
-            check_in(f"{cause}: and what the limit is meanwhile", "Manual checks wait 180 s per page; it is measured again at the next rehearsal.", notes[0])
+            check_in(f"{cause}: and what the limit is meanwhile", "Manual checks wait 180 s per page;", notes[0])
+            check_in(f"{cause}: and that it is tried once more, then not again until something changes", "tried once more at the next rehearsal, and then not again", notes[0])
             check_eq(f"{cause}: only the factory's own cause says `a defect of the factory`", "defect of the factory" in notes[0], cause == "factory")
-            check_eq(f"{cause}: nothing was recorded", _pl_registry(root), [])
-            _pl_world(fake, root)
-            check_eq(f"{cause}: the next rehearsal calls again", len(fake.calls), 2)
+            rows = _pl_registry(root)
+            check_eq(f"{cause}: ONE row, a reason and no number (D1)",
+                     [(r["key"], r["element"], sorted(r["value"]), "load_s" in r["value"]) for r in rows],
+                     [("environments.page_load", "frontend", ["address", "definition_sha", "failed"], False)])
+            kept = rows[0]["value"]["failed"]
+            check_eq(f"{cause}: cause, why, attempts 1", (kept["cause"], kept["why"], kept["attempts"]), (cause, "boom", 1))
         finally:
             cleanup(root)
+
+
+def test_c3_j1_a_kept_reason_gets_one_more_try_then_none_until_something_changes_and_is_carried() -> None:
+    def failing(cause, why="boom"):
+        return {"state": "failed", "cause": cause, "why": why}
+
+    def row_of(root):
+        rows = _pl_registry(root)
+        return rows[0]["id"], rows[0]["value"]
+
+    root = cmp2_story("qa-gate-pl-")
+    try:
+        fake = _PageLoadFake(failing("unreachable"))
+        _pl_world(fake, root)
+        pk_id, value = row_of(root)
+        result = _pl_world(fake, root)
+        later_id, later = row_of(root)
+        check_eq("second start with attempts 1: ONE attempt, same cause -> attempts 2, the same row in place",
+                 (len(fake.calls), len(_pl_registry(root)), later_id == pk_id, later["failed"]["attempts"]), (2, 1, True, 2))
+        check_in("its note says it is kept and not tried again", "not tried again until something changes", info_of(result, "stand_page_load")[0])
+        before = json.dumps(_pl_registry(root), sort_keys=True)
+        result = _pl_world(fake, root, steps=("stand_page_load", "s5_stand_limits"))
+        check_eq("third start: no attempt, the row untouched, no finding",
+                 (len(fake.calls), json.dumps(_pl_registry(root), sort_keys=True) == before, result["findings"]), (2, True, []))
+        carried = [i for i in result["info"] if i.get("check") == "stand_page_load"]
+        check_eq("third start: ONE note of state failed_kept with cause, why, attempts and the door",
+                 [(i["state"], i["cause"], i["why"], i["attempts"], i["door"]) for i in carried],
+                 [("failed_kept", "unreachable", "boom", 2, "project_knowledge.py revoke")])
+        check_in("and the sentence names the tries, the cause and who can change it", "on 2 tries", carried[0]["message"])
+        card = [i for i in result["info"] if i.get("check") == "e2e_stand_limit"]
+        check("the ONE e2e stand card carries the kept reason (D3)",
+              len(card) == 1 and "on 2 tries" in card[0]["message"] and card[0].get("kept_cause") == "unreachable"
+              and card[0].get("kept_attempts") == 2, card)
+        # a person's word to retry: the revoke clears the reason, the next start tries again
+        import project_knowledge as PK
+        _, problem = PK.revoke(root, pk_id, "retry: the stand was down")
+        check_eq("a revoke of the kept reason is accepted", problem, "")
+        _pl_world(fake, root)
+        check_eq("after the revoke: one more attempt (a person's word)", len(fake.calls), 3)
+    finally:
+        cleanup(root)
+    root = cmp2_story("qa-gate-pl-")
+    try:
+        fake = _PageLoadFake(lambda n: failing("unreachable") if n == 1 else failing("no_browser"))
+        _pl_world(fake, root)
+        _pl_world(fake, root)
+        pk_id, value = row_of(root)
+        check_eq("another cause replaces the reason with attempts 1, in place",
+                 (len(_pl_registry(root)), value["failed"]["cause"], value["failed"]["attempts"]), (1, "no_browser", 1))
+    finally:
+        cleanup(root)
+    root = cmp2_story("qa-gate-pl-")
+    try:
+        fake = _PageLoadFake(lambda n: failing("no_browser") if n == 1 else None)
+        _pl_world(fake, root)
+        pk_id, _ = row_of(root)
+        _pl_world(fake, root)
+        rows = _pl_registry(root)
+        check_eq("a success after a reason: the number replaces it (one row, the same place, no reason left)",
+                 (len(rows), rows[0]["id"] == pk_id, rows[0]["value"].get("load_s"), "failed" in rows[0]["value"]), (1, True, 160.0, False))
+        _pl_world(fake, root)
+        check_eq("and then it is reused, no call", len(fake.calls), 2)
+    finally:
+        cleanup(root)
+    root = cmp2_story("qa-gate-pl-")
+    try:
+        fake = _PageLoadFake(failing("unreachable"))
+        _pl_world(fake, root)
+        _pl_world(fake, root)
+        cmp2_edit(root, lambda cfg: cfg["environments"][0].__setitem__("frontend_url", "http://localhost:6000"))
+        _pl_world(fake, root)
+        rows = _pl_registry(root)
+        check_eq("a changed address is a fresh attempt: called, attempts 1 under the new address",
+                 (len(fake.calls), len(rows), rows[0]["value"]["failed"]["attempts"], rows[0]["value"]["address"]),
+                 (3, 1, 1, "http://localhost:6000"))
+    finally:
+        cleanup(root)
 
 
 def test_c3_j1_nothing_uses_the_load_or_the_switch_is_on_or_the_stand_has_no_page_or_is_not_one_stand() -> None:
@@ -6495,7 +6578,8 @@ if __name__ == "__main__":
     test_d1b_k_b7_the_norms_question_rule_runs_at_gate_a_and_the_marker_is_read()
     test_c3_j1_the_page_load_is_measured_once_kept_and_reused_and_no_finding_is_ever_raised()
     test_c3_j1_an_at_least_load_and_a_long_address_are_said_whole_and_cut_at_120()
-    test_c3_j1_a_failed_measurement_names_its_owner_blocks_nothing_and_keeps_nothing()
+    test_c3_j1_a_failed_measurement_names_its_owner_blocks_nothing_and_keeps_its_reason_not_a_number()
+    test_c3_j1_a_kept_reason_gets_one_more_try_then_none_until_something_changes_and_is_carried()
     test_c3_j1_nothing_uses_the_load_or_the_switch_is_on_or_the_stand_has_no_page_or_is_not_one_stand()
     test_c3_j1_a_story_that_leaves_no_trace_measures_and_says_it_was_not_kept()
     test_c3_j1_a_recorded_load_lengthens_the_sign_in_probes_limit_and_never_shortens_it()

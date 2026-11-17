@@ -87,3 +87,75 @@ Slow-listed and named, not run as whole files: `test_gate_preflight.py`, `test_b
 
 Not done: tests in the `Not written` list (by card); `test_gate_registry.py`/`test_judgment_census.py` (canon): the census row
 `check_stand_page_load` was added; a ceiling move, if the canon shows one, is a named raise.
+
+
+---
+
+# Round 2 (fresh worker, t-1206): the owner's correction D1-D4, DoD (2) (3), siblings
+
+Status: the questions of the first section are ANSWERED by the Lead decisions D1-D4, now implemented. Items 1-7 are the first worker's.
+
+## What was done
+
+- `project_knowledge.py`: constants `PAGE_LOAD_REASON_KEYS`, `PAGE_LOAD_FAILED_KEYS`, `PAGE_LOAD_CAUSES` (closed: factory, no_browser, unreachable,
+  outside_hosts, credentials_in_address), `PAGE_LOAD_ATTEMPTS_MAX = 2`, `PAGE_LOAD_WHY_MAX = 200`; `_page_load_value_faults` takes a reason
+  element (`failed` in value) and `_page_load_failed_faults` (cause closed, why one line <= 200, at a moment, attempts an int >= 1, not bool);
+  `page_load` says `state: failed` + `failed: {...}` (new key, None otherwise) when the kept reason fits the stand definition and address (no age
+  limit; only another identity or a revoke ends it); `record` replaces a held reason IN PLACE (same id) whatever replaces it (same cause with new
+  attempts/at, another cause, the number); a number is still appended as before.
+- `gate_preflight.py`: `check_stand_page_load` (a kept reason with attempts >= 2: no attempt, ONE note state `failed_kept` with cause/why/attempts/at/
+  address/door as machine fields = the existing seam, the gate note the conductor reads, AR-17; otherwise measures), `_page_load_failed` records the
+  reason (same cause as kept -> attempts+1, else 1), helpers `_kept_page_load`, `_page_load_identity`, `_page_load_reason_words`,
+  `_page_load_kept_text`; `check_s5_stand_limits` appends the kept sentence + `kept_*` machine fields to its `unmeasured` note (the ONE card, D3).
+  No brief line added (ratchets equal, below).
+- `references/config-keys.json` (note of `environments.page_load`), `changelog.d/rules-debt-c3-j1-stand-page-load.md`.
+- Tests (rows, no new file): `test_gate_preflight.py` (the failed-measurement function now asserts the reason row, no number, attempts 1, per cause;
+  new `test_c3_j1_a_kept_reason_gets_one_more_try...`: attempts 1->2 in place, third start no attempt + seam fields + e2e card, revoke retry,
+  another cause -> attempts 1, success replaces reason, changed address fresh; `_PageLoadFake` callable may answer None = default measurement),
+  `test_project_knowledge.py` (`test_page_load_kept_reason_shape` 22-row table, `..._reads_replaces_in_place_and_is_never_a_pass`,
+  `..._a_broken_kept_reason_in_the_file_is_read_as_broken...`).
+
+## Decisions made by me within the Lead decisions ("reshila sama")
+
+- The reason value also carries `definition_sha` and `address` beside `failed` (the card's "under the same identity as the number"): without them
+  the reader could not tell "identity changed -> fresh". Address is the safe URL (no credentials).
+- A reason is kept only when the identity can be read; else the note says "could not be kept" and the next rehearsal tries again.
+- A broken reason in the file (attempts 0/negative/wrong type, unknown cause, missing field) reads as `none` with why `malformed` (same as a broken
+  number: the default limit, a fresh attempt, never `measured`/`failed`); `record` REFUSES it with "nothing was recorded". If the Lead wants a broken
+  reason to STOP the tries (state unreadable), it is a one-line change in `page_load`.
+- The person's word to retry = the existing `project_knowledge.py revoke` of the row (named in the machine field `door`, not in the person's text, FR-6).
+- The default test stub (`no_browser`) now leaves a reason row in other gate tests' registries: the slice and the 42-file run are green; the slow
+  `test_gate_preflight.py` whole is the canon's.
+
+## Witness (one run after all edits; an earlier attempt with a wrong slow filter was killed and re-run)
+
+- `python -B <scratchpad>/runlist.py <walk.txt>` (walk.txt = output of `scenario_walk.py --witness-for <the 14 owns>`; runs every printed non-slow file):
+  `RUN 42 SKIP-SLOW 35 ... BAD 0` and 42 lines `OK <file> | <tail>` (e.g. `test_first_look: 450/450 ok`, `test_manual_evidence: 262/262 ok`,
+  `test_gate_vocabulary: 141/141 ok`, `test_human_questions: 651/651 ok`, `test_walk_session: 102/102 ok`, `test_project_knowledge.py | 200 passed`).
+- My new rows by name, slow files: `run_pl2.py` (calls every `test_c3_j1_*` of test_gate_preflight.py): `grep -c "^FAIL"` -> `0`, ends `slice done`.
+  `python -m pytest test_project_knowledge.py -q` -> `200 passed`.
+- DoD (2) Grep (case-insensitive) `PAGE_LOAD_KEY|environments\.page_load` over `scripts/`, non-test hits: `gate_preflight.py:3285` and `:3373` (both
+  `PK.record`; the first in `check_stand_page_load`, the second in its helper `_page_load_failed`: ONE check, two record calls, number and reason),
+  the rest in `project_knowledge.py` (constants, reader, `record_problems`, `record`'s in-place rule). No other writer or reader.
+  Positive control: the same call finds the `project_knowledge.py` lines. (The glob exclusion of tests/ did not apply in the Grep tool; the
+  test hits were filtered by reading the paths.)
+- DoD (3) ratchet lines, `role_brief_ratchet()` run in this worktree (AFTER) and in the main checkout (BEFORE, no j1):
+  `RATCHET ROLE_BRIEF_BYTES_MAX qa-automator 6855`, `qa-code-critic 7177`, `qa-failure-analyst 6435` in BOTH; `RATCHET S5_PLAN_BRIEF_BYTES_MAX 9547`
+  in BOTH (`test_brief_pack_s5_plan.py`). Equal, no raise.
+- Slow files named, judged by the batch canon whole: `test_gate_preflight.py`, `test_brief_pack.py`, `test_judgment_census.py`, `test_gate_registry.py`
+  and the 34 other slow-listed files of the walk.
+
+## Siblings (axis 5 prose twins, axis 34 one road)
+
+Grep (case-insensitive) over package `*.md` for `stand limit|page_object|e2e stand|stand_limit`: 2 hits; positive control: same call finds both.
+- `design/factory-rules-debt.md:111` (`s5_stand_limits` FR-59 debt line): n/a, a non-goal (its line moves by S1b, RD1-23).
+- `changelog.d/rules-debt-c3-j1-stand-page-load.md:5` (`skip_stand_limits` sentence): applied, extended with the kept-reason sentence.
+Grep `page load|page-load|180 s|measured limit` over package `*.md`: `CHANGELOG.md:1148` history (n/a); `design/state-exits.md:26` (a liveness 180 s: n/a);
+`references/controller-api.md:32` (`never_started_after_s` 180 s: n/a); `references/manual-evidence.md:56-57` (the 180 s + load sentence: unchanged, still true);
+`design/factory-rules-debt.md:111` (n/a, above). No `s4.md`/`s5.md`/agent charter hit.
+Axis 34 (one road): the reason is read only through `PK.page_load`, written only through `PK.record`; the card reads it through `_kept_page_load` -> `PK.page_load`.
+
+## Same-class sightings (rule 5)
+
+- The reporter's `timed_out` card (card fork F-j-reporter) is unchanged (j2's).
+- `check_s5_stand_limits` other states (`unreadable`, `incomplete`) do not carry the kept reason: they concern the config's own recorded limit, not this measurement.

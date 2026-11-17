@@ -35,7 +35,10 @@ measures itself at gate A and uses (the S5 and S7 briefs carry it; the manual ca
 is longer). It is a FLOOR: pages behind the sign-in can be slower, so it only ever lengthens a limit. Its ONE writer is
 `gate_preflight.check_stand_page_load` through `record` (source `measured`, by `gate`; refused in a story that leaves no trace); its
 ONE reader is `page_load`, which says `none` when the row is another stand definition, another address, older than 7 days or older
-than the stand's last verification; its exit is `revoke`. A failed measurement keeps no number.
+than the stand's last verification; its exit is `revoke`. A failed measurement keeps no number but its REASON (owner, 17.11.2026:
+the same failure is not retried blindly): the SAME row holds `{"failed": {cause, why, at, attempts}, definition_sha, address}`
+instead of a number, `page_load` says `failed` while it speaks for this stand definition and address, and a person's `revoke` of it
+is the word to retry. The row is replaced in place (one row per stand), never appended to.
 """
 import copy
 import json
@@ -86,6 +89,12 @@ PAGE_LOAD_ELEMENT = "frontend"
 PAGE_LOAD_REUSE_DAYS = 7
 HOW_PAGE_LOAD = "measured by the factory's headless browser at gate A, signed out, one full load of the start page"
 PAGE_LOAD_VALUE_KEYS = {"load_s", "at_least", "address", "definition_sha", "at"}
+# a kept reason of a failed measurement (the owner's correction to F-j-failed): the same key and element, the number replaced
+PAGE_LOAD_REASON_KEYS = {"failed", "address", "definition_sha"}
+PAGE_LOAD_FAILED_KEYS = {"cause", "why", "at", "attempts"}
+PAGE_LOAD_CAUSES = ("factory", "no_browser", "unreachable", "outside_hosts", "credentials_in_address")
+PAGE_LOAD_ATTEMPTS_MAX = 2      # the second start tries once more; after that no blind retry
+PAGE_LOAD_WHY_MAX = 200
 
 # S15 / phase 1: the catalogue (references/config-keys.json, section `knowledge`) is the ONE table of project facts, read through
 # `config_contract.config_keys()` (AR-13). `KEYS` is DERIVED from its registry rows, once, at import: the comparator a row names compares
@@ -550,12 +559,13 @@ def stale_against_verified(at, verified) -> str:
 
 
 def page_load(root, cfg, stand) -> dict:
-    """`{"state", "load_s", "at_least", "address", "at", "why"}`: what the factory measured of the stand's page load (the ONE reader,
-    AR-13). `state` is `measured` (a row that still speaks for this stand), `none` (nothing usable: no stand, no row, a revoked row,
-    a malformed one, another definition or address, older than 7 days or than the stand's verification: the default limit is the
-    safe side) or `unreadable` (the registry or the catalogue could not be read: an unknown, never a number, FR-59). PURE: writes
-    nothing, never raises. `why` says which."""
-    out = {"state": "none", "load_s": None, "at_least": False, "address": "", "at": "", "why": ""}
+    """`{"state", "load_s", "at_least", "address", "at", "why", "failed"}`: what the factory measured of the stand's page load (the
+    ONE reader, AR-13). `state` is `measured` (a row that still speaks for this stand), `failed` (a kept REASON of a failed
+    measurement for this stand definition and address: `failed` holds `{cause, why, at, attempts}`, no number, never a pass),
+    `none` (nothing usable: no stand, no row, a revoked row, a malformed one, another definition or address, a number older than 7
+    days or than the stand's verification: the default limit is the safe side) or `unreadable` (the registry or the catalogue could
+    not be read: an unknown, never a number, FR-59). PURE: writes nothing, never raises. `why` says which."""
+    out = {"state": "none", "load_s": None, "at_least": False, "address": "", "at": "", "why": "", "failed": None}
     try:
         stand = str(stand or "")
         if not stand.strip() or stand == PLACEHOLDER_STAND:
@@ -589,6 +599,9 @@ def page_load(root, cfg, stand) -> dict:
         address = manual_capture._safe_url(env_probe.frontend_of(data, stand, root=root)["url"])
         if value["address"] != address:
             out["why"] = "another address"
+            return out
+        if "failed" in value:     # a kept reason: no age and no verification date end it, only another identity (above) or a revoke
+            out.update(state="failed", address=value["address"], at=value["failed"]["at"], failed=copy.deepcopy(value["failed"]))
             return out
         if ER._moment(ER.now_iso()) - ER._moment(value["at"]) > PAGE_LOAD_REUSE_DAYS * 86400:
             out["why"] = f"older than {PAGE_LOAD_REUSE_DAYS} days"
@@ -711,13 +724,19 @@ def _page_load_value_faults(element, value) -> list:
     out = []
     if element != PAGE_LOAD_ELEMENT:
         out.append(f"the element of {PAGE_LOAD_KEY} is `{PAGE_LOAD_ELEMENT}` (the stand's start page); nothing was recorded")
-    if not isinstance(value, dict) or set(value) != PAGE_LOAD_VALUE_KEYS:
-        return out + [f"{PAGE_LOAD_KEY} carries exactly {{{', '.join(sorted(PAGE_LOAD_VALUE_KEYS))}}}; nothing was recorded"]
-    load = value["load_s"]
-    if isinstance(load, bool) or not isinstance(load, (int, float)) or not math.isfinite(load) or load <= 0:
-        out.append("`value.load_s` is a finite number of seconds above zero; nothing was recorded")
-    if not isinstance(value["at_least"], bool):
-        out.append("`value.at_least` is true or false; nothing was recorded")
+    reason = isinstance(value, dict) and "failed" in value
+    keys = PAGE_LOAD_REASON_KEYS if reason else PAGE_LOAD_VALUE_KEYS
+    if not isinstance(value, dict) or set(value) != keys:
+        return out + [f"{PAGE_LOAD_KEY} carries exactly {{{', '.join(sorted(PAGE_LOAD_VALUE_KEYS))}}} (a measurement) or "
+                      f"{{{', '.join(sorted(PAGE_LOAD_REASON_KEYS))}}} (a kept reason); nothing was recorded"]
+    if reason:
+        out += _page_load_failed_faults(value["failed"])
+    else:
+        load = value["load_s"]
+        if isinstance(load, bool) or not isinstance(load, (int, float)) or not math.isfinite(load) or load <= 0:
+            out.append("`value.load_s` is a finite number of seconds above zero; nothing was recorded")
+        if not isinstance(value["at_least"], bool):
+            out.append("`value.at_least` is true or false; nothing was recorded")
     address = value["address"]
     if not isinstance(address, str) or not re.match(r"https?://", address):
         out.append("`value.address` is an http or https address; nothing was recorded")
@@ -732,8 +751,26 @@ def _page_load_value_faults(element, value) -> list:
             out.append("`value.address` carries a user name or password; it is never kept; nothing was recorded")
     if not isinstance(value["definition_sha"], str) or not value["definition_sha"]:
         out.append("`value.definition_sha` is the stand definition's hash; nothing was recorded")
-    if not isinstance(value["at"], str) or ER._moment(value["at"]) == float("-inf"):
+    if not reason and (not isinstance(value["at"], str) or ER._moment(value["at"]) == float("-inf")):
         out.append("`value.at` is the moment of the measurement; nothing was recorded")
+    return out
+
+
+def _page_load_failed_faults(failed) -> list:
+    """The shape of the kept reason `value.failed`: a closed cause, one line of why, the moment, a count of attempts from 1."""
+    if not isinstance(failed, dict) or set(failed) != PAGE_LOAD_FAILED_KEYS:
+        return [f"`value.failed` carries exactly {{{', '.join(sorted(PAGE_LOAD_FAILED_KEYS))}}}; nothing was recorded"]
+    out = []
+    if failed["cause"] not in PAGE_LOAD_CAUSES:
+        out.append(f"`value.failed.cause` is one of {', '.join(PAGE_LOAD_CAUSES)}; nothing was recorded")
+    why = failed["why"]
+    if not isinstance(why, str) or "\n" in why or "\r" in why or len(why) > PAGE_LOAD_WHY_MAX:
+        out.append(f"`value.failed.why` is one line of at most {PAGE_LOAD_WHY_MAX} characters; nothing was recorded")
+    if not isinstance(failed["at"], str) or ER._moment(failed["at"]) == float("-inf"):
+        out.append("`value.failed.at` is the moment of the failed attempt; nothing was recorded")
+    attempts = failed["attempts"]
+    if isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 1:
+        out.append("`value.failed.attempts` is a whole number from 1; nothing was recorded")
     return out
 
 
@@ -889,7 +926,8 @@ def record(root, *, key, environment, element, state, scope, value, words, sourc
 
     Under the lock it LOADS, checks (`record_problems`, `_refuse_no_trace`), numbers (`next_id`) and writes, so two stories never
     lose a row. Refused, nothing written, `row` None and `problem` says why and the door. The same live state AND value for the same
-    subject again is the existing row with `created` False (a changed `value`, e.g. `sign_in`, is a new row). A busy lock raises `TimeoutError` (the CLI exits 2: run it again)."""
+    subject again is the existing row with `created` False (a changed `value`, e.g. `sign_in`, is a new row; except that a kept page-load reason is replaced
+    in place, same id, whatever replaces it). A busy lock raises `TimeoutError` (the CLI exits 2: run it again)."""
     root = Path(root)
     with lock(root):
         rows, load_problem = load(root)
@@ -910,12 +948,16 @@ def record(root, *, key, environment, element, state, scope, value, words, sourc
                 same = True
             if same:
                 return held, "", False
-        row = {"id": ER.next_id(rows, ID_PREFIX), "key": key, "environment": str(environment or ""), "element": str(element).strip(),
+        in_place = (key == PAGE_LOAD_KEY and held is not None and isinstance(held.get("value"), dict) and "failed" in held["value"])
+        row = {"id": held["id"] if in_place else ER.next_id(rows, ID_PREFIX), "key": key, "environment": str(environment or ""), "element": str(element).strip(),
                "state": state, "scope": scope, "value": value,
                "provenance": {"source": source, "words": str(words or "").strip(), "story": str(story or ""), "by": by,
                               "where": " ".join(str(where or "").split())[:160]},
                "at": ER.now_iso()}
-        problem = ER.write_rows(record_path(root), LIST_KEY, SCHEMA_VERSION, rows + [row], RECORD_REL)
+        # a kept reason of a failed page load is REPLACED where it stands (the same cause with its count and time, another cause, or the
+        # number that ends it): one row per stand, never a second one beside it
+        kept = [row if (in_place and r is held) else r for r in rows] if in_place else rows + [row]
+        problem = ER.write_rows(record_path(root), LIST_KEY, SCHEMA_VERSION, kept, RECORD_REL)
         return (None, problem, False) if problem else (row, "", True)
 
 

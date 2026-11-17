@@ -3184,9 +3184,13 @@ class Rehearsal:
             limit = self._e2e_limit(profile_id, profiles.get(profile_id) or {}, entry)
             state = limit["state"]
             if state == "unmeasured":
+                kept = self._kept_page_load()
                 self.note(check, f"`{profile_id}`: e2e page load on {limit['stand']} is not "
                                  f"measured - {limit['why']}, so whether its page objects' waits "
-                                 "fit this stand is unknown", fields=limit.get("fields") or [])
+                                 "fit this stand is unknown" + (" " + self._page_load_kept_text(kept) if kept else ""),
+                          fields=limit.get("fields") or [],
+                          **({"kept_cause": kept["cause"], "kept_why": kept["why"], "kept_attempts": kept["attempts"],
+                              "kept_at": kept["at"]} if kept else {}))
             elif state == "unreadable":
                 self.add(check, FACTORY_DEFECT,
                          f"the recorded limit cannot be read: {' and '.join(limit['what'])} "
@@ -3230,8 +3234,10 @@ class Rehearsal:
         measure and use). The measurement is a FLOOR (pages behind the sign-in can be slower): it only lengthens a limit.
 
         The ONE writer of the registry row `environments.page_load` (`project_knowledge.record`; refused in a story that leaves no
-        trace, P8). Reused while `project_knowledge.page_load` says `measured`. A failure keeps no number and names its owner in the
-        note. No project, `gate_rehearsal.skip_stand_limits: true`, nothing that uses the number, no stand, a stand with no web page
+        trace, P8). Reused while `project_knowledge.page_load` says `measured`. A failure keeps no number, names its owner in the
+        note, and keeps its REASON in the same row (cause, why, time, attempts; the owner, 17.11.2026): the second start tries once more,
+        a second failure of the same cause stops the tries and carries the reason in the note and on the e2e stand card (never a pass,
+        AR-28) until the stand's definition or address changes or a person revokes the row. No project, `gate_rehearsal.skip_stand_limits: true`, nothing that uses the number, no stand, a stand with no web page
         (a device or API-only stand): nothing, no note."""
         if self.project_root is None or self._gate_switch("skip_stand_limits") or not self._page_load_due():
             return
@@ -3259,12 +3265,20 @@ class Rehearsal:
             self.note(check, f"what the factory keeps about this project could not be read ({got['why']}), so the page load is not "
                              "measured this time", state="unreadable", why=got["why"])
             return
+        kept = got.get("failed") if got["state"] == "failed" else None
+        if kept and kept["attempts"] >= PK.PAGE_LOAD_ATTEMPTS_MAX:
+            # the same failure was tried twice: no blind third try. The reason goes to the conductor in this note (AR-17) and to the
+            # e2e stand card; it is never a pass (AR-28). Something changed (the stand's definition or address) or a person's
+            # `revoke` of the row is what allows another attempt.
+            self.note(check, self._page_load_kept_text(kept), state="failed_kept", cause=kept["cause"], why=kept["why"],
+                      attempts=kept["attempts"], at=kept["at"], address=got["address"], door="project_knowledge.py revoke")
+            return
         result = (MC.PAGE_LOAD or MC.measure_page_load)(self.config, name, self.project_root)
         state = result.get("state")
         if state == "n/a":
             return
         if state != "measured":
-            self._page_load_failed(check, name, result)
+            self._page_load_failed(check, name, result, kept)
             return
         value = {k: result[k] for k in ("load_s", "at_least", "address", "definition_sha", "at")}
         try:
@@ -3296,26 +3310,80 @@ class Rehearsal:
         return (head + f", {when} by the factory's browser while signed out; pages behind the sign-in can be slower. The S5 and S7 "
                 f"briefs carry it, and manual checks wait at least {MC.DEFAULT_TIMEOUT_S} s, longer when this load needs it.")
 
-    def _page_load_failed(self, check, name, result) -> None:
-        """ONE note for a failed measurement, by the owner of the failure (FR-19). Nothing is recorded: a machine fact never enters a
-        carried record (AR-4). Only `factory` says "a defect of the factory"."""
-        import manual_capture as MC
-        cause = str(result.get("cause") or "factory")
-        why = str(result.get("why") or "")
-        address = ""
-        if cause == "unreachable":
-            try:
-                import env_probe
-                address = self._page_load_address(MC._safe_url(env_probe.frontend_of(self.config, name, root=self.project_root)["url"]))
-            except Exception:    # noqa: BLE001 - a note is never stopped by its own address
-                address = ""
+    def _kept_page_load(self):
+        """The kept reason of a failed page load of the chosen stand (`{cause, why, at, attempts}`), or None: no stand, nothing kept,
+        or a registry that cannot be read (the stage's own note says so; this card adds a sentence, never a pass)."""
+        try:
+            name = str(self._selected_environment().get("name") or "")
+            if not name or self.project_root is None:
+                return None
+            import project_knowledge as PK
+            got = PK.page_load(self.project_root, self.config, name)
+            return got["failed"] if got["state"] == "failed" else None
+        except Exception:    # noqa: BLE001 - a card is never stopped by an extra sentence
+            return None
+
+    def _page_load_identity(self, name) -> tuple:
+        """`(definition_sha, safe address)` the stand has now, the identity a number or a kept reason belongs to; `("", "")` when
+        it cannot be read (then nothing is kept: a reason that cannot say which stand it was is no reason)."""
+        try:
+            import env_probe
+            import manual_capture as MC
+            import stand_identity
+            return (stand_identity.definition_sha_for(self.config, name),
+                    MC._safe_url(env_probe.frontend_of(self.config, name, root=self.project_root)["url"]))
+        except Exception:    # noqa: BLE001 - a note is never stopped by its own identity
+            return "", ""
+
+    @staticmethod
+    def _page_load_reason_words(cause, why, address="") -> str:
         reasons = {"no_browser": "this machine has no browser the factory can start",
                    "unreachable": f"the stand did not answer at {address}" if address else "the stand did not answer",
                    "outside_hosts": "the start page leads to a host outside the stand's hosts",
                    "credentials_in_address": "the stand's web address carries a user name or password, so it is not opened or kept"}
-        reason = reasons.get(cause) or f"a defect of the factory ({why})"
-        self.note(check, f"The factory could not measure the stand's page load: {reason}. Manual checks wait {MC.DEFAULT_TIMEOUT_S} s "
-                         "per page; it is measured again at the next rehearsal.", state="failed", cause=cause, why=why, address=address)
+        return reasons.get(cause) or f"a defect of the factory ({why})"
+
+    def _page_load_kept_text(self, kept) -> str:
+        """The ONE sentence of a kept reason, used by the stage's note and by the e2e stand card (the owner, 17.11.2026)."""
+        import manual_capture as MC
+        return (f"The factory could not measure the stand's page load on {kept['attempts']} tries since {str(kept['at'])[:10]}: "
+                f"{self._page_load_reason_words(kept['cause'], kept['why'])}. It does not try again until the stand's definition or "
+                f"address changes, or a person asks for another try. Manual checks wait "
+                f"{MC.DEFAULT_TIMEOUT_S} s per page.")
+
+    def _page_load_failed(self, check, name, result, kept=None) -> None:
+        """ONE note for a failed measurement, by the owner of the failure (FR-19), and the kept REASON (the owner, 17.11.2026: no
+        circling): the reason (cause, one line, time, attempts) replaces the number's place in the registry row, under the stand's
+        definition and address. The same cause as the kept one makes `attempts` 2 (the one retry of the second start); another cause
+        starts at 1. The reason carries no address of a person's (the safe address only) and never a pass (AR-28). Only `factory`
+        says "a defect of the factory"."""
+        import manual_capture as MC
+        import project_knowledge as PK
+        cause = str(result.get("cause") or "factory")
+        if cause not in PK.PAGE_LOAD_CAUSES:
+            cause = "factory"
+        why = " ".join(str(result.get("why") or "").split())[:PK.PAGE_LOAD_WHY_MAX]
+        sha, address = self._page_load_identity(name)
+        shown = self._page_load_address(address) if cause == "unreachable" else ""
+        attempts = kept["attempts"] + 1 if kept and kept["cause"] == cause else 1
+        problem = ""
+        if sha and address:
+            value = {"failed": {"cause": cause, "why": why, "at": MC._now(), "attempts": attempts}, "definition_sha": sha, "address": address}
+            try:
+                _, problem, _ = PK.record(self.project_root, key=PK.PAGE_LOAD_KEY, environment=name, element=PK.PAGE_LOAD_ELEMENT,
+                                          state=PK.KNOWN, scope="stand", value=value, words=PK.HOW_PAGE_LOAD, source="measured",
+                                          story=self.task_root.name, by="gate", where="gate A", task_root=self.task_root)
+            except TimeoutError:
+                problem = "the record was busy"
+        else:
+            problem = "the stand's identity could not be read"
+        text = (f"The factory could not measure the stand's page load: {self._page_load_reason_words(cause, why, shown)}. Manual checks "
+                f"wait {MC.DEFAULT_TIMEOUT_S} s per page; " + (
+                    "it is kept as the reason, tried once more at the next rehearsal, and then not again until something changes."
+                    if not problem and attempts < PK.PAGE_LOAD_ATTEMPTS_MAX else
+                    "it is kept as the reason and not tried again until something changes." if not problem else
+                    f"the reason could not be kept ({problem}), so it is tried again at the next rehearsal."))
+        self.note(check, text, state="failed", cause=cause, why=why, address=shown, attempts=attempts, kept=not problem)
 
     def check_stand_lessons(self) -> None:
         """ONE note with what a person taught about the chosen stand (`project_knowledge.py lesson`), so the approval sees it.
