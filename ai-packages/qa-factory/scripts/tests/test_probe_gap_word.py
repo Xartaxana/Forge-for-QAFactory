@@ -901,8 +901,85 @@ def k21_the_factory_names_no_gap_of_its_own():
         cleanup(root)
 
 
+def s9_a_review_word_at_the_controller():
+    """S9 (FR-57, t-1026 B6/B7): `Controller._s5_gap_problems` end to end over a window whose only gap is `review:<iid>`. EVERY row
+    hands the controller a completion `p` that carries NEITHER `unresolved` NOR `reason`, so the outcome turns on the word alone.
+    (a) the exact word closes the gap and ONE line is written; (b) `*` does not; (c) a word for `A b` never lifts `review:A`;
+    (d) a typed pair still passes as today and writes NO person-pass line."""
+    project = temp_project("qa-probe-gap-s9-")
+    use_project(project)
+    try:
+        task, _controller = TW.a_story_at_s5(project)
+        window, _ = built(task)
+        item_of(window)["review"]["verdict"] = ""
+        check_eq("S9 (setup): the only gap of the window is the review gap", AC.validate_window(window, task), ["review:" + IID])
+        controller = CONTROLLER.Controller(task)
+        dispatch = controller.state()["dispatches"][TW.CRITIC]
+        head = "review:" + IID
+        reason = "the manifest row carries no `critic_verdict`"
+
+        def problems(win=None, p=None, gaps=None) -> list:
+            real = AC.validate_window
+            if gaps is not None:
+                AC.validate_window = lambda *_a, **_k: list(gaps)
+            try:
+                return [text for _kind, text in controller._s5_gap_problems(dispatch, {} if p is None else p, win or window)]
+            finally:
+                AC.validate_window = real
+
+        def words(match, decision=WORDS, **kw) -> None:
+            (task / "pipeline.json").unlink(missing_ok=True)
+            TW.say_word(task, match, decision, **kw)
+
+        check_eq("S9: no word: the window is refused as unresolved", problems(), ["unresolved window: " + head])
+        check_eq("S9: ... and nothing is recorded", passed_lines(task), [])
+        words(f"{head} — {reason}")
+        check_eq("S9 (a): the exact word closes the gap: no problem", problems(), [])
+        lines = passed_lines(task)
+        check_eq("S9 (a): ONE line: stage, block, the words whole, `by`",
+                 [(l["stage"], l["block"], l["decision"], l["by"]) for l in lines], [("S5", head, WORDS, "human")])
+        check_eq("S9 (a): ... naming the instance, with `word_at` pointing at the word whole",
+                 [(l.get("subjects"), l.get("check"), bool(l.get("word_at"))) for l in lines],
+                 [([{"instance_id": IID}], "review", True)])
+        (task / PASSED_BY_PERSON).unlink()
+        words("*")
+        check_eq("S9 (b): `*` instead: refused", problems(), ["unresolved window: " + head])
+        check_eq("S9 (b): ... and NO line written", passed_lines(task), [])
+        words(f"{head} — {reason}", revoked=True)
+        check_eq("S9: a revoked word does not close it", problems(), ["unresolved window: " + head])
+        check_eq("S9: ... and writes no line", passed_lines(task), [])
+        # (c) U1: window gaps `review:A` and `review:A b`, the word for `A b` only
+        two = {"instances": [{"instance_id": "A"}, {"instance_id": "A b"}]}
+        words("review:A b — " + reason)
+        check_eq("S9 (c): the word for `A b` only: refused naming `review:A` alone (U1)",
+                 problems(two, gaps=["review:A", "review:A b"]), ["unresolved window: review:A"])
+        check_eq("S9 (c): ... and NO line written for a refused window (E10)", passed_lines(task), [])
+        words("review:A — " + reason)
+        check_eq("S9 (c): the word for `A` only: refused naming `review:A b` alone",
+                 problems(two, gaps=["review:A", "review:A b"]), ["unresolved window: review:A b"])
+        check_eq("S9 (c): ... and still no line", passed_lines(task), [])
+        (task / "pipeline.json").write_text(json.dumps({"stage_overrides": [
+            {"stage": "S5", "match": f"review:A — {reason}", "decision": "one", "at": "t1"},
+            {"stage": "S5", "match": "review:A b", "decision": "two", "at": "t2"}]}), encoding="utf-8")
+        check_eq("S9 (c): a word for each: both close, no problem", problems(two, gaps=["review:A", "review:A b"]), [])
+        check_eq("S9 (c): ... one line per gap, each with its own words",
+                 sorted((l["block"], l["decision"], l["word_at"]) for l in passed_lines(task)),
+                 [("review:A", "one", "t1"), ("review:A b", "two", "t2")])
+        (task / PASSED_BY_PERSON).unlink()
+        # (d) today's unresolved-acceptance door, unchanged: no word, a typed pair; no person-pass line
+        (task / "pipeline.json").unlink()
+        check_eq("S9 (d): a typed `unresolved` + `reason` pair is accepted as today", problems(p={"unresolved": ["x"], "reason": "y"}), [])
+        check_eq("S9 (d): ... and no person-pass line (a pass line is written only for a word that is READ)", passed_lines(task), [])
+        check_eq("S9: a word-passed review never makes `passed_green` legal",
+                 (words(f"{head} — {reason}"), problems(p={"passed_green": True}))[1],
+                 ["a completed process with gaps cannot be passed_green"])
+    finally:
+        cleanup(project)
+
+
 def main() -> None:
     k20_the_word_for_a_class_of_tooling_gaps()
+    s9_a_review_word_at_the_controller()
     k1_the_end_to_end()
     k2_no_word_is_refused_with_the_door()
     k3_an_unrecorded_claim_is_refused_whatever_the_caller_typed()
