@@ -11,12 +11,11 @@
 - [manifest_put:critic_approval] A row never turns a stored `critic_verdict: unverified` into `approved` without a non-empty `critic_note`. Door: add the `critic_note`.
 - [manifest_put:probe_owed] A `tests[]` row's `probe_owed` is `yes` or `no`. Door: send `yes` or `no`.
 - [run_suite:begin] A request's `idempotency_key` is new, or names the very request (same digest) already recorded under it; a key another process is claiming at the same moment is not reused. Door: write the request with a new `idempotency_key` (a `--mine` run takes a key of its own: run it again); a claim that cannot be read: `--recover <key> --task <T>`.
-- [run_suite:phantom_story] `--task` names a story that exists (for `--detail`, `--wait` and the untyped run). Door: the task id of your prompt.
-- [run_suite:recover] `--recover <KEY> --task <T>` names the idempotency key of a job recorded in that story's job store, and the job's file is readable JSON. Door: the `idempotency_key` the earlier answer printed (the not-launched answer names `--recover <idempotency_key> --task <task>`) and your prompt's task; a job file that cannot be read is the factory's: name it in your digest.
 - [validate_artifacts:check_manifest_v0] Every `automate` case of the plan has a `tests[]` or `unresolved[]` row; a `tests[]` row names an existing file and a `marker` or a full content-bound trace; an `unresolved` reason is from its list; a critic verdict is from its list, with `fix_notes[]` only for `approved_with_fixes`. Door: edit the file and the field the refusal line names.
 - [guard_pre_tool:*] 23 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
 - [stage_guard:*] 8 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
 - [host_adapter:*] 6 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
+- [run_suite:*] 2 checks of your commands are told in the refusal of the call, with what they expect and the door.
 - [role_cli:*] 1 checks of your commands are told in the refusal of the call, with what they expect and the door. Run `manifest_put.py --help` before you write an input file: it prints what each command of the script checks.
 
 ### Only in a plan dispatch (replaces "Only in a window")

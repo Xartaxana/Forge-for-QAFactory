@@ -29,7 +29,10 @@ and the critic role file's rule 18 point here (B-419).
    consistent with the consumers named in the spec.
 3. **Seams**: the files other nodes own or follow on — additive, localized, nothing reordered.
 4. **Class-wide completeness** (rule 9, FR-54): the SIBLING_MAP axes and the neighbours in the same
-   artifact; a sibling neither fixed nor queued is a finding. An analog outside the node's `owns` that this round does not fix
+   artifact; a sibling neither fixed nor queued is a finding. A remark is REPAIRED IN THE ROUND, never labelled "queue"
+   (PROJECT.md «Командная работа» п. 9; the owner's word 17.11.2026: the debt is worked down, not grown): an analog outside
+   the node's `owns` is named with its file so the Lead widens the fix round or sends a sibling builder. Only an analog in
+   ANOTHER pile's zone, or one that waits for an owner's decision (say which),
    comes back as a line the Lead writes into «Остатки» as is: `<what> | узел: <node id>` (a node row the Lead opens in an
    untaken batch, D-0044) or `<what> | перенос: <findings/<file> | пачка N> | обоснование: <why> | подтвердил: —`; a bare queue
    line is refused by `piles.py check` (д) (F6-30).
@@ -71,7 +74,7 @@ and the critic role file's rule 18 point here (B-419).
 7. **CODE QUALITY** beyond style-as-bug-mask: functions over roughly 60 lines or with more than three
    nesting levels in the NEW code (name them with line ranges), copy-pasted blocks inside the diff,
    dead branches, names or annotations that lie, work whose result nobody reads. Each is a finding
-   with a severity — blocks / fix before merge / queue — never a style pass and never "I don't like it".
+   with a severity — blocks / fix before merge (item 4: no "queue" severity) — never a style pass and never "I don't like it".
 8. **Hygiene** where the diff is in the package: FR-29/FR-30, the size caps, CRLF kept.
 
 9. **IN-TREE RATCHETS** (SIBLING_MAP axis 18, 16.10; since D-0060 the members include `scripts/tests/fixtures/judgment-census.json` `ratchet` and `role-load.json` `process_ratchet_tokens`; since P1-v N6, `experiments/scoreboards/norms.json` (tighten-only: a looser `norm`, a removed or worsened `ratchets` element, a new `raises`, `worsened_passes` or `bar_changes` entry is named with its owner's `word`); since P1-b L1c/L2, the dry census ratchets in `scripts/tests/fixtures/driver-exits/<group>.json` `ratchet` (`unwalked` / `live_only` / `after` / `hook_layer`, each raise named by one `raised_by` entry), the known-red ledger `scripts/tests/fixtures/driver-exits/known_red.json` with `pins.known_red`, its per-group files `scripts/tests/fixtures/driver-exits/known_red/<group>.json` (since P1-b N4R: one file per walk group, each with its own `pins.known_red`; a file of no group is red in `dry_exits.py --check`), and `scripts/tests/fixtures/stories/dry-1/selftest/known_red.json`)): a diff that adds or raises a row of an

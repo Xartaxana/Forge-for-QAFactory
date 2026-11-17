@@ -44,6 +44,7 @@ from event_store import (DerivedViewStale, EventCommitted, EventStore, Idempoten
                          content_hash, retry_shared, shared_file)
 from hooklib import (CLOSED_AT, ORDERS_DUE, REOPENED_AT, STOP_VALUES, append_jsonl_line, gate_orders, load_config,
                      sorted_paths, story_closed, story_closure, story_root, story_root_at)
+import detector_verdict as DV
 import person_words
 from record_schema import validate_record
 from runtime_policy import (repair_cap, resolve_model, checkpoint_due, cumulative_budget,
@@ -3756,21 +3757,21 @@ class Controller:
         problems = []
         stage_ok = stage.startswith("S") and stage[1:].isdigit() and 0 <= int(stage[1:]) <= 9
         if not stage_ok:
-            problems.append((ValueError, f"stage {stage!r} must be one of: " + ", ".join(f"S{i}" for i in range(10))))
+            problems.append((ValueError, DV.refusal("controller:rework.args", f"stage {stage!r} must be one of: " + ", ".join(f"S{i}" for i in range(10)))))
         if purpose not in PURPOSES:
-            problems.append((ValueError, f"purpose {purpose!r} must be one of: " + ", ".join(sorted(PURPOSES))))
+            problems.append((ValueError, DV.refusal("controller:rework.args", f"purpose {purpose!r} must be one of: " + ", ".join(sorted(PURPOSES)))))
         reopen = self._reopen_stamp(state, reason)
         if not str(reason or "").strip():
             if reopen:
-                problems.append((ValueError, "this story is closed (gate B is decided and S8 is done), and "
+                problems.append((ValueError, DV.refusal("controller:rework.args", "this story is closed (gate B is decided and S8 is done), and "
                                              "rework of a closed story REOPENS it — which is a person's "
                                              "decision, not the factory's. `--reason \"<their own words>\"` "
                                              "records it; it is written into pipeline.json as "
-                                             "`reopened_by_words` beside `reopened_at`."))
+                                             "`reopened_by_words` beside `reopened_at`.")))
             else:
-                problems.append((ValueError, "--reason must say what this round repairs; it is what the role reads"))
+                problems.append((ValueError, DV.refusal("controller:rework.args", "--reason must say what this round repairs; it is what the role reads")))
         if cause and cause not in REPAIR_CAUSES:
-            problems.append((ValueError, f"--cause {cause!r} must be one of: " + ", ".join(REPAIR_CAUSES)))
+            problems.append((ValueError, DV.refusal("controller:rework.args", f"--cause {cause!r} must be one of: " + ", ".join(REPAIR_CAUSES))))
         # t-2181 PC-6 (C12; t-2277 J-C8): a story HELD FOR CODE refuses the rework of any stage from `held_from` (the story's state,
         # so a StateConflict, FR-46) and, once the person stopped the wait, any rework of the stages below it that is not their
         # words. INVARIANT: no dispatch of a stage the hold keeps closed is built here, and a STOPPED story is reopened only by
@@ -3804,15 +3805,15 @@ class Controller:
             import check_delivery
             author = (acceptance.stage_def_of("S7").get("roles") or [""])[0]
             if stage != "S7" or role != author:
-                problems.append((ValueError, f"--candidates sends the S7 failure analyst back over bug candidates; for {stage} {role} name "
-                                             "`--cases` (S4 and later) or `--rows` (S1-S3)"))
+                problems.append((ValueError, DV.refusal("controller:rework.args", f"--candidates sends the S7 failure analyst back over bug candidates; for {stage} {role} name "
+                                             "`--cases` (S4 and later) or `--rows` (S1-S3)")))
             if wanted or wanted_rows:
-                problems.append((ValueError, "--candidates and --cases/--rows together: name one of them"))
+                problems.append((ValueError, DV.refusal("controller:rework.args", "--candidates and --cases/--rows together: name one of them")))
             found, unreadable = check_delivery.bug_candidates(self.store.root)
             known_refs = [item["ref"] for item in found]
             refused = [ref for ref in wanted_candidates if ref not in known_refs]
             if refused:
-                problems.append((ValueError, check_delivery.candidate_refusal(refused, known_refs, unreadable)))
+                problems.append((ValueError, DV.refusal("controller:rework.args", check_delivery.candidate_refusal(refused, known_refs, unreadable))))
         sent_back = (self._consumer_reject_parent(state, stage, role)
                      if stage_ok and not wanted and not wanted_candidates else None)
         if sent_back:
@@ -3821,20 +3822,20 @@ class Controller:
             # RH1-10 (DC1-13, B-AC4): the refusal names a door. Its receivers are the direct `--operation rework` callers (the
             # driver's roads never reach it: `no_move.check_args` and `answer_pairs_owed` stop an empty S4+ list first). It names
             # only what `rework` takes: `--cases`; `execution_kind` is a `stage-scope` parameter, not a `rework` one.
-            problems.append((ValueError, "--cases must name at least one case of the approved scope: `controller.py --operation "
+            problems.append((ValueError, DV.refusal("controller:rework.args", "--cases must name at least one case of the approved scope: `controller.py --operation "
                                          "stage-scope` lists them"
                                          + (f"; S6 is reworked one half per call: `--cases` of the manual half (at most "
                                             f"{MANUAL_BLOCK_CASES}) or of the automated half — `stage-scope` with `execution_kind` "
                                             "lists each" if stage == "S6" and role == "qa-runner"
-                                            and state.get("plan_contract_mode") == "new" else "")))
+                                            and state.get("plan_contract_mode") == "new" else ""))))
         # N-3: `wanted` is canonicalised ONCE, by the helper `dispatch` refuses with (I1: a person writes `TC-004`, or
         # `session-feedback/TC-004`); the canonical list feeds the scope, the pins' links and `_rerun_stamp` alike.
         canonical, outside = self._outside_approved(wanted, state.get("scope") or [])
         unknown = [member for member, _ in outside]
         if unknown:
-            problems.append((ValueError, f"case(s) outside the approved scope: {', '.join(unknown)}; the approved "
+            problems.append((ValueError, DV.refusal("controller:rework.args", f"case(s) outside the approved scope: {', '.join(unknown)}; the approved "
                                          f"scope is {', '.join(sorted(map(str, state.get('scope') or []))) or 'empty'}"
-                                         + self._scope_door(state.get("scope"), wanted)))
+                                         + self._scope_door(state.get("scope"), wanted))))
         if wanted_rows:
             known = []
             try:
@@ -3845,8 +3846,8 @@ class Controller:
                 known = []
             missing = [row for row in wanted_rows if known and row not in known]
             if missing:
-                problems.append((ValueError, f"plan row(s) not in the approved plan: {', '.join(missing)}; "
-                                             f"the plan has {', '.join(known)}"))
+                problems.append((ValueError, DV.refusal("controller:rework.args", f"plan row(s) not in the approved plan: {', '.join(missing)}; "
+                                             f"the plan has {', '.join(known)}")))
         prior = [d for d in state.get("dispatches", {}).values()
                  if d.get("stage") == stage and d.get("role") == role and d.get("status") == "accepted"]
         # FB-9 (R12): a new-mode qa-runner packet says which half it runs, and a manual rework is a manual BLOCK. The kind comes
@@ -3855,7 +3856,7 @@ class Controller:
         kind = None
         if stage_ok and role == "qa-runner" and state.get("plan_contract_mode") == "new":
             kind, kind_problems = self._rework_kind(stage, state, canonical, prior)
-            problems.extend((ValueError, text) for text in kind_problems)
+            problems.extend((ValueError, DV.refusal("controller:rework.runner_half", text)) for text in kind_problems)
             if kind:
                 prior = [d for d in prior if self._record_kind(d) == kind]
             if kind == "manual":
@@ -3879,23 +3880,23 @@ class Controller:
                     if d.get("stage") == stage and d.get("role") == role and d.get("status") in OPEN_AFTER_CLOSURE
                     and (stage != "S5" or (s5_part_of(d) == "plan") == (purpose == S5_PLAN))]
             if stage == "S5" and purpose == S5_PLAN and not live:
-                problems.append((ValueError, f"no accepted S5 plan dispatch of {role} to rework; a plan never accepted is "
-                                             f"dispatched with `story_step.py start --purpose s5_plan`"))
+                problems.append((ValueError, DV.refusal("controller:rework.args", f"no accepted S5 plan dispatch of {role} to rework; a plan never accepted is "
+                                             f"dispatched with `story_step.py start --purpose s5_plan`")))
             elif stage == "S5" and other_kind and not live:
-                problems.append((ValueError, f"no accepted S5 window of {role} yet; the plan is reworked with "
-                                             f"`--purpose s5_plan`"))
+                problems.append((ValueError, DV.refusal("controller:rework.args", f"no accepted S5 window of {role} yet; the plan is reworked with "
+                                             f"`--purpose s5_plan`")))
             elif live:
                 found = live[-1]
-                problems.append((ValueError, f"no accepted {role} dispatch on {stage} to rework: {found.get('id')} is "
+                problems.append((ValueError, DV.refusal("controller:rework.args", f"no accepted {role} dispatch on {stage} to rework: {found.get('id')} is "
                                              f"{found.get('status')}, not accepted, and a rework sends back accepted work only. "
                                              f"To give {found.get('id')} another turn, the driver resumes it (answer `continue` "
                                              "after recording nothing); to start it again from its brief, "
                                              f"`release --dispatch {found.get('id')} --words-file <their words>` and `next` "
-                                             f"relaunches it; accepted roles on {stage}: {', '.join(roles) or 'none'}"))
+                                             f"relaunches it; accepted roles on {stage}: {', '.join(roles) or 'none'}")))
             else:
-                problems.append((ValueError, f"no accepted {role} dispatch on {stage} to rework"
+                problems.append((ValueError, DV.refusal("controller:rework.args", f"no accepted {role} dispatch on {stage} to rework"
                                              + (f" ({kind} half)" if kind else "") + f"; accepted roles on "
-                                             f"{stage}: {', '.join(roles) or 'none'}"))
+                                             f"{stage}: {', '.join(roles) or 'none'}")))
         parent, resumable = None, True       # None: the last accepted record of the kind (S1-S4, S6-S9, the plan)
         if stage_ok and kind == "manual" and prior:
             # E25: the parent of a manual rework is the block that HOLDS the case (the last accepted one of the half meeting the
@@ -3907,11 +3908,11 @@ class Controller:
         if stage_ok and stage == "S5" and purpose != S5_PLAN and prior:
             parent, resumable, spans = self._s5_window_parent(state, prior, canonical)
             if len(spans) > 1 and not words_given:      # F5: a person's words over several windows are not refused
-                problems.append((ValueError, f"--cases meets {len(spans)} windows of S5 ({'; '.join(spans)}); a rework of a window "
+                problems.append((ValueError, DV.refusal("controller:rework.args", f"--cases meets {len(spans)} windows of S5 ({'; '.join(spans)}); a rework of a window "
                                              f"names the cases of ONE window. Door: rework each window by its own cases (`controller.py "
                                              f"--operation rework --stage S5 --role {role} --cases <the cases of one window> --reason "
                                              "<what to mend> --brief`); a rework over several windows is a person's words (`--words-file "
-                                             "<their words>`)"))
+                                             "<their words>`)")))
         if not stage_ok:   # FR-59: the two checks that did not run say so, they never read as a pass
             problems = self._noted(problems, "(the cases-required and accepted-dispatch checks did not run: "
                                              "they read the stage as a number)")
@@ -5718,11 +5719,11 @@ class Controller:
                     blocking, _ = self._passed_by_person(p["stage"], errors)
                     if blocking:
                         raise StateConflict(
-                            blocking[0] + ". A mechanical fix is closed by the author's own "
+                            DV.refusal("controller:rework.cap", blocking[0] + ". A mechanical fix is closed by the author's own "
                             "green run on the new bytes, never by another review; a review "
                             "that has something new to say about the test is a `test_defect` "
                             "round. If a person wants the review anyway: "
-                            + repair_doors(p["stage"], [key]) + ".")
+                            + repair_doors(p["stage"], [key]) + "."))
                 elif cause == "mechanical":
                     allowed = self._dispatch_setting("mechanical_rounds")
                     had = mechanical_rounds(state["dispatches"], p)
@@ -5733,10 +5734,10 @@ class Controller:
                         blocking, _ = self._passed_by_person(p["stage"], errors)
                         if blocking:
                             raise StateConflict(
-                                blocking[0] + ". A second list of mechanical fixes means the "
+                                DV.refusal("controller:rework.cap", blocking[0] + ". A second list of mechanical fixes means the "
                                 "first was not applied as worded: send it as a `test_defect` "
                                 "round, or carry it as a named debt to the gate. If a person "
-                                "wants one more: " + repair_doors(p["stage"], [key]) + ".")
+                                "wants one more: " + repair_doors(p["stage"], [key]) + "."))
                 elif (cause == "test_defect" and ledger["opened"]
                       and cap is not None and spent >= cap):
                     counted = [r["id"] for r in ledger["rounds"] if r["cause"] == "test_defect"]
@@ -5752,7 +5753,7 @@ class Controller:
                     blocking, _ = self._passed_by_person(p["stage"], errors)
                     if blocking:
                         raise StateConflict(
-                            blocking[0] + ". " + free + "Otherwise carry what is left as a "
+                            DV.refusal("controller:rework.cap", blocking[0] + ". " + free + "Otherwise carry what is left as a "
                             "named debt to the gate instead of another round; a mechanical "
                             "fix the last review worded goes to the author as "
                             "`repair_cause: mechanical` and is closed by the author's own "
@@ -5761,7 +5762,7 @@ class Controller:
                             "author's and the critic's, from the same words: "
                             # The block words must be IN the refused line: `--block "repair
                             # cap"` was advertised here through 0.7.7 and matched nothing.
-                            + repair_doors(p["stage"], list(passes.values())) + ".")
+                            + repair_doors(p["stage"], list(passes.values())) + "."))
             if p.get("purpose") and p["purpose"] not in PURPOSES:
                 # "unsupported purpose; regression is user-owned" answered a question nobody
                 # had asked: a free-text purpose was rejected without naming one that works.
@@ -6215,10 +6216,13 @@ class Controller:
             counts[str(message)] = counts.get(str(message), 0) + 1
         merged, seen = [], set()
         for cls, message in problems:
-            message = str(message)
-            if message not in seen:
-                seen.add(message)
-                merged.append((cls, message if counts[message] == 1 else f"{message} (×{counts[message]})"))
+            text = str(message)
+            if text not in seen:
+                seen.add(text)
+                # a problem that stands once keeps its own object (a `Record` keeps its `check`, t-1108); a folded one is a plain
+                # `str` and loses it
+                merged.append((cls, message if counts[text] == 1 and isinstance(message, str) else
+                               text if counts[text] == 1 else f"{text} (×{counts[text]})"))
         return merged
 
     @classmethod
@@ -6239,7 +6243,9 @@ class Controller:
         lines = [cls.COMPOUND_HEAD.format(n=len(merged))]
         lines += [f"{number}) " + message.replace("\n", "\n   ")
                   for number, (_, message) in enumerate(merged, 1)]
-        raise merged[0][0]("\n".join(lines))
+        exc = merged[0][0]("\n".join(lines))
+        exc.records = [message for _, message in merged if getattr(message, "check", "")]   # an attribute, never a constructor keyword
+        raise exc
 
     @staticmethod
     def _same_set(left, right):
@@ -8283,17 +8289,18 @@ class Controller:
         if not identifier:
             open_ones = [d for d in dispatches.values() if d.get("status") in releasable]
             if len(open_ones) != 1:
-                problems.append((ValueError, "--dispatch names the dispatch to release; open dispatches: "
-                                             + (", ".join(sorted(str(d.get("id")) for d in open_ones)) or "none")))
+                problems.append((ValueError, DV.refusal("controller:release.call", "--dispatch names the dispatch to release; open dispatches: "
+                                             + (", ".join(sorted(str(d.get("id")) for d in open_ones)) or "none"))))
             else:
                 identifier = str(open_ones[0].get("id"))
         if not str(words or "").strip():
-            problems.append((ValueError, "--words records the person's own words: a release is their decision, "
+            problems.append((ValueError, DV.refusal("controller:release.call", "--words records the person's own words: a release is their decision, "
                                          "not the factory's. Pass --words-file <path to their words, as they were "
-                                         "given>"))
+                                         "given>")))
         dispatch = dispatches.get(identifier) if identifier else None
         if identifier and not dispatch:
-            problems.append(self._unknown_dispatch(identifier, dispatches))
+            unknown_cls, unknown_text = self._unknown_dispatch(identifier, dispatches)
+            problems.append((unknown_cls, DV.refusal("controller:release.call", unknown_text)))
         if not identifier:   # no id to look up while the first item stands: that check did not run (FR-59)
             problems = self._noted(problems, "(the unknown-dispatch check did not run: no dispatch is named)")
         self._raise_all(problems)
@@ -10053,6 +10060,10 @@ def main():
     # The story folder and the operation are settled FIRST (K1, one refusal for all of it): a wrong root must not
     # cost the person's words a read, nor any byte on disk (CX1-10).
     root, problems = _cli_story_root(a)
+    if a.operation == "rework":     # the id rides only on the operation whose requirement it names (one literal per branch)
+        problems = [(cls, DV.refusal("controller:rework.call", m)) if cls is ValueError else (cls, m) for cls, m in problems]
+    elif a.operation == "release":
+        problems = [(cls, DV.refusal("controller:release.call", m)) if cls is ValueError else (cls, m) for cls, m in problems]
     Controller._raise_all(problems)
     # The person's words are resolved ONCE, here, before any state is read or written: a refusal
     # (both options, a bad file, inline words through the cmd launcher) leaves no event behind.
@@ -10062,7 +10073,12 @@ def main():
     if a.operation in ("gate-decision", "release", "reopen_story", "leave_unlaunched", "settle_order",
                        "stop_waiting", "first_look_continue"):
         import person_words
-        words = person_words.read(a.words, a.words_file, "--words")
+        try:
+            words = person_words.read(a.words, a.words_file, "--words")
+        except person_words.WordsRefused as exc:
+            if a.operation == "release":
+                raise person_words.WordsRefused(DV.refusal("controller:release.call", str(exc))) from exc
+            raise
     a.risks_text = None
     a.answers_text, a.shown, a.remedies, a.risks_text = None, {}, {}, None
     if a.operation == "gate-decision":
@@ -10078,7 +10094,10 @@ def main():
     reason = a.reason
     if a.operation == "rework" and a.words_file is not None:
         import person_words
-        reason = person_words.read(a.reason, a.words_file, "--reason")
+        try:
+            reason = person_words.read(a.reason, a.words_file, "--reason")
+        except person_words.WordsRefused as exc:
+            raise person_words.WordsRefused(DV.refusal("controller:rework.call", str(exc))) from exc
     # The wait is chosen HERE, at the command's entry, and handed to the controller: a hook that
     # builds a Controller and calls the same methods (SubagentStop's record_return) never
     # inherits it. Read from the module at call time so a test can shorten it.

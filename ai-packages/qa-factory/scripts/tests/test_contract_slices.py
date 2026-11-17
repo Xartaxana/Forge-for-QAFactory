@@ -861,9 +861,19 @@ def test_native_headroom() -> None:
         check_in("T3a (j): a baseline table that is not role -> bytes is not judged, said so", "not judged",
                  " ".join(RL.native_headroom_problems(role_tree("badbase", 10, {"qa-x": "many"}))))
         check_eq("T3a (j): a tree with no role-load.json judges nothing", RL.native_headroom_problems(role_tree("none", headroom + 1, settings=False)), [])
-        check_eq("T3a (j): the shipped package is green (its one role over H stands at its named baseline)", RL.native_headroom_problems(PLUGIN_ROOT), [])
+        check_eq("T3a (j): the shipped package is green (every role over H stands at its named baseline)", RL.native_headroom_problems(PLUGIN_ROOT), [])
         shipped = json.loads((PLUGIN_ROOT / "references" / "role-load.json").read_text(encoding="utf-8"))["native_headroom"]
-        check_eq("T3a (j): the shipped baselines are the K10 rows of KR (the roles over H, named raise)", sorted(shipped), ["qa-automator", "qa-code-critic", "qa-test-strategist"])
+        # the roles over H are READ, never typed: the same function with the baselines emptied names them (K1b, FV2-82)
+        real_settings = RL.settings
+        RL.settings = lambda root=PLUGIN_ROOT: {**real_settings(root), "native_headroom": {}}
+        try:
+            bare = RL.native_headroom_problems(PLUGIN_ROOT)
+        finally:
+            RL.settings = real_settings
+        over_h = [line.split(":")[0].split(" ")[1] for line in bare if ": the plugin share is " in line]
+        check_eq("T3a (j): with no baselines every line is a role over H, none is an unmeasured role", [l for l in bare if ": the plugin share is " not in l], [])
+        check_eq(f"T3a (j): the shipped baselines are the roles over H: its {len(shipped)} roles over H stand at their named baselines",
+                 sorted(shipped), sorted(over_h))
     finally:
         cleanup(tmp)
 
@@ -956,45 +966,82 @@ def test_pages_carry_no_code_line_number() -> None:
 
 
 def test_t1rs() -> None:
-    """T1r-sites S-2: which `execution_request` / `run_suite` rows are told at the call, per role, is DATA joined to PROOF. A producer
-    entry carries the call marker for role R only when the row is proved on EVERY road R uses (`<id>` x `road`); a road that cannot be
-    proved keeps the page for R (more text, never a row in neither carrier). The constants below are pinned to the two S-1 reports
-    (`20261114-t1r-sites-s1a-report.md`, `...-s1b-report.md`): a site proved there as F is proved; W (written, not run) and N (not
-    provoked) are not. `T1rs/marked-by-proof` recomputes the marker of every (row, role) from them and compares it with the data."""
+    """T1r-sites S-2 / K10 pay-down K1b: which `execution_request` / `run_suite` rows are told at the call, per role, is DATA joined to
+    PROOF. A producer entry carries the call marker for role R only when the row is proved on EVERY road R uses (`<id>` x `road`); a
+    road that cannot be proved keeps the page for R (more text, never a row in neither carrier). The constants below come from the
+    K1a carry table (`20261114-k10-paydown-k1a-report.md`) and from the canon run named at each: a site proved by a provoking row
+    that RAN green is proved; a site with no such row, or with a launch before it, is not. `T1rs/marked-by-proof` recomputes the
+    marker of every (row, role) from them and compares it with the data."""
     import re
     import stage_joints as SJ
     from stage_guard import stages_of_role
     er, rs = "execution_request:", "run_suite:"
-    # S-1a / S-1b: the ids with a site written but not provoked by a test that ran (W: selector_args, window_first; N: the `stand`
-    # site of `run_suite.main` (needs a live probe) and the launch-path `store.begin` printer of `run_suite:begin`)
-    unproved_site = {er + "selector_args", er + "window_first", er + "stand", rs + "begin"}
+    # the ids with no site proved by a row that ran green: the `stand` site of `run_suite.main` (needs a live probe) and the
+    # launch-path `store.begin` printer of `run_suite:begin` (FV2-86). `selector_args` and `window_first` left this set when
+    # `test_execution_request.py` (`t1rs_sites_after_the_probe`) was file-level green in canon run 44068480897 (K1b)
+    unproved_site = {er + "stand", rs + "begin"}
     request = {er + k for k in ("purpose", "selection", "budget", "freshness", "runtime", "stand.reference", "fingerprint", "command",
                                 "execution", "selector", "instance_contracts")}                 # the ids `validate_request` raises
     manifest = {er + k for k in ("no_test", "selector_args", "place_rows", "profile", "case_entries")}      # judge the automator's own rows
+    # a road is named by the token of the agent file that names it (one dict; `T1rs/roads-of-role` reads it, never typed twice)
+    road_token = {"run_suite": "run_suite.py", "import_test_receipt": "import_test_receipt.py",
+                  "red_sandbox.probe": "red_sandbox.py --probe", "red_sandbox.diagnostic": "red_sandbox.py --diagnostic",
+                  "probe_by_code": "probe_by_code.py", "execution_scheduler": "execution_scheduler.py"}
     roads_of = {"qa-automator": ["run_suite", "import_test_receipt"], "qa-runner": ["run_suite"],
-                "qa-code-critic": ["run_suite", "red_sandbox", "probe_by_code"], "qa-failure-analyst": ["run_suite", "red_sandbox"]}
-    scripts = ("run_suite", "red_sandbox", "probe_by_code", "import_test_receipt", "execution_scheduler")
+                "qa-code-critic": ["run_suite", "red_sandbox.probe", "probe_by_code"], "qa-failure-analyst": ["run_suite", "red_sandbox.diagnostic"]}
+    # An id counts as carried at P only when every site of the road that can print it is a P site (a refusal of the call before any
+    # launch). An id printed at a P site AND at an L site is NOT P only: it is not proved on that road and stays on the page of every
+    # role that uses the road. Today: `execution_request:profile` (P: `probe_by_code.py` 8284/8367/8372 via the Refusals built at 2698
+    # and 2903; L: 4695 and 6266, a `MineRefusal` of `build_mine_request`) and `execution_request:active_dispatch` (P via 4780; L: 4695
+    # and 6266). So `PROVED_ROAD["probe_by_code"]` is empty. (S1 = A, the owner, 14.11.2026.) The same rule makes `red_sandbox.probe`
+    # empty: its refusal (`red_sandbox.py` 1699-1714) can follow the unmutated baseline launch (1679-1682) or an earlier case group
+    # (1683-1687), P and L. `red_sandbox.diagnostic` has one launch, after the refusal (2188-2198): P only, and its pass-through rows
+    # `K10p/rs-told-passes-through/diagnostic/*` ran green (`test_red_sandbox_probe.py`, canon run 44068480897).
+    # `import_test_receipt` prints every refused check since K1a (`K10p/import-prints-every-check/*`, `test_import_test_receipt_refusal.py`).
+    PROVED_ROAD = {"import_test_receipt": request, "red_sandbox.diagnostic": "pass-through", "red_sandbox.probe": set(), "probe_by_code": set()}
+    # CARRIED: the ids a road can print (K1a carry table); a road with no entry may print any id (unknown: safe side, E3)
+    # - probe_by_code: every `execution_request:*` id (each can come out of `build_mine_request` at the L sites 4695 and 6266); no
+    #   `run_suite:*` id: `run_request` (2968-2980) keeps only the summary and no code of `probe_by_code.py` reads its `told`, every
+    #   `told` it prints comes from `told_fields(exc)` at 4695, 6266, 8284, 8367, 8372
+    # - red_sandbox: every id except `run_suite:phantom_story` (raised only on the `--task` flows `--detail`, `--wait`, untyped run,
+    #   `run_suite.py` 965-974; red_sandbox calls `--mine`), `run_suite:recover` (raised only by `--recover`, `execution_request.py`
+    #   484-486) and `run_suite:reparse` (`run_suite.py` 739-819, the reparse flow)
+    data, _why = SJ.load_rows()
+    fams = SJ.call_families(data)
+    rows = [r for r in data["joints"] if r["check"].split(":")[0] in ("execution_request", "run_suite")]
+    ids = {r["check"] for r in rows}
+    not_by_red_sandbox = {rs + "phantom_story", rs + "recover", rs + "reparse"}
+    CARRIED = {"probe_by_code": {c for c in ids if c.startswith(er)}, "red_sandbox.probe": ids - not_by_red_sandbox,
+               "red_sandbox.diagnostic": ids - not_by_red_sandbox}
+    L_SITE = {"probe_by_code": set(CARRIED["probe_by_code"]), "red_sandbox.probe": set(CARRIED["red_sandbox.probe"])}   # printed after a launch began
 
     def carries(check, road):       # the roads whose printer is known to carry only some ids; every other road: any id (unknown)
-        return check in request if road == "import_test_receipt" else True
+        if road == "import_test_receipt":
+            return check in request
+        return check in CARRIED[road] if road in CARRIED else True
 
-    def proved(check, road):        # only the `run_suite` printers are proved for an id; `import_test_receipt` prints the FIRST check only
-        return road == "run_suite" and check not in unproved_site   # and `red_sandbox` / `probe_by_code` answer dicts are written, not run
+    def proved(check, road):        # `run_suite` printers: every id with a site that ran; the other roads: the PROVED_ROAD ids on top of it
+        if road == "run_suite":
+            return check not in unproved_site
+        return (PROVED_ROAD[road] == "pass-through" or check in PROVED_ROAD[road]) and proved(check, "run_suite")
 
     def expected(check, role):
         if role == "qa-automator" and check in manifest:
             return False
         return all(proved(check, r) for r in roads_of[role] if carries(check, r))
-    data, _why = SJ.load_rows()
-    fams = SJ.call_families(data)
-    rows = [r for r in data["joints"] if r["check"].split(":")[0] in ("execution_request", "run_suite")]
-    ids = {r["check"] for r in rows}
-    check_eq("T1rs/rows: the 31 rows of the two families", (len(rows), len(ids)), (31, 31))
-    # the road list of a role is read from its agent file (the scripts it names), never typed twice
+
+    def held_by(row, role):
+        return any(role in e["roles"] for e in row["producers"])
+    check_eq("T1rs/rows: the two families' row ids are unique", len(rows), len(ids))
+    # the road list of a role is read from its agent file (the tokens it names), never typed twice
     for role, roads in roads_of.items():
         text = (PLUGIN_ROOT / "agents" / f"{role}.md").read_text(encoding="utf-8")
-        check_eq(f"T1rs/roads-of-role/{role}: the scripts of the agent file are the constant's roads",
-                 [s for s in scripts if f"{s}.py" in text], roads)
+        check_eq(f"T1rs/roads-of-role/{role}: the road tokens of the agent file are the constant's roads",
+                 [road for road, token in road_token.items() if token in text], roads)
+    # CARRIED and L_SITE are derived from the rows (they cannot go stale); the typed sets below can, so each is checked against the rows
+    for road, typed in (("run_suite", unproved_site), ("import_test_receipt", request),
+                        ("red_sandbox.probe", not_by_red_sandbox), ("red_sandbox.diagnostic", not_by_red_sandbox)):
+        check_eq(f"T1rs/road-carries/{road}: every id the constants type for the road names one of the rows", sorted(typed - ids), [])
     sited = set(SJ.check_ids())
     for fam in ("execution_request", "run_suite"):
         check_eq(f"T1rs/sited/{fam}: every row id is the literal key of a site (not only a sub-id of one)",
@@ -1003,38 +1050,51 @@ def test_t1rs() -> None:
     wrong = []
     for row in rows:
         for role in roads_of:
-            held = any(role in e["roles"] for e in row["producers"])
-            if held and SJ.call_told(row, role, fams) != expected(row["check"], role):
+            if held_by(row, role) and SJ.call_told(row, role, fams) != expected(row["check"], role):
                 wrong.append((row["check"], role, SJ.call_told(row, role, fams)))
     check_eq("T1rs/marked-by-proof: call_told(row, role) is True exactly when the row is proved on every road the role uses", wrong, [])
     check_eq("T1rs/entry-uniform: every role of one producer entry takes the same carrier (an entry is split where the proof differs)",
              [row["check"] for row in rows for e in row["producers"]
               if len({bool(t.get("call")) for t in e["told"]}) != 1 or len({expected(row["check"], r) for r in e["roles"] if r in roads_of}) != 1], [])
-    # the five manifest-row rows: the automator judges its own rows -> page; the others by their roads (runner only, today)
-    for key in sorted(manifest):
-        row = next(r for r in rows if r["check"] == key)
-        check_eq(f"T1rs/partial-split/{key}: automator page; runner call unless unproved; code-critic and analyst page (their roads are unproved)",
-                 [SJ.call_told(row, r, fams) for r in ("qa-automator", "qa-runner", "qa-code-critic", "qa-failure-analyst")],
-                 [False, key not in unproved_site, False, False])
     # the page: one index line per family, the count of the role's call-told rows; the page-told rows stay whole lines
     model = json.loads((PLUGIN_ROOT / "references" / "stages.json").read_text(encoding="utf-8"))
-    counted = {"qa-automator": (5, 5), "qa-runner": (10, 3), "qa-code-critic": (0, 0), "qa-failure-analyst": (0, 0)}   # measured
-    for role, (n_er, n_rs) in counted.items():
-        text = "\n".join(CS.handoff_keys_pages(PLUGIN_ROOT, role))
+    texts = {role: "\n".join(CS.handoff_keys_pages(PLUGIN_ROOT, role)) for role in roads_of}
+    # E4: an id printed after a launch began is never told before the work, whatever else proves it
+    for road, l_ids in L_SITE.items():
+        for role in (r for r, roads in roads_of.items() if road in roads):
+            check_eq(f"T1rs/l-site-keeps-page/{road}/{role}: no row printed at an L site of the road is call-told for the role",
+                     sorted(r["check"] for r in rows if r["check"] in l_ids and held_by(r, role) and SJ.call_told(r, role, fams)), [])
+    # a road with nothing proved keeps every id it carries on the page of every role that uses it
+    for road, proof in PROVED_ROAD.items():
+        if proof:
+            continue
+        for role in (r for r, roads in roads_of.items() if road in roads):
+            check_eq(f"T1rs/unproved-road-keeps-page/{road}/{role}: every held id the road carries is a whole line of the role's page",
+                     sorted(r["check"] for r in rows if r["check"] in CARRIED[road] and held_by(r, role) and f"- [{r['check']}] " not in texts[role]), [])
+    # the manifest rows: the automator judges its own rows -> page; the runner by its road; the code-critic page (its probe roads are
+    # unproved); the analyst by the diagnostic road
+    for key in sorted(manifest):
+        row = next(r for r in rows if r["check"] == key)
+        check_eq(f"T1rs/partial-split/{key}: automator page; runner call unless unproved; code-critic page (probe roads unproved); analyst by the diagnostic road",
+                 [SJ.call_told(row, r, fams) for r in ("qa-automator", "qa-runner", "qa-code-critic", "qa-failure-analyst")],
+                 [False, key not in unproved_site, False, key not in unproved_site])
+    for role in roads_of:
+        text = texts[role]
         stages = [str(s.get("id")) for s in stages_of_role(model, role)]
         held = [r for r in SJ.rows_for(role, stages, None, data=data) if r["check"] in ids]
         told_at_call = {r["check"] for r in held if SJ.call_told(r, role, fams)}
-        for fam, n in (("execution_request", n_er), ("run_suite", n_rs)):
+        for fam in ("execution_request", "run_suite"):
             line = re.findall(rf"^- \[{fam}:\*\] (\d+) checks", text, re.M)
             own = {c for c in told_at_call if c.startswith(fam + ":")}
             check_eq(f"T1rs/index-line/{fam}/{role}: one line holding the count of the role's call-told rows, none when there are none",
-                     (line, len(own)), ([str(n)] if n else [], n))
+                     (line, len(own)), ([str(len(own))] if own else [], len(own)))
             check_eq(f"T1rs/no-row-lost/{fam}/{role}: a held row is a whole page line or counted by the index line, never both",
                      sorted(c for c in (r["check"] for r in held) if c.startswith(fam + ":")
                             and (f"- [{c}] " in text) == (c in own)), [])
+        own_er = [c for c in told_at_call if c.startswith("execution_request:")]
         check_eq(f"T1rs/index-line/execution_request/{role}: the before-work door and the three roads are named when the line is",
-                 all(w in text for w in ("`run_suite.py --template request`", "`red_sandbox.py`", "`probe_by_code.py`")) if n_er else True, True)
-    auto = "\n".join(CS.handoff_keys_pages(PLUGIN_ROOT, "qa-automator"))
+                 all(w in text for w in ("`run_suite.py --template request`", "`red_sandbox.py`", "`probe_by_code.py`")) if own_er else True, True)
+    auto = texts["qa-automator"]
     check_eq("T1rs/partial-family/qa-automator: the ER index line AND the five manifest rows as whole lines (E3)",
              ("- [execution_request:*] " in auto, [f"- [{k}] " in auto for k in sorted(manifest)]), (True, [True] * 5))
 

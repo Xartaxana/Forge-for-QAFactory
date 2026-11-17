@@ -1,0 +1,1 @@
+- dry world (`scripts/tests/dry_stub.py`): the stub's `qa-code-critic@S5` writes the findings file of its dispatch from the story's `files` row (`<dispatch>` is resolved by the stub), so the window is receipted; a story with no such row is a KitError naming the key (FV3-20)

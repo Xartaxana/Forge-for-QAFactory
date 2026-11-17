@@ -694,3 +694,14 @@ T1r-cards-R и её билдер получают это как условие.
 - **K5/real** (после простановки сайтов волны A роли встречают проверки, строки которых их не называют): роль
   добавляется в строку, только если проверка её действительно встречает; красный предел страницы — решение Lead по
   слову владельца «не в ущерб правилам; если не влезет — можно поднять».
+
+## Lead decisions on T9c at the build (17.11.2026, owner away: by recommendation, until the owner's word)
+
+Builder t-1079 returned five questions (report `docs/tasks/specs/reports/20261117-tbw-t9c-report.md` §7):
+- Q1, Q3 — the 14 command rows and `planning_contract:plan.unmarked_revision` are NOT landed: each would raise
+  `told_ratchet.unsited`. They wait for a siting node (a literal `refusal()` site per row); no ratchet raise.
+- Q2 — the four `no_move:*` joints enter `fixtures/driver-exits/gates.json` as `unwalked` (the L1c precedent form);
+  the group's ratchet rises by 4, named. Not `live_only`: the dry gate rows do reach the conductor.
+- Q4 — the `no_move:args` sentence names every kind `check_args` accepts (bug candidates at S7 since FL4).
+- Q5 — an unreadable rows file prints `NOT KNOWN: … (<why>)`, never the "nothing checked" sentence (FR-41, FR-59).
+Q2, Q4, Q5 go to a fresh builder (t-1087) in the same tree; one code critic after it over both commits.

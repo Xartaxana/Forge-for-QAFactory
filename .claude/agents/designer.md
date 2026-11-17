@@ -35,7 +35,11 @@ you.
    an ambiguity in the brief) goes into a "forks" list item with the
    options and your recommendation. Silently closing a fork is a role
    violation. Small technical choices with no design weight are
-   closed by you and listed separately.
+   closed by you and listed separately. A defect the draft meets in
+   the node's own reach is FIXED by the card (its owns widen), never
+   prescribed as "file a finding": a finding is offered only for
+   another pile's zone or an owner's decision, as a fork (the
+   owner's word 17.11.2026; critic brief item 4).
 3. Freshness of load-bearing facts: verify every load-bearing claim
    the draft makes about the state of the repo/files by READING the
    carrier, not from memory of the brief; a negative claim ("X is

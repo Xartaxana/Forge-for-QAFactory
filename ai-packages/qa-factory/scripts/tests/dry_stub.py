@@ -746,7 +746,9 @@ def calls_before(task_dir: Path, key: str) -> int:
     return len([r for r in rows if (r.get("dispatch") or r.get("conductor")) == key])
 
 
-STUB_KEY = re.compile(r"[a-z][a-z0-9-]*(@S[0-9](#[0-9])?)?")      # `<role>`, `<role>@<stage>`, `<role>@<stage>#<window>`
+HALVES = ("automation", "manual")                                    # the two halves of a stage (the dispatch record's `execution_kind`); S6 runs both
+STUB_KEY = re.compile(r"[a-z][a-z0-9-]*(@S[0-9](#([0-9]|automation|manual))?)?")      # `<role>`, `<role>@<stage>`, `<role>@<stage>#<window>`, `<role>@<stage>#<half>`
+HALF_KEY = re.compile(r"(.+@S[0-9])#(automation|manual)")
 STUB_PLAIN_KEYS = ("source_relevance",)                              # keys of the table that are no role row
 WINDOW1_MARK = "Closed words of work/grounding.yaml, given here"    # the line only the S3 labelling brief carries (`brief_pack.s3_labelling_vocabulary_lines`)
 
@@ -761,14 +763,36 @@ def window_of(brief: str) -> str:
     return "1" if WINDOW1_MARK in brief else ""
 
 
-def stub_control(control: dict, role: str, stage: str, window: str = "") -> dict:
-    """The ONE reader of a role's row in the control's `stub`: `<role>@<stage>#<window>` over `<role>@<stage>` over `<role>` (the default for every stage of
-    a role). A key of the table that has none of these forms is a `KitError` naming it - a mistyped key must never be a silently absent row."""
+def half_of(task_dir: Path, dispatch: str) -> str:
+    """"manual" or "automation": the half the dispatch ran, from its record in `state/controller.json` through the controller's one reader
+    (`Controller._record_kind`: the committed request's `execution_kind`, then the record's own) - never from the brief's prose or the dispatch id. An empty
+    kind (a legacy record, no record, no state file) reads as automation, the way `stage_S6` reads it."""
+    import controller as CT
+    try:
+        state = json.loads((Path(task_dir) / "state" / "controller.json").read_text(encoding="utf-8"))
+        record = (state.get("dispatches") or {}).get(dispatch)
+    except (OSError, ValueError, AttributeError):
+        record = None
+    kind = CT.Controller._record_kind(record) if isinstance(record, dict) else ""
+    return "manual" if kind == "manual" else "automation"
+
+
+def stub_control(control: dict, role: str, stage: str, window: str = "", half: str = "") -> dict:
+    """The ONE reader of a role's row in the control's `stub`: `<role>@<stage>#<window>` and `<role>@<stage>#<half>` over `<role>@<stage>` over `<role>` (the
+    default for every stage of a role). A key of the table that has none of these forms is a `KitError` naming it - a mistyped key must never be a silently
+    absent row. When a `<role>@<stage>#<half>` row exists, the plain `<role>@<stage>` row beside it is a `KitError` naming both: a plain row would answer the
+    other half too. A half with no row of its own gets no row of that pair (the caller says `live_only`), never the other half's."""
     table = control.get("stub") or {}
     bad = [k for k in table if k not in STUB_PLAIN_KEYS and not (isinstance(k, str) and STUB_KEY.fullmatch(k))]
     if bad:
-        raise KitError(f"the story's `stub` table has the key {bad[0]!r}; expected `<role>`, `<role>@<stage>` or `<role>@<stage>#<window>` (or one of {list(STUB_PLAIN_KEYS)})")
-    rows = [table.get(role), table.get(f"{role}@{stage}"), table.get(f"{role}@{stage}#{window}") if window else None]
+        raise KitError(f"the story's `stub` table has the key {bad[0]!r}; expected `<role>`, `<role>@<stage>`, `<role>@<stage>#<window>` or `<role>@<stage>#<half>` "
+                       f"(half: {' or '.join(HALVES)}; or one of {list(STUB_PLAIN_KEYS)})")
+    for key in table:
+        found = HALF_KEY.fullmatch(key) if isinstance(key, str) else None
+        if found and found.group(1) in table:
+            raise KitError(f"the story's `stub` table holds both `{found.group(1)}` and `{key}`: a plain row answers every half; keep only the `#<half>` rows")
+    rows = [table.get(role), table.get(f"{role}@{stage}"), table.get(f"{role}@{stage}#{window}") if window else None,
+            table.get(f"{role}@{stage}#{half}") if half else None]
     return {k: v for row in rows for k, v in (row or {}).items()}
 
 
@@ -821,16 +845,25 @@ def apply_grounding(task_dir: Path, data: dict, key: str) -> list:
     return wrote
 
 
-def write_files(task_dir: Path, data, key: str) -> list:
+DISPATCH_WORD = "<dispatch>"      # in a `files` path or text: the id of the call's own dispatch, resolved here (the critic's findings file is one per dispatch)
+
+
+def write_files(task_dir: Path, data, key: str, dispatch: str = "") -> list:
     """The role's own files that no filler row and no tool writes (the S4 case critic's `work/test-cases/critic-findings.md` with its `## Roll-call`,
     `agents/qa-case-critic.md` "Tools"), as story data: `data` = `{"<path under work/>": "<the file's text>" | ["<line>", ...]}`. The text is the ROLE's word
     (its verdict, its rows); every number derived from it (`review.rollcall`, the roll-call claim) stays code's, computed by `handoff_check --fix` from this file.
+    `<dispatch>` in a path or a text is the call's dispatch id (`dispatch`); a call that names none is a `KitError` naming the key (never a file named `<dispatch>`).
     A path outside `work/` (or climbing out of it), a value that is not text or a list of lines, or an empty text: `KitError` naming the key. Returns the paths written."""
     if not isinstance(data, dict) or not data:
         raise KitError(f"{key}: `files` is {data!r}; expected an object of `<path under work/>` -> text (or a list of lines)")
     wrote = []
     for path, body in data.items():
         text = "\n".join(body) if isinstance(body, list) and all(isinstance(x, str) for x in body) else body
+        if DISPATCH_WORD in str(path) or (isinstance(text, str) and DISPATCH_WORD in text):
+            if not dispatch:
+                raise KitError(f"{key}: `files[{path!r}]` uses `{DISPATCH_WORD}` but the call names no dispatch")
+            path = str(path).replace(DISPATCH_WORD, dispatch)
+            text = text.replace(DISPATCH_WORD, dispatch) if isinstance(text, str) else text
         parts = str(path).replace("\\", "/").split("/")
         if parts[0] != "work" or len(parts) < 2 or any(p in ("", ".", "..") for p in parts):
             raise KitError(f"{key}: `files` names {path!r}; expected a path under work/ with no `..`")
@@ -843,13 +876,44 @@ def write_files(task_dir: Path, data, key: str) -> list:
     return wrote
 
 
+def check_findings_file(task_dir: Path, dispatch: str, key: str) -> None:
+    """The code critic's own file of its dispatch must exist before the call goes on: the controller receipts the window on `work/test-code/critic-findings-<dispatch>.md`
+    (`story_step._role_receipts` -> `findings_path.resolve`, the product's one resolver, AR-13; `controller._code_review_problems` refuses the window without it). A story
+    whose `stub` writes none for this dispatch is a `KitError` naming the key to add (FR-59: never an empty file, never a window left unreceipted by omission)."""
+    import findings_path
+    if not findings_path.per_dispatch(dispatch) or not (task_dir / findings_path.per_dispatch(dispatch)).is_file():
+        raise KitError(f"{key}: the story's `stub` writes no findings file for {dispatch or 'this dispatch'}; expected `{key}.files[\"{findings_path.per_dispatch(DISPATCH_WORD)}\"]` "
+                       "(the critic's review text; the window is not receipted without it)")
+
+
+NEWEST_WORD = re.compile(r"<newest:([^<>]+)>")      # in a string override of a form field: the path (task-relative) of the newest file the glob finds
+
+
+def resolve_newest(over: dict, task_dir: Path, key: str) -> dict:
+    """The overrides with every `<newest:GLOB>` replaced by the task-relative path of the newest file under the task root that GLOB matches (the modified time, then the name): a
+    role cites a record whose name carries a clock (`evidence/runtime-provenance-<profile>-<ts>.json`), a story file cannot hold that name. Nothing matching, an absolute
+    glob or one that climbs out of the task root is a `KitError` naming the key and the override (never a path made up, never a hint left in a field)."""
+    done = {}
+    for path, value in over.items():
+        def pick(found, path=path):
+            glob = found.group(1)
+            if Path(glob).is_absolute() or ".." in Path(glob).parts:
+                raise KitError(f"{key}: override `{path}` names `<newest:{glob}>`; expected a glob relative to the task root with no `..`")
+            files = sorted((p for p in task_dir.glob(glob) if p.is_file()), key=lambda p: (p.stat().st_mtime_ns, p.name))
+            if not files:
+                raise KitError(f"{key}: override `{path}` names `<newest:{glob}>` and no file of the task root matches it")
+            return files[-1].relative_to(task_dir).as_posix()
+        done[path] = NEWEST_WORD.sub(pick, value) if isinstance(value, str) else value
+    return done
+
+
 def _fill_form(row: dict, form: Path, contract, ctx, mine: dict, n: int, dispatch: str, task_dir: Path) -> None:
     """The role's handover form: filled by the story's overrides and the rules (`fill_handover`), written in place; what cannot be filled is a `live_only` row."""
     if not contract:
         row["live_only"].append({"output": f"work/handoffs/{dispatch}.yaml", "why": "no form with a `contract:` line at that path"})
         return
     try:
-        over = overrides_for(mine, contract.group(1), n)
+        over = resolve_newest(overrides_for(mine, contract.group(1), n), task_dir, f"{row['role']}@{row.get('stage', '')}.overrides[{contract.group(1)}]")
         field = FORM_SOURCE_PATH.get(contract.group(1))
         if field and field not in over:
             kept = relevant_source_paths(task_dir / "work" / "source-inventory.json")
@@ -941,7 +1005,7 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
     brief_text = brief.read_text(encoding="utf-8", errors="replace") if brief.is_file() else ""
     window = window_of(brief_text)
     row["window"] = window
-    mine = stub_control(control, role, stage, window)
+    mine = stub_control(control, role, stage, window, half_of(task_dir, dispatch))
     task = control.get("task", "")
     import dry_world as W
     try:
@@ -960,8 +1024,9 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
     # The role's own files, as the story's data, land BEFORE the critic's probe (a real critic writes its model file `work/probe-models/<dispatch>.json` before it
     # probes) and before `--fix` below, which derives from them. Invariant: `files` never overwrite a form - the form is filled after this block (`_fill_form`).
     if "files" in mine:
-        row["wrote"] += write_files(task_dir, mine["files"], f"{role}@{stage}")
+        row["wrote"] += write_files(task_dir, mine["files"], f"{role}@{stage}", dispatch)
     if kit and role == "qa-code-critic" and stage == "S5":      # the probe BEFORE the form: the form's `<instance>` rows are the records that exist (`world_list`), never invented ones
+        check_findings_file(task_dir, dispatch, f"{role}@{stage}")
         done = critic_branch(project, task_dir, kit, runner_row(kit["runner"]), dispatch, fragments=mine.get("manifest_fragments"))
         row["wrote"] += done["wrote"]
         row["live_only"] += done["live_only"]
@@ -1472,6 +1537,7 @@ def selftest_n2(tmp: Path) -> None:
                   "no command" in row.get("no_command", "") and row.get("ran") == [] and "decoy" not in json.dumps(row.get("ran")), json.dumps(row)[:600])
     # N2h-a: the code critic's probe at S5 - the real tool as a process per instance, before the form; the stops are named (edges 1-7)
     runner = runner_row(kit["runner"])
+    FINDINGS_ROW = {"work/test-code/critic-findings-<dispatch>.md": ["# Critic findings, S5", "", "Verdict: approve"]}      # the smallest story row the check accepts (FV3-20)
     project, task_dir = world("crit")
     code, text = form(project, task_dir, "S5", "qa-automator", "A5")
     check("N2h: handoff_init made the S5 automator form of the critic's world", code == 0, text)
@@ -1570,14 +1636,19 @@ def selftest_n2(tmp: Path) -> None:
     # the same through the stub as a process: the real tool runs in the world (this bare world opens no dispatch, so it refuses: rc!=0), the row names it, no record
     code, text = form(project, task_dir, "S5", "qa-code-critic", "C5")
     check("N2h: handoff_init made the S5 critic form", code == 0, text)
+    # FV3-20: a critic call whose story writes no findings file of its dispatch is a KitError naming the key (rc 3, nothing probed, the journal row says failed); one that writes it is the call below
     rc, answer, err = call(project, control, f"Artifacts dir: {task_dir}\nDispatch: C5.\n", "-p", "--agent", "qa-factory:qa-code-critic")
+    check_eq("FV3-20: a critic call with no findings text for its dispatch is rc 3, stderr names the key `qa-code-critic@S5.files[\"work/test-code/critic-findings-<dispatch>.md\"]`, no probe ran, no file was written",
+             (rc, "qa-code-critic@S5.files[\"work/test-code/critic-findings-<dispatch>.md\"]" in err, rows(task_dir)[-1].get("failed"), folder.exists(),
+              (task_dir / "work" / "test-code" / "critic-findings-C5.md").exists()), (3, True, True, False, False))
+    rc, answer, err = call(project, dict(control, stub={"qa-code-critic@S5": {"files": FINDINGS_ROW}}), f"Artifacts dir: {task_dir}\nDispatch: C5.\n", "-p", "--agent", "qa-factory:qa-code-critic")
     probed = rows(task_dir)[-1]
     check_eq("N2h: through the process the critic's call ran the real probe_by_code.py on the instance; its refusal is a live_only row, no record, the form names none",
              (rc, [(p["instance"], p["exit"] != 0) for p in probed.get("probes", [])], folder.exists(), "work/probes/test_the_case.json" in (task_dir / "work" / "handoffs" / "C5.yaml").read_text(encoding="utf-8")),
              (0, [("test_the_case", True)], False, False))
     # F7: the critic's own file (its model file) lands BEFORE the probe the same call runs: the real tool reads it, so the refusal is no longer `no model is stored`
     shutil.rmtree(folder, ignore_errors=True)
-    modeled = dict(control, stub={"qa-code-critic@S5": {"files": {"work/probe-models/C5.json": ['{"models": []}']}}})
+    modeled = dict(control, stub={"qa-code-critic@S5": {"files": dict(FINDINGS_ROW, **{"work/probe-models/C5.json": ['{"models": []}']})}})
     rc, answer, err = call(project, modeled, f"Artifacts dir: {task_dir}\nDispatch: C5.\n", "-p", "--agent", "qa-factory:qa-code-critic")
     probed = rows(task_dir)[-1]
     check_eq("N2h (F7): a `files` row of the critic is written before the probe: it is in `wrote` and the probe's tool read it (its text no longer says the file is absent)",
@@ -1640,7 +1711,7 @@ def selftest_n2(tmp: Path) -> None:
     import role_digest as RD
     check_eq("N2h-v: the story's qa-code-critic@S5 digest passes the product's digest check for scope [TC-1]", RD.check(frag_story["result_text"], ["TC-1"]), [])
     shutil.rmtree(folder, ignore_errors=True)
-    modeled = dict(control, stub={"qa-code-critic@S5": {"files": {"work/probe-models/C5.json": ['{"models": []}']}, "manifest_fragments": frag_story["manifest_fragments"]}})
+    modeled = dict(control, stub={"qa-code-critic@S5": {"files": dict(FINDINGS_ROW, **{"work/probe-models/C5.json": ['{"models": []}']}), "manifest_fragments": frag_story["manifest_fragments"]}})
     rc, answer, err = call(project, modeled, f"Artifacts dir: {task_dir}\nDispatch: C5.\n", "-p", "--agent", "qa-factory:qa-code-critic")
     probed = rows(task_dir)[-1]
     seen_window = probed.get("window_record") or {}
@@ -1930,6 +2001,91 @@ def selftest_n2c(tmp: Path) -> None:
     check_eq("N2d: the story's S4 critic file reads through the product's roll-call reader and derives `2 of 2 reviewed`",
              ([(r["plan_row"], r["ids"], r["reviewed"], r["verdict"]) for r in rows], CR.derive(rows)["digest"]),
              ([("TS-1", ["TC-1"], True, "approve"), ("TS-2", ["TC-2"], True, "approve")], "2 of 2 reviewed"))
+    # FV3-20: `<dispatch>` in a `files` path or text is the call's dispatch; the story's findings row is read by the product's own resolver and receipt road
+    got = write_files(out, {"work/test-code/critic-findings-<dispatch>.md": ["# for <dispatch>"]}, "k", "S5-qa-code-critic-9")
+    check_eq("FV3-20: `<dispatch>` in a path and in the text is resolved to the call's dispatch; the path written is named",
+             (got, (out / "work" / "test-code" / "critic-findings-S5-qa-code-critic-9.md").read_bytes()), (["work/test-code/critic-findings-S5-qa-code-critic-9.md"], b"# for S5-qa-code-critic-9\n"))
+    for name, args in (("a path with `<dispatch>` and no dispatch named", ({"work/x-<dispatch>.md": "t"}, "k", "")),
+                       ("a text with `<dispatch>` and no dispatch named", ({"work/x.md": "for <dispatch>"}, "k", ""))):
+        try:
+            write_files(out, *args)
+            got_text = "no error"
+        except KitError as exc:
+            got_text = str(exc)
+        check(f"FV3-20: `files` with {name} is a KitError naming the key and `<dispatch>`", got_text.startswith("k:") and "<dispatch>" in got_text, got_text)
+    try:
+        check_findings_file(out, "S5-qa-code-critic-8", "qa-code-critic@S5")
+        got_text = "no error"
+    except KitError as exc:
+        got_text = str(exc)
+    check("FV3-20: no findings file for the dispatch is a KitError naming the key to add, not an empty file", got_text.startswith("qa-code-critic@S5:") and
+          "qa-code-critic@S5.files[\"work/test-code/critic-findings-<dispatch>.md\"]" in got_text and not (out / "work" / "test-code" / "critic-findings-S5-qa-code-critic-8.md").exists(), got_text)
+    check_eq("FV3-20: the file written for S5-qa-code-critic-9 passes the check", check_findings_file(out, "S5-qa-code-critic-9", "qa-code-critic@S5"), None)
+    import findings_path
+    import story_step
+    story_findings = stub_control({"stub": story}, "qa-code-critic", "S5")["files"]
+    wrote_story = write_files(out, story_findings, "qa-code-critic@S5", "S5-qa-code-critic-1")
+    own_file = out / findings_path.per_dispatch("S5-qa-code-critic-1")
+    own_text = own_file.read_text(encoding="utf-8") if own_file.is_file() else ""
+    check_eq("FV3-20: the story's critic row writes the findings file of its dispatch at the product's path, and the product's receipt road (`story_step._role_receipts`) names it as evidence",
+             (findings_path.per_dispatch("S5-qa-code-critic-1") in wrote_story, story_step._role_receipts(out, "qa-code-critic", "S5-qa-code-critic-1")),
+             (True, ["work/test-code/critic-findings-S5-qa-code-critic-1.md"]))
+    check_eq("FV3-20: the review is an approval that names the instance and the case of the window (whole words, as the ledger's pointer reads them) and has no finding row",
+             (bool(re.search(r"(?<![\w-])TC-1(?![\w-])", own_text)), "test_the_case" in own_text, "Verdict: approve" in own_text.splitlines(), "<dispatch>" in own_text),
+             (True, True, True, False))
+    # FV3-20 (S6): `<newest:GLOB>` in a form override, and the story's S6 runner row read by the product's own digest check and form filler
+    runner_task = tmp / "fv320-s6" / "T"
+    for name in ("evidence/runtime-provenance-p-1.json", "evidence/runs/k/initial-k-1.json"):
+        (runner_task / name).parent.mkdir(parents=True, exist_ok=True)
+        (runner_task / name).write_text("{}", encoding="utf-8")
+    os.utime(runner_task / "evidence/runtime-provenance-p-1.json", (1, 1))
+    (runner_task / "evidence/runtime-provenance-p-2.json").write_text("{}", encoding="utf-8")
+    check_eq("FV3-20: `<newest:GLOB>` is the task-relative path of the newest match (the modified time, so `-2` over `-1`), inside a longer text too, and a non-text value passes through",
+             resolve_newest({"a": "<newest:evidence/runtime-provenance-*.json>", "b": "see <newest:evidence/runs/*/initial-*.json>.", "c": True, "d": "plain"}, runner_task, "k"),
+             {"a": "evidence/runtime-provenance-p-2.json", "b": "see evidence/runs/k/initial-k-1.json.", "c": True, "d": "plain"})
+    for name, glob in (("no match", "evidence/none-*.json"), ("an absolute glob", str(runner_task / "evidence" / "*.json")), ("a climbing glob", "../*.json")):
+        try:
+            resolve_newest({"f.x": f"<newest:{glob}>"}, runner_task, "k")
+            got_text = "no error"
+        except KitError as exc:
+            got_text = str(exc)
+        check(f"FV3-20: `<newest:GLOB>` with {name} is a KitError naming the key and the override", got_text.startswith("k: override `f.x`") and "<newest:" in got_text, got_text)
+    import role_digest
+    runner = stub_control({"stub": story}, "qa-runner", "S6", half="automation")
+    # FV3-20 fix round (t-1106 J2-1): the half of a dispatch is read from its record; a half with no row gets no values; plain + half rows are a KitError
+    half_table = {"qa-runner@S6#automation": {"verdict": "ok"}}
+    half_task = Path(tmp) / "half-task"
+    (half_task / "state").mkdir(parents=True, exist_ok=True)
+    half_records = {"auto-bound": {"request_binding": {"execution_kind": "automation"}}, "manual-bound": {"request_binding": {"execution_kind": "manual"}},
+                    "manual-own": {"execution_kind": "manual"}, "empty": {"request_binding": {"execution_kind": ""}}, "legacy": {"role": "qa-runner"}}
+    (half_task / "state" / "controller.json").write_text(json.dumps({"dispatches": half_records}), encoding="utf-8")
+    for label, name, want_half, want_row in (("a manual dispatch (committed request)", "manual-bound", "manual", {}),
+                                             ("a manual dispatch (the record's own field)", "manual-own", "manual", {}),
+                                             ("an automation dispatch", "auto-bound", "automation", {"verdict": "ok"}),
+                                             ("an empty kind reads as automation", "empty", "automation", {"verdict": "ok"}),
+                                             ("a legacy record with no kind reads as automation", "legacy", "automation", {"verdict": "ok"}),
+                                             ("a dispatch with no record reads as automation", "none", "automation", {"verdict": "ok"})):
+        got_half = half_of(half_task, name)
+        check_eq(f"FV3-20 J2-1: {label}: the half, and the row the `#<half>` table gives it (a manual dispatch gets no values from the automation row)",
+                 (got_half, stub_control({"stub": half_table}, "qa-runner", "S6", half=got_half)), (want_half, want_row))
+    for label, both in (("a plain row beside a #automation row", {"qa-runner@S6": {"a": 1}, "qa-runner@S6#automation": {"b": 2}}),
+                        ("a plain row beside a #manual row", {"qa-runner@S6": {"a": 1}, "qa-runner@S6#manual": {"b": 2}})):
+        try:
+            stub_control({"stub": both}, "qa-runner", "S6", half="manual")
+            got_text = "no error"
+        except KitError as exc:
+            got_text = str(exc)
+        check(f"FV3-20 J2-1: {label} is a KitError naming both keys", "`qa-runner@S6`" in got_text and "`qa-runner@S6#" in got_text, got_text)
+    check_eq("FV3-20 J2-1: the story's S6 runner row is keyed by half only (no plain `qa-runner@S6`, no `#manual` row)",
+             sorted(k for k in story if k.startswith("qa-runner")), ["qa-runner@S6#automation"])
+    check_eq("FV3-20: the story's S6 runner digest is the handoff form (the product's `role_digest.check`: a path line, a row for TC-1) and its verdict is the form's",
+             (role_digest.check(runner["result_text"], ["TC-1"]), runner["verdict"], runner["result_text"].splitlines()[0].endswith("· " + runner["verdict"])), ([], "ok", True))
+    kit_s6 = load_kit("dry-1")
+    filled_s6 = fill_handover("s6-runner-to-analyst", kit_context(kit_s6, "S6-qa-runner-1", task_root=str(runner_task)), runner["verdict"],
+                              resolve_newest(overrides_for(runner, "s6-runner-to-analyst", 1), runner_task, "k"))
+    check("FV3-20: the story's S6 row fills the form: every row the role fills is its own (the case, the stand, the probe records), and no row says blocked, unresolved or env_blocked",
+          filled_s6.data["scope"][0]["id"] == "TC-1" and filled_s6.data["run"]["environment"] == "dry-world" and filled_s6.data["run"]["probe_after"].startswith("evidence/runtime-provenance-")
+          and filled_s6.data["env_blocked"] == [] and filled_s6.data["unresolved"] == [] and "blocked" not in filled_s6.data and "filled" not in filled_s6.text.replace("filled by code", ""), filled_s6.text[:300])
     # N2e: the automator's story fragments (`qa-automator@S5.manifest_fragments`) and its row of the story
     for name, bad in (("a string", "x"), ("an empty object in the list", [{}]), ("a non-object in the list", [3]), ("an object, not a list", {"then_bindings": []})):
         try:

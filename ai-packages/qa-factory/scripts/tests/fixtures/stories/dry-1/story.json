@@ -43,6 +43,22 @@
      "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
      "   \"actual\": \"8\"}",
      "]}"
+    ],
+    "work/test-code/critic-findings-<dispatch>.md": [
+     "# Critic findings, S5, <dispatch>, window TC-1",
+     "",
+     "Verdict: approve",
+     "",
+     "## Roll-call",
+     "",
+     "| instance | case | state | note |",
+     "|---|---|---|---|",
+     "| test_the_case | TC-1 | approved | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total with a quantity; the probe that sums the prices only (8, not 13) turns it red, so the test is sensitive to the change under review |",
+     "",
+     "## Notes",
+     "",
+     "- No finding: the test proves the Then of TC-1 and not more than the requirement asks.",
+     "- TC-2 is a manual-agent case, outside this window; it has no test instance to review."
     ]
    }
   },
@@ -54,6 +70,46 @@
      ],
      "obligation_bindings": [{"obligation_id": "OB-1", "instance_ids": ["test_the_case"]}]}
    ]
+  },
+  "qa-runner@S6#automation": {
+   "verdict": "ok",
+   "result_text": "qa-runner S6 S6-qa-runner-1 · ok\nTC-1 · green · the S5 run of the test stands on its current bytes: 1 passed, nothing re-run\nwork/run-report.json",
+   "overrides": {
+    "s6-runner-to-analyst": {
+     "inputs_read[0].path": "work/handoffs/S5-qa-automator-1.yaml",
+     "inputs_read[1].path": "work/handoffs/S4-qa-case-designer-1.yaml",
+     "inputs_read[2].path": "<newest:evidence/runtime-provenance-*.json>",
+     "header.window": "TC-1",
+     "run.environment": "dry-world",
+     "run.application_build": "not established: the runtime probe answered not_applicable (no changed file in this checkout), it read no build identity",
+     "run.probe_before": "<newest:evidence/runtime-provenance-*.json>",
+     "run.probe_after": "<newest:evidence/runtime-provenance-*.json>",
+     "scope[0].id": "TC-1",
+     "scope[0].state": "passed_green",
+     "scope[0].reason": "the S5 run stands on its current bytes: 1 passed, nothing re-run",
+     "scope[0].case": "TC-1",
+     "scope[0].obligations": "OB-1",
+     "scope[0].executed": "reused",
+     "scope[0].rerun_reason": {"$absent": true},
+     "scope[0].evidence": "<newest:evidence/runs/*/initial-*.json>",
+     "scope[0].duration": "-",
+     "manual_observations": [],
+     "env_blocked": [],
+     "superseded": [],
+     "unresolved": [],
+     "blocked": {"$absent": true},
+     "tried_note": {"$absent": true},
+     "claims.every_row_carries_an_evidence_path": true,
+     "claims.every_blocked_row_names_a_remedy_and_the_probe_line": true,
+     "claims.no_comparison_was_fabricated_where_before_evidence_is_missing": true,
+     "claims.handed_and_manual_human_cases_are_absent_by_design": true,
+     "claims.the_report_was_reduced_by_code_not_written": true,
+     "tried[0].requirement": "TC-1",
+     "tried[0].technique": "read the S5 receipt of the instance against its current bytes (run_suite.py answers reused); no cell was walked, TC-2 is not in this window",
+     "tried[0].observation": "the receipt stands: test_the_case passed, nothing re-run",
+     "tried[0].evidence": "work/run-report.json"
+    }
+   }
   },
   "qa-case-designer@S4": {
    "result_text": "qa-case-designer S4 DRY-1 · ok\nTC-1 · created · the case checks the cart total with a quantity\nwork/handoffs/S4-qa-case-designer-1.yaml",

@@ -2334,3 +2334,14 @@ Verdict: `docs/tasks/specs/reviews/t-1065-rules-debt-c3-topic-code.md` (4 blocki
 - **N1** stated here: branch 4 also asks a row whose author declared `change_disposition: unchanged` when no measurement exists — the
   safe side under FR-59. **N2** (the F-b detector does not scope the consumer to its row) — a finding line for the rules-debt pile.
   N3, N4 — no change.
+
+## Lead decisions on C3-b2 and C3-d at the build (17.11.2026, owner away: by recommendation, until the owner's word)
+
+- C3-b2, builder question t-1080: the F-T1 (a) word `unknown` makes the two state returns of `_run_freshness`
+  (`('unknown', WHY...)`) count as token sets, so the card's "not counted after the change" and "D13 +2 / +2" do not
+  hold. Decided (A): two `allow` entries on the `_run_freshness` site, whole texts, why "a state the function returns,
+  not an acceptance"; the `test_gate_registry.py` pins are the MEASURED values (S-f), the move named in the report.
+  Not taken: (B) a code-form change, (C) dropping `unknown` (contradicts F-T1 (a)).
+- C3-d, builder question t-1081: on an unreadable registry the gap is the card's plain `review:<iid>` (item 4, E3);
+  the dispatch's words "the gap names the registry" were the Lead's misstatement — naming it needs a new gap shape in
+  `window_record.py` (a non-goal), and C3-reg-precondition stops the stage first.

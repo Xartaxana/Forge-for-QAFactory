@@ -1137,8 +1137,83 @@ def test_arm_b_unusable_lines_reach_the_person() -> None:
         _harness.cleanup(root)
 
 
+def test_refusal_cut_keeps_the_choice_and_prices() -> None:
+    """FV2-94 (FR-8, FR-9, AR-24): the refusal section of the conductor prompt is cut at 6000; the person's choice and the gate's prices
+    come before the factory's words, so the cut takes only their tail - and never the choice or a price, even when those alone pass 6000."""
+    gate = dict(LIVE_FACTS, gate="A", gate_decided=False)
+    root, _task_root, driver = rig()
+    try:
+        driver.boundary = "S4"
+        prompts = []
+        driver.step = lambda *a, **k: "where"
+        driver.run_claude = lambda role, prompt, **k: prompts.append(prompt) or {"result": '{"action": "continue", "did": "x"}', "session_id": "s", "total_cost_usd": 0, "num_turns": 1}
+        site = _NM.site_check(None, _NM.data(), driver.s0_normalize)
+        # (label, facts, chosen, details length, says length, details cut, choice and prices whole)
+        table = (("long refusal at a gate, chosen", gate, True, 9000, 20, True, True),
+                 ("short refusal at a gate, chosen", gate, True, 100, 20, False, True),
+                 ("long refusal, no gate, no choice: as before", LIVE_FACTS, False, 9000, 20, True, None),
+                 ("choice alone over the cap", gate, True, 9000, 7000, True, True))
+        for label, facts, chosen, size, says_size, cut, whole in table:
+            state = {"why": "chosen", "kind": "gate_A", "stage": "S4", "text": "~" * size, "token": "rework", "move": "rework_stage",
+                     "says": "S" * says_size, "lead": "THE LEAD"}
+            open_ids = _NM.open_moves(facts, [m for _a, m, _s, _o in driver.GATE_OPTIONS])
+            text = driver._conductor_text(state, facts, open_ids, site, chosen)
+            del prompts[:]
+            driver.conductor_calls = {}
+            type(driver).conductor(driver, text)       # the rig stubs the instance; the class method is the real cut
+            section = prompts[0].split("## The refusal\n", 1)[1].split("\n\n## `story_step.py where`", 1)[0]
+            check_eq(f"FV2-94 {label}: the factory's words are cut exactly when they do not fit", ("~" * size in section), not cut)
+            if whole is None:
+                check_eq(f"FV2-94 {label}: the section is the old cut of the whole text at 6000", section, text.strip()[:6000])
+                check_not_in(f"FV2-94 {label}: nothing about a choice or prices is added", "## The person's choice", section)
+                continue
+            choice = text.split("## The person's choice\n", 1)[1].split("\n\n" + "~" * 10, 1)[0]
+            prices = "## The options at this gate" + text.split("## The options at this gate", 1)[1].split("## The person's choice", 1)[0]
+            check_in(f"FV2-94 {label}: the person's choice is whole", choice, section)
+            check_in(f"FV2-94 {label}: the prices are whole", prices.strip(), section)
+            check_eq(f"FV2-94 {label}: the choice paragraph names the token", "The person chose `rework`" in section, True)
+            if says_size > 6000:
+                check_eq(f"FV2-94 {label}: nothing of the factory's words is left", "~" in section, False)
+            if says_size > 6000:                    # the head outlived its call? a second call with the same text must be cut at 6000 exactly
+                del prompts[:]
+                driver.conductor_calls = {}
+                type(driver).conductor(driver, text)
+                again = prompts[0].split("## The refusal\n", 1)[1].split("\n\n## `story_step.py where`", 1)[0]
+                check_eq(f"FV2-94 {label}: a call that set no head is cut at 6000 exactly (the attribute was cleared)", len(again), 6000)
+        # F1: the retry text keeps `## Your options were refused` and the rule whole, with 9000 characters of details
+        state = {"why": "chosen", "kind": "gate_A", "stage": "S4", "text": "~" * 9000, "token": "rework", "move": "rework_stage", "says": "S" * 20,
+                 "lead": "THE LEAD"}
+        driver.no_move_facts = lambda st: dict(gate)
+        answers = [{"action": "continue", "did": "x", "options": [{"token": "rework", "move": "rework_stage"}]}, {"action": "continue", "did": "y"}]
+        del prompts[:]
+        driver.conductor_calls = {}
+        driver.conductor = lambda *a, **k: type(driver).conductor(driver, *a, **k)
+        driver.run_claude = lambda role, prompt, **k: prompts.append(prompt) or {"result": json.dumps(answers[len(prompts) - 1]), "session_id": "s", "total_cost_usd": 0, "num_turns": 1}
+        driver.no_move(state, None)
+        retry = prompts[1].split("## The refusal\n", 1)[1].split("\n\n## `story_step.py where`", 1)[0]
+        check_in("FV2-94 retry: the refused section is kept with 9000 characters of details", "## Your options were refused\n", retry)
+        check_in("FV2-94 retry: the list of args values is kept", '"args" from these values only', retry)
+        check_in("FV2-94 retry: the person's choice is kept", "## The person's choice\n", retry)
+        # F2: an unread gate answer: the notes and the reading stand before the question, whose tail alone is cut
+        sent = []
+        driver.unread = lambda kind, stage, dispatch, text, **k: sent.append(text)
+        driver.judged_reply = lambda q, w, k: "THE-READING"
+        driver.question_lines_note = "\n\nTOLD-ONCE-LINES"
+        driver._unread_kept_gate("gate_A", "S4", "", "Q" * 15000, "not the approval word", "\n\nSTAND-NOTE")
+        del prompts[:]
+        driver.conductor_calls = {}
+        type(driver).conductor(driver, sent[0])
+        gate_section = prompts[0].split("## The refusal\n", 1)[1].split("\n\n## `story_step.py where`", 1)[0]
+        for part in ("## The option the judge reads", "THE-READING", "TOLD-ONCE-LINES", "STAND-NOTE"):
+            check_in(f"FV2-94 unread gate, 15000-char question: {part!r} survives the cut", part, gate_section)
+        check_eq("FV2-94 unread gate: the question is what was cut", "Q" * 15000 in gate_section, False)
+
+    finally:
+        _harness.cleanup(root)
+
+
 F2_DOOR_TESTS = (test_refused_options_keep_conductor_question, test_conductor_text_cut_at_1200, test_unoffered_token_named_in_one_line,
-                 test_gate_fallback_keeps_conductor_text, test_arm_b_unusable_lines_reach_the_person)
+                 test_gate_fallback_keeps_conductor_text, test_arm_b_unusable_lines_reach_the_person, test_refusal_cut_keeps_the_choice_and_prices)
 
 
 def f2_run() -> None:

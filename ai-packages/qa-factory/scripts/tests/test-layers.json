@@ -1269,6 +1269,7 @@
     "stage_joints.py",
     "references/stage-joints.json",
     "tests/harness.py",
+    "tests/test_controller_release.py",
     "tests/test_words_doors.py"
    ]
   },

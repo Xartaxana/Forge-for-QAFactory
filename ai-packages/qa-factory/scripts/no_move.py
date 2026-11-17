@@ -21,6 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import detector_verdict as DV  # noqa: E402  (T9c: the row id of a refusal rides the Record; the text is unchanged)
 import hooklib  # noqa: E402
 import person_owned  # noqa: E402  (RN1-9: the one reader of the question classes)
 import human_text  # noqa: E402  (the heading of the priced section: one source with the check that reads it)
@@ -195,9 +196,10 @@ class ArgsRefused(Exception):
     """The `args` of a `rework_stage` option break a rule of `rework_args_list` while the rest of the verdict is usable (C2-6 §4.2):
     the conductor is told the rule and the list once; the person is never asked about `args`."""
 
-    def __init__(self, rule: str):
+    def __init__(self, rule: str, records=()):
         super().__init__(rule)
         self.rule = rule
+        self.records = list(records)           # one Record per problem when several are refused together (EC-5); [] when `rule` is one
 
 
 class ClassRefused(ArgsRefused):
@@ -278,6 +280,10 @@ def check_args(args, facts: dict) -> tuple:
                   **({"candidates": candidates} if candidates else {}), "cause": cause}, ""
 
 
+WHAT_CODE_CHECKS = "## What code will check in this launch"          # C3: the heading of the conductor's told section (the page's is "of you")
+NOTHING_CHECKED = "- none: code checks nothing of this launch beyond your answer's form above"   # mech 2.9, E24
+
+
 def moves_section(spec: dict, open_ids: list, facts: dict, site=()) -> str:
     """The section of the conductor's prompt that says which rows of `moves` are open now. `site`: the answers the question
     ALREADY takes that are not a move's own token (a stand's name, `read`, `new text` ...): "## Answers this question already
@@ -306,6 +312,17 @@ def moves_section(spec: dict, open_ids: list, facts: dict, site=()) -> str:
                   "The question reads these words itself. Offer one of them back as an option with `move: site_door` and that token; "
                   "offer no other word of the question's own, and never one of them as another move:"]
         lines += [f"- `{token}`" for token in site]
+    # T9c (O1, mech 2.9): what code will check in THIS launch - the rows of the conductor that hold for its answer (`conductor_answer`)
+    # and for the moves open here (`move:<id>`), each through `told_line` (AR-13, AR-15). After the two sections above and before
+    # the state text the caller appends (E-T9c-5); every launch has the section, `none` when no row holds (E-T9c-4, E24).
+    import stage_joints as SJ              # late: stage_joints reads no_move for the move ids
+    data, why = SJ.read_rows()             # the reader says WHY it cannot read; an unknown is never "none" (FR-41, FR-59)
+    lines += ["", WHAT_CODE_CHECKS, ""]
+    if data is None:                       # the page's precedent: contract_slices.requirement_section
+        lines += [f"NOT KNOWN: the rows of what code checks could not be read ({why})."]
+    else:
+        rows_held = SJ.rows_for("conductor", ["*"], {"moves": list(open_ids)}, data)
+        lines += [SJ.told_line(row) for row in rows_held] or [NOTHING_CHECKED]
     return "\n".join(lines)
 
 
@@ -367,12 +384,12 @@ def prose_refusal(question: str, seen, spec: dict, normalize, site=()) -> str:
     is never shown to the person (FR-10). A prose that names fewer tokens than the options is shown as it is: `render_options`
     lists every token."""
     if not question.strip():
-        return "the question is empty"
+        return DV.refusal("no_move:prose", "the question is empty")
     extra = sorted((named_tokens(question, normalize) & (reserved_tokens(spec, normalize) | set(site))) - set(seen))
     if not extra:
         return ""
     names = ", ".join(f"`{token}`" for token in extra)
-    return f"the question names {names}, which {'is' if len(extra) == 1 else 'are'} not one of its options"
+    return DV.refusal("no_move:prose", f"the question names {names}, which {'is' if len(extra) == 1 else 'are'} not one of its options")
 
 
 CONDUCTOR_FOUND = "What the conductor found:"
@@ -442,38 +459,39 @@ def validate_options(verdict: dict, open_ids: list, spec: dict, normalize, words
     # "args" - and legal only when the person chose `rework` (§L-6 (b)): `chosen` is True and `chosen_move` is `rework_stage`.
     lone = bool(chosen) and verdict.get("action") == "ask_person"
     if not isinstance(options, list) or len(options) < (1 if lone else 2) or not all(isinstance(o, dict) for o in options):
-        return None, "options: fewer than two, or not a list of objects"
+        return None, DV.refusal("no_move:options", "options: fewer than two, or not a list of objects")
     if len(options) == 1 and (str(options[0].get("move")) != "rework_stage" or chosen_move != "rework_stage"):
-        return None, "one option is legal only as the `rework` option when the person chose `rework`; otherwise at least two are needed"
+        return None, DV.refusal("no_move:options", "one option is legal only as the `rework` option when the person chose `rework`; otherwise at least two are needed")
     rows, seen, out, args_rule = move_rows(spec), set(), [], ""
     for option in options:
         shown = str(option.get("token") or "").strip()
         token = normalize(shown)
         if not token or token == "—":
-            return None, "an option has no token"
+            return None, DV.refusal("no_move:options", "an option has no token")
         if token in seen:
-            return None, f"two options carry the token `{token}`"
+            return None, DV.refusal("no_move:options", f"two options carry the token `{token}`")
         seen.add(token)
         move, args_kind = str(option.get("move") or ""), None       # a site door has no row: it takes no "args" either
         if move == SITE_DOOR:
             if token not in site or token in reserved_tokens(spec, normalize):
-                return None, f"the option `{token}` names a door the question does not read, or one that is a move's own word"
+                return None, DV.refusal("no_move:options", f"the option `{token}` names a door the question does not read, or one that is a move's own word")
         elif move not in open_ids or move not in rows:
-            return None, f"the option `{token}` names the move `{move}`, which is not open here"
+            return None, DV.refusal("no_move:options", f"the option `{token}` names the move `{move}`, which is not open here")
         else:
             args_kind, offerable, not_offered = move_columns(rows[move])          # F2: `DataUnreadable` naming the row on a bad column
             if not offerable:
-                return None, f"the option `{token}` names the move `{move}`, which is never an option: {not_offered}"
+                return None, DV.refusal("no_move:options", f"the option `{token}` names the move `{move}`, which is never an option: {not_offered}")
             if not (own := normalize(str(rows[move].get("token") or ""))) or own == "—" or own != token:
-                return None, f"the token `{token}` is not the token of the move `{move}`"
+                return None, DV.refusal("no_move:options", f"the token `{token}` is not the token of the move `{move}`")
         says, factory, person = (str(option.get(key) or "").strip() for key in ("says", "factory", "person"))
         story = story_line(option.get("story"), spec, words)
         if not (says and factory and person and story):
-            return None, f"the option `{token}` lacks its says / factory / person / story lines (story is a dict)"
+            return None, DV.refusal("no_move:options", f"the option `{token}` lacks its says / factory / person / story lines (story is a dict)")
         row = {"token": shown, "norm": token, "move": move, "says": says, "factory": factory, "person": person, "story": story}
         if args_kind == "rework":
             args, why = check_args(option.get("args"), facts or {})
-            args_rule = args_rule or why
+            # `check_args` has more than one caller (the driver's own rework paths): the id is written HERE, where the requirement is known (EC-2)
+            args_rule = args_rule or (DV.refusal("no_move:args", why) if why else "")
             if args:
                 row["args"] = args
         elif "args" in option:
@@ -486,9 +504,10 @@ def validate_options(verdict: dict, open_ids: list, spec: dict, normalize, words
     # verdict keeps its own refusal first (E-9); an unreadable class file gives "" (FR-59, E-3).
     class_rule = "" if (lone and len(options) == 1) else person_owned.question_rule(verdict.get("why_person"), verdict.get("checked"))
     if args_rule and class_rule:
-        raise ClassRefused(args_rule + "; " + class_rule)
+        class_record = DV.refusal("no_move:class", class_rule)
+        raise ClassRefused(args_rule + "; " + class_rule, records=(args_rule, class_record))    # EC-5: the text is one line, the Records are two
     if class_rule:
-        raise ClassRefused(class_rule)
+        raise ClassRefused(DV.refusal("no_move:class", class_rule))
     if args_rule:
         raise ArgsRefused(args_rule)           # the rest of the verdict is usable: the conductor is told once (§4.2 p.4)
     return out, ""

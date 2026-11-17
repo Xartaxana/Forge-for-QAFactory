@@ -18,12 +18,35 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import gitcmd  # noqa: E402
-import hygiene_gate as hg  # noqa: E402
 
-SCRIPT = Path(__file__).resolve().parent / "hygiene_gate.py"
+
+def _gate_under_test():
+    """The module under test: the file named by HYGIENE_GATE_PATH (a candidate gate not yet on its live path), else the live
+    tools/hygiene_gate.py. This environment read lives only in the test modules (bounded-waits r2 section 10)."""
+    path = os.environ.get("HYGIENE_GATE_PATH")
+    if not path:
+        import hygiene_gate
+        return hygiene_gate
+    import importlib.util
+    path = Path(path).resolve()
+    loaded = sys.modules.get("hygiene_gate")
+    if loaded is not None and getattr(loaded, "__file__", None) and Path(loaded.__file__).resolve() == path:
+        return loaded
+    spec = importlib.util.spec_from_file_location("hygiene_gate", path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["hygiene_gate"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+hg = _gate_under_test()
+
+SCRIPT = Path(hg.__file__).resolve()
 ROOT = hg._REPO_ROOT_NAME
 
 DOORS = {
+    "wait_bash": "an unbounded wait loop (while/until with sleep and no cap)",
+    "wait_ps": "an unbounded wait loop (while/do with Start-Sleep and no cap)",
     "cd_bash": "( cd <dir> && ... ) subshell",
     "cd_ps": "powershell -NoProfile -Command",
     "journal": "Reading it with grep, cat or tail is fine",
@@ -302,7 +325,65 @@ ROUND2 = [
     ("f14-bash-c-write", 'bash -c "echo x > docs/a.md"', B, "tree", S),
     ("f14-cmd-c-write", 'cmd /c "echo x > docs\\a.md"', P, "tree", S),
 ]
-ROWS = SILENT + WRITES_PASS + JOURNAL + CD + ROLLBACK + MARKERS + ADVERSARIAL + ROUND2
+# G1 (bounded waits): an unbounded wait loop is refused with a capped form; every row is a case of the one grammar.
+_WB, _WP = ("deny", DOORS["wait_bash"]), ("deny", DOORS["wait_ps"])
+_NEST = "until x; do "
+WAITS = [
+    ("W-until-bg", "until grep -q DONE f; do sleep 20; done", B, "tree", _WB),
+    ("W-while-true-break", "while true; do test -f f && break; sleep 5; done", B, "tree", _WB),
+    ("W-while-sleep-cond", "while sleep 5; do x; done", B, "tree", _WB),
+    ("W-seq-30", "for i in $(seq 1 30); do test -f f && break; sleep 20; done", B, "tree", S),
+    ("W-seq-AT", "for i in $(seq 1 180); do x; sleep 20; done", B, "tree", S),
+    ("W-seq-BEYOND", "for i in $(seq 1 181); do x; sleep 20; done", B, "tree", _WB),
+    ("W-seq-100000", "for i in $(seq 1 100000); do x; sleep 20; done", B, "tree", _WB),
+    ("W-brace", "for i in {1..30}; do x; sleep 1m; done", B, "tree", S),
+    ("W-arith", "for ((i=0;i<30;i++)); do x; sleep 2; done", B, "tree", S),
+    ("W-seconds", "until test -f f || [ $SECONDS -ge 600 ]; do sleep 10; done", B, "tree", S),
+    ("W-seconds-AT", "until test -f f || [ $SECONDS -ge 3600 ]; do sleep 10; done", B, "tree", S),
+    ("W-seconds-BEYOND", "until test -f f || [ $SECONDS -ge 3601 ]; do sleep 10; done", B, "tree", _WB),
+    ("W-counter", "until [ $i -ge 30 ] || grep -q X f; do i=$((i+1)); sleep 20; done", B, "tree", S),
+    ("W-counter-other-var", "until [ $i -ge 30 ] || grep -q X f; do j=$((j+1)); sleep 20; done", B, "tree", _WB),
+    ("W-dynamic", "for i in $(seq 1 $n); do x; sleep $t; done", B, "tree", S),
+    ("W-while-read", "while read l; do echo \"$l\"; sleep 1; done < f", B, "tree", S),
+    ("W-quoted", 'echo "until x; do sleep 1; done"', B, "tree", S),
+    ("W-heredoc", "cat > w.sh <<'EOF'\nuntil x; do sleep 1; done\nEOF", B, "tree", S),
+    ("W-comment", "ls # until x; do sleep 1; done", B, "tree", S),
+    ("W-git-until", "git log --until=2026-11-17 -n 3", B, "tree", S),
+    ("W-bash-c", 'bash -c "until x; do sleep 1; done"', B, "tree", S),
+    ("W-subshell", "( until x; do sleep 1; done ) &", B, "tree", _WB),
+    ("W-after-and", "true && until x; do sleep 1; done", B, "tree", _WB),
+    ("W-nested", "until x; do for i in $(seq 1 3); do sleep 1; done; done", B, "tree", _WB),
+    ("W-crlf", "until x\r\ndo sleep 1\r\ndone", B, "tree", _WB),
+    ("W-case-bash", "Until x; do sleep 1; done", B, "tree", S),
+    ("W-unbalanced", "until x; do sleep 1", B, "tree", S),
+    ("W-single-sleep", "sleep 30", B, "tree", S),
+    ("W-ps-while", "while (-not (Test-Path f)) { Start-Sleep 20 }", P, "tree", _WP),
+    ("W-ps-do-until", "do { Start-Sleep -Seconds 5 } until (Test-Path f)", P, "tree", _WP),
+    ("W-ps-upper", "WHILE ($true) { start-sleep 1 }", P, "tree", _WP),
+    ("W-ps-for", "for ($i=0; $i -lt 30; $i++) { if (Test-Path f) { break }; Start-Sleep 20 }", P, "tree", S),
+    ("W-ps-getdate", "while ((Get-Date) -lt $end) { Start-Sleep 5 }", P, "tree", S),
+    ("W-ps-range-BEYOND", "1..1000 | % { Start-Sleep 20 }", P, "tree", _WP),
+    ("W-ps-thread", "while ($true) { [Threading.Thread]::Sleep(500) }", P, "tree", _WP),
+    ("W-ps-quoted", "Write-Output 'while ($true) { Start-Sleep 1 }'", P, "tree", S),
+    ("W-unicode", "until grep -q 'готово' f; do sleep 5; done", B, "tree", _WB),
+    ("W-empty", "", B, "tree", S),
+    ("W-blank", "   ", B, "tree", S),
+    ("W-deep-AT", _NEST * 64 + "sleep 1; " + "done; " * 64, B, "tree", _WB),
+    ("W-deep-BEYOND", _NEST * 65 + "sleep 1; " + "done; " * 65, B, "tree", S),
+    ("W-order", "cd x; until y; do sleep 1; done", B, "tree", ("deny", DOORS["cd_bash"])),
+    # r2 section 3-delta
+    ("W-for-list", "for f in a b c; do x; sleep 1; done", B, "tree", S),
+    ("W-for-glob", "for f in *.md; do x; sleep 5; done", B, "tree", S),
+    ("W-for-words-BEYOND", "for f in a b c; do x; sleep 1201; done", B, "tree", _WB),
+    ("W-or-counter", "while [ $i -lt 30 ] || ! test -f f; do i=$((i+1)); sleep 20; done", B, "tree", _WB),
+    ("W-until-and", "until [ $i -ge 30 ] && test -f f; do i=$((i+1)); sleep 20; done", B, "tree", _WB),
+    ("W-direction", "while [ $i -ge 0 ]; do i=$((i+1)); sleep 5; done", B, "tree", _WB),
+    ("W-ps-or", "while ($i -lt 30 -or -not (Test-Path f)) { $i++; Start-Sleep 20 }", P, "tree", _WP),
+    ("W-ps-and-counter", "while ($i -lt 30 -and -not (Test-Path f)) { $i++; Start-Sleep 20 }", P, "tree", S),
+    ("W-brace-group", "{ until x; do sleep 1; done; }", B, "tree", _WB),
+    ("W-monitor", "until x; do sleep 1; done", "Monitor", "tree", S),
+]
+ROWS = SILENT + WRITES_PASS + JOURNAL + CD + ROLLBACK + MARKERS + ADVERSARIAL + ROUND2 + WAITS
 
 
 @pytest.mark.parametrize("name,command,tool,cwd,expect", ROWS, ids=[r[0] for r in ROWS])
@@ -423,11 +504,14 @@ def test_unreadable_input_is_silent(payload):
     assert hg.decide(payload) == (0, None)
 
 
-@pytest.mark.parametrize("name", ["MSG_CD_BASH", "MSG_CD_POWERSHELL", "MSG_JOURNAL_BLOCK", "MSG_ROLLBACK"])
+@pytest.mark.parametrize("name", ["MSG_CD_BASH", "MSG_CD_POWERSHELL", "MSG_JOURNAL_BLOCK", "MSG_ROLLBACK", "MSG_WAIT_BASH",
+                                  "MSG_WAIT_POWERSHELL"])
 def test_every_text_is_at_most_350_characters_and_names_a_door(name):
     text = getattr(hg, name)
     assert len(text) <= 350, (name, len(text))
-    assert any(verb in text for verb in ("Use ", "Edit/Write", "Reading it", "undo", "use Edit/Write")), name
+    assert any(verb in text for verb in ("Use ", "Edit/Write", "Reading it", "undo", "use Edit/Write", "Cap it")), name
+    if name.startswith("MSG_WAIT"):
+        assert f"at most {hg.MAX_WAIT_SECONDS} s" in text and "Monitor" in text      # one number, from the constant
 
 
 def test_removed_constants_and_detectors_are_gone():
@@ -447,7 +531,9 @@ def test_collect_signals_is_pure_and_returns_forms_only(monkeypatch):
                         (time, "time"), (time, "monotonic")):
         monkeypatch.setattr(owner, name, forbid)
     sig = hg._collect_signals("git checkout -- f.py; echo x > docs/a.md; cd x")
-    assert set(sig) == {"cd", "write_targets", "journal", "rollback_forms", "pyc_payload", "payload_uncertain"}
+    assert set(sig) == {"cd", "write_targets", "journal", "rollback_forms", "pyc_payload", "payload_uncertain", "wait_loops"}
+    hg._collect_signals("until x; do sleep 1; done; for i in $(seq 1 3); do sleep 1; done", "Bash")
+    assert hg.wait_loop_forms("until x; do sleep 1; done")[0]["cap"] == "none"
     assert sig["rollback_forms"][0]["shape"] == "checkout -- paths" and sig["write_targets"] == [("redirect", "docs/a.md")]
     assert sig["cd"][0]["verb"] == "cd" and sig["cd"][0]["bare_return"] is False
     hg._collect_signals("( cd sub && ( cd $d && git reset --hard ) ); (( n > 5 )) && echo x > docs/a.md", "PowerShell")
@@ -549,7 +635,8 @@ def test_process_reader(world, name, raw, denied):
 
 def test_perf_100kb_1mb_is_roughly_linear(world):
     def best(size, repeats):
-        cmd = "echo " + "x" * size + " > docs/a.md; python -c \"print('" + "a" * size + "')\""
+        cmd = ("echo " + "x" * size + " > docs/a.md; python -c \"print('" + "a" * size + "')\"\n"
+               + "until x; do sleep 1; done\n" * (size // 100))        # G1's loop pass is in the linear check too
         runs = []
         for _ in range(repeats):
             t0 = time.perf_counter()
@@ -591,6 +678,8 @@ RUN_ALLOWED_ROWS = [
 # Lead decision 2 (t-850 r3): the live gate gives a plain allow to a dynamic command word, but the --run road is stricter:
 # run_allowed refuses `$(...)`, a backtick or a variable in command position, naming the --witness-file door.
 RUN_ALLOWED_ROWS += [
+    ("wait-loop-unbounded", "until grep -q DONE f; do sleep 20; done", "clean", False),     # G1 reaches the --run road
+    ("wait-loop-capped", "for i in $(seq 1 30); do test -f f && break; sleep 20; done", "clean", True),
     ("backtick-command-word", "`echo cd` x", "clean", False),
     ("variable-command-word", "x=cd; $x tools", "clean", False),
     ("dynamic-word-after-a-pipe", "echo a | $(echo cat)", "clean", False),
