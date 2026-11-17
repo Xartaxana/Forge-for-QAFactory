@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from conftest import load_under_test  # noqa: E402
+from under_test import load_under_test  # noqa: E402
 
 hygiene_gate = load_under_test("HYGIENE_GATE_PATH", "hygiene_gate")
 import permission_audit as pa  # noqa: E402

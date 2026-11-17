@@ -18,7 +18,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import gitcmd  # noqa: E402
-from conftest import load_under_test  # noqa: E402
+from under_test import load_under_test  # noqa: E402
 
 
 hg = load_under_test("HYGIENE_GATE_PATH", "hygiene_gate")
@@ -395,6 +395,29 @@ WAITS = [
     ("W-epoch-past", "until [ $(date +%s) -ge 1700000000 ]; do sleep 10; done", B, "tree", S),
     ("W-epoch-ps-AT", "while ((Get-Date -UFormat %s) -lt 1800003600) { Start-Sleep 5 }", P, "tree", S),
     ("W-epoch-ps-BEYOND", "while ((Get-Date -UFormat %s) -lt 1800003601) { Start-Sleep 5 }", P, "tree", _WP),
+    # t-1184 fix round (verdict t-1177 G1-G5): a line end before the paren, assign steps, `&>`, PS epoch per UTC offset, pipe form
+    ("W-ps-while-newline-paren", "while\n($true) { Start-Sleep 5 }", P, "tree", _WP),
+    ("W-ps-do-while-newline-paren", "do { Start-Sleep 5 } while\n($true)", P, "tree", _WP),
+    ("W-ps-for-newline-paren-AT", "for\n($i = 0; $i -lt 180; $i++) { Start-Sleep 20 }", P, "tree", S),
+    ("W-ps-for-newline-paren-BEYOND", "for\n($i = 0; $i -lt 181; $i++) { Start-Sleep 20 }", P, "tree", _WP),
+    ("W-ps-foreach-newline-paren-BEYOND", "foreach\n($i in 1..181) { Start-Sleep 20 }", P, "tree", _WP),
+    ("W-step-assign-AT", "for ((i=0;i<180;i=i+1)); do sleep 20; done", B, "tree", S),
+    ("W-step-assign-BEYOND", "for ((i=0;i<181;i=i+1)); do sleep 20; done", B, "tree", _WB),
+    ("W-step-assign-K-AT", "for ((i=0;i<360;i=i+2)); do sleep 20; done", B, "tree", S),
+    ("W-step-assign-K-BEYOND", "for ((i=0;i<362;i=i+2)); do sleep 20; done", B, "tree", _WB),
+    ("W-ps-step-assign-AT", "for ($i = 0; $i -lt 180; $i = $i + 1) { Start-Sleep 20 }", P, "tree", S),
+    ("W-ps-step-assign-BEYOND", "for ($i = 0; $i -lt 181; $i = $i + 1) { Start-Sleep 20 }", P, "tree", _WP),
+    ("W-ps-step-assign-K-AT", "for ($i = 0; $i -lt 360; $i = $i + 2) { Start-Sleep 20 }", P, "tree", S),
+    ("W-ps-step-assign-K-BEYOND", "for ($i = 0; $i -lt 362; $i = $i + 2) { Start-Sleep 20 }", P, "tree", _WP),
+    ("W-redirect-amp-AT", "for i in $(seq 1 180); do x; sleep 20 &>/dev/null; done", B, "tree", S),
+    ("W-redirect-amp-BEYOND", "for i in $(seq 1 181); do x; sleep 20 &>/dev/null; done", B, "tree", _WB),
+    ("W-redirect-amp-append-AT", "for i in $(seq 1 180); do x; sleep 20 &>>/dev/null; done", B, "tree", S),
+    ("W-redirect-amp-append-BEYOND", "for i in $(seq 1 181); do x; sleep 20 &>>/dev/null; done", B, "tree", _WB),
+    ("W-epoch-ps-pos-AT", "while ((Get-Date -UFormat %s) -lt 1800007200) { Start-Sleep 5 }", P, "tree", S),
+    ("W-epoch-ps-pos-BEYOND", "while ((Get-Date -UFormat %s) -lt 1800007201) { Start-Sleep 5 }", P, "tree", _WP),
+    ("W-epoch-ps-neg-AT", "while ((Get-Date -UFormat %s) -lt 1800000000) { Start-Sleep 5 }", P, "tree", S),
+    ("W-epoch-ps-neg-BEYOND", "while ((Get-Date -UFormat %s) -lt 1800000001) { Start-Sleep 5 }", P, "tree", _WP),
+    ("W-ps-pipe-newline", "1..1000 | ForEach-Object\n{ Start-Sleep 20 }", P, "tree", S),
 ]
 ROWS = SILENT + WRITES_PASS + JOURNAL + CD + ROLLBACK + MARKERS + ADVERSARIAL + ROUND2 + WAITS
 
@@ -408,6 +431,8 @@ def test_decide_table(world, monkeypatch, name, command, tool, cwd, expect):
         monkeypatch.setenv("GIT_DIR", "x")
     if name.startswith("W-epoch"):
         monkeypatch.setattr(hg, "_now_epoch", lambda: 1_800_000_000)
+        offset = 3600 if "-ps-pos-" in name else -3600 if "-ps-neg-" in name else 0     # local UTC offset (PowerShell clock)
+        monkeypatch.setattr(hg, "_local_utc_offset", lambda: offset)
     code, out = _decide(command, tool, world[cwd])
     assert code == 0
     if expect == S:
