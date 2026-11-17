@@ -18,28 +18,10 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import gitcmd  # noqa: E402
+from under_test import load_under_test  # noqa: E402
 
 
-def _gate_under_test():
-    """The module under test: the file named by HYGIENE_GATE_PATH (a candidate gate not yet on its live path), else the live
-    tools/hygiene_gate.py. This environment read lives only in the test modules (bounded-waits r2 section 10)."""
-    path = os.environ.get("HYGIENE_GATE_PATH")
-    if not path:
-        import hygiene_gate
-        return hygiene_gate
-    import importlib.util
-    path = Path(path).resolve()
-    loaded = sys.modules.get("hygiene_gate")
-    if loaded is not None and getattr(loaded, "__file__", None) and Path(loaded.__file__).resolve() == path:
-        return loaded
-    spec = importlib.util.spec_from_file_location("hygiene_gate", path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules["hygiene_gate"] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-hg = _gate_under_test()
+hg = load_under_test("HYGIENE_GATE_PATH", "hygiene_gate")
 
 SCRIPT = Path(hg.__file__).resolve()
 ROOT = hg._REPO_ROOT_NAME
@@ -382,6 +364,69 @@ WAITS = [
     ("W-ps-and-counter", "while ($i -lt 30 -and -not (Test-Path f)) { $i++; Start-Sleep 20 }", P, "tree", S),
     ("W-brace-group", "{ until x; do sleep 1; done; }", B, "tree", _WB),
     ("W-monitor", "until x; do sleep 1; done", "Monitor", "tree", S),
+    # t-1159 fix round: PowerShell AT/BEYOND (F7), Allman (F1), redirects and groups (F2), quoted increments (F3), steps (F4),
+    # an epoch deadline (decision; "W-epoch" rows run with the clock at 1800000000)
+    ("W-ps-for-AT", "for ($i = 0; $i -lt 180; $i++) { x; Start-Sleep 20 }", P, "tree", S),
+    ("W-ps-for-BEYOND", "for ($i = 0; $i -lt 181; $i++) { x; Start-Sleep 20 }", P, "tree", _WP),
+    ("W-ps-allman", "while ($true)\n{\n  Start-Sleep 5\n}", P, "tree", _WP),
+    ("W-ps-allman-crlf", "while ($true)\r\n{\r\n  Start-Sleep 5\r\n}", P, "tree", _WP),
+    ("W-ps-do-allman", "do\n{\n  Start-Sleep 5\n} while ($true)", P, "tree", _WP),
+    ("W-ps-do-allman-while", "do {\n  Start-Sleep 5\n}\nwhile ($true)", P, "tree", _WP),
+    ("W-ps-for-allman-AT", "for ($i = 0; $i -lt 180; $i++)\n{\n  Start-Sleep 20\n}", P, "tree", S),
+    ("W-ps-for-allman-BEYOND", "for ($i = 0; $i -lt 181; $i++)\n{\n  Start-Sleep 20\n}", P, "tree", _WP),
+    ("W-ps-foreach-allman-AT", "foreach ($i in 1..180)\n{\n  Start-Sleep 20\n}", P, "tree", S),
+    ("W-ps-foreach-allman-BEYOND", "foreach ($i in 1..181)\n{\n  Start-Sleep 20\n}", P, "tree", _WP),
+    ("W-redirect-AT", "for i in $(seq 1 180); do x; sleep 20 2>/dev/null; done", B, "tree", S),
+    ("W-redirect-BEYOND", "for i in $(seq 1 181); do x; sleep 20 2>/dev/null; done", B, "tree", _WB),
+    ("W-redirect-dup-BEYOND", "for i in $(seq 1 181); do x; sleep 20 >&2; done", B, "tree", _WB),
+    ("W-ps-redirect-BEYOND", "for ($i = 0; $i -lt 181; $i++) { Start-Sleep 20 2>$null }", P, "tree", _WP),
+    ("W-ps-group-range-AT", "(1..180) | ForEach-Object { Start-Sleep 20 }", P, "tree", S),
+    ("W-ps-group-range-BEYOND", "(1..181) | ForEach-Object { Start-Sleep 20 }", P, "tree", _WP),
+    ("W-quoted-increment", 'until [ $i -ge 30 ]; do echo "i=$((i+1))"; sleep 20; done', B, "tree", _WB),
+    ("W-ps-quoted-increment", 'while ($i -lt 30) { Write-Output "$i++"; Start-Sleep 20 }', P, "tree", _WP),
+    ("W-step-AT", "for ((i=0;i<360;i+=2)); do sleep 20; done", B, "tree", S),
+    ("W-step-BEYOND", "for ((i=0;i<362;i+=2)); do sleep 20; done", B, "tree", _WB),
+    ("W-step-unknown", "for ((i=0;i<99999;i*=2)); do sleep 20; done", B, "tree", S),
+    ("W-ps-step-AT", "for ($i = 0; $i -lt 360; $i += 2) { Start-Sleep 20 }", P, "tree", S),
+    ("W-ps-step-BEYOND", "for ($i = 0; $i -lt 362; $i += 2) { Start-Sleep 20 }", P, "tree", _WP),
+    ("W-ps-step-unknown", "for ($i = 0; $i -lt 99999; $i *= 2) { Start-Sleep 20 }", P, "tree", S),
+    ("W-epoch-AT", "until [ $(date +%s) -ge 1800003600 ]; do sleep 10; done", B, "tree", S),
+    ("W-epoch-BEYOND", "until [ $(date +%s) -ge 1800003601 ]; do sleep 10; done", B, "tree", _WB),
+    ("W-epoch-past", "until [ $(date +%s) -ge 1700000000 ]; do sleep 10; done", B, "tree", S),
+    ("W-epoch-ps-AT", "while ((Get-Date -UFormat %s) -lt 1800003600) { Start-Sleep 5 }", P, "tree", S),
+    ("W-epoch-ps-BEYOND", "while ((Get-Date -UFormat %s) -lt 1800003601) { Start-Sleep 5 }", P, "tree", _WP),
+    # t-1184 fix round (verdict t-1177 G1-G5): a line end before the paren, assign steps, `&>`, PS epoch per UTC offset, pipe form
+    ("W-ps-while-newline-paren", "while\n($true) { Start-Sleep 5 }", P, "tree", _WP),
+    ("W-ps-do-while-newline-paren", "do { Start-Sleep 5 } while\n($true)", P, "tree", _WP),
+    ("W-ps-for-newline-paren-AT", "for\n($i = 0; $i -lt 180; $i++) { Start-Sleep 20 }", P, "tree", S),
+    ("W-ps-for-newline-paren-BEYOND", "for\n($i = 0; $i -lt 181; $i++) { Start-Sleep 20 }", P, "tree", _WP),
+    ("W-ps-foreach-newline-paren-BEYOND", "foreach\n($i in 1..181) { Start-Sleep 20 }", P, "tree", _WP),
+    ("W-step-assign-AT", "for ((i=0;i<180;i=i+1)); do sleep 20; done", B, "tree", S),
+    ("W-step-assign-BEYOND", "for ((i=0;i<181;i=i+1)); do sleep 20; done", B, "tree", _WB),
+    ("W-step-assign-K-AT", "for ((i=0;i<360;i=i+2)); do sleep 20; done", B, "tree", S),
+    ("W-step-assign-K-BEYOND", "for ((i=0;i<362;i=i+2)); do sleep 20; done", B, "tree", _WB),
+    ("W-ps-step-assign-AT", "for ($i = 0; $i -lt 180; $i = $i + 1) { Start-Sleep 20 }", P, "tree", S),
+    ("W-ps-step-assign-BEYOND", "for ($i = 0; $i -lt 181; $i = $i + 1) { Start-Sleep 20 }", P, "tree", _WP),
+    ("W-ps-step-assign-K-AT", "for ($i = 0; $i -lt 360; $i = $i + 2) { Start-Sleep 20 }", P, "tree", S),
+    ("W-ps-step-assign-K-BEYOND", "for ($i = 0; $i -lt 362; $i = $i + 2) { Start-Sleep 20 }", P, "tree", _WP),
+    ("W-redirect-amp-AT", "for i in $(seq 1 180); do x; sleep 20 &>/dev/null; done", B, "tree", S),
+    ("W-redirect-amp-BEYOND", "for i in $(seq 1 181); do x; sleep 20 &>/dev/null; done", B, "tree", _WB),
+    ("W-redirect-amp-append-AT", "for i in $(seq 1 180); do x; sleep 20 &>>/dev/null; done", B, "tree", S),
+    ("W-redirect-amp-append-BEYOND", "for i in $(seq 1 181); do x; sleep 20 &>>/dev/null; done", B, "tree", _WB),
+    ("W-epoch-ps-pos-AT", "while ((Get-Date -UFormat %s) -lt 1800007200) { Start-Sleep 5 }", P, "tree", S),
+    ("W-epoch-ps-pos-BEYOND", "while ((Get-Date -UFormat %s) -lt 1800007201) { Start-Sleep 5 }", P, "tree", _WP),
+    ("W-epoch-ps-neg-AT", "while ((Get-Date -UFormat %s) -lt 1800000000) { Start-Sleep 5 }", P, "tree", S),
+    ("W-epoch-ps-neg-BEYOND", "while ((Get-Date -UFormat %s) -lt 1800000001) { Start-Sleep 5 }", P, "tree", _WP),
+    ("W-ps-pipe-newline", "1..1000 | ForEach-Object\n{ Start-Sleep 20 }", P, "tree", S),
+    # t-1191 (verdict t-1189 G8, L2): a line continuation is blank; Bash epoch keeps its budget under a nonzero offset
+    ("W-ps-while-backtick-paren", "while `\n($true) { Start-Sleep 5 }", P, "tree", _WP),
+    ("W-ps-allman-backtick", "while ($true) `\n{ Start-Sleep 5 }", P, "tree", _WP),
+    ("W-ps-pipe-backtick-BEYOND", "1..1000 | ForEach-Object `\n{ Start-Sleep 20 }", P, "tree", _WP),
+    ("W-bash-while-backslash-BEYOND", "while true; do sleep \\\n20; done", B, "tree", _WB),
+    ("W-bash-for-backslash-AT", "for i in $(seq 1 180); do x; sleep \\\n20; done", B, "tree", S),
+    ("W-bash-for-backslash-BEYOND", "for i in $(seq 1 181); do x; sleep \\\n20; done", B, "tree", _WB),
+    ("W-epoch-bash-offset-AT", "until [ $(date +%s) -ge 1800003600 ]; do sleep 10; done", B, "tree", S),
+    ("W-epoch-bash-offset-BEYOND", "until [ $(date +%s) -ge 1800003601 ]; do sleep 10; done", B, "tree", _WB),
 ]
 ROWS = SILENT + WRITES_PASS + JOURNAL + CD + ROLLBACK + MARKERS + ADVERSARIAL + ROUND2 + WAITS
 
@@ -393,6 +438,10 @@ def test_decide_table(world, monkeypatch, name, command, tool, cwd, expect):
         command = command.replace("{" + key + "}", value)
     if name == "git-dir-env":
         monkeypatch.setenv("GIT_DIR", "x")
+    if name.startswith("W-epoch"):
+        monkeypatch.setattr(hg, "_now_epoch", lambda: 1_800_000_000)
+        offset = 3600 if "-ps-pos-" in name or "-bash-offset-" in name else -3600 if "-ps-neg-" in name else 0     # local UTC offset (PowerShell clock)
+        monkeypatch.setattr(hg, "_local_utc_offset", lambda: offset)
     code, out = _decide(command, tool, world[cwd])
     assert code == 0
     if expect == S:
@@ -493,6 +542,15 @@ def test_classifier_exception_fails_open_with_the_visible_marker(world, monkeypa
     code, out = _decide("echo x > docs/a.md", B, world["tree"])
     assert code == 0 and "permissionDecision" not in out["hookSpecificOutput"]
     assert out["hookSpecificOutput"]["additionalContext"] == hg.MSG_FAIL_OPEN_TEMPLATE.format(exc_type="RuntimeError")
+
+
+def test_wait_loop_classifier_exception_is_a_visible_note_never_a_silent_pass(world, monkeypatch):
+    def boom(command, tool_name="Bash"):
+        raise ValueError("grammar bug")
+    monkeypatch.setattr(hg, "_wait_loop_forms", boom)
+    code, out = _decide("until x; do sleep 1; done", B, world["tree"])
+    assert code == 0 and "permissionDecision" not in out["hookSpecificOutput"]
+    assert "wait loops not checked (ValueError)" in out["hookSpecificOutput"]["additionalContext"]
 
 
 @pytest.mark.parametrize("payload", [None, [], "x", {}, {"tool_name": "Bash"}, {"tool_name": "Bash", "tool_input": None},

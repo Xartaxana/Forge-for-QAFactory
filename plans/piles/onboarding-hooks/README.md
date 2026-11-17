@@ -172,6 +172,7 @@ OH1-3…OH1-6 идут по `hooklib.py` по очереди. Стенд нуж�
 | `findings/20261113-batch-7-analogi-json-loads-vne-scanned-i-ustarevshij-scope.md` | находка, id — | модули хоста вне `SCANNED` с `json.loads` пакета роли (вопрос скауту); абзац SCOPE `refusal_registry.py` отстаёт от `SCANNED` | `scripts/refusal_registry.py`, места скаута | пачка 8, OH8-6 | нет | t-287 Q1, Q5, Q6; OH7-2, OH7-3 |
 | `findings/20261113-oh7-2-f2-2-rasshirenie-perepisi-na-podklassy-isklyuchenij-otkaza.md` | находка, id — | перепись суждений не считает подклассы исключений отказа; расширение (949 -> 1106) поднимает счёт дирижёра с 474 до 496 выше храповика 489 | `scripts/tests/test_judgment_census.py`, `scripts/tests/fixtures/judgment-census.json` | пачка 8, OH8-7 | нет | билдер t-296 F2-2; OH7-2; AR-20 |
 | `findings/20261113-gate-form-for-blocks-override-on-non-refusing-units.md` | находка, id — | у шлюза архитектуры нет формы для `blocks_override` на единице без отказов; строки переписи с заметкой `E3:` завышают `blocking_per_role` | `tools/architecture_gate.py`, `scripts/tests/fixtures/judgment-census.json` | пачка 9, OH9-8 | нет | спека t-346 6a F-A (b); AR-20, AR-29 |
+| `findings/20261117-unbounded-background-wait-of-a-role.md` | находка, id — | неограниченное фоновое ожидание роли переживает роль; у `guard_pre_tool.py` нет проверки цикла ожидания (оценка) | `ai-packages/qa-factory/scripts/guard_pre_tool.py` | пачка 9, OH9-9 | нет | ответ кузницы t-1122; спека bounded-waits r2 §10 K-FIND |
 
 ## Входящие
 

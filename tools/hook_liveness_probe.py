@@ -1151,7 +1151,16 @@ def _case_18_journal_hooks_record_returned():
     return {"payload": payload, "env": None, "extra": {"tmp": tmp, "setup_rc": setup.get("returncode")}, "args": []}
 
 
+def _run_case_18(built: dict) -> dict:
+    """Runs dod_gate as run_subprocess_case does, and keeps its stderr for the check (the artifact check sees only `extra`)."""
+    result = run_subprocess_case("tools/dod_gate.py", built["payload"], built.get("env"), args=built.get("args"))
+    built["extra"]["gate_stderr"] = result.get("stderr", "")
+    return result
+
+
 def _check_journal_hooks_returned(extra: dict) -> tuple:
+    if not re.search(r"^WAITS: (reaper not started|no session) ", extra.get("gate_stderr", ""), re.M):
+        return False, f"dod_gate stderr has no no-spawn WAITS line ('reaper not started' or 'no session'): {extra.get('gate_stderr', '')!r}"
     kinds = [r.get("event") for r in _jh_rows(extra)]
     if kinds.count("delegated") != 1 or kinds.count("returned") != 1 or kinds.index("returned") < kinds.index("delegated"):
         return False, f"expected delegated then one returned, got {kinds!r}"
@@ -1479,6 +1488,7 @@ CASES = [
         "kind": "artifact",
         "isolation": "subprocess",
         "build": _case_18_journal_hooks_record_returned,
+        "runner": _run_case_18,
         "expected_exit": 0,
         "artifact_check": _check_journal_hooks_returned,
     },
