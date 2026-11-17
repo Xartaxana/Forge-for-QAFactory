@@ -280,7 +280,7 @@ def unmarked_revision_errors(rows, plan_contract_mode="legacy"):
         return []
     return [f"{row.get('id') or f'row[{index}]'}: missing coverage_contract_revision - gate A's gate-inputs refuses the whole plan "
             "(COVERAGE_CONTRACT_REVISION_REQUIRED) while this row is unmarked; code writes the mark when S3 closes, so the S3 projection "
-            "did not run for this plan: the conductor reruns the S3 step (never the role)"
+            "did not run for this plan: a strategist rework of S3 writes it when that rework completes"
             for index, row in enumerate(rows) if isinstance(row, dict) and not row.get("coverage_contract_revision")]
 
 
@@ -289,7 +289,7 @@ def gate_plan_errors(rows, plan_contract_mode="legacy", coverage_contract_versio
 
     Every line of `validate_plan` and of `coverage_revision_errors` is the requirement of the row `planning_contract:plan` (the id is
     written here, at the caller that knows it: `validate_plan` has other callers, EC-2); the text of a line is unchanged. The
-    `unmarked_revision_errors` lines stay bare: their door is the conductor's, its own row lands with node T9c (F-W4 (b))."""
+    `unmarked_revision_errors` lines carry the id `planning_contract:plan.unmarked_revision` (t-1108): their door is a strategist rework of S3."""
     errors = validate_plan(rows, require_v2=(coverage_contract_version == 2))
     ours = coverage_revision_errors(rows)
     named = tuple(f"{line.split(':', 1)[0]}: unsupported coverage_contract_revision " for line in ours)
@@ -297,7 +297,8 @@ def gate_plan_errors(rows, plan_contract_mode="legacy", coverage_contract_versio
     # a line that already names its row (`coverage_contract:obligations*` from `validate_obligations`) keeps it: the inner id wins, as in
     # `_branch_block_lines`; `refusal()` rebuilds from the text and the outer id would relabel it
     return [error if getattr(error, "check", "") else refusal("planning_contract:plan", error)
-            for error in kept] + unmarked_revision_errors(rows, plan_contract_mode)
+            for error in kept] + [refusal("planning_contract:plan.unmarked_revision", line)
+                                  for line in unmarked_revision_errors(rows, plan_contract_mode)]
 
 
 def plan_warnings(rows):

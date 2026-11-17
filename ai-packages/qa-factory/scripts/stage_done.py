@@ -215,8 +215,11 @@ def parse_sets(items: list) -> dict:
     for item in items or []:
         key, sep, raw = str(item).partition("=")
         if not sep:
-            raise ValueError(f"--set takes key=value, not `{item}`")
-        out[key.strip()] = coerce_value(key.strip(), raw)
+            raise ValueError(DV.refusal("stage_done:set", f"--set takes key=value, not `{item}`"))
+        try:
+            out[key.strip()] = coerce_value(key.strip(), raw)
+        except ValueError as exc:      # `coerce_value` has 4 callers: the id is written here, at the caller that knows the requirement
+            raise ValueError(DV.refusal("stage_done:set", str(exc))) from None
     return out
 
 
