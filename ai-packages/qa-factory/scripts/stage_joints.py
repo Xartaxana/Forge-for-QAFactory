@@ -452,6 +452,20 @@ def load_rows(path=None) -> tuple:
     return data, ""
 
 
+JOINTS_NOT_LIST = "stage-joints.json `joints` is not a list"
+
+
+def read_rows(path=None) -> tuple:
+    """`(data, "")`, or `(None, why)` - `load_rows` plus the shape of `joints`: a file whose `joints` is not a list is `(None, why)`
+    with the one sentence `JOINTS_NOT_LIST` (a caller that tells a person what it could not read calls this, not `load_rows`; F5)."""
+    data, why = load_rows(path)
+    if data is None:
+        return None, why
+    if not isinstance(data.get("joints"), list):
+        return None, JOINTS_NOT_LIST
+    return data, ""
+
+
 def _rows_data(data):
     """`(data, rows, why)`: `data` as given (a rows dict, as `load_rows` returns it) or the real file; `rows` None with a
     reason when there are none to read."""
@@ -461,7 +475,7 @@ def _rows_data(data):
             return None, None, why
     rows = data.get("joints") if isinstance(data, dict) else None
     if not isinstance(rows, list):
-        return None, None, "stage-joints.json `joints` is not a list"
+        return None, None, JOINTS_NOT_LIST
     return data, [r for r in rows if isinstance(r, dict)], ""
 
 
@@ -688,8 +702,11 @@ def _gap_problems(label: str, gap) -> list:
 
 
 # ---------------------------------------------------------------------------------- one producer entry
+ROLE_FILES = {"conductor": "references/conductor.md"}   # a receiver whose role file is not `agents/<role>.md` (data, AR-1; T9c, F-4 (a)): the conductor's system file
+
 def _producer_leg(entry: dict, env: Env) -> list:
-    """What is wrong with the producer leg of one entry: [] when it names an existing role or a defined function."""
+    """What is wrong with the producer leg of one entry: [] when it names an existing role (its `agents/<role>.md`, or its file in
+    `ROLE_FILES`) or a defined function."""
     roles, code = entry.get("roles"), entry.get("code")
     if (roles in (None, [])) and not code:
         return ["the producer leg is missing"]
@@ -698,7 +715,8 @@ def _producer_leg(entry: dict, env: Env) -> list:
     if roles:
         if not isinstance(roles, list) or not all(isinstance(r, str) for r in roles):
             return ["`roles` is not a list of role names"]
-        return [f"role `{r}` has no agents/{r}.md" for r in roles if not env.role_exists(r)]
+        return [f"role `{r}` has no {ROLE_FILES.get(r, f'agents/{r}.md')}" for r in roles
+                if not (env.role_exists(r) or (r in ROLE_FILES and (env.plugin / ROLE_FILES[r]).is_file()))]
     import null_outcomes
     why = null_outcomes.unresolved(str(code), env.scripts)
     return [f"`code` {why}"] if why else []
