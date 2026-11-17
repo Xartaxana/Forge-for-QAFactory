@@ -33,8 +33,8 @@ flag|credential|data|service, where: <file:lines or variable NAME>, change, rest
 product, blocked it. `self_fixes[]` `before`/`after`: the Then-lines around the fix.
 `witness` {`author_green`, `critic_red_probe`, `restored_hashes`}. `run_witness` str — the `run_suite` summary path
 (`evidence/sanity.json exit 0 12 passed`; `check_witness.py`'s flat form).
-`unprojected_events[]`: projection-written; a committed fragment the merge refused. Fix it.
-`introduced_helpers[]`: in each row `manifest_from_tests.py` wrote, fill `purpose`, `searched`, `similar_found` (`none` counts),
+`unprojected_events[]`: projection-written; a fragment the merge refused.
+`introduced_helpers[]`: in each row `manifest_from_tests.py` wrote, fill `purpose`, `searched`, `similar_found`,
 `keep`, by `manifest_put.py --fragment`. None: `[]`.
 
 <!-- roles: qa-automator, qa-code-critic, qa-failure-analyst -->
@@ -81,7 +81,7 @@ retract names top-level keys only, and `tests[]`, `unresolved[]`, `obligation_bi
 
 A `tests[]` entry records the shape its author chose:
 `shape: reuse | extend | parameterize | consolidate | new`, `consolidates: [cases]`, and one
-line of why (`consolidates`: in the S5 plan, the tests merged; in the manifest, the cases proved). One instance may carry SEVERAL cases (N:M; a consolidated test is not a finding), each with its
+line of why (`consolidates` means two lists: in the S5 plan, the tests a consolidated test merges; in the manifest, the cases the instance proves). One instance may carry SEVERAL cases (N:M; a consolidated test is not a finding), each with its
 own `then_bindings` rows; each `case_version_links` pin is the task's active `{case_id, version}`.
 
 <!-- roles: qa-automator, qa-code-critic -->
@@ -101,7 +101,7 @@ status): never send them. `retracted_provisional: ["P-n"]` retires a row. A prov
 On a REAL side one row is legal, as accounting only: `placeholder_locator` (`on_real:
 first_look_only`; `never` or none is refused), `assumed_from: first_look:<R-n>`, while the first-look record holds R-n `missing` or
 `unreachable`, `blocked_by: product`. A test bound to a Then of its `dependents`, or leaning on it, names the row in `tests[].provisional`
-(an accounting, not a claim: also a test not touching it), is run, never `blocked_by_env`, handed over or skipped; its green proves no Then.
+(accounting, also a test not touching it), is run, never `blocked_by_env`, handed over or skipped; its green proves no Then.
 
 <!-- roles: qa-automator, qa-code-critic, qa-failure-analyst -->
 ### `runs[]`
@@ -190,6 +190,6 @@ string: `window_record.py --review-receipt` builds it, writes
 `work/review-receipts/<critic-dispatch-id>.json` and publishes the path on every binding the
 window reaches; no role writes it by hand. A window the stand blocked still gets its receipt: a
 window where every instance is blocked by the stand closes with the verdict blocked — it is a
-recorded null outcome, not a missing one. A window whose review row says `rejected` is receipted, and
-`window_record.py` still exits 1: that is the send-back to the author, not a failure. At gate B, the person sees
+recorded null outcome, not a missing one. A window whose review row says `rejected` is receipted too, and
+`window_record.py` exits 1 too: that is the send-back to the author, not a failure. At gate B, the person sees
 `ran red: <reason>` beside every blocked row that ran.
