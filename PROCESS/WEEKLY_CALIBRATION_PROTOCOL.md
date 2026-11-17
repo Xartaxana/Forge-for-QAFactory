@@ -1003,7 +1003,7 @@ the source's own number.
     written` line, and two sessions writing the record at once (the
     lost update errs toward "fresh once more").
 33. **Piles and batches, the journal per developer (DECISIONS.md D-0036;
-    CLAUDE.md rule 4a; PROJECT.md «Командная работа»).**
+    CLAUDE.md rule 4a; PROJECT.md «Командная работа»; `docs/TEAMWORK.md`).**
     Mechanism: `tools/piles.py check` in `.githooks/commit-msg` (door
     `piles-skip: <item> -- <reason>`; a commit is judged on the piles it touches, and on a staged `.py` an active batch's function list names) and `check --base` in CI forge-check (the pushed range), `piles.py take`/`status`/`close` as the only code writers of a batch's status, `piles.py close` (formerly
     `release`, now a refused alias) as the only writer of «Закрыто», `logs/journal/<dev>.jsonl` with
@@ -1042,6 +1042,7 @@ the source's own number.
     so a hit is a bypass (a batch closed by editing the card by hand);
     the three batches closed before the gate (forge/1, forge/2, forge/4)
     are the baseline, named once, not re-judged.
+    (h) Boot form (boot-by-topic, FG7-51): sample CLAUDE.md and PROJECT.md for a rule sentence restated outside its home (topic map), a section over 50 lines without a table, a `##` heading of the boot that no TOC row routes to — each a finding; on discipline until FG7-52.
 34. **Exchange form (F5-2).** (t-797 spec §3.4; the scout digest form v1,
     the brief as pointers, the `node` field of a `delegated` line.)
     Mechanism: `tools/digest_form.py` read by `tools/handback_extract.py`
