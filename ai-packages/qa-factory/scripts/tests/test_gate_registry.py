@@ -55,9 +55,10 @@ EXPECTED_IDS = [
 # C3-R (t-1009): seven rows converted (collected_ids, s5_coverage, delivery, case_preconditions, environment_preparation,
 # reporter_rehearsal_identity, environment_property_cover); 14 -> 7 debt rows. Fix round (t-1032, A1): reporter_rehearsal_identity is
 # back to debt (B-283) - its acceptance `earlier['state'] == 'same_command'` sits in `_reporter_outcome`; 7 -> 8 debt rows.
+# C3-b1 (t-1051): live_check_demand converted (B-279; the question to the code critic); 8 -> 7 debt rows.
 EXPECTED_DEBT = {
     "stand_identity": "B-257", "provenance_acceptance": "B-255", "test_identity": "B-217",
-    "live_check_demand": "B-279", "s5_window": "B-179",
+    "s5_window": "B-179",
     "baseline_identity": "B-281", "s5_stand_limits": "B-282", "reporter_rehearsal_identity": "B-283"}
 EXPECTED_EXEMPT = ["request_shape", "executor_present", "manual_evidence_shape", "witness_backstop",
                    "equivalence_metric", "source_freshness"]
@@ -66,7 +67,8 @@ EXPECTED_CONVERTED = ["inputs_unchanged", "then_oracle", "stand_login_gate", "st
                       "s5_open_oracle_asserted", "env_block_evidence", "plan_target_on_base",
                       # C3-R (t-1009): the seven rows converted without code
                       "collected_ids", "s5_coverage", "delivery", "case_preconditions", "environment_preparation",
-                      "environment_property_cover"]
+                      "environment_property_cover",
+                      "live_check_demand"]      # C3-b1 (t-1051): the question to the code critic, no predicate
 BLIND_STEM = "a gate that compares only non-anchor words, outside any registered site, is not seen"
 CONVERTED_TEST = "scripts/tests/test_gate_registry.py"
 
@@ -244,7 +246,7 @@ def part_live_registry() -> None:
     lines = p.stdout.splitlines()
     check_eq("K-T1.2 its first line", lines[0] if lines else "", "A26 gate registry: no violations")
     check_in("K-T1.2 the second header line states the blind spot", BLIND_STEM, lines[1] if len(lines) > 1 else "")
-    check_in("K-T1.2 it lists the debt, decided and not forgotten", "8 gate(s) left as debt:", p.stdout)
+    check_in("K-T1.2 it lists the debt, decided and not forgotten", "7 gate(s) left as debt:", p.stdout)
     check_in("K-T1.2 and the exempt gates", "6 gate(s) exempt:", p.stdout)
 
     code, out = cli("--sites")
@@ -320,7 +322,7 @@ def part_live_registry() -> None:
     data = json.loads(out)
     check_eq("K-T1.14 --json keys are findings, debt, exempt", sorted(data), ["debt", "exempt", "findings"])
     check_eq("K-T1.14 findings is empty", data["findings"], [])
-    check_eq("K-T1.14 debt lists the eight rows left after C3-R and its fix round", [d["id"] for d in data["debt"]], list(EXPECTED_DEBT))
+    check_eq("K-T1.14 debt lists the seven rows left after C3-R, its fix round and C3-b1", [d["id"] for d in data["debt"]], list(EXPECTED_DEBT))
     check_eq("K-T1.14 a debt item has id, decides, debt_ref", sorted(data["debt"][0]), ["debt_ref", "decides", "id"])
     check_eq("K-T1.14 exempt lists the six", [d["id"] for d in data["exempt"]], EXPECTED_EXEMPT)
     check_eq("K-T1.14 an exempt item has id, decides, exempt_reason", sorted(data["exempt"][0]),
@@ -332,8 +334,9 @@ def part_live_registry() -> None:
     # AR-20, TQ1-1 (t-684): converted 10 -> 11 - the row `s5_open_oracle_asserted` joined; RH2-9 (t-691): 11 -> 12, `env_block_evidence`; TQ1-21: 12 -> 13, `plan_target_on_base`; debt and exempt are unchanged
     # C3-R (t-1009): converted 13 -> 20, debt 14 -> 7 (the seven rows above); exempt unchanged
     # t-1032 (A1): converted 20 -> 19, debt 7 -> 8 (`reporter_rehearsal_identity` back to debt)
-    check_eq("K-T1.14 the registry file's rows split 19 converted / 8 debt / 6 exempt (C3-R converted six debt rows for good)",
-             {s: len(v) for s, v in raw.items()}, {"converted": 19, "debt": 8, "exempt": 6})
+    # C3-b1 (t-1051): converted 19 -> 20, debt 8 -> 7 (`live_check_demand`: the question to the code critic)
+    check_eq("K-T1.14 the registry file's rows split 20 converted / 7 debt / 6 exempt (C3-R converted six debt rows for good)",
+             {s: len(v) for s, v in raw.items()}, {"converted": 20, "debt": 7, "exempt": 6})
     check_eq("K-T1.14 --json debt = the file's debt rows (id, decides, debt_ref), in order",
              data["debt"], [{"id": r["id"], "decides": r["decides"], "debt_ref": r["debt_ref"]} for r in raw["debt"]])
     check_eq("K-T1.14 --json exempt = the file's exempt rows (id, decides, exempt_reason), in order",
@@ -991,6 +994,9 @@ D13_TRIPLES = [
 # 138 -> 140 (t-1032, A1): the reuse acceptance `earlier['state'] == 'same_command'` (`_reporter_outcome`, accept) and
 # `earlier.get('state') != 'unreadable'` (`_record_unreadable`, produce) are registered under `reporter_rehearsal_identity`, so the scan
 # attributes them (measured with `gate_registry.py --sites`: +2 lines). The raise is the decision, taken in the diff that makes it.
+# 140 -> 140 (C3-b1, t-1051): `live_check_demand` is converted with no predicate; `proof_required` is re-roled `accept` -> `produce` and
+# `novelty_question_owed` is registered `produce`, neither holds a comparison of a row word, so no triple was added or removed (measured
+# with `GR.analyse` before and after: 140, 140; the set of triples is unchanged - `("proof_level.py", "novelty_of", "live_check_demand")` stays).
 D13_ITEM_COUNT = 140
 
 

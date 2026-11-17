@@ -760,6 +760,57 @@ def a_window_item_carries_a_resolved_novelty():
              (False, ("unchanged", "resolved at build")))
 
 
+def the_unmeasured_row_is_a_question_to_the_code_critic():
+    """C3-b1 (FR-59, AR-28; registry row `live_check_demand`: question / wait / window_acceptance; also the S-b pin of its unknown
+    branch). The world is BUILT: a keyless, flagless, unhanded row - the recorded stories never reach the question (0 `novelty` keys).
+    Expected values come from the card's items 1-2 (E1, E2, E3, E5, E6, E10) and `proof_required` (c) "a layer can only add"."""
+    PL._reset()
+    keyless = {"instance_id": "TC-2::test_y", "case": "TC-2", "covers": ["TC-2"], "file": TEST_REL}
+    measured = {"tests": [fresh_row(), keyless]}          # the writer ran: one row carries a `novelty` key
+    unmarked = {"tests": [dict(keyless)]}                 # the recorded stories' shape: no row measured, no marker
+    note = "novelty could not be measured (OSError)"
+    cases = [
+        # (label, row, manifest, owed)
+        ("keyless, flagless row beside a measured row -> asked (E1)", keyless, measured, True),
+        ("the same row in an all-keyless manifest -> never asked (E3)", keyless, unmarked, False),
+        ("...with the writer's failure note -> asked (F-T5 a+)", keyless, dict(unmarked, novelty_unmeasured=note), True),
+        ("...with an empty marker (the writer succeeded) -> not asked (E10)", keyless, dict(unmarked, novelty_unmeasured=""), False),
+        ("...with a marker that is not a string (5) -> not asked (E10)", keyless, dict(unmarked, novelty_unmeasured=5), False),
+        ("...with a marker that is a list -> not asked (E10)", keyless, dict(unmarked, novelty_unmeasured=[]), False),
+        ("...with a null marker -> not asked (E10)", keyless, dict(unmarked, novelty_unmeasured=None), False),
+        ("a flagged row -> not asked (already required)", dict(keyless, new_or_changed=True), measured, False),
+        ("a row handed to the person -> not asked (E4)", keyless, dict(measured, unresolved=[dict(HANDED, case="TC-2")]), False),
+        ("probe_owed `no` -> not asked (answered)", dict(keyless, probe_owed="no"), measured, False),
+        ("probe_owed `yes` -> not asked (answered)", dict(keyless, probe_owed="yes"), measured, False),
+        ("a malformed answer never closes the question (E6): `Yes`", dict(keyless, probe_owed="Yes"), measured, True),
+        ("...`True`", dict(keyless, probe_owed=True), measured, True),
+        ("...an empty string", dict(keyless, probe_owed=""), measured, True),
+        ("...a list", dict(keyless, probe_owed=["yes"]), measured, True),
+        ("a stored `unknown` is a demanded probe, never a question (E2)",
+         dict(keyless, novelty={"value": "unknown", "basis": "x"}), measured, False),
+        ("a row that is not a dict, or a manifest that is not one -> not asked", None, measured, False),
+        ("...the manifest", keyless, None, False),
+        ("...a manifest whose `tests` is junk", keyless, {"tests": "junk"}, False),
+    ]
+    for label, row, manifest, want in cases:
+        check_eq(label, PL.novelty_question_owed(row, manifest), want)
+    # `_wanted`: the answer only ADDS a requirement (item 2, E5)
+    handed_world = dict(measured, unresolved=[HANDED])
+    required = [PL.proof_required(row, world) for row, world in (
+        (dict(keyless, probe_owed="yes"), measured),                     # `yes` adds the requirement on a keyless row
+        (dict(keyless, probe_owed="no"), measured),                      # `no` adds nothing: as today
+        (dict(keyless, probe_owed="Yes"), measured),                     # a malformed answer adds nothing
+        (dict(keyless, new_or_changed=True, probe_owed="no"), measured),  # a flag is never overruled
+        (fresh_row(probe_owed="yes"), measured),                         # `yes` over a fresh unchanged: the answer only adds
+        (fresh_row(probe_owed="no"), measured),                          # `no` over a fresh unchanged: still not required
+        (dict(keyless, case="TC-9", covers=["TC-9"], probe_owed="yes"), handed_world))]   # the handed exemption stays last
+    check_eq("proof_required over the answer: only `yes` adds, `no` never overrules a flag, a handed row stays exempt",
+             required, [True, False, False, True, True, False, False])
+    check_eq("why: an unmeasured keyless row reads `unmeasured` and a `yes` one reads demanded",
+             (PL.not_required_why(keyless, measured), PL.not_required_why(dict(keyless, probe_owed="yes"), measured)),
+             ("unmeasured", ""))
+
+
 def why_no_live_check_is_demanded():
     PL._reset()
     handed = {"unresolved": [HANDED]}
@@ -1752,6 +1803,7 @@ def main():
         the_hash_cache_never_trusts_a_young_key()
         proof_required_with_a_novelty_key()
         a_window_item_carries_a_resolved_novelty()
+        the_unmeasured_row_is_a_question_to_the_code_critic()
         why_no_live_check_is_demanded()
         the_one_reader_of_current_bytes()
         reached_over_the_receipts_a_row_names()

@@ -1110,6 +1110,7 @@ def validate_window(window, root):
     ran_red = [i for i in window.get("instances", []) if isinstance(i, dict) and i.get("outcome") == "failed"]
     red = (red_by_requirement(_manifest_under(root), ran_red, window.get("scope_instances"), root)
            if ran_red else {})
+    manifest_view = None        # read at most once, only when an item reaches the C3-b1 question below
     for item in window.get("instances", []):
         identity = str(item.get("instance_id") or "?")
         if not item.get("instance_id") or not item.get("input_hash"):
@@ -1196,6 +1197,20 @@ def validate_window(window, root):
             gaps.append("change_disposition:" + identity)
         elif not item.get("change_basis_ref"):
             gaps.append("change_basis:" + identity)
+        # C3-b1 (FR-59, AR-28): a keyless, flagless row of a manifest whose writer measured novelty is a question to the code
+        # critic - "is a live probe owed?" - never a silent pass. Position: after the review checks (it never replaces one) and
+        # before the sensitivity checks below (it never shadows one); an item the outcome chain decided first (handed, stopped,
+        # pending, red by the requirement, or a handed claim the manifest does not confirm) is never asked, and neither is one
+        # the item or its row answered with a closed `probe_owed`. The ONE reader is `proof_level.novelty_question_owed`, asked
+        # of the manifest's row of this instance (the window item carries no flags of the row); an unreadable manifest asks
+        # nothing (the in-flight-safe side, builder-rules 9).
+        if not (handed or stopped or pending or explained or unconfirmed) and not proof_level.proof_required(item, {}):
+            if manifest_view is None:
+                manifest_view = _manifest_under(root)
+            row = next((r for r in C.manifest_tests(manifest_view) if C.test_instance_id(r) == identity), None)
+            if (row is not None and item.get("probe_owed") not in proof_level.PROBE_OWED_ANSWERS
+                    and proof_level.novelty_question_owed(row, manifest_view)):
+                gaps.append("novelty_question:" + identity)
         # ONE predicate for "a live check is demanded" (proof_level.proof_required). The handed
         # exemption stays here because a window item says it by its outcome, not by the manifest. A blocked
         # instance never ran, so there is nothing to mutate and no probe is demanded (B2); its review is the

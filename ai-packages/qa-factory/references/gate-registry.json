@@ -184,10 +184,11 @@
     },
     {
       "id": "live_check_demand", "inventory": "G8", "vocabulary": "code",
-      "decides": "a new or changed test must carry a live probe (a red-probe receipt); a legacy row whose novelty nobody measured is shown to the person as a debt, never a block (t-313 F8)",
+      "decides": "a new or changed test must carry a live probe (a red-probe receipt); a row nobody measured - no `novelty`, no flag, not handed - in a manifest whose writer measured novelty (a row carries `novelty`, or the writer's `novelty_unmeasured` note is set) is a question to the code critic (`probe_owed: yes | no`), asked at window acceptance (the `novelty_question` gap), never a silent pass; a manifest with neither is a legacy story and is not asked (builder-rules 9); a stored `unknown` keeps its demanded probe",
       "sites": [
-        {"file": "proof_level.py", "function": "proof_required", "role": "accept"},
-        {"file": "proof_level.py", "function": "novelty_of", "role": "produce"}
+        {"file": "proof_level.py", "function": "proof_required", "role": "produce"},
+        {"file": "proof_level.py", "function": "novelty_of", "role": "produce"},
+        {"file": "proof_level.py", "function": "novelty_question_owed", "role": "produce"}
       ],
       "field": "novelty",
       "words": ["new", "changed", "unchanged", "unknown"],
@@ -195,15 +196,15 @@
         "new": {"class": "mismatched"},
         "changed": {"class": "mismatched"},
         "unchanged": {"class": "matched"},
-        "unknown": {"class": "unknown", "owner": "factory"}
+        "unknown": {"class": "unknown", "owner": "role"}
       },
       "accepts": {},
       "promotable": false,
-      "unknown_branch": "debt", "on_no_answer": "debt", "waits_at": null,
-      "closed_by": [], "addressee": ["code_routes"], "person_subject": null,
+      "unknown_branch": "question", "on_no_answer": "wait", "waits_at": "window_acceptance",
+      "closed_by": ["role:qa-code-critic", "person"], "addressee": ["role:qa-code-critic"], "person_subject": null,
       "policy_file": null, "scope_keys": [], "binding_keys": [], "question_kind": null,
       "test": "scripts/tests/test_proof_level.py",
-      "status": "debt", "debt_ref": "B-279", "exempt_reason": ""
+      "status": "converted", "debt_ref": "", "exempt_reason": ""
     },
     {
       "id": "s5_coverage", "inventory": "G9", "vocabulary": "code",

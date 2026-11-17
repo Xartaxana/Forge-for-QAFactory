@@ -59,6 +59,10 @@
    "reach": "unwalked",
    "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
   },
+  "acceptance:novelty_question": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
+  },
   "acceptance:obligation_binding": {
    "reach": "unwalked",
    "why_unreached": "not walked yet: node N4:s5 writes the rows of this group"
@@ -338,7 +342,7 @@
  "ratchet": {
   "live_only": 0,
   "after": 0,
-  "unwalked": 31,
+  "unwalked": 32,
   "hook_layer": 0,
   "raised_by": [
    "unwalked | joints/controller:code_review_receipts | L1c census catch-up, 2026-11-17",

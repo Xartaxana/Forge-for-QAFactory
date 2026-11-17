@@ -1371,6 +1371,29 @@ def ep1_39_critic_approval() -> None:
         check_in("run: and `run` prints the moved row", "moved out of tests[]: test_ten[a] (case TC-010 is now wholly unresolved", out)
 
 
+def c3_b1_probe_owed_value() -> None:
+    """C3-b1 (D-b1-2): a `tests[]` row's `probe_owed` is `yes` / `no` or absent; anything else is refused by `run` before the commit,
+    every bad row named at once (the field, the row, both values), nothing written."""
+    bad = (("maybe", "maybe"), ("empty string", ""), ("bool", True), ("number", 1), ("list", ["yes"]), ("null", None))
+    with Stand() as stand:
+        check_eq("run: the row is stored", stand.put({"tests": [t9(status="green")]})[0], 0)
+        before = (stand.journal(), stand.tree())
+        for label, value in bad:
+            code, _out, err = stand.put({"tests": [{"instance_id": "test_nine[a]", "probe_owed": value}]})
+            check_eq(f"run: probe_owed {label} -> refused, nothing written", (code, (stand.journal(), stand.tree())), (MP.EXIT_BAD_FRAGMENT, before))
+            check_in(f"run: {label} -> names the field, the row and both values", "probe_owed", err)
+            check_in(f"run: {label} -> names the row", "tests[0] (test_nine[a])", err)
+            check_in(f"run: {label} -> names both values", "`yes` (a live probe is owed) or `no`", err)
+        problems = MP.probe_owed_problems({"tests": [t9("test_a[x]", probe_owed="maybe"), t9("test_b[x]", probe_owed="yes"), {"probe_owed": 5}]})
+        check_eq("pure: every bad row is named, not only the first", [("tests[0]" in p, "tests[2]" in p, "index 2" in p) for p in problems],
+                 [(True, False, False), (False, True, True)])
+        for label, kw in (("yes", {"probe_owed": "yes"}), ("no", {"probe_owed": "no", "critic_note": "covered below"}), ("absent", {})):
+            code, _out, _err = stand.put({"tests": [dict({"instance_id": "test_nine[a]"}, **kw)]})
+            check_eq(f"run: probe_owed {label} is accepted", code, 0)
+    check_eq("pure: odd inputs read as nothing", MP.probe_owed_problems({}) + MP.probe_owed_problems(None) + MP.probe_owed_problems({"tests": ["x"]}), [])
+    check_not_in("`probe_owed` is no field of an expectation_changes[] record", "probe_owed", MP.CRITIC_FIELDS)
+
+
 def pc3_provisional_beside_the_other_lists() -> None:
     """t-2181 PC-3: `provisional[]` is merged by `id` beside the other lists and folds like them. A fragment that also carries
     `tests[]`, `unresolved[]` and `then_bindings` leaves them as the merge always left them; the journal replays to the same
@@ -1504,6 +1527,7 @@ def main() -> None:
     pc3_provisional_beside_the_other_lists()
     ep1_39_then_row_keeps_tests()
     ep1_39_critic_approval()
+    c3_b1_probe_owed_value()
     ep1_38_obligation_hash()
     fv1_19_predicate()
     fv1_19_obligation_stamp()
