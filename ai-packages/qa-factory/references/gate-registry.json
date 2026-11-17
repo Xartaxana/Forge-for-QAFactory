@@ -370,7 +370,7 @@
       "closed_by": [], "addressee": [], "person_subject": null,
       "policy_file": null, "scope_keys": [], "binding_keys": [], "question_kind": null,
       "test": null,
-      "status": "exempt", "debt_ref": "", "exempt_reason": "the conductor decides; the backstop is fail-open by design and the t-302 T3 node makes it print not checked"
+      "status": "exempt", "debt_ref": "", "exempt_reason": "the conductor decides; the backstop is fail-open by design and prints not checked (an ADVICE line) for an artifact with no evidence contract"
     },
     {
       "id": "equivalence_metric", "inventory": "G17", "vocabulary": "target",
