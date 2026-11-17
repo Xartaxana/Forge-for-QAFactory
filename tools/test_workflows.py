@@ -348,6 +348,16 @@ def test_dry_story_matrix_comes_from_the_list_job_and_an_empty_list_says_so():
     assert any("dry_exits.py --check" in r and "dry_stub.py --selftest" in r and "--part exits:selftest" in r for r in runs(jobs["tables"]))
 
 
+def test_every_dry_story_job_that_runs_the_dry_world_installs_pytest():
+    """The dry world runs `python -m pytest` as the project's profile command (dry_stub N2 (2)); a runner without the module exits 1."""
+    jobs = load("dry-story.yml")["jobs"]
+    assert "setup-python" not in str(jobs["list"]) and "pip install" not in "\n".join(runs(jobs["list"]))     # the list job stays bare
+    for name in ("parts", "tables"):
+        got = runs(jobs[name])
+        first = next(i for i, r in enumerate(got) if "python" in r and "pip install" not in r)
+        assert "pip install -q pytest" in got[:first], (name, got)
+
+
 def test_no_run_string_splices_inputs():
     """The dry-story file's run: strings reach inputs and the matrix through env: only (F19E over every file, dry-story included)."""
     assert any(where.startswith("dry-story.yml:") for where, _ in all_run_strings())
