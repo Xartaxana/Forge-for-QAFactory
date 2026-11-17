@@ -227,26 +227,30 @@
       "status": "converted", "debt_ref": "", "exempt_reason": ""
     },
     {
-      "id": "s5_window", "inventory": "G10", "vocabulary": "target",
-      "decides": "the S5 window is acceptable: run blocks, receipts, reviews and expectation changes agree (an unmeasured detector is a gap closed by the critic, never a pass)",
+      "id": "s5_window", "inventory": "G10", "vocabulary": "code",
+      "decides": "the S5 window is acceptable: run blocks, receipts, reviews and expectation changes agree; the critic's review word closes an instance's review only as the instance allows - `approved` for a test that ran with its proof, `unverified` (a static review) for one the stand blocked or whose probe could not run here, either for one handed to the person; `unverified` closes the review only: the instance stays unresolved (`story_step.py finish` derives the pair, and the report lists it as left with the person, D-0013), so it is never a pass - and any other word or none is a review gap the critic closes; a detector that could not measure is said as an INFO line with its reason (owner role: the critic reads it in the window), never a pass and never silence",
       "sites": [
         {"file": "acceptance.py", "function": "validate_window", "role": "accept"},
-        {"file": "window_record.py", "function": "verdict", "role": "accept"}
+        {"file": "window_record.py", "function": "verdict", "role": "produce"},
+        {"file": "window_record.py", "function": "build", "role": "produce"}
       ],
       "field": null,
-      "words": ["matched", "mismatched", "unknown"],
+      "words": ["approved", "unverified"],
       "verdict_map": {
-        "matched": {"class": "matched"},
-        "mismatched": {"class": "mismatched"},
-        "unknown": {"class": "unknown", "owner": "role"}
+        "approved": {"class": "matched"},
+        "unverified": {"class": "not_applicable", "reason_code": "static_review"}
       },
-      "accepts": {},
+      "accepts": {
+        "s5_window.review": ["matched"],
+        "s5_window.static_review": ["not_applicable:static_review"],
+        "s5_window.handed_review": ["matched", "not_applicable:static_review"]
+      },
       "promotable": false,
       "unknown_branch": "question", "on_no_answer": "wait", "waits_at": "window_acceptance",
       "closed_by": ["role:qa-code-critic", "person"], "addressee": ["role:qa-code-critic"], "person_subject": null,
       "policy_file": null, "scope_keys": [], "binding_keys": [], "question_kind": null,
       "test": "scripts/tests/test_window_record.py",
-      "status": "debt", "debt_ref": "B-179", "exempt_reason": ""
+      "status": "converted", "debt_ref": "", "exempt_reason": ""
     },
     {
       "id": "delivery", "inventory": "G11", "vocabulary": "code",

@@ -57,9 +57,9 @@ EXPECTED_IDS = [
 # back to debt (B-283) - its acceptance `earlier['state'] == 'same_command'` sits in `_reporter_outcome`; 7 -> 8 debt rows.
 # C3-rr (t-1055, AR-20): the reuse goes through `gate_template.acceptable`, the row is converted again; 8 -> 7 debt rows.
 # C3-b1 (t-1051): live_check_demand converted (B-279; the question to the code critic); on the merged tree 8 -> 6 debt rows.
+# C3-d (t-1081, AR-20): s5_window converted (the critic's review word through the predicate); 6 -> 5 debt rows.
 EXPECTED_DEBT = {
     "stand_identity": "B-257", "provenance_acceptance": "B-255", "test_identity": "B-217",
-    "s5_window": "B-179",
     "baseline_identity": "B-281", "s5_stand_limits": "B-282"}
 EXPECTED_EXEMPT = ["request_shape", "executor_present", "manual_evidence_shape", "witness_backstop",
                    "equivalence_metric", "source_freshness"]
@@ -71,7 +71,8 @@ EXPECTED_CONVERTED = ["inputs_unchanged", "then_oracle", "stand_login_gate", "st
                       "environment_property_cover",
                       # C3-rr (t-1055): the reuse goes through the predicate, so the row is converted again
                       "reporter_rehearsal_identity",
-                      "live_check_demand"]      # C3-b1 (t-1051): the question to the code critic, no predicate
+                      "live_check_demand",      # C3-b1 (t-1051): the question to the code critic, no predicate
+                      "s5_window"]              # C3-d (t-1081): the critic's review word through the predicate (three consumers)
 BLIND_STEM = "a gate that compares only non-anchor words, outside any registered site, is not seen"
 CONVERTED_TEST = "scripts/tests/test_gate_registry.py"
 
@@ -249,7 +250,7 @@ def part_live_registry() -> None:
     lines = p.stdout.splitlines()
     check_eq("K-T1.2 its first line", lines[0] if lines else "", "A26 gate registry: no violations")
     check_in("K-T1.2 the second header line states the blind spot", BLIND_STEM, lines[1] if len(lines) > 1 else "")
-    check_in("K-T1.2 it lists the debt, decided and not forgotten", "6 gate(s) left as debt:", p.stdout)
+    check_in("K-T1.2 it lists the debt, decided and not forgotten", "5 gate(s) left as debt:", p.stdout)
     check_in("K-T1.2 and the exempt gates", "6 gate(s) exempt:", p.stdout)
 
     code, out = cli("--sites")
@@ -325,7 +326,7 @@ def part_live_registry() -> None:
     data = json.loads(out)
     check_eq("K-T1.14 --json keys are findings, debt, exempt", sorted(data), ["debt", "exempt", "findings"])
     check_eq("K-T1.14 findings is empty", data["findings"], [])
-    check_eq("K-T1.14 debt lists the six rows left after C3-R, its fix round and C3-b1", [d["id"] for d in data["debt"]], list(EXPECTED_DEBT))
+    check_eq("K-T1.14 debt lists the five rows left after C3-R, its fix round, C3-b1 and C3-d",[d["id"] for d in data["debt"]], list(EXPECTED_DEBT))
     check_eq("K-T1.14 a debt item has id, decides, debt_ref", sorted(data["debt"][0]), ["debt_ref", "decides", "id"])
     check_eq("K-T1.14 exempt lists the six", [d["id"] for d in data["exempt"]], EXPECTED_EXEMPT)
     check_eq("K-T1.14 an exempt item has id, decides, exempt_reason", sorted(data["exempt"][0]),
@@ -339,8 +340,9 @@ def part_live_registry() -> None:
     # t-1032 (A1): converted 20 -> 19, debt 7 -> 8 (`reporter_rehearsal_identity` back to debt)
     # C3-rr (t-1055, AR-20): converted 19 -> 20, debt 8 -> 7 (`reporter_rehearsal_identity` converted through `acceptable`)
     # C3-b1 (t-1051): converted 19 -> 20, debt 8 -> 7 (`live_check_demand`: the question to the code critic); merged: 19 -> 21, debt 8 -> 6
-    check_eq("K-T1.14 the registry file's rows split 21 converted / 6 debt / 6 exempt (C3-R converted six debt rows for good)",
-             {s: len(v) for s, v in raw.items()}, {"converted": 21, "debt": 6, "exempt": 6})
+    # C3-d (t-1081, AR-20): converted 21 -> 22, debt 6 -> 5 (`s5_window`: the critic's review word through `acceptable`)
+    check_eq("K-T1.14 the registry file's rows split 22 converted / 5 debt / 6 exempt (C3-R converted six debt rows for good)",
+             {s: len(v) for s, v in raw.items()}, {"converted": 22, "debt": 5, "exempt": 6})
     check_eq("K-T1.14 --json debt = the file's debt rows (id, decides, debt_ref), in order",
              data["debt"], [{"id": r["id"], "decides": r["decides"], "debt_ref": r["debt_ref"]} for r in raw["debt"]])
     check_eq("K-T1.14 --json exempt = the file's exempt rows (id, decides, exempt_reason), in order",
@@ -743,6 +745,7 @@ def part_fix_pass() -> None:
              sorted(["case_preconditions", "test_identity", "then_oracle", "live_check_demand", "inputs_unchanged",
                      "collected_ids", "s5_coverage", "delivery", "environment_preparation",    # C3-R (t-1009)
                      "reporter_rehearsal_identity", "environment_property_cover",
+                     "s5_window",     # C3-d (t-1081): target -> code (the words `approved` / `unverified`)
                      "stand_login_gate", "stand_check", "probe_verdict", "finish_exit_gate", "exploratory_oracle", "branch_accounting",
                      "s3_grounding", "regression_on_main", "s5_open_oracle_asserted", "env_block_evidence", "plan_target_on_base"]))
     check("F4 no live converted row says target",
@@ -1010,6 +1013,7 @@ D13_TRIPLES = [
     # RH1-5 (t-1433, 0b53cc33): `finish` splits an exit-gate record of kind `unreadable` from the refusals - two comparisons
     # (`kind == 'unreadable'` and `kind != 'unreadable'`) at the site finish_exit_gate already registers; no new site, no new row.
     ("story_step.py", "_finish_gate", "finish_exit_gate"),
+    ("window_record.py", "build", "s5_window"),    # C3-d (t-1081): `item['review']['verdict'] != 'approved'`, the review note, a produce site
 ]
 # The total is pinned beside the set: two comparisons of one triple are one entry above, and the count is what notices one of them go.
 # 134 -> 135 (t-598, F-7 of t-596): EP1-36's `record.get("verdict") == "incomplete"` stands in `_judge_rows` (a site of the
@@ -1040,7 +1044,12 @@ D13_TRIPLES = [
 # the count falls by that one comparison.
 # C3-b1 (t-1051) moves no count (140 -> 140 on its base: no comparison added or removed).
 # Merged tree value 145 items / 49 triples (measured with GR.analyse on the merged tree).
-D13_ITEM_COUNT = 145
+# 145 -> 146 (C3-d, t-1081, AR-20): `s5_window` now says `code` with the words `approved` / `unverified`, so the scan reads the one
+# comparison `item['review']['verdict'] != 'approved'` in the new registered `produce` site `window_record.build` (the triple
+# `("window_record.py", "build", "s5_window")` joins; 49 -> 50 triples). The four comparisons of `acceptance.validate_window` are
+# `acceptable(...)` calls now; they were never counted (the row's words were the class words), so none leaves the count.
+# Measured with GR.analyse before (145 / 49) and after (146 / 50).
+D13_ITEM_COUNT = 146
 
 
 def part_site_attribution() -> None:

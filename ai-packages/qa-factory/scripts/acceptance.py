@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import contract as C  # noqa: E402
 import proof_level  # noqa: E402
+from gate_template import acceptable  # noqa: E402  (the ONE predicate the critic's review word is accepted through: row `s5_window`)
 from hooklib import read_json, sorted_paths  # noqa: E402
 
 # A mechanical fix (a sleep, a raw locator, a lint) made on the critic's word after the review
@@ -30,8 +31,8 @@ HANDED_OUTCOME = "handed_to_person"
 # It must not start with `handed_to_person` (the controller splits gaps by `g.startswith(HANDED_OUTCOME + ":")`), and it is
 # not derivable: code never derives an `unresolved` pair over a hand-off the manifest does not hold (t-204 F1).
 HANDED_UNCONFIRMED_KIND = "handed_unconfirmed"
-# The review words a handed instance may carry: the charter's static word (`unverified`) or `approved`, bound to the bytes.
-HANDED_REVIEW_VERDICTS = ("approved", "unverified")
+# The review words a handed instance may carry (the charter's static word `unverified`, or `approved`, bound to the bytes) are
+# the registry's: consumer `s5_window.handed_review` of row `s5_window` (references/gate-registry.json), read through `acceptable`.
 
 # The outcome of an instance the STAND blocked (t-219, TP1-15045 cmp2: TC_004 and TC_008 stayed on
 # "Loading", no Then was reached, and a window that could name that in no word looped through eight
@@ -1154,22 +1155,22 @@ def validate_window(window, root):
                   and proof_level.proof_required(item, {}))
         if stopped:
             # a static review only: `approved` (or anything else) on a test that never ran is a review gap (E5)
-            if item.get("review", {}).get("verdict") != BLOCKED_REVIEW_VERDICT:
+            if not acceptable(item.get("review", {}).get("verdict"), "s5_window.static_review"):
                 gaps.append("review:" + identity)
         elif handed:
             # a test the person runs is reviewed statically (s5.md): the charter's `unverified`, or `approved`; `rejected`
             # or no word is a review gap, and the word is bound to the bytes like any other
-            if item.get("review", {}).get("verdict") not in HANDED_REVIEW_VERDICTS:
+            if not acceptable(item.get("review", {}).get("verdict"), "s5_window.handed_review"):
                 gaps.append("review:" + identity)
             elif not _bound_to(item, item["review"], window, root):
                 gaps.append("stale_review:" + identity)
         elif gapped:
             # the same for a probe that never ran (F5): `approved` would claim a live check that never happened
-            if item.get("review", {}).get("verdict") != BLOCKED_REVIEW_VERDICT:
+            if not acceptable(item.get("review", {}).get("verdict"), "s5_window.static_review"):
                 gaps.append("review:" + identity)
             elif not _bound_to(item, item["review"], window, root):
                 gaps.append("stale_review:" + identity)
-        elif item.get("review", {}).get("verdict") != "approved":
+        elif not acceptable(item.get("review", {}).get("verdict"), "s5_window.review"):
             gaps.append("review:" + identity)
         elif not _bound_to(item, item["review"], window, root):
             gaps.append("stale_review:" + identity)
