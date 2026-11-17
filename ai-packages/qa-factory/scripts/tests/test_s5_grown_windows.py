@@ -314,11 +314,10 @@ def k4_look_scope():
         check("fixture: no pass is recorded before a person's word", not passed.exists() or "the look scoped" not in passed.read_text(encoding="utf-8"))
         check_eq("a person's-words look is not held for its scope (P13)",
                  c._plan_review_problems(dict(record, scope=["TC-3"], person_words=True), state, "."), [])
-        check_in("a person's-words look: the pass is recorded as a finding", "the look scoped TC-3", passed.read_text(encoding="utf-8"))
-        passed.unlink()
+        check("RD1-31 a person's-words look: a helper called outside `apply` writes no row", not passed.exists())
         word(root)
         check_eq("a person's word passes the narrow look", c._plan_review_problems(dict(record, scope=["TC-3"]), c.state(), "."), [])
-        check_in("a person's word passes the narrow look: the pass is recorded as a finding", "the look scoped TC-3", passed.read_text(encoding="utf-8"))
+        check("RD1-31 a person's word passes the narrow look: ... and no row outside `apply`", not passed.exists())
         check_eq("the full look is accepted", refused(lambda: accept_it(c, root, look["id"])), "")
     finally:
         cleanup(root)

@@ -1937,8 +1937,25 @@ def the_s3_gate_runs_on_every_s3_acceptance():
         check("G1-5 ...and the refusal names the person's door", "waiver.py --task" in text and "--stage S3" in text, text[:300])
         pipeline(implementation_source="diff", stage_overrides=[{"stage": "S3", "match": "missing while implementation_source is diff",
                                                                   "decision": "go on without the table", "at": "t"}])
+        pass_file = root / "state" / "passed-by-person.jsonl"
+
+        def s3_rows():
+            rows = [json.loads(line) for line in pass_file.read_text(encoding="utf-8").splitlines()] if pass_file.exists() else []
+            return [(r["stage"], r["dispatch"]) for r in rows]
+
+        # RD1-31 (the S3 exit, a person's word + a LATER refusal in the same validate): the word passes one finding, another finding
+        # is not the word's - the accept is refused and NO row is left
+        real_exit_pair = GT.exit_findings
+        try:
+            GT.exit_findings = lambda *a, **k: [GT.Finding("R9", "missing while implementation_source is diff", "role"),
+                                                GT.Finding("R7", "K-1 reaches no row", "role")]
+            text = refused(lambda: c.apply("accept", close))
+        finally:
+            GT.exit_findings = real_exit_pair
+        check("RD1-31 S3 exit: a word that passes one finding while another refuses leaves no row",
+              "R7" in text and s3_rows() == [], (text[:160], s3_rows()))
         check("G1-5 a person's recorded word passes the same refusal, and the pass is journalled",
-              refused(lambda: c.apply("accept", close)) == "" and "S3" in (root / "state" / "passed-by-person.jsonl").read_text(encoding="utf-8"))
+              refused(lambda: c.apply("accept", close)) == "" and s3_rows() == [("S3", "g15-a")], s3_rows())
 
         win1 = {"id": "w1", "stage": "S3", "request_binding": {"purpose": "s3_labelling"}}
         exit_d = {"id": "w2", "stage": "S3", "request_binding": {"purpose": "initial"}}

@@ -448,28 +448,31 @@ def k8_the_window_record_never_names_the_plan():
                      " ".join(problems_for(receipt("wa", scope=("TC-1", "TC-2"), input_hash="h"))))
         check_in("a plan author is never the window's author in _s5_v2_collect", wanted,
                  " ".join(problems_for(receipt("pa", scope=("TC-1", "TC-2"), plan=True, input_hash="h"))))
-        # RD1-31 (F, the mechanical round): a person's word `mechanical round` passes the author's completion; the pass is KEPT in the list
-        # `validate` holds for one S5 completion (recorded there once the completion did not raise), and only while that list is open
+        # RD1-31 (F, the mechanical round): a person's word `mechanical round` passes the author's completion; the pass is NOTED in the
+        # collector `apply` holds for one event (recorded there once the event is in), and only while that collector is open; a call
+        # outside `apply` writes no row
         author = receipt("wa", scope=("TC-1", "TC-2"), input_hash="h", status="running")
         word_for_round = "mechanical round"
 
         def round_passes(open_list, word):
             pipeline = waiver.apply_stage_override({}, "S5", word, "the person accepts the round", waiver.now_iso()) if word else {}
             (root / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
-            c._s5_round_passed = [] if open_list else None
+            c._passes = [] if open_list else None
             out = []
             c._s5_v2_collect(author, {"dispatches": ledger_of(author), "source_revision": None},
                              {"author_dispatch_id": "wa", "reviewer_dispatch_id": "wc", "input_hash": "h", "instances": []}, out)
-            kept, c._s5_round_passed = c._s5_round_passed, None
+            kept, c._passes = c._passes, None
             return kept, " ".join(str(text) for _, text in out)
 
         kept, said = round_passes(True, word_for_round)
         check("RD1-31 mechanical round: the word passes it and the passes are kept, one per block",
-              kept and all("mechanical round" in item["error"] for item in kept) and "mechanical round" not in said, (kept, said))
+              kept and all(stage == "S5" and "mechanical round" in item["error"] for stage, item in kept) and "mechanical round" not in said,
+              (kept, said))
         kept, said = round_passes(True, "")
         check("RD1-31 mechanical round: no word, nothing kept and the refusal stands", kept == [] and "mechanical round" in said, (kept, said))
         kept, said = round_passes(False, word_for_round)
-        check_eq("RD1-31 mechanical round: outside an S5 completion the list is closed, nothing is kept", kept, None)
+        check_eq("RD1-31 mechanical round: outside `apply` the collector is closed, nothing is kept", kept, None)
+        check_eq("RD1-31 mechanical round: and no row is written outside `apply`", (root / "state" / "passed-by-person.jsonl").exists(), False)
     finally:
         cleanup(root)
 

@@ -613,7 +613,16 @@ def k16_r2_a_persons_word_lifts_the_row_bound():
         check_in("K-R2-3: a `*` word passes no dispatch (the stage has no wildcard here)",
                  "which no blocker of", refused(lambda: accept_it(c, root, author)))
         _say(root, line)
+        pass_file = root / "state" / "passed-by-person.jsonl"
+
+        def word_rows():
+            rows = [json.loads(x) for x in pass_file.read_text(encoding="utf-8").splitlines()] if pass_file.exists() else []
+            return [(r["stage"], r["dispatch"], r["block"]) for r in rows if "plan rows by person" in r["block"]]
+
+        check_eq("RD1-31 K-R2-2: the refusals above (another dispatch's word, `*`) and a word alone left no row", word_rows(), [])
         check_eq("K-R2-2: after the word for THIS dispatch, the same accept goes through", refused(lambda: accept_it(c, root, author)), "")
+        check_eq("RD1-31 K-R2-2: the committed accept leaves exactly one row, stage S5, this dispatch, the block",
+                 word_rows(), [("S5", author, "S5 " + line)])
     finally:
         cleanup(root)
     root = temp_dir("qa-s5pc-r2b-")
@@ -674,8 +683,8 @@ def k17_r2_seam_the_live_run_state():
         W.apply_stage_override(pipeline, "S5", "plan rows by person: S5-qa-automator-5", "the person asked for these rows to change", W.now_iso())
         put(root, "pipeline.json", json.dumps(pipeline))
         check_eq("K-R2-S: after the word the same accept holds no row problem", c._s5_plan_accept_problems(d, {}, c.state()), [])
-        pass_log = (root / "state" / "passed-by-person.jsonl").read_text(encoding="utf-8")
-        check_in("K-R2-S: ... and the pass is on record", "plan rows by person: S5-qa-automator-5", pass_log)
+        # RD1-31: the helper judges, `apply` records once the event is in (k16 above commits the accept and reads the row)
+        check_eq("K-R2-S: ... and a helper called outside `apply` writes no row", (root / "state" / "passed-by-person.jsonl").exists(), False)
     finally:
         cleanup(root.parent)
 

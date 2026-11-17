@@ -1857,6 +1857,17 @@ def row_repo_words_cli() -> None:
         cleanup(root)
 
 
+def _committed(c, state, dispatch_id="a2"):
+    """`c._record_s5_word_passes` the way `apply` runs a validate (RD1-31): the passes are NOTED while the event is judged and written
+    once it stands. Called with no collector (outside `apply`) the helper writes no row."""
+    c._passes = []
+    try:
+        c._record_s5_word_passes({"id": dispatch_id, "scope": ["TC-1"]}, state)
+    finally:
+        noted, c._passes = c._passes, None
+    c._record_noted_passes(dispatch_id, noted)
+
+
 def _s5_completion(prefix: str, word_passes):
     """FV1-30a fixture: a real controller story whose S5 completion by the author's mechanical dispatch is accepted once its green run
     exists. `word_passes` replaces `s5_precheck.word_passes` (a list of rows, or an exception to raise): the selection of the word is
@@ -1946,6 +1957,8 @@ def row_fv130a_the_controller_records_what_the_word_passed() -> None:
                 P.word_passes = lambda *_a, **_k: rows
                 before = len(lines())
                 c._record_s5_word_passes({"id": "a2", "scope": ["TC-1"]}, state)
+                check_eq(f"{label}: the helper outside `apply` writes no row", len(lines()), before)
+                _committed(c, state)
                 added = lines()[before:]
                 check(f"{label}: one line, cut as the writer cuts it, with the pointer to the whole", len(added) == 1 and expect(added[0]), str(added))
             P.word_passes = lambda *_a, **_k: []
@@ -2062,6 +2075,8 @@ def row_fv130b_the_journal_line_carries_the_subjects() -> None:
                      "subjects": []}
         P.word_passes = lambda *_a, **_k: [with_subjects, case_less]
         c._record_s5_word_passes({"id": "a2", "scope": ["TC-1"]}, state)
+        check_eq("(f) the recording called outside `apply` (no collector) writes no row, and does not raise", lines(), [])
+        _committed(c, state)
         got = lines()
         check_eq("(f) a pass with subjects: check, case, tag and subjects on the line, no cut mark",
                  [(x["check"], x["case"], x["tag"], x["subjects"], "subjects_cut" in x) for x in got[:1]],
@@ -2074,7 +2089,7 @@ def row_fv130b_the_journal_line_carries_the_subjects() -> None:
             rows = [dict(with_subjects, subjects=[{"instance_id": f"i{n}"} for n in range(count)])]
             P.word_passes = lambda *_a, **_k: rows
             before = len(lines())
-            c._record_s5_word_passes({"id": "a2", "scope": ["TC-1"]}, state)
+            _committed(c, state)
             line = lines()[before]
             check_eq(f"(g) {count} subjects: {min(count, 200)} on the line, `subjects_cut` {'= ' + str(count) if cut else 'absent'}",
                      (len(line["subjects"]), line.get("subjects_cut")), (min(count, 200), count if cut else None))
