@@ -13,6 +13,27 @@ import pytest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 
+def load_under_test(env_var: str, module_name: str):
+    """The module a test file judges: the file named by the environment variable `env_var` (a candidate not yet on its live
+    path), loaded under the name `module_name` so a sibling import of that name resolves to it; unset, the live
+    tools/<module_name>.py. Used by every test module of a candidate-gate card; the environment read lives only here."""
+    import importlib
+    import importlib.util
+    import os
+    path = os.environ.get(env_var)
+    if not path:
+        return importlib.import_module(module_name)
+    path = pathlib.Path(path).resolve()
+    loaded = sys.modules.get(module_name)
+    if loaded is not None and getattr(loaded, "__file__", None) and pathlib.Path(loaded.__file__).resolve() == path:
+        return loaded
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
 @pytest.fixture(scope="session")
 def session_tree(tmp_path_factory):
     import piles_testkit as kit
