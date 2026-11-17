@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """wave.py -- the one merge road of a wave (offload spec r2, §3.C3; mechanism M6).
 
-  python -B tools/wave.py merge <branch> --task t-NNN [--node <slug> <N> <id>] [--sha <tip>] [--repo DIR]
+  python -B tools/wave.py merge <branch> --task t-NNN [--node <slug> <N> <id>] [--sha <tip>] [--piles-skip "<items> -- <reason>"] [--repo DIR]
 
 --sha pins the accepted branch tip (full or a prefix of 7+ hex digits): another tip is refused before any push. The tool
 prints `pushed: <sha>` (the tip it merges) before the merge.
+
+--piles-skip puts the door line `piles-skip: <items> -- <reason>` (tools/piles.py DOOR_RE, ITEMS) into the merge commit
+message, after an empty line; the fast-forward is then skipped (a fast-forward has no commit to carry the line) and the
+merge is always --no-ff. The piles check still runs and reads the line itself: the door never switches it off. A
+malformed value is refused with exit 2 before the lock is taken.
 
 One call: take the machine lock `main-merge` (60 s), fetch, push the branch to origin itself when origin lacks it or is
 behind it (fast-forward only, never forced; a refusal prints origin's text and nothing is merged), refuse a branch known
@@ -42,6 +47,7 @@ if str(_TOOLS) not in sys.path:
 
 import journal_keys as jk  # noqa: E402
 import journal_lock as jl  # noqa: E402
+import piles  # noqa: E402
 import streams  # noqa: E402
 import worktree_sweep as ws  # noqa: E402
 
@@ -112,9 +118,10 @@ def _sha(data):
 
 
 class Wave:
-    def __init__(self, repo, branch, task, node=None, ci=forge_check_state, out=print, pin=None):
+    def __init__(self, repo, branch, task, node=None, ci=forge_check_state, out=print, pin=None, piles_skip=None):
         self.branch, self.task, self.node, self.ci, self.out = branch, task, node, ci, out
         self.pin = pin
+        self.piles_skip = piles_skip      # the validated text after "piles-skip:", or None
         self.root = jl.common_dir(repo).parent
         self.sha = None
         self.branch_sha = None
@@ -237,9 +244,12 @@ class Wave:
 
     def merge(self, w):
         target = "origin/" + self.branch
-        if git(w, "merge", "--ff-only", target)[0] == 0:
+        if self.piles_skip is None and git(w, "merge", "--ff-only", target)[0] == 0:
             return
-        rc, _o, err = git(w, "merge", "--no-ff", "-m", "wave: merge %s (%s)" % (self.branch, self.task), target)
+        msg = "wave: merge %s (%s)" % (self.branch, self.task)
+        if self.piles_skip is not None:
+            msg += "\n\npiles-skip: " + self.piles_skip
+        rc, _o, err = git(w, "merge", "--no-ff", "-m", msg, target)
         if rc == 0:
             return
         paths = git(w, "diff", "--name-only", "--diff-filter=U")[1].split()
@@ -562,8 +572,25 @@ def build_parser():
     m.add_argument("--node", nargs=3, metavar=("SLUG", "N", "ID"))
     m.add_argument("--sha", default=None, metavar="SHA",
                    help="the accepted branch tip (full or a prefix of 7+ hex digits); a different tip is refused before any push")
+    m.add_argument("--piles-skip", default=None, metavar="TEXT",
+                   help='the door for the commit-time piles check: "<items> -- <reason>" becomes the line '
+                        '"piles-skip: <items> -- <reason>" in the merge commit message (the merge is then always --no-ff; '
+                        'items: %s)' % piles.ITEMS_HELP)
     m.add_argument("--repo", default=str(_TOOLS.parent))
     return p
+
+
+def door_problem(text):
+    """None when `text` makes a well-formed door line by piles' own reader, else what was expected."""
+    line = "piles-skip: " + text
+    m = None if ("\n" in text or "\r" in text) else piles.DOOR_RE.match(line)
+    if m:
+        known = {w for pair in piles.ITEMS for w in pair}
+        names = [x.strip().lower() for x in m.group("items").split(",")]
+        if names and all(n in known for n in names):
+            return None
+    return '--piles-skip %r: expected "<item>[, <item>] -- <reason>" on one line (items: %s); %s' % (
+        text, piles.ITEMS_HELP, piles.DOOR_HELP)
 
 
 def main(argv=None):
@@ -578,8 +605,15 @@ def main(argv=None):
     if a.node and not jk.NODE_RE.match("/".join(a.node)):
         print("refused: --node %s: expected <slug> <N> <id> in the node grammar (slug/N/id, N from 1)" % " ".join(a.node))
         return 2
+    skip = None
+    if a.piles_skip is not None:
+        skip = a.piles_skip.strip()
+        bad = door_problem(skip)
+        if bad:
+            print("refused: " + bad)
+            return 2
     try:
-        wave = Wave(a.repo, a.branch, a.task, a.node, pin=a.sha)
+        wave = Wave(a.repo, a.branch, a.task, a.node, pin=a.sha, piles_skip=skip)
     except jl.LockError as exc:
         print("refused: %s" % exc)
         return 2
