@@ -371,6 +371,33 @@ BY_SEGMENT = {
 }
 
 
+def unwrapped_segment(src, node, message):
+    """The source of `node` with the MESSAGE node read as its bare one. A message that is `refusal(id, text)` or
+    `DV.refusal(id, text)` with at least two positional arguments (t-1108: a command refusal carries its row id at the
+    site) reads as `text`, unwrapped again while it is itself such a call. ERROR DIRECTION: only toward NOT unwrapping;
+    a call this does not recognise stays wrapped, its head becomes the id, and the walk fails loudly."""
+    segment = ast.get_source_segment(src, node) or ""
+    inner = message
+    while is_refusal_wrapper(inner):
+        inner = inner.args[1]
+    if inner is message:
+        return segment
+    wrapper, bare = ast.get_source_segment(src, message), ast.get_source_segment(src, inner)
+    if not wrapper or bare is None or wrapper not in segment:
+        return segment
+    return segment.replace(wrapper, bare, 1)
+
+
+def is_refusal_wrapper(node) -> bool:
+    if not (isinstance(node, ast.Call) and len(node.args) >= 2
+            and not any(isinstance(arg, ast.Starred) for arg in node.args[:2])):
+        return False
+    func = node.func
+    return ((isinstance(func, ast.Name) and func.id == "refusal")
+            or (isinstance(func, ast.Attribute) and func.attr == "refusal"
+                and isinstance(func.value, ast.Name) and func.value.id == "DV"))
+
+
 def collect_rows(src: str, classes) -> list:
     """Every block of `src` - a `raise <refusal class>(...)` and a collected `(Class, message)` pair - as
     {line, fn, cls, seg, head}. `src` is the controller's text unless a test hands its own."""
@@ -388,8 +415,8 @@ def collect_rows(src: str, classes) -> list:
 
         visit_AsyncFunctionDef = visit_FunctionDef
 
-        def block(self, node, cls_name):
-            seg = " ".join((ast.get_source_segment(src, node) or "").split())
+        def block(self, node, cls_name, message=None):
+            seg = " ".join((unwrapped_segment(src, node, message) if message is not None else ast.get_source_segment(src, node) or "").split())
             lit = LIT.search(seg)
             text = (lit.group(1) if lit else "").strip()
             # A literal that is only a joiner (`"; "`, `". "`) says nothing about the
@@ -402,7 +429,7 @@ def collect_rows(src: str, classes) -> list:
         def visit_Raise(self, node):
             exc = node.exc
             if isinstance(exc, ast.Call) and isinstance(exc.func, ast.Name) and exc.func.id in classes:
-                self.block(node, exc.func.id)
+                self.block(node, exc.func.id, exc.args[0] if exc.args else None)
             self.generic_visit(node)
 
         def visit_ExceptHandler(self, node):
@@ -417,7 +444,7 @@ def collect_rows(src: str, classes) -> list:
             first, second = (node.elts + [None, None])[:2]
             if (len(node.elts) == 2 and isinstance(first, ast.Name) and first.id in classes
                     and not (isinstance(second, ast.Name) and second.id in classes)):
-                self.block(node, first.id)
+                self.block(node, first.id, second)
             self.generic_visit(node)
 
     V().visit(tree)

@@ -48,6 +48,33 @@ def refusal_classes() -> frozenset:
     return frozenset(found)
 
 
+def unwrapped_segment(src, node, message):
+    """The source of `node` with the MESSAGE node read as its bare one. A message that is `refusal(id, text)` or
+    `DV.refusal(id, text)` with at least two positional arguments (t-1108: a command refusal carries its row id at the
+    site) reads as `text`, unwrapped again while it is itself such a call. ERROR DIRECTION: only toward NOT unwrapping;
+    a call this does not recognise stays wrapped, its head becomes the id, and the walk fails loudly."""
+    segment = ast.get_source_segment(src, node) or ""
+    inner = message
+    while is_refusal_wrapper(inner):
+        inner = inner.args[1]
+    if inner is message:
+        return segment
+    wrapper, bare = ast.get_source_segment(src, message), ast.get_source_segment(src, inner)
+    if not wrapper or bare is None or wrapper not in segment:
+        return segment
+    return segment.replace(wrapper, bare, 1)
+
+
+def is_refusal_wrapper(node) -> bool:
+    if not (isinstance(node, ast.Call) and len(node.args) >= 2
+            and not any(isinstance(arg, ast.Starred) for arg in node.args[:2])):
+        return False
+    func = node.func
+    return ((isinstance(func, ast.Name) and func.id == "refusal")
+            or (isinstance(func, ast.Attribute) and func.attr == "refusal"
+                and isinstance(func.value, ast.Name) and func.value.id == "DV"))
+
+
 def blocks_in_source(src=None) -> collections.Counter:
     """(function, class, first literal of the message) for every `raise` of a refusal class and
     every collected `(Class, message)` pair - the form `_decision_problems` and the S5 completion
@@ -68,8 +95,9 @@ def blocks_in_source(src=None) -> collections.Counter:
 
         visit_AsyncFunctionDef = visit_FunctionDef
 
-        def block(self, node, cls_name):
-            segment = " ".join((ast.get_source_segment(src, node) or "").split())
+        def block(self, node, cls_name, message=None):
+            segment = " ".join((unwrapped_segment(src, node, message) if message is not None
+                                else ast.get_source_segment(src, node) or "").split())
             literal = re.search(r'"((?:[^"\\]|\\.)+)"', segment)
             text = (literal.group(1) if literal else "").strip()
             # A literal that is only a joiner says nothing about the block: the walk shows
@@ -81,7 +109,7 @@ def blocks_in_source(src=None) -> collections.Counter:
         def visit_Raise(self, node):
             exc = node.exc
             if isinstance(exc, ast.Call) and isinstance(exc.func, ast.Name) and exc.func.id in classes:
-                self.block(node, exc.func.id)
+                self.block(node, exc.func.id, exc.args[0] if exc.args else None)
             self.generic_visit(node)
 
         def visit_ExceptHandler(self, node):
@@ -98,7 +126,7 @@ def blocks_in_source(src=None) -> collections.Counter:
             first, second = (node.elts + [None, None])[:2]
             if (len(node.elts) == 2 and isinstance(first, ast.Name) and first.id in classes
                     and not (isinstance(second, ast.Name) and second.id in classes)):
-                self.block(node, first.id)
+                self.block(node, first.id, second)
             self.generic_visit(node)
 
     Walk().visit(tree)
@@ -120,7 +148,43 @@ def rows_in_walk() -> tuple:
     return rows, routes
 
 
+# (bare source, wrapped source): a command refusal carries its row id at the site (`DV.refusal(id, text)`, t-1108) and the walk reads
+# it as the bare message, so the block count, the heads and the keys of the walk are the same (F-10: the generator
+# `tools/controller-blocks-gen.py` has the same unwrap and its own table).
+WRAPPED_PAIRS = (
+    ("raise", 'raise StateConflict("the story is closed for this")', 'raise StateConflict(DV.refusal("a:b", "the story is closed for this"))'),
+    ("name form", 'raise ValueError("a bare name")', 'raise ValueError(refusal("a:b", "a bare name"))'),
+    ("collected", 'problems.append((ValueError, "a collected one"))', 'problems.append((ValueError, DV.refusal("a:b", "a collected one")))'),
+    ("nested", 'raise ValueError("inner text")', 'raise ValueError(DV.refusal("a:b", DV.refusal("c:d", "inner text")))'),
+    ("f-string", 'raise ValueError(f"stage {s!r} is bad")', 'raise ValueError(DV.refusal("a:b", f"stage {s!r} is bad"))'),
+    ("expression", 'raise StateConflict(blocking[0] + ". then")', 'raise StateConflict(DV.refusal("a:b", blocking[0] + ". then"))'),
+    ("variable", 'raise StateConflict(refusal)', 'raise StateConflict(refusal)'),
+)
+# NOT unwrapped (the error direction: only toward NOT unwrapping): the head is what the unchanged source says first - the id for a
+# wrapper the walk does not recognise (loud: the generator prints UNCLASSIFIED, this test fails "not walked"), never a hidden block
+UNWRAPPED_STAY_WRAPPED = (
+    ("one argument", 'raise ValueError(refusal("only a text"))', "only a text"),
+    ("keywords", 'raise ValueError(DV.refusal(check="row:id", problem="the problem"))', "row:id"),
+    ("method", 'raise ValueError(self.refusal("row:id", "the method text"))', "row:id"),
+    ("other module", 'raise ValueError(other.refusal("row:id", "the other text"))', "row:id"),
+)
+
+
+def in_function(statement: str) -> str:
+    return "def f():\n    " + statement + "\n"
+
+
+def wrapped_pair_cases() -> None:
+    for name, bare, wrapped in WRAPPED_PAIRS:
+        check_eq(f"walk unwrap {name}: a wrapped message is the bare message", blocks_in_source(in_function(wrapped)),
+                 blocks_in_source(in_function(bare)))
+    for name, source, head in UNWRAPPED_STAY_WRAPPED:
+        check_eq(f"walk unwrap {name}: not unwrapped, the head stays what the source says first",
+                 blocks_in_source(in_function(source)), collections.Counter({("f", "ValueError", head): 1}))
+
+
 def main() -> None:
+    wrapped_pair_cases()
     check(f"the walk exists: design/{WALK.name}", WALK.is_file())
     source, (walked, routes) = blocks_in_source(), rows_in_walk()
 

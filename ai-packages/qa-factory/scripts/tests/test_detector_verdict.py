@@ -1810,6 +1810,166 @@ def tbw_t4a_sites() -> None:
         check_eq(f"t4a {name} {cid}: the problem text is the old one", t4a_digest(err), T4A_OLD.get(name))
 
 
+def tbw_siting_command_sites() -> None:
+    """told-before-work siting A (t-1108): the command and plan refusals of `controller.py`, `waiver.py`, `source_exclusions.py`,
+    `stage_done.py` and `planning_contract.py` carry their row id on the Record, with the text they always had (EC-1; the one named
+    exception is the unmarked-revision door of key 4, whose expected sentence is the card's). ONE table of driven sites (a refusal is
+    provoked, the Record's `check` and `str` are read), and the `_raise_all` rows (E7: one keeps its Record, several set `exc.records`, a folded `(xK)` has no id)."""
+    import argparse
+    import contextlib
+    import io
+    import controller as CTL
+    import planning_contract as PC
+    import source_exclusions as SE
+    import stage_done as SD
+    import waiver as WV
+    import person_words
+    from harness import use_project
+    import test_controller_release as REL
+
+    def refused(fn):
+        try:
+            fn()
+        except (ValueError, SystemExit) as exc:
+            return exc
+        return None
+
+    def first(exc):
+        return exc.args[0] if exc is not None and exc.args else None
+
+    def id_text(record):
+        return (getattr(record, "check", ""), str(record) if record is not None else None)
+
+    root = temp_project()
+    saved = os.environ.get("CLAUDE_PROJECT_DIR")
+    try:
+        use_project(root)
+        controller = REL.at_s3_rework(root)
+        # --- build_rework_request: row 2 (`rework.args`); one problem keeps its Record, two set `exc.records` (E7) ---
+        purposes = ", ".join(sorted(CTL.PURPOSES))
+        bad_purpose = f"purpose 'nope' must be one of: {purposes}"
+        one = refused(lambda: controller.build_rework_request("S3", "qa-test-strategist", [], "mend it", purpose="nope"))
+        check_eq("siting rework.args: one problem keeps its Record, the text is the old text",
+                 id_text(first(one)), ("controller:rework.args", bad_purpose))
+        two = refused(lambda: controller.build_rework_request("S3", "qa-test-strategist", [], "  ", purpose="nope"))
+        blank = "--reason must say what this round repairs; it is what the role reads"
+        check_eq("siting rework.args: several problems: the text is the compound text, `exc.records` carry the ids",
+                 (str(two).split("\n"), [(r.check, str(r)) for r in two.records]),
+                 ([CTL.Controller.COMPOUND_HEAD.format(n=2), f"1) {bad_purpose}", f"2) {blank}"],
+                  [("controller:rework.args", bad_purpose), ("controller:rework.args", blank)]))
+        # --- release_dispatch: row 5 (c), the unknown-dispatch caller included ---
+        unknown = refused(lambda: controller.release_dispatch("ZZ-9", "it is dead"))
+        check_eq("siting release.call: the unknown dispatch is wrapped at its caller, the text is `_unknown_dispatch`'s",
+                 id_text(first(unknown)),
+                 ("controller:release.call", CTL.Controller._unknown_dispatch("ZZ-9", controller.state()["dispatches"])[1]))
+        nowords = refused(lambda: controller.release_dispatch("ZZ-9", ""))
+        check_eq("siting release.call: blank words and the unknown dispatch are two Records of the one row",
+                 [r.check for r in nowords.records], ["controller:release.call"] * 2)
+        # --- _raise_all (E7) ---
+        rec = lambda text: DV.refusal("controller:rework.args", text)           # noqa: E731
+        once = refused(lambda: CTL.Controller._raise_all([(ValueError, rec("alone"))]))
+        check_eq("siting _raise_all: one problem keeps the Record", id_text(first(once)), ("controller:rework.args", "alone"))
+        folded = refused(lambda: CTL.Controller._raise_all([(ValueError, rec("same")), (ValueError, rec("same"))]))
+        check_eq("siting _raise_all: a folded `(xK)` problem has the text and no id",
+                 (id_text(first(folded)), getattr(folded, "records", "absent")), (("", "same (×2)"), "absent"))
+        plain = refused(lambda: CTL.Controller._raise_all([(ValueError, "bare one"), (ValueError, "bare two")]))
+        check_eq("siting _raise_all: plain strings set no records", getattr(plain, "records", None), [])
+        # --- controller.main: rows 1 and 5 (a) and (b); the id rides only on its own operation (E11) ---
+        story = root / "qa-factory" / "stories" / "T-1"
+        (story / "state").mkdir(parents=True)
+        (story / "state" / "events.jsonl").write_text("", encoding="utf-8")
+
+        def main_with(*argv):
+            old = sys.argv
+            sys.argv = ["controller.py", *argv]
+            try:
+                return refused(CTL.main)
+            finally:
+                sys.argv = old
+        missing = str(root / "nowhere")
+        for operation, expected in (("rework", "controller:rework.call"), ("release", "controller:release.call"), ("next", "")):
+            got = main_with("--operation", operation, "--task-root", missing)
+            check_eq(f"siting main {operation}: the story-root refusal carries {expected or 'no id'}", getattr(first(got), "check", ""), expected)
+        for operation, extra, expected in (("release", ("--words", "w"), "controller:release.call"), ("reopen_story", ("--words", "w"), ""),
+                                           ("rework", ("--reason", "r"), "controller:rework.call")):
+            got = main_with("--operation", operation, "--task-root", str(story), "--words-file", str(root / "w.txt"), *extra)
+            check(f"siting main {operation}: both options of the words refuse (WordsRefused), id {expected or 'none'}",
+                  isinstance(got, person_words.WordsRefused) and getattr(first(got), "check", "") == expected, repr(got))
+        # --- waiver: rows 6 (i) in the dispatch order of the forms, 6 (ii), 11, and `record_refusals` rows 7-9 ---
+        seen = []
+
+        def waiver_error(self, message):
+            seen.append(message)
+            raise SystemExit(2)
+        real_error, old_argv = argparse.ArgumentParser.error, sys.argv
+        argparse.ArgumentParser.error = waiver_error
+        try:
+            for name, argv, expected in (
+                    ("block words", ["--task", "T", "--stage", "S1", "--block", "b", "--decision", "d", "--words-file", "f"], "waiver:block.call"),
+                    ("remark words", ["--remark", "--task", "T", "--stage", "S1", "--text", "d", "--words-file", "f"], "waiver:remark.call"),
+                    ("revoke words", ["--revoke", "--task", "T", "--stage", "S1", "--block", "b", "--decision", "d", "--words-file", "f"], ""),
+                    ("gate words", ["--task", "T", "--gate", "A", "--requirement", "r", "--decision", "d", "--words-file", "f"], ""),
+                    ("block required", ["--task", "T", "--stage", "S1", "--block", "b"], "waiver:block.call"),
+                    ("remark required", ["--remark", "--task", "T"], "waiver:remark.call")):
+                del seen[:]
+                sys.argv = ["waiver.py", *argv]
+                refused(WV.main)
+                check_eq(f"siting waiver {name}: id {expected or 'none'}", [getattr(m, "check", "") for m in seen], [expected])
+        finally:
+            argparse.ArgumentParser.error, sys.argv = real_error, old_argv
+        gap = WV.record_refusals("stand gap:")
+        check_eq("siting waiver stand_gap_id: the text is NO_GAP_ID, the id its row",
+                 [id_text(r) for r in gap], [("waiver:block.stand_gap_id", WV.NO_GAP_ID)])
+        holder = WV.record_refusals("probe gap: <case key>")
+        check_eq("siting waiver WV-placeholder-block: one Record of the A24 id, text starts as before",
+                 [(r.check, str(r).startswith('waiver: the block "probe gap: <case key>" still holds the placeholder <case key>, which names nothing'),
+                   str(r).endswith("Nothing was recorded.")) for r in holder], [("waiver:WV-placeholder-block", True, True)])
+        grant = WV.record_refusals("protected test path: **")
+        check("siting waiver grant_pattern: every pattern error is a Record of the row (and the pattern is refused)",
+              bool(grant) and all(getattr(r, "check", "") == "waiver:block.grant_pattern" for r in grant), repr(grant)[:200])
+        # --- source_exclusions: the `main` prints are Records of `revoke.call` ---
+        asked, real_refusal = [], DV.refusal
+        DV.refusal = lambda cid, text, **kw: (asked.append((cid, str(text))), real_refusal(cid, text, **kw))[1]
+        try:
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                SE.main(["--task", "T-1"])
+            check_eq("siting source_exclusions: no form -> revoke.call, the old line on stderr",
+                     (asked, err.getvalue()),
+                     ([("source_exclusions:revoke.call", 'source_exclusions: give exactly one of --load FILE, --show, --revoke <id> --words "..."')],
+                      'source_exclusions: give exactly one of --load FILE, --show, --revoke <id> --words "..."\n'))
+        finally:
+            DV.refusal = real_refusal
+        # --- stage_done: row 14 ---
+        for name, items, text in (("no =", ["novalue"], "--set takes key=value, not `novalue`"),
+                                  ("coerced", ["size=bogus"], None)):
+            got = refused(lambda: SD.parse_sets(items))
+            check_eq(f"siting stage_done {name}: a ValueError carrying the Record of stage_done:set",
+                     (getattr(first(got), "check", ""), text is None or str(first(got)) == text), ("stage_done:set", True))
+        import contract as CONTRACT
+        real_reader = CONTRACT.side_realities
+        CONTRACT.side_realities = lambda: {}
+        try:
+            got = refused(lambda: SD.parse_sets(["sides.api.reality=absent"]))
+        finally:
+            CONTRACT.side_realities = real_reader
+        check_eq("siting stage_done: an unreadable reference file stays bare (no id), the old text, selected by type",
+                 (type(got).__name__, getattr(first(got), "check", ""), str(got).startswith("`sides.api.reality`: the words a reality may take cannot be read from references/side-realities.json - repair that file")),
+                 ("UnreadableReference", "", True))
+        # --- planning_contract: the unmarked line (E17, E26) with the door of key 4 ---
+        line = PC.gate_plan_errors([{"id": "TS-1"}], "new", 1)
+        tail = "did not run for this plan: a strategist rework of S3 writes it when that rework completes"
+        check_eq("siting planning_contract: the unmarked line is a Record of its id, the prefix and the new door stand",
+                 [(r.check, str(r).startswith("TS-1: missing coverage_contract_revision"), str(r).endswith(tail))
+                  for r in line if "missing coverage_contract_revision" in str(r)],
+                 [("planning_contract:plan.unmarked_revision", True, True)])
+    finally:
+        if saved is None:
+            os.environ.pop("CLAUDE_PROJECT_DIR", None)
+        else:
+            os.environ["CLAUDE_PROJECT_DIR"] = saved
+        cleanup(root)
+
+
 def main() -> None:
     unreadable_cases()
     one_of_cases()
@@ -1833,6 +1993,7 @@ def main() -> None:
     tbw_t7b_sites()
     tbw_t4a_sites()
     tbw_t4b_sites()
+    tbw_siting_command_sites()
     finish("test_detector_verdict")
 
 
@@ -1842,7 +2003,7 @@ def tbw_t7b_sites() -> None:
     `_regression_findings`, E-T7b-1). Each row provokes the function that returns the refusal lines, asserts the text is the one the
     pre-change file printed (`old`, read from a byte copy of that file before the edit; EC-1), that each line is a Record with
     `check == <id>` and the row's own sentence and door, and that no problem means no line (EC-5). `plan_json` is a print in the
-    detector body: the row runs the body and spies on `refusal`. `unmarked_revision_errors` stays bare (T9c)."""
+    detector body: the row runs the body and spies on `refusal`. `unmarked_revision_errors` carries `planning_contract:plan.unmarked_revision` (t-1108: its row E17)."""
     import contextlib
     import io
     import planning_contract as PC
@@ -1978,9 +2139,10 @@ def tbw_t7b_sites() -> None:
                   PC._request_findings(task, {"rows": [dict(row, requests=[{"request": "GET /api/books", "failures": ["500", "timeout"]}],
                                                             requirements=["R-1"])]}),
                   PC._regression_findings(tmp)), ([], [], [], [], [], [], []))
-        # the unmarked revision lines keep their text and stay bare (the conductor's door: node T9c)
+        # the unmarked revision lines carry the id `planning_contract:plan.unmarked_revision` (t-1108 E17); their text is pinned by `tbw_siting_command_sites`
         bare = PC.gate_plan_errors([row], "new", 1)
-        check_eq("t7b plan: the unmarked-revision line is returned as it was, bare", (len(bare), [getattr(x, "check", "") for x in bare]), (1, [""]))
+        check_eq("t7b plan: the unmarked-revision line carries its own id", (len(bare), [getattr(x, "check", "") for x in bare]),
+                 (1, ["planning_contract:plan.unmarked_revision"]))
         # plan_json: a print of the detector body; the row runs the body and watches the constructor
         (task / "work" / "test-plan.json").write_text("{not json", encoding="utf-8")
         asked, real_refusal, real_story = [], PC.refusal, PC.detector_story

@@ -51,6 +51,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from source_inventory import (TICKET_KEY_RE, VCS_URL_RE, _atomic_write, normalize_url,  # noqa: E402
                               revoke_marks, utc_now)
 from hooklib import artifact_root, project_root, sorted_paths
+import detector_verdict as DV
 
 SCHEMA_VERSION = 1
 RECORD_NAME = "source-exclusions.json"
@@ -621,13 +622,14 @@ def main(argv=None) -> int:
     ap.add_argument("--words", default="", help="--revoke: the person's own words")
     args = hooklib.exact_options(ap).parse_args(argv)
     if sum(bool(value) for value in (args.load, args.show, args.revoke)) != 1:
-        print("source_exclusions: give exactly one of --load FILE, --show, --revoke <id> --words \"...\"",
+        print(DV.refusal("source_exclusions:revoke.call",
+                         "source_exclusions: give exactly one of --load FILE, --show, --revoke <id> --words \"...\""),
               file=sys.stderr)
         return EXIT_BAD_INPUT
     try:
         task_root = _task_root(args.task)
     except ValueError as exc:
-        print(f"source_exclusions: {exc}", file=sys.stderr)
+        print(DV.refusal("source_exclusions:revoke.call", f"source_exclusions: {exc}"), file=sys.stderr)
         return EXIT_BAD_INPUT
     work = task_root / "work"
     try:
@@ -660,7 +662,8 @@ def main(argv=None) -> int:
                 print("the list names no source")
             return 0
         if not args.words.strip():
-            print("source_exclusions: --revoke needs --words: what the person said when they took it back",
+            print(DV.refusal("source_exclusions:revoke.call",
+                             "source_exclusions: --revoke needs --words: what the person said when they took it back"),
                   file=sys.stderr)
             return EXIT_BAD_INPUT
         result = revoke(task_root, args.revoke, args.words.strip())
@@ -669,8 +672,9 @@ def main(argv=None) -> int:
                   file=sys.stderr)
             return EXIT_BAD_INPUT
         if result["status"] == "unknown":
-            print(f"source_exclusions: no exclusion `{args.revoke}` in {args.task}; it has: "
-                  + "; ".join(result["ids"]), file=sys.stderr)
+            print(DV.refusal("source_exclusions:revoke.target",
+                             f"source_exclusions: no exclusion `{args.revoke}` in {args.task}; it has: "
+                             + "; ".join(result["ids"])), file=sys.stderr)
             return EXIT_BAD_INPUT
         entry = result["entry"]
         if result["status"] == "already":

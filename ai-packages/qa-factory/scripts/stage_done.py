@@ -89,6 +89,10 @@ NULL_WORDS = ("null", "none", "")
 SIDE_ATTRS = ("reality", "deliverable", "settles_by", "reference", "source", "at")
 
 
+class UnreadableReference(ValueError):
+    """The factory's own reference file cannot be read: an install-state refusal, never the caller's shape (it stays bare, FR-3)."""
+
+
 def coerce_value(key: str, raw: str):
     """One `--set key=value`, validated, or a ValueError naming what is allowed."""
     head, _, tail = key.partition(".")
@@ -112,8 +116,8 @@ def coerce_value(key: str, raw: str):
             from contract import side_realities   # the one reader of the data file (AR-13)
             words = side_realities().get("realities")
             if not isinstance(words, list) or not words:
-                raise ValueError(f"`{key}`: the words a reality may take cannot be read from references/side-realities.json - "
-                                 "repair that file (a change to the factory); nothing is recorded meanwhile")
+                raise UnreadableReference(f"`{key}`: the words a reality may take cannot be read from references/side-realities.json - "
+                                         "repair that file (a change to the factory); nothing is recorded meanwhile")
             if text not in words:
                 raise ValueError(f"`{key}` is one of: " + " | ".join(map(str, words)) + f" - not `{text}`. A side's reality "
                                  "is one of these words; a new word is a change to references/side-realities.json")
@@ -215,8 +219,13 @@ def parse_sets(items: list) -> dict:
     for item in items or []:
         key, sep, raw = str(item).partition("=")
         if not sep:
-            raise ValueError(f"--set takes key=value, not `{item}`")
-        out[key.strip()] = coerce_value(key.strip(), raw)
+            raise ValueError(DV.refusal("stage_done:set", f"--set takes key=value, not `{item}`"))
+        try:
+            out[key.strip()] = coerce_value(key.strip(), raw)
+        except UnreadableReference:    # a broken plugin file is no shape of the caller's: it stays bare, selected by type
+            raise
+        except ValueError as exc:      # `coerce_value` has 4 callers: the id is written here, at the caller that knows the requirement
+            raise ValueError(DV.refusal("stage_done:set", str(exc))) from None
     return out
 
 
