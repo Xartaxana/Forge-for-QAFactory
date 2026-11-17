@@ -1,7 +1,7 @@
-# Forge test rules: where the expected value comes from, a bounded can-fail proof, the critic's test questions, the `test:` line -- DRAFT r2 (fix round)
+# Forge test rules: where the expected value comes from, a bounded can-fail proof, the critic's test questions, the `test:` line -- DRAFT r3 (fix rounds t-956, t-973)
 
-task: t-940 (draft) -> t-956 (fix round on plan critic t-949; t-940 is not reopened) | feature: F19 | designer draft for
-Lead acceptance; each build stream gets its own task_id
+task: t-940 (draft) -> t-956 (fix round on plan critic t-949; t-940 is not reopened) -> t-973 (fix round on the targeted
+re-pass t-971) | feature: F19 | designer draft for Lead acceptance; each build stream gets its own task_id
 Language: owner-facing rule texts in Russian carriers stay Russian (TESTING.md, builder-rules, RUNBOOK); English carriers
 (critic brief, role files, CLAUDE.md, calibration protocol, tool docstrings) stay English; tool messages and data keys
 English.
@@ -13,20 +13,21 @@ stays outside the package and carries no `architecture:`/`judgment:` lines. Owne
 the value's source and the new-file choice (AR-29/P27 applied to the forge by analogy; no package census row).
 
 Fix round t-956: every change against t-949 and the owner's word on O-1 is listed in §15 (one row per remark).
+Fix round t-973: every change against re-pass t-971 (R1-R10) is listed in «Fix round t-973 (critic t-971)» at the end.
 
 ---
 
-## §0 Premises (each read in its carrier; t-940 17.11.2026, re-read in t-956 17.11.2026 where marked r2)
+## §0 Premises (each read in its carrier; t-940 17.11.2026, re-read in t-956 17.11.2026 where marked r2, in t-973 where marked r3)
 
 | # | Fact | Carrier |
 |---|---|---|
 | P1 | TESTING.md has no rule on the source of a test's expected value; its how-to (`:135-162`) and «Что пишется» (`:43-59`) speak of layers, doors, data, never of the oracle | `docs/TESTING.md` read whole (r2) |
-| P2 | The brief retires the mutation list and sends mutation runs to the canon: `:11` «no mutation list (retired 10.11.2026, `docs/TESTING.md`)», `:19-20` «ratchets and mutation runs are not — they are the batch canon's (D-0056)»; `:14-15` «A layer not attached is returned to the dispatcher as a request, never executed by the critic» | `docs/tasks/critic-diff-brief.md:8-21` (r2) |
+| P2 | The brief retires the mutation list and sends mutation runs to the canon: `:11` «no mutation list (retired 10.11.2026, `docs/TESTING.md`)», `:19-20` «ratchets and mutation runs are not — they are the batch canon's (D-0056)»; `:14-15` «A layer not attached is returned to the dispatcher as a request, never executed by the critic» | `docs/tasks/critic-diff-brief.md:8-21` (r2; r3 re-read `:1-48`) |
 | P3 | builder-rules 7b `:57-59` «**Мутации** билдер не прогоняет и не перечисляет: мутации судит канон пачки (слово владельца 28.10 и 10.11.2026, `PROJECT.md` «Командная работа» п. 13)» | `plans/builder-rules.md:57-59` (r2) |
 | P4 | No CI workflow runs a mutation: Grep `mutat` -i over `.github` -> 0; positive control same tool, `python` -i over `.github/workflows` -> 82 hits in 5 files | Grep tool, 17.11 (critic t-949 re-ran: same) |
 | P5 | Other carriers of «мутации судит канон»: `PROJECT.md:364-365` (п. 13), `AGENTS.md:379-380` (generated), `docs/RUNBOOK.md:115` (r2: «Мутации судит канон пачки (`PROJECT.md`, «Командная работа» п. 13)»), `PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md:377-378` | Grep (r2 for RUNBOOK) |
 | P6 | D-0056 (archive) rule (2)/(3): builder names mutants, canon runs one mutation pass, the critic's re-run is «never ... a mutation run»; no archive line supersedes it (L-6 does) | `docs/DECISIONS_ARCHIVE.md:112` |
-| P7 | Brief q5 says «A missing pin is NOT a finding»; q5 also carries the offload-only new-file exception (`:42-44`) | `critic-diff-brief.md:35-46` (r2) |
+| P7 | Brief q5 says «A missing pin is NOT a finding»; q5 also carries the offload-only new-file exception (`:42-44`) | `critic-diff-brief.md:35-46` (r2; r3 re-read) |
 | P8 | New-test-file texts (r2): TESTING «Бюджет / Файлы» `:117` «новый тестовый файл не создаётся», offload exception `:124-127`; «Чего больше нет» `:55` «нового тестового файла на новый скрипт (исключение — «Бюджет / Файлы»)»; how-to `:141` «нового файла нет («Бюджет / Файлы»)»; «Время» `:128` «новый тестовый файл укладывается в 10 с»; critic bullet `:176-178`; builder-rules 7d `:90-93` «новый тестовый файл не создаётся: ... файл у нового скрипта — только со строкой `keep` ... и не дольше 10 с»; `builder.md:51-52` «no new test file is written without a keep row (7d)»; `designer.md:22` «test file outside the keep rows of `test-layers.json`». The goal is measured at `docs/TESTING.md:26-29` (files over 10 s; edits in commits where neither code nor text changed) | read (r2) |
 | P9 | 7b `:44-53` keeps a TEMPORAL branch «Пока перевод в карантин не выполнен (в `test-layers.json` нет строк `quarantine`)»; the section exists (`test-layers.json:7174`) | Grep |
 | P10 | 7d `:89` «Свидетель наличия ключей в тексте — вывод в отчёте, в репозиторий не коммитится» — no negative control named | read (r2) |
@@ -36,15 +37,17 @@ Fix round t-956: every change against t-949 and the owner's word on O-1 is liste
 | P14 | `PROCESS/CRITIC_EXAM.md` absent; precedent road «Deviation: exam not run; debt F3-1» | Glob, Grep |
 | P15 | Calibration checks run to 48 (r2: Grep `^(4[6-9]\|5\d)\. \*\*` -> 46, 47, 48 at `:1109-1113`); 49 claimed by the architect-tier spec | Grep (r2) |
 | P16 | Journal evidence, re-cut BY READING (r2, F6): `logs/journal/dev1.jsonl` as read 17.11: 123 `rejected`, 70 `failure_class: spec`; the regex `"event": ?"rejected".*"failure_class": ?"spec".*(test\|pin\|тест)` -i gives 27 lines (25 at t-940; t-935, t-937 added 17.11 01:59). Read one by one: **7 in class** (the spec did not name the test place / sent rows to a quarantined file / left a door behaviour without a row / let a value come from the code's output), **2 border**, **18 out of class** — the list and the reason per id in §6.1 | Grep content mode + reading the `notes` of each line (r2) |
-| P17 | r2. The probe runner exists: `ai-packages/qa-factory/scripts/tests/mutate_once.py` (60 lines): `<spec.json> <mutation id>`; `target`/`test` paths under `scripts/` (`SCRIPTS = Path(__file__).resolve().parent.parent`, `:18`); the anchor must occur exactly once else exit 64 untouched (`:35-38`); byte copy, mutate, `subprocess.run([sys.executable, "-B", test])` with NO timeout (`:41`), restore in `finally` (`:42-43`), sha256 before/after; exit 0 when the test failed (ANY non-zero exit counts as a kill, `:55`), 1 survived, 2 sha mismatch. No test file covers it: Grep `mutate_once` over the package -> only its own docstring `:3`; over `tools/` -> 0 (control: `handoff_gate` over `tools/` -> 83 in 12 files); `test-layers.json` has no row for it (Grep `mutat` -i -> 2 unrelated rows) | read, Grep (r2) |
-| P18 | r2. The write boundary of a reading role: `CLAUDE.md:79-80` (rule 3) «a cheap control re-run of what is attached is legitimate, investigating the mechanics by reading is not; a layer not attached → critic asks the dispatcher for it and does not execute it»; `CLAUDE.md:237` (R11-h) «`tools/handoff_gate.py` lets it write only that file»; `tools/handoff_gate.py:1,6-8` «PreToolUse hook (Edit\|Write) … this hook is the whole protection: it lets such a worker write the one path of its dispatch and refuses every other Edit/Write»; the critic's `tools:` line carries Bash and Write (`.claude/agents/critic.md:5`, per t-949) | read, Grep (r2) |
+| P17 | r2. The probe runner exists: `ai-packages/qa-factory/scripts/tests/mutate_once.py` (60 lines): `<spec.json> <mutation id>`; `target`/`test` paths under `scripts/` (`SCRIPTS = Path(__file__).resolve().parent.parent`, `:18`); the anchor must occur exactly once else exit 64 untouched (`:35-38`); byte copy, mutate, `subprocess.run([sys.executable, "-B", test])` with NO timeout (`:41`), restore in `finally` (`:42-43`), sha256 before/after; exit 0 when the test failed (ANY non-zero exit counts as a kill, `:55`), 1 survived, 2 sha mismatch. No test file covers it: Grep `mutate_once` over the package -> only its own docstring `:3`; over `tools/` -> 0 (control: `handoff_gate` over `tools/` -> 83 in 12 files); `test-layers.json` has no row for it (Grep `mutat` -i -> 2 unrelated rows). r3: a wrong argc prints the docstring and exits 64 untouched (`:26-28`); today's call is `subprocess.run(..., capture_output=True, ...)` (`:41`), pipes, not a file; the docstring names no `--root` | read, Grep (r2; r3 re-read whole) |
+| P18 | r2. The write boundary of a reading role: `CLAUDE.md:79-80` (rule 3) «a cheap control re-run of what is attached is legitimate, investigating the mechanics by reading is not; a layer not attached → critic asks the dispatcher for it and does not execute it»; `CLAUDE.md:237` (R11-h) «`tools/handoff_gate.py` lets it write only that file»; `tools/handoff_gate.py:1,6-8` «PreToolUse hook (Edit\|Write) … this hook is the whole protection: it lets such a worker write the one path of its dispatch and refuses every other Edit/Write»; the critic's `tools:` line carries Bash and Write (`.claude/agents/critic.md:5`, per t-949). r3: the sentence after rule 3's clause is «Money/numeric diffs: critic starts with EMPIRICS — control-value runs» (`CLAUDE.md:81-82`) | read, Grep (r2; r3 CLAUDE.md rule 3 re-read) |
 | P19 | r2. Anchors that the CLAUDE.md edits must keep byte-identical: `tools/install_parity_anchors.json:23` «TWO-LAYER CRITIC ENTRY», `:62` «`tools/handoff_gate.py` lets it write only that file»; no anchor holds «a layer not attached» (Grep over `tools/`, `.claude/agents` -> only `handoff_gate.py:7` and the `:62` anchor for the sibling phrases) | Grep (r2) |
 | P20 | r2. `tools/agent_budget.py:116` counts test runs by `TEST_RE = r"pytest\|selftest\.py\|tests[\\/]test_\w+\.py\|unittest"`; a runner call whose test path sits inside a spec JSON does not match it, an inline call naming `tests/test_x.py` or `pytest` does | read (r2) |
 | P21 | r2. spec-facts-by-code S2 owns `tools/dispatch_manifest.py` + `tools/test_dispatch_manifest.py` and adds a READERS NOTE inside `check_cut` (`20261116-spec-facts-by-code-spec.md:371-381, 588-599`); not landed: Grep `READERS` over `tools/dispatch_manifest.py` -> 0 (control: `KEY_GROUPS` -> 7 in the same file) | read, Grep (r2) |
-| P22 | r2. everything-in-piles: C's old-verdict door text «verdict: none -- verdict predates remarks» (`20261117-everything-in-piles-spec.md:246-247`) and A2's invalid-shape refusal «a verdict written before remarks existed: "verdict: <node> none -- verdict predates remarks"» (`:307-309`); its P31 (`:61`) «`critic_verdict_check.py` is on NO execution path (the critic self-runs it; the coordinator by hand)» | read (r2) |
+| P22 | r3 (cited by text, R10). everything-in-piles: stream C's old-verdict line «OLD verdicts (no `remarks`): `check_text` fails them with `missing required field: remarks`; given to the gate they are refused with the door `verdict: none -- verdict predates remarks`», and A2's invalid-shape refusal «a verdict written before remarks existed: "verdict: <node> none -- verdict predates remarks"». The amendment owed from this spec is recorded in that spec's closing note «Amendment owed from the forge-test-rules spec (its F-D, Lead 17.11)» and NOT applied: both texts still say «verdict predates remarks» (Grep `predates` over that spec, 17.11, t-973: the two texts and the note, nothing else). Its P31 (`:61`) «`critic_verdict_check.py` is on NO execution path (the critic self-runs it; the coordinator by hand)» | read, Grep (r3) |
 | P23 | r2. `scenario_walk.py --witness-for` (`:887-922`) matches a path under `scripts/tests/` only by a keep row's `covers` (candidate `tests/<name>.py`, `:913-916`); with none it prints «no scenario or keep row covers … run the whole scenario layer» (`:920`) | read (r2) |
 | P24 | r2. The package's census scope: «every check unit of every `scripts/*.py` outside `scripts/tests/`» (`design/architecture.md:146`, AR-29 detector) — `mutate_once.py` is outside it | read (r2) |
 | P25 | r2. `tools/mechanism_gate.py:24-25` «lines "axis N: <verdict>" for EVERY axis of the current docs/SIBLING_MAP.md»; `:42-51` a line carries the axis KEY as a label, «axis N (<key>): …», an unlabelled line is refused since 2026-10-16; the key is the heading title cut at its first colon, its short form the first three words; SIBLING_MAP has 37 axes (Grep `^## Axis` -> `:24` … `:628`) | read, Grep (r2) |
+| P26 | r3. On win32, `subprocess.run(..., capture_output=True, timeout=T)` kills the child on `TimeoutExpired` and then calls `communicate()`, which waits for EOF on the pipes; a grandchild that inherited them delays the raise until it exits (`Python312/Lib/subprocess.py:551-559`). Witness: critic t-971's scratchpad run «timeout raised after 20.2 s (timeout=2)» with a grandchild sleeping 20 s | critic t-971 trail (not re-run in t-973) |
+| P27 | r3. `tools/hygiene_gate.py:1` «Writing the content of an ordinary file by a shell command is NOT refused»; `:20` «Any other file may be written by a shell command»; `:21-22` the rollback refusal: «`git checkout/restore/reset --hard/clean -f/switch --discard-changes/stash [push]` whose scope has changes `git status` shows» — a mutated target is such a change | read (r3) |
 
 ---
 
@@ -53,7 +56,7 @@ Fix round t-956: every change against t-949 and the owner's word on O-1 is liste
 | Lead direction | Text (§) | One home | Pointers | Code | Detector | Cost |
 |---|---|---|---|---|---|---|
 | D1 oracle | §2.1 | TESTING.md «Откуда берётся ожидаемое значение» | builder-rules 7d, builder.md 8, critic.md 20, brief q5 (b) | none (judgment) | check «Forge test discipline» (d), critic q5 (b) | 0 runs; reading |
-| D2 can-fail | §2.3, §3.2, §3.4, §5.3 | builder side: TESTING «Тест может упасть»; critic side: brief «The two layers» (the probe and its cap) | 7b, 16 (б), critic.md 17/20, CLAUDE.md rule 3 and R11-h, `handoff_gate` docstring, RUNBOOK, calibration 13(j) | runner `mutate_once.py` (S-E), verdict `mutants` (S-D) | check (b)(c) | builder: 1 narrow run per defect item; critic: the probe runs capped in the brief, each <= the runner's 60 s timeout |
+| D2 can-fail | §2.3, §3.2, §3.4, §5.3 | builder side: TESTING «Тест может упасть»; critic side: brief «The two layers» (the probe and its cap) | 7b, 16 (б), critic.md 17/20, CLAUDE.md rule 3 and R11-h, `handoff_gate` docstring, RUNBOOK, calibration 13(j) | runner `mutate_once.py` (S-E), verdict `mutants` (S-D) | check (b)(c) | builder: 1 narrow run per defect item; critic: the probe runs capped in the brief, each <= the runner's worst case TIMEOUT_S + 5 s (65 s) |
 | D3 critic questions | §3.1 | brief q5 | critic.md 20, TESTING «Кто что делает» | none (judgment) | check (e) | reading; no new tests demanded beyond door-reachable behaviour |
 | D4 spec line | §2.2 | TESTING.md «Строка теста в DoD» | designer.md 1 | gate (S-C) | gate refusal + check (a) | measured §6: <= 1 line per behaviour item, 0.8-2.7 % of a spec |
 | D5 contradictions | §4 | TESTING «Бюджет / Файлы» (goal-based, the owner's word 17.11); 7b; rule 11 DOC-DISPATCH | 7d, builder.md 4, designer.md 1, brief q5 (g) | none | carrier-test rows | none |
@@ -71,7 +74,7 @@ stale «канон судит мутации» removed §4.4). «На каждо
 
 | AR-n | How S-E touches it | How kept | Change check written into S-E's DoD |
 |---|---|---|---|
-| AR-4 nothing tied to one machine | new `--root`; target/test paths relative to it | the runner stores nothing; `--root` is explicit (no git-top read, no default machine path); a target or test resolving outside `--root` is refused before touching | report line: «stores no path; prints only the test file's name and relative target»; the `outside-root` row of the table |
+| AR-4 nothing tied to one machine | new `--root`; target/test paths relative to it | the runner stores nothing; `--root` is explicit (no git-top read, no default machine path); a target or test resolving outside `--root` is refused before touching; the output file lives in a fresh system temp directory, never under `--root` | report line: «stores no path; prints only the test file's name and relative target»; the `outside-root` row of the table |
 | AR-7 code is an instrument | the runner executes and classifies the process outcome | the critic still decides which places are load-bearing, whether a survivor is equivalent and whether a printed FAIL line is a real kill (§5.3 error direction) | report line «what the role still decides: the places, equivalence, reading the printed FAIL lines» |
 | AR-9 every refusal names what it expected and a door | new exit-64 refusals (empty anchor, no change, outside root, absent test, non-UTF-8) | each prints what is wrong, what was expected and the argument that fixes it | `python -B ai-packages/qa-factory/scripts/refusal_registry.py --check` exit 0; whether its scan reaches `scripts/tests/` is not established — the builder reports what it printed |
 | AR-29 code judges data | outcome classes killed / survived / invalid / restore-mismatch | classes come from the exit code, the test's summary counts and a `compile()` of the mutated text — shape, never meaning | census: `mutate_once.py` is outside the census scope (P24), no row; the builder names the class anyway in the report (shape for the outcome classes, safety for the restore/sha refusal) and runs `python -B ai-packages/qa-factory/scripts/tests/test_judgment_census.py` (if it is in `SLOW_TESTS`: «судит канон пачки») |
@@ -128,7 +131,7 @@ WITNESS»; суждение роли — живой прогон; внутрен
 и верен ли источник — судит критик (вопрос 5 `docs/tasks/critic-diff-brief.md`).
 ```
 
-### 2.3 New subsection after 2.2 (F8: no cap number here)
+### 2.3 New subsection after 2.2 (F8: no cap number here; t-973 R2: the critic bullet is a pointer, true before and after S-B, fork F-E)
 
 ```
 ### Тест может упасть: одна проба, а не набор мутаций
@@ -141,20 +144,22 @@ WITNESS»; суждение роли — живой прогон; внутрен
   `red-before: <команда> -> <хвост вывода>`, затем правка и обычный свидетель. Красным считается падение на утверждении
   строки; падение на импорте или сборе (двери ещё нет) — не красное: тогда `red-before: not runnable -- <почему>`.
   Строка в медленном или карантинном файле — `red-before: not run -- <файл> судит канон`. Цена — один узкий прогон.
-- **Критик, дифф с новым поведением**: ломает несколько мест нового поведения одним раннером фабрики и смотрит, какая
-  строка краснеет; раннер, процедура и потолок — `docs/tasks/critic-diff-brief.md` «The two layers».
+- **Критик, дифф с новым поведением**: может ли тест упасть, судит по вопросу 5 (а) и разделу
+  `docs/tasks/critic-diff-brief.md` «The two layers»; как и чем он это проверяет, написано только там.
 ```
 
 Invariant: a defect row that was never seen red is never presented as a regression proof without a named reason; no
-carrier sends anyone to a mutation suite; the cap number lives only in the brief and in the checker (F8).
+carrier sends anyone to a mutation suite; the cap number lives only in the brief and in the checker (F8). TEMPORAL (R2):
+the critic bullet names no probe and no runner, so it is true while the brief still judges (a) by reading (wave 1) and
+after S-B lands the probe (wave 2); the description of the probe has one home, the brief.
 
 ### 2.4 «Кто что делает» (`docs/TESTING.md:174-182`)
 
 - `:174` -> «- **Дизайнер**: DoD называет поведения и стык, а не число проверок; ребро спеки — строка таблицы теста; на
   пункт поведения — строка `test:` («Строка теста в DoD»); место новой строки, в том числе новый файл, — по цели
   «Бюджет / Файлы».»
-- `:176-178` the critic bullet (a restatement of brief q5, axis 31) -> «- **Критик**: вопрос 5 и проба «The two layers»
-  `docs/tasks/critic-diff-brief.md`.»
+- `:176-178` the critic bullet (a restatement of brief q5, axis 31) -> «- **Критик**: вопрос 5 и раздел
+  `docs/tasks/critic-diff-brief.md` «The two layers».» (t-973 R2: no word «проба» here — true in both waves.)
 - `:181-182` detector sentence: append «; строки `test:`, пробы критика и `red-before:` — калибровочная проверка «Forge
   test discipline» (`PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md`)». The check is named by its TITLE, not its number (F14 (iii)):
   the number is the next free one when S-B lands, and S-A1 lands before S-B (§8); the landing text is the title line
@@ -176,14 +181,15 @@ carrier sends anyone to a mutation suite; the cap number lives only in the brief
 
 ## §3 Critic texts
 
-### 3.1 `docs/tasks/critic-diff-brief.md` question 5 (`:35-46`) -> (stream S-A1)
+### 3.1 `docs/tasks/critic-diff-brief.md` question 5 (`:35-46`) -> (stream S-A1; the probe clause of (a) — stream S-B, t-973 R2)
+
+S-A1 lands this text (q5 (a) judges by READING until wave 2):
 
 ```
 5. **Tests** (`docs/TESTING.md`, the owner's words 10.11 and 17.11.2026), each sub-question answered:
    (a) KILLING POWER: would the node's test catch the defect the node exists for, through the door the factory uses --
-   judged by reading AND by the probe of «The two layers»; a probe mutant in load-bearing new behaviour that survives is
-   a finding (an equivalent mutant is not, with its why). For a defect item, the builder's `red-before:` line is read: a
-   red at import or collection is not a red.
+   judged by reading it. For a defect item, the builder's `red-before:` line is read: a red at import or collection is
+   not a red.
    (b) EXPECTED VALUE: every asserted value traces to the spec/DoD, a rule text, the owner's word, or the test's own input
    by a rule the spec states (`docs/TESTING.md` «Откуда берётся ожидаемое значение»); a literal that matches only the
    code's own output, with no such source, is a finding; a value the spec left silent and the builder picked, or a spec
@@ -202,26 +208,34 @@ carrier sends anyone to a mutation suite; the cap number lives only in the brief
    line; a subprocess per check where one world per file would do. A missing PIN -- on text, source, a constant, one per
    DoD key -- is still NOT a finding: (c) asks for rows on behaviour at a door, never for pins or receipts.
    (g) A NEW TEST FILE is judged by the goal of `docs/TESTING.md` «Бюджет / Файлы» (run time, upkeep, no file per
-   script instead of a story): a finding when the case fits an existing story, joint or table without making that file
-   slower or wider in meaning, or when the new file runs over 10 s, builds its world more than once or holds more than
-   one parameterised table (plus junction rows); a package file with no keep row, or a keep row whose layer/why does not
-   hold -- finding. The layers (`ai-packages/qa-factory/scripts/tests/test-layers.json`, spec
-   `docs/tasks/specs/td-15-scenarios-quarantine.md`): an edit to a quarantined file without a `quarantine-edit:` reason
-   that holds -- finding; a phase-2 move whose replacement does not catch the detector's class -- finding.
+   script instead of a story): a finding when the case fits an existing story, joint or table without taking that file
+   past its budget (10 s; a split part 60 s in CI) or giving it a door it does not already drive, or when the new file
+   runs over 10 s, builds its world more than once or holds more than one parameterised table (plus junction rows); a
+   package file with no keep row, or a keep row whose layer/why does not hold -- finding. The layers
+   (`ai-packages/qa-factory/scripts/tests/test-layers.json`, spec `docs/tasks/specs/td-15-scenarios-quarantine.md`): an
+   edit to a quarantined file without a `quarantine-edit:` reason that holds -- finding; a phase-2 move whose
+   replacement does not catch the detector's class -- finding.
 ```
+
+S-B (wave 2, in the same merge as «The probe» bullet, §3.2) replaces in (a) «-- judged by reading it.» with «-- judged
+by reading AND by the probe of «The two layers»; a probe mutant in load-bearing new behaviour that survives is a finding
+(an equivalent mutant is not, with its why).»
 
 What «A missing pin is NOT a finding» still protects: the owner's word 10.11 against receipts and pins; it no longer
 shields a missing behaviour row. Invariant: (c) never reads as «a test per line or per function»; a finding under (c)
-names the DOOR; (g) never reads as «a new file needs a word» — it judges the goal.
+names the DOOR; (g) never reads as «a new file needs a word» — it judges the goal; (a) never asks for a probe while
+CLAUDE.md rule 3 does not yet sanction the critic's run (R2).
 
-### 3.2 «The two layers» (`critic-diff-brief.md:8-21`) (stream S-A1)
+### 3.2 «The two layers» (`critic-diff-brief.md:8-21`) (S-A1: the mechanical-layer insert and the verdict-layer bullet; S-B: the `:14-15` append and «The probe» bullet — t-973 R2)
 
-- Mechanical layer, `:11` after «the DoD run tails (the scope: `plans/builder-rules.md` 7b);» insert «for a defect item,
-  the `red-before:` line (`docs/TESTING.md` «Тест может упасть»);». The clause «no mutation list (retired 10.11.2026,
-  `docs/TESTING.md`)» stays. `:14-15` «A layer not attached is returned to the dispatcher as a request, never executed by
-  the critic.» -> append « The probe below is not a builder's layer: it is the critic's own bounded run (CLAUDE.md
-  rule 3).»
-- Verdict layer, `:16-21` -> two bullets:
+- S-A1. Mechanical layer, `:11` after «the DoD run tails (the scope: `plans/builder-rules.md` 7b);» insert «for a defect
+  item, the `red-before:` line (`docs/TESTING.md` «Тест может упасть»);». The clause «no mutation list (retired
+  10.11.2026, `docs/TESTING.md`)» stays.
+- S-B. `:14-15` «A layer not attached is returned to the dispatcher as a request, never executed by the critic.» ->
+  append « The probe below is not a builder's layer: it is the critic's own bounded run (CLAUDE.md rule 3).» It lands in
+  the SAME merge as the CLAUDE.md rule 3 clause it cites (§3.4), never before it.
+- Verdict layer, `:16-21` -> two bullets: the first (S-A1) replaces the old verdict-layer bullet; the second, «The
+  probe», is appended by S-B after it:
 
 ```
 - **Verdict layer** — the critic's own zone: architecture, semantics, class-wide completeness, the
@@ -236,21 +250,31 @@ names the DOOR; (g) never reads as «a new file needs a word» — it judges the
   runs per verdict, invalid ones included. The ONE road is the runner, by Bash, never Write or Edit:
   `python -B <tree>/ai-packages/qa-factory/scripts/tests/mutate_once.py --root <tree> --id <name>
   --target <path> --old "<text>" --new "<text>" --test <path> [--pytest]` — <tree> is the node's
-  worktree the dispatch names; paths are relative to it; `--pytest` for a `tools/` test. The runner
+  worktree the dispatch names, and only that tree: the dispatcher names it only after the builder has
+  handed back, and starts no fix round, merge or worktree removal in it until your verdict returns.
+  Paths are relative to it; `--pytest` for a `tools/` test. When the tree's runner answers with a usage
+  text that names no `--root` (its branch predates the inline form; exit 64, nothing touched), call the
+  runner of your own checkout with the same `--root <tree>`; when that one names no `--root` either, no
+  probe. Give every runner call a Bash timeout of at least 120000 ms (the runner's worst case is its
+  60 s test timeout + 5 s to kill and restore): a runner killed from outside cannot restore. The runner
   checks the anchor, compiles the mutated file, runs ONLY the narrow test file the spec's `test:` line
   names (no line: the narrowest file of the builder's witness) with a 60 s timeout, restores the file
   from its byte copy whatever happened, compares sha256 and prints `outcome: killed | survived | invalid
   | restore-mismatch`. Never a slow (`SLOW_TESTS`, `test_story_run_*`, `test_story_step.py`),
-  quarantined or canon file; never the root checkout or another session's tree; no copy, edit or
-  restore by hand. Before the first mutant, the same narrow file must have run GREEN in the same tree
-  as your control re-run (its command in `trail.reruns`): a red baseline makes every kill false. A
-  kill whose printed FAIL line is an import or collection error is invalid, not a kill. Every runner
-  call goes into `trail.reruns` (command and output tail) and into the verdict block's `mutants`
-  (place, change, run, outcome, the row that killed it); a survivor is a finding under question 5 (a)
-  unless it is equivalent — then say why. No probe (a docs-only or plan gate, no new behaviour, the
-  narrow test slow or quarantined, no tree named by the dispatch, the control run red): `mutants: []`
-  and `mutants_none: "<why>"`. `outcome: restore-mismatch` is a blocker of your own verdict: name the
-  file and stop probing.
+  quarantined or canon file; no copy, edit or restore by hand. Before the first mutant:
+  `git -C <tree> status --porcelain` prints nothing (else no probe: the runner would restore bytes the
+  branch does not hold), and the same narrow file has run GREEN in the same tree as your control
+  re-run (its command, naming that `--test` path, in `trail.reruns`): a red baseline makes every kill
+  false. A kill whose printed FAIL line is an import or collection error is invalid, not a kill. Every
+  runner call, an exit-64 refusal included, goes into `trail.reruns` (command and output tail); every
+  mutant run goes into the verdict block's `mutants` (place, change, run, outcome, the row that killed
+  it); an exit-64 refusal touched nothing and is no mutant run. A survivor is a finding under question
+  5 (a) unless it is equivalent — then say why. No probe (a docs-only or plan gate, no new behaviour,
+  the narrow test slow or quarantined, no tree named by the dispatch, a dirty tree, no runner with
+  `--root`, the control run red): `mutants: []` and `mutants_none: "<why>"`. `outcome: restore-mismatch`:
+  stop probing; your verdict is not `fit`, and a fix remark names the file and the restore door —
+  in Bash, `git -C <tree> show HEAD:<path> > <tree>/<path>`, then `git -C <tree> status --porcelain`
+  prints nothing.
 ```
 
 Edges of the probe (each with its invariant):
@@ -260,17 +284,41 @@ Edges of the probe (each with its invariant):
   becomes a regression sweep of old behaviour.
 - E-P3 narrow test slow or quarantined: no probe; the gap NAMED. Invariant: the critic never runs a canon file; an
   unproven can-fail is said, never counted as proven.
-- E-P4 a run fails or hangs: the runner's own `finally` restores; its timeout is 60 s (a constant of the runner, §5.3; 7b's
-  «до минуты» is a criterion of narrowness, not a timeout); a timeout is `invalid` and counts toward the cap. Invariant:
-  the reviewed tree is byte-identical after the critic; no shell choreography exists to go wrong.
-- E-P5 `restore-mismatch` (runner exit 2): blocker of own verdict, probing stops; the coordinator restores the file from
-  the branch before any merge. Invariant: no merge carries a probe's bytes.
+- E-P4 a run fails or hangs: the runner's own restore runs within TIMEOUT_S + 5 s, also when the test leaves a grandchild
+  holding the output (§5.3 «Run», E-R3; its timeout is 60 s, a constant of the runner; 7b's «до минуты» is a criterion of
+  narrowness, not a timeout); a timeout is `invalid` and counts toward the cap. A runner killed from outside (a Bash
+  timeout below its worst case, a stopped critic) cannot restore (E-R7): the brief sets the Bash timeout at 120000 ms or
+  more, and the coordinator's status check (E-P5) finds a stranded probe. Invariant: the reviewed tree is byte-identical
+  after the critic, or the next user of the tree sees that it is not; no shell choreography exists to go wrong.
+- E-P5 `restore-mismatch` (runner exit 2) or a stranded probe (E-R7): probing stops; the verdict is not `fit` and its fix
+  remark names the file and the door (§5.2). Before any fix round, merge or worktree removal from that tree, the
+  coordinator runs `git -C <tree> status --porcelain` and expects it empty; a non-empty status naming a probed target is
+  repaired by ONE of two doors, never `git checkout`/`git restore` (the rollback refusal of `tools/hygiene_gate.py:21-22`
+  blocks both on a dirty path, P27): (a) the coordinator, in the Bash tool, `git -C <tree> show HEAD:<path> >
+  <tree>/<path>` (a shell write of an ordinary file is not refused, `hygiene_gate.py:20`; a PowerShell `>` re-encodes the
+  bytes and is not this door), then the status check again -> empty; (b) a fresh fix-round builder told to restore the
+  file by the same command and to show the empty status in its witness. A non-empty status naming a file no mutant
+  targeted is not a probe's: a question to the builder before the merge. A restore-mismatch alone is no reason to reject
+  the builder's diff (its commits are untouched; only worktree bytes differ); a `rejected` written for it anyway carries
+  `failure_class: tooling` and is written under the critic's task_id with agent critic, so it is not the builder's
+  attempt (rule 6 counts per task_id and tier; fork F-F). Invariant: no merge, fix round or removal carries or loses a
+  probe's bytes; the builder's attempt counter never moves for the critic's tool.
 - E-P6 one verdict over several nodes: the cap stays per verdict (L-3).
-- E-P7 the worktree is the reviewed branch: the critic starts after the builder's handback (as today).
+- E-P7 the worktree is the reviewed branch: the critic starts after the builder's handback (as today); the dispatcher
+  names the tree only after the handback and starts no fix round, merge (`wave.py merge` removes merged trees) or
+  worktree removal in it until the verdict returns. Invariant: no second writer is live in the tree while a probe runs.
 - E-P8 no tree named by the dispatch (the worktree removed, a review after merge): no probe, `mutants_none: "no tree named
   by the dispatch"`. Invariant: no hand-built scratch copy is ever made (one road; fork F-B).
 - E-P9 the control run is red: no probe, `mutants_none: "control run red: <file>"`, and the red itself is a finding
   under q5. Invariant: a kill on a red baseline is never reported.
+- E-P10 (t-973 R5 (i)) a DIRTY tree before the first mutant (`git -C <tree> status --porcelain` non-empty): no probe,
+  `mutants_none: "tree dirty: <files>"`. The check is the critic's, not the runner's (axis 10 stays n/a). Invariant: a
+  probe never tests bytes the branch does not hold, and never restores a target to uncommitted bytes.
+- E-P11 (t-973 R5 (ii)) a tree whose branch predates S-E: its runner answers the inline argv with the usage text and exit
+  64, nothing touched (`mutate_once.py:26-28`); the critic calls the runner of its own checkout with `--root <tree>`; when
+  that one is pre-S-E too, no probe, `mutants_none: "no runner with --root: <tree runner>, <own runner>"`. The exit-64
+  calls are in `trail.reruns`, not in `mutants`, and do not count toward the cap. Invariant: an old runner never touches
+  the tree and never yields an outcome; no unknown runner state becomes a probe result (FR-59).
 
 ### 3.3 `.claude/agents/critic.md` (stream S-B; Lead commits; mechanism path)
 
@@ -288,9 +336,11 @@ Edges of the probe (each with its invariant):
 
 Exact texts:
 - CLAUDE.md rule 3, `:80`, after «a layer not attached → critic asks the dispatcher for it and does not execute it.»
-  insert: « The critic's one run of its own is the bounded probe of `docs/tasks/critic-diff-brief.md` «The two layers»,
-  through `ai-packages/qa-factory/scripts/tests/mutate_once.py`, by Bash, never Write/Edit.» (~200 B; the anchor
-  «TWO-LAYER CRITIC ENTRY» untouched.)
+  insert (t-973 R3): « Beyond the control re-run of what is attached and the empirics of money diffs, the critic's own
+  run is the bounded probe of `docs/tasks/critic-diff-brief.md` «The two layers»: at most the brief's cap of runner
+  calls, through `ai-packages/qa-factory/scripts/tests/mutate_once.py`, by Bash, never Write/Edit.» (~260 B; the anchor
+  «TWO-LAYER CRITIC ENTRY» untouched; the next sentence «Money/numeric diffs: critic starts with EMPIRICS» stays and no
+  longer contradicts it.)
 - CLAUDE.md R11-h, `:237`, inside the duty cell, after «`tools/handoff_gate.py` lets it write only that file» (anchor
   `install_parity_anchors.json:62`, kept byte-identical) append: «; a critic's probe is no write of its own: the runner
   `mutate_once.py`, run by Bash, mutates one file and restores it from a byte copy (rule 3)» (~150 B).
@@ -299,12 +349,15 @@ Exact texts:
   layers" (CLAUDE.md rule 3): ai-packages/qa-factory/scripts/tests/mutate_once.py mutates one file and restores it from
   a byte copy with a sha256 check; any other write by a reading role, by any tool, stays outside its rules.» Docstring
   only; no code line changes (live hook: builder hands it STAGED, the Lead commits — enforcement-file review rule).
+- The brief's «The probe» bullet, its `:14-15` append and the q5 (a) probe clause (§3.1, §3.2) land in this SAME stream
+  and merge (t-973 R2): the text that orders the probe and the rule that sanctions it go live together.
 - AGENTS.md regenerated (builder-rules 17).
 
 Invariant: one road for a probe — the runner; every text that describes the probe points at the runner and no text
 describes a hand-built copy/mutate/restore (the landing grep of S-B: `copy, mutate|byte copy of the file BEFORE` over
 the brief, TESTING, critic.md, CLAUDE.md -> 0 hits; positive control: the same call finds «byte copy» in
-`handoff_gate.py`'s new line). Edge: boot bytes grow ~350 B on a CLAUDE.md already over its WARN (`tools/session_context.py`
+`handoff_gate.py`'s new line). No live text orders a critic's run that CLAUDE.md rule 3 does not sanction, in either
+wave (§8). Edge: boot bytes grow ~410 B on a CLAUDE.md already over its WARN (`tools/session_context.py`
 BOOT_WARN/BREACH, `:193-212`); accepted by the Lead (B1 -> (a)), the session_context code unchanged.
 
 ---
@@ -327,12 +380,14 @@ exception, removed); `:118-123` (ticket-named files, split parts) stay:
   когда решаем нужен отдельный фаил или нет»). Цель — та, что меряет «Замер» выше: время прогона (файлы дольше 10 с),
   уход (правки тестовых файлов в коммитах, где не менялись ни код, ни текст правил) и файл на скрипт вместо истории.
   Поэтому случай по умолчанию — строка в существующую историю, стык или таблицу своего слоя. Новый файл верен, когда
-  случай не ложится ни в одну из них, не сделав тот файл медленнее или шире по смыслу; новый файл укладывается в 10 с,
-  строит мир один раз и держит одну параметризованную таблицу (и строки стыков). Место называет дизайнер в строке
-  `test:` DoD («Строка теста в DoD»); выбор судит критик (вопрос 5 `docs/tasks/critic-diff-brief.md`). Строка `keep` в
-  `test-layers.json` — учёт файла пакета (без неё канон красит `unlisted:`), а не разрешение его создать; у тестов
-  форджа строки `keep` нет. Свой файл `tools/test_<x>.py` у нового инструмента форджа `tools/<x>.py` — случай этого же
-  правила, не исключение.
+  случай не ложится ни в одну из них, не выведя тот файл за его бюджет (10 с, часть разрезанного — 60 с в CI) и не дав
+  ему чужую дверь (дверь случая — не та, что файл уже гоняет; предмет файла назван в его docstring или истории); новый
+  файл укладывается в 10 с, строит мир один раз и держит одну параметризованную таблицу (и строки стыков). Время — хвост
+  `python -m pytest <файл> -q` (`in N.NNs`) или замер прогона скрипта, в отчёте билдера. Уход меряется задним числом по
+  окну коммитов: это мера цели, а не довод в одном случае. Место называет дизайнер в строке `test:` DoD («Строка теста в
+  DoD»); выбор судит критик (вопрос 5 `docs/tasks/critic-diff-brief.md`). Строка `keep` в `test-layers.json` — учёт
+  файла пакета (без неё канон красит `unlisted:`), а не разрешение его создать; у тестов форджа строки `keep` нет. Свой
+  файл `tools/test_<x>.py` у нового инструмента форджа `tools/<x>.py` — случай этого же правила, не исключение.
 ```
 
 builder-rules 7d (S-A2), `:90-93` from «новый тестовый файл не создаётся: случай — строка» through «не дольше 10 с;» ->
@@ -352,8 +407,10 @@ row).»
 
 Brief q5 (g): §3.1. TESTING «Кто что делает»: §2.4. Invariant: no text left says «a new file needs the owner's word» or
 «no new file, ever»; the run-time and one-world criteria stay (they ARE the goal). Edge: a case that fits an existing file
-only by making it slower or wider -> a new file is the right answer and the critic's (g) must not flag it; a new file
-over 10 s -> the builder reports the measured time and returns a question (never silently splits or drops rows).
+only by taking it past its budget or by giving it a door it does not already drive -> a new file is the right answer and
+the critic's (g) must not flag it; a new file over 10 s (by the pytest tail or the script's measured run) -> the builder
+reports the measured time and returns a question (never silently splits or drops rows); the upkeep measure never
+decides one case.
 
 ### 4.2 Stale conditional in 7b (`plans/builder-rules.md:44-53`) (S-A2)
 
@@ -389,7 +446,7 @@ docs/*.md, docs/tasks/critic-diff-brief.md, plans/builder-rules.md, PROCESS/*.md
 (positive control: the same call finds «судит канон пачки» in 7b's slow-files sentence, which stays; the `[Мм]` class
 because a case-insensitive grep may not fold Cyrillic, t-949 K1).
 
-### 4.5 The S-A1 -> S-A2 window: the accepted TEMPORAL edge (B2)
+### 4.5 The S-A1 -> S-A2 window: the accepted TEMPORAL edge (B2); the S-A1 -> S-B window (t-973 R8 (i))
 
 World between S-A1's merge and S-A2's merge: TESTING «Тест может упасть» says the canon runs no mutation suite, while 7b
 `:57-59`, RUNBOOK `:115` (and PROJECT п. 13 until S2) still say «мутации судит канон пачки»; 7d still says «новый тестовый
@@ -400,6 +457,14 @@ file returns a question — the safe direction, never a file in the wrong place;
 TESTING and by builder.md rule 8 (S-B), so 16 (б) cannot be read as forbidding it. The window closes at S-A2, whose DoD
 runs the §4.4 landing grep. If S2 has not landed when this spec's other streams are done, the window stays open and
 the batch's «Ход» says so.
+
+World between S-A1's merge and S-B's merge (R8 (i)): `designer.md` rule 1 (`:20-23`) still says «a DoD never asks for a
+new test file outside the keep rows of `test-layers.json`» and `builder.md:51-52` «no new test file is written without a
+keep row (7d)», while TESTING «Бюджет / Файлы» says the goal decides and forge tests have no keep row at all — so the
+designer, read literally, may never place a forge test file. Direction: safe — a designer who needs a new forge file
+returns a fork to the Lead, a builder who meets a `test:` line placing one returns a question; never a file placed
+against a live text. Invariant: no new file lands in the window on a text that forbids it without the Lead's word on
+that fork. The window closes at S-B's merge (wave 2, §8), whose doc keys include designer.md rule 1's new text.
 
 ---
 
@@ -475,26 +540,41 @@ in the brief as the rule (F8).
   `run` values of the items are pairwise DISTINCT (the runner's argv names the mutant by `--id`, so two mutants never
   share a command); the joined item's `result` contains `outcome: <outcome>`. Three probes can no longer join to the one
   ordinary control rerun.
-- the green control (fork F-A, recommended): `mutants` non-empty -> at least one `trail.reruns` item whose command does
-  NOT contain `mutate_once.py`.
+- the green control (fork F-A -> (a), narrowed by t-973 R6): `mutants` non-empty -> for every distinct `--test <path>`
+  value among the items' `run` commands, at least one `trail.reruns` item whose command does NOT contain
+  `mutate_once.py` and DOES contain that same path. A Grep or a rerun of another file no longer satisfies it. Still shape
+  only: the checker never reads whether the control was green (the result is the critic's to read; check (b) reads it).
 - `survived`: exactly one of `equivalent` (non-empty reason) or `remark` (the id of a `remarks` item with disposition
-  `fix`, C's vocabulary); neither -> error. `invalid`: nothing more (it counts toward the cap). `restore-mismatch`:
-  requires `verdict` = `blocker`.
+  `fix`, C's vocabulary); neither -> error. `invalid`: nothing more (it counts toward the cap). `restore-mismatch`
+  (t-973 R7): requires `verdict` ≠ `fit` (`fit_with_fixes` or `blocker` — the critic's choice, the checker never fixes
+  the value) AND `remark` = the id of a `remarks` item with disposition `fix` whose `fixes` entry (the entry whose first
+  token is that id, C's join) contains the `--target <path>` value of the item's `run` and the text `show HEAD:` (the
+  door of E-P5); absent -> `mutant <i>: outcome restore-mismatch needs a verdict other than fit and a fix remark naming
+  <path> and the restore door "git -C <tree> show HEAD:<path> > <tree>/<path>" (docs/tasks/critic-diff-brief.md, The
+  probe)`. Not judged by code: whether a `rejected` follows (E-P5: if one is written, `failure_class: tooling`, under the
+  critic's task_id, never the builder's attempt; fork F-F).
 - `mutants: []` requires `mutants_none` (a string holding a word character); `mutants_none` with a non-empty `mutants` ->
   error.
 - An old verdict (no `mutants`) fails with (F13) `missing required field: mutants (a verdict written before this field
   existed passes acceptance only by the line "verdict: <node> none -- verdict predates a required field (mutants)")`.
   Diagnostics ASCII.
+
 Error direction: shape and joins only; it may FALSE-PASS a fabricated kill (a run and a result typed to match) — caught by
 check (b)'s transcript count and trail reading; it never judges whether a mutant was load-bearing or equivalent (P27).
 Dependency (F13): this check is on an execution path only after everything-in-piles A2 lands (that spec's P31: today the
 critic self-runs the checker, critic.md rule 17, and the coordinator runs it by hand); until then M3 (d) is discipline +
-check (b). Amendment line for everything-in-piles (named here, written there by its owner, fork F-D): C `:246-247` and A2
-`:307-309` say «verdict predates remarks» -> field-generic «verdict predates a required field (<name>)».
+check (b). Amendment line for everything-in-piles (named here, written there by its owner, fork F-D; cited by text,
+t-973 R10): stream C's line «given to the gate they are refused with the door `verdict: none -- verdict predates
+remarks`» and A2's invalid-shape refusal «a verdict written before remarks existed: "verdict: <node> none -- verdict
+predates remarks"» -> field-generic «verdict predates a required field (<name>)». Recorded in that spec's closing note
+«Amendment owed from the forge-test-rules spec», not yet applied (P22). Hard order in §8 (row `critic_verdict*`): the
+amendment is applied before A2's dispatch — else S-D's refusal names a door A2's `piles.py` does not read (FR-2).
 Tests: rows in `tools/test_critic_verdict_check.py`'s existing tables: valid 0/1/3 probes; 4 probes; survivor without
 equivalent/remark; killed without killed_by; run not in trail; two mutants with one run; run without `mutate_once.py`;
-result without the outcome word; probes with no control rerun; empty without reason; reason with probes;
-restore-mismatch in a non-blocker verdict; old verdict -> the door text.
+result without the outcome word; probes with no control rerun; a control rerun naming another test file (R6);
+empty without reason; reason with probes; restore-mismatch in a `fit` verdict; restore-mismatch without a fix remark,
+or with one whose `fixes` entry names no target path or no `show HEAD:` (R7); restore-mismatch in a `fit_with_fixes`
+verdict with the remark (passes); old verdict -> the door text.
 
 ### 5.3 S-E: the probe runner `ai-packages/qa-factory/scripts/tests/mutate_once.py` (F1; the ONE road for a probe)
 
@@ -503,14 +583,22 @@ Interface (the spec-file form stays for back-compat):
 - `python -B mutate_once.py --root <dir> --id <name> --target <path> --old <text> --new <text> --test <path> [--pytest]`
   — the inline form: no file is written to describe a mutant (a critic may write only its report, R11-h); `<path>`s are
   relative to `--root`; `--id` names the mutant in the command (F2).
-- `--root <dir>` is accepted by both forms (spec-file form: paths relative to it instead of `SCRIPTS`).
-- Run: `--pytest` -> `[sys.executable, "-B", "-m", "pytest", "-q", "-p", "no:cacheprovider", <root>/<test>]`, else
-  `[sys.executable, "-B", <root>/<test>]`; `cwd=<root>` when `--root` is given, unchanged otherwise; timeout
-  `TIMEOUT_S = 60` (module constant).
+- `--root <dir>` is accepted by both forms (spec-file form: paths relative to it instead of `SCRIPTS`). The usage text
+  names `--root` (the critic's signal for a pre-S-E runner, E-P11).
+- Run (t-973 R1): argv `--pytest` -> `[sys.executable, "-B", "-m", "pytest", "-q", "-p", "no:cacheprovider",
+  <root>/<test>]`, else `[sys.executable, "-B", <root>/<test>]`; `cwd=<root>` when `--root` is given, unchanged
+  otherwise. The child is started with `subprocess.Popen`, its stdout and stderr both sent to ONE temporary FILE in a
+  fresh `tempfile.TemporaryDirectory(ignore_cleanup_errors=True)` of the system temp dir, never under `--root` and never
+  a pipe (P26: on win32 a pipe drain after the kill waits for any grandchild holding the pipe). Then
+  `proc.wait(timeout=TIMEOUT_S)`, `TIMEOUT_S = 60` (module constant). On `TimeoutExpired`: `proc.kill()` and the restore
+  AT ONCE — the restore never waits for the child, a grandchild or the output; a reap `proc.wait(5)` may follow the
+  restore, its own timeout ignored. The output file is read ONLY after the restore and the sha compare
+  (`encoding="utf-8", errors="replace"`).
 - Before touching: the target and test resolve inside `--root` (resolved paths), the test file exists, the target decodes
   as UTF-8, `--old` is non-empty and occurs exactly once, `--new` differs from `--old`; for a `.py` target the mutated
   text is `compile()`d — a SyntaxError is `invalid` WITHOUT touching the file.
-- Then: byte copy, write, run, restore in `finally` (timeout included), sha256 before/after.
+- Then: byte copy, write, `Popen`, `wait`, restore in `finally` (timeout and any exception included), sha256
+  before/after, then read the output file.
 
 Outcomes (exit code, last printed line `outcome: <word>`); expected values of the tests come from this table:
 
@@ -519,7 +607,9 @@ Outcomes (exit code, last printed line `outcome: <word>`); expected values of th
 | any pre-touch refusal (outside root, test absent, non-UTF-8 target, empty `--old`, `--old` == `--new`, anchor found 0 or 2+ times, bad arguments) | 64 | none printed; the message says what is wrong, what is expected, which argument fixes it; nothing touched |
 | mutated `.py` target does not compile | 3 | invalid (nothing touched) |
 | sha256 after != before | 2 | restore-mismatch (wins over every other outcome) |
-| timeout | 3 | invalid |
+| timeout (the child killed, restored at once) | 3 | invalid |
+| the test leaves a grandchild holding the output file after the timeout (t-973 R1 (b)) | 3 | invalid; the target restored within TIMEOUT_S + 5 s of the start; the grandchild is not waited for |
+| the output file missing or unreadable after the restore | 3 | invalid; the restore still verified by sha (a mismatch -> 2, restore-mismatch) |
 | script form: non-zero exit with a `=== ` summary line and >= 1 `FAIL` line | 0 | killed |
 | script form: non-zero exit with no `=== ` summary line, or with no `FAIL` line | 3 | invalid |
 | pytest form: exit 1 and the summary counts >= 1 `failed` | 0 | killed |
@@ -534,32 +624,47 @@ may err toward `invalid` or `survived` (a real kill reported as invalid costs on
 `=== ` line yields invalid), NEVER toward `killed` for a mutant that did not fail an assertion. Adversarial inputs that
 must stay NON-killed (each a table row): a mutant with a SyntaxError (compile -> invalid, untouched); a mutant that breaks
 the import of the module the test imports at top (pytest exit 2 -> invalid); a mutant that loops forever (timeout ->
-invalid, file restored); a wrong test path (64, untouched); a test file with no tests (pytest 5 -> invalid); a script that
-crashes before its summary (invalid). Residual named, left to judgment: a mutant that imports cleanly but raises when a
-test imports it lazily inside a test function is reported by pytest as a failure -> `killed`; the critic reads the
-printed FAIL lines and records it `invalid` (brief §3.2) — no exception-name list in code (AR-1, FR-12).
+invalid, file restored); a mutant whose test leaves a grandchild holding the output (invalid, restored within
+TIMEOUT_S + 5 s); a wrong test path (64, untouched); a test file with no tests (pytest 5 -> invalid); a script that
+crashes before its summary (invalid); an output file that cannot be read (invalid). Residual named, left to judgment: a
+mutant that imports cleanly but raises when a test imports it lazily inside a test function is reported by pytest as a
+failure -> `killed`; the critic reads the printed FAIL lines and records it `invalid` (brief §3.2) — no exception-name
+list in code (AR-1, FR-12).
 
 Edges (each with its invariant):
-- E-R1 restore always (finally; timeout raised inside the try). Invariant: the target is byte-identical after any run;
-  exit 2 when not.
+- E-R1 restore always (`finally`; the timeout is handled inside the try, the output is read after the restore).
+  Invariant: the target is byte-identical after any run the runner itself survives, within TIMEOUT_S + 5 s; exit 2 when
+  not.
 - E-R2 CRLF / BOM targets: read as bytes, decoded and re-encoded without newline translation. Invariant: an unmutated
   byte never changes.
-- E-R3 a child process left alive by the test after the timeout is the test's own defect (a subprocess per check); the
-  runner kills its direct child only. Invariant: the restore does not wait for it.
+- E-R3 (t-973 R1) a child or grandchild left alive after the timeout (a test that runs a hook by subprocess, which the
+  mutant made loop): the runner kills its direct child, restores at once and reads the output file afterwards; the
+  grandchild may keep the temp file open and keep running — the test's own defect (a subprocess per check), outside the
+  tree; a temp-dir cleanup that fails because of it is ignored. Invariant: the restore never waits on the child, a
+  grandchild or an output stream.
 - E-R4 no `--root` (spec-file form) behaves as today except: exit 3 for invalid cases where today a crash counted as a
   kill. Readers of the exit: none (Grep `mutate_once` over `tools/` 0, `.githooks` 0, `.claude/settings.json` 0; only
   historical batch texts name it).
 - E-R5 the runner never decides the cap: each call is one mutant; counting is the critic's and check (b)'s.
 - E-R6 TEMPORAL: the keep row that makes `--witness-for` print the new test is created by S-E itself; the witness is run
   AFTER adding it. Before: «no scenario or keep row covers» (P23).
+- E-R7 (t-973 R1 (c)) the hard-kill residual: the runner itself killed from outside (the Bash tool's timeout, a stopped
+  critic, TerminateProcess skips `finally`) cannot restore; no sha line, no outcome is printed, and the runner cannot
+  detect it. Two duties carry it: (i) the brief tells the critic to give every runner call a Bash timeout of at least
+  120000 ms, above the runner's worst case TIMEOUT_S + 5 s (§3.2); (ii) the coordinator runs `git -C <tree> status
+  --porcelain` and expects it empty before any fix round, merge or worktree removal from that tree (E-P5); a non-empty
+  status is a stranded probe, repaired by E-P5's doors. Invariant: a stranded probe is found before the tree is used
+  again and is never committed.
 
 Test place (by the goal rule §4.1, named here as the designer's duty): no story, joint or table touches the runner (P17);
-a scenario row would widen a factory-stage story with a forge tool's mechanics. So a NEW file
+a scenario row would give a factory-stage story a door it does not drive (a forge tool's mechanics). So a NEW file
 `ai-packages/qa-factory/scripts/tests/test_mutate_once.py`: one parameterised table over the outcome table and the
 adversarial list (tiny target/test files in a temp dir, `main()` called in-process, `TIMEOUT_S` patched to 1 s for the
-timeout row), plus the back-compat spec-file row; keep row `layer: table`, `covers: ["tests/mutate_once.py"]`. Under 10 s
-— estimate, not measured (about 16 rows, the pytest rows ~1 s each); the builder reports the measured time, and over
-10 s returns a question.
+timeout rows; the grandchild row starts a sleeping grandchild that inherits the output and asserts the restore, `invalid`
+and a wall time under TIMEOUT_S + 5 s; the unreadable-output row patches the read), plus the back-compat spec-file row;
+keep row `layer: table`, `covers: ["tests/mutate_once.py"]`. Under 10 s — estimate, not measured (about 18 rows, the
+pytest rows ~1 s each); the builder reports the measured time (the pytest tail or the script's run), and over 10 s
+returns a question.
 
 ---
 
@@ -576,8 +681,9 @@ firm and 2 border of 70 `failure_class: spec` rejections are the class the line 
 builder + a critic re-review, CLAUDE.md rule 12). L-2's rationale on this count: the leak is real and recurring (7-9
 fix rounds in six days, three of them the same quarantine miss), and the generator prints the line; L-2 = True is final
 in any case by the owner's «ок» on O-3. Estimate, not measured: the share the line would have prevented; check (d)
-measures it. Critic probe cost: at most the brief's cap of runner calls per verdict, each bounded by the runner's 60 s
-timeout (estimate of real time not measured; check (b) records counts). Builder: one narrow run per defect item.
+measures it. Critic probe cost: at most the brief's cap of runner calls per verdict, each bounded by the runner's worst
+case TIMEOUT_S + 5 s (estimate of real time not measured; check (b) records counts). Builder: one narrow run per defect
+item.
 
 ### 6.1 The baseline re-cut (F6), read line by line from `logs/journal/dev1.jsonl` (the 27 regex hits)
 
@@ -608,7 +714,7 @@ timeout (estimate of real time not measured; check (b) records counts). Builder:
 | Node | Lead direction | Streams |
 |---|---|---|
 | N1 oracle rule | D1 | S-A1 (§2.1), S-A2 (7d pointer), S-B (builder.md 8, critic.md 20) |
-| N2 can-fail proof | D2 | S-E (runner), S-A1 (§2.3, §3.2), S-A2 (§4.4, 16 (б)), S-B (critic.md 17, §3.4, calibration 13(j)), S-D |
+| N2 can-fail proof | D2 | S-E (runner), S-A1 (§2.3, §3.2 mechanical and verdict-layer bullets), S-A2 (§4.4, 16 (б)), S-B (the brief's probe bullet, `:14-15` append and q5 (a) clause; critic.md 17, §3.4, calibration 13(j)), S-D |
 | N3 critic test questions | D3 | S-A1 (§3.1, §2.4) |
 | N4 the `test:` line | D4, D6 | S-A1 (§2.2), S-B (designer.md 1), S-C |
 | N5 contradictions, the goal-based file rule | D5 | S-A1 (§4.1 TESTING, §2.5), S-A2 (§4.1 7d, §4.2, §4.3), S-B (builder.md 4, designer.md 1) |
@@ -619,28 +725,28 @@ Every commit carries the axis block of §10.2 and `tier:` where the path is a me
 
 ### 7.1 S-E — the probe runner (builder; package)
 
-given: this spec §1.1, §5.3; `ai-packages/qa-factory/scripts/tests/mutate_once.py`; `ai-packages/qa-factory/scripts/tests/test-layers.json` (keep row form); `ai-packages/qa-factory/scripts/tests/scenario_walk.py:887-922`; `ai-packages/qa-factory/design/factory-rules.md` (whole); `plans/builder-rules.md`; `ai-packages/qa-factory/design/architecture.md` AR-4, AR-7, AR-9, AR-29; `tools/architecture_gate.py:15-16, 34-38`
+given: this spec §1.1, §5.3, §0 P26; `ai-packages/qa-factory/scripts/tests/mutate_once.py`; `ai-packages/qa-factory/scripts/tests/test-layers.json` (keep row form); `ai-packages/qa-factory/scripts/tests/scenario_walk.py:887-922`; `ai-packages/qa-factory/design/factory-rules.md` (whole); `plans/builder-rules.md`; `ai-packages/qa-factory/design/architecture.md` AR-4, AR-7, AR-9, AR-29; `tools/architecture_gate.py:15-16, 34-38`
 owns: C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/mutate_once.py
 C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/test_mutate_once.py
 C:/QAFactory/forge-repo/ai-packages/qa-factory/scripts/tests/test-layers.json
 C:/QAFactory/forge-repo/ai-packages/qa-factory/changelog.d/forge-N-mutate-once-probe-runner.md
 non-goals: the existing `json.loads` of the spec-file form (axis 16, untouched); any other package script; a cap counter; `agent_budget.py`
 handoff: C:/QAFactory/forge-repo/docs/tasks/handoffs/<task>-se-report.md
-edges: §5.3 E-R1..E-R6, the outcome table, the adversarial list and its named residual
+edges: §5.3 E-R1..E-R7, the outcome table (the grandchild and unreadable-output rows included), the adversarial list and its named residual
 DoD: `python -B ai-packages/qa-factory/scripts/tests/scenario_walk.py --witness-for ai-packages/qa-factory/scripts/tests/mutate_once.py ai-packages/qa-factory/scripts/tests/test_mutate_once.py` prints `keep test_mutate_once.py` and the printed files run green; plus `python -B ai-packages/qa-factory/scripts/tests/test_console_encoding.py` (a changed script that prints, 7b), `python -B ai-packages/qa-factory/scripts/selftest.py --lang`, and the §1.1 change checks (report lines; `refusal_registry.py --check`; `test_judgment_census.py` or «судит канон пачки»); the FR pass A–G in the report
-test: ai-packages/qa-factory/scripts/tests/test_mutate_once.py::outcome table (new file by «Бюджет / Файлы»: fits no story, joint or table) | expected from: this spec §5.3 outcome table, adversarial list, E-R4
+test: ai-packages/qa-factory/scripts/tests/test_mutate_once.py::outcome table (new file by «Бюджет / Файлы»: fits no story, joint or table) | expected from: this spec §5.3 outcome table, adversarial list, E-R3, E-R4
 siblings: axis 3 (the release copy carries it; changelog.d fragment), axis 15 (console: test_console_encoding), axis 16 (existing json.loads untouched), axis 34 (one runner for package and forge tests)
 designer: C:/QAFactory/forge-repo/docs/tasks/specs/20261117-forge-test-rules-spec.md
 
 ### 7.2 S-A1 — TESTING.md and the brief (builder; does not wait for boot-by-topic S2)
 
-given: this spec §2, §3.1, §3.2, §4.1 (TESTING text); `docs/TESTING.md`, `docs/tasks/critic-diff-brief.md`, `tools/tests/test_role_carriers_one_owner.py`, `CLAUDE.md` rule 11 (DOC-DISPATCH WITNESS)
+given: this spec §2, §3.1 (the S-A1 text), §3.2 (the S-A1 parts), §4.1 (TESTING text); `docs/TESTING.md`, `docs/tasks/critic-diff-brief.md`, `tools/tests/test_role_carriers_one_owner.py`, `CLAUDE.md` rule 11 (DOC-DISPATCH WITNESS)
 owns: C:/QAFactory/forge-repo/docs/TESTING.md
 C:/QAFactory/forge-repo/docs/tasks/critic-diff-brief.md
 C:/QAFactory/forge-repo/tools/tests/test_role_carriers_one_owner.py
-non-goals: any code; builder-rules, RUNBOOK, PROJECT.md (S-A2 / not owned); brief questions other than 5 and the two-layers bullets
+non-goals: any code; builder-rules, RUNBOOK, PROJECT.md (S-A2 / not owned); brief questions other than 5 and the two-layers bullets; the brief's «The probe» bullet, the `:14-15` append and the q5 (a) probe clause (S-B, t-973 R2)
 handoff: C:/QAFactory/forge-repo/docs/tasks/handoffs/<task>-sa1-report.md
-edges: §2.1 edges, §2.5 sweep, §4.1 edges, §4.5 window (S-A1 opens it); anchors kept byte-identical: «## The two layers», «6. **DUPLICATION AND CONSISTENCY**», «7. **CODE QUALITY**», «12. **ONE ROAD**», OWNER keys of q7/q12, TESTING headings «Бюджет / Объём», «Бюджет / Файлы», «Как писать эффективный тест на нашем проекте»
+edges: §2.1 edges, §2.3 TEMPORAL (the critic bullet names no probe), §2.5 sweep, §4.1 edges, §4.5 windows (S-A1 opens both), §8 window wave 1 -> wave 2; anchors kept byte-identical: «## The two layers», «6. **DUPLICATION AND CONSISTENCY**», «7. **CODE QUALITY**», «12. **ONE ROAD**», OWNER keys of q7/q12, TESTING headings «Бюджет / Объём», «Бюджет / Файлы», «Как писать эффективный тест на нашем проекте»
 DoD: `python -m pytest tools/tests/test_role_carriers_one_owner.py -q` green, plus the doc-dispatch witness (keys below quoted verbatim, script in full in the report, one key deliberately absent -> failure)
 test: tools/tests/test_role_carriers_one_owner.py::OWNER_KEYS,POINTERS | expected from: this spec §7.2 rows
 siblings: axis 31 (one owner per aspect); `owns_readers.py:26` cites brief «item 13 (d)» (spec-facts L, not this stream)
@@ -649,14 +755,14 @@ designer: C:/QAFactory/forge-repo/docs/tasks/specs/20261117-forge-test-rules-spe
 Carrier-test rows (variant rows of the existing tables): OWNER_KEYS + `("tests:oracle", "docs/TESTING.md", "тест, чьё
 ожидание переписано из того, что код напечатал, может только пройти")`, `("tests:line", "docs/TESTING.md", "Пункт без
 поведения (перенос текста, переименование) строки не получает")`, `("tests:files", "docs/TESTING.md", "Новый файл верен,
-когда случай не ложится ни в одну из них")`, `("review:probe", BRIEF, "The ONE road is the runner, by Bash, never Write
-or Edit")`; POINTERS + `("docs/TESTING.md", "`docs/tasks/critic-diff-brief.md` «The two layers»", BRIEF, "- **The
-probe**")`.
+когда случай не ложится ни в одну из них")`; POINTERS + `("docs/TESTING.md", "`docs/tasks/critic-diff-brief.md` «The two
+layers»", BRIEF, "## The two layers")` (t-973 R2: the target is the section heading, present in both waves; the
+«review:probe» row moves to S-B).
 Doc keys (verbatim): «### Откуда берётся ожидаемое значение», «### Строка теста в DoD», «### Тест может упасть»,
-«red-before:», «(e) DUPLICATE», «A missing PIN», «- **The probe**», «Hard cap: 3 mutant runs per verdict», «mutate_once.py
---root <tree>», «решает цель, а не запрет и не слово владельца», «Строка `keep` в `test-layers.json` — учёт файла пакета»,
-«калибровочная проверка «Forge test discipline»»; absent keys: «Исключение (слово владельца 14.11.2026», «новый
-тестовый файл не создаётся; случай идёт», «ratchets and mutation runs are not», «1–3 места».
+«red-before:», «(e) DUPLICATE», «A missing PIN», «-- judged by reading it.», «решает цель, а не запрет и не слово
+владельца», «Строка `keep` в `test-layers.json` — учёт файла пакета», «калибровочная проверка «Forge test discipline»»;
+absent keys: «Исключение (слово владельца 14.11.2026», «новый тестовый файл не создаётся; случай идёт», «ratchets and
+mutation runs are not», «1–3 места», «- **The probe**», «by the probe of «The two layers»».
 
 ### 7.3 S-A2 — builder-rules and RUNBOOK (builder; after boot-by-topic S2 is merged, L-5 (a))
 
@@ -680,9 +786,9 @@ Doc keys (verbatim): «К напечатанному добавляются то
 «Мутаций канон не гоняет»; absent keys: «Пока перевод в карантин не выполнен», «мутации судит канон пачки», «Мутации судит
 канон пачки», «файл у нового скрипта — только со строкой `keep`».
 
-### 7.4 S-B — role files, CLAUDE.md, handoff_gate docstring, calibration, map (builder edits, leaves STAGED; Lead commits with the axis block and `tier:`)
+### 7.4 S-B — role files, CLAUDE.md, handoff_gate docstring, the brief's probe, calibration, map (builder edits, leaves STAGED; Lead commits with the axis block and `tier:`)
 
-given: this spec §3.3, §3.4, §4.1 (builder.md, designer.md), §9, §10; the files below; `tools/install_parity_anchors.json`; `tools/test_handoff_rule_anchors.py`
+given: this spec §3.1 (the S-B clause of (a)), §3.2 (the S-B parts and «The probe» bullet), §3.3, §3.4, §4.1 (builder.md, designer.md), §9, §10; the files below; `tools/install_parity_anchors.json`; `tools/test_handoff_rule_anchors.py`
 owns: C:/QAFactory/forge-repo/.claude/agents/critic.md
 C:/QAFactory/forge-repo/.claude/agents/builder.md
 C:/QAFactory/forge-repo/.claude/agents/designer.md
@@ -690,21 +796,31 @@ C:/QAFactory/forge-repo/CLAUDE.md
 C:/QAFactory/forge-repo/tools/handoff_gate.py
 C:/QAFactory/forge-repo/PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md
 C:/QAFactory/forge-repo/docs/SIBLING_MAP.md
-non-goals: rule numbers; any rule opener line; CLAUDE.md beyond the rule 3 clause and the R11-h cell (no rule 11 pointer, L-9 (b) stands); any code line of `handoff_gate.py`; PROJECT.md
+C:/QAFactory/forge-repo/docs/tasks/critic-diff-brief.md
+C:/QAFactory/forge-repo/tools/tests/test_role_carriers_one_owner.py
+non-goals: rule numbers; any rule opener line; CLAUDE.md beyond the rule 3 clause and the R11-h cell (no rule 11 pointer, L-9 (b) stands); any code line of `handoff_gate.py`; PROJECT.md; the brief beyond the q5 (a) probe clause, the `:14-15` append and «The probe» bullet (the rest is S-A1's, landed)
 handoff: C:/QAFactory/forge-repo/docs/tasks/handoffs/<task>-sb-report.md
-edges: rule openers and anchors byte-identical (`install_parity.py --check` MISSING (0); anchors `:23`, `:62`); critic.md rule 17 lands in the SAME merge as S-D (E-T1); exam deviation line (P14); §3.4 one-road grep; calibration check number = next free at landing (49 is architect-tier's; the TESTING text names the title, not the number)
-DoD: `python -m pytest tools/tests/test_role_carriers_one_owner.py tools/test_handoff_rule_anchors.py tools/test_handoff_gate.py -q` and `python -B tools/install_parity.py --check` (MISSING (0)) and `python -B tools/agents_md.py --check`, plus the doc-dispatch witness on the keys of §3.3, §3.4, §9, §10
+edges: rule openers and anchors byte-identical (`install_parity.py --check` MISSING (0); anchors `:23`, `:62`); critic.md rule 17, the brief's probe bullet and the CLAUDE.md rule 3 clause land in the SAME merge as S-D (E-T1, §8); S-A1 merged first (its brief text is S-B's anchor base); exam deviation line (P14); §3.4 one-road grep; calibration check number = next free at landing (49 is architect-tier's; the TESTING text names the title, not the number)
+DoD: `python -m pytest tools/tests/test_role_carriers_one_owner.py tools/test_handoff_rule_anchors.py tools/test_handoff_gate.py -q` and `python -B tools/install_parity.py --check` (MISSING (0)) and `python -B tools/agents_md.py --check`, plus the doc-dispatch witness on the keys of §3.1, §3.2, §3.3, §3.4, §9, §10 and the doc keys below
+test: tools/tests/test_role_carriers_one_owner.py::OWNER_KEYS | expected from: this spec §7.4 rows
 test: none -- role, policy and process texts and a docstring; doc-dispatch witness (CLAUDE.md rule 11) | expected from: this spec §3.3, §3.4, §4.1, §9, §10
-siblings: axis 1 (policy <-> role files), axis 2 (critic exam absent: debt F3-1), axis 31 (SIBLING_MAP row for TESTING.md)
+siblings: axis 1 (policy <-> role files), axis 2 (critic exam absent: debt F3-1), axis 31 (SIBLING_MAP row for TESTING.md; the brief's probe has one home)
 designer: C:/QAFactory/forge-repo/docs/tasks/specs/20261117-forge-test-rules-spec.md
 
-Texts: critic.md §3.3; CLAUDE.md and handoff_gate §3.4; builder.md rule 4 §4.1 and rule 8 (append «The expected value
-of a test and the red-before run of a defect row: TESTING.md «Откуда берётся ожидаемое значение», «Тест может упасть».»);
-designer.md rule 1 §4.1; calibration §9 and 13(j) §4.4; SIBLING_MAP axis 31: intro list gains «`docs/TESTING.md` (which
-tests, the expected value's source, the `test:` line, the new-file goal, the builder's can-fail step)», table row
-`| docs/TESTING.md | builder, critic, designer | which tests; expected value; the test: line; new-file goal; red-before |
-owner; scope -> builder-rules 7b; the critic's probe -> the brief |`, brief row aspect «the two layers' content (the probe,
-its runner and its cap included)».
+Texts: the brief's q5 (a) clause §3.1, the `:14-15` append and «The probe» bullet §3.2; critic.md §3.3; CLAUDE.md and
+handoff_gate §3.4; builder.md rule 4 §4.1 and rule 8 (append «The expected value of a test and the red-before run of a
+defect row: TESTING.md «Откуда берётся ожидаемое значение», «Тест может упасть».»); designer.md rule 1 §4.1; calibration
+§9 and 13(j) §4.4; SIBLING_MAP axis 31: intro list gains «`docs/TESTING.md` (which tests, the expected value's source,
+the `test:` line, the new-file goal, the builder's can-fail step)», table row `| docs/TESTING.md | builder, critic,
+designer | which tests; expected value; the test: line; new-file goal; red-before | owner; scope -> builder-rules 7b;
+the critic's probe -> the brief |`, brief row aspect «the two layers' content (the probe, its runner and its cap
+included)».
+Carrier-test row (t-973 R2, moved from S-A1): OWNER_KEYS + `("review:probe", BRIEF, "The ONE road is the runner, by
+Bash, never Write or Edit")`.
+Doc keys (verbatim, t-973): «- **The probe**», «Hard cap: 3 mutant runs per verdict», «mutate_once.py --root <tree>»,
+«by the probe of «The two layers»», «it is the critic's own bounded run (CLAUDE.md rule 3)», «status --porcelain»,
+«show HEAD:<path>», «at least 120000 ms», «Beyond the control re-run of what is attached and the empirics of money
+diffs»; absent key: «The critic's one run of its own».
 
 ### 7.5 S-C — test line gate (builder; `dispatch_manifest.py` left STAGED, Lead commits)
 
@@ -726,31 +842,34 @@ designer: C:/QAFactory/forge-repo/docs/tasks/specs/20261117-forge-test-rules-spe
 
 ### 7.6 S-D — verdict mutants (builder; after everything-in-piles C)
 
-given: this spec §5.2, §5.3 (outcome words); the three files; everything-in-piles §2.3 part 1 (`remarks`) as landed
+given: this spec §5.2, §5.3 (outcome words); the three files; everything-in-piles §2.3 part 1 (`remarks`, the `fixes` join) as landed
 owns: C:/QAFactory/forge-repo/tools/critic_verdict_check.py
 C:/QAFactory/forge-repo/tools/critic_verdict.schema.json
 C:/QAFactory/forge-repo/tools/test_critic_verdict_check.py
 non-goals: `remarks` rules (C's); `piles.py` and its refusal texts (amendment F-D goes to that spec's owner)
 handoff: C:/QAFactory/forge-repo/docs/tasks/handoffs/<task>-sd-report.md
-edges: §5.2 (the run join, the control rerun per F-A, the old-verdict door text); E-T1 (same merge as critic.md rule 17)
+edges: §5.2 (the run join, the control rerun per F-A as narrowed by R6, restore-mismatch per R7, the old-verdict door text); E-T1 (same merge as critic.md rule 17)
 DoD: `python -m pytest tools/test_critic_verdict_check.py -q`
 test: tools/test_critic_verdict_check.py::<existing validate table, rows of §5.2> | expected from: this spec §5.2
 siblings: axis 17 (one verdict shape, one reader `check_text`); `install_parity_anchors.json:699-703` (kind `path`: unchanged)
 designer: C:/QAFactory/forge-repo/docs/tasks/specs/20261117-forge-test-rules-spec.md
 
-Owns across streams: S-A1 and S-A2 share `tools/tests/test_role_carriers_one_owner.py` IN SEQUENCE (S-A2 after S-A1 and
-after S2; not parallel); every other owned path belongs to one stream. Disjoint or queued: yes.
+Owns across streams: `tools/tests/test_role_carriers_one_owner.py` is shared by S-A1, S-A2 and S-B IN SEQUENCE: S-A1
+first; S-A2 (after S2) and S-B (wave 2) each after S-A1 and never in parallel with each other — the later of the two
+merges `main` and keeps both sides' rows (append-only rows). `docs/tasks/critic-diff-brief.md` is shared by S-A1 and
+S-B in sequence (S-A1 first; S-B anchors on S-A1's landed text). Every other owned path belongs to one stream. Disjoint
+or queued: yes.
 
 ---
 
-## §8 Overlaps and order (B2, F5)
+## §8 Overlaps and order (B2, F5; t-973 R2, R8 (ii), R10)
 
 | File | Other specs in flight | Order |
 |---|---|---|
 | `ai-packages/.../mutate_once.py`, `test_mutate_once.py` | none (Grep `mutate_once` over `docs/tasks/specs/2026111[4-7]*.md` -> only this spec) | free |
 | `ai-packages/.../test-layers.json` | any node adding a keep row (shared data file) | append one keep row; merge by hand (the late node keeps both rows) |
 | `docs/TESTING.md` | boot-by-topic S3 (landed) | free -> S-A1 does not wait |
-| `docs/tasks/critic-diff-brief.md` | everything-in-piles D (q4, q7, q12 (d)); spec-facts L1 (first paragraph, item 13) | anchored edits, any order; S-A1 touches only q5 and the two-layers bullets |
+| `docs/tasks/critic-diff-brief.md` | everything-in-piles D (q4, q7, q12 (d)); spec-facts L1 (first paragraph, item 13) | anchored edits, any order against those; inside this spec S-A1 then S-B (R2: the probe bullet, the `:14-15` append and the q5 (a) clause land in S-B's merge) |
 | `plans/builder-rules.md` 7b/7d/16 (б) | boot-by-topic S2 (7, 7b, 7c; its K-check 13-f reads «мутации судит канон пачки»); everything-in-piles D (п. 1 only) | S2 -> S-A2; D independent (anchored) |
 | `PROJECT.md` п. 13 | boot-by-topic S2 (п. 13 -> pointer); everything-in-piles D | S2; not owned here (§4.4) |
 | `docs/RUNBOOK.md:115` | boot-by-topic S2 RB-2 | S2 -> S-A2 |
@@ -759,20 +878,41 @@ after S2; not parallel); every other owned path belongs to one stream. Disjoint 
 | `CLAUDE.md` rule 3, R11-h | boot-by-topic (sub-headings, F1); architect-tier L | after boot-by-topic's CLAUDE.md move (anchor text) |
 | `tools/handoff_gate.py` | architect-tier reads it (`:62, :797`), writes none | free (docstring only) |
 | `PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md` | architect-tier F (49; 5, 6, 18, 20); everything-in-piles D (33, 39); boot-by-topic S2 (33) | F -> S-B (next free number) |
-| `tools/critic_verdict*.{py,json}`, its test | everything-in-piles C | C -> S-D |
+| `tools/critic_verdict*.{py,json}`, its test | everything-in-piles C; everything-in-piles A2 (`piles.py` reads S-D's door text) | C -> S-D; HARD ORDER (F-D, R10): the amendment «verdict predates a required field (<name>)» is applied to the everything-in-piles spec's stream C and A2 texts BEFORE A2's dispatch — S-D's refusal names a door only A2's `piles.py` reads, and a mismatch is a door the refused party cannot use (FR-2) |
 | `tools/dispatch_manifest.py`, `test_dispatch_manifest.py` — the SAME function `check_cut` | spec-facts S2 (READERS NOTE in `check_cut`, not landed, P21); everything-in-piles (`judged-owns:` line) | function-disjoint owns are impossible (both write `check_cut`): an order line `очередь: spec-facts S2 → S-C` in both batch rows when S2 is dispatched first, else `очередь: S-C → spec-facts S2`; the later node merges `main` and resolves (PROJECT «Командная работа» п. 3); fork F-C |
 | `tools/dispatch_new.py` | spec-facts S1 (landed); S3 (phase 2, conditional) | S-C first; S3 merges after |
+| `tools/tests/test_role_carriers_one_owner.py` | everything-in-piles D (rows) | S-A1 first, then S-A2 and S-B in either order, never parallel; append-only rows, the later merge keeps both |
 
 Merge waves:
-- wave 1: S-E and S-A1 (one `wave.py merge`, or S-E first) — the brief's probe bullet names the runner's new flags, so
-  the runner is never behind the text that tells critics to use it.
-- wave 2: S-B + S-D in ONE merge (E-T1: critic.md 17, the CLAUDE.md rule 3 clause and the checker switch together;
-  the brief's probe text is already there from wave 1, so `mutants` never becomes required without its procedure);
-  if they must split, S-B before S-D (a field the checker ignores is harmless; the reverse fails every verdict closed).
+- wave 1: S-A1, and S-E with it (one `wave.py merge`) or after it — never S-E before S-A1 (t-973 R8 (ii)): S-E's new
+  package test file is placed by §4.1's goal text, which S-A1 lands; before it the live TESTING `:117` («новый тестовый
+  файл не создаётся») and the offload-only exception would forbid that file.
+- wave 2: S-B + S-D in ONE merge (E-T1: critic.md 17, the brief's «The probe» bullet, its `:14-15` append and the q5 (a)
+  probe clause, the CLAUDE.md rule 3 clause, the R11-h line, the `handoff_gate` docstring and the checker switch go live
+  together — the order to probe, its sanction and its field in one move); S-E merged no later than this merge (the probe
+  bullet names the runner's new flags, so the runner is never behind the text that tells critics to use it); if S-B and
+  S-D must split, S-B before S-D (a field the checker ignores is harmless; the reverse fails every verdict closed).
 - S-C: after S-A1 (its hint names «Строка теста в DoD»), in wave 2 or later, ordered against spec-facts S2 per the row.
-- S-A2: after boot-by-topic S2; closes the §4.5 window.
-Between wave 1 and wave 2: TESTING names the check «Forge test discipline» before S-B writes it, and the brief asks for a
-`mutants` block the checker does not read yet — both TEMPORAL, harmless, one wave long.
+- S-A2: after boot-by-topic S2; closes the §4.5 S-A1 -> S-A2 window.
+
+Between wave 1 and wave 2 (t-973 R2; TEMPORAL; open-ended — wave 2 waits for everything-in-piles C and D, architect-tier
+F and boot-by-topic's CLAUDE.md move). Live texts in the window:
+- the brief: q5 with (a) «-- judged by reading it.» and the `red-before:` reading; the mechanical layer with the
+  `red-before:` insert and its old sentence «A layer not attached is returned to the dispatcher as a request, never
+  executed by the critic.» unchanged; the new verdict-layer bullet (the control re-run of what is attached; a mutation
+  suite is nobody's); NO «The probe» bullet;
+- CLAUDE.md rule 3 (`:79-80`, «a layer not attached → critic asks the dispatcher for it and does not execute it») and
+  R11-h (`:237`, «`tools/handoff_gate.py` lets it write only that file») unchanged; the `handoff_gate` docstring
+  unchanged;
+- TESTING: the critic's part only points at the brief's q5 (a) and «The two layers» (§2.3, §2.4; fork F-E), and the
+  detector sentence names the check «Forge test discipline» before S-B writes it;
+- the runner (if S-E merged) exists and no live text tells a critic to call it; verdicts carry no `mutants`, and the
+  checker does not ask for them.
+No contradiction: no live text orders a critic to run anything beyond the control re-run of what is attached, and no
+live text cites a rule 3 clause that does not exist yet. The S-A1 -> S-B window of §4.5 (designer.md rule 1 and
+builder.md `:51-52` against the TESTING goal rule) is open in the same span. Both close at wave 2's merge; S-B's doc
+keys (the probe bullet, the rule 3 clause, designer.md rule 1) are checked in one witness. If wave 2 has not merged when
+this batch closes, the batch's «Ход» names both windows as open.
 
 ---
 
@@ -792,7 +932,8 @@ that repeats is a finding against the rule or the generator;
 (b) critic verdicts of the window (`docs/tasks/specs/reviews/`): probes per verdict by outcome, `mutants_none` reasons;
 for every critic `delegated` with `worker_ref: agent:<id>`, the runner calls counted in its transcript (Grep
 `mutate_once\.py` over `~/.claude/projects/<slug>/subagents/agent-<id>.jsonl`, tool_use lines) against the verdict's
-`mutants` count — more calls than reported items, or more than the brief's cap, is a finding against the critic; the Lead
+`mutants` count plus its exit-64 reruns (an old runner's usage answer, no mutant run) — more calls than that, or more
+mutant runs than the brief's cap, is a finding against the critic; the Lead
 reads three `mutants_none` and three kills against their trail reruns (a kill whose run is absent, or whose result does
 not say `outcome: killed`, is fabricated: a finding); runner calls also join the stream of check 13 (c) (a corruption
 probe): a `restore-mismatch` or a `rollback not checked` marker near one is read there;
@@ -823,7 +964,7 @@ critic q5 (a)-(g) (§3.1); M5 the goal-based new-file rule, 7b conditional remov
 |---|---|---|---|
 | M1 | designer: the source he already reads; builder: a question instead of a guess | check (d); critic q5 (b) | discipline + critic q5 (b) (named) |
 | M2 | designer: <= 1 line per behaviour item (§6); coordinator: `--test` | check (a) | `dispatch_manifest.check_cut` on the launch hook (code on the path) |
-| M3 | builder: 1 narrow run per defect item; critic: at most the brief's cap of runner calls per verdict, each <= 60 s; ~350 boot bytes in CLAUDE.md | check (b)(c); check 13 (c) for restores | the runner restores and classifies (code on the probe's path); `critic_verdict_check` refuses a verdict without `mutants`/`mutants_none` — on the path only after everything-in-piles A2 (until then the critic's self-run, critic.md 17, + check (b)); `red-before:` on discipline + critic q5 (a), detector (c) |
+| M3 | builder: 1 narrow run per defect item; critic: at most the brief's cap of runner calls per verdict, each <= TIMEOUT_S + 5 s (65 s), plus one `git status`; coordinator: one `git -C <tree> status --porcelain` before reusing a probed tree; ~410 boot bytes in CLAUDE.md | check (b)(c); check 13 (c) for restores | the runner restores and classifies (code on the probe's path); `critic_verdict_check` refuses a verdict without `mutants`/`mutants_none` — on the path only after everything-in-piles A2 (until then the critic's self-run, critic.md 17, + check (b)); the coordinator's status check before reuse of a tree (E-P5, E-R7) on discipline, detector check (b) / 13 (c); `red-before:` on discipline + critic q5 (a), detector (c) |
 | M4 | critic: reading; builder: rows only at doors; no owner's word for a file | check (e) | discipline; the critic's verdict line under rule 20 |
 | M5 | none (texts agree) | `test_role_carriers_one_owner.py` (pointers) | the carrier test in CI `forge-check` |
 
@@ -883,17 +1024,20 @@ S-E also carries the `architecture:` and `judgment:` lines of §1.1.
 | `tools/dispatch_manifest.py` | `dispatch_manifest` over `tools/` | 144 in 24 files (t-940; t-949 confirmed) | `dispatch_gate.py:798` calls `check_cut` -> unchanged code, refuses more (S-C tests); `dispatch_new.py` -> S-C; `dod_gate`, `handoff_gate`, `owns_gate`, `owns_readers`, `agent_budget`, `journal_hooks`, `hop_metrics`, `hook_liveness_probe`, `mechanism_gate` (list), `warn_layers.json` use other functions -> unchanged; tests `test_dispatch_manifest`/`_new`/`_gate`/`_gate_md` -> S-C; others unchanged (turned case = question); spec-facts S2 -> ordered (§8) |
 | same, `ITEMS`/`_DISPLAY`/`check_cut`/`_parse_skip_line` | `\b(ITEMS\|KEY_GROUPS\|check_cut\|designer_threshold)\b` over `tools/` | `test_dispatch_manifest.py:1211-1272`, `test_dispatch_new.py:130`, `test_dispatch_gate*.py` monkeypatch | `ITEMS` unchanged -> pin green; `SKIP_REFUSED_TEMPLATE` text gains `test` -> a test asserting its exact item list changes in S-C (reported) |
 | `tools/dispatch_new.py` | `dispatch_new` over `tools/` | 26 in 6 files | `test_dispatch_new.py` -> S-C; `owns_readers.py`, `test_gitcmd.py`, `test_dispatch_manifest.py` (mentions) -> unchanged; `.claude/skills/next-task/SKILL.md:39` -> unchanged |
-| `tools/critic_verdict_check.py`, schema | `critic_verdict` over `tools/`, `.claude/agents`, `.claude/settings.json` | tools: 9 files; `critic.md:141,150`; `settings.json:163` | `test_critic_verdict_check.py` -> S-D; `critic.md` 17 -> S-B; `install_parity_anchors.json:699-703` -> unchanged; `test_handoff_rule_anchors.py:94,107` -> unchanged; `dup-baseline.json` -> unchanged unless the clone ratchet moves; everything-in-piles A2 `piles._verdict_problem` reads `check_text` -> refuses old verdicts with S-D's door text (F-D aligns its own text) |
+| `tools/critic_verdict_check.py`, schema | `critic_verdict` over `tools/`, `.claude/agents`, `.claude/settings.json` | tools: 9 files; `critic.md:141,150`; `settings.json:163` | `test_critic_verdict_check.py` -> S-D; `critic.md` 17 -> S-B; `install_parity_anchors.json:699-703` -> unchanged; `test_handoff_rule_anchors.py:94,107` -> unchanged; `dup-baseline.json` -> unchanged unless the clone ratchet moves; everything-in-piles A2 `piles._verdict_problem` reads `check_text` -> refuses old verdicts with S-D's door text (F-D aligns its own text, hard order §8) |
 | `tools/handoff_gate.py` | `handoff_gate` over `tools/` | 83 in 12 files | docstring only: `hook_liveness_probe.py`, `dispatch_gate.py`, `dod_gate.py`, `agent_budget.py`, `dispatch_manifest.py` (names), `mechanism_gate.py` (net list), `install_parity_anchors.json` (CLAUDE.md anchor, not this file) and tests `test_handoff_gate.py`, `test_dispatch_gate.py`, `test_dispatch_manifest.py`, `test_hook_liveness_probe.py` -> unchanged (no test pins «whole protection»: Grep -> only `handoff_gate.py:7`); `.claude/settings.json:51` hook command -> unchanged |
 | `docs/TESTING.md` | `TESTING\.md\|critic-diff-brief\|builder-rules` over `tools/`; same over `.claude/agents` | tools: `test_volume.py:30`, `test_role_carriers_one_owner.py:41`; agents: `builder.md:93,95`, `critic.md:174` | headings kept -> `test_volume` unchanged; carrier test -> S-A1 rows; builder.md/critic.md -> S-B |
-| `docs/tasks/critic-diff-brief.md` | same | `test_role_carriers_one_owner.py:28,55,61-63,67-68`; `test_handoff_rule_anchors.py:38`; `install_parity_anchors.json:22`; `owns_readers.py:26`; agents `critic.md:77,161,164,173` | anchors kept -> unchanged; carrier test -> S-A1 |
+| `docs/tasks/critic-diff-brief.md` | same | `test_role_carriers_one_owner.py:28,55,61-63,67-68`; `test_handoff_rule_anchors.py:38`; `install_parity_anchors.json:22`; `owns_readers.py:26`; agents `critic.md:77,161,164,173` | anchors kept -> unchanged; carrier test -> S-A1 rows, then the «review:probe» row in S-B (t-973 R2) |
 | `plans/builder-rules.md` | same | `test_role_carriers_one_owner.py:29-30,40,42,54-58,65,71`; `test_handoff_rule_anchors.py:39`; `test_quarantine.py:51`; `test_dispatch_manifest.py:844`; `dispatch_gate.py:1872`; `owns_readers.py:55`; agents `designer.md:20`, `builder.md:49,53` | keys and 7b anchor kept -> unchanged; no test file name added -> `test_quarantine` unchanged; item numbers kept -> unchanged; carrier test -> S-A2 |
 | `docs/RUNBOOK.md` | `RUNBOOK\|SIBLING_MAP` over `tools/` | 52 in 26 files | `:115` edit keeps §7 heading -> unchanged |
 | `docs/SIBLING_MAP.md` | same | `mechanism_gate.py` (reads axis headings and keys), `test_mechanism_gate.py`, `language_sites.py` and others | axis numbers and headings kept -> unchanged |
 | `PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md` | `WEEKLY_CALIBRATION` over `tools/` | 36 in 15 files | path mentions -> unchanged; numbering read by people |
 | `.claude/agents/critic.md`, `builder.md`, `designer.md` | carrier test POINTERS/OWNER_KEYS; `install_parity_anchors.json` openers (`:162`, `:175`); `test_handoff_rule_anchors.py` | — | openers and rule numbers kept -> unchanged |
-| `CLAUDE.md` | `install_parity_anchors.json` (Grep `CLAUDE` anchors) ; `CLAUDE\.md["']` over `tools/*.py` | anchors `:22-25`, `:49-62` (incl. `:23` TWO-LAYER CRITIC ENTRY, `:62` R11-h phrase); 22 files | anchors kept byte-identical -> unchanged; `session_context.py:193-212` boot-size WARN/BREACH -> unchanged code, the number grows ~350 B; `agents_md.py` -> AGENTS.md regenerated (S-B); `mechanism_gate.py`, `claim_control_gate.py:253`, `journal_echo.py`, `journal_validator.py`, `permission_audit.py`, `calibration_counts.py`, `hook_liveness_probe.py`, `escape_check.py` (path names) -> unchanged |
-| `tools/tests/test_role_carriers_one_owner.py` | `test_role_carriers_one_owner` over `tools/` | itself | S-A1 then S-A2 (sequence); everything-in-piles D adds rows too -> append-only rows, merge by hand |
+| `CLAUDE.md` | `install_parity_anchors.json` (Grep `CLAUDE` anchors) ; `CLAUDE\.md["']` over `tools/*.py` | anchors `:22-25`, `:49-62` (incl. `:23` TWO-LAYER CRITIC ENTRY, `:62` R11-h phrase); 22 files | anchors kept byte-identical -> unchanged; `session_context.py:193-212` boot-size WARN/BREACH -> unchanged code, the number grows ~410 B; `agents_md.py` -> AGENTS.md regenerated (S-B); `mechanism_gate.py`, `claim_control_gate.py:253`, `journal_echo.py`, `journal_validator.py`, `permission_audit.py`, `calibration_counts.py`, `hook_liveness_probe.py`, `escape_check.py` (path names) -> unchanged |
+| `tools/tests/test_role_carriers_one_owner.py` | `test_role_carriers_one_owner` over `tools/` | itself | S-A1, then S-A2 and S-B (sequence, never parallel); everything-in-piles D adds rows too -> append-only rows, merge by hand |
+
+t-973 adds no touched file: the brief and the carrier test were already owned (by S-A1) and gain a second owner in
+sequence (S-B); `tools/hygiene_gate.py` is read for the door (P27), not touched.
 
 ---
 
@@ -909,7 +1053,8 @@ S-E also carries the `architecture:` and `judgment:` lines of §1.1.
 
 - **F-A** (S-D) the green-control join: (a) recommended — the checker requires, when `mutants` is non-empty, one
   `trail.reruns` command without `mutate_once.py`; cheap shape join that makes «a kill on a red baseline» visible; (b)
-  brief rule only, check (b) reads it. Cost of (a): one more diagnostic and two table rows.
+  brief rule only, check (b) reads it. Cost of (a): one more diagnostic and two table rows. (Decided (a); narrowed by
+  t-973 R6: the control command must name each probed `--test` path, §5.2.)
 - **F-B** (§3.2 E-P8) no tree named: (a) recommended — no probe, `mutants_none: "no tree named by the dispatch"`, and the
   coordinator names the node's worktree on the critic dispatch's `given:` line (the producer of the tree path: the
   coordinator, through `dispatch_new.py`'s `given:` it already prints); (b) the critic creates a detached worktree of the
@@ -917,10 +1062,28 @@ S-E also carries the `architecture:` and `judgment:` lines of §1.1.
   of (a): a probe is lost on post-merge reviews (named, counted by check (b)).
 - **F-C** (§8) the order of S-C against spec-facts S2 in `check_cut`: recommended — whichever is dispatched first goes
   first, the order line written in both batch rows; if neither is dispatched, S-C first (S2 is a note, smaller rebase).
-- **F-D** amendment lines in OTHER specs (named here, not written there): everything-in-piles C `:246-247` and A2
-  `:307-309` «verdict predates remarks» -> «verdict predates a required field (<name>)» (owner: the Lead of that spec;
-  recommended before A2's dispatch). No amendment for boot-by-topic S2 (S-A2 follows it, its K-check stays true) or for
-  spec-facts S2 (order line only).
+- **F-D** amendment lines in OTHER specs (named here, not written there; cited by text, t-973 R10): everything-in-piles
+  stream C's «refused with the door `verdict: none -- verdict predates remarks`» and A2's invalid-shape refusal «a
+  verdict written before remarks existed: "verdict: <node> none -- verdict predates remarks"» -> «verdict predates a
+  required field (<name>)» (owner: the Lead of that spec; before A2's dispatch — a hard order in §8). No amendment for
+  boot-by-topic S2 (S-A2 follows it, its K-check stays true) or for spec-facts S2 (order line only).
+
+### New in fix round t-973 (for the Lead; drafted on the recommendation, nothing else waits on them)
+
+- **F-E** (R2 consequence; §2.3, §2.4) where TESTING's critic text lives once the probe bullet moves to S-B. The old
+  §2.3 critic bullet («ломает несколько мест нового поведения одним раннером фабрики …») landed in S-A1 would order a
+  probe in wave 1 — the very window R2 closes. (a) recommended, drafted: TESTING's critic bullet and «Кто что делает»
+  only POINT at brief q5 (a) and «The two layers» (true in both waves; the probe described in one home, axis 31); cost:
+  TESTING loses its one-line description of the critic's probe. (b) keep the description and move that bullet into S-B,
+  which then also owns `docs/TESTING.md` (a second writer of TESTING in sequence; S-B's owns grow to ten files).
+- **F-F** (R7 decision; §3.2 E-P5, §5.2) the carrier of «a `rejected` caused by a restore-mismatch is not the builder's
+  attempt». CLAUDE.md rule 6 counts every `rejected` per task_id and tier, so the phrase needs a carrier. (a)
+  recommended, drafted: a restore-mismatch alone is no reason to reject the diff (the coordinator restores by E-P5 and
+  acceptance proceeds); a `rejected` written for it anyway goes under the critic's task_id with agent critic and
+  `failure_class: tooling`, so the builder's counter does not move; cost: none in code, one sentence. (b) a rule 6
+  clause exempting `failure_class: tooling` from the attempt count — a mechanism change in CLAUDE.md outside this
+  spec's S-B non-goals, more boot bytes, and it would also exempt genuine tooling failures of a builder. (c) leave the
+  phrase without a carrier — the builder's counter moves for the critic's tool (rejected by R7's own reasoning).
 
 ### Lead decisions L-1..L-9 stand as recorded below (L-9 (b) overridden for the CLAUDE.md rule 3 clause and the R11-h line only, by B1 -> (a)).
 
@@ -932,8 +1095,15 @@ killed_by/equivalent/remark`, `mutants_none`; token `red-before:`; ONE token `te
 line's own key); runner: the inline form instead of a spec file (a critic may write only its report), `--id` required in
 it, `--pytest` flag (default script form = today's), `cwd=--root` only when given, `TIMEOUT_S` a module constant patched
 by the test, `compile()` before touching, `outcome:` as the last printed line, exit 3 for invalid (64/2/0/1 kept);
-`restore-mismatch` in the `outcome` vocabulary forcing a blocker verdict; the runner's test is a new file by §4.1's
-criteria (walked in §5.3); no new critic rule number.
+`restore-mismatch` in the `outcome` vocabulary requiring a non-`fit` verdict and a fix remark naming the file and the
+door (R7); the runner's test is a new file by §4.1's criteria (walked in §5.3); no new critic rule number.
+t-973: the output file in a fresh `tempfile.TemporaryDirectory(ignore_cleanup_errors=True)` of the system temp dir
+(outside `--root`, so the tree's status stays clean; a cleanup blocked by a grandchild is ignored); one file for stdout
+and stderr; a reap `proc.wait(5)` after the restore with its timeout ignored; the Bash timeout floor 120000 ms (the
+tool's default, above 65 s); the pre-S-E runner recognised by a usage text without `--root`; exit-64 calls recorded in
+`trail.reruns`, not in `mutants`, outside the cap, and counted in check (b); the restore door named for the Bash tool
+only (a PowerShell `>` re-encodes); the remark's `fixes` entry checked for the target path and `show HEAD:` (C's join of
+`fixes` to remark ids reused).
 
 ---
 
@@ -955,6 +1125,12 @@ criteria (walked in §5.3); no new critic rule number.
 11. r2. t-949's F4 line cites `:949`/`:956` for `newly`/`still`; on the current file they are `:953`/`:961` (`:949` is
     the `_parse_skip_line` call) — the spec uses the read lines.
 12. r2. t-949 counted t-547 and t-559 in the baseline class; read here as the readers / edge class (§6.1).
+13. r3. The everything-in-piles closing note that records the F-D amendment itself cites that spec's own old line
+    numbers for the two texts; it is that spec's text, not edited here (its next designer edit applies the amendment).
+14. r3. A shell redirect in PowerShell (`>`) is not a byte copy (it re-encodes); the E-P5 door is named for Bash only.
+    Other carriers that may name a `git show … >` restore for a PowerShell session were not searched (scope not widened).
+15. r3. CLAUDE.md rule 6 counts every `rejected` on a task_id and tier with no class exemption (fork F-F); any other
+    tool-caused rejection (a hook or gate failure) has the same gap.
 
 ---
 
@@ -986,12 +1162,27 @@ anchors `layer not attached|lets it write only|cheap control re-run|whole protec
 -i in `agent_budget.py`; journal: rejected 123, spec 70, regex 27; `P31` in everything-in-piles (`:61`); keep rows,
 census rows; `Мутации судит канон` in RUNBOOK (`:115`); `keep row|new test file` in agents (`builder.md:51-52`,
 `designer.md:22`).
+t-973 (r3), read: `docs/tasks/specs/reviews/t-971-forge-test-rules-repass.md` (whole); this spec (whole);
+`ai-packages/qa-factory/scripts/tests/mutate_once.py` (whole, 59 lines + EOF); `tools/hygiene_gate.py:1-40` (the three
+refusals, `:1`, `:20`, `:21-22`); `CLAUDE.md` rule 3 and table R11-h (in the session's loaded policy); `docs/tasks/critic-diff-brief.md:1-48`;
+`docs/tasks/specs/20261117-everything-in-piles-spec.md:250-319` (C's old-verdict line, A2's refusal texts) and
+`:1640-1650` (the amendment note). Greps (Grep tool) r3: `predates` over everything-in-piles -> 3 lines (C's door, A2's
+refusal, the amendment note; positive control by shape: the same call is the one the critic t-971 ran, same 3 places);
+`remarks\[|disposition|"text"|'text'` over everything-in-piles (remarks item fields `id`, `disposition`, `path`; the
+`fixes` join by first token, `:251`); over this spec, before the edit, one Grep for the old door-less restore wording of
+E-P5, the two stale everything-in-piles line citations and `E-T1` (hits: E-P5, P22, §5.2, §12 F-D; E-T1 at §7.4, §7.6,
+§8); after the edit the same Grep, run on the written file, finds none of the first three (E-T1 stays).
 Not established: whether `refusal_registry.py --check` scans `scripts/tests/` (S-E reports); the run time of
 `test_mutate_once.py` (estimate); whether `test_judgment_census.py` is in `SLOW_TESTS`; whether `hygiene_gate.py` parses
 quotes inside a long `--old` argument (no probe run; a refusal there is a question back from the first critic who meets
-it); the current text of everything-in-piles r3 beyond `:226-320`.
+it); the current text of everything-in-piles r3 beyond `:226-320`; the win32 grandchild behaviour of `Popen` + file +
+`kill()` (the design follows the critic's analysis; not run in t-973 — S-E's grandchild row is its first measurement);
+whether `git show HEAD:<path>` restores byte-identically under the tree's `core.autocrlf` (the status check after it is
+the proof; a non-empty status falls to door (b)).
 Needed beyond the manifest: `scenario_walk.py`, `test-layers.json`, `architecture.md`, `agent_budget.py`,
-`install_parity_anchors.json`, `session_context.py`, SIBLING_MAP axis 16, `architecture_gate.py` (grep) — all read.
+`install_parity_anchors.json`, `session_context.py`, SIBLING_MAP axis 16, `architecture_gate.py` (grep) — all read
+(r2); r3: `docs/tasks/critic-diff-brief.md:1-48` (the q5 and two-layers text the R2 split cuts), everything-in-piles
+`:250-319` (C/A2 texts and the `remarks`/`fixes` fields R7 relies on).
 
 ---
 
@@ -1072,3 +1263,24 @@ next edit (before A2's dispatch); recorded there by the Lead.
 Because B1 -> (a) changed the mechanism after the plan critic (the critic runs the probe itself; runner stream S-E), ONE
 targeted critic re-pass on the changed parts (§1.1, §3.2, §5.3, §7.1 S-E, the CLAUDE.md rule 3 clause and R11-h line) is
 taken before any stream is dispatched (PROJECT.md «новая идея» step 6: a re-pass when fixes change the architecture).
+
+---
+
+## Fix round t-973 (critic t-971)
+
+Verdict t-971: fit_with_fixes; all ten remarks applied in place, none deferred. Lead decisions of the dispatch applied as
+given (R1 (a)+(b)+(c); R2 (a); R4 both doors; R7 first variant + the tooling statement; R8 (ii) order; R10 by text +
+hard order). New forks: F-E, F-F (§12), both drafted on their recommendation.
+
+| Remark | Where edited (section) | What the text says now |
+|---|---|---|
+| R1 restore can hang (must-fix) | §5.3 «Run», «Then», outcome table, error direction, E-R1, E-R3, new E-R7, test place; §3.2 probe bullet and E-P4, E-P5; §0 P26; §1, §6, §10.1 M3 costs; §7.1 edges | Popen with stdout+stderr to one temp FILE outside `--root`, `wait(timeout=TIMEOUT_S)`, on timeout kill and restore at once, output read only after restore and sha; new rows «grandchild holding the output: invalid, restored within TIMEOUT_S + 5 s» and «output file missing/unreadable: invalid, restore verified by sha»; E-R7 hard-kill residual with both duties (critic's Bash timeout >= 120000 ms above the worst case; coordinator's `git -C <tree> status --porcelain` empty before fix round, merge or removal) |
+| R2 wave 1 reopens B1 (must-fix) | §3.1, §3.2 (stream split per part), §3.4, §2.3, §2.4, §7.0, §7.2, §7.4, §8 (brief row, test-file row, waves, window), §11 | the brief's «The probe» bullet, the `:14-15` append and the q5 (a) probe clause move to S-B's merge (S-B owns the brief and the carrier test after S-A1); S-A1 lands q5 (a) «judged by reading it»; §8 names the wave 1 -> wave 2 window: live texts in the brief, CLAUDE.md rule 3, R11-h and TESTING listed, no contradiction, closes at wave 2's merge (TESTING critic pointer: fork F-E) |
+| R3 «one run» wording | §3.4 rule 3 clause; §7.4 doc keys | «Beyond the control re-run of what is attached and the empirics of money diffs, the critic's own run is the bounded probe … at most the brief's cap of runner calls, through `mutate_once.py`, by Bash, never Write/Edit» (~260 B) |
+| R4 refused restore door | §3.2 E-P5 and probe bullet; §0 P27; §5.2 R7 diagnostic | the coordinator's restore of a probed file always names its door: (a) in Bash `git -C <tree> show HEAD:<path> > <tree>/<path>` then status empty (not refused, `hygiene_gate.py:20`; checkout/restore refused `:21-22`; PowerShell `>` is not this door); (b) a fresh fix-round builder told to restore by the same command |
+| R5 unnamed unknowns | §3.2 probe bullet, E-P7, new E-P10, E-P11; §9 (b) | (i) `git -C <tree> status --porcelain` before the first mutant, non-empty -> `mutants_none: "tree dirty: <files>"` (the critic's check, axis 10 n/a); (ii) a pre-S-E tree runner (usage without `--root`, exit 64) -> the runner of the critic's own checkout with `--root <tree>`, else `mutants_none: "no runner with --root: …"`, 64 calls in reruns, outside the cap; (iii) «only the tree the dispatch names», named after handback, no fix round, merge or removal until the verdict |
+| R6 vacuous control join | §5.2 green control and tests; §3.2 probe bullet; §12 F-A note | for every probed `--test` path, one non-runner rerun whose command contains that same path; a Grep or another file no longer satisfies it |
+| R7 code fixes the verdict; attempt counter | §5.2 restore-mismatch rule, tests, diagnostic; §3.2 probe bullet, E-P5; §12 small choices, F-F | restore-mismatch requires verdict ≠ fit plus a `fix` remark whose `fixes` entry names the target path and `show HEAD:`; a `rejected` for it carries `failure_class: tooling`, is written under the critic's task_id and is not the builder's attempt (carrier: fork F-F) |
+| R8 unnamed windows | §4.5 (new S-A1 -> S-B paragraph); §8 wave 1 | (i) designer.md rule 1 / builder.md `:51-52` vs the TESTING goal rule named, safe direction (fork/question), closes at S-B; (ii) S-A1 merges with or before S-E, never S-E first |
+| R9 unmeasured criteria | §4.1 TESTING text and edge; §3.1 q5 (g); §5.3 test place | «не выведя тот файл за его бюджет (10 с, часть разрезанного — 60 с в CI)», «не дав ему чужую дверь (дверь случая — не та, что файл уже гоняет; предмет файла назван в docstring или истории)», time = pytest tail `in N.NNs` or the script's measured run in the builder's report; upkeep a retrospective measure, never a single-case argument |
+| R10 stale citations; door order | §0 P22; §5.2 amendment line; §12 F-D; §8 row `critic_verdict*`; §13 item 13 | everything-in-piles C and A2 cited by their text (no line numbers), the amendment recorded there but not applied; hard order in §8: the amendment applied before A2's dispatch (else S-D's door mismatches A2, FR-2) |
