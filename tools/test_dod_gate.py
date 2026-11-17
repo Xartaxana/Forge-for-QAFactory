@@ -17,20 +17,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-# K-WIRE: DOD_GATE_PATH (read only here) names the candidate file the tests below judge instead of the live one.
-_CANDIDATE = os.environ.get("DOD_GATE_PATH")
-if _CANDIDATE:
-    import importlib.util
+# K-WIRE: DOD_GATE_PATH names the candidate file the tests below judge instead of the live one (under_test).
+from under_test import load_under_test  # noqa: E402
 
-    SCRIPT = Path(_CANDIDATE)
-    SCRIPT = (SCRIPT if SCRIPT.is_absolute() else Path.cwd() / SCRIPT).resolve()
-    _spec = importlib.util.spec_from_file_location("dod_gate_candidate", SCRIPT)
-    dod_gate = importlib.util.module_from_spec(_spec)
-    _spec.loader.exec_module(dod_gate)
-else:
-    import dod_gate  # noqa: E402
-
-    SCRIPT = Path(__file__).resolve().parent / "dod_gate.py"
+dod_gate = load_under_test("DOD_GATE_PATH", "dod_gate")
+SCRIPT = Path(dod_gate.__file__).resolve()
 
 # The hook run as a subprocess never starts a real reaper (a passing stop would, under a real session): the shared wrapper.
 from no_reaper_wrap import isolated_hook_argv  # noqa: E402

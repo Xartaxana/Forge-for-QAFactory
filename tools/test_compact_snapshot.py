@@ -15,27 +15,10 @@ import time
 from pathlib import Path
 
 import gitcmd
+from under_test import load_under_test
 
 
-def _load_cs():
-    """The module under test: the live tools/compact_snapshot.py, or the candidate file named by COMPACT_SNAPSHOT_PATH
-    (read only here)."""
-    override = os.environ.get("COMPACT_SNAPSHOT_PATH")
-    if not override:
-        import compact_snapshot
-        return compact_snapshot
-    import importlib.util
-    path = Path(override)
-    if not path.is_absolute():
-        path = Path(__file__).resolve().parent.parent / path
-    spec = importlib.util.spec_from_file_location("compact_snapshot_under_test", path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules["compact_snapshot_under_test"] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-cs = _load_cs()
+cs = load_under_test("COMPACT_SNAPSHOT_PATH", "compact_snapshot")
 import session_context as sc
 
 NOW = datetime.datetime(2026, 10, 2, 13, 31, 5)

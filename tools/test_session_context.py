@@ -22,6 +22,7 @@ import pytest
 import yaml
 
 from no_reaper_wrap import isolated_hook_argv
+from under_test import load_under_test
 
 from session_context import (
     build_context_lines,
@@ -46,21 +47,8 @@ from session_context import (
 # B-402: the staged draft is tools/session_context_b402.py (the task key for OPEN DISPATCH); until
 # the Lead places it, the tests below that go through `sc` exercise the draft, the ones that import
 # names from `session_context` above exercise the live module.
-# K-WIRE: SESSION_CONTEXT_PATH (read only here) names the candidate file the tests below judge instead of the live one.
-_CANDIDATE = os.environ.get("SESSION_CONTEXT_PATH")
-if _CANDIDATE:
-    import importlib.util
-
-    _cand = Path(_CANDIDATE)
-    _cand = _cand if _cand.is_absolute() else Path.cwd() / _cand
-    _spec = importlib.util.spec_from_file_location("session_context_candidate", _cand)
-    sc = importlib.util.module_from_spec(_spec)
-    _spec.loader.exec_module(sc)
-else:
-    try:
-        import session_context_b402 as sc
-    except ImportError:
-        import session_context as sc
+# K-WIRE: SESSION_CONTEXT_PATH names the candidate file the tests below judge instead of the live one (under_test).
+sc = load_under_test("SESSION_CONTEXT_PATH", "session_context")
 
 REQUESTS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS requests (
