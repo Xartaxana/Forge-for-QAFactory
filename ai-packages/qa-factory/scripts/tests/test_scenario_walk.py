@@ -58,9 +58,10 @@ def package_tree() -> Path:
     return base
 
 
-def witness(paths, absent=False) -> str:
+def witness(paths, absent=False, **canon) -> str:
     keep = {"test_gate.py": {"layer": "gate_named", "covers": ["z.py", "references/r.json", "scripts/tests/fixtures/x"]}}
-    return "\n".join(W.witness_for(paths, package_tree(), {"absent": absent, "keep": {} if absent else keep}, {"exit_gate": ["a"]}))
+    cls = {"slow": [], "globs": [], "no_list": False, "why": []} | canon
+    return "\n".join(W.witness_for(paths, package_tree(), {"absent": absent, "keep": {} if absent else keep}, {"exit_gate": ["a"]}, cls))
 
 
 @contextlib.contextmanager
@@ -469,7 +470,18 @@ def main() -> None:
         ("witness_for: a data file is matched by covers", witness(["references/r.json"]), "keep test_gate.py"),
         ("witness_for: a covers entry that names a folder covers the files under it", witness(["scripts/tests/fixtures/x/a.json"]), "keep test_gate.py"),
         ("witness_for: a data file is said to be one", witness(["references/r.json"]), "not a script of scripts/"),
-        ("witness_for: no match runs the whole layer", witness(["scripts/other.py"]), "no scenario or keep row covers scripts/other.py"),
+        ("witness_for: no match leaves the whole layer to the canon", witness(["scripts/other.py"]),
+         "no scenario or keep row covers scripts/other.py: the whole scenario layer judges it (canon), nothing to run locally"),
+        ("witness_for: a canon-only keep row is printed under the header, after a non-canon hit, and counted",
+         witness(["scripts/c.py", "scripts/z.py"], slow=["test_gate.py"]),
+         "(story demo)\ncanon judges, do not run locally:\nscripts/z.py: keep test_gate.py (layer gate_named, covers it)\n"
+         "run locally: 1 file(s); canon judges: 1 file(s)"),
+        ("witness_for: a canon_only glob moves a keep row too", witness(["scripts/z.py"], globs=["test_gate*.py"]),
+         "canon judges, do not run locally:\nscripts/z.py: keep test_gate.py"),
+        ("witness_for: a slow list that could not be read is said", witness(["scripts/z.py"], slow=None, why=["slow_tests.json: not found"]),
+         "canon class could not be read (slow_tests.json: not found): only what was read was applied"),
+        ("witness_for: an absent canon_only list is said", witness(["scripts/z.py"], no_list=True),
+         "test-layers.json names no canon_only list: only the slow list was applied"),
         ("witness_for: a deleted path counts as changed", witness(["scripts/gone.py"]), "deleted or absent on disk"),
         ("witness_for: no test-layers.json is stated", witness(["scripts/c.py"], absent=True), "test-layers.json is absent"),
     ]
