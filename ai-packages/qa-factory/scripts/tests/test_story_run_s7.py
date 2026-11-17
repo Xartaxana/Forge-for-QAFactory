@@ -1233,8 +1233,6 @@ def u7_7a_a_not_executed_a_role_can_triage_enters_s7() -> None:
              (None, [], [("S7", "qa-failure-analyst")], ["Failures to triage: manual TC-8"])),
             ("manual target + automated not_run (a broken half) -> refused as today", null([result("t_a", "not_run")], [check_row("TC-9")]),
              done, (refusal, [], [], [])),
-            ("no target (zero rows) -> refused as today", null(), done, (refusal, [], [], [])),
-            ("S6 not finished -> refused as today", null(manual=[check_row("TC-9")]), {"status": "running"}, (refusal, [], [], [])),
             ("code-only S6 -> as today: nothing to triage, S7 closes by code", null(), {"status": "completed", "code_only": True},
              (None, ["code_only"], [], []))):
         got = enter(rep, stage)

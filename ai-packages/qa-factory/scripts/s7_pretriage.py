@@ -306,23 +306,41 @@ def report_problem(task: Path) -> str:
     return f"{why} - {HC.REPORT_TELL}. To go on: {HC.REPORT_DOOR}." if why else ""
 
 
-def s6_closed_by_code(task_root) -> bool:
-    """Did S6 close on a code-only receipt (the controller's own record: `stages.S6.code_only`)? Then a run report whose
-    `execution_status` is `not_executed` is what S6 left on purpose - nothing to execute, or everything handed to a
-    person - and S7 may read it (t-305 Q19). A controller that cannot be read says False: a doubt never opens S7."""
+def _stage_record(task_root, stage) -> dict:
+    """The controller's record of one stage (`stages.<stage>`), {} when the controller cannot be read or the stage is
+    absent: the ONE read behind `stage_status` and `stage_closed_by_code` (AR-13, t-1271 F5b-1)."""
     try:
         from controller import Controller
-        stage = (Controller(Path(task_root)).state().get("stages") or {}).get("S6") or {}
+        record = (Controller(Path(task_root)).state().get("stages") or {}).get(stage) or {}
     except Exception:
-        return False
-    return stage.get("status") == "completed" and stage.get("code_only") is True
+        return {}
+    return record if isinstance(record, dict) else {}
+
+
+def stage_status(task_root, stage) -> str:
+    """The controller's `stages.<stage>.status`; the empty string when the controller cannot be read or the stage is absent."""
+    status = _stage_record(task_root, stage).get("status")
+    return status if isinstance(status, str) else ""
+
+
+def stage_closed_by_code(task_root, stage) -> bool:
+    """Did the stage close on a code-only receipt (`stages.<stage>`: status `completed` and `code_only` True)? A controller
+    that cannot be read says False: a doubt never opens the next stage."""
+    return stage_status(task_root, stage) == "completed" and _stage_record(task_root, stage).get("code_only") is True
+
+
+def s6_closed_by_code(task_root) -> bool:
+    """Did S6 close on a code-only receipt? Then a run report whose `execution_status` is `not_executed` is what S6 left on
+    purpose - nothing to execute, or everything handed to a person - and S7 may read it (t-305 Q19). A controller that
+    cannot be read says False: a doubt never opens S7."""
+    return stage_closed_by_code(task_root, "S6")
 
 
 def triageable_not_executed(task_root, *, awaiting: str = "") -> bool:
     """Is this `not_executed` report one a ROLE can triage - the ONE home read by S7's entry (`failures_to_triage`) and by
     delivery's twin (`check_delivery.run_reasons`), AR-13/AR-19 (U7 7a, B-006 ii)? True only when ALL hold:
       1. `work/run-report.json` reads as an object and its `execution_status` is `not_executed`;
-      2. S6 FINISHED: the controller's `stages.S6.status` is `completed` (read as `s6_closed_by_code` reads it), or `awaiting`
+      2. S6 FINISHED: the controller's `stages.S6.status` is `completed` (read by `stage_status`), or `awaiting`
          is non-empty (S6's runner dispatch awaits its consumer; `stage_S7` already holds that word);
       3. every deciding automated row (`current_results`, join-failed ghosts excluded exactly as the reducer excludes them)
          reads `passed`;
@@ -340,9 +358,7 @@ def triageable_not_executed(task_root, *, awaiting: str = "") -> bool:
         if not isinstance(report, dict) or report.get("execution_status") != "not_executed":
             return False
         if not awaiting:
-            from controller import Controller
-            stage = (Controller(task).state().get("stages") or {}).get("S6") or {}
-            if stage.get("status") != "completed":
+            if stage_status(task, "S6") != "completed":
                 return False
         import finalize_task
         automated, manual = report.get("current_results"), report.get("current_manual_checks")

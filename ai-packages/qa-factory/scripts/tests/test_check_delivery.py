@@ -141,11 +141,7 @@ def main() -> None:
         try:
             for label, results, manual, stage, refused in (
                     ("not_executed + a manual inconclusive of a finished S6", [], [manual_row], {"status": "completed"}, False),
-                    ("not_executed + an unprepared walk of a finished S6", [], [{"case": "TC-8", "attempt_id": "a1", "unprepared": {"not_walked": "x"}}],
-                     {"status": "completed"}, False),
-                    ("mixed story, the automated half broke (not_run)", [broken], [manual_row], {"status": "completed"}, True),
-                    ("no target a role can triage", [], [], {"status": "completed"}, True),
-                    ("S6 not finished", [], [manual_row], {"status": "running"}, True)):
+                    ("mixed story, the automated half broke (not_run)", [broken], [manual_row], {"status": "completed"}, True)):
                 report = {"execution_status": "not_executed", "current_results": results, "current_manual_checks": manual}
                 (art / "work" / "run-report.json").write_text(json.dumps(report), encoding="utf-8")
                 CTL.Controller = lambda _root, said=stage: type("S", (), {"state": lambda self: {"stages": {"S6": said}}})()

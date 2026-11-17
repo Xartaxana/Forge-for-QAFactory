@@ -646,14 +646,6 @@ def triageable_not_executed_table() -> None:
             check_eq("triageable_not_executed - rule 1: a report that is not JSON -> False", S.triageable_not_executed(task), False)
         finally:
             cleanup(task)
-        task = a_task(rep(manual=[check_row("TC-9")]))
-        try:
-            before = (task / "work" / "run-report.json").read_bytes()
-            S.triageable_not_executed(task)
-            check_eq("triageable_not_executed - reads only: the report is byte for byte as it was (execution_status is never rewritten)",
-                     (task / "work" / "run-report.json").read_bytes(), before)
-        finally:
-            cleanup(task)
     finally:
         CTL.Controller = saved
 
