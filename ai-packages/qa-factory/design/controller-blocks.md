@@ -1,6 +1,6 @@
 # Every block in the controller, and the route through it
 
-`controller.py` refuses **356** times: 356 raises or collected `(Class, message)` problems (a request's problems are gathered and refused whole by `_raise_all`), as `DerivedViewStale`, `EventCommitted`, `IdempotencyKeyReused`, `ProjectionStale`, `StateConflict`, `ValueError` - two kinds that do not
+`controller.py` refuses **357** times: 357 raises or collected `(Class, message)` problems (a request's problems are gathered and refused whole by `_raise_all`), as `DerivedViewStale`, `EventCommitted`, `IdempotencyKeyReused`, `ProjectionStale`, `StateConflict`, `ValueError` - two kinds that do not
 mean the same thing. `StateConflict` says the request is fine and the story's recorded state is not
 ready for it (`DerivedViewStale`, a subclass of it, says the event IS committed and only what
 follows it failed); `ValueError` says the request itself is malformed and the story was never consulted. The
@@ -18,7 +18,7 @@ evidence.
 | route | blocks | what it means |
 |---|---|---|
 | `person` | 18 | their recorded words pass it: `waiver.py --stage <S> --block "<part of the line>" --words-file <file>` |
-| `command` | 220 | a factory command clears it. The person decides, the command records; the message names it |
+| `command` | 221 | a factory command clears it. The person decides, the command records; the message names it |
 | `caller` | 105 | the call was built wrong. Whoever built it fixes it, and no person is involved |
 | `unpassable` | 13 | no word passes it, and the reason is here. These are invariants of the record itself: passing one would destroy what the block protects |
 
@@ -125,6 +125,7 @@ every edit above it. Rows are in source order.
 | `_validate_rerun_after` | `ValueError` | rerun_after.stages must be a stage after {p['stage']}, up to S8 | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
 | `_validate_rerun_after` | `ValueError` | rerun_after.reviews must be an accepted dispatch of {p['stage']} by its | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
 | `_validate_rerun_after` | `ValueError` | rerun_after.decisions must be an approved gate decision a rework of | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
+| `_s5_code_only_problems` | `StateConflict` | code-only receipts are allowed only for S0, S6, S7 or S8, and for S5 only over its own empty derived | `command` | a stage with a role is closed by that role, not by code |
 | `_coverage_contract_revisions` | `StateConflict` | COVERAGE_CONTRACT_REVISION_REQUIRED | `command` | `--operation coverage_migration` with its dry-run receipt |
 | `_coverage_contract_revisions` | `StateConflict` | COVERAGE_CONTRACT_REVISION_REQUIRED | `command` | `--operation coverage_migration` with its dry-run receipt |
 | `_validate_gate_a_content_current` | `StateConflict` | current Gate A decision required | `command` | `gate-decision --words-file <file>` records the person's approval |
@@ -244,7 +245,7 @@ every edit above it. Rows are in source order.
 | `validate` | `StateConflict` | preparatory policy requires current Gate A approval | `command` | `gate-decision --words-file <file>` records the person's approval of that gate |
 | `validate` | `StateConflict` | preparatory policy cannot replace completed execution | `command` | nothing: the execution already happened |
 | `validate` | `StateConflict` | policy already recorded | `command` | nothing: it is idempotent and already there |
-| `validate` | `ValueError` | code-only receipts are allowed only for S0, S6, S7 or S8 | `command` | a stage with a role is closed by that role, not by code |
+| `validate` | `ValueError` | code-only receipts are allowed only for S0, S6, S7 or S8, and for S5 only over its own empty | `command` | a stage with a role is closed by that role, not by code |
 | `validate` | `ValueError` | code-only receipt requires id and reason | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
 | `validate` | `ValueError` | code-only receipt requires evidence | `command` | name the artifact code produced |
 | `validate` | `StateConflict` | the state moved while the close was prepared: the dispatches it passes over changed, send it again | `command` | send the close again: the request is rebuilt from the state as it is now |

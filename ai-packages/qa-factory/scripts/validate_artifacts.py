@@ -1709,6 +1709,13 @@ def check_nfr_report(path: Path, data: dict, errors: list) -> None:
         errors.append(f"{path.name}: empty witness")
 
 
+def manifest_task_root(path: Path):
+    """The story folder of an `automation-manifest.json` that lives in its `work/` folder, else `None` (U7 5b): the ONE derivation the
+    two witness readers (`check_witness`, `check_phase_json`) hand to `acceptance.run_witness_excused`. `None` is no root and so no
+    S5 receipt to read - the manifest is then judged as before (the older layout, a copy elsewhere: AR-28, the safe side)."""
+    return path.parent.parent if path.parent.name == C.WORK_DIR else None
+
+
 def check_phase_json(path: Path, errors: list, notes: list | None = None) -> None:
     required = PHASE_JSON_KEYS.get(path.name)
 
@@ -1731,9 +1738,9 @@ def check_phase_json(path: Path, errors: list, notes: list | None = None) -> Non
     if required:
         if path.name == "automation-manifest.json" and isinstance(data, dict):
             # a manifest with no run to witness (every test handed, or every test pending its absent side) owes no `run_witness` -
-            # `acceptance.run_witness_excused`, the ONE reader the other two witness readers ask as well (t-2181 PC-4, B3)
+            # `acceptance.run_witness_excused`, the ONE reader the other two witness readers ask as well (t-2181 PC-4, B3); `nothing` (S5 closed by code, U7 5b) needs the story folder
             import acceptance
-            if acceptance.run_witness_excused(data):
+            if acceptance.run_witness_excused(data, manifest_task_root(path)):
                 required = [k for k in required if k != "run_witness"]
         for key in required:
             if key not in data:

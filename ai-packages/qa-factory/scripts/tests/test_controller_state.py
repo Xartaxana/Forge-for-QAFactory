@@ -1142,7 +1142,7 @@ CHAIN_BEFORE = {
         ['StateConflict', 'policy must bind the exact approved scope'],
     ],
     'code_only fields': [
-        ['ValueError', 'code-only receipts are allowed only for S0, S6, S7 or S8'],
+        ['ValueError', 'code-only receipts are allowed only for S0, S6, S7 or S8, and for S5 only over its own empty derived plan scope'],
         ['ValueError', 'code-only receipt requires id and reason'],
         ['ValueError', 'code-only receipt requires evidence'],
     ],
@@ -1895,6 +1895,47 @@ def code_close_conflicts_is_the_one_predicate() -> None:
     finally:
         import shutil
         shutil.rmtree(scratch, ignore_errors=True)
+
+
+def s5_code_only_is_closed_over_its_own_empty_derived_scope() -> None:
+    """U7 5b (AR-28; expected from: spec r3 section 2 r11): `code_only` accepts S5 only when the controller's OWN `stage_scope("S5")` is
+    derived, has no automate case, no case without a plan row and no case whose row names no disposition - never the request's word."""
+    def row(ident, case, disposition):
+        return {"id": ident, "required_scenarios": [case], **({"disposition": disposition} if disposition else {})}
+    cases = {   # label: (approved scope, plan rows or None for no plan file, the words the refusal must hold or "" for none)
+        "manual-only plan: derived and empty -> accepted": (["TC-1"], [row("TS-1", "TC-1", "manual-agent")], ""),
+        "an automate case -> refused": (["TC-1"], [row("TS-1", "TC-1", "automate")], "cases TC-1 are automate cases"),
+        "a case whose row has no disposition -> refused": (
+            ["TC-1", "TC-2"], [row("TS-1", "TC-1", "manual-agent"), row("TS-2", "TC-2", "")], "cases TC-2 have rows with no disposition"),
+        "an approved case with no plan row -> refused": (["TC-1", "TC-9"], [row("TS-1", "TC-1", "manual-agent")], "cases TC-9 have no plan row"),
+        "no row names a disposition (underived) -> refused": (["TC-1"], [row("TS-1", "TC-1", "")], "the plan's dispositions could not be read"),
+        "no plan on disk -> refused with its reason": (["TC-1"], None, "the plan's dispositions could not be read"),
+    }
+    done = {f"S{i}": {"status": "completed"} for i in range(5)}
+    for label, (scope, rows, words) in cases.items():
+        scratch = Path(tempfile.mkdtemp(prefix="qa-s5-code-only-"))
+        try:
+            if rows is not None:
+                (scratch / "work").mkdir()
+                (scratch / "work" / "test-plan.json").write_text(json.dumps({"rows": rows}), encoding="utf-8")
+            (scratch / "ev.txt").write_text("receipt", encoding="utf-8")
+            ref = {"path": "ev.txt", "sha256": hashlib.sha256(b"receipt").hexdigest()}
+            state = {"dispatches": {}, "stages": dict(done), "scope": scope, "source_revision": "r"}
+            controller = Controller(scratch)
+            said = refused(lambda: controller.validate("code_only", {"stage": "S5", "id": "i", "reason": "r", "evidence_refs": [ref]}, state))
+            check(f"5b {label}", (words in said) if words else said == "", said[:300])
+            if words:
+                check(f"5b {label}: the refusal names the stage's rule and its door", "S5 only over its own empty derived plan scope" in said
+                      and ("rework S3" in said or "S5 runs its author" in said), said[:300])
+            if label.startswith("a case whose row"):
+                got = controller.stage_scope("S5", state)
+                check("5b stage_scope lists the undisposed case, on the derived branch", got.get("undisposed") == ["TC-2"] and got.get("derived") is True,
+                      str(got.get("undisposed")))
+            if label.startswith("no row names"):
+                check("5b stage_scope on the underived branch keeps its keys (no `undisposed`)", "undisposed" not in controller.stage_scope("S5", state))
+        finally:
+            import shutil
+            shutil.rmtree(scratch, ignore_errors=True)
 
 
 def refused(call):
@@ -2847,6 +2888,7 @@ def main() -> int:
     the_transition_carries_the_agent_onto_the_dispatch()
     the_stage_names_the_agent_of_its_last_bind()
     code_close_conflicts_is_the_one_predicate()
+    s5_code_only_is_closed_over_its_own_empty_derived_scope()
     the_s3_gate_runs_on_every_s3_acceptance()
     for tr4_7 in (test_tr4_7_a_dead_holder_does_not_block_any_site, test_tr4_7_a_live_holder_is_refused_by_name_with_its_door,
                   test_tr4_7_unknown_and_an_unreadable_verdict_keep_the_refusal_and_say_so,
