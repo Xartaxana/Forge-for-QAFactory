@@ -424,20 +424,7 @@
    "live_only | joints/acceptance:probe_evidence | N4:s5 t-1193, census row",
    "live_only | joints/acceptance:mechanical_green | N4:s5 t-1193, census row",
    "live_only | joints/acceptance:probe_mutation_kind | N4:s5 t-1193, census row",
-   "live_only | joints/manifest_put:probe_owed | N4:s5 t-1193, census row",
-   "live_only | walk/code_close.stage/retry | N4:s5 t-1193, walk row",
-   "live_only | walk/code_close.stage/stop | N4:s5 t-1193, walk row",
-   "live_only | walk/code_close.stage/free words | N4:s5 t-1193, walk row",
-   "live_only | walk/code_close.stage/empty | N4:s5 t-1193, walk row",
-   "live_only | walk/code_close.factory_file/retry | N4:s5 t-1193, walk row",
-   "live_only | walk/code_close.factory_file/stop | N4:s5 t-1193, walk row",
-   "live_only | walk/code_close.factory_file/free words | N4:s5 t-1193, walk row",
-   "live_only | walk/code_close.factory_file/empty | N4:s5 t-1193, walk row",
-   "live_only | walk/code_close.behind/go on | N4:s5 t-1193, walk row",
-   "live_only | walk/code_close.behind/retry | N4:s5 t-1193, walk row",
-   "live_only | walk/code_close.behind/stop | N4:s5 t-1193, walk row",
-   "live_only | walk/code_close.behind/free words | N4:s5 t-1193, walk row",
-   "live_only | walk/code_close.behind/empty | N4:s5 t-1193, walk row"
+   "live_only | joints/manifest_put:probe_owed | N4:s5 t-1193, census row"
   ]
  }
 }

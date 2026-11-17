@@ -3,55 +3,11 @@
  "group": "s5",
  "rows": [
   {
-   "id": "s5.repair_limit/round",
-   "start": "S5",
-   "seed": "to-s5-repair-limit",
-   "answer": {
-    "token": "round",
-    "words": null,
-    "words_file": null
-   },
-   "reach": "story",
-   "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
-    }
-   },
-   "expect": {
-    "checks": [
-     "C2",
-     "C3"
-    ]
-   }
-  },
-  {
    "id": "s5.repair_limit/debt",
    "start": "S5",
    "seed": "to-s5-repair-limit",
    "answer": {
     "token": "debt",
-    "words": null,
-    "words_file": null
-   },
-   "reach": "story",
-   "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
-    }
-   },
-   "expect": {
-    "checks": [
-     "C2",
-     "C3"
-    ]
-   }
-  },
-  {
-   "id": "s5.repair_limit/fixed",
-   "start": "S5",
-   "seed": "to-s5-repair-limit",
-   "answer": {
-    "token": "fixed",
     "words": null,
     "words_file": null
    },
@@ -439,57 +395,6 @@
    }
   },
   {
-   "id": "exit.resume_limit/round",
-   "start": "S5",
-   "seed": "to-exit-resume-limit",
-   "answer": {
-    "token": "round",
-    "words": null,
-    "words_file": null
-   },
-   "reach": "story",
-   "expect": {
-    "checks": [
-     "C2",
-     "C3"
-    ]
-   }
-  },
-  {
-   "id": "exit.resume_limit/fresh",
-   "start": "S5",
-   "seed": "to-exit-resume-limit",
-   "answer": {
-    "token": "fresh",
-    "words": null,
-    "words_file": null
-   },
-   "reach": "story",
-   "expect": {
-    "checks": [
-     "C2",
-     "C3"
-    ]
-   }
-  },
-  {
-   "id": "exit.resume_limit/go on",
-   "start": "S5",
-   "seed": "to-exit-resume-limit",
-   "answer": {
-    "token": "go on",
-    "words": null,
-    "words_file": null
-   },
-   "reach": "story",
-   "expect": {
-    "checks": [
-     "C2",
-     "C3"
-    ]
-   }
-  },
-  {
    "id": "exit.resume_limit/stop",
    "start": "S5",
    "seed": "to-exit-resume-limit",
@@ -536,57 +441,6 @@
    "expect": {
     "checks": [
      "empty"
-    ]
-   }
-  },
-  {
-   "id": "exit.resume_limit_halted/round",
-   "start": "S5",
-   "seed": "to-exit-resume-limit-halted",
-   "answer": {
-    "token": "round",
-    "words": null,
-    "words_file": null
-   },
-   "reach": "story",
-   "expect": {
-    "checks": [
-     "C2",
-     "C3"
-    ]
-   }
-  },
-  {
-   "id": "exit.resume_limit_halted/fresh",
-   "start": "S5",
-   "seed": "to-exit-resume-limit-halted",
-   "answer": {
-    "token": "fresh",
-    "words": null,
-    "words_file": null
-   },
-   "reach": "story",
-   "expect": {
-    "checks": [
-     "C2",
-     "C3"
-    ]
-   }
-  },
-  {
-   "id": "exit.resume_limit_halted/go on",
-   "start": "S5",
-   "seed": "to-exit-resume-limit-halted",
-   "answer": {
-    "token": "go on",
-    "words": null,
-    "words_file": null
-   },
-   "reach": "story",
-   "expect": {
-    "checks": [
-     "C2",
-     "C3"
     ]
    }
   },
@@ -895,14 +749,13 @@
   {
    "id": "code_close.stage/retry",
    "start": "S5",
-   "seed": null,
+   "seed": "to-code-close-stage",
    "answer": {
     "token": "retry",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when code closing a stage finds the stage not closable; the dry driver closes every stage it reaches and no allowed seed op breaks a stage close",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -913,14 +766,13 @@
   {
    "id": "code_close.stage/stop",
    "start": "S5",
-   "seed": null,
+   "seed": "to-code-close-stage",
    "answer": {
     "token": "stop",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when code closing a stage finds the stage not closable; the dry driver closes every stage it reaches and no allowed seed op breaks a stage close",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -931,14 +783,13 @@
   {
    "id": "code_close.stage/free words",
    "start": "S5",
-   "seed": null,
+   "seed": "to-code-close-stage",
    "answer": {
     "token": null,
     "words": "Both options were read; go on as the report says.",
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when code closing a stage finds the stage not closable; the dry driver closes every stage it reaches and no allowed seed op breaks a stage close",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -949,14 +800,13 @@
   {
    "id": "code_close.stage/empty",
    "start": "S5",
-   "seed": null,
+   "seed": "to-code-close-stage",
    "answer": {
     "token": null,
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when code closing a stage finds the stage not closable; the dry driver closes every stage it reaches and no allowed seed op breaks a stage close",
+   "reach": "story",
    "expect": {
     "checks": [
      "empty"
@@ -966,14 +816,13 @@
   {
    "id": "code_close.factory_file/retry",
    "start": "S5",
-   "seed": null,
+   "seed": "to-code-close-factory-file",
    "answer": {
     "token": "retry",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when code closing finds a factory file changed in the project; the walker may not edit project files (P1-b 4.3) and no allowed seed op does",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -984,14 +833,13 @@
   {
    "id": "code_close.factory_file/stop",
    "start": "S5",
-   "seed": null,
+   "seed": "to-code-close-factory-file",
    "answer": {
     "token": "stop",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when code closing finds a factory file changed in the project; the walker may not edit project files (P1-b 4.3) and no allowed seed op does",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -1002,14 +850,13 @@
   {
    "id": "code_close.factory_file/free words",
    "start": "S5",
-   "seed": null,
+   "seed": "to-code-close-factory-file",
    "answer": {
     "token": null,
     "words": "Both options were read; go on as the report says.",
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when code closing finds a factory file changed in the project; the walker may not edit project files (P1-b 4.3) and no allowed seed op does",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -1020,68 +867,16 @@
   {
    "id": "code_close.factory_file/empty",
    "start": "S5",
-   "seed": null,
+   "seed": "to-code-close-factory-file",
    "answer": {
     "token": null,
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when code closing finds a factory file changed in the project; the walker may not edit project files (P1-b 4.3) and no allowed seed op does",
+   "reach": "story",
    "expect": {
     "checks": [
      "empty"
-    ]
-   }
-  },
-  {
-   "id": "code_close.closed_story/full retro",
-   "start": "S9",
-   "seed": "to-code-close-closed-story",
-   "answer": {
-    "token": "full retro",
-    "words": null,
-    "words_file": null
-   },
-   "reach": "story",
-   "expect": {
-    "checks": [
-     "C2",
-     "C3"
-    ]
-   }
-  },
-  {
-   "id": "code_close.closed_story/go on",
-   "start": "S9",
-   "seed": "to-code-close-closed-story",
-   "answer": {
-    "token": "go on",
-    "words": null,
-    "words_file": null
-   },
-   "reach": "story",
-   "expect": {
-    "checks": [
-     "C2",
-     "C3"
-    ]
-   }
-  },
-  {
-   "id": "code_close.closed_story/retry",
-   "start": "S9",
-   "seed": "to-code-close-closed-story",
-   "answer": {
-    "token": "retry",
-    "words": null,
-    "words_file": null
-   },
-   "reach": "story",
-   "expect": {
-    "checks": [
-     "C2",
-     "C3"
     ]
    }
   },
@@ -1136,34 +931,15 @@
    }
   },
   {
-   "id": "code_close.behind/go on",
-   "start": "S5",
-   "seed": null,
-   "answer": {
-    "token": "go on",
-    "words": null,
-    "words_file": null
-   },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when code closing finds an earlier stage behind without its accepting role's judgment; the dry driver runs every stage in order and no allowed seed op skips one",
-   "expect": {
-    "checks": [
-     "C2",
-     "C3"
-    ]
-   }
-  },
-  {
    "id": "code_close.behind/retry",
    "start": "S5",
-   "seed": null,
+   "seed": "to-code-close-behind",
    "answer": {
     "token": "retry",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when code closing finds an earlier stage behind without its accepting role's judgment; the dry driver runs every stage in order and no allowed seed op skips one",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -1174,14 +950,13 @@
   {
    "id": "code_close.behind/stop",
    "start": "S5",
-   "seed": null,
+   "seed": "to-code-close-behind",
    "answer": {
     "token": "stop",
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when code closing finds an earlier stage behind without its accepting role's judgment; the dry driver runs every stage in order and no allowed seed op skips one",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -1192,14 +967,13 @@
   {
    "id": "code_close.behind/free words",
    "start": "S5",
-   "seed": null,
+   "seed": "to-code-close-behind",
    "answer": {
     "token": null,
     "words": "Both options were read; go on as the report says.",
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when code closing finds an earlier stage behind without its accepting role's judgment; the dry driver runs every stage in order and no allowed seed op skips one",
+   "reach": "story",
    "expect": {
     "checks": [
      "C2",
@@ -1210,14 +984,13 @@
   {
    "id": "code_close.behind/empty",
    "start": "S5",
-   "seed": null,
+   "seed": "to-code-close-behind",
    "answer": {
     "token": null,
     "words": null,
     "words_file": null
    },
-   "reach": "live_only",
-   "why_unreached": "estimate, not verified: asked when code closing finds an earlier stage behind without its accepting role's judgment; the dry driver runs every stage in order and no allowed seed op skips one",
+   "reach": "story",
    "expect": {
     "checks": [
      "empty"

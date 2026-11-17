@@ -74,11 +74,35 @@
     }
    }
   ],
+  "to-code-close-stage": [
+   {
+    "drive_until": {
+     "stage": "S5",
+     "question": "code_close.stage"
+    }
+   }
+  ],
+  "to-code-close-factory-file": [
+   {
+    "drive_until": {
+     "stage": "S5",
+     "question": "code_close.factory_file"
+    }
+   }
+  ],
   "to-code-close-closed-story": [
    {
     "drive_until": {
      "stage": "S9",
      "question": "code_close.closed_story"
+    }
+   }
+  ],
+  "to-code-close-behind": [
+   {
+    "drive_until": {
+     "stage": "S5",
+     "question": "code_close.behind"
     }
    }
   ],
