@@ -889,7 +889,8 @@
     "hooklib.py",
     "design/controller-blocks.md",
     "tests/harness.py",
-    "tests/test_controller_state.py"
+    "tests/test_controller_state.py",
+    "tests/scenario_walk.py"
    ]
   },
   "test_controller_gate_decision.py": {
@@ -1973,7 +1974,8 @@
     "README.md",
     "skills/qa-story/phases/s4.md",
     "tests/harness.py",
-    "tests/test_http_client.py"
+    "tests/test_http_client.py",
+    "tests/test_bug_records.py"
    ]
   },
   "test_gate_preflight_question_status.py": {
@@ -4112,7 +4114,8 @@
     "config_contract.py",
     "event_store.py",
     "hooklib.py",
-    "project_decisions.py"
+    "project_decisions.py",
+    "tests/test_first_look.py"
    ]
   },
   "test_proof_level.py": {
@@ -5219,7 +5222,8 @@
     "scripts/tests/fixtures/driver-layers.json",
     "scripts/tests/fixtures/env-facts-baseline.json",
     "scripts/tests/test-layers.json",
-    "tests/harness.py"
+    "tests/harness.py",
+    "tests/test_selftest_shard.py"
    ]
   },
   "test_session_handoff.py": {
@@ -6867,7 +6871,8 @@
     "first_look.py",
     "references/stages.json",
     "tests/test_first_look_wiring.py",
-    "tests/harness.py"
+    "tests/harness.py",
+    "tests/test_first_look.py"
    ]
   },
   "test_walk_http_step.py": {

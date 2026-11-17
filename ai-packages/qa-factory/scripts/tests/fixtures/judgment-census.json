@@ -231,7 +231,6 @@
   {"file": "controller.py", "function": "apply(first_look_continue)", "class": "shape", "roles": ["conductor"], "owner": "data", "ref": "A24:CTRL-first-look-continue"},
   {"file": "controller.py", "function": "baseline_inputs", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "controller.py", "function": "check_decision", "class": "shape", "roles": ["conductor"], "owner": "data"},
-  {"file": "controller.py", "function": "deployment_inputs", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "controller.py", "function": "known_paths_problems", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "controller.py", "function": "main", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "controller.py", "function": "manual_block_problems", "class": "shape", "roles": ["conductor"], "owner": "data"},
