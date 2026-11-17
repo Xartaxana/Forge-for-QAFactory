@@ -1172,7 +1172,50 @@ def _novelty_switch(made):
     check_in("ii: an answer of the wrong length is the same refusal of the measure, not a crash",
              "novelty could not be measured (ValueError)", short["notes"])
 
+    print("-- C3-b1w: the writer of novelty_unmeasured (and its reader, AR-22)")
+    with patched(Counting(answer=canned("s0", "unchanged"))):
+        measured = build_rows(project, task)["fragment"]
+    with patched(Counting(answer=canned("none", "unchanged"))):
+        bare = build_rows(project, task)["fragment"]
+    with patched(Counting(raises=RuntimeError("the measurer blew up"))):
+        broke = build_rows(project, task)["fragment"]
+    keyless = {"instance_id": "x", "case": "TC-9"}
+    for label, frag, expect in (
+            ("every unit measured -> NO key at all (not '' and not null)", measured, None),
+            ("no block for the rows (non-S0 base, unchanged) -> a non-empty string naming the count",
+             bare, "8 test row(s) got no novelty block"),
+            ("the measure raised -> a non-empty string naming the class", broke,
+             "novelty could not be measured (RuntimeError)")):
+        got = frag.get("novelty_unmeasured", "<absent>")
+        check_eq(f"C3-b1w marker: {label}", got == "<absent>" if expect is None else (isinstance(got, str) and expect in got),
+                 True)
+        # the join: the producer's fragment makes the reader ask about a keyless row, never about one with a closed answer
+        manifest = dict(frag, tests=[dict(r) for r in frag["tests"] if "novelty" not in r] + [keyless])
+        asked = PL.novelty_question_owed(keyless, manifest)
+        check_eq(f"C3-b1w join: {label} -> question owed", asked, expect is not None)
+        check_eq(f"C3-b1w join: {label} -> closed probe_owed ends it",
+                 PL.novelty_question_owed(dict(keyless, probe_owed="no"), manifest), False)
+    stub_none = Counting(answer=canned("none", "unchanged"))
+    old_notes, new_notes, out_list = [], [], []
+    keyed_pair = lambda: [({"instance_id": "test_limit"}, ("tests/test_coupon.py", (), "test_limit"))]
+    with patched(stub_none):
+        old_ret = MFT._attach_novelty(MFT.Story(TICKET, task), project, keyed_pair(), old_notes, None)
+        new_ret = MFT._attach_novelty(MFT.Story(TICKET, task), project, keyed_pair(), new_notes, None, out_list)
+    check_eq("C3-b1w old callers: return value and notes are those of the call with an out-list",
+             (old_ret, old_notes), (new_ret, new_notes))
+    check_eq("C3-b1w old callers: the out-list got its reason, the old call has nowhere to put one", len(out_list), 1)
+    with patched(Counting(raises=RuntimeError("x"))):
+        old_notes, out_list = [], []
+        MFT._attach_novelty(MFT.Story(TICKET, task), project, keyed_pair(), old_notes, None)
+        MFT._attach_novelty(MFT.Story(TICKET, task), project, keyed_pair(), [], None, out_list)
+    check_eq("C3-b1w E2: a caught exception reaches the out-list, the old note stays",
+             (out_list, old_notes), (["novelty could not be measured (RuntimeError)"],
+                                     ["novelty could not be measured (RuntimeError)"]))
     (project / "tests" / "test_only_unresolved.py").write_text(ONLY_UNRESOLVED, encoding="utf-8")
+    with patched(Counting(raises=RuntimeError("never called"))):
+        only = build_rows(project, task, files=("tests/test_only_unresolved.py",))["fragment"]
+    check("C3-b1w E1: nothing to measure (no test row) -> no marker", "novelty_unmeasured" not in only, str(only.keys()))
+
     zero = Counting()
     with patched(zero):
         nothing = build_rows(project, task, files=("tests/test_only_unresolved.py",))
@@ -2245,6 +2288,21 @@ def ep1_37() -> None:
                  (["TC-002"], "tests/a.spec.ts"))
         check_eq("ts: no Then bindings are written", got["fragment"].get("then_bindings"), None)
         check_in("ts: and the note says whose they are", "Then bindings are the author's: this language has no marker", " ".join(got["notes"]))
+        # B4 (critic t-1065): rows of a language the measurer does not read are marked unmeasured, so the question is asked of them
+        import proof_level as PL
+        reason = "test row(s) of a language the measurer does not read"
+        marker = got["fragment"].get("novelty_unmeasured", "<absent>")
+        check_eq("B4: a ts-only fragment carries `novelty_unmeasured` naming the two rows", (isinstance(marker, str), "2 " + reason in marker),
+                 (True, True))
+        ts_manifest = dict(got["fragment"], tests=[dict(r) for r in got["fragment"]["tests"]])
+        check_eq("B4 join: a flagless ts row of that fragment is asked, a closed answer ends it",
+                 (PL.novelty_question_owed(ts_manifest["tests"][0], ts_manifest),
+                  PL.novelty_question_owed(dict(ts_manifest["tests"][0], probe_owed="no"), ts_manifest)), (True, False))
+        mixed_marker = _dry(root, "tests/test_coupon.py", "tests/data_coupon.py", "tests/a.spec.ts")[1]["fragment"].get("novelty_unmeasured", "")
+        check_eq("B4 edge: a mixed py + ts build carries the reason ONCE, for both ts rows, joined with the others by `; `",
+                 (mixed_marker.count(reason), mixed_marker.startswith("2 " + reason) or "; 2 " + reason in mixed_marker), (1, True))
+        check_eq("B4 edge: a build with no language rows adds no such reason", "language the measurer" in
+                 json.dumps(_dry(root, "tests/test_coupon.py", "tests/data_coupon.py")[1]["fragment"].get("novelty_unmeasured", "")), False)
         # --- a row, no case id in any title: a note, not a silent zero ----------------------------------------------------------------
         code, none, err = _dry(root, "tests/none.spec.ts")
         check_eq("a row and no marker: exit 0, no rows", (code, none["fragment"]), (0, {}))

@@ -29,9 +29,9 @@ import stage_joints as SJ  # noqa: E402
 
 # The walk sizes. A change of any is a change of the factory's checks and the Lead's question: the walker is not adjusted
 # to agree with the tree. exit: the 8 families of all_errors + main; detector: the 5 scripts of the 9 tuples of stages.json
-# (minus the adviser sizing.py; `branch_accounting.py` runs at 4 stages and is ONE member); window: 27 distinct gap kinds
+# (minus the adviser sizing.py; `branch_accounting.py` runs at 4 stages and is ONE member); window: 28 distinct gap kinds
 # of validate_window (30 append sites, `expectation_change_gaps` from extend).
-PINS = {"exit": 8, "detector": 5, "window": 27}
+PINS = {"exit": 8, "detector": 5, "window": 28}
 ENV = SJ.Env.real()
 REAL, _WHY = SJ.load_rows(SJ.DATA)
 UNI = SJ.universe()
@@ -72,13 +72,13 @@ def k1_real_tree() -> None:
     check_eq("K1: the real tree is green (every leg, every direction)", report.problems, [])
     print(report.line())
     check_in("K1: the summary line names the walk, the rows, the gaps by leg, the joints and the stages with no detector",
-            f"walked exit 8, detector 5, window 27 | rows {len(REAL['joints'])}, gaps ", report.line())
-    check_eq("K1: the rows file holds 267 rows (40 of T1 + 227 landed by T1r); a change is a named change of the file",
-             len(REAL["joints"]), 267)
+            f"walked exit 8, detector 5, window 28 | rows {len(REAL['joints'])}, gaps ", report.line())
+    check_eq("K1: the rows file holds 268 rows (40 of T1 + 227 landed by T1r; +1 acceptance:novelty_question, C3-b1; +1 manifest_put:probe_owed); a change is a named change of the file",
+             len(REAL["joints"]), 269)
     check_in("K1/E5: a stage with no detector is reported, not invented",
              "stages with no detector: S0, S1, S6, S7, S9", report.line())
     check_eq("K1: no walk error on the real tree", UNI[1], [])
-    check_in("K3/m-3: the line says the window rows with a code producer walk the code leg only", "role leg not walked (code-to-code rows): 26",
+    check_in("K3/m-3: the line says the window rows with a code producer walk the code leg only", "role leg not walked (code-to-code rows): 27",
              report.line())
     windows = kind_keys("window")
     check_eq("K3/m-3: every window row with a code producer says so in the data (acceptance:quality has no producer: a gap, not code-to-code)",
@@ -90,7 +90,7 @@ def k1_real_tree() -> None:
                                                    for p in r["producers"]][:1], False))))
     check_in("K3/m-3: F6-51/5 is on the producer leg", "producer",
              json.dumps([p["gap"]["leg"] for r in REAL["joints"] for p in r["producers"] if (p.get("gap") or {}).get("ref") == "F6-51/5"]))
-    check_eq("K1: the universe is exactly 8 + 5 + 27 keys", len(UNI[0]), 40)
+    check_eq("K1: the universe is exactly 8 + 5 + 28 keys", len(UNI[0]), 41)
     check_not_in("K1: the adviser sizing is not a blocking detector", "sizing:*", " ".join(UNI[0]))
     check_not_in("K1/X2-3: the form check left the stop (a stop no longer refuses the handover form; `finish` does)",
                  "form_stop_errors", " ".join(UNI[0]))
@@ -582,7 +582,7 @@ def rename() -> None:
     hits = [f"{p.name}:{n}" for p in scanned for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1) if pattern.search(line)]
     check_eq("rename/no-v1-key: no v1 key literal in the package's scripts or the rows file (machine_facts.py: `detector:{i}` is a secret scan's label)",
              hits, [])
-    check_eq("rename/pins: the real universe is 8 exit, 5 detector, 27 window keys", [len(kind_keys(k)) for k in SJ.KINDS], [8, 5, 27])
+    check_eq("rename/pins: the real universe is 8 exit, 5 detector, 28 window keys", [len(kind_keys(k)) for k in SJ.KINDS], [8, 5, 28])
     check_eq("rename/pins: the 8 exit keys", kind_keys("exit"), [
         "exit_gate:case_identity", "exit_gate:detector_errors", "exit_gate:digest", "exit_gate:grounding", "exit_gate:required_outputs",
         "exit_gate:scoped", "exit_gate:text_end_after_handback", "exit_gate:witness_errors"])

@@ -305,6 +305,8 @@ def row_field_gaps(entry, cfg=None, plan=None, known=None) -> list:
 # S9: the person's road for a `review` gap. The word's head is the gap line itself (`review:<instance id>`, case-exact);
 # `review_gap_words` reads it. ONE door text (AR-13).
 REVIEW_GAP_RECORD = person_words.door("waiver.py --task <T> --stage S5 --block \"review:<instance id>\"")
+# C3-b1: the person's road for a `novelty_question` gap; the head is the gap line itself (`novelty_question:<instance id>`).
+NOVELTY_QUESTION_RECORD = person_words.door("waiver.py --task <T> --stage S5 --block \"novelty_question:<instance id>\"")
 
 # The same table for `validate_window` gaps, whose vocabulary is its own.
 GAP_ORIGIN = {
@@ -324,6 +326,15 @@ GAP_ORIGIN = {
                "an instance the person runs); or, when the person accepts the test without the critic's verdict, the "
                "orchestrator records their words with `" + REVIEW_GAP_RECORD + "` (the S5 step passes; delivery still "
                "reads no critic verdict)"),
+    # C3-b1 (FR-59): nobody measured this test's novelty although the story's writer measured others (or its measurement failed),
+    # so the question "is a live probe owed?" goes to the code critic (AR-10: the charter states the answer). The word of a person
+    # is read through the window's word road (`WORD_READ_KINDS`, axis 34): the S5 exit reads a recorded word naming this line.
+    "novelty_question": ("no measurement of this test's novelty is recorded (its row has no `novelty`, no flag and no answer) "
+                         "while the story's writer measured novelty: the code critic is asked whether a live probe is owed",
+                         "the code critic answers in the manifest fragment through `manifest_put.py`: `probe_owed: yes` (a live "
+                         "probe is owed: the test is new or changed) or `probe_owed: no` with `critic_note` (why not), and this "
+                         "record is built again; or, when the person decides, the orchestrator records their words with `"
+                         + NOVELTY_QUESTION_RECORD + "`"),
     "stale_review": ("the review is bound to bytes the manifest no longer carries",
                      "re-review the current bytes, or record the mechanical round"),
     "mechanical_green": ("the record claims a mechanical round and no green run of its author "
@@ -1245,28 +1256,40 @@ def _no_run_shape(item) -> bool:
             and item.get("evidence_refs") == [])
 
 
-def _review_gap_head(instance_id: str) -> str:
-    """The head of a `review` gap line of one instance: `review:<iid>`. A line is that head alone (the controller's bare
-    gap) or the head, ` — ` and the explanation (`verdict`'s form). One definition for the matcher and the predicate."""
-    return "review:" + instance_id
+def _review_gap_head(instance_id: str, kind: str = "review") -> str:
+    """The head of a person-road gap line of one instance: `<kind>:<iid>` (`review` by default). A line is that head alone (the
+    controller's bare gap) or the head, ` — ` and the explanation (`verdict`'s form). One definition for the matcher and the predicate."""
+    return kind + ":" + instance_id
 
 
-def _review_owner(text, ids):
-    """The one id of `ids` whose review head `text` carries: exact equality first, else the longest head followed by ` — `
+# The gap kinds a person's recorded S5 word lets go by the one head road (axis 34): the `review` gap (S9) and the C3-b1 novelty
+# question. A word never crosses kinds: `review:B` does not let `novelty_question:B` go.
+GAP_WORD_KINDS = ("review", "novelty_question")
+
+
+def _word_key(kind: str, instance_id: str):
+    """The key of `review_gap_words`' result: the bare instance id for `review` (its historical key), `(kind, id)` for any other
+    kind (a tuple can never collide with an instance id)."""
+    return instance_id if kind == "review" else (kind, instance_id)
+
+
+def _review_owner(text, ids, kind: str = "review"):
+    """The one id of `ids` whose `kind` head `text` carries: exact equality first, else the longest head followed by ` — `
     (F9-3 (a)); None when no id owns it. The ONE head test of the reader and the predicate."""
-    named = [i for i in ids if text == _review_gap_head(i) or text.startswith(_review_gap_head(i) + " — ")]
-    exact = [i for i in named if text == _review_gap_head(i)]
+    named = [i for i in ids if text == _review_gap_head(i, kind) or text.startswith(_review_gap_head(i, kind) + " — ")]
+    exact = [i for i in named if text == _review_gap_head(i, kind)]
     return exact[0] if exact else (max(named, key=len) if named else None)
 
 
 def review_gap_words(window, task_root) -> dict:
-    """`{instance id: {"words", "at"}}` - the instances of `window` whose `review` gap a person's recorded S5 word names
+    """`{key: {"words", "at"}}` - the instances of `window` whose `review` or `novelty_question` gap (`GAP_WORD_KINDS`) a person's
+    recorded S5 word names; the key is the instance id for `review` and `(kind, id)` for `novelty_question` (`_word_key`)
     (S9, FR-57, AR-13: the ONE reader of a person's word on a review gap; every judge reads it through `word_let_go`).
 
     The records are `contract.live_stage_overrides(pipeline, ("S5",))` of `task_root/pipeline.json` (revoked and empty words
     out; never the window, a role writes that). A record is read only when its `match` is a string whose stripped form `m` is
     not `*` and holds no `<placeholder>` (`waiver.PLACEHOLDER_RE`). An instance id `iid` (a non-empty string of
-    `window["instances"]`) is named when `m == "review:" + iid` or `m` starts with `"review:" + iid + " — "` (space, U+2014,
+    `window["instances"]`) is named when `m == kind + ":" + iid` or `m` starts with `kind + ":" + iid + " — "` (a kind of `GAP_WORD_KINDS`; kinds never cross) (space, U+2014,
     space: the form `verdict` writes). Case-exact, no whitespace folding. ONE record names at most ONE instance: an exact
     equality wins, else the LONGEST matching id (F9-3). The latest record by file order wins for an instance.
 
@@ -1294,10 +1317,12 @@ def review_gap_words(window, task_root) -> dict:
             m = match.strip()
             if m == "*" or PLACEHOLDER_RE.search(m):
                 continue
-            iid = _review_owner(m, ids)
-            if iid is None:
-                continue
-            found[iid] = {"words": " ".join(str(entry.get("decision") or "").split()), "at": str(entry.get("at") or "")}
+            for kind in GAP_WORD_KINDS:
+                iid = _review_owner(m, ids, kind)
+                if iid is not None:
+                    found[_word_key(kind, iid)] = {"words": " ".join(str(entry.get("decision") or "").split()),
+                                                   "at": str(entry.get("at") or "")}
+                    break
         return found
     except Exception:
         return {}
@@ -1346,8 +1371,8 @@ def word_let_go(lines, window, index, lets_go=None, review_words=None) -> tuple:
       `shape_probe_missing` is true, or `"<kind>:<iid>"` for `kind` in its `tier4_gaps`;
     - `row_fields_unestablished` (for an instance the INDEX names): `"<kind>:<iid>"` for `kind` in the `tier4_gaps` of a row
       (`pass` true) of a field in `index.passed_fields(iid)`;
-    - `review` (S9): a line `"review:<iid>"` or `"review:<iid> — <text>"` (`verdict`'s form) goes when its ONE owner among ALL
-      the window's ids (`_review_owner`: exact first, else the longest id) is in `review_words`; ids `A` and `A — x`: a word for
+    - `review` (S9) and `novelty_question` (C3-b1): a line `"<kind>:<iid>"` or `"<kind>:<iid> — <text>"` (`verdict`'s form) goes when
+      its ONE owner among ALL the window's ids (`_review_owner`: exact first, else the longest id) is in `review_words` for that kind; ids `A` and `A — x`: a word for
       `A` never lets go `review:A — x`. `review_words=None` lets no review line go. This rule depends on `review_words`
       alone: an `index` of None (or a table that cannot be read) lets the first two rules nothing and does NOT hide a word.
     Every other line is kept (the refusing direction). PURE; never raises - any exception, an `index` of None, a table that cannot
@@ -1366,7 +1391,9 @@ def word_let_go(lines, window, index, lets_go=None, review_words=None) -> tuple:
         words = review_words if isinstance(review_words, dict) else {}
 
         def let_go(line) -> bool:
-            return isinstance(line, str) and (line in let or (bool(words) and _review_owner(line, all_ids) in words))
+            return isinstance(line, str) and (line in let or (bool(words) and any(
+                owner is not None and _word_key(kind, owner) in words
+                for kind in GAP_WORD_KINDS for owner in [_review_owner(line, all_ids, kind)])))
 
         kept = [line for line in lines if not let_go(line)]
         gone = [line for line in lines if let_go(line)]
@@ -1560,6 +1587,10 @@ def build(task_root: Path, dispatch_id: str) -> tuple:
             "review": {"verdict": str(entry.get("critic_verdict") or ""),
                        **(reviewed.get(identity) or {"input_hash": proof_level.claimed_test_sha(entry)})},
         }
+        if proof_level.probe_owed_answer(entry):
+            # C3-b1: the code critic's closed answer, copied beside `review` (the one writer is `manifest_put`; a value outside
+            # `yes` / `no` is not copied, so a malformed answer never closes the question in `acceptance.validate_window`)
+            item["probe_owed"] = entry["probe_owed"]
         if measured["test_code_sha"]:
             item["test_code_sha"] = measured["test_code_sha"]
         if measured["instance_identity"]:
@@ -1826,7 +1857,9 @@ def _explain(line: str, notes: list) -> str:
 # for the critic's receipts and for a missing window record and, through `word_let_go`, for the gaps it names - so a word recorded
 # against one is printed "recorded, not read by this window" (`_unread_words`). One name, so a reader added later
 # is one line here (Q7 B', t-299).
-WORD_READ_KINDS = ("quality", PROBE_GAP_KIND)
+# C3-b1 (F-T8 (a), axis 34): a `novelty_question:<iid>` line is a kind of this tuple - ONE road with `quality`, not a third: the
+# S5 exit reads a person's recorded word that names the line (`NOVELTY_QUESTION_RECORD`), so `_unread_words` does not call it unread.
+WORD_READ_KINDS = ("quality", PROBE_GAP_KIND, "novelty_question")
 NO_DOOR = "repair the artifact the line names; no recorded word is read for it"
 
 

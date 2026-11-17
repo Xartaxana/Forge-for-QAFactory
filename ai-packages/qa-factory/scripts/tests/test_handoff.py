@@ -263,6 +263,25 @@ def _run_block(task: Path, name: str, dispatch: str, started: str, provenance, f
     (target / f"{name}.json").write_text(json.dumps(data), encoding="utf-8")
 
 
+_ABSENT = object()
+
+
+def _probe_job(task: Path, name: str, dispatch: str, *, purpose="red_probe", status="completed", before=_ABSENT,
+               provenance=None, updated="2026-01-02T00:00:00+00:00", required=_ABSENT) -> None:
+    """One run_suite job file under `state/execution-jobs/`, in the shape `JobStore.begin`/`update` write (P-b, t-1076)."""
+    target = task / "state" / "execution-jobs"
+    target.mkdir(parents=True, exist_ok=True)
+    request = {"dispatch_id": dispatch, "purpose": purpose, "runtime_provenance": provenance}
+    if before is not _ABSENT:
+        request["runtime_probe_before"] = before
+    if required is not _ABSENT:
+        request["runtime_required"] = required
+    job = {"job_id": name, "idempotency_key": name, "created_at": updated, "updated_at": updated, "request": request}
+    if status is not None:
+        job["status"] = status
+    (target / f"{name}.json").write_text(json.dumps(job), encoding="utf-8")
+
+
 def the_runtime_record_is_the_windows_own() -> None:
     """P1B-9 C3 (B1): the S5 deriver names the record of THE FORM'S OWN run (the newest run block of its dispatch that carries one),
     never a record chosen by file name. Every case that cannot be established is a named `unknown`: None and a reason."""
@@ -402,6 +421,208 @@ def the_runtime_record_is_the_windows_own() -> None:
         cleanup(root)
 
 
+def the_probe_record_is_the_reviews_own() -> None:
+    """P-b (t-1076): the critic's `probes.runtime_provenance` names the record the launch reading cites of THIS dispatch's
+    newest completed red_probe job (never the request's copied record, never another dispatch's, never a run block's
+    loser); a run block of the dispatch decides first. Everything not established is None and a named reason."""
+    import handoff_check as H
+    C, A = "S5-qa-code-critic-1", "S5-qa-automator-1"
+    old, new = "2026-01-01T00:00:00+00:00", "2026-01-02T00:00:00+00:00"
+    J3A, J3B, J6 = "no probe of this review ran through run_suite", "none completed with a stand reading", "runtime_required: false"
+    root = Path(tempfile.mkdtemp(prefix="qa-handoff-pb-"))
+    try:
+        def story(name: str) -> Path:
+            task = root / name / "artifacts" / "QA-1"
+            (task / "evidence").mkdir(parents=True)
+            return task
+
+        def record(task: Path, name: str) -> str:
+            path = task / "evidence" / name
+            path.write_text("{}", encoding="utf-8")
+            return path.as_posix()
+
+        def derive(task: Path, dispatch: str = C):
+            return H._probe_runtime_provenance(H.Artifacts(task, dispatch=dispatch), handoff.parse("header:\n  dispatch: ''\n"))
+
+        def stand(ref) -> dict:
+            return {"profile_id": "api", "evidence_refs": ref if isinstance(ref, list) else [ref]}
+
+        P = "evidence/runtime-provenance-api-%s.json"
+        cases = []   # case, got, expected path tuple, said (a no-path row also names the critic's door unless in `no_door`)
+        no_door = {"E22 every own completed probe ran with runtime_required false"}
+
+        task = story("p1")
+        a, b = record(task, "runtime-provenance-api-a.json"), record(task, "runtime-provenance-api-b.json")
+        _probe_job(task, "j1", C, before=stand(b), provenance=stand(a))
+        cases.append(("P1 dry-world shape: the launch reading, not the request's copy", derive(task), (P % "b",), ""))
+
+        task = story("p2")
+        a, b = record(task, "runtime-provenance-api-a.json"), record(task, "runtime-provenance-api-b.json")
+        _run_block(task, "c1", C, old, {"profile_id": "api", "result": "matched", "evidence_refs": [a]})
+        _probe_job(task, "j1", C, before=stand(b), updated=new)
+        cases.append(("P2 a run block of the dispatch outranks a job", derive(task), (P % "a",), ""))
+        same = H.window_runtime_record(task, C, probe_run=True) == H.window_runtime_record(task, C)
+        check("P2 and the answer is byte-identical to the run-block road", same, str(H.window_runtime_record(task, C, probe_run=True)))
+
+        task = story("p3")
+        b = record(task, "runtime-provenance-api-b.json")
+        _run_block(task, "c1", C, old, {"profile_id": "api", "result": "matched", "evidence_refs": []})
+        _probe_job(task, "j1", C, before=stand(b))
+        cases.append(("P3 an own run block with no refs gives its reason, the job is not consulted", derive(task), (None,),
+                      "no evidence_refs"))
+
+        task = story("p4")
+        b = record(task, "runtime-provenance-api-b.json")
+        _probe_job(task, "j1", C, before=stand(b))
+        (task / "work" / "run-blocks").mkdir(parents=True)
+        (task / "work" / "run-blocks" / "bad.json").write_text("{", encoding="utf-8")
+        cases.append(("P4 an unreadable run block is not hidden by a job", derive(task), (None,), "run block(s)"))
+
+        task = story("p5")
+        cases.append(("P5 no state/execution-jobs/ folder", derive(task), (None,), J3A))
+
+        task = story("p6")
+        b = record(task, "runtime-provenance-api-b.json")
+        _probe_job(task, "j1", A, purpose="initial", before=stand(b))
+        _probe_job(task, "j2", "S5-qa-code-critic-2", before=stand(b))
+        _probe_job(task, "j3", "S6-close", before=stand(b))
+        cases.append(("P6 only other dispatches' jobs", derive(task), (None,), J3A))
+
+        task = story("p7")
+        b = record(task, "runtime-provenance-api-b.json")
+        _probe_job(task, "j1", C, purpose="initial", before=stand(b))
+        cases.append(("P7 a job of the dispatch that is no red_probe", derive(task), (None,), J3A))
+
+        for status in ("persisted", "running", "incomplete", None):
+            task = story(f"p8-{status}")
+            b = record(task, "runtime-provenance-api-b.json")
+            _probe_job(task, "j1", C, status=status, before=stand(b))
+            cases.append((f"P8 status {status}: own probe jobs exist, none completed", derive(task), (None,), J3B))
+            text = derive(task)[2]
+            check(f"P8 status {status}: the reason counts the runs and names the newest status",
+                  "1 red_probe run(s)" in text and f"status {'absent' if status is None else status}" in text, text)
+
+        for before in (_ABSENT, {}, "text", ["x"]):
+            task = story(f"p9-{type(before).__name__}")
+            _probe_job(task, "j1", C, before=before)
+            cases.append((f"P9 launch reading {'absent' if before is _ABSENT else repr(before)}", derive(task), (None,), J3B))
+
+        task = story("p10")
+        a, b = record(task, "runtime-provenance-api-a.json"), record(task, "runtime-provenance-api-b.json")
+        _probe_job(task, "j1", C, before=stand(a), updated=old)
+        _probe_job(task, "j0", C, before=stand(b), updated=new)
+        cases.append(("P10 the newest job decides, whatever its file name", derive(task), (P % "b",), ""))
+
+        task = story("p11")
+        a, b = record(task, "runtime-provenance-api-a.json"), record(task, "runtime-provenance-api-b.json")
+        _probe_job(task, "j1", C, before=stand(a))
+        _probe_job(task, "j2", C, before=stand(b))
+        got = derive(task)
+        check("P11 an exact tie names ONE OF this dispatch's own jobs' records", got[:1] in ((P % "a",), (P % "b",)), str(got))
+
+        for case, refs in (("empty", []), ("not a list", "evidence/x.json"), ("not a string", [5]), ("blank", ["  "])):
+            task = story(f"p12-{case}")
+            a = record(task, "runtime-provenance-api-a.json")
+            _probe_job(task, "j1", C, before=stand(a), updated=old)
+            _probe_job(task, "j2", C, before={"profile_id": "api", "evidence_refs": refs}, updated=new)
+            cases.append((f"P12 newest reading's refs {case}: the older job does not stand in", derive(task), (None,),
+                          "no evidence_refs"))
+
+        task = story("p14")
+        (root / "p14" / "artifacts" / "X" / "evidence").mkdir(parents=True)
+        (root / "p14" / "artifacts" / "X" / "evidence" / "a.json").write_text("{}", encoding="utf-8")
+        record(task, "runtime-provenance-api-a.json")
+        for case, ref in (("a missing file", (task / "evidence" / "gone.json").as_posix()), ("a parent path", "../X/evidence/a.json"),
+                          ("another story", "D:/proj/artifacts/QA-8/evidence/runtime-provenance-api-a.json"),
+                          ("a placeholder", "<the record of this probe>")):
+            _probe_job(task, f"j-{len(case)}", C, before=stand(ref), updated=f"2026-01-02T00:00:0{len(case) % 10}+00:00")
+            cases.append((f"P14 {case}", derive(task), (None,), "not a file of this story"))
+            for leftover in (task / "state" / "execution-jobs").glob("*.json"):
+                leftover.unlink()
+
+        task = story("p15")
+        record(task, "runtime-provenance-api-a.json")
+        _probe_job(task, "j1", C, before=stand("C:/elsewhere/qa-factory/artifacts/QA-1/evidence/runtime-provenance-api-a.json"))
+        cases.append(("P15 a path from another machine resolves by its tail", derive(task), (P % "a",), ""))
+
+        task = story("p16")
+        record(task, "runtime-provenance-api-\u00fc.json")
+        _probe_job(task, "j1", C, before=stand((task / "evidence" / "runtime-provenance-api-\u00fc.json").as_posix()))
+        cases.append(("P16 a non-ASCII name", derive(task), (P % "\u00fc",), ""))
+
+        task = story("p17")
+        a = record(task, "runtime-provenance-api-a.json")
+        _probe_job(task, "j1", C, before=stand([a] + ["junk"] * 9999))
+        cases.append(("P17 10000 refs: the first is taken", derive(task), (P % "a",), ""))
+
+        for case, text in (("malformed JSON", "{"), ("a BOM", "\ufeff{}"), ("a list", "[]"), ("no request", "{\"status\": \"completed\"}")):
+            task = story(f"p18-{len(case)}")
+            b = record(task, "runtime-provenance-api-b.json")
+            _probe_job(task, "good", C, before=stand(b))
+            (task / "state" / "execution-jobs" / "broken.json").write_text(text, encoding="utf-8")
+            cases.append((f"P18 an unreadable job file ({case}) is named, not read as absence", derive(task), (None,),
+                          "execution job(s)"))
+
+        task = story("p19")
+        b = record(task, "runtime-provenance-api-b.json")
+        _probe_job(task, "j1", f"  {C}  ", before=stand(b))
+        cases.append(("P19 a dispatch id with spaces matches", derive(task), (P % "b",), ""))
+
+        task = story("p19b")
+        b = record(task, "runtime-provenance-api-b.json")
+        forged = task / "work" / "probe-requests"
+        forged.mkdir(parents=True)
+        (forged / "probe-forged.json").write_text(json.dumps({"dispatch_id": C, "purpose": "red_probe",
+                                                              "runtime_provenance": stand(b)}), encoding="utf-8")
+        cases.append(("P19b a request file with no job is no evidence of a run", derive(task), (None,), J3A))
+
+        task = story("p20")
+        b = record(task, "runtime-provenance-api-b.json")
+        _probe_job(task, "j1", C, before=stand(b))
+        cases.append(("P20 no dispatch", derive(task, dispatch=""), (None,), "names no dispatch"))
+
+        task = story("e22")
+        _probe_job(task, "j1", C, required=False)
+        _probe_job(task, "j2", C, required=False, updated=new)
+        cases.append(("E22 every own completed probe ran with runtime_required false", derive(task), (None,), J6))
+        for falsy in (None, 0):
+            task = story(f"e22-{falsy!r}")
+            _probe_job(task, "j1", C, required=falsy)
+            cases.append((f"E22 every own completed probe ran with runtime_required false (as {falsy!r}, read as run_suite does)",
+                          derive(task), (None,), J6))
+            no_door.add(cases[-1][0])
+        task = story("e22-mixed")
+        _probe_job(task, "j1", C, required=False)
+        _probe_job(task, "j2", C, updated=new)
+        cases.append(("E22b one own completed probe had a stand required, no reading", derive(task), (None,), J3B))
+
+        task = story("e23")
+        b = record(task, "runtime-provenance-api-b.json")
+        _probe_job(task, "j1", "S5-qa-code-critic-0", before=stand(b))
+        cases.append(("E23 a repair round: the earlier probe run belongs to another dispatch", derive(task), (None,),
+                      "belongs to another dispatch"))
+
+        for case, got, expected, said in cases:
+            check_eq(f"{case}: the path", got[:1], expected)
+            if said:
+                door = "probe_by_code.py" in got[2] if len(got) == 3 else False
+                check(f"{case}: no path, and the reason says `{said}`" + ("" if case in no_door else " and names the door"),
+                      len(got) == 3 and said in got[2] and door == (case not in no_door), str(got))
+
+        task = story("p21")
+        b = record(task, "runtime-provenance-api-b.json")
+        _probe_job(task, "j1", A, before=stand(b))
+        got = H._runtime_provenance(H.Artifacts(task, dispatch=A), handoff.parse("header:\n  dispatch: ''\n"))
+        check("P21 the automator's field never reads a probe job, and its reason is today's text",
+              got == (None, "", H.window_runtime_record(task, A)[1]) and "runtime_probe.py" in got[2]
+              and "probe_by_code.py" not in got[2], str(got))
+        check("P21 the key binding: the critic's field is the probe deriver, the others keep the window's",
+              H.DERIVERS["probes.runtime_provenance"] is H._probe_runtime_provenance
+              and H.DERIVERS["artifacts.runtime_provenance"] is H._runtime_provenance, "DERIVERS")
+    finally:
+        cleanup(root)
+
+
 def the_blank_provenance_field_says_why_code_could_not_fill_it() -> None:
     """P1B-9 C3: with no run block of the form's dispatch the field stays blank (never a pass) and the refusal names the dispatch."""
     import handoff_check as H
@@ -426,6 +647,29 @@ def the_blank_provenance_field_says_why_code_could_not_fill_it() -> None:
               and "S5-qa-automator-1" in text, text)
         check("C3 check: the field is still blank in the returned form", handoff.is_placeholder(out.get("artifacts.runtime_provenance")),
               str(out.get("artifacts.runtime_provenance")))
+
+        # P-b: the critic's own form. (c1) a completed red_probe job of the dispatch fills the field; (c2) with no job it stays blank
+        crit = "S5-qa-code-critic-1"
+        for case, jobs in (("c2 no job", False), ("c1 a job of the dispatch", True)):   # c2 first: c1 writes the job
+            if jobs:
+                (task / "evidence" / "runtime-provenance-api-b.json").write_text("{}", encoding="utf-8")
+                _probe_job(task, "j1", crit, before={"profile_id": "api",
+                                                     "evidence_refs": [(task / "evidence" / "runtime-provenance-api-b.json").as_posix()]})
+            doc = handoff.parse(handoff.template("s5-critic-to-automator").text())
+            with hooklib.selftest_root_restored():
+                hooklib.pin_project_root(root)
+                out, _fixed, problems, _judged, _derived = H.check(
+                    doc, "s5-critic-to-automator", H.Artifacts(task, dispatch=crit), fix=True, task="QA-1", use_judge=False)
+            mine = [p for p in problems if p.path == "probes.runtime_provenance"]
+            if jobs:
+                check_eq(f"P-b check {case}: the field is filled", out.get("probes.runtime_provenance"),
+                         "evidence/runtime-provenance-api-b.json")
+                check(f"P-b check {case}: and it is not among the problems", not mine, str([p.text for p in mine]))
+            else:
+                text = mine[0].text if mine else ""
+                check(f"P-b check {case}: one blank refusal naming the dispatch and the critic's door",
+                      len(mine) == 1 and mine[0].kind == "blank" and "Code could not fill it:" in text and crit in text
+                      and "probe_by_code.py" in text, text)
     finally:
         cleanup(root)
 
@@ -2689,6 +2933,7 @@ def main() -> None:
     a_refusal_names_the_roles_own_words()
     a_form_is_written_and_then_repaired_by_code()
     the_runtime_record_is_the_windows_own()
+    the_probe_record_is_the_reviews_own()
     the_blank_provenance_field_says_why_code_could_not_fill_it()
     the_review_receipt_is_the_form_own_dispatch_window_and_no_other()
     a_word_outside_the_list_is_refused_with_the_list()
