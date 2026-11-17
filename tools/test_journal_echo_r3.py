@@ -172,14 +172,7 @@ def test_s3_same_task_id_delegated_agent_not_critic_still_warns():
     assert _kinds(events) == [("no_input", "t-003")]
 
 
-def test_s4_basis_judge_silences_unconditionally():
-    # basis=="judge" silences EVEN with no critic delegation -- the M2
-    # detector applies only to basis=="critic".
-    new = [_l(task_id="t-004", basis="judge")]
-    assert _accepted_events(new) == []
-
-
-def test_s4_negative_twin_no_basis_warns():
+def test_no_basis_warns():
     new = [_l(task_id="t-004")]
     events = _accepted_events(new)
     assert _kinds(events) == [("no_input", "t-004")]
@@ -551,11 +544,6 @@ def test_edge_non_journal_payload_early_exit(monkeypatch, capsys, tmp_path):
     assert out.out == "" and out.err == ""
 
 
-def test_edge_r3xr13_collision_s4_silences():
-    new = [_l(task_id="t-018", basis="judge")]
-    assert _accepted_events(new) == []
-
-
 def test_edge_witness_field_ignored():
     new = [_l(task_id="t-019", witness="BATCH CANON: 4066 passed, 0 failed")]
     events = _accepted_events(new)
@@ -831,6 +819,7 @@ def test_k7_fixture_marks_exactly_the_expected_lines():
     events = je._collect_r3_events(new, base)
     assert [(e[0], e[1], e[2]) for e in events] == [
         (3, "phantom_basis", "t-101"),
+        (7, "no_input", "t-104"),  # basis "judge": no longer silenced (S4 removed)
         (9, "no_input", "t-106"),
         (10, "no_input", "t-107"),
         (13, "no_input", "t-109"),

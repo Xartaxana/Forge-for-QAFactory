@@ -482,6 +482,7 @@ def _write_isolated_copy(tmp_path, dirname: str, with_dispatch_gate: bool, broke
                 '    raise RuntimeError("simulated dispatch_gate.decide failure")\n'
             )
         (tools_dir / "dispatch_gate.py").write_text(dg_src, encoding="utf-8")
+        (tools_dir / "tier_ladder.py").write_bytes((SCRIPT.parent / "tier_ladder.py").read_bytes())
     return tools_dir / "critic_snapshot.py"
 
 

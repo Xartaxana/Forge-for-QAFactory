@@ -3341,6 +3341,7 @@ def _gate_run(tmp_path, payload, source=None, style="sibling", cwd=None, env=Non
     if source is not None and style == "sibling":
         (tmp_path / "shadow").mkdir(exist_ok=True)
         (tmp_path / "shadow" / "transcripts.py").write_text(source, encoding="utf-8")
+        (tmp_path / "shadow" / "tier_ladder.py").write_bytes((Path(SCRIPT).parent / "tier_ladder.py").read_bytes())
         argv = [sys.executable, "-c", _SHADOW_RUNNER, str(tmp_path / "shadow"), str(SCRIPT)]
     elif source is not None:
         (tmp_path / "pkg" / "tools").mkdir(parents=True, exist_ok=True)
@@ -3382,7 +3383,7 @@ def test_a_missing_transcripts_is_silent(tmp_path):
     silent on stderr as before; the cap's own sentence is what says the module was not there."""
     folder = tmp_path / "alone"
     folder.mkdir()
-    for name in ("dispatch_gate.py", "md_regions.py"):
+    for name in ("dispatch_gate.py", "md_regions.py", "tier_ladder.py"):
         (folder / name).write_bytes((_TOOLS / name).read_bytes())
     r = subprocess.run([sys.executable, str(folder / "dispatch_gate.py")], input=json.dumps(
         {"tool_name": "Read", "tool_input": {}}), capture_output=True, text=True, encoding="utf-8", cwd=str(folder),

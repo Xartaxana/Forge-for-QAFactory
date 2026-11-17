@@ -97,6 +97,7 @@ _TOOLS_DIR = str(Path(__file__).resolve().parent)
 if _TOOLS_DIR not in sys.path:
     sys.path.insert(0, _TOOLS_DIR)
 import streams  # noqa: E402
+import tier_ladder  # noqa: E402
 from usage_report import (  # noqa: E402
     ESTIMATE_CACHE_WRITES_LINE,
     accounted_cost,
@@ -116,7 +117,7 @@ USAGE_SHEET = "usage"
 PROJECTS_SHEET = "projects"
 ANCHOR_DAY = 14
 
-FAMILY_ORDER = ["Haiku", "Sonnet", "Opus", "Fable"]
+FAMILY_ORDER = [f.capitalize() for f in tier_ladder.FAMILIES]  # same value; the order comes from the ladder home
 TOTAL_LABEL = "TOTAL"
 
 METHODOLOGY = [
@@ -170,15 +171,9 @@ PROJECTS_INT_COLS = range(3, 9 + 1)
 
 
 def family(model: str) -> str:
-    m = (model or "").lower()
-    if "fable" in m or "mythos" in m:
-        return "Fable"
-    if "opus" in m:
-        return "Opus"
-    if "sonnet" in m:
-        return "Sonnet"
-    if "haiku" in m:
-        return "Haiku"
+    fam = tier_ladder.family_of(model)  # "mythos" is the home's alias of fable
+    if fam:
+        return fam.capitalize()
     return model or "unknown"
 
 

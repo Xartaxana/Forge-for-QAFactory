@@ -34,6 +34,7 @@ if str(_TOOLS) not in sys.path:
     sys.path.insert(0, str(_TOOLS))
 
 import streams  # noqa: E402 -- the one helper (axis 15; streams.py is a link of the chain since B23)
+import tier_ladder  # noqa: E402 -- the ladder home (a leaf): the family words of the door text
 
 JOURNAL_EDIT_MODE = "warn"          # "warn" (shipped) | "refuse" (node B23-S): the ONE constant that decides (E-B23-13)
 HOOK_LOCK_TIMEOUT = 5               # seconds: a hook never waits longer
@@ -207,7 +208,7 @@ def _post_agent(payload) -> list:
     import dispatch_gate
     model = dispatch_gate.label_model_family(tool_input.get("description"))
     if model is None:
-        return [_door("the description does not open with a tier word (sonnet / opus / fable / haiku), and the hook writes no "
+        return [_door("the description does not open with a tier word (" + " / ".join(tier_ladder.FAMILIES) + "), and the hook writes no "
                       "model it did not read")]
     agent = tool_input.get("subagent_type")
     if not isinstance(agent, str) or not agent.strip():
