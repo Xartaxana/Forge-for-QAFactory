@@ -685,3 +685,6 @@ negative with its positive control.
 - Rule 13 of builder-rules (bounded background wait): its home and its code gate are designed by t-1122 (the owner's word
   17.11.2026 on hung processes); this spec keeps only the pointer and takes the home t-1122 names.
 - Plan critic: mandatory (a new idea of the owner, step 6) -- t-1126 (report file named t-1124-… by a Lead id error).
+
+Note (17.11.2026): the section «Lead decisions (17.11.2026, Lead of the session…)» above was written by the parallel session
+61b75a79 by mistake. Where the two sections differ (F6), THIS section governs: F6 is answered by the plan critic.
