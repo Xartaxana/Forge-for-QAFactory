@@ -1479,10 +1479,7 @@ def role_gap_id(stand, role, packet_forms=()) -> str:
 class Rehearsal:
     """One run's inputs, read once. Each check appends findings; nothing of the story's is written.
 
-    Two things are written, and both are the rehearsal's own: the reporter step's test report goes
-    to a temp directory that is removed afterwards, and a PROVEN reporter rehearsal is kept once
-    per project + command in `qa-factory/state/reporter-rehearsals.json`
-    (`_record_rehearsal`, through `atomic_json`; D-0019 item 2, B-220 F11, FR-45)."""
+    What the rehearsal writes is listed once, in the docstring of `run()`; this class docstring does not copy that list."""
 
     _declarations_read = False      # set by `_integration_keys`: were the cases' declarations looked at (F-3b); unknown says no
 

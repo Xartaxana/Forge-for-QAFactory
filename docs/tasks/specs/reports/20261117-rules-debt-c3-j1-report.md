@@ -167,3 +167,10 @@ Axis 34 (one road): the reason is read only through `PK.page_load`, written only
 3. `test_k3_the_rehearsal_with_a_derived_probe_writes_nothing`: the new write was the page-load registry row (`records/project-knowledge.json` + `state/project-knowledge.lock`) that gate A now writes in a story with e2e rows; this row judges the probe, so its world sets `gate_rehearsal.skip_stand_limits: true` (the page-load row has its own tests); the "no file added or removed" assertion is untouched. The page-load write is the card's declared second write.
 
 Witness: selftest --limits PASS; test_gate_preflight 1555/1555 ok; test_project_knowledge 200 passed; test_manual_capture 1236/1236; test_brief_pack 1196/1196; scenario cart-1 15/15. Scenarios dry-1, local-1-0108, local-1-arm-b: not finished within the wait (slow), code unchanged by this round.
+
+### Canon fix, round close (Lead answer)
+
+`Rehearsal` class docstring (gate_preflight.py:1482): the write list replaced by one sentence pointing at `run()`'s docstring as the single list.
+Witness: `test_gate_preflight.py` tail `=== gate rehearsal: 1555/1555 ok ===`.
+Scenario tails: `=== scenario cart-1: 15/15 ok ===`; `=== scenario local-1-0108: 15/15 ok ===`; `=== scenario local-1-arm-b: 5/5 ok ===`;
+`=== scenario dry-1: 7/9 ok ===` (two runs, the same): FAIL `dry-1/main/known_red - new red: main/S4` and `unknown row: main/S6`. Cause measured in the run's own note: `stopped at S4: over the cap: the driver was killed after 600 s (cap 600 s)` (S3 took 367.6 s on this machine). A time cap, not a content failure; the full-canon CI decides. Not touched (non-goal).
