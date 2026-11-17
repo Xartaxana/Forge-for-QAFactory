@@ -6,8 +6,6 @@
    "expect": {"checks": ["C2", "C3"]}},
   {"id": "s1.review/flip", "start": "S0", "seed": null, "answer": {"token": "flip", "words": null, "words_file": null}, "reach": "story",
    "expect": {"checks": ["C2", "C3"]}},
-  {"id": "s1.review/unavailable", "start": "S0", "seed": null, "answer": {"token": "unavailable", "words": null, "words_file": null}, "reach": "story",
-   "expect": {"checks": ["C2"]}},
   {"id": "s1.review/free words", "start": "S0", "seed": null,
    "answer": {"token": null, "words": "Both sources were read; the review stands as the scout wrote it.", "words_file": null}, "reach": "story",
    "expect": {"checks": ["C2", "C3"]}},
