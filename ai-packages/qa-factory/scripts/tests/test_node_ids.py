@@ -860,7 +860,21 @@ def launch_and_streams() -> None:
     check_eq("_run: the process is the one checked_launch resolved", (launched.call_args.args[0], code, text), (["bare-name"], 0, "hello"))
 
 
+def collect_failed_note_rows() -> None:
+    """S5 (G4): the collect-failure note says "not verified" first; the error is cut at 400 as before (E1, E2)."""
+    import run_suite as RS
+    head = "node ids were not verified: collect failed: "
+    for label, err, want in (
+            ("short: kept whole", "banner", head + "banner"),
+            ("AT 400: kept whole", "x" * 400, head + "x" * 400),
+            ("401: cut to 400, no cut mark", "x" * 401, head + "x" * 400),
+            ("empty: no note", "", ""),
+            ("absent (None): no note", None, "")):
+        check_eq(f"S5 collect note, {label}", RS.collect_failed_note(err), want)
+
+
 def main() -> None:
+    collect_failed_note_rows()
     launch_and_streams()
     pytest_hostile()
     two_functions_one_battery()
