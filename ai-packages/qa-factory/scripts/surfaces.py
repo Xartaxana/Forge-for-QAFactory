@@ -217,6 +217,15 @@ def row_for_profile(cfg, profile: str):
     return fits[0] if fits and len({row["hands"] for row in fits}) == 1 else None
 
 
+def nobody_words(cfg, profile: str) -> str:
+    """The table row's words when `profile`'s surface is driven by nobody (`hands: none`), else "". The one reader of that
+    question (planning's conversion line and `manual_evidence.prepare_request` both ask it). A broken table is the module's ValueError."""
+    row = row_for_profile(cfg, profile)
+    if isinstance(row, dict) and row.get("hands") == "none":
+        return str(row.get("words") or "") or "nobody drives this surface"
+    return ""
+
+
 def is_device_row(row) -> bool:
     """True when a table row is driven through a device driver (`hands: driver`). The one expression of "a device stand" (AR-13)."""
     return isinstance(row, dict) and row.get("hands") == "driver"

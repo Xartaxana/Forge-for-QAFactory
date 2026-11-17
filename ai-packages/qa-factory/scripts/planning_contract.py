@@ -2275,7 +2275,7 @@ def _unconfirmed_words(root: Path, case_id: str, fact: dict) -> str:
 
 
 def _row_of_nobody(root: Path, profile: str, config: dict, lines: list, where: str, label, rid: str) -> str:
-    """The table's words for a profile whose surface nobody drives (`hands: none`), or "" (EP1-41f N-17; t-599 F-14).
+    """The table's words for a profile whose surface nobody drives (`hands: none`), or "" (t-599 F-14; U7 a2D1 reversed N-17).
 
     `config` is the caller's lazy cache (`cfg`, `read`): the project config is read once per pass. U7 a2D1: the caller converts
     such a row like any other and says the words (the agent role tries it by hand first). ERROR DIRECTION: any doubt (no
@@ -2288,9 +2288,7 @@ def _row_of_nobody(root: Path, profile: str, config: dict, lines: list, where: s
             config["cfg"] = manual_capture.load_config(root)[0]
         if config["cfg"] is not None:
             import surfaces
-            table_row = surfaces.row_for_profile(config["cfg"], profile)
-            if table_row is not None and table_row.get("hands") == "none":
-                return str(table_row.get("words") or "") or "nobody drives this surface"
+            return surfaces.nobody_words(config["cfg"], profile)
     except ValueError as exc:
         if config["cfg"] is not None:       # the table, not the config: a factory defect, said once
             lines.append(f"{where}: {label(rid)}: the factory's table of test surfaces could not be read "
@@ -2305,7 +2303,8 @@ def _manual_agent_pass(root: Path, rows, where: str, label, lines: list) -> bool
     that converted a row: the same words applied again change nothing and say nothing.
 
     Mutates `rows` in place (a row is replaced by its changed copy, never edited half-way) and appends the
-    lines the person reads: one per row that changed, one per obligation that stays as planned and why.
+    lines the person reads: one per row that changed (two for a converted `hands: none` row: the conversion and the surface's
+    words), one per obligation that stays as planned and why.
     Idempotent: an obligation that already says `manual-agent` is not touched, so the same words applied
     again change nothing. Reads the cases (`contract.case_index`) and the level table; writes nothing."""
     if not isinstance(rows, list):
