@@ -18,17 +18,21 @@ compares sha256 before and after, and only then reads the output. It prints the 
 the sha line and a last line `outcome: <word>`.
 
 Exit 0 `killed` (the test failed an assertion), 1 `survived` (the test passed), 2 `restore-mismatch` (sha256 after differs from
-before; wins over everything), 3 `invalid` (the mutant does not compile, the child timed out, the output was unreadable, or the
+before, or the restore write failed: the original bytes are then saved to a temp file outside the root and its path is printed;
+wins over everything), 3 `invalid` (the mutant does not compile, the child could not start, the child timed out, the output was
+unreadable, or the
 test file failed without an assertion: no `=== ` summary line or no FAIL line; pytest: collection error, usage error, no tests),
 64 a refusal before touching (nothing printed as an outcome). The runner may err toward `invalid` or `survived`, never toward
 `killed`. Whether a printed FAIL line is a real kill (an import error is not) is the reader's judgment.
 """
 import argparse
 import hashlib
+import os
 import re
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent.parent
@@ -44,7 +48,9 @@ class Refusal(Exception):
 
 class _Parser(argparse.ArgumentParser):
     def error(self, message):
-        raise Refusal(f"bad arguments: {message}; expected `<spec.json> <mutation id>` or `--root <dir> --id <name> --target <path> "
+        door = ("; a value that starts with '-' is written --old=<text> (or --new=<text>)"
+                if "expected one argument" in message else "")
+        raise Refusal(f"bad arguments: {message}{door}; expected `<spec.json> <mutation id>` or `--root <dir> --id <name> --target <path> "
                       f"--old <text> --new <text> --test <path> [--pytest]` (run with no arguments for the usage text)")
 
 
@@ -124,6 +130,29 @@ def _plan(args) -> dict:
             "original": original, "mutated": text.replace(old, new).encode("utf-8"), "text": text.replace(old, new)}
 
 
+def _restore(target: Path, original: bytes) -> tuple:
+    """Write the original bytes back: up to 3 tries, 0.2 s apart. Returns (error text, saved path); never raises.
+    When every try fails the bytes go to a temp file OUTSIDE the root, which is kept, and its path is returned."""
+    error = ""
+    for attempt in range(3):
+        try:
+            target.write_bytes(original)
+            return "", None
+        except OSError as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            if attempt < 2:
+                time.sleep(0.2)
+    saved = None
+    try:
+        handle, name = tempfile.mkstemp(prefix="mutate_once-original-", suffix=target.suffix)
+        with os.fdopen(handle, "wb") as sink:
+            sink.write(original)
+        saved = name
+    except OSError as exc:
+        error += f"; saving the original bytes also failed ({type(exc).__name__}: {exc})"
+    return error, saved
+
+
 def _classify(pytest_form: bool, code: int, lines: list) -> tuple:
     """(outcome, summary line, FAIL lines) of a finished child that was not timed out and whose output was read."""
     fails = [line for line in lines if line.startswith("FAIL")]
@@ -152,29 +181,37 @@ def run_probe(plan: dict) -> int:
             say("outcome: invalid")
             return 3
     argv = [sys.executable, "-B"] + (["-m", "pytest", "-q", "-p", "no:cacheprovider"] if plan["pytest"] else []) + [str(test)]
-    timed_out, code, started_ok = False, None, False
+    timed_out, code, started_ok, start_error = False, None, False, ""
+    restore_error, saved_path = "", None
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as scratch:
         out_path = Path(scratch) / "output.txt"
         proc = None
         try:
-            target.write_bytes(plan["mutated"])
-            with open(out_path, "wb") as sink:
-                proc = subprocess.Popen(argv, stdout=sink, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                        cwd=str(root) if plan["cwd"] else None)
-            started_ok = True
             try:
-                code = proc.wait(timeout=TIMEOUT_S)
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                proc.kill()
+                target.write_bytes(plan["mutated"])
+                with open(out_path, "wb") as sink:
+                    proc = subprocess.Popen(argv, stdout=sink, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                            cwd=str(root) if plan["cwd"] else None)
+                started_ok = True
+            except OSError as exc:                         # the child cannot start: invalid, after the restore and the hash check
+                start_error = f"{type(exc).__name__}: {exc}"
+            if started_ok:
+                try:
+                    code = proc.wait(timeout=TIMEOUT_S)
+                except subprocess.TimeoutExpired:
+                    timed_out = True
+                    proc.kill()
         finally:
-            target.write_bytes(plan["original"])          # at once: never waits for the child, a grandchild or the output
+            restore_error, saved_path = _restore(target, plan["original"])   # at once: never waits for the child or the output
         if proc is not None and timed_out:
             try:
                 proc.wait(REAP_S)
             except subprocess.TimeoutExpired:
                 pass
-        after = sha(target.read_bytes())
+        try:
+            after = sha(target.read_bytes())
+        except OSError:
+            after = "unreadable"
         output, unreadable = "", ""
         try:
             output = out_path.read_text(encoding="utf-8", errors="replace")
@@ -184,13 +221,17 @@ def run_probe(plan: dict) -> int:
     outcome, last, fails = _classify(plan["pytest"], code if code is not None else 0, lines)
     if timed_out:
         outcome, last = "invalid", f"timed out after {TIMEOUT_S} s, the child was killed and the target restored"
-    elif unreadable or not started_ok:
-        outcome, last = "invalid", f"the output file could not be read ({unreadable or 'the child did not start'})"
+    elif not started_ok:
+        outcome, last = "invalid", f"the child did not start ({start_error})"
+    elif unreadable:
+        outcome, last = "invalid", f"the output file could not be read ({unreadable})"
     say(f"--- {plan['id']}: {test.name} exit={code}; {last}; FAIL lines: {len(fails)}")
     for line in fails[:3]:
         say("    " + line[:160])
     say(f"    sha256 {target.name} before {before} after {after} equal={before == after}")
     if before != after:
+        if restore_error:
+            say(f"    restore failed: {restore_error}; the original bytes are in {saved_path}")
         say("outcome: restore-mismatch")
         return 2
     say(f"outcome: {outcome}")
