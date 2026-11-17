@@ -1188,7 +1188,7 @@ def test_state(entry: dict, report: dict, triage: dict, artifacts: Path | None =
     # `review_rejected` - rejected work is redone, unverified work is only not yet checked.
     if is_rejected(entry):
         return ("review_rejected", display)
-    if review not in {"approved", "approved_with_fixes", UNVERIFIED}:
+    if review not in C.CRITIC_VERDICTS:
         # A word the vocabulary does not hold is a defect of our own record (FR-19), never a
         # rejection the critic did not write. The backtick would break `check_delivery`'s
         # reading of "is `<state>`", so it goes with the whitespace.

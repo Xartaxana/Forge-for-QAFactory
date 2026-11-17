@@ -1151,6 +1151,19 @@ def a_red_run_does_not_also_ask_for_the_stamp() -> None:
             CS.instance_hold = was
         check_eq("M1 control: the same story with the predicate restored: the ordinary stamp reason, not the unestablished one",
                  ["step 8b" in r and "not checked" not in r for r in D.lifecycle_reasons(art)], [True])
+        # RD1-29 (E2, E12; AR-28, FR-59): a registry that cannot be read judges no word, so no per-case reason is computed from one -
+        # exactly ONE reason, before any case, never a silent "no lifecycle demand"
+        import gate_registry
+        import gate_template as GT
+        saved = list(GT._READ)
+        GT._READ[:] = [({"rows": "x"}, gate_registry.structural_error({"rows": "x"}))]
+        try:
+            said = D.lifecycle_reasons(art)
+            check_eq("RD1-29 E2: an unreadable registry -> exactly ONE reason", len(said), 1)
+            check("RD1-29 E2: ... its head is the lifecycle line and it names the registry",
+                  said[0].startswith("case lifecycle not checked: the gate registry cannot be read"), said[0])
+        finally:
+            GT._READ[:] = saved
     finally:
         cleanup(root)
 
