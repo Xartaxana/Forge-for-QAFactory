@@ -173,6 +173,79 @@ def tbw_t7a_a_sites() -> None:
         shutil.rmtree(scratch, ignore_errors=True)
 
 
+def tbw_t7a_b_sites() -> None:
+    """told-before-work T7a-B: every refusal of the plan, manifest and phase-json validators of `validate_artifacts.py` is
+    `refusal("validate_artifacts:<function>", <text>)` (the two phase-json files that have a row: `.<file>`), and its text is the
+    one it always was. ONE table, a row per id: the function is called on a file or value that breaks it, the first message is a
+    literal (the OLD file's output, byte for byte), its Record carries `check == <id>`, and the row of that id states the sentence
+    the Record prints (`expected`). Every message the call returns carries the id (one function, one requirement). The last row is
+    the control: a phase-json file with NO row stays a bare string."""
+    import stage_joints as SJ
+    scratch = ROOT / "scratch-t7a-b"
+    nl = chr(10)
+    dash = "—"
+    va = "automation-manifest.json"
+
+    def at(name: str, text: str) -> Path:
+        return write(scratch / name, text)
+    rem = "remedy must be an object {kind, where, change, restart?}"
+    rows = [
+        ("check_plan", "check_plan",
+         lambda e: V.check_plan(at("p1/test-plan.md", nl.join(["---", "created: 2099-01-01", "---", ""])), e),
+         f"test-plan.md: FORM {dash} required field 'task' is missing"),
+        ("check_plan_v0", "check_plan_v0", lambda e: V.check_plan_v0(at("p0/test-plan.md", "x" + nl), e),
+         f"test-plan.md: the '## Plan' table has no TS-n rows {dash} a plan with no rows is not a plan; add one row per check"),
+        ("check_manifest_v0", "check_manifest_v0",
+         lambda e: V.check_manifest_v0(at(f"m0/{va}", "{}"), {"unresolved": [{"case": "TC-1", "reason": "bogus"}]}, e),
+         f"{va}: TC-1 unresolved with reason 'bogus' {dash} use one of {list(C.UNRESOLVED_REASONS)} or deferred_by_decision:<gate>"),
+        ("check_manifest_invariants", "check_manifest_invariants",
+         lambda e: V.check_manifest_invariants(
+             Path(va), {"tests": [{"case": "TC-1", "instance_id": "i1"}, {"case": "TC-2", "instance_id": "i1"}]}, e),
+         f"{va}: two tests[] entries carry the instance id 'i1' {dash} one row per test. Rewrite the fragment with one entry per test "
+         "function/parameter and re-run `manifest_put.py --task <TICKET> --fragment <file>`; this file is not edited by hand"),
+        ("check_remedy_rows", "check_remedy_rows",
+         lambda e: V.check_remedy_rows(Path(va), [{"case": "TC-1", "remedy": "x"}], "unresolved[]", e),
+         f"{va}: unresolved[] TC-1: {rem}. The remedy is the fix this row found: {{kind, where, change, restart?}}, names only"),
+        ("check_self_fixes", "check_self_fixes",
+         lambda e: V.check_self_fixes(Path(va), {"self_fixes": [{"test": "t"}]}, e),
+         f"{va}: self_fixes[0] has no 'what' {dash} a repair without its proof that the product behaves to spec is an adjusted expectation"),
+        ("check_marker_in_file", "check_marker_in_file",
+         lambda e: V.check_marker_in_file(Path(va), str(at("t/test_x.py", "pass" + nl)), "MK-1", "TC-1", e),
+         f"{va}: TC-1 declares marker `MK-1`, but {scratch / 't' / 'test_x.py'} does not contain it {dash} the traceability marker "
+         "belongs in the test code, not only in this manifest. Add it to the test (a comment or the framework's case decorator) and "
+         "rewrite the entry; a marker only the manifest knows traces nothing."),
+        ("check_context_manifest_v0", "check_context_manifest_v0",
+         lambda e: V.check_context_manifest_v0(Path("context-manifest.json"), {"related": [5]}, e),
+         f"context-manifest.json: related[0] is not an object {dash} each entry is {{key, kind, source}}"),
+        ("check_phase_json.context-manifest.json", "check_phase_json.context-manifest.json",
+         lambda e: V.check_phase_json(at("c/context-manifest.json", "{}"), e),
+         "context-manifest.json: required key 'ticket' is missing"),
+        ("check_phase_json.triage.json", "check_phase_json.triage.json",
+         lambda e: V.check_phase_json(at("c/triage.json", "{}"), e), "triage.json: required key 'triage' is missing"),
+    ]
+    try:
+        for name, tail, provoke, old in rows:
+            rid = f"validate_artifacts:{tail}"
+            found: list = []
+            provoke(found)
+            check(f"t7a-b {name}: the call refuses", bool(found), "no message")
+            if not found:
+                continue
+            check_eq(f"t7a-b {name}: the first message is the old text, byte for byte", str(found[0]), old)
+            check_eq(f"t7a-b {name}: every message carries the id", sorted({getattr(r, "check", "") for r in found}), [rid])
+            row, why = SJ.row_for(rid)
+            told = SJ.told_text(row)[0] if row else ""
+            check(f"t7a-b {name}: its row states a sentence the refusal can print", bool(told), why)
+            check_eq(f"t7a-b {name}: the Record carries that sentence", found[0].expected, told)
+        bare: list = []
+        V.check_phase_json(at("c/automation-manifest.json", "{}"), bare)
+        check_eq("t7a-b check_phase_json (no row for the file): the message stays a bare string, text unchanged",
+                 [(type(m).__name__, str(m)) for m in bare],
+                 [("str", f"{va}: required key 'tests' is missing"), ("str", f"{va}: required key 'run_witness' is missing")])
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
 def main() -> None:
     try:
         # --- rule: understanding brief -------------------------------------------------------------
@@ -1423,6 +1496,7 @@ def main() -> None:
         finally:
             shutil.rmtree(story.parent, ignore_errors=True)
         tbw_t7a_a_sites()
+        tbw_t7a_b_sites()
     finally:
         cleanup(ROOT)
 
