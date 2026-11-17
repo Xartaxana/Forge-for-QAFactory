@@ -802,24 +802,24 @@ def check_plan(path: Path, errors: list) -> None:
     scale = G.impact_scale(cfg)
     for field in PLAN_REQUIRED:
         if field not in fm:
-            errors.append(f"{path.name}: FORM — required field '{field}' is missing")
+            errors.append(refusal("validate_artifacts:check_plan", f"{path.name}: FORM — required field '{field}' is missing"))
     lines = text.splitlines()
     rows = [r for r in G.table_rows(lines, PLAN_SCENARIOS_HEADING) if r and r[0].startswith("TS-")]
     if not rows:
-        errors.append(f"{path.name}: FORM — the \"{PLAN_SCENARIOS_HEADING}\" section has no TS-* rows")
+        errors.append(refusal("validate_artifacts:check_plan", f"{path.name}: FORM — the \"{PLAN_SCENARIOS_HEADING}\" section has no TS-* rows"))
     smoke = 0
     by_class: dict = {}
     for cells in rows:
         tsid = cells[0]
         if len(cells) < 8:
             errors.append(
-                f"{path.name}: {tsid}: the row is shorter than the risk-map form "
-                "(TS · R · what can go wrong · impact · priority · experiment · observation · basis · …)"
+                refusal("validate_artifacts:check_plan", f"{path.name}: {tsid}: the row is shorter than the risk-map form "
+                "(TS · R · what can go wrong · impact · priority · experiment · observation · basis · …)")
             )
             continue
         r_cell, risk, impact, prio, experiment, observation, basis = cells[1:8]
         if not all(G.REQ_ID_RE.match(x) for x in G.parse_inline_list(r_cell)) or not r_cell:
-            errors.append(f"{path.name}: {tsid}: the R column '{r_cell}' — register R-ids are required")
+            errors.append(refusal("validate_artifacts:check_plan", f"{path.name}: {tsid}: the R column '{r_cell}' — register R-ids are required"))
         if risk == G.SMOKE:
             smoke += 1
         else:
@@ -829,31 +829,31 @@ def check_plan(path: Path, errors: list) -> None:
             if door is not None:
                 # `new:<word> -- <why> @ <place>`: the form is code's, the word is the stage critic's (F-3 (b))
                 bad = C.open_word_errors(door, sorted(classes), "defect_class")
-                errors.extend(f"{path.name}: {tsid}: \"what can go wrong\" {problem}" for problem in bad)
+                errors.extend(refusal("validate_artifacts:check_plan", f"{path.name}: {tsid}: \"what can go wrong\" {problem}") for problem in bad)
                 if not bad:
                     by_class[door.strip()] = by_class.get(door.strip(), 0) + 1
             elif not m or (cls not in classes and not cls.startswith("regression:")):
                 errors.append(
-                    f"{path.name}: {tsid}: \"what can go wrong\" '{risk}' — needs `<class> @ <place>` "
+                    refusal("validate_artifacts:check_plan", f"{path.name}: {tsid}: \"what can go wrong\" '{risk}' — needs `<class> @ <place>` "
                     f"with a class from {sorted(classes)} | regression:BUG-NNN, or `smoke`, "
-                    "or a new class as `new: <word> -- <why> @ <place>`"
+                    "or a new class as `new: <word> -- <why> @ <place>`")
                 )
             else:
                 by_class[cls] = by_class.get(cls, 0) + 1
         if impact not in scale:
-            errors.append(f"{path.name}: {tsid}: impact '{impact}' outside the scale {sorted(scale)}")
+            errors.append(refusal("validate_artifacts:check_plan", f"{path.name}: {tsid}: impact '{impact}' outside the scale {sorted(scale)}"))
         elif prio != scale[impact]["priority"]:
             errors.append(
-                f"{path.name}: {tsid}: priority '{prio}' does not match the one derived from impact '{impact}' -> "
-                f"'{scale[impact]['priority']}' (priority is derived, not assigned)"
+                refusal("validate_artifacts:check_plan", f"{path.name}: {tsid}: priority '{prio}' does not match the one derived from impact '{impact}' -> "
+                f"'{scale[impact]['priority']}' (priority is derived, not assigned)")
             )
         if not observation or observation.lower() in ("-", "—"):
-            errors.append(f"{path.name}: {tsid}: empty \"distinguishing observation\" — how do we tell a failure from the norm via an independent channel?")
+            errors.append(refusal("validate_artifacts:check_plan", f"{path.name}: {tsid}: empty \"distinguishing observation\" — how do we tell a failure from the norm via an independent channel?"))
         if not G.ORACLE_RE.match(basis):
-            errors.append(f"{path.name}: {tsid}: basis '{basis}' is not per the oracle grammar (requirement:R-n | invariant: | consistency: | history: | impact: | external:)")
+            errors.append(refusal("validate_artifacts:check_plan", f"{path.name}: {tsid}: basis '{basis}' is not per the oracle grammar (requirement:R-n | invariant: | consistency: | history: | impact: | external:)"))
     plan_profile = str(fm.get("profile", "feature"))
     if plan_profile not in G.PLAN_PROFILES:
-        errors.append(f"{path.name}: profile '{plan_profile}' outside {sorted(G.PLAN_PROFILES)}")
+        errors.append(refusal("validate_artifacts:check_plan", f"{path.name}: profile '{plan_profile}' outside {sorted(G.PLAN_PROFILES)}"))
     if plan_profile == "parity":
         # V1, DORMANT IN v0: the v0 test-plan carries no `profile` key, so this branch never runs
         # (the default is "feature"); parity testing and the "before" snapshot are v1.
@@ -863,27 +863,27 @@ def check_plan(path: Path, errors: list) -> None:
                 and not re.match(r"^(history|invariant):", c[7])]
         if weak and len(weak) > len(rows) // 2:
             errors.append(
-                f"{path.name}: FORM — profile parity, but {len(weak)} of {len(rows)} rows have a basis other than history:/invariant: "
-                f"({', '.join(weak[:5])}…): a parity row compares the \"before\" snapshot with \"after\" via an independent channel"
+                refusal("validate_artifacts:check_plan", f"{path.name}: FORM — profile parity, but {len(weak)} of {len(rows)} rows have a basis other than history:/invariant: "
+                f"({', '.join(weak[:5])}…): a parity row compares the \"before\" snapshot with \"after\" via an independent channel")
             )
     reg_total = str(fm.get("requirements_total", "")).strip()
     if reg_total.isdigit() and smoke > int(reg_total):
         errors.append(
-            f"{path.name}: FORM — {smoke} smoke rows exceed the number of requirements {reg_total}: "
-            "at most one smoke per requirement, the rest must fail on a defect"
+            refusal("validate_artifacts:check_plan", f"{path.name}: FORM — {smoke} smoke rows exceed the number of requirements {reg_total}: "
+            "at most one smoke per requirement, the rest must fail on a defect")
         )
     fm_smoke = str(fm.get("smoke", "")).strip()
     if fm_smoke.isdigit() and int(fm_smoke) != smoke:
-        errors.append(f"{path.name}: frontmatter smoke={fm_smoke}, the table has {smoke} smoke rows — recount by fact")
+        errors.append(refusal("validate_artifacts:check_plan", f"{path.name}: frontmatter smoke={fm_smoke}, the table has {smoke} smoke rows — recount by fact"))
     if reg_total.isdigit() and int(reg_total) >= 5 and rows and len(by_class) == 1 and smoke == 0:
         errors.append(
-            f"{path.name}: FORM — all {len(rows)} rows are of one class {list(by_class)} against {reg_total} requirements: "
-            "a monoclass is a sign of vacuum hypotheses; set confidence: low and name at the gate which classes are excluded and why"
+            refusal("validate_artifacts:check_plan", f"{path.name}: FORM — all {len(rows)} rows are of one class {list(by_class)} against {reg_total} requirements: "
+            "a monoclass is a sign of vacuum hypotheses; set confidence: low and name at the gate which classes are excluded and why")
         )
     if not G.section_present(lines, PLAN_SEAMS_HEADING):
         errors.append(
-            f"{path.name}: FORM — no \"{PLAN_SEAMS_HEADING}\" section (for every seam in the register's seams_touched — a row or an explicit N/A; "
-            "no seams — a section with a single line \"no seams found: <the register's seams_search>\")"
+            refusal("validate_artifacts:check_plan", f"{path.name}: FORM — no \"{PLAN_SEAMS_HEADING}\" section (for every seam in the register's seams_touched — a row or an explicit N/A; "
+            "no seams — a section with a single line \"no seams found: <the register's seams_search>\")")
         )
     # Roll call against the register: every R — in a plan row or in the na_requirements list.
     task = str(fm.get("task", ""))
@@ -897,8 +897,8 @@ def check_plan(path: Path, errors: list) -> None:
         orphan = sorted(known - covered - na, key=lambda s: int(s.split("-")[1]))
         if orphan:
             errors.append(
-                f"{path.name}: FORM — requirements {orphan} without a plan row and without na_requirements — "
-                "every R gets a scenario or an explicit N/A with a reason"
+                refusal("validate_artifacts:check_plan", f"{path.name}: FORM — requirements {orphan} without a plan row and without na_requirements — "
+                "every R gets a scenario or an explicit N/A with a reason")
             )
 
 
@@ -911,8 +911,8 @@ def check_ptr_readiness(path: Path, lines: list, errors: list) -> None:
         return
     if not G.section_present(lines, PTR_READINESS_HEADING):
         errors.append(
-            f"{path.name}: FORM — the task has a requirements register, but there is no \"{PTR_READINESS_HEADING}\" section "
-            "(every R: verified / not verified / deferred by design / deferred by decision + evidence or a reason)"
+            refusal("validate_artifacts:check_ptr_readiness", f"{path.name}: FORM — the task has a requirements register, but there is no \"{PTR_READINESS_HEADING}\" section "
+            "(every R: verified / not verified / deferred by design / deferred by decision + evidence or a reason)")
         )
         return
     rows = G.table_rows(lines, PTR_READINESS_HEADING)
@@ -922,10 +922,10 @@ def check_ptr_readiness(path: Path, lines: list, errors: list) -> None:
             seen[cells[0]] = cells[1]
     missing = sorted(known - set(seen), key=lambda s: int(s.split("-")[1]))
     if missing:
-        errors.append(f"{path.name}: FORM — requirements {missing} without a row in \"{PTR_READINESS_HEADING}\": an absent row reads as a verified one")
+        errors.append(refusal("validate_artifacts:check_ptr_readiness", f"{path.name}: FORM — requirements {missing} without a row in \"{PTR_READINESS_HEADING}\": an absent row reads as a verified one"))
     for rid, status in seen.items():
         if status not in G.PTR_REQ_STATUSES:
-            errors.append(f"{path.name}: FORM — {rid}: status '{status}' outside {sorted(G.PTR_REQ_STATUSES)}")
+            errors.append(refusal("validate_artifacts:check_ptr_readiness", f"{path.name}: FORM — {rid}: status '{status}' outside {sorted(G.PTR_REQ_STATUSES)}"))
 
 
 def check_escape_ledger(path: Path, errors: list) -> None:
@@ -1094,9 +1094,9 @@ def check_report_coverage(path: Path, errors: list) -> None:
             break
     if start is None:
         errors.append(
-            f"{path.name}: PTR without a \"{PTR_COVERAGE_HEADING}\" section — a missing check "
+            refusal("validate_artifacts:check_report_coverage", f"{path.name}: PTR without a \"{PTR_COVERAGE_HEADING}\" section — a missing check "
             "reads as a passed one; enumerate ALL levels/channels with statuses "
-            f"({'/'.join(PTR_STATUS_MARKERS)})"
+            f"({'/'.join(PTR_STATUS_MARKERS)})")
         )
         return
     end = len(lines)
@@ -1111,8 +1111,8 @@ def check_report_coverage(path: Path, errors: list) -> None:
     )
     if not has_status_row:
         errors.append(
-            f"{path.name}: the \"{PTR_COVERAGE_HEADING}\" section is empty — not a single table "
-            f"row with a status ({'/'.join(PTR_STATUS_MARKERS)}); enumerate ALL levels/channels"
+            refusal("validate_artifacts:check_report_coverage", f"{path.name}: the \"{PTR_COVERAGE_HEADING}\" section is empty — not a single table "
+            f"row with a status ({'/'.join(PTR_STATUS_MARKERS)}); enumerate ALL levels/channels")
         )
     check_ptr_readiness(path, lines, errors)
 
@@ -1135,10 +1135,10 @@ def check_test_report(path: Path, errors: list, notes: list | None = None) -> No
             fragment = path.parent / 'work' / 'delivery-summary.md'
             carrier = fragment.read_text(encoding='utf-8-sig') if fragment.exists() else ''
             if render(summary).strip() not in carrier:
-                errors.append('STALE_REPORT_SUMMARY: regenerate work/delivery-summary.md '
-                              '(delivery_summary.py --task-root <story>)')
+                errors.append(refusal("validate_artifacts:check_test_report", 'STALE_REPORT_SUMMARY: regenerate work/delivery-summary.md '
+                              '(delivery_summary.py --task-root <story>)'))
     except (OSError, ValueError) as exc:
-        errors.append('REPORT_SUMMARY_UNREADABLE: ' + str(exc))
+        errors.append(refusal("validate_artifacts:check_test_report", 'REPORT_SUMMARY_UNREADABLE: ' + str(exc)))
     if is_legacy_report(path):
         check_report_coverage(path, errors)
         check_report_ledger_and_readiness(path, errors)
@@ -1176,12 +1176,12 @@ def check_legacy_report_sections(path: Path, errors: list) -> None:
     seen = [ln for ln in lines if ln in LEGACY_REPORT_SECTIONS]
     for section in LEGACY_REPORT_SECTIONS:
         if section not in seen:
-            errors.append(f"{path.name}: section '{section}' is missing - the gate-B message is "
-                          "assembled from these sections in this order")
+            errors.append(refusal("validate_artifacts:check_legacy_report_sections", f"{path.name}: section '{section}' is missing - the gate-B message is "
+                          "assembled from these sections in this order"))
     ordered = [x for x in LEGACY_REPORT_SECTIONS if x in seen]
     if seen != ordered:
-        errors.append(f"{path.name}: sections are out of order {seen} - expected {ordered}; "
-                      "product problems come before anything about our own tests")
+        errors.append(refusal("validate_artifacts:check_legacy_report_sections", f"{path.name}: sections are out of order {seen} - expected {ordered}; "
+                      "product problems come before anything about our own tests"))
 
 
 def _report_headings(text: str) -> list:
@@ -1233,17 +1233,17 @@ def check_report_sections(path: Path, errors: list) -> None:
             continue
         if section in G.REPORT_SECTIONS_WITH_BLOCKS and not marked:
             continue  # a report of the generation before the blocks is not owed the new sections
-        errors.append(f"{path.name}: section '{section}' is missing - the report is assembled "
+        errors.append(refusal("validate_artifacts:check_report_sections", f"{path.name}: section '{section}' is missing - the report is assembled "
                       "from these sections in this order, and an absent one reads as nothing "
-                      "to report")
+                      "to report"))
     ordered = [x for x in G.REPORT_SECTIONS if x in seen]
     if seen != ordered:
-        errors.append(f"{path.name}: sections are out of order {seen} - expected {ordered}; "
-                      "what is proven and what is broken come before anything about ourselves")
+        errors.append(refusal("validate_artifacts:check_report_sections", f"{path.name}: sections are out of order {seen} - expected {ordered}; "
+                      "what is proven and what is broken come before anything about ourselves"))
     head = text.split("\n## ", 1)[0]
     if not READY_WORD_RE.search(head):
-        errors.append(f"{path.name}: the verdict and its `delivery_ready:` line belong above "
-                      "the first section - a person who reads one screen must have the answer")
+        errors.append(refusal("validate_artifacts:check_report_sections", f"{path.name}: the verdict and its `delivery_ready:` line belong above "
+                      "the first section - a person who reads one screen must have the answer"))
 
 
 def check_report_traceability(path: Path, errors: list) -> None:
@@ -1262,8 +1262,8 @@ def check_report_traceability(path: Path, errors: list) -> None:
     missing = [r for r in known
                if not re.search(rf"(?<![\w-]){re.escape(r)}(?![\w-])", appendix)]
     if missing:
-        errors.append(f"{path.name}: requirements {missing} are in the register and in no row "
-                      "of the appendix - paste `traceability.py --render`, do not retype it")
+        errors.append(refusal("validate_artifacts:check_report_traceability", f"{path.name}: requirements {missing} are in the register and in no row "
+                      "of the appendix - paste `traceability.py --render`, do not retype it"))
     try:
         cases = C.case_index(task)
     except (OSError, ValueError):
@@ -1271,8 +1271,8 @@ def check_report_traceability(path: Path, errors: list) -> None:
     absent = sorted(key for key in cases
                     if not re.search(rf"(?<![\w-]){re.escape(key)}(?![\w-])", appendix))
     if absent:
-        errors.append(f"{path.name}: cases {absent} are in the plan and in no row of the "
-                      "appendix - run `traceability.py --check` before handing the report over")
+        errors.append(refusal("validate_artifacts:check_report_traceability", f"{path.name}: cases {absent} are in the plan and in no row of the "
+                      "appendix - run `traceability.py --check` before handing the report over"))
 
 
 def check_report_left_with_you(path: Path, errors: list) -> None:
@@ -1289,14 +1289,14 @@ def check_report_left_with_you(path: Path, errors: list) -> None:
         flat = " ".join(item.split())
         label = flat[:60]
         if not C.REQ_ID_RE.search(flat) or not C.case_ids(flat, cfg=cfg):
-            errors.append(f"{path.name}: \"Left with you\" item {index} ({label}) names no "
-                          "R-n and a case id - a person cannot look up an item that belongs to nothing")
+            errors.append(refusal("validate_artifacts:check_report_left_with_you", f"{path.name}: \"Left with you\" item {index} ({label}) names no "
+                          "R-n and a case id - a person cannot look up an item that belongs to nothing"))
         if not all(word in flat for word in G.REPORT_LEFT_WITH_YOU_REQUIRED):
-            errors.append(f"{path.name}: \"Left with you\" item {index} ({label}) has no "
-                          "\"To check:\" - say what would be observed, in words")
+            errors.append(refusal("validate_artifacts:check_report_left_with_you", f"{path.name}: \"Left with you\" item {index} ({label}) has no "
+                          "\"To check:\" - say what would be observed, in words"))
         if not any(word in flat for word in G.REPORT_LEFT_WITH_YOU_ONE_OF):
-            errors.append(f"{path.name}: \"Left with you\" item {index} ({label}) has neither "
-                          "\"Needed:\" nor \"How:\" - an item with no way to do it is a wish")
+            errors.append(refusal("validate_artifacts:check_report_left_with_you", f"{path.name}: \"Left with you\" item {index} ({label}) has neither "
+                          "\"Needed:\" nor \"How:\" - an item with no way to do it is a wish"))
 
 
 def _left_with_you_items(text: str) -> list:
@@ -1357,18 +1357,18 @@ def check_report_test_marks(path: Path, errors: list) -> None:
     text = path.read_text(encoding="utf-8", errors="replace")
     for line in _report_section_body(text, G.PROVEN_HEADING):
         if line.startswith("- ") and not any(mark in line for mark in L.REAL_OR_MOCK_MARKS):
-            errors.append(f"{path.name}: a test line under \"Proven\" says neither `{L.REAL_CODE}` nor `{L.MOCK_LEAD}` ({line[:60].strip()}) - "
+            errors.append(refusal("validate_artifacts:check_report_test_marks", f"{path.name}: a test line under \"Proven\" says neither `{L.REAL_CODE}` nor `{L.MOCK_LEAD}` ({line[:60].strip()}) - "
                           f"whether a result came from real code or from a mock must always be visible; "
-                          f"`report_facts.py --task {path.parent.name} --write` renders the mark on that line")
+                          f"`report_facts.py --task {path.parent.name} --write` renders the mark on that line"))
     for index, item in enumerate(_left_with_you_items(text), start=1):
         flat = " ".join(item.split())
         for token in dict.fromkeys(re.findall(r"`([^`]+)`", flat)):
             for row in tests:
                 words = " ".join(str(row.get("real_or_mock") or "").split())
                 if words and token in _test_names(row) and words not in flat:
-                    errors.append(f"{path.name}: \"Left with you\" item {index} names test `{token}` without its mark - the ledger says "
+                    errors.append(refusal("validate_artifacts:check_report_test_marks", f"{path.name}: \"Left with you\" item {index} names test `{token}` without its mark - the ledger says "
                                   f"`{words}`; copy `real_or_mock` of `{token}` from work/ledger.json into that item, word for word "
-                                  "(your own edit of the line: a regenerate does not add it)")
+                                  "(your own edit of the line: a regenerate does not add it)"))
 
 
 def without_quoted_words(text: str) -> str:
@@ -1413,10 +1413,10 @@ def check_report_forbidden(path: Path, errors: list) -> None:
     body = without_quoted_words(body)
     for shape, key in REPORT_ID_SHAPES:
         if shape.search(body):
-            errors.append(f"{path.name}: the report carries {G.REPORT_FORBIDDEN[key]}")
+            errors.append(refusal("validate_artifacts:check_report_forbidden", f"{path.name}: the report carries {G.REPORT_FORBIDDEN[key]}"))
     for match in G.REPORT_BARE_DECISION_RE.finditer(body):
-        errors.append(f"{path.name}: `{match.group(0)}` stands with no decision text beside it "
-                      "- quote the words the person said, the id alone says nothing")
+        errors.append(refusal("validate_artifacts:check_report_forbidden", f"{path.name}: `{match.group(0)}` stands with no decision text beside it "
+                      "- quote the words the person said, the id alone says nothing"))
         break
 
 
@@ -1448,8 +1448,8 @@ def check_report_human_text(path: Path, errors: list) -> None:
     for item in human_text.section_problems(text, G.FACTORY_DEFECTS_HEADING):
         if item.get("rule") in wording:
             continue   # a phrase about a tool run: the scribe's wording, not a factory id (X7-5, AR-29)
-        errors.append(f"{path.name}, Factory defects: `{str(item['found']).strip('`')[:80]}` — {item['why']}. "
-                      "Say what went wrong in words; the id or state stays in the ledger")
+        errors.append(refusal("validate_artifacts:check_report_human_text", f"{path.name}, Factory defects: `{str(item['found']).strip('`')[:80]}` — {item['why']}. "
+                      "Say what went wrong in words; the id or state stays in the ledger"))
 
 
 def check_report_gate_b(path: Path, errors: list) -> None:
@@ -1465,15 +1465,15 @@ def check_report_gate_b(path: Path, errors: list) -> None:
     words = " ".join(str((((pipeline.get("gates") or {}).get("B") or {})
                           .get("authorization_source") or "")).split())
     if words and words not in section:
-        errors.append(f"{path.name}: \"Decided at gate B\" does not quote "
+        errors.append(refusal("validate_artifacts:check_report_gate_b", f"{path.name}: \"Decided at gate B\" does not quote "
                       "gates.B.authorization_source verbatim - paste "
-                      "`traceability.decided_at_gate_b(pipeline)`, do not restate it")
+                      "`traceability.decided_at_gate_b(pipeline)`, do not restate it"))
     for entry in C.live_stage_overrides(pipeline, ("S8", "S9")):      # the same live list the section is written from (GW1-1)
         decision = " ".join(str(entry.get("decision") or "").split())
         if decision and decision not in section:
-            errors.append(f"{path.name}: the {entry.get('stage')} decision \"{decision[:50]}\" "
+            errors.append(refusal("validate_artifacts:check_report_gate_b", f"{path.name}: the {entry.get('stage')} decision \"{decision[:50]}\" "
                           "is not in \"Decided at gate B\" - every word the person said at or "
-                          "after the gate is in the report they get")
+                          "after the gate is in the report they get"))
 
 
 def report_is_unmarked(path: Path) -> bool:
@@ -1510,33 +1510,33 @@ def check_report_blocks(path: Path, errors: list, notes: list | None = None) -> 
     name = path.name
     door = G.REPORT_BLOCKS_DOOR.replace("<T>", path.parent.name)
     for problem in G.marker_problems(text):
-        errors.append(f"{name}: {problem}")
+        errors.append(refusal("validate_artifacts:check_report_blocks", f"{name}: {problem}"))
     seen = G.blocks_seen(text)
     # the loop variable is `block_name`, not `block`: `block` is the hook's refusal function imported above
     for block_name in G.REPORT_BLOCKS:
         if block_name in seen or block_name in G.REPORT_BLOCKS_AFTER_GATE_B or block_name in G.REPORT_BLOCKS_WHEN_PRESENT:
             continue
         what = G.REPORT_BLOCK_HEADINGS.get(block_name) or "the verdict"
-        errors.append(f"{name}: the code-owned block `{block_name}` ({what}) is missing - expected "
-                      f"`<!-- facts:{block_name} -->` ... `<!-- /facts:{block_name} -->`; run `{door}` to render it")
+        errors.append(refusal("validate_artifacts:check_report_blocks", f"{name}: the code-owned block `{block_name}` ({what}) is missing - expected "
+                      f"`<!-- facts:{block_name} -->` ... `<!-- /facts:{block_name} -->`; run `{door}` to render it"))
     for block_name, (_start, _end, body) in G.blocks_found(text).items():
         expected = G.REPORT_BLOCK_HEADINGS.get(block_name, "")
         headings = G.heading_lines(body)
         first = next((ln.strip() for ln in body.splitlines() if ln.strip()), "")
         if not expected:
             if headings:
-                errors.append(f"{name}: block `{block_name}` holds the section heading `{headings[0]}` - the verdict "
-                              "stands above the first section; move the heading out of the block")
+                errors.append(refusal("validate_artifacts:check_report_blocks", f"{name}: block `{block_name}` holds the section heading `{headings[0]}` - the verdict "
+                              "stands above the first section; move the heading out of the block"))
         elif expected.startswith("### "):
             # a block INSIDE a section (`left-gate-b`, `regression`, t-305 N8): it opens with its own `### ` line and holds
             # no `## ` section of its own - the section's heading is the scribe's, outside every block
             if not first.startswith(expected) or headings:
-                errors.append(f"{name}: block `{block_name}` must open with its own heading line `{expected}` and hold "
-                              f"no section heading (found {headings or 'none'}); run `{door}` to render it again")
+                errors.append(refusal("validate_artifacts:check_report_blocks", f"{name}: block `{block_name}` must open with its own heading line `{expected}` and hold "
+                              f"no section heading (found {headings or 'none'}); run `{door}` to render it again"))
         elif not first.startswith(expected) or len(headings) != 1:
-            errors.append(f"{name}: block `{block_name}` must open with its own heading line `{expected}` and hold "
+            errors.append(refusal("validate_artifacts:check_report_blocks", f"{name}: block `{block_name}` must open with its own heading line `{expected}` and hold "
                           f"no other section (found {headings or 'no heading'}) - the heading carries the count "
-                          f"code owns; run `{door}` to render it again")
+                          f"code owns; run `{door}` to render it again"))
     pipeline = C.load_json(path.parent / "pipeline.json")
     gates = pipeline.get("gates") if isinstance(pipeline, dict) else None
     gates = gates if isinstance(gates, dict) else {}
@@ -1548,12 +1548,12 @@ def check_report_blocks(path: Path, errors: list, notes: list | None = None) -> 
     if any(h.startswith(G.GATE_B_HEADING) for h in G.heading_lines(text)):
         section = " ".join("\n".join(_report_section_body(text, G.GATE_B_HEADING)).split())
         if not gate_b_has_words(pipeline):
-            errors.append(f"{name}: \"Decided at gate B\" stands in a report whose gate B has no recorded words - "
+            errors.append(refusal("validate_artifacts:check_report_blocks", f"{name}: \"Decided at gate B\" stands in a report whose gate B has no recorded words - "
                           "the section exists only after the gate, and never holds another gate's content; "
-                          f"leave it out until gate B is decided (`{door}` renders it only then)")
+                          f"leave it out until gate B is decided (`{door}` renders it only then)"))
         elif words("A") and words("A") in section and words("A") not in words("B"):
-            errors.append(f"{name}: \"Decided at gate B\" quotes gate A's words - under a gate's heading "
-                          "stand only that gate's own recorded words; gate A's belong under \"Decided at gate A\"")
+            errors.append(refusal("validate_artifacts:check_report_blocks", f"{name}: \"Decided at gate B\" quotes gate A's words - under a gate's heading "
+                          "stand only that gate's own recorded words; gate A's belong under \"Decided at gate A\""))
 
 
 def check_pipeline(path: Path, errors: list) -> None:
@@ -1625,9 +1625,9 @@ def check_run_report_empty(path: Path, data: dict, errors: list) -> None:
     if data.get("env_blocked") or data.get("manual_checks") or data.get("manual_skipped"):
         return
     errors.append(
-        f"{path.name}: an empty run with env_preflight=pass and without blocked/manual — "
+        refusal("validate_artifacts:check_run_report_empty", f"{path.name}: an empty run with env_preflight=pass and without blocked/manual — "
         "\"we ran nothing\" does not mean \"clean\": return blocked with a reason or "
-        "explain where the cases went"
+        "explain where the cases went")
     )
 
 
@@ -1639,8 +1639,8 @@ def check_run_report_head(path: Path, data: dict, errors: list) -> None:
     valid = (isinstance(head, str) and head.strip() != "") or (isinstance(head, dict) and len(head) > 0)
     if not valid:
         errors.append(
-            f"{path.name}: run-report without head: the evidence is not bound to a sha — "
-            "runs are only comparable on one head; without it the result goes stale instantly"
+            refusal("validate_artifacts:check_run_report_head", f"{path.name}: run-report without head: the evidence is not bound to a sha — "
+            "runs are only comparable on one head; without it the result goes stale instantly")
         )
 
 
@@ -1711,10 +1711,19 @@ def check_nfr_report(path: Path, data: dict, errors: list) -> None:
 
 def check_phase_json(path: Path, errors: list, notes: list | None = None) -> None:
     required = PHASE_JSON_KEYS.get(path.name)
+
+    def told(text: str):
+        """The two artifacts whose requirement has a row carry its id (a literal each); every other file's refusal stays bare:
+        a code writer writes it and no row states its requirement (E6, code writer, no row)."""
+        if path.name == "context-manifest.json":
+            return refusal("validate_artifacts:check_phase_json.context-manifest.json", text)
+        if path.name == "triage.json":
+            return refusal("validate_artifacts:check_phase_json.triage.json", text)
+        return text
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception as e:
-        errors.append(f"{path.name}: broken JSON ({e})")
+        errors.append(told(f"{path.name}: broken JSON ({e})"))
         return
     if re.match(r"^nfr-[a-z]+\.json$", path.name) and isinstance(data, dict):
         check_nfr_report(path, data, errors)
@@ -1728,7 +1737,7 @@ def check_phase_json(path: Path, errors: list, notes: list | None = None) -> Non
                 required = [k for k in required if k != "run_witness"]
         for key in required:
             if key not in data:
-                errors.append(f"{path.name}: required key '{key}' is missing")
+                errors.append(told(f"{path.name}: required key '{key}' is missing"))
     if path.name == "run-report.json" and isinstance(data, dict):
         check_run_report_empty(path, data, errors)
         check_run_report_head(path, data, errors)
@@ -1841,8 +1850,8 @@ def collect_notes(path: Path) -> list:
 def check_plan_v0(path: Path, errors: list) -> None:
     rows = C.parse_plan(path)
     if not rows:
-        errors.append(f"{path.name}: the '## Plan' table has no TS-n rows — a plan with no rows is "
-                      "not a plan; add one row per check")
+        errors.append(refusal("validate_artifacts:check_plan_v0", f"{path.name}: the '## Plan' table has no TS-n rows — a plan with no rows is "
+                      "not a plan; add one row per check"))
         return
     antipatterns = detector_rows(path, "plan_antipatterns")
     classes = G.defect_classes(G.load_overrides(CFG_PATH))
@@ -1858,11 +1867,11 @@ def check_plan_v0(path: Path, errors: list) -> None:
     for row in rows:
         ts = row["ts"]
         if ts in seen:
-            errors.append(f"{path.name}: {ts} appears twice — one row, one TS id")
+            errors.append(refusal("validate_artifacts:check_plan_v0", f"{path.name}: {ts} appears twice — one row, one TS id"))
         seen.add(ts)
         if not row.get("requirements"):
-            errors.append(f"{path.name}: {ts}: the R column names no register requirement — "
-                          "every row traces to at least one R-n")
+            errors.append(refusal("validate_artifacts:check_plan_v0", f"{path.name}: {ts}: the R column names no register requirement — "
+                          "every row traces to at least one R-n"))
         # The v0 plan carried no check on its own defect class, so `regression @ <place>` — a
         # class the closed list only has as `regression:BUG-NNN` — passed S3 untouched and the
         # case designer inherited it (TP1-15045). Every case inherits this cell verbatim,
@@ -1874,59 +1883,59 @@ def check_plan_v0(path: Path, errors: list) -> None:
             cls = (m.group("cls") or "") if m else ""
             if door is not None:
                 # `new:<word> -- <why> @ <place>`: the form is code's, the word is the stage critic's (F-3 (b))
-                errors.extend(f"{path.name}: {ts}: defect hypothesis {problem}"
+                errors.extend(refusal("validate_artifacts:check_plan_v0", f"{path.name}: {ts}: defect hypothesis {problem}")
                               for problem in C.open_word_errors(door, sorted(classes), "defect_class"))
             elif not m or (cls not in classes and not cls.startswith("regression:")):
                 errors.append(
-                    f"{path.name}: {ts}: defect hypothesis '{hypothesis}' — needs `<class> @ <place>` "
+                    refusal("validate_artifacts:check_plan_v0", f"{path.name}: {ts}: defect hypothesis '{hypothesis}' — needs `<class> @ <place>` "
                     f"with a class from {sorted(classes)} | regression:BUG-NNN, or `smoke`, or a new class as "
                     "`new: <word> -- <why> @ <place>`. Every "
-                    "case of this row inherits the class verbatim.")
+                    "case of this row inherits the class verbatim."))
         disposition = row.get("disposition", "")
         if disposition not in C.DISPOSITIONS:
-            errors.append(f"{path.name}: {ts}: disposition '{disposition}' outside "
-                          f"{list(C.DISPOSITIONS)} — use one of them")
+            errors.append(refusal("validate_artifacts:check_plan_v0", f"{path.name}: {ts}: disposition '{disposition}' outside "
+                          f"{list(C.DISPOSITIONS)} — use one of them"))
         elif not row.get("reason"):
-            errors.append(f"{path.name}: {ts}: disposition `{disposition}` with no reason — "
-                          "write it as `disposition` - <one clause saying why>")
+            errors.append(refusal("validate_artifacts:check_plan_v0", f"{path.name}: {ts}: disposition `{disposition}` with no reason — "
+                          "write it as `disposition` - <one clause saying why>"))
         if not row.get("observable_source"):
-            errors.append(f"{path.name}: {ts}: the observable '{row.get('observable', '')}' names no "
-                          f"source — prefix it with one of {list(C.OBSERVABLE_SOURCES)}")
+            errors.append(refusal("validate_artifacts:check_plan_v0", f"{path.name}: {ts}: the observable '{row.get('observable', '')}' names no "
+                          f"source — prefix it with one of {list(C.OBSERVABLE_SOURCES)}"))
         oracle = row.get("oracle", "")
         if oracle and not any(oracle.startswith(p) for p in C.ORACLE_PREFIXES):
-            errors.append(f"{path.name}: {ts}: oracle '{oracle}' is not from "
-                          f"{list(C.ORACLE_PREFIXES)} — name what makes the expected value expected")
+            errors.append(refusal("validate_artifacts:check_plan_v0", f"{path.name}: {ts}: oracle '{oracle}' is not from "
+                          f"{list(C.ORACLE_PREFIXES)} — name what makes the expected value expected"))
         named = C.requirement_id(oracle)
         if named and named in impl_only:
-            errors.append(f"{path.name}: {ts}: oracle '{oracle}' names {named}, which is implementation-only "
+            errors.append(refusal("validate_artifacts:check_plan_v0", f"{path.name}: {ts}: oracle '{oracle}' names {named}, which is implementation-only "
                           "(derived from the diff alone): a requirement read from the code is not an oracle. Leave "
                           "`oracle` empty for this row, or name `external:<ref>`; its Thens carry their own oracle "
-                          "(`unknown` until the person answers the claim's question)")
+                          "(`unknown` until the person answers the claim's question)"))
         level =str(row.get("level") or "").strip().lower()
         if level and level not in C.PLAN_LEVELS:
-            errors.append(f"{path.name}: {ts}: level '{level}' outside {list(C.PLAN_LEVELS)} — "
+            errors.append(refusal("validate_artifacts:check_plan_v0", f"{path.name}: {ts}: level '{level}' outside {list(C.PLAN_LEVELS)} — "
                           "the board groups the pyramid by this word, so an invented one is a "
-                          "check that lands in no level at all")
+                          "check that lands in no level at all"))
         elif not level and disposition == "automate":
-            errors.append(f"{path.name}: {ts}: `automate` with no level — name one of "
+            errors.append(refusal("validate_artifacts:check_plan_v0", f"{path.name}: {ts}: `automate` with no level — name one of "
                           f"{list(C.PLAN_LEVELS)}. Without it the test reaches the board with no "
-                          "place in the pyramid, and the board cannot invent one.")
+                          "place in the pyramid, and the board cannot invent one."))
         if disposition == "automate":
             for pattern in antipatterns:
                 hit = pattern.search(row["line"])
                 if hit:
-                    errors.append(f"{path.name}: {ts}: `automate` on a low-value row "
+                    errors.append(refusal("validate_artifacts:check_plan_v0", f"{path.name}: {ts}: `automate` on a low-value row "
                                   f"(matched '{hit.group(0)}') — visibility/title/URL/first-record is "
-                                  "smoke at most; check the behaviour through an independent channel")
+                                  "smoke at most; check the behaviour through an independent channel"))
                     break
         new_behaviour = row.get("fit") == "new" or "pending_implementation" in row["line"]
         if new_behaviour:
             if oracle.startswith("history:"):
-                errors.append(f"{path.name}: {ts}: new behaviour with oracle `history:` — the expected "
-                              "value comes from the requirement or an external spec, never from the past")
+                errors.append(refusal("validate_artifacts:check_plan_v0", f"{path.name}: {ts}: new behaviour with oracle `history:` — the expected "
+                              "value comes from the requirement or an external spec, never from the past"))
             if row.get("observable_source") == "current-code":
-                errors.append(f"{path.name}: {ts}: new behaviour observed on `current-code` — current "
-                              "code is not the oracle for new behaviour; use expected-contract or the diff")
+                errors.append(refusal("validate_artifacts:check_plan_v0", f"{path.name}: {ts}: new behaviour observed on `current-code` — current "
+                              "code is not the oracle for new behaviour; use expected-contract or the diff"))
 
 
 # --- understanding.md / test-report.md ---------------------------------------------------
@@ -1986,9 +1995,9 @@ def check_report_ledger_and_readiness(path: Path, errors: list) -> None:
     authored = _authored_text(text)
     hand = "\n".join(ln for ln in authored.splitlines() if not ln.startswith("|")).encode("utf-8")
     if len(hand) > TEST_REPORT_MAX_BYTES:
-        errors.append(f"{path.name}: {len(hand)} bytes outside the generated tables > {TEST_REPORT_MAX_BYTES} — "
+        errors.append(refusal("validate_artifacts:check_report_ledger_and_readiness", f"{path.name}: {len(hand)} bytes outside the generated tables > {TEST_REPORT_MAX_BYTES} — "
                       "the report is what a person reads to decide; detail that does not fit belongs "
-                      "in the artifact it came from, cited by path")
+                      "in the artifact it came from, cited by path"))
     ledger_md = _sibling(path, "ledger.md")
     if ledger_md.exists() and is_legacy_report(path):
         # The ledger stopped being shown to the person at all (it is a machine input under
@@ -1996,8 +2005,8 @@ def check_report_ledger_and_readiness(path: Path, errors: list) -> None:
         table = [ln for ln in ledger_md.read_text(encoding="utf-8", errors="replace").splitlines()
                  if ln.startswith("|")]
         if table and "\n".join(table) not in text:
-            errors.append(f"{path.name}: section 1 is not the table ledger.py generated — paste "
-                          "ledger.md's table verbatim; a hand-written ledger is not a ledger")
+            errors.append(refusal("validate_artifacts:check_report_ledger_and_readiness", f"{path.name}: section 1 is not the table ledger.py generated — paste "
+                          "ledger.md's table verbatim; a hand-written ledger is not a ledger"))
     ledger_json = _sibling(path, "ledger.json")
     if ledger_json.exists():
         import delivery_verdict as DV
@@ -2008,9 +2017,9 @@ def check_report_ledger_and_readiness(path: Path, errors: list) -> None:
         if word not in (None, DV.UNKNOWN):
             claimed = READY_WORD_RE.search(text)
             if not claimed:
-                errors.append(f"{path.name}: no 'delivery_ready: yes|after_checks|no' line — it is not optional: "
+                errors.append(refusal("validate_artifacts:check_report_ledger_and_readiness", f"{path.name}: no 'delivery_ready: yes|after_checks|no' line — it is not optional: "
                               "`report_facts.py --task <TICKET> --write` renders it in the verdict block "
-                              "(a report with no code-owned blocks quotes check_delivery.py verbatim)")
+                              "(a report with no code-owned blocks quotes check_delivery.py verbatim)"))
             else:
                 said = claimed.group(1).lower()
                 # `true`/`false` are the spelling of a ledger that had a bool and no word: they mean yes / no
@@ -2020,9 +2029,9 @@ def check_report_ledger_and_readiness(path: Path, errors: list) -> None:
                 # ledger from its own facts; now the head IS the ledger's word (`report_facts._verdict`, D9) and
                 # `rebuild_report` re-renders it at S8 and S9 before any validate, so a head that differs is stale.
                 if said != word:
-                    errors.append(f"{path.name}: says delivery_ready {claimed.group(1)} while ledger.json says "
+                    errors.append(refusal("validate_artifacts:check_report_ledger_and_readiness", f"{path.name}: says delivery_ready {claimed.group(1)} while ledger.json says "
                                   f"{word} — quote check_delivery.py, do not restate it "
-                                  "(`report_facts.py --task <TICKET> --write` renders the head from the ledger)")
+                                  "(`report_facts.py --task <TICKET> --write` renders the head from the ledger)"))
 
 
 # --- automation-manifest.json / run-report.json / triage.json ---------------------------------------
@@ -2047,10 +2056,10 @@ def check_marker_in_file(path: Path, file_rel: str, marker: str, case: str, erro
         if marker in text:
             return
         errors.append(
-            f"{path.name}: {case or file_rel} declares marker `{marker}`, but {file_rel} does "
+            refusal("validate_artifacts:check_marker_in_file", f"{path.name}: {case or file_rel} declares marker `{marker}`, but {file_rel} does "
             "not contain it — the traceability marker belongs in the test code, not only in "
             "this manifest. Add it to the test (a comment or the framework's case decorator) "
-            "and rewrite the entry; a marker only the manifest knows traces nothing.")
+            "and rewrite the entry; a marker only the manifest knows traces nothing."))
         return
 
 
@@ -2142,10 +2151,10 @@ def check_run_report_coverage(path: Path, data: dict, errors: list, notes: list 
                 waiting.add(manual_row[cid])
                 continue
             errors.append(
-                f"{path.name}: {cid} is {why} but appears in no lane of this report — not in "
+                refusal("validate_artifacts:check_run_report_coverage", f"{path.name}: {cid} is {why} but appears in no lane of this report — not in "
                 "results[], manual_checks[], skipped[], impossible[], env_blocked[] or "
                 "manual_skipped[]. A case left out reads as untested; say where it went. An unprepared case is closed by "
-                "`manual_evidence.py unprepared` (walked or not).")
+                "`manual_evidence.py unprepared` (walked or not)."))
     if waiting:
         rows = sorted(waiting, key=lambda ts: [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", ts)])
         (ORACLE_NOTES if notes is None else notes).append(
@@ -2161,14 +2170,14 @@ def check_manifest_v0(path: Path, data: dict, errors: list) -> None:
 
     for case, reason in unresolved.items():
         if not C.unresolved_reason_ok(reason):
-            errors.append(f"{path.name}: {case} unresolved with reason '{reason}' — use one of "
-                          f"{list(C.UNRESOLVED_REASONS)} or deferred_by_decision:<gate>")
+            errors.append(refusal("validate_artifacts:check_manifest_v0", f"{path.name}: {case} unresolved with reason '{reason}' — use one of "
+                          f"{list(C.UNRESOLVED_REASONS)} or deferred_by_decision:<gate>"))
     for test in C.manifest_tests(data):
         who = str(test.get("case") or test.get("file") or "test")
         file_rel = str(test.get("file") or "")
         if file_rel and not (project_root() / file_rel).exists() and not Path(file_rel).exists():
-            errors.append(f"{path.name}: tests[] names {file_rel}, which does not exist — the manifest "
-                          "points at code that was written, not code that was planned")
+            errors.append(refusal("validate_artifacts:check_manifest_v0", f"{path.name}: tests[] names {file_rel}, which does not exist — the manifest "
+                          "points at code that was written, not code that was planned"))
         marker = str(test.get("marker") or "")
         binding = test.get("trace_binding")
         if binding is not None:
@@ -2177,24 +2186,24 @@ def check_manifest_v0(path: Path, data: dict, errors: list) -> None:
             if (not isinstance(binding, dict) or not binding.get("selector") or not binding.get("assertion_refs")
                     or not test.get("case_version_links") or actual is None
                     or __import__("hashlib").sha256(actual.read_bytes()).hexdigest() != binding.get("test_content_sha")):
-                errors.append(f"{path.name}: invalid content-bound test trace; selector, assertions, pins and actual file hash required")
+                errors.append(refusal("validate_artifacts:check_manifest_v0", f"{path.name}: invalid content-bound test trace; selector, assertions, pins and actual file hash required"))
         elif not marker:
-            errors.append(f"{path.name}: {test.get('case') or file_rel} has no `marker` (its case id) or content-bound trace_binding")
+            errors.append(refusal("validate_artifacts:check_manifest_v0", f"{path.name}: {test.get('case') or file_rel} has no `marker` (its case id) or content-bound trace_binding"))
         else:
             check_marker_in_file(path, file_rel, marker, str(test.get("case") or ""), errors)
         verdict = str(test.get("critic_verdict") or "")
         if verdict and verdict not in C.CRITIC_VERDICTS:
-            errors.append(f"{path.name}: {who}: critic_verdict '{verdict}' outside "
-                          f"{list(C.CRITIC_VERDICTS)}")
+            errors.append(refusal("validate_artifacts:check_manifest_v0", f"{path.name}: {who}: critic_verdict '{verdict}' outside "
+                          f"{list(C.CRITIC_VERDICTS)}"))
         notes = [str(n).strip() for n in (test.get("fix_notes") or []) if str(n).strip()]
         if verdict == "approved_with_fixes" and not notes:
-            errors.append(f"{path.name}: {who}: approved_with_fixes with no fix_notes[] — the "
+            errors.append(refusal("validate_artifacts:check_manifest_v0", f"{path.name}: {who}: approved_with_fixes with no fix_notes[] — the "
                           "verdict exists to carry the findings that do not need a second "
-                          "review round; without them it is just `approved`")
+                          "review round; without them it is just `approved`"))
         if notes and verdict not in ("approved_with_fixes", ""):
-            errors.append(f"{path.name}: {who}: fix_notes[] beside verdict '{verdict}' — notes "
+            errors.append(refusal("validate_artifacts:check_manifest_v0", f"{path.name}: {who}: fix_notes[] beside verdict '{verdict}' — notes "
                           "belong to approved_with_fixes; a rejected test's findings go in the "
-                          "critic's report, and an approved one has none")
+                          "critic's report, and an approved one has none"))
     for row in plan_rows:
         if row.get("disposition") != "automate":
             continue
@@ -2207,8 +2216,8 @@ def check_manifest_v0(path: Path, data: dict, errors: list) -> None:
             covered = (any(matches(key, cid) for key in (*tested, *unresolved)) if matches
                        else (cid in tested or cid in unresolved))
             if not covered:
-                errors.append(f"{path.name}: `automate` case {cid} ({row['ts']}) is in neither tests[] "
-                              "nor unresolved[] — a case that just disappeared reads as covered")
+                errors.append(refusal("validate_artifacts:check_manifest_v0", f"{path.name}: `automate` case {cid} ({row['ts']}) is in neither tests[] "
+                              "nor unresolved[] — a case that just disappeared reads as covered"))
     check_self_fixes(path, data, errors)
     check_manifest_invariants(path, data, errors)
 
@@ -2226,10 +2235,10 @@ def check_manifest_invariants(path: Path, data: dict, errors: list) -> None:
     for entry in C.manifest_tests(data):
         iid = C.test_instance_id(entry)
         if iid and iid in seen:
-            errors.append(f"{path.name}: two tests[] entries carry the instance id {iid!r} — "
+            errors.append(refusal("validate_artifacts:check_manifest_invariants", f"{path.name}: two tests[] entries carry the instance id {iid!r} — "
                           "one row per test. Rewrite the fragment with one entry per test "
                           "function/parameter and re-run `manifest_put.py --task <TICKET> "
-                          "--fragment <file>`; this file is not edited by hand")
+                          "--fragment <file>`; this file is not edited by hand"))
         seen[iid] = entry
     tested = {str(t.get("case") or "") for t in C.manifest_tests(data)
               if str(t.get("status") or "") == "green"}
@@ -2237,17 +2246,17 @@ def check_manifest_invariants(path: Path, data: dict, errors: list) -> None:
         case = str(row.get("case") or "")
         scoped = row.get("partition") or row.get("partitions") or row.get("instance_id")
         if case and case in tested and not scoped:
-            errors.append(f"{path.name}: {case} is green in tests[] and present in unresolved[] "
+            errors.append(refusal("validate_artifacts:check_manifest_invariants", f"{path.name}: {case} is green in tests[] and present in unresolved[] "
                           "— the two lists disagree about whether it ran. `manifest_put.py` "
                           "drops the stale copy when the decision arrives as a fragment; if the "
-                          "remainder is a partition, name it in `partitions: [...]`")
+                          "remainder is a partition, name it in `partitions: [...]`"))
     keys = set()
     for i, fix in enumerate(data.get("self_fixes") or []):
         token = json.dumps(fix, ensure_ascii=False, sort_keys=True, default=str)
         if token in keys:
-            errors.append(f"{path.name}: self_fixes[{i}] is byte-identical to an earlier entry — "
+            errors.append(refusal("validate_artifacts:check_manifest_invariants", f"{path.name}: self_fixes[{i}] is byte-identical to an earlier entry — "
                           "one repair, recorded twice, reads as two. Re-send the fragment through "
-                          "`manifest_put.py`, which drops an identical repeat")
+                          "`manifest_put.py`, which drops an identical repeat"))
         keys.add(token)
     check_remedy_rows(path, C.manifest_unresolved(data), "unresolved[]", errors)
 
@@ -2276,20 +2285,20 @@ def check_remedy_rows(path: Path, rows, label: str, errors: list) -> None:
         remedy = row.get("remedy")
         if remedy is not None:
             for problem in C.remedy_errors(remedy):
-                errors.append(f"{path.name}: {label} {who}: {problem}. The remedy is the fix "
-                              "this row found: {kind, where, change, restart?}, names only")
+                errors.append(refusal("validate_artifacts:check_remedy_rows", f"{path.name}: {label} {who}: {problem}. The remedy is the fix "
+                              "this row found: {kind, where, change, restart?}, names only"))
         elif this_version and blocking:
-            errors.append(f"{path.name}: {label} {who} blocks on the environment with no "
+            errors.append(refusal("validate_artifacts:check_remedy_rows", f"{path.name}: {label} {who} blocks on the environment with no "
                           "`remedy` — the row names a state and not the change that ends it. "
                           "Add {kind: flag|credential|data|service, where: <file:lines or the "
-                          "variable NAME>, change: <what to set>, restart: <what to restart>}")
+                          "variable NAME>, change: <what to set>, restart: <what to restart>}"))
         prose = str(row.get("detail") or row.get("needs") or "")
         if isinstance(remedy, dict):
             prose += " " + " ".join(str(remedy.get(f) or "") for f in (*C.REMEDY_FIELDS, "restart"))
         for key in _secret_value_leaks(prose):
-            errors.append(f"{path.name}: {label} {who} carries a value for `{key}` — name the "
+            errors.append(refusal("validate_artifacts:check_remedy_rows", f"{path.name}: {label} {who} carries a value for `{key}` — name the "
                           "variable, never its value. An artifact is read by everyone this "
-                          "story is shown to")
+                          "story is shown to"))
 
 
 def _secret_value_leaks(text: str) -> list:
@@ -2339,13 +2348,13 @@ def check_self_fixes(path: Path, data: dict, errors: list) -> None:
             continue
         for key in ("test", "what", "why_test_defect", "evidence"):
             if not str(fix.get(key) or "").strip():
-                errors.append(f"{path.name}: self_fixes[{i}] has no '{key}' — a repair without its "
-                              "proof that the product behaves to spec is an adjusted expectation")
+                errors.append(refusal("validate_artifacts:check_self_fixes", f"{path.name}: self_fixes[{i}] has no '{key}' — a repair without its "
+                              "proof that the product behaves to spec is an adjusted expectation"))
                 break
         dropped = sorted(assertion_lines(fix.get("before"), asserts) - assertion_lines(fix.get("after"), asserts))
         if dropped:
-            errors.append(f"{path.name}: self_fixes[{i}] ({fix.get('test')}) dropped the Then line "
-                          f"`{dropped[0][:80]}` — restore it; a weakened assert is not a fix")
+            errors.append(refusal("validate_artifacts:check_self_fixes", f"{path.name}: self_fixes[{i}] ({fix.get('test')}) dropped the Then line "
+                          f"`{dropped[0][:80]}` — restore it; a weakened assert is not a fix"))
 
 
 def check_context_manifest_v0(path: Path, data: dict, errors: list) -> None:
@@ -2358,18 +2367,18 @@ def check_context_manifest_v0(path: Path, data: dict, errors: list) -> None:
     ticket the key was read — an entry without one is a ticket somebody went looking for."""
     for i, rel in enumerate(data.get("related") or []):
         if not isinstance(rel, dict):
-            errors.append(f"{path.name}: related[{i}] is not an object — "
-                          "each entry is {key, kind, source}")
+            errors.append(refusal("validate_artifacts:check_context_manifest_v0", f"{path.name}: related[{i}] is not an object — "
+                          "each entry is {key, kind, source}"))
             continue
         who = str(rel.get("key") or f"related[{i}]")
         kind = str(rel.get("kind") or "")
         if kind not in C.RELATED_KINDS:
-            errors.append(f"{path.name}: {who}: kind '{kind}' outside "
-                          f"{list(C.RELATED_KINDS)} — an invented kind is not a kind")
+            errors.append(refusal("validate_artifacts:check_context_manifest_v0", f"{path.name}: {who}: kind '{kind}' outside "
+                          f"{list(C.RELATED_KINDS)} — an invented kind is not a kind"))
         if not str(rel.get("source") or "").strip():
-            errors.append(f"{path.name}: {who} has no 'source' — say where in this ticket "
+            errors.append(refusal("validate_artifacts:check_context_manifest_v0", f"{path.name}: {who} has no 'source' — say where in this ticket "
                           "the key was read (description, AC, a comment, the links field, an "
-                          "MR thread). A key with no source was gone looking for, not named.")
+                          "MR thread). A key with no source was gone looking for, not named."))
 
     # One entry per repository the cascade ran in. A story can be split across repositories
     # — QA-EXAMPLE had a backend MR and a frontend MR — and a single `implementation`
@@ -2380,30 +2389,30 @@ def check_context_manifest_v0(path: Path, data: dict, errors: list) -> None:
         seen = set()
         for i, row in enumerate(rows):
             if not isinstance(row, dict):
-                errors.append(f"{path.name}: implementations[{i}] is not an object — each "
-                              "entry is {repo, source, mr, branch, commit, diff_path}")
+                errors.append(refusal("validate_artifacts:check_context_manifest_v0", f"{path.name}: implementations[{i}] is not an object — each "
+                              "entry is {repo, source, mr, branch, commit, diff_path}"))
                 continue
             repo = str(row.get("repo") or "").strip()
             if not repo:
-                errors.append(f"{path.name}: implementations[{i}] has no 'repo' — name the "
+                errors.append(refusal("validate_artifacts:check_context_manifest_v0", f"{path.name}: implementations[{i}] has no 'repo' — name the "
                               "repository this entry came from (a config.code_repos[].name, "
-                              "or 'tests' for this one)")
+                              "or 'tests' for this one)"))
             elif repo in seen:
-                errors.append(f"{path.name}: implementations names '{repo}' twice — one "
+                errors.append(refusal("validate_artifacts:check_context_manifest_v0", f"{path.name}: implementations names '{repo}' twice — one "
                               "entry per repository; the cascade stops at the first hit "
-                              "inside each")
+                              "inside each"))
             seen.add(repo)
             src = str(row.get("source") or "")
             if src not in C.IMPLEMENTATION_SOURCES:
-                errors.append(f"{path.name}: implementations[{i}].source '{src}' outside "
-                              f"{list(C.IMPLEMENTATION_SOURCES)}")
+                errors.append(refusal("validate_artifacts:check_context_manifest_v0", f"{path.name}: implementations[{i}].source '{src}' outside "
+                              f"{list(C.IMPLEMENTATION_SOURCES)}"))
         first = rows[0] if isinstance(rows[0], dict) else {}
         top = data.get("implementation") if isinstance(data.get("implementation"), dict) else {}
         if top and first and str(top.get("source") or "") != str(first.get("source") or ""):
-            errors.append(f"{path.name}: implementation.source "
+            errors.append(refusal("validate_artifacts:check_context_manifest_v0", f"{path.name}: implementation.source "
                           f"'{top.get('source')}' disagrees with implementations[0].source "
                           f"'{first.get('source')}' — the first entry IS the primary one, "
-                          "and every reader that predates the list reads the summary")
+                          "and every reader that predates the list reads the summary"))
 
     # The v2 discovery records the build would refuse, said in the turn that wrote them (t-1347). `requirement_sources` is
     # not judged here: the build replaces it from work/source-inventory.json. An absent or empty-valued section is the
@@ -2413,21 +2422,21 @@ def check_context_manifest_v0(path: Path, data: dict, errors: list) -> None:
     present = tuple(key for key in judged if data.get(key) and isinstance(data[key], list))
     for key in judged:
         if data.get(key) and not isinstance(data[key], list):
-            errors.append(f"{path.name}: {key} must be an array or absent")
-    errors += [f"{path.name}: {problem}" for problem in v2_discovery_problems(data, sections=present)]
+            errors.append(refusal("validate_artifacts:check_context_manifest_v0", f"{path.name}: {key} must be an array or absent"))
+    errors += [refusal("validate_artifacts:check_context_manifest_v0", f"{path.name}: {problem}") for problem in v2_discovery_problems(data, sections=present)]
 
 
 def check_run_report_v0(path: Path, data: dict, errors: list) -> None:
     status = data.get("execution_status")
     if status is None:
-        errors.append(f"{path.name}: no execution_status — it is computed from the run's own evidence "
-                      f"and must be one of {list(C.EXECUTION_STATUS)}")
+        errors.append(refusal("validate_artifacts:check_run_report_v0", f"{path.name}: no execution_status — it is computed from the run's own evidence "
+                      f"and must be one of {list(C.EXECUTION_STATUS)}"))
     elif status not in C.EXECUTION_STATUS:
-        errors.append(f"{path.name}: execution_status '{status}' outside {list(C.EXECUTION_STATUS)} — "
-                      "an invented status is not a status")
+        errors.append(refusal("validate_artifacts:check_run_report_v0", f"{path.name}: execution_status '{status}' outside {list(C.EXECUTION_STATUS)} — "
+                      "an invented status is not a status"))
     elif data.get("env_preflight") == "blocked" and status != "env_blocked":
-        errors.append(f"{path.name}: env_preflight is blocked but execution_status is '{status}' — one "
-                      "field, one source: a blocked preflight means env_blocked")
+        errors.append(refusal("validate_artifacts:check_run_report_v0", f"{path.name}: env_preflight is blocked but execution_status is '{status}' — one "
+                      "field, one source: a blocked preflight means env_blocked"))
     check_result_rows(path, data, errors)
 
 
@@ -2446,40 +2455,40 @@ def check_result_rows(path: Path, data: dict, errors: list) -> None:
     non_passed = 0
     for i, row in enumerate(rows):
         if not isinstance(row, dict):
-            errors.append(f"{path.name}: results[{i}] is not an object")
+            errors.append(refusal("validate_artifacts:check_result_rows", f"{path.name}: results[{i}] is not an object"))
             continue
         who = C.result_id(row) or str(row.get("case") or "")
         status = C.result_status(row)
         named = C.case_ids(row.get("case"))
         if len(named) > 1:
-            errors.append(f"{path.name}: results[{i}].case names {len(named)} cases "
+            errors.append(refusal("validate_artifacts:check_result_rows", f"{path.name}: results[{i}].case names {len(named)} cases "
                           f"({', '.join(named)}) — one row per case, even when one test "
                           "covers several: ledger.py matches a case id exactly, so a "
                           "compound cell matches nothing and every one of those cases "
-                          "reaches the ledger as `not_executed`")
+                          "reaches the ledger as `not_executed`"))
         if not who:
-            errors.append(f"{path.name}: results[{i}] has neither test_id nor case — a row "
+            errors.append(refusal("validate_artifacts:check_result_rows", f"{path.name}: results[{i}] has neither test_id nor case — a row "
                           "nobody can name is not a result, and the board prints it as a "
-                          "nameless regression test")
+                          "nameless regression test"))
         if not status:
-            errors.append(f"{path.name}: {who or f'results[{i}]'} has no status — one of "
-                          f"{list(C.RESULT_STATUS)} (the board prints a missing one as '?')")
+            errors.append(refusal("validate_artifacts:check_result_rows", f"{path.name}: {who or f'results[{i}]'} has no status — one of "
+                          f"{list(C.RESULT_STATUS)} (the board prints a missing one as '?')"))
         elif status not in C.RESULT_STATUS:
-            errors.append(f"{path.name}: {who or f'results[{i}]'}: status '{status}' outside "
-                          f"{list(C.RESULT_STATUS)}")
+            errors.append(refusal("validate_artifacts:check_result_rows", f"{path.name}: {who or f'results[{i}]'}: status '{status}' outside "
+                          f"{list(C.RESULT_STATUS)}"))
         elif status == "skipped" and not str(row.get("reason") or "").strip():
-            errors.append(f"{path.name}: {who} is skipped with no reason — the one thing a "
+            errors.append(refusal("validate_artifacts:check_result_rows", f"{path.name}: {who} is skipped with no reason — the one thing a "
                           "reader needs from a skipped test is why, and run_suite.py takes it "
-                          "from the junitxml <skipped message>")
+                          "from the junitxml <skipped message>"))
         if status in ("failed", "error", "skipped"):
             non_passed += 1
     totals = data.get("totals") if isinstance(data.get("totals"), dict) else {}
     if rows and totals:
         expected = sum(int(totals.get(k) or 0) for k in ("failures", "errors", "skipped"))
         if expected and non_passed != expected:
-            errors.append(f"{path.name}: totals count {expected} test(s) not passed but "
+            errors.append(refusal("validate_artifacts:check_result_rows", f"{path.name}: totals count {expected} test(s) not passed but "
                           f"results[] lists {non_passed} — every non-passed test is listed by "
-                          "name (only passed rows are ever capped)")
+                          "name (only passed rows are ever capped)"))
 
 
 def check_triage_v0(path: Path, data: dict, errors: list, task_root=None) -> None:
@@ -2495,39 +2504,39 @@ def check_triage_v0(path: Path, data: dict, errors: list, task_root=None) -> Non
     # The rule is `contract.observation_duplicates`, the binder's own and attempt-aware (t-1747 F5): a stale row of an earlier
     # attempt is not a competitor
     for name, rows_ in C.observation_duplicates(all_rows, report).items():
-        errors.append(f"{path.name}: {name}: {len(rows_)} triage rows both answer the observation {name} (attempt "
-                      f"{str(rows_[0].get('attempt_id') or '-')[:30]}) - keep one row for it")
+        errors.append(refusal("validate_artifacts:check_triage_v0", f"{path.name}: {name}: {len(rows_)} triage rows both answer the observation {name} (attempt "
+                      f"{str(rows_[0].get('attempt_id') or '-')[:30]}) - keep one row for it"))
     for i, row in enumerate(all_rows):
         test = row.get("test") or f"triage[{i}]"
         verdict = str(row.get("verdict") or "")
         if verdict not in C.TRIAGE_VERDICTS:
-            errors.append(f"{path.name}: {test}: verdict '{verdict}' outside {list(C.TRIAGE_VERDICTS)}")
+            errors.append(refusal("validate_artifacts:check_triage_v0", f"{path.name}: {test}: verdict '{verdict}' outside {list(C.TRIAGE_VERDICTS)}"))
             continue
         # the observation-only word NO_DEFECT (P26): the SAME reader as the delivery check (AR-13)
-        errors += [f"{path.name}: {test}: {p}" for p in C.triage_no_defect_problems(row, report, task_root)]
+        errors += [refusal("validate_artifacts:check_triage_v0", f"{path.name}: {test}: {p}") for p in C.triage_no_defect_problems(row, report, task_root)]
         # the fields of the red-then chain (R4, R6): ONE reader each, shared with the delivery check (AR-13)
-        errors += [f"{path.name}: {test}: {p}" for p in C.triage_diagnostic_problems(row, task_root)]
-        errors += [f"{path.name}: {test}: {p}" for p in C.triage_blocked_problems(row, task_root, all_rows, report)]
-        errors += [f"{path.name}: {test}: {p}" for p in C.triage_reorder_problems(row)]
+        errors += [refusal("validate_artifacts:check_triage_v0", f"{path.name}: {test}: {p}") for p in C.triage_diagnostic_problems(row, task_root)]
+        errors += [refusal("validate_artifacts:check_triage_v0", f"{path.name}: {test}: {p}") for p in C.triage_blocked_problems(row, task_root, all_rows, report)]
+        errors += [refusal("validate_artifacts:check_triage_v0", f"{path.name}: {test}: {p}") for p in C.triage_reorder_problems(row)]
         # the `control` experiment block (E17): after the closed list has refused an unknown word, before the FLAKY-only gate
         # below - a branch that comes after it never sees the word that needs the block
-        errors += [f"{path.name}: {test}: {p}" for p in C.triage_control_problems(row, task_root)]
+        errors += [refusal("validate_artifacts:check_triage_v0", f"{path.name}: {test}: {p}") for p in C.triage_control_problems(row, task_root)]
         # the `contradiction` block of the misread-evidence word (HF8-19): the SAME reader as the delivery check and the S7 re-judge
-        errors += [f"{path.name}: {test}: {p}" for p in C.triage_contradiction_problems(row, task_root)]
+        errors += [refusal("validate_artifacts:check_triage_v0", f"{path.name}: {test}: {p}") for p in C.triage_contradiction_problems(row, task_root)]
         if verdict != "FLAKY":
             continue
         reruns = row.get("reruns")
         if not isinstance(reruns, int) or reruns < C.FLAKY_MIN_RERUNS:
-            errors.append(f"{path.name}: {test}: FLAKY with reruns={reruns} — a flake verdict needs "
+            errors.append(refusal("validate_artifacts:check_triage_v0", f"{path.name}: {test}: FLAKY with reruns={reruns} — a flake verdict needs "
                           f">= {C.FLAKY_MIN_RERUNS} isolated executions as its witness, counted "
-                          "across every role through the manifest's runs[]")
+                          "across every role through the manifest's runs[]"))
         if row.get("mechanism") not in C.FLAKY_MECHANISMS:
-            errors.append(f"{path.name}: {test}: FLAKY without a mechanism from "
-                          f"{list(C.FLAKY_MECHANISMS)} — an unnamed mechanism cannot be repaired")
+            errors.append(refusal("validate_artifacts:check_triage_v0", f"{path.name}: {test}: FLAKY without a mechanism from "
+                          f"{list(C.FLAKY_MECHANISMS)} — an unnamed mechanism cannot be repaired"))
         if not str(row.get("fix_result") or "").strip():
-            errors.append(f"{path.name}: {test}: FLAKY with no fix_result — record 'fixed' or "
+            errors.append(refusal("validate_artifacts:check_triage_v0", f"{path.name}: {test}: FLAKY with no fix_result — record 'fixed' or "
                           "'not_fixed'; an unfixed flake is not verified, and quarantine is the "
-                          "human's call at gate B")
+                          "human's call at gate B"))
 
 
 # --- test code under config.tests_root ------------------------------------------------------------
