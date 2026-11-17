@@ -688,8 +688,11 @@ def _gap_problems(label: str, gap) -> list:
 
 
 # ---------------------------------------------------------------------------------- one producer entry
+ROLE_FILES = {"conductor": "references/conductor.md"}   # a receiver whose role file is not `agents/<role>.md` (data, AR-1; T9c, F-4 (a)): the conductor's system file
+
 def _producer_leg(entry: dict, env: Env) -> list:
-    """What is wrong with the producer leg of one entry: [] when it names an existing role or a defined function."""
+    """What is wrong with the producer leg of one entry: [] when it names an existing role (its `agents/<role>.md`, or its file in
+    `ROLE_FILES`) or a defined function."""
     roles, code = entry.get("roles"), entry.get("code")
     if (roles in (None, [])) and not code:
         return ["the producer leg is missing"]
@@ -698,7 +701,8 @@ def _producer_leg(entry: dict, env: Env) -> list:
     if roles:
         if not isinstance(roles, list) or not all(isinstance(r, str) for r in roles):
             return ["`roles` is not a list of role names"]
-        return [f"role `{r}` has no agents/{r}.md" for r in roles if not env.role_exists(r)]
+        return [f"role `{r}` has no agents/{r}.md" for r in roles
+                if not (env.role_exists(r) or (r in ROLE_FILES and (env.plugin / ROLE_FILES[r]).is_file()))]
     import null_outcomes
     why = null_outcomes.unresolved(str(code), env.scripts)
     return [f"`code` {why}"] if why else []

@@ -234,6 +234,108 @@ def doors_open_end_to_end(rows) -> None:
             check(f"{family}: the row ran to its end", False, f"{type(error).__name__}: {error}")
 
 
+# --- T9c: the conductor's launch is told what code will check in it (mech 2.9, card T9c) ---------------------------------
+# Expected values: the heading order and the row ids come from mech 2.9 / 5.5 (`conductor_answer` rows hold on every launch, `move:<id>`
+# rows when the move is open); the refusal texts are the OLD no_move.py's output, captured from a byte copy before the edit (EC-1).
+LAUNCH_HEAD = "## What code will check in this launch"
+CONDUCTOR_FACTS = {"rework_stages": ["S5"], "rework_roles": {"S5": ["qa-automator"]}, "scope": ["TC-1", "TC-2"], "causes": ["test_defect"]}
+GOOD_ARGS = {"stage": "S5", "role": "qa-automator", "cases": ["TC-1"], "cause": "test_defect"}
+SECTION_ROWS = {      # open moves, site words -> the row ids the section lists, in order
+    "rework-open": (["rework_stage", "person_does"], ("read",), ["no_move:options", "no_move:prose", "no_move:class", "no_move:args"]),
+    "no-rework": (["stop_here"], (), ["no_move:options", "no_move:prose", "no_move:class"]),
+    "no-move-open": ([], (), ["no_move:options", "no_move:prose", "no_move:class"]),
+}
+
+
+def launch_section() -> None:
+    import no_move as NM
+    for label, (open_ids, site, ids) in SECTION_ROWS.items():
+        text = NM.moves_section(NM.data(), open_ids, CONDUCTOR_FACTS, site)
+        got = re.findall(r"^- \[([a-z_]+:[a-z_]+)\]", text.split(LAUNCH_HEAD)[-1], re.M)
+        check_eq(f"launch-section/{label}: the rows of the open moves, after the conductor_answer rows", got, ids)
+        heads = [h for h in ("## Moves open here", "## Answers this question already takes", LAUNCH_HEAD) if h in text]
+        check_eq(f"launch-section/{label}: the headings keep their order, the new one last (E-T9c-5)", [text.index(h) for h in heads],
+                 sorted(text.index(h) for h in heads))
+        check_eq(f"launch-section/{label}: all three or two headings by the site words", len(heads), 3 if site else 2)
+    import stage_joints as SJ
+    rows, _why = SJ.load_rows()
+    bare = harness.temp_dir("qa-launch-none-") / "stage-joints.json"
+    import json
+    bare.write_text(json.dumps(dict(rows, joints=[r for r in rows["joints"] if not str(r.get("check")).startswith("no_move:")])), encoding="utf-8")
+    real = SJ.DATA
+    try:
+        SJ.DATA = bare
+        text = NM.moves_section(NM.data(), ["stop_here"], CONDUCTOR_FACTS)
+    finally:
+        SJ.DATA = real
+    check_eq("launch-section/nothing: no row holds -> the `none` line (E24, E-T9c-4)", text.split(LAUNCH_HEAD)[-1].strip(), NM.NOTHING_CHECKED)
+
+
+def launch_prompt() -> None:
+    """The prompt body the driver hands `conductor` (the one caller of `moves_section`) for a boundary holds the section after the moves."""
+    import story_run
+    from types import SimpleNamespace
+    import no_move as NM
+    facts = dict(CONDUCTOR_FACTS, running=False, closed=False, attempts=0, gate="")
+    open_ids = NM.open_moves(facts, NM.move_ids())
+    text = story_run.Driver._conductor_text(SimpleNamespace(), {"lead": "", "text": "STATE TEXT"}, facts, open_ids, (), False)
+    check("launch-prompt: the conductor's prompt holds the section, with the rework row while a rework is open",
+          LAUNCH_HEAD in text and "[no_move:args]" in text and "rework_stage" in open_ids, text[:200])
+    check("launch-prompt: the section stands between the moves and the state text",
+          text.index("## Moves open here") < text.index(LAUNCH_HEAD) < text.index("STATE TEXT"))
+
+
+def verdict_of(options, **more) -> dict:
+    return dict({"action": "ask_person", "question": "Which one?", "why_person": "access", "checked": "the probe record", "options": options}, **more)
+
+
+def an_option(token, move, **more) -> dict:
+    return dict({"token": token, "move": move, "says": "does it", "factory": "stages_again", "person": "none",
+                 "story": {"unverified": "none", "report": "none", "delivery": "unchanged"}}, **more)
+
+
+REFUSALS = {     # case -> (verdict, expected text = the OLD file's output, the row id the Record carries)
+    "options-one": (verdict_of([an_option("retry", "person_does")]), "options: fewer than two, or not a list of objects", "no_move:options"),
+    "options-dup": (verdict_of([an_option("retry", "person_does"), an_option("Retry", "stop_here")]),
+                    "two options carry the token `retry`", "no_move:options"),
+    "options-closed": (verdict_of([an_option("retry", "person_does"), an_option("approve", "approve_gate")]),
+                       "the option `approve` names the move `approve_gate`, which is not open here", "no_move:options"),
+    "prose": (verdict_of([an_option("retry", "person_does"), an_option("stop", "stop_here")], question="Say `go on` or `retry`?"),
+              "the question names `go on`, which is not one of its options", "no_move:prose"),
+    "args": (verdict_of([an_option("retry", "person_does"), an_option("rework", "rework_stage", args=dict(GOOD_ARGS, cause="nope"))]),
+             "\"args\" cause `nope` is not one of the causes listed", "no_move:args"),
+    "empty-question": (verdict_of([an_option("retry", "person_does"), an_option("stop", "stop_here")], question=" "),
+                       "the question is empty", ""),
+}
+CLASS_HEAD = "a question to a person needs a class and what you read: `why_person` is absent and `checked` is empty; the classes are `access`"
+
+
+def refusal_texts() -> None:
+    """EC-1: the texts of `validate_options` are the old file's, byte for byte; the Record carries the row id (EC-2: the id is written at
+    the caller of `check_args`, a helper with several callers)."""
+    import no_move as NM
+    spec, norm = NM.data(), lambda s: s.strip().lower()
+    open_ids = ["rework_stage", "person_does", "stop_here", "resume_with_words"]
+    for label, (verdict, text, check_id) in REFUSALS.items():
+        try:
+            _options, rule = NM.validate_options(verdict, open_ids, spec, norm, {}, (), facts=CONDUCTOR_FACTS)
+        except NM.ArgsRefused as refused:        # a bad `args` is raised once the rest of the verdict is valid
+            rule = refused.rule
+        check_eq(f"refusal-text/{label}: the text, the id the Record carries", (str(rule), getattr(rule, "check", "")), (text, check_id))
+    both = verdict_of([an_option("retry", "person_does"), an_option("rework", "rework_stage", args=dict(GOOD_ARGS, cause="nope"))],
+                      why_person="", checked="")
+    for label, verdict, ids in (("class", verdict_of([an_option("retry", "person_does"), an_option("stop", "stop_here")], why_person="", checked=""),
+                                ["no_move:class"]), ("args-and-class", both, ["no_move:args", "no_move:class"])):
+        try:
+            NM.validate_options(verdict, open_ids, spec, norm, {}, (), facts=CONDUCTOR_FACTS)
+            check(f"refusal-text/{label}: refused", False)
+        except NM.ArgsRefused as exc:
+            import detector_verdict as DV
+            check(f"refusal-text/{label}: the text begins as before", str(exc).startswith(
+                ("\"args\" cause `nope` is not one of the causes listed; " if label == "args-and-class" else "") + CLASS_HEAD), str(exc)[:160])
+            check_eq(f"refusal-text/{label}: one id per problem", [r["check"] for r in DV.told_fields(exc).get("told", [])], ids)
+
+
 def main() -> None:
     rows = command_rows()
     check(f"the walk has a `command` route to check ({len(rows)} rows)", len(rows) > 50, str(len(rows)))
@@ -277,6 +379,9 @@ def main() -> None:
           f"{looked_up} of {len(rows)}")
 
     doors_open_end_to_end(rows)
+    launch_section()
+    launch_prompt()
+    refusal_texts()
 
     harness.finish("test_controller_doors")
 

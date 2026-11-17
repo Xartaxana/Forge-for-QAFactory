@@ -8140,6 +8140,114 @@
         }
       ],
       "joint": null
+    },
+    {
+      "check": "no_move:options",
+      "stages": [
+        "*"
+      ],
+      "requirement": "An `ask_person` or `stop` answer carries a list of at least two option objects (one only for the `rework` option after the person chose rework); each has a unique non-empty token that is its open move's own token (or a word the question already takes, as `site_door`), never a move that is not open or never offerable, and `says`, `factory`, `person` lines and a `story` object.",
+      "door": "fix the options and answer again",
+      "door_needs": "none",
+      "when": [
+        "conductor_answer"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "conductor"
+          ],
+          "field": "the `options` of the conductor's answer",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "no_move:prose",
+      "stages": [
+        "*"
+      ],
+      "requirement": "The question names, in any quote style, no token of the closed vocabulary that is not one of its options.",
+      "door": "rephrase or offer the token",
+      "door_needs": "none",
+      "when": [
+        "conductor_answer"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "conductor"
+          ],
+          "field": "the `question` of the conductor's answer",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "no_move:class",
+      "stages": [
+        "*"
+      ],
+      "requirement": "A question names a class of `references/person-owned` questions in `why_person` and what you read in `checked`.",
+      "door": "add both fields",
+      "door_needs": "none",
+      "when": [
+        "conductor_answer"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "conductor"
+          ],
+          "field": "the `why_person` and `checked` of the conductor's answer",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "no_move:args",
+      "stages": [
+        "*"
+      ],
+      "requirement": "The `rework` option's `args` name a stage that can be sent back, a role that did accepted work there, cases inside the approved scope (at least one from S4) or plan rows (never both), and a cause from the list.",
+      "door": "take the values from the list under \"Moves open here\"",
+      "door_needs": "none",
+      "when": [
+        "move:rework_stage"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "conductor"
+          ],
+          "field": "the `args` of the `rework` option",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
     }
   ],
   "ratchet": [
