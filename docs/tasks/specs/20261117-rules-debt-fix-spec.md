@@ -610,3 +610,20 @@ in `audit_factory.py` checked against `A27` found in the same file earlier).
 - `test_controller_blocks.py:14` docstring says 81 command blocks; `controller-blocks.md:21` says 221.
 - The debt file's run-5 table rows R5/R8/R11 were closed in code months ago and nothing moved them: the debt
   file has no detector for "row closed in code, still listed" (a calibration-check candidate, not proposed here).
+
+## The owner's word on forks F-O1..F-O6 (17.11.2026, Lead session) — binds §6
+
+- **F-O6** (home of a bug file): «ок» to (a) — the reporter writes under the task root, the project home is read for
+  older bugs. S4 stands; `common-rules.md:116` (+ slices) and the `bug_records` docstring are aligned by a follow-up stream.
+- **F-O5** (command doors): «ок» to (b) — the four repeating families as ONE parameterised table.
+- **F-O4** (conductor prompt replaces the default): «ок и учти что мы планируем оркестратора полностью заменить
+  дирежёром. Надо что бы он справлялся» — one measured experiment both ways first; the measure also judges whether the
+  conductor still copes without the host's default tool guidance (it is to replace the orchestrator entirely).
+- **F-O2** (probe rows for languages without `assertion_probes`): «если не пишем, то значит критик должен ломать код и
+  смотреть что тест падает, то есть делать мутантов. Иначе фабрика встанет на любом проекте с не учтённым языком» —
+  (a) is taken ONLY with its condition: on a language with no row the role's own probe (`red_sandbox.py --probe`,
+  P30: the role breaks the code and sees the test fall) must be a working road end to end, proven by a scenario row
+  "suffix with no probe row -> the role's probe road, the stage does not stop" and by the queued live proof B-373.
+  A language with no row that stops the factory is a defect (P22).
+- **F-O3** (a fourth finding addressee) and **F-O1** (`s5_stand_limits` and the other three unknown branches): the owner
+  asked what these are; explained in chat 17.11, her word is pending. S8 stays executable on (a).
