@@ -41,3 +41,5 @@ Architecture: AR-13 (the reuse word is read only through gate_template.acceptabl
 ## Beyond the manifest
 `audit_factory.py`, `scripts/slow_tests.json`, `.github/workflows/forge-check.yml`, `test_reporter_rehearsal.py` (grep), `test_gate_registry.py:842-870`.
 No journal lines, no push.
+
+tests-over: the +33 test lines are the table rows the card asks for (E1 absent/other-case/non-str, E2 unreadable registry, A1 other key) and the S-f pin comments; the product change is the 1-line condition + import. The commit message lacked the line (hook WARN only).
