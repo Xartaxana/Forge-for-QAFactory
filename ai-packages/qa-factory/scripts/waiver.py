@@ -376,8 +376,30 @@ OWN_FORM_BLOCKS = (QUESTION_THRESHOLD_BLOCK, MODE_SWITCH_BLOCK, STAND_NOT_CONFIR
 
 
 def stand_block(environment: str) -> str:
-    """The block text of the stand word: the one builder both callers use (`Driver.stand_check`, `Driver.s6_no_stand`)."""
+    """The block text of the stand word: the one builder both callers use (`Driver.stand_check`, `stand_passing_word`)."""
     return f"{STAND_NOT_CONFIRMED_BLOCK}: " + (f"stand `{environment}` is not confirmed as usable" if environment else "no stand is confirmed for this story")
+
+
+STAND_STAGES = ("S5", "S6")      # the stages whose word passes the stand block: one word covers both (read in this order)
+
+
+def stand_passing_word(pipeline) -> str:
+    """The words of the person's live word that passes the stand block for this story; "" when a stand is confirmed (a name and
+    `environment_pending` false) or no such word stands. THE one reader (AR-13, axis 26) for both roads: `Driver.s6_stand_word`
+    and `story_step` (FV3-21b). Reads `split_overridden([stand_block(environment)], pipeline, stage)` over STAND_STAGES in order.
+    ERROR DIRECTION: "" (no word) sends the story to the stand question; a confirmed stand is never read as "no stand";
+    a pipeline that is not a dict reads "" (no word)."""
+    if not isinstance(pipeline, dict):
+        return ""
+    environment = str(pipeline.get("environment") or "")
+    if environment and not pipeline.get("environment_pending"):
+        return ""
+    block = stand_block(environment)
+    for stage in STAND_STAGES:
+        passed = split_overridden([block], pipeline, stage)[1]
+        if passed:
+            return str(passed[0].get("decision") or "")
+    return ""
 
 
 # The door in backticks that ends a refusal line: ONLY a final span that IS a door - a command (`waiver.py --block ...`), so it holds
