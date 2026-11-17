@@ -406,6 +406,35 @@ def t_1953_locator_with_an_author_message() -> None:
         check(f"negative: {label} fires neither T1 nor T2", not AD.fires_in(t1, text) and not AD.fires_in(t2, text), repr(text))
 
 
+def rd1_22_binding_form_reader(tmp: Path) -> None:
+    """RD1-22 F4/F7: `binding_form` is the one reader of `oracle_binding_forms`: the form of the suffix (case-insensitive, one per
+    suffix), '' with no note for a kind with no row or no file, '' with ONE note naming the key when the key cannot be used."""
+    def doc(name: str, text) -> Path:
+        path = tmp / name
+        path.write_text(text if isinstance(text, str) else json.dumps(text), encoding="utf-8")
+        return path
+    row = {"suffixes": [".py", ".PYW"], "form": "F1 {case}"}
+    dup = {"oracle_binding_forms": [row, {"suffixes": [".py"], "form": "F2"}]}
+    for label, file, path, form, noted in (
+            ("the shipped .py row", "tests/test_x.py", None, True, False),
+            ("suffix case", "tests/TEST_X.PY", None, True, False),
+            ("a kind with no row", "tests/XTests.cs", None, False, False),
+            ("no file", "", None, False, False),
+            ("no suffix", "tests/Makefile", None, False, False),
+            ("two rows hold one suffix: the first wins", "a.py", doc("dup.json", dup), True, False),
+            ("an alias suffix of a row", "a.pyw", doc("dup2.json", dup), True, False),
+            ("the key is absent", "a.py", doc("none.json", {}), False, True),
+            ("the key is empty", "a.py", doc("empty.json", {"oracle_binding_forms": []}), False, True),
+            ("a row with no form", "a.py", doc("noform.json", {"oracle_binding_forms": [{"suffixes": [".py"]}]}), False, True),
+            ("a row that is no object", "a.py", doc("notobj.json", {"oracle_binding_forms": ["x"]}), False, True),
+            ("an unreadable file", "a.py", doc("bad.json", "{nope"), False, True)):
+        got, note = AD.binding_form(file, path)
+        check_eq(f"binding_form {label}: a form or ''", bool(got), form)
+        check_eq(f"binding_form {label}: a note exactly when the key is unusable, and it names the key",
+                 (bool(note), "oracle_binding_forms" in note), (noted, noted))
+    check_eq("binding_form: the first row's form", AD.binding_form("a.py", tmp / "dup.json")[0], "F1 {case}")
+
+
 def the_helpers() -> None:
     check_eq("top-level alternatives respect groups, classes and escapes",
              AD.top_level_alternatives("a|(b|c)|[|]|d\\|e"), ["a", "(b|c)", "[|]", "d\\|e"])
@@ -852,6 +881,7 @@ def main() -> None:
         fires_as_against_the_samples()
         t_1953_locator_with_an_author_message()
         the_helpers()
+        rd1_22_binding_form_reader(tmp)
         the_path_and_the_environment(tmp)
         one_reader_no_runtime()
         ep1_37_the_reading_fields(tmp)
