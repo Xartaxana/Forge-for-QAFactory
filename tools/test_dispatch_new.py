@@ -36,7 +36,9 @@ def swap(argv, flag, value):
     return argv
 
 
-THREE_OWNS = swap(BASE, "--owns", None) + ["--owns", OWN, OWN2, OWN3]
+TL = "tools/test_x.py::table | expected from: spec 5.1"
+THREE_OWNS_NO_TEST = swap(BASE, "--owns", None) + ["--owns", OWN, OWN2, OWN3]
+THREE_OWNS = THREE_OWNS_NO_TEST + ["--test", TL]  # over the designer threshold: the `test:` line is owed too (spec 5.1)
 
 # id, argv, exit, substrings of stdout, substrings of stderr
 CASES = [
@@ -57,7 +59,7 @@ CASES = [
     ("C1-1-new-owns-marked", swap(BASE, "--owns", NEWFILE + " (new)"), 0, [NEWFILE + " (new)"], []),
     ("C1-1-critic-handoff-outside", ["--kind", "critic", "--task", "t-505", "--handoff", "C:\\tmp\\x.md"], 2, [],
      ["HANDOFF PATH"]),
-    ("C1-2-empty-owns-item", THREE_OWNS[:-1] + [" "], 2, [], ["ARGUMENT REFUSED", "--owns", "empty"]),
+    ("C1-2-empty-owns-item", THREE_OWNS_NO_TEST[:-1] + [" "], 2, [], ["ARGUMENT REFUSED", "--owns", "empty"]),
     ("C1-2-empty-given-item", swap(BASE, "--given", ""), 2, [], ["ARGUMENT REFUSED", "--given", "empty"]),
     ("C1-3-designer-skip-case", THREE_OWNS + ["--designer", "Skip -- tiny"], 0, ["designer: Skip -- tiny"], []),
     ("E-C1-6-task-letter", swap(BASE, "--task", "t-123a"), 0, ["task: t-123a"], []),
@@ -73,6 +75,17 @@ CASES = [
     # the readers block (tools/owns_readers.py): the REAL tool runs on this row only (the fixture stubs it elsewhere)
     ("readers-block", BASE, 0, ["siblings: none -- single file\n\nreaders: "], []),
     ("readers-no-note", BASE, 0, ["task: t-862"], []),  # the universal `READERS NOTE` check below is this row's assertion
+    # the `test:` line (spec forge-test-rules 5.1 item 7): printed right under DoD, one line per --test; owed over the threshold
+    ("test-line-printed-under-dod", THREE_OWNS + ["--test", "none -- no behaviour | expected from: spec 2",
+                                                  "--designer", "skip -- tiny"], 0,
+     ["DoD: `python -m pytest x -q`\ntest: " + TL + "\ntest: none -- no behaviour | expected from: spec 2\nsiblings: "],
+     []),
+    ("test-line-absent-over-threshold", THREE_OWNS_NO_TEST + ["--designer", "skip -- tiny"], 2, [],
+     ["DISPATCH INCOMPLETE", "test (no line)"]),
+    ("test-line-ill-formed", THREE_OWNS_NO_TEST + ["--test", "tools/x.py", "--designer", "skip -- tiny"], 2, [],
+     ["DISPATCH INCOMPLETE", "test (ill-formed: test: tools/x.py)"]),
+    ("test-line-empty-item", BASE + ["--test", " "], 2, [], ["ARGUMENT REFUSED", "--test", "empty"]),
+    ("test-line-backtick", BASE + ["--test", "`x` | expected from: y"], 2, [], ["ARGUMENT REFUSED", "--test"]),
     ("names-backtick", BASE + ["--names", "a`b"], 2, [], ["ARGUMENT REFUSED", "--names"]),
     ("names-accepted", BASE + ["--names", "f (new)", "g"], 0, ["task: t-862"], []),
 ]

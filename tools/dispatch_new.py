@@ -2,7 +2,7 @@
 
     python -B tools/dispatch_new.py --kind builder --task t-862 [--feature F19] [--node slug/N/id]
         --given <p>... --owns <abs>... --non-goals "<t>" --handoff <abs .md> --edges "<t>" --dod "<cmd>"
-        --siblings "<t>" [--names <n>...] [--designer <abs> | "skip -- <why>" | "resubmission t-NNN"]
+        --siblings "<t>" [--test "<where> | expected from: <source>"]... [--names <n>...] [--designer <abs> | "skip -- <why>" | "resubmission t-NNN"]
 
 The generator has NO grammar of its own: it lays the values out one header per line (list values one path per line
 under their header), appends the readers block of tools/owns_readers.py (data about the owned paths, not grammar: behind a
@@ -52,6 +52,7 @@ def _parser() -> argparse.ArgumentParser:
     ap.add_argument("--edges", default="")
     ap.add_argument("--dod", default="")
     ap.add_argument("--siblings", default="")
+    ap.add_argument("--test", action="append", default=[])
     ap.add_argument("--names", nargs="*", default=[])
     ap.add_argument("--designer")
     return ap
@@ -68,7 +69,7 @@ def _forbidden(args) -> str:
 
 def _empty_item(args) -> str:
     """The name of the first list argument holding an empty or whitespace-only item (it would end the section), or ''."""
-    for name in ("given", "owns"):
+    for name in ("given", "owns", "test"):
         if any(not p.strip() for p in getattr(args, name)):
             return name
     return ""
@@ -97,6 +98,7 @@ def build_text(args) -> str:
     lines.append("handoff: %s" % _path(args.handoff) if args.handoff else "handoff:")
     lines.append("edges: %s" % args.edges)
     lines.append("DoD: `%s`" % args.dod if args.dod else "DoD:")
+    lines.extend("test: %s" % t for t in args.test)
     lines.append("siblings: %s" % args.siblings)
     if args.designer is not None:
         # the checker's own two forms stay as typed; anything else is a path

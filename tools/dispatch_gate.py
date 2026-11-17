@@ -2039,7 +2039,7 @@ _STDIN_DEADLINE_STATE = {"hit": False}
 # case, and the note must still be producible). A test pins the two equal.
 _UNCHECKED_NOTE_FALLBACK = (
     "MANIFEST-UNCHECKED: this dispatch was not checked for completeness ({what}) -- it went "
-    "out; check given, owns, non-goals, handoff, edges, DoD, siblings and designer by eye."
+    "out; check given, owns, non-goals, handoff, edges, DoD, siblings, designer and test by eye."
 )
 
 

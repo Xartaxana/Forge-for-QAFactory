@@ -44,6 +44,7 @@ PARTS = {
     "handoff": "handoff: a short report",
     "edges": "edges: none -- pure function",
     "dod": "DoD: `python -m pytest tools/x.py -q`",
+    "test": "test: tools/test_x.py::table | expected from: spec 1",
     "siblings": "siblings: none -- a new standalone file",
 }
 
@@ -80,7 +81,7 @@ def test_K1_t083_attempt1_is_blocked_with_five_items():
     code, msg, note = run(_fixture("K1"))
     assert code == 2 and note == ""
     # K1 carries 3+ numbered spec items and no designer line: the designer check names itself too
-    assert missing_names(msg) == ["given", "owns", "non-goals", "handoff", "edges", "siblings", "designer"]
+    assert missing_names(msg) == ["given", "owns", "non-goals", "handoff", "edges", "siblings", "designer", "test"]
     assert msg.startswith("DISPATCH INCOMPLETE (CLAUDE.md rule 11): this builder dispatch does not go out.")
     assert "owns (no line)" in msg
 
@@ -101,13 +102,13 @@ def test_K4_scout_is_not_checked():
 
 
 def test_K5_K1_plus_a_valid_skip_line_goes_out_with_a_skip_note():
-    prompt = (_fixture("K1") + "\nmanifest-skip: given, owns, non-goals, handoff, edges, siblings, designer "
+    prompt = (_fixture("K1") + "\nmanifest-skip: given, owns, non-goals, handoff, edges, siblings, designer, test "
               "-- old-form dispatch, sent on purpose\n")
     code, msg, note = run(prompt)
     assert (code, msg) == (0, "")
     assert note.startswith("MANIFEST-SKIP:")
     assert note == (
-        'MANIFEST-SKIP: dispatch sent without given, owns, non-goals, handoff, edges, siblings, designer on purpose: '
+        'MANIFEST-SKIP: dispatch sent without given, owns, non-goals, handoff, edges, siblings, designer, test on purpose: '
         '"old-form dispatch, sent on purpose" -- the line stays in the prompt as the record.'
     )
 
@@ -119,7 +120,7 @@ def test_K6_unknown_skip_item_is_refused():
     assert msg == (
         "MANIFEST-SKIP REFUSED: 'manifest-skip: given, colour -- because' -- unknown item 'colour'. "
         "Expected: manifest-skip: <item>[, <item>] -- <reason>; items: given, owns, non-goals, "
-        "handoff, edges, dod, siblings, designer; the reason is not empty."
+        "handoff, edges, dod, siblings, designer, test; the reason is not empty."
     )
 
 
@@ -133,8 +134,9 @@ def test_K6_empty_reason_is_refused():
 def test_K7_t091_written_in_the_form_passes_unchanged():
     # K7 predates the siblings line: it is refused for that line alone, and passes with one appended
     # (K7 also carries 3+ numbered items, so the designer line is owed too)
-    assert missing_names(run(_fixture("K7"))[1]) == ["siblings", "designer"]
-    assert run(_fixture("K7") + "\nsiblings: none -- a standalone tool\ndesigner: resubmission t-091\n") == (0, "", "")
+    assert missing_names(run(_fixture("K7"))[1]) == ["siblings", "designer", "test"]
+    assert run(_fixture("K7") + "\nsiblings: none -- a standalone tool\ndesigner: resubmission t-091\n"
+               "test: none -- no behaviour | expected from: t-091 spec\n") == (0, "", "")
 
 
 def test_K8_critic_prompt_with_numbered_owns_overlap_is_not_checked():
@@ -159,7 +161,10 @@ _EXPECTED_INCOMPLETE = (
     "siblings: (the neighbours the change must also touch or check: paths or 'axis N', or "
     "'siblings: none -- <why>' with the reason on the same line), "
     "designer: (required only from 3 owned paths or 3 numbered items: the absolute path of the accepted "
-    "draft, 'designer: skip -- <reason>' or 'designer: resubmission t-<id>'). To send it "
+    "draft, 'designer: skip -- <reason>' or 'designer: resubmission t-<id>'), "
+    "test: (over the designer threshold: one line per behaviour item inside the DoD, "
+    "`test: <file::table> | expected from: <spec §, rule, owner's word>` or "
+    "`test: none -- <why> | expected from: <source>`; the form: docs/TESTING.md «Строка теста в DoD»). To send it "
     "anyway on purpose, add a line: manifest-skip: <item>[, <item>] -- <reason>. "
     "Door: the expected lines above; python -B tools/dispatch_new.py prints them in this form."
 )
@@ -176,7 +181,7 @@ def test_unchecked_note_text_is_verbatim():
     assert note == (
         "MANIFEST-UNCHECKED: this dispatch was not checked for completeness (quoted regions "
         "could not be read reliably) -- it went out; check given, owns, non-goals, handoff, "
-        "edges, DoD, siblings and designer by eye."
+        "edges, DoD, siblings, designer and test by eye."
     )
 
 
@@ -1228,10 +1233,9 @@ def test_form_switch_off_still_checks_both_items_and_notes_them(monkeypatch):
     assert (code, msg) == (0, "")
     assert note == (
         "SIBLINGS/DESIGNER NOT ENFORCED (DISPATCH_FORM_REFUSES is off): this dispatch went out missing "
-        "siblings (no line), designer (no line; over the threshold by 3 owned paths); add the line(s) in the form "
-        "the INCOMPLETE text names."
-    )
-    # the six older items are still refused, and the refusal names only them
+        "siblings (no line), designer (no line; over the threshold by 3 owned paths); add the line(s) in the form: "
+        "siblings: " + dm._FORM_HINTS["siblings"] + "; designer: " + dm._FORM_HINTS["designer"] + "."
+    )    # the six older items are still refused, and the refusal names only them
     code, msg, note = run(build(owns=OWNS3, siblings=None, edges=None))
     assert code == 2 and missing_names(msg) == ["edges"]
     # a complete dispatch: no note
@@ -1271,9 +1275,129 @@ def test_templates_list_every_item_and_keep_their_first_sentence():
         assert name in dm.INCOMPLETE_TEMPLATE, name
     for item in dm.ITEMS:
         assert item in dm.SKIP_REFUSED_TEMPLATE, item
-    assert "siblings and designer by eye" in dm.UNCHECKED_NOTE_TEMPLATE
+    assert "siblings, designer and test by eye" in dm.UNCHECKED_NOTE_TEMPLATE
     assert dm.INCOMPLETE_TEMPLATE.startswith(
         "DISPATCH INCOMPLETE (CLAUDE.md rule 11): this {kind} dispatch does not go out. Missing: {items}.")
     assert dm.SKIP_REFUSED_TEMPLATE.startswith("MANIFEST-SKIP REFUSED: '{line}' -- {why}. Expected:")
     assert dm.UNCHECKED_NOTE_TEMPLATE.startswith(
         "MANIFEST-UNCHECKED: this dispatch was not checked for completeness ({what}) -- it went out; check ")
+
+
+# =========================================================================
+# The `test:` line gate (spec forge-test-rules 5.1; docs/TESTING.md «Строка теста в DoD»)
+# =========================================================================
+
+_TL = "test: tools/test_x.py::table | expected from: spec 5.1"
+_DESIGNER_SKIP = "designer: skip -- tiny edit"
+
+
+def _over(test=_TL, tail="", **over):
+    """An over-threshold (3 owned paths) builder dispatch whose DoD carries `test` (None = no line) and `tail` at the end."""
+    return build(owns=OWNS3, designer=_DESIGNER_SKIP, test=test, **over) + tail
+
+
+# (id, prompt, kind, expected: None = goes out; else the exact missing label of the `test` item)
+_TEST_LINE_ROWS = [
+    ("pass-plain-line", _over(), "builder", None),
+    ("pass-after-last-header", _over(test=None, tail="\n" + _TL + "\n"), "builder", None),
+    ("pass-under-siblings", _over(test=None, siblings="siblings: none -- x\n" + _TL), "builder", None),
+    ("pass-bullet", _over(test="- " + _TL), "builder", None),
+    ("pass-bold-key", _over(test="**test:** tools/t.py::a | expected from: spec"), "builder", None),
+    ("pass-bold-prefix", _over(test="**" + _TL), "builder", None),
+    ("pass-backtick-pair", _over(test="`" + _TL + "`"), "builder", None),
+    ("pass-key-any-case", _over(test="TEST: tools/t.py::a | expected from: spec"), "builder", None),
+    ("pass-expected-from-any-case", _over(test="test: tools/t.py::a | Expected From: spec"), "builder", None),
+    ("pass-pipe-inside-where", _over(test="test: tools/t.py::a|b | expected from: spec"), "builder", None),
+    ("pass-first-expected-from-splits", _over(test="test: tools/t.py | expected from: a | expected from: b"), "builder", None),
+    ("pass-none-with-reason", _over(test="test: none -- no behaviour | expected from: spec 2"), "builder", None),
+    ("pass-none-emdash-reason", _over(test="test: none — doc only | expected from: spec 2"), "builder", None),
+    ("pass-crlf", _over().replace("\n", "\r\n"), "builder", None),
+    ("pass-one-good-beside-a-bad", _over(tail="test: tools/x.py\n"), "builder", None),
+    ("pass-nonsense-source-accepted", _over(test="test: x | expected from: ?"), "builder", None),
+    ("pass-cyrillic-source", _over(test="test: tools/t.py::a | expected from: слово владельца"),
+     "builder", None),
+    ("pass-huge-source-100k", _over(test="test: tools/t.py::a | expected from: " + "x" * 100000), "builder", None),
+    ("pass-manifest-skip-test", _over(test=None, tail="manifest-skip: test -- spec accepted before the test line (x.md)\n"),
+     "builder", None),
+    ("pass-manifest-skip-upper", _over(test=None, tail="manifest-skip: TEST -- reason\n"), "builder", None),
+    ("pass-under-threshold-two-owns", build(owns=OWNS2, test=None), "builder", None),
+    ("pass-bold-key-inner", _over(test="**test**: tools/t.py::a | expected from: spec"), "builder", None),
+    ("pass-bullet-bold-key-inner", _over(test="- **test**: tools/t.py::a | expected from: spec"), "builder", None),
+    ("pass-where-path-none-dash", _over(test="test: none-left.py::t | expected from: s"), "builder", None),
+    ("pass-where-path-none-dot", _over(test="test: none.py | expected from: s"), "builder", None),
+    ("pass-designer-kind-not-checked", _over(test=None), "designer", None),
+    ("pass-resubmission-with-skip-door",
+     build(owns=OWNS3, designer="designer: resubmission t-123", test=None)
+     + "manifest-skip: test -- spec accepted before the test line (docs/x.md)\n", "builder", None),
+    ("pass-critic-kind-not-checked", _over(test=None), "critic", None),
+    ("pass-scout-kind-not-checked", _over(test=None), "scout", None),
+    ("refuse-no-line", _over(test=None), "builder", "no line"),
+    ("refuse-three-numbered-items-no-line", build(test=None, designer=_DESIGNER_SKIP) + SPEC_BODY, "builder", "no line"),
+    ("refuse-only-in-fence", _over(test=None, tail="\n" + fence(_TL)), "builder", "no line"),
+    ("refuse-only-in-blockquote", _over(test=None, tail="\n" + quote(_TL)), "builder", "no line"),
+    ("refuse-nested-blockquote", _over(test=None, tail="\n> > " + _TL + "\n"), "builder", "no line"),
+    ("refuse-prose-test-row", _over(test="Test row: tools/t.py | expected from: spec"), "builder", "no line"),
+    ("refuse-fullwidth-colon", _over(test="test： tools/t.py | expected from: spec"), "builder", "no line"),
+    ("refuse-none-without-reason-sep", _over(test="test: none | expected from: x"), "builder",
+     "ill-formed: test: none | expected from: x"),
+    ("refuse-none-trailing-space", _over(test="test: none  | expected from: x"), "builder",
+     "ill-formed: test: none  | expected from: x"),
+    ("refuse-resubmission-without-line", build(owns=OWNS3, designer="designer: resubmission t-123", test=None),
+     "builder", "no line"),
+    ("refuse-ill-formed-label-at-80", _over(test="test: " + "w" * 74), "builder", "ill-formed: test: " + "w" * 74),
+    ("refuse-none-reason-no-word-char", _over(test="test: none -- - | expected from: x"), "builder",
+     "ill-formed: test: none -- - | expected from: x"),
+    ("refuse-no-source", _over(test="test: tools/x.py"), "builder", "ill-formed: test: tools/x.py"),
+    ("refuse-empty-source", _over(test="test: tools/x.py | expected from:"), "builder",
+     "ill-formed: test: tools/x.py | expected from:"),
+    ("refuse-blank-source-backtick", _over(test="`test: tools/x.py | expected from: `"), "builder",
+     "ill-formed: `test: tools/x.py | expected from: `"),
+    ("refuse-empty-where", _over(test="test: | expected from: spec"), "builder", "ill-formed: test: | expected from: spec"),
+    ("refuse-ill-formed-label-cut-at-80", _over(test="test: " + "w" * 200), "builder", "ill-formed: test: " + "w" * 74),
+]
+
+
+@pytest.mark.parametrize("case", _TEST_LINE_ROWS, ids=[r[0] for r in _TEST_LINE_ROWS])
+def test_test_line(case):
+    _id, prompt, kind, expected = case
+    code, msg, note = run(prompt, kind)
+    if expected is None:
+        assert (code, msg) == (0, ""), msg
+    else:
+        assert code == 2 and missing_names(msg) == ["test"], msg
+        assert missing_text(msg) == "test (%s)" % expected
+
+
+_SKIP_DOOR_ROWS = [
+    ("skip-unknown-item-tests", "manifest-skip: tests -- reason\n", 2, ("unknown item 'tests'", "designer, test; the reason")),
+    ("skip-no-reason", "manifest-skip: test\n", 2, ("MANIFEST-SKIP REFUSED:",)),
+    ("skip-note-names-test", "manifest-skip: test -- old spec\n", 0,
+     ('MANIFEST-SKIP: dispatch sent without test on purpose: "old spec" -- the line stays in the prompt as the record.',)),
+]
+
+
+@pytest.mark.parametrize("case", _SKIP_DOOR_ROWS, ids=[r[0] for r in _SKIP_DOOR_ROWS])
+def test_test_line_skip_door(case):
+    _id, tail, code_want, texts = case
+    code, msg, note = run(_over(test=None, tail=tail))
+    assert code == code_want, msg
+    for t in texts:
+        assert t in (msg if code else note.splitlines()[0]), t
+
+
+def test_test_lines_reader_reads_unquoted_well_formed_only():
+    cut = dm.section_cut(_over(test=None, tail="test: a | expected from: b\ntest: bad\n> test: c | expected from: d\n"))
+    assert [(w, s) for _i, w, s in dm.test_lines(cut)] == [("a", "b")]
+
+
+def test_test_line_switch_off_is_a_note(monkeypatch):
+    assert "test" not in dm.ITEMS and dm.SKIP_ONLY_ITEMS == ("test",) and dm.TEST_LINE_REFUSES is True
+    monkeypatch.setattr(dm, "TEST_LINE_REFUSES", False)
+    code, msg, note = run(_over(test=None))
+    assert (code, msg) == (0, "") and note.startswith("TEST LINE NOT ENFORCED") and "test (no line)" in note
+    assert "expected from:" in note
+
+
+def test_test_line_degraded_cut_unchecked():
+    code, msg, note = run(_over(test=None, given="given: " + "`a b` " * 201))
+    assert (code, msg) == (0, "") and note.startswith("MANIFEST-UNCHECKED:") and "test" in note

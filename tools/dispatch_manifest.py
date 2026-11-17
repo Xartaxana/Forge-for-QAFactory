@@ -92,7 +92,15 @@ KEY_GROUPS = (
     ("designer", "designer", r"designer"),
 )
 ITEMS = tuple(k[0] for k in KEY_GROUPS)
+# The `test:` line (spec forge-test-rules 5.1): an item that is NOT a header of the grammar (no section, no KEY_GROUPS
+# row) but IS a manifest-skip word: ONE token for the item, its display name and its skip word.
+SKIP_ONLY_ITEMS = ("test",)
+_ALL_ITEMS = ITEMS + SKIP_ONLY_ITEMS
 _DISPLAY = {k[0]: k[1] for k in KEY_GROUPS}
+_DISPLAY.update({i: i for i in SKIP_ONLY_ITEMS})
+# True = an over-threshold builder dispatch with no well-formed `test:` line is REFUSED (L-2, the owner's word
+# 17.11.2026); False = checked and reported as a note.
+TEST_LINE_REFUSES = True
 _GROUP_TO_ITEM = {"g%d" % i: k[0] for i, k in enumerate(KEY_GROUPS)}
 
 # The form switch (F-E4): True = a missing/ill-formed siblings line, and a missing designer line over the
@@ -118,6 +126,9 @@ _FORM_HINTS = {
     "designer": ("(required only from %d owned paths or %d numbered items: the absolute path of the accepted "
                  "draft, 'designer: skip -- <reason>' or 'designer: resubmission t-<id>')"
                  % (DESIGNER_THRESHOLD, DESIGNER_THRESHOLD)),
+    "test": ("(over the designer threshold: one line per behaviour item inside the DoD, "
+             "`test: <file::table> | expected from: <spec §, rule, owner's word>` or "
+             "`test: none -- <why> | expected from: <source>`; the form: docs/TESTING.md «Строка теста в DoD»)"),
 }
 # The two items whose form DISPATCH_FORM_REFUSES switches between a refusal and a note (F3).
 _FORM_ITEMS = ("siblings", "designer")
@@ -131,6 +142,8 @@ def _expected_forms() -> str:
     for item, display, _alt in KEY_GROUPS:
         hint = _FORM_HINTS.get(item, "")
         parts.append("%s:%s" % (display, " " + hint if hint else ""))
+    for item in SKIP_ONLY_ITEMS:
+        parts.append("%s: %s" % (_DISPLAY[item], _FORM_HINTS[item]))
     return ", ".join(parts)
 
 
@@ -143,7 +156,7 @@ INCOMPLETE_TEMPLATE = (
 )
 SKIP_REFUSED_TEMPLATE = (
     "MANIFEST-SKIP REFUSED: '{line}' -- {why}. Expected: manifest-skip: <item>[, <item>] "
-    "-- <reason>; items: " + ", ".join(ITEMS) + "; the reason is not empty."
+    "-- <reason>; items: " + ", ".join(_ALL_ITEMS) + "; the reason is not empty."
 )
 SKIP_NOTE_TEMPLATE = (
     'MANIFEST-SKIP: dispatch sent without {items} on purpose: "{reason}" -- '
@@ -151,7 +164,7 @@ SKIP_NOTE_TEMPLATE = (
 )
 UNCHECKED_NOTE_TEMPLATE = (
     "MANIFEST-UNCHECKED: this dispatch was not checked for completeness ({what}) -- it went "
-    "out; check " + ", ".join(k[1] for k in KEY_GROUPS[:-1]) + " and " + KEY_GROUPS[-1][1] + " by eye."
+    "out; check " + ", ".join(_DISPLAY[i] for i in _ALL_ITEMS[:-1]) + " and " + _DISPLAY[_ALL_ITEMS[-1]] + " by eye."
 )
 DESIGNER_SKIP_NOTE_TEMPLATE = (
     "DESIGNER-SKIP: over the designer threshold; the hook writes dispatch_skipped(agent=designer) itself "
@@ -159,7 +172,12 @@ DESIGNER_SKIP_NOTE_TEMPLATE = (
 )
 FORM_NOT_ENFORCED_NOTE_TEMPLATE = (
     "SIBLINGS/DESIGNER NOT ENFORCED (DISPATCH_FORM_REFUSES is off): this dispatch went out missing {items}; "
-    "add the line(s) in the form the INCOMPLETE text names."
+    "add the line(s) in the form: siblings: " + _FORM_HINTS["siblings"] + "; designer: " + _FORM_HINTS["designer"] + "."
+)
+TEST_LINE_NOT_ENFORCED_NOTE_TEMPLATE = (
+    "TEST LINE NOT ENFORCED (TEST_LINE_REFUSES is off): this dispatch went out missing {items}; "
+    "add a line `test: <file::table> | expected from: <source>` or `test: none -- <why> | expected from: <source>` "
+    "(docs/TESTING.md «Строка теста в DoD»)."
 )
 WHAT_DEGRADED = "quoted regions could not be read reliably"
 
@@ -268,7 +286,7 @@ def _parse_skip_line(line: str):
     items = []
     for raw in items_part.split(","):
         name = raw.strip().lower()
-        if name not in ITEMS:
+        if name not in _ALL_ITEMS:
             return None, None, "unknown item '%s'" % raw.strip()
         items.append(name)
     if not reason.strip():
@@ -748,7 +766,8 @@ _DESIGNER_RESUBMISSION_RE = re.compile(
 # The header lines of the offload spec (F-B2-1 (a)): `task: t-NNN`, `node: <slug>/<N>/<id>`, `feature: Fnn`, each on its
 # own line outside a fence or quote, read by header_ids (the one reader). Not manifest ITEMS: nothing is refused for
 # their absence. The fallback for the task: the first `Task t-NNN` within the first TASK_FALLBACK_CHARS of the prompt.
-_IDS_HEADER_RE = re.compile(r"^[ \t]*(?:[-*•][ \t]+)?(?:\*\*)?(task|node|feature)(?:\*\*)?[ \t]*:[ \t]*(.*)$", re.IGNORECASE)
+_KEY_PREFIX = r"^[ \t]*(?:[-*•][ \t]+)?(?:\*\*)?"  # the ONE key prefix of the ids header and the `test:` line
+_IDS_HEADER_RE = re.compile(_KEY_PREFIX + r"(task|node|feature)(?:\*\*)?[ \t]*:[ \t]*(.*)$", re.IGNORECASE)
 _FEATURE_RE = re.compile(r"F[0-9]{2,3}\Z")
 TASK_FALLBACK_CHARS = 200
 _TASK_FALLBACK_RE = re.compile(r"\bTask[ \t]+(t-[0-9]{3,9}[a-z]{0,2})(?![0-9A-Za-z]|[^\x00-\x7f])")
@@ -884,19 +903,69 @@ def _designer_trigger(counts) -> str:
     return " and ".join(parts)
 
 
-def _form_missing(cut: DispatchCut, missing: dict):
+def _form_missing(cut: DispatchCut, missing: dict, counts):
     """Adds the siblings and designer labels to `missing` (always computed: DISPATCH_FORM_REFUSES only decides
     refusal vs note, F3); returns the designer skip reason (or None)."""
     state = _siblings_state(cut)
     if state:
         missing["siblings"] = state
-    counts = designer_threshold(cut)
     if max(counts) < DESIGNER_THRESHOLD:
         return None
     state, skip_reason = _designer_state(cut)
     if state:
         missing["designer"] = "%s; over the threshold by %s" % (state, _designer_trigger(counts))
     return skip_reason
+
+
+# The `test:` line (spec forge-test-rules 5.1 item 1): optional bullet, optional `**`, optional ONE opening backtick, the
+# key, then the rest (WHERE | expected from: SOURCE). Presence and FORM only; sufficiency and the source are the critic's.
+_TEST_KEY_RE = re.compile(_KEY_PREFIX + r"(?P<tick>`)?test(?:\*\*)?[ \t]*:(?:\*\*)?(?P<rest>.*)$", re.IGNORECASE)
+_EXPECTED_FROM_RE = re.compile(r"\|[ \t]*expected[ \t]+from[ \t]*:", re.IGNORECASE)
+_TEST_NONE_WORD_RE = re.compile(r"none(?=\s|--|—|$)", re.IGNORECASE)
+_TEST_BAD_CUT = 80  # characters of the first ill-formed line shown in the refusal
+
+
+def _test_candidates(cut: DispatchCut):
+    """[(line_index, ok, where, source)] of every UNQUOTED line carrying the `test:` key; `ok` = the line is well-formed
+    (a non-empty WHERE -- `none` only with `--`/`—` and a reason holding a word character --, the FIRST
+    `| expected from:`, a non-empty SOURCE)."""
+    out = []
+    for li, line in enumerate(cut.lines):
+        if cut.quoted[li]:
+            continue
+        m = _TEST_KEY_RE.match(line)
+        if m is None:
+            continue
+        rest = m.group("rest")
+        if m.group("tick"):
+            rest = rest.rstrip()
+            if rest.endswith("`"):
+                rest = rest[:-1]
+        sep = _EXPECTED_FROM_RE.search(rest)
+        where = rest[:sep.start()].strip() if sep else rest.strip()
+        source = rest[sep.end():].strip(" \t`*") if sep else ""
+        ok = sep is not None and bool(where) and bool(source)
+        if ok and _TEST_NONE_WORD_RE.match(where):
+            answer = _NONE_ANSWER_RE.match(where)
+            ok = answer is not None and bool(_WORD_CHAR_RE.search(answer.group("reason")))
+        out.append((li, ok, where, source))
+    return out
+
+
+def test_lines(cut: DispatchCut):
+    """[(line_index, where, source)] of the well-formed `test:` lines of `cut` (spec forge-test-rules 5.1 item 1): the ONE
+    reader of the line. Lines inside a fence or a blockquote never count."""
+    return [(li, where, source) for li, ok, where, source in _test_candidates(cut) if ok]
+
+
+def _test_state(cut: DispatchCut):
+    """None when at least one well-formed `test:` line exists; else 'no line' or 'ill-formed: <first bad line>'."""
+    cands = _test_candidates(cut)
+    if any(ok for _li, ok, _w, _s in cands):
+        return None
+    if not cands:
+        return "no line"
+    return "ill-formed: " + cut.lines[cands[0][0]].strip()[:_TEST_BAD_CUT]
 
 
 def _items_text(items, missing) -> str:
@@ -941,7 +1010,12 @@ def check_cut(cut, is_builder: bool):
         elif item == "dod":
             if not any(has_command(s.header_line, s.last_line) for s in nonblank):
                 missing[item] = "no command in backticks"
-    designer_skip_reason = _form_missing(cut, missing)
+    counts = designer_threshold(cut)
+    designer_skip_reason = _form_missing(cut, missing, counts)
+    if is_builder and max(counts) >= DESIGNER_THRESHOLD:
+        test_state = _test_state(cut)
+        if test_state:
+            missing["test"] = test_state
 
     waived = {}  # item -> reason of the first skip line naming it
     skip_notes = []
@@ -950,7 +1024,7 @@ def check_cut(cut, is_builder: bool):
         if why is not None:
             message = SKIP_REFUSED_TEMPLATE.format(line=cut.lines[li].strip(), why=why)
             return 2, message, "", True
-        newly = [i for i in ITEMS if i in items and i in missing and i not in waived]
+        newly = [i for i in _ALL_ITEMS if i in items and i in missing and i not in waived]
         for i in newly:
             waived[i] = reason
         if newly:
@@ -958,14 +1032,17 @@ def check_cut(cut, is_builder: bool):
                 SKIP_NOTE_TEMPLATE.format(items=", ".join(_DISPLAY[i] for i in newly), reason=reason)
             )
 
-    still = [i for i in ITEMS if i in missing and i not in waived]
+    still = [i for i in _ALL_ITEMS if i in missing and i not in waived]
     # F3: with the switch off the two form items are still checked, and reported as a note, never refused
     unenforced = [] if DISPATCH_FORM_REFUSES else [i for i in still if i in _FORM_ITEMS]
-    still = [i for i in still if i not in unenforced]
+    test_unenforced = [] if TEST_LINE_REFUSES else [i for i in still if i in SKIP_ONLY_ITEMS]
+    still = [i for i in still if i not in unenforced and i not in test_unenforced]
     if still:
         return 2, INCOMPLETE_TEMPLATE.format(kind=kind_word, items=_items_text(still, missing)), "", True
     if unenforced:
         skip_notes.append(FORM_NOT_ENFORCED_NOTE_TEMPLATE.format(items=_items_text(unenforced, missing)))
+    if test_unenforced:
+        skip_notes.append(TEST_LINE_NOT_ENFORCED_NOTE_TEMPLATE.format(items=_items_text(test_unenforced, missing)))
     if designer_skip_reason is not None:
         skip_notes.append(DESIGNER_SKIP_NOTE_TEMPLATE)
     return 0, "", "\n".join(skip_notes), True
