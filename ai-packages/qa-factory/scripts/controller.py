@@ -2467,6 +2467,14 @@ class Controller:
              "check": row.get("check"), "case": row.get("case"), "tag": row.get("tag"), "subjects": row.get("subjects")}
             for row in rows])
 
+    _dispatch_passes = None   # the passes a dispatch's `validate` met, while `apply` holds one commit open; else None
+
+    def _note_dispatch_pass(self, passed):
+        """RD1-31 (FR-4, P13): a block of the dispatch branch that a person's word passed is KEPT, not dropped. Collected here and
+        recorded by `apply` only after the commit stands, so a dispatch refused later (by any other block) leaves no row."""
+        if passed and self._dispatch_passes is not None:
+            self._dispatch_passes.extend(passed)
+
     def _passed_by_person(self, stage, errors):
         """(still blocking, passed by a person's recorded word) — the factory's standing rule.
 
@@ -5204,6 +5212,7 @@ class Controller:
         # the plan baseline, which the dashboard should already see), then the derived-view
         # refresh when the block ends. A refresh failure therefore never skips `_after_commit`
         # and never undoes the commit.
+        self._dispatch_passes = [] if operation == "dispatch" else None
         try:
             with self.store.deferred_after_commit():
                 receipt = self.store.commit(EVENT_KIND.get(operation, operation), request, key, revision,
@@ -5236,6 +5245,12 @@ class Controller:
             raise IdempotencyKeyReused("idempotency key reused with different inputs: dispatch " + str(request.get("id"))
                                        + self._other_scope_text(committed, request, respelled),
                                        key=exc.key, fields=exc.fields) from exc
+        finally:
+            kept, self._dispatch_passes = self._dispatch_passes, None
+        if operation == "dispatch":
+            # RD1-31. POSITION: after the commit stands. INVARIANT: a dispatch refused (or never committed) leaves NO pass row; a
+            # committed one leaves exactly one row per block a person's word passed; no word at all writes nothing.
+            self._record_person_pass(request.get("stage"), request.get("id"), kept)
         if expansions and isinstance(receipt, dict):
             # m-13: the receipt (the CLI's output, never the payload) lists the members written otherwise than spelt
             receipt = dict(receipt, scope_expansions=expansions)
@@ -5542,16 +5557,16 @@ class Controller:
             # and stays a ValueError first, FR-46) and before the closure test; it reads only `p["stage"]`, which `required` gave.
             # INVARIANT: no dispatch is committed on a registry that cannot be read; a registry that reads is never stopped here
             # (a missing consumer is the site's own cause). The person's word passes it (FR-4); a cached failure only ever stops.
-            from gate_template import registry_problem
-            registry_why = registry_problem()
-            if registry_why:
-                registry_blocking, _ = self._passed_by_person(p["stage"], [
-                    f"gate registry unreadable: the plugin's references/gate-registry.json cannot be read ({registry_why}). "
-                    "Owner: factory - a defect of the install, not of the story; nothing is wanted from you. Reinstall or update "
+            from gate_template import registry_problem, registry_why
+            registry_reason = registry_problem()
+            if registry_reason:
+                registry_blocking, passed = self._passed_by_person(p["stage"], [
+                    registry_why(registry_reason, "Owner: factory - a defect of the install, not of the story; nothing is wanted from you. Reinstall or update "
                     "the qa-factory plugin (UPGRADE.md, step 3), then start the stage again. No stage starts until the file reads, "
-                    "because every reuse and review acceptance reads it."])
+                    "because every reuse and review acceptance reads it.", stop=True)])
                 if registry_blocking:
                     raise StateConflict(registry_blocking[0])
+                self._note_dispatch_pass(passed)
             # THE closure test (B-331, C1-6a; M1 (d) as code on every road): the skill path can dispatch a packet by hand,
             # so the driver's question is not the only guard. After the fields are known to be there, before any other
             # check reads them.
@@ -5646,7 +5661,8 @@ class Controller:
                     kind = f" ({p['execution_kind']})" if p.get("execution_kind") else ""
                     errors = [f"{p['stage']}{kind} dispatch has an empty scope while the approved "
                               f"plan expects {len(expected['scope'])}: " + ", ".join(expected["scope"])]
-                    blocking, _ = self._passed_by_person(p["stage"], errors)
+                    blocking, passed = self._passed_by_person(p["stage"], errors)
+                    self._note_dispatch_pass(passed)
                     if blocking:
                         raise StateConflict(
                             blocking[0] + ". Take the scope from the controller — "
@@ -5680,7 +5696,8 @@ class Controller:
                     key = mechanical_pass_key(state["dispatches"], p)
                     errors = [f"{key}: {p['role']} is not dispatched for a mechanical repair round "
                               f"on this {p['stage']} window"]
-                    blocking, _ = self._passed_by_person(p["stage"], errors)
+                    blocking, passed = self._passed_by_person(p["stage"], errors)
+                    self._note_dispatch_pass(passed)
                     if blocking:
                         raise StateConflict(
                             blocking[0] + ". A mechanical fix is closed by the author's own "
@@ -5695,7 +5712,8 @@ class Controller:
                         key = mechanical_pass_key(state["dispatches"], p)
                         errors = [f"{key}: this {p['stage']} window has already had {had} mechanical "
                                   f"repair round(s); the cap is {allowed}"]
-                        blocking, _ = self._passed_by_person(p["stage"], errors)
+                        blocking, passed = self._passed_by_person(p["stage"], errors)
+                        self._note_dispatch_pass(passed)
                         if blocking:
                             raise StateConflict(
                                 blocking[0] + ". A second list of mechanical fixes means the "
@@ -5714,7 +5732,8 @@ class Controller:
                               f"round(s) about the test on this {p['stage']} window; the cap is {cap}. Counted as "
                               f"test_defect: {', '.join(counted) or 'none'}; not counted: "
                               f"{', '.join(others) or 'none'}"]
-                    blocking, _ = self._passed_by_person(p["stage"], errors)
+                    blocking, passed = self._passed_by_person(p["stage"], errors)
+                    self._note_dispatch_pass(passed)
                     if blocking:
                         raise StateConflict(
                             blocking[0] + ". " + free + "Otherwise carry what is left as a "

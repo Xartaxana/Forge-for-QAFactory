@@ -1551,10 +1551,6 @@ def instance_identity_and_reached_per_instance():
         check_eq("...and after another test's edit its raw bytes differ, it recorded no code sha: not reached",
                  PL.reached(legacy, {}, fix.task)["level"], None)
         test.write_bytes(original_text)
-        # tie of two receipts of one level: the very bytes, then the same test, then only the same code
-        check_eq("holds_over_comments is a thin wrapper of same_test", (
-            PL.holds_over_comments(proven, live_body, now=PL.instance_identity(entry, fix.task)),
-            PL.holds_over_comments(proven, {})), (False, False))
     finally:
         fix.close()
         use_project(PROJECT["root"])

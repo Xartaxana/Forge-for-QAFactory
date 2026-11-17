@@ -2280,7 +2280,11 @@ REG_PRECONDITION_ROWS = (
     ("not-json", (None, "it is not valid JSON (Expecting value: line 1 column 1 (char 0))"), "not valid JSON", False, None, "refused"),
     ("not-utf8", (None, "it is not valid UTF-8 (invalid start byte)"), "not valid UTF-8", False, None, "refused"),
     ("no-rows", ({"rows": "x"}, "it carries no `rows` list"), "no `rows` list", False, None, "refused"),
-    ("passed-by-word", ({"rows": "x"}, "it carries no `rows` list"), "", True, None, "recorded"),
+    # RD1-31 (the last field): the rows `state/passed-by-person.jsonl` holds after the row - the stop passed by a word is kept,
+    # once, naming owner factory (FR-4, P13); a word present while ANOTHER block refuses (scope outside the approved one) leaves none
+    ("passed-by-word", ({"rows": "x"}, "it carries no `rows` list"), "", True, None, "recorded", 1),
+    ("passed-by-word-other-block-refuses", ({"rows": "x"}, "it carries no `rows` list"), "scope expansion", True,
+     ("scope", ["TC-9"]), "refused-other", 0),
     ("live", "live", "", False, None, "recorded"),
     ("malformed-first", ({"rows": "x"}, "it carries no `rows` list"), "", False, ("input_hash", None), "malformed"),
     ("malformed-first-empty", ({"rows": "x"}, "it carries no `rows` list"), "", False, ("input_hash", ""), "malformed"),
@@ -2312,7 +2316,7 @@ def test_c3_reg_precondition_one_stop_for_an_unreadable_registry():
             return exc
         return None
 
-    def run_row(rid, how, words, by_word, edit, outcome):
+    def run_row(rid, how, words, by_word, edit, outcome, passes=0):
         with tempfile.TemporaryDirectory(prefix="qa-regpre-") as td, tempfile.TemporaryDirectory(prefix="qa-regpre-empty-") as empty:
             root = mark_project(Path(td))
             c = Controller(root)
@@ -2328,11 +2332,20 @@ def test_c3_reg_precondition_one_stop_for_an_unreadable_registry():
                 assert said.startswith("gate registry unreadable:") and words in said, (rid, said)
                 assert "Reinstall or update the qa-factory plugin" in said and "nothing is wanted from you" in said, (rid, said)
                 assert not c.state()["dispatches"] and len(c.store.read()) == before, (rid, "a dispatch was recorded")
+            elif outcome == "refused-other":
+                assert isinstance(got, StateConflict) and words in str(got), (rid, repr(got))
+                assert not c.state()["dispatches"] and len(c.store.read()) == before, (rid, "a dispatch was recorded")
             elif outcome == "malformed":
                 assert type(got) is ValueError and not str(got).startswith("gate registry unreadable"), (rid, repr(got))
                 assert len(c.store.read()) == before, (rid, "a malformed dispatch was recorded")
             else:
                 assert got is None and "S0-d1" in c.state()["dispatches"], (rid, repr(got))
+            pass_file = root / "state" / "passed-by-person.jsonl"
+            rows = [json.loads(line) for line in pass_file.read_text(encoding="utf-8").splitlines()] if pass_file.exists() else []
+            assert len(rows) == passes, (rid, "pass rows", rows)
+            if passes:
+                assert rows[0]["stage"] == "S0" and rows[0]["dispatch"] == "S0-d1" and rows[0]["block"].startswith(
+                    "gate registry unreadable:") and "Owner: factory" in rows[0]["block"], (rid, rows[0])
             if outcome == "refused-then-recorded":
                 seam("live", Path(empty))     # the reinstall: the root is restored and the cached failure is dropped (a new process)
                 again = attempt(c, "d2")

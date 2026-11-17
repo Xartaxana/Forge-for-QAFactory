@@ -21,7 +21,7 @@ from detector_verdict import refusal  # the one constructor of a refusal that te
 from record_schema import validate_record
 from execution_fingerprint import verify_files
 from hooklib import sorted_paths, story_closure
-from gate_template import acceptable, registry_problem  # the ONE predicate a reuse word is accepted through (the `test_identity` row, AR-13)
+from gate_template import acceptable, registry_problem, registry_why  # the ONE predicate a reuse word is accepted through (the `test_identity` row, AR-13)
 
 PURPOSES = {"initial", "repair_verify", "red_probe", "diagnostic", "flaky_diagnostic",
             "build", "collect", "manual", "quality"}
@@ -2105,8 +2105,7 @@ def _match(job: dict, request: dict, instance_id: str, policy: dict, reset_at: s
                 "test_identity.run_reuse"):
             problem = registry_problem()
             if problem:
-                return "", (f"the gate registry cannot be read ({problem}): a factory defect, "
-                            "the earlier run was not judged"), _WHY_RANK["bytes"]
+                return "", registry_why(problem, "the earlier run was not judged"), _WHY_RANK["bytes"]
             return "", ("instance bytes differ: the test, or something it depends on, was edited "
                         "since the earlier run"), _WHY_RANK["bytes"]
     if request.get("runtime_observed") is False:
