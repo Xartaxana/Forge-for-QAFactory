@@ -2245,6 +2245,8 @@ class DriverMachine:
         file = words_file or self.answer_file()
         self.answer_row(f"{stage} code close ({token}): ", words.strip(), what="your answer about the closed stage")
         if token == "stop":
+            self.answer_file()
+            self.record_answer_row(token)           # FV3-16 P4: the row before the Person below
             # remains: `stop` holds the question that was asked (the person's own word); it is no state without a move
             raise self.held_question(self.stop_held("If you want the factory to go on after all, answer one of the other answers."))
         if token == "retry":
@@ -2393,6 +2395,7 @@ class DriverMachine:
             print(f"{stage}: nothing is passed; the step runs again" if kind not in GATE_KINDS
                   else f"gate {kind[-1]}: nothing is recorded; the gate is shown again")
         elif move == "stop_here":
+            self.record_answer_row(token)       # FV3-16 P4: the token is read; the held question below is a Person, which skips take_answer's row
             others = " or ".join(f"`{offered}`" for offered in asked.get("offered") or () if offered != token)
             raise self.held_question(self.stop_held(f"If you want the factory to go on after all, answer {others}." if others else ""))
         else:
@@ -3402,6 +3405,10 @@ class DriverMachine:
         # silent: what is neither goes whole to the conductor (`_unread_kept_gate`). The decision keeps everything said at the gate.
         seam_gate_words = (kind in GATE_KINDS and bool(asked.get("offered"))
                            and self.s0_normalize(words) not in self.seam_tokens(asked))
+        # FV3-16 P3 (the `seam_gate_words` pattern for the halt): a word that is NOT a token of the options of a halt question the seam
+        # raised is a new answer of the halt, not an unread word of the seam (which filed it for no role: hole (a) of t-1244).
+        halt_free_words = (kind == "halt" and bool(asked.get("offered"))
+                           and self.s0_normalize(words) not in self.seam_tokens(asked))
         gate_words, apply = words, {}
         if seam_gate_words:
             gate_words = self.combine_gate_words(asked, raw, words)
@@ -3551,6 +3558,12 @@ class DriverMachine:
             # of sources not to read, given on a command line of a story whose sources were already
             # collected (t-172 C1), is asked at S0 and read by `skip_sources_late`, not by a conductor.
             self._keep_s0_words(words)
+        elif (halt_free_words and not (stage == "S1" and self.s0_normalize(words) == "not built yet" and self.s1_has_no_diff())):
+            # FV3-16 P3 POSITION INVARIANT: right BEFORE the generic `offered` branch, so EVERY token of `asked.offered`, `stop` included,
+            # still reaches `take_seam_answer` (`halt_free_words` is False for a token); only free words of a `halt` seam question come
+            # here, to the halt road below (`_unread_halt_or_review`), so they are filed for the role as the first answer's were. The
+            # `not built yet` answer keeps today's road (the generic branch), as before.
+            self._unread_halt_or_review(kind, stage, dispatch, qtext, words)
         elif asked.get("offered") and not seam_gate_words:
             # A question the seam (`no_move`) raised, and only such a question: `ask()` writes `offered` from its Person alone, so
             # no other question's answer is captured here (`s1_review` never carries it). POSITION INVARIANT:
@@ -3580,6 +3593,8 @@ class DriverMachine:
             # the WHOLE answer, and BEFORE `judged_reply` / `unread` - the conductor is not called and the words are not filed
             # for the role (no `pending_words`): `stop please` is other words and takes the unread road below, as today.
             self.answer_row(f"{stage} halt (stop): ", words.strip(), what="your answer at the halt")
+            self.answer_file()
+            self.record_answer_row("stop")      # FV3-16 P4: the row before the Person below skips take_answer's end
             raise self.held_question(self.stop_held("If you want the role to go on after all, answer in your own words."))
         elif kind in ("halt", "s1_review"):
             self._unread_halt_or_review(kind, stage, dispatch, qtext, words)
@@ -3840,9 +3855,12 @@ class DriverMachine:
             self.state["pending_words"][dispatch] = words
             return
         # FV1-3 (AR-15, AR-17): ONE hand-over for register words (`register_words_to_conductor`, driver_dispatch); the halt road's
-        # lines are discarded as `record_halt_words` discards its own, and the words are filed AFTER the seam (this road's order).
-        self.register_words_to_conductor(kind, stage, dispatch, qtext, words, recorded)
+        # lines are discarded as `record_halt_words` discards its own. FV3-16 P2: the words are filed BEFORE the seam (the I5 order of
+        # `take_question_answer`): the seam may raise a Person and end the process, and a later `go on` must find the ORIGINAL words.
+        # Safe: the I6 guard never resumes a role while a question about its dispatch is open.
         self.state["pending_words"][dispatch] = words
+        self.save_state()
+        self.register_words_to_conductor(kind, stage, dispatch, qtext, words, recorded)
 
     def _delivery_token(self, kind: str, stage: str, qtext: str, words: str, doors: tuple, reenter: bool = False) -> str:
         """The token of an answer to one of the delivery's closed questions, or '' (C1-6c). The FIRST non-empty line is the token
