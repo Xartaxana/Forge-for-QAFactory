@@ -67,3 +67,21 @@ census: no new blocking unit (1264 units before and after; blocking_units unchan
 - Needed beyond the manifest: `test_judgment_census.py` (to measure per-role counts), `slow_tests.json`.
 - Analogs noticed: none beyond the 10 units; no other `stage_done` census lines exist.
 - Not done: no changelog fragment (per card); no CI; slow files not run.
+
+## Attempt 2
+
+Edit: `ai-packages/qa-factory/scripts/tests/fixtures/told-ratchet.json` only (data), brought to the measurement after `7c46a1a0` moved `stage_done.py` units to roles `["conductor"]`.
+
+Removed `units` entries (8; each has census roles `["conductor"]` only after `7c46a1a0`): `stage_done.py::coerce_value`, `stage_done.py::main`, `stage_done.py::parse_sets`, `stage_done.py::record_acceptance`, `stage_done.py::record_computed_size`, `stage_done.py::report_problems`, `stage_done.py::run`, `stage_done.py::set_facts`. No entry added, no bare/tagged count changed or raised. Role-reachable units: 210 -> 202.
+
+`rowless`: 3 -> 1. `untold`: not moved (fixture 173; measured 163, the test did not ask to lower it, so left as is).
+
+`told:` line before (run on `7c46a1a0`):
+`told: units_no_row 0, join_share 1.0, role_reachable_units 202, rowless 1 ['guard_pre_tool:PT-doctor-probe'], untold 163`
+`told:` line after the edit: identical (the measurement did not change; the fixture was lowered to it).
+The line names only the one id still rowless, `guard_pre_tool:PT-doctor-probe`. The two ids that stopped being rowless are NOT printed by the test (it lists only remaining rowless ids); the baseline fell 3 -> 1 and I did not identify them by name (not measured).
+
+Criterion A, last line of the run `( cd <tree>/ai-packages/qa-factory && python -B scripts/tests/test_stage_joints.py )`:
+`=== test_stage_joints: 340/340 ok ===`
+
+FR pass: A, B, C, D, E, F - not applicable (no refusal, human text, contract, identity, delivery or measurement code changed; one data fixture). G - FR-30: English-only fixture, unchanged; FR-54 siblings: the per-role ceilings were moved by attempt 1, none else reads this fixture. AR-20: shrink-only baselines only lowered.
