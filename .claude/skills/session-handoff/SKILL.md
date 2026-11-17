@@ -64,10 +64,14 @@ reads in the morning, handoff verifies in the evening.
 5. **Boot chain is alive**: every file BOOT.md's sequence names still
    exists (a rename that doesn't update BOOT.md breaks the next
    session's boot).
+   5a. **Background waits**: `python -B tools/wait_reaper.py` (a dry list, it stops nothing) -- the trees of this session
+   older than the limit that are still running. An empty list is OK; a listed tree is stopped (`--apply --pid <root>`) or named in the
+   report with the reason it stays (a deliberate long run is started detached, RUNBOOK 9.8). A `WAITS:` line at session start
+   or a `no session` answer is reported as it stands.
 6. **Retro**: a coordinator session runs the `session-retro` skill now (before step 7's final commit, and
    before any compaction if one is near): one file in `docs/retro/inbox/`. The report line is
    "retro: written <path>" or "retro: skipped -- <reason>" (a worker session, or a session of a few turns).
-7. **Outcome**: a short report against points 1-6 (OK/FAIL and what
+7. **Outcome**: a short report against points 1-6 and 5a (OK/FAIL and what
    was done). A FAIL gets fixed BEFORE the session closes, not written
    down as "later." The final commit and push are the session's last
    action.
