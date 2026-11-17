@@ -24,6 +24,8 @@ tools/*.py text eol=lf
 docs/FACTORY_RULES_INDEX.md text eol=lf
 # The same for `tools/architecture_index.py --check` (F6-29).
 docs/ARCHITECTURE_INDEX.md text eol=lf
+# The same for `tools/factory_rules_index.py --check` of the owner principles index.
+docs/OWNER_PRINCIPLES_INDEX.md text eol=lf
 AGENTS.md text eol=lf
 # The routing journal is append-only and two clones append at its tail: `merge=union` merges
 # the two tails without a conflict (both sets of lines are kept). The union may interleave two
