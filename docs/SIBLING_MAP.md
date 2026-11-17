@@ -1,6 +1,6 @@
 # Sibling Map — symmetry axes
 
-The tool behind "fix the class, not the instance" (CLAUDE.md rule 9).
+The tool behind "fix the class, not the instance" (COORDINATOR.md rule 9).
 Closing a defect walks paired places BY THIS MAP, not by scanning the
 repository. Keep the map small; it is loaded only when closing a
 defect, not at boot.
@@ -475,37 +475,38 @@ The shape of `profiles[].commands` (an object keyed by command name; each comman
 Every aspect of a role — its duties, its `tools:` line, its hand-back form, its verification scope, the routing rules it
 obeys, the cost gates, its exam, its model binding — has ONE owner carrier that holds the rule text; every other carrier
 holds a one-line pointer (file + section) or is a machine copy that changes with the owner. Owner per aspect: the role file
-`.claude/agents/<role>.md` (duties, `tools:`, hand-back form), `docs/TESTING.md` «Что запускать по своей правке» (the builder's verification scope and the batch canon's content), `.claude/agents/critic.md` rules 21-24 (the critic review), `docs/TEAMWORK.md` (the piles mechanics a gate refuses), `docs/RUNBOOK.md` §7 (the integrator's local run and the CI, merge and canon procedure), `CLAUDE.md` (routing rules, command
-hygiene; cost gates in rule 12, Cost gates), `delegation.config.yaml` (the model binding), the exam instruments of axis 2.
+`.claude/agents/<role>.md` (duties, `tools:`, hand-back form), `docs/TESTING.md` «Что запускать по своей правке» (the builder's verification scope and the batch canon's content), `.claude/agents/critic.md` rules 21-24 (the critic review), `docs/TEAMWORK.md` (the piles mechanics a gate refuses), `docs/RUNBOOK.md` §7 (the integrator's local run and the CI, merge and canon procedure), `COORDINATOR.md` (routing rules and Cost gates), `CLAUDE.md` (rule 11, command
+hygiene, worker duties), `delegation.config.yaml` (the model binding), the exam instruments of axis 2.
 
 | File | Role(s) | Aspect | Owner / pointer |
 |---|---|---|---|
 | `.claude/agents/builder.md` | builder | duties, `tools:`, hand-back (7) | owner; scope → docs/TESTING.md «Что запускать по своей правке» (4); env-negative → CLAUDE.md hygiene 6 (6); rule 9 → name + consequence (5) |
 | `.claude/agents/critic.md` | critic | duties, `tools:`, hand-back (16), JSON verdict (17), exam (10) | owner; questions 6-7 → rule 22 Q6-Q7 (18); question 12 → rule 22 Q12 (19); re-run size → rule 21 (12); env-negative → hygiene 6 (11) |
-| `.claude/agents/designer.md` | designer | duties, `tools:`, hand-back (5), edge invariant (CLAUDE.md rule 2 -> designer.md rule 1), one road (6) | owner; draft form → CLAUDE.md rule 11 (1); DoD scope → docs/TESTING.md «Что запускать по своей правке» (1) |
+| `.claude/agents/designer.md` | designer | duties, `tools:`, hand-back (5), edge invariant (COORDINATOR.md rule 2 -> designer.md rule 1), one road (6) | owner; draft form → CLAUDE.md rule 11 (1); DoD scope → docs/TESTING.md «Что запускать по своей правке» (1) |
 | `.claude/agents/scout.md` | scout | duties, `tools:`, final message (9), digest form (10), flags (11), exam (6) | owner; rules 10-11 ↔ digest_form ↔ the t-794 fixture, a pinned trio (axis 1) |
 | `.claude/agents/judge.md` | judge | duties, `tools:`, verdict shape (3) | owner; the two prompt blocks are pinned verbatim copies of the code constants below |
 | `docs/TESTING.md` | builder, designer, critic | which tests are written; what a builder runs by its own change (the verification scope, the batch canon's content) | owner; hand-back → builder.md 7 (4); critic.md rule 21 and Q5 point here |
 | `ai-packages/qa-factory/design/*.md` | builder, designer, critic | the factory building rules, the architecture invariants (FR-n, AR-n), and the variety map with its walk form (architecture.md § A) | owner; `docs/FACTORY_RULES_INDEX.md` and `docs/ARCHITECTURE_INDEX.md` are their generated one-line copies |
-| `CLAUDE.md` | all | routing rules 1-13, journal, Role ≠ tier, degradation, command hygiene; cost gates (rule 12); the cross-file topic map (§ Contents, one row per topic T1-T33 of the boot-by-topic spec) | owner; critic questions → `.claude/agents/critic.md` rule 22 (rule 3); every Contents cell is a POINTERS row of `tools/tests/test_role_carriers_one_owner.py` until FG7-52 |
-| `docs/CLAUDE_HOST_ADAPTATIONS_FULL.md` | Lead | the reason of the clauses in rule 3 (critic gate) and rule 12 (Cost gates); the clause of rule 4a in full | reason only → critic.md rule 22, CLAUDE.md rule 12; rule 4a a trimmed ↔ full pair |
+| `CLAUDE.md` | all | the worker block: rule 11 (the dispatch form), command hygiene, worker duties, Язык | owner |
+| `COORDINATOR.md` | coordinator; a worker by the section its role file names | routing rules 1-10, 11a, 12, 13, journal, Role ≠ tier, degradation, Cost gates, the topic map (§ Contents) | owner (owner word pending: PROJECT.md «Лишних документов нет»); read via the SessionStart line `COORDINATOR RULES:`; critic questions → `.claude/agents/critic.md` rule 22 (rule 3); every Contents cell is a POINTERS row of `tools/tests/test_role_carriers_one_owner.py` until FG7-52 |
+| `docs/CLAUDE_HOST_ADAPTATIONS_FULL.md` | Lead | the reason of the clauses in rule 3 (critic gate) and rule 12 (Cost gates); the clause of rule 4a in full | reason only → critic.md rule 22, COORDINATOR.md rule 12; rule 4a a trimmed ↔ full pair |
 | `PROJECT.md` | builder, critic, integrator, coordinator | package-change acceptance p. 1-6; «Командная работа» discipline | owner of p. 1, 3-6, of the owner's words in p. 2 and of its «Диспетчеру:» line; p. 2 otherwise holds pointers: scope → D-0056 + docs/TESTING.md «Что запускать по своей правке»; CI job map → the `.github/workflows/` files; CI, canon, merge, local fallback → RUNBOOK §7; critic re-run → critic.md rule 21; report → builder.md 7 + 4; «Командная работа» п. 2, 3, 4, 8, 9 → `docs/TEAMWORK.md` (gated clauses), п. 13 → docs/TESTING.md «Что запускать по своей правке» (keeps the dispatcher sentence) |
 | `docs/TEAMWORK.md` | coordinator, integrator | the gated clauses of «Командная работа» п. 2, 3, 4, 8, 9 and the check line | owner (openers byte-identical to the PROJECT.md items, which point here per item) |
-| `docs/OWNER_PRINCIPLES.md` | all | the owner's principles P1–P31, full text | owner; `docs/OWNER_PRINCIPLES_INDEX.md` is its generated index (machine copy), imported by CLAUDE.md |
+| `docs/OWNER_PRINCIPLES.md` | all | the owner's principles P1–P31, full text | owner; `docs/OWNER_PRINCIPLES_INDEX.md` is its generated index (machine copy), read via the `COORDINATOR RULES:` line |
 | `docs/RUNBOOK.md` §7 | integrator, coordinator | the integrator's local run, CI reading, merge, canon procedure, local fallback (R5) | owner; docs/TESTING.md «Что запускать по своей правке» and PROJECT p. 2 point here |
 | `DECISIONS.md` | all | decisions and their reasons | record (append-only; not a rule carrier) |
 | `delegation.config.yaml` | all | model binding | owner |
-| `DELEGATION_TABLE.md` | Lead | assignment statuses | owner of statuses; routing → CLAUDE.md rules 1-13 |
+| `DELEGATION_TABLE.md` | Lead | assignment statuses | owner of statuses; routing → COORDINATOR.md rules 1-13 (rule 11: CLAUDE.md) |
 | `docs/TWO_VOCABULARIES.md` | all | function vs grade vocabulary | owner of the vocabulary; binding → delegation.config.yaml |
-| `SYSTEM_PROMPT.md` | all | permanent principles | owner of principles; fix the class → CLAUDE.md rule 9 |
+| `SYSTEM_PROMPT.md` | all | permanent principles | owner of principles; fix the class → COORDINATOR.md rule 9 |
 | `BOOT.md` | Lead | boot sequence | owner; routing → DELEGATION_TABLE.md (read when needed, not at boot) |
 | `CURRENT_CONTEXT.md` | Lead | live state, queue | state; a queued rule change names its owner |
 | `AGENTS.md` | Codex | copy of CLAUDE.md, imports, hooks, role front matter | generated (`tools/agents_md.py`) |
-| `docs/RUNBOOK.md` | night agent | night run 9.1 | procedure; owner of the branch-run recipe, the BATCH CANON procedure and the docker-fallback wording (§7); package fix → docs/TESTING.md «Что запускать по своей правке»; parallel launch → CLAUDE.md rule 12, Cost gates |
+| `docs/RUNBOOK.md` | night agent | night run 9.1 | procedure; owner of the branch-run recipe, the BATCH CANON procedure and the docker-fallback wording (§7); package fix → docs/TESTING.md «Что запускать по своей правке»; parallel launch → COORDINATOR.md rule 12, Cost gates |
 | `plans/piles/_template/batch.md` | Lead | batch form, witness-scope field | form (a field, no rule text) |
 | `docs/SIBLING_MAP.md` | all | the axes | owner |
-| `docs/FACTORY_RULES_INDEX.md` | builder, critic | FR one-liners | generated |
-| `docs/ARCHITECTURE_INDEX.md` | builder, critic, designer | AR one-liners | generated |
+| `docs/FACTORY_RULES_INDEX.md` | coordinator | FR one-liners | generated |
+| `docs/ARCHITECTURE_INDEX.md` | coordinator; `tools/architecture_gate.py` by path | AR one-liners | generated |
 | `PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md` | all | calibration checks (13, 28) | owner of detectors; rules → by number |
 | `PROCESS/JUDGE_CALIBRATION_PROTOCOL.md` | judge | judge calibration | owner (exam) |
 | `PROCESS/LEAD_RANKING_EXAM.md` | Lead | Lead exam | owner (exam) |
@@ -528,9 +529,9 @@ hygiene; cost gates in rule 12, Cost gates), `delegation.config.yaml` (the model
 | `.github/workflows/` | integrator | per-push regression, canon | owner of the CI job map (the workflow files, written with the jobs) |
 | `tools/canon_clock.py` | integrator | canon wall time | machine; the limit moves with the owner's norm (RUNBOOK §7) |
 | `tools/dispatch_manifest.py` | builder, critic, designer | manifest header form (R11-f) | machine |
-| `tools/dispatch_gate.py` | writers | DoD and manifest presence, `PARALLEL_CAP` | machine; the cap moves with CLAUDE.md rule 12 (Cost gates) and PROJECT.md «Командная работа» p. 12 |
+| `tools/dispatch_gate.py` | writers | DoD and manifest presence, `PARALLEL_CAP` | machine; the cap moves with COORDINATOR.md rule 12 (Cost gates) and PROJECT.md «Командная работа» p. 12 |
 | `tools/owns_gate.py` | builder | owns registry | machine |
-| `tools/agent_budget.py` | workers | context cap | machine; the numbers move with CLAUDE.md rule 12 (Cost gates) |
+| `tools/agent_budget.py` | workers | context cap | machine; the numbers move with COORDINATOR.md rule 12 (Cost gates) |
 | `tools/dod_track.py` | builder | test-run counter | machine |
 | `tools/dod_gate.py` | workers | SubagentStop, the resubmission hint | machine; the hint moves with the role files' hand-back rules |
 | `tools/handoff_gate.py` | critic, designer | Write only at `handoff:` | machine |

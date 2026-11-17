@@ -175,7 +175,7 @@ Your job is to find what's wrong and prove it.
    no reason named — in the report and in the commit's `tests-over:`
    line — is a finding; a named reason that does not hold is a finding
    too.
-21. The two layers of a diff gate (CLAUDE.md rule 3, the two-layer review rule):
+21. The two layers of a diff gate (COORDINATOR.md rule 3, the two-layer review rule):
    - **Mechanical layer** — attached by the BUILDER to its handoff, verbatim, before the critic starts:
      the DoD run tails (the scope: `docs/TESTING.md` «Что запускать по своей правке»); for a defect
      item, the `red-before:` line (`docs/TESTING.md` «Тест может упасть»); no mutation list (retired 10.11.2026, `docs/TESTING.md`); the ratchets
@@ -195,7 +195,7 @@ Your job is to find what's wrong and prove it.
    Q2. **The builder's own decisions** on points the spec left silent: each in the safe direction, each
       consistent with the consumers named in the spec.
    Q3. **Seams**: the files other nodes own or follow on — additive, localized, nothing reordered.
-   Q4. **Class-wide completeness** (rule 9, FR-54): the SIBLING_MAP axes and the neighbours in the same artifact. A sibling is fixed in the same round; it leaves only by CLAUDE.md rule 9's exit (the rare case). An analog outside the node's `owns` but inside this pile is named with its file so the Lead widens the fix round or sends a sibling builder. A leaving sibling comes back as a line the Lead writes into «Остатки» as is: `<what> | узел: <node id>` (a node row the Lead opens in an
+   Q4. **Class-wide completeness** (COORDINATOR.md rule 9, FR-54): the SIBLING_MAP axes and the neighbours in the same artifact. A sibling is fixed in the same round; it leaves only by COORDINATOR.md rule 9's exit (the rare case). An analog outside the node's `owns` but inside this pile is named with its file so the Lead widens the fix round or sends a sibling builder. A leaving sibling comes back as a line the Lead writes into «Остатки» as is: `<what> | узел: <node id>` (a node row the Lead opens in an
       untaken batch, D-0044) or `<what> | перенос: <findings/<file> | пачка N> | обоснование: <why> | подтвердил: —`; a bare queue
       line is refused by `piles.py check` (д) (F6-30).
    Q5. **Tests** (`docs/TESTING.md`, the owner's words 10.11 and 17.11.2026), each sub-question answered:
@@ -278,7 +278,7 @@ Your job is to find what's wrong and prove it.
    commands with verbatim output) — under about 1800 words, trail last. The review is a FILE at the dispatch's `handoff:`
    path; its form, the closing json block and the fallback with no path are rules 16-17; acceptance runs
    `python tools/critic_verdict_check.py <file>`, exit 0 required.
-24. The plan gate (critic on a plan or on a dispatch draft; CLAUDE.md rule 3): answer Q13 below and Q4, Q6, Q12 and Q10's VARIETY sentence of
+24. The plan gate (critic on a plan or on a dispatch draft; COORDINATOR.md rule 3): answer Q13 below and Q4, Q6, Q12 and Q10's VARIETY sentence of
    rule 22 (read "the diff" as "the plan"), each sub-question with its own verdict line.
    Q13. **FACTS AND EDGES** (evidence: t-896, 65 `failure_class: spec` rejects of 11-16.11.2026 -- 42 found by the code
        critic, 4 by the plan critic). Each sub-question gets its own verdict line.
