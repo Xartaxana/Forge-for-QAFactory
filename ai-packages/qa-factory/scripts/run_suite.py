@@ -1853,8 +1853,9 @@ def verify_node_ids(request: dict, cfg: dict, *, mined: dict | None = None) -> d
     kept = _record_collect_gaps(request, mined, asked, checked)
     if kept:
         notes.append(kept)
-    if checked.get("collect_error"):
-        notes.append(collect_failed_note(checked["collect_error"]))
+    failed = collect_failed_note(checked.get("collect_error"))
+    if failed:
+        notes.append(failed)
     missing = checked.get("missing") or []
     if missing:
         task_root = artifacts_dir(request["task"])
