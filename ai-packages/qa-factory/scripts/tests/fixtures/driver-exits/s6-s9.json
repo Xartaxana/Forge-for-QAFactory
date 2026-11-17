@@ -3,14 +3,14 @@
  "group": "s6-s9",
  "routes": {
   "report_check": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s6-s9 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: the route is a refusal of the S8 report build ('report check:' -> rebuild_report); the main pass stops at S6 today (known_red main/S6 -> FV3-21), so no state past it is made, and a later-role refusal is not read by the walker's one-boundary post-answer window (finding 20261117-p1b-walker-post-answer-window-one-boundary.md)"
   }
  },
  "joints": {
   "check_coverage:*": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s6-s9 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: the check refuses a role handoff inside a stage turn; the main pass stops at S6 today (known_red main/S6 -> FV3-21), so no state past it is made, and the walker reads the refusal line of the answer turns only (walker defects 2-3, finding 20261117-p1b-walker-post-answer-window-one-boundary.md)"
   },
   "first_look:put.input": {
    "reach": "unwalked",
@@ -259,22 +259,22 @@
  },
  "kinds_without_key": {
   "environment": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s6-s9 writes the rows of this group",
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: the S5/S6 stand_check question needs a stand config the dry world does not hold; the main pass stops at S6 today (known_red main/S6 -> FV3-21), so no state past it is made",
    "raised_at": [
     "driver_stage_build:stand_check"
    ]
   },
   "retro": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s6-s9 writes the rows of this group",
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: the S9 retro question is asked at the end of the story; the main pass stops at S6 today (known_red main/S6 -> FV3-21), so no state past it is made",
    "raised_at": [
     "driver_stage_s8s9:stage_S9"
    ]
   },
   "stand_identity": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s6-s9 writes the rows of this group",
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: the stand-identity ask (again/build_person/take_build_answer) needs a stand and a changed identity the dry world does not hold; the main pass stops at S6 today (known_red main/S6 -> FV3-21), so no state past it is made",
    "raised_at": [
     "driver_stage_build:again",
     "driver_stage_build:build_person",
@@ -282,8 +282,8 @@
    ]
   },
   "stand_login": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s6-s9 writes the rows of this group",
+   "reach": "live_only",
+   "why_unreached": "estimate, not verified: the S6 stand-login gate needs a stand to log in to, and the dry world holds none (known_red main/S6 text: a capture needs a stand and the dry world holds none); the main pass stops at S6 today (known_red main/S6 -> FV3-21), so no state past it is made",
    "raised_at": [
     "driver_stage_s6:stand_login_gate"
    ]
@@ -292,9 +292,15 @@
  "ratchet": {
   "live_only": 0,
   "after": 0,
-  "unwalked": 6,
+  "unwalked": 0,
   "hook_layer": 0,
   "raised_by": [
+   "live_only | routes/report_check | N4:s6-s9 t-1194, census row",
+   "live_only | joints/check_coverage:* | N4:s6-s9 t-1194, census row",
+   "live_only | kinds_without_key/environment | N4:s6-s9 t-1194, census row",
+   "live_only | kinds_without_key/stand_identity | N4:s6-s9 t-1194, census row",
+   "live_only | kinds_without_key/stand_login | N4:s6-s9 t-1194, census row",
+   "live_only | kinds_without_key/retro | N4:s6-s9 t-1194, census row",
    "unwalked | joints/first_look:put.input | L1c census catch-up, 2026-11-17",
    "unwalked | joints/first_look:put.inputs_current | L1c census catch-up, 2026-11-17",
    "unwalked | joints/first_look:put.null_reason | L1c census catch-up, 2026-11-17",
@@ -355,7 +361,69 @@
    "unwalked | joints/validate_artifacts:check_run_report_head | L1c census catch-up, 2026-11-17",
    "unwalked | joints/validate_artifacts:check_run_report_v0 | L1c census catch-up, 2026-11-17",
    "unwalked | joints/validate_artifacts:check_test_report | L1c census catch-up, 2026-11-17",
-   "unwalked | joints/validate_artifacts:check_triage_v0 | L1c census catch-up, 2026-11-17"
+   "unwalked | joints/validate_artifacts:check_triage_v0 | L1c census catch-up, 2026-11-17",
+   "live_only | walk/s6.stand_login/retry | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s6.stand_login/by hand | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s6.stand_login/go on | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s6.stand_login/free words | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s6.stand_login/empty | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s6.stand_confirm/stand name | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s6.stand_confirm/retry | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s6.stand_confirm/go on | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s6.stand_confirm/free words | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s6.stand_confirm/empty | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s6.stand_confirm.login/find the way in | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s6.stand_confirm.login/stand name | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s6.stand_confirm.login/retry | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s6.stand_confirm.login/go on | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s6.stand_confirm.login/free words | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s6.stand_confirm.login/empty | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s6.gate_a_dry/reapprove | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s6.gate_a_dry/go on | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s6.gate_a_dry/stop | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s6.gate_a_dry/free words | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s6.gate_a_dry/empty | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s7.repair_limit/round | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s7.repair_limit/debt | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s7.repair_limit/stop | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s7.repair_limit/free words | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s7.repair_limit/empty | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s7.open_work/close | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s7.open_work/stop | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s7.open_work/free words | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s7.open_work/empty | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/closed.held/run again | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/closed.held/leave | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/closed.held/stop | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/closed.held/free words | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/closed.held/empty | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.report_match/no delivery | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.report_match/stop | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.report_match/free words | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.report_match/empty | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.delivery_check/retry | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.delivery_check/no delivery | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.delivery_check/stop | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.delivery_check/free words | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.delivery_check/empty | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.delivery.yes/go on | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.delivery.yes/retry | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.delivery.yes/no delivery | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.delivery.yes/stop | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.delivery.yes/free words | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.delivery.yes/empty | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.delivery.after_checks/go on | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.delivery.after_checks/retry | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.delivery.after_checks/no delivery | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.delivery.after_checks/stop | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.delivery.after_checks/free words | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.delivery.after_checks/empty | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.delivery.no/go on | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.delivery.no/retry | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.delivery.no/no delivery | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.delivery.no/stop | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.delivery.no/free words | N4:s6-s9 t-1194, walk row",
+   "live_only | walk/s8.delivery.no/empty | N4:s6-s9 t-1194, walk row"
   ]
  }
 }
