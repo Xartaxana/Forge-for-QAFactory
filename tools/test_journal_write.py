@@ -198,12 +198,15 @@ EVENTS = [
      {"agent": "lead", "reason": "r", "scope": "s", "category": "coordination"}),
     ("restored", ["--feature", "F19", "--notes", "n"], "lead_restored", {"agent": "lead", "category": "process"}),
     ("calibrated", ["--feature", "F19", "--notes", "period 14.11, 40 events"], "calibrated", {"category": "calibration"}),
+    ("calibrated", ["--feature", "F19", "--notes", "Architect review", "--reviewed-through", "abc1234"], "calibrated",
+     {"category": "calibration", "reviewed_through": "abc1234"}),
     ("event", ["--json", '{"event":"dispatch_skipped","agent":"scout","category":"recon","notes":"retroactive: n"}'],
      "dispatch_skipped", {"agent": "scout"}),
 ]
 
 
-@pytest.mark.parametrize("cmd,args,event,fields", EVENTS, ids=[e[0] for e in EVENTS])
+@pytest.mark.parametrize("cmd,args,event,fields", EVENTS,
+                         ids=["skip", "degraded", "restored", "calibrated", "calibrated-reviewed-through", "event"])
 def test_events_without_a_task_write_their_shape(repo, cmd, args, event, fields):
     code, out, err = cli(repo, cmd, *args)
     assert code == 0 and out.startswith(f"journal: {event} - written (logs/journal/dev1.jsonl:2)"), (out, err)
@@ -221,6 +224,21 @@ def test_a_task_family_escalate_defect_decomposable_reject_on_one_task(repo):
         assert cli(repo, cmd, "--task", t, "--feature", "F19", "--notes", "n", *args)[0] == 0
         assert key in last(repo) and last(repo)["task_id"] == t
     assert last(repo)["event"] == "rejected" and last(repo)["attempt"] == 1
+
+
+@pytest.mark.parametrize("with_task", [False, True], ids=["issued-by-the-writer", "existing-task"])
+def test_escalate_to_the_architect_may_open_a_task(repo, with_task):
+    args = ["escalate", "--agent", "architect", "--model", "claude-fable-5-1", "--feature", "F19", "--notes", "a fresh idea"]
+    if with_task:
+        args += ["--task", deleg(repo)]
+    before = len(lines(repo))
+    code, out, err = cli(repo, *args)
+    assert code == 0 and out.startswith("journal: escalated t-001 written"), (out, err)
+    obj = last(repo)
+    assert (obj["event"], obj["agent"], obj["task_id"]) == ("escalated", "architect", "t-001")
+    assert len(lines(repo)) == before + 1
+    if not with_task:                                  # the id came from the counter: the next one is t-002
+        assert deleg(repo) == "t-002"
 
 
 def test_an_agent_without_a_category_row_writes_other_with_a_warn(repo):
@@ -245,7 +263,12 @@ def test_e_b1_7_equal_ts_legal_and_clock_behind_refused(repo, monkeypatch):
     (["event", "--json", '{"event":"calibrated","agent":"lead","category":"c","notes":"n","id_band":"t-500.."}'], "band"),
     (["reject", "--task", "t-001", "--agent", "builder", "--model", "m", "--by", "opus", "--attempt", "0",
       "--failure-class", "spec", "--notes", "n"], "attempt"),
-], ids=["ts-given", "not-object", "broken-json", "bad-event", "band-retired", "attempt-zero"])
+    (["calibrated", "--notes", "n", "--reviewed-through", "ABC1234"], "reviewed_through"),
+    (["calibrated", "--notes", "n", "--reviewed-through", "abc123"], "reviewed_through"),
+    (["escalate", "--agent", "builder", "--model", "opus", "--notes", "n"], "--task"),
+    (["escalate", "--agent", "architect", "--model", "fable", "--notes", "n", "--task", "t-905"], "was not issued"),
+], ids=["ts-given", "not-object", "broken-json", "bad-event", "band-retired", "attempt-zero", "reviewed-through-upper",
+        "reviewed-through-six-chars", "escalate-other-agent-without-task", "escalate-architect-unissued-task"])
 def test_a_violation_or_bad_input_writes_nothing_and_says_why(repo, args, text):
     deleg(repo)                                                       # t-001 exists for the reject row
     refused(repo, *args, text=text)
