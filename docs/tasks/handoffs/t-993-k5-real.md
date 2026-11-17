@@ -56,3 +56,9 @@ The stage_joints file was run twice (before, after); the last edit changed only 
 
 ## Needed beyond the manifest
 `references/artifact-writers.json`, `handoffs/*.yaml`, `agents/`, `references/slices/qa-requirements-tester/handoff-keys.md`.
+
+## Addendum: check_requirements_review (Lead decision)
+Census roles -> [qa-requirements-tester]; note «path-chosen: requirements-review.md; no owner row in artifact-writers.json - finding queued by the Lead». artifact-writers.json NOT touched.
+Pins moved DOWN by 1 (C3): every role except the tester, and conductor 749->748 (automator 177->176 ... test-strategist 174->173). No pin up.
+Witness: `python -B scripts/tests/test_stage_joints.py` -> `=== test_stage_joints: 340/340 ok ===` (K5/real gone).
+`python -B scripts/tests/test_judgment_census.py` -> only red `test_c1 ... stale row controller.py::deployment_inputs`; `=== judgment_census: 24/25 ok ===`. (Census was run 3 times in this addendum: after the roles edit, C3 showed pins, then after the pin fix; stage_joints once.)
