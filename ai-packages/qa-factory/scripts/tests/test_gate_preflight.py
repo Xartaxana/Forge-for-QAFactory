@@ -5196,6 +5196,34 @@ def test_b220_p2_the_reporter_card_carries_what_it_offers_and_whose_command_it_i
         cleanup(root)
 
 
+def test_c3r_reporter_rehearsal_identity_an_unknown_is_rehearsed_again_never_reused() -> None:
+    """C3-R item 7 (registry row `reporter_rehearsal_identity`, unknown_branch `rerun`): the durable proof is reused only when the
+    record says `same_command`; `none` (no row of this command), `command_changed` and `unreadable` rehearse the command again,
+    even when a proof of this very key sits in the loaded record."""
+    root = story("qa-gate-c3r-rehearsal-")
+    try:
+        use_project(root)
+        task_root = root / "qa-factory" / "artifacts" / "TP1-15045"
+        argv = ("python", "x")
+        ctx = gate_preflight.ReporterCtx("s5_reporter", "api", root, root, argv, "junit-xml", "junit-xml", 30, argv)
+        report = root / "report.xml"
+        for state, reused in (("same_command", True), ("none", False), ("command_changed", False), ("unreadable", False)):
+            r = gate_preflight.Rehearsal(task_root, "A")
+            calls = []
+            r._probe_reporter = lambda *a, **k: calls.append(a) or {"timed_out": True}
+            r._observed_identity = lambda *a, **k: ""
+            key = r._rehearsal_key("api", root, list(argv), "tests/a", "junit-xml", "", root)
+            check(f"{state}: the proof's key is built (the control of the table)", bool(key), key)
+            r._rehearsals = {key: {"at": "2026-11-01T00:00:00", "source": "onboarding"}}
+            gate_preflight._REPORTER_PROBES.clear()
+            outcome = r._reporter_outcome(ctx, "tests/a", list(argv), report, {"state": state, "at": ""})
+            gate_preflight._REPORTER_PROBES.clear()
+            check_eq(f"reporter_rehearsal_identity `{state}`: reused={reused}, and the command is run {0 if reused else 1} time(s)",
+                     ("reused" in outcome, len(calls)), (reused, 0 if reused else 1))
+    finally:
+        cleanup(root)
+
+
 def _tests_folder(*names: str) -> Path:
     root = temp_dir("qa-first-test-")
     for name in names:
@@ -6253,6 +6281,7 @@ if __name__ == "__main__":
     test_t357_no_literal_of_any_add_or_note_in_the_source_names_a_script_or_a_flag()
     test_t683_d12_every_exit_and_every_verdict_of_the_derived_probe_says_what_it_said()
     test_d1b_k_b6_a_finding_made_for_a_subject_keeps_its_id_between_rehearsals()
+    test_c3r_reporter_rehearsal_identity_an_unknown_is_rehearsed_again_never_reused()
     test_d1b_k_b7_the_norms_question_rule_runs_at_gate_a_and_the_marker_is_read()
     test_t357_every_text_of_every_run_of_this_file_obeys_the_owners_rule()
     finish("gate rehearsal")

@@ -52,17 +52,20 @@ EXPECTED_IDS = [
     "env_block_evidence",  # RH2-9 (t-691): a blocked_by_env row stands only on a run that shows the stand; unknown branch refuse_with_door
     "plan_target_on_base"]  # TQ1-21: S3 exit - the test a plan row's extend/param/reuse builds on is a file of the working tree; unknown base is a WARN, never a refusal
 # The Lead's debt-ref table (Q9-A), from the node spec - the oracle for the live data (FR-58).
+# C3-R (t-1009): seven rows converted (collected_ids, s5_coverage, delivery, case_preconditions, environment_preparation,
+# reporter_rehearsal_identity, environment_property_cover); 14 -> 7 debt rows.
 EXPECTED_DEBT = {
     "stand_identity": "B-257", "provenance_acceptance": "B-255", "test_identity": "B-217",
-    "collected_ids": "B-278", "live_check_demand": "B-279", "s5_coverage": "B-221", "s5_window": "B-179",
-    "delivery": "B-061", "case_preconditions": "B-280", "environment_preparation": "B-255",
-    "baseline_identity": "B-281", "s5_stand_limits": "B-282", "reporter_rehearsal_identity": "B-283",
-    "environment_property_cover": "B-283"}      # B-414 adds the row; its verdict words convert with the reporter row's (B-283)
+    "live_check_demand": "B-279", "s5_window": "B-179",
+    "baseline_identity": "B-281", "s5_stand_limits": "B-282"}
 EXPECTED_EXEMPT = ["request_shape", "executor_present", "manual_evidence_shape", "witness_backstop",
                    "equivalence_metric", "source_freshness"]
 EXPECTED_CONVERTED = ["inputs_unchanged", "then_oracle", "stand_login_gate", "stand_check", "probe_verdict",
                       "finish_exit_gate", "exploratory_oracle", "branch_accounting", "s3_grounding", "regression_on_main",
-                      "s5_open_oracle_asserted", "env_block_evidence", "plan_target_on_base"]
+                      "s5_open_oracle_asserted", "env_block_evidence", "plan_target_on_base",
+                      # C3-R (t-1009): the seven rows converted without code
+                      "collected_ids", "s5_coverage", "delivery", "case_preconditions", "environment_preparation",
+                      "reporter_rehearsal_identity", "environment_property_cover"]
 BLIND_STEM = "a gate that compares only non-anchor words, outside any registered site, is not seen"
 CONVERTED_TEST = "scripts/tests/test_gate_registry.py"
 
@@ -240,7 +243,7 @@ def part_live_registry() -> None:
     lines = p.stdout.splitlines()
     check_eq("K-T1.2 its first line", lines[0] if lines else "", "A26 gate registry: no violations")
     check_in("K-T1.2 the second header line states the blind spot", BLIND_STEM, lines[1] if len(lines) > 1 else "")
-    check_in("K-T1.2 it lists the debt, decided and not forgotten", "14 gate(s) left as debt:", p.stdout)
+    check_in("K-T1.2 it lists the debt, decided and not forgotten", "7 gate(s) left as debt:", p.stdout)
     check_in("K-T1.2 and the exempt gates", "6 gate(s) exempt:", p.stdout)
 
     code, out = cli("--sites")
@@ -316,7 +319,7 @@ def part_live_registry() -> None:
     data = json.loads(out)
     check_eq("K-T1.14 --json keys are findings, debt, exempt", sorted(data), ["debt", "exempt", "findings"])
     check_eq("K-T1.14 findings is empty", data["findings"], [])
-    check_eq("K-T1.14 debt lists the 13 ids of the node spec and B-414's environment_property_cover", [d["id"] for d in data["debt"]], list(EXPECTED_DEBT))
+    check_eq("K-T1.14 debt lists the seven rows C3-R leaves", [d["id"] for d in data["debt"]], list(EXPECTED_DEBT))
     check_eq("K-T1.14 a debt item has id, decides, debt_ref", sorted(data["debt"][0]), ["debt_ref", "decides", "id"])
     check_eq("K-T1.14 exempt lists the six", [d["id"] for d in data["exempt"]], EXPECTED_EXEMPT)
     check_eq("K-T1.14 an exempt item has id, decides, exempt_reason", sorted(data["exempt"][0]),
@@ -326,8 +329,9 @@ def part_live_registry() -> None:
     raw_rows = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))["rows"]
     raw = {s: [r for r in raw_rows if r["status"] == s] for s in ("converted", "debt", "exempt")}
     # AR-20, TQ1-1 (t-684): converted 10 -> 11 - the row `s5_open_oracle_asserted` joined; RH2-9 (t-691): 11 -> 12, `env_block_evidence`; TQ1-21: 12 -> 13, `plan_target_on_base`; debt and exempt are unchanged
-    check_eq("K-T1.14 the registry file's rows split 13 converted / 14 debt / 6 exempt (s3_grounding, regression_on_main, s5_open_oracle_asserted, env_block_evidence and plan_target_on_base joined the 8)",
-             {s: len(v) for s, v in raw.items()}, {"converted": 13, "debt": 14, "exempt": 6})
+    # C3-R (t-1009): converted 13 -> 20, debt 14 -> 7 (the seven rows above); exempt unchanged
+    check_eq("K-T1.14 the registry file's rows split 20 converted / 7 debt / 6 exempt (C3-R converted seven debt rows)",
+             {s: len(v) for s, v in raw.items()}, {"converted": 20, "debt": 7, "exempt": 6})
     check_eq("K-T1.14 --json debt = the file's debt rows (id, decides, debt_ref), in order",
              data["debt"], [{"id": r["id"], "decides": r["decides"], "debt_ref": r["debt_ref"]} for r in raw["debt"]])
     check_eq("K-T1.14 --json exempt = the file's exempt rows (id, decides, exempt_reason), in order",
@@ -728,6 +732,8 @@ def part_fix_pass() -> None:
              "probe verdict (its words are vocabulary.yaml's probe_verdicts)",
              sorted(r["id"] for r in registry["rows"] if r["vocabulary"] == "code"),
              sorted(["case_preconditions", "test_identity", "then_oracle", "live_check_demand", "inputs_unchanged",
+                     "collected_ids", "s5_coverage", "delivery", "environment_preparation",    # C3-R (t-1009)
+                     "reporter_rehearsal_identity", "environment_property_cover",
                      "stand_login_gate", "stand_check", "probe_verdict", "finish_exit_gate", "exploratory_oracle", "branch_accounting",
                      "s3_grounding", "regression_on_main", "s5_open_oracle_asserted", "env_block_evidence", "plan_target_on_base"]))
     check("F4 no live converted row says target",
@@ -742,9 +748,10 @@ def part_fix_pass() -> None:
         check_eq(f"F4 CONTROL: a {status} row that says code is clean", audit(page, row("a", status, vocabulary="code"))["findings"], [])
     for status in ("debt", "exempt"):
         check_eq(f"F4 CONTROL: a {status} row that says target is clean", audit(page, row("a", status, vocabulary="target"))["findings"], [])
-    flipped = mutated(registry, "s5_coverage", status="converted", test="scripts/tests/test_s5_precheck.py", debt_ref="")
+    # C3-R (t-1009): s5_coverage is `code` now; `s5_window` is a live debt row that still says `target`
+    flipped = mutated(registry, "s5_window", status="converted", test="scripts/tests/test_window_record.py", debt_ref="")
     check("F4 flipping a live `target` row to converted names the row and the key",
-          any(f.startswith("s5_coverage.vocabulary:") for f in GR.analyse(PLUGIN_ROOT, flipped)["findings"]))
+          any(f.startswith("s5_window.vocabulary:") for f in GR.analyse(PLUGIN_ROOT, flipped)["findings"]))
 
     # F5: the forms the scan does not see are in the scope text, one line each
     for form in ("x == V.OK", 'def f(ok="matched")', "operator.eq(x", ".split()", '.startswith("match")',
@@ -918,6 +925,7 @@ D13_TRIPLES = [
     ("gate_preflight.py", "_check_one_precondition", "case_preconditions"),
     ("gate_preflight.py", "_derive_probe", "stand_identity"),
     ("gate_preflight.py", "_observed_identity", "provenance_acceptance"),
+    ("gate_preflight.py", "_rehearse_reporter", "reporter_rehearsal_identity"),   # C3-R (t-1009): `countable['state'] == 'none'`, a code word of the converted row at its registered site
     ("gate_preflight.py", "_sort_items", "case_preconditions"),
     # EP1-24 F3 (t-335-2, 454b370e): `named_container_said` has ONE comparison, `result == 'matched'`: the probe's verdict, not the
     # answered container's identity (stand_identity row, a site it registers). t-430/t-435 AR-20, the count 131 -> 134 row by row:
@@ -973,7 +981,10 @@ D13_TRIPLES = [
 # 142 -> 137 (t-2064 N3b, t-2132): `probe_by_code.verdict_of` (Python's own row judge) is removed, and its site with it;
 # the count fell by what the scan attributed to it (measured with `GR.analyse` before and after: 142, 137). A removal of a registered
 # site, not a quality ratchet; D13_TRIPLES lost the `verdict_of` triple.
-D13_ITEM_COUNT = 137
+# 137 -> 138 (C3-R, t-1009): `reporter_rehearsal_identity` now says `code` with the word `none`, so the scan reads
+# `countable['state'] == 'none'` in its registered site `_rehearse_reporter` (the helper's state, a coincidence of the word); no site
+# was added or removed. The raise is the decision, taken in the diff that makes it.
+D13_ITEM_COUNT = 138
 
 
 def part_site_attribution() -> None:

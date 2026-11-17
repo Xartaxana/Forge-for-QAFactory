@@ -873,7 +873,34 @@ def collect_failed_note_rows() -> None:
         check_eq(f"S5 collect note, {label}", RS.collect_failed_note(err), want)
 
 
+def unknown_branch_rerun_rows() -> None:
+    """C3-R item 1 (registry row `collected_ids`, unknown_branch `rerun`): the world of the quarantined `test_run_suite_mine.py`
+    M-B3 at function level. An unreadable collect is "not verified" - never "missing" - so the run goes (the rerun); then pytest's
+    exit 4 `ERROR: not found` is `node_id_mismatch`, and only then; an exit that is not 4 names nothing."""
+    import run_suite as RS
+    asked = "tests/test_oc5.py::test_ghost5"
+    request = {"command": {"selector_args": {"i1": [asked]}}, "selected_instance_ids": ["i1"]}
+    argv = [sys.executable, "-m", "pytest", asked]
+    log = f"ERROR: not found: {asked}\n(no match in any of [<Module test_oc5.py>])\n"
+    for label, (code, text, req), want in (
+            ("exit 4 and pytest's `not found` line: the id, as the request spelled it", (4, log, request), [asked]),
+            ("pytest's absolute spelling is read back as the request's", (4, f"ERROR: not found: C:/p/{asked}\n", request), [asked]),
+            ("exit 1 (a failed test): nothing is named", (1, log, request), []),
+            ("exit 4 with no `not found` line: nothing is named", (4, "usage error\n", request), []),
+            ("no typed request: nothing is named", (4, log, {}), [])):
+        check_eq(f"collected_ids unknown -> rerun, {label}", RS.ids_pytest_did_not_find(argv, code, text, req), want)
+    note = RS._not_verified("collect failed: boom")
+    check_eq("an unreadable collect is `not verified`, resolves nothing", (note["notes"], note["resolved"]),
+             (["node ids were not verified: collect failed: boom"], {}))
+    got = RS._checked_by_the_first_collect(
+        {"collects": [{"files": {"tests/test_oc5.py"}, "ids": [], "error": N.CollectError("boom")}]}, [asked], N)
+    check_eq("an unreadable collect: ids are not `missing`, the note says `not verified`",
+             (got["missing"], got["notes"][0].startswith("node ids were not verified: ")), ([], True))
+    check_eq("the block word the registry row carries is the code's", RS.NODE_ID_BLOCK, "node_id_mismatch")
+
+
 def main() -> None:
+    unknown_branch_rerun_rows()
     collect_failed_note_rows()
     launch_and_streams()
     pytest_hostile()

@@ -148,26 +148,24 @@
       "status": "debt", "debt_ref": "B-217", "exempt_reason": ""
     },
     {
-      "id": "collected_ids", "inventory": "G6", "vocabulary": "target",
-      "decides": "the requested test ids exist in the framework's own collection: ONE collect per request (the one `--mine` took while it built it; a request written by hand gets a collect of its own) is matched before the launch; a non-pytest command, an import error, an unreadable, timed-out or absent collect are named as not verified and the run goes on; a collect that went on past test files that fail to import (RH1-3) checks the ids of the files that collected, names the broken files, and calls an id of a broken file not verified - never missing - and the run goes on, and then the run decides - pytest's own `ERROR: not found` (exit 4) is answered in the summary as `node_id_mismatch`, not executed, never passed or failed (residue, B-278: the template has no unknown branch)",
+      "id": "collected_ids", "inventory": "G6", "vocabulary": "code",
+      "decides": "the requested test ids exist in the framework's own collection: ONE collect per request (the one `--mine` took while it built it; a request written by hand gets a collect of its own) is matched before the launch; a non-pytest command, an import error, an unreadable, timed-out or absent collect are named as not verified and the run goes on; a collect that went on past test files that fail to import (RH1-3) checks the ids of the files that collected, names the broken files, and calls an id of a broken file not verified - never missing - and the run goes on, and then the run decides - pytest's own `ERROR: not found` (exit 4) is answered in the summary as `node_id_mismatch`, not executed, never passed or failed",
       "sites": [
         {"file": "run_suite.py", "function": "verify_node_ids", "role": "validate"},
         {"file": "run_suite.py", "function": "ids_pytest_did_not_find", "role": "validate"}
       ],
       "field": null,
-      "words": ["matched", "mismatched", "unknown"],
+      "words": ["node_id_mismatch"],
       "verdict_map": {
-        "matched": {"class": "matched"},
-        "mismatched": {"class": "mismatched"},
-        "unknown": {"class": "unknown", "owner": "environment"}
+        "node_id_mismatch": {"class": "mismatched"}
       },
       "accepts": {},
       "promotable": false,
-      "unknown_branch": "debt", "on_no_answer": "debt", "waits_at": null,
+      "unknown_branch": "rerun", "on_no_answer": "rerun", "waits_at": null,
       "closed_by": [], "addressee": ["code_routes"], "person_subject": null,
       "policy_file": null, "scope_keys": [], "binding_keys": [], "question_kind": null,
       "test": "scripts/tests/test_node_ids.py",
-      "status": "debt", "debt_ref": "B-278", "exempt_reason": ""
+      "status": "converted", "debt_ref": "", "exempt_reason": ""
     },
     {
       "id": "executor_present", "inventory": "G7", "vocabulary": "target",
@@ -208,17 +206,15 @@
       "status": "debt", "debt_ref": "B-279", "exempt_reason": ""
     },
     {
-      "id": "s5_coverage", "inventory": "G9", "vocabulary": "target",
+      "id": "s5_coverage", "inventory": "G9", "vocabulary": "code",
       "decides": "every Then of the scope is bound and asserted, and none contradicts the case (the automator's author-side check)",
       "sites": [
-        {"file": "s5_precheck.py", "function": "run", "role": "accept"}
+        {"file": "s5_precheck.py", "function": "run", "role": "validate"}
       ],
       "field": null,
-      "words": ["matched", "mismatched", "unknown"],
+      "words": ["unchecked"],
       "verdict_map": {
-        "matched": {"class": "matched"},
-        "mismatched": {"class": "mismatched"},
-        "unknown": {"class": "unknown", "owner": "role"}
+        "unchecked": {"class": "unknown", "owner": "role"}
       },
       "accepts": {},
       "promotable": false,
@@ -226,7 +222,7 @@
       "closed_by": ["role:qa-code-critic", "person"], "addressee": ["role:qa-code-critic"], "person_subject": null,
       "policy_file": null, "scope_keys": [], "binding_keys": [], "question_kind": null,
       "test": "scripts/tests/test_s5_precheck.py",
-      "status": "debt", "debt_ref": "B-221", "exempt_reason": ""
+      "status": "converted", "debt_ref": "", "exempt_reason": ""
     },
     {
       "id": "s5_window", "inventory": "G10", "vocabulary": "target",
@@ -251,12 +247,12 @@
       "status": "debt", "debt_ref": "B-179", "exempt_reason": ""
     },
     {
-      "id": "delivery", "inventory": "G11", "vocabulary": "target",
+      "id": "delivery", "inventory": "G11", "vocabulary": "code",
       "decides": "delivery_verdict: the aggregator that maps every typed record of every other gate to a kind (references/delivery-verdict-kinds.json) and the kinds to one of three words - yes, after_checks (ready once the person finishes the checks left with them) or no; a kind the file does not hold is no (it never asks)",
       "sites": [
-        {"file": "delivery_verdict.py", "function": "decide", "role": "accept"},
-        {"file": "check_delivery.py", "function": "assess", "role": "accept"},
-        {"file": "check_delivery.py", "function": "ledger_reasons", "role": "accept"}
+        {"file": "delivery_verdict.py", "function": "decide", "role": "produce"},
+        {"file": "check_delivery.py", "function": "assess", "role": "produce"},
+        {"file": "check_delivery.py", "function": "ledger_reasons", "role": "produce"}
       ],
       "field": "delivery_verdict",
       "words": ["yes", "after_checks", "no"],
@@ -267,11 +263,11 @@
       },
       "accepts": {},
       "promotable": false,
-      "unknown_branch": "debt", "on_no_answer": "n/a", "waits_at": null,
+      "unknown_branch": "refuse_with_door", "on_no_answer": "refuse_with_door", "waits_at": null,
       "closed_by": [], "addressee": [], "person_subject": null,
       "policy_file": null, "scope_keys": [], "binding_keys": [], "question_kind": null,
-      "test": "scripts/tests/test_check_delivery.py",
-      "status": "debt", "debt_ref": "B-061", "exempt_reason": ""
+      "test": "scripts/tests/test_third_verdict.py",
+      "status": "converted", "debt_ref": "", "exempt_reason": ""
     },
     {
       "id": "manual_evidence_shape", "inventory": "G12", "vocabulary": "target",
@@ -311,29 +307,28 @@
       "closed_by": ["person"], "addressee": ["code_routes", "person"], "person_subject": "world",
       "policy_file": null, "scope_keys": [], "binding_keys": [], "question_kind": null,
       "test": "scripts/tests/test_gate_preflight.py",
-      "status": "debt", "debt_ref": "B-280", "exempt_reason": ""
+      "status": "converted", "debt_ref": "", "exempt_reason": ""
     },
     {
-      "id": "environment_preparation", "inventory": "G14", "vocabulary": "target",
+      "id": "environment_preparation", "inventory": "G14", "vocabulary": "code",
       "decides": "the minimum preparation action for the stand, and whether the deploy it ran proved the build (the proof step itself is provenance_acceptance)",
       "sites": [
         {"file": "environment_preparation.py", "function": "plan_environment", "role": "dispatch"},
         {"file": "environment_preparation.py", "function": "_facts", "role": "produce"}
       ],
       "field": null,
-      "words": ["matched", "mismatched", "unknown"],
+      "words": ["blocked", "unknown"],
       "verdict_map": {
-        "matched": {"class": "matched"},
-        "mismatched": {"class": "mismatched"},
+        "blocked": {"class": "unknown", "owner": "environment"},
         "unknown": {"class": "unknown", "owner": "environment"}
       },
       "accepts": {"provenance.environment_preparation": ["matched"]},
       "promotable": false,
-      "unknown_branch": "question", "on_no_answer": "wait", "waits_at": "authorization",
-      "closed_by": ["person"], "addressee": ["person"], "person_subject": "intent",
+      "unknown_branch": "refuse_with_door", "on_no_answer": "refuse_with_door", "waits_at": null,
+      "closed_by": [], "addressee": ["person"], "person_subject": "intent",
       "policy_file": null, "scope_keys": [], "binding_keys": [], "question_kind": null,
       "test": "scripts/tests/test_environment_preparation.py",
-      "status": "debt", "debt_ref": "B-255", "exempt_reason": ""
+      "status": "converted", "debt_ref": "", "exempt_reason": ""
     },
     {
       "id": "baseline_identity", "inventory": "G15", "vocabulary": "target",
@@ -501,19 +496,20 @@
       "status": "debt", "debt_ref": "B-282", "exempt_reason": ""
     },
     {
-      "id": "reporter_rehearsal_identity", "inventory": "F9", "vocabulary": "target",
+      "id": "reporter_rehearsal_identity", "inventory": "F9", "vocabulary": "code",
       "decides": "an earlier proof that a test command leaves a report the factory can read is reused only for exactly that command: the key holds the profile, the argv itself (its digest is what `onboarding_probe.earlier_proof` compares), the test, the report format, the folder and the dependency bytes - no stand and no deployed identity (B-220 F11). `matched`: the same command, and the key hits - reused, the test is not run again. `mismatched`: the same command is rehearsed again and leaves no report (it stopped working) - it goes to the factory's helper first, once per command since its last proof (B-416, D-0031: every reader the code has is tried, then the conductor reads the kept report and records what it changed or understood), and a card for the person comes only after the helper's turn, never a pass. `unknown`: no row of this command (`none`, or only rows of the old form), another command's rows only (`command_changed`), or a record or reader that cannot be read (`unreadable`) - nothing is reused: the command is rehearsed again, and a rehearsal that cannot finish says the record could not be read; a record of the helper's turns that cannot be read reads as a turn taken (the card), never as none. An unknown never keys a proof as the same",
       "sites": [
-        {"file": "gate_preflight.py", "function": "_rehearse_reporter", "role": "accept"},
+        {"file": "gate_preflight.py", "function": "_rehearse_reporter", "role": "validate"},
         {"file": "gate_preflight.py", "function": "_read_probe_report", "role": "measure"},
-        {"file": "driver_gates.py", "function": "hand_to_conductor", "role": "accept"}
+        {"file": "driver_gates.py", "function": "hand_to_conductor", "role": "dispatch"}
       ],
       "field": null,
-      "words": ["matched", "mismatched", "unknown"],
+      "words": ["same_command", "command_changed", "none", "unreadable"],
       "verdict_map": {
-        "matched": {"class": "matched"},
-        "mismatched": {"class": "mismatched"},
-        "unknown": {"class": "unknown", "owner": "environment"}
+        "same_command": {"class": "matched"},
+        "command_changed": {"class": "unknown", "owner": "environment"},
+        "none": {"class": "unknown", "owner": "environment"},
+        "unreadable": {"class": "unknown", "owner": "environment"}
       },
       "accepts": {},
       "promotable": false,
@@ -521,22 +517,21 @@
       "closed_by": ["person"], "addressee": ["code_routes", "person"], "person_subject": "world",
       "policy_file": null, "scope_keys": [], "binding_keys": [], "question_kind": null,
       "test": "scripts/tests/test_gate_preflight.py",
-      "status": "debt", "debt_ref": "B-283", "exempt_reason": ""
+      "status": "converted", "debt_ref": "", "exempt_reason": ""
     },
     {
-      "id": "environment_property_cover", "inventory": "F9", "vocabulary": "target",
+      "id": "environment_property_cover", "inventory": "F9", "vocabulary": "code",
       "decides": "a stand gap is not carded when the project's environment record (qa-factory/records/environment-properties.json) holds a person's `accept always` under exactly its key: a level gap - the contour, the argv digest of its test command and the reason class; a case gap - the stand, its definition sha, the precondition kind and the digest of its check (B-414, D-0029). `matched`: a live row holds the key - no card, the cover is stated, the driver carries it into the story. `mismatched`: the record holds a row for the same contour or stand but another command, another failure or another address - the card is shown and says the earlier answer no longer applies. `unknown`: no row, a record that cannot be read, a revoked row, a gap with no key (a fault of a file or the machine is never keyed, D-0032) - the person is asked, never a pass",
       "sites": [
-        {"file": "gate_preflight.py", "function": "_rehearse_reporter", "role": "accept"},
-        {"file": "gate_preflight.py", "function": "check_case_preconditions", "role": "accept"},
-        {"file": "stand_gaps.py", "function": "gate_b_split", "role": "accept"}
+        {"file": "gate_preflight.py", "function": "_environment_cover", "role": "validate"},
+        {"file": "stand_gaps.py", "function": "gate_b_split", "role": "validate"}
       ],
       "field": null,
-      "words": ["matched", "mismatched", "unknown"],
+      "words": ["command", "reason", "address"],
       "verdict_map": {
-        "matched": {"class": "matched"},
-        "mismatched": {"class": "mismatched"},
-        "unknown": {"class": "unknown", "owner": "environment"}
+        "command": {"class": "mismatched"},
+        "reason": {"class": "mismatched"},
+        "address": {"class": "mismatched"}
       },
       "accepts": {},
       "promotable": false,
@@ -544,7 +539,7 @@
       "closed_by": ["person"], "addressee": ["person"], "person_subject": "world",
       "policy_file": null, "scope_keys": [], "binding_keys": [], "question_kind": null,
       "test": "scripts/tests/test_environment_record.py",
-      "status": "debt", "debt_ref": "B-283", "exempt_reason": ""
+      "status": "converted", "debt_ref": "", "exempt_reason": ""
     },
     {
       "id": "source_freshness", "inventory": "G2", "vocabulary": "target",

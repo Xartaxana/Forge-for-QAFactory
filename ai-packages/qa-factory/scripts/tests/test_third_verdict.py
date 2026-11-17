@@ -208,6 +208,19 @@ def k_n8_1_every_row_of_the_table() -> None:
         check("K-N8.1 a file that is not JSON reads as nothing, with its reason", doc == {} and problem, problem)
         missing = DV.load_kinds(broken / "absent.json")
         check("K-N8.1 an absent file reads as nothing, with its reason", missing[0] == {} and missing[1], str(missing))
+        # C3-R item 3 (registry row `delivery`, unknown_branch refuse_with_door): the unreadable file is `no`, never `yes`
+        from unittest import mock
+        empty = broken / "empty" / "delivery-verdict-kinds.json"
+        empty.parent.mkdir()
+        empty.write_text("", encoding="utf-8")
+        for label, target in (("an empty kinds file", empty), ("a kinds file that is not JSON", bad),
+                              ("an absent kinds file", broken / "absent.json")):
+            with mock.patch.object(DV, "kinds_path", return_value=target):
+                word, findings = DV.decide(["passed"], None)
+                none_word, none_findings = DV.decide([], None)
+            check_eq(f"K-N8.1 C3-R {label}: `no` with ONE VERDICT_KINDS_UNREADABLE finding, never yes or after_checks",
+                     (word, [f["code"] for f in findings], findings[0]["owner"]), ("no", ["VERDICT_KINDS_UNREADABLE"], "factory"))
+            check_eq(f"K-N8.1 C3-R {label}: even with no kind named it is `no`", none_word, "no")
     finally:
         cleanup(broken)
     check_eq("K-N8.1 the verdict over the real file is still yes for a pass (control)", gone[0], "yes")
