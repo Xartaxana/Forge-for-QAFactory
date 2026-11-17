@@ -715,14 +715,23 @@ def refusal_gate_stage_row() -> None:
         set_stage("S4", "pending")
         driver.boundary = "S4:S4-qa-case-critic-1"
         with contextlib.redirect_stdout(io.StringIO()):
-            driver.handle_refusal(Refusal(refused("S4")))
+            driver.handle_refusal(Refusal(refused("S4", "S4 pending; ")))
         check_eq("a stage that is not even running: the conductor too", len(calls), 2)
         data = json.loads((task_root / "state" / "controller.json").read_text(encoding="utf-8"))
         data["stages"].pop("S4")
         (task_root / "state" / "controller.json").write_text(json.dumps(data), encoding="utf-8")
+        driver.state["window_rounds"] = {}      # the series holds two conductor rounds already (WINDOW_ROUND_CAP): a third distinct text would be capped
         with contextlib.redirect_stdout(io.StringIO()):
-            driver.handle_refusal(Refusal(refused("S4")))
+            driver.handle_refusal(Refusal(refused("S4", "S4 unknown; ")))
         check_eq("a stage the controller does not know: the conductor too", len(calls), 3)
+        # FV1-22 N2: the conductor-round stop covers every stage - the IDENTICAL refusal again is the person's, no conductor
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                again = driver.handle_refusal(Refusal(refused("S4", "S4 unknown; ")))
+        except story_run.Person as stop:
+            again = stop
+        check("N2: the identical repeat of a refusal goes to the person", isinstance(again, story_run.Person), repr(again))
+        check_eq("and the conductor is not called a fourth time", len(calls), 3)
     finally:
         os.chdir(harness.PLUGIN_ROOT)
         harness.cleanup(root)

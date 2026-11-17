@@ -94,8 +94,10 @@ def a_task(rows=None, *, report="clean") -> Path:
 
 def untouched_form() -> str:
     text = (handoff.CONTRACTS / f"{CONTRACT}.yaml").read_text(encoding="utf-8")
-    return handoff_init.fill_head(text, task=TICKET, dispatch=DISPATCH, role="qa-failure-analyst",
+    text = handoff_init.fill_head(text, task=TICKET, dispatch=DISPATCH, role="qa-failure-analyst",
                                   stage="S7", scope="")
+    # FV1-22 N1: the null-outcome form awaits no runner dispatch, so it carries no author row and no acceptance section
+    return handoff_init.drop_unowed_acceptance(text, CONTRACT, "")
 
 
 def replace_section(text: str, name: str, body: str) -> str:
