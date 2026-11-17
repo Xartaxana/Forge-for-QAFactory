@@ -21,6 +21,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from no_reaper_wrap import hook_argv
+
 from session_context import (
     build_context_lines,
     gemini_aliases,
@@ -609,11 +611,6 @@ def test_write_stdout_deadline_hanging_writer_times_out_returns_false(monkeypatc
     assert elapsed < 2.0  # bounded by the 0.1s deadline, not the 3600s sleep
 
 
-# A subprocess run of the hook never starts a real reaper: the wrapper silences wait_reaper.launch, then runs the script as
-# __main__ (the same form as test_dod_gate._WRAP).
-_NO_REAPER_WRAP = ("import runpy, sys; sys.path.insert(0, sys.argv[2])\n"
-                   "try:\n    import wait_reaper; wait_reaper.launch = lambda *a, **k: None\nexcept ImportError:\n    pass\n"
-                   "sys.argv = [sys.argv[1]]; runpy.run_path(sys.argv[0], run_name='__main__')")
 
 
 def test_main_stdout_deadline_timeout_exits_immediately_via_subprocess(tmp_path):
@@ -637,7 +634,7 @@ def test_main_stdout_deadline_timeout_exits_immediately_via_subprocess(tmp_path)
     env = dict(os.environ, OSLLM_STDOUT_TIMEOUT="0.2")
     script = Path(__file__).resolve().parent / "session_context.py"
     proc = subprocess.Popen(
-        [sys.executable, "-c", _NO_REAPER_WRAP, str(script), str(script.parent)],
+        hook_argv(script),  # no real reaper (tools/no_reaper_wrap.py)
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

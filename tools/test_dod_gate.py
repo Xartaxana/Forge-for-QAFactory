@@ -32,11 +32,10 @@ else:
 
     SCRIPT = Path(__file__).resolve().parent / "dod_gate.py"
 
-# The hook run as a subprocess never starts a real reaper (a passing stop would, under a real session): the wrapper replaces
-# wait_reaper.launch by a silent one, then runs the script as __main__.
-_WRAP = ("import runpy, sys; sys.path.insert(0, sys.argv[2])\n"
-         "try:\n    import wait_reaper; wait_reaper.launch = lambda *a, **k: None\nexcept ImportError:\n    pass\n"
-         "sys.argv = [sys.argv[1]]; runpy.run_path(sys.argv[0], run_name='__main__')")
+# The hook run as a subprocess never starts a real reaper (a passing stop would, under a real session): the shared wrapper.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from no_reaper_wrap import WRAP as _WRAP  # noqa: E402
+
 HOOK = [sys.executable, "-c", _WRAP, str(SCRIPT), str(Path(__file__).resolve().parent)]
 
 

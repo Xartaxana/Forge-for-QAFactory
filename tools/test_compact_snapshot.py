@@ -365,6 +365,17 @@ def test_summary_line_format(tmp_path):
     )
 
 
+def test_session_proc_id_is_the_stamp_the_writer_encodes(monkeypatch):
+    # the reader's own process id goes through the one encoder: a patched walk {pid 7, created 1.5} reads "7-1.500"
+    import pytest
+    import session_proc
+
+    if not hasattr(sc, "_session_proc_id"):
+        pytest.skip("the candidate carries no narrative stamp reading")
+    monkeypatch.setattr(session_proc, "session_process", lambda *a, **k: ({"pid": 7, "created": 1.5}, ""))
+    assert sc._session_proc_id() == "7-1.500"
+
+
 def test_safe_source_sanitizes_filename_part():
     assert cs.safe_source("manual") == "manual"
     assert cs.safe_source("../../x y") == "xy"
