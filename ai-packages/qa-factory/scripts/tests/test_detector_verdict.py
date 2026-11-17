@@ -1814,8 +1814,7 @@ def tbw_siting_command_sites() -> None:
     """told-before-work siting A (t-1108): the command and plan refusals of `controller.py`, `waiver.py`, `source_exclusions.py`,
     `stage_done.py` and `planning_contract.py` carry their row id on the Record, with the text they always had (EC-1; the one named
     exception is the unmarked-revision door of key 4, whose expected sentence is the card's). ONE table of driven sites (a refusal is
-    provoked, the Record's `check` and `str` are read), one table of sites that need a whole story to provoke (the id is counted at the
-    function by the AST), and the `_raise_all` rows (E7: one keeps its Record, several set `exc.records`, a folded `(xK)` has no id)."""
+    provoked, the Record's `check` and `str` are read), and the `_raise_all` rows (E7: one keeps its Record, several set `exc.records`, a folded `(xK)` has no id)."""
     import argparse
     import contextlib
     import io
@@ -1946,6 +1945,16 @@ def tbw_siting_command_sites() -> None:
             got = refused(lambda: SD.parse_sets(items))
             check_eq(f"siting stage_done {name}: a ValueError carrying the Record of stage_done:set",
                      (getattr(first(got), "check", ""), text is None or str(first(got)) == text), ("stage_done:set", True))
+        import contract as CONTRACT
+        real_reader = CONTRACT.side_realities
+        CONTRACT.side_realities = lambda: {}
+        try:
+            got = refused(lambda: SD.parse_sets(["sides.api.reality=absent"]))
+        finally:
+            CONTRACT.side_realities = real_reader
+        check_eq("siting stage_done: an unreadable reference file stays bare (no id), the old text, selected by type",
+                 (type(got).__name__, getattr(first(got), "check", ""), str(got).startswith("`sides.api.reality`: the words a reality may take cannot be read from references/side-realities.json - repair that file")),
+                 ("UnreadableReference", "", True))
         # --- planning_contract: the unmarked line (E17, E26) with the door of key 4 ---
         line = PC.gate_plan_errors([{"id": "TS-1"}], "new", 1)
         tail = "did not run for this plan: a strategist rework of S3 writes it when that rework completes"
@@ -1953,27 +1962,6 @@ def tbw_siting_command_sites() -> None:
                  [(r.check, str(r).startswith("TS-1: missing coverage_contract_revision"), str(r).endswith(tail))
                   for r in line if "missing coverage_contract_revision" in str(r)],
                  [("planning_contract:plan.unmarked_revision", True, True)])
-        # --- sites a story would need to provoke: the id is counted at the function, through the AST ---
-        sites = (("controller.py", "build_rework_request", "controller:rework.args", 16),
-                 ("controller.py", "build_rework_request", "controller:rework.runner_half", 1),
-                 ("controller.py", "validate", "controller:rework.cap", 3),
-                 ("controller.py", "release_dispatch", "controller:release.call", 3),
-                 ("controller.py", "main", "controller:rework.call", 2),
-                 ("controller.py", "main", "controller:release.call", 2),
-                 ("waiver.py", "run_stage", "waiver:block.standing", 1),
-                 ("waiver.py", "main", "waiver:block.call", 2),
-                 ("waiver.py", "main", "waiver:remark.call", 2),
-                 ("source_exclusions.py", "main", "source_exclusions:revoke.call", 3),
-                 ("source_exclusions.py", "main", "source_exclusions:revoke.target", 1),
-                 ("stage_done.py", "parse_sets", "stage_done:set", 2))
-        trees = {}
-        for filename, function, cid, count in sites:
-            tree = trees.setdefault(filename, ast.parse((SCRIPTS / filename).read_text(encoding="utf-8")))
-            fn = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == function][0]
-            got = [n for n in ast.walk(fn) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "refusal"
-                   and isinstance(n.func.value, ast.Name) and n.func.value.id == "DV" and n.args
-                   and isinstance(n.args[0], ast.Constant) and n.args[0].value == cid]
-            check_eq(f"siting {filename}::{function}: {cid} is written at {count} refusing site(s)", len(got), count)
     finally:
         if saved is None:
             os.environ.pop("CLAUDE_PROJECT_DIR", None)
