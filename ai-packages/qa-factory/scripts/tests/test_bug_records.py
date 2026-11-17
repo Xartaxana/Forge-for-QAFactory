@@ -1230,6 +1230,61 @@ def a_draft_of_a_place_the_runner_never_ran() -> None:
             cleanup(task.parents[2])
 
 
+def filed_bug_listing_reads_every_home() -> None:
+    """C1 (F-O6 (a), D-3 (a)): the bug files a duplicate check compares against - this story's `bugs/`, the project home,
+    every OTHER story's `bugs/`, in that order; a same name in two homes is two entries (E4); a folder that cannot be
+    listed is named, never read as empty (E2); no folder at all is `[]` and no error (E1). Expected from the owner's word
+    (the reporter writes under the task root, the project home is read for older bugs), not from the code."""
+    root = temp_project("qa-factory-bugs-c1-")
+    try:
+        mine = story(root, "STORY-C1", "gateB-C1")
+        other = story(root, "STORY-C1-OTHER", "gateB-C1O")
+        empty = story(root, "STORY-C1-EMPTY", None)
+        write(mine / "bugs" / "BUG-1.md", bug_md("BUG-1", "mine"))
+        write(mine / "bugs" / "README.md", "# not a bug\n")
+        home = root / "qa-factory" / "bugs"
+        write(home / "BUG-1.md", bug_md("BUG-1", "home one"))
+        write(home / "BUG-2.md", bug_md("BUG-2", "home two"))
+        write(other / "bugs" / "BUG-1.md", bug_md("BUG-1", "theirs"))
+
+        def rel(paths):
+            return [p.resolve().relative_to(root.resolve()).as_posix() for p in paths]
+
+        paths, unreadable = BR.filed_bug_listing(mine)
+        check_eq("C1: this story first, then the project home, then another story's folder; a README is no bug; the same "
+                 "name in three homes is three entries (E3, E4)", (rel(paths), unreadable),
+                 (["qa-factory/artifacts/STORY-C1/bugs/BUG-1.md", "qa-factory/bugs/BUG-1.md", "qa-factory/bugs/BUG-2.md",
+                   "qa-factory/artifacts/STORY-C1-OTHER/bugs/BUG-1.md"], []))
+        check_eq("C1: a path met twice is returned once (the project root given explicitly changes nothing)",
+                 rel(BR.filed_bug_listing(mine, root)[0]), rel(paths))
+        check_eq("C1: a story with no bug folder sees the home and the others, no error (E1)",
+                 (rel(BR.filed_bug_listing(empty)[0])[:2], BR.filed_bug_listing(empty)[1]),
+                 (["qa-factory/bugs/BUG-1.md", "qa-factory/bugs/BUG-2.md"], []))
+        bare = temp_dir("qa-factory-bugs-c1-bare-")      # not a project: no home, no sibling with a folder
+        try:
+            check_eq("C1: no bug folder in any home: [] and no error (E1)",
+                     BR.filed_bug_listing(bare / "no-such-task"), ([], []))
+        finally:
+            cleanup(bare)
+        import pathlib
+        real = pathlib.Path.glob
+        home_dir = home.resolve()
+
+        def refuse(self, pattern):
+            if self.resolve() == home_dir:
+                raise PermissionError("denied")
+            return real(self, pattern)
+        pathlib.Path.glob = refuse
+        try:
+            paths, unreadable = BR.filed_bug_listing(mine)
+        finally:
+            pathlib.Path.glob = real
+        check_eq("C1: an unlistable project home is NAMED, the others are still listed (E2, FR-59)",
+                 (len(paths), unreadable), (2, ["project: cannot list: denied"]))
+    finally:
+        cleanup(root)
+
+
 def main() -> None:
     root = temp_project("qa-factory-bugs-")
     extra = []
@@ -1601,6 +1656,7 @@ def main() -> None:
     draft_paths_reads_the_writers_files()
     the_pairing_of_a_draft_with_its_triage_row_is_one_helper()
     story_bugs_reads_through_the_one_reader()
+    filed_bug_listing_reads_every_home()
     every_reader_of_the_drafts_folder_reads_through_one_reader()
     the_census_fails_on_an_offender_it_is_not_evergreen()
     the_code_reading_draft()

@@ -7,8 +7,9 @@ lay in the story's own folder: the reporter wrote it there after gate B, the rea
 are numbered per story, `TC_003` and `BUG-1` exist in several stories), so nothing here matches on
 a case id or on a bare `BUG-n` number.
 
-The canonical home of a bug file is the PROJECT's `qa-factory/bugs/` (owner, 30.09: bugs are not
-pushed with the tests). A bug file of this story is read from either place:
+The home the reporter writes is the story's own `bugs/` folder (`<task root>/bugs/BUG-n.md`; owner, 17.11.2026,
+F-O6 (a)). The project's `qa-factory/bugs/` (owner, 30.09: bugs are not pushed with the tests) is read for bugs filed
+before, and the `gate_b_decision_id` rule below is unchanged. A bug file of this story is read from either place:
   - it lies in the story's own `bugs/` folder (the folder is the story's), or
   - it lies in the project's `qa-factory/bugs/` AND its front matter `gate_b_decision_id`
     (required of every filed bug by artifact_producer.validate) is one of THIS story's gate B
@@ -154,6 +155,38 @@ def _listing(directory: Path | None, pattern: str, not_bug_pattern: str | None =
         return True, files, others, ""
     except OSError as exc:
         return True, [], [], f"cannot list: {exc}"
+
+
+def filed_bug_listing(task_root, project_root=None) -> tuple:
+    """`(paths, unreadable)`: every filed BUG file a duplicate check compares a draft against (AR-13: the one reader of
+    the bug folders). Order: this story's `<task>/bugs/`, then the project home `<project>/qa-factory/bugs/`, then
+    every OTHER story's `bugs/` folder under this story's artifact root (sorted by story name); each folder in the
+    natural order of `_listing`. A path met twice (resolved) is returned once; two same-name files of two homes are
+    both returned. A folder that is absent adds nothing; one that cannot be listed (or the artifact root, when it
+    cannot be listed) adds a `"<where>: cannot list: <reason>"` line to `unreadable`, never an empty read (FR-59)."""
+    task = Path(task_root).resolve()
+    homes = [("story", task / "bugs"), ("project", _project_home(task, project_root))]
+    unreadable: list = []
+    try:
+        siblings = sorted(p.name for p in task.parent.iterdir()
+                          if p.is_dir() and p.name.casefold() != task.name.casefold())
+    except OSError as exc:
+        siblings = []
+        if task.parent.is_dir():
+            unreadable.append(f"stories folder: cannot list: {exc}")
+    homes += [(f"story {name}", task.parent / name / "bugs") for name in siblings]
+    paths: list = []
+    seen: set = set()
+    for label, home in homes:
+        _, files, _, error = _listing(home, BUG_GLOB)
+        if error:
+            unreadable.append(f"{label}: {error}")
+        for path in files:
+            key = path.resolve()
+            if key not in seen:
+                seen.add(key)
+                paths.append(path)
+    return paths, unreadable
 
 
 # ----------------------------------------------------------------- the drafts of a story (G1-9, t-1078)
