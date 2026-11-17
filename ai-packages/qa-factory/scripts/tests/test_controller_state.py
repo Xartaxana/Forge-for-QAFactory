@@ -14,7 +14,7 @@ from harness import mark_project, s5_window_form
 from story_run_common import accept_record
 import controller as controller_module
 from controller import Controller, validate_manual_runner_block
-from event_store import StateConflict, content_hash
+from event_store import DerivedViewStale, StateConflict, content_hash
 import hooklib
 import stage_done
 # The REAL reader of the combined refusal (C2-1), not a copy of its grammar.
@@ -1937,8 +1937,25 @@ def the_s3_gate_runs_on_every_s3_acceptance():
         check("G1-5 ...and the refusal names the person's door", "waiver.py --task" in text and "--stage S3" in text, text[:300])
         pipeline(implementation_source="diff", stage_overrides=[{"stage": "S3", "match": "missing while implementation_source is diff",
                                                                   "decision": "go on without the table", "at": "t"}])
+        pass_file = root / "state" / "passed-by-person.jsonl"
+
+        def s3_rows():
+            rows = [json.loads(line) for line in pass_file.read_text(encoding="utf-8").splitlines()] if pass_file.exists() else []
+            return [(r["stage"], r["dispatch"]) for r in rows]
+
+        # RD1-31 (the S3 exit, a person's word + a LATER refusal in the same validate): the word passes one finding, another finding
+        # is not the word's - the accept is refused and NO row is left
+        real_exit_pair = GT.exit_findings
+        try:
+            GT.exit_findings = lambda *a, **k: [GT.Finding("R9", "missing while implementation_source is diff", "role"),
+                                                GT.Finding("R7", "K-1 reaches no row", "role")]
+            text = refused(lambda: c.apply("accept", close))
+        finally:
+            GT.exit_findings = real_exit_pair
+        check("RD1-31 S3 exit: a word that passes one finding while another refuses leaves no row",
+              "R7" in text and s3_rows() == [], (text[:160], s3_rows()))
         check("G1-5 a person's recorded word passes the same refusal, and the pass is journalled",
-              refused(lambda: c.apply("accept", close)) == "" and "S3" in (root / "state" / "passed-by-person.jsonl").read_text(encoding="utf-8"))
+              refused(lambda: c.apply("accept", close)) == "" and s3_rows() == [("S3", "g15-a")], s3_rows())
 
         win1 = {"id": "w1", "stage": "S3", "request_binding": {"purpose": "s3_labelling"}}
         exit_d = {"id": "w2", "stage": "S3", "request_binding": {"purpose": "initial"}}
@@ -2264,6 +2281,124 @@ def test_tr4_7_the_s6_close_context_reads_liveness_through_the_same_helper():
             assert "a dispatch is open" in said_for(cannot_build, td), "a reader that cannot be built keeps the refusal"
         finally:
             controller_module_.Controller = real
+
+
+# C3-reg-precondition (AR-28, FR-4): the ONE stop in validate's dispatch branch for a gate registry that cannot be read.
+# Row = (id, how the registry reads, reason words the refusal must carry, the person's word, the request edit, outcome).
+# `edit`: None, or `(key, value)` applied to the dispatch request; a value of None drops the key.
+# `how`: "live" (the real file), "absent" (the plugin root swapped to an empty dir), or the cached read `(registry, reason)` that
+# `gate_registry.load_registry` would have returned (the seam of test_gate_registry.py:1108-1119: `gate_template._READ`).
+# Expectations are the card's: refused = StateConflict, prefix `gate registry unreadable:`, the reason named, nothing recorded;
+# `recorded` = the dispatch is in the state; `malformed` = the call's fault comes first (a ValueError that is not the
+# registry's text, FR-46, card E4 (i)), through the real `apply` door with the registry kept broken and no stub.
+REG_PRECONDITION_ROWS = (
+    ("absent", "absent", "the file is absent", False, None, "refused"),
+    ("zero-bytes", (None, "the file is 0 bytes"), "0 bytes", False, None, "refused"),
+    ("not-json", (None, "it is not valid JSON (Expecting value: line 1 column 1 (char 0))"), "not valid JSON", False, None, "refused"),
+    ("not-utf8", (None, "it is not valid UTF-8 (invalid start byte)"), "not valid UTF-8", False, None, "refused"),
+    ("no-rows", ({"rows": "x"}, "it carries no `rows` list"), "no `rows` list", False, None, "refused"),
+    # RD1-31 (the last field): the rows `state/passed-by-person.jsonl` holds after the row - the stop passed by a word is kept,
+    # once, naming owner factory (FR-4, P13); a word present while ANOTHER block refuses (scope outside the approved one) leaves none
+    ("passed-by-word", ({"rows": "x"}, "it carries no `rows` list"), "", True, None, "recorded", 1),
+    ("passed-by-word-other-block-refuses", ({"rows": "x"}, "it carries no `rows` list"), "scope expansion", True,
+     ("scope", ["TC-9"]), "refused-other", 0),
+    # RD1-31 (B): the event is durable though a step AFTER it raises (`DerivedViewStale` is an `EventCommitted`): the row exists iff the
+    # event is committed, so the one row stays (red on a `kept` recorded only when `apply` returns normally)
+    ("passed-by-word-after-commit-fails", ({"rows": "x"}, "it carries no `rows` list"), "", True, "after-commit-fails",
+     "committed-then-raised", 1),
+    # RD1-31 (F-1): the derived-view refresh after the commit READS these rows (the dashboard), so the row is written BEFORE it
+    ("passed-by-word-row-before-the-refresh", ({"rows": "x"}, "it carries no `rows` list"), "", True, "refresh-sees-row", "recorded", 1),
+    ("live", "live", "", False, None, "recorded"),
+    ("malformed-first", ({"rows": "x"}, "it carries no `rows` list"), "", False, ("input_hash", None), "malformed"),
+    ("malformed-first-empty", ({"rows": "x"}, "it carries no `rows` list"), "", False, ("input_hash", ""), "malformed"),
+    ("after-reinstall", "absent", "the file is absent", False, None, "refused-then-recorded"),
+)
+
+
+def test_c3_reg_precondition_one_stop_for_an_unreadable_registry():
+    import gate_registry
+    import gate_template
+    real_root, real_read = gate_registry.PLUGIN_ROOT, list(gate_template._READ)
+
+    def seam(how, empty):
+        gate_registry.PLUGIN_ROOT = empty if how == "absent" else real_root
+        gate_template._READ.clear()
+        if how not in ("absent", "live"):
+            gate_template._READ.append(how)
+
+    seen = []
+
+    def attempt(c, key, edit=None):
+        request = {"id": "S0-" + key, "stage": "S0", "role": "qa-worker", "scope": ["TC-1"], "input_hash": "h", "budget": {},
+                   "known_paths": {}, "idempotency_key": key}
+        if edit == "after-commit-fails":      # the derived-view refresh after the commit fails: the event is in, the call raises
+            def stale():
+                raise DerivedViewStale("the derived views could not be refreshed")
+            c.store._run_after_commit = stale
+        elif edit == "refresh-sees-row":      # what the refresh would read: the pass rows the file holds when it runs
+            pass_file = c.store.root / "state" / "passed-by-person.jsonl"
+            c.store._run_after_commit = lambda: seen.append(len(pass_file.read_text(encoding="utf-8").splitlines())
+                                                            if pass_file.exists() else 0)
+        elif edit and edit[1] is None:
+            del request[edit[0]]
+        elif edit:
+            request[edit[0]] = edit[1]
+        try:
+            c.apply("dispatch", request)
+        except (StateConflict, ValueError) as exc:
+            return exc
+        return None
+
+    def run_row(rid, how, words, by_word, edit, outcome, passes=0):
+        with tempfile.TemporaryDirectory(prefix="qa-regpre-") as td, tempfile.TemporaryDirectory(prefix="qa-regpre-empty-") as empty:
+            root = mark_project(Path(td))
+            c = Controller(root)
+            c.apply("initialize", {"scope": ["TC-1"], "source_revision": "r", "known_paths": {"root": str(root)}, "idempotency_key": "init"})
+            if by_word:
+                add_override(root, "S0", "gate registry unreadable")
+            seam(how, Path(empty))
+            before = len(c.store.read())
+            got = attempt(c, "d1", edit)
+            if outcome in ("refused", "refused-then-recorded"):
+                assert isinstance(got, StateConflict), (rid, repr(got))
+                said = str(got)
+                assert said.startswith("gate registry unreadable:") and words in said, (rid, said)
+                assert "Reinstall or update the qa-factory plugin" in said and "nothing is wanted from you" in said, (rid, said)
+                assert not c.state()["dispatches"] and len(c.store.read()) == before, (rid, "a dispatch was recorded")
+            elif outcome == "refused-other":
+                assert isinstance(got, StateConflict) and words in str(got), (rid, repr(got))
+                assert not c.state()["dispatches"] and len(c.store.read()) == before, (rid, "a dispatch was recorded")
+            elif outcome == "committed-then-raised":
+                assert isinstance(got, DerivedViewStale) and "S0-d1" in c.state()["dispatches"], (rid, repr(got))
+            elif outcome == "malformed":
+                assert type(got) is ValueError and not str(got).startswith("gate registry unreadable"), (rid, repr(got))
+                assert len(c.store.read()) == before, (rid, "a malformed dispatch was recorded")
+            else:
+                assert got is None and "S0-d1" in c.state()["dispatches"], (rid, repr(got))
+            if edit == "refresh-sees-row":
+                assert seen == [1], (rid, "the refresh saw this many pass rows (want 1, before it ran)", seen)
+            pass_file = root / "state" / "passed-by-person.jsonl"
+            rows = [json.loads(line) for line in pass_file.read_text(encoding="utf-8").splitlines()] if pass_file.exists() else []
+            assert len(rows) == passes, (rid, "pass rows", rows)
+            if passes:
+                assert rows[0]["stage"] == "S0" and rows[0]["dispatch"] == "S0-d1" and rows[0]["block"].startswith(
+                    "gate registry unreadable:") and "Owner: factory" in rows[0]["block"], (rid, rows[0])
+            if outcome == "refused-then-recorded":
+                seam("live", Path(empty))     # the reinstall: the root is restored and the cached failure is dropped (a new process)
+                again = attempt(c, "d2")
+                assert again is None and "S0-d2" in c.state()["dispatches"], (rid, repr(again))
+
+    failed = []
+    try:
+        for row in REG_PRECONDITION_ROWS:
+            try:
+                run_row(*row)
+            except AssertionError as exc:       # every row reports (docs/TESTING.md: one table, the extent of a regression)
+                failed.append((row[0], str(exc)))
+    finally:
+        gate_registry.PLUGIN_ROOT = real_root
+        gate_template._READ[:] = real_read
+    assert not failed, f"{len(failed)} of {len(REG_PRECONDITION_ROWS)} rows failed: {failed}"
 
 
 def main() -> int:
@@ -2723,7 +2858,8 @@ def main() -> int:
                   test_tr4_7_an_event_committed_in_between_is_not_let_through_by_the_caller_revision,
                   test_tr4_7_an_admitted_s5_window_never_repairs_a_sibling,
                   test_tr4_7_a_repair_leaves_a_row_that_is_no_longer_running_alone,
-                  test_tr4_7_invalidate_reads_liveness_for_the_named_dispatches_only):
+                  test_tr4_7_invalidate_reads_liveness_for_the_named_dispatches_only,
+                  test_c3_reg_precondition_one_stop_for_an_unreadable_registry):
         try:
             tr4_7()
             check(tr4_7.__name__, True)

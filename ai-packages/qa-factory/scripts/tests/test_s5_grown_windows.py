@@ -314,11 +314,10 @@ def k4_look_scope():
         check("fixture: no pass is recorded before a person's word", not passed.exists() or "the look scoped" not in passed.read_text(encoding="utf-8"))
         check_eq("a person's-words look is not held for its scope (P13)",
                  c._plan_review_problems(dict(record, scope=["TC-3"], person_words=True), state, "."), [])
-        check_in("a person's-words look: the pass is recorded as a finding", "the look scoped TC-3", passed.read_text(encoding="utf-8"))
-        passed.unlink()
+        check("RD1-31 a person's-words look: a helper called outside `apply` writes no row", not passed.exists())
         word(root)
         check_eq("a person's word passes the narrow look", c._plan_review_problems(dict(record, scope=["TC-3"]), c.state(), "."), [])
-        check_in("a person's word passes the narrow look: the pass is recorded as a finding", "the look scoped TC-3", passed.read_text(encoding="utf-8"))
+        check("RD1-31 a person's word passes the narrow look: ... and no row outside `apply`", not passed.exists())
         check_eq("the full look is accepted", refused(lambda: accept_it(c, root, look["id"])), "")
     finally:
         cleanup(root)
@@ -338,6 +337,21 @@ def k4_look_scope():
               "S5-qa-code-critic-1 cannot be read" in narrow and "--cases TC-1,TC-2,TC-3 --reason" in narrow, narrow)
         check_eq("an unreadable previous review: a look over the whole plan passes",
                  [p for p in c._plan_review_problems(dict(record, scope=list(TRIO)), state, ".") if "the look scoped" in str(p[1])], [])
+    finally:
+        cleanup(root)
+    root = temp_dir("qa-fjc-look3-")
+    try:     # RD1-31 (F-4a): the look ordered in the person's own words is accepted through the apply door: one row, the words' decision
+        c, plans = three_case_story(root, "reduced", "full")
+        look = c.build_rework_request("S5", CRITIC, ["TC-3"], "look at the new case", purpose=CT.S5_PLAN, words_given=True)
+        c.apply("dispatch", look)
+        write_form(root, look["id"], "approved")
+        SP.stamp_review(root, look["id"])
+        check_eq("the narrow look in the person's words is accepted", refused(lambda: accept_it(c, root, look["id"])), "")
+        passed = root / "state" / "passed-by-person.jsonl"
+        rows = [json.loads(line) for line in passed.read_text(encoding="utf-8").splitlines()] if passed.exists() else []
+        check_eq("RD1-31 a person's-words narrow look: one row, stage S5, the plan-before-windows block, the words' decision",
+                 [(r["stage"], r["block"].startswith("S5 plan before windows: "), r["decision"]) for r in rows],
+                 [("S5", True, "the look is a rework ordered in the person's own words")])
     finally:
         cleanup(root)
 

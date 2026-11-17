@@ -2818,7 +2818,59 @@ def c3_b1_novelty_word_road():
     check_eq("B1 edge: no word, nothing goes", let_go(), [])
 
 
+def c3_d_review_word_through_the_registry():
+    """C3-d (FR-59, AR-28; registry row `s5_window`, waits at window acceptance): `validate_window` closes an instance's review only
+    with a word the row's consumers take - `approved` for a test that ran, `unverified` (a static review) for one the stand blocked or
+    whose probe could not run here, either for a handed one; any other word, no word, a case variant and an unreadable registry are the
+    gap `review:<iid>`, never a pass. Expected values: the corrected `decides` of the row, the charter (`agents/qa-code-critic.md:76,84`:
+    four words, `unverified` = could not verify) and FR-59 - never validate_window's output before the change. The outcome readers are
+    patched to confirm the claim (they are other rows' business); the registry cache is swapped as in C3-rr and restored in `finally`."""
+    import acceptance
+    import gate_registry
+    import gate_template as GT
+    absent = object()
+    outcomes = {"ran": {"outcome": "passed"}, "stopped": {"outcome": "blocked_by_env"}, "handed": {"outcome": "handed_to_person"},
+                "gapped": {"outcome": "passed", "change_disposition": "new_or_changed", "probe_gap": {}}}
+    root = temp_dir("qa-review-registry-")
+    real_blocked, real_handed, saved_read = acceptance.blocked_instances, acceptance.handed_instances, list(GT._READ)
+
+    def gap_for(kind, word, registry_readable=True) -> bool:
+        item = {"instance_id": "A", "input_hash": "h", "change_disposition": "unchanged", "evidence_refs": [], **outcomes[kind]}
+        if word is not absent:
+            item["review"] = {"verdict": word}
+        window = pure_window(instances=[item], scope_instances={"TC-1": ["A"]}, not_applicable_reason="")
+        acceptance.blocked_instances = lambda *a, **k: {"A": {}}
+        acceptance.handed_instances = lambda *a, **k: {"A": {}}
+        try:
+            if not registry_readable:
+                GT._READ[:] = [({"rows": "x"}, gate_registry.structural_error({"rows": "x"}))]
+            return "review:A" in validate_window(window, root)
+        finally:
+            GT._READ[:] = saved_read
+            acceptance.blocked_instances, acceptance.handed_instances = real_blocked, real_handed
+
+    try:
+        rows = [   # (kind, word, review gap expected)
+            ("ran", "approved", False), ("ran", "unverified", True), ("ran", "approved_with_fixes", True), ("ran", "rejected", True),
+            ("ran", "", True), ("ran", "Approved", True), ("ran", " approved", True), ("ran", ["approved"], True), ("ran", None, True),
+            ("ran", absent, True),
+            ("stopped", "unverified", False), ("stopped", "approved", True), ("stopped", "", True), ("stopped", absent, True),
+            ("gapped", "unverified", False), ("gapped", "approved", True), ("gapped", "", True), ("gapped", absent, True),
+            ("handed", "approved", False), ("handed", "unverified", False), ("handed", "rejected", True),
+            ("handed", "approved_with_fixes", True), ("handed", "", True), ("handed", absent, True),
+        ]
+        for kind, word, gap in rows:
+            check_eq(f"C3-d {kind} / {'(no review key)' if word is absent else repr(word)}: review gap", gap_for(kind, word), gap)
+        # E3: an unreadable registry never closes a review - every kind, every word the table closes above
+        for kind, word, gap in rows:
+            if not gap:
+                check_eq(f"C3-d E3 unreadable registry, {kind} / {word!r}: review gap", gap_for(kind, word, registry_readable=False), True)
+    finally:
+        cleanup(root)
+
+
 def pure_group():
+    c3_d_review_word_through_the_registry()
     c3_b1_novelty_word_road()
     c3_b1_novelty_question_gap()
     fv1_30b_n6_the_three_judges_read_the_one_survivor()

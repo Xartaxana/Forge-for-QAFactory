@@ -29,7 +29,6 @@ Public surface:
   same_path(a, b)           the one rule "these two paths name the same file" (case counts, on every OS)
   already_probed(...)       THE predicate both probe tools ask before they mutate anything
   probe_record_path(...)    the one naming of a probe's record (`work/probes/[product/]<stem>.json`)
-  holds_over_comments(e, r) a receipt for other raw bytes whose code is the same (D-0017)
   claimed_test_sha(entry)   the bytes the row is bound to (trace_binding), else the reader's
   words(level) / review_words(verdict) / not_required_words() / handed_words() / words_for(reason) /
   unknown_words() / comment_only_words() / code_unchanged_words() / held_words(how)
@@ -60,6 +59,9 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import contract as C  # noqa: E402
+# The ONE predicate a gate word is accepted through: every reuse of an old result, probe or receipt reads the
+# `test_identity` row of the gate registry (AR-13); an unreadable registry refuses the reuse (AR-28).
+from gate_template import acceptable, registry_problem, registry_why  # noqa: E402
 
 # The block name of a repeated probe: the words of a refusal carry it, and a person's recorded word
 # (`waiver.py --block`) matches it. One constant, so the refusal and the door cannot drift apart.
@@ -939,6 +941,10 @@ WHY_RUN_CHANGED = "the test, or a fixture or helper it uses, changed since {run}
 WHY_RUN_UNMEASURABLE = "the test or a file it depends on cannot be measured now"
 WHY_RUN_NOT_COMPARED = ("the test has no per-test identity to compare: no run of the story selected it, "
                         "or no story folder was given")
+# An unreadable gate registry refuses every reuse, and says so: it is a defect of the install, not a change of the
+# test (FR-41: an unknown is never reported as a fact).
+WHY_RUN_REGISTRY_TAIL = "not a change of the test"            # the tail of `gate_template.registry_why` (the ONE builder, RD1-27)
+WHY_RECEIPT_REGISTRY_TAIL = "the receipt was not judged"
 WHY_NO_RUN = "no run of this instance reached a result"
 RUN_SHA_KEYS = ("instance_content_sha", "instance_code_sha")
 
@@ -971,8 +977,11 @@ def _run_freshness(entry, run_row, task_root, now) -> tuple:
             # the test depends on, not an absence of news: `function_sha` gives "" for it, and "" never reads fresh
             return "stale", WHY_RUN_UNMEASURABLE
         return "unknown", why or WHY_RUN_NOT_COMPARED
-    if same_test(now, {"instance_identity": dict(shas, job_id="")}) in ("instance", "instance_code"):
+    if acceptable(same_test(now, {"instance_identity": dict(shas, job_id="")}), "test_identity.run_fresh"):
         return "fresh", ""
+    problem = registry_problem()
+    if problem:
+        return "stale", registry_why(problem, WHY_RUN_REGISTRY_TAIL)
     attempt = shas.get("attempt_id")
     return "stale", WHY_RUN_CHANGED.format(run=f"run {attempt}" if attempt else "its run")
 
@@ -1411,7 +1420,8 @@ def _product_receipt_repeat(entry, ids, now, task_root, project, check_key, note
     for one in ids:
         record = _read_record(probe_record_path(task_root, one, "product"), notes)
         if not (record is not None and record.get("verdict") == "intended_failure"
-                and same_test(now, proof_identity(record)) and _mutated_files_hold(record, entry, project)):
+                and acceptable(same_test(now, proof_identity(record)), "test_identity.probe_repeat")
+                and _mutated_files_hold(record, entry, project)):
             continue
         try:
             stem = C.instance_file_stem(one)
@@ -1524,7 +1534,8 @@ def already_probed(entry, manifest, task_root, *, now=None, project=None, stage:
                     notes.append(f"the check record {path.name} was made for another model entry; this probe runs")
                     continue
                 if (record is not None and record.get("verdict") in ("no_failure", "wrong_location")
-                        and same_test(now, proof_identity(record)) and _mutated_files_hold(record, entry, project)):
+                        and acceptable(same_test(now, proof_identity(record)), "test_identity.probe_repeat")
+                        and _mutated_files_hold(record, entry, project)):
                     if not _same_target(record, target):
                         notes.append(_earlier_line_note(record, target))
                         continue
@@ -1539,7 +1550,8 @@ def already_probed(entry, manifest, task_root, *, now=None, project=None, stage:
         for one in ids:
             record = _read_record(probe_record_path(task_root, one, "product"), notes)
             if (record is not None and record.get("verdict") == "survived"
-                    and same_test(now, proof_identity(record)) and _mutated_files_hold(record, entry, project)):
+                    and acceptable(same_test(now, proof_identity(record)), "test_identity.probe_repeat")
+                    and _mutated_files_hold(record, entry, project)):
                 hit = {"by": "product_record", "level": None, "receipt_ref": {},
                        "record": probe_record_path(task_root, one, "product").relative_to(task_root).as_posix(),
                        "prior_verdict": "survived", "recorded_at": str(record.get("recorded_at") or ""),
@@ -1577,24 +1589,11 @@ def other_bytes(entry: dict, receipt) -> bool:
     """Is this receipt for OTHER bytes than the row's test holds NOW (the one reader)? A record
     that hashes none (the old mutable probe record) says nothing to compare; a test whose file
     cannot be found is not "other bytes" but unknown ones — `_evaluate` says that on its own.
-    Raw bytes only: whether other bytes are still the same CODE is `holds_over_comments`."""
+    Raw bytes only: whether other bytes are still the same CODE is `same_test`'s answer (`_evaluate`)."""
     if not isinstance(receipt, dict):
         return False
     claimed, current = str(receipt.get("test_content_hash") or ""), _current_sha(entry)
     return bool(claimed and current and claimed != current)
-
-
-def holds_over_comments(entry: dict, receipt, now=None) -> bool:
-    """A receipt for other raw bytes still counts when the change was cosmetic: `same_test` says its
-    proof holds by the CODE of the test (`instance_code`, the per-test identity's own code sha, or
-    `file_code` for a receipt that predates the identity and recorded `test_code_sha`) and not by
-    equal bytes. `now` is `instance_identity()`'s answer; without it the file rules (today's) apply.
-    A receipt without any code sha (written before the rule) never does: raw equality is all it can
-    show."""
-    if not isinstance(receipt, dict):
-        return False
-    now = now if isinstance(now, dict) else instance_identity(entry, None)
-    return same_test(now, proof_identity(receipt)) in ("instance_code", "file_code")
 
 
 def without_retracted(ids, manifest) -> list:
@@ -1637,8 +1636,10 @@ def _evaluate(variant: dict, task_root, instance_id: str, now=None, scope_ok: bo
     claims = proof_identity(receipt)
     if not issues and (claims["input_hash"] or claims["instance_identity"]):
         how = same_test(now, claims)
-        if not how:
-            said = (f"its receipt is for other bytes (test_content_hash {receipt.get('test_content_hash')}, "
+        if not acceptable(how, "test_identity.receipt_holds"):
+            problem = registry_problem()
+            said = (registry_why(problem, WHY_RECEIPT_REGISTRY_TAIL) if problem else
+                    f"its receipt is for other bytes (test_content_hash {receipt.get('test_content_hash')}, "
                     f"the test file now hashes {now['input_hash']}) and other code"
                     if claims["input_hash"] != now["input_hash"] else
                     "its receipt was measured on this very file, and something the test depends on (its "
@@ -1736,7 +1737,7 @@ def reached(entry, manifest, task_root, *, now=None) -> dict:
     the receipt of the proven `obligation_bindings[]` row that lists the instance
     (`contract.binding_receipt_ref`), de-duplicated by path; each is validated by
     `contract.sensitivity_proof_issues` and against the test's current bytes (`current_test_sha`;
-    other raw bytes count when the change was comment-only, `holds_over_comments`, and then the
+    other raw bytes count when the change was comment-only, `same_test` says `instance_code` / `file_code`, and then the
     words say so). The level is the best valid one: the highest rank, and on a tie the receipt
     whose `test_content_hash` is the current bytes, then the first found (the row's own before the
     binding's). `issues` is non-empty only when no candidate is valid; when a candidate could not

@@ -1551,10 +1551,6 @@ def instance_identity_and_reached_per_instance():
         check_eq("...and after another test's edit its raw bytes differ, it recorded no code sha: not reached",
                  PL.reached(legacy, {}, fix.task)["level"], None)
         test.write_bytes(original_text)
-        # tie of two receipts of one level: the very bytes, then the same test, then only the same code
-        check_eq("holds_over_comments is a thin wrapper of same_test", (
-            PL.holds_over_comments(proven, live_body, now=PL.instance_identity(entry, fix.task)),
-            PL.holds_over_comments(proven, {})), (False, False))
     finally:
         fix.close()
         use_project(PROJECT["root"])
@@ -1795,6 +1791,80 @@ def ep1_37_the_file_of_a_selector_is_the_contracts():
     check_eq("a pytest job keeps the old reading", bool(PL._newest_request([("job-4", pytest_job)], {"file": "tests/test_a.py", "instance_id": "test_x"})), True)
 
 
+def c3_b2_a_reuse_is_accepted_through_the_registry_row_and_an_unknown_runs_again():
+    """C3-b2 (B-217, row `test_identity`): the reuse of an old probe record, product record or receipt reads its identity word
+    through `gate_template.acceptable` (consumers `probe_repeat`, `receipt_holds`). Expected from the row's `decides` ('a non-match
+    is an unknown and the answer is to run again') and `_product_receipt_repeat`'s contract (the record on the same test bytes),
+    never from the function's earlier output. A control (the same bytes -> reused) stands beside every refusal; an unreadable
+    registry refuses every reuse and names itself (AR-28, FR-41)."""
+    import contextlib
+    import gate_registry as GR
+    import gate_template as GT
+
+    @contextlib.contextmanager
+    def unreadable_registry():
+        saved = list(GT._READ)
+        GT._READ[:] = [({"rows": "x"}, GR.structural_error({"rows": "x"}))]
+        try:
+            yield
+        finally:
+            GT._READ[:] = saved
+    tmp = temp_dir("qa-c3b2-")
+    other = "0" * 64
+    now, row, root = {"input_hash": sha_now()}, entry(), PROJECT["root"]
+    stamp = "2026-11-01T00:00:00+00:00"
+    use_project(root)           # earlier tables of this file point the process at their own project and move files
+    write(root / TEST_REL, TEST_SRC)
+    try:
+        # item 2: an old probe record (`no_failure`) of other bytes does not answer the repeat - the probe runs
+        for verdict, path in (("no_failure", PL.probe_record_path(tmp, "i1")),
+                              ("survived", PL.probe_record_path(tmp, "i1", "product"))):
+            for label, held, probed in (("the same bytes", sha_now(), True), ("other bytes", other, False)):
+                write(path, {"verdict": verdict, "test_content_hash": held, "recorded_at": stamp})
+                check_eq(f"item 2: a `{verdict}` record of {label}: probed={probed}",
+                         PL.already_probed(row, {}, tmp, now=now, project=root)["probed"], probed)
+            with unreadable_registry():
+                write(path, {"verdict": verdict, "test_content_hash": sha_now(), "recorded_at": stamp})
+                check_eq(f"item 2 (E5): a `{verdict}` record of the same bytes, registry unreadable: the probe runs",
+                         PL.already_probed(row, {}, tmp, now=now, project=root)["probed"], False)
+            path.unlink()
+        # item 3: a product record `intended_failure` + a holding one-check receipt answers only over the same test bytes
+        stem = C.instance_file_stem("i1")
+        write(tmp / "work" / "sensitivity-receipts" / f"{stem}-1.json", {"scope": PL.ONE_CHECK, "instance_id": "i1"})
+        real_holds = PL.product_receipt_holds
+        PL.product_receipt_holds = lambda *a, **k: {"holds": True, "why": "", "keys": [],
+                                                    "receipt": {"scope": PL.ONE_CHECK, "instance_id": "i1"}}
+        try:
+            product_path = PL.probe_record_path(tmp, "i1", "product")
+            for label, held, probed in (("the same bytes", sha_now(), True), ("other bytes", other, False)):
+                write(product_path, {"verdict": "intended_failure", "test_content_hash": held, "recorded_at": stamp})
+                notes: list = []
+                got = PL._product_receipt_repeat(row, ["i1"], now, tmp, root, "", notes)
+                check_eq(f"item 3: a product record of {label} with a holding receipt: answered={probed}", got is not None, probed)
+                check_eq(f"item 3: ...and `already_probed(kind=product)` says probed={probed}",
+                         PL.already_probed(row, {}, tmp, now=now, project=root, kind="product")["probed"], probed)
+            write(product_path, {"verdict": "intended_failure", "test_content_hash": sha_now(), "recorded_at": stamp})
+            with unreadable_registry():
+                check_eq("item 3 (E5): the same bytes, registry unreadable: not answered",
+                         PL._product_receipt_repeat(row, ["i1"], now, tmp, root, "", []), None)
+        finally:
+            PL.product_receipt_holds = real_holds
+        # item 6: `_evaluate` counts a receipt only when its identity word is one the row accepts
+        good = dict(row, sensitivity_proof={"receipt_ref": put(tmp, "x-live", live(test_content_hash=sha_now()))})
+        stale = dict(row, sensitivity_proof={"receipt_ref": put(tmp, "x-other", live(test_content_hash=other, receipt_hash="o"))})
+        check_eq("item 6 control: a receipt for these bytes is valid at its level", PL.reached(good, {}, tmp)["level"], "live")
+        got = PL.reached(stale, {}, tmp)
+        check_eq("item 6: a receipt for other code is not valid", got["level"], None)
+        check_in("item 6: ...and the issue says other bytes", "other bytes", " ".join(got["issues"]))
+        with unreadable_registry():
+            got = PL.reached(good, {}, tmp)
+        check_eq("item 6 (E5/E8): the registry unreadable: the same receipt is not valid", got["level"], None)
+        check_in("item 6 (E8): ...and the issue names the registry", "the gate registry cannot be read", " ".join(got["issues"]))
+        check_not_in("item 6 (E8): ...and does not claim other bytes", "other bytes", " ".join(got["issues"]))
+    finally:
+        cleanup(tmp)
+
+
 def main():
     root = the_project()
     try:
@@ -1826,6 +1896,7 @@ def main():
         the_replay_keeps_the_class_and_reads_the_record_by_the_receipts_names()
         the_receipt_of_a_neighbour_through_the_obligation_binding()
         the_own_stale_receipt_wins_over_the_neighbours()
+        c3_b2_a_reuse_is_accepted_through_the_registry_row_and_an_unknown_runs_again()
     finally:
         cleanup(root)
     ep1_37_the_file_of_a_selector_is_the_contracts()
