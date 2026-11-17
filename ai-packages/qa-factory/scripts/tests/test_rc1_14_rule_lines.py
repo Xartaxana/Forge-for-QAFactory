@@ -3,7 +3,7 @@
 For each moved rule (R1 quiet runs, R2 whole read, R5 digest shape, R7 defect hypothesis, R8 then_bindings):
   every `Code checks: ...` line of its source is at most 200 bytes (AR-20); the lines themselves are rows of design/role-rules.json;
   the refusal that carries the requirement holds its door (the guard's constant, or the guard run on a minimal event);
-  R5: every role's common-rules slice keeps the fenced three-line digest shape (the plan critic's R5).
+  R5: the source common-rules.md keeps the fenced three-line digest shape and every role's handoff-keys slice carries the told row EG-digest-form.
 
 Runnable on its own: `python -B scripts/tests/test_rc1_14_rule_lines.py`.
 """
@@ -72,8 +72,9 @@ SHAPE = ("```\n<role> <stage> <window or scope> · ok|concerns|halt|impossible\n
          "<task-relative path of the artifact>\n```")
 roles = sorted(p.parent.name for p in (REFS / "slices").glob("*/common-rules.md"))
 check("R5: twelve roles have a common-rules slice", len(roles) == 12, str(roles))
-for role in roles:
-    check(f"R5: {role}'s slice keeps the fenced digest shape",
-          SHAPE in read(REFS / "slices" / role / "common-rules.md"))
+check("R5: the source common-rules.md holds the fenced digest shape", SHAPE in read(REFS / "common-rules.md"))
+for role in roles:   # since 442ae9de the shape reaches a role as the told row EG-digest-form of its handoff-keys slice
+    check(f"R5: {role}'s handoff-keys slice carries the told row EG-digest-form",
+          "[exit_gate:EG-digest-form]" in read(REFS / "slices" / role / "handoff-keys.md"))
 
 finish("RC1-14 N2 rule lines")

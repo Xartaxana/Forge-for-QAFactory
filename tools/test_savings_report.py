@@ -22,7 +22,7 @@ from savings_report import (
 from usage_report import PricesError, load_prices
 
 _TABLE = load_prices()
-TOP = "claude-fable-5-1"  # the model the test config binds to roles.lead (the real delegation.config.yaml binds the same)
+TOP = "claude-fable-5-1"  # the model the test config binds to roles.lead
 _LEAD_CONFIG = ("# comment\ncontour: subscription   # subscription | api-keys | both\n"
                 "roles:\n  lead:\n    subscription:\n      model: {model}\n")
 
@@ -63,7 +63,7 @@ def _as_top(db, binding, config_path):
     cheaper model), priced at `binding` through the config file."""
     config_path.write_text(_LEAD_CONFIG.format(model=binding), encoding="utf-8")
     _cc(db, "2026-07-09T10:00:00", "claude-sonnet-5", 1, i=1000, o=500, cw=400, cr=10000, cost=0.01, agent="scout")
-    return counterfactual_summary(db, "ts >= ?", ("2026-07-08",))["as_fable"]
+    return counterfactual_summary(db, "ts >= ?", ("2026-07-08",))["as_coordinator"]
 
 
 def test_the_counterfactual_prices_at_the_lead_binding_with_its_own_cache_multiplier(db, _lead_binding):
@@ -92,7 +92,7 @@ def test_no_model_id_of_a_tier_is_written_in_the_tool():
 def test_a_binding_the_price_file_does_not_know_is_unpriced_never_zero(db, _lead_binding):
     _as_top(db, "claude-fable-9", config_path=_lead_binding)
     c = counterfactual_summary(db, "ts >= ?", ("2026-07-08",))
-    assert len(c["detail"]) == 1 and c["detail"][0]["as_fable"] is None and c["gross_savings"] is None
+    assert len(c["detail"]) == 1 and c["detail"][0]["as_coordinator"] is None and c["gross_savings"] is None
     assert c["unpriced_models"] == ["claude-fable-9"] and c["counterfactual_partial"] is True
 
 
@@ -157,8 +157,8 @@ def test_counterfactual_only_sidechains_in_window(db):
     assert len(c["detail"]) == 1
     assert c["detail"][0]["agent_type"] == "scout"
     assert c["actual"] == pytest.approx(0.002)
-    assert c["as_fable"] == pytest.approx(0.015)  # by hand at fable 5.1: 1000*1e-05 + 100*5e-05
-    assert c["gross_savings"] == pytest.approx(c["as_fable"] - 0.002)
+    assert c["as_coordinator"] == pytest.approx(0.015)  # by hand at fable 5.1: 1000*1e-05 + 100*5e-05
+    assert c["gross_savings"] == pytest.approx(c["as_coordinator"] - 0.002)
 
 
 def test_api_contour_summary_groups_by_kind(db):
@@ -373,7 +373,7 @@ _PRE_TS = "2026-10-01T10:00:00"
 
 
 def _prices_to(tmp_path, monkeypatch, models):
-    """A temp price file holding `models` ({id: (input, output)}, None = unpriced) plus the top-tier model priced
+    """A temp price file holding `models` ({id: (input, output)}, None = unpriced) plus the coordinator model priced
     unless the caller lists it, wired in as the tool's prices."""
     rows = {m: {"input": p[0], "output": p[1]} for m, p in models.items()}
     rows.setdefault(TOP, {"input": 1e-05, "output": 5e-05})
@@ -415,7 +415,7 @@ def test_unpriced_actuals_make_the_savings_not_measurable_never_100_percent(tmp_
     assert "gross savings: not measurable (partial: 3 turn(s) without a price — claude-sonnet-5-5)" in out
     assert "100%" not in out and "gross savings=" not in out
     cf_line = _totals(out)[2]
-    assert "actual=$0.01 (actual partial)" in cf_line and "as-top-tier=$" in cf_line  # both totals still print
+    assert "actual=$0.01 (actual partial)" in cf_line and "as-coordinator=$" in cf_line  # both totals still print
     assert "(counterfactual partial)" not in cf_line
 
 
@@ -426,8 +426,8 @@ def test_the_same_database_fully_priced_prints_the_percent_as_before(tmp_path, c
                     + [(_ROUTED_TS, "claude-sonnet-5", 1, 0.01, 1000)])
     out = _run_report(path, capsys)
     cf_line = _totals(out)[2]
-    fable = (1000 * 1e-05 + 1000 * 5e-05) * 4  # by hand at the top tier: 0.06 a turn
-    assert cf_line == (f"  TOTAL: actual=$0.04  as-top-tier=${fable:.2f}"
+    fable = (1000 * 1e-05 + 1000 * 5e-05) * 4  # by hand at the coordinator model: 0.06 a turn
+    assert cf_line == (f"  TOTAL: actual=$0.04  as-coordinator=${fable:.2f}"
                        f"  gross savings=${fable - 0.04:.2f} ({(1 - 0.04 / fable) * 100:.0f}%)")
     assert "not measurable" not in out and "partial" not in out
 
@@ -457,9 +457,9 @@ def test_an_unpriced_top_tier_model_marks_the_counterfactual_side_too(tmp_path, 
     path = _db_with(tmp_path / "t.db", [(_ROUTED_TS, "claude-sonnet-5", 1, 0.01, 1000)] * 2)
     out = _run_report(path, capsys)  # the priced actual side alone is not enough; no TypeError on a None counterfactual
     cf_line = _totals(out)[2]
-    assert "as-top-tier=$0.00 (counterfactual partial)" in cf_line and "(actual partial)" not in cf_line
+    assert "as-coordinator=$0.00 (counterfactual partial)" in cf_line and "(actual partial)" not in cf_line
     assert "gross savings: not measurable (partial: 2 turn(s) without a price — claude-fable-5-1)" in cf_line
-    assert "as-top-tier=unpriced" in out and "%" not in cf_line
+    assert "as-coordinator=unpriced" in out and "%" not in cf_line
 
 
 def test_each_window_is_judged_on_its_own(tmp_path, capsys, config, monkeypatch):

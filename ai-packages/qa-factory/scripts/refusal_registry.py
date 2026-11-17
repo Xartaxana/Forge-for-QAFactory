@@ -620,7 +620,7 @@ REGISTRY: list[dict] = [
      "summary's error_head and run_suite.py --detail.",
      "test": "scripts/tests/test_guard_dispatch_budget_and_logs.py"},
     {"id": "PT-big-read", "file": "guard_pre_tool.py", "function": "big_read_check",
-     "call": "PRE-TOOL GUARD: reading {normalized} whole is blocked",
+     "call": "text",     # the message is built once (`text = "PRE-TOOL GUARD: reading {normalized} whole is blocked ..."`), both blocks use it
      "refuses": "reading a large file whole instead of by offset/limit, or a large .pdf without a pages range within "
      "config.read.max_pdf_pages (offset/limit do not bound a PDF), or a picture (by its first bytes) over "
      "config.read.max_image_bytes",
@@ -1073,7 +1073,7 @@ REGISTRY: list[dict] = [
 ]
 
 
-def _key_text(node: ast.AST) -> str | None:
+def _key_text(node: ast.AST, bind: tuple) -> str | None:
     """The scanner's key for one refusal: the source text of what it refuses WITH.
 
     Not the line number — every edit above it would move the entry — and not the rendered
@@ -1081,8 +1081,15 @@ def _key_text(node: ast.AST) -> str | None:
     args = getattr(node, "args", None)
     if not args:
         return None
+    first = args[0]
+    # told-before-work: a Record built through `refusal(<id>, X)` / `with_check(X, <id>)` is keyed by X, the text it refuses WITH, as
+    # the bare call was (an entry's `call` stays valid). Recognised by the SAME reader as the wide scan (`_record_kind`: the bare
+    # name, an alias, `DV.refusal`), whatever the id is (the key never depends on it). Fewer than two arguments keeps today's key.
+    kind = _record_kind(first, bind)
+    if kind and len(first.args) >= 2:
+        first = first.args[1 - RECORD_CALLS[kind]]
     try:
-        text = ast.unparse(args[0])
+        text = ast.unparse(first)
     except Exception:
         return None
     # Drop the string prefix and the opening quotes: which quote `ast.unparse` picks depends
@@ -1260,8 +1267,9 @@ def sites(plugin_root: Path | None = None, files=None, raises=None, blocking=Non
                 for child in ast.walk(node):
                     owner.setdefault(id(child), node.name)
         spec = None if raises is None else raises.get(name, {"names": frozenset(REFUSAL_RAISES), "mods": {}})
+        bind = _detector_bind(ast.walk(tree), name)
         for call in _refusal_calls(tree, spec):
-            key = _key_text(call)
+            key = _key_text(call, bind)
             if key is None:
                 continue
             found.append({"file": name, "function": owner.get(id(call), "<module>"),
@@ -1336,6 +1344,20 @@ def _record_kind(expr, bind: tuple):
             and func.attr in RECORD_CALLS:
         return func.attr
     return None
+
+
+def _detector_bind(nodes, name: str) -> tuple:
+    """How a file binds `detector_verdict`: (module aliases, {local name: original}, is detector_verdict itself)."""
+    mods, names = set(), {}
+    for node in nodes:
+        if isinstance(node, ast.Import):
+            mods.update(a.asname or a.name for a in node.names if a.name == "detector_verdict")
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            if node.module.rsplit(".", 1)[-1] == "detector_verdict":
+                names.update({a.asname or a.name: a.name for a in node.names if a.name in RECORD_CALLS})
+            else:
+                mods.update(a.asname or a.name for a in node.names if a.name == "detector_verdict")
+    return mods, names, Path(name).stem == "detector_verdict"
 
 
 def _record_id(call: ast.Call, consts: dict, kind: str | None) -> tuple:
@@ -1454,16 +1476,7 @@ def _scan_wide(name: str, path: Path, spec: dict, blocking) -> tuple:
                 run_guarded_file = True
             elif (callee == "join" or callee == "str") and node.args:
                 joined.setdefault(fn, set()).add(_expr_key(node.args[0]) or "")
-    mods, names = set(), {}
-    for node, _stack in nodes:
-        if isinstance(node, ast.Import):
-            mods.update(a.asname or a.name for a in node.names if a.name == "detector_verdict")
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            if node.module.rsplit(".", 1)[-1] == "detector_verdict":
-                names.update({a.asname or a.name: a.name for a in node.names if a.name in RECORD_CALLS})
-            else:
-                mods.update(a.asname or a.name for a in node.names if a.name == "detector_verdict")
-    bind = (mods, names, Path(name).stem == "detector_verdict")
+    bind = _detector_bind((node for node, _stack in nodes), name)
     records, blind = [], {}
 
     def count(label: str) -> None:

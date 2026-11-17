@@ -124,6 +124,30 @@ def test_refusals_in_front_of_the_transport(rig: Rig) -> None:
     text = one(rig.run(), "REJECT", "T6 bug file absent")
     check_eq("T6: the whole text", text, "bug_file not found: bugs/NOPE.md")
 
+    # 6b. C1 (D-1 (ii), E5/E6): `bug_file` is task-root relative; the task root of this proposal (`<root>/proposals/`) is
+    # tried BEFORE the state directory; a file only under the task root is no REJECT, a state-dir-only file still resolves
+    (rig.root / "bugs").mkdir()
+    (rig.root / "bugs" / "BUG-9.md").write_text("# BUG-9\n\nonly in the task root.\n", encoding="utf-8")
+    rig.write(bug_file="bugs/BUG-9.md")
+    check_eq("T6b: a bug file only under the task root is accepted (no REJECT)", [row[0] for row in rig.run()], ["OK"])
+    (rig.root / "bugs" / "BUG-1.md").write_text("# BUG-1 of the story\n", encoding="utf-8")
+    check_eq("T6b: the task-root file is tried first: a same-name state-dir file never shadows it (E6)",
+             EW.resolve_bug_file(rig.proposal, "bugs/BUG-1.md"), rig.root.resolve() / "bugs" / "BUG-1.md")
+    (rig.root / "bugs" / "BUG-1.md").unlink()
+    (rig.root / "qa-factory" / "bugs" / "BUG-5.md").write_text("# BUG-5\n\nonly in the state directory.\n", encoding="utf-8")
+    rig.write(bug_file="bugs/BUG-5.md")
+    check_eq("T6b: a file only in the state directory still resolves (E5, an older proposal)",
+             [row[0] for row in rig.run()], ["OK"])
+    # C1-5: the factory's own layout: the proposal in `<task root>/work/proposals/` is resolved against the TASK ROOT
+    layout = rig.root / "qa-factory" / "artifacts" / "T" / "work" / "proposals"
+    layout.mkdir(parents=True)
+    (rig.root / "qa-factory" / "artifacts" / "T" / "bugs").mkdir()
+    (rig.root / "qa-factory" / "artifacts" / "T" / "bugs" / "BUG-1.md").write_text("# BUG-1 of T\n", encoding="utf-8")
+    check_eq("T6b: the factory layout (<task root>/work/proposals): the file of THAT story, not the state directory's",
+             EW.resolve_bug_file(layout / "bug-1.json", "bugs/BUG-1.md"),
+             rig.root.resolve() / "qa-factory" / "artifacts" / "T" / "bugs" / "BUG-1.md")
+    rig.calls.clear()    # the three runs above delivered (fake invoke); the rows below count calls from zero
+
     # 7. "comment needs an external_id (create the bug first)"
     rig.write(action="comment")
     text = one(rig.run(), "REJECT", "T7 comment on a bug with no id")

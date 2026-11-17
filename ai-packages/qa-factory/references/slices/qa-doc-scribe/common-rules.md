@@ -69,16 +69,16 @@ on the other side.
 
 ## What a path is relative to
 
-A JSON path string does not say which of three roots it is relative to:
+A JSON path string does not say which root it is relative to:
 
 | Path | Frame |
 |---|---|
 | `config.json`: `app_root`, `tests_root`, `code_repos[].path`, `journal_path` | the **project root** — `../testproject1` is a sibling checkout |
-| proposals and artifacts: `bug_file`, `case_file`, artifact paths | the **state directory**, `<project>/qa-factory/` — `bugs/BUG-1.md` is `<project>/qa-factory/bugs/BUG-1.md` |
+| `bug_file` | the story's **task root**: `bugs/BUG-1.md` is `<task root>/bugs/BUG-1.md` (older bugs: state directory too) |
+| `case_file`, other artifact paths | the **state directory**, `<project>/qa-factory/` |
 | `references/…`, `scripts/…`, the script paths on your card | the **installed plugin**, never the project |
 
-`journal_path` carries the `qa-factory/` prefix and `bug_file` does not: write a path in its own
-frame, resolve it in the frame it was written in.
+`journal_path` carries the `qa-factory/` prefix and `bug_file` does not: resolve a path in the frame it was written in.
 
 **The project root is the nearest directory carrying `qa-factory/config.json`** — not the
 git top level. A monorepo project may be a subfolder (`sdk/test-harness/`): `qa-factory/`, the

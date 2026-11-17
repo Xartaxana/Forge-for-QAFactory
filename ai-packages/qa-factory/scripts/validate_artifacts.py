@@ -49,6 +49,7 @@ import hooklib
 from hooklib import artifact_root, read_event, parse_frontmatter, block, norm, config_path, person_signal
 import grammar as G
 from record_schema import validate_record
+from detector_verdict import refusal  # the one constructor of a refusal that tells its row (T2, AR-15); the id is a literal at each site
 
 CFG_PATH = config_path()
 
@@ -161,17 +162,17 @@ def check_case(path: Path, errors: list) -> None:
     case_text = path.read_text(encoding="utf-8", errors="replace")
     fm = parse_frontmatter(case_text)
     if fm is None:
-        errors.append(f"{path.name}: no YAML frontmatter")
+        errors.append(refusal("validate_artifacts:check_case", f"{path.name}: no YAML frontmatter"))
         return
     for field in CASE_REQUIRED:
         if field not in fm or fm[field] == "":
-            errors.append(f"{path.name}: required field '{field}' is missing")
+            errors.append(refusal("validate_artifacts:check_case", f"{path.name}: required field '{field}' is missing"))
     if fm.get("status") and fm["status"] not in CASE_STATUS:
-        errors.append(f"{path.name}: status '{fm['status']}' outside {sorted(CASE_STATUS)}")
+        errors.append(refusal("validate_artifacts:check_case", f"{path.name}: status '{fm['status']}' outside {sorted(CASE_STATUS)}"))
     if fm.get("priority") and fm["priority"] not in CASE_PRIORITY:
-        errors.append(f"{path.name}: priority '{fm['priority']}' outside {sorted(CASE_PRIORITY)}")
+        errors.append(refusal("validate_artifacts:check_case", f"{path.name}: priority '{fm['priority']}' outside {sorted(CASE_PRIORITY)}"))
     if fm.get("channel") and fm["channel"] not in CASE_CHANNEL:
-        errors.append(f"{path.name}: channel '{fm['channel']}' outside {sorted(CASE_CHANNEL)}")
+        errors.append(refusal("validate_artifacts:check_case", f"{path.name}: channel '{fm['channel']}' outside {sorted(CASE_CHANNEL)}"))
     # defect_class is checked for every case that declares one, not only after the form cutoff:
     # on TP1-15045 `regression` (the closed list has `regression:BUG-NNN`) travelled from a
     # plan row into case design and only the critic noticed, three dispatches later.
@@ -179,24 +180,24 @@ def check_case(path: Path, errors: list) -> None:
     classes = G.defect_classes(G.load_overrides(CFG_PATH))
     if dc and dc != G.SMOKE and dc not in classes and not re.match(r"^regression:BUG-\d+$", dc):
         # a PROPOSED list: a class of it, or the door `new: <word> -- <why>` (F-3 (b)); the stage critic judges the new word
-        errors.extend(f"{path.name}: FORM — defect_class {problem}"
+        errors.extend(refusal("validate_artifacts:check_case", f"{path.name}: FORM — defect_class {problem}")
                       for problem in C.open_word_errors(dc, sorted(classes) + [G.SMOKE, "regression:BUG-NNN"], "defect_class"))
     reuse = str(fm.get("reuse_decision", "")).split(":", 1)[0]
     if reuse and reuse not in CASE_REUSE_DECISION:
-        errors.append(f"{path.name}: reuse_decision '{fm['reuse_decision']}' outside "
-                      f"{sorted(CASE_REUSE_DECISION)} (`extend:<case id>` / `dedupe:<case id>` name the target)")
+        errors.append(refusal("validate_artifacts:check_case", f"{path.name}: reuse_decision '{fm['reuse_decision']}' outside "
+                      f"{sorted(CASE_REUSE_DECISION)} (`extend:<case id>` / `dedupe:<case id>` name the target)"))
     # State-machine gate (mechanism 2)
     if fm.get("status") == "Automated":
         if not fm.get("red_probe"):
             errors.append(
-                f"{path.name}: STATE MACHINE — status: Automated without red_probe. "
-                "Only the code critic moves cases to Automated, and only after its probe, which sets `red_probe`."
+                refusal("validate_artifacts:check_case", f"{path.name}: STATE MACHINE — status: Automated without red_probe. "
+                "Only the code critic moves cases to Automated, and only after its probe, which sets `red_probe`.")
             )
         ab = fm.get("automated_by", "")
         if not ab or ab == "null":
-            errors.append(f"{path.name}: STATE MACHINE — status: Automated without automated_by (file::test)")
+            errors.append(refusal("validate_artifacts:check_case", f"{path.name}: STATE MACHINE — status: Automated without automated_by (file::test)"))
     if fm.get("red_lock") and not re.match(r"^(AT-)?BUG-\d+", fm.get("red_lock", "")):
-        errors.append(f"{path.name}: red_lock '{fm['red_lock']}' does not reference BUG-NNN")
+        errors.append(refusal("validate_artifacts:check_case", f"{path.name}: red_lock '{fm['red_lock']}' does not reference BUG-NNN"))
     # `preconditions` is optional and new in 0.7.8, so the law of this file is kept by the
     # field itself: a case that does not declare it (every case written before) is not
     # touched. Shape only — whether the stand MEETS them is `gate_preflight`'s question, asked
@@ -208,12 +209,12 @@ def check_case(path: Path, errors: list) -> None:
             parse_preconditions = None  # a half-installed build validates what it can
         if parse_preconditions:
             for problem in parse_preconditions(fm.get("preconditions") or "")[1][:4]:
-                errors.append(f"{path.name}: FORM — {problem}")
+                errors.append(refusal("validate_artifacts:check_case", f"{path.name}: FORM — {problem}"))
     # WP1/WP3 — case form (only for cases with updated >= RULE_CUTOFF; older ones — covers_ac).
     if G.after_cutoff(fm.get("updated")):
         check_case_form(path, fm, errors)
     elif not fm.get("covers") and not fm.get("covers_ac"):
-        errors.append(f"{path.name}: neither covers (register) nor covers_ac — a case without traceability")
+        errors.append(refusal("validate_artifacts:check_case", f"{path.name}: neither covers (register) nor covers_ac — a case without traceability"))
     # t-227 (P20): where each Then's expected value comes from. Position: after the form checks, on
     # its own date (ORACLE_CUTOFF, by day). Invariant: a case written before the cutoff is never
     # refused (builder rule 9), and an expected value whose only source is the implementation
@@ -259,7 +260,7 @@ def check_cell_counts(path: Path, text: str, heading: str, what: str, errors: li
         line = (f"{path.name}: {first}: the {what} row holds {found} cells under a header of {width} - a bare `|` inside a cell "
                 "ends the cell, so what follows lands in another column. Way on: write | inside a cell as \\| (for example a \\| b)")
         if new_world:
-            errors.append(line)
+            errors.append(refusal("validate_artifacts:check_cell_counts", line))
         else:
             ORACLE_NOTES.append(f"{line}; the file is dated before {C.CELL_COUNT_CUTOFF}, so it is read as it was written")
 
@@ -324,25 +325,25 @@ def check_then_oracles(path: Path, fm: dict, text: str, errors: list) -> None:
     if register_text is not None:
         impl_only = C.unconfirmed_requirements(register_text, questions)
     snapshot_items, parity = _snapshot_facts(fm.get("task"), register_text)
-    errors.extend(C.then_oracle_errors(
+    errors.extend((refusal("validate_artifacts:check_then_oracles", _problem) for _problem in C.then_oracle_errors(
         path.name, fm.get("then_oracles") if "then_oracles" in fm else None,
         fm.get("question_thens") if "question_thens" in fm else None,
         thens, impl_only=impl_only, known_r=known, questions=questions,
         raw_raise_questions=fm.get("raise_questions") if "raise_questions" in fm else None,
-        snapshot_items=snapshot_items, parity=parity, basis=fm.get("basis", "")))
+        snapshot_items=snapshot_items, parity=parity, basis=fm.get("basis", ""))))
     # TQ1-25: the optional `alternatives` key (the readings B a Then must fail under). Inside the dated block: a case
     # written before ORACLE_CUTOFF carries no such key (it is new) and is not checked. Shape and refs only (FR-12).
-    errors.extend(C.alternatives_errors(path.name, fm.get("alternatives") if "alternatives" in fm else None, thens,
-                                        known_r=known, questions=questions))
+    errors.extend((refusal("validate_artifacts:check_then_oracles", _problem) for _problem in C.alternatives_errors(path.name, fm.get("alternatives") if "alternatives" in fm else None, thens,
+                                        known_r=known, questions=questions)))
     # C12: the basis a case inherits from its plan row may not name an implementation-only R either.
     basis = str(fm.get("basis", "")).strip()
     named = C.requirement_id(basis)
     if named and impl_only and named in impl_only:
         errors.append(
-            f"{path.name}: FORM — basis '{basis}' names {named}, which is implementation-only (derived "
+            refusal("validate_artifacts:check_then_oracles", f"{path.name}: FORM — basis '{basis}' names {named}, which is implementation-only (derived "
             "from the diff alone): a requirement read from the code is not an oracle. Name what the expectation "
             "rests on instead (`consistency:<where before and now differ>` or `external:<ref>`); each Then "
-            "says where its value comes from in `then_oracles`")
+            "says where its value comes from in `then_oracles`"))
 
 
 def register_path_for(task: str) -> Path:
@@ -379,30 +380,30 @@ def check_case_form(path: Path, fm: dict, errors: list) -> None:
     for field in CASE_FORM_REQUIRED:
         if not fm.get(field):
             errors.append(
-                f"{path.name}: FORM — '{field}' is missing (a case with updated >= {G.RULE_CUTOFF}: "
-                "task, covers: [R-n], defect_class, basis — inherited from the plan row)"
+                refusal("validate_artifacts:check_case_form", f"{path.name}: FORM — '{field}' is missing (a case with updated >= {G.RULE_CUTOFF}: "
+                "task, covers: [R-n], defect_class, basis — inherited from the plan row)")
             )
     covers = G.parse_inline_list(fm.get("covers"))
     r_ids = [c for c in covers if G.REQ_ID_RE.match(c)]
     bad = [c for c in covers if not G.REQ_ID_RE.match(c) and not c.startswith("legacy:")]
     if bad:
-        errors.append(f"{path.name}: FORM — covers {bad}: only register R-n or legacy:<import reason> are allowed")
+        errors.append(refusal("validate_artifacts:check_case_form", f"{path.name}: FORM — covers {bad}: only register R-n or legacy:<import reason> are allowed"))
     if r_ids and fm.get("task"):
         known = register_ids(fm["task"])
         if known is None:
             errors.append(
-                f"{path.name}: FORM — covers references {r_ids}, but the register "
-                f"{register_path_for(fm['task']).as_posix()} does not exist: the requirements are invented or the task is mixed up"
+                refusal("validate_artifacts:check_case_form", f"{path.name}: FORM — covers references {r_ids}, but the register "
+                f"{register_path_for(fm['task']).as_posix()} does not exist: the requirements are invented or the task is mixed up")
             )
         else:
             missing = [r for r in r_ids if r not in known]
             if missing:
-                errors.append(f"{path.name}: FORM — covers {missing} are not in the register of task {fm['task']}")
+                errors.append(refusal("validate_artifacts:check_case_form", f"{path.name}: FORM — covers {missing} are not in the register of task {fm['task']}"))
     basis = str(fm.get("basis", ""))
     if basis and not G.ORACLE_RE.match(basis):
         errors.append(
-            f"{path.name}: FORM — basis '{basis}' is not per the oracle grammar "
-            "(requirement:R-n | invariant:<id> | consistency:<where it differs> | history:<baseline> | impact:<harm> | external:<norm>)"
+            refusal("validate_artifacts:check_case_form", f"{path.name}: FORM — basis '{basis}' is not per the oracle grammar "
+            "(requirement:R-n | invariant:<id> | consistency:<where it differs> | history:<baseline> | impact:<harm> | external:<norm>)")
         )
 
 
@@ -410,15 +411,15 @@ def check_bug(path: Path, errors: list) -> None:
     text = path.read_text(encoding="utf-8", errors="replace")
     fm = parse_frontmatter(text)
     if fm is None:
-        errors.append(f"{path.name}: no YAML frontmatter")
+        errors.append(refusal("validate_artifacts:check_bug", f"{path.name}: no YAML frontmatter"))
         return
     for field in BUG_REQUIRED:
         if field not in fm or fm[field] == "":
-            errors.append(f"{path.name}: required field '{field}' is missing")
+            errors.append(refusal("validate_artifacts:check_bug", f"{path.name}: required field '{field}' is missing"))
     if fm.get("status") and fm["status"] not in BUG_STATUS:
-        errors.append(f"{path.name}: status '{fm['status']}' outside {sorted(BUG_STATUS)}")
+        errors.append(refusal("validate_artifacts:check_bug", f"{path.name}: status '{fm['status']}' outside {sorted(BUG_STATUS)}"))
     if fm.get("severity") and fm["severity"] not in BUG_SEVERITY:
-        errors.append(f"{path.name}: severity '{fm['severity']}' outside the allowed set")
+        errors.append(refusal("validate_artifacts:check_bug", f"{path.name}: severity '{fm['severity']}' outside the allowed set"))
     if G.after_cutoff(fm.get("created")):
         check_bug_form(path, fm, text, errors)
 
@@ -433,12 +434,12 @@ def check_bug_filing_header(path: Path, fm: dict, errors: list) -> None:
         return [c for c in G.parse_inline_list(fm.get(field)) if c and c != "-"]
     cases = listed("cases") or listed("case")
     if not cases and not str(fm.get("no_case_reason", "")).strip().strip("-"):
-        errors.append(f"{path.name}: FORM — 'cases' is missing or empty (the case ids the bug is about, from the draft's `case`/`cases`); "
-                      "a bug about no case says `cases: []` and writes `no_case_reason` (why)")
+        errors.append(refusal("validate_artifacts:check_bug_filing_header", f"{path.name}: FORM — 'cases' is missing or empty (the case ids the bug is about, from the draft's `case`/`cases`); "
+                      "a bug about no case says `cases: []` and writes `no_case_reason` (why)"))
     oracle_is_requirement = str(fm.get("violates", "")).strip().startswith("requirement:")
     if oracle_is_requirement and not listed("requirements"):
-        errors.append(f"{path.name}: FORM — 'requirements' is missing or empty (the R-n the draft's `violates` names; the report counts a "
-                      "bug against them)")
+        errors.append(refusal("validate_artifacts:check_bug_filing_header", f"{path.name}: FORM — 'requirements' is missing or empty (the R-n the draft's `violates` names; the report counts a "
+                      "bug against them)"))
 
 
 def check_bug_form(path: Path, fm: dict, text: str, errors: list, draft=None) -> None:
@@ -462,52 +463,52 @@ def check_bug_form(path: Path, fm: dict, text: str, errors: list, draft=None) ->
     scale = G.impact_scale(cfg)
     for field in BUG_FORM_REQUIRED:
         if not fm.get(field):
-            errors.append(f"{path.name}: FORM — '{field}' is missing (an impact class from the scale {sorted(scale)})")
+            errors.append(refusal("validate_artifacts:check_bug_form", f"{path.name}: FORM — '{field}' is missing (an impact class from the scale {sorted(scale)})"))
     violates = str(fm.get("violates", ""))
     if violates and not G.ORACLE_RE.match(violates):
         if re.match(r"\s*code\s*:", violates, re.IGNORECASE):
             errors.append(
-                f"{path.name}: FORM — violates '{violates}': the code is never the oracle (P20) - a test or a bug whose "
+                refusal("validate_artifacts:check_bug_form", f"{path.name}: FORM — violates '{violates}': the code is never the oracle (P20) - a test or a bug whose "
                 "expectation is read from the implementation can only pass. Name what the product must do instead, one of "
-                "requirement:R-n | invariant: | consistency: | history: | impact: | external:"
+                "requirement:R-n | invariant: | consistency: | history: | impact: | external:")
             )
         else:
             errors.append(
-                f"{path.name}: FORM — violates '{violates}' is not one of the oracle kinds "
+                refusal("validate_artifacts:check_bug_form", f"{path.name}: FORM — violates '{violates}' is not one of the oracle kinds "
                 "(requirement:R-n | invariant: | consistency: | history: | impact: | external:). "
-                "No oracle from the list -> this is an observation, not a bug"
+                "No oracle from the list -> this is an observation, not a bug")
             )
     impact = str(fm.get("impact", ""))
     if impact and impact not in scale:
-        errors.append(f"{path.name}: FORM — impact '{impact}' outside the scale {sorted(scale)}")
+        errors.append(refusal("validate_artifacts:check_bug_form", f"{path.name}: FORM — impact '{impact}' outside the scale {sorted(scale)}"))
     if str(fm.get("source_draft", "")).strip() and C.red_test_owed(fm):
         for problem in C.red_test_problems(fm, flat=True):
-            errors.append(f"{path.name}: FORM — {problem}")
+            errors.append(refusal("validate_artifacts:check_bug_form", f"{path.name}: FORM — {problem}"))
     confirmation = str(fm.get("confirmation", "")).strip()
     if confirmation and confirmation not in C.BUG_CONFIRMATIONS:
         errors.append(
-            f"{path.name}: FORM — confirmation '{confirmation}' outside "
-            f"{sorted(C.BUG_CONFIRMATIONS)}"
+            refusal("validate_artifacts:check_bug_form", f"{path.name}: FORM — confirmation '{confirmation}' outside "
+            f"{sorted(C.BUG_CONFIRMATIONS)}")
         )
     elif not confirmation and str(G.date_prefix(fm.get("created")) or "") >= BUG_CONFIRMATION_CUTOFF:
         errors.append(
-            f"{path.name}: FORM — 'confirmation' is missing (one of {sorted(C.BUG_CONFIRMATIONS)}). "
+            refusal("validate_artifacts:check_bug_form", f"{path.name}: FORM — 'confirmation' is missing (one of {sorted(C.BUG_CONFIRMATIONS)}). "
             "A bug nobody has reproduced is `unconfirmed`, and the report and the gate show it "
-            "apart from the ones a person or a second run stood behind"
+            "apart from the ones a person or a second run stood behind")
         )
     if str(fm.get("source_draft", "")).strip() and str(G.date_prefix(fm.get("created")) or "") >= BUG_FILING_HEADER_CUTOFF:
         check_bug_filing_header(path, fm, errors)
     lines = text.splitlines()
     for heading in BUG_FORM_SECTIONS:
         if not G.section_present(lines, heading):
-            errors.append(f"{path.name}: FORM — no \"{heading}\" section (without it the defect record is irreproducible/unassessable)")
+            errors.append(refusal("validate_artifacts:check_bug_form", f"{path.name}: FORM — no \"{heading}\" section (without it the defect record is irreproducible/unassessable)"))
     if draft is None:
         return
     import bug_records as BR   # late: the ONE reader of a draft's cases and manifestations (AR-13); the module imports contract/hooklib only
     if not draft:
-        errors.append(f"{path.name}: FORM — the source draft '{str(fm.get('source_draft', '')).strip()}' cannot be read, so its manifestations "
+        errors.append(refusal("validate_artifacts:check_bug_form", f"{path.name}: FORM — the source draft '{str(fm.get('source_draft', '')).strip()}' cannot be read, so its manifestations "
                       "cannot be checked; `source_draft` must name the draft file as it stands under work/bug-drafts/ "
-                      "(`work/bug-drafts/<file>.json`)")
+                      "(`work/bug-drafts/<file>.json`)"))
         return
     if len(BR.manifestation_summary(draft)) < 2:
         return
@@ -525,12 +526,12 @@ def check_bug_form(path: Path, fm: dict, text: str, errors: list, draft=None) ->
     named = ids(G.parse_inline_list(fm.get("cases")) or G.parse_inline_list(fm.get("case")))
     owed = [one for one in ids(BR.draft_cases(draft)) if one not in named]
     if owed:
-        errors.append(f"{path.name}: FORM — 'cases' lacks {owed}: the source draft is one bug with several manifestations and the bug "
-                      f"lists every case they name (expected: {ids(BR.draft_cases(draft))}); add them to `cases`")
+        errors.append(refusal("validate_artifacts:check_bug_form", f"{path.name}: FORM — 'cases' lacks {owed}: the source draft is one bug with several manifestations and the bug "
+                      f"lists every case they name (expected: {ids(BR.draft_cases(draft))}); add them to `cases`"))
     for heading in ("## Cause", "## Manifestations"):
         if not G.section_present(lines, heading):
-            errors.append(f"{path.name}: FORM — no \"{heading}\" section: the source draft has several manifestations of one cause, "
-                          f"so the bug file states the cause and lists each manifestation ({door})")
+            errors.append(refusal("validate_artifacts:check_bug_form", f"{path.name}: FORM — no \"{heading}\" section: the source draft has several manifestations of one cause, "
+                          f"so the bug file states the cause and lists each manifestation ({door})"))
     start = next((i for i, line in enumerate(lines) if line.strip().startswith("## Manifestations")), None)
     if start is None:
         return
@@ -543,8 +544,8 @@ def check_bug_form(path: Path, fm: dict, text: str, errors: list, draft=None) ->
     for entry in BR.manifestation_entries(draft):
         case = str(entry.get("case") or "").strip()
         if case and case not in squashed:
-            errors.append(f"{path.name}: FORM — the \"## Manifestations\" section does not name the case {case}: one line per "
-                          f"manifestation, each with its case ({door})")
+            errors.append(refusal("validate_artifacts:check_bug_form", f"{path.name}: FORM — the \"## Manifestations\" section does not name the case {case}: one line per "
+                          f"manifestation, each with its case ({door})"))
         red = entry.get("red_test")
         wanted = str(red.get("command") or "").strip() if isinstance(red, dict) else str(red or "").strip()
         label = "its red test command"
@@ -552,8 +553,8 @@ def check_bug_form(path: Path, fm: dict, text: str, errors: list, draft=None) ->
             wanted, label = str(entry.get("red_test_none") or "").strip(), "the reason it has no red test"
         wanted = " ".join(wanted.split())
         if wanted and wanted not in squashed:
-            errors.append(f"{path.name}: FORM — the \"## Manifestations\" line of {case or 'a manifestation'} lacks {label} "
-                          f"('{wanted[:80]}'): each manifestation keeps its own red test, or says why there is none ({door})")
+            errors.append(refusal("validate_artifacts:check_bug_form", f"{path.name}: FORM — the \"## Manifestations\" line of {case or 'a manifestation'} lacks {label} "
+                          f"('{wanted[:80]}'): each manifestation keeps its own red test, or says why there is none ({door})"))
 
 
 def check_register(path: Path, errors: list) -> None:
@@ -563,27 +564,27 @@ def check_register(path: Path, errors: list) -> None:
     text = path.read_text(encoding="utf-8", errors="replace")
     fm = parse_frontmatter(text)
     if fm is None:
-        errors.append(f"{path.name}: no YAML frontmatter")
+        errors.append(refusal("validate_artifacts:check_register", f"{path.name}: no YAML frontmatter"))
         return
     for field in REGISTER_REQUIRED:
         if field not in fm:
-            errors.append(f"{path.name}: required field '{field}' is missing")
+            errors.append(refusal("validate_artifacts:check_register", f"{path.name}: required field '{field}' is missing"))
     ids = G.parse_inline_list(fm.get("ids"))
     if not ids:
-        errors.append(f"{path.name}: ids is empty — a register without requirements; there is no story without a single requirement")
+        errors.append(refusal("validate_artifacts:check_register", f"{path.name}: ids is empty — a register without requirements; there is no story without a single requirement"))
     bad_ids = [i for i in ids if not G.REQ_ID_RE.match(i)]
     if bad_ids:
-        errors.append(f"{path.name}: ids {bad_ids} are not of the form R-n")
+        errors.append(refusal("validate_artifacts:check_register", f"{path.name}: ids {bad_ids} are not of the form R-n"))
     by_source = G.parse_inline_dict_int(fm.get("by_source"))
     unknown = sorted(set(by_source) - G.REQ_SOURCES)
     if unknown:
-        errors.append(f"{path.name}: by_source contains sources outside the list {sorted(G.REQ_SOURCES)}: {unknown}")
+        errors.append(refusal("validate_artifacts:check_register", f"{path.name}: by_source contains sources outside the list {sorted(G.REQ_SOURCES)}: {unknown}"))
     if fm.get("confidence") and fm["confidence"] not in ("high", "low"):
-        errors.append(f"{path.name}: confidence '{fm['confidence']}' outside high|low")
+        errors.append(refusal("validate_artifacts:check_register", f"{path.name}: confidence '{fm['confidence']}' outside high|low"))
     lines = text.splitlines()
     rows = G.table_rows(lines, REGISTER_HEADING)
     if not rows:
-        errors.append(f"{path.name}: the \"{REGISTER_HEADING}\" section has no table rows")
+        errors.append(refusal("validate_artifacts:check_register", f"{path.name}: the \"{REGISTER_HEADING}\" section has no table rows"))
     check_cell_counts(path, text, REGISTER_HEADING, "register", errors)
     seen = set()
     for cells in rows:
@@ -592,23 +593,23 @@ def check_register(path: Path, errors: list) -> None:
             continue
         seen.add(rid)
         if len(cells) < 4:
-            errors.append(f"{path.name}: {rid}: the row is shorter than the form (R · requirement · source · derived_from · …)")
+            errors.append(refusal("validate_artifacts:check_register", f"{path.name}: {rid}: the row is shorter than the form (R · requirement · source · derived_from · …)"))
             continue
         source = cells[2]
         if source not in G.REQ_SOURCES:
-            errors.append(f"{path.name}: {rid}: source '{source}' outside {sorted(G.REQ_SOURCES)}")
+            errors.append(refusal("validate_artifacts:check_register", f"{path.name}: {rid}: source '{source}' outside {sorted(G.REQ_SOURCES)}"))
         if source == "derived" and not G.DERIVED_FROM_RE.match(cells[3]):
             errors.append(
-                f"{path.name}: {rid}: derived without derived_from per the grammar "
+                refusal("validate_artifacts:check_register", f"{path.name}: {rid}: derived without derived_from per the grammar "
                 "(aspect:<name> | seam:<A×B> | invariant:<id> | test:<ref> | norm:<ref> | bug:BUG-NNN | bug:candidate-defect | "
                 "case:<case id> | baseline:<surface>) — "
-                "a derived requirement must name what it was derived from"
+                "a derived requirement must name what it was derived from")
             )
         elif source == "derived" and not C.derived_from_legal(cells[3]):
             # G2-15 (N11): a misspelt `bug:` mark would lose the requirement's road to a test, so it is refused with its door
             errors.append(
-                f"{path.name}: {rid}: `derived_from` says '{cells[3]}': `bug:` takes a bug id (`bug:BUG-12`) or "
-                "`bug:candidate-defect` for a suspect place in the code; a misspelt mark would lose the requirement's road to a test."
+                refusal("validate_artifacts:check_register", f"{path.name}: {rid}: `derived_from` says '{cells[3]}': `bug:` takes a bug id (`bug:BUG-12`) or "
+                "`bug:candidate-defect` for a suspect place in the code; a misspelt mark would lose the requirement's road to a test.")
             )
         # v0: every register row names where its observable was seen, or `none` — and `none`
         # is a gate-A question to the owner, never a silent skip (design section 7.2).
@@ -617,8 +618,8 @@ def check_register(path: Path, errors: list) -> None:
             if obs and not (obs.startswith("none")
                             or any(obs == s or obs.startswith(s + ":") for s in OBSERVABLE_SOURCES_V0)):
                 errors.append(
-                    f"{path.name}: {rid}: observable '{obs}' names no source — prefix it with "
-                    f"{list(OBSERVABLE_SOURCES_V0)} or write `none` (which becomes a gate-A question)"
+                    refusal("validate_artifacts:check_register", f"{path.name}: {rid}: observable '{obs}' names no source — prefix it with "
+                    f"{list(OBSERVABLE_SOURCES_V0)} or write `none` (which becomes a gate-A question)")
                 )
         # The impact column (0.7.7): "what breaks for the user if this requirement is
         # violated", from the project's own closed scale — it is what sizing.py weighs.
@@ -626,18 +627,18 @@ def check_register(path: Path, errors: list) -> None:
             impact = cells[7].strip().strip("`")
             scale = G.impact_scale(G.load_overrides(CFG_PATH))
             if scale and impact not in scale:
-                errors.append(f"{path.name}: {rid}: impact '{impact}' outside the project's impact "
-                              f"scale {sorted(scale)} (config.json impact_scale)")
+                errors.append(refusal("validate_artifacts:check_register", f"{path.name}: {rid}: impact '{impact}' outside the project's impact "
+                              f"scale {sorted(scale)} (config.json impact_scale)"))
     try:
         C.register_rows(text)
     except ValueError as exc:           # the role's header, not a defect of the factory (FR-46): refused with the header named
-        errors.append(f"{path.name}: {exc}")
+        errors.append(refusal("validate_artifacts:check_register", f"{path.name}: {exc}"))
     else:
         check_delta_column(path, text, errors)
     check_manifest_reuse(path, text, rows, errors)
     missing_rows = [i for i in ids if i not in seen]
     if missing_rows:
-        errors.append(f"{path.name}: ids {missing_rows} are declared in the frontmatter, but there are no rows in the register")
+        errors.append(refusal("validate_artifacts:check_register", f"{path.name}: ids {missing_rows} are declared in the frontmatter, but there are no rows in the register"))
     # Contradiction matrix: only when the section exists (WP2); cells — per the grammar.
     for cells in G.table_rows(lines, REGISTER_MATRIX_HEADING):
         if not G.REQ_ID_RE.match(cells[0]):
@@ -645,8 +646,8 @@ def check_register(path: Path, errors: list) -> None:
         for cell in cells[1:]:
             if cell and not G.CONTRADICTION_CELL_RE.match(cell):
                 errors.append(
-                    f"{path.name}: matrix {cells[0]}: cell '{cell}' outside the grammar "
-                    "(ok:<ref> | contradicts:<quote> | silent | n/a:<reason>) — ok without a reference is not accepted"
+                    refusal("validate_artifacts:check_register", f"{path.name}: matrix {cells[0]}: cell '{cell}' outside the grammar "
+                    "(ok:<ref> | contradicts:<quote> | silent | n/a:<reason>) — ok without a reference is not accepted")
                 )
     # t-227 (P20): a requirement that exists only in the diff is a behaviour claim, not a requirement.
     # Position: after the matrix walk, because the matrix is half of what makes an R implementation-only;
@@ -666,15 +667,15 @@ def check_delta_column(path: Path, text: str, errors: list) -> None:
         state = C.delta_state(row)
         if state == "invalid":
             errors.append(
-                f"{path.name}: {row['r']}: delta '{row['delta']}' is none of {' | '.join(C.DELTA_WORDS)} "
+                refusal("validate_artifacts:check_delta_column", f"{path.name}: {row['r']}: delta '{row['delta']}' is none of {' | '.join(C.DELTA_WORDS)} "
                 "(exactly these lowercase words; an empty cell is not one) - write what the product did BEFORE this MR "
-                "for the behaviour the requirement states: no such behaviour (new), a different one (changed), the same (unchanged)")
+                "for the behaviour the requirement states: no such behaviour (new), a different one (changed), the same (unchanged)"))
         elif state == "unchanged" and row["observable"].startswith("diff:"):
             errors.append(
-                f"{path.name}: {row['r']}: delta unchanged with observable '{row['observable']}' contradicts itself: "
+                refusal("validate_artifacts:check_delta_column", f"{path.name}: {row['r']}: delta unchanged with observable '{row['observable']}' contradicts itself: "
                 "a requirement the code shows only in the diff did not hold before this MR. Write delta new or changed, "
                 "or point the observable at code outside the MR (current-code:<path:line>); writing `current-code:` keeps "
-                "the row in the coverage count - only the base slice code reads (G1-8) takes an unchanged row out of it")
+                "the row in the coverage count - only the base slice code reads (G1-8) takes an unchanged row out of it"))
 
 
 def _snapshot_items(story_root):
@@ -696,10 +697,10 @@ def check_behaviour_claims(path: Path, text: str, errors: list) -> None:
     for row in C.behaviour_claims(text):
         origin = row.get("origin", "")
         if origin not in C.EMPTY_CELLS and origin != C.CLAIM_ORIGIN_S3:
-            errors.append(f"{path.name}: {row['r']}: behaviour claim — `origin` '{origin}' is none of: "
-                          f"empty (written at S2) | {C.CLAIM_ORIGIN_S3}")
+            errors.append(refusal("validate_artifacts:check_behaviour_claims", f"{path.name}: {row['r']}: behaviour claim — `origin` '{origin}' is none of: "
+                          f"empty (written at S2) | {C.CLAIM_ORIGIN_S3}"))
         if row["r"] in claims:
-            errors.append(f"{path.name}: {row['r']}: appears twice under \"{C.CLAIM_HEADING}\" — one claim per requirement")
+            errors.append(refusal("validate_artifacts:check_behaviour_claims", f"{path.name}: {row['r']}: appears twice under \"{C.CLAIM_HEADING}\" — one claim per requirement"))
             continue
         claims[row["r"]] = row
     questions = _question_rows(_story_root(path))
@@ -709,13 +710,13 @@ def check_behaviour_claims(path: Path, text: str, errors: list) -> None:
         row = claims.get(rid)
         if row is None:
             errors.append(
-                f"{path.name}: {rid} is implementation-only and has no behaviour claim — it is derived from the diff, the "
+                refusal("validate_artifacts:check_behaviour_claims", f"{path.name}: {rid} is implementation-only and has no behaviour claim — it is derived from the diff, the "
                 "current code or another test alone (no ticket source speaks to it), so what it says is a claim about the code, not a requirement. "
                 f"Add a row under \"{C.CLAIM_HEADING}\" ({' | '.join(['R'] + [c for c in C.CLAIM_COLUMNS[1:] if c != 'origin'])}): what the behaviour was "
-                "before the change, what it is now, and the question that asks the person which one is expected")
+                "before the change, what it is now, and the question that asks the person which one is expected"))
             continue
         for problem in C.claim_row_errors(row, questions, link_index, snapshot_items=snapshot_items):
-            errors.append(f"{path.name}: {rid}: behaviour claim — {problem}")
+            errors.append(refusal("validate_artifacts:check_behaviour_claims", f"{path.name}: {rid}: behaviour claim — {problem}"))
 
 
 def _norm_path(value: str) -> str:
@@ -781,11 +782,11 @@ def check_manifest_reuse(path: Path, text: str, rows: list, errors: list) -> Non
         if "manifest_gap" in lowered and cited in lowered.replace("\\", "/"):
             continue
         errors.append(
-            f"{path.name}: {cells[0]}: observable cites '{cited}', which context-manifest.json "
+            refusal("validate_artifacts:check_manifest_reuse", f"{path.name}: {cells[0]}: observable cites '{cited}', which context-manifest.json "
             "never recorded — S1's evidence is what S2 builds on. If the manifest really did "
             "not answer, keep the fact: add a `manifest_gap` line naming that path, what you "
             "looked for and why the manifest fell short. Silent re-reading of the "
-            "implementation is how the same gap survives into the next story.")
+            "implementation is how the same gap survives into the next story."))
 
 
 def check_plan(path: Path, errors: list) -> None:
@@ -1062,22 +1063,22 @@ def check_requirements_review(path: Path, errors: list) -> None:
     count must be machine-readable; mode B must also carry the matrix fields."""
     fm = parse_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
     if fm is None:
-        errors.append(f"{path.name}: no YAML frontmatter")
+        errors.append(refusal("validate_artifacts:check_requirements_review", f"{path.name}: no YAML frontmatter"))
         return
     for field in REVIEW_REQUIRED:
         if field not in fm or fm[field] == "":
-            errors.append(f"{path.name}: required field '{field}' is missing")
+            errors.append(refusal("validate_artifacts:check_requirements_review", f"{path.name}: required field '{field}' is missing"))
     mode = fm.get("mode", "")
     if mode and mode not in REVIEW_MODES:
-        errors.append(f"{path.name}: mode '{mode}' outside {sorted(REVIEW_MODES)}")
+        errors.append(refusal("validate_artifacts:check_requirements_review", f"{path.name}: mode '{mode}' outside {sorted(REVIEW_MODES)}"))
     if fm.get("verdict") and fm["verdict"] not in REVIEW_VERDICTS:
-        errors.append(f"{path.name}: verdict '{fm['verdict']}' outside {sorted(REVIEW_VERDICTS)}")
+        errors.append(refusal("validate_artifacts:check_requirements_review", f"{path.name}: verdict '{fm['verdict']}' outside {sorted(REVIEW_VERDICTS)}"))
     if "decomposition" in mode:
         for field in REVIEW_DECOMPOSITION_REQUIRED:
             if field not in fm or fm[field] == "":
                 errors.append(
-                    f"{path.name}: mode B without '{field}' — the decomposition matrix is not "
-                    "machine-readable without it (epic-workflow contract)"
+                    refusal("validate_artifacts:check_requirements_review", f"{path.name}: mode B without '{field}' — the decomposition matrix is not "
+                    "machine-readable without it (epic-workflow contract)")
                 )
 
 
@@ -1934,12 +1935,12 @@ def check_understanding(path: Path, errors: list) -> None:
     text = path.read_text(encoding="utf-8", errors="replace")
     lines = text.splitlines()
     if len(lines) > UNDERSTANDING_MAX_LINES:
-        errors.append(f"{path.name}: {len(lines)} lines > {UNDERSTANDING_MAX_LINES} — the scope card is "
-                      "one screen; move detail into requirements-register.md")
+        errors.append(refusal("validate_artifacts:check_understanding", f"{path.name}: {len(lines)} lines > {UNDERSTANDING_MAX_LINES} — the scope card is "
+                      "one screen; move detail into requirements-register.md"))
     for section in UNDERSTANDING_SECTIONS:
         if not any(ln.strip().startswith(section) for ln in lines):
-            errors.append(f"{path.name}: section '{section}' is missing — the gate-A message is "
-                          "assembled from these sections in order")
+            errors.append(refusal("validate_artifacts:check_understanding", f"{path.name}: section '{section}' is missing — the gate-A message is "
+                          "assembled from these sections in order"))
     known = C.register_ids(_sibling(path, "requirements-register.md"))
     if not known:
         return
@@ -1951,8 +1952,8 @@ def check_understanding(path: Path, errors: list) -> None:
     covered = set(C.REQ_ID_RE.findall(body))
     orphan = [r for r in known if r not in covered]
     if orphan:
-        errors.append(f"{path.name}: {orphan} appear in no 'What we verify' / 'What we do not verify' "
-                      "line — an unlisted requirement reads as covered; list it or say why not")
+        errors.append(refusal("validate_artifacts:check_understanding", f"{path.name}: {orphan} appear in no 'What we verify' / 'What we do not verify' "
+                      "line — an unlisted requirement reads as covered; list it or say why not"))
 
 
 def _authored_text(text: str) -> str:

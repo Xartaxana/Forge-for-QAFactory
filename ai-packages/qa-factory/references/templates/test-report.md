@@ -32,7 +32,7 @@ the code critic"; it makes the verdict "ready once you finish the checks left wi
 
 Notation: R-n — a requirement (the list with its text: understanding.md, "What we verify");
 <case id> — a test case, its id in the form the project uses (test-plan.md, "Case appendix");
-TS-n — a plan row; BUG-n — a bug file in `qa-factory/bugs/`.
+TS-n — a plan row; BUG-n — a bug file in the story's `bugs/` folder.
 
 <!-- facts:proven -->
 ## Proven — <N> green tests

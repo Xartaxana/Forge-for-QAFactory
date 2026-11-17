@@ -139,7 +139,32 @@ def unchanged_roads() -> None:
                                                                                          run_witness=REAL_WITNESS)), [])
 
 
+def no_rule_is_not_checked_never_ok() -> None:
+    """S7 (FR-59, AR-28): an artifact with no evidence contract prints one ADVICE line `not checked`, exits 0, and is never
+    printed as `witness OK`, and the contract reads it as one advice. (The exit gate's side: test_exit_gate_unreadable.py.)"""
+    import subprocess
+    from detector_verdict import parse
+    project = temp_project("qa-witness-norule-")
+    try:
+        art = project / "test-plan.md"
+        art.write_text("# plan\n", encoding="utf-8")
+        run = subprocess.run([sys.executable, "-B", str(Path(W.__file__).resolve()), str(art)], capture_output=True, text=True,
+                             encoding="utf-8", cwd=str(project))
+        check_eq("S7: a no-rule artifact exits 0", run.returncode, 0)
+        check_in("S7: ADVICE block with the not checked line", "ADVICE — 1\n- not checked: no evidence contract for test-plan.md",
+                 run.stdout)
+        check("S7: and is never printed as OK", "witness OK" not in run.stdout and "OK (no rule" not in run.stdout)
+        verdict = parse(run.returncode, run.stdout, run.stderr)
+        check_eq("S7: the contract reads it as one advice, no defect", (verdict["advice"], verdict["defects"]),
+                 (["not checked: no evidence contract for test-plan.md"], []))
+        check_eq("S7: has_contract: a ruled name, code-review.md, a name with no rule, an empty name",
+                 [W.has_contract(n) for n in (next(iter(W.RULES)), "code-review.md", "test-plan.md", "")], [True, True, False, False])
+    finally:
+        cleanup(project)
+
+
 def main() -> None:
+    no_rule_is_not_checked_never_ok()
     all_pending_with_collect_accepted()
     all_pending_without_collect_refused()
     collect_must_be_whole_and_cover_the_files()

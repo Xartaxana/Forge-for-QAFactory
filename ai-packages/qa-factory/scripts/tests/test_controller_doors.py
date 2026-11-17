@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
-"""The doors the controller's blocks name are doors that exist, and the first family opens.
+"""The doors the controller's blocks name are doors that exist, and the four families open.
 
-`design/controller-blocks.md` gives every one of the 189 blocks a route; for 109 of them the
-route is a command the block's own message names. Naming a door is not opening one - that is
-how `S3 structured test plan invalid` and `S1 source collection pending/invalid` both came to
+`design/controller-blocks.md` gives every block a route; for many of them the route is a
+command the block's own message names. Naming a door is not opening one - that is how
+`S3 structured test plan invalid` and `S1 source collection pending/invalid` both came to
 advertise `waiver.py --stage ... --block` while the stage stayed shut whatever the person said
 (five conductor sessions and $1.94 in TP1-13797 run 5).
 
 Two checks, in the order they pay:
 
   1. Every command named in the walk EXISTS - an operation the controller knows, or a script in
-     the package. Cheap, and it covers all 109 rows at once: a door that is not there cannot
-     open, and a rename elsewhere in the factory is caught here instead of in a run.
-  2. The `checkpoint` family actually opens: with active work the block fires, after
-     `--operation checkpoint` the same request goes through. One family proved end to end is
-     worth more than a hundred asserted by reading, and the rest follow the same shape.
+     the package. Cheap, and it covers every `command` row at once: a door that is not there
+     cannot open, and a rename elsewhere in the factory is caught here instead of in a run.
+  2. The four door families actually open (`DOOR_FAMILIES`, one row each: `checkpoint`,
+     `gate-decision`, `semantic_reopen`, `recover`): the block fires, the door is called, and the
+     same request goes through or the door leaves the state its walk row promises. A family proved
+     end to end is worth more than a hundred asserted by reading. Each row names its world: the
+     recorded story `fixtures/stories/cart-1/` where the block is reachable from the recorded
+     state, the `BASE` synthetic world otherwise.
 """
-import os
+import contextlib
 import re
 import sys
 from pathlib import Path
@@ -46,6 +49,189 @@ def command_rows() -> list:
         if len(cells) == 5 and cells[3].strip("`") == "command":
             rows.append((cells[0].strip("`"), cells[2], cells[4]))
     return rows
+
+
+# --- the four door families, end to end ---------------------------------------------------------
+# One row per family (P16: the red line names the family). Each row: its world, the walk row that
+# holds its block (found by block text, never by line number: lines move, the needle does not), the
+# token its "way through" cell must name, and `run(needle, task)`. Expectations come from the walk
+# row's own cells, never from the controller's output. Each row runs on its own copy of its world;
+# a row that raises is a red line of its own family and does not hide the others.
+
+@contextlib.contextmanager
+def pinned(project):
+    """The hook layer reads THIS project for the length of the block; env and cache are restored (E5)."""
+    import hooklib
+    with hooklib.selftest_root_restored():
+        hooklib.pin_project_root(project)
+        yield
+
+
+@contextlib.contextmanager
+def synthetic_world():
+    """The `BASE` world: a fresh project with one initialized story (scope TC-1, source revision `src-1`)."""
+    root = harness.temp_dir("qa-controller-doors-")
+    try:
+        with pinned(root):
+            harness.mark_project(root)
+            task = root / "qa-factory" / "artifacts" / root.name
+            (task / "work").mkdir(parents=True)
+            Controller(task).apply("initialize", {"scope": ["TC-1"], "source_revision": "src-1",
+                                                  "known_paths": {"root": str(task)}, "idempotency_key": "init"})
+            yield task
+    finally:
+        harness.cleanup(root)
+
+
+@contextlib.contextmanager
+def recorded_world():
+    """A copy of the recorded story `cart-1` (a task root in its own project); its Gate A is approved and current."""
+    import scenario_walk
+    world = scenario_walk.build_world(scenario_walk.load_story("cart-1"))
+    copy = scenario_walk.copy_world(world)
+    try:
+        with pinned(copy.parents[2]):
+            yield copy
+    finally:
+        harness.cleanup(copy.parents[2])
+
+
+def refusal_of(call) -> str:
+    """The text of the refusal `call` raises (any class: DerivedViewStale is not a StateConflict), '' when it went through."""
+    try:
+        call()
+    except Exception as refusal:
+        return str(refusal)
+    return ""
+
+
+def gate_a_statuses(controller) -> list:
+    return [d["status"] for d in controller.state()["decisions"].values() if d.get("gate") == "A"]
+
+
+def row_checkpoint(needle, task):
+    """The request goes through `controller.apply("checkpoint", ...)`: the operation's body, not the CLI flags of `--operation checkpoint`."""
+    controller = Controller(task)
+    BASE.accept_stage(controller, task, "S0")
+    controller.apply("dispatch", {"id": "d-live", "stage": "S1", "role": "qa-scout",
+                                  "scope": ["TC-1"], "input_hash": "ctx", "budget": {},
+                                  "known_paths": {}, "idempotency_key": "d-live"})
+    revise = {"scope": ["TC-1", "TC-2"], "plan_revision": "plan-2",
+              "reason": "the person added a case at the gate",
+              "idempotency_key": "revise-1"}
+    try:
+        controller.apply("revise_plan", dict(revise))
+        check("checkpoint: active work blocks a scope revision", False)
+    except (StateConflict, ValueError) as refusal:
+        check_in("checkpoint: and the block names the door", needle, str(refusal))
+
+    controller.apply("checkpoint", {"id": "d-live", "status": "paused",
+                                    "checkpoint": {"completed": [], "next": "resume the scout"},
+                                    "reason": "the person is revising the scope",
+                                    "idempotency_key": "cp-1"})
+    controller.apply("revise_plan", dict(revise, idempotency_key="revise-2"))
+    state = controller.state()
+    check_eq("checkpoint: after the door the same request goes through",
+             sorted(state.get("scope") or []), ["TC-1", "TC-2"])
+    check_eq("checkpoint: and the dispatch is where the door left it",
+             (state["dispatches"]["d-live"] or {}).get("status"), "paused")
+
+
+def row_gate_decision(needle, task):
+    controller = Controller(task)
+    for number in range(5):
+        BASE.accept_stage(controller, task, f"S{number}")
+    BASE.seed_plan(task)
+    hand_built = BASE.bind_gate_a(task, {
+        "id": "A", "gate": "A", "action": "approve", "status": "approved", "authorization_source": "human",
+        "source_revision": "stale-rev", "scope": ["TC-1"], "input_revision": "src-1", "idempotency_key": "A"})
+    check_in("gate-decision: a decision bound to a stale source revision is refused, naming the block", needle,
+             refusal_of(lambda: controller.apply("decision", dict(hand_built))))
+    check_eq("gate-decision: and nothing is recorded", gate_a_statuses(controller), [])
+    # the door itself: `--operation gate-decision` (pins the project, builds the request from the revision the story holds now, records)
+    words = task / "work" / "gate-a-words.txt"
+    words.write_text("approve - the person's word (fixture)", encoding="utf-8")
+    code, out, err = harness.run_controller_inprocess(
+        ["--task-root", str(task), "--operation", "gate-decision", "--gate", "A", "--words-file", str(words)], task.parents[2])
+    check("gate-decision: the door exits 0", code == 0, f"exit {code}: {err[-300:]}")
+    check_eq("gate-decision: after the door the same decision is recorded", gate_a_statuses(controller), ["approved"])
+
+
+def row_semantic_reopen(needle, task):
+    controller = Controller(task)
+    events = len(controller.store.read())
+    request = {"kind": "key_order", "semantic_hash": "changed", "previous_semantic_hash": "changed",
+               "idempotency_key": "tn-1"}
+    check_in("semantic_reopen: a normalisation whose plan content really changed is refused, naming the door", needle,
+             refusal_of(lambda: controller.apply("technical_normalize", dict(request))))
+    check_eq("semantic_reopen: and the refusal wrote no event", len(controller.store.read()), events)
+    check_eq("semantic_reopen: the recorded Gate A is approved before the door", gate_a_statuses(controller), ["approved"])
+    affected = (controller.state().get("scope") or [])[:1]
+    controller.apply("semantic_reopen", {"reason": "the plan content changed", "affected_scope": affected,
+                                         "idempotency_key": "so-1"})
+    # The walk row's way through is "semantic_reopen, then a new gate decision": the door itself opens and leaves
+    # the Gate A stale (a normalisation cannot keep a Gate A whose content has left it).
+    check_eq("semantic_reopen: the door is one committed event", len(controller.store.read()), events + 1)
+    check_eq("semantic_reopen: and it leaves the Gate A stale, ready for a new gate decision",
+             gate_a_statuses(controller), ["stale"])
+
+
+def row_recover(needle, task):
+    """The door is `controller.recover()`: the operation's body (`--operation recover` calls exactly it)."""
+    import dashboard_refresh
+    controller = Controller(task)
+    original = dashboard_refresh.refresh_for_task
+    fresh = []
+
+    def failing(_task):
+        raise RuntimeError("the render died")
+
+    def current(task_root):
+        fresh.append(str(task_root))
+        return {"status": "current"}
+
+    marker = task / "state" / "dashboard-deferred.json"
+    try:
+        dashboard_refresh.refresh_for_task = failing
+        stale = refusal_of(lambda: controller.apply("dispatch", {
+            "id": "d1", "stage": "S0", "role": "qa-scout", "scope": ["TC-1"], "input_hash": "h", "budget": {},
+            "known_paths": {}, "idempotency_key": "d1"}))
+        check_in("recover: a failed refresh after a commit is refused, naming the block", needle, stale)
+        check("recover: and the view is recorded as stale", marker.is_file())
+        committed = len(controller.store.read())
+        dashboard_refresh.refresh_for_task = current
+        controller.recover()
+    finally:
+        dashboard_refresh.refresh_for_task = original
+    check("recover: after the door the view is fresh (refreshed, and the stale marker is gone)",
+          bool(fresh) and not marker.exists(), f"refreshed={fresh} marker={marker.exists()}")
+    check_eq("recover: and the committed action is NOT repeated (the event count is unchanged)",
+             len(controller.store.read()), committed)
+
+
+# family -> (world, block text of its walk row, token the row's way-through cell names, the row)
+DOOR_FAMILIES = {
+    "checkpoint": (synthetic_world, "checkpoint active work before revising scope", "--operation checkpoint", row_checkpoint),
+    "gate-decision": (synthetic_world, "decision references stale source revision", "gate-decision", row_gate_decision),
+    "semantic_reopen": (recorded_world, "semantic content changed; use semantic_reopen", "semantic_reopen", row_semantic_reopen),
+    "recover": (synthetic_world, "event committed; derived view not refreshed", "--operation recover", row_recover),
+}
+
+
+def doors_open_end_to_end(rows) -> None:
+    for family, (world, key, token, run) in DOOR_FAMILIES.items():
+        found = [(block, way) for _, block, way in rows if key in block]
+        check(f"{family}: the walk holds a `command` row for its block", bool(found), key)
+        if not found:
+            continue                    # E3: the family fails by name, never silently green
+        block, way = found[0]
+        check_in(f"{family}: and its way-through cell names the door", token, way)
+        needle = block.split("{")[0].strip()
+        try:
+            with world() as task:
+                run(needle, task)
+        except Exception as error:      # a row that cannot run is its own family's red line
+            check(f"{family}: the row ran to its end", False, f"{type(error).__name__}: {error}")
 
 
 def main() -> None:
@@ -81,7 +267,7 @@ def main() -> None:
           len(receipt_rows) >= 4 and all(OPERATION_RE.search(way) and
                                          OPERATION_RE.search(way).group(1) in known for _, way in receipt_rows),
           str(receipt_rows[:2]))
-    # How many of the 109 name a door this test can even look up. The rest say what to do in
+    # How many of the rows name a door this test can even look up. The rest say what to do in
     # words ("accept the successor first"), which is a route and not a command - counted, not
     # judged, so the number moves when somebody makes a row more precise.
     looked_up = sum(1 for _, _, way in rows if OPERATION_RE.search(way) or SCRIPT_RE.search(way))
@@ -90,49 +276,7 @@ def main() -> None:
     check("most of the command rows name something lookable-up", looked_up >= len(rows) // 3,
           f"{looked_up} of {len(rows)}")
 
-    # --- the checkpoint family, end to end ----------------------------------------------------
-    root = harness.temp_dir("qa-controller-doors-")
-    import hooklib
-    cached, hooklib._PROJECT_ROOT_CACHE = hooklib._PROJECT_ROOT_CACHE, None
-    old_env = os.environ.get("CLAUDE_PROJECT_DIR")
-    os.environ["CLAUDE_PROJECT_DIR"] = str(root)
-    try:
-        (root / "qa-factory").mkdir(parents=True, exist_ok=True)
-        (root / "qa-factory" / "config.json").write_text("{}", encoding="utf-8")
-        task = root / "qa-factory" / "artifacts" / root.name
-        (task / "work").mkdir(parents=True)
-        controller = Controller(task)
-        controller.apply("initialize", {"scope": ["TC-1"], "source_revision": "src-1",
-                                        "known_paths": {"root": str(task)}, "idempotency_key": "init"})
-        BASE.accept_stage(controller, task, "S0")
-        controller.apply("dispatch", {"id": "d-live", "stage": "S1", "role": "qa-scout",
-                                      "scope": ["TC-1"], "input_hash": "ctx", "budget": {},
-                                      "known_paths": {}, "idempotency_key": "d-live"})
-        revise = {"scope": ["TC-1", "TC-2"], "plan_revision": "plan-2",
-                  "reason": "the person added a case at the gate",
-                  "idempotency_key": "revise-1"}
-        try:
-            controller.apply("revise_plan", dict(revise))
-            check("active work blocks a scope revision", False)
-        except (StateConflict, ValueError) as refusal:
-            check_in("and the block names the door", "checkpoint active work", str(refusal))
-
-        controller.apply("checkpoint", {"id": "d-live", "status": "paused",
-                                        "checkpoint": {"completed": [], "next": "resume the scout"},
-                                        "reason": "the person is revising the scope",
-                                        "idempotency_key": "cp-1"})
-        controller.apply("revise_plan", dict(revise, idempotency_key="revise-2"))
-        state = controller.state()
-        check_eq("after the door the same request goes through",
-                 sorted(state.get("scope") or []), ["TC-1", "TC-2"])
-        check_eq("and the dispatch is where the door left it",
-                 (state["dispatches"]["d-live"] or {}).get("status"), "paused")
-    finally:
-        os.environ.pop("CLAUDE_PROJECT_DIR", None)
-        if old_env is not None:
-            os.environ["CLAUDE_PROJECT_DIR"] = old_env
-        hooklib._PROJECT_ROOT_CACHE = cached
-        harness.cleanup(root)
+    doors_open_end_to_end(rows)
 
     harness.finish("test_controller_doors")
 

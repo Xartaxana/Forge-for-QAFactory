@@ -70,8 +70,8 @@ def repo(tmp_path):
 def real_copy(tmp_path_factory):
     """A copy of the real sources (not the real AGENTS.md) with a fresh generated output."""
     root = tmp_path_factory.mktemp("real")
-    for rel in ("CLAUDE.md", "PROJECT.md", "docs/FACTORY_RULES_INDEX.md", "docs/ARCHITECTURE_INDEX.md",
-                ".claude/settings.json"):
+    imports = [ln[1:].strip() for ln in (REAL / "CLAUDE.md").read_text(encoding="utf-8").splitlines() if ln.startswith("@")]
+    for rel in ("CLAUDE.md", *imports, ".claude/settings.json"):
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(REAL / rel, root / rel)
     shutil.copytree(REAL / ".claude" / "agents", root / ".claude" / "agents")

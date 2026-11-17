@@ -373,7 +373,8 @@ class DriverMachine:
         dispatch = self.refusal_dispatch(refusal)
         key = self.window_key(stage, dispatch)
         source = (refusal.window_findings or refusal.findings
-                  or [line for line in refusal.text.splitlines()[1:] if line.strip()] or [refusal.text])
+                  or [line for line in refusal.text.splitlines()[1:] if line.strip()]
+                  or ([refusal.text] if stage not in WINDOW_ROUND_STAGES else []))
         found = finding_lines(source)               # the COMPARISON form (`<dispatch>` for ids): never what the record is built from
         if not key or not found:
             return

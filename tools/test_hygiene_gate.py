@@ -345,7 +345,7 @@ WORKER_VERDICT_ROWS = [
     ("returned-verb", f"python -B {JW} returned t-1", B, "a1", False),
     ("skip-verb", f"python -B {JW} skip t-1", B, "a1", False),
     ("next-verb", f"python -B {JW} next", B, "a1", False),
-    ("mention-in-grep", f'grep "journal_write.py accept" f', B, "a1", False),
+    ("mention-in-grep", 'grep "journal_write.py accept" f', B, "a1", False),
     ("other-program-accept", "python -B tools/other.py accept t-1", B, "a1", False),
     ("main-thread-no-agent-id", f"python -B {JW} accept t-1", B, None, False),
     ("null-agent-id", f"python -B {JW} accept t-1", B, None, False),

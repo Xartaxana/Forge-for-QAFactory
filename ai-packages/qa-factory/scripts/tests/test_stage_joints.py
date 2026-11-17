@@ -509,9 +509,9 @@ def lookups() -> None:
               [r["check"] for r in SJ.rows_for(runner, ["S5"], {"plan": True}, data=unknown)]),
              (["u:zz", "u:plan"], ["u:zz", "u:plan"], ["u:zz"], ["u:zz", "u:plan"]))
     real_rows = SJ.rows_for(runner, ["*"])
-    check_eq("rows-for/real: since T1r the runner is told rows (114 today), each stating a requirement; no row names the conductor yet (T9c)",
+    check_eq("rows-for/real: since T1r the runner is told rows (108 today), each stating a requirement; no row names the conductor yet (T9c)",
              (len(real_rows), all(r.get("requirement") or r.get("requirement_from") for r in real_rows), SJ.rows_for("conductor", ["*"])),
-             (114, True, []))
+             (108, True, []))
 
 
 def renderers() -> None:
@@ -924,12 +924,12 @@ def told_variants() -> None:
     # land: T9a (controller 6), T5 (s5_precheck 11, execution_request 10 rows, manifest_put 14, run_suite 7), T5b (execution_request --mine 14),
     # T6 (handoff_check 21), T7a-1..8 (validate_artifacts 42), T7b (planning_contract 12), T7c (coverage_contract 2), T3b (first_look 11).
     # lowered 150 -> 119 by T1r-sites (S-1a + S-1b sited 31 rows; the ratchet follows the measure).
-    UNSITED_CAP = 119
+    UNSITED_CAP = 46
     check_eq("K12/unsited-cap: the real tree measures the named cap (a cap above the measurement is allowed (<=), one below is red)",
              (audit().counts["unsited"], REAL["told_ratchet"]["unsited"], UNSITED_CAP,
               audit(data=mutated(lambda d: d["told_ratchet"].update(unsited=UNSITED_CAP + 3))).problems,
               len(audit(data=mutated(lambda d: d["told_ratchet"].update(unsited=UNSITED_CAP - 1))).problems) > 0),
-             (119, 119, 119, [], True))
+             (46, 46, 46, [], True))
 
     def extra_leg(d):
         """One more legacy told leg: a role entry told by a path other than its key page."""

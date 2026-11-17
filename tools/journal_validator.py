@@ -301,7 +301,7 @@ RETURNED_DOOR = "python -B tools/journal_write.py returned --task <id> --worker 
 FAILURE_CLASSES = {"spec", "capability", "recon", "tooling"}
 # The ladder (family order, function ranks, bindings) lives in tools/tier_ladder.py -- no table of its own here.
 # The acceptor's rank = rank_of_model(by); the executor's rank = rank_of_function(agent).
-# The upper-mid-tier CLASS: basis="queued-to-lead" is keyed on the agent CLASS {critic, designer}, not on a name
+# The critic/designer CLASS: basis="queued-to-lead" is keyed on the agent CLASS {critic, designer}, not on a name
 # (a data row of the matrix, not a ladder fact); its condition reads ranks (builder rank <= rank(by) < lead rank).
 # basis="critic" works by the critic FUNCTION rank against the executor's rank, for any agent.
 QUEUED_TO_LEAD_AGENTS = {"critic", "designer"}
@@ -706,7 +706,7 @@ def _matrix_d0058_violation(event: str, agent, by: str, obj: dict, config_text=N
             "critic's rank is not strictly above the executor's own rank "
             "-- this would legalize an acceptance this exact matrix row "
             "forbids, voiding the critic-gate guarantee for the "
-            f"upper-mid tier -- the legal path for agent={agent!r} is by "
+            f"critic/designer class -- the legal path for agent={agent!r} is by "
             "a model ranked at or above lead, or basis='queued-to-lead' "
             "at a coordinator ranked below lead"
         )

@@ -1,0 +1,14 @@
+{
+  "local-urgent": {
+    "meaning": "breaks runs here and now (a broken schema, a dead hook): fix in this project's factory before the next story",
+    "urgent": true
+  },
+  "local-calibration": {
+    "meaning": "an inconvenience with no acute pain (numbering, report noise): no deadline, revisited when several similar findings accumulate",
+    "urgent": false
+  },
+  "upstream-candidate": {
+    "meaning": "a candidate for the shared plugin canon; passing it upstream is a human decision, not automatic",
+    "urgent": false
+  }
+}

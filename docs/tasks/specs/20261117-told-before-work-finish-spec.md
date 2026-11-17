@@ -208,7 +208,7 @@ NOT established: whether another in-flight spec also proposes "the next axis" �
 map's tail.
 
 Edits:
-1. `docs/SIBLING_MAP.md`: new `## Axis 38 — A check's requirement: one row <-> the constructor `refusal()` <-> the key page / the conductor section <-> the in-process transports (`told_fields`, `spoken`, `block`, `deny`, `refuse`)`; touch axes 17 (Record attributes, `spoken`, `told_fields`), 18 (the told counters, `native_headroom`), 28 (the page + the conductor section as told render sites, `told_line`), 32 (census relabels of T4b/T7f/T9c/T9a).
+1. `docs/SIBLING_MAP.md`: new `## Axis 39 — A check's requirement: one row <-> the constructor `refusal()` <-> the key page / the conductor section <-> the in-process transports (`told_fields`, `spoken`, `block`, `deny`, `refuse`)`; touch axes 17 (Record attributes, `spoken`, `told_fields`), 18 (the told counters, `native_headroom`), 28 (the page + the conductor section as told render sites, `told_line`), 32 (census relabels of T4b/T7f/T9c/T9a).
 2. The mech spec §5.1 T10 row and §6 (b) say "axis 37" for this axis; the T1r-sites / T1r-pages specs each carry one
    "axis 37" mention (Grep counts 1 each; which meaning — not read) — re-point to 38 where they mean this axis.
 3. `PKG/design/architecture.md` AR-10 Detector/Gap and AR-9 change check (package commit: the architecture gate lines).
@@ -266,7 +266,7 @@ Common to every package card (written once, each card says "common" where it app
   hashes equal (S-1a form); (5) "census: no new blocking unit"; (6) the report holds the site table (function |
   fragment | id or E6 reason (class) | test row | proof F/W/N), the FR walk, the changelog fragment
   `PKG/changelog.d/<node>.md` (one English ASCII bullet), and the verbatim witness.
-- siblings (common): axis 17 (Record shape), axis 34 (one road: `refusal()` only), axis 38 (T10); the bare remainder of
+- siblings (common): axis 17 (Record shape), axis 34 (one road: `refusal()` only), axis 39 (T10); the bare remainder of
   each file goes to the report's E6 list classed (code)/(role); a (role) residual is a question to the Lead.
 
 ### Card T4a — guard_pre_tool + host_adapter sites (wave A)
@@ -566,7 +566,7 @@ batch files: Узел | Приоритет | Что | Исполнитель | �
 | TBW-T9c | П1 | раздел «What code will check in this launch» у дирижёра; строки дирижёра; `_producer_leg` | builder → critic | `scripts/no_move.py`, `scripts/stage_joints.py` (`_producer_leg`), `references/stage-joints.json` (строки дирижёра), `judgment-census.json`, `test_controller_doors.py` | T7f (перепись) | ожидает |
 | TBW-T3b | П1 | бриф без карточек, строка групп, `first_look:put` | builder → critic | `scripts/brief_pack.py`, `window_record.py`, `story_step.py` (`_prompt`, `_card_text`), `first_look.py`, `test_first_look.py` | TBW-M9; T1r-cards по `test_ahead_cards.py` | ожидает |
 | TBW-T1rc | П1 | карточки → строки: передрафт дизайнера (B2, B3), критик на изменённые части, затем билдер -a/-b | designer → critic → builder | (по передрафту) | — | ожидает |
-| TBW-T10 | П1 | носители Lead: ось 38, AR-10/AR-9, FR-38, critic-brief, калибровка | Lead | `docs/SIBLING_MAP.md`, `design/architecture.md`, `design/factory-rules.md`, `docs/tasks/critic-diff-brief.md`, `PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md` | — | ожидает |
+| TBW-T10 | П1 | носители Lead: ось 39, AR-10/AR-9, FR-38, critic-brief, калибровка | Lead | `docs/SIBLING_MAP.md`, `design/architecture.md`, `design/factory-rules.md`, `docs/tasks/critic-diff-brief.md`, `PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md` | — | ожидает |
 | TBW-close | П1 | закрытие: счётчики `told_ratchet` и `told-ratchet.json` по замеру, мёртвый код карточек | builder | `references/stage-joints.json` (`told_ratchet`), `told-ratchet.json`, `test_stage_joints.py` (пины счётчиков), `contract_slices.py` | все узлы | ожидает |
 K1b stays FV2-79 (live-run-fvf/2) with a pointer line `перенос:` NOT needed — the Lead adds its id to TBW's "Зависит от" where needed.
 No rows for T5b, T7a-8, T7d, T7e, T8: absorbed / no work (§0, with carriers).
@@ -679,3 +679,18 @@ M9 and the §11 readers run are still owed by the Lead before T3b.
 правил НЕ режется и не сокращается ради предела; если не помещается — предел роли поднимается именованной записью
 (роль, сколько байт, почему), и узел идёт дальше. F-6 читается как (b) с записью, а не (a) «рост = стоп». Карточка
 T1r-cards-R и её билдер получают это как условие.
+
+## Решения Lead после критика темы волны A (t-979), 17.11.2026 (владелец спит — по рекомендации, до её слова)
+
+- **Номер оси T10 — 39.** Ось 38 занята сухой стори («The dry census», ветка `pile/live-run-fvf/batch-3`); строки
+  §T10, общих siblings и таблицы §7 поправлены на 39.
+- **K3 (транспорт Records семей `handoff_check` / planning / validator).** Нового узла нет: эти семьи сказаны роли
+  только страницей («What code will check of you»); текстовый/JSON-транспорт их Records в этой идее не строится. Если
+  живой прогон покажет, что роль не видит требование в отказе, — находка в кучку `told-before-work`, тогда узел.
+- **Число интегратора.** `told_ratchet.unsited` = 46 (у спеки было 45: описка в T7a-A, измерено −13, не −14).
+- **Фикс-раунд один на волну** (t-985, дерево `wave-a/integrate`), а не по узлу: F3 — шов T7b × T7c, его чинит только
+  дерево, где слиты оба. Строки отчётов F4, F5, F10 — раздел отчёта t-985; F5 (EC-8: отказ переименования под
+  `handoff_check:cli`) — вход T1r-cards-R.
+- **K5/real** (после простановки сайтов волны A роли встречают проверки, строки которых их не называют): роль
+  добавляется в строку, только если проверка её действительно встречает; красный предел страницы — решение Lead по
+  слову владельца «не в ущерб правилам; если не влезет — можно поднять».

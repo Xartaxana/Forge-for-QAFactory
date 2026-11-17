@@ -4078,7 +4078,8 @@
         {
           "roles": [
             "qa-case-designer",
-            "qa-requirements-tester"
+            "qa-requirements-tester",
+            "qa-test-strategist"
           ],
           "field": "the artifact the check judges (check_cell_counts)",
           "told": [
@@ -5391,6 +5392,7 @@
       "producers": [
         {
           "roles": [
+            "qa-case-critic",
             "qa-code-critic"
           ],
           "field": "the handover form of the dispatch",
@@ -8126,7 +8128,7 @@
   "told_ratchet": {
     "hand_cards": 12,
     "legacy_legs": 0,
-    "unsited": 119
+    "unsited": 46
   },
   "call_told_families": [
     "guard_pre_tool",
