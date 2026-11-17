@@ -482,7 +482,9 @@ exactly 7 days → not overdue; NONE → overdue.
   `model` = architect binding, the existing `task_id`). The work waits for the Architect. Builder escalations are
   unchanged (Sonnet → an Opus builder, P41). Stream L writes this into CLAUDE.md rule 6.
 - **Whether a Fable SUBAGENT may stand in** (e.g. a critic run on Fable while Opus is down) is an intent question:
-  fork **F22** (owner), executable on the recommendation (no) until her word.
+  fork **F22** — DECIDED by the owner 17.11.2026: YES in force majeure, for any tier («конечно, как и любая верхняя
+  модель может заменить нижнюю в случае форс мажора»): a model ranked above a function's binding may stand in for
+  that function while the bound model is unavailable; the stand-in dispatch names the outage in its notes.
 
 ---
 
@@ -518,7 +520,7 @@ exactly 7 days → not overdue; NONE → overdue.
    diff ONLY with critic input, and `queued-to-lead` is illegal for builder work (P13 `:780`). The move: builder diffs
    finished during the outage WAIT — each gets one line in `docs/tasks/lead-queue.md` («ждёт критика: <task_id>,
    <ветка>») and no `accepted`; critic/designer dispatches are not launched; recon and builder work under accepted
-   specs continue. On return the Lead runs the critic and accepts. (F22 may add a Fable stand-in by the owner's word.)
+   specs continue. On return the Lead runs the critic and accepts. (F22, decided 17.11.2026: when the wait hurts, a Fable stand-in critic/designer dispatch is legal for the declared outage — `model: fable`, the outage named in notes; waiting stays the default for work that can wait.)
 3. **Fable unavailable / refusing is NOT a Lead degradation**: no `lead_degraded`; Architect queue items wait; the
    owner is told once. Invariant: *the Architect's absence never stops Lead work*.
 4. EXIT (rule «tier verification», point b): a rise from builder rank to lead OR architect rank proves a window →
@@ -692,8 +694,10 @@ Items (file → function → behaviour → test row):
   row in the handoff).
 - A3 `mechanism_gate.py` `resolve_lead_binding`, `lead_family` → thin wrappers over the home; `savings_report.py`
   `_UNBOUND`/`top_tier_model` → `lead_binding()` (F11 (a); the label «coordinator model»). Rows in
-  `test_savings_report.py`: config AFTER → counterfactual priced at Opus; config absent → the existing PricesError path
-  unchanged? NO — absent config gives `DEFAULT_BINDINGS` lead = fable, so the counterfactual is Fable as today (row).
+  `test_savings_report.py`: config AFTER → counterfactual priced at Opus; config absent or unreadable → PricesError
+  naming the reason (FR-41: an unknown is never reported as a fact; critic t-922 F8, Lead 17.11.2026). The savings
+  counterfactual reads `tier_ladder.bindings()` — what the file SAYS — not `effective_bindings()`: the default
+  ladder is a gate's safe direction, never a price.
 - A4 `MECHANISM_PREFIXES` += `"delegation.config.yaml"` (comment §2.5) and `"tools/tier_ladder.py"`. Row: the closure
   test covers the home; a commit staging only the config is a mechanism commit.
 - A5 `_tier_queue_note()` → «… it goes into the Lead queue docs/tasks/lead-queue.md …» (keeps «Lead queue»). Row:
@@ -884,7 +888,12 @@ the Lead tells the other developers of the forge that the binding is global (§3
   during an outage builder diffs wait in `lead-queue.md` and escalations go to the architect queue (§4.7, §5.3);
   cost: work waits for Opus or for the owner's switch. (b) yes, a critic/designer dispatch with `model: fable` during
   a declared outage only, each with a `dispatch_skipped`-style note and a check-6 line; cost: Fable price per review,
-  and the Architect's model becomes a worker model — the separation D8 drew blurs. Executable on (a) until her word.
+  and the Architect's model becomes a worker model — the separation D8 drew blurs.
+  **DECIDED (b), generalised — the owner 17.11.2026:** «конечно, как и любая верхняя модель может заменить нижнюю в
+  случае форс мажора». Any model ranked above a function's binding may stand in for it in force majeure (the bound
+  model unavailable or refusing), on every tier; the stand-in is a declared-outage dispatch (the outage in `notes`,
+  counted by check 6), never the routine road. Streams B (matrix by ranks already passes a higher acceptor) and L
+  (rule-6 / degradation text) carry it.
 - **F23 — NEW: the one road that clears a NEW `queued-to-lead` acceptance (M9).** (a) **[recommended]** a second
   `accepted` of the same task by a Lead-ranked `by` (typed, countable by check 6 (iii), legal today, P45). (b) a line
   in `docs/tasks/lead-queue.md` struck when cleared (prose carrier; calibration cannot count it from the journal).
