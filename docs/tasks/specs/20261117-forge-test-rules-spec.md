@@ -649,3 +649,19 @@ Greps (Grep tool): `mutat` -i over `.github` (0; control `python` -i over `.gith
 protocol; Axis headings of SIBLING_MAP (1-37; `^## Axis (3[8-9]|4\d)` -> 0, control `^## Axis` -> 37 at :628);
 Glob `PROCESS/*EXAM*.md` (2 files) and `PROCESS/**/CRITIC_EXAM*` (0); journal counts of §0 P16; spec line counts of §6.
 Needed beyond the manifest: none (the brief named the carriers; the four in-flight specs were read by Grep and windows).
+
+---
+
+## Lead decisions on forks L-1..L-9 (17.11.2026, Fable) and the owner's words so far
+
+- **L-1** TESTING.md is the home of the `test:` form. **L-2** `TEST_LINE_REFUSES` = True. **L-3** cap 3 probes per
+  VERDICT. **L-4** `mutants` REQUIRED, with the declared empty outcome. **L-6** yes, one decision line superseding
+  D-0056 (2)/(3) on mutations. **L-7** an untaken batch of pile `forge`. **L-8** a surviving load-bearing mutant is
+  «fix before merge» (fixed in the same node's fix round, as every critic remark). **L-9** (b): no CLAUDE.md pointer —
+  the boot budget is already breached; designer.md rule 1, the gate's refusal and `dispatch_new` carry it.
+- **L-5** (a): S-A waits for boot-by-topic S2 (one writer per sentence). S-B, S-C, S-D do not wait for S-A.
+- **O-2** is already decided by the owner («да» to the Lead's five recommendations, 17.11, snapshot 02:15: «свой
+  тестовый файл новому инструменту форджа») — (a).
+- **Oracle (D1)**: the owner's «ок» 17.11 to «ожидаемое значение берётся оттуда [из спеки] и пишется в спеке, а не
+  списывается с вывода кода» — §2.1 stands as her word.
+- **O-1**, **O-3**: asked 17.11, her word pending; drafted on the recommendation (a).
