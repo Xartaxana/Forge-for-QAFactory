@@ -637,7 +637,7 @@ class DriverMachine:
         reason = "\n".join(preface + [given[1]]) if preface else given[1]       # the code's preface, then the person's words VERBATIM
         try:
             self.rework(stage, role, list(pending.get("cases") or []), reason, cause=cause, rows=list(pending.get("rows") or []),
-                        words_file=rel, complete=self.s3_rework_completion() if (stage, role) == ("S3", "qa-test-strategist") else False)
+                        candidates=list(pending.get("candidates") or []), words_file=rel, complete=self.s3_rework_completion() if (stage, role) == ("S3", "qa-test-strategist") else False)
         except ReworkRefused as exc:
             self.drop_record("seam_rework")                     # nothing was registered and nothing will be (§4.2 p.7 step 7)
             self.seam_rework_refused(stage, exc.text, given[1], rel, self.refusal_lines(exc))

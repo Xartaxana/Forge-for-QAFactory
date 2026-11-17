@@ -570,7 +570,7 @@ def main() -> None:
 # and the role never reads it; `known_paths` travels ONCE, at the top of the packet.
 PACKET_DISPATCH_KEYS = ("purpose", "reason", "rework_of", "parent_retry", "relaunch_of", "repair_cause", "repair_cause_source",
                         "read_first", "checkpoint", "case_version_links", "plan_rows", "manual_case_ids", "execution_kind",
-                        "retry_reason", "retry_words")
+                        "retry_reason", "retry_words", "bug_candidates")
 
 
 def _has_value(value) -> bool:

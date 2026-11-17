@@ -329,7 +329,7 @@ class DriverConductor:
                 '"options": [{"token": "<word>", "move": "<id in moves>", "says": "<what it does>", "factory": "<its cost to the factory>", '
                 '"person": "<its cost to the person>", "story": {"unverified": "<what stays unverified>", '
                 '"report": "<the open item, or none>", "delivery": "<the move\'s delivery value>"}, '
-                '"args": {"stage": "S<n>", "role": "<role>", "cases": ["<id>", ...] | "rows": ["<id>", ...], "cause": "<cause>"}}]} '
+                '"args": {"stage": "S<n>", "role": "<role>", "cases": ["<id>", ...] | "rows": ["<id>", ...] | "candidates": ["<ref>", ...], "cause": "<cause>"}}]} '
                 "(`options` go with `ask_person` and `stop`: references/conductor.md, Your answer; `args` goes with the `rework` option only, "
                 "from the closed list in \"Moves open here\")"])
         started = time.time()
@@ -404,6 +404,14 @@ class DriverConductor:
             import source_exclusions as SE
             return bool(SE.live(self.task_root))
         read("live_exclusions", exclusions)
+        # FL4: the story's bug candidates and the inputs that could not be read - ONE call of the one reader (AR-13); a raise leaves both
+        # `None` (an unknown), and an unreadable input no longer turns the readable candidates into `None` (FR-41, AR-28)
+        try:
+            import check_delivery as CD
+            found, unreadable = CD.bug_candidates(self.task_root)
+            facts["candidates"], facts["candidates_unreadable"] = [str(c["ref"]) for c in found], list(unreadable)
+        except Exception:
+            facts["candidates"] = facts["candidates_unreadable"] = None
         return facts
 
     def open_moves(self, state: dict, moves, facts: dict | None = None) -> list:

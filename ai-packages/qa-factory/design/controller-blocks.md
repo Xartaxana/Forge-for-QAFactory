@@ -1,6 +1,6 @@
 # Every block in the controller, and the route through it
 
-`controller.py` refuses **352** times: 352 raises or collected `(Class, message)` problems (a request's problems are gathered and refused whole by `_raise_all`), as `DerivedViewStale`, `EventCommitted`, `IdempotencyKeyReused`, `ProjectionStale`, `StateConflict`, `ValueError` - two kinds that do not
+`controller.py` refuses **355** times: 355 raises or collected `(Class, message)` problems (a request's problems are gathered and refused whole by `_raise_all`), as `DerivedViewStale`, `EventCommitted`, `IdempotencyKeyReused`, `ProjectionStale`, `StateConflict`, `ValueError` - two kinds that do not
 mean the same thing. `StateConflict` says the request is fine and the story's recorded state is not
 ready for it (`DerivedViewStale`, a subclass of it, says the event IS committed and only what
 follows it failed); `ValueError` says the request itself is malformed and the story was never consulted. The
@@ -19,7 +19,7 @@ evidence.
 |---|---|---|
 | `person` | 17 | their recorded words pass it: `waiver.py --stage <S> --block "<part of the line>" --words-file <file>` |
 | `command` | 220 | a factory command clears it. The person decides, the command records; the message names it |
-| `caller` | 102 | the call was built wrong. Whoever built it fixes it, and no person is involved |
+| `caller` | 105 | the call was built wrong. Whoever built it fixes it, and no person is involved |
 | `unpassable` | 13 | no word passes it, and the reason is here. These are invariants of the record itself: passing one would destroy what the block protects |
 
 The table was built by a classifier that lives with the plans, outside the package
@@ -105,6 +105,9 @@ every edit above it. Rows are in source order.
 | `build_rework_request` | `ValueError` | --cause {cause!r} must be one of: | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
 | `build_rework_request` | `StateConflict` | this story is held for code ({hold['cause']}) from S{held_number}: a rework of {stage} | `command` | the doors the message prints: the code arrives (`--operation arrive`), the person stops the wait (`--operation stop_waiting`), or an earlier stage is reworked with their words |
 | `build_rework_request` | `StateConflict` | this story was stopped while it waited for code: a rework of {stage} reopens it, | `command` | `controller.py --operation rework --stage <earlier stage> --role <role> --words-file <file>` with the person's own words (a typed `--reason` is refused) |
+| `build_rework_request` | `ValueError` | --candidates sends the S7 failure analyst back over bug candidates; for {stage} {role} name | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
+| `build_rework_request` | `ValueError` | --candidates and --cases/--rows together: name one of them | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
+| `build_rework_request` | `ValueError` | (ValueError, check_delivery.candidate_refusal(refused, known_refs, unr | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
 | `build_rework_request` | `ValueError` | --cases must name at least one case of the approved scope: `controller.py --operation | `caller` | the request is malformed: whoever built the call fixes it, and no person is involved |
 | `build_rework_request` | `ValueError` | case(s) outside the approved scope: {', '.join(unknown)}; the approved | `command` | name cases of the approved scope, or revise the scope at the gate |
 | `build_rework_request` | `ValueError` | plan row(s) not in the approved plan: {', '.join(missing)}; | `command` | name rows of the approved plan, or revise the plan |

@@ -301,6 +301,45 @@ def key_driver():
         cleanup(task.parents[2])
 
 
+def fl4_seam_rows():
+    """FL4 item 5 (F5, AR-22): the seam carries the person's chosen candidates to the controller call - `--candidates R-13`, no `--cases`; a
+    `seam_rework` record written before FL4 (no key) makes the call it always made."""
+    from driver_core import ReworkRefused
+    import story_run as SR
+    drv = object.__new__(SR.Driver)
+    pending = {"stage": "S7", "role": "qa-failure-analyst", "cause": "question_answer", "candidates": ["R-13"], "words_file": "state/words/a.txt",
+               "before": []}
+    seen: list = []
+    drv.dry, drv.owed_rework = False, lambda name: (pending, {})
+    drv.rework_dispatches = lambda *a, **k: []
+    drv.original_words = lambda rec: ("state/words/a.txt", "this needs a bug report (R-13)")
+    drv.rework = lambda stage, role, cases, reason, **kw: seen.append((cases, kw)) or ("", "")
+    drv.drop_record = lambda name: None
+    drv.seam_rework_step()
+    check_eq("FL4 item 5: the seam passes the stored candidates, and no case", (seen[0][0], seen[0][1]["candidates"]), ([], ["R-13"]))
+    pending.pop("candidates")
+    seen.clear()
+    drv.seam_rework_step()
+    check_eq("FL4 item 5/E1: an old record with no key passes no candidates", seen[0][1]["candidates"], [])
+
+    def call(**kw) -> list:
+        """The arguments `Driver.rework` hands the controller, with the machine around it faked."""
+        got: list = []
+        d = object.__new__(SR.Driver)
+        d.task_root = Path("task")
+        d.stop_if_drained, d.count_launch, d.on_chain = (lambda: None), (lambda: None), (lambda: False)
+        d.controller = lambda op, *args: got.append((op, list(args))) or {"request": {}}
+        try:
+            d.rework("S7", "qa-failure-analyst", kw.pop("cases", []), "words", cause="question_answer", **kw)
+        except ReworkRefused:
+            pass            # the faked controller returns no dispatch id: the call was recorded before this
+        return got[0][1]
+    args = call(candidates=["R-13", "K-1"])
+    check("FL4 item 5: `Driver.rework` adds `--candidates R-13,K-1` and no `--cases`", "--candidates" in args and args[args.index("--candidates") + 1] == "R-13,K-1"
+          and "--cases" not in args, str(args))
+    check("FL4 item 5/E1: no candidates, no flag", "--candidates" not in call(cases=["TC-1"]) and "--cases" in call(cases=["TC-1"]))
+
+
 def key_overlap():
     """K-M1-l (P4, M-k): a question line and a stand-gap card on ONE case id. The exploratory words are not unread stand-gap lines;
     a stand-gap line that is really unread stays."""
@@ -458,7 +497,7 @@ def key_w3():
 
 
 def main():
-    for key in (key_packet, key_battery, key_edges, key_words, key_driver, key_overlap, key_w3):
+    for key in (key_packet, key_battery, key_edges, key_words, key_driver, fl4_seam_rows, key_overlap, key_w3):
         key()
     finish("test_exploratory_answers")
 

@@ -2314,3 +2314,23 @@ from the code. The card is continued under the same task id with these decisions
   may be raised when the rule's text does not fit); the raise is named in the commit and in the changelog fragment. The joint
   `acceptance:novelty_question` gets its row in `references/stage-joints.json` (model rows `acceptance:stale_run`, `acceptance:review`) and, same
   commit, its row in the dry census (`dry_exits.py --check`, axis 38).
+
+## Lead decisions after the C3 topic code critic (t-1065, 17.11.2026, Fable; made in the owner's absence, by the critic's recommendation)
+
+Verdict: `docs/tasks/specs/reviews/t-1065-rules-debt-c3-topic-code.md` (4 blocking, 3 fix-now, 4 notes). C3-0 and C3-rr fit as they stand.
+- **B1 — the person's road is made real, not removed** (card E7, P13): `review_gap_words` / `_review_owner` read heads of the kind tuple
+  `("review", "novelty_question")`; one road with `review` (axis 34). Test: a recorded S5 word `novelty_question:B` lets the line of B go
+  through `word_kept`; `novelty_question:A` does not let B go.
+- **B2** — census row for `manifest_put.py::probe_owed_problems`: class `shape`, roles `["qa-code-critic"]`, owner `data`; the commit
+  carries `judgment: adds data check manifest_put.py::probe_owed_problems`.
+- **B3 — option (a)**: the writer re-run branch drops `probe_owed` and `critic_note` when the patch's test bytes sha differs from the
+  stored row's (the pattern of the `novelty` pop). Same bytes: the answer stays. A patch with no sha: the answer stays (nothing says the
+  bytes changed).
+- **B4** — `build` appends one reason to `unmeasured` whenever `language_rows` wrote a row; a TS-only fragment carries
+  `novelty_unmeasured` (P31: no language exception).
+- **F1** one tuple and one public reader `proof_level.probe_owed_answer(entry)`; **F2** the marker is STICKY by decision (set once a
+  writer run could not measure a row; `build` runs per file subset, so `""` from a later subset would erase an earlier failure) — card
+  E10, the docstring and the changelog say so, the report names it a deviation from item 8; **F3** the label fixed.
+- **N1** stated here: branch 4 also asks a row whose author declared `change_disposition: unchanged` when no measurement exists — the
+  safe side under FR-59. **N2** (the F-b detector does not scope the consumer to its row) — a finding line for the rules-debt pile.
+  N3, N4 — no change.
