@@ -90,8 +90,12 @@ KEY_GROUPS = (
     ("dod", "DoD", r"dod|witness|verification"),
     ("siblings", "siblings", r"siblings?|neighbou?rs"),
     ("designer", "designer", r"designer"),
+    ("facts", "facts", r"facts"),
 )
 ITEMS = tuple(k[0] for k in KEY_GROUPS)
+# `facts:` (F13) is a manifest item only for the kinds of FACTS_KINDS and is never part of the builder's expected form:
+# the texts that list the form read _FORM_GROUPS, the one tuple without it.
+_FORM_GROUPS = tuple(k for k in KEY_GROUPS if k[0] != "facts")
 _DISPLAY = {k[0]: k[1] for k in KEY_GROUPS}
 _GROUP_TO_ITEM = {"g%d" % i: k[0] for i, k in enumerate(KEY_GROUPS)}
 
@@ -101,7 +105,7 @@ _GROUP_TO_ITEM = {"g%d" % i: k[0] for i, k in enumerate(KEY_GROUPS)}
 DISPATCH_FORM_REFUSES = True
 # The manifest sections whose extent does not count numbered lines towards the designer threshold (F-E7: `dod`
 # is NOT in the set -- numbered acceptance criteria are spec items; `edges` is).
-ITEM_EXCLUDED_SECTIONS = ("given", "owns", "non-goals", "handoff", "edges", "siblings", "designer")
+ITEM_EXCLUDED_SECTIONS = ("given", "owns", "non-goals", "handoff", "edges", "siblings", "designer", "facts")
 DESIGNER_THRESHOLD = 3  # owned paths or numbered items: at or over it, a designer line is required
 
 # What each item's expected form says in the INCOMPLETE text (item -> text after the "name:"; "" = none).
@@ -123,12 +127,12 @@ _FORM_HINTS = {
 _FORM_ITEMS = ("siblings", "designer")
 # The two NEW keys whose header must be a bare declaration: only markup or a parenthetical between the key word
 # and the colon (t-113 F1); the six older keys keep the wide grammar of _HEADER_RE.
-_BARE_HEADER_ITEMS = ("siblings", "designer")
+_BARE_HEADER_ITEMS = ("siblings", "designer", "facts")
 
 
 def _expected_forms() -> str:
     parts = []
-    for item, display, _alt in KEY_GROUPS:
+    for item, display, _alt in _FORM_GROUPS:
         hint = _FORM_HINTS.get(item, "")
         parts.append("%s:%s" % (display, " " + hint if hint else ""))
     return ", ".join(parts)
@@ -151,7 +155,7 @@ SKIP_NOTE_TEMPLATE = (
 )
 UNCHECKED_NOTE_TEMPLATE = (
     "MANIFEST-UNCHECKED: this dispatch was not checked for completeness ({what}) -- it went "
-    "out; check " + ", ".join(k[1] for k in KEY_GROUPS[:-1]) + " and " + KEY_GROUPS[-1][1] + " by eye."
+    "out; check " + ", ".join(k[1] for k in _FORM_GROUPS[:-1]) + " and " + _FORM_GROUPS[-1][1] + " by eye."
 )
 DESIGNER_SKIP_NOTE_TEMPLATE = (
     "DESIGNER-SKIP: over the designer threshold; the hook writes dispatch_skipped(agent=designer) itself "
@@ -182,7 +186,7 @@ _TOKEN_STRIP = "`'\""
 # THE section-stop regex (owns_gate and dispatch_gate import it): the closed set
 # of manifest sections that ends an owns continuation line.
 SECTION_STOP_RE = re.compile(
-    r"^\s*(?:\*\*)?(given|дано|owns|non-goals|handoff|siblings?|neighbou?rs|designer)\b", re.IGNORECASE)
+    r"^\s*(?:\*\*)?(given|дано|owns|non-goals|handoff|siblings?|neighbou?rs|designer|facts)\b", re.IGNORECASE)
 _QUOTE_PREFIX_RE = re.compile(r"^(?: {0,3}>[ \t]?)+")
 # a header is a "bare declaration" when only a parenthetical / markup sits between key and colon
 _GAP_RE = re.compile(r"(?:[ \t]*\([^)]*\))?[ \t*_]*")
@@ -198,6 +202,9 @@ HANDOFF_DIRS = {
     "builder": "docs/tasks/handoffs",
     "scout": "docs/tasks/specs/reports",
 }
+# The dispatch kinds that must carry a `facts:` header (F13, COORDINATOR.md rule 2 drafting): read by the kind
+# (dispatch_gate.facts_check), never by a name in code (FR-13).
+FACTS_KINDS = ("designer",)
 
 
 class Section(NamedTuple):
@@ -810,6 +817,30 @@ def _designer_state(cut: DispatchCut):
     return state, None
 
 
+def facts_state(cut):
+    """None when a `facts:` section passes; otherwise the label of what is missing ('no line', 'empty', 'bare none').
+    FORM only, over the extent of each section (header tail, then the unquoted lines up to the first blank line): any
+    non-empty line passes, except the no-facts answer, which passes only as `none -- <why>` with a word in the reason
+    (the same grammar as `siblings: none -- <why>`). Whether the facts are true or enough is never judged (P27)."""
+    secs = cut.sections["facts"]
+    if not secs:
+        return "no line"
+    state = "empty"
+    for sec in secs:
+        for _idx, text in _extent_lines(cut, sec):
+            body = re.sub(r"^[-*•][ \t]+", "", text.strip(_TAIL_JUNK)).strip(_TAIL_JUNK)
+            if not body:
+                continue
+            answer = _NONE_ANSWER_RE.match(body)
+            if answer is not None and _WORD_CHAR_RE.search(answer.group("reason")):
+                return None
+            if answer is not None or _BARE_NONE_RE.fullmatch(body):
+                state = "bare none"
+                continue
+            return None
+    return state
+
+
 def designer_skip_reason(cut):
     """The reason of a `designer: skip -- <reason>` line of `cut`, or None (offload B0): the ONE cut-based reader the
     DESIGNER-SKIP note (check_cut) and the dispatch-record hook both ask. None for no cut, a degraded cut, a dispatch
@@ -925,8 +956,8 @@ def check_cut(cut, is_builder: bool):
 
     missing = {}
     for item in ITEMS:
-        if item in _FORM_ITEMS:
-            continue  # checked below by their own form readers
+        if item in _FORM_ITEMS or item == "facts":
+            continue  # checked below by their own form readers (facts: dispatch_gate.facts_check, by kind)
         secs = sections[item]
         if not secs:
             missing[item] = "no line"

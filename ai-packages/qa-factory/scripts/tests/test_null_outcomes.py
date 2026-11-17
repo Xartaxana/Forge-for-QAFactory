@@ -34,10 +34,10 @@ S7 = "s7-analyst-to-automator"
 SCRIPTS = PLUGIN_ROOT / "scripts"
 # The walk sizes. A change of any of them is a change of the factory's contracts, and the Lead's question:
 # the detector is not adjusted to agree with the tree (t-305 N0 step 0).
-PINS = {"scope": 17, "other": 4, "outputs": 16, "tool_fields": 27, "conditional": 11, "validator": 16, "registry": 12}
+PINS = {"scope": 32, "other": 4, "outputs": 16, "tool_fields": 27, "conditional": 11, "validator": 16, "registry": 12}
 
 REAL_INDEX = handoff.index()["handoffs"]
-OLD_EMPTY_SCOPE = "no rows. One row per item in scope: the id, a state and a reason of at most 80 characters."
+OLD_EMPTY_SCOPE = "no rows. `scope` is a required list and may not be empty."
 ROW_FORM_SENTENCE = 'a row of a list is written one line per key: `"scope[0].id": <value>`, the next row `"scope[1].id"`'
 REAL_STAGES = json.loads(NO.STAGES.read_text(encoding="utf-8"))
 REAL_DATA = json.loads(NO.DATA.read_text(encoding="utf-8"))
@@ -146,14 +146,14 @@ def the_real_tree_is_green_and_the_line_is_printed() -> None:
     check_eq("the detector over the real package finds nothing wrong", REAL.problems, [])
     print(REAL.line())                      # never silent: the default rule's count is on every run (FR-41)
     c = REAL.counts
-    check_eq("K0.4: the walk sizes AT their pins (17 scope contracts, 4 others, 16 outputs, 27 tool fields, 11 "
+    check_eq("K0.4: the walk sizes AT their pins (32 scope carriers: 17 `scope` + 15 `inputs_read`, 4 others, 16 outputs, 27 tool fields, 11 "
 "conditional, 16 validator rows, 12 conditions)",
              (c["scope"], c["other"], c["outputs"], c["tool_fields"], c["conditional"], c["validator"],
-              len(NO.CONDITIONS)), (17, 4, 16, 27, 11, 16, 12))
-    check_eq("homes: one declared, 18 never_empty (+16 validator), 52 pending",
-             (c["declared"], c["never_empty"], c["pending"]), (1, 18, 52))
+              len(NO.CONDITIONS)), (32, 4, 16, 27, 11, 16, 12))
+    check_eq("homes: one declared, 33 never_empty (+16 validator: 18 before the 15 `inputs_read` rows NE39-NE53), 52 pending",
+             (c["declared"], c["never_empty"], c["pending"]), (1, 33, 52))
     check_in("K0.8: the summary line says what was walked and what each home holds",
-             "walked scope 17, outputs 16, tool fields 27, conditional 11 | declared 1, never_empty 18 (+16 validator), "
+             "walked scope 32, outputs 16, tool fields 27, conditional 11 | declared 1, never_empty 33 (+16 validator), "
              "pending 52 of which by default ", REAL.line())
     defaults = [r for r in REAL_DATA["pending"] if r["default"] is True]
     check_eq("K0.8: Z in the line is COMPUTED - it is the count of `default: true` rows", c["default"], len(defaults))
@@ -280,12 +280,12 @@ def the_registry_and_the_declaration_shape() -> None:
 def the_walk_sizes_AT_and_BEYOND() -> None:
     check_eq("K0.4: AT the pins - the real tree is green", REAL.problems, [])
     short = audit(index=[r for r in REAL_INDEX if r["contract"] != "s9-retro-to-project"])
-    check_in("K0.4 negative: a stubbed index minus one scope contract", "scope contracts: 16, pinned 17", " | ".join(short.problems))
+    check_in("K0.4 negative: a stubbed index minus one scope contract", f"scope contracts: {PINS['scope'] - 2}, pinned {PINS['scope']}", " | ".join(short.problems))   # the contract carries `scope` and `inputs_read`
     SYN["syn"] = syn_doc(VALID)
     extra = {"stage": "S7", "from": "a", "to": "b", "contract": "syn", "kind": "review"}
     plus = NO.audit(index=REAL_INDEX + [extra], spec_of=s_spec, sections_of=s_sections, raw=s_raw, reader=s_reader,
                     pins=PINS)
-    check_in("K0.4 negative: plus one scope contract - the size is red", "scope contracts: 18, pinned 17", " | ".join(plus.problems))
+    check_in("K0.4 negative: plus one scope contract - the size is red", f"scope contracts: {PINS['scope'] + 1}, pinned {PINS['scope']}", " | ".join(plus.problems))
     SYN["syn"] = syn_doc("")            # the same new contract, declaring nothing: it has no home, and is named
     unhomed = NO.audit(index=REAL_INDEX + [extra], spec_of=s_spec, sections_of=s_sections, raw=s_raw, reader=s_reader,
                        pins=PINS)
@@ -310,8 +310,15 @@ def the_walk_sizes_AT_and_BEYOND() -> None:
     check_in("K0.4 negative: a `setup` contract with a `scope`", "kind setup has no item list, and the contract carries `scope`",
              " | ".join(setup_scope.problems))
     as_map = audit_syn(VALID, kind="produce", scope="scope:\n  id: <instance id>")
-    check_in("K0.4 negative: a `scope` that is a map", "`scope` is a map, and a required item list is a list",
+    check_in("K0.4 negative: a `scope` that is a map", "`scope` is a map, and a required list is a list",
              " | ".join(as_map.problems))
+    proof = "inputs_read:\n  - path: <path>\n    version: <version>"
+    check_eq("K0.4: a `report` contract carrying `inputs_read` is legal - no red names it",
+             [p for p in about(audit_syn("", kind="report", scope=proof)) if "inputs_read" in p], [])
+    check_in("K0.4 negative: a `report` contract carrying `scope` is red as before", "kind report has no item list, and the contract carries `scope`",
+             " | ".join(audit_syn("", kind="report").problems))
+    check_in("K0.4 negative: a `produce` contract carrying `inputs_read` and no `scope`", "kind produce carries an item list, and the contract has no `scope`",
+             " | ".join(audit_syn("", kind="produce", scope=proof).problems))
     odd = audit_syn(VALID, kind="mystery")
     check_in("K0.4 negative: a kind that is none of the six", "kind 'mystery' is not one of", " | ".join(odd.problems))
     check_eq("K0.4: the 4 contracts with no item list are exactly the setup / decision / report ones",
@@ -365,9 +372,9 @@ def the_never_empty_rows() -> None:
     check_eq("K0.6: the ids are unique", len(ids), len(set(ids)))
     check("K0.6: NE6 and NE8 are absent (NE6: F10; NE8: Q-N0-8 - role-to-conductor sits under `escalation:`, never walked)",
           "NE6" not in ids and "NE8" not in ids, str(ids))
-    check_eq("K0.6: the row ids are the 22 the plan lists and the two of the S5 plan handovers (NE25, NE26), NE27 (gate B orders), NE28 (the register evidence ref), NE29 (the Then quotes) and NE30, NE31 (the register's branches and source obligations, G2-11) and NE32 (the register's pictures) and NE33 (the bug reporter's scope, HF8-21)",
+    check_eq("K0.6: the row ids are the 22 the plan lists and the two of the S5 plan handovers (NE25, NE26), NE27 (gate B orders), NE28 (the register evidence ref), NE29 (the Then quotes) and NE30, NE31 (the register's branches and source obligations, G2-11) and NE32 (the register's pictures) and NE33 (the bug reporter's scope, HF8-21) and NE39-NE53 (the proof of reading, `inputs_read`, of every carrier: FV3-19)",
              sorted(ids, key=lambda i: int(i[2:])),
-             [f"NE{n}" for n in (1, 2, 3, 4, 5, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 36, 37, 38)])
+             [f"NE{n}" for n in (1, 2, 3, 4, 5, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 36, 37, 38, *range(39, 54))])
     row = next(r for r in rows if r["id"] == "NE37")
     check_eq("K0.6: NE37 (the first look's rows, t-2277 FL-2) is guarded by its one validator",
              (row["kind"], row["guard"]), ("validator", "first_look.py::put_problems"))
@@ -532,7 +539,7 @@ def undeclared_contracts_refuse_as_before() -> None:
             check(f"K0.12: {row['contract']}: ...and then says how a row of a list is written",
                   bool(texts) and texts[0][len(OLD_EMPTY_SCOPE):].strip() == ROW_FORM_SENTENCE, str(texts))
         control = problems_of(S7, next(r for r in REAL_INDEX if r["contract"] == S7))
-        check_not_in("K0.12 control: the same probe on S7 does NOT yield that text", "no rows. One row per item in scope",
+        check_not_in("K0.12 control: the same probe on S7 does NOT yield that text", "no rows. `scope` is a required list",
                      " ".join(p.text for p in control))
     finally:
         cleanup(task)
@@ -558,7 +565,7 @@ def the_runtime_fails_closed() -> None:
                 _d, _f, problems, _j, _dd = HC.check(handoff.parse(form), S7, HC.Artifacts(task), fix=False, use_judge=False)
             finally:
                 handoff.null_outcomes = real
-            check_in(f"E3: {label}: not applied - the old refusal stands", "no rows. One row per item in scope", " ".join(p.text for p in problems))
+            check_in(f"E3: {label}: not applied - the old refusal stands", "no rows. `scope` is a required list", " ".join(p.text for p in problems))
 
         refused("a listed_in naming a field that is not there",
                 dict(base, params=dict(base["params"], listed_in="not_for_repairs")))

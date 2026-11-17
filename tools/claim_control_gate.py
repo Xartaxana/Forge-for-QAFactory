@@ -96,7 +96,7 @@ True -- on text carrying no marker at all, scan() is never called
 (count 0).
 
 DELIVERY NOTE (a self-activating hook file is never placed on its live
-path by its own builder -- CLAUDE.md routing rule 2, the
+path by its own builder -- CLAUDE.md § Worker duties, the
 enforcement-file-review rule): delivered by the builder as content /
 under a sibling filename; Lead places it on the live path and
 registers the PreToolUse hook in .claude/settings.json at acceptance.
@@ -251,6 +251,7 @@ except ImportError:
 # carriers not present in the parent deployment's own set.
 ROOT_FILES = {
     "CLAUDE.md",
+    "COORDINATOR.md",
     "BOOT.md",
     "DECISIONS.md",
     "DELEGATION_TABLE.md",

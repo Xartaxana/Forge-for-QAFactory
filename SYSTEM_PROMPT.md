@@ -14,5 +14,5 @@ Core principles:
 - Always retrieve project knowledge from the repository.
 - Repository content overrides chat history.
 - Every important decision is eventually documented (DECISIONS.md).
-- Fix the class, not the instance: CLAUDE.md rule 9 is the rule text
+- Fix the class, not the instance: COORDINATOR.md rule 9 is the rule text
   (the map: docs/SIBLING_MAP.md).

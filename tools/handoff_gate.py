@@ -39,7 +39,7 @@ REFUSAL (exit 2, stderr; FR-1 / P15): what is wrong, what is expected, the door 
 the final message and the coordinator extracts it (tools/handback_extract.py).
 
 The hook is INERT until the Lead registers it in .claude/settings.json (matcher `Edit|Write`) and adds it to
-tools/mechanism_gate.py MECHANISM_PREFIXES (CLAUDE.md rule 2: a self-activating enforcement file is placed on
+tools/mechanism_gate.py MECHANISM_PREFIXES (CLAUDE.md § Worker duties: a self-activating enforcement file is placed on
 its live path by the Lead). Like every chain link it keeps its own copy of the stdin deadline (SIBLING_MAP
 axis 15) and does not import tools/streams.py.
 """

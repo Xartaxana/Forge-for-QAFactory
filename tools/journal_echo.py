@@ -1523,7 +1523,7 @@ def build_witness_segment(witness_events: list, ascii_only: bool = False) -> str
 
 # --- ESCALATION ECHO at write time --------------------------------------
 # R6-escalation machine guard on the write path.
-# GAP (R6, CLAUDE.md "Routing rules", rule 6 here): "two `rejected`
+# GAP (R6, COORDINATOR.md "Routing rules", rule 6 here): "two `rejected`
 # events with the same task_id on the same tier make escalation
 # mandatory" was held ONLY by discipline on the write path -- the ONLY
 # existing detector was the WEEKLY CALIBRATION run (a journal-shaped
@@ -1538,7 +1538,7 @@ def build_witness_segment(witness_events: list, ascii_only: bool = False) -> str
 #
 # DETECTOR REGISTRATION (four-questions-per-mechanism rule, clause c):
 # this layer's OWN failure detector is the deployment's weekly
-# R6-escalation calibration check (CLAUDE.md rule 6 /
+# R6-escalation calibration check (COORDINATOR.md rule 6 /
 # PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md) -- a journal-shaped audit
 # finding a same-tier third retry with
 # no `escalated` event anywhere above it is exactly the case this WARN
@@ -1571,7 +1571,7 @@ def build_witness_segment(witness_events: list, ascii_only: bool = False) -> str
 #    (the same mechanism silences form 2 too: without a matching model
 #    pair its own trigger condition never finds a size->=2 group).
 #
-# EXCLUDED TRIGGERS (not retries -- CLAUDE.md's Routing log section,
+# EXCLUDED TRIGGERS (not retries -- COORDINATOR.md's Routing log section,
 # THREE legitimate forms of a REPEAT `delegated` on an open task):
 # agent=="critic" (a critic entry) AND notes carrying
 # "replaces_worker:<handle>" (journal_validator.extract_replaces_worker
@@ -1812,7 +1812,7 @@ def build_escalation_segment(escalation_events: list, ascii_only: bool = False) 
 # An oversized `notes` field risks burying a load-bearing fact in
 # prose where no gate or later reader will find it again -- typed
 # fields carry facts, notes stays a human-readable pointer (see
-# CLAUDE.md's typed-fields rule). This layer warns (never blocks) when
+# COORDINATOR.md's typed-fields rule). This layer warns (never blocks) when
 # a NEW line's notes exceeds a per-event threshold, at write time --
 # the same "close the gap before commit" motive TIER/WITNESS/TS DRIFT/
 # ESCALATION ECHO already carry above in this file.

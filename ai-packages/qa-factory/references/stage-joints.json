@@ -5511,7 +5511,7 @@
       "stages": [
         "*"
       ],
-      "requirement": "A required list has one row per item in scope: the id, a state and a reason of at most 80 characters.",
+      "requirement": "A required list (`scope`, `inputs_read`) is never empty: one row per entry, in its contract's fields.",
       "door": "write the rows as index lines in the values file, then run this check again",
       "when": [
         "always"

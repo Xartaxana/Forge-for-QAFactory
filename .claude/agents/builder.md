@@ -104,7 +104,7 @@ You receive a spec and implement it. The coordinator writes the spec — not you
    is a row of an existing scenario, table or junction, not a new file
    (the one exception: «Бюджет / Файлы»).
 9. Runs, cheaply. While working, run at most the changed module's test file, and not after every edit; the
-   witness is CLAUDE.md rule 12's one run (Cost gates), of rule 4's scope, repeated once only if code changed after it
+   witness is CLAUDE.md § Worker duties' one run, of the `docs/TESTING.md` «Что запускать по своей правке» scope, repeated once only if code changed after it
    (the owner, 30.09.2026). Run a test synchronously when you can; a polling wait
    lasts no longer than the run itself.
    A background wait names the file it waits for and its end (a count or seconds); the gate refuses an unbounded loop with the form to paste in
@@ -114,8 +114,8 @@ You receive a spec and implement it. The coordinator writes the spec — not you
    your own worktree you commit your owns only — a plain `git add` / `git commit` from the worktree root (no `git -c
    core.hooksPath=…` workaround: `wiring_check.py` accepts the main checkout's `core.hooksPath`), a message with `axes: not a
    mechanism (...)`; a package commit also carries the `architecture:` and `judgment:` lines, whose form is
-   `tools/architecture_gate.py` (CLAUDE.md rule 10). Mechanism paths (`MECHANISM_PREFIXES` of `tools/mechanism_gate.py`) stay
-   STAGED and are listed in the report: the Lead commits them (CLAUDE.md rule 2). A task that edits `CLAUDE.md`, `PROJECT.md`
+   `tools/architecture_gate.py` (COORDINATOR.md rule 10). Mechanism paths (`MECHANISM_PREFIXES` of `tools/mechanism_gate.py`) stay
+   STAGED and are listed in the report: the Lead commits them (CLAUDE.md § Worker duties). A task that edits `CLAUDE.md`, `COORDINATOR.md`, `PROJECT.md`
    or `docs/FACTORY_RULES_INDEX.md` regenerates `AGENTS.md` with `python tools/agents_md.py --repo <worktree root>` and stages
    it (no `owns` entry needed). Merges, pushes and branch switches are not yours.
 11. In the package. `ai-packages/qa-factory/design/factory-rules.md` is read whole before the edit and again

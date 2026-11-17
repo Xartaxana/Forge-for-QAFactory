@@ -148,6 +148,53 @@ def test_handoff_folder_check(name, kind, prompt, code, message_has, note_has):
         assert "Door:" in message or "add a line:" in message  # every refusal names a door
 
 
+# F13 (FG7-58): a designer dispatch carries `facts:`; the order is completeness -> handoff folder -> facts -> path -> label.
+_FH = "handoff: %s/t-1.md" % _SPEC
+_FACTS_REFUSED = "FACTS MISSING (COORDINATOR.md rule 2)"
+# (id, kind, prompt, code, text the message must hold, text the notes must hold)
+_FACTS_ROWS = [
+    ("ok-line", "designer", _FH + "\nfacts: a file exists | ls x | x", 0, [], ""),
+    ("ok-block", "designer", _FH + "\nfacts:\n- a file exists | ls x | x", 0, [], ""),
+    ("ok-none-why", "designer", _FH + "\nfacts: none -- a typo fix", 0, [], ""),
+    ("block-two-facts", "designer", _FH + "\nfacts:\n- a | ls x | x\n- b | ls y | y", 0, [], ""),
+    ("none-why-below", "designer", _FH + "\nfacts:\nnone -- a typo fix", 0, [], ""),
+    ("none-then-a-fact", "designer", _FH + "\nfacts:\nnone\n- a | b | c", 0, [], ""),
+    ("empty-then-blank", "designer", _FH + "\nfacts:\n\n- a | b | c", 2, [_FACTS_REFUSED], ""),  # the extent ends at the first blank line
+    ("bare-none-synonym", "designer", _FH + "\nfacts: n/a", 2, [_FACTS_REFUSED], ""),
+    ("no-line", "designer", _FH, 2, [_FACTS_REFUSED, "facts: none -- <why>", "manifest-skip: facts -- <reason>"], ""),
+    ("empty", "designer", _FH + "\nfacts:", 2, [_FACTS_REFUSED], ""),
+    ("bare-none", "designer", _FH + "\nfacts: none", 2, [_FACTS_REFUSED], ""),
+    ("none-empty-why", "designer", _FH + "\nfacts: none -- -", 2, [_FACTS_REFUSED], ""),
+    ("waiver", "designer", _FH + "\nmanifest-skip: facts -- measured later", 0, [], "sent without a facts: header on purpose"),
+    ("handoff-refusal-wins", "designer", "Draft it.", 2, ["HANDOFF PATH"], ""),
+    ("quoted-line", "designer", _FH + "\n```\nfacts: a | b | c\n```", 2, [_FACTS_REFUSED], ""),
+    ("prose-is-no-header", "designer", _FH + "\nFacts about the repo: a | b | c", 2, [_FACTS_REFUSED], ""),
+    ("degraded-cut", "designer", _FH + "\n" + "x" * (_md_regions.MAX_TEXT_CHARS + 1), 0, [], "FACTS CHECK: not checked"),
+    ("critic-untouched", "critic", "handoff: %s/t-1.md" % _REV, 0, [], ""),
+    ("builder-untouched", "builder", _manifest(), 0, [], ""),
+]
+
+
+@pytest.mark.parametrize("name,kind,prompt,code,message_has,note_has", _FACTS_ROWS, ids=[r[0] for r in _FACTS_ROWS])
+def test_facts_check_in_decide_full(name, kind, prompt, code, message_has, note_has):
+    decision = dispatch_gate.decide_full(_kind_payload(kind, prompt))
+    assert decision.code == code, (decision.message, decision.notes)
+    for part in message_has:
+        assert part in decision.message, (part, decision.message)
+    assert note_has in "\n".join(decision.notes)
+
+
+def test_facts_check_unknowns_are_a_note_and_a_pass():
+    dm = dispatch_gate._load_manifest_module()
+    payload = _kind_payload("designer", _FH)
+    code, _message, note = dispatch_gate.facts_check(payload, None, dm)  # no cut
+    assert code == 0 and "not checked" in note
+    class OldManifest:  # a manifest without FACTS_KINDS: the check is not there, nothing refuses
+        dispatch_kind = staticmethod(dm.dispatch_kind)
+    assert dispatch_gate.facts_check(payload, dm.section_cut(_FH), OldManifest)[:2] == (0, "")
+    assert "dispatch_manifest has no FACTS_KINDS" in dispatch_gate.facts_check(payload, dm.section_cut(_FH), OldManifest)[2]
+
+
 def test_handoff_folder_check_e19_shows_five_paths_only():
     payload = _kind_payload("critic", _many_paths())
     message = dispatch_gate.decide(payload)[1]
@@ -2195,6 +2242,8 @@ def _reading_dispatch(**tool_input):
     if (ti["subagent_type"] in _HANDOFF_BY_KIND and isinstance(ti["prompt"], str)
             and "handoff" not in ti["prompt"].lower()):
         ti["prompt"] += "\n" + _HANDOFF_BY_KIND[ti["subagent_type"]]  # F6-37: a gated kind names its report path
+        if ti["subagent_type"] == "designer":
+            ti["prompt"] += "\nfacts: none -- a reading-dispatch fixture"  # F13: a designer dispatch states its facts
     return {"tool_name": "Task", "session_id": "sess-1", "tool_input": ti}
 
 

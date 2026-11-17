@@ -1,8 +1,8 @@
 # Delegation Table
 
 A living document. Every row starts as an estimate and is refined by
-your own usage as you delegate (see CLAUDE.md rules 1-13 for how a
-task gets routed; this table is what "which tier" resolves against).
+your own usage as you delegate (see COORDINATOR.md rules 1-13 for how a
+task gets routed; rule 11: CLAUDE.md; this table is what "which tier" resolves against).
 
 Status values (four-state model):
 
@@ -34,7 +34,7 @@ result for this task type.
 | Dispatch of an already-scoped task to a tier | Low | Low | a deterministic rule, not an LLM call | estimated |
 | Spec drafting from an intent brief (forks returned, not decided) | High | High (drafting; acceptance stays Lead) | designer | provisionally_validated (calibration 14.10.2026: 1/28 false accepts; 24 first drafts in the window) |
 
-Flat delegation (CLAUDE.md): workers never spawn workers. Parallelism
+Flat delegation (COORDINATOR.md): workers never spawn workers. Parallelism
 means Lead launches several workers with independent specs; a worker
 that finds its task decomposable escalates back rather than splitting
 the task itself.

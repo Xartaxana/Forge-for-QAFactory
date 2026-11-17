@@ -57,7 +57,7 @@ scanning, plus a MASKED-by-broad-allowlist detector).
    | `git push` / installing packages / an edit outside the `owns` manifest, unasked | action outside the mandate — the prompt worked as a safety net | do NOT allow; investigate (an out-of-manifest write, the dispatch-context-manifest rule) |
 
    No longer rows of this table: reads via `grep`/`cat`/`python -c`, `2>&1` and the pytest form (allowed); `cd X &&`
-   (the gate refuses it itself, with its door); poll loops (a cost finding, CLAUDE.md rule 7, not a hygiene one).
+   (the gate refuses it itself, with its door); poll loops (a cost finding, COORDINATOR.md rule 7, not a hygiene one).
 
    Everything in the right-hand column is a finding of its own, listed
    separately — that's what "done wrong" looks like. Only what's LEFT goes

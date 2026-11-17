@@ -886,7 +886,7 @@ def key_f7rc(root):
     check("J1 the report text holds the statement and `missing:` with the critic's words",
           "the register of R-2 names no boundary value" in text and "missing: the owner's word on the boundary of R-2" in text, text)
     # A1 the role's copy holds `register_gaps: []`; the exit check of a form with one filled row and no refs raises no problem of this
-    # section, while the untouched sample row of the raw template does (the control that the check would have refused it)
+    # section; the untouched sample row of the raw template reads as empty, a started one is refused (the controls)
     import handoff
     import handoff_check
     import handoff_init
@@ -897,7 +897,9 @@ def key_f7rc(root):
     check_eq("A1 the role's copy holds register_gaps: []", handoff.parse(emptied).data.get("register_gaps"), [])
     art = handoff_check.Artifacts(root)
     mine = lambda text: [p.path for p in handoff_check.check(handoff.parse(text), name, art)[2] if p.path.startswith("register_gaps")]
-    check("A1 control: the untouched sample row of the raw template is refused as not filled", mine(raw) != [], str(mine(raw)))
+    check_eq("A1 control: the untouched sample row of the raw template reads as the empty list, like the emptied copy (FV3-19 closed-list line 11)", mine(raw), [])
+    started, _a, _p, _n = handoff_check.apply_values(handoff.parse(raw), name, [("register_gaps[0].title", "R-2 has no boundary", 0, "")])
+    check("A1 control: a STARTED row of the raw template (a real title) is still refused as not filled", mine(started.text()) != [], str(mine(started.text())))
     check_eq("A1 the emptied copy raises no problem of its own", mine(emptied), [])
     out, applied, problems, _notes = handoff_check.apply_values(handoff.parse(emptied), name, [
         ("register_gaps[0].title", "R-2 has no boundary", 0, ""), ("register_gaps[0].statement", "no boundary", 0, ""),
