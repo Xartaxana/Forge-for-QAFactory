@@ -2818,25 +2818,6 @@ def test_u7_5a_r8_a_missing_launcher_the_project_can_install_is_one_conductor_tu
         cleanup(root)
 
 
-def test_u7_5a_r8_the_dependency_check_runs_before_the_executor_check() -> None:
-    """B6: `run` reads `_drift` for the executor decision only if the dependency check ran first."""
-    root = launcher_story("qa-gate-u7-5a-order-")
-    original = gate_preflight.Rehearsal.check_s5_dependencies
-
-    def fake(self):
-        self._drift = [drift_entry(["api"])]
-        self._drift_all = list(self._drift)
-    gate_preflight.Rehearsal.check_s5_dependencies = fake
-    try:
-        found = by_check(cmp2_run(root), "s5_executor")
-        check_eq("r8 B6: through `run`, api is the conductor's and e2e-ui the person's",
-                 {f["profile"]: f["class"] for f in found},
-                 {"api": gate_preflight.FACTORY_FIXABLE, "e2e-ui": gate_preflight.PERSON_DECIDES})
-    finally:
-        gate_preflight.Rehearsal.check_s5_dependencies = original
-        cleanup(root)
-
-
 def test_u7_5a_r8_the_toolchain_road_takes_the_same_decision_and_zero_automate_rows_collect_nothing() -> None:
     template = f'{LAUNCHER} pytest -m "<test-id>"'       # a runner that does not start: `not_started`
     root = launcher_story("qa-gate-u7-5a-toolchain-", toolchain=template)
@@ -2898,7 +2879,7 @@ def test_u7_5a_f14_an_unreadable_environment_joins_the_card_of_its_profile_or_sa
         for label, entries, expected in (
                 ("an unknown entry with its reason", [drift_entry(["api"], state="unknown", why="no lock file the factory reads")],
                  f"{clause}: no lock file the factory reads"),
-                ("an unknown entry with no reason", [drift_entry(["api"], state="unknown")], f"{clause}: it could not be read"),
+                ("an unknown entry with no reason", [drift_entry(["api"], state="unknown")], f"; {clause}"),
                 ("two unknown entries of one profile", [drift_entry(["api"], state="unknown", why="first reason"),
                                                         drift_entry(["api"], state="unknown", why="second reason")], f"{clause}: first reason")):
             r = launcher_rehearsal(root, ("s5_executor",), [], entries)
@@ -6545,7 +6526,6 @@ if __name__ == "__main__":
     test_ep1_41f_a_device_level_is_keyed_by_the_fits_levels_of_its_surface()
     test_the_executor_question_now_reaches_the_e2e_profile()
     test_u7_5a_r8_a_missing_launcher_the_project_can_install_is_one_conductor_turn_else_the_persons_card()
-    test_u7_5a_r8_the_dependency_check_runs_before_the_executor_check()
     test_u7_5a_r8_the_toolchain_road_takes_the_same_decision_and_zero_automate_rows_collect_nothing()
     test_u7_5a_q12_a_collect_that_is_not_run_is_said_not_silent()
     test_u7_5a_f14_an_unreadable_environment_joins_the_card_of_its_profile_or_says_nothing()

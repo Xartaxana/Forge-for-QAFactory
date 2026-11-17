@@ -823,7 +823,7 @@ def stand_profiles(config: dict, task_root: Path, dispositions) -> dict:
 def _surface_level_fits(config: dict, profiles: list, level: str) -> list:
     """EP1-41f: the ids of the profiles that hold the capability of a surface row whose `fits_levels` names this plan level
     (references/surfaces.json, read through `surfaces`, the one reader). [] - no fit, no answer - when the level is empty, when the
-    project declares nothing beyond web/API words (the table is NOT read: that road does not change), or when the table cannot be
+    project declares nothing beyond web/API words, or when the table cannot be
     read: a case left unkeyed is asked about, never keyed to a guessed profile."""
     if not level:
         return []
@@ -2937,9 +2937,11 @@ class Rehearsal:
         if command is not None:
             import dependency_drift
             where = f" (in `{command['cwd']}`)" if command["cwd"] not in ("", ".") else ""
+            # F5a-1: only a command the project wrote is "its own"; a table-guessed one is the factory's guess
+            owner = "the project's own install command" if command.get("source") == "profile" else "the install command"
             self.add(check, FACTORY_FIXABLE, f"{statement}; the project names a command that installs what its environment lacks",
                      "this turn came from the gate rehearsal: the project's dependencies are not installed or differ from its lock, "
-                     f"and the project's own install command is `{dependency_drift.command_text(command)}`{where}; run the "
+                     f"and {owner} is `{dependency_drift.command_text(command)}`{where}; run the "
                      "install_dependencies action once, then end the turn without asking the person - if the launcher is still "
                      "missing, the next rehearsal asks the person the one question",
                      profile=profile_id, tool=tool, cases=list(cases), install_digest=digest, **extra)
@@ -2955,8 +2957,8 @@ class Rehearsal:
         for entry in getattr(self, "_drift_all", None) or []:
             result = entry.get("result") or {}
             if result.get("state") == "unknown" and str(profile_id) in [str(p) for p in entry.get("profiles") or []]:
-                return ("the packages installed for this profile could not be read: "
-                        f"{' '.join(str(result.get('why') or '').split()) or 'it could not be read'}")
+                why = " ".join(str(result.get("why") or "").split())
+                return "the packages installed for this profile could not be read" + (f": {why}" if why else "")
         return ""
 
     def check_s5_dependencies(self) -> None:
