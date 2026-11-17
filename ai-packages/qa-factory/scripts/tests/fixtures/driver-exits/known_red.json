@@ -3,7 +3,7 @@
  "known_red": {
   "main/S5": {
    "node": "FV3-20",
-   "raised_by": "stub gap: Lead t-1047, 2026-11-17: stopped at S5: exit gate for S5-qa-code-critic-1 (qa-code-critic, S5): 3 finding(s): digest not in the handoff form; review.receipt_ref not filled (no window_record.py run); probes.runtime_provenance not filled (product gap candidate, measured after N2h-v)"
+   "raised_by": "product gap: Lead t-1070, 2026-11-17: stopped at S5: exit gate for S5-qa-code-critic-1 (qa-code-critic, S5): 1 finding: probes.runtime_provenance not filled (window_runtime_record reads run blocks only; the critic's red_probe writes none, its probe request carries the record; node P-b). review.receipt_ref is filled since P-a (t-1071)."
   }
  },
  "pins": {
