@@ -69,6 +69,15 @@ jobs:
           last=$(git log -1 --format=%ct); now=$(date +%s)
           if [ $((now - last)) -lt 90000 ]; then echo "run=true" >> "$GITHUB_OUTPUT"; else echo "run=false" >> "$GITHUB_OUTPUT"; echo "main unchanged for 25h: nightly skipped"; fi
 
+  dry-story:
+    # the dry story (P1-b N5): the same job file the canon's dry_only door calls; it runs next to package-full, so the canon
+    # (which calls this file) carries it too. A quiet night skips it like its neighbours.
+    needs: skip-if-unchanged
+    if: needs.skip-if-unchanged.outputs.run == 'true'
+    uses: ./.github/workflows/dry-story.yml
+    with:
+      ref: ${{ inputs.ref || 'main' }}
+
   package-full:
     needs: skip-if-unchanged
     if: needs.skip-if-unchanged.outputs.run == 'true'
