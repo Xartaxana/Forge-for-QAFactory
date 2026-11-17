@@ -3706,6 +3706,120 @@
     "window_record.py"
    ]
   },
+  "test_probe_by_code_bindings.py": {
+   "layer": "data_join",
+   "why": "part of test_probe_by_code.py split, PC4-19 B: AR-22/AR-28 join: the critic's red probe by code runs the mutated bytes through a stub run_suite and writes the verdict, receipt and records the readers take; every fix round of the chain is repinned here",
+   "covers": [
+    "acceptance.py",
+    "assertion_detectors.py",
+    "contract.py",
+    "event_store.py",
+    "execution_request.py",
+    "probe_by_code.py",
+    "proof_level.py",
+    "run_suite.py",
+    "tests/harness.py",
+    "tests/probe_entries.py",
+    "tests/test_manifest_from_tests.py",
+    "tests/test_red_sandbox_probe.py",
+    "window_record.py"
+   ]
+  },
+  "test_probe_by_code_mutations.py": {
+   "layer": "data_join",
+   "why": "part of test_probe_by_code.py split, PC4-19 B: AR-22/AR-28 join: the critic's red probe by code runs the mutated bytes through a stub run_suite and writes the verdict, receipt and records the readers take; every fix round of the chain is repinned here",
+   "covers": [
+    "acceptance.py",
+    "assertion_detectors.py",
+    "contract.py",
+    "event_store.py",
+    "execution_request.py",
+    "probe_by_code.py",
+    "proof_level.py",
+    "run_suite.py",
+    "tests/harness.py",
+    "tests/probe_entries.py",
+    "tests/test_manifest_from_tests.py",
+    "tests/test_red_sandbox_probe.py",
+    "window_record.py"
+   ]
+  },
+  "test_probe_by_code_receipts.py": {
+   "layer": "data_join",
+   "why": "part of test_probe_by_code.py split, PC4-19 B: AR-22/AR-28 join: the critic's red probe by code runs the mutated bytes through a stub run_suite and writes the verdict, receipt and records the readers take; every fix round of the chain is repinned here",
+   "covers": [
+    "acceptance.py",
+    "assertion_detectors.py",
+    "contract.py",
+    "event_store.py",
+    "execution_request.py",
+    "probe_by_code.py",
+    "proof_level.py",
+    "run_suite.py",
+    "tests/harness.py",
+    "tests/probe_entries.py",
+    "tests/test_manifest_from_tests.py",
+    "tests/test_red_sandbox_probe.py",
+    "window_record.py"
+   ]
+  },
+  "test_probe_by_code_records.py": {
+   "layer": "data_join",
+   "why": "part of test_probe_by_code.py split, PC4-19 B: AR-22/AR-28 join: the critic's red probe by code runs the mutated bytes through a stub run_suite and writes the verdict, receipt and records the readers take; every fix round of the chain is repinned here",
+   "covers": [
+    "acceptance.py",
+    "assertion_detectors.py",
+    "contract.py",
+    "event_store.py",
+    "execution_request.py",
+    "probe_by_code.py",
+    "proof_level.py",
+    "run_suite.py",
+    "tests/harness.py",
+    "tests/probe_entries.py",
+    "tests/test_manifest_from_tests.py",
+    "tests/test_red_sandbox_probe.py",
+    "window_record.py"
+   ]
+  },
+  "test_probe_by_code_two_profiles.py": {
+   "layer": "data_join",
+   "why": "part of test_probe_by_code.py split, PC4-19 B: AR-22/AR-28 join: the critic's red probe by code runs the mutated bytes through a stub run_suite and writes the verdict, receipt and records the readers take; every fix round of the chain is repinned here",
+   "covers": [
+    "acceptance.py",
+    "assertion_detectors.py",
+    "contract.py",
+    "event_store.py",
+    "execution_request.py",
+    "probe_by_code.py",
+    "proof_level.py",
+    "run_suite.py",
+    "tests/harness.py",
+    "tests/probe_entries.py",
+    "tests/test_manifest_from_tests.py",
+    "tests/test_red_sandbox_probe.py",
+    "window_record.py"
+   ]
+  },
+  "test_probe_by_code_exit_order.py": {
+   "layer": "data_join",
+   "why": "part of test_probe_by_code.py split, PC4-19 B: AR-22/AR-28 join: the critic's red probe by code runs the mutated bytes through a stub run_suite and writes the verdict, receipt and records the readers take; every fix round of the chain is repinned here",
+   "covers": [
+    "acceptance.py",
+    "assertion_detectors.py",
+    "contract.py",
+    "event_store.py",
+    "execution_request.py",
+    "probe_by_code.py",
+    "proof_level.py",
+    "run_suite.py",
+    "tests/harness.py",
+    "tests/probe_entries.py",
+    "tests/test_manifest_from_tests.py",
+    "tests/test_red_sandbox_probe.py",
+    "window_record.py"
+   ]
+  },
   "test_probe_by_code_alternative.py": {
    "layer": "detector",
    "why": "AR-25 exit proof named in design/state-exits.md",

@@ -18,7 +18,7 @@ added to SEARCH_TOKENS as PowerShell's grep-equivalent cmdlet;
 reference below points at this template's own command hygiene point 6.
 
 DELIVERY NOTE (a self-activating hook file is never placed on its live
-path by its own builder -- CLAUDE.md routing rule 2, the
+path by its own builder -- CLAUDE.md § Worker duties, the
 enforcement-file-review rule): delivered by the builder as content /
 under a sibling filename; Lead places it on the live path and
 registers the PostToolUse hook in .claude/settings.json at acceptance.

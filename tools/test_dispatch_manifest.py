@@ -119,7 +119,7 @@ def test_K6_unknown_skip_item_is_refused():
     assert msg == (
         "MANIFEST-SKIP REFUSED: 'manifest-skip: given, colour -- because' -- unknown item 'colour'. "
         "Expected: manifest-skip: <item>[, <item>] -- <reason>; items: given, owns, non-goals, "
-        "handoff, edges, dod, siblings, designer; the reason is not empty."
+        "handoff, edges, dod, siblings, designer, facts; the reason is not empty."
     )
 
 
@@ -1217,7 +1217,7 @@ def test_designer_threshold_counts():
 
 def test_module_constants_of_the_form_check():
     assert dm.DISPATCH_FORM_REFUSES is True
-    assert set(dm.ITEM_EXCLUDED_SECTIONS) == {"given", "owns", "non-goals", "handoff", "edges", "siblings", "designer"}
+    assert set(dm.ITEM_EXCLUDED_SECTIONS) == {"given", "owns", "non-goals", "handoff", "edges", "siblings", "designer", "facts"}
     assert "dod" not in dm.ITEM_EXCLUDED_SECTIONS
 
 
@@ -1265,10 +1265,46 @@ def test_the_siblings_door_names_the_none_with_reason_form():
     assert "siblings (bare none)" in msg and "'siblings: none -- <why>'" in msg
 
 
+# F5-r (FG7-58): the `<NAME>_PATH` copy loader of tools/conftest.py, loaded by its path (a conftest is not importable by name)
+def _conftest_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("forge_tools_conftest", TOOLS_DIR / "conftest.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@pytest.mark.parametrize("case", ["next-maps", "py-ignored", "missing-file-loud", "no-live-module-loud", "typo-loud",
+                                  "other-values-ignored"])
+def test_next_copy_loader(case, tmp_path):
+    cf = _conftest_module()
+    (tmp_path / "zz_live.py").write_text("X = 'live'\n")
+    (tmp_path / "zz_live.py.next").write_text("X = 'copy'\n")
+    (tmp_path / "zz_orphan.py.next").write_text("X = 'copy'\n")
+    if case == "next-maps":
+        got = cf.next_copy_map({"ZZ_LIVE_PATH": str(tmp_path / "zz_live.py.next"), "HOME": "x"}, tmp_path)
+        assert got == {"zz_live": str((tmp_path / "zz_live.py.next").resolve())}
+    elif case == "py-ignored":
+        assert cf.next_copy_map({"ZZ_LIVE_PATH": str(tmp_path / "zz_live.py")}, tmp_path) == {}
+    elif case == "missing-file-loud":
+        with pytest.raises(RuntimeError, match="ZZ_LIVE_PATH"):
+            cf.next_copy_map({"ZZ_LIVE_PATH": str(tmp_path / "gone.py.next")}, tmp_path)
+    elif case == "typo-loud":  # t-1202 fix 4's own example: `.py.nxt` must not silently test the live file
+        with pytest.raises(RuntimeError, match="ZZ_LIVE_PATH"):
+            cf.next_copy_map({"ZZ_LIVE_PATH": str(tmp_path / "zz_live.py.nxt")}, tmp_path)
+    elif case == "other-values-ignored":  # a PATH-like variable of the shell must never break the session
+        env = {"ORIGINAL_PATH": "/usr/bin:/c/x.py.bak", "ZZ_LIVE_PATH": "", "ZZ_OTHER_PATH": str(tmp_path / "other.py.nxt")}
+        assert cf.next_copy_map(env, tmp_path) == {}
+    else:
+        with pytest.raises(RuntimeError, match="ZZ_ORPHAN_PATH"):
+            cf.next_copy_map({"ZZ_ORPHAN_PATH": str(tmp_path / "zz_orphan.py.next")}, tmp_path)
+
+
 def test_templates_list_every_item_and_keep_their_first_sentence():
-    assert dm.ITEMS == ("given", "owns", "non-goals", "handoff", "edges", "dod", "siblings", "designer")
+    assert dm.ITEMS == ("given", "owns", "non-goals", "handoff", "edges", "dod", "siblings", "designer", "facts")
     for name in ("given:", "owns:", "non-goals:", "handoff:", "edges:", "DoD:", "siblings:", "designer:"):
         assert name in dm.INCOMPLETE_TEMPLATE, name
+    assert "facts" not in dm.INCOMPLETE_TEMPLATE  # F13: facts: is the designer kind's header, never the builder's form
     for item in dm.ITEMS:
         assert item in dm.SKIP_REFUSED_TEMPLATE, item
     assert "siblings and designer by eye" in dm.UNCHECKED_NOTE_TEMPLATE

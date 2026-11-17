@@ -21,7 +21,7 @@ reads in the morning, handoff verifies in the evening.
    a paired `accepted`/`rejected` (a `returned` alone is RESULT PENDING:
    the worker stopped, acceptance is still owed); no `lead_degraded` without a
    `lead_restored` — a degradation that survives the session must be
-   the journal's last event (CLAUDE.md, "Lead degradation"). This
+   the journal's last event (COORDINATOR.md, "Lead degradation"). This
    session's entries were written through `tools/journal_write.py` or
    its hooks (command hygiene, point 5).
    2a. **Durable persistence of accepted deliverables.** For every
@@ -54,7 +54,7 @@ reads in the morning, handoff verifies in the evening.
    PROCESS/SESSION_PROTOCOL.md's rule that load-bearing knowledge
    doesn't stay only in chat.
 4. **Boot budget**: measure lines/bytes for CLAUDE.md plus every file
-   BOOT.md's sequence lists. Compare against the last measurement (the
+   BOOT.md's sequence lists and every file the `COORDINATOR RULES:` line names. Compare against the last measurement (the
    notes field of the last `calibrated` event, or the last handoff
    report). Flags: >10% growth in a single session with no explained
    cause; total size >120KB. A breach → run the boot-diet skill that
