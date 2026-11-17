@@ -60,9 +60,10 @@ EXPECTED_IDS = [
 # C3-d (t-1081, AR-20): s5_window converted (the critic's review word through the predicate); 6 -> 5 debt rows.
 # C3-b2 (t-1080, AR-20): test_identity converted (B-217; its reuse sites read the row through `gate_template.acceptable`); 6 -> 5 debt rows.
 # Merged (t-1083): both cards on one branch; 6 -> 4 debt rows.
+# C3-g (t-1157, AR-20): baseline_identity converted (B-281; the receipt's status word through the predicate); 4 -> 3 debt rows.
 EXPECTED_DEBT = {
     "stand_identity": "B-257", "provenance_acceptance": "B-255",
-    "baseline_identity": "B-281", "s5_stand_limits": "B-282"}
+    "s5_stand_limits": "B-282"}
 EXPECTED_EXEMPT = ["request_shape", "executor_present", "manual_evidence_shape", "witness_backstop",
                    "equivalence_metric", "source_freshness"]
 EXPECTED_CONVERTED = ["inputs_unchanged", "then_oracle", "stand_login_gate", "stand_check", "probe_verdict",
@@ -75,7 +76,8 @@ EXPECTED_CONVERTED = ["inputs_unchanged", "then_oracle", "stand_login_gate", "st
                       "reporter_rehearsal_identity",
                       "live_check_demand",      # C3-b1 (t-1051): the question to the code critic, no predicate
                       "s5_window",              # C3-d (t-1081): the critic's review word through the predicate (three consumers)
-                      "test_identity"]          # C3-b2 (t-1080): the reuse sites accept through the predicate
+                      "test_identity",          # C3-b2 (t-1080): the reuse sites accept through the predicate
+                      "baseline_identity"]      # C3-g (t-1157, AR-20): the receipt's status word through the predicate
 BLIND_STEM = "a gate that compares only non-anchor words, outside any registered site, is not seen"
 CONVERTED_TEST = "scripts/tests/test_gate_registry.py"
 
@@ -253,7 +255,7 @@ def part_live_registry() -> None:
     lines = p.stdout.splitlines()
     check_eq("K-T1.2 its first line", lines[0] if lines else "", "A26 gate registry: no violations")
     check_in("K-T1.2 the second header line states the blind spot", BLIND_STEM, lines[1] if len(lines) > 1 else "")
-    check_in("K-T1.2 it lists the debt, decided and not forgotten", "4 gate(s) left as debt:", p.stdout)
+    check_in("K-T1.2 it lists the debt, decided and not forgotten", "3 gate(s) left as debt:", p.stdout)
     check_in("K-T1.2 and the exempt gates", "6 gate(s) exempt:", p.stdout)
 
     code, out = cli("--sites")
@@ -294,11 +296,11 @@ def part_live_registry() -> None:
           "validate_runtime_provenance" not in called_names(PLUGIN_ROOT / "scripts" / "probe_by_code.py", "probe_runtime"))
     # K-N2.12 NEG: a person's word added to the BASELINE consumer of an in-memory copy is exactly one finding, naming it
     worded = copy.deepcopy(registry)
-    next(r for r in worded["rows"] if r["id"] == "baseline_identity")["accepts"]["provenance.baseline"].append("person_confirmed")
+    next(r for r in worded["rows"] if r["id"] == "baseline_identity")["accepts"]["baseline_identity.readiness"].append("person_confirmed")
     got = GR.analyse(PLUGIN_ROOT, worded)["findings"]
-    check_eq("K-N2.12 NEG: `person_confirmed` added to provenance.baseline: exactly one finding",
+    check_eq("K-N2.12 NEG: `person_confirmed` added to baseline_identity.readiness: exactly one finding",
              len(got), 1, )
-    check("K-N2.12 NEG: and it names the consumer and the word", "provenance.baseline" in "".join(got) and "person_confirmed" in "".join(got),
+    check("K-N2.12 NEG: and it names the consumer and the word", "baseline_identity.readiness" in "".join(got) and "person_confirmed" in "".join(got),
           "\n".join(got))
     check("K-T1.2 every comparison the scan counts is attributed", all(i["rows"] and i["allowed"] for i in result["items"]))
     # S1 keeps its non-acceptance comparison as an `allow`, and the allow matches (K-T1.3 on the live data)
@@ -334,7 +336,7 @@ def part_live_registry() -> None:
     data = json.loads(out)
     check_eq("K-T1.14 --json keys are findings, debt, exempt", sorted(data), ["debt", "exempt", "findings"])
     check_eq("K-T1.14 findings is empty", data["findings"], [])
-    check_eq("K-T1.14 debt lists the four rows left after C3-R, its fix round, C3-b1, C3-d and C3-b2", [d["id"] for d in data["debt"]], list(EXPECTED_DEBT))
+    check_eq("K-T1.14 debt lists the three rows left after C3-R, its fix round, C3-b1, C3-d, C3-b2 and C3-g", [d["id"] for d in data["debt"]], list(EXPECTED_DEBT))
     check_eq("K-T1.14 a debt item has id, decides, debt_ref", sorted(data["debt"][0]), ["debt_ref", "decides", "id"])
     check_eq("K-T1.14 exempt lists the six", [d["id"] for d in data["exempt"]], EXPECTED_EXEMPT)
     check_eq("K-T1.14 an exempt item has id, decides, exempt_reason", sorted(data["exempt"][0]),
@@ -351,8 +353,9 @@ def part_live_registry() -> None:
     # C3-d (t-1081, AR-20): converted 21 -> 22, debt 6 -> 5 (`s5_window`: the critic's review word through `acceptable`)
     # C3-b2 (t-1080, AR-20): converted 21 -> 22, debt 6 -> 5 (`test_identity`: the reuse sites accept through `acceptable`)
     # merged (t-1083): converted 21 -> 23, debt 6 -> 4
-    check_eq("K-T1.14 the registry file's rows split 23 converted / 4 debt / 6 exempt (C3-R converted six debt rows for good)",
-             {s: len(v) for s, v in raw.items()}, {"converted": 23, "debt": 4, "exempt": 6})
+    # C3-g (t-1157): baseline_identity converted, converted 23 -> 24, debt 4 -> 3
+    check_eq("K-T1.14 the registry file's rows split 24 converted / 3 debt / 6 exempt (C3-R converted six debt rows for good)",
+             {s: len(v) for s, v in raw.items()}, {"converted": 24, "debt": 3, "exempt": 6})
     check_eq("K-T1.14 --json debt = the file's debt rows (id, decides, debt_ref), in order",
              data["debt"], [{"id": r["id"], "decides": r["decides"], "debt_ref": r["debt_ref"]} for r in raw["debt"]])
     check_eq("K-T1.14 --json exempt = the file's exempt rows (id, decides, exempt_reason), in order",
@@ -648,7 +651,7 @@ def part_fix_pass() -> None:
     # F1: the consumers live under the rows whose promotable guards them, and a consumer inherits the
     # promotable of the row its <gate> prefix names
     home = {c: r["id"] for r in registry["rows"] for c in r["accepts"]}
-    check_eq("F1 provenance.baseline lives under baseline_identity", home["provenance.baseline"], "baseline_identity")
+    check_eq("F1 baseline_identity.readiness lives under baseline_identity", home["baseline_identity.readiness"], "baseline_identity")
     check_eq("F1 provenance.environment_preparation lives under environment_preparation",
              home["provenance.environment_preparation"], "environment_preparation")
     check_eq("F1 the other five consumers stay under provenance_acceptance",
@@ -657,7 +660,7 @@ def part_fix_pass() -> None:
               "provenance.rehearsal"])
     check_eq("F1 both guarding rows are promotable false",
              (by_id["baseline_identity"]["promotable"], by_id["environment_preparation"]["promotable"]), (False, False))
-    for consumer, rid in (("provenance.baseline", "baseline_identity"),
+    for consumer, rid in (("baseline_identity.readiness", "baseline_identity"),
                           ("provenance.environment_preparation", "environment_preparation")):
         probe = copy.deepcopy(registry)
         for r in probe["rows"]:
@@ -756,6 +759,7 @@ def part_fix_pass() -> None:
                      "collected_ids", "s5_coverage", "delivery", "environment_preparation",    # C3-R (t-1009)
                      "reporter_rehearsal_identity", "environment_property_cover",
                      "s5_window",     # C3-d (t-1081): target -> code (the words `approved` / `unverified`)
+                     "baseline_identity",   # C3-g (t-1157): target -> code (the receipt's words `captured` / `inconclusive`)
                      "stand_login_gate", "stand_check", "probe_verdict", "finish_exit_gate", "exploratory_oracle", "branch_accounting",
                      "s3_grounding", "regression_on_main", "s5_open_oracle_asserted", "env_block_evidence", "plan_target_on_base"]))
     check("F4 no live converted row says target",
@@ -1000,6 +1004,7 @@ D13_TRIPLES = [
     ("manual_evidence.py", "_provenance_errors", "provenance_acceptance"),
     ("manual_evidence.py", "person_sentences", "provenance_acceptance"),
     ("manual_evidence.py", "validate_baseline_record", "provenance_acceptance"),
+    ("manual_evidence.py", "write_baseline_receipt", "baseline_identity"),    # C3-g (t-1157): `record['capture_status'] == 'captured'`, a produce site
     ("planning_contract.py", "_unmet_preconditions", "case_preconditions"),
     ("probe_by_code.py", "_judge_rows", "probe_verdict"),
     ("profile_contract.py", "<module>", "provenance_acceptance"),
@@ -1066,7 +1071,10 @@ D13_TRIPLES = [
 # state returns of `_run_freshness` token sets. Triples added: `same_test` (`verdict == 'same'`), `_evaluate` (`how in ('instance_code', 'file_code')`),
 # `_run_freshness` (`('unknown', WHY_RUN_NO_IDENTITY)`, `('unknown', why or WHY_RUN_NOT_COMPARED)`); `already_probed` keeps its one counted comparison.
 # Merged tree (t-1083): 150 items / 53 triples (measured with GR.analyse on the merged tree).
-D13_ITEM_COUNT = 150
+# 150 -> 151 (C3-g, t-1157, AR-20): `baseline_identity` now says `code`, so the scan reads `record['capture_status'] == 'captured'`
+# in its registered `produce` site `manual_evidence.write_baseline_receipt` (triple joins; 53 -> 54 triples); `deployment_readiness`'s
+# `status == 'captured'` became an `acceptable(...)` call. Measured with GR.analyse before (150 / 53, the pins) and after (151 / 54).
+D13_ITEM_COUNT = 151
 
 
 def part_site_attribution() -> None:
@@ -1185,9 +1193,12 @@ def part_predicate() -> None:
     check("C3-0 registry-problem: a non-object registry has a reason", bool(GT.registry_problem(registry=[])))
     check_eq("C3-0 registry-problem: an in-memory registry that reads", GT.registry_problem(registry=reg(row("a"))), "")
     check_eq("C3-0 registry-problem: the live registry", GT.registry_problem(), "")
-    # RD1-27: the builder reproduces the texts the four sites had (the texts the sites really produce are the site rows: test_run_freshness, test_proof_level, test_execution_request, test_controller_state); each row = (site, built text, expected text)
+    # RD1-27: the builder reproduces the texts the five sites had (the texts the sites really produce are the site rows: test_run_freshness, test_proof_level, test_execution_request, test_controller_state); each row = (site, built text, expected text)
     import proof_level as PL
+    import baseline_contract as B
     for site, built, had in (
+            ("baseline_contract deployment_readiness", GT.registry_why("R", B.WHY_RECEIPT_UNJUDGED),
+             "the gate registry cannot be read (R): a factory defect, the baseline receipt was not judged"),
             ("proof_level run", GT.registry_why("R", PL.WHY_RUN_REGISTRY_TAIL),
              "the gate registry cannot be read (R): a factory defect, not a change of the test"),
             ("proof_level receipt", GT.registry_why("R", PL.WHY_RECEIPT_REGISTRY_TAIL),

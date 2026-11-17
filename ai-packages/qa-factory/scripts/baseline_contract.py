@@ -11,16 +11,35 @@ def validate_baseline_request(request):
     if phase not in {"baseline", "verification"}:
         return ["evidence_phase must be baseline or verification"]
     if phase == "baseline":
-        contract = request.get("baseline_contract") or {}
+        contract = request.get("baseline_contract")
+        runtime = request.get("runtime_provenance")
+        if contract is None:
+            contract = {}
+        elif not isinstance(contract, dict):
+            errors.append(f"baseline_contract must be a JSON object, got {type(contract).__name__}: build it with "
+                          "`controller.py --operation baseline-inputs`")
+        if runtime is None:
+            runtime = {}
+        elif not isinstance(runtime, dict):
+            errors.append("runtime_provenance must be a JSON object (the provenance probe's record), got "
+                          f"{type(runtime).__name__}")
+        if not isinstance(contract, dict):
+            return errors                  # the key checks cannot be read from a non-object
         for key in ("case_id", "case_version", "baseline_revision", "verification_revision",
                     "fixture_identity", "gate_a_decision_ref", "reason"):
             if not isinstance(contract.get(key), str) or not contract[key]:
                 errors.append("baseline_contract requires " + key)
         if contract.get("execution_scope") != "current_task":
             errors.append("baseline must belong to approved current_task scope")
-        expected = (request.get("runtime_provenance") or {}).get("expected_source_revision")
-        if expected != contract.get("baseline_revision"):
-            errors.append("baseline runtime must match the approved before revision")
+        if isinstance(runtime, dict):
+            expected = runtime.get("expected_source_revision")
+            if expected != contract.get("baseline_revision"):
+                errors.append("baseline runtime must match the approved before revision: "
+                              f"runtime_provenance.expected_source_revision is {expected!r}, the approved "
+                              f"baseline_revision is {contract.get('baseline_revision')!r}. Probe a stand that runs that "
+                              "revision and build the request again with the probe's record as runtime_provenance "
+                              "(`controller.py --task-root <TASK_ROOT> --operation baseline-inputs`), or capture no "
+                              "baseline: missing before evidence is an awaiting_baseline gap and blocks no current check")
         if not contract.get("capture_steps") or not contract.get("comparison_assertions"):
             errors.append("baseline requires capture_steps and comparison_assertions")
         refs = contract.get("capture_artifact_refs")
@@ -60,6 +79,8 @@ def validate_managed_gate(request, project_root):
     """
     if request.get("evidence_phase") != "baseline":
         return []
+    bcontract = request.get("baseline_contract")
+    bcontract = bcontract if isinstance(bcontract, dict) else {}
     try:
         from hooklib import artifact_root
         task = str(request.get("task") or "")
@@ -74,7 +95,7 @@ def validate_managed_gate(request, project_root):
             controller._validate_gate_a_content_current(state)
             document = controller._plan_document()
             rows = document.get("rows", []) if isinstance(document, dict) else document
-            case_id = request.get("baseline_contract", {}).get("case_id")
+            case_id = bcontract.get("case_id")
             matches = [row for row in rows if (row.get("case_id") or row.get("id")) == case_id
                        and row.get("baseline_required")]
             if len(matches) != 1:
@@ -83,14 +104,14 @@ def validate_managed_gate(request, project_root):
                                              request.get("runtime_provenance") or {})
             if expected["baseline_contract"] != request.get("baseline_contract"):
                 return ["baseline fields differ from the current approved plan"]
-        wanted = request.get("baseline_contract", {}).get("gate_a_decision_ref")
+        wanted = bcontract.get("gate_a_decision_ref")
         decisions = state.get("decisions", {})
         matched = next((decision for decision in decisions.values() if isinstance(decision, dict)
                         and decision.get("id") == wanted and decision.get("gate") == "A"
                         and decision.get("status") == "approved"), None)
         if not matched:
             return ["baseline Gate A reference is not the task's current approved decision"]
-        case = request.get("baseline_contract", {}).get("case_id")
+        case = bcontract.get("case_id")
         if matched.get("scope") and case not in matched["scope"]:
             return ["baseline case is outside the approved Gate A scope"]
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
@@ -172,6 +193,9 @@ def write_baseline_receipt(task_root, request, summary, summary_path):
     return path
 
 
+WHY_RECEIPT_UNJUDGED = "the baseline receipt was not judged"
+
+
 def deployment_readiness(rows, receipts, task_root, expected_gate_ref=None):
     """Report baseline evidence gaps without blocking current-version execution.
 
@@ -180,13 +204,15 @@ def deployment_readiness(rows, receipts, task_root, expected_gate_ref=None):
     ``comparisons_ready`` only means before evidence is available, not that the
     before/after assertions have passed.
     """
+    from gate_template import acceptable, registry_problem, registry_why
     root = Path(task_root).resolve()
     gaps = []
+    problem = registry_problem()
     for row in rows:
         if not row.get("baseline_required") or row.get("execution_scope", "current_task") != "current_task":
             continue
         case = row.get("case_id") or row.get("id")
-        candidates = [r for r in receipts if r.get("evidence_phase") == "baseline"
+        matching = [r for r in receipts if r.get("evidence_phase") == "baseline"
                       and r.get("case_id") == case and r.get("case_version") == row.get("case_version")
                       and r.get("baseline_revision") == row.get("baseline_revision")
                       and r.get("verification_revision") == row.get("verification_revision")
@@ -195,8 +221,8 @@ def deployment_readiness(rows, receipts, task_root, expected_gate_ref=None):
                       and (not expected_gate_ref or r.get("gate_a_decision_ref") == expected_gate_ref)
                       and (not row.get("gate_a_decision_ref") or
                            r.get("gate_a_decision_ref") == row.get("gate_a_decision_ref"))
-                      and r.get("comparison_assertions") == row.get("comparison_assertions")
-                      and r.get("status") == "captured"]
+                      and r.get("comparison_assertions") == row.get("comparison_assertions")]
+        candidates = [r for r in matching if acceptable(r, "baseline_identity.readiness")]
         valid = False
         for receipt in candidates:
             refs = receipt.get("evidence_refs") or []
@@ -215,7 +241,8 @@ def deployment_readiness(rows, receipts, task_root, expected_gate_ref=None):
         if not valid:
             gaps.append({"case_id": case, "case_version": row.get("case_version"),
                          "status": "awaiting_baseline", "blocks_execution": False,
-                         "reason": "baseline evidence missing, stale or incomparable"})
+                         "reason": registry_why(problem, WHY_RECEIPT_UNJUDGED) if problem and matching
+                         else "baseline evidence missing, stale or incomparable"})
     return {"ready": True, "comparisons_ready": not gaps, "gaps": gaps,
             "deployment_authorized": False,
             "next_action": "execute_current_checks_then_offer_baseline_sources" if gaps else "execute_current_checks"}
