@@ -1190,7 +1190,7 @@ def check_manifest(manifest: dict, cases: list, findings: list, store_root=None,
                 + (_marker_form(_files_of(by_case[case]), notes)
                    and "(`qa_unresolved(case=, then=[n], reason=\"handed_to_person\", owner=, detail=<steps>)`) "
                    or "(a `then_bindings` row with `case`, `then`, `instance_id` null, `status` unresolved, `reason` "
-                      f"handed_to_person, `owner` and `detail` = the steps, sent through `{_road()}`) ")
+                      f"handed_to_person, `owner` and `detail` = the steps, sent through `{_road(store_root.name if store_root is not None else '')}`) ")
                 + "and drop this partition row; the orchestrator records the person's words under "
                 "`" + C.THEN_HANDED_MATCH_PREFIX + " <case>#<n>`",
                 "partial-green"))
@@ -1722,10 +1722,11 @@ def _open_oracle_door(case: str, number: int, ref: str, task_name: str, door_a: 
                     f"keep an assert only for the part a source establishes (bound with `qa(then=[{number}])`; a status range "
                     f"keeps `# oracle_unknown: {ref}` on its line), and re-run manifest_from_tests.py")
         else:
-            bind = (f"bind it with `manifest_put.py --task {task_name} --open-oracle {case}#{number} --question {ref}` (one call: "
+            bind = (f"first bind it with `manifest_put.py --task {task_name} --open-oracle {case}#{number} --question {ref}` (one call: "
                     f"it takes every proof row of Then {number} out, on every test that asserts it, and writes the open row; "
                     "to record what the test saw add `--observed` with that value, never a guess), keep an assert only for the "
-                    "part a source establishes and bind that part with a `then_bindings` row of its own (the instance and its "
+                    "part a source establishes and, after that call and never before it or after a re-run of it, bind that part "
+                    "with a `then_bindings` row of its own (the instance and its "
                     f"`assertion_ref`) sent through `{_road(task_name)}`")
         return (f"do not assert a value for Then {number}: {bind}. A person settles it only "
                 f"by answering {ref} with a reading letter, recorded by the orchestrator: `"
@@ -1920,7 +1921,7 @@ def _record_fix(task_root: Path, pair: dict, groups: dict, kind: str = "") -> st
             "on the critic's list and in the report")
 
 
-def check_case_is_oracle(manifest: dict, cases: list, findings: list) -> None:
+def check_case_is_oracle(manifest: dict, cases: list, findings: list, task: str = "") -> None:
     """A `deferred_by_decision:*` row that argues with the approved case's own expectation.
 
     S5 is dispatched only after gate A, so every case in its scope is approved, and an
@@ -1945,9 +1946,9 @@ def check_case_is_oracle(manifest: dict, cases: list, findings: list) -> None:
                 + (f" (\"{detail[:120]}\")" if detail else "")
                 + f" — `disputes` is one of {list(C.UNRESOLVED_DISPUTES)}"
                 + (f", and `{disputes}` is not" if disputes else "")),
-                "say it in the row: `manifest_put.py --task <T> --fragment "
-                "'{\"unresolved\": [{\"case\": \"" + case + "\", \"reason\": \"" + reason + "\", "
-                "\"disputes\": \"derivation\"}]}'` — `derivation` when the expected value cannot "
+                "say it in the row: `" + _road(task).replace(
+                    "<file>", "'{\"unresolved\": [{\"case\": \"" + case + "\", \"reason\": \"" + reason + "\", "
+                    "\"disputes\": \"derivation\"}]}'") + "` —`derivation` when the expected value cannot "
                 "be derived at all, `nothing` when the deferral is about a stand or a dependency, "
                 "`case_expectation` when you disagree with the approved case, which after gate A "
                 "is not a route out of S5",
@@ -3176,14 +3177,15 @@ def helper_twin_hint(manifest: dict, hints: list, task_root=None, notes: list | 
             "smell", "", f"{file}: new helper `{name}` - " + "; ".join(said),
             "look for the existing one (the page object, the utils module, the conftest chain), then write in the row "
             "`purpose`, `searched` (where you looked) and `similar_found` (what you found, or `none`); a helper you keep "
-            "beside an existing one says why in `keep`: `manifest_put.py --task <T> --fragment <file>`",
+            f"beside an existing one says why in `keep`: `{_road(task_root.name if task_root is not None else '')}`",
             f"helper-{file.replace('/', '.')}-{name}"))
 
 
 # --- a copy of code that already exists (TQ1-19) -------------------------------------------------------------------------
 
-COPY_KEEP = ("; a helper (new or changed) that cannot serve writes why in `keep` of its `introduced_helpers[]` row: "
-             "`manifest_put.py --task <T> --fragment <file>`")
+def _copy_keep(task_root) -> str:
+    return ("; a helper (new or changed) that cannot serve writes why in `keep` of its `introduced_helpers[]` row: "
+            f"`{_road(Path(task_root).name if task_root is not None else '')}`")
 COPY_HINT_FIX = ("look at it: if it can serve, call or extend it; if one parametrized test or the existing code can carry "
                  "this one, say so in your digest; otherwise leave it and say why in the manifest's `shape` line")
 
@@ -3293,7 +3295,7 @@ def check_copies(task_root, manifest: dict, advice: list, notes: list, s7_round:
             continue
         advice.append(_advice("smell", "", message,
                               f"call or extend `{old.qname}` ({old_rel}:{old.line}) instead of writing it again"
-                              + (COPY_KEEP if row is not None else ""), tag))
+                              + (_copy_keep(task_root) if row is not None else ""), tag))
     if unknown:
         notes.append(f"copy check: {len(unknown)} unit(s) repeat existing code but could not be placed as new or unchanged "
                      f"({', '.join(unknown[:4])}{f' +{len(unknown) - 4} more' if len(unknown) > 4 else ''}) - advice, not findings; "
@@ -4699,7 +4701,7 @@ def run(task_root, dispatch_id: str | None = None, scope: list | None = None, ju
     # `obligation_refs` demandable; a call without them would demand neither.
     check_row_fields(task_root, manifest, cases, findings, notes, dispatch_id,
                      cfg=hooklib.load_config(), plan=C.plan_obligations(task_root))
-    check_case_is_oracle(manifest, cases, findings)
+    check_case_is_oracle(manifest, cases, findings, task_root.name)
     handed_cases = {row["case"] for row in C.handed_tests(manifest)} \
         if hasattr(C, "handed_tests") else set()
     # The instances of this scope the stand blocked, from the ONE reader, with the run blocks read (t-219): the

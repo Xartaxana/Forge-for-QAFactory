@@ -2158,8 +2158,42 @@ def open_oracle_door_is_chosen_by_the_binding_file() -> None:
         check_eq("FL9 class: the ghost line's road carries the task",
                  [("--task QA-9 --fragment" in f["fix"], "<T>" in f["fix"]) for f in fixes if f["id"].endswith("ghost-t_x[a]")], [(True, False)])
         # the siblings: the same reader decides the marker text of the three other lines
-        for label, files, said in (("a .py file keeps the marker text", ["a.py"], True), ("a .cs file gets the manifest_put road", ["A.cs"], False)):
-            check_eq(f"FL9 sibling {label}", bool(P._marker_form(files)), said)
+        # N1: each site is DRIVEN with a .py and a .cs file; the marker words appear exactly on the .py row, the road words on the .cs one
+        import copy
+        import types
+
+        def partial_green(file: str) -> str:
+            manifest = {"tests": [{"case": "TC-500", "file": file, "marker": "TC-500", "instance_id": "TC-500::v", "status": "green"}],
+                        "unresolved": [{"case": "TC-500", "reason": "blocked_by_env", "partitions": ["P-warn"]}]}
+            out: list = []
+            P.check_manifest(manifest, ["TC-500"], out, store_root=Path("QA-500"))
+            return " ".join(f["fix"] for f in out if f["id"].endswith("partial-green"))
+
+        def malformed_remainder(file: str) -> str:
+            manifest = copy.deepcopy(_rt_manifest())
+            next(t for t in manifest["tests"] if t["instance_id"] == RT_IID3)["file"] = file
+            manifest["then_bindings"].append({"case": "TC-003", "then": 3, "instance_id": None, "status": "unresolved",
+                                              "reason": "handed_to_person"})
+            case_md = (RED_THEN_FIXTURE / "work" / "test-cases" / "integrations" / "TC-003.md").read_text(encoding="utf-8")
+            out: list = []
+            P.check_then_remainders(RED_THEN_FIXTURE, manifest, ["TC-003"], {"TC-003": case_md}, out, [])
+            return " ".join(f["fix"] for f in out if "shape-" in f["id"])
+
+        def shape_deviation(file: str) -> str:
+            said: list = []
+            stub = types.SimpleNamespace(declared=lambda *a: False, add=lambda case, msg, fix, tag: said.append(fix),
+                                         fix_dev=lambda *a: "", first="TC-1", task_root=Path("QA-500"), notes=[])
+            P._Window.c5(stub, {"shape": "a"}, "t1", "k", ["TC-1"], "w", [{"file": file, "shape": "b"}])
+            return " ".join(said)
+
+        for site, drive, marker_words, road_words in (
+                ("check_manifest partial-green", partial_green, "qa_unresolved(case=, then=[n]", "a `then_bindings` row with `case`"),
+                ("check_then_remainders shape", malformed_remainder, "rewrite the marker `qa_unresolved(", "rewrite the row (`case`"),
+                ("_Window.c5 shape", shape_deviation, "tag the test with the planned shape", "send the instance's `tests[]` row")):
+            for kind, file, has_marker in (("a .py file", "tests/test_x.py", True), ("a .cs file", "tests/XTests.cs", False)):
+                said = drive(file)
+                check_eq(f"FL9 sibling {site}, {kind}: marker words / road words",
+                         (marker_words in said, road_words in said), (has_marker, not has_marker))
     finally:
         import shutil
         shutil.rmtree(root, ignore_errors=True)
