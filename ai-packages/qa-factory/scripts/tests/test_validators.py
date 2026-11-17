@@ -246,6 +246,127 @@ def tbw_t7a_b_sites() -> None:
         shutil.rmtree(scratch, ignore_errors=True)
 
 
+def tbw_t7a_c_sites() -> None:
+    """told-before-work T7a-C: every refusal of the nineteen run-report, triage and final-report validators (`validate_artifacts.py`)
+    is `refusal("validate_artifacts:<function>", <text>)` and its text is the one it always was. ONE table, a row per function (the
+    triage comprehension is a second row: a second kind of site): the function is called on a story file that breaks it, the first
+    message is a literal (the OLD file's output, byte for byte), its Record carries `check == <id>`, and the row of that id states the
+    sentence the Record prints (`expected`). Every message the call returns carries a validator id: the function's own, or (for the
+    one function that calls the others) one of the nineteen."""
+    import stage_joints as SJ
+    names = ("check_run_report_empty check_run_report_head check_run_report_v0 check_result_rows check_run_report_coverage "
+             "check_triage_v0 check_report_sections check_report_traceability check_report_left_with_you check_report_test_marks "
+             "check_report_forbidden check_report_human_text check_report_gate_b check_report_blocks check_report_coverage "
+             "check_ptr_readiness check_test_report check_report_ledger_and_readiness check_legacy_report_sections").split()
+    all_ids = {f"validate_artifacts:{n}" for n in names}
+    made: list = []
+
+    def story(text: str = "x\n", ticket: str = "") -> Path:
+        """A fresh story folder from the good fixture whose `test-report.md` is `text`."""
+        root = install_artifacts(ROOT, GOOD, ticket or f"QA-T7C-{len(made)}")
+        made.append(root)
+        write(root / "test-report.md", text)
+        return root
+    nl = chr(10)
+    dash = "—"
+    run_json = Path("run-report.json")
+    left = nl.join(["## Left with you", "", "- an item", ""])
+
+    def with_ledger(text: str) -> Path:
+        root = story(text, "QA-T7C-marks")
+        write(root / "work" / "ledger.json", json.dumps({"rows": [{"kind": "test", "ref": "t::a", "real_or_mock": "real code"}]}))
+        return root
+
+    def with_gate_b() -> Path:
+        root = story(nl.join(["## Decided at gate B", "", "some words", ""]))
+        write(root / "pipeline.json", json.dumps({"gates": {"B": {"authorization_source": "deliver it as it stands"}}}))
+        return root
+
+    def with_state() -> Path:
+        root = story()
+        write(root / "state" / "controller.json", "not json")
+        return root
+    rows = [
+        ("check_run_report_empty", lambda e: V.check_run_report_empty(run_json, {"totals": {"passed": 0}, "env_preflight": "pass"}, e),
+         ('run-report.json: an empty run with env_preflight=pass and without blocked/manual — "we ran '
+          'nothing" does not mean "clean": return blocked with a reason or explain where the cases went'), ()),
+        ("check_run_report_head", lambda e: V.check_run_report_head(run_json, {}, e), ('run-report.json: run-report without head: the evidence is not bound to a sha — runs are only '
+          'comparable on one head; without it the result goes stale instantly'), ()),
+        ("check_run_report_v0", lambda e: V.check_run_report_v0(run_json, {}, e), ("run-report.json: no execution_status — it is computed from the run's own evidence and must be "
+          "one of ['passed', 'failed', 'env_blocked', 'not_executed', 'broken_run', 'timeout']"), ()),
+        ("check_result_rows", lambda e: V.check_result_rows(run_json, {"results": [{}]}, e), ('run-report.json: results[0] has neither test_id nor case — a row nobody can name is not a '
+          'result, and the board prints it as a nameless regression test'), ()),
+        ("check_run_report_coverage",
+         lambda e: V.check_run_report_coverage(story() / "work" / "run-report.json", {}, e), ('run-report.json: TC-001 is automated at S5 but appears in no lane of this report — not in '
+          'results[], manual_checks[], skipped[], impossible[], env_blocked[] or manual_skipped[]. A case '
+          'left out reads as untested; say where it went. An unprepared case is closed by '
+          '`manual_evidence.py unprepared` (walked or not).'), ()),
+        ("check_triage_v0",
+         lambda e: V.check_triage_v0(Path("triage.json"), {"triage": [{"test": "t1", "verdict": "BOGUS"}]}, e), ("triage.json: t1: verdict 'BOGUS' outside ['APP_BUG', 'TEST_BUG', 'TEST_BUG:collection', "
+          "'ENV_ISSUE', 'FLAKY', 'APP_CHANGED', 'CASE_DEFECT', 'ASSERT_STRICTER', 'NOT_EXECUTED', "
+          "'RUNNER_MISREAD_EVIDENCE', 'NO_DEFECT']"), ()),
+        ("check_triage_v0",
+         lambda e: V.check_triage_v0(Path("triage.json"), {"triage": [{"test": "t2", "verdict": "FLAKY"}]}, e), ('triage.json: t2: FLAKY with reruns=None — a flake verdict needs >= 3 isolated executions as its '
+          "witness, counted across every role through the manifest's runs[]"), ()),
+        ("check_report_sections", lambda e: V.check_report_sections(story() / "test-report.md", e), ("test-report.md: section '## Proven' is missing - the report is assembled from these sections in "
+          'this order, and an absent one reads as nothing to report'), ()),
+        ("check_report_traceability",
+         lambda e: V.check_report_traceability(story(nl.join(["## Appendix", "", "nothing", ""])) / "test-report.md", e), ("test-report.md: requirements ['R-1', 'R-2', 'R-3'] are in the register and in no row of the "
+          'appendix - paste `traceability.py --render`, do not retype it'), ()),
+        ("check_report_left_with_you", lambda e: V.check_report_left_with_you(story(left) / "test-report.md", e), ('test-report.md: "Left with you" item 1 (- an item) names no R-n and a case id - a person cannot '
+          'look up an item that belongs to nothing'), ()),
+        ("check_report_test_marks",
+         lambda e: V.check_report_test_marks(with_ledger(nl.join(["## Proven", "- a line", ""])) / "test-report.md", e), ('test-report.md: a test line under "Proven" says neither `real code` nor `on a mock:` (- a line) '
+          '- whether a result came from real code or from a mock must always be visible; `report_facts.py '
+          '--task QA-T7C-marks --write` renders the mark on that line'), ()),
+        ("check_report_forbidden", lambda e: V.check_report_forbidden(story("see work/x" + nl) / "test-report.md", e), ('test-report.md: the report carries a path under work/ — those files are machine inputs, name the '
+          'document instead'), ()),
+        ("check_report_human_text",
+         lambda e: V.check_report_human_text(
+             story(nl.join(["## Factory defects", "", "- `person.review_recorded` went wrong", ""])) / "test-report.md", e),
+         ('test-report.md, Factory defects: `person.review_recorded` — a form or schema field name: the '
+          'person has never seen the form (`person.review_recorded` was the measured case). Say what went '
+          'wrong in words; the id or state stays in the ledger'), ()),
+        ("check_report_gate_b", lambda e: V.check_report_gate_b(with_gate_b() / "test-report.md", e), ('test-report.md: "Decided at gate B" does not quote gates.B.authorization_source verbatim - paste '
+          '`traceability.decided_at_gate_b(pipeline)`, do not restate it'), ()),
+        ("check_report_blocks",
+         lambda e: V.check_report_blocks(story("<!-- facts:verdict -->" + nl + "x" + nl) / "test-report.md", e), ('test-report.md: block `verdict` opened at line 1 is never closed - expected `<!-- /facts:verdict '
+          "-->` at the start of a line, outside a code fence; put it after the block's last line"), ()),
+        ("check_report_coverage", lambda e: V.check_report_coverage(story() / "test-report.md", e), ('test-report.md: PTR without a "## Check coverage" section — a missing check reads as a passed '
+          'one; enumerate ALL levels/channels with statuses '
+          '(✓/✗/○/—/passed_green/failed:/skipped:/impossible/not_executed/env_blocked/pending_implementation/deferred_by_decision/not_verified_flaky/subtask_in_progress)'), ()),
+        ("check_ptr_readiness", lambda e: V.check_ptr_readiness(story() / "test-report.md", ["x"], e), ('test-report.md: FORM — the task has a requirements register, but there is no "## Readiness '
+          'within what was verified" section (every R: verified / not verified / deferred by design / '
+          'deferred by decision + evidence or a reason)'), ()),
+        ("check_test_report", lambda e: V.check_test_report(with_state() / "test-report.md", e), ('REPORT_SUMMARY_UNREADABLE: Expecting value: line 1 column 1 (char 0)'), all_ids),
+        ("check_report_ledger_and_readiness",
+         lambda e: V.check_report_ledger_and_readiness(story("a" * (V.TEST_REPORT_MAX_BYTES + 1) + nl) / "test-report.md", e),
+         ('test-report.md: 6145 bytes outside the generated tables > 6144 — the report is what a person '
+          'reads to decide; detail that does not fit belongs in the artifact it came from, cited by path'), ()),
+        ("check_legacy_report_sections", lambda e: V.check_legacy_report_sections(story() / "test-report.md", e), ("test-report.md: section '## Verdict' is missing - the gate-B message is assembled from these "
+          'sections in this order'), ()),
+    ]
+    try:
+        for name, provoke, old, also in rows:
+            rid = f"validate_artifacts:{name}"
+            found: list = []
+            provoke(found)
+            check(f"t7a-c {name}: the call refuses", bool(found), "no message")
+            if not found:
+                continue
+            check_eq(f"t7a-c {name}: the first message is the old text, byte for byte", str(found[0]), old)
+            check_eq(f"t7a-c {name}: the first message carries the id", getattr(found[0], "check", ""), rid)
+            check_eq(f"t7a-c {name}: every message carries an id of the allowed set",
+                     sorted({getattr(r, "check", "") for r in found} - {rid} - set(also)), [])
+            row, why = SJ.row_for(rid)
+            told = SJ.told_text(row)[0] if row else ""
+            check(f"t7a-c {name}: its row states a sentence the refusal can print", bool(told), why)
+            check_eq(f"t7a-c {name}: the Record carries that sentence", getattr(found[0], "expected", ""), told)
+    finally:
+        for root in made:
+            shutil.rmtree(root, ignore_errors=True)
+
+
 def main() -> None:
     try:
         # --- rule: understanding brief -------------------------------------------------------------
@@ -1497,6 +1618,7 @@ def main() -> None:
             shutil.rmtree(story.parent, ignore_errors=True)
         tbw_t7a_a_sites()
         tbw_t7a_b_sites()
+        tbw_t7a_c_sites()
     finally:
         cleanup(ROOT)
 
