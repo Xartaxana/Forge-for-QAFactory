@@ -85,8 +85,8 @@ Your job is to find things and report back concisely, without changing anything.
    The final message is the report: the Lead extracts it to a file in
    `docs/tasks/specs/reports/` with `tools/handback_extract.py`.
 10. Digest FORM v1 (the coordinator reads fewer tokens and the trail
-   stays whole; the grammar, the flag list and an example are in
-   `docs/tasks/exchange-form.md`; `tools/digest_form.py` reads the
+   stays whole; the flags the reader raises are rule 11; an example is
+   `tools/fixtures/digest_form/t-794.md`; `tools/digest_form.py` reads the
    digest back and `tools/handback_extract.py` prints what it found).
    The final message begins with the line `digest: v1 <task_id>` (no
    fence around the digest), then:
@@ -114,3 +114,36 @@ Your job is to find things and report back concisely, without changing anything.
    Then `## Forks` when there are forks (its last line is the rule 3
    line) and `## Not done`. State a fact once, in its row, not again
    in prose.
+11. What the reader flags (`tools/digest_form.py`; the Lead reads
+   `first=<flag>` in the hand-back line).
+   `found <n>` with n >= 1 and no leading zeros; anything else (`found 0`, `0`, `0 matches`, `count 01`, free text, `count` without the `count` flag) is out of grammar -- neither a zero nor a control; before the key, whole-line HTML comments and closed fenced blocks are skipped; after it, comment and fenced lines are blanked; the one unflagged fence is the container around the whole digest.
+
+   `n` is the 1-based number of the data row in its table (header and separator not counted). Order: Trail rows, then objects, then markup.
+
+   | flag | meaning |
+   |---|---|
+   | `zero_no_control:<tid>` | a zero row with an empty control |
+   | `control_unknown:<tid>` | the control names no tid of the Trail |
+   | `control_shape:<tid>` | the control is the row itself, has other op/target/flags, the same pattern, or is a zero or out of grammar |
+   | `zero_case:<tid>` | a zero `grep` without `-i` (a pattern with no letters is flagged too: the false flag is the allowed direction) |
+   | `bad_result:<tid>` | the result is outside the grammar of its op |
+   | `dup_tid:<tid>`, `tid_space:<n>` | a repeated tid (the first row is read, the later one is not); a tid with a space inside |
+   | `bad_row:<Objects\|Trail>:<n>` | the cell count differs from the header (an unquoted `\|`), an empty tid, or an unknown op; the row is not read further |
+   | `no_id:<n>`, `id_space:<n>`, `dup_id:<id>` | an object without an id; an id with a space or a comma; a repeated id (every row is still checked) |
+   | `gist_over:<id>` | more than 20 words |
+   | `no_ev:<id>`, `ev_unknown:<id>:<tid>` | an object with no trail; a tid that is not a Trail row |
+   | `zero_uncontrolled:<id>:<tid>` | ANY zero row among the object's `ev` has no good control |
+   | `absent_no_negative:<id>` | `status: absent` and no zero row among `ev` |
+   | `bad_header:<section>`, `no_section:<name>`, `dup_section:<name>` | the table header is not the exact one (its rows are not read) or there is no table; Objects or Trail missing; a section twice (the first is read) |
+   | `stray_row:<Objects\|Trail>:<n>` | a pipe line of the section that is not the read table's header, its one separator or one of its rows (a second table, a row after prose or a `###` heading, an indented row, a second separator-like row); not read. Lines blanked as a comment or a fence are not stray |
+   | `unknown_section:<name>` | a `## <name>` heading after the key that is none of Objects, Trail, Forks, Not done (its lines are not read) |
+   | `forks_no_line` | Forks does not end with the literal line |
+   | `key_not_first`, `key_no_task` | something precedes the key line (reading starts at the key); the key carries no task id |
+   | `comment_unclosed:<line>` | a `<!--` that never closes (the 1-based line of the message): a renderer hides what follows, so the text is a hidden claim |
+   | `trail_unbacked:<n>` | F6-14 (t-863, 16.10): `n` Trail lines that name a read or a search the worker's OWN transcript does not hold as a `Read`/`Grep`/`Glob` tool_use (a normalised one-direction substring of the path or pattern; a root target `.` takes any) — a fabricated trail; the digest is still printed, the flag is the acceptor's signal (FR-4) |
+   | `trail_unchecked` | F6-14: no transcript could be read for this hand-back (a gateway scout, a missing or unreadable JSONL) — the trail was NOT checked; never read as backed |
+   | `fence_unclosed:<line>` | a ``` / ~~~ fence after the key that nothing closes (the 1-based line of the message): every line after it is hidden and NOT read, so the text is a hidden claim. The one fence that is not flagged is the container -- the digest wrapped in a fence whole (the key inside it, `key_not_first`): its closing fence is the LAST non-blank line of the message, blank lines after it do not matter |
+
+   A name in a flag without an id (an object with no id) is `#<n>`. In `stray_row` `n` is the 1-based line number inside the section, its `## ` heading being line 1. `handback_extract` appends to its one stdout line, after `finished=`:
+   ` digest=v1 objects=<n> trail=<n> flags=<n>[ first=<flag>]`, or ` digest=none` (no key: today's prose, extracted as prose), or ` digest=n/d` (the
+   reader failed to import or raised: the file and the exit code are as without it).

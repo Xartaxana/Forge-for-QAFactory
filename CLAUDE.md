@@ -322,7 +322,11 @@ a rule.
 ### Rule 11 · inline DoD; the DOC-DISPATCH witness
 
    The DoD is written INLINE in the dispatch — named acceptance criteria plus the exact verification run; a bare
-   pointer to a spec file or an earlier event is NOT a DoD. DOC-DISPATCH WITNESS: when the owns are markdown/config
+   pointer to a spec file or an earlier event is NOT a DoD. A brief carries FACTS by pointer: `given:` names the frozen
+   file (a hand-back report, a digest) and the digest's objects by their exact ids (`q2a, q2b`), never by a prefix, so a
+   scout's reservation travels with its object; changing code is pointed at by `path::symbol`, not a line range. The
+   DoD, the edges and the non-goals stay inline. Prose outside the manifest is at most about 8 counted lines (a target
+   read by calibration check 34, not a gate). DOC-DISPATCH WITNESS: when the owns are markdown/config
    with no test set of their own, a deterministic key-presence run is a legal mechanical layer ONLY with three
    properties: (i) the keys are quoted VERBATIM from the DoD as written BEFORE the run; (ii) the script is attached in
    FULL source with the witness in the report, never committed as a test; (iii) the run includes a NEGATIVE control
