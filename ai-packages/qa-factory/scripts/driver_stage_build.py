@@ -196,9 +196,6 @@ class DriverStageBuild:
             search_exit = run["exit"] if searched else None
         # D5: the onboarding that asks how the project signs in is named only after a search found no way in (`way` class AND searched)
         login_door = searched and LOGIN_ANSWER_CLASS.get(answer) == "way" if isinstance(answer, str) else False
-        # A7 (C1-6b): a seam question - `retry` / `go on` carry the seam's own moves (`person_does`, `go_on_as_is` + the block), so
-        # `take_seam_answer` executes them; the stand's NAME is the site's own door (`_take_stand_answer`)
-        # remains: the stand question is a seam question (priced, `offered`): retry / go on run the seam's executors, the name has its own, other words go to the seam
         # K2.b (FV3-21): the `go on` option says what it does to the manual cases when the S6 manual scope is non-empty or unreadable; read
         # only here - a confirmed stand, a passed word and a probe that exits 0 returned above, so they cost no controller call
         try:
@@ -207,6 +204,9 @@ class DriverStageBuild:
             manual = not isinstance(scope, list) or bool(scope)
         except Exception:      # noqa: BLE001 - a doubt says the clause (the person's price, FR-9); the clause is true in every world
             manual = True
+        # A7 (C1-6b): a seam question - `retry` / `go on` carry the seam's own moves (`person_does`, `go_on_as_is` + the block), so
+        # `take_seam_answer` executes them; the stand's NAME is the site's own door (`_take_stand_answer`)
+        # remains: the stand question is a seam question (priced, `offered`): retry / go on run the seam's executors, the name has its own, other words go to the seam
         person = self.site_seam_person("environment", self.stand_question_text(stage, environment, self.stand_names(), kind, why,
                                                                                answer, searched, search_exit, manual=manual), stage,
                                        block=waiver.STAND_NOT_CONFIRMED_BLOCK, details=details,
