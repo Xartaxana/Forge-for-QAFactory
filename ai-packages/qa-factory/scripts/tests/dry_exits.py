@@ -59,7 +59,7 @@ TIME_KEYS = ("at", "ts", "started", "finished", "stage_started", "stage_finished
 # The grammar of a walk row (node N4w; spec docs/tasks/specs/20261114-p1b-n4w-exit-walker-spec.md section 8). Closed vocabularies are data
 # tuples HERE and nowhere else (AR-1 inside the test layer): the loader, the judge and the self-test read these names.
 WALK_FILE_KEYS = ("schema", "group", "rows")
-WALK_ROW_KEYS = ("id", "start", "seed", "answer", "stub", "expect", "reach", "why_unreached")
+WALK_ROW_KEYS = ("id", "start", "seed", "answer", "stub", "expect", "reach", "why_unreached", "offered_if")      # `offered_if` optional (FV3-17)
 ANSWER_KEYS = ("token", "words", "words_file")
 EXPECT_KEYS = ("checks", "owner_quote", "owner_question", "na")
 NA_CHECKS = ("K15", "C2", "C3")                                        # the checks a row may declare n/a with a why (never C6: a gate rehearsal is always observable)
@@ -1201,6 +1201,22 @@ def _walk_answer_problems(bad, row: dict, runnable: bool, variant: str, story_di
             bad(problem)
 
 
+def _walk_offered_if_problems(bad, row: dict) -> None:
+    """The optional `offered_if` of a walk row (FV3-17): ONE key naming a fact of `dry_world.WORLD_FACTS` - the answer is offered only while that fact holds.
+    Absent is legal (a row with no condition is judged as before); anything else must be a non-blank string that is a key of the table (a nested object, a
+    number, a blank string and an unknown or unicode key are refused naming the field, the known keys and the door, FR-1)."""
+    if "offered_if" not in row:
+        return
+    key = row["offered_if"]
+    if not isinstance(key, str) or not key.strip():
+        bad(f"offered_if {key!r}; expected ONE key (a non-blank string) of dry_world.WORLD_FACTS")
+        return
+    import dry_world
+    if key not in dry_world.WORLD_FACTS:
+        bad(f"offered_if {key!r} is no world fact the walker can read (known keys: {sorted(dry_world.WORLD_FACTS)}); condition named, no world for it - "
+            "add a reader to dry_world.WORLD_FACTS")
+
+
 def _walk_seed_stub_problems(bad, row: dict, runnable: bool, seeds, where: str) -> None:
     """The `seed`, `why_unreached` and `stub` fields of a walk row."""
     seed = row.get("seed")
@@ -1239,6 +1255,7 @@ def walk_row_problems(path, row, *, universe, seeds, class_of_subject=None, stor
     if row.get("start") not in STARTS:
         bad(f"start {row.get('start')!r}; expected one of {list(STARTS)} (a static `after:` belongs to `reach`, F-W14)")
     runnable = _walk_expect_problems(bad, row, section, name, known, class_of_subject)
+    _walk_offered_if_problems(bad, row)
     _walk_answer_problems(bad, row, runnable, variant, story_dir)
     _walk_seed_stub_problems(bad, row, runnable, seeds, where)
     return out
@@ -1540,6 +1557,26 @@ def _judge_always(row: dict, facts: dict, prices: dict, put) -> None:
                              f"turn {ended.get('turn')}); C3 is neither listed nor declared n/a")
 
 
+def _offered_if_outcome(row: dict, facts: dict, ctx: _Ctx):
+    """The outcome a row's `offered_if` decides before any check (FV3-17), or None to judge the row as before. A row with no `offered_if`, or an ask that is
+    not pending, is judged as before. The condition's value is a fact the world read at the ask (`dry_world.offered_if_fact`): None (no reader / no world) is
+    a FAIL `condition named, no world for it`, never a guess (AR-28); False with the token NOT offered is a NOTE tagged `unreached` naming the condition,
+    never red (the answer is offered only while the condition holds); True, or False with the token offered, judges the row as before."""
+    key = row.get("offered_if")
+    cond = facts.get("offered_if")
+    if key is None or not ctx.ask:
+        return None
+    value = cond.get("value") if isinstance(cond, dict) else None
+    if value is None:
+        return Outcome("fail", f"{row['id']}: offered_if {key!r}: condition named, no world for it (the seeded world cannot answer it); "
+                               "add a reader to dry_world.WORLD_FACTS or drop the field")
+    offered = {_norm(o) for o in ctx.ask.get("offered") or []}
+    if value is False and ctx.token and _norm(ctx.token) not in offered:
+        return Outcome("note", f"unreached: {ctx.token!r} is offered only while {key} holds, and it does not hold in this row's world "
+                               f"(offered {sorted(map(str, ctx.ask.get('offered') or []))})", tag="unreached")
+    return None
+
+
 def judge_row(row: dict, facts: dict, *, prices: dict, class_of_subject: str = "", classes=GATE_CLASSES) -> Outcome:
     """The ONE outcome of a row that ran, from `facts` alone (it opens no file: AR-13, AR-29 - the data is compared, the expectation is SET by the
     row's `expect.checks`). It judges exactly the listed checks in order (`JUDGE_CHECKS`: one function per check id), then the always-checks (K15/E17 for a
@@ -1557,7 +1594,10 @@ def judge_row(row: dict, facts: dict, *, prices: dict, class_of_subject: str = "
         return Outcome("fail", f"seed did not reach {name}: {dry_stub.cut(seed.get('detail', ''), 300)}")
     ctx = _Ctx(facts, name, (row.get("answer") or {}).get("token"), facts.get("ask"), facts.get("fp_ask"), facts.get("fp_after"), class_of_subject, classes,
                _section, prices)
-    na = (row.get("expect") or {}).get("na") or {}
+    condition = _offered_if_outcome(row, facts, ctx)
+    if condition is not None:
+        return condition
+    na =(row.get("expect") or {}).get("na") or {}
     changed = ctx.changed
     results: list = []        # (check, "ok" | "fail" | "note", detail)
 
@@ -2514,6 +2554,13 @@ def _walker_cases(case, tmp) -> None:
         ("an n/a with a blank why", wrow(expect={"checks": ["C3"], "na": {"K15": "  "}}), "has no why"),
         ("C6 declared n/a", wrow(expect={"checks": ["C3"], "na": {"C6": "why"}}), "C6 is never n/a"),
         ("an na that is not an object", wrow(expect={"checks": ["C3"], "na": ["K15"]}), "expect.na is list"),
+        ("FV3-17 offered_if empty", wrow(offered_if=""), "offered_if ''"),
+        ("FV3-17 offered_if blank", wrow(offered_if="  "), "offered_if '  '"),
+        ("FV3-17 offered_if of the wrong type", wrow(offered_if=7), "offered_if 7"),
+        ("FV3-17 offered_if a nested object", wrow(offered_if={"inventory_unavailable": True}), "expected ONE key"),
+        ("FV3-17 offered_if a list", wrow(offered_if=["inventory_unavailable"]), "expected ONE key"),
+        ("FV3-17 offered_if an unknown key names the known keys and the door", wrow(offered_if="no_such_fact"), "known keys: ['inventory_unavailable']"),
+        ("FV3-17 offered_if a unicode key", wrow(offered_if="факт"), "condition named, no world for it"),
     ]
     for label, row, needle in refusals:
         @case(f"walk grammar: {label} is refused naming the row and the field")
@@ -2865,7 +2912,18 @@ def _walker_cases(case, tmp) -> None:
         return wrow(rid, answer={"token": token, "words": None if token else "w", "words_file": None}, expect={"checks": checks, "na": na})
 
     plain_ask = {"kind": "s1_review", "stage": "S1", "offered": []}
+    cond_row = wrow("p.key/c", answer={"token": "c"}, offered_if="inventory_unavailable", expect={"checks": ["C2"]})
+    held = lambda value: {"offered_if": {"key": "inventory_unavailable", "value": value}}      # noqa: E731
     for label, row, facts, kind, needles in (
+            ("FV3-17: offered_if, condition met and the answer offered -> judged as before (PASS)", wrow(answer={"token": "agree"}, offered_if="inventory_unavailable",
+             expect={"checks": ["C2"]}), held(True), "pass", [""]),
+            ("FV3-17: offered_if, condition NOT met and the answer not offered -> NOTE `unreached` naming the condition, never red", cond_row, held(False), "note",
+             ["unreached", "inventory_unavailable", "does not hold"]),
+            ("FV3-17: offered_if, condition met but the answer not offered -> still the C2 FAIL", cond_row, held(True), "fail", ["was not offered"]),
+            ("FV3-17: offered_if, condition named and the world cannot answer it (None) -> FAIL `condition named, no world for it`", cond_row, held(None), "fail",
+             ["offered_if 'inventory_unavailable'", "condition named, no world for it", "dry_world.WORLD_FACTS"]),
+            ("FV3-17: offered_if named but no fact read at all -> the same FAIL, never a pass", cond_row, {}, "fail", ["condition named, no world for it"]),
+            ("FV3-17: no offered_if with a stray fact is judged exactly as before", wrow(answer={"token": "agree"}, expect={"checks": ["C2"]}), held(False), "pass", [""]),
             ("G1 (11): `ended_at` set, the fingerprint unchanged, C3 neither listed nor n/a -> FAIL on `turns`", wrow(answer={"token": "agree"}, expect={"checks": ["C2"]}),
              {"ended_at": {"turn": 1, "kind": "gate_A", "stage": "S4"}, "fp_after": "x"}, "fail", ["C3 is neither listed nor declared n/a", "ended at gate_A at S4 after turn 1"]),
             ("K15 (3): a declared n/a on an ask that offered nothing is no FAIL and prints `n/a K15`", na_row(None, ["C3"], {"K15": "a plain ask"}, "p.key/free words"),
