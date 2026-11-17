@@ -306,11 +306,30 @@ def test_build_context_lines_no_open_window_line_when_closed(tmp_path):
     assert not any("OPEN DEGRADATION WINDOW" in l for l in lines)
 
 
-# ---- last calibration: NONE vs dated ----
+# ---- last calibration: NONE vs dated, overdue suffix (spec 4.6, C4) ----
 
-def test_last_calibration_none_when_absent():
-    events = [_event("delegated")]
-    assert last_calibration_line(events) == "Last calibration: NONE"
+_LEAD_SUFFIX = " -- overdue: tell the owner " + sc._CALL_ARCHITECT + " (calibration and mechanism review)"
+_ARCH_SUFFIX = " -- overdue: run the calibration (PROCESS/ARCHITECT_START.md step 6)"
+_UNBOUND_SUFFIX = " -- overdue: run the calibration (no architect is bound; calibration and mechanism review)"
+_CAL_NOW = datetime.datetime(2026, 7, 10, 12, 0, 0)
+
+
+@pytest.mark.parametrize("name,events,function,want", [
+    ("none-lead", [], None, "Last calibration: NONE" + _LEAD_SUFFIX),
+    ("none-architect", [], "architect", "Last calibration: NONE" + _ARCH_SUFFIX),
+    ("8-days-lead", [_event("calibrated", ts="2026-07-02T12:00:00")], "lead",
+     "Last calibration: 2026-07-02T12:00:00 (8 days ago)" + _LEAD_SUFFIX),
+    ("8-days-no-function", [_event("calibrated", ts="2026-07-02T12:00:00")], None,
+     "Last calibration: 2026-07-02T12:00:00 (8 days ago)" + _LEAD_SUFFIX),
+    ("8-days-architect", [_event("calibrated", ts="2026-07-02T12:00:00")], "architect",
+     "Last calibration: 2026-07-02T12:00:00 (8 days ago)" + _ARCH_SUFFIX),
+    ("exactly-7-days", [_event("calibrated", ts="2026-07-03T12:00:00")], "lead",
+     "Last calibration: 2026-07-03T12:00:00 (7 days ago)"),
+    ("unparsable-ts", [_event("calibrated", ts="not-a-date")], "lead",
+     "Last calibration: not-a-date (age unknown -- unparsable ts)"),
+])
+def test_last_calibration_overdue_suffix(name, events, function, want):
+    assert last_calibration_line(events, _CAL_NOW, function) == want
 
 
 def test_last_calibration_reports_ts_and_age():
@@ -724,34 +743,63 @@ def test_extract_model_id_missing_returns_none():
     assert sc.extract_model_id("not a dict") is None
 
 
-def test_model_tier_mapping_all_known_tiers():
-    assert sc.model_tier("claude-fable-5") == "Lead(top)"
-    assert sc.model_tier("claude-opus-4") == "critic-tier"
-    assert sc.model_tier("claude-sonnet-5") == "builder-tier"
-    assert sc.model_tier("claude-haiku-3") == "scout-tier"
+_LADDER_CFG = """
+roles:
+  lead: {subscription: {model: claude-opus-5-5}}
+  critic: {subscription: {model: claude-opus-5-5}}
+  builder: {subscription: {model: claude-sonnet-5-5}}
+  scout: {subscription: {model: claude-sonnet-5-5}}
+  architect: {subscription: {model: claude-fable-5-1}}
+"""
+_NO_ARCH_CFG = _LADDER_CFG.replace("  architect: {subscription: {model: claude-fable-5-1}}\n", "")
+_TODAY_CFG = _NO_ARCH_CFG.replace("lead: {subscription: {model: claude-opus-5-5}}",
+                                  "lead: {subscription: {model: claude-fable-5-1}}")
+_BETWEEN_CFG = ("roles:\n  lead: {subscription: {model: claude-fable-5-1}}\n"
+                "  builder: {subscription: {model: claude-haiku-3}}\n")
+_DECL = "(declared by harness, not measured; lead = claude-opus-5-5, architect = {arch})"
+_NOT_PROVIDED = "MODEL: not provided by hook input -- verify tier yourself"
+_NONE_LINE = ("MODEL: {m} -> function none (matches no binding in delegation.config.yaml)"
+              " -- coordinate under the below-lead rules until verified")
 
 
-def test_model_tier_mapping_unknown_string():
-    assert sc.model_tier("some-other-model") == "unknown"
+_MODEL_ROWS = [
+    ("exact-lead", ("claude-opus-5-5", _LADDER_CFG),
+     "MODEL: claude-opus-5-5 -> function lead " + _DECL.format(arch="claude-fable-5-1")),
+    ("exact-architect", ("claude-fable-5-1", _LADDER_CFG),
+     "MODEL: claude-fable-5-1 -> function architect " + _DECL.format(arch="claude-fable-5-1")),
+    ("exact-builder", ("claude-sonnet-5-5", _LADDER_CFG),
+     "MODEL: claude-sonnet-5-5 -> function builder " + _DECL.format(arch="claude-fable-5-1")),
+    ("family-match-live-case", ("claude-fable-5-2", _LADDER_CFG),
+     "MODEL: claude-fable-5-2 -> function architect (family match: claude-fable-5-1) "
+     + _DECL.format(arch="claude-fable-5-1")),
+    ("today-config-family-match-lead", ("claude-fable-5-2", _TODAY_CFG),
+     "MODEL: claude-fable-5-2 -> function lead (family match: claude-fable-5-1) "
+     "(declared by harness, not measured; lead = claude-fable-5-1, architect = unbound)"),
+    ("between-families-unbound", ("claude-opus-5-5", _BETWEEN_CFG),
+     "MODEL: claude-opus-5-5 -> function builder (unbound family) "
+     "(declared by harness, not measured; lead = claude-fable-5-1, architect = unbound)"),
+    ("above-lead-no-architect-key", ("claude-fable-5-2", _NO_ARCH_CFG),
+     "MODEL: claude-fable-5-2 -> function above lead (no architect binding) " + _DECL.format(arch="unbound")),
+    ("unbound-family-weaker", ("claude-haiku-3", _LADDER_CFG),
+     "MODEL: claude-haiku-3 -> function below builder " + _DECL.format(arch="claude-fable-5-1")),
+    ("unrecognised-model", ("gpt-9", _LADDER_CFG), _NONE_LINE.format(m="gpt-9")),
+    ("config-unreadable", ("claude-opus-5-5", "roles: [unclosed"),
+     "MODEL: claude-opus-5-5 -> function critic (declared by harness, not measured; lead = claude-fable,"
+     " architect = unbound) (config unreadable: default bindings)".replace("claude-fable", "fable")),
+    ("config-absent", ("claude-sonnet-5-5", None),
+     "MODEL: claude-sonnet-5-5 -> function builder (declared by harness, not measured; lead = fable,"
+     " architect = unbound) (config unreadable: default bindings)"),
+] 
 
 
-def test_model_line_found_string_form():
-    line = sc.model_line({"model": "claude-fable-5"})
-    # The payload id is a harness declaration, not a measurement --
-    # the line must say so (present-but-stale stated confidently is the
-    # failure mode this marker exists to prevent).
-    assert line == (
-        "MODEL: claude-fable-5 -> tier Lead(top)"
-        " (declared by harness, not measured; Lead tier = fable)"
-    )
+@pytest.mark.parametrize("name,cfg,want", _MODEL_ROWS, ids=[r[0] for r in _MODEL_ROWS])
+def test_model_line_function_by_ladder(name, cfg, want):
+    assert sc.model_line({"model": cfg[0]}, cfg[1]) == want
 
 
-def test_model_line_found_dict_form():
-    line = sc.model_line({"model": {"id": "claude-sonnet-5"}})
-    assert line == (
-        "MODEL: claude-sonnet-5 -> tier builder-tier"
-        " (declared by harness, not measured; Lead tier = fable)"
-    )
+def test_model_line_dict_form():
+    assert sc.model_line({"model": {"id": "claude-sonnet-5-5"}}, _LADDER_CFG).startswith(
+        "MODEL: claude-sonnet-5-5 -> function builder ")
 
 
 def test_model_line_missing_payload():
@@ -803,13 +851,10 @@ def test_model_line_long_model_id_is_truncated():
     line = sc.model_line({"model": long_id})
     assert line.isascii()
     assert "\n" not in line
-    # "MODEL: " prefix + sanitized (<=80 chars) + " -> tier ... " suffix
+    # "MODEL: " prefix + sanitized (<=80 chars) + " -> function ... " suffix
     sanitized = sc._ascii_sanitize(long_id)
     assert len(sanitized) == 80
-    assert line == (
-        f"MODEL: {sanitized} -> tier builder-tier"
-        " (declared by harness, not measured; Lead tier = fable)"
-    )
+    assert line.startswith(f"MODEL: {sanitized} -> function ")
 
 
 def test_ascii_sanitize_direct_cases():
@@ -849,15 +894,107 @@ def test_read_stdin_payload_returns_none_on_empty_input(monkeypatch):
     assert sc.read_stdin_payload() is None
 
 
-def test_build_context_lines_model_line_placed_right_after_now(tmp_path):
+def _seed_ladder(root, cfg=_LADDER_CFG, settings=None, queue=None):
+    if cfg is not None:
+        (root / "delegation.config.yaml").write_text(cfg, encoding="utf-8")
+    if settings is not None:
+        (root / ".claude").mkdir(exist_ok=True)
+        (root / ".claude" / "settings.json").write_text(settings, encoding="utf-8")
+    if queue is not None:
+        (root / "docs" / "tasks").mkdir(parents=True, exist_ok=True)
+        (root / "docs" / "tasks" / "architect-queue.md").write_text(queue, encoding="utf-8")
+    return root
+
+
+_ARCH_HEAD = ("ARCHITECT SESSION: start with PROCESS/ARCHITECT_START.md;"
+              " queue docs/tasks/architect-queue.md ")
+_Q3 = "# queue\n- [ ] 2026-11-17 t-1 a (\u043e\u0442: Lead)\n- [x] 2026-11-16 t-2 b - done: D-1\n- [ ] x\n  - [ ] y\n"
+
+
+_ARCH_ROWS = [
+    ("architect-family-queue-3-open", "claude-fable-5-2", _LADDER_CFG, _Q3, False, _ARCH_HEAD + "(3 open)"),
+    ("architect-exact-queue-0-open", "claude-fable-5-1", _LADDER_CFG, "- [x] done\n", False, _ARCH_HEAD + "(0 open)"),
+    ("architect-queue-absent", "claude-fable-5-2", _LADDER_CFG, None, False, _ARCH_HEAD + "(queue file absent)"),
+    ("architect-queue-unreadable", "claude-fable-5-2", _LADDER_CFG, None, True,
+     _ARCH_HEAD + "(queue unreadable: "),
+    ("lead-session-no-line", "claude-opus-5-5", _LADDER_CFG, _Q3, False, None),
+    ("builder-session-no-line", "claude-sonnet-5-5", _LADDER_CFG, _Q3, False, None),
+    ("fable-no-architect-key-no-line", "claude-fable-5-2", _NO_ARCH_CFG, _Q3, False, None),
+    ("unrecognised-model-no-line", "gpt-9", _LADDER_CFG, _Q3, False, None),
+] 
+
+
+@pytest.mark.parametrize("name,model,cfg,queue,queue_as_dir,want_arch", _ARCH_ROWS, ids=[r[0] for r in _ARCH_ROWS])
+def test_architect_line_in_context(tmp_path, name, model, cfg, queue, queue_as_dir, want_arch):
     root = _seed_repo(tmp_path, events=[])
-    now = datetime.datetime(2026, 7, 11, 9, 0, 0)
-    lines = sc.build_context_lines(root, now, stdin_payload={"model": "claude-fable-5"})
+    _seed_ladder(root, cfg, queue=queue)
+    if queue_as_dir:
+        (root / "docs" / "tasks" / "architect-queue.md").mkdir(parents=True)
+    lines = sc.build_context_lines(root, datetime.datetime(2026, 7, 11, 9, 0, 0), stdin_payload={"model": model})
     assert lines[0].startswith("NOW:")
-    assert lines[1] == (
-        "MODEL: claude-fable-5 -> tier Lead(top)"
-        " (declared by harness, not measured; Lead tier = fable)"
-    )
+    assert lines[1].startswith(f"MODEL: {model} -> function ")
+    arch = [l for l in lines if l.startswith("ARCHITECT SESSION")]
+    if want_arch is None:
+        assert arch == []
+    else:
+        assert len(arch) == 1 and arch[0].startswith(want_arch) and lines[2] == arch[0]
+        assert arch[0].isascii()
+
+
+_PIN_WARN = ("WARN: .claude/settings.json model {x} != lead binding claude-opus-5-5"
+             " -- new sessions open on {x}; align one of them")
+
+
+@pytest.mark.parametrize("name,settings,cfg,want", [
+    ("equal-no-line", '{"model": "claude-opus-5-5"}', _LADDER_CFG, None),
+    ("differ-warn", '{"model": "claude-fable-5-1"}', _LADDER_CFG, _PIN_WARN.format(x="claude-fable-5-1")),
+    ("settings-without-model", '{"hooks": {}}', _LADDER_CFG, None),
+    ("settings-absent", None, _LADDER_CFG, None),
+    ("settings-unparsable", "{not json", _LADDER_CFG, "WARN: .claude/settings.json unreadable ("),
+    ("model-not-a-string", '{"model": 5}', _LADDER_CFG, None),
+    ("config-unreadable-no-pin-line", '{"model": "claude-fable-5-1"}', "roles: [unclosed", None),
+])
+def test_settings_pin_line_in_context(tmp_path, name, settings, cfg, want):
+    root = _seed_repo(tmp_path, events=[])
+    _seed_ladder(root, cfg, settings=settings)
+    lines = sc.build_context_lines(root, datetime.datetime(2026, 7, 11, 9, 0, 0),
+                                   stdin_payload={"model": "claude-opus-5-5"})
+    pin = [l for l in lines if l.startswith("WARN: .claude/settings.json")]
+    if want is None:
+        assert pin == []
+    else:
+        assert len(pin) == 1 and pin[0].startswith(want)
+        assert lines[2] == pin[0]  # directly after MODEL (no ARCHITECT line for an Opus session)
+
+
+def test_architect_and_pin_lines_survive_the_25_line_cut(tmp_path, monkeypatch):
+    root = _seed_repo(tmp_path, events=[])
+    _seed_ladder(root, settings='{"model": "claude-fable-5-1"}', queue=_Q3)
+    monkeypatch.setattr(sc, "quota_lines", lambda *a, **k: [f"filler {i}" for i in range(30)])  # 30 candidates
+    lines = sc.build_context_lines(root, datetime.datetime(2026, 7, 11, 9, 0, 0),
+                                   stdin_payload={"model": "claude-fable-5-2"})
+    assert len(lines) == sc.MAX_LINES and "filler 0" in lines and "filler 29" not in lines
+    assert lines[1].startswith("MODEL:") and lines[2].startswith("ARCHITECT SESSION:")
+    assert lines[3].startswith("WARN: .claude/settings.json model claude-fable-5-1")
+
+
+def test_build_context_lines_calibration_suffix_follows_session_function(tmp_path):
+    root = _seed_repo(tmp_path, events=[_event("calibrated", ts="2026-06-01T00:00:00")])
+    _seed_ladder(root)
+    now = datetime.datetime(2026, 7, 11, 9, 0, 0)
+    lead = sc.build_context_lines(root, now, stdin_payload={"model": "claude-opus-5-5"})
+    arch = sc.build_context_lines(root, now, stdin_payload={"model": "claude-fable-5-2"})
+    assert [l for l in lead if l.startswith("Last calibration")][0].endswith(_LEAD_SUFFIX)
+    assert [l for l in arch if l.startswith("Last calibration")][0].endswith(_ARCH_SUFFIX)
+
+
+@pytest.mark.parametrize("model", ["claude-opus-5-5", "claude-fable-5-2"])
+def test_calibration_suffix_without_architect_binding_never_sends_to_an_architect(tmp_path, model):
+    root = _seed_repo(tmp_path, events=[_event("calibrated", ts="2026-06-01T00:00:00")])
+    _seed_ladder(root, _NO_ARCH_CFG)
+    lines = sc.build_context_lines(root, datetime.datetime(2026, 7, 11, 9, 0, 0), stdin_payload={"model": model})
+    got = [l for l in lines if l.startswith("Last calibration")][0]
+    assert got.endswith(_UNBOUND_SUFFIX) and "Architect" not in got
 
 
 # ==== BOOT BUDGET ==============
@@ -1405,7 +1542,7 @@ def test_main_b3_success_path_includes_model_and_boot_budget(tmp_path, capsys, m
     code = sc.main(root)
     assert code == 0
     out = capsys.readouterr().out.strip().splitlines()
-    assert any(l.startswith("MODEL: claude-sonnet-5 -> tier builder-tier") for l in out)
+    assert any(l.startswith("MODEL: claude-sonnet-5 -> function ") for l in out)
     assert any(l.startswith("BOOT BUDGET:") for l in out)
     assert len(out) <= sc.MAX_LINES
 

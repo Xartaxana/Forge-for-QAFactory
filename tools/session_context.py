@@ -180,7 +180,22 @@ try:
 except Exception:  # noqa: BLE001
     _transcripts = None
 
+# Architect-tier spec stream C: the ONE ladder home (tools/tier_ladder.py, stdlib-only at import). Fail-open
+# like the imports above: no import -> the MODEL line says so and no ARCHITECT/pin line is printed.
+try:
+    import tier_ladder as _tl
+except Exception:  # noqa: BLE001
+    _tl = None
+
 MAX_LINES = 25
+CONFIG_REL = "delegation.config.yaml"
+SETTINGS_REL = ".claude/settings.json"
+ARCHITECT_QUEUE_REL = "docs/tasks/architect-queue.md"
+ARCHITECT_START_REL = "PROCESS/ARCHITECT_START.md"
+CALIBRATION_OVERDUE_DAYS = 7
+# Spec 4.6 words this phrase in Russian; this hook's output is ASCII-only (pinned by tests: a cp1252 stdout and
+# the malicious-payload row), so the ASCII form stands until the coordinator decides (handoff question 1).
+_CALL_ARCHITECT = '"better call the Architect"'
 QUOTA_WINDOW_SECONDS = 86400
 SEGMENTS_LINE_MAX_REASON = 160
 
@@ -214,16 +229,6 @@ _ALWAYS_INCLUDE_BOOT_FILE = "CLAUDE.md"
 CLAUDE_WARN = 47800
 
 _WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
-
-# Tier mapping: substring of the model id (lowercased) -> tier
-# label. Order matters only in that each id is expected to match at
-# most one of these; first match wins.
-_MODEL_TIER_SUBSTRINGS = (
-    ("fable", "Lead(top)"),
-    ("opus", "critic-tier"),
-    ("sonnet", "builder-tier"),
-    ("haiku", "scout-tier"),
-)
 
 # Events that open/close a dispatch's lifecycle. A task_id is OPEN iff
 # its LAST such event is 'delegated'. Events outside this set
@@ -603,15 +608,26 @@ def open_dispatch_lines(events: list, segments=None, *, journal=None, own_label=
     return lines
 
 
-def last_calibration_line(events: list, now: datetime.datetime = None) -> str:
+def last_calibration_line(events: list, now: datetime.datetime = None, function: str = None,
+                         architect_bound: bool = True) -> str:
+    """Spec 20261116 4.6 (M2): older than CALIBRATION_OVERDUE_DAYS full days, or NONE, adds an overdue suffix
+    whose move depends on the session's function. An unparsable ts is not reported as overdue (FR-41). With no
+    architect bound there is no Architect to call: the suffix says to run the calibration."""
     now = now or datetime.datetime.now()
+    if not architect_bound:
+        suffix = " -- overdue: run the calibration (no architect is bound; calibration and mechanism review)"
+    elif function == "architect":
+        suffix = " -- overdue: run the calibration (PROCESS/ARCHITECT_START.md step 6)"
+    else:
+        suffix = " -- overdue: tell the owner " + _CALL_ARCHITECT + " (calibration and mechanism review)"
     cal_events = [e for e in events if e.get("event") == "calibrated"]
     if not cal_events:
-        return "Last calibration: NONE"
+        return "Last calibration: NONE" + suffix
     ts = cal_events[-1].get("ts")
     try:
         days = (now - parse_ts(ts)).days
-        return f"Last calibration: {ts} ({days} days ago)"
+        overdue = suffix if days > CALIBRATION_OVERDUE_DAYS else ""
+        return f"Last calibration: {ts} ({days} days ago){overdue}"
     except (ValueError, TypeError):
         return f"Last calibration: {ts} (age unknown -- unparsable ts)"
 
@@ -995,14 +1011,6 @@ def should_emit_layer_a(source) -> bool:
     return source not in _AUTOBOOT_NO_FIRE_SOURCES
 
 
-def model_tier(model_id: str) -> str:
-    low = model_id.lower()
-    for substr, tier in _MODEL_TIER_SUBSTRINGS:
-        if substr in low:
-            return tier
-    return "unknown"
-
-
 def _ascii_sanitize(s: str, max_len: int = 80) -> str:
     """Fix for the class "an output line built from a NON-hardcoded
     source must stay ASCII/single-line before a non-UTF8 console".
@@ -1017,33 +1025,126 @@ def _ascii_sanitize(s: str, max_len: int = 80) -> str:
     return s[:max_len]
 
 
-def model_line(stdin_payload=None) -> str:
-    """The payload model is the harness's SessionStart
-    DECLARATION, not a measurement -- it can be stale (observed live: a
-    payload named a lower tier than the session actually ran on; the
-    provider-side usage log was the ground truth). A present-but-stale
-    id stated confidently is worse than an absent one, so the line
-    carries the "declared by harness, not measured" marker. An
-    in-hook measured cross-check is NOT implementable at SessionStart
-    time: the session's own first request has not landed in the usage
-    database yet, so the freshest rows there belong to a previous
-    session -- a recorded limitation, not an oversight. The measured
-    verification duty stays where it already lives: the tier-
-    verification-at-entry check (in-session) and the weekly
-    calibration's transcripts-vs-declarations check."""
+def _read_capped(path: Path, cap: int = None):
+    """(text | None, reason | None): a small config/settings file read once, bounded. Absent, oversize,
+    unreadable or undecodable -> (None, "<reason>")."""
+    if cap is None:
+        if _tl is None:  # the cap's one home is tier_ladder (AR-13); without it nothing reads the config anyway
+            return None, "tier_ladder unavailable"
+        cap = _tl.MAX_CONFIG_BYTES
+    try:
+        with open(path, "rb") as f:
+            raw = f.read(cap + 1)
+    except FileNotFoundError:
+        return None, "absent"
+    except OSError as exc:
+        return None, _ascii_sanitize(f"{type(exc).__name__}: {exc}", 120)
+    if len(raw) > cap:
+        return None, "over 64 KB"
+    try:
+        return raw.decode("utf-8-sig"), None
+    except UnicodeDecodeError:
+        return None, "not UTF-8"
+
+
+def _ladder_session(model_id, config_text):
+    """(function | None, note, lead binding, architect binding | None, config_ok) from tier_ladder -- the one road."""
+    function, note = _tl.function_of_session(model_id, config_text)
+    found, _problem = _tl.bindings(config_text)
+    lead = _tl.effective_bindings(config_text)[0].get("lead")
+    return function, note, lead, found.get("architect"), "lead" in found
+
+
+def model_line(stdin_payload=None, config_text=None) -> str:
+    """The payload model is the harness's SessionStart DECLARATION, not a measurement -- it can be stale (observed
+    live: the provider-side usage log was the ground truth), so the line carries the "declared by harness, not
+    measured" marker. Spec 20261116 5.4: the function comes from tools/tier_ladder.py function_of_session (one
+    road, no tuple of its own); an unrecognised model never reads as Lead. An in-hook measured cross-check is NOT
+    implementable at SessionStart time (the session's first request is not in the usage database yet); the measured
+    duty stays with the tier-verification-at-entry check and the weekly calibration."""
     model_id = extract_model_id(stdin_payload)
     if not model_id:
         return "MODEL: not provided by hook input -- verify tier yourself"
     sanitized = _ascii_sanitize(model_id)
     if not sanitized:
-        # whitespace-only (or entirely-stripped) model id: same fallback
-        # as "no model id at all" -- there is nothing left to report.
+        # whitespace-only (or entirely-stripped) model id: nothing left to report.
         return "MODEL: not provided by hook input -- verify tier yourself"
-    tier = model_tier(sanitized)
+    if _tl is None:
+        return (f"MODEL: {sanitized} -> function none (tier_ladder unavailable)"
+                " -- coordinate under the below-lead rules until verified")
+    function, note, lead, architect, config_ok = _ladder_session(sanitized, config_text)
+    if function is None and note == "below builder":
+        what = "below builder"
+    elif function is None:
+        return (f"MODEL: {sanitized} -> function none (matches no binding in delegation.config.yaml)"
+                " -- coordinate under the below-lead rules until verified")
+    elif function == "architect" and note == "no architect binding":
+        what = "above lead (no architect binding)"
+    else:
+        shown = "" if (not config_ok or not note) else f" ({_ascii_sanitize(note, 120)})"
+        what = f"{function}{shown}"
+    tail = "" if config_ok else " (config unreadable: default bindings)"
     return (
-        f"MODEL: {sanitized} -> tier {tier}"
-        " (declared by harness, not measured; Lead tier = fable)"
+        f"MODEL: {sanitized} -> function {what}"
+        f" (declared by harness, not measured; lead = {_ascii_sanitize(lead or 'none')},"
+        f" architect = {_ascii_sanitize(architect) if architect else 'unbound'}){tail}"
     )
+
+
+def session_function(stdin_payload, config_text):
+    """The coordination function of the session's declared model, or None (no model, unrecognised, no ladder)."""
+    model_id = extract_model_id(stdin_payload)
+    if not model_id or _tl is None:
+        return None
+    return _tl.function_of_session(_ascii_sanitize(model_id), config_text)[0]
+
+
+def architect_line(root: Path, stdin_payload, config_text) -> list:
+    """C2 (spec 4.4): the ARCHITECT SESSION line, printed ONLY for a session whose function is architect WITH an
+    architect-or-family binding (the 'above lead, no architect binding' case acts as full Lead and prints none). A
+    non-Architect session pays no boot bytes. Pointer only: PROCESS/ARCHITECT_START.md is never read here."""
+    if _tl is None or session_function(stdin_payload, config_text) != "architect":
+        return []
+    model_id = _ascii_sanitize(extract_model_id(stdin_payload) or "")
+    if _tl.function_of_session(model_id, config_text)[1] == "no architect binding":
+        return []
+    head = f"ARCHITECT SESSION: start with {ARCHITECT_START_REL}; queue {ARCHITECT_QUEUE_REL} "
+    try:
+        text = (Path(root) / ARCHITECT_QUEUE_REL).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return [head + "(queue file absent)"]
+    except (OSError, UnicodeDecodeError) as exc:
+        return [head + f"(queue unreadable: {_ascii_sanitize(f'{type(exc).__name__}: {exc}', 100)})"]
+    n = sum(1 for ln in text.splitlines() if re.match(r"\s*-\s\[ \]", ln))
+    return [head + f"({n} open)"]
+
+
+def settings_pin_lines(root: Path, config_text) -> list:
+    """C3 (spec 5.4, F15 (a)): one WARN line when .claude/settings.json `model` differs (exact string) from the
+    lead binding. Settings absent or without `model`: none; unparsable: an unreadable WARN; config unreadable:
+    none (the MODEL line already says so)."""
+    if _tl is None:
+        return []
+    text, reason = _read_capped(Path(root) / SETTINGS_REL)
+    if text is None:
+        if reason == "absent":
+            return []
+        return [f"WARN: {SETTINGS_REL} unreadable ({reason})"]
+    try:
+        data = json.loads(text)
+    except (ValueError, RecursionError) as exc:
+        return [f"WARN: {SETTINGS_REL} unreadable ({_ascii_sanitize(f'{type(exc).__name__}: {exc}', 100)})"]
+    if not isinstance(data, dict):
+        return [f"WARN: {SETTINGS_REL} unreadable (top level is not an object)"]
+    pinned = data.get("model")
+    if not isinstance(pinned, str) or not pinned:
+        return []
+    found, _problem = _tl.bindings(config_text)
+    lead = found.get("lead")
+    if not lead or pinned == lead:
+        return []
+    return [f"WARN: {SETTINGS_REL} model {_ascii_sanitize(pinned)} != lead binding {_ascii_sanitize(lead)}"
+            f" -- new sessions open on {_ascii_sanitize(pinned)}; align one of them"]
 
 
 # ---------------------------------------------------------------------------
@@ -2189,7 +2290,10 @@ def build_context_lines(
     if bad_rows and not switched:
         read_journal_events(root)     # before the switch: today's loud reading (the whole context is discarded)
 
-    lines = [now_line(now), model_line(stdin_payload)]
+    config_text, _config_reason = _read_capped(root / CONFIG_REL)
+    lines = [now_line(now), model_line(stdin_payload, config_text)]
+    lines.extend(architect_line(root, stdin_payload, config_text))   # C2: right after MODEL, survives the cut
+    lines.extend(settings_pin_lines(root, config_text))              # C3: before the rest, survives the cut
     if cur_rel is None:
         # after the switch with no usable slug: say so, and show the newest line of ANY file
         lines.append(f"JOURNAL: no developer slug ({_ascii_sanitize(str(cur_reason), SEGMENTS_LINE_MAX_REASON)})")
@@ -2225,7 +2329,8 @@ def build_context_lines(
         shown = "; ".join(problems[:3]) + (f"; and {len(problems) - 3} more" if len(problems) > 3 else "")
         lines.append(f"JOURNAL FILES: {_ascii_sanitize(shown, 240)}")
 
-    lines.append(last_calibration_line(events, now))
+    architect_bound = _tl is None or _tl.architect_binding(config_text) is not None
+    lines.append(last_calibration_line(events, now, session_function(stdin_payload, config_text), architect_bound))
     lines.extend(test_quarantine_line(root))
     lines.extend(quota_lines(gateway_root, now))
     lines.extend(boot_budget_lines(root))
