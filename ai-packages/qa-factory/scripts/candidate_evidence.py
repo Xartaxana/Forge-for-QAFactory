@@ -2,9 +2,13 @@
 from pathlib import Path
 import re
 
+import contract
+
 
 KINDS = {"test", "suite", "helper"}
-EXECUTION_BOUNDARIES = {"unit", "component", "integration", "api", "e2e-ui", "unknown"}
+# The automated levels are read from their one owner (FR-13, AR-13). `unknown` is the declared "not stated" outcome (AR-23).
+# Manual levels do not apply: a candidate is an existing test FILE, and a manual level has no test file.
+EXECUTION_BOUNDARIES = set(contract.PLAN_LEVELS) | {"unknown"}
 _REF = re.compile(r"^(?P<path>.+):(?P<line>[1-9][0-9]*)(?:-(?P<end>[1-9][0-9]*))?(?:#(?P<symbol>.+))?$")
 
 
