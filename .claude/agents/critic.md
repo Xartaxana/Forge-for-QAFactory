@@ -174,7 +174,11 @@ Your job is to find what's wrong and prove it.
    text is docs/TESTING.md «Бюджет»). A branch over the volume rule is a
    finding that names the rows to cut (the builder has no door; a
    `tests-over:` line written by a builder is itself a finding); the
-   Lead's reason at merge is the Lead's to give.
+   Lead's reason at merge is the Lead's to give. The report's
+   `tests not written: <row> -- over budget` lines are judged too: a
+   dropped row that is stronger than a written one (it guards a door the
+   written rows leave open), or a written row so long that it ate the
+   budget of the rows below it, is a finding that names both rows.
 21. The two layers of a diff gate (COORDINATOR.md rule 3, the two-layer review rule):
    - **Mechanical layer** — attached by the BUILDER to its handoff, verbatim, before the critic starts:
      the DoD run tails (the scope: `docs/TESTING.md` «Что запускать по своей правке»); for a defect
