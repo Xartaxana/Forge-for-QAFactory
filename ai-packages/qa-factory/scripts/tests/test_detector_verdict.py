@@ -1292,6 +1292,256 @@ T1RS_OLD: dict = {
 }
 
 
+# told-before-work T6: the sha256[:16] of the text the OLD `handoff_check.py` printed for each provocation of `tbw_t6_sites` (captured from a
+# byte copy of the file before the siting edit; a path is `<ROOT>` / `<PKG>`, a backslash folded to `/`)
+T6_OLD = {
+    'field.blank / fresh form, header.verdict': '316827b3057015e3',
+    'required_rows / fresh form, scope': '89b508a97cf4a629',
+    'field.value / closed list, bogus word': 'd32e1ba7378d22c4',
+    'required_rows.owed_by_verdict / concerns owes findings': '5ee8a34a35a0d267',
+    'findings_tooling / tooling finding not repeated': '96a349b9717df61b',
+    'field.value / open list, `new:` without a reason': '515f115e87617c95',
+    'tried / fresh S2 form': '7c483d84567c9e2b',
+    'blocked_problem / a blocked row, blocked.problem empty': 'f400591efd3c5ffe',
+    'field.max_len / a reason of 90': 'ed605c3ddb7dbd95',
+    'field.value / row state bogus': '39ad2113f0644a71',
+    'required_rows.null_word / window none beside a row': 'a626be7fa8e21883',
+    'null_outcome.repairs / a TEST_BUG row': '6d2894cb59a86b27',
+    'null_outcome.verdict / a verdict nobody knows': 'e7b372af87a70593',
+    'null_outcome.names / a row with no instance': 'f1487fcc2ad932d8',
+    'null_outcome.report / no run report': 'db8dca98c5281d69',
+    'null_outcome.failures / no row, report shows a failure': 'e666b5d0d1cd3646',
+    'null_outcome.failures / a failure with no row among rows': '2ad69ca10eb73b89',
+    'null_outcome.listing / a triage row not listed': '10e29ffe4e6996aa',
+    'null_outcome.listing / an id listed nobody triaged': '24187593815ecf5b',
+    'binding / non-empty scope, a row names two failures': '9d45df4f31d94fda',
+    'null_outcome.failures / empty scope, ambiguous rows': 'a53a53319ae4f9b4',
+    'investigation / scope not empty': 'd4cebebd1e33db83',
+    'investigation / scope not a list': '60a051ac25c00d9d',
+    'claims / _check_claims, claimed true and false on disk': 'f8877a8cc91074c8',
+    'claims / _fill_claims, measured false': '6520dad9c12aba69',
+    'claims / _fill_claims, could not measure': '45ff1775d2712a4f',
+    'values_file / not a path line': '4c23b82a7490e15f',
+    'values_file / invalid JSON': '4ad5c2ad421e626f',
+    'values_file / a JSON list': '7975cb1ac3302610',
+    'values_file / given twice': 'd9eb0d09f0dcf663',
+    'values_file / nested': 'c77f5585660c7737',
+    'values_apply / not a field': 'fba9f456f57e9c98',
+    "values_apply / a list row's end": '24433d1e66ce75ad',
+    'values_apply / contract-owned': '35e23da64af5a868',
+    'values_apply / a list for one value': 'df9202230c7ab8f0',
+    'values_apply / a row out of order': '33e64f8d9396afba',
+    'values_apply / _text_of, not UTF-8': '2ce7a1b828bfb5c5',
+    'cli / --shorten without --fix': '5fa94ae13215a545',
+    'cli / no such file': '74a692e1910cc058',
+    'cli / not UTF-8': '1264eb6f8686bff7',
+    'cli / no contract line': 'ba75c5b63e193591',
+    'cli / unknown contract': '6d1b6caab72bfc8d',
+    'cli / no such values file': '8eda50354c04ec33',
+}
+
+
+def tbw_t6_sites() -> None:
+    """told-before-work T6: every refusal of `handoff_check.py` that maps to one of the 21 rows is `refusal("handoff_check:<id>", <text>)`
+    and its text is the one it always was. ONE table, a row per (id, provocation): the problem builder is called in-process (`check`,
+    `parse_values`, `apply_values`, `_text_of`, `_fill_claims`, `_check_claims`, `main`), the text hashes to the OLD file's text (`T6_OLD`),
+    the Problem's text is a Record with `check == <id>` and the row's sentence as `expected` (the `cli` prints are bare text: the last
+    stdout line is the reason a caller reads), and the scanner reads exactly the 21 ids in `handoff_check.py`. `refusal_text`, `--json` and
+    the exit codes are not touched (K11 and K12 of test_handoff_values_main_block pin them)."""
+    import contextlib
+    import hashlib
+    import io
+    import handoff
+    import handoff_check as H
+    import handoff_init
+    import refusal_registry
+    import stage_joints as SJ
+    s7c, s5c, s2c, ticket = "s7-analyst-to-automator", "s5-critic-to-automator", "s2-tester-to-strategist", "QA-9"
+    tmp = Path(tempfile.mkdtemp(prefix="t6-"))
+    got, saved_argv = {}, sys.argv
+
+    def head(contract, role, stage, disp):
+        text = (handoff.CONTRACTS / f"{contract}.yaml").read_text(encoding="utf-8")
+        return handoff_init.fill_head(text, task=ticket, dispatch=disp, role=role, stage=stage, scope="")
+
+    def section(text, name, body):
+        return re.sub(r"(?ms)^" + re.escape(name) + r":.*?(?=^\S)", body.rstrip("\n") + "\n\n", text, count=1)
+
+    def s7_form(scope=(), nfr=(), window="none", reason="the test waits for a race"):
+        doc = handoff.parse(head(s7c, "qa-failure-analyst", "S7", "S7-qa-failure-analyst-1"))
+        for path, value in (("inputs_read[0].version", "v1"), ("inputs_read[0].failures", 7), ("inputs_read[1].path", "work/triage.json"),
+                            ("inputs_read[1].version", "v2"), ("header.verdict", "concerns"), ("header.window", window),
+                            ("claims.every_repair_names_evidence_expected_and_check", True),
+                            ("claims.no_app_bug_expectation_was_handed_for_repair", True),
+                            ("claims.every_flaky_verdict_carries_three_isolated_reruns_and_a_mechanism", True)):
+            handoff.set_value(doc, path, value)
+            doc = handoff.parse(doc.text())
+        rows = ["scope:"] + [x for i, st in scope for x in (f"  - id: {i}", f"    state: {st}", f"    reason: {reason}",
+                                                           f"    case: {ticket}_TC_001", "    round: 1 of 2")]
+        text = section(doc.text(), "scope", "\n".join(rows) if scope else "scope: []")
+        text = section(section(text, "repairs", "repairs: []"), "unresolved", "unresolved: []")
+        kept = ["not_for_repair:"] + [x for i, v in nfr for x in (f"  - id: {i}", f"    verdict: {v}", "    where_it_went: x/y.json")]
+        return section(text, "not_for_repair", "\n".join(kept) if nfr else "not_for_repair: []")
+
+    def task(triage, report="clean"):
+        root = Path(tempfile.mkdtemp(prefix="t6w-", dir=tmp))
+        (root / "work").mkdir()
+        if triage is not None:
+            (root / "work" / "triage.json").write_text(json.dumps({"triage": triage}), encoding="utf-8")
+        if report == "clean":
+            report = {"execution_status": "passed", "current_results": [], "current_totals": {"passed": 1}, "current_manual_checks": []}
+        if report is not None:
+            (root / "work" / "run-report.json").write_text(json.dumps(report), encoding="utf-8")
+        return root
+
+    def row(i, verdict):
+        return {"test": "tests/t.py::" + i, "instance_id": i, "verdict": verdict, "evidence": "e.json", "attempt_id": "a1"}
+
+    def problems(text, contract, root, dispatch="S7-qa-failure-analyst-1"):
+        return H.check(handoff.parse(text), contract, H.Artifacts(root, dispatch=dispatch), use_judge=False)[2]
+
+    def add(key, source, path=None, kind=None, has=None):
+        if isinstance(source, list):
+            source = next((p for p in source if path in (None, p.path) and kind in (None, p.kind) and (has or "") in str(p.text)), None)
+            check(f"tbw-t6 {key}: the provocation raised its problem", source is not None)
+            if source is None:
+                return
+        got[key] = (str(getattr(source, "text", source)), getattr(source, "text", source), isinstance(source, str))
+
+    def with_triage(rows, report="clean", form=None):
+        names = [(r.get("instance_id"), r["verdict"] if r["verdict"] in ("APP_BUG", "ENV_ISSUE") else "ENV_ISSUE")
+                 for r in rows if r.get("instance_id")]
+        return problems(form or s7_form(nfr=names), s7c, task(rows, report))
+
+    def edited(text, contract, root, dispatch, **sets):
+        doc = handoff.parse(text)
+        for path, value in sets.items():
+            handoff.set_value(doc, re.sub(r"__(\d+)__", r"[\1].", path).replace("__", "."), value)
+            doc = handoff.parse(doc.text())
+        return problems(doc.text(), contract, root, dispatch)
+
+    def digest(text):
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+    failing = {"execution_status": "failed", "current_manual_checks": [], "current_totals": {"failed": 1},
+               "current_results": [{"instance_id": "z[1]", "status": "failed"}]}
+    ambiguous = {"execution_status": "failed", "current_manual_checks": [], "current_totals": {"failed": 2},
+                 "current_results": [{"instance_id": "s[json]", "status": "failed"}, {"instance_id": "s[multi]", "status": "failed"}]}
+    try:
+        s5, s2 = head(s5c, "qa-code-critic", "S5", "S5-qa-code-critic-1"), head(s2c, "qa-requirements-tester", "S2", "S2-qa-requirements-tester-1")
+        t5, t7, s5d, s2d = task(None, report=None), task([]), "S5-qa-code-critic-1", "S2-qa-requirements-tester-1"
+        fresh5 = problems(s5, s5c, t5, s5d)
+        add("field.blank / fresh form, header.verdict", fresh5, "header.verdict", "blank")
+        add("required_rows / fresh form, scope", fresh5, "scope")
+        add("field.value / closed list, bogus word", edited(s5, s5c, t5, s5d, header__verdict="bogus"), "header.verdict")
+        add("required_rows.owed_by_verdict / concerns owes findings", edited(s5, s5c, t5, s5d, header__verdict="concerns"), "findings")
+        add("findings_tooling / tooling finding not repeated",
+            edited(s5, s5c, t5, s5d, findings__0__id="F-1", findings__0__cause="tooling"), "findings[0].cause")
+        add("field.value / open list, `new:` without a reason", edited(s2, s2c, t5, s2d, header__verdict="new: x"), "header.verdict")
+        add("tried / fresh S2 form", problems(s2, s2c, t5, s2d), "tried")
+        add("blocked_problem / a blocked row, blocked.problem empty", edited(s2, s2c, t5, s2d, scope__0__state="blocked"), "scope[0].state")
+        add("field.max_len / a reason of 90", problems(s7_form(scope=[("a[1]", "red")], window=ticket, reason="x" * 90), s7c, t7), "scope[0].reason")
+        add("field.value / row state bogus", problems(s7_form(scope=[("a[1]", "bogus")], window=ticket), s7c, t7), "scope[0].state")
+        add("required_rows.null_word / window none beside a row", problems(s7_form(scope=[("a[1]", "red")]), s7c, t7), "header.window")
+        add("null_outcome.repairs / a TEST_BUG row", with_triage([row("a[1]", "TEST_BUG")]), "scope")
+        add("null_outcome.verdict / a verdict nobody knows", with_triage([row("a[1]", "WHATEVER")]), "scope")
+        add("null_outcome.names / a row with no instance", with_triage([{"verdict": "ENV_ISSUE"}]), "scope")
+        add("null_outcome.report / no run report", with_triage([row("a[1]", "ENV_ISSUE")], report=None), "scope")
+        add("null_outcome.failures / no row, report shows a failure", with_triage([], failing, s7_form()), "scope")
+        add("null_outcome.failures / a failure with no row among rows", with_triage([row("a[1]", "ENV_ISSUE")], failing), "scope")
+        add("null_outcome.failures / empty scope, ambiguous rows", with_triage([row("s", "TEST_BUG")], ambiguous, s7_form(nfr=[("s", "ENV_ISSUE")])),
+            "scope", has="so a failure has no verdict")
+        pair = [row("a[1]", "ENV_ISSUE"), row("b[1]", "ENV_ISSUE")]
+        add("null_outcome.listing / a triage row not listed", with_triage(pair, form=s7_form(nfr=[("a[1]", "ENV_ISSUE")])), "not_for_repair")
+        add("null_outcome.listing / an id listed nobody triaged",
+            with_triage(pair, form=s7_form(nfr=[("a[1]", "ENV_ISSUE"), ("b[1]", "ENV_ISSUE"), ("ghost[1]", "ENV_ISSUE")])), "not_for_repair")
+        add("binding / non-empty scope, a row names two failures",
+            with_triage([row("s", "TEST_BUG")], ambiguous, s7_form(scope=[("s[json]", "red")], window=ticket)), "scope")
+        entry = handoff.null_outcomes(s7c)["scope"]
+        loaded = handoff.parse(s7_form(scope=[("a[1]", "red")], window=ticket))
+        add("investigation / scope not empty", H._investigation_view(loaded, "scope", entry, s7c, H.Artifacts(t7))[0], "scope")
+        loaded = handoff.parse(s7_form())
+        loaded.data["scope"] = "x"
+        add("investigation / scope not a list", H._investigation_view(loaded, "scope", entry, s7c, H.Artifacts(t7))[0], "scope")
+        kept_claims = dict(H.CLAIMS)
+        H.CLAIMS["t6_false"], H.CLAIMS["t6_none"] = (lambda art: (False, "the table is not on disk")), (lambda art: (None, "no way to measure"))
+        try:
+            add("claims / _check_claims, claimed true and false on disk",
+                H._check_claims(handoff.parse("claims:\n  t6_false: true\n"), H.Artifacts(t7)), "claims.t6_false")
+            filled = H._fill_claims(handoff.parse("claims:\n  t6_false: <true|false>\n  t6_none: <true|false>\n"), H.Artifacts(t7))[3]
+            add("claims / _fill_claims, measured false", filled, "claims.t6_false")
+            add("claims / _fill_claims, could not measure", filled, "claims.t6_none")
+        finally:
+            H.CLAIMS.clear()
+            H.CLAIMS.update(kept_claims)
+        for label, text in (("not a path line", "just words\n"), ("invalid JSON", "{nope"), ("a JSON list", "[1]"),
+                            ("given twice", "a.b: 1\na.b: 2\n"), ("nested", "scope: {a: 1}\n")):
+            add(f"values_file / {label}", H.parse_values(text, "v.yaml", contract=s5c)[1])
+        for label, one in (("not a field", ("nosuch.field", "x", 1, "")), ("a list row's end", ("scope[0]", "x", 1, "")),
+                           ("contract-owned", ("contract", "x", 1, "")), ("a list for one value", ("header.verdict", ["a"], 1, "")),
+                           ("a row out of order", ("scope[7].id", "x", 1, ""))):
+            add(f"values_apply / {label}", H.apply_values(handoff.parse(s5), s5c, [one])[2])
+        add("values_apply / _text_of, not UTF-8", H._text_of("v.yaml", lambda: b"\xff\xfe\x00bad\x80")[1])
+
+        def folded(text):
+            text = text.replace(str(SCRIPTS.parent), "<PKG>").replace(SCRIPTS.parent.as_posix(), "<PKG>")
+            text = text.replace(str(tmp), "<ROOT>").replace(tmp.as_posix(), "<ROOT>")
+            return re.sub(r"<(ROOT|PKG)>\S*", lambda m: m.group(0).replace("\\", "/"), text)
+        good = tmp / "work" / "handoffs" / "S5-qa-code-critic-1.yaml"
+        good.parent.mkdir(parents=True)
+        good.write_text(s5, encoding="utf-8")
+        for name, content in (("bad8.yaml", b"contract: x\n\xff\n"), ("nc.yaml", b"a: 1\n"), ("unk.yaml", b"contract: no-such-contract\n")):
+            (tmp / name).write_bytes(content)
+        for label, argv in (("--shorten without --fix", ("--file", str(good), "--shorten")), ("no such file", ("--file", str(tmp / "none.yaml"))),
+                            ("not UTF-8", ("--file", str(tmp / "bad8.yaml"))), ("no contract line", ("--file", str(tmp / "nc.yaml"))),
+                            ("unknown contract", ("--file", str(tmp / "unk.yaml"))),
+                            ("no such values file", ("--file", str(good), "--values", str(tmp / "nv.yaml"), "--task-root", str(tmp)))):
+            buf = io.StringIO()
+            sys.argv = ["handoff_check.py", *argv]
+            try:
+                with contextlib.redirect_stdout(buf):
+                    code = H.main()
+            finally:
+                sys.argv = saved_argv
+            check_eq(f"tbw-t6 cli / {label}: exit 2", code, 2)
+            add(f"cli / {label}", folded(buf.getvalue().strip()))
+        for key, (text, record, bare) in got.items():
+            rid = "handoff_check:" + key.split(" / ")[0]
+            if digest(text) != T6_OLD.get(key):
+                print(f"T6 {key}: the text is now\n{text}")
+            check_eq(f"tbw-t6 {key}: the text is the old file's, byte for byte", digest(text), T6_OLD.get(key))
+            if not bare:
+                check_eq(f"tbw-t6 {key}: the Record carries the id and the row's sentence",
+                         (getattr(record, "check", ""), getattr(record, "expected", "")), (rid, SJ.told_text(SJ.row_for(rid)[0])[0]))
+        check_eq("tbw-t6 every provocation has an old text", sorted(set(T6_OLD) - set(got)), [])
+        # one Record per problem, in order (EC-5): a fresh critic form says one `required_rows` and seven blank fields
+        check_eq("tbw-t6 several problems: one Record per problem, in order", [getattr(p.text, "check", "") for p in fresh5],
+                 ["handoff_check:required_rows"] + ["handoff_check:field.blank"] * 7)
+        check_eq("tbw-t6 no problem: a clean triage and an empty scope say nothing of the null outcome",
+                 [p.path for p in problems(s7_form(), s7c, t7) if p.path in ("scope", "not_for_repair")], [])
+        # an unreadable row: the text is unchanged, the sentence says the factory could not read it (EC-4, FR-59)
+        real_row_for = SJ.row_for
+        SJ.row_for = lambda check_id, data=None: (None, "x")
+        try:
+            mark = next(p for p in problems(s2, s2c, t5, s2d) if p.path == "tried")
+        finally:
+            SJ.row_for = real_row_for
+        check_eq("tbw-t6 unreadable row: the text is unchanged, the sentence says so",
+                 (digest(str(mark.text)), "could not be read" in getattr(mark.text, "expected", "")), (T6_OLD["tried / fresh S2 form"], True))
+        # the scanner: the 21 ids of the rows are the literals of `handoff_check.py`, and no other id is there (E1)
+        names = ["handoff_check.py"]
+        records = refusal_registry.sites(SCRIPTS.parent, names, raises=refusal_registry.raise_family(SCRIPTS.parent, names, wide=True))
+        wanted = sorted("handoff_check:" + i for i in (
+            "field.blank field.value field.max_len required_rows required_rows.owed_by_verdict required_rows.null_word tried blocked_problem "
+            "findings_tooling claims null_outcome.repairs null_outcome.verdict null_outcome.names null_outcome.report null_outcome.failures "
+            "null_outcome.listing values_file values_apply cli binding investigation").split())
+        check_eq("tbw-t6 the scanner reads the 21 ids as literals of handoff_check.py",
+                 sorted({r["check"] for r in records if r.get("check")}), wanted)
+    finally:
+        sys.argv = saved_argv
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main() -> None:
     unreadable_cases()
     one_of_cases()
@@ -1310,6 +1560,7 @@ def main() -> None:
     contract_static()
     contract_run()
     t1rs_sites()
+    tbw_t6_sites()
     finish("test_detector_verdict")
 
 
