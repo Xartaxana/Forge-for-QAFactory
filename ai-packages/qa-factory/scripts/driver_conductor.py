@@ -32,7 +32,7 @@ NO_MOVE_WORDS_IN_PROMPT = 6000
 # It is not a decision and never records anything: the words the conductor writes are the
 # person's own, verbatim (J6, and the boundary plan section 10.6 draws).
 PRE_FILLED = ("\n\n## The option the judge reads in their words (confirm it against the words "
-              "above; it decides nothing and records nothing)\n")
+              "under \"The person's words\"; it decides nothing and records nothing)\n")
 
 PATH_RE = re.compile(r"(?<![\w/])((?:[A-Za-z]:)?[\w./\\-]+\.(?:md|json|jsonl|py|txt|log|xml|toml|ini|cfg|env))\b")
 
@@ -265,6 +265,8 @@ class DriverConductor:
         catches; an answer with no JSON line is `{"action": "_unreadable"}`, never the model's raw end shown as a question.
         `words_file`: the task-root-relative file that holds `words` whole (the caller names it; nothing is inferred from the
         text); with none, the driver writes one."""
+        keep = getattr(self, "conductor_head", "")      # FV2-94: read and cleared on EVERY call, before any early return - it never outlives its call
+        self.conductor_head = ""
         key = self.boundary
         count = self.conductor_calls.get(key, 0)
         if count >= CONDUCTOR_CALLS_PER_BOUNDARY:
@@ -312,12 +314,17 @@ class DriverConductor:
         words_note = ([f"The person's words are in {words_path}; pass them as --words-file {words_path}. That is the file of "
                        "the answer you are reading now. For a `rework`, never pass a file that holds only a token."]
                       if words and words_path else [])    # a call with no words (why=chosen) names its file in its own note
+        # The refusal is cut at 6000 characters; the leading part the composer set in `conductor_head` (the gate's prices, the person's choice and, on the retry, the refused
+        # options; FV2-94) is
+        # never cut - when it is longer than the cap the factory's words get what is left, which may be nothing.
+        cut_text = refusal.strip()
+        cap = max(6000, len(keep)) if keep and cut_text.startswith(keep) else 6000
         prompt = "\n".join([
             f"Task: {self.task}. Project root: {self.project}. Plugin root: {self.plugin}.",
             f"Task root: {self.task_root}. Boundary: {self.boundary}. Model: {self.model}.",
             f"Stand remedy: {self.stand_remedy()}.",
             f"Driver flags: branch suffix `{self.flags.branch_suffix or ''}`.",
-            "", "## The refusal", refusal.strip()[:6000], "", "## `story_step.py where`", where.strip()[:2000],
+            "", "## The refusal", cut_text[:cap], "", "## `story_step.py where`", where.strip()[:2000],
             "", "## The person's words" if words else "",
             (words.strip()[:NO_MOVE_WORDS_IN_PROMPT]
              + (f"\n(cut; the whole answer is in {words_path})" if len(words.strip()) > NO_MOVE_WORDS_IN_PROMPT else "")) if words else "",
@@ -674,7 +681,11 @@ class DriverConductor:
                 self.no_move_defect(rule, ref=str(state.get("dispatch") or ""))
             state = dict(state, args_refused=1)
             try:
-                verdict = self._ask_conductor(text + "\n\n## Your options were refused\n" + rule + "\n" + NM.rework_args_list(facts), state)
+                details = str(state.get("text") or "")
+                lead_part = text[:len(text) - len(details) - 2]      # head of `_conductor_text`; the refused section joins what the cut keeps (F1)
+                refused = "\n\n## Your options were refused\n" + rule + "\n" + NM.rework_args_list(facts)
+                self.conductor_head = (lead_part + refused).strip()
+                verdict = self._ask_conductor(lead_part + refused + "\n\n" + details, state)
             except ConductorSpent:
                 raise self.fallback_person(state, rule, conductor_text=refused_text) from None
         dropped = [str(o["token"]) for o in options if o.get("args_dropped")]
@@ -689,10 +700,15 @@ class DriverConductor:
         found, not on the details file alone - then the moves open here, the factory's words, the gate's priced options, and for a
         token the person chose the paragraph of their choice."""
         lead = str(state.get("lead") or "").strip()
-        text = (lead + "\n\n" if lead else "") + NM.moves_section(NM.data(), open_ids, facts, site) + "\n\n" + str(state.get("text") or "")
-        if facts.get("gate"):
-            text += "\n\n" + self.gate_prices(str(facts["gate"]), open_ids, facts, has_words=bool(state.get("words_file")))
-        return text + ("\n\n## The person's choice\n" + self.chosen_note(state, open_ids) if chosen else "")
+        head = (lead + "\n\n" if lead else "") + NM.moves_section(NM.data(), open_ids, facts, site)
+        plain = head
+        if facts.get("gate"):                           # FV2-94 (FR-8, FR-9, AR-24): the prices and the person's choice come BEFORE the
+            head += "\n\n" + self.gate_prices(str(facts["gate"]), open_ids, facts, has_words=bool(state.get("words_file")))
+        if chosen:                                      # factory's words, so the refusal's cut in `conductor` can only take their tail
+            head += "\n\n## The person's choice\n" + self.chosen_note(state, open_ids)
+        # What the cut in `conductor` must not touch: everything up to the last of them; none of them -> "" and the cut is as before.
+        self.conductor_head = head.strip() if head != plain else ""
+        return head + "\n\n" + str(state.get("text") or "")
 
     def _verdict_rule(self, verdict: dict, facts: dict, open_ids: list, site, chosen: bool, chosen_move: str) -> tuple:
         """`(options, rule, again)` of one conductor answer: `rule` is why it is unusable ("" when it is usable); `again` - the conductor
@@ -878,19 +894,21 @@ class DriverConductor:
         return self.no_move(state, moves)
 
     @staticmethod
-    def generic_prompt(kind: str, stage: str, qtext: str, items_text: str = "") -> str:
+    def generic_prompt(kind: str, stage: str, qtext: str, items_text: str = "", notes: str = "") -> str:
         """The conductor's prompt for an answer of kind `kind` that no branch of `take_answer` read.
 
         `items_text` (RH1-6): a gate's APPROVAL that the controller refused over open items - the prompt then says the approval was heard
-        and kept (`open_items_text`), not "words that are not the approval word" (which would be a lie about whose refusal it is)."""
+        and kept (`open_items_text`), not "words that are not the approval word" (which would be a lie about whose refusal it is).
+        `notes` (FV2-94, F2): what the caller adds to this call only (the stand-gap note, the told-once lines note, the judge's reading); it
+        stands BEFORE the question, so the refusal's cut in `conductor` can take only the question's tail. "" - the prompt is as it was."""
         if kind in GATE_KINDS and items_text:
-            return items_text + " " + MOVES_RULE + " " + OWN_TOKEN_RULE + " " + GATE_RULE + "\n\n## The question\n" + qtext[:8000]
+            return items_text + " " + MOVES_RULE + " " + OWN_TOKEN_RULE + " " + GATE_RULE + notes + "\n\n## The question\n" + qtext[:8000]
         if kind in GATE_KINDS:
             # C1-4b: a gate answer that is not the approval word. The conductor PROPOSES and never records the gate decision (I6);
             # the options it may offer carry the moves of the gate (`approve` / `rework` / `retry`), each executed by the driver.
             return (f"The person answered the driver's question of kind `{kind}` at {stage} with words that are not the approval "
                     "word of the gate, so nothing is recorded as approved. " + MOVES_RULE + " " + OWN_TOKEN_RULE + " " + GATE_RULE
-                    + "\n\n## The question\n" + qtext[:8000])
+                    + notes + "\n\n## The question\n" + qtext[:8000])
         return (f"The person answered the driver's question of kind `{kind}` at {stage}. Record "
                 "their words with the factory's own commands (waiver.py --block/--remark for items, "
                 "stage_done --set for "
@@ -898,7 +916,7 @@ class DriverConductor:
                 "block stands lifted and the loop continues. "
                 # Every kind that lands here may be answered with a token of the conductor's own options (C1).
                 + MOVES_RULE + " " + OWN_TOKEN_RULE
-                + "\n\n## The question\n" + qtext[:8000])
+                + notes + "\n\n## The question\n" + qtext[:8000])
 
     def funnel(self, state: dict) -> int:
         """The run()-level handler of the seam: `call=False` (no paid call, `no_move` always raises) unless the state carries the

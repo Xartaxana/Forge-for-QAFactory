@@ -4100,7 +4100,7 @@ class DriverMachine:
         if lines_note and not items_text:
             items_text = "The person said the gate's approval word; it is kept, and nothing is recorded yet."
         self.unread(kind, stage, dispatch,
-                    self.generic_prompt(kind, stage, qtext, items_text) + stand_note + lines_note + (PRE_FILLED + read if read else ""),
+                    self.generic_prompt(kind, stage, qtext, items_text, stand_note + lines_note + (PRE_FILLED + read if read else "")),
                     words=words)
 
     def _file_words(self, kind: str, dispatch: str, asked: dict, words: str, qtext: str, seam_token: bool) -> None:

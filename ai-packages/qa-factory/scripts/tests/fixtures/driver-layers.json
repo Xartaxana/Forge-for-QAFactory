@@ -1092,6 +1092,7 @@
   {"name": "_budget_unknown", "owner": "driver_dispatch", "set_in_init": false, "note": "C1-5b1: ad hoc, read through getattr with a default: the windows whose unreadable budget was already filed in this process"},
   {"name": "recomputed_word", "owner": "driver_stage_s8s9", "set_in_init": false, "note": "t-305 N8: written in `Driver.after_gate_B`, read through getattr with a default in `Driver.delivery` - both stages, the lowest module that touches it"},
   {"name": "_s0_passed", "owner": "driver_s0", "set_in_init": false, "note": "ad hoc: absent from __init__"},
+  {"name": "conductor_head", "owner": "driver_conductor", "set_in_init": false, "note": "FV2-94: the head of the last conductor text (prices and the person's choice) that the refusal's cut must not touch; written in `_conductor_text`, read with getattr default in `conductor`"},
   {"name": "answer_kind", "owner": "driver_core", "set_in_init": true},
   {"name": "_s5_view", "owner": "driver_runner", "set_in_init": false, "note": "TR3-6: the scheduler's view of the S5 windows while it runs; read with getattr default, None otherwise"},
   {"name": "_launched", "owner": "driver_chains", "set_in_init": false, "note": "TR3-6: dispatches the chains registered; read with getattr default"},
