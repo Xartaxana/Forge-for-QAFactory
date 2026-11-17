@@ -97,6 +97,15 @@
       "sed": ["(?:^|[;{}\\n])\\s*(?:(?:\\d+|\\$|/[^/\\n]*/)(?:,(?:\\d+|\\$|\\+\\d+|/[^/\\n]*/))?\\s*!?\\s*)?e\\s+\\S"]
     }
   },
+  "reader_heads": {
+    "about": "The heads of read commands, two lists that stay two lists (FR-13, AR-1). `role_read`: the one plain read a role without Bash may make (host_adapter.py `READ_HEADS`; matched as written, case-sensitive, then a blank or the end). `runner_mention`: the heads whose command only MENTIONS run_suite.py instead of launching it (stage_guard.py `READER_COMMANDS`; matched lower-case, one `.exe` suffix off). A row is one bare word: a letter, then letters, digits, `_` or `-`; a path, a suffix, a space or a glob is skipped, and so is a program that runs other programs or code (python, bash, pwsh, node ... `host_adapter.WRITER_HEADS`). The code keeps today's lists as a floor that is always part of the heads: an absent or unreadable table leaves exactly the floor, never any head.",
+    "role_read": ["rg", "cat", "ls", "pwd", "Get-Content", "Get-ChildItem", "Select-String"],
+    "runner_mention": [
+      "grep", "rg", "find", "ls", "cat", "head", "tail", "sed", "awk", "wc", "stat", "file",
+      "less", "more", "type", "cp", "mv", "diff", "which", "dirname", "basename", "echo",
+      "md5sum", "sha256sum", "select-string", "get-content", "get-childitem"
+    ]
+  },
   "causes": [
     {
       "id": "executable_not_found",

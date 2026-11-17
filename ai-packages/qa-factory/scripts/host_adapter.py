@@ -449,7 +449,47 @@ def _carries_no_command(event):
     return not str((tool_input if isinstance(tool_input, dict) else {}).get("command") or "").strip()
 
 
-_READ_HEAD = re.compile(r"(?:rg|cat|ls|pwd|Get-Content|Get-ChildItem|Select-String)(?:\s|$)")
+# The read heads are closed variety (FR-13, AR-1): launch-causes.json `reader_heads`, two tables that stay two lists -
+# `role_read` (the one plain read a role without Bash may make; here) and `runner_mention` (the heads the runner guard
+# lets MENTION run_suite.py; stage_guard.READER_COMMANDS). The IN-CODE FLOOR below is today's list and is always part of
+# the effective heads: an absent, unreadable or malformed table leaves exactly the floor, never "any head" (FR-59). A row
+# adds a head only when it is one bare word (a letter, then letters, digits, `_` or `-`: no path, no `.exe`, no space,
+# no glob) that is no program running other programs or code (`WRITER_HEADS`, compared lower-case); the floor and the
+# deny list win over the table.
+_READ_HEAD_FLOOR = ("rg", "cat", "ls", "pwd", "Get-Content", "Get-ChildItem", "Select-String")
+WRITER_HEADS = frozenset((
+    "python", "python3", "pythonw", "py", "bash", "sh", "zsh", "dash", "ksh", "fish", "pwsh", "powershell", "cmd",
+    "node", "deno", "bun", "perl", "ruby", "php", "lua", "eval", "exec", "iex", "invoke-expression", "invoke-command",
+    "start-process", "env", "xargs", "nohup", "sudo", "tee", "set-content", "out-file", "add-content", "remove-item"))
+_HEAD_WORD = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
+
+
+def head_rows(name, floor, data=None):
+    """The effective heads of the `reader_heads.<name>` table: `floor` first, then each valid row of the table that is
+    not already there, in table order. `data` is the parsed launch-causes.json (default: read through
+    `hooklib.load_ref_json`, which is {} for a missing or broken file). A table that is not a list, a row that is not a
+    word (see the block above), and a writer head are skipped, never an error."""
+    from hooklib import load_ref_json
+    loaded = load_ref_json("launch-causes.json") if data is None else data
+    section = loaded.get("reader_heads") if isinstance(loaded, dict) else None
+    rows = section.get(name) if isinstance(section, dict) else None
+    out = list(floor)
+    seen = {head.lower() for head in out}
+    for row in rows if isinstance(rows, list) else ():
+        if (isinstance(row, str) and _HEAD_WORD.fullmatch(row) and row.lower() not in WRITER_HEADS
+                and row.lower() not in seen):
+            out.append(row)
+            seen.add(row.lower())
+    return tuple(out)
+
+
+def read_head_regex(heads):
+    """The pattern of a plain read command's head: one of `heads` (case-sensitive, as always), then a blank or the end."""
+    return re.compile("(?:" + "|".join(heads) + r")(?:\s|$)")
+
+
+READ_HEADS = head_rows("role_read", _READ_HEAD_FLOOR)
+_READ_HEAD = read_head_regex(READ_HEADS)
 # What a read command may not hold even inside quotes (the shell's own forms the tokenizer does not model are
 # `hooklib.SHELL_OPAQUE_BAN`, read first): a substitution, a redirect, a backtick, a line end.
 _READ_BAN = re.compile(r"[`$<>\r\n]")
@@ -537,7 +577,7 @@ def _read_refusal(command):
     if not text.strip():
         return "the command is empty"
     if not _READ_HEAD.match(text.strip()):
-        return "it does not start with a read command (rg, cat, ls, pwd, Get-Content, Get-ChildItem, Select-String)"
+        return "it does not start with a read command (" + ", ".join(READ_HEADS) + ")"
     what, door = shell_opaque_found(text)
     if what:
         return f"it holds {what}, which the shell reads differently from the guard; {door}"

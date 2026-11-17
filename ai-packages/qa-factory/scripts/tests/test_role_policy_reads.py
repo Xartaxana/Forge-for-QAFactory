@@ -242,6 +242,41 @@ def the_predicate_and_its_battery() -> None:
     check_eq("K1b a read has no refusal text", host_adapter._read_refusal("rg -n x f.json"), "")
 
 
+FLOOR = host_adapter._READ_HEAD_FLOOR
+# (name, parsed launch-causes.json) -> the effective role read heads (G15, S10): the floor is always there, a bad table adds nothing
+HEAD_TABLES = [
+    ("no table", {}, FLOOR),
+    ("a table that is not an object", [], FLOOR),
+    ("reader_heads that is not an object", {"reader_heads": []}, FLOOR),
+    ("a role_read that is not a list", {"reader_heads": {"role_read": "any"}}, FLOOR),
+    ("an empty list", {"reader_heads": {"role_read": []}}, FLOOR),
+    ("a valid new word is added (AT the rule)", {"reader_heads": {"role_read": ["bat"]}}, FLOOR + ("bat",)),
+    ("a repeat of the floor adds nothing", {"reader_heads": {"role_read": ["rg", "RG"]}}, FLOOR),
+    ("writers are never read heads", {"reader_heads": {"role_read": ["python", "bash", "pwsh", "node", "PYTHON", "Bash"]}}, FLOOR),
+    ("a path, a suffix, a glob, a blank, a non-string are skipped (BEYOND the rule)",
+     {"reader_heads": {"role_read": ["/usr/bin/rg", "cat.exe", "*", "", "a b", 5, None, "1x"]}}, FLOOR),
+]
+# heads the real guard refuses: the rstrip class, a path, .exe and case variants, the writers
+REFUSED_HEADS = ["catx f", "lsx", "rgx -n a f.json", "/usr/bin/rg -n a f.json", "cat.exe f", "CAT f", "Rg -n a f", "python x.py",
+                 "bash -c ls", "pwsh -c ls", "node x.js", "get-content f", "Get-Contentx f"]
+
+
+def the_read_heads_are_data() -> None:
+    for name, data, want in HEAD_TABLES:
+        check_eq(f"K6 read heads, {name}", host_adapter.head_rows("role_read", FLOOR, data), want)
+    check_eq("K6 the real table keeps today's heads", host_adapter.READ_HEADS, FLOOR)
+    for command in REFUSED_HEADS:
+        check(f"K6 head refused: {command[:30]!r}", bool(host_adapter._read_refusal(command)))
+    # a table row reaches the regex; a writer row never does
+    wide = host_adapter.read_head_regex(host_adapter.head_rows("role_read", FLOOR, HEAD_TABLES[5][1]))
+    check("K6 an added head reads as a head", bool(wide.match("bat f")))
+    check("K6 and a glued tail does not", not wide.match("batx f"))
+    narrow = host_adapter.read_head_regex(host_adapter.head_rows("role_read", FLOOR, HEAD_TABLES[7][1]))
+    check("K6 a writer row is no head", not narrow.match("python x") and not narrow.match("bash -c ls"))
+    # the replay derives its heads from the guard's own
+    check_eq("K6 role_replay follows the guard's heads", RR._READ_ALTS, "|".join(host_adapter.READ_HEADS))
+
+
 def the_nine_forms_of_g1() -> None:
     for name, command in G1_READ_FORMS:
         why = host_adapter._read_refusal(command)
@@ -273,6 +308,7 @@ def the_changelog_fragment_names_the_change() -> None:
 def main() -> None:
     the_predicate_and_its_battery()
     the_nine_forms_of_g1()
+    the_read_heads_are_data()
     root = temp_project("cx15-project-")
     try:
         (root / "qa-factory" / "artifacts" / TICKET / "work").mkdir(parents=True, exist_ok=True)
