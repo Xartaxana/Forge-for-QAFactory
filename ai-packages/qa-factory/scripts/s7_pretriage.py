@@ -326,7 +326,8 @@ def stage_status(task_root, stage) -> str:
 def stage_closed_by_code(task_root, stage) -> bool:
     """Did the stage close on a code-only receipt (`stages.<stage>`: status `completed` and `code_only` True)? A controller
     that cannot be read says False: a doubt never opens the next stage."""
-    return stage_status(task_root, stage) == "completed" and _stage_record(task_root, stage).get("code_only") is True
+    record = _stage_record(task_root, stage)
+    return record.get("status") == "completed" and record.get("code_only") is True
 
 
 def s6_closed_by_code(task_root) -> bool:

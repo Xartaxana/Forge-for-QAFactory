@@ -1239,7 +1239,22 @@ def u7_7a_a_not_executed_a_role_can_triage_enters_s7() -> None:
         check_eq(f"U7 7a: {label}", (got[0], got[1], got[2], got[3][:1]), (want[0], want[1], want[2], want[3][:1]))
 
 
+def u7_7a_the_dry_run_describes_s7_without_a_life() -> None:
+    root, task_root, env = seed(TASK)      # t-1282 A-1: the dry run at S7 prints the triage line, no NameError
+    try:
+        write(task_root, report(), {"tests": [], "unresolved": []}, {"schema_version": 2, "triage": []})
+        driver, _moves, _launched = rig(root, env)
+        driver.where = lambda: {"action": "prepare_stage", "stage": "S7"}
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            driver.describe()
+        check_in("U7 7a: describe at S7 prints the triage line", "failures to triage:", out.getvalue())
+    finally:
+        harness.cleanup(root)
+
+
 def main() -> None:
+    u7_7a_the_dry_run_describes_s7_without_a_life()
     u7_7a_a_not_executed_a_role_can_triage_enters_s7()
     tl5_the_analyst_is_only_as_fresh_as_the_triage()
     ts1_life_keeps_two_triages_apart()

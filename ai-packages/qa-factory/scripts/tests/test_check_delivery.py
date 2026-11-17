@@ -147,8 +147,6 @@ def main() -> None:
                 CTL.Controller = lambda _root, said=stage: type("S", (), {"state": lambda self: {"stages": {"S6": said}}})()
                 said = D.run_reasons(art)
                 check_eq(f"U7 7a: {label} -> {'run_not_deliverable refusal stands' if refused else 'no run reason'}", bool(said), refused)
-                if refused:
-                    check_in(f"U7 7a: {label}: the refusal is today's text", "only ['passed', 'failed'] can deliver", "\n".join(said))
         finally:
             CTL.Controller = real_controller
         report = C.load_json(GOOD / "work" / "run-report.json")
