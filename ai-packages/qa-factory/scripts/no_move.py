@@ -188,7 +188,7 @@ def open_moves(facts: dict, moves) -> list:
 
 
 CASES_IN_LIST = 60              # the ceiling of the case ids `rework_args_list` prints; the check always reads the whole scope
-ARGS_KEYS = ("stage", "role", "cases", "rows", "cause")
+ARGS_KEYS = ("stage", "role", "cases", "rows", "cause", "candidates")
 
 
 class ArgsRefused(Exception):
@@ -217,11 +217,19 @@ def rework_args_list(facts: dict) -> str:
                                                     if len(scope) > CASES_IN_LIST else "")
     else:
         shown = "(not read)"
+    found, unread = facts.get("candidates"), facts.get("candidates_unreadable") or []
+    if isinstance(found, list):
+        refs = (", ".join(found[:CASES_IN_LIST]) + (f", … (+{len(found) - CASES_IN_LIST} more)" if len(found) > CASES_IN_LIST else "")) or "none"
+    else:
+        refs = "(not read)"
+    if unread:
+        refs += "; not read: " + ", ".join(str(name) for name in unread)
     return "\n".join([
         "- `rework_stage` — token `rework`; its option carries \"args\" from these values only:",
         f"  stage → role: {pairs}",
         f"  cases (S4 and later; one at least): the approved scope — {shown}",
         "  rows (S1-S3, instead of cases, or neither): ids of the plan's rows",
+        f"  candidates (S7 only, instead of cases): {refs}",
         "  cause: " + (" | ".join(causes) if isinstance(causes, (list, tuple)) else "(not read)")])
 
 
@@ -236,22 +244,38 @@ def check_args(args, facts: dict) -> tuple:
         return None, "what a rework may name could not be read, so its \"args\" cannot be checked"
     clean = lambda key: [str(v).strip() for v in (args.get(key) or []) if str(v).strip()] if isinstance(args.get(key) or [], list) else None
     stage, role, cause = (str(args.get(k) or "").strip() for k in ("stage", "role", "cause"))
-    cases, rows = clean("cases"), clean("rows")
-    if cases is None or rows is None:
-        return None, "\"args\" cases / rows are not lists of ids"
+    cases, rows, candidates = clean("cases"), clean("rows"), clean("candidates")
+    if candidates is not None and any(not isinstance(v, str) for v in args.get("candidates") or []):
+        candidates = None       # a ref is a string: a list or a number inside `candidates` is no id (E11)
+    if cases is None or rows is None or candidates is None:
+        return None, "\"args\" cases / rows / candidates are not lists of ids"
     if stage not in facts["rework_stages"]:
         return None, f"\"args\" stage `{stage or 'none'}` is not a stage that can be sent back"
     if role not in (roles.get(stage) or []):
         return None, f"\"args\" role `{role or 'none'}` did no accepted work at {stage}"
+    if candidates:
+        # FL4 (E5): after the stage and role rules, before the "names no case" rule; a case-only option never reaches this branch
+        if stage != "S7":
+            return None, f"\"args\" names candidates at {stage}; candidates are for S7 only (S4 and later take cases, S1-S3 rows)"
+        if cases or rows:
+            return None, "\"args\" names candidates with cases or rows; one of them only"
+        known = facts.get("candidates")
+        if not isinstance(known, list):
+            return None, "the story's bug candidates could not be read, so \"args\" candidates cannot be checked"
+        refused = sorted(set(candidates) - set(known))
+        if refused:
+            import check_delivery    # late: check_delivery imports neither no_move nor controller (no cycle)
+            return None, '"args": ' + check_delivery.candidate_refusal(refused, known, facts.get("candidates_unreadable") or [])
     if cases and rows:
         return None, "\"args\" names cases and rows together; one of them only"
     if set(cases) - set(scope):
         return None, "\"args\" names a case outside the approved scope: " + ", ".join(sorted(set(cases) - set(scope)))
-    if not cases and int(stage[1:]) >= 4:
+    if not cases and not candidates and int(stage[1:]) >= 4:
         return None, f"\"args\" names no case, and {stage} needs at least one of the approved scope"
     if cause not in causes:
         return None, f"\"args\" cause `{cause or 'none'}` is not one of the causes listed"
-    return {"stage": stage, "role": role, **({"cases": cases} if cases else {}), **({"rows": rows} if rows else {}), "cause": cause}, ""
+    return {"stage": stage, "role": role, **({"cases": cases} if cases else {}), **({"rows": rows} if rows else {}),
+                  **({"candidates": candidates} if candidates else {}), "cause": cause}, ""
 
 
 def moves_section(spec: dict, open_ids: list, facts: dict, site=()) -> str:

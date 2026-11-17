@@ -58,7 +58,8 @@ A `stage_transition` of `running`/`halted`/`paused` on an accepted stage records
 instead of lowering it, and `stage_done.py --status running` refuses such a stage. Rework is
 `--operation rework`, which takes input hash, paths and budget from the role's last accepted
 dispatch, never `SendMessage` (it misses after a session change). On S1-S3, whose
-roles have no cases, `--rows TS-3` names plan rows instead of `--cases` (`plan_rows`).
+roles have no cases, `--rows TS-3` names plan rows instead of `--cases` (`plan_rows`). On S7 the failure analyst may be sent
+back over bug candidates with `--candidates <K-n,R-n>` (`bug_candidates`), instead of `--cases`.
 
 `stage-scope` is read-only, takes `{"stage", "execution_kind": "manual"|"automation"}` and
 returns the scope from the approved plan's dispositions (`automate` rows for S5, plus

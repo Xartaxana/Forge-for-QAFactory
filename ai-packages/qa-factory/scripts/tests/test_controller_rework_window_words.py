@@ -1078,8 +1078,149 @@ def rh110_s6_half_membership():
         cleanup(root)
 
 
+def fl4_candidate_rework():
+    """FL4 (FR-22, spec s9-fl-cards 3b): the S7 rework door for a bug candidate that has no case, `--candidates`. ONE refusal text for both
+    judges (`check_delivery.candidate_refusal`): "not in this story" only when every input was read (FR-41). Expected values come from FR-22,
+    FR-41 and the debt row, never from the code. Keys: items 1-6 of card FL4, edges E1-E3, E5-E7, E10, E11.
+    KILLS: the case refusal reading `not wanted` alone (E3); a candidate rework of another stage or role; the `bug_candidates` key missing from
+    BINDING_KEYS (a relaunch loses it); an unreadable table read as 'not in this story'; the two judges speaking two texts."""
+    import unittest.mock as mock
+    import check_delivery as CD
+    import story_run as SR
+    import story_step
+    from no_move import check_args, rework_args_list
+    from controller import request_binding
+    register = SCRIPTS / "tests" / "fixtures" / "stories" / "cart-1" / "work" / "requirements-register.md"
+
+    def refused_with(call):
+        try:
+            call()
+        except (StateConflict, ValueError) as exc:
+            return str(exc)
+        return ""
+
+    root = temp_project("qa-fl4-")
+    try:
+        c = story_to_s8(root)
+        c.apply("dispatch", {"id": "dS7-fa", "stage": "S7", "role": "qa-failure-analyst", "scope": [], "input_hash": "x", "budget": {},
+                             "known_paths": {}, "idempotency_key": "dispatch-S7-fa"})
+        c.apply("accept", {"id": "dS7-fa", "status": "accepted", "stage_complete": False,
+                           "evidence_refs": [BASE.evidence_ref(root, "dS7-fa.txt", "dS7-fa")], "idempotency_key": "accept-S7-fa"})
+        (root / "work").mkdir(exist_ok=True)
+        (root / "work" / "requirements-register.md").write_bytes(register.read_bytes())
+        S7 = ("S7", "qa-failure-analyst")
+        # (i) the CLI door builds the request: bug_candidates, no scope
+        built = run_script("controller.py", "--task-root", root, "--operation", "rework", "--stage", "S7", "--role", "qa-failure-analyst",
+                           "--candidates", "R-13", "--reason", "needs a bug report", "--build-only")
+        check("FL4 (i): the CLI builds an S7 candidate rework", built.returncode == 0, built.stdout + built.stderr)
+        request = json.loads(built.stdout)["request"] if built.returncode == 0 else {}
+        check_eq("FL4 (i): `bug_candidates` is the ref, the scope and the case links are empty",
+                 (request.get("bug_candidates"), request.get("scope"), request.get("case_version_links")), (["R-13"], [], []))
+        # (ii) a ref the story does not hold: Rule R, every input read
+        text_ii = refused_with(lambda: c.build_rework_request(*S7, [], "x", candidates=["R-99"]))
+        check("FL4 (ii): R-99 is refused naming it, the story's refs and 'not in this story'",
+              all(n in text_ii for n in ("R-99", "R-13", "not in this story")), text_ii)
+        # (iii) one unit: candidates with a case; (iv) another stage / role
+        check_in("FL4 (iii): candidates with a case: 'name one of them'", "name one of them",
+                 refused_with(lambda: c.build_rework_request(*S7, ["TC-1"], "x", candidates=["R-13"])))
+        text = refused_with(lambda: c.build_rework_request("S6", "qa-runner", [], "x", candidates=["R-13"]))
+        check("FL4 (iv): S6 qa-runner with a candidate is refused and names `--cases`", "`--cases`" in text and "S7 failure analyst" in text, text)
+        # (v) / (vi) E3, E6: no valid candidate -> today's case refusal, byte for byte; blanks read as none
+        check_in("FL4 (v)/E3: S7 with neither: today's case refusal", "--cases must name at least one case of the approved scope",
+                 refused_with(lambda: c.build_rework_request(*S7, [], "x")))
+        blank = run_script("controller.py", "--task-root", root, "--operation", "rework", "--stage", "S7", "--role", "qa-failure-analyst",
+                           "--candidates", " , ", "--reason", "x", "--build-only")
+        check("FL4 (vi)/E6: `--candidates ' , '` reads as none: the case refusal", blank.returncode != 0
+              and "--cases must name at least one case of the approved scope" in blank.stdout + blank.stderr, blank.stdout + blank.stderr)
+        # E11: spelling / encoding battery: only the exact, stripped ref matches; magnitude: 200 valid refs accepted, one bad one named
+        for bad in ("r-13", "R-013", "R-13a", "R-" + chr(0x431), "R-13,R-14"):
+            check_in(f"FL4 E11: {bad!r} is refused", "not in this story", refused_with(lambda: c.build_rework_request(*S7, [], "x", candidates=[bad])))
+        check_eq("FL4 E11: `R-13 ` (a trailing blank) is the ref", c.build_rework_request(*S7, [], "x", candidates=["R-13 "])["bug_candidates"], ["R-13"])
+        many = [f"R-{n}" for n in range(1, 201)]
+        with mock.patch.object(CD, "bug_candidates", lambda task_root: ([{"ref": ref} for ref in many], [])):
+            check_eq("FL4 E11: 200 refs, all valid: accepted whole", len(c.build_rework_request(*S7, [], "x", candidates=many)["bug_candidates"]), 200)
+            check_in("FL4 E11: 200 valid and one bad: refused naming it", "R-999",
+                     refused_with(lambda: c.build_rework_request(*S7, [], "x", candidates=many + ["R-999"])))
+        # E6: no table and no register -> every ref refused, 'none' read
+        with mock.patch.object(CD, "bug_candidates", lambda task_root: ([], [])):
+            check_in("FL4 E6: nothing read: 'none'", "bug candidates are none", refused_with(lambda: c.build_rework_request(*S7, [], "x", candidates=["R-13"])))
+        # (vii) E7: a grounding table that exists and cannot be read: 'not known', never 'not in this story'
+        (root / "work" / "grounding.yaml").write_bytes(b"\xff\xfe")
+        text_vii = refused_with(lambda: c.build_rework_request(*S7, [], "x", candidates=["K-1"]))
+        check("FL4 (vii)/E7: the unreadable table is named and the ref is 'not known'",
+              "the grounding table" in text_vii and "could not be read, so a candidate there is not known" in text_vii
+              and "not in this story" not in text_vii, text_vii)
+        check_eq("FL4 E7: a ref found in the readable input is accepted while the other input is unreadable",
+                 c.build_rework_request(*S7, [], "x", candidates=["R-13"])["bug_candidates"], ["R-13"])
+        # item 4: the conductor's judge, the same text, one builder
+        facts = {"rework_roles": {"S7": ["qa-failure-analyst"], "S6": ["qa-runner"]}, "scope": ["TC-1", "TC-2"], "causes": ["test_defect"],
+                 "rework_stages": ["S6", "S7"], "candidates": ["R-13"], "candidates_unreadable": []}
+        args = {"stage": "S7", "role": "qa-failure-analyst", "candidates": ["R-13"], "cause": "test_defect"}
+        check_eq("FL4 item 4: S7 candidate args are clean and carry `candidates`", check_args(args, facts), (args, ""))
+        none, why = check_args(args, dict(facts, candidates=None))
+        check_eq("FL4 item 4: candidates facts None: 'could not be read'", (none, "could not be read" in why), (None, True))
+        check_eq("FL4 item 4: candidates at S6: refused", check_args(dict(args, stage="S6", role="qa-runner"), facts)[0], None)
+        cases_only = {"stage": "S6", "role": "qa-runner", "cases": ["TC-1"], "cause": "test_defect"}
+        check_eq("FL4 item 4/E5: cases only, candidates facts None or unreadable: byte for byte today's",
+                 [check_args(cases_only, dict(facts, **extra)) for extra in ({"candidates": None}, {"candidates_unreadable": None}, {})],
+                 [(cases_only, "")] * 3)
+        none, why = check_args(dict(args, candidates=["R-99"]), facts)
+        check("FL4 item 4: R-99 outside the facts: 'not in this story: R-99'", none is None and "not in this story: R-99" in why, why)
+        unread = dict(facts, candidates_unreadable=["the grounding table"])
+        none, why = check_args(dict(args, candidates=["K-1"]), unread)
+        check("FL4 item 4/E7: an unreadable input: 'not known', named, never 'does not hold' / 'not in this story'",
+              none is None and "could not be read, so a candidate there is not known" in why and "the grounding table" in why
+              and "does not hold" not in why and "not in this story" not in why, why)
+        check_eq("FL4 item 4: the conductor's text after the args prefix is the controller's text, one builder",
+                 why.split('"args": ', 1)[1], CD.candidate_refusal(["K-1"], ["R-13"], ["the grounding table"]))
+        check_eq("FL4 item 4: no `candidates_unreadable` key (an older caller) reads as []",
+                 "not in this story" in check_args(dict(args, candidates=["R-99"]), {k: v for k, v in facts.items() if k != "candidates_unreadable"})[1], True)
+        check_in("FL4 item 4: candidates with a case: 'one of them only'", "one of them only", check_args(dict(args, cases=["TC-1"]), facts)[1])
+        check_in("FL4 item 4/E11: a list inside `candidates`: 'not lists of ids'", "not lists of ids", check_args(dict(args, candidates=[["R-13"]]), facts)[1])
+        check_in("FL4 item 4/E11: a non-list `candidates`: 'not lists of ids'", "not lists of ids", check_args(dict(args, candidates="R-13"), facts)[1])
+        check_in("FL4 item 4: the list prints the candidates line", "candidates (S7 only, instead of cases): R-13", rework_args_list(facts))
+        check_in("FL4 item 4: `(not read)` when the fact is None", "instead of cases): (not read)", rework_args_list(dict(facts, candidates=None)))
+        check_in("FL4 item 4: `; not read: the grounding table` when an input was not read", "; not read: the grounding table", rework_args_list(unread))
+        many_facts = dict(facts, candidates=[f"R-{n}" for n in range(70)])
+        check("FL4 E10: the printed list is cut at 60 with '(+N more)', the check reads the whole fact",
+              "… (+10 more)" in rework_args_list(many_facts) and check_args(dict(args, candidates=["R-69"]), many_facts)[1] == "")
+        # the fact: ONE call of the one reader, two facts; a raise leaves both None
+        drv = object.__new__(SR.Driver)
+        drv.task_root = root
+        with mock.patch.object(CD, "bug_candidates", lambda task_root: ([{"ref": "R-13"}], ["the grounding table"])):
+            got = drv.no_move_facts({})
+            check_eq("FL4 no_move_facts: the refs read and the names not read", (got["candidates"], got["candidates_unreadable"]), (["R-13"], ["the grounding table"]))
+
+        def boom(task_root):
+            raise RuntimeError("reader broke")
+        with mock.patch.object(CD, "bug_candidates", boom):
+            got = drv.no_move_facts({})
+            check_eq("FL4 no_move_facts: a reader that raises: both None", (got["candidates"], got["candidates_unreadable"]), (None, None))
+        # item 1 on the real reader: the register read; an empty register is an unknown, never a raise
+        found, unreadable = CD.bug_candidates(root)
+        check_eq("FL4 item 1: bug_candidates on the register of cart-1 (the grounding table is unreadable here)",
+                 ([c_["ref"] for c_ in found], unreadable), (["R-13"], ["the grounding table"]))
+        (root / "work" / "grounding.yaml").unlink()
+        (root / "work" / "requirements-register.md").write_bytes(b"")
+        check_eq("FL4 item 1: an empty register is `([], ['the requirements register'])`, never a raise", CD.bug_candidates(root), ([], ["the requirements register"]))
+        (root / "work" / "requirements-register.md").write_bytes(register.read_bytes())
+        # item 3: BINDING_KEYS, the relaunch packet; item 6: the packet readers
+        built = c.build_rework_request(*S7, [], "needs a bug report", candidates=["R-13"])
+        check_eq("FL4 item 3: the binding carries `bug_candidates`", request_binding(built)["bug_candidates"], ["R-13"])
+        c.apply("dispatch", dict(built))
+        record = c.state()["dispatches"][built["id"]]
+        check_eq("FL4 item 3: a relaunch packet of that record carries it", c._relaunch_packet(c.state(), record).get("bug_candidates"), ["R-13"])
+        check_in("FL4 item 6: the prompt says what the rework is for", "Bug candidates of this dispatch: R-13", "\n".join(story_step._packet_lines(built)))
+        plain = {k: v for k, v in built.items() if k != "bug_candidates"}
+        check_not_in("FL4 item 6/E1: a packet without the key gives today's lines", "Bug candidates", "\n".join(story_step._packet_lines(plain)))
+        check("FL4 E2: the field is compared at `materialize`", "bug_candidates" in story_step.IDENTITY_FIELDS)
+    finally:
+        cleanup(root)
+
+
 def main():
     rh110_s6_half_membership()
+    fl4_candidate_rework()
     s6_runner_rework_takes_its_half_from_its_cases()
     a_paid_round_stays_paid_when_its_own_stage_sets_it_aside()
     a_rework_is_never_the_opener_of_a_window()

@@ -2846,7 +2846,7 @@ class DriverDispatch:
 
     def rework(self, stage: str, role: str, cases: list, reason: str, *, cause: str,
                purpose: str = "repair_verify", extra=(), complete=False, budget=READ_BUDGET, on_request=None,
-               rows=(), words_file: str = "") -> tuple:
+               rows=(), words_file: str = "", candidates=()) -> tuple:
         """`on_request(id)`: called with the controller's dispatch id the moment `rework` has it, before any role runs (the S7 loop
         records it, t-698 §20 N9). `cause` has no default: a round's cause is the reviewer's typed word (repair_route), and
         a default here is how every repair once went out as `test_defect`. A round that is not
@@ -2855,7 +2855,8 @@ class DriverDispatch:
         window is the one that may close S5 (the reviewer is not dispatched again).
         `words_file` (C2-6 §4.2 p.9): the task-root relative file of a PERSON's words, whole (FR-8): the controller gets
         `--words-file` INSTEAD of `--reason` (no `[:1500]`; `reason` is that file's text), and a reason longer than 1500 reaches
-        the role as the file's path. `rows`: the plan rows an S1-S3 rework goes back over."""
+        the role as the file's path. `rows`: the plan rows an S1-S3 rework goes back over.
+        `candidates` (FL4): the bug candidate refs an S7 rework goes back over (`--candidates`, instead of cases)."""
         if cause != "test_defect" and not str(reason or "").strip():
             raise ValueError(f"rework: a {cause} round needs a non-empty reason - one sentence of what "
                              "happened; it spends none of the repair cap, and the receipt is where the retro reads why")
@@ -2866,6 +2867,8 @@ class DriverDispatch:
             args += ["--cases", ",".join(cases)]
         if rows:
             args += ["--rows", ",".join(rows)]
+        if candidates:
+            args += ["--candidates", ",".join(candidates)]
         # TR3-6: POSITION - before `controller rework`; INVARIANT: a drain registers no new dispatch
         self.stop_if_drained()
         self.count_launch()

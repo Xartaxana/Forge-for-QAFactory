@@ -1161,6 +1161,9 @@ def _packet_lines(packet: dict | None, task: str = "") -> tuple:
     lines += _resumed_lines(packet, task)
     if packet.get("plan_rows"):
         lines.append("Plan rows of this dispatch: " + ", ".join(str(row) for row in packet["plan_rows"]))
+    if packet.get("bug_candidates"):
+        lines.append("Bug candidates of this dispatch: " + ", ".join(str(ref) for ref in packet["bug_candidates"])
+                     + " (K-n: a risk in work/grounding.yaml rows[].risks[]; R-n: a register row marked bug:candidate-defect)")
     lines.append(f"Dispatch input_hash: {packet.get('input_hash') or 'unset'}; purpose: "
                  f"{packet.get('purpose') or 'unset'}")
     return tuple(lines)
@@ -1235,13 +1238,13 @@ def _write_dispatch_files(task: str, stage_id: str, role: str, dispatch_id: str,
 # different request. `materialize` reads the packet that IS committed and writes the three files from it.
 # It is a reader of the controller: it never calls `prepare` or `apply` and never touches the log or the state.
 # INVARIANT: `where` rebuilds a card from the RECORD and `materialize` renders it from the EVENT; every field
-# the prompt reads (`_packet_lines`: rework_of, repair_cause, reason, plan_rows, input_hash, purpose) is compared,
+# the prompt reads (`_packet_lines`: rework_of, repair_cause, reason, plan_rows, bug_candidates, input_hash, purpose) is compared,
 # so a drift on any of them is refused here and never becomes a card that differs from the one `where` wrote.
 # ONE field the prompt reads is NOT compared, on purpose: `agent_id` (the resumed line). `bind` sets it on the RECORD through
 # the controller's projection (never on the dispatch event), so comparing it would refuse every bound dispatch. The card
 # is rendered from the EVENT's id; `where` rebuilds from the record only after `_request_packet` put the event's id back (F-3).
 IDENTITY_FIELDS = ("id", "stage", "role", "input_hash", "scope", "plan_rows", "rework_of", "purpose",
-                   "repair_cause", "reason")
+                   "repair_cause", "reason", "bug_candidates")
 
 
 def _card_differs(task: str, dispatch_id: str, card_file: Path, text: str) -> str:

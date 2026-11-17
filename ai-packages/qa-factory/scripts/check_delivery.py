@@ -2405,6 +2405,28 @@ def _grounding_candidates(artifacts: Path) -> tuple:
     return out, unreadable
 
 
+def bug_candidates(artifacts: Path) -> tuple:
+    """`(candidates, unreadable)` of the story's bug candidates: the ONE reader of the fact for the rework door (AR-13), the conductor's
+    facts and the brief. Never raises: a raise reads as an unknown input, never as "no candidates" (FR-41, FR-59)."""
+    try:
+        found, unreadable = _grounding_candidates(artifacts)
+        return list(found), list(unreadable)
+    except Exception:  # noqa: BLE001
+        return [], ["the bug candidates"]
+
+
+def candidate_refusal(refs, known, unreadable) -> str:
+    """The ONE text of the refusal of a ref that is not among the readable bug candidates (both judges of the S7 rework print it, AR-13).
+    "not in this story" only when every input was read; with an unreadable input the text says "not known" (FR-41). Pure, never raises."""
+    def seq(value) -> list:
+        return [str(v) for v in value] if isinstance(value, (list, tuple, set)) else []
+    asked, read, names = ", ".join(seq(refs)), ", ".join(seq(known)) or "none", ", ".join(seq(unreadable))
+    if not names:
+        return f"bug candidate(s) not in this story: {asked}; the story's bug candidates are {read}"
+    return (f"bug candidate(s) not among the candidates that could be read: {asked} (read: {read}); {names} could not be read, "
+            "so a candidate there is not known - record the input, then ask again")
+
+
 def grounding_records(artifacts: Path, doc: dict, facts: dict) -> list:
     """The FR-22 road (G2-3): a bug candidate no EXECUTED check stands behind is a `bug_candidate` record, never silence. A candidate is
     closed by a plan row that names it (`K-n` by `PC.grounding_refs`, `R-n` by `PC.row_requirements`) and `PC.row_tests_it`, whose ledger

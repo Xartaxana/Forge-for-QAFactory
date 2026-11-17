@@ -308,7 +308,7 @@ def repair_cause(dispatch):
 # request - `checkpoint`/`accept` overwrite its `reason` and the liveness repair rewrites it - so
 # a resumed repair lost its binding, its cause, its lineage and the mandatory `reason`.
 BINDING_KEYS = ("case_version_links", "repair_cause", "repair_cause_source", "rework_of", "reason",
-                "purpose", "execution_kind", "manual_case_ids", "limits", "plan_rows")
+                "purpose", "execution_kind", "manual_case_ids", "limits", "plan_rows", "bug_candidates")
 
 
 def request_binding(payload):
@@ -3703,7 +3703,7 @@ class Controller:
         return candidates[-1] if candidates else None
 
     def build_rework_request(self, stage, role, cases, reason, purpose="repair_verify", rows=None,
-                             cause=None, words_given=False, parallel_window=False):
+                             cause=None, words_given=False, parallel_window=False, candidates=None):
         """A dispatch request that sends a role back over part of its own accepted work.
 
         Rework was guesswork: the orchestrator hand-built the packet three times and was
@@ -3723,6 +3723,9 @@ class Controller:
         `parallel_window` (t-1937 TR3-4) is the driver's scheduler asking for this round to run beside a running S5 window
         (`--parallel-window`): the request then carries `parallel_window: True`, which `_window_beside_running` reads at dispatch.
         Anything but the boolean True adds nothing, so every other caller builds the request it always built.
+
+        `candidates` (FL4, FR-22) sends the S7 author back over bug candidates (`--candidates K-n,R-n`): the third spelling of "what this
+        rework goes back over" beside `--rows` and `--cases`, for a candidate that has no case. The request then carries `bug_candidates`.
         """
         state = self.state()
         stage, role = str(stage or ""), str(role or "")
@@ -3773,10 +3776,27 @@ class Controller:
         # X7-6c (B2): the author of a stage its CONSUMER sent back (a `reject` record of S6 / S7) is reworked over the scope of the dispatch the
         # record reviewed - that is the unit the consumer judged, one half for the runner, and the repair ledger counts the round under the
         # same key as the first dispatch. The call carries no `--cases`: the record is the reason's source, not a case list.
-        sent_back = self._consumer_reject_parent(state, stage, role) if stage_ok and not wanted else None
+        # FL4 (E3, E4): the candidate rules run BEFORE the case refusal, and a candidate rework never takes a consumer-reject scope.
+        wanted_candidates = sorted({str(ref).strip() for ref in (candidates or []) if str(ref).strip()})
+        if wanted_candidates:
+            import acceptance
+            import check_delivery
+            author = (acceptance.stage_def_of("S7").get("roles") or [""])[0]
+            if stage != "S7" or role != author:
+                problems.append((ValueError, f"--candidates sends the S7 failure analyst back over bug candidates; for {stage} {role} name "
+                                             "`--cases` (S4 and later) or `--rows` (S1-S3)"))
+            if wanted or wanted_rows:
+                problems.append((ValueError, "--candidates and --cases/--rows together: name one of them"))
+            found, unreadable = check_delivery.bug_candidates(self.store.root)
+            known_refs = [item["ref"] for item in found]
+            refused = [ref for ref in wanted_candidates if ref not in known_refs]
+            if refused:
+                problems.append((ValueError, check_delivery.candidate_refusal(refused, known_refs, unreadable)))
+        sent_back = (self._consumer_reject_parent(state, stage, role)
+                     if stage_ok and not wanted and not wanted_candidates else None)
         if sent_back:
             wanted = [str(case) for case in sent_back.get("scope") or [] if str(case).strip()]
-        if stage_ok and not wanted and int(stage[1:]) > 3:
+        if stage_ok and not wanted and not wanted_candidates and int(stage[1:]) > 3:
             # RH1-10 (DC1-13, B-AC4): the refusal names a door. Its receivers are the direct `--operation rework` callers (the
             # driver's roads never reach it: `no_move.check_args` and `answer_pairs_owed` stop an empty S4+ list first). It names
             # only what `rework` takes: `--cases`; `execution_kind` is a `stage-scope` parameter, not a `rework` one.
@@ -3928,6 +3948,8 @@ class Controller:
             # Plan rows are not cases: `scope` stays the approved case ids (empty on S1–S3),
             # and the rows travel beside it so the guard's scope check keeps its meaning.
             request["plan_rows"] = sorted(wanted_rows)
+        if wanted_candidates:
+            request["bug_candidates"] = wanted_candidates
         if cause:
             request["repair_cause"] = cause
         request.update(reopen)
@@ -9917,6 +9939,8 @@ def main():
     ap.add_argument("--cases", help="rework: comma-separated case ids from the approved scope "
                                     "(optional on S1-S3, whose roles have no cases)")
     ap.add_argument("--rows", help="rework: comma-separated plan row ids to go back over")
+    ap.add_argument("--candidates", help="rework: comma-separated bug candidate refs (K-n, R-n) to send the S7 failure analyst back over, "
+                                         "instead of --cases (a candidate has no case)")
     ap.add_argument("--reason", help="rework: what this round repairs; checkpoint: what the "
                                      "dispatch is waiting on")
     ap.add_argument("--dispatch", help="release / checkpoint / resume: the dispatch to act on "
@@ -10069,7 +10093,8 @@ def main():
         request = c.build_rework_request(a.stage, a.role, (a.cases or "").split(","),
                                          reason, a.purpose, (a.rows or "").split(","),
                                          a.cause, words_given=a.words_file is not None,
-                                         parallel_window=bool(a.parallel_window))
+                                         parallel_window=bool(a.parallel_window),
+                                         candidates=(a.candidates or "").split(","))
         import launch_card   # late, like the other card-layer reads of this file
         result = ({"dispatched": False, "request": request} if a.build_only
                   else {"dispatched": True, "request": request,
