@@ -7541,10 +7541,9 @@ class Controller:
         if not problems:
             # One line per review gap a person's word lifted (FR-4), only after every refusal above ran and none fired (E10):
             # the words whole and `word_at` (AR-24), the instance as the subject. A typed pair never gets a line here.
-            passed = [{"error": g, "decision": review_words[g[len("review:"):]]["words"],
-                       "at": review_words[g[len("review:"):]]["at"], "by": "human", "check": "review", "case": "",
-                       "tag": g[len("review:"):], "subjects": [{"instance_id": g[len("review:"):]}]}
-                      for g in _let_go if g.startswith("review:") and g[len("review:"):] in review_words]
+            passed = [{"error": g, "decision": review_words[iid]["words"], "at": review_words[iid]["at"], "by": "human",
+                       "check": "review", "case": "", "tag": iid, "subjects": [{"instance_id": iid}]}
+                      for g in _let_go for iid in [g.partition(":")[2]] if g.startswith("review:") and iid in review_words]
             self._record_person_pass("S5", d.get("id"), passed)
         return problems
 

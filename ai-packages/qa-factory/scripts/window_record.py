@@ -1251,6 +1251,14 @@ def _review_gap_head(instance_id: str) -> str:
     return "review:" + instance_id
 
 
+def _review_owner(text, ids):
+    """The one id of `ids` whose review head `text` carries: exact equality first, else the longest head followed by ` — `
+    (F9-3 (a)); None when no id owns it. The ONE head test of the reader and the predicate."""
+    named = [i for i in ids if text == _review_gap_head(i) or text.startswith(_review_gap_head(i) + " — ")]
+    exact = [i for i in named if text == _review_gap_head(i)]
+    return exact[0] if exact else (max(named, key=len) if named else None)
+
+
 def review_gap_words(window, task_root) -> dict:
     """`{instance id: {"words", "at"}}` - the instances of `window` whose `review` gap a person's recorded S5 word names
     (S9, FR-57, AR-13: the ONE reader of a person's word on a review gap; every judge reads it through `word_let_go`).
@@ -1286,15 +1294,46 @@ def review_gap_words(window, task_root) -> dict:
             m = match.strip()
             if m == "*" or PLACEHOLDER_RE.search(m):
                 continue
-            named = [iid for iid in ids if m == _review_gap_head(iid) or m.startswith(_review_gap_head(iid) + " — ")]
-            if not named:
+            iid = _review_owner(m, ids)
+            if iid is None:
                 continue
-            exact = [iid for iid in named if m == _review_gap_head(iid)]
-            iid = exact[0] if exact else max(named, key=len)
             found[iid] = {"words": " ".join(str(entry.get("decision") or "").split()), "at": str(entry.get("at") or "")}
         return found
     except Exception:
         return {}
+
+
+def _index_let_go(window, index, lets_go) -> set:
+    """The lines the not_run and row_fields rules of `word_let_go` let go (the live `index` names the instance); `set()` on any
+    exception (AR-28)."""
+    try:
+        tables = lets_go
+        if tables is None:
+            import waiver
+            tables = {"not_run": waiver.not_run_lets_go()[0], "row_fields": waiver.row_fields()[0]}
+        section = tables.get("not_run") if isinstance(tables.get("not_run"), dict) else {}
+        rows = tables.get("row_fields") if isinstance(tables.get("row_fields"), dict) else {}
+
+        def names(value) -> list:
+            return [x for x in value if isinstance(x, str) and x] if isinstance(value, list) else []
+
+        found: set = set()
+        for item in window.get("instances") or []:
+            iid = str(item.get("instance_id") or "") if isinstance(item, dict) else ""
+            if not iid:
+                continue
+            if section and _no_run_shape(item) and index.instance("not_run", iid):
+                found.update(f"{iid}: {f} is missing" for f in names(section.get("shape_missing")))
+                if section.get("shape_probe_missing") is True:
+                    found.add(f"{iid}: {C.PROBE_MISSING_ERROR}")
+                found.update(f"{kind}:{iid}" for kind in names(section.get("tier4_gaps")))
+            for field in index.passed_fields(iid):
+                row = rows.get(field)
+                if isinstance(row, dict) and row.get("pass") is True:
+                    found.update(f"{kind}:{iid}" for kind in names(row.get("tier4_gaps")))
+        return found
+    except Exception:
+        return set()
 
 
 def word_let_go(lines, window, index, lets_go=None, review_words=None) -> tuple:
@@ -1307,8 +1346,9 @@ def word_let_go(lines, window, index, lets_go=None, review_words=None) -> tuple:
       `shape_probe_missing` is true, or `"<kind>:<iid>"` for `kind` in its `tier4_gaps`;
     - `row_fields_unestablished` (for an instance the INDEX names): `"<kind>:<iid>"` for `kind` in the `tier4_gaps` of a row
       (`pass` true) of a field in `index.passed_fields(iid)`;
-    - `review` (S9, for an instance in `review_words`): the line `"review:<iid>"` and any line that starts with
-      `"review:<iid> — "` (`verdict`'s form). `review_words=None` lets no review line go. This rule depends on `review_words`
+    - `review` (S9): a line `"review:<iid>"` or `"review:<iid> — <text>"` (`verdict`'s form) goes when its ONE owner among ALL
+      the window's ids (`_review_owner`: exact first, else the longest id) is in `review_words`; ids `A` and `A — x`: a word for
+      `A` never lets go `review:A — x`. `review_words=None` lets no review line go. This rule depends on `review_words`
       alone: an `index` of None (or a table that cannot be read) lets the first two rules nothing and does NOT hide a word.
     Every other line is kept (the refusing direction). PURE; never raises - any exception, an `index` of None, a table that cannot
     be read: nothing of that rule is let go (AR-28). Lines are matched by exact text built from the window's own instance ids,
@@ -1320,45 +1360,13 @@ def word_let_go(lines, window, index, lets_go=None, review_words=None) -> tuple:
     try:
         if not isinstance(window, dict):
             return lines, []
-        let: set = set()
-        if index is not None:
-            try:
-                tables = lets_go
-                if tables is None:
-                    import waiver
-                    tables = {"not_run": waiver.not_run_lets_go()[0], "row_fields": waiver.row_fields()[0]}
-                section = tables.get("not_run") if isinstance(tables.get("not_run"), dict) else {}
-                rows = tables.get("row_fields") if isinstance(tables.get("row_fields"), dict) else {}
-
-                def names(value) -> list:
-                    return [x for x in value if isinstance(x, str) and x] if isinstance(value, list) else []
-
-                found: set = set()
-                for item in window.get("instances") or []:
-                    iid = str(item.get("instance_id") or "") if isinstance(item, dict) else ""
-                    if not iid:
-                        continue
-                    if section and _no_run_shape(item) and index.instance("not_run", iid):
-                        found.update(f"{iid}: {f} is missing" for f in names(section.get("shape_missing")))
-                        if section.get("shape_probe_missing") is True:
-                            found.add(f"{iid}: {C.PROBE_MISSING_ERROR}")
-                        found.update(f"{kind}:{iid}" for kind in names(section.get("tier4_gaps")))
-                    for field in index.passed_fields(iid):
-                        row = rows.get(field)
-                        if isinstance(row, dict) and row.get("pass") is True:
-                            found.update(f"{kind}:{iid}" for kind in names(row.get("tier4_gaps")))
-                let = found
-            except Exception:
-                let = set()
-        heads: list = []
-        if isinstance(review_words, dict) and review_words:
-            for item in window.get("instances") or []:
-                iid = item.get("instance_id") if isinstance(item, dict) else None
-                if isinstance(iid, str) and iid and iid in review_words:
-                    heads.append(_review_gap_head(iid))
+        let = _index_let_go(window, index, lets_go) if index is not None else set()
+        all_ids = [i.get("instance_id") for i in window.get("instances") or [] if isinstance(i, dict)]
+        all_ids = [i for i in all_ids if isinstance(i, str) and i]
+        words = review_words if isinstance(review_words, dict) else {}
 
         def let_go(line) -> bool:
-            return isinstance(line, str) and (line in let or any(line == h or line.startswith(h + " — ") for h in heads))
+            return isinstance(line, str) and (line in let or (bool(words) and _review_owner(line, all_ids) in words))
 
         kept = [line for line in lines if not let_go(line)]
         gone = [line for line in lines if let_go(line)]
@@ -1815,7 +1823,7 @@ def _explain(line: str, notes: list) -> str:
 # A `review:<iid>` line is read through `word_let_go` (S9: `review_gap_words` names the instance a recorded word's head
 # is exactly; `verdict` adds that line to `read` by the same function), so it is not a kind of this tuple.
 # Every OTHER line of a window verdict is read by nothing a person's word reaches - the controller reads a word
-# for the critic's receipts and for a missing window record, never for a gap of the window - so a word recorded
+# for the critic's receipts and for a missing window record and, through `word_let_go`, for the gaps it names - so a word recorded
 # against one is printed "recorded, not read by this window" (`_unread_words`). One name, so a reader added later
 # is one line here (Q7 B', t-299).
 WORD_READ_KINDS = ("quality", PROBE_GAP_KIND)

@@ -1877,6 +1877,16 @@ def fv1_30b_word_let_go_is_the_one_predicate():
     check_eq("S9 (U1 at the predicate): the word for `A b` lets `review:A b` go and keeps `review:A`",
              WR.word_let_go(["review:A", "review:A b"], {"instances": [{"instance_id": "A"}, {"instance_id": "A b"}]}, None,
                             review_words=rw("A b")), (["review:A"], ["review:A b"]))
+    ab = {"instances": [{"instance_id": "A"}, {"instance_id": "A — x"}]}
+    ab_lines = ["review:A", "review:A — x", "review:A — x — e", "review:A — e"]
+    check_eq("S9 (F1, U4 at the predicate): the word for `A` lets go `review:A` and `review:A — e`, never the gap of `A — x`",
+             WR.word_let_go(ab_lines, ab, None, review_words=rw("A")),
+             (["review:A — x", "review:A — x — e"], ["review:A", "review:A — e"]))
+    check_eq("S9 (F1, U4 at the predicate): the word for `A — x` lets go only the two `A — x` lines",
+             WR.word_let_go(ab_lines, ab, None, review_words=rw("A — x")),
+             (["review:A", "review:A — e"], ["review:A — x", "review:A — x — e"]))
+    check_eq("S9 (F1): a word for an id the window does not hold lifts no line of a window with `A` and `A — x`",
+             WR.word_let_go(ab_lines, ab, None, review_words=rw("A — y"))[1], [])
     check_eq("S9: a word for an instance the window does not hold lets nothing go",
              WR.word_let_go(["review:i"], window(no_run), None, review_words=rw("zz"))[1], [])
     # never raises
@@ -1959,6 +1969,8 @@ def s9_review_gap_words():
          ["Ünï ✓"]),
         ("E12 encoding: a case variant of a non-ASCII id is not read", ["Ünï"], ["review:ünï"], []),
         ("E12: leading and trailing whitespace is stripped", ["A"], [" \n review:A \t "], ["A"]),
+        ("F7: an id with trailing whitespace is not named by the bare word (the word is stripped)", ["A "], ["review:A "], []),
+        ("F7: ... it is named by the reason-tail form", ["A "], [f"review:A {sep}x"], ["A "]),
         ("E12: an empty match names none", ["A"], [""], []),
         ("E12: a blank match names none", ["A"], ["   \n"], []),
         ("E12: a match that is no string names none (None, a number, a list)", ["A"],
