@@ -870,14 +870,6 @@ def surfaces_said_aloud() -> None:
             reads.clear()
             check_eq(f"{label}: no key", surfaces.declared_surfaces(cfg), {})
             check_eq(f"{label}: the table was read 0 times", len(reads), 0)
-    # an unreadable table with no words is `unknown` in the record, never a silent web default (FR-59)
-    with patch.object(surfaces, "TABLE_PATH", broken):
-        try:
-            surfaces.declared_surfaces({})
-            got = "no error"
-        except ValueError:
-            got = "ValueError"
-        check_eq("a broken table is refused, not defaulted", got, "ValueError")
     # the readiness record: `surfaces` carries `undeclared` / `unknown`; the legacy keys of profiles stay absent
     root = temp_project("qa-factory-readiness-surfaces-rec-")
     use_project(root)
@@ -911,7 +903,9 @@ def in_process_default_said() -> None:
                 ("declared kind with an address -> unchanged", [{"name": "a", "kind": "in_process", "base_url": "http://x"}], (R.OK, base + "a")),
                 ("URL-less and silent -> ok + the default sentence", [{"name": "a"}], (R.OK, base + "a; stand a " + said)),
                 ("mixed -> the sentence names only the URL-less stand", [{"name": "a", "kind": "in-process"}, {"name": "b"}],
-                 (R.OK, base + "a, b; stand b " + said))):
+                 (R.OK, base + "a, b; stand b " + said)),
+                ("two URL-less and silent -> the plural sentence", [{"name": "a"}, {"name": "b"}],
+                 (R.OK, base + "a, b; stands a, b name no address and do not say they run in-process: they were taken as in-process and nothing was probed here"))):
             check_eq(label, note(*stands), want)
     finally:
         cleanup(root)

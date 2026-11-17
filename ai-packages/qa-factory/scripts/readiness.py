@@ -887,10 +887,11 @@ def _check_plain_environment(cfg: dict, root: Path, env: dict, stands: list) -> 
         note = "in-process environment(s), nothing to probe: " + ", ".join(in_process)
         by_default = [e.get("name") or "?" for e in stands if names_no_address(e) and not says_in_process(e)]
         if by_default:
-            note += (f"; {'stand' if len(by_default) == 1 else 'stands'} {', '.join(by_default)} "
-                     f"{'names' if len(by_default) == 1 else 'name'} no address and "
-                     f"{'does' if len(by_default) == 1 else 'do'} not say it runs in-process: "
-                     "it was taken as in-process and nothing was probed here")
+            one = len(by_default) == 1
+            note += (f"; {'stand' if one else 'stands'} {', '.join(by_default)} "
+                     f"{'names' if one else 'name'} no address and "
+                     f"{'does' if one else 'do'} not say {'it runs' if one else 'they run'} in-process: "
+                     f"{'it was' if one else 'they were'} taken as in-process and nothing was probed here")
         return cap(OK, "factory", note)
     if not any(str(x or "") for x in declared) and not (env.get("secret_keys") or env.get("extra_keys")):
         return cap(UNKNOWN, "user",
