@@ -890,3 +890,11 @@ from the read comparisons, and the measurement decides.
   (FR-7, FR-4: a check stops a silent pass). Safe direction: one more question, never a silent pass. For the owner's
   morning list.
 - All five cards go to ONE plan critic before any builder; anchors are re-read by each builder on its base.
+
+## Owner's word on C3-j / J1 (the owner, 17.11.2026, in the session) — the card is redrafted (r2, designer)
+
+«Почему не гоняем? Почему лимиты не измерены? Вообще любой стенд который нам дали мы считаем готовым тестовым стендом если
+человек не скажет чего-то дополнительного (например мы видим что доступа куда-то нет, спрашиваем как его получить и человек
+говорит: на этом стенде этого доступа в принципе нет). И то можем предложить моки.»
+Consequence (Lead's reading, to be confirmed by the owner): an UNMEASURED stand limit is not a stand gap and blocks nothing; the
+e2e rows run; the report says the limit was not measured. The J1 options (i)/(ii) and the J2 fork fall away with the card at gate A.

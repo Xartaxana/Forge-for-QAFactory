@@ -73,8 +73,8 @@ def k1_real_tree() -> None:
     print(report.line())
     check_in("K1: the summary line names the walk, the rows, the gaps by leg, the joints and the stages with no detector",
             f"walked exit 8, detector 5, window 28 | rows {len(REAL['joints'])}, gaps ", report.line())
-    check_eq("K1: the rows file holds 268 rows (40 of T1 + 227 landed by T1r; +1 acceptance:novelty_question, C3-b1; +1 manifest_put:probe_owed); a change is a named change of the file",
-             len(REAL["joints"]), 269)
+    check_eq("K1: the rows file holds 273 rows (40 of T1 + 227 landed by T1r; +1 acceptance:novelty_question, C3-b1; +1 manifest_put:probe_owed; +4 T9c conductor rows); a change is a named change of the file",
+             len(REAL["joints"]), 273)
     check_in("K1/E5: a stage with no detector is reported, not invented",
              "stages with no detector: S0, S1, S6, S7, S9", report.line())
     check_eq("K1: no walk error on the real tree", UNI[1], [])
@@ -509,9 +509,10 @@ def lookups() -> None:
               [r["check"] for r in SJ.rows_for(runner, ["S5"], {"plan": True}, data=unknown)]),
              (["u:zz", "u:plan"], ["u:zz", "u:plan"], ["u:zz"], ["u:zz", "u:plan"]))
     real_rows = SJ.rows_for(runner, ["*"])
-    check_eq("rows-for/real: since T1r the runner is told rows (108 today), each stating a requirement; no row names the conductor yet (T9c)",
-             (len(real_rows), all(r.get("requirement") or r.get("requirement_from") for r in real_rows), SJ.rows_for("conductor", ["*"])),
-             (108, True, []))
+    check_eq("rows-for/real: since T1r the runner is told rows (108 today), each stating a requirement; +4 T9c conductor rows: with no facts the conductor is told all four, none of them the runner's",
+             (len(real_rows), all(r.get("requirement") or r.get("requirement_from") for r in real_rows),
+              [r["check"] for r in SJ.rows_for("conductor", ["*"])]),
+             (108, True, ["no_move:options", "no_move:prose", "no_move:class", "no_move:args"]))
 
 
 def renderers() -> None:

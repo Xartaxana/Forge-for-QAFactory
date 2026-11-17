@@ -1,0 +1,1 @@
+- the conductor's launch prompt now ends its moves with a section `What code will check in this launch`: the rows of what code judges in the conductor's answer (its options, its question, its class and checked fields, and the `rework` args while a rework is open), each as one line with its door, or `none`; the conductor's refusal texts are unchanged and now carry their row ids.
