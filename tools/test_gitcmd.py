@@ -134,6 +134,24 @@ def test_as_text_reads_utf8_with_replacement_and_crlf_and_cr_as_lf():
     assert gitcmd.as_text(b"") == ""
 
 
+@pytest.mark.parametrize("raw, limit, expected", [
+    ("a\nb", None, "a"),
+    ("\n  \n  second  \nthird", None, "second"),
+    (b"fatal: x\r\nmore", None, "fatal: x"),
+    (b"", None, "no message"),
+    (None, None, "no message"),
+    ("   \n ", None, "no message"),
+    ("x" * 200, None, "x" * 200),
+    ("x" * 200, 160, "x" * 160),
+    ("x" * 160, 160, "x" * 160),
+    (b"\xff bad", None, "\ufffd bad"),
+], ids=["two-lines", "blank-first", "bytes-crlf", "empty-bytes", "none", "blank-only", "uncut", "cut-beyond", "cut-at", "bad-byte"])
+def test_first_line_rows(raw, limit, expected):
+    """F5: the one first-line helper (owns_readers and dispatch_new import it); `_first_line` stays its alias."""
+    assert gitcmd.first_line(raw, limit) == expected
+    assert gitcmd._first_line is gitcmd.first_line
+
+
 def _runner(rc=0, out=b"", err=b"", raises=None):
     def run(root, *args, timeout=gitcmd.DEFAULT_TIMEOUT, stderr=False):
         if raises is not None:

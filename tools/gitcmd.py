@@ -60,9 +60,17 @@ class Checkout(NamedTuple):
     linked: bool
 
 
-def _first_line(text: str) -> str:
-    lines = [l.strip() for l in (text or "").strip().splitlines() if l.strip()]
-    return lines[0] if lines else "no message"
+def first_line(raw, limit: int | None = None) -> str:
+    """The first non-blank line of `raw` (text, bytes or None), stripped, cut to `limit` characters when given; "no message"
+    when there is none. The one first-line helper of the tools that report a git failure."""
+    text = as_text(raw) if isinstance(raw, (bytes, bytearray)) else str(raw or "")
+    lines = [l.strip() for l in text.strip().splitlines() if l.strip()]
+    if not lines:
+        return "no message"
+    return lines[0] if limit is None else lines[0][:limit]
+
+
+_first_line = first_line  # the name the callers in this file already use
 
 
 def main_checkout(root, *, runner=None, timeout=DEFAULT_TIMEOUT):

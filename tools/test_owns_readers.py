@@ -73,6 +73,22 @@ def _files() -> dict:
     f["tools/mod_two_b.py"] = "x = 1\n"
     f["tools/test_two.py"] = "# mod_two_a.py mod_two_b.py\n"
     f["tools/mod_untr.py"] = "x = 1\n"
+    f["tools/mod_t25.py"] = "x = 1\n"
+    for i in range(25):
+        f["tools/test_t25_%02d.py" % i] = "# mod_t25.py\n"
+    f["tools/mod_d12.py"] = "x = 1\n"
+    for i in range(12):
+        f["tools/d12_%02d.json" % i] = '{"k": "mod_d12.py"}\n'
+    for i in range(40):
+        f["tools/d40/g_%02d.py" % i] = "x = 1\n"
+    f["tools/mod_wf.py"] = "x = 1\n"
+    f[".github/workflows/ci.yml"] = "run: python tools/mod_wf.py\n"
+    f["tools/mod_hq.py"] = "x = 1\n"
+    f[TESTS + "helper_hq.py"] = "# mod_hq.py\n"
+    f["tools/mod_ord_a.py"] = "x = 1\n"
+    f["tools/mod_ord_b.py"] = "x = 1\n"
+    f["tools/tool_ord_a.py"] = "import mod_ord_a\n"
+    f["tools/test_ord_b.py"] = "# mod_ord_b.py\n"
     f["tools/mod_bin.py"] = "x = 1\n"
     return f
 
@@ -166,6 +182,9 @@ CASES = [
            "- more: tools/mod_cap.py -- 1 test readers not listed"], order=["- hot:", "- outside:", "- more:"]),
     C("hot-with-names", ["tools/mod_cap.py"], names=["fn_cap"], readers=True, count=[("- outside:", 0)],
       has=["- names: tools/test_cap_05.py (test) names fn_cap", "- more: tools/mod_cap.py -- 26 test readers"], lacks=["- hot:"]),
+    C("test-cap-at", ["tools/mod_t25.py"], readers=True, count=[("- outside:", 25), ("- hot:", 0), ("- more:", 0)],
+      has=["readers: 25 outside owns, 25 lines below"]),
+    C("data-cap-at", ["tools/mod_d12.py"], readers=True, count=[("- data:", 12), ("- more:", 0)]),
     C("data-cap", ["tools/mod_dcap.py"], readers=True, count=[("- data:", 12)],
       has=["- more: tools/mod_dcap.py -- 1 data readers"]),
     C("all-lifts", ["tools/mod_all.py"], all_=True, count=[("- outside:", 28)],
@@ -176,8 +195,12 @@ CASES = [
     C("quarantine-reader-count", ["tools/mod_qr.py"], has=["readers: 1 outside owns", "- more: tools/mod_qr.py -- 1 quarantined readers"],
       lacks=["1 test", "- outside:", "quarantine: unknown"]),
     C("quarantine-layers-absent", ["tools/mod_qr.py"], base="nolayers",
-      has=["quarantine: unknown (test-layers.json absent at", "- more: tools/mod_qr.py -- 1 test, ? quarantined readers"],
-      lacks=["- quarantined:"]),
+      has=["quarantine: unknown (test-layers.json absent at", "- more: tools/mod_qr.py -- 1 test (quarantine unknown) readers"],
+      lacks=["- quarantined:", "? quarantined"]),
+    C("quarantine-layers-absent-listed", ["tools/mod_qr.py"], base="nolayers", readers=True,
+      has=["- outside: %stest_qreader.py (test, quarantine unknown) names tools/mod_qr.py" % TESTS], lacks=["- more:"]),
+    C("quarantine-unknown-code-reader-no-mark", ["tools/mod_hq.py"], base="nolayers",
+      has=["- more: tools/mod_hq.py -- 1 code readers not listed"], lacks=["(quarantine unknown)", "? quarantined"]),
     C("quarantine-show-fails", [TESTS + "test_qowned.py"], given=["docs/nofile.md"], patch=("quarantine-show", 128),
       has=["quarantine: unknown (test-layers.json present at", "but read empty)", "- absent: docs/nofile.md (given)"],
       lacks=["- quarantined:"]),
@@ -205,6 +228,8 @@ CASES = [
       has=["- exists: name fn_hit (new) -- already named by 2 files on {sha8}"]),
     C("names-nonword", ["tools/mod_quiet.py"], names=["--part"],
       has=["- names: tools/test_cli_flag.py (test) names --part"], lacks=["absent: name --part", "unknown"]),
+    C("names-cap-at", ["tools/mod_quiet.py"], names=["nq_%02d" % i for i in range(20)], count=[("- absent: name nq_", 20)],
+      lacks=["unsearched"]),
     C("names-cap", ["tools/mod_quiet.py"], names=["nm_%02d" % i for i in range(21)], count=[("- absent: name nm_", 20)],
       has=["- unsearched: 1 more names over the cap"], lacks=["nm_20"]),
     C("base-missing", ["tools/mod_quiet.py"], base="origin/nope", lines=1,
@@ -220,10 +245,35 @@ CASES = [
     C("lstree-fails", ["tools/mod_quiet.py"], given=["docs/only_in_tree.md"], patch=("ls-tree", 128),
       has=["presence: unknown (git ls-tree exited 128", "quarantine: unknown (", "slow: unknown ("],
       lacks=["- absent:", "- exists:"]),
-    C("outside-repo", ["{outside}/x.py"], has=["- unsearched: x.py (outside the repo; pass the repo path)"],
-      lacks=["{outside}", "{outside_posix}"]),
+    C("outside-repo", ["{outside}/x.py"], has=["- unsearched: x.py (outside the repo; pass the repo path)",
+                                               "readers: unknown -- no owned path was searched (1 unsearched below); 1 lines below -- base"],
+      lacks=["{outside}", "{outside_posix}", "0 outside owns"]),
+    C("outside-dotdot", ["../outside.py"], has=["readers: unknown -- no owned path was searched (1 unsearched below)",
+                                                "- unsearched: outside.py (outside the repo"], lacks=["0 outside owns"]),
+    C("mixed-searched-and-unsearched", ["../outside.py", "tools/mod_two_a.py"], readers=True,
+      has=["readers: 1 outside owns, 2 lines below; unsearched: 1 paths -- base origin/main ",
+           "- unsearched: outside.py (outside the repo"], lacks=["unknown --"]),
+    C("empty-list", [], lines=1, has=["readers: unknown -- no owned path was searched (0 unsearched below); 0 lines below -- base"],
+      lacks=["0 outside owns"]),
+    C("control-char-path-only", ["tools/a\tb.py"], has=["readers: unknown -- no owned path was searched (1 unsearched below)",
+                                                       "- unsearched: 1 paths with a control character (not searched)"],
+      lacks=["0 outside owns", "a\tb"]),
+    C("control-char-path-mixed", ["tools/mod_two_a.py", "tools/a\tb.py"],
+      has=["readers: 1 outside owns, 2 lines below; unsearched: 1 paths -- base"]),
+    C("control-char-name", ["tools/mod_quiet.py"], names=["a\tb"], has=["- unsearched: 1 names with a control character (not searched)"],
+      lacks=["a\tb"]),
+    C("regex-meta-names", ["tools/mod_quiet.py"], names=["a.b*", "[x]"],
+      has=["- absent: name a.b* -- not named anywhere", "- absent: name [x] -- not named anywhere"], lacks=["unknown"]),
+    C("cyrillic-name", ["tools/mod_quiet.py"], names=["\u0444.py", "\u043a\u0443\u0447\u043a\u0430"],
+      has=["- names: tools/test_cyr.py (test) names \u0444.py", "- absent: name \u043a\u0443\u0447\u043a\u0430 -- not named anywhere"]),
+    C("path-cap-at", ["tools/zz_p%03d.py (new)" % i for i in range(orr.dispatch_manifest.PATH_CAP)], lines=1,
+      has=["readers: 0 outside owns, 0 lines below -- base"], lacks=["unsearched"]),
+    C("path-cap-beyond", ["tools/zz_p%03d.py (new)" % i for i in range(orr.dispatch_manifest.PATH_CAP + 1)],
+      has=["readers: 0 outside owns, 1 lines below; unsearched: 1 paths -- base", "- unsearched: 1 more paths over the cap"]),
     C("dir-small", ["tools/dsmall"], has=["readers: 1 outside owns"], lacks=["- unsearched:"]),
-    C("dir-wide", ["tools/dwide"], has=["- unsearched: tools/dwide holds 41 files; readers not counted -- name the files"]),
+    C("dir-at-cap", ["tools/d40"], lines=1, has=["readers: 0 outside owns, 0 lines below -- base"], lacks=["unsearched"]),
+    C("dir-wide", ["tools/dwide"], has=["- unsearched: tools/dwide holds 41 files; readers not counted -- name the files",
+                                        "readers: unknown -- no owned path was searched (1 unsearched below)"], lacks=["0 outside owns"]),
     C("short-stem-not-a-reader", ["tools/s0.md"], lines=1, has=["readers: 0 outside owns"]),
     C("short-stem-named", ["tools/s1.md"], has=["readers: 1 outside owns"]),
     C("space-cyrillic", ["tools/my dir/ф.py"], has=["readers: 1 outside owns"]),
@@ -231,6 +281,10 @@ CASES = [
     C("two-owned-one-line", ["tools/mod_two_a.py", "tools/mod_two_b.py"], readers=True,
       has=["readers: 1 outside owns, 1 lines below",
            "- outside: tools/test_two.py (test) names tools/mod_two_a.py, tools/mod_two_b.py"]),
+    C("workflow-reader", ["tools/mod_wf.py"], readers=True, all_=True,
+      has=["- outside: .github/workflows/ci.yml (code) names tools/mod_wf.py"]),
+    C("two-owned-test-before-code", ["tools/mod_ord_a.py", "tools/mod_ord_b.py"], all_=True,
+      order=["- outside: tools/test_ord_b.py", "- outside: tools/tool_ord_a.py"]),
     C("binary-skipped", ["tools/mod_bin.py"], lines=1, has=["readers: 0 outside owns"]),
 ]
 

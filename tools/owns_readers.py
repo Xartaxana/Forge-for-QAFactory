@@ -19,7 +19,9 @@ the scope globs and the caps are DATA in tools/owns_readers.json.
 
 An unknown is printed as unknown, never as zero readers, "not quarantined", "not slow", "present" or "absent" (FR-59, AR-28):
 a git call that fails gives a header segment (`quarantine|slow|presence|names: unknown (<why>)`, or `readers: unknown -- git
-grep exited <rc>`), and the rest of the block is kept.
+grep exited <rc>`), and the rest of the block is kept. When NO owned path was searched (outside the repo, over the directory
+cap, a control character, an empty list) the header is `readers: unknown -- no owned path was searched (<k> unsearched
+below)`; when some were skipped the count stays and the header gains `; unsearched: <k> paths`.
 
 KNOWN MISSES (the plan critic's duty starts here; each one is answered in docs/tasks/critic-diff-brief.md item 13 (d)):
   1. transitive readers (a test imports `a`, which imports the owned `b`): for a package path `scenario_walk.py
@@ -27,7 +29,10 @@ KNOWN MISSES (the plan critic's duty starts here; each one is answered in docs/t
   2. a path built from pieces, a name read from data, `importlib` with a computed string;
   3. a pin on a VALUE without the file name (a frozen dict pinning `qa-retro-analyst 14075`): `--names` only;
   4. stems under 4 characters (those are searched by file name only);
-  5. readers outside the scope (docs, plans: prose readers are the designer's own walk);
+  5. readers outside the scope, by name: `docs/`, `plans/`, the root `*.md` (CLAUDE.md, PROJECT.md), nested fixture JSON under
+     `scripts/tests/fixtures/<dir>/` (only the top level of fixtures is in scope: 52 such files named a `.py` at 237ead44),
+     the md/yaml fixtures under `tools/` (8 files named a `.py` at 237ead44), `gateway/`; prose readers are the designer's own
+     walk. CI workflows (`.github/workflows/*`) ARE in scope (they run the tools);
   6. a stale base: the tool does not fetch; the header prints the sha it searched;
   7. a common-word stem of 4+ characters over-counts (`contract` is a whole word in 537 scope files against 96 naming
      `contract.py`): counted, never dropped; in a listing it sinks to the third tier.
@@ -49,7 +54,7 @@ section present it reports, with the section gone (keep present) it is quiet. If
 
 TWO QUESTIONS, TWO ANSWERS (spec section 2.7; plans/builder-rules.md 7b): `scenario_walk.py --witness-for <path>` answers what
 to RUN for a package path (the keep `covers` plus the import closure; the DoD names it); this tool answers what must not
-break or be edited (literal readers, layer status, presence). Their convergence is a queued node, not stated here.
+break or be edited (literal readers, layer status, presence). Their convergence is node C6 of the spec (§6 L9), opened by the Lead; not stated here.
 
 Exit: 0 printed; 2 no path given (a door in the text). Spec: docs/tasks/specs/20261116-spec-facts-by-code-spec.md.
 """
@@ -159,12 +164,11 @@ class Report:
     facts: dict = field(default_factory=dict)          # kind -> ready lines (no reader counts)
     subjects: list = field(default_factory=list)
     names_searched: bool = False
+    owned_unsearched: int = 0                          # owned paths skipped (outside the repo, over a cap, control character)
 
 
 def _first_line(raw) -> str:
-    text = gitcmd.as_text(raw) if isinstance(raw, (bytes, bytearray)) else str(raw or "")
-    lines = [l.strip() for l in text.split("\n") if l.strip()]
-    return lines[0][:160] if lines else "no message"
+    return gitcmd.first_line(raw, 160)
 
 
 def _fact(rep: Report, kind: str, text: str) -> None:
@@ -336,103 +340,100 @@ def _grep(repo, sha: str, pats, specs=None):
 
 # --- report --------------------------------------------------------------------------------------------------------------
 
-def report(paths, given=(), names=(), base="origin/main", repo=None) -> Report:
-    repo = Path(repo) if repo else _TOOLS_DIR.parent
-    cfg = _config()
-    rep = Report(ref=base)
-    sha, why = _resolve(repo, base)
-    if sha is None:
-        rep.base_why = why
-        return rep
-    rep.sha = sha
-    sha8 = sha[:8]
-    repo_real = Path(os.path.realpath(repo))
-    caps, layers = cfg["caps"], cfg["layers"]
-
+def _read_inputs(rep: Report, paths, given, repo_real: Path) -> list:
+    """The searchable (role, item) pairs; every skipped owned path is counted in rep.owned_unsearched and named in a fact."""
     owned = [i for i in (_item(p, repo_real, True) for p in paths) if i]
     given_items = [i for i in (_item(p, repo_real, False) for p in given) if i]
     bad = [i for i in owned + given_items if i.bad]
     if bad:
         _fact(rep, "unsearched", "%d paths with a control character (not searched)" % len(bad))
+    rep.owned_unsearched += sum(1 for i in owned if i.bad)
     combined = [("owned", i) for i in owned if not i.bad] + [("given", i) for i in given_items if not i.bad]
     if len(combined) > dispatch_manifest.PATH_CAP:
         over = len(combined) - dispatch_manifest.PATH_CAP
         combined = combined[:dispatch_manifest.PATH_CAP]
+        rep.owned_unsearched += over
         _fact(rep, "unsearched", "%d more paths over the cap" % over)
     for role, it in combined:
         if it.outside:
+            rep.owned_unsearched += role == "owned"
             _fact(rep, "unsearched", "%s (outside the repo; pass the repo path)" % it.label)
-    inside = [(role, it) for role, it in combined if not it.outside]
+    return [(role, it) for role, it in combined if not it.outside]
 
-    # (iv) presence: ONE ls-tree over owned, given and the two registries (literal paths)
-    reg_q, reg_s = layers["quarantine_registry"], layers["slow_registry"]
-    listing, ls_why = _ls_tree(repo, sha, sorted({it.rel for _, it in inside} | {reg_q, reg_s}))
-    if listing is None:
-        rep.segments["presence"] = ls_why
-    q_present = None if listing is None else reg_q in listing
-    s_present = None if listing is None else reg_s in listing
 
-    owned_files: list = []                       # repo-relative files whose readers are searched
+def _owned_files(rep: Report, inside: list, listing, base: str, dir_cap: int) -> list:
+    """The repo-relative files whose readers are searched, and the presence facts (absent / exists) of owned and given paths."""
+    sha8 = rep.sha[:8]
+    files: list = []
     for role, it in inside:
         is_dir = listing is not None and it.rel not in listing and any(_under(it.rel, f) for f in listing)
         if is_dir:
             members = sorted(f for f in listing if _under(it.rel, f))
-            if role == "owned":
-                if len(members) > caps["dir_cap"]:
-                    _fact(rep, "unsearched", "%s holds %d files; readers not counted -- name the files"
-                          % (it.rel, len(members)))
-                else:
-                    owned_files.extend(members)
+            if role != "owned":
+                continue
+            if len(members) > dir_cap:
+                rep.owned_unsearched += 1
+                _fact(rep, "unsearched", "%s holds %d files; readers not counted -- name the files" % (it.rel, len(members)))
+            else:
+                files.extend(members)
             continue
         if role == "owned":
-            owned_files.append(it.rel)
+            files.append(it.rel)
         if listing is None:
             continue
         if it.rel not in listing and not it.new:
             _fact(rep, "absent", "%s (%s) -- not on %s %s; a worktree builder cannot read it" % (it.rel, role, base, sha8))
         elif it.rel in listing and it.new and role == "owned":
             _fact(rep, "exists", "%s (new) -- already on %s %s" % (it.rel, base, sha8))
-    owned_files = list(dict.fromkeys(owned_files))
-    owned_set = set(owned_files)
+    return list(dict.fromkeys(files))
 
-    # (ii) layer status
-    q_set, q_why = _quarantine_status(repo, sha, q_present)
+
+def _layer_facts(rep: Report, repo, listing, owned_files: list, inside: list, layers: dict):
+    """(quarantined set | None, slow set | None); the `quarantined` and `slow` facts of owned and given test files."""
+    q_present = None if listing is None else layers["quarantine_registry"] in listing
+    s_present = None if listing is None else layers["slow_registry"] in listing
+    q_set, q_why = _quarantine_status(repo, rep.sha, q_present)
     if q_set is None:
         rep.segments["quarantine"] = q_why
-    s_set, s_why = _slow_status(repo, sha, s_present)
+    s_set, s_why = _slow_status(repo, rep.sha, s_present)
     if s_set is None:
         rep.segments["slow"] = s_why
     tests_dir = layers["tests_dir"]
-    status_seen: set = set()
-    status_files = [(f, "owned") for f in owned_files] + [(it.rel, "given") for role, it in inside if role == "given"]
-    for f, role in status_files:
-        if f.startswith(tests_dir) and (f, role) not in status_seen:
-            status_seen.add((f, role))
-            name = posixpath.basename(f)
-            if q_set is not None and name in q_set:
-                _fact(rep, "quarantined", "%s (%s) -- the canon does not run it; a case goes to a keep file" % (f, role))
-            if s_set is not None and name in s_set:
-                _fact(rep, "slow", "%s (%s) -- listed slow: not run locally, judged by the batch canon" % (f, role))
+    seen: set = set()
+    for f, role in [(f, "owned") for f in owned_files] + [(it.rel, "given") for role, it in inside if role == "given"]:
+        if not f.startswith(tests_dir) or (f, role) in seen:
+            continue
+        seen.add((f, role))
+        name = posixpath.basename(f)
+        if q_set is not None and name in q_set:
+            _fact(rep, "quarantined", "%s (%s) -- the canon does not run it; a case goes to a keep file" % (f, role))
+        if s_set is not None and name in s_set:
+            _fact(rep, "slow", "%s (%s) -- listed slow: not run locally, judged by the batch canon" % (f, role))
+    return q_set, s_set
 
-    # names
-    name_items: list = []
-    bad_names = 0
+
+def _name_items(rep: Report, names, names_cap: int) -> list:
+    """The (name, new) pairs that are searched: no blank, no duplicate, no control character, at most names_cap."""
+    items: list = []
+    bad = 0
     for raw in names:
         text, new = _split_new(raw)
         if not text:
             continue
         if any(ord(c) < 32 for c in text):
-            bad_names += 1
-        elif text not in [n for n, _ in name_items]:
-            name_items.append((text, new))
-    if bad_names:
-        _fact(rep, "unsearched", "%d names with a control character (not searched)" % bad_names)
-    if len(name_items) > caps["names_cap"]:
-        _fact(rep, "unsearched", "%d more names over the cap" % (len(name_items) - caps["names_cap"]))
-        name_items = name_items[:caps["names_cap"]]
-    rep.names_searched = bool(name_items)
+            bad += 1
+        elif text not in [n for n, _ in items]:
+            items.append((text, new))
+    if bad:
+        _fact(rep, "unsearched", "%d names with a control character (not searched)" % bad)
+    if len(items) > names_cap:
+        _fact(rep, "unsearched", "%d more names over the cap" % (len(items) - names_cap))
+        items = items[:names_cap]
+    return items
 
-    # (i)+(v) one scope search for owned-file patterns and names
+
+def _search(rep: Report, repo, owned_files: list, name_items: list, q_set, s_set, cfg: dict) -> None:
+    """One scope search for the owned-file patterns and the names; the hits become the readers of each subject."""
     pmap: dict = {}
     for idx, f in enumerate(owned_files):
         base_name = posixpath.basename(f)
@@ -442,34 +443,61 @@ def report(paths, given=(), names=(), base="origin/main", repo=None) -> Report:
             pmap.setdefault(stem, []).append(("stem", idx))
     for n, (name, _new) in enumerate(name_items):
         pmap.setdefault(name, []).append(("name", n))
-    subjects = [Subject("path", f) for f in owned_files] + [Subject("name", n) for n, _ in name_items]
-    rep.subjects = subjects
-    if pmap:
-        hits, fail = _grep(repo, sha, list(pmap), cfg["_specs"])
-        if fail:
-            rep.grep_fail = fail
-        else:
-            _attach(rep, hits, pmap, owned_files, owned_set, name_items, q_set, s_set, tests_dir)
+    rep.subjects = [Subject("path", f) for f in owned_files] + [Subject("name", n) for n, _ in name_items]
+    if not pmap:
+        return
+    hits, fail = _grep(repo, rep.sha, list(pmap), cfg["_specs"])
+    if fail:
+        rep.grep_fail = fail
+    else:
+        _attach(rep, hits, pmap, owned_files, set(owned_files), q_set, s_set, cfg["layers"]["tests_dir"])
 
-    # (v) name presence over the whole tree
-    if name_items:
-        present, fail = _grep(repo, sha, [n for n, _ in name_items])
-        if fail:
-            rep.segments["names"] = fail
-        else:
-            files: dict = {}
-            for path, pat in present:
-                files.setdefault(pat, set()).add(path)
-            for name, new in name_items:
-                k = len(files.get(name, ()))
-                if not k and not new:
-                    _fact(rep, "absent", "name %s -- not named anywhere on %s %s" % (name, base, sha8))
-                elif k and new:
-                    _fact(rep, "exists", "name %s (new) -- already named by %d files on %s" % (name, k, sha8))
+
+def _name_presence(rep: Report, repo, name_items: list, base: str) -> None:
+    """(v) name presence over the whole tree: absent (not new) or exists (new) facts; a failed grep is `names: unknown`."""
+    if not name_items:
+        return
+    present, fail = _grep(repo, rep.sha, [n for n, _ in name_items])
+    if fail:
+        rep.segments["names"] = fail
+        return
+    files: dict = {}
+    for path, pat in present:
+        files.setdefault(pat, set()).add(path)
+    for name, new in name_items:
+        k = len(files.get(name, ()))
+        if not k and not new:
+            _fact(rep, "absent", "name %s -- not named anywhere on %s %s" % (name, base, rep.sha[:8]))
+        elif k and new:
+            _fact(rep, "exists", "name %s (new) -- already named by %d files on %s" % (name, k, rep.sha[:8]))
+
+
+def report(paths, given=(), names=(), base="origin/main", repo=None) -> Report:
+    repo = Path(repo) if repo else _TOOLS_DIR.parent
+    cfg = _config()
+    rep = Report(ref=base)
+    sha, why = _resolve(repo, base)
+    if sha is None:
+        rep.base_why = why
+        return rep
+    rep.sha = sha
+    caps, layers = cfg["caps"], cfg["layers"]
+    inside = _read_inputs(rep, paths, given, Path(os.path.realpath(repo)))
+    # (iv) presence: ONE ls-tree over owned, given and the two registries (literal paths)
+    listing, ls_why = _ls_tree(repo, sha, sorted({it.rel for _, it in inside}
+                                                 | {layers["quarantine_registry"], layers["slow_registry"]}))
+    if listing is None:
+        rep.segments["presence"] = ls_why
+    owned_files = _owned_files(rep, inside, listing, base, caps["dir_cap"])
+    q_set, s_set = _layer_facts(rep, repo, listing, owned_files, inside, layers)
+    name_items = _name_items(rep, names, caps["names_cap"])
+    rep.names_searched = bool(name_items)
+    _search(rep, repo, owned_files, name_items, q_set, s_set, cfg)
+    _name_presence(rep, repo, name_items, base)
     return rep
 
 
-def _attach(rep, hits, pmap, owned_files, owned_set, name_items, q_set, s_set, tests_dir) -> None:
+def _attach(rep, hits, pmap, owned_files, owned_set, q_set, s_set, tests_dir) -> None:
     """Turn the hits into the readers of each subject (a hit inside an owned file is dropped)."""
     found: dict = {}                              # (subject index, path) -> {"full", "stem", "name"}
     for path, pat in hits:
@@ -502,69 +530,100 @@ def _attach(rep, hits, pmap, owned_files, owned_set, name_items, q_set, s_set, t
 # --- render --------------------------------------------------------------------------------------------------------------
 
 def _desc(r: Reader) -> str:
-    return "test, slow" if r.cls == "test" and r.slow else r.cls
+    parts = [r.cls]
+    if r.cls == "test" and r.slow:
+        parts.append("slow")
+    if r.cls == "test" and r.layered and r.quarantined is None:
+        parts.append("quarantine unknown")
+    return ", ".join(parts)
+
+
+def _slot_key(slot) -> tuple:
+    r = slot[2]
+    return (r.quarantined is True, r.cls != "test", r.tier, r.path)
+
+
+def _subject_lines(rep: Report, s: Subject, readers: bool, all_: bool, out: dict, add) -> None:
+    """The listed readers of one subject (into `add`), its `hot` line (into `out`) and its `more` line (into `out`)."""
+    caps = _config()["caps"]
+    tcap, dcap = caps["test_cap"], caps["data_cap"]
+    tests = [r for r in s.readers if r.cls == "test" and r.quarantined is not True]
+    quar = [r for r in s.readers if r.cls == "test" and r.quarantined is True]
+    code = [r for r in s.readers if r.cls == "code"]
+    data = [r for r in s.readers if r.cls == "data"]
+    if s.kind == "path":
+        if len(tests) > tcap and not rep.names_searched and not all_:
+            out.setdefault("hot", []).append(
+                "- hot: %s -- %d test readers; pass --names <the functions or keys you change> for a usable list"
+                % (s.label, len(tests)))
+        list_tests, list_data = [], []
+        if readers:
+            hidden = len(tests) > tcap and rep.names_searched and not all_
+            list_tests = [] if hidden else (tests if all_ else tests[:tcap])
+            list_data = data if all_ else data[:dcap]
+        for r in list_tests:
+            add("outside", r, "(%s)" % _desc(r), s.label)
+        for r in list_data:
+            add("data", r, "", s.label)
+    else:
+        list_tests = tests if all_ else tests[:tcap]
+        list_data = data if all_ else data[:dcap]
+        for r in list_tests + list_data:
+            add("names", r, "(%s)" % _desc(r), s.label)
+    list_quar, list_code = (quar, code) if all_ else ([], [])
+    for r in list_code:
+        add("outside", r, "(code)", s.label)
+    for r in list_quar:
+        add("outside", r, "(%s) %s" % (_desc(r), QUAR_NOTE), s.label)
+    parts = []
+    unknown = any(r.cls == "test" and r.layered and r.quarantined is None for r in s.readers)
+    for count, word in ((len(tests) - len(list_tests), "test" + (" (quarantine unknown)" if unknown else "")),
+                        (len(quar) - len(list_quar), "quarantined"),
+                        (len(code) - len(list_code), "code"), (len(data) - len(list_data), "data")):
+        if count:
+            parts.append("%d %s" % (count, word))
+    if parts:
+        subj = s.label if s.kind == "path" else "name %s" % s.label
+        out.setdefault("more", []).append(
+            "- more: %s -- %s readers not listed (--readers / --all lists them)" % (subj, ", ".join(parts)))
+
+
+def _header(rep: Report, n_outside: int, n_lines: int, tail: str) -> str:
+    """The first line: the count over the owned paths that were searched, or the unknown forms (FR-59)."""
+    base = "base %s %s (%s)" % (rep.ref, rep.sha[:8], METHOD)
+    searched = sum(1 for s in rep.subjects if s.kind == "path")
+    if rep.grep_fail:
+        head = "readers: unknown -- %s; %d lines below -- %s" % (rep.grep_fail, n_lines, base)
+    elif not searched:
+        head = "readers: unknown -- no owned path was searched (%d unsearched below); %d lines below -- %s" % (
+            rep.owned_unsearched, n_lines, base)
+    else:
+        partial = "; unsearched: %d paths" % rep.owned_unsearched if rep.owned_unsearched else ""
+        head = "readers: %d outside owns, %d lines below%s -- %s" % (n_outside, n_lines, partial, base)
+    return head + tail
 
 
 def render(rep: Report, readers: bool = False, all_: bool = False) -> str:
     if not rep.sha:
         return "readers: unknown -- base %s does not resolve here (git: %s); nothing was searched\n" % (
             rep.ref, rep.base_why or "no message")
-    caps = _config()["caps"]
-    tcap, dcap = caps["test_cap"], caps["data_cap"]
-    readers = readers or all_
     out = {k: list(v) for k, v in rep.facts.items()}
-    merged = {"names": {}, "outside": {}, "data": {}}      # kind -> reader path -> [text, [subjects]]
+    merged = {"names": {}, "outside": {}, "data": {}}      # kind -> reader path -> [text, [subjects], reader]
 
     def add(kind, r, text, subject):
-        slot = merged[kind].setdefault(r.path, [text, []])
+        slot = merged[kind].setdefault(r.path, [text, [], r])
         slot[1].append(subject)
+        if r.tier < slot[2].tier:
+            slot[2] = r
 
     outside_readers: set = set()
     for s in rep.subjects:
-        tests = [r for r in s.readers if r.cls == "test" and r.quarantined is not True]
-        quar = [r for r in s.readers if r.cls == "test" and r.quarantined is True]
-        code = [r for r in s.readers if r.cls == "code"]
-        data = [r for r in s.readers if r.cls == "data"]
         if s.kind == "path":
             outside_readers.update(r.path for r in s.readers)
-            if len(tests) > tcap and not rep.names_searched and not all_:
-                out.setdefault("hot", []).append(
-                    "- hot: %s -- %d test readers; pass --names <the functions or keys you change> for a usable list"
-                    % (s.label, len(tests)))
-            list_tests, list_data = [], []
-            if readers:
-                hidden = len(tests) > tcap and rep.names_searched and not all_
-                list_tests = [] if hidden else (tests if all_ else tests[:tcap])
-                list_data = data if all_ else data[:dcap]
-            for r in list_tests:
-                add("outside", r, "(%s)" % _desc(r), s.label)
-            for r in list_data:
-                add("data", r, "", s.label)
-        else:
-            list_tests = tests if all_ else tests[:tcap]
-            list_data = data if all_ else data[:dcap]
-            for r in list_tests + list_data:
-                add("names", r, "(%s)" % _desc(r), s.label)
-        list_quar, list_code = (quar, code) if all_ else ([], [])
-        for r in list_code:
-            add("outside", r, "(code)", s.label)
-        for r in list_quar:
-            add("outside", r, "(%s) %s" % (_desc(r), QUAR_NOTE), s.label)
-        parts = []
-        for count, word in ((len(tests) - len(list_tests), "test"), (len(quar) - len(list_quar), "quarantined")):
-            if count:
-                parts.append("%d %s" % (count, word))
-        if any(r.layered and r.quarantined is None for r in s.readers):
-            parts.append("? quarantined")
-        for count, word in ((len(code) - len(list_code), "code"), (len(data) - len(list_data), "data")):
-            if count:
-                parts.append("%d %s" % (count, word))
-        if parts:
-            subj = s.label if s.kind == "path" else "name %s" % s.label
-            out.setdefault("more", []).append(
-                "- more: %s -- %s readers not listed (--readers / --all lists them)" % (subj, ", ".join(parts)))
+        _subject_lines(rep, s, readers or all_, all_, out, add)
     for kind, slots in merged.items():
-        for path, (text, subjects) in slots.items():
+        for path, slot in sorted(slots.items(), key=lambda kv: _slot_key(kv[1])):
+            text, subjects = slot[0], slot[1]
             joined = ", ".join(dict.fromkeys(subjects))
             if kind == "data":
                 out.setdefault(kind, []).append("- data: %s names %s" % (path, joined))
@@ -573,12 +632,7 @@ def render(rep: Report, readers: bool = False, all_: bool = False) -> str:
     lines = [l for k in KIND_ORDER for l in out.get(k, ())]
     tail = "".join("; %s: unknown (%s)" % (k, rep.segments[k]) for k in ("quarantine", "slow", "presence", "names")
                    if k in rep.segments)
-    base = "base %s %s (%s)" % (rep.ref, rep.sha[:8], METHOD)
-    if rep.grep_fail:
-        head = "readers: unknown -- %s; %d lines below -- %s" % (rep.grep_fail, len(lines), base)
-    else:
-        head = "readers: %d outside owns, %d lines below -- %s" % (len(outside_readers), len(lines), base)
-    return "\n".join([head + tail] + lines) + "\n"
+    return "\n".join([_header(rep, len(outside_readers), len(lines), tail)] + lines) + "\n"
 
 
 # --- CLI -----------------------------------------------------------------------------------------------------------------

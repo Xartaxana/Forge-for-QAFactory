@@ -127,6 +127,7 @@ def test_block_leaves_the_manifest_reads_unchanged(capsys, monkeypatch):
     assert dm.check(payload(out)) == dm.check(payload(headers))
     cut_a, cut_b = dm.section_cut(out), dm.section_cut(headers)
     assert dm.header_ids(cut_a) == dm.header_ids(cut_b)
+    assert dm.designer_threshold(cut_a) == dm.designer_threshold(cut_b)
     assert dm.owned_paths(cut_a) == dm.owned_paths(cut_b)
     assert dm.given_paths(cut_a) == dm.given_paths(cut_b)
 
@@ -146,6 +147,39 @@ def test_block_refused_is_replaced(capsys, monkeypatch):
     assert code == 0, err
     assert "\n\nreaders: unknown -- the manifest check refused the block (" in out and "bogus -- x\n" not in out
     assert "OWNS_READERS: the manifest check refused the readers block" in err
+
+
+def _fail_on_block(kind):
+    """decide_full that misbehaves ONLY on a text carrying a readers block: raises, or hands back a degraded cut."""
+    real = dispatch_new.dispatch_gate.decide_full
+
+    def wrapped(payload):
+        if "\nreaders: " not in payload["tool_input"]["prompt"] or "refused the block" in payload["tool_input"]["prompt"]:
+            return real(payload)
+        if kind == "raise":
+            raise RuntimeError("checker boom")
+        return real(payload)._replace(cut=type("Cut", (), {"degraded": True})())
+
+    return wrapped
+
+
+@pytest.mark.parametrize("kind", ["raise", "degraded"])
+def test_checker_failure_on_the_block_replaces_it_and_never_hides_the_dispatch(capsys, monkeypatch, kind):
+    """F1 (spec 3.1): a checker that raises, or a degraded cut, on headers + block routes to the step-4 replacement line."""
+    monkeypatch.setattr(dispatch_new.dispatch_gate, "decide_full", _fail_on_block(kind))
+    code, out, err = run(capsys, BASE)
+    assert code == 0, err
+    assert "\n\nreaders: unknown -- the manifest check refused the block (" in out
+    assert "OWNS_READERS: the manifest check refused the readers block" in err
+
+
+def test_ids_are_read_back_on_the_final_text_too(capsys, monkeypatch):
+    """F2: `_ids_refusal` also runs on the printed text; a block that changes what the id reader sees is refused."""
+    calls = []
+    real = dispatch_new._ids_refusal
+    monkeypatch.setattr(dispatch_new, "_ids_refusal", lambda a, t: calls.append(t) or real(a, t))
+    code, out, _err = run(capsys, BASE)
+    assert code == 0 and len(calls) == 2 and calls[1] == out
 
 
 def test_names_reach_the_report(capsys, monkeypatch):

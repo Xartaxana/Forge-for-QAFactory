@@ -31,6 +31,7 @@ if str(_TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(_TOOLS_DIR))
 import dispatch_gate  # noqa: E402
 import dispatch_manifest  # noqa: E402
+import gitcmd  # noqa: E402
 import owns_readers  # noqa: E402
 import streams  # noqa: E402
 
@@ -127,13 +128,18 @@ def _decide(kind: str, text: str):
                 % (type(exc).__name__, exc))
 
 
+def _clean(decision) -> bool:
+    """True for a decision that passed and was read whole: not a refusal string, code 0, a cut that is there and not degraded."""
+    return (not isinstance(decision, str) and decision.code == 0
+            and decision.cut is not None and not decision.cut.degraded)
+
+
 def _readers_block(args) -> str:
     """The default (counts) readers block of tools/owns_readers.py for the owned paths; a tool that raises is the unknown line."""
     try:
         return owns_readers.render(owns_readers.report(args.owns, args.given, args.names))
     except Exception as exc:  # a failing helper never blocks a dispatch
-        first = (str(exc).strip().split("\n") or [""])[0][:160]
-        return "readers: unknown -- %s: %s\n" % (type(exc).__name__, first)
+        return "readers: unknown -- %s: %s\n" % (type(exc).__name__, gitcmd.first_line(str(exc), 160))
 
 
 def main(argv=None) -> int:
@@ -167,15 +173,16 @@ def main(argv=None) -> int:
     text = headers
     block = _readers_block(args) if args.owns else ""
     if block:
-        # the hook checks exactly what is printed: the block sits behind a blank line, so it never enters a manifest section
-        text = headers + "\n" + block
-        decision = _decide(args.kind, text)
-        if isinstance(decision, str):
-            print(decision, file=sys.stderr)
-            return 2
-        if decision.code != 0:
-            first = (decision.message or "").strip().split("\n")[0][:160]
-            text = headers + "\n" + "readers: unknown -- the manifest check refused the block (%s)\n" % first
+        # the hook checks exactly what is printed: the block sits behind a blank line, so it never enters a manifest section;
+        # anything but a clean pass on headers + block (a refusal, a checker that raised, a degraded cut) is not a reason to
+        # refuse the dispatch: the block is replaced by the unknown line and the text is decided once more (section 3.1)
+        full = headers + "\n" + block
+        got = _decide(args.kind, full)
+        if _clean(got):
+            text, decision = full, got
+        else:
+            why = got if isinstance(got, str) else (got.message or "the cut was degraded")
+            text = headers + "\n" + "readers: unknown -- the manifest check refused the block (%s)\n" % gitcmd.first_line(why, 160)
             decision = _decide(args.kind, text)
             if isinstance(decision, str):
                 print(decision, file=sys.stderr)
@@ -188,6 +195,10 @@ def main(argv=None) -> int:
     if decision.cut is None or decision.cut.degraded:
         print("DISPATCH CHECK FAILED: the text could only be read in a degraded way, so it was not checked; "
               "nothing printed.", file=sys.stderr)
+        return 2
+    refusal = _ids_refusal(args, text)
+    if refusal:
+        print(refusal, file=sys.stderr)
         return 2
     note = "\n".join(n for n in decision.notes if n)
     if note:
