@@ -380,7 +380,8 @@ Four independent nodes; their owns do not overlap.
       {"command": "ci_read.py log 133718632040 / 133733232842 (forge-check 00:28Z, 01:01Z)", "result": "same 4 failed (R1-R4), 9502 passed - visible before lint_ratchet masked them"},
       {"command": "ci_read.py log 133807395675 (package-fast)", "result": "only K10p findings_tooling and t4a plugin read FAIL; 219/221"},
       {"command": "ci_read.py artifact 44013914849 shards 1 and 2", "result": "213/215 and 177/180; FAIL lines only R5,R6 and R7,R8,R9; no timeouts"},
-      {"command": "grep -l check_cell_counts references/slices/*/*.md", "result": "qa-case-designer and qa-requirements-tester only - strategist untold"}
+      {"command": "grep -l check_cell_counts references/slices/*/*.md", "result": "qa-case-designer and qa-requirements-tester only - strategist untold"},
+      {"command": "scenario_walk.py --witness-for scripts/guard_pre_tool.py, scripts/s5_precheck.py, scripts/gate_brief.py, references/stage-joints.json | grep the six judging files", "result": "guard -> test_guard_dispatch_budget_and_logs.py; s5 -> test_s5_precheck.py and test_detector_verdict.py; gate_brief -> test_gate_brief_and_retro.py; stage-joints.json (2 lines) -> none of the judges (positive control: same grep matched for the other three)"}
     ]
   }
 }
