@@ -272,7 +272,7 @@ a rule.
    `scripts/tests/fixtures/judgment-census.json` with `test_judgment_census.py` (shrink-only ratchets),
    `role-load.json` `process_ratchet_tokens`; the critic's standing questions 10 and 11 (JUDGMENT); the designer
    names the AR-n, and for every check the owner it serves and its census class, in §1 of a package spec. This
-   paragraph, critic question 11 and designer rule 1 change together (axis 1). Detectors: calibration checks 36, 41.
+   paragraph, critic questions 10-11, designer rule 1 and new-idea step 4 change together (axis 1). Detectors: calibration checks 36, 41.
 
 ### Rule 11 · DoD in every dispatch
 
