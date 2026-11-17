@@ -242,7 +242,7 @@ check, 1 is deferred by design.
 `delivery_ready: yes`
 
 Notation: R-n - a requirement (understanding.md); TC-n - a test case (test-plan.md);
-TS-n - a plan row; BUG-n - a bug file in `qa-factory/bugs/`.
+TS-n - a plan row; BUG-n - a bug file in the story's `bugs/` folder.
 
 ## Proven - 3 green tests
 

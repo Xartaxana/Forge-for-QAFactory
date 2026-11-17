@@ -13,8 +13,8 @@ first sort (`result_triage_verdict`) plus two narrower checks (`result_case_defe
 analyst confirms it (s7.md 2b/7), so a winning `APP_BUG` answer is written back with
 `decided: false` and its raw choice kept under `leaning` so the analyst still sees it.
 
-`--bugs` reads every `work/bug-drafts/*.json` against the project's own `bugs/*.md` for a
-dedup hint (`result_bug_duplicate`) and a first severity guess from the damage line
+`--bugs` reads every `work/bug-drafts/*.json` against the filed bugs (this story's `bugs/`, the project's
+`qa-factory/bugs/` and every other story's `bugs/`, listed by `bug_records.filed_bug_listing`) for a dedup hint (`result_bug_duplicate`) and a first severity guess from the damage line
 (`result_bug_priority`, advisory only - a score, never a status a validator could enforce).
 
 Three one-shot forms print one decision to stdout and write no file, the same shape as
@@ -270,12 +270,27 @@ def render_triage(report: dict) -> str:
 
 # --- --bugs ----------------------------------------------------------------------------
 
-def _project_bugs_dir(task_root: Path) -> Path:
-    # Bugs live at <project>/qa-factory/bugs; the project is found by the one walk, so a story under a custom artifact_root
-    # reads the same folder. A story under no project keeps the old arithmetic (two levels up): it has no config to read.
+def _project_relative(task_root: Path, path: Path) -> str:
+    """`path` relative to the PROJECT root, as posix text (`qa-factory/bugs/BUG-1.md`,
+    `qa-factory/artifacts/T/bugs/BUG-1.md`: the frame of `journal_path`, never the frame of a proposal's `bug_file`); the
+    absolute posix path when the story sits under no project (`runtime_paths.nearest_project`, the one walk) or the file
+    lies outside it."""
     import runtime_paths
     project = runtime_paths.nearest_project(task_root)
-    return (project / "qa-factory" if project else task_root.parent.parent) / "bugs"
+    if project is None:
+        return path.resolve().as_posix()
+    try:
+        return path.resolve().relative_to(project.resolve()).as_posix()
+    except ValueError:
+        return path.resolve().as_posix()
+
+
+def _bug_pairs(drafts: list, tiers: list, cap: int) -> tuple:
+    """`(pairs, dropped)`: the (draft, bug) duplicate pairs, tier by tier (every draft x tier 0, then every draft x tier 1,
+    then every draft x tier 2: E3, the story's own bugs are never cut before another's), drafts in order inside a tier and
+    bugs in the tier's order; at most `cap` pairs; `dropped` is how many the cap cut (0 when it did not)."""
+    pairs = [(d, b) for tier in tiers for d in drafts for b in tier]
+    return pairs[:cap], max(0, len(pairs) - cap)
 
 
 def _existing_bug_view(path: Path) -> dict:
@@ -324,22 +339,20 @@ def run_bugs(task_root: Path) -> dict:
         (task_root / "work/judge-bugs.json").write_text(
             json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         return report
-    bugs_dir = _project_bugs_dir(task_root)
-    existing = sorted_paths(bugs_dir.glob("BUG-*.md")) if bugs_dir.is_dir() else []
+    tiers, unreadable = BR.filed_bug_tiers(task_root)   # this story, the project home, other stories (AR-13)
     requests, meta = [], []
-    pairs_used = 0
+    views = {}
     for draft_path in drafts:
         draft = hooklib.read_json(draft_path) or {}
-        draft_view = _draft_view(task_root, draft)
+        views[draft_path] = _draft_view(task_root, draft)
         requests.append(({"damage": _damage_line(draft)}, {"priority": {"judgment": "result_bug_priority"}}))
         meta.append({"draft": draft_path.name, "kind": "priority"})
-        for bug_path in existing:
-            if pairs_used >= MAX_BUG_PAIRS:
-                break
-            requests.append(({"draft": draft_view, "existing_bug": _existing_bug_view(bug_path)},
-                             {"dup": {"judgment": "result_bug_duplicate"}}))
-            meta.append({"draft": draft_path.name, "kind": "duplicate", "bug": bug_path.stem})
-            pairs_used += 1
+    pairs, dropped = _bug_pairs(drafts, tiers, MAX_BUG_PAIRS)
+    for draft_path, bug_path in pairs:
+        requests.append(({"draft": views[draft_path], "existing_bug": _existing_bug_view(bug_path)},
+                         {"dup": {"judgment": "result_bug_duplicate"}}))
+        meta.append({"draft": draft_path.name, "kind": "duplicate", "bug": bug_path.stem,
+                     "file": _project_relative(task_root, bug_path)})
     replies = judge.ask_many(requests, workers=8, ticket=task_root.name, stage="S8",
                              project_root=task_root, cfg=cfg)
     failed = next((r for r in replies if r["status"] != "ok"), None)
@@ -353,10 +366,14 @@ def run_bugs(task_root: Path) -> dict:
         else:
             answer = reply["answers"].get("dup") or {}
             if answer.get("value") is True or (answer.get("probability") or 0) >= 0.5:
-                row["duplicates"].append({"bug": info["bug"], "decision": answer})
+                row["duplicates"].append({"bug": info["bug"], "file": info["file"], "decision": answer})
     report.update(drafts=len(drafts), results=list(by_draft.values()),
                   advisory=replies[0]["advisory"] if replies else True,
                   input_tokens=sum(r.get("input_tokens") or 0 for r in replies))
+    if unreadable:   # a home that could not be listed is named, never read as "no bugs" (FR-59)
+        report["unreadable_bug_homes"] = unreadable
+    if dropped:      # the cap cut pairs: said, never silent (FR-59)
+        report["pairs_dropped"] = dropped
     (task_root / "work/judge-bugs.json").write_text(
         json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return report
@@ -367,8 +384,15 @@ def render_bugs(report: dict) -> str:
         return (f"judge_results --bugs: {report['status']} - "
                 f"{report.get('reason') or 'judge.provider is none'}; dedup and score as usual")
     dups = sum(len(r.get("duplicates") or []) for r in report["results"])
-    return (f"judge_results --bugs: mode={report['mode']} {report['drafts']} drafts - "
-            f"{dups} possible duplicate(s) flagged -> work/judge-bugs.json")
+    text = (f"judge_results --bugs: mode={report['mode']} {report['drafts']} drafts - "
+            f"{dups} possible duplicate(s) flagged")
+    if report.get("unreadable_bug_homes"):
+        text += (f"; {len(report['unreadable_bug_homes'])} bug folder(s) could not be listed "
+                 "(unreadable_bug_homes in work/judge-bugs.json)")
+    if report.get("pairs_dropped"):
+        text += (f"; {report['pairs_dropped']} draft/bug pair(s) over the cap were not compared "
+                 "(pairs_dropped in work/judge-bugs.json)")
+    return text + " -> work/judge-bugs.json"
 
 
 # --- one-shot forms ----------------------------------------------------------------------

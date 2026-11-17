@@ -46,6 +46,8 @@ script):
     bug-*.json:  {"kind": "bug", "bug_file": "bugs/BUG-n.md", "action": "create"|"comment",
                   "fields": {...}, "external_id": "<optional, required for comment>",
                   "witness": {...}}
+                 `bug_file` is relative to the story's task root (`resolve_bug_file`: the task root first, then the
+                 state directory for a proposal written before that frame).
     case-*.json: {"kind": "case", "case_file": "test-cases/<area>/<case id>.md",
                   "action": "create"|"update", "fields": {...}, "external_id": "<optional>",
                   "witness": {...}}
@@ -626,6 +628,21 @@ def refuse_local_key(status: list, path: Path, data: dict, target_id, action) ->
     return bool(text)
 
 
+def resolve_bug_file(proposal: Path, rel) -> Path:
+    """The file a proposal's `bug_file` names: relative to the story's task root first (the reporter writes
+    `<task root>/bugs/BUG-n.md`; a proposal lies at `<task root>/work/proposals/<file>` or `<task root>/proposals/<file>`),
+    then to the state directory (a proposal written before the frame moved, E5). A path in neither is the state-directory
+    path, which does not exist: the caller's refusal is unchanged. The task root is tried first so a state-directory
+    file of the same name never shadows this story's own bug (E6)."""
+    folder = Path(proposal).resolve().parent
+    if folder.name == "proposals":
+        task = folder.parent.parent if folder.parent.name == "work" else folder.parent
+        own = task / rel
+        if own.exists():
+            return own
+    return state_dir() / rel
+
+
 def process_bug_proposal(path: Path, ticket: str, ew: dict, write_scopes: set,
                          status: list, channel: str = "jira", cfg: dict | None = None,
                          author: str = "") -> None:
@@ -650,7 +667,7 @@ def process_bug_proposal(path: Path, ticket: str, ew: dict, write_scopes: set,
     if not bug_file_rel:
         status.append(("REJECT", path.name, "missing 'bug_file'"))
         return
-    bug_path = state_dir() / bug_file_rel
+    bug_path = resolve_bug_file(path, bug_file_rel)
     if not bug_path.exists():
         status.append(("REJECT", path.name, f"bug_file not found: {bug_file_rel}"))
         return
@@ -898,7 +915,7 @@ def record_result(proposal_path: Path, external_id: str, url: str, remote_revisi
     data.pop("pending", None)
     write_json(proposal_path, data)
     if rel:
-        artifact_path = state_dir() / rel
+        artifact_path = resolve_bug_file(proposal_path, rel) if kind == "bug" else state_dir() / rel
         if artifact_path.exists() and data.get("action") in ("create", "update") and not data.get("publication_key"):
             upsert_frontmatter(artifact_path, {"external_id": external_id, "external_url": url})
     journal_external_write(ticket, f"{data.get('action')} -> {rel or proposal_path.name} "

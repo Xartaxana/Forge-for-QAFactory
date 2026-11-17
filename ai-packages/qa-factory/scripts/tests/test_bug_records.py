@@ -19,6 +19,7 @@ from harness import (  # noqa: E402
 sys.path.insert(0, str(SCRIPTS))
 import bug_records as BR  # noqa: E402
 import contract as C  # noqa: E402
+import judge_results as JR  # noqa: E402
 import traceability as T  # noqa: E402
 
 
@@ -1230,6 +1231,91 @@ def a_draft_of_a_place_the_runner_never_ran() -> None:
             cleanup(task.parents[2])
 
 
+def filed_bug_listing_reads_every_home() -> None:
+    """C1 (F-O6 (a), D-3 (a)): the bug files a duplicate check compares against - this story's `bugs/`, the project home,
+    every OTHER story's `bugs/`, in that order; a same name in two homes is two entries (E4); a folder that cannot be
+    listed is named, never read as empty (E2); no folder at all is `[]` and no error (E1). Expected from the owner's word
+    (the reporter writes under the task root, the project home is read for older bugs), not from the code."""
+    root = temp_project("qa-factory-bugs-c1-")
+    try:
+        mine = story(root, "STORY-C1", "gateB-C1")
+        other = story(root, "STORY-C1-OTHER", "gateB-C1O")
+        empty = story(root, "STORY-C1-EMPTY", None)
+        write(mine / "bugs" / "BUG-1.md", bug_md("BUG-1", "mine"))
+        write(mine / "bugs" / "README.md", "# not a bug\n")
+        home = root / "qa-factory" / "bugs"
+        write(home / "BUG-1.md", bug_md("BUG-1", "home one"))
+        write(home / "BUG-2.md", bug_md("BUG-2", "home two"))
+        write(other / "bugs" / "BUG-1.md", bug_md("BUG-1", "theirs"))
+        write(root / "qa-factory" / "artifacts" / "docs-not-a-story" / "bugs" / "BUG-9.md", bug_md("BUG-9", "a product file"))
+
+        def rel(paths):
+            return [p.resolve().relative_to(root.resolve()).as_posix() for p in paths]
+
+        paths, unreadable = BR.filed_bug_listing(mine)
+        check_eq("C1: this story first, then the project home, then another story's folder; a README is no bug; a folder "
+                 "that is no story (no pipeline.json) is not listed; the same name in three homes is three entries (E3, E4)", (rel(paths), unreadable),
+                 (["qa-factory/artifacts/STORY-C1/bugs/BUG-1.md", "qa-factory/bugs/BUG-1.md", "qa-factory/bugs/BUG-2.md",
+                   "qa-factory/artifacts/STORY-C1-OTHER/bugs/BUG-1.md"], []))
+        check_eq("C1: a path met twice is returned once (the project root given explicitly changes nothing)",
+                 rel(BR.filed_bug_listing(mine, root)[0]), rel(paths))
+        check_eq("C1: a story with no bug folder sees the home and the others, no error (E1)",
+                 (rel(BR.filed_bug_listing(empty)[0])[:2], BR.filed_bug_listing(empty)[1]),
+                 (["qa-factory/bugs/BUG-1.md", "qa-factory/bugs/BUG-2.md"], []))
+        bare = temp_dir("qa-factory-bugs-c1-bare-")      # not a project: no home, no sibling with a folder
+        try:
+            check_eq("C1: no bug folder in any home: [] and no error (E1)",
+                     BR.filed_bug_listing(bare / "no-such-task"), ([], []))
+        finally:
+            cleanup(bare)
+        import pathlib
+        real = pathlib.Path.glob
+        home_dir = home.resolve()
+
+        def refuse(self, pattern):
+            if self.resolve() == home_dir:
+                raise PermissionError("denied")
+            return real(self, pattern)
+        pathlib.Path.glob = refuse
+        try:
+            paths, unreadable = BR.filed_bug_listing(mine)
+        finally:
+            pathlib.Path.glob = real
+        check_eq("C1: an unlistable project home is NAMED, the others are still listed (E2, FR-59)",
+                 (len(paths), unreadable), (2, ["project: cannot list: denied"]))
+    finally:
+        cleanup(root)
+
+
+def bug_pairs_tier_order() -> None:
+    """C1 (E3): the duplicate pairs are built tier by tier (every draft x this story, then x the project home, then x other
+    stories) and the cap cuts the LAST tier first; `pairs_dropped` says how many it cut. Expected from the card's E3, not
+    from the code. Also the two clauses `render_bugs` adds (E4 of the fix round)."""
+    drafts = ["D1", "D2", "D3"]
+    tiers = [["S1"], ["P1", "P2"], ["O1", "O2", "O3"]]
+    own = [("D1", "S1"), ("D2", "S1"), ("D3", "S1")]
+    home = [(d, b) for d in drafts for b in ("P1", "P2")]
+    third = [(d, b) for d in drafts for b in ("O1", "O2", "O3")]
+    rows = [
+        ("cap not reached", drafts, tiers, 100, (own + home + third, 0)),
+        ("cap cuts inside the third tier", drafts, tiers, 15, ((own + home + third)[:15], 3)),
+        ("cap cuts inside the second tier: this story's pairs for every draft all kept", drafts, tiers, 5,
+         ((own + home)[:5], 13)),
+        ("zero drafts", [], tiers, 200, ([], 0)),
+        ("zero bugs", drafts, [[], [], []], 200, ([], 0)),
+    ]
+    for name, d, t, cap, want in rows:
+        got = JR._bug_pairs(d, t, cap)
+        check_eq(f"C1 _bug_pairs: {name}", (got[0], got[1]), want)
+    check_eq("C1 _bug_pairs: the order inside the cut (this story first)", JR._bug_pairs(drafts, tiers, 4)[0][:3], own)
+    base = {"status": "ok", "mode": "advisory", "drafts": 2, "results": []}
+    plain = JR.render_bugs(base)
+    check_eq("C1 render_bugs: neither key, no extra clause", "could not be listed" in plain or "not compared" in plain, False)
+    both = JR.render_bugs(dict(base, unreadable_bug_homes=["project: cannot list: denied"], pairs_dropped=7))
+    check_eq("C1 render_bugs: one clause per present key", ("1 bug folder(s) could not be listed" in both,
+                                                            "7 draft/bug pair(s) over the cap were not compared" in both), (True, True))
+
+
 def main() -> None:
     root = temp_project("qa-factory-bugs-")
     extra = []
@@ -1601,6 +1687,8 @@ def main() -> None:
     draft_paths_reads_the_writers_files()
     the_pairing_of_a_draft_with_its_triage_row_is_one_helper()
     story_bugs_reads_through_the_one_reader()
+    filed_bug_listing_reads_every_home()
+    bug_pairs_tier_order()
     every_reader_of_the_drafts_folder_reads_through_one_reader()
     the_census_fails_on_an_offender_it_is_not_evergreen()
     the_code_reading_draft()
