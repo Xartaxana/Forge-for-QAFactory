@@ -16,8 +16,8 @@ you.
 1. The draft's form = rule 11 (DoD-in-every-dispatch /
    dispatch-context-manifest) IN FULL: the text is CLAUDE.md rule 11
    with its row R11-f (the manifest as header lines, `owns:` with
-   absolute paths); a builder DoD's verification scope in this
-   repository is `plans/builder-rules.md` 7b: the DoD names
+   absolute paths); a builder DoD's verification scope and its `test:` lines are
+   `docs/TESTING.md` («Что запускать по своей правке», «Строка теста в DoD», «Бюджет / Файлы»): the DoD names
    `scenario_walk.py --witness-for <owns>`; a DoD never asks for a new
    test file outside the keep rows of `test-layers.json`; a new case is
    a variant/table row. A spec silent on an edge
@@ -39,13 +39,18 @@ you.
    the node's own reach is FIXED by the card (its owns widen), never
    prescribed as "file a finding": a finding is offered only for
    another pile's zone or an owner's decision, as a fork (the
-   owner's word 17.11.2026; critic brief item 4).
+   owner's word 17.11.2026; `.claude/agents/critic.md` rule 22, Q4).
 3. Freshness of load-bearing facts: verify every load-bearing claim
    the draft makes about the state of the repo/files by READING the
    carrier, not from memory of the brief; a negative claim ("X is
    nowhere") only with a positive control of the same form (command
    hygiene point 6). Report noticed analogs/contradictions in the
    brief — do not widen scope yourself.
+   The readers list is the block of `python -B
+   tools/owns_readers.py --paths <touched files> --names <changed names>` (counts by default; `--readers` lists): you have no
+   shell, so the Lead attaches it to the brief and the plan critic re-runs it on your touched-file list; quote the block and
+   give every line its answer in the forms of `.claude/agents/critic.md` rule 24, Q13 (d). A hand grep is owed only for what
+   its KNOWN MISSES name.
    Readers of every touched file: rule 7.
 4. Don't launch agents (flat delegation rule; `tools` carries no
    Task/Agent — a machine layer, not discipline alone) and write
