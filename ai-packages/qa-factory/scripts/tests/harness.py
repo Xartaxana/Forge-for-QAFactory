@@ -229,7 +229,7 @@ def finish(label: str) -> None:
     sys.exit(1 if bad else 0)
 
 
-def run_script(name: str, *args, cwd: Path | None = None, env: dict | None = None):
+def run_script(name: str, *args, cwd: Path | None = None, env: dict | None = None, timeout: int = 300):
     # -B and the variable, even when the caller hands over a scrubbed env (a test that wants
     # nothing but CLAUDE_PROJECT_DIR set): otherwise that child writes __pycache__ into the
     # package, and what lies in the package is what a marketplace installs.
@@ -237,7 +237,7 @@ def run_script(name: str, *args, cwd: Path | None = None, env: dict | None = Non
     child_env["PYTHONDONTWRITEBYTECODE"] = "1"
     return subprocess.run([sys.executable, "-B", str(SCRIPTS / name), *[str(a) for a in args]],
                           capture_output=True, text=True, encoding="utf-8", errors="replace",
-                          cwd=str(cwd) if cwd else None, env=child_env, timeout=300)
+                          cwd=str(cwd) if cwd else None, env=child_env, timeout=timeout)
 
 
 def run_capture(root: Path, session: str, transcript: Path):

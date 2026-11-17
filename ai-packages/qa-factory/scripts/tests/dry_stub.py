@@ -194,14 +194,14 @@ def pending_judgments(inventory: Path, skip=()) -> str:
     return "; ".join(parts)
 
 
-def run_script(project: Path, script: str, args: list, *, both: bool = False) -> tuple:
+def run_script(project: Path, script: str, args: list, *, both: bool = False, timeout: int = 300) -> tuple:
     """`(exit code, stderr or stdout)` of the ONE runner of a package script in the project, as the role runs it: `harness.run_script` (no bytecode, a
-    timeout). `both` (a scoped run says why it refused on stdout; N2e): the text is stdout + stderr. A script that outlives the timeout is exit -9 with that
-    text, a failed command like any other (never a traceback)."""
+    timeout, 300 s unless the caller caps it lower). `both` (a scoped run says why it refused on stdout; N2e): the text is stdout + stderr. A script that
+    outlives the timeout is exit -9 with that text, a failed command like any other (never a traceback)."""
     try:
-        done = harness.run_script(script, *args, cwd=project)
+        done = harness.run_script(script, *args, cwd=project, timeout=timeout)
     except subprocess.TimeoutExpired:
-        return -9, f"{script} did not finish within its timeout"
+        return -9, f"{script} did not finish within {timeout} s"
     return done.returncode, ((done.stdout or "") + (done.stderr or "") if both else (done.stderr or done.stdout))
 
 
@@ -463,6 +463,67 @@ def _record(out: dict, code: int, text: str, output: str, why_head: str, case=No
     out["live_only"].append(dict(row, why=f"{why_head} exit {code}: {cut(text)}"))
 
 
+def world_command(project, runner: dict) -> tuple:
+    """`(spec, argv words, no_command text)` of the runner row's command as the WORLD's profile holds it (`profile_contract.profile_commands`, axis 30 - the
+    one reader, for the automator and the critic alike): the text is "" when the command exists, else the reason there is none (a profile with no command,
+    or a malformed one, says so - nothing is run on it)."""
+    import profile_contract as PC
+    commands, problem = PC.profile_commands(world_profile(project, runner["profile_id"]))
+    name = runner.get("command") or "one_test"
+    spec = commands.get(name)
+    words, word_problem = PC.command_argv(spec)
+    if problem or word_problem or not words:
+        return spec, words, f"no command `{name}` in the profile {runner['profile_id']!r}: " + (problem or word_problem or "the profile holds none")
+    return spec, words, ""
+
+
+PROBE_TIMEOUT_S = 120      # one probe_by_code.py process; F-P18 (a): the 900 s ceiling of the main pass stays, the probe is capped here (never raised to fit it)
+
+
+def critic_branch(project, task_dir, kit: dict, runner: dict, dispatch: str, run=run_script) -> dict:
+    """What the code critic does at S5 before it fills its form, as the journal row's keys: the role's own default probe, `probe_by_code.py`, once per
+    instance of the manifest (`contract.manifest_tests`), as a PROCESS - the verdict in `work/probes/<IID>.json` is written by that tool; nothing here
+    composes it (AR-29), and a probe that went red or green on the mutated test is data of the record, not a failure of the stub. No instance in the manifest,
+    or no command in the world's profile: nothing is run and the row says so (the form then has no record to name - the same stop as before, never a pass). A
+    probe that exits non-zero or times out is a `live_only` row with its text (cut at 400); a record the tool itself left (`incomplete` exits 1, a refusal of
+    the tool exits 2 with a `refused: tool` record) stays - it is the tool's data, never deleted here, and the row says the tool left it. The node is the
+    manifest row's `selector`, read from the row only: a row without one is a `live_only` row and no call (never a guessed node, FR-59).
+    `run(project, script, args, both=, timeout=) -> (exit, text)` is the one runner (`run_script`): stdout and stderr both, capped at PROBE_TIMEOUT_S."""
+    import contract as C
+    out = {"wrote": [], "live_only": [], "probes": []}
+    try:
+        tests = C.manifest_tests(read_json(task_dir / "work" / "automation-manifest.json"))
+    except KitError as exc:
+        tests = []
+        out["live_only"].append({"output": "work/probes", "why": cut(f"no instance to probe: {exc}", 240)})
+    else:
+        if not tests:
+            out["live_only"].append({"output": "work/probes", "why": "no instance to probe: work/automation-manifest.json holds no tests[] row"})
+    if not tests:
+        return out
+    _spec, _words, no_command = world_command(project, runner)
+    if no_command:         # the probe runs the world's tests through the profile (run_suite.py --request): no command, no probe
+        out["no_command"] = no_command
+        out["live_only"].append({"output": "work/probes", "why": no_command})
+        return out
+    for entry in tests:
+        iid = C.test_instance_id(entry)
+        node = str(entry.get("selector") or "").strip()        # the node the brief names (`<file>::<test name>`): the manifest row's own `selector`, the real manifest's field
+        record = f"work/probes/{iid}.json"
+        if not node:
+            out["live_only"].append({"output": record, "why": "no selector in the manifest row"})
+            continue
+        code, text = run(project, "probe_by_code.py", ["--task", kit["key"], "--dispatch", dispatch, "--test", node, "--instance", iid], both=True, timeout=PROBE_TIMEOUT_S)
+        out["probes"].append({"instance": iid, "test": node, "exit": code, "text": cut(text)})
+        if code == 0 and not (task_dir / record).is_file():      # an answer that wrote no record (`already_probed` over a record that is gone) names no record
+            out["live_only"].append({"output": record, "why": f"probe_by_code.py exit 0 but {record} does not exist: {cut(text)}"})
+        else:
+            _record(out, code, text, record, "probe_by_code.py", iid)
+            if code != 0 and (task_dir / record).is_file():      # the tool wrote its own record on `incomplete` / a refusal: it stays, and the row says so
+                out["live_only"][-1]["why"] += f"; the tool left {record}"
+    return out
+
+
 def automator_branch(project, task_dir, kit: dict, runner: dict, dispatch: str, run=run_script, manifest_overrides=None, fragments=None) -> dict:
     """What the automator role does at S5, as the journal row's keys. The test file of each automated case is the `test_file:<lang>` of the runner row's
     language, written by the filler; the command that runs the tests is the one the WORLD's profile holds (`profile_contract.profile_commands`, axis 30) -
@@ -471,8 +532,8 @@ def automator_branch(project, task_dir, kit: dict, runner: dict, dispatch: str, 
     merged by `manifest_put.py` (the one writer of the manifest). `fragments` (N2e): the story's own fragments of the role's judgment (`then_bindings`: which
     assertion proves which Then), each merged the same way; a case with no row of `then_bindings` stays refused by `s5_precheck`, never filled by the stub. Then the role's
     documented scoped run, `run_suite.py --mine <case>` (the run block the exit gate reads), once per written case (`ran_suite` in the row)."""
+    import contract as C
     import form_filler as FF
-    import profile_contract as PC
     out = {"wrote": [], "live_only": [], "ran": [], "ran_suite": []}
     manifest_overrides = dict({"tests[].profile_id": runner["profile_id"]}, **(manifest_overrides or {}))
     if fragments is not None and (not isinstance(fragments, list) or not all(isinstance(f, dict) and f for f in fragments)):
@@ -489,13 +550,9 @@ def automator_branch(project, task_dir, kit: dict, runner: dict, dispatch: str, 
             written.append(case)
         except Unfillable as exc:
             out["live_only"].append(dict(live_row(exc), case=case))
-    profile = world_profile(project, runner["profile_id"])
-    commands, problem = PC.profile_commands(profile)
-    name = runner.get("command") or "one_test"
-    spec = commands.get(name)
-    words, word_problem = PC.command_argv(spec)
-    if problem or word_problem or not words:
-        out["no_command"] = f"no command `{name}` in the profile {runner['profile_id']!r}: " + (problem or word_problem or "the profile holds none")
+    spec, words, no_command = world_command(project, runner)
+    if no_command:
+        out["no_command"] = no_command
         out["live_only"].append({"output": "the run of the tests", "why": out["no_command"]})
     elif written:
         code, text = run_command(words, Path(project) / str(spec.get("cwd") or "."))
@@ -508,7 +565,11 @@ def automator_branch(project, task_dir, kit: dict, runner: dict, dispatch: str, 
         try:
             frag = task_dir / "state" / "dry-stub-fragments" / f"{dispatch}-{case}.json"
             frag.parent.mkdir(parents=True, exist_ok=True)
-            frag.write_text(fill_output("manifest_row", kit_context(kit, dispatch, cases=[case]), manifest_overrides).files["work/automation-manifest.json"], encoding="utf-8")
+            row_doc = json.loads(fill_output("manifest_row", kit_context(kit, dispatch, cases=[case]), manifest_overrides).files["work/automation-manifest.json"])
+            for test_row in row_doc.get("tests") or []:      # the real manifest row carries `selector` (`manifest_from_tests.py`: `<file>::<test title>`); a story override of it wins
+                if isinstance(test_row, dict) and test_row.get("file") and test_row.get("instance_id"):
+                    test_row.setdefault("selector", f"{test_row['file']}{C.INSTANCE_SEP}{test_row['instance_id']}")
+            frag.write_text(json.dumps(row_doc, indent=2), encoding="utf-8")
             code, text = run(project, "manifest_put.py", ["--task", kit["key"], "--fragment", str(frag)])
             _record(out, code, text, "work/automation-manifest.json", "manifest_put.py", case)
         except Unfillable as exc:
@@ -834,6 +895,17 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
         store = ""
         row["live_only"].append({"output": "the world's case store", "why": cut(f"contract.cases_root: {type(exc).__name__}: {exc}", 240)})
     ctx = kit_context(kit, dispatch, diff, author_dispatch=author, cases_root=store, task_root=str(task_dir)) if kit else FF.FillContext(task_key=task, dispatch_id=dispatch, impl_diff=diff, author_dispatch=author, cases_root=store, task_root=str(task_dir))
+    # The role's own files, as the story's data, land BEFORE the critic's probe (a real critic writes its model file `work/probe-models/<dispatch>.json` before it
+    # probes) and before `--fix` below, which derives from them. Invariant: `files` never overwrite a form - the form is filled after this block (`_fill_form`).
+    if "files" in mine:
+        row["wrote"] += write_files(task_dir, mine["files"], f"{role}@{stage}")
+    if kit and role == "qa-code-critic" and stage == "S5":      # the probe BEFORE the form: the form's `<instance>` rows are the records that exist (`world_list`), never invented ones
+        done = critic_branch(project, task_dir, kit, runner_row(kit["runner"]), dispatch)
+        row["wrote"] += done["wrote"]
+        row["live_only"] += done["live_only"]
+        row["probes"] = done["probes"]
+        if "no_command" in done:
+            row["no_command"] = done["no_command"]
     _fill_form(row, form, contract, ctx, mine, n, dispatch, task_dir)
     if kit and window == "1":        # S3 window 1: the role labels work/grounding.yaml (no handover form); the labels are the story's data, never the stub's
         data = mine.get("grounding")
@@ -841,8 +913,6 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
             raise KitError(f"story `stub` holds no `grounding` for `{role}@{stage}#{window}`; the labelling window's product is the story's data (rows, requirements)")
         row["wrote"] += [f"work/grounding.yaml: {', '.join(apply_grounding(task_dir, data, f'{role}@{stage}#{window}'))}"]
         row["live_only"] = [x for x in row["live_only"] if "no form with a `contract:` line" not in str(x.get("why"))]       # window 1 has no handover form: not a gap
-    if "files" in mine:       # the role's own files, as the story's data (before `--fix` below, which derives from them)
-        row["wrote"] += write_files(task_dir, mine["files"], f"{role}@{stage}")
     if kit and role == "qa-automator" and stage == "S5":
         done = automator_branch(project, task_dir, kit, runner_row(kit["runner"]), dispatch, manifest_overrides=overrides_for(mine, "manifest_row", n), fragments=mine.get("manifest_fragments"))
         row["wrote"] += done["wrote"]
@@ -1332,6 +1402,103 @@ def selftest_n2(tmp: Path) -> None:
         else:
             check("N2 (6): a profile without `commands` is `no command` in the journal, nothing is run, and the brief's command is not looked for",
                   "no command" in row.get("no_command", "") and row.get("ran") == [] and "decoy" not in json.dumps(row.get("ran")), json.dumps(row)[:600])
+    # N2h-a: the code critic's probe at S5 - the real tool as a process per instance, before the form; the stops are named (edges 1-7)
+    runner = runner_row(kit["runner"])
+    project, task_dir = world("crit")
+    code, text = form(project, task_dir, "S5", "qa-automator", "A5")
+    check("N2h: handoff_init made the S5 automator form of the critic's world", code == 0, text)
+    rc, answer, err = call(project, control, f"Artifacts dir: {task_dir}\nDispatch: A5.\n", "-p", "--agent", "qa-factory:qa-automator")
+    check("N2h: the automator call of the critic's world wrote the manifest", rc == 0 and (task_dir / "work" / "automation-manifest.json").is_file(), err)
+    asked = []
+
+    def fake_probe(world_project, script, argv, **kw):
+        asked.append((script, argv, kw))
+        record = task_dir / "work" / "probes" / f"{argv[argv.index('--instance') + 1]}.json"
+        record.parent.mkdir(parents=True, exist_ok=True)
+        record.write_text(json.dumps({"verdict": "no_failure"}), encoding="utf-8")      # whatever the real tool wrote: the verdict is its data (edge 4)
+        return 0, "ok"
+    done = critic_branch(project, task_dir, kit, runner, "C5", run=fake_probe)
+    check_eq("N2h: critic S5 runs probe_by_code per instance with the brief's command line (task, dispatch, node `<file>::<test>`, instance)",
+             (asked, done["wrote"], done["live_only"]),
+             ([("probe_by_code.py", ["--task", "DRY-1", "--dispatch", "C5", "--test", "qa-factory/tests/TC-1_test.py::test_the_case", "--instance", "test_the_case"],
+                {"both": True, "timeout": PROBE_TIMEOUT_S})], ["work/probes/test_the_case.json"], []))
+    filled = FF.fill_form("s5-critic-to-automator", kit_context(kit, "C5", task_root=str(task_dir)))
+    check_eq("N2h: the record exists before the form: the form's `probes.records` row names the record the tool wrote and the field is not unfillable",
+             ("work/probes/test_the_case.json" in filled.text, [u.path for u in filled.unfillable if u.path.startswith("probes.records")]), (True, []))
+    # edges 2, 5: no instance and no command are named stops, the tool is never run (a spy that fails the row if it is)
+    def never(world_project, script, argv, **kw):
+        raise AssertionError("the probe ran")
+    bare_project, bare_dir = world("noinst")
+    done = critic_branch(bare_project, bare_dir, kit, runner, "C5", run=never)
+    check_eq("N2h: no instance -> no probe, no record: the row says there is none to probe and no work/probes exists",
+             ("no instance to probe" in json.dumps(done["live_only"]), done["probes"], done["wrote"], (bare_dir / "work" / "probes").exists()), (True, [], [], False))
+    nocmd_project, nocmd_dir = world("nocmd-probe", commands=False)
+    (nocmd_dir / "work" / "automation-manifest.json").write_text(json.dumps({"tests": [{"file": "qa-factory/tests/TC-1_test.py", "instance_id": "test_the_case"}]}), encoding="utf-8")
+    done = critic_branch(nocmd_project, nocmd_dir, kit, runner, "C5", run=never)
+    check_eq("N2h: a profile without commands -> 'no command' in the row, nothing is run, no record",
+             ("no command" in done.get("no_command", ""), done["probes"], done["wrote"], (nocmd_dir / "work" / "probes").exists()), (True, [], [], False))
+    # edges 3, 7: the tool failed or was killed - a named row with its text cut at 400, never a record, never masked
+    folder = project / "qa-factory" / "artifacts" / "DRY-1" / "work" / "probes"
+    shutil.rmtree(folder)
+    done = critic_branch(project, task_dir, kit, runner, "C5", run=lambda p, sc, a, **kw: (2, "refused: " + "x" * 600))
+    why = done["live_only"][0]["why"] if done["live_only"] else ""
+    check_eq("N2h: probe rc!=0 with no record -> a journal line with the exit and the text cut at 400, no record, no claim that the tool left one",
+             (done["wrote"], len(done["live_only"]), "probe_by_code.py exit 2: refused: " in why, len(why.split("exit 2: ", 1)[-1]), "the tool left" in why, folder.exists()), ([], 1, True, 400, False, False))
+
+    def leaves_record(world_project, script, argv, **kw):       # the real tool's `incomplete` (exit 1) and refusal (exit 2) both write their own record (F6)
+        record = task_dir / "work" / "probes" / "test_the_case.json"
+        record.parent.mkdir(parents=True, exist_ok=True)
+        record.write_text(json.dumps({"verdict": "refused"}), encoding="utf-8")
+        return 2, "refused"
+    done = critic_branch(project, task_dir, kit, runner, "C5", run=leaves_record)
+    check_eq("N2h (F6): probe rc!=0 with a record the tool wrote -> the row says `the tool left <record>` and the record is kept (the tool's data)",
+             (done["wrote"], [x["why"] for x in done["live_only"]], (folder / "test_the_case.json").is_file()),
+             ([], ["probe_by_code.py exit 2: refused; the tool left work/probes/test_the_case.json"], True))
+    shutil.rmtree(folder)
+    done = critic_branch(project, task_dir, kit, runner, "C5", run=lambda p, sc, a, **kw: (-9, "probe_by_code.py did not finish within 120 s"))
+    check_eq("N2h: probe timeout (exit -9) -> a journal line says it did not finish, no record", (done["wrote"], "did not finish" in json.dumps(done["live_only"]), folder.exists()), ([], True, False))
+    killed = run_script(project, "probe_by_code.py", ["--task", "DRY-1"], timeout=0.01)
+    check_eq("N2h (F8): the one runner kills a script that outlives its timeout: exit -9 and the text names the timeout", (killed[0], "within 0.01 s" in killed[1]), (-9, True))
+    seen_kwargs = {}
+    real_runner = harness.run_script
+
+    def spy(name, *a, **kw):
+        seen_kwargs.update(kw)
+        return subprocess.CompletedProcess([name], 2, stdout='{"status": "refused"}', stderr="noise")
+    harness.run_script = spy
+    try:
+        got = run_script(project, "probe_by_code.py", [], both=True, timeout=7)
+    finally:
+        harness.run_script = real_runner
+    check_eq("N2h (F6, F8): the runner returns stdout and stderr both (a refusal printed on stdout is not lost behind stderr) and passes the timeout to harness.run_script",
+             (got, seen_kwargs.get("timeout")), ((2, '{"status": "refused"}noise'), 7))
+    # open point (c): the node is the manifest row's `selector` only; a row without one is a named row and no call (FR-59)
+    manifest_path = task_dir / "work" / "automation-manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    check_eq("N2h (c): the dry automator's manifest row carries `selector` as the real manifest does", [t.get("selector") for t in manifest["tests"]], ["qa-factory/tests/TC-1_test.py::test_the_case"])
+    for t in manifest["tests"]:
+        t.pop("selector", None)
+    nosel_project, nosel_dir = world("nosel")
+    (nosel_dir / "work").mkdir(parents=True, exist_ok=True)
+    (nosel_dir / "work" / "automation-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    done = critic_branch(nosel_project, nosel_dir, kit, runner, "C5", run=never)
+    check_eq("N2h (c): a manifest row with no selector -> `live_only` `no selector in the manifest row`, no probe call, no record",
+             ([x["why"] for x in done["live_only"]], done["probes"], done["wrote"]), (["no selector in the manifest row"], [], []))
+    # the same through the stub as a process: the real tool runs in the world (this bare world opens no dispatch, so it refuses: rc!=0), the row names it, no record
+    code, text = form(project, task_dir, "S5", "qa-code-critic", "C5")
+    check("N2h: handoff_init made the S5 critic form", code == 0, text)
+    rc, answer, err = call(project, control, f"Artifacts dir: {task_dir}\nDispatch: C5.\n", "-p", "--agent", "qa-factory:qa-code-critic")
+    probed = rows(task_dir)[-1]
+    check_eq("N2h: through the process the critic's call ran the real probe_by_code.py on the instance; its refusal is a live_only row, no record, the form names none",
+             (rc, [(p["instance"], p["exit"] != 0) for p in probed.get("probes", [])], folder.exists(), "work/probes/test_the_case.json" in (task_dir / "work" / "handoffs" / "C5.yaml").read_text(encoding="utf-8")),
+             (0, [("test_the_case", True)], False, False))
+    # F7: the critic's own file (its model file) lands BEFORE the probe the same call runs: the real tool reads it, so the refusal is no longer `no model is stored`
+    shutil.rmtree(folder, ignore_errors=True)
+    modeled = dict(control, stub={"qa-code-critic@S5": {"files": {"work/probe-models/C5.json": ['{"models": []}']}}})
+    rc, answer, err = call(project, modeled, f"Artifacts dir: {task_dir}\nDispatch: C5.\n", "-p", "--agent", "qa-factory:qa-code-critic")
+    probed = rows(task_dir)[-1]
+    check_eq("N2h (F7): a `files` row of the critic is written before the probe: it is in `wrote` and the probe's tool read it (its text no longer says the file is absent)",
+             (rc, "work/probe-models/C5.json" in probed.get("wrote", []), "no such file" in json.dumps(probed.get("probes")), (task_dir / "work" / "probe-models" / "C5.json").is_file()), (0, True, False, True))
     # N2 (2)-(3): the conductor
     spec = NM.data()
     offerable = [mid for mid, mrow in NM.move_rows(spec).items() if NM.move_columns(mrow, strict=False)[1] and NM.move_columns(mrow, strict=False)[0] is None
