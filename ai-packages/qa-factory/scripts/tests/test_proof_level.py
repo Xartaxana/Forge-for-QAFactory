@@ -769,6 +769,12 @@ def the_unmeasured_row_is_a_question_to_the_code_critic():
     measured = {"tests": [fresh_row(), keyless]}          # the writer ran: one row carries a `novelty` key
     unmarked = {"tests": [dict(keyless)]}                 # the recorded stories' shape: no row measured, no marker
     note = "novelty could not be measured (OSError)"
+    check_eq("F1: the one reader of the closed answer: `yes`, `no`, and `\"\"` for absent / malformed / not a row",
+             [PL.probe_owed_answer(e) for e in ({"probe_owed": "yes"}, {"probe_owed": "no"}, {}, {"probe_owed": "Yes"},
+                                                {"probe_owed": True}, {"probe_owed": ["yes"]}, None, "yes")],
+             ["yes", "no", "", "", "", "", "", ""])
+    check_eq("F1: the tuple behind the reader is the one closed vocabulary", PL.PROBE_OWED_ANSWERS, ("yes", "no"))
+    check_eq("F1: manifest_put keeps no second copy of the vocabulary", hasattr(__import__("manifest_put"), "PROBE_OWED_VALUES"), False)
     cases = [
         # (label, row, manifest, owed)
         ("keyless, flagless row beside a measured row -> asked (E1)", keyless, measured, True),

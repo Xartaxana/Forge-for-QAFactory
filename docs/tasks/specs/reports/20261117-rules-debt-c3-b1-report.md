@@ -193,3 +193,49 @@ Verbatim runs (from the tree):
 FR walk: A - no refusal text changed. B - no text to a person changed (marker is data). C - FR-14 shape: one new top-level string key, read by `proof_level.novelty_question_owed` (producer and reader meet, join row). D - FR-59/FR-41: unmeasured is a marker, never recorded as measured-not-novel. E - delivery untouched. F - no measurement code changed. G - FR-30 English only (selftest --lang ok), FR-32 test rows added, FR-54 siblings: other `_attach_novelty` callers none (grep: one call, in build).
 Architecture: AR-22 (the reader's field now has a producer, on the normal exit), AR-28 (unknown never becomes a pass); AR-13/AR-14 unaffected.
 Needed beyond manifest: proof_level.py, manifest_from_tests main (callers), slow_tests.json, tools/dup_ratchet.py.
+
+## Fix round after critic t-1065
+
+Commit: one commit on `worktree-agent-aa11322709a274e56` (sha in the handoff message). Nothing pushed.
+
+- B1 done. `window_record.py`: `GAP_WORD_KINDS = ("review", "novelty_question")`; `_review_gap_head(iid, kind)`, `_review_owner(text, ids, kind)`, `review_gap_words` and `word_let_go` read both kinds by the one head road. `review_gap_words` keys: bare instance id for `review` (unchanged, so controller.py and the old rows are untouched), `(kind, id)` tuple for `novelty_question` (a tuple cannot collide with an id). Test row: `c3_b1_novelty_word_road` (test_window_record.py), driven through `word_kept` with a recorded `pipeline.json` word; edges: word for A does not let B go, kinds do not cross both ways, malformed heads, `*`, no word. Negative control: with window_record.py reverted to HEAD, `FAIL B1: novelty_question:B lets go the novelty line of B - expected ['novelty_question:B'], got []` (`=== window record: 688/693 ok ===`); sha256 before and after restore `fead36a1f165ebce22c9de8a8754b44474db7553f0d40c527aa45cf8d5ae5e48` (copy identical).
+- B2 done. Census row `manifest_put.py::probe_owed_problems` (shape, qa-code-critic, data) placed alphabetically; no key/ceiling move demanded. `test_judgment_census.py` 24/25 -> 25/25.
+- B3 done. `manifest_put.py` writer re-run branch (inside `WRITER_MARK in patch`), new `_test_bytes_changed(stored, patch)`: fields compared are `trace_binding.test_content_sha` and `test_code_sha` (each only when the PATCH carries it; stored missing = differing). Drops `probe_owed` and `critic_note` (unless the patch itself carries them). Row: `c3_b1_probe_owed_bound_to_bytes` (test_manifest_put_merge.py): new code sha, new binding sha, stored without sha -> owed True; same sha, same binding sha, patch without sha, role patch -> stays; first write. Negative control (the `if` forced to False): `FAIL B3: new test_code_sha -> the answer is dropped: question owed - expected True, got False` (`462/468`); sha256 before and after `875245678886e9a61671db1fb03d730dab46624d44f3f7b49614d02a0ab72dad`.
+- B4 done. `manifest_from_tests.build` counts rows `language_rows` wrote and appends one reason `"<N> test row(s) of a language the measurer does not read"` to `unmeasured` after `_attach_novelty`. Rows in `ep1_37`: ts-only fragment carries the marker (2 rows) and the join asks a flagless ts row (closed answer ends it); mixed py+ts carries the reason once; py-only build carries none.
+- F1 done. `proof_level.probe_owed_answer(entry)` (public, over `PROBE_OWED_ANSWERS`); used in manifest_put (`PL`), acceptance.py, window_record.py; `PROBE_OWED_VALUES` dropped. Rows: test_proof_level.py "F1: ..." (reader values; tuple; no second copy in manifest_put). Old rows of the three sites unedited and green.
+- F2 done, DEVIATION from card item 8 / E10: the marker is STICKY, `""` is not written. Reason: `build` runs per file subset, so a `""` from a later subset would erase an earlier subset's failure. Texts fixed: `novelty_question_owed` docstring, the `build` comment, changelog. Row: "F2: the marker is sticky" in test_manifest_put_merge.py.
+- F3 done. test_gate_registry.py K-T1.14 label says "six". Label only, no row can fail on it.
+- 8 done. `process_ratchet_tokens.qa-code-critic` 21173 -> 21224 (measured by test_role_load: "carries 21,224 process tokens"; charter untouched, bytes ceiling 73031 not touched). test_role_load.py 184/186 -> 186/186; test_audit_rules.py 375/375. Named in the commit (`architecture: AR-20`) and the changelog fragment.
+- 9 PARTLY done, 2 reds left, returned as a question. Deviation: `stage-joints.json` has NO `pins` block (grep `pins` over it: no hit; the pin `PINS` is a literal in test_stage_joints.py), so only the test file changed: PINS window 27 -> 28, universe 40 -> 41 keys, `window 27` -> `window 28` in the summary check, rows 267 -> 268 (label "+1 acceptance:novelty_question, C3-b1"), `[8, 5, 27]` -> `[8, 5, 28]`, `code-to-code rows: 26` -> `27`. test_stage_joints.py 327/340 -> 338/340. Remaining FAIL lines, verbatim:
+  - `FAIL K1-A24/at-baseline: the A24 and literal ids a role can meet and no row covers equal the baseline - expected [], got ['rowless is 4, baseline 3: add a row for guard_pre_tool:PT-doctor-probe, manifest_put:probe_owed, stage_done:SD-stage-done... ` (ids: guard_pre_tool:PT-doctor-probe, manifest_put:probe_owed, stage_done:SD-managed-stage, stage_done:SD-stage-close)
+  - `FAIL K4/at-baseline: bare/tagged of every role-reachable unit at or under its baseline - expected [], got ['manifest_put.py::run: bare is 17, baseline 16']`
+  Both come from the C3-b1 refusal `manifest_put:probe_owed` (a new id with no joint row; one more bare site in `run`), and the fix lives in the told-ratchet fixture or a new joint row: a design decision, not a pin of the added row `acceptance:novelty_question`.
+- 10 done: test_role_load, test_audit_rules, test_stage_joints, test_judgment_census run.
+
+### Verification (verbatim tails; each `( cd <tree>/ai-packages/qa-factory && python -B scripts/tests/<file> )`)
+```
+=== window record: 693/693 ok ===
+=== test_manifest_put_merge: 468/468 ok ===
+=== test_proof_level: 610/610 ok ===
+=== test_manifest_from_tests: 553/553 ok ===
+=== test_gate_registry: 493/493 ok ===
+=== judgment_census: 25/25 ok ===
+=== role_load (the one measure of a role's start load): 186/186 ok ===
+=== audit rules (A1/A9/A11/A13/A14/A17/A20/A21/A22/A27): 375/375 ok ===
+=== test_stage_joints: 338/340 ok ===
+gate_registry.py --check -> exit 0
+selftest.py --limits --lang -> === qa-factory selftest: 4/4 ok ===
+```
+scenario_walk named many more files (scenario stories, keep rows); not run here, they belong to the batch canon.
+
+### FR walk
+- A (refusals): the `probe_owed` refusal keeps its text and door; no new refusal. The person's door for `novelty_question` is now one the word can use (FR-2).
+- B (text to a person): door text unchanged; not touched.
+- C (contracts): F1 gives one reader (FR-17/AR-13); producer and readers (`manifest_put`, `acceptance`, `window_record`) changed in one commit.
+- D (identity): the answer is bound to the bytes it judged (FR-4/FR-59); an unknown (stored row without sha) is the safe side.
+- G (code): English only; no control bytes; tests are rows of existing scenarios; sibling sweep in item list below.
+
+### Analogs noticed (not widened)
+- controller.py:7544 builds the `passed` records only for `review:` lines; a `novelty_question` line let go by a person's word gets no such record (outside owns). 
+- story_step / driver_dispatch call the same `word_kept`, so they read the new kind with no change.
+- The two stage_joints reds above (rowless ids, `run` bare) are the same C3-b1 class.

@@ -616,6 +616,7 @@
   {"file": "manifest_put.py", "function": "helper_row_problems", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "manifest_put.py", "function": "novelty_row_problems", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "manifest_put.py", "function": "obligation_hash_problems", "class": "xref", "roles": ["conductor"], "owner": "data"},
+  {"file": "manifest_put.py", "function": "probe_owed_problems", "class": "shape", "roles": ["qa-code-critic"], "owner": "data"},
   {"file": "manifest_put.py", "function": "provisional_row_problems", "class": "xref", "roles": ["qa-automator"], "owner": "data"},
   {"file": "manifest_put.py", "function": "read_fragment", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "manifest_put.py", "function": "retract_problems", "class": "shape", "roles": ["conductor"], "owner": "data"},

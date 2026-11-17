@@ -2786,7 +2786,40 @@ def c3_b1_novelty_question_gap():
         cleanup(root)
 
 
+def c3_b1_novelty_word_road():
+    """C3-b1 fix round (critic t-1065 B1; card E7, axis 34): a person's recorded S5 word `novelty_question:<iid>` lets the line of that
+    instance go through `word_kept`, by the one head road of `review`. Kinds never cross, an instance never lends its word to another,
+    and a malformed head lets nothing go."""
+    sep = " — "
+    window = {"instances": [{"instance_id": "A"}, {"instance_id": "B"}], "scope_instances": {"TC-1": ["A", "B"]}}
+    lines = ["novelty_question:A", "novelty_question:B", "review:A", "review:B", "product:B"]
+
+    def let_go(*matches, which=lines) -> list:
+        root = temp_dir("qa-novelty-word-")
+        try:
+            records = [{"stage": "S5", "match": m, "decision": "go on", "at": "t"} for m in matches]
+            (Path(root) / "pipeline.json").write_text(json.dumps({"stage_overrides": records}), encoding="utf-8")
+            return WR.word_kept(which, window, root, "d1")[1]
+        finally:
+            cleanup(root)
+
+    rows = [
+        ("B1: `novelty_question:B` lets go the novelty line of B", ["novelty_question:B"], ["novelty_question:B"]),
+        ("B1: ... with the reason tail (`verdict`'s form)", [f"novelty_question:B{sep}the critic is away"], ["novelty_question:B"]),
+        ("B1 edge: a word for instance A does not let the gap of B go", ["novelty_question:A"], ["novelty_question:A"]),
+        ("B1 edge: kinds do not cross: `review:B` lets no novelty line go", ["review:B"], ["review:B"]),
+        ("B1 edge: kinds do not cross: `novelty_question:B` lets no review line go", ["novelty_question:B"], ["novelty_question:B"]),
+        ("B1 edge: both words let both lines go, nothing else", ["review:B", "novelty_question:B"], ["novelty_question:B", "review:B"]),
+        ("B1 edge: a malformed head lets nothing go", ["novelty_question: B", "Novelty_question:B", "novelty_question:B-x", "novelty_question:"], []),
+        ("B1 edge: `*` lets nothing go (no other gap kind gains a person road)", ["*"], []),
+    ]
+    for label, matches, want in rows:
+        check_eq(label, sorted(let_go(*matches)), sorted(want))
+    check_eq("B1 edge: no word, nothing goes", let_go(), [])
+
+
 def pure_group():
+    c3_b1_novelty_word_road()
     c3_b1_novelty_question_gap()
     fv1_30b_n6_the_three_judges_read_the_one_survivor()
     fv1_30b_word_let_go_is_the_one_predicate()

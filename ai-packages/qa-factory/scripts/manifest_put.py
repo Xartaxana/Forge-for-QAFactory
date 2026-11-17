@@ -116,6 +116,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from hooklib import project_root, read_json, story_root  # noqa: E402
 import contract as C  # noqa: E402
 import detector_verdict as DV  # noqa: E402
+import proof_level as PL  # noqa: E402
 from person_words import door  # noqa: E402
 from role_cli import (REPAIR_MARKER, RefusingParser, command_from_argv, epilog, refuse,  # noqa: E402
                       run_guarded)
@@ -1699,9 +1700,6 @@ def critic_approval_problems(fragment, stored_tests) -> list:
     return out
 
 
-PROBE_OWED_VALUES = ("yes", "no")   # the code critic's closed answer on a `tests[]` row (C3-b1, D-b1-2)
-
-
 def probe_owed_problems(fragment) -> list:
     """`tests[]` rows of a fragment whose `probe_owed` key is PRESENT with a value other than `yes` / `no` (a bool, a number, a list,
     null and the empty string included): one sentence per row naming the field, the row and both allowed values, [] when none.
@@ -1710,12 +1708,25 @@ def probe_owed_problems(fragment) -> list:
     rows = fragment.get("tests") if isinstance(fragment, dict) else None
     out = []
     for i, row in enumerate(rows if isinstance(rows, list) else []):
-        if not isinstance(row, dict) or "probe_owed" not in row or row["probe_owed"] in PROBE_OWED_VALUES:
+        if not isinstance(row, dict) or "probe_owed" not in row or PL.probe_owed_answer(row):
             continue
         who = row["instance_id"] if _text(row.get("instance_id")) else f"index {i}"
         out.append(DV.refusal("manifest_put:probe_owed", f"tests[{i}] ({who}) carries probe_owed {row['probe_owed']!r}: the field takes `yes` (a live probe is owed) "
                    "or `no` (none is owed, with a critic_note) and nothing else; send one of them, or leave the key out"))
     return out
+
+
+def _test_bytes_changed(stored, patch) -> bool:
+    """Does `patch` carry test bytes that differ from the ones `stored` was judged on? The bytes are named by the fields the
+    row already carries: `trace_binding.test_content_sha` (the writer's row) and `test_code_sha`. For each field the PATCH
+    carries, the stored row must carry the same value; a stored row with none counts as differing (the safe side: the answer
+    goes and the question is asked again). A patch with no such field says nothing about the bytes: False."""
+    def shas(row) -> dict:
+        binding = row.get("trace_binding") if isinstance(row.get("trace_binding"), dict) else {}
+        found = {"trace_binding.test_content_sha": binding.get("test_content_sha"), "test_code_sha": row.get("test_code_sha")}
+        return {name: value for name, value in found.items() if isinstance(value, str) and value}
+    old, new = shas(stored), shas(patch)
+    return any(old.get(name) != value for name, value in new.items())
 
 
 def _changed_assertion_ids(fragment, stored_tests) -> list:
@@ -1907,6 +1918,13 @@ def _merge(current: dict, fragment: dict, trail: dict) -> tuple:
                     # own `generated_from` does this: a role's patch has none and never touches a
                     # measured block.
                     row.pop("novelty", None)
+                if WRITER_MARK in patch and _test_bytes_changed(entry, patch):
+                    # The code critic's closed answer (`probe_owed`, and the `critic_note` that explains it) judged the
+                    # bytes the row had; a writer run that carries other bytes makes it an answer to code that no longer
+                    # exists, so the question is asked again (C3-b1, critic t-1065 B3; FR-4, AR-28).
+                    for answer in ("probe_owed", "critic_note"):
+                        if answer not in patch:
+                            row.pop(answer, None)
                 out.append(row)
                 if dropped:
                     retired.append(dropped)

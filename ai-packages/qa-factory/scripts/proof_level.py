@@ -447,9 +447,10 @@ def _binding_says_new(entry: dict, manifest) -> bool:
 PROBE_OWED_ANSWERS = ("yes", "no")     # the code critic's closed answer to the novelty question (`probe_owed`, C3-b1)
 
 
-def _probe_owed(entry) -> str:
-    """The row's `probe_owed` when it is one of the two closed answers, else `""` (not answered: a malformed value never
-    closes the question and never adds a requirement - exact text, no case folding)."""
+def probe_owed_answer(entry) -> str:
+    """The ONE reader of the code critic's closed answer (AR-13): the row's `probe_owed` when it is one of `PROBE_OWED_ANSWERS`,
+    else `""` (absent, or not answered: a malformed value never closes the question and never adds a requirement - exact text,
+    no case folding). `manifest_put`, `acceptance` and `window_record` read the answer through it."""
     value = entry.get("probe_owed") if isinstance(entry, dict) else None
     return value if isinstance(value, str) and value in PROBE_OWED_ANSWERS else ""
 
@@ -458,13 +459,14 @@ def novelty_question_owed(entry, manifest) -> bool:
     """Is the code critic owed the question "is a live probe owed for this test?" (C3-b1, FR-59). True iff `entry` is a row
     with NO `novelty` key, no flag (`sensitivity_proof_required`, `new_or_changed`, `change_disposition == new_or_changed`),
     not handed, no closed `probe_owed` answer, AND the manifest shows its writer measured novelty: some `tests[]` row carries
-    a `novelty` key, or the manifest's top-level `novelty_unmeasured` is a NON-EMPTY string (the writer ran and its
-    measurement failed). A manifest with neither (written before the writer, or by hand) is never asked: a story in flight is
+    a `novelty` key, or the manifest's top-level `novelty_unmeasured` is a NON-EMPTY string (STICKY: set once a writer run
+    could not measure a row; a later run does not clear it, because the writer builds per file subset and a later subset
+    must not erase an earlier subset's failure). A manifest with neither (written before the writer, or by hand) is never asked: a story in flight is
     never held over a field its artifacts do not have (builder-rules 9). A stored `unknown` is not asked - it already demands
     its probe. Pure; any doubt (not a dict, a malformed `tests`) is False, the in-flight-safe side."""
     if not isinstance(entry, dict) or not isinstance(manifest, dict):
         return False
-    if "novelty" in entry or _probe_owed(entry) or _wanted(entry, manifest) or _handed(entry, manifest):
+    if "novelty" in entry or probe_owed_answer(entry) or _wanted(entry, manifest) or _handed(entry, manifest):
         return False
     marker = manifest.get("novelty_unmeasured")
     if isinstance(marker, str) and marker:
@@ -482,7 +484,7 @@ def _wanted(entry: dict, manifest) -> bool:
     if (entry.get("sensitivity_proof_required") or entry.get("new_or_changed")
             or entry.get("change_disposition") == "new_or_changed"):
         return True
-    if _probe_owed(entry) == "yes":
+    if probe_owed_answer(entry) == "yes":
         return True
     if "novelty" not in entry:
         return False

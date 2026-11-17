@@ -1208,7 +1208,7 @@ def validate_window(window, root):
             if manifest_view is None:
                 manifest_view = _manifest_under(root)
             row = next((r for r in C.manifest_tests(manifest_view) if C.test_instance_id(r) == identity), None)
-            if (row is not None and item.get("probe_owed") not in proof_level.PROBE_OWED_ANSWERS
+            if (row is not None and not proof_level.probe_owed_answer(item)
                     and proof_level.novelty_question_owed(row, manifest_view)):
                 gaps.append("novelty_question:" + identity)
         # ONE predicate for "a live check is demanded" (proof_level.proof_required). The handed

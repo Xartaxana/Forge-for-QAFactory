@@ -1343,6 +1343,8 @@ def build(story: Story, files: list, dispatch_id: str, project=None, prior_probl
             if row not in bindings:
                 bindings.append(row)
 
+    language_written = [0]                    # rows `language_rows` wrote: the measurer reads Python only, so each is unmeasured (B4)
+
     def language_rows(tf: LanguageFile) -> None:
         """The rows of a file `test_source` read: one per declaration whose bare title names a case. A file with no entry in the
         table gives a note and no row; one with an entry and a part it could not read is refused as a list (the part is the
@@ -1389,6 +1391,7 @@ def build(story: Story, files: list, dispatch_id: str, project=None, prior_probl
             entry["consolidates"] = list(covers)
             tests.append(entry)
             wrote += 1
+        language_written[0] += wrote
         if wrote:
             notes.append(f"{tf.rel}: Then bindings are the author's: this language has no marker")
             notes.append(f"{tf.rel}: novelty is measured for Python tests only; not measured for this file")
@@ -1526,6 +1529,8 @@ def build(story: Story, files: list, dispatch_id: str, project=None, prior_probl
     units = _helper_units(project, files, notes) if (tests or unresolved or bindings or whole_unresolved) else []
     unmeasured: list = []
     helper_values = _attach_novelty(story, project, keyed, notes, units, unmeasured)
+    if language_written[0]:                   # P31: a row of a language the measurer does not read is marked, like any unmeasured row
+        unmeasured.append(f"{language_written[0]} test row(s) of a language the measurer does not read")
 
     fragment = {}
     if tests:
@@ -1556,7 +1561,7 @@ def build(story: Story, files: list, dispatch_id: str, project=None, prior_probl
     fragment, stamp_problems = C.stamp_obligation_refs(fragment, getattr(story, "_obligation_map", None) or C.plan_obligation_map(story.root))
     if stamp_problems:
         raise Refusal("obligation_refs: " + "; ".join(stamp_problems))
-    if unmeasured:                       # only when something was not measured: never "" (manifest_put's scalar loop would overwrite)
+    if unmeasured:                       # only when something was not measured; STICKY by decision, never "" (a later file subset would erase an earlier one's failure)
         fragment["novelty_unmeasured"] = "; ".join(unmeasured)
     return {"fragment": fragment, "notes": notes, "scope": scope,
             "cases": _case_picture(story, cases_named, bindings, whole_unresolved)}

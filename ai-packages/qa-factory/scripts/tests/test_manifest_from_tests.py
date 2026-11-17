@@ -2288,6 +2288,21 @@ def ep1_37() -> None:
                  (["TC-002"], "tests/a.spec.ts"))
         check_eq("ts: no Then bindings are written", got["fragment"].get("then_bindings"), None)
         check_in("ts: and the note says whose they are", "Then bindings are the author's: this language has no marker", " ".join(got["notes"]))
+        # B4 (critic t-1065): rows of a language the measurer does not read are marked unmeasured, so the question is asked of them
+        import proof_level as PL
+        reason = "test row(s) of a language the measurer does not read"
+        marker = got["fragment"].get("novelty_unmeasured", "<absent>")
+        check_eq("B4: a ts-only fragment carries `novelty_unmeasured` naming the two rows", (isinstance(marker, str), "2 " + reason in marker),
+                 (True, True))
+        ts_manifest = dict(got["fragment"], tests=[dict(r) for r in got["fragment"]["tests"]])
+        check_eq("B4 join: a flagless ts row of that fragment is asked, a closed answer ends it",
+                 (PL.novelty_question_owed(ts_manifest["tests"][0], ts_manifest),
+                  PL.novelty_question_owed(dict(ts_manifest["tests"][0], probe_owed="no"), ts_manifest)), (True, False))
+        mixed_marker = _dry(root, "tests/test_coupon.py", "tests/data_coupon.py", "tests/a.spec.ts")[1]["fragment"].get("novelty_unmeasured", "")
+        check_eq("B4 edge: a mixed py + ts build carries the reason ONCE, for both ts rows, joined with the others by `; `",
+                 (mixed_marker.count(reason), mixed_marker.startswith("2 " + reason) or "; 2 " + reason in mixed_marker), (1, True))
+        check_eq("B4 edge: a build with no language rows adds no such reason", "language the measurer" in
+                 json.dumps(_dry(root, "tests/test_coupon.py", "tests/data_coupon.py")[1]["fragment"].get("novelty_unmeasured", "")), False)
         # --- a row, no case id in any title: a note, not a silent zero ----------------------------------------------------------------
         code, none, err = _dry(root, "tests/none.spec.ts")
         check_eq("a row and no marker: exit 0, no rows", (code, none["fragment"]), (0, {}))

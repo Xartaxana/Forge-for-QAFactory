@@ -1394,6 +1394,36 @@ def c3_b1_probe_owed_value() -> None:
     check_not_in("`probe_owed` is no field of an expectation_changes[] record", "probe_owed", MP.CRITIC_FIELDS)
 
 
+def c3_b1_probe_owed_bound_to_bytes() -> None:
+    """C3-b1 fix round (critic t-1065 B3): the code critic's answer (`probe_owed` + `critic_note`) judged the bytes the row had. A writer
+    re-run (a patch with `generated_from`) that carries a test-bytes sha that differs from the stored one (`test_code_sha`, or
+    `trace_binding.test_content_sha`; a stored row with none counts as differing) drops the answer, so the question is owed again;
+    the same bytes, a patch with no sha, a role's patch and a first write leave it."""
+    import proof_level as PL
+    answered = {"instance_id": "test_nine[a]", "file": "tests/t.py", "case": "TC-9", "probe_owed": "no", "critic_note": "covered below"}
+    writer = lambda **kw: {"instance_id": "test_nine[a]", "file": "tests/t.py", "generated_from": ["tests/t.py"], **kw}
+    binding = lambda sha: {"trace_binding": {"selector": "t", "assertion_refs": [], "test_content_sha": sha}}
+    rows = [
+        ("new test_code_sha -> the answer is dropped", dict(answered, test_code_sha="AAA"), writer(test_code_sha="BBB"), True),
+        ("new trace_binding.test_content_sha -> dropped", dict(answered, **binding("AAA")), writer(**binding("BBB")), True),
+        ("the stored row has no sha, the patch has one -> dropped (the safe side)", dict(answered), writer(test_code_sha="BBB"), True),
+        ("same test_code_sha -> the answer stays", dict(answered, test_code_sha="AAA"), writer(test_code_sha="AAA"), False),
+        ("same trace_binding sha -> the answer stays", dict(answered, **binding("AAA")), writer(**binding("AAA")), False),
+        ("the patch carries no sha -> the answer stays", dict(answered, test_code_sha="AAA"), writer(), False),
+        ("a role's patch (no generated_from) with another sha leaves the answer", dict(answered, test_code_sha="AAA"),
+         {"instance_id": "test_nine[a]", "test_code_sha": "BBB"}, False),
+    ]
+    for label, stored, patch, owed in rows:
+        merged, _ = MP.merge({"tests": [stored], "novelty_unmeasured": "1 test row(s) got no novelty block"}, {"tests": [patch]})
+        row = merged["tests"][0]
+        check_eq(f"B3: {label}: question owed", PL.novelty_question_owed(row, merged), owed)
+        check_eq(f"B3: {label}: note goes with the answer", ("probe_owed" in row, "critic_note" in row), (not owed, not owed))
+    first, _ = MP.merge({"tests": [], "novelty_unmeasured": "m"}, {"tests": [writer(test_code_sha="BBB")]})
+    check_eq("B3: a first write has nothing to drop and is asked", PL.novelty_question_owed(first["tests"][0], first), True)
+    later, _ = MP.merge({"tests": [], "novelty_unmeasured": "earlier subset failed"}, {"tests": [writer()]})
+    check_eq("F2: the marker is sticky: a later run that writes no key does not clear it", later.get("novelty_unmeasured"), "earlier subset failed")
+
+
 def pc3_provisional_beside_the_other_lists() -> None:
     """t-2181 PC-3: `provisional[]` is merged by `id` beside the other lists and folds like them. A fragment that also carries
     `tests[]`, `unresolved[]` and `then_bindings` leaves them as the merge always left them; the journal replays to the same
@@ -1528,6 +1558,7 @@ def main() -> None:
     ep1_39_then_row_keeps_tests()
     ep1_39_critic_approval()
     c3_b1_probe_owed_value()
+    c3_b1_probe_owed_bound_to_bytes()
     ep1_38_obligation_hash()
     fv1_19_predicate()
     fv1_19_obligation_stamp()
