@@ -1,0 +1,92 @@
+{
+ "_about": "The label ledger of the walk group s5 (rows of exits/s5.json only), read by known_red.py through test_scenario_dry_1.py --part exits:s5; `pins.known_red` is the number of rows.",
+ "known_red": {
+  "s6.walk_supply/the app makes them": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B1 (Lead decision, ledger raise approved): the ask is inside S6, so the row starts S5; the pass then stops at the main stop's own cause (exit_limit at S6, known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "s6.walk_supply/one at a time": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B1 (Lead decision, ledger raise approved): the ask is inside S6, so the row starts S5; the pass then stops at the main stop's own cause (exit_limit at S6, known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "s6.walk_supply/I will add accounts": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B1 (Lead decision, ledger raise approved): the ask is inside S6, so the row starts S5; the pass then stops at the main stop's own cause (exit_limit at S6, known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "s6.walk_supply/free words": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B1 (Lead decision, ledger raise approved): the ask is inside S6, so the row starts S5; the pass then stops at the main stop's own cause (exit_limit at S6, known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "s6.walk_supply/empty": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B1 (Lead decision, ledger raise approved): the ask is inside S6, so the row starts S5; the pass then stops at the main stop's own cause (exit_limit at S6, known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "s6.walk_account/added": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B1 (Lead decision, ledger raise approved): the ask is inside S6, so the row starts S5; the pass then stops at the main stop's own cause (exit_limit at S6, known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "s6.walk_account/by hand": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B1 (Lead decision, ledger raise approved): the ask is inside S6, so the row starts S5; the pass then stops at the main stop's own cause (exit_limit at S6, known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "s6.walk_account/go on": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B1 (Lead decision, ledger raise approved): the ask is inside S6, so the row starts S5; the pass then stops at the main stop's own cause (exit_limit at S6, known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "s6.walk_account/free words": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B1 (Lead decision, ledger raise approved): the ask is inside S6, so the row starts S5; the pass then stops at the main stop's own cause (exit_limit at S6, known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "s6.walk_account/empty": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B1 (Lead decision, ledger raise approved): the ask is inside S6, so the row starts S5; the pass then stops at the main stop's own cause (exit_limit at S6, known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "s6.data_change/only use what exists": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B1 (Lead decision, ledger raise approved): the ask is inside S6, so the row starts S5; the pass then stops at the main stop's own cause (exit_limit at S6, known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "s6.data_change/may create, never delete": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B1 (Lead decision, ledger raise approved): the ask is inside S6, so the row starts S5; the pass then stops at the main stop's own cause (exit_limit at S6, known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "s6.data_change/may create and delete": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B1 (Lead decision, ledger raise approved): the ask is inside S6, so the row starts S5; the pass then stops at the main stop's own cause (exit_limit at S6, known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "s6.data_change/free words": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B1 (Lead decision, ledger raise approved): the ask is inside S6, so the row starts S5; the pass then stops at the main stop's own cause (exit_limit at S6, known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "s6.data_change/empty": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B1 (Lead decision, ledger raise approved): the ask is inside S6, so the row starts S5; the pass then stops at the main stop's own cause (exit_limit at S6, known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "kind:data_change/free words": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B1 (Lead decision, ledger raise approved): the ask is inside S6, so the row starts S5; the pass then stops at the main stop's own cause (exit_limit at S6, known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "kind:data_change/empty": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B1 (Lead decision, ledger raise approved): the ask is inside S6, so the row starts S5; the pass then stops at the main stop's own cause (exit_limit at S6, known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "kind:walk_account/free words": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B1 (Lead decision, ledger raise approved): the ask is inside S6, so the row starts S5; the pass then stops at the main stop's own cause (exit_limit at S6, known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "kind:walk_account/empty": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B1 (Lead decision, ledger raise approved): the ask is inside S6, so the row starts S5; the pass then stops at the main stop's own cause (exit_limit at S6, known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "kind:walk_supply/free words": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B1 (Lead decision, ledger raise approved): the ask is inside S6, so the row starts S5; the pass then stops at the main stop's own cause (exit_limit at S6, known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  },
+  "kind:walk_supply/empty": {
+   "node": "FV3-21",
+   "raised_by": "critic verdict docs/tasks/specs/reviews/t-1217-p1b-groups-and-fv3-17-code.md B1 (Lead decision, ledger raise approved): the ask is inside S6, so the row starts S5; the pass then stops at the main stop's own cause (exit_limit at S6, known_red.json main/S6, node FV3-21); the label leaves with FV3-21"
+  }
+ },
+ "pins": {
+  "known_red": 21
+ }
+}
