@@ -875,12 +875,21 @@ def _check_plain_environment(cfg: dict, root: Path, env: dict, stands: list) -> 
     """The environment check of the rows that are not a device stand (all of them for a project with none): the body
     `check_environment` always had."""
     declared = [env.get(k) for k in ("env_file", "base_url_key", "user_key", "health_url", "health_path")]
+    # A row that SAYS it runs in-process (`kind` or `probe: none`) is declared; a row that names no address and says nothing is
+    # taken as in-process by default (U7 r3): both pass as before, the second one is told what was assumed (FR-4: a note, no stronger status).
+    def says_in_process(e):
+        return (str(e.get("kind") or "").lower() in ("in-process", "in_process", "local-module")
+                or str(e.get("probe") or "").lower() == "none")
     in_process = [e.get("name") or "?" for e in stands
-                  if not any(str(e.get(k) or "") for k in ("base_url", "url", "health_url"))
-                  or str(e.get("kind") or "").lower() in ("in-process", "in_process", "local-module")
-                  or str(e.get("probe") or "").lower() == "none"]
+                  if not any(str(e.get(k) or "") for k in ("base_url", "url", "health_url")) or says_in_process(e)]
     if stands and len(in_process) == len(stands) and not any(str(x or "") for x in declared):
-        return cap(OK, "factory", "in-process environment(s), nothing to probe: " + ", ".join(in_process))
+        note = "in-process environment(s), nothing to probe: " + ", ".join(in_process)
+        by_default = [e.get("name") or "?" for e in stands
+                      if not any(str(e.get(k) or "") for k in ("base_url", "url", "health_url")) and not says_in_process(e)]
+        if by_default:
+            note += (f"; stand {', '.join(by_default)} names no address and does not say it runs in-process: "
+                     "it was taken as in-process and nothing was probed here")
+        return cap(OK, "factory", note)
     if not any(str(x or "") for x in declared) and not (env.get("secret_keys") or env.get("extra_keys")):
         return cap(UNKNOWN, "user",
                    "no environment configured — env_probe has nothing to check; a story that needs a "
@@ -1311,8 +1320,10 @@ def compute(cfg: dict, root: Path, selected_profiles: list[str] | None = None,
         declared = {surfaces.UNKNOWN: str(exc)}
     if declared:
         data["surfaces"] = declared
-    # Profiles are additive. Configs written before this contract retain the exact legacy
-    # readiness shape; once profiles are present, their scoped result is published alongside it.
+    # Profiles are additive. Configs written before this contract retain the legacy readiness shape except for ONE key: a config
+    # with no `profiles` declares no surface, so `surfaces` carries `undeclared` (U7 r2, F-1 (a)); the `profiles`,
+    # `implementation_repos` and `profile_contract` keys stay absent. Once profiles are present, their scoped result is published
+    # alongside it.
     if "profiles" in cfg:
         errors = validate_profile_config(cfg)
         data["profiles"] = profile_readiness(cfg, selected_profiles, root)
