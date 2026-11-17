@@ -113,6 +113,7 @@ M 5–9, L 10–15 (больше — две пачки). Взятая пачка
 | `findings/20261113-pin-izmerennoj-konstanty-role-load-v-test-walk-plan-fields.md` | находка, id — | `test_walk_plan_fields.py` повторяет измеренные храповики `role-load.json`: пин на измеренное число, каждый сдвиг правит два файла | `scripts/tests/test_walk_plan_fields.py`, `references/role-load.json` | пачка 3, PC3-4 | нет | t-240 (P11); TESTING.md |
 | `findings/20261113-krasnoe-v-karantine-ne-razobrano-dva-fajla.md` | находка, id — | два карантинных файла красные: `test_stage_acceptance_consumer` сгнил (заглушка читателя), `test_env_access_onboarding` 105/106 на `localhost:80` | `scripts/tests/test_stage_acceptance_consumer.py`, `scripts/tests/test_env_access_onboarding.py` | пачка 3, PC3-5 | дано 13.11.2026 («ок») | план `20261113-plan-fabrika-ne-huzhe-agenta.md` §7; `docs/TESTING.md` |
 | `findings/20261114-test-brief-pack-s5-plan-249-iz-250-na-baze.md` | находка, id — | `test_brief_pack_s5_plan.py` на базе 249 из 250: бриф вырос (9702 Б против 9559 Б), узел-виновник не назван (Q-5) | `scripts/tests/test_brief_pack_s5_plan.py` | пачка 3, PC3-6 | нет | критик темы P1B-9 (Q-5); AR-20 |
+| `findings/20261117-tests-near-the-300s-ci-cap.md` | находка, id — | файлы у потолка 300 с (`test_stage_joints.py` 237–300 с, `test_scenario_dry_1.py` 262 с) падают по таймауту под нагрузкой CI; резать, потолок не поднимать | `scripts/tests/test_stage_joints.py`, `scripts/tests/test_scenario_dry_1.py` | пачка 4, PC4-19 | нет | канон ветки N2h-v (журнал t-1053); PC4-9; FR-31 |
 
 ## Входящие
 

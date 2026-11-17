@@ -1,0 +1,1 @@
+- the code critic's review receipt (`review.receipt_ref`) is now filled by the factory from `work/windows/<dispatch>.json` when `window_record.py` wrote that window record; the dispatch is read from the form's own file name, so the role is no longer refused for a field only code can fill

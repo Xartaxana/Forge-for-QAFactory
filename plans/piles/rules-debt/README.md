@@ -70,6 +70,7 @@ M 5–9, L 10–15 (больше — две пачки). Взятая пачка
 | `findings/20261117-rd2-fl9-dver-oracle-po-vozmozhnosti.md` | находка, id — | Остаток X2: дверь оракула называет дорогу привязки по возможности языка, а не по pytest | `scripts/s5_precheck.py` | пачка 1, RD1-22 (FL9) | нет | X2; очередь FL9 → C3-c; TBW1-4 (T5r) (`told-before-work/1`) |
 | `findings/20261117-rd2-s1b-vtoroj-prohod-fajla-dolga.md` | находка, id — | S1b: второй проход файла долга правил, контроль K0.15 и строки Check у FR-5 и FR-23 | `design/factory-rules-debt.md`, `scripts/tests/test_null_outcomes.py` | пачка 1, RD1-23 (S1b) | нет | ось 4 карты; F-L12, F-L14 |
 | `findings/20261117-rd2-b337-raspiska-proby-dlya-ne-python.md` | находка, id — | B-337: `red_sandbox.py --probe` для языка без строки пробы отвечает `incomplete` и не оставляет расписки | `scripts/red_sandbox.py`, `scripts/reporters.py` | пачка 1, RD1-24 (B337) | дано 17.11.2026: «Отдельный П1 на потом» | B-337; RD1-15 (C4); B-373 (`live-runs/2` LR1-1); слово владельца 17.11.2026 |
+| `findings/20261117-c3-fb-detector-does-not-scope-the-consumer.md` | находка, id — | N2 критика C3: детектор F-b не привязывает потребителя вызова `acceptable` к `accepts` своей строки реестра | `scripts/gate_registry.py`, `scripts/tests/test_gate_registry.py` | пачка 1, RD1-25 | нет | вердикт t-1065 (N2); RD1-3 (C3-0) |
 
 ## Входящие
 

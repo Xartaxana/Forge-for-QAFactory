@@ -78,7 +78,6 @@ class Artifacts:
         self.root = root
         self._cache = {}
         # The dispatch the form belongs to (its file name), for the claims that are scoped to it.
-        # Not `dispatch`: `_review_receipt` reads that name and nothing has ever set it.
         self.form_dispatch = dispatch
         # Claims a verifier could not judge: `{"claim": name, "reason": text}`. Filled by
         # `_check_claims`, printed by `main`.
@@ -160,10 +159,9 @@ def _review_receipt(art, doc, row=None):
 
     TP1-13797, 26.09: the file existed, the field carried its own placeholder, `--fix` did not
     look, and the refusal went to the conductor and then to the person — who can produce a review
-    receipt even less than the role can. The dispatch id is in the form's own name."""
-    dispatch = str(doc.get("header.dispatch") or doc.get("dispatch") or "").strip()
-    if not dispatch:
-        dispatch = getattr(art, "dispatch", "") or ""
+    receipt even less than the role can. The dispatch id is in the form's own name; the one reader
+    is `_form_dispatch`, so the path is only ever this form's own dispatch and only from a file that exists."""
+    dispatch = _form_dispatch(art, doc)
     if not dispatch:
         return None
     rel = f"work/windows/{dispatch}.json"
@@ -172,7 +170,7 @@ def _review_receipt(art, doc, row=None):
 
 def _form_dispatch(art, doc) -> str:
     """The dispatch id of THIS form: `art.form_dispatch` (the file stem), else `header.dispatch`, else `dispatch`.
-    The one reader for the derivers that follow the form's own name (AR-13); `_review_receipt` keeps its own order."""
+    The one reader for the derivers that follow the form's own name (AR-13)."""
     return (str(getattr(art, "form_dispatch", "") or "").strip()
             or str(doc.get("header.dispatch") or "").strip() or str(doc.get("dispatch") or "").strip())
 

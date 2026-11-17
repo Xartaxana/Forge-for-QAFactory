@@ -1053,3 +1053,13 @@ Verdict `docs/tasks/specs/reviews/t-1059-rules-debt-fl4-code.md`: needs work, B1
   quick-view add path to verify" — the R3 row). The critic's `skip 3` was wrong, t-1034's 2 is right; the R3 class count is 1.
 - L-2..L-6 went to scout t-1067; the card is redrafted by a designer into a NEW file after the digest, then the plan critic
   (PROJECT.md п. 6 (б): the meaning of a delivery word changes), then the builder.
+
+## Lead decisions on FL2, round 2 (17.11.2026, owner asleep: by recommendation, until the owner's word)
+
+- N-1 measured (scratch copy of `fixtures/stories/local-1-0108`, `work/test-plan.json`): rows TS-7, TS-23, TS-26 each carry
+  one obligation with a gap the D1-C2 road holds (`gate_preflight.check_case_environment_gaps`); TS-23 names R-23, so the
+  person is asked and offered the product-gap word. The whole preflight on the fixture stops earlier on a corrupt event,
+  so the measure is the road's own predicate over the row data, not a full run.
+- F-R2-1 = (a): one road, no FL2 code. The card of `20261117-rules-debt-fl2-card-r2.md` §3 is withdrawn; a doc node narrows
+  the FR-21 row of `design/factory-rules-debt.md` to D1-C2 and the live-proof line goes to `live-runs`. Option (b) needs the
+  owner's word (a P31 exception) — a question in the morning report. F-R2-2..5 fall away with the card.
