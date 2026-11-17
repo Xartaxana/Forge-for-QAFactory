@@ -33,9 +33,13 @@ else:
     SCRIPT = Path(__file__).resolve().parent / "dod_gate.py"
 
 # The hook run as a subprocess never starts a real reaper (a passing stop would, under a real session): the shared wrapper.
-from no_reaper_wrap import hook_argv  # noqa: E402
+from no_reaper_wrap import isolated_hook_argv  # noqa: E402
+import atexit, shutil, tempfile  # noqa: E402,E401
 
-HOOK = hook_argv(SCRIPT)
+# A module-level tmp root (mkdtemp, removed at exit): the hook runs from a copy of the file under test there.
+_HOOK_ROOT = tempfile.mkdtemp(prefix="dod_gate_hook_")
+atexit.register(shutil.rmtree, _HOOK_ROOT, True)
+HOOK = isolated_hook_argv(SCRIPT, _HOOK_ROOT, env_name="DOD_GATE_PATH")
 
 
 def _run_hook(payload: dict, cwd: Path) -> subprocess.CompletedProcess:

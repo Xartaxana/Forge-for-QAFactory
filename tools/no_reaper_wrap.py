@@ -31,5 +31,10 @@ def isolated_hook_argv(script, root, env_name="SESSION_CONTEXT_PATH") -> list:
     for sib in Path(__file__).resolve().parent.glob("*.py"):  # the hook's sibling modules; test_*.py stay out (fail-open lines)
         if not sib.name.startswith("test_"):
             shutil.copyfile(sib, dst.parent / sib.name)
+    pkg = Path(__file__).resolve().parent.parent / "ai-packages" / "qa-factory" / "scripts"  # journal_write's PACKAGE_SCRIPTS
+    if pkg.is_dir():
+        (Path(root) / "ai-packages" / "qa-factory" / "scripts").mkdir(parents=True, exist_ok=True)
+        for sib in pkg.glob("*.py"):
+            shutil.copyfile(sib, Path(root) / "ai-packages" / "qa-factory" / "scripts" / sib.name)
     shutil.copyfile(src, dst)
     return hook_argv(dst)
