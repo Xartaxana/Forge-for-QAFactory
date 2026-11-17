@@ -10,10 +10,10 @@ walk rows join its `driven` set through `driven_keys`). A question kind is "keyl
 bound IN THE SAME FUNCTION to, a `closed_question(...)` / `priced_section(...)` call: those texts are the existing census's.
 
     python -B scripts/tests/dry_exits.py --check [--dir D] [--exits-dir E]   the census: 0 discrepancies or the list, and the numbers
-    python -B scripts/tests/dry_exits.py --judge RESULTS.json [--dir D]      judge `{row id: bool}` against the ledger `D/known_red.json`
     python -B scripts/tests/dry_exits.py --selftest                          the table of cases of this file
 
-The label ledger is the ONE helper `known_red.py` (its reconcile, its raise door); this file only names the ledger file. Unknown never
+The label ledger is the ONE helper `known_red.py` (its reconcile, its raise door); this file only names the ledger files: `known_red.json`
+holds the `main/*` rows of the main pass, and a group's rows are in `known_red/<group>.json` (a missing group file is an EMPTY ledger). Unknown never
 becomes a pass (AR-28): an unreadable or missing data file is red naming the file, never an empty census; a row with no class source
 is `class unknown` and RED (E19), never a guessed class and never a pass (FR-59).
 """
@@ -37,6 +37,7 @@ for _path in (str(SCRIPTS), str(HERE)):
 EXITS_DIR = HERE / "fixtures" / "driver-exits"
 WALK_DIR = HERE / "fixtures" / "stories" / "dry-1" / "exits"
 NOT_GROUP = ("classes.json", "known_red.json")          # the two files of the directory that are no group
+LEDGER_DIR = "known_red"                                 # `driver-exits/known_red/<group>.json`: the label ledger of one group (a subdirectory: `load` never recurses)
 SECTIONS = ("routes", "joints", "kinds_without_key")
 GROUP_KEYS = ("schema", "group", "routes", "joints", "kinds_without_key", "ratchet")
 ROW_KEYS = ("reach", "seed", "why_unreached", "class_source", "raised_at")
@@ -199,6 +200,24 @@ def _empty_problems(where: str, data: dict, ratchet: dict) -> list:
     rows = any(isinstance(data.get(section), dict) and data.get(section) for section in SECTIONS)
     counts = any(isinstance(ratchet.get(key), int) and ratchet.get(key) for key in RATCHET_COUNTS)
     return [] if rows or counts else [f"{where}: carries no row and no ratchet count; expected the rows of its group (or delete the file)"]
+
+
+def group_ledger(group: str, directory=None) -> Path:
+    """The ONE default path of the label ledger of a group: `<driver-exits>/known_red/<group>.json` (the file may be absent: an empty ledger)."""
+    return Path(directory or EXITS_DIR) / LEDGER_DIR / f"{group}.json"
+
+
+def group_ledger_rows(path) -> dict:
+    """The ONE rule "an absent group ledger file is an empty ledger": the rows of the file, `{}` when the file is absent. A present file that is
+    unreadable or malformed still raises `known_red.LedgerError` (an unknown never becomes an empty ledger, AR-28)."""
+    import known_red
+    return known_red.load(path) if Path(path).is_file() else {}
+
+
+def merged_ledger_rows(shared_path, group_path) -> dict:
+    """The shared `main/*` rows and the group's rows as one mapping; an absent group file leaves the shared rows whole (edge 2)."""
+    import known_red
+    return {**known_red.load(shared_path), **group_ledger_rows(group_path)}
 
 
 def load(directory=None) -> dict:
@@ -651,8 +670,7 @@ def check(directory=None, walk_dir=None, universe: Universe | None = None, ledge
     _walk_problems(census, walk, universe, red)
     counts = _ratchets(census, walk, universe, report)
     _classes_and_doors(census, universe, red)
-    _ledger(Path(ledger_path or directory / "known_red.json"), red)
-    _ledger_orphans(Path(ledger_path or directory / "known_red.json"), walk, red)
+    _ledgers(directory, ledger_path, census, walk, red)
     report.numbers = _numbers(census, universe, counts)
     return report
 
@@ -765,17 +783,66 @@ def _ledger(ledger: Path, red) -> None:
         red(f"{ledger}: {exc}")
 
 
-def _ledger_orphans(ledger: Path, walk: dict, red) -> None:
-    """I8: a ledger id that is neither a `main...` stage row nor the id of a written walk row can never be reported by any part - red naming it.
-    (A part's ledger of its own, like the self-test's, is another file and is never read here.) An unreadable ledger is `_ledger`'s line."""
+def _ledgers(directory: Path, ledger_path, census: dict, walk: dict, red) -> None:
+    """Section 5 over every ledger file: the shared `known_red.json` (the `main/*` rows) and one `known_red/<group>.json` per group file
+    (an absent one is an empty ledger: it makes nothing expected, never a pass). An explicit `ledger_path` is the one file read, as before.
+    The same id in two files is red naming both paths (the ledger of a group is written by its own node only, AR-14)."""
+    if ledger_path:
+        _ledger(Path(ledger_path), red)
+        _ledger_orphans(Path(ledger_path), walk, red)
+        return
+    shared = directory / "known_red.json"
+    _ledger(shared, red)
+    _ledger_orphans(shared, walk, red, shared=True)
+    files = [shared]
+    stems = {path.stem for path in census["files"]}
+    for group_file in sorted((directory / LEDGER_DIR).glob("*.json")):
+        if group_file.stem not in stems:
+            red(f"{LEDGER_DIR}/{group_file.name} names no walk group; expected {LEDGER_DIR}/<group>.json for a group file of driver-exits/ - "
+                f"rename or remove it")
+        files.append(group_file)
+        _ledger(group_file, red)
+        _ledger_orphans(group_file, walk, red, group=group_file.stem)
+    _ledger_twice(files, red)
+
+
+def _ledger_twice(files: list, red) -> None:
+    """Edge 7: one id in two ledger files - red with every path that holds it (an unreadable file is `_ledger`'s line)."""
+    import known_red
+    where: dict = {}
+    for path in files:
+        try:
+            ids = list(known_red.load(path))
+        except Exception:
+            continue
+        for rid in ids:
+            where.setdefault(rid, []).append(str(path))
+    for rid, paths in where.items():
+        if len(paths) > 1:
+            red(f"label ledger row {rid} is in two ledger files: {' and '.join(paths)}; expected each id in exactly one file")
+
+
+def _ledger_orphans(ledger: Path, walk: dict, red, *, group=None, shared=False) -> None:
+    """I8: a ledger id that no part can ever report is red naming it. The shared file holds the `main/...` / `main:...` stage rows only
+    (`shared=True`); a group's file holds only ids of rows of THAT group's walk file (`group=`; a row of another group is an orphan here, and
+    so is a `main/*` row); with neither, a stage row or any written walk row passes (an explicit ledger). An unreadable ledger is
+    `_ledger`'s line."""
     try:
         import known_red
         ids = list(known_red.load(ledger))
     except Exception:
         return
     for rid in ids:
-        if not (rid.startswith("main/") or rid.startswith("main:") or rid in walk):
-            red(f"label ledger row {rid} names no walk row and no main stage; no part can ever report it - rename or remove it ({ledger})")
+        stage = rid.startswith("main/") or rid.startswith("main:")
+        if shared:
+            fine, expect = stage, "a main stage row (main/<stage>)"
+        elif group is not None:
+            fine = rid in walk and Path(walk[rid]["_path"]).stem == group
+            expect = f"a row of exits/{group}.json"
+        else:
+            fine, expect = stage or rid in walk, "a walk row or a main stage"
+        if not fine:
+            red(f"label ledger row {rid} is not {expect}; no part can ever report it - rename, move or remove it ({ledger})")
 
 
 def _numbers(census: dict, universe: Universe, counts: dict) -> list:
@@ -812,18 +879,6 @@ def _numbers(census: dict, universe: Universe, counts: dict) -> list:
         "ratchet (rows now / base): " + ", ".join(f"{k} {counts[k]}/{census['base'][k]}" for k in RATCHET_COUNTS)
         + f"; raised_by {len(census['raised_by'])}",
         f"groups: {', '.join(census['groups'])}"]
-
-
-def judge(results: dict, ledger_path) -> tuple:
-    """`(ok, lines)`: the walk's `{row id: bool}` judged against the ledger file by the ONE helper (`known_red.reconcile`); this file adds
-    nothing to its reading. A ledger that cannot be read is red naming the file."""
-    import known_red
-    try:
-        ledger = known_red.load(ledger_path)
-        verdict = known_red.reconcile(results, ledger, ledger_path=str(ledger_path))
-    except known_red.LedgerError as exc:
-        return False, [f"{ledger_path}: {exc}"]
-    return verdict.ok, [*verdict.problems, *verdict.known]
 
 
 # ---------------------------------------------------------------------------------------------------- driven keys
@@ -1395,7 +1450,7 @@ def judge_group(outcomes: list, ledger_path, ids: list) -> list:
         by_id.setdefault(rid, []).append(outcome)
     lines: list = []
     try:
-        ledger_all = known_red.load(ledger_path)
+        ledger_all = group_ledger_rows(ledger_path)      # an absent group file is an EMPTY ledger (edge 2)
     except known_red.LedgerError as exc:
         ledger_all = None
         lines.append(("known_red", "fail", str(exc)))
@@ -1935,14 +1990,75 @@ def _selftest_cases() -> list:
         return None if any("stale pin" in p for p in report.problems) else f"got {report.problems}"
 
     # ---- the ledger through the helper
-    @case("judge: a variant with a label and its neighbour red with none - the neighbour is red by id")
+    def ledger_at(path, ids):
+        return _write(path, {"known_red": {rid: {"node": "P1B-9", "raised_by": "x"} for rid in ids}, "pins": {"known_red": len(ids)}})
+
+    def ledger_problems(directory, walk_rows, **put):
+        """The `label ledger` lines of `check` over a tree whose walk files are `{file stem: [row id, ...]}`."""
+        walk = tmp()
+        for stem, ids in walk_rows.items():
+            _write(walk / f"{stem}.json", {"schema": 1, "group": stem, "rows": [{"id": rid, "reach": "seed", "start": "S1"} for rid in ids]})
+        return [p for p in check(directory, walk, _universe(), **put).problems if "label ledger" in p or "known_red" in p]
+
+    @case("ledger: an ABSENT group ledger file is an empty ledger - a red row is new red, a green one passes, never expected")
     def _():
-        root = tmp()
-        ledger = _write(root / "known_red.json", {"known_red": {"exit.resume_limit/go on": {"node": "FV1-13", "raised_by": "Lead, 2026-11-13"}},
-                                                  "pins": {"known_red": 1}})
-        ok, lines = judge({"exit.resume_limit/go on": False, "exit.resume_limit/round": False}, ledger)
-        text = "\n".join(lines)
-        return None if not ok and "new red: exit.resume_limit/round" in text and "known red: exit.resume_limit/go on" in text else f"got {ok} {lines}"
+        gone = tmp() / "known_red" / "g.json"
+        red = [(n, k, d) for n, k, d in judge_group([("p.key/a", Outcome("fail", "no", changed=False))], gone, ["p.key/a"]) if n == "known_red"]
+        green = judge_group([("p.key/a", Outcome("pass", changed=True))], gone, ["p.key/a"])
+        bad = any(k == "fail" for n, k, _d in green)
+        return None if len(red) == 1 and red[0][1] == "fail" and "new red: p.key/a" in red[0][2] and not bad else f"got {red} {green}"
+
+    @case("ledger: a ledger file of no group is red naming it, and its duplicate id still shows")
+    def _():
+        directory = _tree(tmp())
+        ledger_at(directory / "known_red.json", ["main/S5"])
+        ledger_at(directory / "known_red" / "zz-typo.json", ["main/S5"])
+        got = ledger_problems(directory, {"g": ["k/own"]})
+        named = [p for p in got if "names no walk group" in p and "zz-typo.json" in p]
+        twice = [p for p in got if "two ledger files" in p and "zz-typo.json" in p]
+        return None if len(named) == 1 and len(twice) == 1 else f"got {got}"
+
+    @case("walk merge: an absent group ledger keeps the shared main rows")
+    def _():
+        directory = _tree(tmp())
+        ledger_at(directory / "known_red.json", ["main/S5"])
+        ledger_at(directory / "known_red" / "g.json", ["k/own"])
+        absent = merged_ledger_rows(directory / "known_red.json", directory / "known_red" / "gone.json")
+        both = merged_ledger_rows(directory / "known_red.json", directory / "known_red" / "g.json")
+        return None if list(absent) == ["main/S5"] and sorted(both) == ["k/own", "main/S5"] else f"got {list(absent)} {sorted(both)}"
+
+    @case("ledger: a subdirectory known_red/ is no group - load reads driver-exits/*.json only, never recursively")
+    def _():
+        directory = _tree(tmp())
+        ledger_at(directory / "known_red" / "g.json", [])
+        _write(directory / "known_red" / "z.json", _group(routes={"r9": _row()}))
+        census = load(directory)
+        return None if census["groups"] == ["g"] and list(census["routes"]) == ["r1", UNMATCHED] else f"got {census['groups']} {list(census['routes'])}"
+
+    @case("ledger: a group ledger row naming a row of ANOTHER group, or a main/ stage row, is an orphan; its own group's row is not")
+    def _():
+        out = {}
+        for rid, expect_red in (("k/own", False), ("k/other", True), ("main/S5", True)):
+            directory = _tree(tmp())
+            ledger_at(directory / "known_red" / "g.json", [rid])
+            out[rid] = bool(ledger_problems(directory, {"g": ["k/own"], "h": ["k/other"]}))
+            if out[rid] != expect_red:
+                return f"{rid}: red={out[rid]}"
+        return None
+
+    @case("ledger: the shared file holds main stage rows only - a walk row there is an orphan")
+    def _():
+        directory = _tree(tmp(), ledger={"known_red": {"k/own": {"node": "P1B-9", "raised_by": "x"}}, "pins": {"known_red": 1}})
+        got = ledger_problems(directory, {"g": ["k/own"]})
+        return None if len(got) == 1 and "k/own" in got[0] and "main stage row" in got[0] else f"got {got}"
+
+    @case("ledger: the same id in two ledger files is red naming both paths")
+    def _():
+        directory = _tree(tmp())
+        ledger_at(directory / "known_red.json", ["main/S5"])
+        ledger_at(directory / "known_red" / "g.json", ["main/S5"])
+        got = [p for p in ledger_problems(directory, {"g": ["k/own"]}) if "two ledger files" in p]
+        return None if len(got) == 1 and "known_red.json" in got[0] and "g.json" in got[0] else f"got {got}"
 
     # ---- item 7: classes
     registry = [{"id": "OP-1", "kind": "operation", "file": "controller.py", "override": "x"},
@@ -2639,7 +2755,6 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="The census of the driver's exits (P1-b N1).")
     parser.add_argument("--check", action="store_true", help="the census; exit 0 with 0 discrepancies")
     parser.add_argument("--selftest", action="store_true", help="the table of cases of this file")
-    parser.add_argument("--judge", metavar="RESULTS.json", help="judge {row id: bool} against known_red.json of --dir")
     parser.add_argument("--dir", help="the driver-exits directory (default: the fixture directory)")
     parser.add_argument("--exits-dir", help="the walk rows directory (default: fixtures/stories/dry-1/exits)")
     args = parser.parse_args(argv)
@@ -2648,18 +2763,6 @@ def main(argv=None) -> int:
             stream.reconfigure(encoding="utf-8", errors="replace")       # the helper's door text carries a dash
     if args.selftest:
         return selftest()
-    if args.judge:
-        try:
-            results = _read_json(Path(args.judge), "an object of row id -> true/false")
-            ledger = Path(args.dir or EXITS_DIR) / "known_red.json"
-            ok, lines = judge(results, ledger)
-        except ExitsUnreadable as exc:
-            print(f"FAIL {exc}")
-            return 1
-        for line in lines:
-            print(line)
-        print("judge: " + ("ok" if ok else f"REJECT - {sum(1 for ln in lines if not ln.startswith('known red'))} problem(s)"))
-        return 0 if ok else 1
     if args.check:
         report = check(args.dir, args.exits_dir)
         for line in report.numbers:
