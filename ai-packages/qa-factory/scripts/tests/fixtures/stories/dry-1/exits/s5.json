@@ -13,8 +13,53 @@
    },
    "reach": "story",
    "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
     }
    },
    "expect": {
@@ -35,8 +80,53 @@
    },
    "reach": "story",
    "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
     }
    },
    "expect": {
@@ -57,8 +147,53 @@
    },
    "reach": "story",
    "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
     }
    },
    "expect": {
@@ -79,8 +214,53 @@
    },
    "reach": "story",
    "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
     }
    },
    "expect": {
@@ -100,8 +280,53 @@
    },
    "reach": "story",
    "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
     }
    },
    "expect": {
@@ -122,8 +347,53 @@
    },
    "reach": "story",
    "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
     }
    },
    "expect": {
@@ -144,8 +414,53 @@
    },
    "reach": "story",
    "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
     }
    },
    "expect": {
@@ -166,8 +481,53 @@
    },
    "reach": "story",
    "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
     }
    },
    "expect": {
@@ -188,8 +548,53 @@
    },
    "reach": "story",
    "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
     }
    },
    "expect": {
@@ -209,8 +614,53 @@
    },
    "reach": "story",
    "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
     }
    },
    "expect": {
@@ -231,8 +681,53 @@
    },
    "reach": "story",
    "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
     }
    },
    "expect": {
@@ -253,8 +748,53 @@
    },
    "reach": "story",
    "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
     }
    },
    "expect": {
@@ -275,8 +815,53 @@
    },
    "reach": "story",
    "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
     }
    },
    "expect": {
@@ -297,8 +882,53 @@
    },
    "reach": "story",
    "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
     }
    },
    "expect": {
@@ -318,8 +948,53 @@
    },
    "reach": "story",
    "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
     }
    },
    "expect": {
@@ -340,8 +1015,53 @@
    },
    "reach": "story",
    "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
     }
    },
    "expect": {
@@ -362,8 +1082,53 @@
    },
    "reach": "story",
    "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
     }
    },
    "expect": {
@@ -384,8 +1149,53 @@
    },
    "reach": "story",
    "stub": {
-    "qa-code-critic": {
-     "verdict": "reject"
+    "qa-code-critic@S5": {
+     "verdict": "concerns",
+     "result_text": "qa-code-critic S5 TC-1 · concerns\nTC-1 · rejected · the assertion does not read the quantity of a line\nwork/handoffs/S5-qa-code-critic-1.yaml",
+     "manifest_fragments": [
+      {
+       "tests": [
+        {
+         "instance_id": "test_the_case",
+         "file": "qa-factory/tests/TC-1_test.py",
+         "covers": [
+          "TC-1"
+         ],
+         "critic_verdict": "rejected"
+        }
+       ]
+      }
+     ],
+     "files": {
+      "work/probe-models/S5-qa-code-critic-1.json": [
+       "{\"models\": [",
+       "  {\"check\": \"qa-factory/tests/TC-1_test.py:6\",",
+       "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
+       "   \"actual\": \"8\"}",
+       "]}"
+      ],
+      "work/test-code/critic-findings-<dispatch>.md": [
+       "# Critic findings, S5, <dispatch>, window TC-1",
+       "",
+       "Verdict: reject",
+       "",
+       "## Roll-call",
+       "",
+       "| instance | case | state | note |",
+       "|---|---|---|---|",
+       "| test_the_case | TC-1 | rejected | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total without a quantity, so the probe that sums the prices only (8, not 13) does not turn it red |",
+       "",
+       "## Notes",
+       "",
+       "- Finding F-1 blocks the window: the test must check the total of a line with a quantity above one."
+      ]
+     },
+     "overrides": {
+      "s5-critic-to-automator": {
+       "review.outcome": "rejected",
+       "scope[].state": "rejected"
+      }
+     }
     }
    },
    "expect": {
@@ -409,6 +1219,14 @@
      "C2",
      "C3"
     ]
+   },
+   "stub": {
+    "qa-automator@S5": {
+     "result_text": "qa-automator S5 window · ok\nthe window is done"
+    },
+    "qa-automator": {
+     "result_text": "qa-automator S5 window · ok\nthe window is done"
+    }
    }
   },
   {
@@ -426,6 +1244,14 @@
      "C2",
      "C3"
     ]
+   },
+   "stub": {
+    "qa-automator@S5": {
+     "result_text": "qa-automator S5 window · ok\nthe window is done"
+    },
+    "qa-automator": {
+     "result_text": "qa-automator S5 window · ok\nthe window is done"
+    }
    }
   },
   {
@@ -442,6 +1268,14 @@
     "checks": [
      "empty"
     ]
+   },
+   "stub": {
+    "qa-automator@S5": {
+     "result_text": "qa-automator S5 window · ok\nthe window is done"
+    },
+    "qa-automator": {
+     "result_text": "qa-automator S5 window · ok\nthe window is done"
+    }
    }
   },
   {
@@ -459,6 +1293,14 @@
      "C2",
      "C3"
     ]
+   },
+   "stub": {
+    "qa-automator@S5": {
+     "result_text": "qa-automator S5 window · halt\nI cannot go on: the window cannot be handed over."
+    },
+    "qa-automator": {
+     "result_text": "qa-automator S5 window · halt\nI cannot go on: the window cannot be handed over."
+    }
    }
   },
   {
@@ -476,6 +1318,14 @@
      "C2",
      "C3"
     ]
+   },
+   "stub": {
+    "qa-automator@S5": {
+     "result_text": "qa-automator S5 window · halt\nI cannot go on: the window cannot be handed over."
+    },
+    "qa-automator": {
+     "result_text": "qa-automator S5 window · halt\nI cannot go on: the window cannot be handed over."
+    }
    }
   },
   {
@@ -492,6 +1342,14 @@
     "checks": [
      "empty"
     ]
+   },
+   "stub": {
+    "qa-automator@S5": {
+     "result_text": "qa-automator S5 window · halt\nI cannot go on: the window cannot be handed over."
+    },
+    "qa-automator": {
+     "result_text": "qa-automator S5 window · halt\nI cannot go on: the window cannot be handed over."
+    }
    }
   },
   {
