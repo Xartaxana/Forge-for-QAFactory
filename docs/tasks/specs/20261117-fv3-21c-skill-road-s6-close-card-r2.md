@@ -848,3 +848,21 @@ Negative claims and their controls:
   states»): the S7/S9 skill-road code closes are a new node FV3-26 of batch live-run-fvf/3.
 - Order: a narrow critic re-review of the five blocking findings of t-1195 first; FV3-22-1 starts from main after the
   FV3-21 merge (t-1186).
+
+## Lead decisions on the re-review t-1209 (Lead, 17.11.2026, Opus; «решила сама»)
+
+Verdict: `docs/tasks/specs/reviews/t-1209-fv3-22-card-r2-rereview.md`. These override §0, §2.1, §2.4, K5.a, K5.b, K5.e step 1b, K5.l, E-M4, MF1, MF2, MF4 and rows C9/C9b where they disagree.
+
+- F4-1, the discriminator "the S6 record is written": NOT the pipeline status (the projection writes `done` from the controller on every apply). It is: S6 `finished` in pipeline.json is present AND not earlier than the time the controller recorded S6 `completed` (the ts of the event the `code_only` reducer applied, `controller.py` ~1949). Facts measured by the Lead in the FV3-21 worktree: `stage_done.apply_stage` (`stage_done.py:815-818`) sets `finished` on done, halted and skipped and pops it on any other status; the projection never sets it. So a halt before the close, or a done before a rework, leaves a `finished` EARLIER than the completion: it reads as not written. Equal times read as written.
+  - One named reader: `stage_done.stage_finished_at(pipeline, stage) -> datetime | None`, beside `stage_done.read_pipeline` (the field's writer owns its reader, AR-13); `stage_close` imports it inside the function, as it imports `controller`.
+  - Either time unreadable → not written (FR-59 safe side): step 1b falls through to the close, which runs `stage_done --status done` again. Before coding, the builder measures with one command whether `stage_done.py --status done` on an S6 already done is accepted (it re-stamps) or refused; refused → STOP and report (a question to the Lead).
+  - C9's fake `stage_done.py --status done` writes the record (or C9 calls the real script) so that C9 is a true positive; C9b stays as written and is red without the fix. One more row: a `finished` earlier than the completion (a halt before the close) reads as not written.
+- F4-2: step 1b reads the controller with a `.get` chain (`state().get("stages", {}).get("S6", {}).get("status")`); a missing S6 entry reads as not completed. C5 and the "no automation runner -> E1" rows stay green.
+- F5 (t-1186 overtook three facts; the Lead read them as accepted state once FV3-21 merges):
+  - `live_s6_scopes` stays in `controller.py` (~690). Its move is DROPPED from §2.1, K5.a, K5.b, K5.l and E-M4; `stage_close`, `story_step` and step 4 call `controller.live_s6_scopes`.
+  - AR-13 DoD grep: `def live_s6_scopes` exactly 1 hit, in `controller.py`.
+  - K5.l keeps the existing `driver-layers.json` row `Driver.consumer_await` and adds to its note "delegate of `stage_close.mark_awaiting`"; no new row.
+  - MF1, MF2, MF4 read as above; §0's re-read on the merged head still stands (a line shift is reported, any other difference STOPs).
+- R2-F2: the A27 reach stays a named residual; a node row is owed in batch-3 (Lead, with the FV3-21 status move).
+- FV3-26 note: `driver_stage_s7.py:772-775` is the S7 site of the same close; it is FV3-26's, not this card's.
+- Order: FV3-22-1 starts from `origin/main` after the FV3-21 wave merges; no further critic pass on these edits (they apply a verdict's own fixes; the Lead checked them against the code).

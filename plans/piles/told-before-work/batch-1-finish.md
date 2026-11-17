@@ -40,6 +40,9 @@
 | TBW1-13 | П1 | метка спеки: TBW-T1rc; карточки → строки: передрафт дизайнера (B2, B3), критик на изменённые части, затем билдер -a/-b (находка: `findings/20261117-tbw-t1rc-kartochki-v-stroki-peredraft.md`) | designer → critic → builder | `docs/tasks/specs/20261117-told-before-work-t1r-cards-spec-r2.md` (по передрафту) | — | в работе |
 | TBW1-14 | П1 | метка спеки: TBW-T10; носители Lead: ось 38, AR-10/AR-9, FR-38, правило 22 critic.md, калибровка (находка: `findings/20261117-tbw-t10-nositeli-lead-os-38.md`) | Lead | `docs/SIBLING_MAP.md`, `design/architecture.md`, `design/factory-rules.md`, `.claude/agents/critic.md`, `PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md` | — | ожидает |
 | TBW1-15 | П1 | метка спеки: TBW-close; закрытие: счётчики `told_ratchet` и `told-ratchet.json` по замеру, мёртвый код карточек (находка: `findings/20261117-tbw-close-zakrytie-schetchikov-told-ratchet.md`) | builder | `references/stage-joints.json` (`told_ratchet`), `told-ratchet.json`, `test_stage_joints.py` (пины счётчиков), `contract_slices.py` | все узлы | ожидает |
+| TBW1-16 | П1 | метка спеки: TBW-T1rc-int; интеграторский коммит после -a: `told_ratchet.unsited` и `UNSITED_CAP` поднять на 6 названных строк §4.4 (`raise:` строкой), пин числа строк K1 273 → 285 и пины `test_contract_slices` T1rs для новых строк `execution_request:*` — по замеру, именованно (вердикт критика t-1230; `docs/tasks/specs/20261117-told-before-work-t1r-cards-spec-r3.md` §7) | builder | `references/stage-joints.json` (`told_ratchet.unsited`), `scripts/tests/test_stage_joints.py` (пины), `scripts/tests/test_contract_slices.py` (пины T1rs) | TBW1-13 (-a) | ожидает |
+| TBW1-17 | П1 | метка спеки: TBW-T1rc-site; места в коде для 6 строк без сайта (§4.4) и дверь без Bash для `values_rename` (R4-F3), `unsited` вниз на 6 (`docs/tasks/specs/20261117-told-before-work-t1r-cards-spec-r3.md` §7) | builder → critic | `scripts/source_preflight.py`, `scripts/estimate_record.py`, `scripts/artifact_producer.py`, `scripts/gate_preflight.py`, `scripts/handoff_check.py`, `scripts/s5_precheck.py`, `scripts/tests/test_detector_verdict.py`, `scripts/tests/fixtures/told-ratchet.json` | TBW1-13 (-a) | ожидает |
+| TBW1-18 | П1 | метка спеки: TBW-T1rc-ec8; строки EC-8 из t-979 K5, обход исходных предложений ~25 строк, к которым -a дописал (из отчёта -a, E-4), текст отказа `check_case_form` «inherited from the plan row» (`docs/tasks/specs/20261117-told-before-work-t1r-cards-spec-r3.md` §7) | builder → critic | `references/stage-joints.json` (исходные предложения), `scripts/validate_artifacts.py` (`check_case_form`) | TBW1-13 (-a) | ожидает |
 
 ## Ход
 
@@ -47,6 +50,8 @@
 
 - 17.11 (t-980) — пачка открыта строками §7 спеки `docs/tasks/specs/20261117-told-before-work-finish-spec.md` (малый пакет билдеру), по находке на строку.
 - 17.11 18:00 — (Lead, вердикт критика t-1172 F5) вход передрафта TBW1-13 от T9a узлу TBW1-13 (T1r-cards-R, входы передрафта): голые и пересказывающие места `controller.py` `_plan_review_problems` / `_plan_rework_rows_problems` — :7073, :7075, :7104-7108, и пересказ «state not a mapping» :7037 — дизайнер TBW1-13 берёт их строкой карточки T1r-cards-R.
+
+- 17.11 18:40 — (Lead, вердикт критика t-1230 F4) узлы TBW1-16 (T1rc-int), TBW1-17 (T1rc-site), TBW1-18 (T1rc-ec8) внесены строками §7 спеки r3; три противоречащих предложения F3 (check_run_report_v0, check_bug_filing_header, check_result_rows) чинятся фикс-раундом -a, не в TBW1-18.
 
 ## Живые доказательства
 

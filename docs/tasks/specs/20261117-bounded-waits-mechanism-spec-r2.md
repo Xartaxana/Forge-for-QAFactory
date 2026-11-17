@@ -128,11 +128,13 @@ unit). Never raises, never waits. Triggers (F6 a, F7 a): SessionStart (`session_
 `python -B tools/wait_reaper.py`.
 CLI: `[--apply] [--limit <s>] [--trigger <t>] [--session-pid <p> --session-created <iso>] [--orphans] [--pid <root>]`; no
 `--session-pid` → resolves itself; default dry list.
-Log: `<ts> <trigger> sess=<pid> stopped|failed|gone|pid-reused|reported|unknown-root root=<pid> age=<s> shape=<S0|S1|S3>
-name=<n> cmd=<decoded else raw, ≤2000 ASCII> kids=<name/pid/age/cmd≤200>;…(≤20)`. `status.json`: `{state, started,
-finished, trigger, stopped, failed, reported, unknown_root, orphans, reason}`.
-WAITS (ASCII ≤200, silent at zero): `WAITS: last reap <ts> (<trigger>): <n> stopped, <m> failed, <u> unknown roots; <o>
-calls of dead sessions -- python -B tools/wait_reaper.py --orphans --apply` · `WAITS: no session (<reason>) -- nothing
+Log: `<ts> <trigger> sess=<pid> stopped|failed|gone|pid-reused|reported|kept|unknown-root root=<pid> age=<s> shape=<S0|S1|S3>
+name=<n> cmd=<decoded else raw, ≤2000 ASCII> kids=<name/pid/age/cmd≤200>;…(≤20) [fails=<name/pid/outcome>;…(≤20)]`.
+`kept root=<pid>` (t-1177 R3, N3): a tree older than the limit left alone by `never_reap` or self-protection, said, never silent.
+`fails=` (t-1177 R3, F4): every process of the tree whose stop failed, roots and kids alike. `status.json`: `{state, started,
+finished, trigger, trees_stopped, procs_stopped, procs_failed, reported, unknown_root, orphans, reason}`.
+WAITS (ASCII ≤200, silent at zero): `WAITS: last reap <ts> (<trigger>): <n> trees stopped, <m> processes failed, <u> unknown
+roots; <o> calls of dead sessions -- python -B tools/wait_reaper.py --orphans --apply` · `WAITS: no session (<reason>) -- nothing
 stopped` · `WAITS: process list unreadable (<reason>) -- python -B tools/wait_reaper.py`.
 
 ### §5.4 A legitimately long background task (fork FL)
@@ -180,9 +182,10 @@ Under FA(b): «фоновые вызовы ЭТОЙ сессии старше 2 
 - builder.md rule 9 phrase (delivered by the no-briefs spec card): «A background wait names the file it waits for and its
   end; the gate refuses an unbounded loop with the form to paste in its refusal; a loop or process you leave running is
   named in your report (the rule: `docs/RUNBOOK.md` §9.8).»
-- Check 27 (e): «UNBOUNDED WAITS: the `unbounded wait` count from `permission_audit --summary`; from `<git common
-  dir>/wait-reaper/run.log` every `stopped`, `reported`, `unknown-root` line of the window and the `no-session`/`orphans`
-  counters. Each stop is a leak past the gate: read `cmd` and `kids`, name the form (script file, `bash -c`, dynamic cap,
+- Check 27 (e) (t-1177 R3: also `kept` lines and the `fails=` field): «UNBOUNDED WAITS: the `unbounded wait` count from
+  `permission_audit --summary`; from `<git common dir>/wait-reaper/run.log` every `stopped`, `reported`, `unknown-root` line
+  of the window (and every `kept root=<pid>` line: a never_reap-kept tree older than the limit, still wanted?; and every
+  `fails=` field: a process that could not be stopped) and the `no-session`/`orphans` counters. Each stop is a leak past the gate: read `cmd` and `kids`, name the form (script file, `bash -c`, dynamic cap,
   unknown hang), add a grammar row or record a named residual; each `unknown-root` is a harness wrapper change: add a
   `wrapper_forms` row. Unstamped/foreign `COMPACT NARRATIVE` lines seen in the window are counted. None: "no reaped waits".»
 - SIBLING_MAP axis 11 line gains: «wait loops (G1) live in `hygiene_gate.py`'s walker; the reaper reads them only through

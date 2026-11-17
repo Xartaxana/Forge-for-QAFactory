@@ -1027,7 +1027,8 @@ def _check_red_rows(manifest: dict, by_case: dict, targets: list, red: dict, cfg
                 "them unless it writes the same Then of the same test itself)", "red-links-unbound"))
 
 
-def check_manifest(manifest: dict, cases: list, findings: list, store_root=None, hints: list | None = None) -> None:
+def check_manifest(manifest: dict, cases: list, findings: list, store_root=None, hints: list | None = None,
+                   notes: list | None = None) -> None:
     cfg = C.case_config()  # once per check: every entry below asks the same question (B-013)
     # The scope `cases` keep the area the dispatch handed out (`feedback-api/TC-003`), the links are
     # bare: each scope case asks `entries_for_case` in its own spelling (t-044, the sweep of the
@@ -1186,8 +1187,11 @@ def check_manifest(manifest: dict, cases: list, findings: list, store_root=None,
                 "case to unresolved[] with its reason; green may not stand for the remainder "
                 "(the covered partitions keep their existing runs — nothing here asks for a rerun); or, "
                 "when a person takes the rest of a Then, record that Then as a remainder "
-                "(`qa_unresolved(case=, then=[n], reason=\"handed_to_person\", owner=, detail=<steps>)`) "
-                "and drop this partition row; the orchestrator records the person's words under "
+                + (_marker_form(_files_of(by_case[case]), notes)
+                   and "(`qa_unresolved(case=, then=[n], reason=\"handed_to_person\", owner=, detail=<steps>)`) "
+                   or "(a `then_bindings` row with `case`, `then`, `instance_id` null, `status` unresolved, `reason` "
+                      f"handed_to_person, `owner` and `detail` = the steps, sent through `{_road(store_root.name if store_root is not None else '')}`) ")
+                + "and drop this partition row; the orchestrator records the person's words under "
                 "`" + C.THEN_HANDED_MATCH_PREFIX + " <case>#<n>`",
                 "partial-green"))
 
@@ -1255,7 +1259,7 @@ def bindings_of_case(manifest: dict, case: str, cfg: dict | None = None) -> list
 
 
 def check_bindings(manifest: dict, case: str, text: str, files: list, targets: list,
-                   findings: list) -> None:
+                   findings: list, task: str = "") -> None:
     clauses = then_clauses(text)
     if not clauses:
         return
@@ -1272,7 +1276,7 @@ def check_bindings(manifest: dict, case: str, text: str, files: list, targets: l
                 "bindings", case,
                 DV.refusal("s5_precheck:bindings", f"tests[] row {instance!r} is the ghost of an instance this manifest retracted: it carries no `covers` "
                 f"or `case_version_links`, proves no case, and makes that id look covered"),
-                f"retract it again with `{FRAGMENT_ROAD}` carrying "
+                f"retract it again with `{_road(task)}` carrying "
                 + json.dumps({"retracted_instances": [instance]}) + " (this also takes out the Then rows still bound "
                 "to it), or, to bring the test back, send its whole row with `covers` and `case_version_links`",
                 f"ghost-{instance}"))
@@ -1604,8 +1608,12 @@ def check_then_remainders(task_root: Path, manifest: dict, cases: list, texts: d
                 findings.append(_sited(
                     "bindings", case,
                     DV.refusal("s5_precheck:bindings", f"the row of {case} that leaves Then {then!r} with its owner is malformed: " + "; ".join(errors)),
-                    "rewrite the marker `qa_unresolved(case=, then=[n], reason=\"handed_to_person\", owner=, part=, "
-                    "detail=<steps>)` and re-run manifest_from_tests.py", f"{THEN_REMAINDER_TAG}shape-{tag}"))
+                    ("rewrite the marker `qa_unresolved(case=, then=[n], reason=\"handed_to_person\", owner=, part=, "
+                     "detail=<steps>)` and re-run manifest_from_tests.py"
+                     if _marker_form(_files_of(instances_of_case(manifest, case, cfg)), notes) else
+                     "rewrite the row (`case`, `then`, `instance_id` null, `status` unresolved, `reason` handed_to_person, "
+                     f"`owner`, `part`, `detail` = the steps) and send it through `{road}`"),
+                    f"{THEN_REMAINDER_TAG}shape-{tag}"))
                 continue
             if then in seen:
                 continue
@@ -1669,17 +1677,58 @@ def _asserting_rows(manifest: dict, case: str) -> dict:
     return out
 
 
-def _open_oracle_door(case: str, number: int, ref: str, task_name: str, door_a: bool) -> str:
+def _marker_form(test_files, notes=None, detectors=None) -> str:
+    """The marker form the kind of EVERY file in `test_files` shares (`assertion_detectors.binding_form`, THE reader of the
+    `oracle_binding_forms` key, AR-13), or '' - no file, a kind with no form, two kinds with different forms, a key that
+    cannot be read - and the caller then gives the road every language has: a row sent through `manifest_put.py` (AR-9). A
+    key that cannot be read is said once in `notes` (FR-59), like `_baseline_tokens`."""
+    import assertion_detectors as AD
+    forms = set()
+    for test_file in [f for f in test_files or () if f] or [""]:
+        form, said = AD.binding_form(test_file, detectors)
+        if said and notes is not None and f"binding forms: {said}" not in notes:
+            notes.append(f"binding forms: {said}")
+        forms.add(form)
+    return forms.pop() if len(forms) == 1 else ""
+
+
+def _files_of(entries) -> list:
+    """The test files of manifest `tests[]` entries, each once, in order."""
+    return list(dict.fromkeys(str(e.get("file") or "") for e in entries if isinstance(e, dict) and e.get("file")))
+
+
+def _binding_files(manifest: dict, rows: list) -> list:
+    """The test files of EVERY instance the asserting rows of a Then name: the `file` of its `tests[]` entry, the instance
+    matched by any spelling it answers to (`C.instance_id_aliases`, as the rest of this file does)."""
+    cfg = C.case_config()
+    wanted = {str(row.get("instance_id")) for row in rows if row.get("instance_id")}
+    return _files_of(e for e in C.manifest_tests(manifest) if wanted & set(C.instance_id_aliases(e, cfg)))
+
+
+def _open_oracle_door(case: str, number: int, ref: str, task_name: str, door_a: bool, test_files=(),
+                      detectors=None, notes=None) -> str:
     """The repair line of `open-oracle-asserted`: ONE door the author can use (FR-2). Door A: the question is in the
-    register, so the Then is bound `expectation_unconfirmed` and a person settles it by answering it. Door B: the case
+    register, so the Then is bound `expectation_unconfirmed` and a person settles it by answering it; HOW it is bound is the
+    form of the kind of the test files that assert it (`oracle_binding_forms`), and a kind with no such form binds it through
+    `manifest_put.py --open-oracle`, one call that takes the Then's proof rows of every asserting instance out and writes
+    the open row (the marker road's claim; AR-9: the road the author can use). Door B: the case
     names no question the register holds (an invented word, a missing or unknown ref), which is the CASE's defect (FR-46):
     the one route is back to S4, because `question_register.py --raise` alone refuses a Then that already has an oracle
     word and does not rewrite the approved case's `then_oracles`."""
     if door_a:
-        return (f"do not assert a value for Then {number}: bind it with `@pytest.mark.qa_unresolved(case=\"{case}\", "
-                f"then=[{number}], reason=\"expectation_unconfirmed\", question=\"{ref}\", observed=<what the test saw>)`, "
-                f"keep an assert only for the part a source establishes (bound with `qa(then=[{number}])`; a status range "
-                f"keeps `# oracle_unknown: {ref}` on its line), and re-run manifest_from_tests.py. A person settles it only "
+        form = _marker_form(test_files, notes, detectors)
+        if form:
+            bind = (f"bind it with `{form.replace('{case}', case).replace('{then}', str(number)).replace('{ref}', ref)}`, "
+                    f"keep an assert only for the part a source establishes (bound with `qa(then=[{number}])`; a status range "
+                    f"keeps `# oracle_unknown: {ref}` on its line), and re-run manifest_from_tests.py")
+        else:
+            bind = (f"first bind it with `manifest_put.py --task {task_name} --open-oracle {case}#{number} --question {ref}` (one call: "
+                    f"it takes every proof row of Then {number} out, on every test that asserts it, and writes the open row; "
+                    "to record what the test saw add `--observed` with that value, never a guess), keep an assert only for the "
+                    "part a source establishes and, after that call and never before it or after a re-run of it, bind that part "
+                    "with a `then_bindings` row of its own (the instance and its "
+                    f"`assertion_ref`) sent through `{_road(task_name)}`")
+        return (f"do not assert a value for Then {number}: {bind}. A person settles it only "
                 f"by answering {ref} with a reading letter, recorded by the orchestrator: `"
                 + door(f"question_register.py --task {task_name} --answer {ref} --reading <letter> --where conductor "
                        "--by conductor --register-hash <row_hash>") + "`; no waiver passes this finding")
@@ -1739,7 +1788,8 @@ def check_open_oracle_asserted(task_root: Path, case: str, text: str, manifest: 
         findings.append(_sited(
             "oracle", case,
             DV.refusal("s5_precheck:oracle", f"Then {number} of {case} has no confirmed expected value ({why}), yet the manifest binds it to {proof} as proved"),
-            _open_oracle_door(case, number, ref, task_root.name, door_a), f"{OPEN_ORACLE_ASSERTED}-{number}"))
+            _open_oracle_door(case, number, ref, task_root.name, door_a, _binding_files(manifest, asserting[number]), notes=notes),
+            f"{OPEN_ORACLE_ASSERTED}-{number}"))
 
 
 def _pair_tag(pair: dict, kind: str = "") -> str:
@@ -1871,7 +1921,7 @@ def _record_fix(task_root: Path, pair: dict, groups: dict, kind: str = "") -> st
             "on the critic's list and in the report")
 
 
-def check_case_is_oracle(manifest: dict, cases: list, findings: list) -> None:
+def check_case_is_oracle(manifest: dict, cases: list, findings: list, task: str = "") -> None:
     """A `deferred_by_decision:*` row that argues with the approved case's own expectation.
 
     S5 is dispatched only after gate A, so every case in its scope is approved, and an
@@ -1896,9 +1946,9 @@ def check_case_is_oracle(manifest: dict, cases: list, findings: list) -> None:
                 + (f" (\"{detail[:120]}\")" if detail else "")
                 + f" — `disputes` is one of {list(C.UNRESOLVED_DISPUTES)}"
                 + (f", and `{disputes}` is not" if disputes else "")),
-                "say it in the row: `manifest_put.py --task <T> --fragment "
-                "'{\"unresolved\": [{\"case\": \"" + case + "\", \"reason\": \"" + reason + "\", "
-                "\"disputes\": \"derivation\"}]}'` — `derivation` when the expected value cannot "
+                "say it in the row: `" + _road(task).replace(
+                    "<file>", "'{\"unresolved\": [{\"case\": \"" + case + "\", \"reason\": \"" + reason + "\", "
+                    "\"disputes\": \"derivation\"}]}'") + "` —`derivation` when the expected value cannot "
                 "be derived at all, `nothing` when the deferral is about a stand or a dependency, "
                 "`case_expectation` when you disagree with the approved case, which after gate A "
                 "is not a route out of S5",
@@ -2194,7 +2244,7 @@ def _sides_pending(ctx) -> None:
                 for s in (by_alias[n]["sides"] if isinstance(by_alias[n].get("sides"), dict) else {})):
             add(case, f"the `pending_implementation` row of {case or '-'} still stands, and every instance it names "
                 f"({', '.join(named)}) has run stamped real on every side its test names",
-                f"retract it so the runs decide: `{FRAGMENT_ROAD}` with `{{\"retracted_unresolved\": [\"{case}\"]}}` "
+                f"retract it so the runs decide: `{_road(ctx.task_root.name)}` with `{{\"retracted_unresolved\": [\"{case}\"]}}` "
                 "(a slice row is kept by design until the automator retracts it)", f"pending-row-leftover-{case}")
 
 
@@ -3127,14 +3177,15 @@ def helper_twin_hint(manifest: dict, hints: list, task_root=None, notes: list | 
             "smell", "", f"{file}: new helper `{name}` - " + "; ".join(said),
             "look for the existing one (the page object, the utils module, the conftest chain), then write in the row "
             "`purpose`, `searched` (where you looked) and `similar_found` (what you found, or `none`); a helper you keep "
-            "beside an existing one says why in `keep`: `manifest_put.py --task <T> --fragment <file>`",
+            f"beside an existing one says why in `keep`: `{_road(task_root.name if task_root is not None else '')}`",
             f"helper-{file.replace('/', '.')}-{name}"))
 
 
 # --- a copy of code that already exists (TQ1-19) -------------------------------------------------------------------------
 
-COPY_KEEP = ("; a helper (new or changed) that cannot serve writes why in `keep` of its `introduced_helpers[]` row: "
-             "`manifest_put.py --task <T> --fragment <file>`")
+def _copy_keep(task_root) -> str:
+    return ("; a helper (new or changed) that cannot serve writes why in `keep` of its `introduced_helpers[]` row: "
+            f"`{_road(Path(task_root).name if task_root is not None else '')}`")
 COPY_HINT_FIX = ("look at it: if it can serve, call or extend it; if one parametrized test or the existing code can carry "
                  "this one, say so in your digest; otherwise leave it and say why in the manifest's `shape` line")
 
@@ -3244,7 +3295,7 @@ def check_copies(task_root, manifest: dict, advice: list, notes: list, s7_round:
             continue
         advice.append(_advice("smell", "", message,
                               f"call or extend `{old.qname}` ({old_rel}:{old.line}) instead of writing it again"
-                              + (COPY_KEEP if row is not None else ""), tag))
+                              + (_copy_keep(task_root) if row is not None else ""), tag))
     if unknown:
         notes.append(f"copy check: {len(unknown)} unit(s) repeat existing code but could not be placed as new or unchanged "
                      f"({', '.join(unknown[:4])}{f' +{len(unknown) - 4} more' if len(unknown) > 4 else ''}) - advice, not findings; "
@@ -4509,7 +4560,7 @@ class _Window:
                              "bind it to an assertion of the planned test, " + self.fix_dev("remainder"), f"c13-remainder-{tid}-{case}-{number}")
                 continue
             self.add(case, f"Then {number} of {case} is planned in {where} and has no `then_bindings` row naming an instance of it with an `assertion_ref` (C2)",
-                     f"bind the Then to the planned test and its assertion line in the fragment ({FRAGMENT_ROAD}), or change the plan through a deviation row",
+                     f"bind the Then to the planned test and its assertion line in the fragment ({_road(self.task_root.name)}), or change the plan through a deviation row",
                      f"c2-{tid}-{case}-{number}")
 
     def c5(self, test: dict, tid: str, key: str, mine: list, where: str, matched: list) -> None:
@@ -4517,7 +4568,10 @@ class _Window:
         if shapes and not self.declared(DECLARES["shape"], key, tid):
             self.add(mine[0] if mine else self.first,
                      f"undeclared deviation (C5): {where} is planned as `{test.get('shape')}` and the manifest says `{', '.join(shapes)}`",
-                     "tag the test with the planned shape in its `qa(...)` marker, " + self.fix_dev("shape"), f"c5-{tid}")
+                     ("tag the test with the planned shape in its `qa(...)` marker, "
+                      if _marker_form(_files_of(matched), self.notes) else
+                      "send the instance's `tests[]` row with the planned `shape` through "
+                      f"`{_road(self.task_root.name)}`, ") + self.fix_dev("shape"), f"c5-{tid}")
 
     def c7(self, test: dict, tid: str, key: str, mine: list, where: str, matched: list) -> None:
         params = test.get("params")
@@ -4635,7 +4689,7 @@ def run(task_root, dispatch_id: str | None = None, scope: list | None = None, ju
     # first window that holds such a test; in an S7 repair round (`TEST_BUG`/`FLAKY`, reason `S7 fix: ...`) it is a hint,
     # so the round's budget is not spent on it.
     s7_round = is_s7_fix_round(task_root, dispatch_id)
-    check_manifest(manifest, cases, findings, store_root=task_root, hints=hints if s7_round else None)
+    check_manifest(manifest, cases, findings, store_root=task_root, hints=hints if s7_round else None, notes=notes)
     # The sides of the story (t-2181 PC-4, N6): called HERE, after `check_manifest` has returned and not from inside it - a
     # manifest that makes `check_manifest` raise never reaches it - and before the run mapping, whose excuse (`pending` below)
     # it does not judge: C3 holds whether or not an instance is excused from running. The ONE reader of the sides, once.
@@ -4647,7 +4701,7 @@ def run(task_root, dispatch_id: str | None = None, scope: list | None = None, ju
     # `obligation_refs` demandable; a call without them would demand neither.
     check_row_fields(task_root, manifest, cases, findings, notes, dispatch_id,
                      cfg=hooklib.load_config(), plan=C.plan_obligations(task_root))
-    check_case_is_oracle(manifest, cases, findings)
+    check_case_is_oracle(manifest, cases, findings, task_root.name)
     handed_cases = {row["case"] for row in C.handed_tests(manifest)} \
         if hasattr(C, "handed_tests") else set()
     # The instances of this scope the stand blocked, from the ONE reader, with the run blocks read (t-219): the
@@ -4693,7 +4747,7 @@ def run(task_root, dispatch_id: str | None = None, scope: list | None = None, ju
         every_target += [(case, pyfile, name, node) for pyfile, name, node in targets]
         check_run_mapping(case, entries, targets, rows, findings, case in handed_cases, blocked, pending)
         if text:
-            check_bindings(manifest, case, text, files, targets, findings)
+            check_bindings(manifest, case, text, files, targets, findings, task_root.name)
             check_open_oracle_asserted(task_root, case, text, manifest, findings, notes, questions)
             check_smells(case, text, files, targets, advice, task_root, notes)
         # A value taken before an action and compared after it (TQ1-18): OUTSIDE `if text` - it reads the test's AST only, and an
