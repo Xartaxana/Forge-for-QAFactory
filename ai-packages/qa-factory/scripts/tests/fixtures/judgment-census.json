@@ -834,6 +834,7 @@
   {"file": "project_decisions.py", "function": "_finding_words", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "project_decisions.py", "function": "_frontend_block_form", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "project_decisions.py", "function": "_frontend_entry_form", "class": "shape", "roles": ["conductor"], "owner": "data"},
+  {"file": "project_decisions.py", "function": "_load", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "project_decisions.py", "function": "_project_config", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "project_decisions.py", "function": "_refs", "class": "xref", "roles": ["conductor"], "owner": "data"},
   {"file": "project_decisions.py", "function": "_refuse_unsafe_role", "class": "shape", "roles": ["conductor"], "owner": "data"},
