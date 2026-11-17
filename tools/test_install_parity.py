@@ -1065,6 +1065,7 @@ def test_k4b_regression_fixture_reports_all_five_outbound_markers(tmp_path, caps
         tmp_path,
         {
             "CLAUDE.md": fixture_text,
+            "COORDINATOR.md": fixture_text,  # the markers now live in unit routing-policy:coordinator (worker split)
             "ADOPTION_LEDGER.md": (
                 "| Kit mechanism | Status | Basis |\n|---|---|---|\n"
                 "| Routing policy (CLAUDE.md core rules, Role != tier, Lead degradation, command hygiene) | adopt | x |\n"

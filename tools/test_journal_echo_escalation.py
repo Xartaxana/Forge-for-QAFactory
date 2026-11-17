@@ -3,7 +3,7 @@ R6-escalation machine guard on the write path, implemented in
 toolkit/tools/journal_echo.py (see its
 "ESCALATION ECHO at write time" section for the full design).
 
-GAP (CLAUDE.md rule 6, this repo): "two `rejected` events with the same
+GAP (COORDINATOR.md rule 6, this repo): "two `rejected` events with the same
 task_id on the same tier make escalation mandatory" had no machine
 layer on the write path -- a third same-tier retry went unchecked at
 write time. The ONLY existing detector for a miss here is the

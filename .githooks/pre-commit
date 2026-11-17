@@ -47,16 +47,16 @@ gate python tools/escape_check.py
 # before the commit lands -- fail-closed when that observer itself
 # reports a problem or cannot even run.
 gate python tools/enforcement_probe.py
-# Factory rules index: docs/FACTORY_RULES_INDEX.md (loaded into every
-# session through CLAUDE.md) is regenerated from
-# ai-packages/qa-factory/design/factory-rules.md; a rules change without
-# a regenerated index does not land.
+# Factory rules index: docs/FACTORY_RULES_INDEX.md (read by the coordinator on
+# the SessionStart `COORDINATOR RULES:` line, tools/coordinator_rules.py) is
+# regenerated from ai-packages/qa-factory/design/factory-rules.md; a rules
+# change without a regenerated index does not land.
 gate python tools/factory_rules_index.py --check
 # Architecture index: docs/ARCHITECTURE_INDEX.md (the AR-n ids the commit-msg gate checks against; <= 3 KB)
 # is regenerated from ai-packages/qa-factory/design/architecture.md; a change to the invariants without a
 # regenerated index does not land.
 gate python tools/architecture_index.py --check
-# AGENTS.md (the Codex copy of CLAUDE.md + its imports, hooks and roles) is
+# AGENTS.md (the Codex copy of CLAUDE.md + the coordinator files, hooks and roles) is
 # generated; a change to any source without a regenerated file does not land.
 gate python tools/agents_md.py --check
 # Forge attribution (WARN only): new backlog rows / package files / journal events without a

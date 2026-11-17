@@ -75,7 +75,7 @@ synthetic set is a snapshot, not a guarantee.
    four-questions-per-mechanism rule (question (c)).
 
 8. **Subscription judge-subagent procedure (leaf-routing rule 13).**
-   CLAUDE.md's rule 13 recognizes a SECOND legitimate judge form
+   COORDINATOR.md's rule 13 recognizes a SECOND legitimate judge form
    alongside the gateway alias above: a subscription judge-subagent,
    used when there is no live proxy to call through. Calibrating it
    follows rule 7's own logic, made concrete: dispatch the subagent
@@ -93,7 +93,7 @@ synthetic set is a snapshot, not a guarantee.
    `JUDGE_SYSTEM_PROMPT` — a drifted prompt invalidates the run even at
    13/13, because it calibrated a different judge than the one that
    will actually run leaf acceptances. This record is the "equivalence
-   point" CLAUDE.md's rule 13 requires before either judge form is
+   point" COORDINATOR.md's rule 13 requires before either judge form is
    trusted; a leaf-class `accepted(basis: "judge")` with no such record
    on file is a self-certification finding (calibration check 20,
    PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md). Re-run the same procedure

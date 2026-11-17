@@ -1,9 +1,9 @@
-"""Tests for tools/mechanism_gate.py -- the axis-block gate of CLAUDE.md
+"""Tests for tools/mechanism_gate.py -- the axis-block gate of COORDINATOR.md
 rule 10(b).
 
 Axis heading/answer/skip vocabulary is English here ("## Axis N",
 "axis N: ...", "axes: not a mechanism (...)") to match this template's
-own docs/SIBLING_MAP.md and CLAUDE.md rule 10 -- verified empirically
+own docs/SIBLING_MAP.md and COORDINATOR.md rule 10 -- verified empirically
 against toolkit/docs/SIBLING_MAP.md's real headings before choosing
 this vocabulary (the source deployment's Russian regexes matched zero
 axes against this template's own map).
@@ -96,7 +96,7 @@ def test_mechanism_paths_filters_prefixes_with_boundary():
         "CLAUDE.md", "PROCESS/WEEKLY_CALIBRATION_PROTOCOL.md",
         ".claude/agents/scout.md"]
     # Prefix boundary: file prefixes match exactly, not as a substring.
-    assert mg.mechanism_paths(["CLAUDE.md.bak", "DECISIONS.md.orig",
+    assert mg.mechanism_paths(["CLAUDE.md.bak", "DECISIONS.md.orig", "COORDINATOR.md.bak",
                                "gateway/metrics.py"]) == []
 
 
@@ -106,8 +106,9 @@ def test_mechanism_paths_template_homes_and_self_protection():
     # a home with, the hooks dir, the hook registration file).
     # delegation.config.yaml and the ladder home are DATA/code that decide acceptance legality (S2.5): a commit
     # staging only the config is a mechanism commit.
+    # COORDINATOR.md and its hook-line owner joined with the worker split (t-1137): a variant row, not a new test.
     extra = ["BOOT.md", "tools/mechanism_gate.py", "tools/session_context.py",
-             ".githooks/commit-msg", ".claude/settings.json",
+             "COORDINATOR.md", "tools/coordinator_rules.py", ".githooks/commit-msg", ".claude/settings.json",
              "delegation.config.yaml", "tools/tier_ladder.py"]
     assert mg.mechanism_paths(extra) == extra
     # Narrowness is deliberate (ported from the source deployment):

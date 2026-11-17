@@ -1,7 +1,7 @@
 """dispatch_gate.py -- PreToolUse hook for the Task/Agent tool that
 checks the SHAPE of a dispatch before it goes out, enforcing two
-CLAUDE.md rules in code rather than relying on discipline alone:
-rule 11 (DoD-in-every-dispatch / dispatch-context-manifest) and rule 7
+rules in code rather than relying on discipline alone: CLAUDE.md rule 11
+(DoD-in-every-dispatch / dispatch-context-manifest) and COORDINATOR.md rule 7
 (the dispatch label starts with the worker's tier).
 
 B-201 (spec docs/tasks/specs/t-090-dispatch-manifest.md): checks 1 and 2
@@ -774,11 +774,46 @@ def handoff_folder_check(payload, cut, dm):
     return 2, HANDOFF_NO_PATH.format(kind=kind, folder=folder), ""
 
 
+FACTS_MISSING = (
+    "FACTS MISSING (COORDINATOR.md rule 2): this {kind} dispatch does not go out. It has no facts: header (or an empty "
+    "one, or a bare none). Add one line per load-bearing fact (<claim> | <command> | <result>), or facts: none -- <why>. "
+    "To send it on purpose without measured facts, add: manifest-skip: facts -- <reason>."
+)
+FACTS_SKIP_NOTE = ("FACTS CHECK: sent without a facts: header on purpose: \"{reason}\" -- the line stays in the prompt as "
+                   "the record.")
+FACTS_NOTE_UNCHECKED = ("FACTS CHECK: not checked ({what}) -- the dispatch went out; the Lead's facts: header is still "
+                        "owed (COORDINATOR.md rule 2).")
+
+
+def facts_check(payload, cut, dm):
+    """(code, message, note): a dispatch of a kind in dispatch_manifest.FACTS_KINDS carries a non-empty `facts:` header
+    (dispatch_manifest.facts_state, the one reader), or `facts: none -- <why>`, or `manifest-skip: facts -- <reason>`
+    (a pass with a note). Reached only after the completeness and the handoff checks passed (decide_full): they refuse
+    first and are never replaced. A kind outside FACTS_KINDS never gets here with a refusal; an unknown (no cut, a
+    degraded cut, a manifest without the facts reader) is a NOTE and a pass, the direction of handoff_folder_check."""
+    kinds = getattr(dm, "FACTS_KINDS", None)
+    kind = dm.dispatch_kind(payload)
+    if kinds is None:
+        return 0, "", FACTS_NOTE_UNCHECKED.format(what="dispatch_manifest has no FACTS_KINDS")
+    if kind not in kinds:
+        return 0, "", ""
+    if cut is None:
+        return 0, "", FACTS_NOTE_UNCHECKED.format(what="the dispatch text could not be read")
+    if cut.degraded:
+        return 0, "", FACTS_NOTE_UNCHECKED.format(what="the dispatch text could not be read reliably")
+    reason = dm.waivers(cut).get("facts")
+    if reason is not None:
+        return 0, "", FACTS_SKIP_NOTE.format(reason=reason)
+    if dm.facts_state(cut) is None:
+        return 0, "", ""
+    return 2, FACTS_MISSING.format(kind=kind), ""
+
+
 def decide_full(payload: dict) -> Decision:
     """The decision with its notes and path reports (main() prints them; owns_gate and
     critic_snapshot keep decide()). Order: completeness check -> path check (branch A,
-    B-245) -> label check; in between sits the handoff folder check (F6-37, handoff_folder_check): completeness ->
-    handoff folder -> path -> label. The cut is built ONCE (dispatch_manifest.section_cut) and
+    B-245) -> label check; in between sits the handoff folder check (F6-37, handoff_folder_check) and then the facts
+    check (F13, facts_check): completeness -> handoff folder -> facts -> path -> label. The cut is built ONCE (dispatch_manifest.section_cut) and
     shared by the completeness check and the path check. An exception out of the
     completeness check means "not checked"; one out of the path check yields the note
     "paths not checked" and the label check still runs. This function stats files
@@ -814,6 +849,15 @@ def decide_full(payload: dict) -> Decision:
             return Decision(2, handoff_message, notes, [], stderr_note, cut)
     except Exception as exc:
         notes.append("HANDOFF CHECK: not checked: %s" % type(exc).__name__)
+
+    try:  # the facts check (F13): after completeness and the handoff folder, before the path check and the label check
+        facts_exit, facts_message, facts_note = facts_check(payload, cut, dm)
+        if facts_note:
+            notes.append(facts_note)
+        if facts_exit == 2:
+            return Decision(2, facts_message, notes, [], stderr_note, cut)
+    except Exception as exc:
+        notes.append("FACTS CHECK: not checked: %s" % type(exc).__name__)
 
     paths, covered = [], None
     if checked:

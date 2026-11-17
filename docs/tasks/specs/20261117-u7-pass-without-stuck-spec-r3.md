@@ -55,6 +55,27 @@ fixes are the plan critic's own (t-1252 N2, N3, M-a..M-h), verified by the Lead 
 MEANING of "a triage target" and of a trace gap: they go to one plan-critic pass (this file's 7b parts + F-15, F-16, F-17) before
 their dispatch; they follow 7a anyway.
 
+**After the plan critic t-1267 and the owner's word on F-5 (Architect session, 17.11.2026).**
+Verdict `docs/tasks/specs/reviews/t-1267-u7-plan-7b-7c.md`: REJECT of stream 7b AS WRITTEN (B1-B7, F1-F8; failure class spec);
+the design F-15 (a) stands. Stream 7b of this file is NOT dispatched; its fix round is r4 (designer t-1270), which replaces
+§2 r4, §6 stream 7b and the node 7c / E7 stubs of this file and nothing else. Architect decisions for r4 ("решила сама"):
+- B1-B7 and F1-F5, F7, F8: fixed as the critic states them; the owns of 7b widen to the files B7 names (the reducer and the
+  coverage READER `check_delivery.coverage_reasons` stop being non-goals; `coverage_contract.py` itself stays untouched, `verified`
+  stays False). B3 and B6 land in ONE node (K1: an unanswered target must never read `after_checks`).
+- F2: one delivery item per CASE (as `build_left_items` works today).
+- F6: `_case_chain` reads the bound analyst verdict - a case the analyst found red is listed red only, never also "left with
+  you" (FR-10).
+- If the widened 7b exceeds one builder's round, r4 cuts it into nodes by file ownership and states their order.
+- Node 7c: the critic's K4 text is taken as the node's content. Its fork - an unprepared check that was also never walked
+  (`walked: False`) - keeps `chain_broken` `no` (the safe default, FR-59: nobody tried, so nothing is "left after checks").
+- **F-5 is CLOSED by the owner** (17.11.2026, verbatim): «спросить один раз, но не на онбординге, а тогда когда это
+  понадобится». Reading: starting another local stand or device instance is NOT authorized by default; no onboarding
+  question; the FIRST time a case needs it, the person is asked ONCE, in the factory's question form, with what the role
+  wants to start and why; the answer is recorded for the project (AR-3, the answer registry or the project config - r4 names
+  which) and is never asked again with the same text (FR-7); a "no" hands the case to the person with what was tried. Node E7
+  is designed in r4 on this word: who meets the need (the runner at S6), by which road the question reaches the person
+  (AR-16, AR-17), where the answer lives and who reads it next time, and the role text (no platform word, P2).
+
 ---------------------------------------------------------------------------------------------------------------------
 
 ## 0. Finding of t-1252 -> where fixed

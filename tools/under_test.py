@@ -7,7 +7,9 @@ import sys
 def load_under_test(env_var: str, module_name: str):
     """The module a test file judges: the file named by the environment variable `env_var` (a candidate not yet on its live
     path), loaded under the name `module_name` so a sibling import of that name resolves to it; unset, the live
-    tools/<module_name>.py. Used by every test module of a candidate-gate card; the environment read lives only here."""
+    tools/<module_name>.py. Used by every test module of a candidate-gate card for a `.py` candidate. The `<NAME>_PATH=tools/<name>.py.next` form (a copy
+    delivered beside its live file; its whole import closure) is read by tools/conftest.py's finder instead: the environment is
+    read in those two places only."""
     import importlib
     import importlib.util
     import os

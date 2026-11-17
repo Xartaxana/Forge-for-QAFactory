@@ -16,7 +16,7 @@ Whether applied as a commit or a patch, every change should:
 
 ## Policy-carrier patches
 
-A patch touching a policy carrier this kit ships (CLAUDE.md, an
+A patch touching a policy carrier this kit ships (CLAUDE.md, COORDINATOR.md, an
 `.claude/agents/*.md` role file, a `PROCESS/*.md` document covered by
 `tools/install_parity_anchors.json`) is not closed until it produces
 an install-parity record: the closing step of an upgrade runs
