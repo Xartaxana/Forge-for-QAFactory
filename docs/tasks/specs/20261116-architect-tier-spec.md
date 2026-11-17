@@ -1024,3 +1024,9 @@ for the owner; M9 → F23 for the Lead), each executable on its recommendation.
 4. That a second `accepted` on a closed task passes the full validator run (P45 rests on reading `:1287-1297`).
 5. The third parallel spec's owns against §7 (not read).
 6. The existing `duplicate_model_id` rows of `test_mechanism_gate.py` (not read; A2 rewrites them).
+
+## The owner's word 17.11.2026 on the session model line
+
+To the Lead's statement that the default-model line of `.claude/settings.json` is a host setting it does not touch:
+«меняй когда всё будет готово» — the Lead changes that line itself, as the LAST step, after stream L is merged and
+the boot streams that depend on it are green. Until then the line stays as it is.

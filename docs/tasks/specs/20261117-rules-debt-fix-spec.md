@@ -638,3 +638,17 @@ in `audit_factory.py` checked against `A27` found in the same file earlier).
 - **F-O1, the other three `debt` branches** (`collected_ids` -> rerun; `live_check_demand` -> question to the code
   critic at window acceptance; `delivery` -> refuse_with_door): no separate word yet; drafted on the recommendation
   (reversible registry edits), built after her answer.
+- **F-O1, the other three `debt` branches — the owner's word 17.11.2026 (third portion): «да»** to the recommendation:
+  `collected_ids` -> rerun; `live_check_demand` -> question to the code critic at window acceptance; `delivery` ->
+  refuse_with_door. F-O1 is decided whole; the FR-59 conversion nodes may be built.
+
+### Critic t-942 on phase 1 — what it adds to the later nodes
+
+- **S1b (from F7)**: the W1 row (FR-13) is NARROWED, not closed: "residue: the Level vocabulary is a code tuple
+  (`contract.PLAN_LEVELS`; `contract.py:594` `TRACE_LEVELS` re-spells it)". Closing it whole needs a data row.
+- **The F-O6 (a) follow-up node (from F8)** owns, besides `common-rules.md:116` + slices and the `bug_records` docstring:
+  `scripts/judge_results.py:273-279,327` (`_project_bugs_dir` reads only the project home for the `--bugs` duplicate
+  check, so bugs under the task root are never seen — the premise "readers read both" was false),
+  `references/external-writes.md:44`, `references/templates/test-report.md:35` and its copy
+  `scripts/form_selftest.py:245`. A SIBLING_MAP axis "bug file homes: writer <-> readers" is added by that node's
+  Lead commit.
