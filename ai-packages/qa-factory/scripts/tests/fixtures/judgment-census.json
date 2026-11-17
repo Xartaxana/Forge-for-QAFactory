@@ -610,6 +610,7 @@
   {"file": "manifest_put.py", "function": "_retract_unresolved", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "manifest_put.py", "function": "assertion_line_problems", "class": "xref", "roles": ["qa-automator"], "owner": "data"},
   {"file": "manifest_put.py", "function": "base_outcome_row_problems", "class": "shape", "roles": ["conductor"], "owner": "data"},
+  {"file": "manifest_put.py", "function": "claim_pair_problems", "class": "xref", "roles": ["conductor"], "owner": "data", "note": "RD1-22: the claimed case is named by a row of the manifest, the Then is a positive integer"},
   {"file": "manifest_put.py", "function": "critic_approval_problems", "class": "xref", "roles": ["conductor"], "owner": "data"},
   {"file": "manifest_put.py", "function": "expectation_change_problems", "class": "shape", "roles": ["conductor"], "owner": "data"},
   {"file": "manifest_put.py", "function": "ghost_row_problems", "class": "xref", "roles": ["conductor"], "owner": "data"},

@@ -57,6 +57,12 @@ truncates:
                           `provisional`, a row that is no object, an id that is not `P-<n>` or repeats, and a bad
                           `tests[].provisional` are refused before the commit. `retracted_provisional: ["P-n"]` is the door
                           out: the row stays with `status: retracted`; an id that names no row is refused
+  claim_then_pairs[]      `[{"case": "TC-n", "then": n}]`: the sign "this Then is claimed by the rows I send": every
+                          `then_bindings` row of the pair (case, Then) on EVERY instance goes, and the rows the fragment sends
+                          for it are written in the same call (the marker road's claim, `manifest_from_tests._merge_bindings`).
+                          Never stored. The door `--open-oracle <case>#<n> --question <ref>` builds it: a Then whose expected
+                          value nobody confirmed stops being proved and becomes declared open (`expectation_unconfirmed`).
+                          A case the manifest does not name, or a Then number that is no positive integer, is refused
   self_fixes[], runs[]    appended; a line another role wrote is never edited
   obligation_bindings[]   by obligation id, and the id is the PLAN's
                           (`coverage_obligations[].obligation_id`, verbatim): a fragment
@@ -94,6 +100,7 @@ truncates:
   manifest_put.py --task QA-1 --fragment window2.json
   manifest_put.py --task QA-1 --fragment -            # the fragment on stdin
   manifest_put.py --task QA-1 --fragment '{"tests": [...]}'   # the JSON itself, when it starts with {
+  manifest_put.py --task QA-1 --open-oracle TC-001#2 --question Q4 [--observed <what the test saw>]
   manifest_put.py --task QA-1 --recover               # replay the journal into the manifest (no fragment)
   manifest_put.py --selftest
 
@@ -164,6 +171,7 @@ DEDUPED = ("self_fixes",)
 # not something a fragment sets; `retracted_unresolved` is the same kind (a history the retraction appends to).
 SCALAR_EXEMPT = {"expected_revision", "obligation_bindings", "retracted_obligations",
                  "retracted_instances", "retracted_unresolved", "then_bindings", "retract", RETRACT_PROVISIONAL,
+                 "claim_then_pairs",
                  *BY_RECORD, *BY_HELPER, *BY_ID}
 # `retract` (RN1-22, LOCAL-1 run 3): the fragment's own sign "replace these top-level keys whole / take the Thens of a named
 # unit out". A list of key names, never stored. The three keys below have a door of their own and are refused here.
@@ -1628,6 +1636,72 @@ def _retire_then_rows(merged: dict, spellings, summary: dict) -> list:
     return taken
 
 
+def _claimed_pairs(fragment) -> list:
+    """The (case, Then number) pairs the fragment's `claim_then_pairs` names; a member that is no object, names no case or a
+    Then that reads as none names nothing. Pure; never raises (the merge replays every event ever committed)."""
+    rows = (fragment or {}).get("claim_then_pairs") if isinstance(fragment, dict) else None
+    out = []
+    for row in rows if isinstance(rows, list) else []:
+        number = C.then_number(row.get("then")) if isinstance(row, dict) else 0
+        if number and _case(row):
+            out.append((_case(row), number))
+    return out
+
+
+def _claim_then_pairs(merged: dict, fragment: dict, trail: dict) -> None:
+    """Take out of `merged["then_bindings"]` every row of each claimed pair (case, Then), whatever its instance (the marker
+    road's claim): the rows come back in `trail["then_claimed"]` for `run` to print (P21: no row is lost silently). Pure."""
+    rows = merged.get("then_bindings")
+    pairs = _claimed_pairs(fragment)
+    if not pairs or not isinstance(rows, list):
+        return
+
+    def claimed(row) -> bool:
+        return isinstance(row, dict) and any(_same_case(_case(row), case) and C.then_number(row.get("then")) == number
+                                             for case, number in pairs)
+    trail["then_claimed"] = [row for row in rows if claimed(row)]
+    merged["then_bindings"] = [row for row in rows if not claimed(row)]
+
+
+def claim_pair_problems(manifest, fragment) -> list:
+    """Why the fragment's `claim_then_pairs` cannot be applied, one sentence each ([] when it is absent or well formed): not a
+    list of {case, then} objects, a Then that is no positive integer, a case no row of `tests[]`, `then_bindings[]` or
+    `unresolved[]` names. Called by `run` before the commit; `merge` ignores a bad one (an old journal never raises)."""
+    if not isinstance(fragment, dict) or "claim_then_pairs" not in fragment:
+        return []
+    rows = fragment["claim_then_pairs"]
+    door_text = "the door is `manifest_put.py --task <T> --open-oracle <case>#<n> --question <ref>`"
+    if not isinstance(rows, list) or not rows:
+        return [f"`claim_then_pairs` must be a non-empty list of {{\"case\": \"TC-n\", \"then\": n}}; {door_text}"]
+    named = {_case(r) for key in ("tests", "then_bindings", "unresolved") for r in (manifest or {}).get(key) or []
+             if isinstance(r, dict)} - {""}
+    out = []
+    for row in rows:
+        number = C.then_number(row.get("then")) if isinstance(row, dict) else 0
+        if not number or not _case(row):
+            out.append(f"`claim_then_pairs` member {json.dumps(row)[:80]} needs a case and a Then number that is a positive integer; {door_text}")
+        elif not _matches_any(_case(row), named):
+            out.append(f"the case {_case(row)} of `claim_then_pairs` is named by no row of the manifest (cases it names: "
+                       f"{', '.join(sorted(named)) or 'none'}); {door_text}")
+    return out
+
+
+def open_oracle_fragment(spec: str, question: str, observed=None) -> dict | None:
+    """The fragment the door `--open-oracle <case>#<n> --question <ref> [--observed <v>]` sends: the claim of the pair plus the
+    unresolved `expectation_unconfirmed` row of the contract (`instance_id: null`). `observed` is written only when given
+    (an absent one is `observed: not recorded` in the ledger, never a guess). None for a spec that is not `<case>#<n>` or a
+    missing question (the caller says what is expected)."""
+    case, sep, number = str(spec or "").strip().rpartition("#")
+    if not sep or not case or not question or not C.then_number(number):
+        return None
+    n = C.then_number(number)
+    row = {"case": case, "then": n, "instance_id": None, "assertion_ref": None, "status": "unresolved",
+           "reason": "expectation_unconfirmed", "question": question}
+    if observed is not None:
+        row["observed"] = observed
+    return {"claim_then_pairs": [{"case": case, "then": n}], "then_bindings": [row]}
+
+
 def _then_merge(existing, fragment: dict) -> tuple:
     """`_merge_then_bindings` over a fragment that sends a `then_bindings` array: the one place the writer/hand decision, the
     `retract` sign and the writer's scope are read off the fragment (`_merge` and the print's fallback both ask it)."""
@@ -1657,7 +1731,8 @@ def removed_then_lines(before: dict, fragment: dict) -> list:
     retracted (`_retire_then_rows`) and the rows of a unit its `then_bindings` replaced under `retract` or inside the
     writer's scope (`_merge_then_bindings`)."""
     trail = _then_trail(before, fragment)
-    return [_then_words(row) for row in (*trail.get("then_retired", ()), *trail.get("then_taken", ()))]
+    return [_then_words(row) for row in (*trail.get("then_retired", ()), *trail.get("then_claimed", ()),
+                                          *trail.get("then_taken", ()))]
 
 
 def kept_then_lines(before: dict, fragment: dict) -> list:
@@ -2004,6 +2079,7 @@ def _merge(current: dict, fragment: dict, trail: dict) -> tuple:
     _merge_expectation_changes(merged, fragment, summary)
     _merge_helpers(merged, fragment, summary)
     _merge_provisional(merged, fragment, summary)
+    _claim_then_pairs(merged, fragment, trail)
     if "then_bindings" in (fragment or {}):
         rows = fragment["then_bindings"]
         if isinstance(rows, list):
@@ -2431,6 +2507,11 @@ def run(task: str, fragment_path: str, wait_seconds: float = 0.0) -> int:
               + ". `retract` is a list of top-level key names whose list the fragment replaces whole instead of adding to "
               "it (\"then_bindings\" also takes out the Thens of a unit it names and does not send). Correct the list in your "
               "fragment, e.g. \"retract\": [\"then_bindings\"]. " + REPAIR_MARKER + ".", file=sys.stderr)
+        return EXIT_BAD_FRAGMENT
+    claim_faults = claim_pair_problems(read_json(path, {}) if path.exists() else {}, fragment)
+    if claim_faults:
+        print("manifest_put: " + _problems_text(task_root, "claim-then-pairs", claim_faults) + ". " + REPAIR_MARKER + ".",
+              file=sys.stderr)
         return EXIT_BAD_FRAGMENT
     # A `novelty` on a row is the measurer's, never a role's (t-187, F-B). The refusal is here and not
     # in `merge()`: merge is pure and replays every event already committed, and a refusal there would
@@ -2874,6 +2955,12 @@ def main() -> None:
     ap.add_argument("--task", help="ticket id")
     ap.add_argument("--fragment", help="path to the JSON fragment, - for stdin, or the JSON itself "
                                        "when it starts with {")
+    ap.add_argument("--open-oracle", metavar="CASE#N",
+                    help="leave Then N of CASE open: its expected value nobody confirmed. One call takes every then_bindings row "
+                         "of that Then on every instance out and writes the `expectation_unconfirmed` row; needs --question")
+    ap.add_argument("--question", help="with --open-oracle: the question id (e.g. Q4) that holds the open expected value")
+    ap.add_argument("--observed", help="with --open-oracle: what the test saw, when it saw a value (left out, the ledger says "
+                                       "`observed: not recorded`)")
     ap.add_argument("--recover", action="store_true",
                     help="replay the task's journal into automation-manifest.json (no fragment)")
     ap.add_argument("--selftest", action="store_true")
@@ -2888,6 +2975,14 @@ def main() -> None:
         if not ns.task:
             ap.error("--recover needs --task <T>")
         sys.exit(recover(ns.task, wait_seconds=event_store.LIFECYCLE_WAIT_SECONDS))
+    if ns.open_oracle:
+        if ns.fragment is not None or not ns.task or not ns.question:
+            ap.error("--open-oracle needs --task <T> and --question <ref>, and takes no --fragment (one action per call)")
+        built = open_oracle_fragment(ns.open_oracle, ns.question, ns.observed)
+        if built is None:
+            ap.error("--open-oracle takes `<case>#<n>` (e.g. TC-001#2) and --question <ref> (e.g. Q4): the Then n of the case "
+                     "whose expected value nobody confirmed, and the question that holds it")
+        ns.fragment = json.dumps(built)
     if not ns.task or not ns.fragment:
         ap.error("--task and --fragment are both required")
     sys.exit(run(ns.task, ns.fragment, wait_seconds=event_store.LIFECYCLE_WAIT_SECONDS))

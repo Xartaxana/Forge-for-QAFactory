@@ -1027,7 +1027,8 @@ def _check_red_rows(manifest: dict, by_case: dict, targets: list, red: dict, cfg
                 "them unless it writes the same Then of the same test itself)", "red-links-unbound"))
 
 
-def check_manifest(manifest: dict, cases: list, findings: list, store_root=None, hints: list | None = None) -> None:
+def check_manifest(manifest: dict, cases: list, findings: list, store_root=None, hints: list | None = None,
+                   notes: list | None = None) -> None:
     cfg = C.case_config()  # once per check: every entry below asks the same question (B-013)
     # The scope `cases` keep the area the dispatch handed out (`feedback-api/TC-003`), the links are
     # bare: each scope case asks `entries_for_case` in its own spelling (t-044, the sweep of the
@@ -1186,8 +1187,11 @@ def check_manifest(manifest: dict, cases: list, findings: list, store_root=None,
                 "case to unresolved[] with its reason; green may not stand for the remainder "
                 "(the covered partitions keep their existing runs — nothing here asks for a rerun); or, "
                 "when a person takes the rest of a Then, record that Then as a remainder "
-                "(`qa_unresolved(case=, then=[n], reason=\"handed_to_person\", owner=, detail=<steps>)`) "
-                "and drop this partition row; the orchestrator records the person's words under "
+                + (_marker_form(_files_of(by_case[case]), notes)
+                   and "(`qa_unresolved(case=, then=[n], reason=\"handed_to_person\", owner=, detail=<steps>)`) "
+                   or "(a `then_bindings` row with `case`, `then`, `instance_id` null, `status` unresolved, `reason` "
+                      f"handed_to_person, `owner` and `detail` = the steps, sent through `{_road()}`) ")
+                + "and drop this partition row; the orchestrator records the person's words under "
                 "`" + C.THEN_HANDED_MATCH_PREFIX + " <case>#<n>`",
                 "partial-green"))
 
@@ -1604,8 +1608,12 @@ def check_then_remainders(task_root: Path, manifest: dict, cases: list, texts: d
                 findings.append(_sited(
                     "bindings", case,
                     DV.refusal("s5_precheck:bindings", f"the row of {case} that leaves Then {then!r} with its owner is malformed: " + "; ".join(errors)),
-                    "rewrite the marker `qa_unresolved(case=, then=[n], reason=\"handed_to_person\", owner=, part=, "
-                    "detail=<steps>)` and re-run manifest_from_tests.py", f"{THEN_REMAINDER_TAG}shape-{tag}"))
+                    ("rewrite the marker `qa_unresolved(case=, then=[n], reason=\"handed_to_person\", owner=, part=, "
+                     "detail=<steps>)` and re-run manifest_from_tests.py"
+                     if _marker_form(_files_of(instances_of_case(manifest, case, cfg)), notes) else
+                     "rewrite the row (`case`, `then`, `instance_id` null, `status` unresolved, `reason` handed_to_person, "
+                     f"`owner`, `part`, `detail` = the steps) and send it through `{road}`"),
+                    f"{THEN_REMAINDER_TAG}shape-{tag}"))
                 continue
             if then in seen:
                 continue
@@ -1669,58 +1677,57 @@ def _asserting_rows(manifest: dict, case: str) -> dict:
     return out
 
 
-def _oracle_binding_form(test_file: str, path=None) -> str:
-    """The marker form of the `oracle_binding_forms` row whose `suffixes` hold this file's suffix (compared case-insensitively),
-    or '' (AR-1: closed variety is a data row, read by the one reader of the file, AR-13). No file, no row for the suffix, a
-    key that is absent, empty or malformed, a file that cannot be read: all '' - the caller then gives the road every language
-    has (FR-59: an unknown is never a guess of a form)."""
+def _marker_form(test_files, notes=None, detectors=None) -> str:
+    """The marker form the kind of EVERY file in `test_files` shares (`assertion_detectors.binding_form`, THE reader of the
+    `oracle_binding_forms` key, AR-13), or '' - no file, a kind with no form, two kinds with different forms, a key that
+    cannot be read - and the caller then gives the road every language has: a row sent through `manifest_put.py` (AR-9). A
+    key that cannot be read is said once in `notes` (FR-59), like `_baseline_tokens`."""
     import assertion_detectors as AD
-    suffix = Path(str(test_file or "")).suffix.lower()
-    if not suffix:
-        return ""
-    try:
-        rows = AD._document(AD.detectors_path(path), "oracle_binding_forms").get("oracle_binding_forms")
-    except (AD.DetectorsError, AttributeError):
-        return ""
-    for row in rows if isinstance(rows, list) else []:
-        suffixes = row.get("suffixes") if isinstance(row, dict) else None
-        form = row.get("form") if isinstance(row, dict) else None
-        if isinstance(form, str) and form and isinstance(suffixes, list) and suffix in [
-                s.lower() for s in suffixes if isinstance(s, str)]:
-            return form
-    return ""
+    forms = set()
+    for test_file in [f for f in test_files or () if f] or [""]:
+        form, said = AD.binding_form(test_file, detectors)
+        if said and notes is not None and f"binding forms: {said}" not in notes:
+            notes.append(f"binding forms: {said}")
+        forms.add(form)
+    return forms.pop() if len(forms) == 1 else ""
 
 
-def _binding_file(manifest: dict, rows: list) -> str:
-    """The test file of the instance the first asserting row of a Then names: the `file` of its `tests[]` entry, or ''."""
-    for row in rows[:1]:
-        for entry in C.manifest_tests(manifest):
-            if row.get("instance_id") and C.test_instance_id(entry) == row.get("instance_id"):
-                return str(entry.get("file") or "")
-    return ""
+def _files_of(entries) -> list:
+    """The test files of manifest `tests[]` entries, each once, in order."""
+    return list(dict.fromkeys(str(e.get("file") or "") for e in entries if isinstance(e, dict) and e.get("file")))
 
 
-def _open_oracle_door(case: str, number: int, ref: str, task_name: str, door_a: bool, test_file: str = "",
-                      detectors=None) -> str:
+def _binding_files(manifest: dict, rows: list) -> list:
+    """The test files of EVERY instance the asserting rows of a Then name: the `file` of its `tests[]` entry, the instance
+    matched by any spelling it answers to (`C.instance_id_aliases`, as the rest of this file does)."""
+    cfg = C.case_config()
+    wanted = {str(row.get("instance_id")) for row in rows if row.get("instance_id")}
+    return _files_of(e for e in C.manifest_tests(manifest) if wanted & set(C.instance_id_aliases(e, cfg)))
+
+
+def _open_oracle_door(case: str, number: int, ref: str, task_name: str, door_a: bool, test_files=(),
+                      detectors=None, notes=None) -> str:
     """The repair line of `open-oracle-asserted`: ONE door the author can use (FR-2). Door A: the question is in the
     register, so the Then is bound `expectation_unconfirmed` and a person settles it by answering it; HOW it is bound is the
-    form of the test file's kind (`oracle_binding_forms`), and a file with no such form binds it through a `then_bindings`
-    row sent with manifest_put.py (AR-9: the road the author can use). Door B: the case
+    form of the kind of the test files that assert it (`oracle_binding_forms`), and a kind with no such form binds it through
+    `manifest_put.py --open-oracle`, one call that takes the Then's proof rows of every asserting instance out and writes
+    the open row (the marker road's claim; AR-9: the road the author can use). Door B: the case
     names no question the register holds (an invented word, a missing or unknown ref), which is the CASE's defect (FR-46):
     the one route is back to S4, because `question_register.py --raise` alone refuses a Then that already has an oracle
     word and does not rewrite the approved case's `then_oracles`."""
     if door_a:
-        form = _oracle_binding_form(test_file, detectors)
+        form = _marker_form(test_files, notes, detectors)
         if form:
-            bind = form.replace("{case}", case).replace("{then}", str(number)).replace("{ref}", ref)
+            bind = (f"bind it with `{form.replace('{case}', case).replace('{then}', str(number)).replace('{ref}', ref)}`, "
+                    f"keep an assert only for the part a source establishes (bound with `qa(then=[{number}])`; a status range "
+                    f"keeps `# oracle_unknown: {ref}` on its line), and re-run manifest_from_tests.py")
         else:
-            row = json.dumps({"then_bindings": [{"case": case, "then": number, "instance_id": None, "assertion_ref": None,
-                                                 "status": "unresolved", "reason": "expectation_unconfirmed",
-                                                 "question": ref, "observed": "<what the test saw>"}]})
-            bind = f"{FRAGMENT_ROAD}` with the fragment `{row}"
-        return (f"do not assert a value for Then {number}: bind it with `{bind}`, "
-                f"keep an assert only for the part a source establishes (bound with `qa(then=[{number}])`; a status range "
-                f"keeps `# oracle_unknown: {ref}` on its line), and re-run manifest_from_tests.py. A person settles it only "
+            bind = (f"bind it with `manifest_put.py --task {task_name} --open-oracle {case}#{number} --question {ref}` (one call: "
+                    f"it takes every proof row of Then {number} out, on every test that asserts it, and writes the open row; "
+                    "to record what the test saw add `--observed` with that value, never a guess), keep an assert only for the "
+                    "part a source establishes and bind that part with a `then_bindings` row of its own (the instance and its "
+                    f"`assertion_ref`) sent through `{_road(task_name)}`")
+        return (f"do not assert a value for Then {number}: {bind}. A person settles it only "
                 f"by answering {ref} with a reading letter, recorded by the orchestrator: `"
                 + door(f"question_register.py --task {task_name} --answer {ref} --reading <letter> --where conductor "
                        "--by conductor --register-hash <row_hash>") + "`; no waiver passes this finding")
@@ -1780,7 +1787,7 @@ def check_open_oracle_asserted(task_root: Path, case: str, text: str, manifest: 
         findings.append(_sited(
             "oracle", case,
             DV.refusal("s5_precheck:oracle", f"Then {number} of {case} has no confirmed expected value ({why}), yet the manifest binds it to {proof} as proved"),
-            _open_oracle_door(case, number, ref, task_root.name, door_a, _binding_file(manifest, asserting[number])),
+            _open_oracle_door(case, number, ref, task_root.name, door_a, _binding_files(manifest, asserting[number]), notes=notes),
             f"{OPEN_ORACLE_ASSERTED}-{number}"))
 
 
@@ -4559,7 +4566,10 @@ class _Window:
         if shapes and not self.declared(DECLARES["shape"], key, tid):
             self.add(mine[0] if mine else self.first,
                      f"undeclared deviation (C5): {where} is planned as `{test.get('shape')}` and the manifest says `{', '.join(shapes)}`",
-                     "tag the test with the planned shape in its `qa(...)` marker, " + self.fix_dev("shape"), f"c5-{tid}")
+                     ("tag the test with the planned shape in its `qa(...)` marker, "
+                      if _marker_form(_files_of(matched), self.notes) else
+                      "send the instance's `tests[]` row with the planned `shape` through "
+                      f"`{_road(self.task_root.name)}`, ") + self.fix_dev("shape"), f"c5-{tid}")
 
     def c7(self, test: dict, tid: str, key: str, mine: list, where: str, matched: list) -> None:
         params = test.get("params")
@@ -4677,7 +4687,7 @@ def run(task_root, dispatch_id: str | None = None, scope: list | None = None, ju
     # first window that holds such a test; in an S7 repair round (`TEST_BUG`/`FLAKY`, reason `S7 fix: ...`) it is a hint,
     # so the round's budget is not spent on it.
     s7_round = is_s7_fix_round(task_root, dispatch_id)
-    check_manifest(manifest, cases, findings, store_root=task_root, hints=hints if s7_round else None)
+    check_manifest(manifest, cases, findings, store_root=task_root, hints=hints if s7_round else None, notes=notes)
     # The sides of the story (t-2181 PC-4, N6): called HERE, after `check_manifest` has returned and not from inside it - a
     # manifest that makes `check_manifest` raise never reaches it - and before the run mapping, whose excuse (`pending` below)
     # it does not judge: C3 holds whether or not an instance is excused from running. The ONE reader of the sides, once.

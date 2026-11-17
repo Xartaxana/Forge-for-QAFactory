@@ -85,7 +85,7 @@
   "oracle_binding_forms": [
     {"suffixes": [".py"], "form": "@pytest.mark.qa_unresolved(case=\"{case}\", then=[{then}], reason=\"expectation_unconfirmed\", question=\"{ref}\", observed=<what the test saw>)"}
   ],
-  "oracle_binding_forms_note": "How the author of a test file binds a Then whose expected value nobody confirmed (scripts/s5_precheck.py `open-oracle-asserted`, door A): one row per test-file kind, `suffixes` the file suffixes it covers (compared case-insensitively) and `form` the marker text with the placeholders {case}, {then} and {ref}; the part `<what the test saw>` stays literal. A file whose suffix has no row, an unknown test file, or a key that cannot be read gets the road every language has: a `then_bindings` row sent through manifest_put.py.",
+  "oracle_binding_forms_note": "How the author of a test file binds a Then whose expected value nobody confirmed (scripts/s5_precheck.py `open-oracle-asserted`, door A, and the repair lines that name the marker): one row per test-file kind, `suffixes` the file suffixes it covers (compared case-insensitively), one form per suffix (the first row that holds it wins), and `form` the marker text with the placeholders {case}, {then} and {ref}; the part `<what the test saw>` stays literal. A separate table beside assertion_probes, because the door knows the TEST FILE while a runner entry is keyed by runner; the one reader is assertion_detectors.binding_form. A file whose suffix has no row, an unknown test file, or a key that cannot be read gets the road every language has: manifest_put.py (`--open-oracle` for a Then whose value is open, a `then_bindings` row otherwise); an unreadable key is also one note.",
   "assertion_probes": {
     "csharp": {
       "suffixes": [".cs"],

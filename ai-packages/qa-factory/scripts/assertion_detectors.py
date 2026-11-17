@@ -311,6 +311,34 @@ def shape_patterns(key: str, path=None) -> list:
     return list(value)
 
 
+BINDING_FORMS_KEY = "oracle_binding_forms"
+
+
+def binding_form(test_file, path=None) -> tuple:
+    """(the marker form of the test file's kind, a note) from the `oracle_binding_forms` key of `detectors.json`: the marker text
+    the author of a file with this suffix (compared case-insensitively) writes to bind a Then, or '' when the kind has none -
+    the caller then gives the road every language has, a `then_bindings` row sent through `manifest_put.py`. The note is ''
+    unless the KEY could not be used (unreadable file, absent, empty or malformed key, a member of the wrong shape): then the
+    form is '' and the note names the key (FR-59: an unknown is never a guess of a form). A key is one table beside the
+    probe rows because the door knows the TEST FILE, while a runner entry is keyed by runner; one form per suffix, the first
+    row that holds it wins. The one reader of the key (AR-13)."""
+    suffix = Path(str(test_file or "")).suffix.lower()
+    try:
+        rows = _document(detectors_path(path), BINDING_FORMS_KEY).get(BINDING_FORMS_KEY)
+    except (DetectorsError, AttributeError) as exc:
+        return "", (f"`{BINDING_FORMS_KEY}` of {REL} is not usable ({getattr(exc, 'kind', 'unreadable')}): the Then is bound through "
+                    "`manifest_put.py` for every kind of test file")
+    if not isinstance(rows, list) or not rows or not all(
+            isinstance(r, dict) and isinstance(r.get("form"), str) and r.get("form") and isinstance(r.get("suffixes"), list)
+            for r in rows):
+        return "", (f"`{BINDING_FORMS_KEY}` of {REL} is not usable (malformed): the Then is bound through `manifest_put.py` "
+                    "for every kind of test file")
+    for row in rows:
+        if suffix and suffix in [x.lower() for x in row["suffixes"] if isinstance(x, str)]:
+            return row["form"], ""
+    return "", ""
+
+
 def assert_line_patterns(path=None) -> list:
     """The `assert_lines` key: the patterns that make a line of a self-fix's `before`/`after` an assertion line
     (B-407 C). Loads the document itself, the way `assertion_detectors(path)` does; raises the typed error when the
