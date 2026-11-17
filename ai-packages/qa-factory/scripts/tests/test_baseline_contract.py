@@ -259,6 +259,34 @@ class BaselineContractTests(unittest.TestCase):
                 got = B.validate_managed_gate({"task": "TASK-1", "evidence_phase": "baseline",
                                                "baseline_contract": "x"}, root)
                 self.assertTrue(got)
+        with self.subTest("managed gate derive failure: one line per world"):
+            from unittest import mock
+            plan_row = dict(contract(), id="TC-1", baseline_required=True)
+
+            class FakeController:
+                def __init__(self, root): pass
+                def state(self): return {"decisions": {"gate-A": {"id": "gate-A", "gate": "A",
+                                                                    "status": "approved", "scope": ["TC-1"]}}}
+                def _validate_gate_a_content_current(self, state): pass
+                def _plan_document(self): return [plan_row]
+                def _current_gate_a(self, state): return {"id": "gate-A"}
+            cases = (("refused: revision mismatch", contract(), {"expected_source_revision": "new"}, 0),
+                     ("refused: non-dict runtime", contract(), "old", 0),
+                     ("not refused: request revision drifted from the plan",
+                      dict(contract(), baseline_revision="new"), {"expected_source_revision": "new"}, 1))
+            for label, bcontract, runtime, want in cases:
+                with self.subTest(label), tempfile.TemporaryDirectory() as td:
+                    root = Path(td); state = root / "qa-factory" / "artifacts" / "TASK-1" / "state"
+                    state.mkdir(parents=True)
+                    (state / "controller.json").write_text("{}"); (state / "events.jsonl").write_text("")
+                    request = {"task": "TASK-1", "evidence_phase": "baseline", "baseline_contract": bcontract,
+                               "runtime_provenance": runtime}
+                    with mock.patch("controller.Controller", FakeController):
+                        got = B.validate_managed_gate(request, root)
+                    self.assertEqual(len(got), want, got)
+                    self.assertFalse(any("unreadable" in line for line in got), got)
+                    if want:
+                        self.assertIn("cannot be derived from the current approved plan", got[0])
 
 
 if __name__ == "__main__":

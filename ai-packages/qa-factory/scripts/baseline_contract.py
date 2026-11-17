@@ -100,8 +100,17 @@ def validate_managed_gate(request, project_root):
                        and row.get("baseline_required")]
             if len(matches) != 1:
                 return ["baseline case has no unique approved baseline contract"]
-            expected = build_baseline_fields(matches[0], controller._current_gate_a(state)["id"],
-                                             request.get("runtime_provenance") or {})
+            try:
+                expected = build_baseline_fields(matches[0], controller._current_gate_a(state)["id"],
+                                                 request.get("runtime_provenance") or {})
+            except ValueError:
+                # the same revision mismatch / non-dict runtime the request check names: one line, not two
+                if validate_baseline_request(request):
+                    return []
+                return ["the managed baseline cannot be derived from the current approved plan: the approved "
+                        "baseline_revision and the request's runtime_provenance do not agree. Build the request "
+                        "again with the probe's record as runtime_provenance "
+                        "(`controller.py --task-root <TASK_ROOT> --operation baseline-inputs`)"]
             if expected["baseline_contract"] != request.get("baseline_contract"):
                 return ["baseline fields differ from the current approved plan"]
         wanted = bcontract.get("gate_a_decision_ref")

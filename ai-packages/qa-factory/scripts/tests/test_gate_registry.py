@@ -1193,7 +1193,7 @@ def part_predicate() -> None:
     check("C3-0 registry-problem: a non-object registry has a reason", bool(GT.registry_problem(registry=[])))
     check_eq("C3-0 registry-problem: an in-memory registry that reads", GT.registry_problem(registry=reg(row("a"))), "")
     check_eq("C3-0 registry-problem: the live registry", GT.registry_problem(), "")
-    # RD1-27: the builder reproduces the texts the five sites had (the texts the sites really produce are the site rows: test_run_freshness, test_proof_level, test_execution_request, test_controller_state); each row = (site, built text, expected text)
+    # RD1-27: the builder reproduces the texts the five sites had (the texts the sites really produce are the site rows: test_run_freshness, test_proof_level, test_execution_request, test_controller_state, test_baseline_contract); each row = (site, built text, expected text)
     import proof_level as PL
     import baseline_contract as B
     for site, built, had in (
