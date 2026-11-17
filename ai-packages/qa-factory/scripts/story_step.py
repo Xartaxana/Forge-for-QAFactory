@@ -1162,8 +1162,8 @@ def _packet_lines(packet: dict | None, task: str = "") -> tuple:
     if packet.get("plan_rows"):
         lines.append("Plan rows of this dispatch: " + ", ".join(str(row) for row in packet["plan_rows"]))
     if packet.get("bug_candidates"):
-        lines.append("Bug candidates of this dispatch: " + ", ".join(str(ref) for ref in packet["bug_candidates"])
-                     + " (K-n: a risk in work/grounding.yaml rows[].risks[]; R-n: a register row marked bug:candidate-defect)")
+        import check_delivery
+        lines.append(check_delivery.BUG_CANDIDATES_LINE.format(refs=", ".join(str(ref) for ref in packet["bug_candidates"])))
     lines.append(f"Dispatch input_hash: {packet.get('input_hash') or 'unset'}; purpose: "
                  f"{packet.get('purpose') or 'unset'}")
     return tuple(lines)
@@ -1386,6 +1386,7 @@ def materialize(args) -> int:
     print(f"packet: {dispatch_id} ({stage_id} {role}); input_hash {packet.get('input_hash')}; purpose "
           f"{packet.get('purpose') or 'unset'}; scope {', '.join(scope) or 'none'}"
           + (f"; plan rows {', '.join(rows)}" if rows else "")
+          + (f"; bug candidates {', '.join(str(r) for r in packet['bug_candidates'])}" if packet.get("bug_candidates") else "")
           + (f"; rework of {packet['rework_of']} (cause {packet.get('repair_cause') or 'unnamed'})"
              if packet.get("rework_of") else ""))
     print(text, end="")

@@ -2388,7 +2388,9 @@ def _grounding_candidates(artifacts: Path) -> tuple:
                         seen.add(ident)
                         said = " ".join(str(risk.get("hypothesis") or "").split()) or "no hypothesis was written"
                         out.append({"ref": ident, "requirements": reqs, "subject": said, "source": "grounding"})
-    elif getattr(problem, "kind", "") != "missing":
+    elif getattr(problem, "kind", "") != "missing" or C.artifact_write_path(artifacts, "grounding.yaml").exists():
+        # `missing` is "no table" only when nothing is at the path: a path that exists and is no readable file (a folder, an OSError)
+        # is an unreadable table (FR-41, F4 a); only a file that truly does not exist stays silent.
         unreadable += ["the grounding table"]   # a NAME of an input, not a reason text (the reason is built below)
     path = C.artifact(artifacts, "requirements-register.md")
     if path.is_file():
@@ -2396,6 +2398,11 @@ def _grounding_candidates(artifacts: Path) -> tuple:
             text = C.read_text(path)
             if not text.strip():
                 raise ValueError("empty")
+            if not C.md_table(text, "## Register"):
+                raise ValueError("no register table")   # text with no `## Register` table is not "holds nothing" (F4 b)
+            if not C.candidate_marks():
+                unreadable += ["the candidate marks of the vocabulary"]   # the marks cannot be read: no R-n is known (F4 c)
+                return out, unreadable
             for found in C.candidate_defects(text):
                 place = f"{found['file']}:{found['line']}" if found.get("file") else "place in the code not named"
                 said = " ".join(str(found.get("requirement") or "").split()) or found["r"]
@@ -2403,6 +2410,13 @@ def _grounding_candidates(artifacts: Path) -> tuple:
         except Exception:  # noqa: BLE001
             unreadable += ["the requirements register"]   # a NAME of an input, not a reason text (the reason is built below)
     return out, unreadable
+
+
+# The ONE text of the packet line that tells the S7 analyst what a candidate rework asks of it (FR-38): printed by `story_step._packet_lines`
+# and the `brief_pack` rework head, only when the dispatch carries `bug_candidates`; `{refs}` = the refs, comma-separated.
+BUG_CANDIDATES_LINE = ("Bug candidates of this dispatch: {refs} (K-n: a risk in work/grounding.yaml rows[].risks[]; "
+                       "R-n: a register row marked bug:candidate-defect) - for each, a bug draft in the code-reading form, "
+                       "or the reason in your digest why no bug is owed")
 
 
 def bug_candidates(artifacts: Path) -> tuple:

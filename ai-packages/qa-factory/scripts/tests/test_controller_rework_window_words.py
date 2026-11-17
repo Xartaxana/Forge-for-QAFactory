@@ -1171,8 +1171,8 @@ def fl4_candidate_rework():
         check("FL4 item 4/E7: an unreadable input: 'not known', named, never 'does not hold' / 'not in this story'",
               none is None and "could not be read, so a candidate there is not known" in why and "the grounding table" in why
               and "does not hold" not in why and "not in this story" not in why, why)
-        check_eq("FL4 item 4: the conductor's text after the args prefix is the controller's text, one builder",
-                 why.split('"args": ', 1)[1], CD.candidate_refusal(["K-1"], ["R-13"], ["the grounding table"]))
+        check_eq("FL4 item 4: the conductor's text after the args prefix is the controller's own text (`text_vii`), one builder",
+                 why.split('"args": ', 1)[1], text_vii)
         check_eq("FL4 item 4: no `candidates_unreadable` key (an older caller) reads as []",
                  "not in this story" in check_args(dict(args, candidates=["R-99"]), {k: v for k, v in facts.items() if k != "candidates_unreadable"})[1], True)
         check_in("FL4 item 4: candidates with a case: 'one of them only'", "one of them only", check_args(dict(args, cases=["TC-1"]), facts)[1])
@@ -1204,16 +1204,61 @@ def fl4_candidate_rework():
         (root / "work" / "requirements-register.md").write_bytes(b"")
         check_eq("FL4 item 1: an empty register is `([], ['the requirements register'])`, never a raise", CD.bug_candidates(root), ([], ["the requirements register"]))
         (root / "work" / "requirements-register.md").write_bytes(register.read_bytes())
+        # E12: a candidate rework with the person's words stamps S8 to run again; without words no stamp (a NEW path: an S7 rework with
+        # nothing wanted never reached `_rerun_stamp` before FL4), and it is why gate B is asked again
+        said = c.build_rework_request(*S7, [], WORDS, words_given=True, candidates=["R-13"])
+        check_eq("FL4 E12: with the person's words: S8 runs again, the words are kept, no scope",
+                 (said.get("rerun_after"), said.get("person_words"), said.get("scope")),
+                 ({"stages": ["S8"], "reviews": [], "decisions": []}, True, []))
+        mute = c.build_rework_request(*S7, [], "x", candidates=["R-13"])
+        check("FL4 E12: without words: no stamp, no `person_words`", not mute.get("rerun_after") and not mute.get("person_words"), repr(mute))
         # item 3: BINDING_KEYS, the relaunch packet; item 6: the packet readers
         built = c.build_rework_request(*S7, [], "needs a bug report", candidates=["R-13"])
         check_eq("FL4 item 3: the binding carries `bug_candidates`", request_binding(built)["bug_candidates"], ["R-13"])
         c.apply("dispatch", dict(built))
         record = c.state()["dispatches"][built["id"]]
         check_eq("FL4 item 3: a relaunch packet of that record carries it", c._relaunch_packet(c.state(), record).get("bug_candidates"), ["R-13"])
-        check_in("FL4 item 6: the prompt says what the rework is for", "Bug candidates of this dispatch: R-13", "\n".join(story_step._packet_lines(built)))
+        lines = "\n".join(story_step._packet_lines(built))
+        check_in("FL4 item 6: the packet line says what the rework is for (the one constant, `code-reading` form, the digest reason)",
+                 CD.BUG_CANDIDATES_LINE.format(refs="R-13"), lines)
+        check("FL4 item 7/F3: the instruction rides on the packet line, not the charter",
+              all(word in lines for word in ("code-reading", "why no bug is owed", "R-13")), lines)
         plain = {k: v for k, v in built.items() if k != "bug_candidates"}
-        check_not_in("FL4 item 6/E1: a packet without the key gives today's lines", "Bug candidates", "\n".join(story_step._packet_lines(plain)))
-        check("FL4 E2: the field is compared at `materialize`", "bug_candidates" in story_step.IDENTITY_FIELDS)
+        check_not_in("FL4 item 6/E1/E3: a packet without the key prints no such line (the constant is read only when the field is there)",
+                     "Bug candidates", "\n".join(story_step._packet_lines(plain)))
+        # E2: two packets that differ ONLY in `bug_candidates` are not the same dispatch: `materialize` refuses the drift, naming the field
+        drift = refused_with(lambda: story_step._check_packet(root, c.state(), record, dict(built, bug_candidates=["R-14"])))
+        check("FL4 E2: a packet differing only in `bug_candidates` is refused naming the field", "bug_candidates" in drift and "differs from its committed event" in drift, drift)
+        same = refused_with(lambda: story_step._check_packet(root, c.state(), record, dict(built)))
+        check_not_in("FL4 E2 control: the same packet shows no identity drift", "differs from its committed event", same)
+        # adversarial refs of the spec: a register row WITHOUT the mark, and a K-n of a table that is not `implementation_source: diff`
+        (root / "work" / "grounding.yaml").write_bytes((register.parent / "grounding.yaml").read_bytes())
+        for ref in ("R-1", "K-1"):
+            check_in(f"FL4 adversarial: {ref} (an unmarked register row / a current-code table) is refused 'not in this story'",
+                     "not in this story", refused_with(lambda ref=ref: c.build_rework_request(*S7, [], "x", candidates=[ref])))
+    finally:
+        cleanup(root)
+    # E4: a consumer-reject record at S7 (S7's acceptance is `qa-doc-scribe`) hands a case rework its scope, never a candidate rework
+    root = temp_project("qa-fl4-e4-")
+    try:
+        c = story_to_s8(root)
+        c.apply("dispatch", {"id": "dS7-fb", "stage": "S7", "role": "qa-failure-analyst", "scope": ["TC-1"], "input_hash": "x", "budget": {},
+                             "known_paths": {}, "idempotency_key": "dispatch-S7-fb"})
+        c.apply("accept", {"id": "dS7-fb", "status": "accepted", "stage_complete": False,
+                           "evidence_refs": [BASE.evidence_ref(root, "dS7-fb.txt", "dS7-fb")], "idempotency_key": "accept-S7-fb"})
+        (root / "work").mkdir(exist_ok=True)
+        (root / "work" / "requirements-register.md").write_bytes(register.read_bytes())
+        pipeline_path = root / "pipeline.json"
+        pipeline = json.loads(pipeline_path.read_text(encoding="utf-8")) if pipeline_path.is_file() else {}
+        pipeline.setdefault("acceptance", {})["S7"] = [{"stage": "S7", "role": "qa-failure-analyst", "acceptor": "qa-doc-scribe",
+                                                         "reviewed_dispatch": "dS7-fb", "verdict": "reject", "failure_class": "capability",
+                                                         "quote": "q", "witness_paths": [], "at": "t"}]
+        pipeline_path.write_text(json.dumps(pipeline), encoding="utf-8")
+        check_eq("FL4 E4 control: with no candidates the S7 reject record hands the case rework the reviewed dispatch's scope",
+                 c.build_rework_request("S7", "qa-failure-analyst", [], "x")["scope"], ["TC-1"])
+        got = c.build_rework_request("S7", "qa-failure-analyst", [], "x", candidates=["R-13"])
+        check_eq("FL4 E4: with `--candidates` the same record gives no scope: the consumer-reject lookup does not run",
+                 (got.get("scope"), got.get("bug_candidates")), ([], ["R-13"]))
     finally:
         cleanup(root)
 

@@ -79,7 +79,6 @@ Optional (arguments: your brief's Commands card).
 - Control experiment: test data weaker than the case's Given is a `TEST_BUG` of the data, when the weakness alone explains the red; output in `evidence/`.
 - A red with no field: a field_absent row is judged by its shape_ref, not by the control experiment.
 - A code-reading draft: with an oracle (a SETTLED answer, or a register `code_says: contradicts`) and a contradicting code place you read (`{path, line, quote}`) the draft is `evidence: "code-reading"`. No oracle, no draft.
-- A rework whose packet names bug candidates (`Bug candidates of this dispatch`): for each, write a bug draft in the code-reading form, or say in your digest why no bug is owed.
 
 <!-- gen:digest contract_slices.py -->
 - Digest: the common form (`common-rules.md`), one line per failing test triaged, then `work/triage.json`.

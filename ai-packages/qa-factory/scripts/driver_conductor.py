@@ -329,7 +329,7 @@ class DriverConductor:
                 '"options": [{"token": "<word>", "move": "<id in moves>", "says": "<what it does>", "factory": "<its cost to the factory>", '
                 '"person": "<its cost to the person>", "story": {"unverified": "<what stays unverified>", '
                 '"report": "<the open item, or none>", "delivery": "<the move\'s delivery value>"}, '
-                '"args": {"stage": "S<n>", "role": "<role>", "cases": ["<id>", ...] | "rows": ["<id>", ...], "cause": "<cause>"}}]} '
+                '"args": {"stage": "S<n>", "role": "<role>", "cases": ["<id>", ...] | "rows": ["<id>", ...] | "candidates": ["<ref>", ...], "cause": "<cause>"}}]} '
                 "(`options` go with `ask_person` and `stop`: references/conductor.md, Your answer; `args` goes with the `rework` option only, "
                 "from the closed list in \"Moves open here\")"])
         started = time.time()

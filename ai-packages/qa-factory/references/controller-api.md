@@ -55,11 +55,10 @@ by the accepted reporter; cancelled takes `--words-file`, or a code with `--ref`
 ## Rework of an accepted stage, and derived S5/S6 scope
 
 A `stage_transition` of `running`/`halted`/`paused` on an accepted stage records `rework`
-instead of lowering it, and `stage_done.py --status running` refuses such a stage. Rework is
-`--operation rework`, which takes input hash, paths and budget from the role's last accepted
-dispatch, never `SendMessage` (it misses after a session change). On S1-S3, whose
-roles have no cases, `--rows TS-3` names plan rows instead of `--cases` (`plan_rows`). On S7 the failure analyst may be sent
-back over bug candidates with `--candidates <K-n,R-n>` (`bug_candidates`), instead of `--cases`.
+(not lowering it), and `stage_done.py --status running` refuses it.
+`--operation rework` takes input hash, paths and budget from the role's last accepted
+dispatch, never `SendMessage` (it misses across sessions). Instead of `--cases`:
+S1-S3 (no cases) `--rows TS-3`, plan rows (`plan_rows`); S7 `--candidates K-n,R-n`, bug candidates (`bug_candidates`).
 
 `stage-scope` is read-only, takes `{"stage", "execution_kind": "manual"|"automation"}` and
 returns the scope from the approved plan's dispositions (`automate` rows for S5, plus
