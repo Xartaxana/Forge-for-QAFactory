@@ -25,6 +25,7 @@ from harness import PLUGIN_ROOT, check, check_eq, check_in, finish, temp_dir  # 
 
 sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 import selftest as S  # noqa: E402
+from test_selftest_shard import copy_selftest_modules  # noqa: E402 - the one module list
 
 # Verbatim lines of ci-out/selftest.txt of the nightly 15.10 (pipeline 7920685, job 27713550). The third is a
 # FAIL line: its detail follows the seconds, and the artifact shows the dash as `?`.
@@ -330,8 +331,7 @@ def cli(args, files_text: str | None, root: Path, name: str, tests=(), artifact:
     pkg = root / name
     scripts = pkg / "scripts"
     tests_dir_with(pkg, tests)
-    for module in ("selftest.py", "content_size.py", "console_io.py"):
-        shutil.copy2(PLUGIN_ROOT / "scripts" / module, scripts / module)
+    copy_selftest_modules(scripts)
     if files_text is not None:
         (scripts / "slow_tests.json").write_text(files_text, encoding="utf-8")
     if artifact is not None:
