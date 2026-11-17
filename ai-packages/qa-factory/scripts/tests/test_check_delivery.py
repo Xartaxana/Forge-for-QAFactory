@@ -131,6 +131,25 @@ def main() -> None:
                              "\n".join(said))
         finally:
             s7_pretriage.s6_closed_by_code = real_receipt
+        # U7 7a (N2): the twin of S7's entry through ONE predicate (`s7_pretriage.triageable_not_executed`). A FINISHED S6 whose
+        # undecided rows are manual targets is no run failure (the cases decide, each by its own kind); a mixed story whose
+        # automated half broke, a report with nothing a role can triage, an S6 still running keep `run_not_deliverable`'s refusal.
+        import controller as CTL
+        manual_row = {"case": "TC-9", "attempt_id": "a1", "result": "inconclusive", "evidence_validated": True}
+        broken = {"instance_id": "t_a", "test_id": "m::t_a", "attempt_id": "x1", "status": "not_run"}
+        real_controller = CTL.Controller
+        try:
+            for label, results, manual, stage, refused in (
+                    ("not_executed + a manual inconclusive of a finished S6", [], [manual_row], {"status": "completed"}, False),
+                    ("mixed story, the automated half broke (not_run)", [broken], [manual_row], {"status": "completed"}, True)):
+                report = {"execution_status": "not_executed", "current_results": results, "current_manual_checks": manual}
+                (art / "work" / "run-report.json").write_text(json.dumps(report), encoding="utf-8")
+                CTL.Controller = lambda _root, said=stage: type("S", (), {"state": lambda self: {"stages": {"S6": said}}})()
+                said = D.run_reasons(art)
+                check_eq(f"U7 7a: {label} -> {'run_not_deliverable refusal stands' if refused else 'no run reason'}", bool(said), refused)
+        finally:
+            CTL.Controller = real_controller
+        report = C.load_json(GOOD / "work" / "run-report.json")
         report["execution_status"] = "passed"
         (art / "work" / "run-report.json").write_text(json.dumps(report), encoding="utf-8")
 
@@ -1151,6 +1170,19 @@ def a_red_run_does_not_also_ask_for_the_stamp() -> None:
             CS.instance_hold = was
         check_eq("M1 control: the same story with the predicate restored: the ordinary stamp reason, not the unestablished one",
                  ["step 8b" in r and "not checked" not in r for r in D.lifecycle_reasons(art)], [True])
+        # RD1-29 (E2, E12; AR-28, FR-59): a registry that cannot be read judges no word, so no per-case reason is computed from one -
+        # exactly ONE reason, before any case, never a silent "no lifecycle demand"
+        import gate_registry
+        import gate_template as GT
+        saved = list(GT._READ)
+        GT._READ[:] = [({"rows": "x"}, gate_registry.structural_error({"rows": "x"}))]
+        try:
+            said = D.lifecycle_reasons(art)
+            check_eq("RD1-29 E2: an unreadable registry -> exactly ONE reason", len(said), 1)
+            check("RD1-29 E2: ... its head is the lifecycle line and it names the registry",
+                  said[0].startswith("case lifecycle not checked: the gate registry cannot be read"), said[0])
+        finally:
+            GT._READ[:] = saved
     finally:
         cleanup(root)
 

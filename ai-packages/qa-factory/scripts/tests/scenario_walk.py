@@ -885,19 +885,38 @@ def _scenarios(tests: Path, scripts: Path, door_modules: dict) -> dict:
     return out
 
 
-def witness_for(paths, package: Path | None = None, layers: dict | None = None, door_modules: dict | None = None) -> list:
+CANON_HEADER = "canon judges, do not run locally:"
+
+
+def witness_for(paths, package: Path | None = None, layers: dict | None = None, door_modules: dict | None = None,
+                canon: dict | None = None) -> list:
     """One or more lines per changed path: the scenario tests whose doors reach it, the keep rows whose `covers` name it, or
-    the statement that nothing does (then the whole scenario layer). A deleted path counts as changed; a data file is matched
-    by `covers` and by a story folder alone."""
+    the statement that nothing does (then the whole scenario layer judges it). A deleted path counts as changed; a data file
+    is matched by `covers` and by a story folder alone. The hits whose test file is canon-only (a key of slow_tests.json
+    `files`, or a `canon_only` glob of test-layers.json; `canon` is that class as data, None = read it) are printed after
+    the others under CANON_HEADER: a builder never runs them (docs/TESTING.md); the last line counts both groups."""
     package = Path(package or PACKAGE)
     scripts, tests = package / "scripts", package / "scripts" / "tests"
     door_modules = door_modules or DOOR_MODULES
     if layers is None:
         import selftest
         layers = selftest.test_layers()
+    import selftest
+    canon = canon if canon is not None else selftest.canon_class(package, layers)
+
+    def is_canon(test: str) -> bool:
+        return selftest.is_canon(test, canon)
+
     scenarios = _scenarios(tests, scripts, door_modules)
-    lines = ["test-layers.json is absent: no keep row is consulted, only the imports of the scenario doors"] \
-        if layers.get("absent") else []
+    lines = []
+    if canon.get("slow") is None or canon.get("globs") is None:
+        lines.append(f"canon class could not be read ({'; '.join(canon.get('why') or ['no reason given'])}): "
+                     "only what was read was applied")
+    if canon.get("no_list"):
+        lines.append("test-layers.json names no canon_only list: only the slow list was applied")
+    if layers.get("absent"):
+        lines.append("test-layers.json is absent: no keep row is consulted, only the imports of the scenario doors")
+    run_files, canon_files, canon_lines = set(), set(), []
     for given in paths:
         rel, hits = _relative(given), []
         absolute = Path(given) if Path(given).is_absolute() else package / rel
@@ -910,18 +929,22 @@ def witness_for(paths, package: Path | None = None, layers: dict | None = None, 
         for test, (story_id, closure) in scenarios.items():
             if (is_script and stem in closure and "/tests/" not in rel) or rel.endswith("tests/scenario_walk.py") \
                     or f"fixtures/stories/{story_id}/" in rel:
-                hits.append(f"{rel}: scenario {test} (story {story_id})")
+                hits.append((test, f"{rel}: scenario {test} (story {story_id})"))
         candidates = {rel, rel[len("scripts/"):] if rel.startswith("scripts/") else rel}
         for name, row in sorted((layers.get("keep") or {}).items()):
             covers = row.get("covers") or []
             if candidates & set(covers) or any(c.startswith(cov.rstrip("/") + "/") for c in candidates for cov in covers):
-                hits.append(f"{rel}: keep {name} (layer {row.get('layer')}, covers it)")
-        if hits:
-            lines += hits
-        else:
-            lines.append(f"no scenario or keep row covers {rel}: run the whole scenario layer")
-            lines += [f"{rel}: {test}" for test in scenarios] or [f"{rel}: no test_scenario_*.py exists yet"]
-    return lines
+                hits.append((name, f"{rel}: keep {name} (layer {row.get('layer')}, covers it)"))
+        for test, text in hits:
+            (canon_lines if is_canon(test) else lines).append(text)
+            (canon_files if is_canon(test) else run_files).add(test)
+        if not hits:
+            lines.append(f"no scenario or keep row covers {rel}: the whole scenario layer judges it (canon), nothing to run locally")
+            canon_lines += [f"{rel}: {test}" for test in scenarios] or [f"{rel}: no test_scenario_*.py exists yet"]
+            canon_files.update(scenarios)
+    if canon_lines:
+        lines += [CANON_HEADER] + canon_lines
+    return lines + [f"run locally: {len(run_files)} file(s); canon judges: {len(canon_files)} file(s)"]
 
 
 def main(argv=None) -> int:

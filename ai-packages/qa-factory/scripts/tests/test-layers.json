@@ -10,6 +10,12 @@
   "detector"
  ],
  "enforce_listing": true,
+ "canon_only": [
+  "test_story_run_*.py",
+  "test_controller_*.py",
+  "test_fixes_13797.py",
+  "test_story_step.py"
+ ],
  "story_coverage_required": [
   "S1",
   "S2",

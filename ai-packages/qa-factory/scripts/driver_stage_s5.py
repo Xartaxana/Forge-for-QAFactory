@@ -227,8 +227,45 @@ class DriverStageS5:
         with self.timed("stage_scope", stage="S5"):
             scope = self.stage_scope("S5")
         windows = scope.get("windows") or []
+        # U7 5b (AR-22, AR-23, AR-28; twin of `s6.nothing`, AR-19): S5 over a DERIVED scope that is empty closes by code - there is nothing
+        # for a role to write. Only over `derived` true, `scope == []`, `unmapped_scope == []` and `undisposed == []` (the controller's `code_only`
+        # re-checks the same four from its own `stage_scope`): a scope nobody could read, a case with no plan row and a case whose row names no
+        # disposition are refused with a door, never read as "nothing". The required output exists after the close: an absent
+        # `work/automation-manifest.json` is written EMPTY by its one writer `manifest_put.py` (AR-14); a present one (an earlier S5 wrote rows,
+        # the plan was reworked to all-manual) is left as it is. The writer's own text is never quoted into a refusal: its "event committed;"
+        # words would match the `committed_event` row of `KNOWN_REFUSALS`, whose `recover` does not rebuild the manifest projection.
+        # POSITION INVARIANT: right after the scope, before `s5_todo` and every window reader; nothing below can run without a case.
         if not scope.get("scope"):
-            raise Refusal("S5: stage-scope returned no automate cases: " + json.dumps(scope)[:800])
+            why = []
+            if scope.get("derived") is not True:
+                why.append(f"the plan's dispositions could not be read ({scope.get('reason') or 'no reason given'}), so S5 is not closed over a "
+                           "scope nobody could read")
+            else:
+                for key, words in (("scope", "no `scope` list"), ("unmapped_scope", "no `unmapped_scope` list"), ("undisposed", "no `undisposed` list")):
+                    if not isinstance(scope.get(key), list):
+                        why.append(f"the stage-scope answer has {words}")
+                if scope.get("unmapped_scope"):
+                    why.append(f"cases {', '.join(map(str, scope['unmapped_scope']))} have no plan row")
+                if scope.get("undisposed"):
+                    why.append(f"plan rows of {', '.join(map(str, scope['undisposed']))} have no disposition")
+            if why:
+                raise Refusal("S5: no automate case to write tests for and the scope is not proven empty: " + "; ".join(why)
+                              + ". Rework S3 or record dispositions, then S5 runs again.")
+            manifest = self.task_root / "work" / "automation-manifest.json"
+            if not manifest.exists():
+                import manifest_put
+                code, _text = self.py("manifest_put.py", "--task", self.task, "--fragment", json.dumps({"tests": [], "unresolved": []}))
+                kind, _move = manifest_put.outcome(code, self.task)
+                if kind == "stale":     # the rows ARE in the journal and only the projection failed: the replay is the move, once (AR-25)
+                    code, _text = self.py("manifest_put.py", "--task", self.task, "--recover")
+                    kind = manifest_put.outcome(code, self.task)[0]
+                if kind != "committed" or not manifest.exists():
+                    raise Refusal(f"S5: the empty automation manifest is not written (manifest_put.py exit {code}; expected exit 0 and "
+                                  f"work/automation-manifest.json on disk). Run `manifest_put.py --task {self.task} --recover`, then S5 runs again.")
+            self.close_by_code("S5", "nothing to automate: the approved plan names no automate case",
+                               ["work/automation-manifest.json", "work/test-plan.json"], finalize=False, site="s5.nothing",
+                               digest="nothing to automate")
+            return
         todo = self.s5_todo(windows)
         owed, owed_window = self.repair_owed(windows)       # a round the person chose at the repair limit and not run yet (t-698 A4)
         # t-733: a `debt` that consumed an owed round leaves its critic's finish (`--not-complete`) to be completed; no role runs, so no stand or

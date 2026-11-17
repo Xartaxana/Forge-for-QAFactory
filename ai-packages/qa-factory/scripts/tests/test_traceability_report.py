@@ -250,6 +250,15 @@ def verdict_bases() -> None:
                  "reviewed by the code critic, fixes named - catches a broken product")
         check_eq("a new test with no receipt: not probed",
                  s._review_basis(entry("c")), "reviewed by the code critic - not probed")
+        # RD1-29 (E2): a registry that cannot be read shows the words without the level, and raises nothing
+        import gate_registry
+        import gate_template as GT
+        saved = list(GT._READ)
+        GT._READ[:] = [({"rows": "x"}, gate_registry.structural_error({"rows": "x"}))]
+        try:
+            check_eq("RD1-29 E2: an unreadable registry: the words, no level", s._review_basis(entry("a2", live)), "reviewed by the code critic")
+        finally:
+            GT._READ[:] = saved
         check_eq("rejected shows its own words, never 'review not recorded'",
                  s._review_basis(entry("d", live, critic_verdict="rejected")), "rejected by the code critic")
         check_eq("unverified shows its own words",

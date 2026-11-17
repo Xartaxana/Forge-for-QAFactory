@@ -781,8 +781,66 @@ def n1_keeps_the_old_refusal_for_an_accepted_author_round():
     check_eq("N == 1: no critic dispatch", seen.get("scope"), None)
 
 
+# --- U7 5b: S5 closes by code when the derived scope is proven empty ----------------------------------------------------------------------
+
+def s5_nothing_to_automate_closes_by_code_over_a_proven_empty_scope():
+    """(AR-14, AR-22, AR-28; expected from: spec r3 section 2 r11 "Target", "Edges" and "Invariant"): the empty manifest is written once by
+    `manifest_put.py`, the close is site `s5.nothing`; an unreadable, unmapped or undisposed scope is a Refusal with a door; a stale write is
+    recovered once; the writer's own words are never quoted."""
+    from driver_core import Refusal
+    ok = {"derived": True, "scope": [], "unmapped_scope": [], "undisposed": [], "windows": []}
+    writer_words = "event committed; derived view not refreshed (the writer's own words)"
+    fragment = json.dumps({"tests": [], "unresolved": []})
+    absent = "0 but no file"
+    table_ = (   # label, scope answer, manifest already there, the writer's exit codes in order, (calls, closed, words the refusal holds)
+        ("derived empty, no manifest -> the writer once with the empty fragment, close s5.nothing", ok, False, [0], (1, True, "")),
+        ("derived empty, manifest present -> the writer not called, close", ok, True, [], (0, True, "")),
+        ("writer stale (4) -> recover once, then close", ok, False, [4, 0], (2, True, "")),
+        ("writer stale, recover refused -> Refusal naming the door, no close", ok, False, [4, 1], (2, False, "manifest_put.py --task T-1 --recover")),
+        ("writer exit 3 -> Refusal naming exit and door, no close", ok, False, [3], (1, False, "manifest_put.py exit 3")),
+        ("writer exit 0 but the file is absent -> Refusal, no close", ok, False, [absent], (1, False, "work/automation-manifest.json on disk")),
+        ("underived scope -> Refusal with the door, nothing written",
+         {"derived": False, "scope": [], "windows": [], "reason": "plan rows declare no disposition"}, False, [], (0, False, "Rework S3 or record dispositions")),
+        ("an unmapped case -> Refusal naming it", {**ok, "unmapped_scope": ["TC-9"]}, False, [], (0, False, "cases TC-9 have no plan row")),
+        ("an undisposed row -> Refusal naming it", {**ok, "undisposed": ["TC-2"]}, False, [], (0, False, "plan rows of TC-2 have no disposition")),
+        ("an answer with no `undisposed` list -> Refusal, never read as empty", {k: v for k, v in ok.items() if k != "undisposed"}, False, [],
+         (0, False, "no `undisposed` list")),
+    )
+    for label, scope, present, exits, (n_calls, closed, words) in table_:
+        d = rig()
+        d.stage_scope = lambda stage, kind="", scope=scope: scope
+        d.timed = lambda *a, **k: contextlib.nullcontext(type("L", (), {"dispatch": ""})())
+        calls, closes, manifest = [], [], d.task_root / "work" / "automation-manifest.json"
+        manifest.parent.mkdir(exist_ok=True)
+        if present:
+            manifest.write_text("{}", encoding="utf-8")
+
+        def py(script, *args, calls=calls, exits=list(exits), manifest=manifest):
+            calls.append((script, args))
+            code = exits.pop(0)
+            if code == 0:
+                manifest.write_text(fragment, encoding="utf-8")
+            return (0 if code == absent else code), writer_words
+        d.py = py
+        d.close_by_code = lambda stage, reason, evidence, **kw: closes.append((stage, kw.get("site"), kw.get("finalize"), list(evidence)))
+        try:
+            d.stage_S5()
+            refusal = ""
+        except Refusal as exc:
+            refusal = str(exc)
+        check_eq(f"5b {label}: writer calls", len(calls), n_calls)
+        check_eq(f"5b {label}: closed by code", bool(closes), closed)
+        if closes:
+            check_eq(f"5b {label}: the close names the stage, the site and both outputs",
+                     closes[0], ("S5", "s5.nothing", False, ["work/automation-manifest.json", "work/test-plan.json"]))
+        if calls and "--fragment" in calls[0][1]:
+            check_eq(f"5b {label}: the fragment is the empty one", calls[0][1][calls[0][1].index("--fragment") + 1], fragment)
+        check_in(f"5b {label}: refusal text", words, refusal)
+        check_not_in(f"5b {label}: the writer's own words are never quoted", "event committed", refusal)
+
+
 def main():
-    cases = [accepted_author_round_opens_the_window_and_goes_to_the_critic, accepted_author_round_is_read_from_disk_after_a_restart,
+    cases = [s5_nothing_to_automate_closes_by_code_over_a_proven_empty_scope, accepted_author_round_opens_the_window_and_goes_to_the_critic, accepted_author_round_is_read_from_disk_after_a_restart,
              critic_round_after_the_author_round_keeps_the_window_closed, mechanical_author_round_completes_the_window_as_before,
              unreadable_record_in_stage_keeps_the_old_refusal, progress_line_does_not_count_a_held_window_as_closed,
              todo_and_open_windows_agree_on_the_author_round,
