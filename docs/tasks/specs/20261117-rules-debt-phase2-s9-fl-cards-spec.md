@@ -1042,3 +1042,14 @@ Verdict `docs/tasks/specs/reviews/t-1059-rules-debt-fl4-code.md`: needs work, B1
   register with text and no `## Register` table is "the requirements register unreadable"; an unreadable mark vocabulary is unreadable too. None of
   the three may print "not in this story".
 - **F1, F2, F5, N5** fixed as the verdict states. **N2, N3, N4** go to the pile as lines.
+
+## Lead decisions on FL2 (17.11.2026, Fable; made in the owner's absence, by the recommendation — until the owner's word)
+
+- **F-L2-B: (c)** — the `skip class` column in the md `## Plan` table, checked by `check_plan_v0`, read by the ledger from the
+  row it already reads; the strategist is told by the plan contract line. Reason: one reader of the plan in the ledger stays one
+  (P31, AR-13); (a) would add a md-to-JSON join and two unknown-state edges.
+- **PL-1 measured** (the command of §5, run on main `509722e0`): `{'automate': 48, 'manual-agent': 7, 'skip': 2, 'unverifiable': 1}`
+  over the recorded stories; both `skip` rows are in `local-1-0108` (a cosmetic check; "the owner's answer leaves no implemented
+  quick-view add path to verify" — the R3 row). The critic's `skip 3` was wrong, t-1034's 2 is right; the R3 class count is 1.
+- L-2..L-6 went to scout t-1067; the card is redrafted by a designer into a NEW file after the digest, then the plan critic
+  (PROJECT.md п. 6 (б): the meaning of a delivery word changes), then the builder.
