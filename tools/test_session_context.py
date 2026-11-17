@@ -44,10 +44,21 @@ from session_context import (
 # B-402: the staged draft is tools/session_context_b402.py (the task key for OPEN DISPATCH); until
 # the Lead places it, the tests below that go through `sc` exercise the draft, the ones that import
 # names from `session_context` above exercise the live module.
-try:
-    import session_context_b402 as sc
-except ImportError:
-    import session_context as sc
+# K-WIRE: SESSION_CONTEXT_PATH (read only here) names the candidate file the tests below judge instead of the live one.
+_CANDIDATE = os.environ.get("SESSION_CONTEXT_PATH")
+if _CANDIDATE:
+    import importlib.util
+
+    _cand = Path(_CANDIDATE)
+    _cand = _cand if _cand.is_absolute() else Path.cwd() / _cand
+    _spec = importlib.util.spec_from_file_location("session_context_candidate", _cand)
+    sc = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(sc)
+else:
+    try:
+        import session_context_b402 as sc
+    except ImportError:
+        import session_context as sc
 
 REQUESTS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS requests (
@@ -2145,6 +2156,128 @@ def test_build_context_lines_includes_wiring_summary(tmp_path):
     lines = sc.build_context_lines(root)
     assert any(l.startswith("WIRING:") or l.startswith("WIRING WARNING:")
                or l.startswith("WIRING AUTOFIX:") for l in lines), lines
+
+
+# ---------------------------------------------------------------------
+# WAITS block + COMPACT NARRATIVE (bounded waits, K-WIRE): the reaper's launch and status line, the narrative's stamp
+# ---------------------------------------------------------------------
+
+_REAL_WAITS = getattr(sc, "waits_lines", None)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_reaper(monkeypatch):
+    """No test starts a reaper: the block `build_context_lines` carries is silent unless a WAITS test calls the real one."""
+    if _REAL_WAITS is not None:
+        monkeypatch.setattr(sc, "waits_lines", lambda root: [])
+
+
+def _waits_world(monkeypatch, tmp_path, launched, session, status, boom):
+    import types
+    import wait_reaper
+    import session_proc
+    import worktree_sweep
+
+    calls = []
+
+    def launch(trigger, root=None, **kw):
+        calls.append(trigger)
+        if boom:
+            raise boom
+        return launched
+
+    monkeypatch.setattr(wait_reaper, "launch", launch)
+    monkeypatch.setattr(session_proc, "session_process", lambda *a, **k: session)
+    monkeypatch.setattr(worktree_sweep, "repo_context", lambda git, root: types.SimpleNamespace(common=tmp_path))
+    monkeypatch.setattr(wait_reaper, "waits_line", lambda state, sess, now=None: status)
+    return calls
+
+
+_SESS = ({"pid": 7, "created": 1.0}, "")
+_REAP = "WAITS: last reap 2026-11-17T10:00:00 (subagent-stop): 2 stopped, 0 failed, 1 unknown roots"
+_UNREAD = "WAITS: process list unreadable (boom) -- python -B tools/wait_reaper.py"
+_NOSESS = "WAITS: no session (no claude.exe ancestor) -- nothing stopped"
+_NOSTART = "WAITS: reaper not started (tools/wait_reaper.py not found in x)"
+# id, launch answer, session, status line, launch raises, expected block (None: one `reaper not started` line from the raise)
+_WAITS_ROWS = [
+    ("silent_at_zero", None, _SESS, None, None, []),
+    ("counts", None, _SESS, _REAP, None, [_REAP]),
+    ("no_session", _NOSESS, (None, "no claude.exe ancestor"), None, None, [_NOSESS]),
+    ("unreadable", None, _SESS, _UNREAD, None, [_UNREAD]),
+    ("launch_answer_wins", _NOSTART, _SESS, _REAP, None, [_NOSTART]),
+    ("launch_raises", None, _SESS, None, RuntimeError("spawn Ж " + "z" * 300), None),
+]
+
+
+@pytest.mark.skipif(_REAL_WAITS is None, reason="the candidate carries no WAITS block")
+@pytest.mark.parametrize("launched, session, status, boom, expected", [r[1:] for r in _WAITS_ROWS], ids=[r[0] for r in _WAITS_ROWS])
+def test_k_wire_waits_block(tmp_path, monkeypatch, launched, session, status, boom, expected):
+    calls = _waits_world(monkeypatch, tmp_path, launched, session, status, boom)
+    lines = _REAL_WAITS(tmp_path)
+    assert calls == ["session-start"]
+    if expected is None:
+        assert len(lines) == 1 and lines[0].startswith("WAITS: reaper not started (RuntimeError: spawn ?")
+        assert lines[0].isascii() and len(lines[0]) <= len("WAITS: reaper not started ()") + 120
+    else:
+        assert lines == expected
+
+
+@pytest.mark.skipif(_REAL_WAITS is None, reason="the candidate carries no WAITS block")
+def test_k_wire_waits_line_survives_the_max_lines_cut_that_takes_the_wiring_line(tmp_path, monkeypatch):
+    root = _seed_repo(tmp_path, events=[_event("delegated", ts="2026-07-10T08:00:00", task_id="t-001")])
+    monkeypatch.setattr(sc, "wiring_summary_line", lambda r: "WIRING: OK")
+    _stub_count(monkeypatch, (5, 0, "origin/main"))
+    monkeypatch.setattr(sc, "waits_lines", lambda r: ["WAITS: last reap X"])
+    base = len(sc.build_context_lines(root))                    # the lines up to and including the wiring line
+    filler = 24 - (base - 2 - len(sc.boot_budget_lines(root)))   # 24 lines BEFORE the waits line
+    assert filler >= 0
+    monkeypatch.setattr(sc, "boot_budget_lines", lambda r: ["FILLER"] * filler)
+    lines = sc.build_context_lines(root)
+    assert len(lines) == sc.MAX_LINES and lines[24] == "WAITS: last reap X"
+    assert "WIRING: OK" not in lines
+
+
+_N_DIR = "docs/tasks/compact-snapshots"
+_N_NOW = datetime.datetime(2026, 11, 17, 12, 0, 0)
+_N_FILE = _N_DIR + "/2026-11-17-1155-narrative.md"
+_N_STAMPED = "<!-- compact-snapshot: narrative; session-proc: %s; written: 2026-11-17T11:55:00 -->\n"
+_N_ODD = "<!-- compact-snapshot: narrative; session-proc: x; written: y -->\n"
+
+
+def _narrative(tmp_path, head):
+    folder = tmp_path / _N_DIR
+    folder.mkdir(parents=True, exist_ok=True)
+    p = folder / "2026-11-17-1155-narrative.md"
+    p.write_text(head + "# state\n", encoding="utf-8")
+    t = _N_NOW.timestamp() - 300
+    os.utime(p, (t, t))
+
+
+_NO_STAMP = "COMPACT NARRATIVE: newest has no session stamp (%s) -- check it is yours" % _N_FILE
+_FOREIGN = "COMPACT NARRATIVE: newest is another session's (%s) -- not your state" % _N_FILE
+_MINE = {"pid": 7, "created": 1.5}
+# id, the narrative's first line (None = no file), this session's process (None = the walk fails), the expected narrative line
+_NARRATIVE_ROWS = [
+    ("own", _N_STAMPED % "7-1.500", _MINE, "COMPACT NARRATIVE: %s (5 min old)" % _N_FILE),
+    ("foreign", _N_STAMPED % "9-2.000", _MINE, _FOREIGN),
+    ("unstamped", "", _MINE, _NO_STAMP),
+    ("odd_field_never_own", _N_ODD, _MINE, _FOREIGN),
+    ("stamped_but_walk_none", _N_STAMPED % "7-1.500", None, _NO_STAMP),
+    ("none_no_line", None, _MINE, None),
+]
+
+
+@pytest.mark.parametrize("head, proc, expected", [r[1:] for r in _NARRATIVE_ROWS], ids=[r[0] for r in _NARRATIVE_ROWS])
+def test_k_wire_compact_narrative_names_whose_it_is(tmp_path, monkeypatch, head, proc, expected):
+    if not hasattr(sc, "_session_proc_id"):
+        pytest.skip("the candidate carries no narrative stamp reading")
+    import session_proc
+
+    if head is not None:
+        _narrative(tmp_path, head)
+    monkeypatch.setattr(session_proc, "session_process", lambda *a, **k: (proc, "" if proc else "no claude.exe ancestor"))
+    lines = sc.compact_snapshot_lines(tmp_path, _N_NOW, "s1")
+    assert [l for l in lines if l.startswith("COMPACT NARRATIVE")] == ([expected] if expected else []), lines
 
 
 # ---------------------------------------------------------------------

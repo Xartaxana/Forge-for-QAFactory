@@ -17,14 +17,32 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import dod_gate  # noqa: E402
+# K-WIRE: DOD_GATE_PATH (read only here) names the candidate file the tests below judge instead of the live one.
+_CANDIDATE = os.environ.get("DOD_GATE_PATH")
+if _CANDIDATE:
+    import importlib.util
 
-SCRIPT = Path(__file__).resolve().parent / "dod_gate.py"
+    SCRIPT = Path(_CANDIDATE)
+    SCRIPT = (SCRIPT if SCRIPT.is_absolute() else Path.cwd() / SCRIPT).resolve()
+    _spec = importlib.util.spec_from_file_location("dod_gate_candidate", SCRIPT)
+    dod_gate = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(dod_gate)
+else:
+    import dod_gate  # noqa: E402
+
+    SCRIPT = Path(__file__).resolve().parent / "dod_gate.py"
+
+# The hook run as a subprocess never starts a real reaper (a passing stop would, under a real session): the wrapper replaces
+# wait_reaper.launch by a silent one, then runs the script as __main__.
+_WRAP = ("import runpy, sys; sys.path.insert(0, sys.argv[2])\n"
+         "try:\n    import wait_reaper; wait_reaper.launch = lambda *a, **k: None\nexcept ImportError:\n    pass\n"
+         "sys.argv = [sys.argv[1]]; runpy.run_path(sys.argv[0], run_name='__main__')")
+HOOK = [sys.executable, "-c", _WRAP, str(SCRIPT), str(Path(__file__).resolve().parent)]
 
 
 def _run_hook(payload: dict, cwd: Path) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [sys.executable, str(SCRIPT)],
+        HOOK,
         input=json.dumps(payload),
         cwd=str(cwd),
         capture_output=True,
@@ -1108,7 +1126,7 @@ def test_echo_json_raw_utf8_bytes_stdin_no_crash(tmp_path):
     payload = _stop_payload(str(tmp_path), "sess-utf8")
     raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     result = subprocess.run(
-        [sys.executable, str(SCRIPT)],
+        HOOK,
         input=raw,
         cwd=str(tmp_path),
         stdout=subprocess.PIPE,
@@ -1119,7 +1137,7 @@ def test_echo_json_raw_utf8_bytes_stdin_no_crash(tmp_path):
 
 def test_echo_json_malformed_json_fails_open():
     result = subprocess.run(
-        [sys.executable, str(SCRIPT)],
+        HOOK,
         input="{not valid json",
         capture_output=True,
         text=True,
@@ -1342,6 +1360,53 @@ def test_b23_a_recorder_exception_keeps_the_exit_code_and_the_message(journal_re
     monkeypatch.setattr(sys, "stdin", type("In", (), {"buffer": __import__("io").BytesIO(json.dumps(_stop_payload(str(journal_repo), "s-boom", "agent-1")).encode())})())
     assert dod_gate.main() == 0
     assert capsys.readouterr().err == "" and not _returned(journal_repo)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_reaper(monkeypatch):
+    """An in-process `dod_gate.main()` never starts a real reaper; the K-WIRE tests set their own launch."""
+    try:
+        import wait_reaper
+    except ImportError:
+        return
+    monkeypatch.setattr(wait_reaper, "launch", lambda *a, **k: None)
+
+
+def _stdin_of(monkeypatch, payload):
+    monkeypatch.setattr(sys, "stdin", type("In", (), {"buffer": __import__("io").BytesIO(json.dumps(payload).encode())})())
+
+
+def test_k_wire_a_passing_stop_launches_the_reaper_once_a_blocked_stop_never(journal_repo, monkeypatch, capsys):
+    if not hasattr(dod_gate, "_launch_reaper"):
+        pytest.skip("the candidate carries no reaper launch")
+    import wait_reaper
+    calls = []
+    monkeypatch.setattr(wait_reaper, "launch", lambda trigger, *a, **k: calls.append(trigger) or None)
+    _write_track(journal_repo, "s-ok", {"edits": [], "runs": []})
+    _stdin_of(monkeypatch, _stop_payload(str(journal_repo), "s-ok", "agent-1"))
+    assert dod_gate.main() == 0 and calls == ["subagent-stop"] and "WAITS" not in capsys.readouterr().err
+    _write_track(journal_repo, "s-bl", {"edits": [{"ts": "t1", "tool_name": "Edit", "agent_id": "agent-1"}], "runs": []})
+    _stdin_of(monkeypatch, _stop_payload(str(journal_repo), "s-bl", "agent-1"))
+    assert dod_gate.main() == 2 and calls == ["subagent-stop"]                      # the blocked stop launched nothing
+
+
+@pytest.mark.parametrize("answer, needle", [("WAITS: no session (x) -- nothing stopped", "WAITS: no session (x)"),
+                                            (RuntimeError("spawn down"), "WAITS: reaper not started (RuntimeError: spawn down)")],
+                         ids=["a_line_goes_to_stderr", "a_raise_is_one_line"])
+def test_k_wire_a_launch_line_or_failure_changes_neither_exit_nor_returned(journal_repo, monkeypatch, capsys, answer, needle):
+    if not hasattr(dod_gate, "_launch_reaper"):
+        pytest.skip("the candidate carries no reaper launch")
+    import wait_reaper
+
+    def launch(trigger, *a, **k):
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+    monkeypatch.setattr(wait_reaper, "launch", launch)
+    _write_track(journal_repo, "s-l", {"edits": [], "runs": []})
+    _stdin_of(monkeypatch, _stop_payload(str(journal_repo), "s-l", "agent-1"))
+    assert dod_gate.main() == 0
+    assert needle in capsys.readouterr().err and len(_returned(journal_repo)) == 1
 
 
 def test_b23_no_payload_paths_never_reach_the_recorder(monkeypatch):
