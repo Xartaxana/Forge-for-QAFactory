@@ -2939,7 +2939,7 @@ class Rehearsal:
             where = f" (in `{command['cwd']}`)" if command["cwd"] not in ("", ".") else ""
             # F5a-1: only a command the project wrote is "its own"; a table-guessed one is the factory's guess
             owner = "the project's own install command" if command.get("source") == "profile" else "the install command"
-            self.add(check, FACTORY_FIXABLE, f"{statement}; the project names a command that installs what its environment lacks",
+            self.add(check, FACTORY_FIXABLE, f"{statement}; a command is known that installs what its environment lacks",
                      "this turn came from the gate rehearsal: the project's dependencies are not installed or differ from its lock, "
                      f"and {owner} is `{dependency_drift.command_text(command)}`{where}; run the "
                      "install_dependencies action once, then end the turn without asking the person - if the launcher is still "

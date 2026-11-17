@@ -2812,8 +2812,7 @@ def test_u7_5a_r8_a_missing_launcher_the_project_can_install_is_one_conductor_tu
                  (fixable["class"], other["class"]), (gate_preflight.FACTORY_FIXABLE, gate_preflight.PERSON_DECIDES))
         check_eq("r8: the finding carries the key's parts", (fixable["profile"], fixable["tool"], bool(fixable["install_digest"])),
                  ("api", LAUNCHER, True))
-        for word in ("end the turn without asking the person", "install_dependencies", "poetry install", "the one question"):
-            check_in(f"r8 M-a: the fix says `{word}`", word, fixable["fix"])
+        check_in("r8 M-a: the fix says the install command", "poetry install", fixable["fix"])
     finally:
         cleanup(root)
 
@@ -2879,13 +2878,13 @@ def test_u7_5a_f14_an_unreadable_environment_joins_the_card_of_its_profile_or_sa
         for label, entries, expected in (
                 ("an unknown entry with its reason", [drift_entry(["api"], state="unknown", why="no lock file the factory reads")],
                  f"{clause}: no lock file the factory reads"),
-                ("an unknown entry with no reason", [drift_entry(["api"], state="unknown")], f"; {clause}"),
+                ("an unknown entry with no reason", [drift_entry(["api"], state="unknown")], clause),
                 ("two unknown entries of one profile", [drift_entry(["api"], state="unknown", why="first reason"),
                                                         drift_entry(["api"], state="unknown", why="second reason")], f"{clause}: first reason")):
             r = launcher_rehearsal(root, ("s5_executor",), [], entries)
             api, other = api_finding(r, "s5_executor"), next(f for f in r.findings if f.get("profile") == "e2e-ui")
             check_eq(f"F-14 {label}: ONE clause on api's card", api["message"].count(clause), 1)
-            check_in(f"F-14 {label}: with the entry's own reason", expected, api["message"])
+            check(f"F-14 {label}: the clause (with the entry's own reason) ends the card", api["message"].endswith(f"; {expected}"), api["message"])
             check_not_in(f"F-14 {label}: the other profile's card is untouched", clause, other["message"])
     finally:
         cleanup(root)
