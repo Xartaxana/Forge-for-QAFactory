@@ -746,7 +746,9 @@ def calls_before(task_dir: Path, key: str) -> int:
     return len([r for r in rows if (r.get("dispatch") or r.get("conductor")) == key])
 
 
-STUB_KEY = re.compile(r"[a-z][a-z0-9-]*(@S[0-9](#[0-9])?)?")      # `<role>`, `<role>@<stage>`, `<role>@<stage>#<window>`
+HALVES = ("automation", "manual")                                    # the two halves of a stage (the dispatch record's `execution_kind`); S6 runs both
+STUB_KEY = re.compile(r"[a-z][a-z0-9-]*(@S[0-9](#([0-9]|automation|manual))?)?")      # `<role>`, `<role>@<stage>`, `<role>@<stage>#<window>`, `<role>@<stage>#<half>`
+HALF_KEY = re.compile(r"(.+@S[0-9])#(automation|manual)")
 STUB_PLAIN_KEYS = ("source_relevance",)                              # keys of the table that are no role row
 WINDOW1_MARK = "Closed words of work/grounding.yaml, given here"    # the line only the S3 labelling brief carries (`brief_pack.s3_labelling_vocabulary_lines`)
 
@@ -761,14 +763,36 @@ def window_of(brief: str) -> str:
     return "1" if WINDOW1_MARK in brief else ""
 
 
-def stub_control(control: dict, role: str, stage: str, window: str = "") -> dict:
-    """The ONE reader of a role's row in the control's `stub`: `<role>@<stage>#<window>` over `<role>@<stage>` over `<role>` (the default for every stage of
-    a role). A key of the table that has none of these forms is a `KitError` naming it - a mistyped key must never be a silently absent row."""
+def half_of(task_dir: Path, dispatch: str) -> str:
+    """"manual" or "automation": the half the dispatch ran, from its record in `state/controller.json` through the controller's one reader
+    (`Controller._record_kind`: the committed request's `execution_kind`, then the record's own) - never from the brief's prose or the dispatch id. An empty
+    kind (a legacy record, no record, no state file) reads as automation, the way `stage_S6` reads it."""
+    import controller as CT
+    try:
+        state = json.loads((Path(task_dir) / "state" / "controller.json").read_text(encoding="utf-8"))
+        record = (state.get("dispatches") or {}).get(dispatch)
+    except (OSError, ValueError, AttributeError):
+        record = None
+    kind = CT.Controller._record_kind(record) if isinstance(record, dict) else ""
+    return "manual" if kind == "manual" else "automation"
+
+
+def stub_control(control: dict, role: str, stage: str, window: str = "", half: str = "") -> dict:
+    """The ONE reader of a role's row in the control's `stub`: `<role>@<stage>#<window>` and `<role>@<stage>#<half>` over `<role>@<stage>` over `<role>` (the
+    default for every stage of a role). A key of the table that has none of these forms is a `KitError` naming it - a mistyped key must never be a silently
+    absent row. When a `<role>@<stage>#<half>` row exists, the plain `<role>@<stage>` row beside it is a `KitError` naming both: a plain row would answer the
+    other half too. A half with no row of its own gets no row of that pair (the caller says `live_only`), never the other half's."""
     table = control.get("stub") or {}
     bad = [k for k in table if k not in STUB_PLAIN_KEYS and not (isinstance(k, str) and STUB_KEY.fullmatch(k))]
     if bad:
-        raise KitError(f"the story's `stub` table has the key {bad[0]!r}; expected `<role>`, `<role>@<stage>` or `<role>@<stage>#<window>` (or one of {list(STUB_PLAIN_KEYS)})")
-    rows = [table.get(role), table.get(f"{role}@{stage}"), table.get(f"{role}@{stage}#{window}") if window else None]
+        raise KitError(f"the story's `stub` table has the key {bad[0]!r}; expected `<role>`, `<role>@<stage>`, `<role>@<stage>#<window>` or `<role>@<stage>#<half>` "
+                       f"(half: {' or '.join(HALVES)}; or one of {list(STUB_PLAIN_KEYS)})")
+    for key in table:
+        found = HALF_KEY.fullmatch(key) if isinstance(key, str) else None
+        if found and found.group(1) in table:
+            raise KitError(f"the story's `stub` table holds both `{found.group(1)}` and `{key}`: a plain row answers every half; keep only the `#<half>` rows")
+    rows = [table.get(role), table.get(f"{role}@{stage}"), table.get(f"{role}@{stage}#{window}") if window else None,
+            table.get(f"{role}@{stage}#{half}") if half else None]
     return {k: v for row in rows for k, v in (row or {}).items()}
 
 
@@ -981,7 +1005,7 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
     brief_text = brief.read_text(encoding="utf-8", errors="replace") if brief.is_file() else ""
     window = window_of(brief_text)
     row["window"] = window
-    mine = stub_control(control, role, stage, window)
+    mine = stub_control(control, role, stage, window, half_of(task_dir, dispatch))
     task = control.get("task", "")
     import dry_world as W
     try:
@@ -2027,7 +2051,33 @@ def selftest_n2c(tmp: Path) -> None:
             got_text = str(exc)
         check(f"FV3-20: `<newest:GLOB>` with {name} is a KitError naming the key and the override", got_text.startswith("k: override `f.x`") and "<newest:" in got_text, got_text)
     import role_digest
-    runner = stub_control({"stub": story}, "qa-runner", "S6")
+    runner = stub_control({"stub": story}, "qa-runner", "S6", half="automation")
+    # FV3-20 fix round (t-1106 J2-1): the half of a dispatch is read from its record; a half with no row gets no values; plain + half rows are a KitError
+    half_table = {"qa-runner@S6#automation": {"verdict": "ok"}}
+    half_task = Path(tmp) / "half-task"
+    (half_task / "state").mkdir(parents=True, exist_ok=True)
+    half_records = {"auto-bound": {"request_binding": {"execution_kind": "automation"}}, "manual-bound": {"request_binding": {"execution_kind": "manual"}},
+                    "manual-own": {"execution_kind": "manual"}, "empty": {"request_binding": {"execution_kind": ""}}, "legacy": {"role": "qa-runner"}}
+    (half_task / "state" / "controller.json").write_text(json.dumps({"dispatches": half_records}), encoding="utf-8")
+    for label, name, want_half, want_row in (("a manual dispatch (committed request)", "manual-bound", "manual", {}),
+                                             ("a manual dispatch (the record's own field)", "manual-own", "manual", {}),
+                                             ("an automation dispatch", "auto-bound", "automation", {"verdict": "ok"}),
+                                             ("an empty kind reads as automation", "empty", "automation", {"verdict": "ok"}),
+                                             ("a legacy record with no kind reads as automation", "legacy", "automation", {"verdict": "ok"}),
+                                             ("a dispatch with no record reads as automation", "none", "automation", {"verdict": "ok"})):
+        got_half = half_of(half_task, name)
+        check_eq(f"FV3-20 J2-1: {label}: the half, and the row the `#<half>` table gives it (a manual dispatch gets no values from the automation row)",
+                 (got_half, stub_control({"stub": half_table}, "qa-runner", "S6", half=got_half)), (want_half, want_row))
+    for label, both in (("a plain row beside a #automation row", {"qa-runner@S6": {"a": 1}, "qa-runner@S6#automation": {"b": 2}}),
+                        ("a plain row beside a #manual row", {"qa-runner@S6": {"a": 1}, "qa-runner@S6#manual": {"b": 2}})):
+        try:
+            stub_control({"stub": both}, "qa-runner", "S6", half="manual")
+            got_text = "no error"
+        except KitError as exc:
+            got_text = str(exc)
+        check(f"FV3-20 J2-1: {label} is a KitError naming both keys", "`qa-runner@S6`" in got_text and "`qa-runner@S6#" in got_text, got_text)
+    check_eq("FV3-20 J2-1: the story's S6 runner row is keyed by half only (no plain `qa-runner@S6`, no `#manual` row)",
+             sorted(k for k in story if k.startswith("qa-runner")), ["qa-runner@S6#automation"])
     check_eq("FV3-20: the story's S6 runner digest is the handoff form (the product's `role_digest.check`: a path line, a row for TC-1) and its verdict is the form's",
              (role_digest.check(runner["result_text"], ["TC-1"]), runner["verdict"], runner["result_text"].splitlines()[0].endswith("· " + runner["verdict"])), ([], "ok", True))
     kit_s6 = load_kit("dry-1")

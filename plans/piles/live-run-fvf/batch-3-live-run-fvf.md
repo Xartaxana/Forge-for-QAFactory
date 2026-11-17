@@ -47,6 +47,7 @@
 | FV3-18 | П1 | Находка: `window_record.row_field_gaps` требует `obligation_hash`, а контракт и `manifest_put.py` его отказывают (бывшая `P1B-2f`) — по F-P19 (а) (`findings/20261117-p1b-2f-obligation-refs-hesh-trebuet-i-otkazyvaet.md`) | Lead → builder | продукт: по разбору (кандидаты из находки: `scripts/window_record.py`, `scripts/tests/fixtures/form-rounds.json`) | — | ожидает |
 | FV3-19 | П2 | Находка: у вложенного списка `probes.records` нет объявленного пустого исхода (`handoff.py:515-533`) (`findings/20261117-p1b-probes-records-bez-pustogo-ishoda.md`) | builder | продукт: `scripts/handoff.py` / контракт — по разбору | — | ожидает |
 | FV3-20 | П1 | Находка: после N2h-а главный проход встаёт на S5 по новой причине — заглушка критика кода не пишет запись окна (`window_record.py`) и дайджест; `probes.runtime_provenance` у критика без производителя — кандидат `product gap` (`findings/20261117-p1b-s5-kritik-ne-pishet-okno-i-daidzhest.md`) | designer → builder → critic | `scripts/tests/dry_stub.py` (ветка критика S5), `scripts/tests/fixtures/stories/dry-1/story.json` (строка `qa-code-critic@S5`); метка — `…/driver-exits/known_red.json` (`main/S5`) | FV3-5 | ожидает |
+| FV3-21 | П1 | Находка: ручная половина S6 уходит в проход без стенда после слова человека «без стенда» — `manual_lane_plan` не читает `s6_no_stand` (`findings/20261117-s6-ruchnaya-polovina-bez-stenda.md`) | designer → builder → critic | продукт: `scripts/driver_stage_s6.py` (`manual_lane_plan`), `scripts/driver_stage_build.py` (`stand_question_text`), `skills/qa-story/phases/s6.md`; метка — `…/driver-exits/known_red.json` (`main/S6`); карточка — `docs/tasks/specs/20261117-s6-manual-half-no-stand-card.md` | FV3-20 | ожидает |
 
 ## Ход
 
@@ -54,6 +55,7 @@
 
 - 17.11 (t-969) — пачка открыта (L0 спеки `docs/tasks/specs/20261117-p1b-finish-spec.md`): строки FV3-1…FV3-19 и пять находок меток реестров. Метки отдают: `main/S5 -> FV3-5`, `kind:halt/free words -> FV3-16`, `s1.review/unavailable -> FV3-17` (строка реестра и строка обхода удаляются по F-P4 чтение 2; метка не ставится), `obligation_refs <- … -> FV3-18` (F-P19 (а)). Взятие пачки (`piles.py take live-run-fvf 3`) — отдельным ходом после этого.
 - 17.11 (t-1047) — находка FV3-20 (после N2h-а остановка S5 сменила причину, F10 критика t-1029); метка `main/S5 -> FV3-20`; узел N2h-в — спека `docs/tasks/specs/20261117-p1b-n2h-v-critic-stub-window-card.md`. Строка теста FV3-5 «`probes.runtime_provenance` заполнено после пробы» (находка `…-ne-zapuskaet-probu.md:31`) переносится в FV3-20 (F7, Lead 17.11.2026).
+- 17.11 (t-1109) — находка FV3-21 (вердикт критика t-1106, Q1-Q3: ручная половина S6 не читает слово «без стенда», продуктовый дефект); метка `main/S6 -> FV3-21`; карточка узла — `docs/tasks/specs/20261117-s6-manual-half-no-stand-card.md` (дизайнер). Метка с t-1098 (`FV3-20`) исправлена по J2-2 вердикта.
 
 ## Живые доказательства
 

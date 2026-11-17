@@ -71,7 +71,7 @@
      "obligation_bindings": [{"obligation_id": "OB-1", "instance_ids": ["test_the_case"]}]}
    ]
   },
-  "qa-runner@S6": {
+  "qa-runner@S6#automation": {
    "verdict": "ok",
    "result_text": "qa-runner S6 S6-qa-runner-1 · ok\nTC-1 · green · the S5 run of the test stands on its current bytes: 1 passed, nothing re-run\nwork/run-report.json",
    "overrides": {
