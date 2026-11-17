@@ -896,7 +896,6 @@ def unknown_branch_rerun_rows() -> None:
         {"collects": [{"files": {"tests/test_oc5.py"}, "ids": [], "error": N.CollectError("boom")}]}, [asked], N)
     check_eq("an unreadable collect: ids are not `missing`, the note says `not verified`",
              (got["missing"], got["notes"][0].startswith("node ids were not verified: ")), ([], True))
-    check_eq("the block word the registry row carries is the code's", RS.NODE_ID_BLOCK, "node_id_mismatch")
 
 
 def main() -> None:

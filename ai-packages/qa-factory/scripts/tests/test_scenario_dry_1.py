@@ -7,7 +7,7 @@
     python -B scripts/tests/test_scenario_dry_1.py --part main:<type>   the main pass of another type (a type the table does not hold is red)
     python -B scripts/tests/test_scenario_dry_1.py --part exits:<group> [--exits-root R] [--ledger L]   the walk rows of one group (node N4w)
 
-A stop before S9 is legal only at a row of `fixtures/driver-exits/known_red.json` named `main/S<n>` with a finding id; every other stop is red.
+A stop before S9 is legal only at a row of `fixtures/driver-exits/known_red.json` (the main pass; a group's labels are `known_red/<group>.json`) named `main/S<n>` with a finding id; every other stop is red.
 The stages after a ledgered stop are printed `after:<finding>`. Rows of the walk that start at a snapshot the pass did not make wait the same way.
 """
 import argparse
@@ -127,7 +127,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--part", help="main, main:<type> or exits:<group>; without it: the census, then the main pass of the type `default`")
     parser.add_argument("--exits-root", help="with exits:<group> only: the folder holding exits/ and seeds/ (default fixtures/stories/dry-1)")
-    parser.add_argument("--ledger", help="with exits:<group> only: the label ledger (default fixtures/driver-exits/known_red.json)")
+    parser.add_argument("--ledger", help="with exits:<group> only: the label ledger (default fixtures/driver-exits/known_red/<group>.json; absent = an empty ledger)")
     args = parser.parse_args(argv)
     kind, label = parse_part(args.part, args.exits_root) if args.part else ("main", "default")
     for option in ("exits_root", "ledger"):
@@ -135,7 +135,7 @@ def main(argv=None) -> int:
             print(f"--{option.replace('_', '-')} is legal only with --part exits:<group>", file=sys.stderr)
             raise SystemExit(2)
     if kind == "exits":
-        exits_part(label, args.exits_root or DEFAULT_ROOT, args.ledger or dry_exits.EXITS_DIR / "known_red.json")
+        exits_part(label, args.exits_root or DEFAULT_ROOT, args.ledger or dry_exits.group_ledger(label))
     if not args.part:
         census()
         forms_required()

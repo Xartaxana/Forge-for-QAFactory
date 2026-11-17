@@ -1,0 +1,12 @@
+{
+ "_about": "The label ledger of the walk group s0 (rows of exits/s0.json only), read by known_red.py through test_scenario_dry_1.py --part exits:s0; `pins.known_red` is the number of rows.",
+ "known_red": {
+  "kind:halt/free words": {
+   "node": "FV3-16",
+   "raised_by": "product gap: Lead t-828 (N4:s0 report, t-824): the driver prints 'answer for halt' but records no answer row, does not resume the role and goes to the conductor; cause not located, FV3-16"
+  }
+ },
+ "pins": {
+  "known_red": 1
+ }
+}
