@@ -518,7 +518,7 @@ def _tests_list(art, doc, row=None):
 
 
 _RECORD_PRODUCER = "the record is written by runtime_probe.py when run_suite runs this dispatch's tests"
-_PROBE_RECORD_PRODUCER = ("the record is the stand reading run_suite takes when it launches this review's own probe: "
+_PROBE_RECORD_PRODUCER = ("the record is the file the stand reading cites, which run_suite takes when it launches this review's own probe: "
                           "probe_by_code.py --dispatch <this dispatch> (or red_sandbox.py --probe) runs the probe through "
                           "run_suite, which keeps the completed run under state/execution-jobs/")
 
@@ -628,7 +628,7 @@ def _probe_run_record(task_root, dispatch, producer) -> tuple:
            and isinstance(job["request"].get("runtime_probe_before"), dict) and job["request"]["runtime_probe_before"]]
     if not own:
         done = [job for job in red if job.get("status") == "completed"]
-        if done and all(job["request"].get("runtime_required") is False for job in done):
+        if done and all(not job["request"].get("runtime_required", True) for job in done):
             return None, (f"the probe runs of dispatch {dispatch} ran with no stand to read (runtime_required: false), so "
                           f"run_suite took no stand reading; the field has no record by code")
         last = red[-1]

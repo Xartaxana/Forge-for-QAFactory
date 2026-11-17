@@ -120,3 +120,12 @@ All three as the card states.
 ```
 
 Beyond the manifest: `slow_tests.json` (to classify slow files); `selftest.py` (grep). tests-over: rows per edge of the deriver.
+
+## Fix round after critic t-1078
+
+- FIX-1: `handoff_check.py` J6 test is now `not job["request"].get("runtime_required", True)` (run_suite.py:2904). Rows beside E22: `runtime_required` None and 0 -> J6, no door (E22 rows in `test_handoff.py`).
+- FIX-2: `_PROBE_RECORD_PRODUCER` now "the record is the file the stand reading cites, which run_suite takes when it launches this review's own probe: ..." (probe_by_code.py kept); changelog fragment "from the record cited by the stand reading run_suite takes when it launches". No row asserted the old words.
+- NOTE-1: P8 rows assert "1 red_probe run(s)" and "status <s>" (a fixture with no status prints `absent`, as the code does).
+- Ledger: `known_red.json` row `main/S5`, `raised_by` replaced verbatim; `pins` and other rows untouched; the dry scenario was not run. `test_known_red`-style pin: field_producers run says "known_red: the red rows of the walk are exactly the ledger" PASS.
+- Witness tails (T/ai-packages/qa-factory): test_handoff `=== test_handoff: 757/757 ok ===`; test_field_producers `=== test_field_producers: 885/885 ok ===`; selftest `=== qa-factory selftest: 4/4 ok ===` (--limits --lang); known_red.json: `json ok`.
+- Mid-run: first test run had 2 FAILs of my own rows (a misplaced loop in the E22b block; the `absent` status word); both fixed, then green.

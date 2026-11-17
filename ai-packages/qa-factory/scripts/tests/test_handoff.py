@@ -498,6 +498,9 @@ def the_probe_record_is_the_reviews_own() -> None:
             b = record(task, "runtime-provenance-api-b.json")
             _probe_job(task, "j1", C, status=status, before=stand(b))
             cases.append((f"P8 status {status}: own probe jobs exist, none completed", derive(task), (None,), J3B))
+            text = derive(task)[2]
+            check(f"P8 status {status}: the reason counts the runs and names the newest status",
+                  "1 red_probe run(s)" in text and f"status {'absent' if status is None else status}" in text, text)
 
         for before in (_ABSENT, {}, "text", ["x"]):
             task = story(f"p9-{type(before).__name__}")
@@ -582,6 +585,12 @@ def the_probe_record_is_the_reviews_own() -> None:
         _probe_job(task, "j1", C, required=False)
         _probe_job(task, "j2", C, required=False, updated=new)
         cases.append(("E22 every own completed probe ran with runtime_required false", derive(task), (None,), J6))
+        for falsy in (None, 0):
+            task = story(f"e22-{falsy!r}")
+            _probe_job(task, "j1", C, required=falsy)
+            cases.append((f"E22 every own completed probe ran with runtime_required false (as {falsy!r}, read as run_suite does)",
+                          derive(task), (None,), J6))
+            no_door.add(cases[-1][0])
         task = story("e22-mixed")
         _probe_job(task, "j1", C, required=False)
         _probe_job(task, "j2", C, updated=new)
