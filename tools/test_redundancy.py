@@ -69,7 +69,8 @@ def coverage_module():
 def kill_tree(proc):
     """Kill the process and everything it started: taskkill /T on Windows, the process group on POSIX."""
     if os.name == "nt":
-        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True, check=False)
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True, check=False,
+                       creationflags=0x08000000)
     else:
         import signal
         try:

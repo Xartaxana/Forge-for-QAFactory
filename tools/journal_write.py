@@ -594,6 +594,14 @@ def witness_from_worker(path_text: str) -> str:
     return cut_witness("\n".join([dod, *outs]))
 
 
+CREATE_NO_WINDOW = 0x08000000
+
+
+def _no_window() -> dict:
+    """Windows: spawn without a console window; POSIX: no extra kwargs."""
+    return {"creationflags": CREATE_NO_WINDOW} if os.name == "nt" else {}
+
+
 def _find_bash(root: Path) -> str:
     door = "no bash that sees this repo; run the witness yourself and pass --witness-file <path>"
     bash = shutil.which("bash")
@@ -601,6 +609,7 @@ def _find_bash(root: Path) -> str:
         raise Refused(2, door)
     try:
         probe = subprocess.run([bash, "-c", "test -f tools/journal_write.py"], cwd=str(root), capture_output=True,
+                               **_no_window(),
                                timeout=PROBE_TIMEOUT)
     except (OSError, subprocess.SubprocessError):
         raise Refused(2, door) from None
@@ -612,7 +621,8 @@ def _find_bash(root: Path) -> str:
 def _kill_tree(proc: subprocess.Popen) -> None:
     with contextlib.suppress(Exception):
         if os.name == "nt":
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, timeout=30)
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, timeout=30,
+                           **_no_window())
         else:
             os.killpg(proc.pid, signal.SIGKILL)
     with contextlib.suppress(Exception):
@@ -628,7 +638,7 @@ def run_witness(cmd: str, root: Path, *, allow_red: str | None):
         raise Refused(2, "--run refused by the hygiene gate: " + "; ".join(reasons)[:600] +
                          " -- run the command yourself and pass --witness-file <path>")
     bash = _find_bash(root)
-    kwargs = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
+    kwargs = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW} if os.name == "nt" else {"start_new_session": True}
     proc = subprocess.Popen([bash, "-c", cmd], cwd=str(root), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             stdin=subprocess.DEVNULL, **kwargs)
     try:
