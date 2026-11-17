@@ -24,6 +24,20 @@ from harness import PLUGIN_ROOT, check, check_eq, check_in, finish, temp_dir  # 
 sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 import selftest as S  # noqa: E402
 
+# The modules a COPY of selftest.py needs beside it: what selftest imports at module level (content_size,
+# contract_slices) plus contract_slices' own imports (content_size, hooklib) and console_io (imported in main).
+# The ONE list; test_selftest_slow_tests imports it from here.
+SELFTEST_MODULES = ("selftest.py", "content_size.py", "console_io.py", "contract_slices.py", "hooklib.py")
+
+
+def copy_selftest_modules(scripts: Path) -> None:
+    for module in SELFTEST_MODULES:
+        src = PLUGIN_ROOT / "scripts" / module
+        if not src.is_file():
+            raise AssertionError(f"selftest module missing on disk: {module} (expected at {src})")
+        shutil.copy2(src, scripts / module)
+
+
 NAMES = [f"test_{c}.py" for c in "abcdefg"]
 WEIGHTS = {"test_a.py": 40.0, "test_b.py": 30.0, "test_c.py": 20.0, "test_d.py": 10.0, "test_e.py": None}
 
@@ -91,8 +105,7 @@ def cli(args, root: Path, name: str, tests=NAMES[:4], weights=None, artifact: st
     if layers is not None:
         (scripts / "tests" / "test-layers.json").write_text(layers if isinstance(layers, str) else json.dumps(layers),
                                                             encoding="utf-8")
-    for module in ("selftest.py", "content_size.py", "console_io.py"):
-        shutil.copy2(PLUGIN_ROOT / "scripts" / module, scripts / module)
+    copy_selftest_modules(scripts)
     body = {"measured_on": "2026-01-01", "source": "hand", "thresholds": {"slow_over_s": 10, "fast_under_s": 5},
             "max_drift": 5, "files": weights or {}}
     (scripts / "slow_tests.json").write_text(json.dumps(body), encoding="utf-8")
