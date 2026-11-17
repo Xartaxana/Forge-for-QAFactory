@@ -30,6 +30,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from hooklib import artifact_root, is_story_folder, project_root, state_dir, read_event, role_name, subagent_type, read_json
 import hooklib
+import check_witness as CW
 import contract as C
 import detector_verdict as DV
 import role_digest as RD
@@ -158,7 +159,7 @@ def witness_errors(agent: str, task: str = "") -> list:
         return detector_records(name, r.returncode, verdict, words="gate", producer="check_witness.py") + [summary]
     advice = advice_records("check_witness.py", verdict)
     _stash_advice(agent, task, "witness", advice)      # filed as the gate files advice (`run_advisers` writes it), never a block
-    if any(str(r).startswith("not checked: no evidence contract") for r in advice):
+    if not CW.has_contract(art.name):
         # FR-59, AR-28: no contract is not a pass - the artifact was not checked, and the line says so
         print(f"witness not checked: {art.name} has no evidence contract")
         return []

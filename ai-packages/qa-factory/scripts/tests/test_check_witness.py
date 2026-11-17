@@ -141,9 +141,8 @@ def unchanged_roads() -> None:
 
 def no_rule_is_not_checked_never_ok() -> None:
     """S7 (FR-59, AR-28): an artifact with no evidence contract prints one ADVICE line `not checked`, exits 0, and is never
-    printed as `witness OK`; the exit gate's reader files it as advice and prints the "not checked" line, not "OK"."""
+    printed as `witness OK`, and the contract reads it as one advice. (The exit gate's side: test_exit_gate_unreadable.py.)"""
     import subprocess
-    import exit_gate as EG
     from detector_verdict import parse
     project = temp_project("qa-witness-norule-")
     try:
@@ -158,8 +157,8 @@ def no_rule_is_not_checked_never_ok() -> None:
         verdict = parse(run.returncode, run.stdout, run.stderr)
         check_eq("S7: the contract reads it as one advice, no defect", (verdict["advice"], verdict["defects"]),
                  (["not checked: no evidence contract for test-plan.md"], []))
-        records = EG.advice_records("test-plan.md", verdict)
-        check_eq("S7: the gate's record is advice, not an error", [r.kind for r in records], ["advice"])
+        check_eq("S7: has_contract: a ruled name, code-review.md, a name with no rule, an empty name",
+                 [W.has_contract(n) for n in (next(iter(W.RULES)), "code-review.md", "test-plan.md", "")], [True, True, False, False])
     finally:
         cleanup(project)
 

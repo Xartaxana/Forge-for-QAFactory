@@ -121,6 +121,27 @@ def main() -> None:
             check_eq("D8: check_witness that did not start is unreadable (not [])", [(e.kind, e.script) for e in errs], [("unreadable", "check_witness.py")])
             errs = with_run(lambda cmd, **kw: Done(0, "ok"), lambda: EG.witness_errors(ROLE, "T-1"))
             check_eq("D8 (control): a clean check_witness is []", errs, [])
+            # S7 (FR-59, AR-28): a RULED artifact still prints OK and files no advice; a no-rule artifact is "not checked",
+            # never OK, and its advice is stashed under the `witness` source (what `run_advisers` pops)
+            ruled = next(iter(EG.CW.RULES))
+            (tmp / "T-1" / ruled).write_text("{}", encoding="utf-8")
+            EG.witness_gates = lambda: {ROLE: ruled}
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                with_run(lambda cmd, **kw: Done(0, "ok"), lambda: EG.witness_errors(ROLE, "T-1"))
+            check_eq("S7 (control): a ruled artifact prints `witness OK`, no `not checked`",
+                     ("witness OK" in out.getvalue(), "not checked" in out.getvalue()), (True, False))
+            check_eq("S7 (control): ...and files no advice", EG._STASH[(ROLE, "T-1", "witness")], [])
+            (tmp / "T-1" / "test-plan.md").write_text("# plan\n", encoding="utf-8")
+            EG.witness_gates = lambda: {ROLE: "test-plan.md"}
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                errs = EG.witness_errors(ROLE, "T-1")      # the real check_witness runs: nothing is faked
+            check_eq("S7: a no-rule artifact blocks nothing", errs, [])
+            check_in("S7: ...the gate says `not checked`", "witness not checked: test-plan.md has no evidence contract", out.getvalue())
+            check("S7: ...and never `witness OK`", "witness OK" not in out.getvalue(), out.getvalue())
+            check_eq("S7: ...one advice record filed under the witness source", [r.kind for r in EG._STASH[(ROLE, "T-1", "witness")]],
+                     ["advice"])
         finally:
             EG.witness_gates, EG.artifact_root = real_wg, real_root
             import shutil
