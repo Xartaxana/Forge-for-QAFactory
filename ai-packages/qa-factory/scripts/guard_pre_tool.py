@@ -316,7 +316,8 @@ def size_check(event: dict, cfg: dict) -> None:
         return
     size = len(argv_text(((event or {}).get("tool_input") or {}).get("command")))   # a Codex argv list: its joined line
     if size > MAX_COMMAND_CHARS:
-        block(SIZE_MSG.format(size=size, cap=MAX_COMMAND_CHARS))
+        from detector_verdict import refusal   # told-before-work T4a: imported on the way to a block only (a passing call pays nothing)
+        block(refusal("guard_pre_tool:PT-command-size", SIZE_MSG.format(size=size, cap=MAX_COMMAND_CHARS)))
 
 
 def runs_check(event: dict, cfg: dict) -> None:
@@ -337,8 +338,9 @@ def runs_check(event: dict, cfg: dict) -> None:
         fields = {"form": " ".join(form["argv"]), "diagnostics": run_forms_diagnostics_text(form), "door": ""}
         if tool_name == "Bash" and "bash" not in launch_readings(command):   # only the PowerShell reading sees the launch
             fields["door"] = READ_AS_POWERSHELL_DOOR.format(form=fields["form"])
-        block(RUNS_MSG.format(**fields) if not _dispatch_is_open(event)
-              else RUNS_MSG_REQUEST.format(**fields))
+        from detector_verdict import refusal
+        block(refusal("guard_pre_tool:PT-direct-test-run", RUNS_MSG.format(**fields) if not _dispatch_is_open(event)
+                      else RUNS_MSG_REQUEST.format(**fields)))
 
 
 GIT_CONFIG_MSG = (
@@ -366,7 +368,8 @@ def git_config_check(event: dict, cfg: dict) -> None:
     # and drops the `; && ||` between them, so `git config --get a; git config --global x y` is two lines
     for part in re.split(r"&&|\|\||;|\||\n", parts["exec"]):
         if _GIT_CONFIG_RE.search(part) and not _GIT_CONFIG_READ_RE.search(part):
-            block(GIT_CONFIG_MSG + where_clause(parts))
+            from detector_verdict import refusal
+            block(refusal("guard_pre_tool:PT-git-config", GIT_CONFIG_MSG + where_clause(parts)))
 
 
 LOGS_MSG = ('PRE-TOOL GUARD: reading a raw run log is blocked - this read is {size:,} bytes of log; up to '
@@ -482,7 +485,8 @@ def logs_check(event: dict, cfg: dict) -> None:
         if _is_evidence_log(ti.get("file_path")):
             size = sum(_evidence_logs(ti.get("file_path"), event).values())
             if size > cap:
-                block(LOGS_MSG.format(size=size, cap=cap))
+                from detector_verdict import refusal
+                block(refusal("guard_pre_tool:PT-logs", LOGS_MSG.format(size=size, cap=cap)))
             return  # a log that reads freely is not then refused for being a file
         if _in_factory_scope(event):
             big_read_check(ti, cfg, event)
@@ -500,7 +504,8 @@ def logs_check(event: dict, cfg: dict) -> None:
         weighed.update(_evidence_logs(token, event, command))
     size = sum(weighed.values())
     if size > cap:
-        block(LOGS_MSG.format(size=size, cap=cap))
+        from detector_verdict import refusal
+        block(refusal("guard_pre_tool:PT-logs", LOGS_MSG.format(size=size, cap=cap)))
 
 
 PLUGIN_READ_MSG = (
@@ -565,7 +570,8 @@ def plugin_read_check(event: dict, cfg: dict) -> None:
         return
     if any(RP.contained(target, PLUGIN_ROOT / allowed.rstrip("/")) for allowed in PLUGIN_READ_ALLOWED):
         return
-    block(PLUGIN_READ_MSG.format(tool=event.get("tool_name"), path=raw))
+    from detector_verdict import refusal
+    block(refusal("guard_pre_tool:PT-plugin-read", PLUGIN_READ_MSG.format(tool=event.get("tool_name"), path=raw)))
 
 
 def _in_factory_scope(event: dict) -> bool:
@@ -886,9 +892,11 @@ def big_read_check(ti: dict, cfg: dict, event: dict | None = None) -> None:
             f"{normalized}` gives you the line. For a diff, `scripts/diff_pass.py --diff <path>` prints the "
             "changed files and their changed lines in one call. If you genuinely need the whole file, read it in "
             "ranges and say in your findings why.")
-    block(f"PRE-TOOL GUARD: reading {normalized} whole is blocked — it is {size:,} bytes "
-          f"(the limit is {applied_cap:,}), and everything you read is billed again on every "
-          f"remaining turn of this dispatch. " + door)
+    from detector_verdict import refusal
+    block(refusal("guard_pre_tool:PT-big-read",
+                  f"PRE-TOOL GUARD: reading {normalized} whole is blocked — it is {size:,} bytes "
+                  f"(the limit is {applied_cap:,}), and everything you read is billed again on every "
+                  f"remaining turn of this dispatch. " + door))
 
 
 def _is_case_file(raw: str, cfg: dict | None = None) -> bool:
@@ -930,12 +938,14 @@ def case_store_check(event: dict, cfg: dict) -> None:
     if target == allowed or allowed in target.parents:
         return
     sample = case_forms.example(_path_story(raw, event), cfg or load_config())
-    block(f"PRE-TOOL GUARD: this project keeps its test cases in `{store}` "
-          f"(config.json, cases_root), and this write goes to {raw}. Write it as "
-          f"`{store}/<area>/{sample}.md` instead — the coverage map, the traceability check "
-          "and the next story's dedupe all read that one store, and a case outside it is "
-          "invisible to every one of them. If the project's cases have moved, re-run "
-          "qa-onboarding rather than writing a second library.")
+    from detector_verdict import refusal
+    block(refusal("guard_pre_tool:PT-case-store",
+                  f"PRE-TOOL GUARD: this project keeps its test cases in `{store}` "
+                  f"(config.json, cases_root), and this write goes to {raw}. Write it as "
+                  f"`{store}/<area>/{sample}.md` instead — the coverage map, the traceability check "
+                  "and the next story's dedupe all read that one store, and a case outside it is "
+                  "invisible to every one of them. If the project's cases have moved, re-run "
+                  "qa-onboarding rather than writing a second library."))
 
 
 # Artifact -> owner role, when the registry cannot be read. Only files a ROLE writes: the state
@@ -1097,35 +1107,41 @@ def handoff_write_check(event: dict, cfg: dict) -> None:
         if kind or not Path(values).is_file():
             return                                        # the file of values itself (E20) and a form nothing waits on
         # The line a role with Bash may use is a command only it can run (FR-2): a role without it sees the file door.
-        block(f"PRE-TOOL GUARD: {waiting} is waiting to be applied to this form, and it is applied over it at the "
-              f"next check - an Edit here would be lost. Put the field into {waiting} (rewrite it whole, with the "
-              f"field added): {values}"
-              + (f"\nor apply it first: {_door_command('handoff_check.py')} --file {raw} --fix,"
-                 " then Edit" if "Bash" in role_ways(event) else ""))
+        from detector_verdict import refusal
+        block(refusal("guard_pre_tool:PT-handoff-edit-pending",
+                      f"PRE-TOOL GUARD: {waiting} is waiting to be applied to this form, and it is applied over it at the "
+                      f"next check - an Edit here would be lost. Put the field into {waiting} (rewrite it whole, with the "
+                      f"field added): {values}"
+                      + (f"\nor apply it first: {_door_command('handoff_check.py')} --file {raw} --fix,"
+                         " then Edit" if "Bash" in role_ways(event) else "")))
         return
     if kind == ".values" and ext == "yaml":
         handoff_values_check(event)
         return                                            # the exemption lifts THIS rule only; the chain goes on (P5)
     if ext == "yaml" and kind in (".values.applied", ".values.stale"):
-        block(f"PRE-TOOL GUARD: {name} is written by code - it is the trace of a values file that was applied (or "
-              f"set aside because its form was written again), and nothing reads it. Write your fields to {values} "
-              "instead: `path: value` lines in one Write; a row of a list by its index, \"<list>[0].<field>\": value; "
-              "the next check applies them.")
+        from detector_verdict import refusal
+        block(refusal("guard_pre_tool:PT-handoff-code-file",
+                      f"PRE-TOOL GUARD: {name} is written by code - it is the trace of a values file that was applied (or "
+                      f"set aside because its form was written again), and nothing reads it. Write your fields to {values} "
+                      "instead: `path: value` lines in one Write; a row of a list by its index, \"<list>[0].<field>\": value; "
+                      "the next check applies them."))
     if not Path(raw).is_file():
         return  # the first write is `handoff_init.py`'s skeleton, not a rewrite
     ways = role_ways(event)
-    block("PRE-TOOL GUARD: the handover form is filled through its values file, not rewritten. A Write "
-          f"replaces {name} whole — it drops what `--fix` derived, drops what anyone else set, "
-          "and costs a full file of output tokens that then sits in your context for the rest of "
-          "the dispatch. What your role can use here:\n"
-          f"  Write {values}\n"
-          "      (every field you own as `path: value` lines, in one Write; a row of a list by its index, "
-          "\"<list>[0].<field>\": value; the next check applies them)\n"
-          + ((f"  or, in one call:\n{_door_command('handoff_check.py')} --file {raw} --fix --values - <<'EOF'\n"
-              "<path>: <value>\nEOF\n"
-              "      (the same lines; --fix also derives everything code can, then names what is left)\n")
-             if "Bash" in ways else "")
-          + (f"  Edit   (one field's own lines; refused while {waiting} waits for this form)" if "Edit" in ways else ""))
+    from detector_verdict import refusal
+    block(refusal("guard_pre_tool:PT-handoff-rewrite",
+                  "PRE-TOOL GUARD: the handover form is filled through its values file, not rewritten. A Write "
+                  f"replaces {name} whole — it drops what `--fix` derived, drops what anyone else set, "
+                  "and costs a full file of output tokens that then sits in your context for the rest of "
+                  "the dispatch. What your role can use here:\n"
+                  f"  Write {values}\n"
+                  "      (every field you own as `path: value` lines, in one Write; a row of a list by its index, "
+                  "\"<list>[0].<field>\": value; the next check applies them)\n"
+                  + ((f"  or, in one call:\n{_door_command('handoff_check.py')} --file {raw} --fix --values - <<'EOF'\n"
+                      "<path>: <value>\nEOF\n"
+                      "      (the same lines; --fix also derives everything code can, then names what is left)\n")
+                     if "Bash" in ways else "")
+                  + (f"  Edit   (one field's own lines; refused while {waiting} waits for this form)" if "Edit" in ways else "")))
 
 
 def _door_command(name: str) -> str:
@@ -1162,10 +1178,12 @@ def handoff_values_check(event: dict) -> None:
             return
         if report.blocked_said:
             return                                        # the door: what the role cannot fill, it says in `blocked`
-        refusal = handoff_check.refusal_text(form, report.contract, report.problems, report.role, kept=report.kept)
+        problem_text = handoff_check.refusal_text(form, report.contract, report.problems, report.role, kept=report.kept)
     except Exception:
         return                                            # cannot tell: pass; `--fix` checks the file again
-    block("PRE-TOOL GUARD: these handover values leave the form not ready; nothing was written.\n" + refusal)
+    from detector_verdict import refusal
+    block(refusal("guard_pre_tool:PT-handoff-values",
+                  "PRE-TOOL GUARD: these handover values leave the form not ready; nothing was written.\n" + problem_text))
 
 
 def dispatched_role(event: dict) -> str:
@@ -1255,11 +1273,13 @@ def artifact_rewrite_check(event: dict, cfg: dict) -> None:
                 f"--task {_path_story(raw, event) or '<TICKET>'} --path {str(key).lstrip('/')} "
                 "--role <your role> --reason \"<one line>\"\n(it moves the file to `.superseded`; your next "
                 "Write of it is its first.)") if "Bash" in role_ways(event) else ""
-        block(f"PRE-TOOL GUARD: {name} already exists, and a Write replaces it whole"
-              + (" — " + cost if cost else "")
-              + f".\nChange what changed instead: {entry['rewrite']}.\n"
-              "Everything you have already written stays; a rewrite would spend the whole file in "
-              "output tokens again and carry it in your context for the rest of the dispatch." + door)
+        from detector_verdict import refusal
+        block(refusal("guard_pre_tool:PT-artifact-rewrite",
+                      f"PRE-TOOL GUARD: {name} already exists, and a Write replaces it whole"
+                      + (" — " + cost if cost else "")
+                      + f".\nChange what changed instead: {entry['rewrite']}.\n"
+                      "Everything you have already written stays; a rewrite would spend the whole file in "
+                      "output tokens again and carry it in your context for the rest of the dispatch." + door))
         return
 
 
@@ -1310,11 +1330,13 @@ def plan_write_check(event: dict, cfg: dict) -> None:
                 f"{_path_story(raw, event) or '<TICKET>'} --path {raw.split(story.group(0), 1)[1] if story else 'work/test-plan.json'} "
                 "--role <your role> --reason \"<one line>\"\n(it moves the file to `.superseded`; your next "
                 "Write of it is its first.)") if "Bash" in ways else ""
-        block(f"PRE-TOOL GUARD: this plan already holds {len(ids)} rows ({', '.join(ids[:6])}"
-              f"{', …' if len(ids) > 6 else ''}), and a Write replaces the file whole. Measured on "
-              "this very story: 59 whole rewrites of this file, 525,812 tokens of arguments that "
-              "then sat in the strategist's context and were re-read on every later turn; two "
-              "booleans once cost $16.53. What your role can use here:\n" + shell + editor + door)
+        from detector_verdict import refusal
+        block(refusal("guard_pre_tool:PT-plan-rewrite",
+                      f"PRE-TOOL GUARD: this plan already holds {len(ids)} rows ({', '.join(ids[:6])}"
+                      f"{', …' if len(ids) > 6 else ''}), and a Write replaces the file whole. Measured on "
+                      "this very story: 59 whole rewrites of this file, 525,812 tokens of arguments that "
+                      "then sat in the strategist's context and were re-read on every later turn; two "
+                      "booleans once cost $16.53. What your role can use here:\n" + shell + editor + door))
     else:
         story = _STORY_RE.search(raw)
         ways = role_ways(event)
@@ -1330,12 +1352,14 @@ def plan_write_check(event: dict, cfg: dict) -> None:
         machine = ("it is changed with plan_row.py, never by hand." if "Bash" in ways else
                    "it is changed with Edit, one row's own lines at a time, never by a whole Write; "
                    "code checks the plan when it is saved." if "Edit" in ways else "")
-        block("PRE-TOOL GUARD: test-plan.md already exists and a Write replaces it whole — on this "
-              "story that cost 27,648 tokens of arguments over 8 rewrites, all of it re-read on "
-              "every later turn of the dispatch. This file is the human's copy of the plan, in your "
-              "own words: change the lines that changed with Edit (one call per line, several calls "
-              "in one turn), and add a new row's line the same way."
-              + (" The machine copy is test-plan.json, and " + machine if machine else "") + door)
+        from detector_verdict import refusal
+        block(refusal("guard_pre_tool:PT-plan-md-rewrite",
+                      "PRE-TOOL GUARD: test-plan.md already exists and a Write replaces it whole — on this "
+                      "story that cost 27,648 tokens of arguments over 8 rewrites, all of it re-read on "
+                      "every later turn of the dispatch. This file is the human's copy of the plan, in your "
+                      "own words: change the lines that changed with Edit (one call per line, several calls "
+                      "in one turn), and add a new row's line the same way."
+                      + (" The machine copy is test-plan.json, and " + machine if machine else "") + door))
 
 
 def manifest_write_check(event: dict, cfg: dict) -> None:
@@ -1363,13 +1387,15 @@ def manifest_write_check(event: dict, cfg: dict) -> None:
     if not held:
         return
     cases = ", ".join(sorted({str(e.get("case") or "?") for e in held})) or "some"
-    block(f"PRE-TOOL GUARD: this manifest already holds {len(held)} entr"
-          f"{'y' if len(held) == 1 else 'ies'} ({cases}), and a Write replaces the file — "
-          "which is how window 1's work was lost on TP2-2104 and had to be rebuilt "
-          "from the journal and the evidence logs. Merge instead: write your window as a "
-          "fragment and run `scripts/manifest_put.py --task <TICKET> --fragment <file.json>` "
-          "(it replaces the entries for your cases by id, keeps everyone else's, and appends "
-          "to runs[]/self_fixes[]). To change one field of one entry, use Edit.")
+    from detector_verdict import refusal
+    block(refusal("guard_pre_tool:PT-manifest-shrink",
+                  f"PRE-TOOL GUARD: this manifest already holds {len(held)} entr"
+                  f"{'y' if len(held) == 1 else 'ies'} ({cases}), and a Write replaces the file — "
+                  "which is how window 1's work was lost on TP2-2104 and had to be rebuilt "
+                  "from the journal and the evidence logs. Merge instead: write your window as a "
+                  "fragment and run `scripts/manifest_put.py --task <TICKET> --fragment <file.json>` "
+                  "(it replaces the entries for your cases by id, keeps everyone else's, and appends "
+                  "to runs[]/self_fixes[]). To change one field of one entry, use Edit."))
 
 
 def _dispatch_open_for_owner(controller: dict, owner: str, named: str = "") -> bool:
@@ -1476,12 +1502,14 @@ def owner_check(event: dict, cfg: dict) -> None:
         # any story of this project with an open dispatch of the owning role answers instead.
         if _any_story_open_for_owner(event, owner):
             return
-        block(f"PRE-TOOL GUARD: {raw.rsplit('/', 1)[-1]} belongs to {owner}, and no story of "
-              f"this project has an open dispatch of that role — this is a repair from outside "
-              f"the role that owns the artifact. Send it back instead: `controller.py "
-              f"--operation rework --stage <STAGE> --role {owner} --reason \"...\" --brief` builds a "
-              "fresh dispatch request from that role's last accepted work, ready to hand to "
-              "`Agent`. An artifact the orchestrator fixed by hand has no reviewer.")
+        from detector_verdict import refusal
+        block(refusal("guard_pre_tool:PT-owner",
+                      f"PRE-TOOL GUARD: {raw.rsplit('/', 1)[-1]} belongs to {owner}, and no story of "
+                      f"this project has an open dispatch of that role — this is a repair from outside "
+                      f"the role that owns the artifact. Send it back instead: `controller.py "
+                      f"--operation rework --stage <STAGE> --role {owner} --reason \"...\" --brief` builds a "
+                      "fresh dispatch request from that role's last accepted work, ready to hand to "
+                      "`Agent`. An artifact the orchestrator fixed by hand has no reviewer."))
         return
     import json
     from hooklib import artifacts_dir
@@ -1505,22 +1533,24 @@ def owner_check(event: dict, cfg: dict) -> None:
             return  # pre-controller story: the 0.7.4 signal still applies
     if "/subagents/" in str((event or {}).get("transcript_path") or "").replace("\\", "/"):
         return  # a subagent transcript is honoured wherever a host still sends one
-    block(f"PRE-TOOL GUARD: {raw.rsplit('/', 1)[-1]} belongs to {owner}, and no dispatch of "
-          f"{ticket} is open for that role — this is a repair from outside the role that owns "
-          "the artifact. Send it back instead: `controller.py --operation rework --stage "
-          f"<STAGE> --role {owner} --cases <ids> --reason \"...\" --brief` builds a fresh dispatch "
-          "request from that role's last accepted work (input_hash, known_paths, budget), "
-          "ready to hand to `Agent`. Do NOT `SendMessage` an id from an earlier session — "
-          "Claude Code refuses it with \"No transcript found\" once the window has changed, "
-          "which is exactly the dead end TP1-15045 hit here. An artifact the orchestrator "
-          "fixed by hand has no reviewer, and the fix is paid for out of the one context that "
-          "lives the whole story. Do NOT reopen the stage to make room for the fix: on "
-          "TP1-15045 this advice sent the orchestrator to `stage_done --status running` "
-          "on a stage the controller had already accepted, the stage was lowered, `--status "
-          "done` then refused it, and the story stalled one step before gate A. An accepted "
-          "stage is reworked without being lowered — a fresh dispatch of the same stage "
-          "records it as rework, and a changed plan is recorded with `controller.py "
-          "--operation revise_plan`.")
+    from detector_verdict import refusal
+    block(refusal("guard_pre_tool:PT-owner",
+                  f"PRE-TOOL GUARD: {raw.rsplit('/', 1)[-1]} belongs to {owner}, and no dispatch of "
+                  f"{ticket} is open for that role — this is a repair from outside the role that owns "
+                  "the artifact. Send it back instead: `controller.py --operation rework --stage "
+                  f"<STAGE> --role {owner} --cases <ids> --reason \"...\" --brief` builds a fresh dispatch "
+                  "request from that role's last accepted work (input_hash, known_paths, budget), "
+                  "ready to hand to `Agent`. Do NOT `SendMessage` an id from an earlier session — "
+                  "Claude Code refuses it with \"No transcript found\" once the window has changed, "
+                  "which is exactly the dead end TP1-15045 hit here. An artifact the orchestrator "
+                  "fixed by hand has no reviewer, and the fix is paid for out of the one context that "
+                  "lives the whole story. Do NOT reopen the stage to make room for the fix: on "
+                  "TP1-15045 this advice sent the orchestrator to `stage_done --status running` "
+                  "on a stage the controller had already accepted, the stage was lowered, `--status "
+                  "done` then refused it, and the story stalled one step before gate A. An accepted "
+                  "stage is reworked without being lowered — a fresh dispatch of the same stage "
+                  "records it as rework, and a changed plan is recorded with `controller.py "
+                  "--operation revise_plan`."))
 
 
 def _window_dispatch_of_session(controller: dict, name: str) -> dict | None:
@@ -1626,7 +1656,8 @@ def window_file_check(event: dict, cfg: dict) -> None:
         owner = WF.claim(task_root, rel, mine, name)
         if owner != mine:
             count = _escalation_count("PT-window-file", event, rel)     # the count only: this refusal is the story's state, not a guard fault
-            block(_window_refusal(WF, task_root, rel, owner, count))
+            from detector_verdict import refusal
+            block(refusal("guard_pre_tool:PT-window-file", _window_refusal(WF, task_root, rel, owner, count)))
 
 
 def _window_refusal(WF, task_root, rel: str, owner: str, count: int) -> str:
@@ -1713,14 +1744,17 @@ def writes_check(event: dict, cfg: dict) -> None:
     for i, tk in enumerate(tokens):
         exe = tk.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
         if exe in declared:
-            block(WRITES_MSG + where_clause(parts))
+            from detector_verdict import refusal
+            block(refusal("guard_pre_tool:PT-external-writes", WRITES_MSG + where_clause(parts)))
         if exe not in _TRACKER_CLIS:
             continue
         rest = tokens[i + 1:i + 5]
         if any(obj in rest for obj in _WRITE_OBJECTS) and any(v in rest for v in _WRITE_VERBS):
-            block(WRITES_MSG + where_clause(parts))
+            from detector_verdict import refusal
+            block(refusal("guard_pre_tool:PT-external-writes", WRITES_MSG + where_clause(parts)))
         if "api" in rest and any(m in low for m in _METHOD_WRITE):
-            block(WRITES_MSG + where_clause(parts))
+            from detector_verdict import refusal
+            block(refusal("guard_pre_tool:PT-external-writes", WRITES_MSG + where_clause(parts)))
 
 
 HUMAN_WORD_MSG = ("PRE-TOOL GUARD: a person's word is recorded by the orchestrator, never by a role. "
@@ -1849,7 +1883,8 @@ def human_word_check(event: dict, cfg: dict) -> None:
     from_role = (str((event or {}).get("agent_type") or (event or {}).get("agent_name") or "").strip()
                  or "/subagents/" in str((event or {}).get("transcript_path") or "").replace("\\", "/"))
     if from_role:
-        block(HUMAN_WORD_MSG + where_clause(parts))
+        from detector_verdict import refusal
+        block(refusal("guard_pre_tool:PT-human-word", HUMAN_WORD_MSG + where_clause(parts)))
 
 
 # The text `budget_notice` leaves for `_flush_notice` to deliver on the way out of `main` (SC1-6). The notice used
@@ -2302,7 +2337,8 @@ def config_write_check(event: dict, cfg: dict) -> None:
     except Exception:
         return  # an error here is "cannot tell", and cannot-tell passes
     if what:
-        block(CONFIG_WRITE_MSG.format(what=what))
+        from detector_verdict import refusal
+        block(refusal("guard_pre_tool:PT-config-write", CONFIG_WRITE_MSG.format(what=what)))
 
 
 STAND_RECORD_MSG = (
@@ -2399,7 +2435,8 @@ def stand_record_write_check(event: dict, cfg: dict) -> None:
     except Exception:
         return  # an error here is "cannot tell", and cannot-tell passes
     if what:
-        block(STAND_RECORD_MSG.format(what=what))
+        from detector_verdict import refusal
+        block(refusal("guard_pre_tool:PT-stand-record-write", STAND_RECORD_MSG.format(what=what)))
 
 
 def _blocked(fn, event: dict, cfg: dict) -> str | None:
@@ -3046,10 +3083,12 @@ def main() -> None:
         sys.exit(selftest())
     event = read_event()
     if event is None:
-        block("PRE-TOOL GUARD: hook event could not be parsed (broken stdin) - fail-closed, call blocked."
-              + REPEAT_WARNING + escalate("PT-unparsed-event", None,
-                                          witness="read_event() returned None: stdin was not a "
-                                                  "JSON hook event this host's adapter recognizes"))
+        from detector_verdict import refusal
+        block(refusal("guard_pre_tool:PT-unparsed-event",
+                      "PRE-TOOL GUARD: hook event could not be parsed (broken stdin) - fail-closed, call blocked."
+                      + REPEAT_WARNING + escalate("PT-unparsed-event", None,
+                                                  witness="read_event() returned None: stdin was not a "
+                                                          "JSON hook event this host's adapter recognizes")))
     try:
         try:
             _guard(event)
@@ -3071,9 +3110,11 @@ def walker_refusal(event: dict, exc: Exception) -> None:
     import hashlib
     tool_name = str((event or {}).get("tool_name") or "")
     line = argv_text(((event or {}).get("tool_input") or {}).get("command"))
-    block("PRE-TOOL GUARD: " + WALKER_DOOR.format(reason=exc) + REPEAT_WARNING
-          + escalate("PT-walker-error", event, witness=f"{tool_name}: the command walker raised {exc}",
-                     call_key=f"{tool_name}:{hashlib.sha1(line.encode('utf-8', 'replace')).hexdigest()[:16]}"))
+    from detector_verdict import refusal
+    block(refusal("guard_pre_tool:PT-walker-error",
+                  "PRE-TOOL GUARD: " + WALKER_DOOR.format(reason=exc) + REPEAT_WARNING
+                  + escalate("PT-walker-error", event, witness=f"{tool_name}: the command walker raised {exc}",
+                             call_key=f"{tool_name}:{hashlib.sha1(line.encode('utf-8', 'replace')).hexdigest()[:16]}")))
 
 
 def _guard(event: dict) -> None:
@@ -3135,11 +3176,13 @@ def _guard(event: dict) -> None:
         operations = mutation_events(event)
     except ValueError as exc:
         target = str((event.get("tool_input") or {}).get("file_path") or "")
-        block(f"PRE-TOOL GUARD: {exc}; patch was not checked and is blocked."
-              + REPEAT_WARNING + escalate("PT-patch-unchecked", event,
-                                          witness=f"{tool_name} on {target or '<no path>'}: "
-                                                  f"{type(exc).__name__}: {exc}",
-                                          call_key=f"{tool_name}:{target}"))
+        from detector_verdict import refusal
+        block(refusal("guard_pre_tool:PT-patch-unchecked",
+                      f"PRE-TOOL GUARD: {exc}; patch was not checked and is blocked."
+                      + REPEAT_WARNING + escalate("PT-patch-unchecked", event,
+                                                  witness=f"{tool_name} on {target or '<no path>'}: "
+                                                          f"{type(exc).__name__}: {exc}",
+                                                  call_key=f"{tool_name}:{target}")))
     for operation in operations:
         app_guard.check(operation, cfg)
         secrets_guard.check(operation, cfg)
