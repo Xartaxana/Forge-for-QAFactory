@@ -27,7 +27,7 @@
 - [validate_artifacts:check_marker_in_file] The marker a manifest row names stands in the test file it names. Door: edit the file and the field the refusal line names.
 - [validate_artifacts:check_remedy_rows] A row blocked on the environment carries a `remedy` that is the fix, and names no value of a credential key. Door: edit the file and the field the refusal line names.
 - [validate_artifacts:check_self_fixes] A `self_fixes[]` entry carries every required key and never drops a Then line's assertion that was there before. Door: edit the file and the field the refusal line names.
-- [guard_pre_tool:*] 24 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
+- [guard_pre_tool:*] 26 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
 - [stage_guard:*] 7 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
 - [host_adapter:*] 6 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
 - [execution_request:*] 17 checks of your test-run calls (`run_suite.py`, `red_sandbox.py`, `probe_by_code.py`) are told in the refusal of the call, with what they expect and the door; a refused call launches no test. Write a request file from `run_suite.py --template request`, never from memory.

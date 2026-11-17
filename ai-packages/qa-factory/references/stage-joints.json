@@ -1553,8 +1553,84 @@
       "stages": [
         "*"
       ],
-      "requirement": "A file over `config.read.max_bytes` is read with `offset`/`limit`, a PDF with a `pages` range within `config.read.max_pdf_pages`, and a picture only up to `config.read.max_image_bytes`.",
-      "door": "`Grep -n` for the line, then Read with `offset`/`limit`; a PDF by `pages` ranges",
+      "requirement": "A text file over `config.read.max_bytes` is read with `offset`/`limit`.",
+      "door": "`Grep -n` for the line, then Read with `offset`/`limit`",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the tool call (a command or a file write) the guard judges",
+          "told": [
+            {
+              "page": true,
+              "call": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "guard_pre_tool:PT-big-read.pdf",
+      "stages": [
+        "*"
+      ],
+      "requirement": "A PDF over `config.read.max_bytes` is read with a `pages` range within `config.read.max_pdf_pages`; `offset`/`limit` do not bound a PDF.",
+      "door": "`Read` with `pages` `1-<n>` (at most `config.read.max_pdf_pages` pages a call), then the next range",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-automator",
+            "qa-bug-reporter",
+            "qa-case-critic",
+            "qa-case-designer",
+            "qa-code-critic",
+            "qa-doc-scribe",
+            "qa-failure-analyst",
+            "qa-requirements-tester",
+            "qa-retro-analyst",
+            "qa-runner",
+            "qa-scout",
+            "qa-test-strategist"
+          ],
+          "field": "the tool call (a command or a file write) the guard judges",
+          "told": [
+            {
+              "page": true,
+              "call": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
+      "check": "guard_pre_tool:PT-big-read.picture",
+      "stages": [
+        "*"
+      ],
+      "requirement": "A picture is read only up to `config.read.max_image_bytes`; it cannot be read in parts, so `offset`/`limit` do not help.",
+      "door": "record a ticket attachment as unread with cause `too_large`, or name the picture in your findings as over the read limit; do not try `offset`/`limit`",
       "when": [
         "always"
       ],
@@ -1933,8 +2009,8 @@
       "stages": [
         "*"
       ],
-      "requirement": "An artifact owned by a role is written only by that role, or while a dispatch of that role is open for the story.",
-      "door": "name it in your digest; the conductor sends it back to its owner (`controller.py --operation rework`)",
+      "requirement": "An artifact owned by a role is written only by that role, or while a dispatch of that role is open for the story; a write from outside the owning role (the orchestrator included) is refused.",
+      "door": "send it back to the owning role: `controller.py --operation rework` builds that role's dispatch (a role that is not the owner names the artifact in its digest, and the conductor sends it back)",
       "when": [
         "always"
       ],
@@ -4216,7 +4292,7 @@
       "stages": [
         "S4"
       ],
-      "requirement": "A case file opens with YAML front matter that carries every required field, takes `status`, `priority`, `channel` and `reuse_decision` from their closed lists, carries `automated_by` (file::test) when `Automated`, a `red_lock` that names a BUG-NNN, passes the form checks, and covers register requirements (or legacy `covers_ac`). Frontmatter every case owes: id, title, area, priority P0|P1|P2|P3, status, channel auto|manual-agent|manual-human, reuse_decision new|updated|extend:<case id>|dedupe:<case id>, updated, task, covers: [R-n] that exist in that task's register (an R the register does not carry reads as invented), defect_class from the project's list (or smoke, or regression:BUG-NNN), and basis.",
+      "requirement": "A case file opens with YAML front matter that carries every required field, takes `status`, `priority`, `channel` and `reuse_decision` from their closed lists, carries `automated_by` (file::test) and a `red_probe` when `Automated`, a `red_lock` that names a BUG-NNN, passes the form checks, and covers register requirements (or legacy `covers_ac`). Frontmatter every case owes: id, title, area, priority P0|P1|P2|P3, status, channel auto|manual-agent|manual-human, reuse_decision new|updated|extend:<case id>|dedupe:<case id>, updated, task, covers: [R-n] that exist in that task's register (an R the register does not carry reads as invented), defect_class from the project's list (or smoke, or regression:BUG-NNN), and basis.",
       "door": "edit the file and the field the refusal line names",
       "when": [
         "always"
@@ -4823,7 +4899,7 @@
       "stages": [
         "S6"
       ],
-      "requirement": "A run with zero tests carries `env_preflight: blocked`, or names its environment-blocked, manual-check or manual-skipped rows. Empty is not clean: a zero run with env_preflight pass and no env_blocked, manual_checks or manual_skipped is refused.",
+      "requirement": "A run with zero tests and `env_preflight: pass` names its environment-blocked, manual-check or manual-skipped rows. Empty is not clean: a zero run with env_preflight pass and no env_blocked, manual_checks or manual_skipped is refused.",
       "door": "return `env_preflight: blocked` with a reason, or say where the cases went",
       "when": [
         "always"
@@ -5265,7 +5341,7 @@
       "stages": [
         "S8"
       ],
-      "requirement": "Hand text outside the generated tables stays within `TEST_REPORT_MAX_BYTES`, section 1 is the table `ledger.py` generated, and a `delivery_ready: yes|after_checks|no` line agrees with `ledger.json`. The `delivery_ready:` line is the block's (check_delivery.py feeds it): yes, after_checks or no. Your prose outside the blocks stays under 6,144 bytes.",
+      "requirement": "Hand text outside the generated tables stays within `TEST_REPORT_MAX_BYTES`; a legacy-form report carries the table of `ledger.md`; a `delivery_ready: yes|after_checks|no` line stands and agrees with `ledger.json` when it gives a word. The `delivery_ready:` line is the block's (check_delivery.py feeds it): yes, after_checks or no. Your prose outside the blocks stays under 6,144 bytes.",
       "door": "edit the file and the field the refusal line names",
       "when": [
         "always"
@@ -5692,7 +5768,7 @@
       "stages": [
         "*"
       ],
-      "requirement": "What the form claims is true is true on disk (\"the form claims this is true, and it is not\").",
+      "requirement": "What the form claims is true is true on disk; a claim code could not measure is yours to state.",
       "door": "fix the claim or make it true",
       "when": [
         "always"
@@ -5829,12 +5905,38 @@
       "joint": null
     },
     {
+      "check": "handoff_check:null_outcome.triage",
+      "stages": [
+        "*"
+      ],
+      "requirement": "An empty `scope` is accepted only when `work/triage.json` can be read: the failure analyst writes it (one row per failure, with its verdict) before the handover form.",
+      "door": "write `work/triage.json` (one row per failure, with its verdict), then run the check again",
+      "when": [
+        "always"
+      ],
+      "producers": [
+        {
+          "roles": [
+            "qa-failure-analyst"
+          ],
+          "field": "the handover form of the dispatch",
+          "told": [
+            {
+              "page": true
+            }
+          ],
+          "demands": []
+        }
+      ],
+      "joint": null
+    },
+    {
       "check": "handoff_check:null_outcome.failures",
       "stages": [
         "*"
       ],
-      "requirement": "Each shown failure has a triage row.",
-      "door": "triage it once",
+      "requirement": "Each shown failure has exactly one triage row under its own name; an empty `scope` is refused otherwise (`handoff_check:binding` says the same of a non-empty one).",
+      "door": "triage every failure once in `work/triage.json`, under that failure's own `instance_id`",
       "when": [
         "always"
       ],
@@ -5922,8 +6024,8 @@
       "stages": [
         "*"
       ],
-      "requirement": "Each path names a field of this contract, by its index where it is a list row, not a contract-owned path; a list field gets a list and a one-value field one value; rows open in order.",
-      "door": "correct the path (the refusal suggests \"did you mean\")",
+      "requirement": "Each path names a field of this contract, by its index where it is a list row, not a contract-owned path; a list field gets a list and a one-value field one value; rows open in order. A source that is not UTF-8 text is refused.",
+      "door": "correct the path or the source the refusal names (it suggests \"did you mean\")",
       "when": [
         "always"
       ],
@@ -6083,7 +6185,7 @@
       "stages": [
         "S3"
       ],
-      "requirement": "The plan validates: every obligation of the registry has its row, coverage revisions and revision marks are consistent (validate_plan + coverage_revision_errors + unmarked_revision_errors). Under the starter risk policy (`risk_policy_revision: factory-starter-v1`), `verification_depth: low` is accepted ONLY together with `impact: low`, `likelihood: low`, `confidence: high` and `bounded_reversible: true`, and `impact: severe` demands `critical`. `impact: unknown` can never be low. Every row needs `risk_source_refs` and `required_scenarios` non-empty.",
+      "requirement": "The plan validates: its rows are well formed (unique ids, owed fields, listed depth and impact); coverage revisions and revision marks are consistent (validate_plan + coverage_revision_errors + unmarked_revision_errors). Under the starter risk policy (`risk_policy_revision: factory-starter-v1`), `verification_depth: low` is accepted ONLY together with `impact: low`, `likelihood: low`, `confidence: high` and `bounded_reversible: true`, and `impact: severe` demands `critical`. `impact: unknown` can never be low. Every row needs `risk_source_refs` and `required_scenarios` non-empty.",
       "door": "fix the plan row the block names, then end the step again",
       "when": [
         "always"

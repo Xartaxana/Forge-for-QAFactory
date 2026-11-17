@@ -14,7 +14,7 @@
 - [manifest_put:probe_owed] A `tests[]` row's `probe_owed` is `yes` or `no`. Door: send `yes` or `no`.
 - [run_suite:begin] A request's `idempotency_key` is new, or names the very request (same digest) already recorded under it; a key another process is claiming at the same moment is not reused. Door: write the request with a new `idempotency_key` (a `--mine` run takes a key of its own: run it again); a claim that cannot be read: `--recover <key> --task <T>`.
 - [validate_artifacts:check_manifest_v0] Every `automate` case of the plan has a `tests[]` or `unresolved[]` row; a `tests[]` row names an existing file and a `marker` or a full content-bound trace; an `unresolved` reason is from its list; a critic verdict is from its list, with `fix_notes[]` only for `approved_with_fixes`. Door: edit the file and the field the refusal line names.
-- [guard_pre_tool:*] 23 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
+- [guard_pre_tool:*] 25 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
 - [stage_guard:*] 8 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
 - [host_adapter:*] 6 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
 - [run_suite:*] 2 checks of your commands are told in the refusal of the call, with what they expect and the door.

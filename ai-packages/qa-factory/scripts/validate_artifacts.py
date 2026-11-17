@@ -376,12 +376,13 @@ def register_ids(task: str) -> set | None:
 
 def check_case_form(path: Path, fm: dict, errors: list) -> None:
     """A case is the unit of coverage of a register requirement, not of an AC: covers resolves
-    into the task's register, defect_class and basis are inherited from the plan row (not reassigned)."""
+    into the task's register; defect_class and basis must be present, basis per the oracle grammar. That they equal the
+    plan row's is the designer's rule, not checked here (EC-8: the refusal text used to say "inherited from the plan row")."""
     for field in CASE_FORM_REQUIRED:
         if not fm.get(field):
             errors.append(
                 refusal("validate_artifacts:check_case_form", f"{path.name}: FORM — '{field}' is missing (a case with updated >= {G.RULE_CUTOFF}: "
-                "task, covers: [R-n], defect_class, basis — inherited from the plan row)")
+                "task, covers: [R-n], defect_class, basis)")
             )
     covers = G.parse_inline_list(fm.get("covers"))
     r_ids = [c for c in covers if G.REQ_ID_RE.match(c)]

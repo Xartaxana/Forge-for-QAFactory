@@ -3,7 +3,7 @@
 ## What code will check of you (continued from handoff-keys.md)
 
 - [validate_artifacts:check_understanding] The understanding file stays within `UNDERSTANDING_MAX_LINES`, has every section of `UNDERSTANDING_SECTIONS`, and names every requirement id in a "What we verify" or "What we do not verify" line. understanding.md: at most 40 lines, its five sections, and every register R named in a 'What we verify' or 'What we do not verify' line. Door: edit the file and the field the refusal line names.
-- [guard_pre_tool:*] 23 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
+- [guard_pre_tool:*] 25 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
 - [stage_guard:*] 8 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
 - [host_adapter:*] 6 checks of your tool calls are told in the refusal of the call, with what they expect and the door; nothing you have written is lost by them.
 - [role_cli:*] 2 checks of your commands are told in the refusal of the call, with what they expect and the door. Run `artifact_producer.py --help` before you write an input file: it prints what each command of the script checks.
