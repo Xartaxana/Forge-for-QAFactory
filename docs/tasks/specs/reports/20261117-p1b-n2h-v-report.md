@@ -76,3 +76,26 @@ The only file it names is the slow one, not run by me. No non-slow file to run.
 ## Needed beyond the manifest
 
 Only the selftest region of `dry_stub.py` (existing N2h rows) and `role_digest.check`; no other file.
+
+## Fix round (attempt 2)
+
+Merged origin/main first (merge commit 2296cdad, no conflict). Then, in `dry_stub.py`:
+
+- F1: row `N2h: probe timeout (exit -9) -> a journal line says it did not finish, no record` now judges `probe_part(done)`, so the window_record row cannot satisfy it.
+- F2: rows `N2h: a profile without commands -> ... and the early stop still ran window_record (exit 2 from the spy)` and `N2h (c): a manifest row with no selector ...` also assert `done["window_record"]["exit"] == 2` (field `window_record.exit`, read via `.get`, so a skipped record FAILs). `never` still raises on any probe call.
+- F3: the process row `N2h-v: through the process window_record.py ran on the world ...` also asserts `live_only` holds no `manifest_put.py (story fragment` row. The real `manifest_put.py` ACCEPTED the fragment (row passes); no refusal to report.
+- F5: the `(OSError, ValueError)` guard moved from `record_window` into `run_script` (exit 127, text `<script> could not be launched: <Type>: <msg>`); `never` is not wrapped (E2). New rows: `N2h-v (F5): run_script maps a failed launch the same for probe, manifest_put and window_record ...` (one parameterised row over three scripts) and `N2h-v (F5): window_record exits 0 but the window file is absent ...`.
+- F6: the inner `check_story_fragments` call removed from `merge_story_fragments` (the `tag` parameter is now unused, kept in the signature); the call stays at the top of both branches; the three E7 rows pass unchanged.
+
+Verbatim runs:
+- `dry_stub.py --selftest` -> `=== dry_stub --selftest: 220/220 ok ===` (was 218; +2 rows)
+- `dry_exits.py --check` -> `dry_exits --check: 0 discrepancies`
+- `selftest.py --lang` -> `PASS lang: no control byte left by an eaten escape sequence (FR-29)` / `=== qa-factory selftest: 2/2 ok ===`
+- Negative control 1 (byte copy before, sha256 prefix a891b3bd51b0b992; mutation: the probe's -9 row popped, window row kept): `FAIL N2h: probe timeout (exit -9) -> a journal line says it did not finish, no record - expected ([], True, False), got ([], False, False)` / `219/220 ok`. Restored from the copy: hash a891b3bd51b0b992 = a891b3bd51b0b992.
+- Negative control 2 (mutation: record_window skipped when `no_command` is set): `FAIL N2h: a profile without commands -> ... and the early stop still ran window_record (exit 2 from the spy) - expected (True, [], [], False, 2), got (True, [], [], False, ...` / `219/220 ok`. Restored, hashes equal (a891b3bd51b0b992).
+
+Corrections of the two overstated sentences:
+- "No expectation about the probe itself was weakened" was false: the -9 timeout row was weakened by the window row (F1); fixed here.
+- "rows: no instance, no selector, no command all still run window_record" overstated: only the no-instance row asserted it; the no-command and no-selector rows only permitted it (F2); they now assert it.
+
+Noted analogs: F7 (shared `_put_fragment` helper) not done, per non-goals. `merge_story_fragments` now has an unused `tag` parameter (left to keep call sites unchanged).

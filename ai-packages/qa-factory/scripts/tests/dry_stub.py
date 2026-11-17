@@ -202,6 +202,8 @@ def run_script(project: Path, script: str, args: list, *, both: bool = False, ti
         done = harness.run_script(script, *args, cwd=project, timeout=timeout)
     except subprocess.TimeoutExpired:
         return -9, f"{script} did not finish within {timeout} s"
+    except (OSError, ValueError) as exc:      # a launch that failed: the same shape as a timeout, a stub journal line and never a filled field (AR-28)
+        return 127, f"{script} could not be launched: {type(exc).__name__}: {exc}"
     return done.returncode, ((done.stdout or "") + (done.stderr or "") if both else (done.stderr or done.stdout))
 
 
@@ -490,8 +492,7 @@ def check_story_fragments(fragments, tag: str) -> None:
 def merge_story_fragments(project, task_dir, kit: dict, dispatch: str, fragments, out: dict, run, tag: str) -> None:
     """The ONE fragment road of the automator and the critic (axis 5, AR-14, AR-15): each story fragment of the role's judgment is written under
     `state/dry-stub-fragments/<dispatch>-story-<n>.json` and merged by `manifest_put.py` (the one writer of the manifest) through `run`; the result is `_record`ed.
-    A refusal is a `live_only` row and the fragment is never retried with other keys."""
-    check_story_fragments(fragments, tag)
+    A refusal is a `live_only` row and the fragment is never retried with other keys. The shape of `fragments` is checked once per branch by the caller."""
     for at, fragment in enumerate(fragments or []):
         frag = task_dir / "state" / "dry-stub-fragments" / f"{dispatch}-story-{at}.json"
         frag.parent.mkdir(parents=True, exist_ok=True)
@@ -505,10 +506,7 @@ def record_window(project, task_dir, kit: dict, dispatch: str, out: dict, run) -
     data). `work/windows/<dispatch>.json` goes into `wrote` on exit 0, or on exit 1 (window not acceptable: the file stays, a `live_only` row names the exit); a timeout
     (-9), any other exit, or no file is a `live_only` row and nothing in `wrote` (a refusal never becomes a filled field, AR-28). The stub never deletes the file."""
     record = f"work/windows/{dispatch}.json"
-    try:
-        code, text = run(project, "window_record.py", ["--task", kit["key"], "--dispatch", dispatch, "--review-receipt"], both=True)
-    except (OSError, ValueError) as exc:
-        code, text = 127, f"{type(exc).__name__}: {exc}"
+    code, text = run(project, "window_record.py", ["--task", kit["key"], "--dispatch", dispatch, "--review-receipt"], both=True)
     out["window_record"] = {"exit": code, "text": cut(text)}
     present = code != -9 and (task_dir / record).is_file()
     if code == 0 and present:
@@ -1496,8 +1494,9 @@ def selftest_n2(tmp: Path) -> None:
     nocmd_project, nocmd_dir = world("nocmd-probe", commands=False)
     (nocmd_dir / "work" / "automation-manifest.json").write_text(json.dumps({"tests": [{"file": "qa-factory/tests/TC-1_test.py", "instance_id": "test_the_case"}]}), encoding="utf-8")
     done = critic_branch(nocmd_project, nocmd_dir, kit, runner, "C5", run=never)
-    check_eq("N2h: a profile without commands -> 'no command' in the row, nothing is run, no record",
-             ("no command" in done.get("no_command", ""), done["probes"], done["wrote"], (nocmd_dir / "work" / "probes").exists()), (True, [], [], False))
+    check_eq("N2h: a profile without commands -> 'no command' in the row, nothing is run, no record, and the early stop still ran window_record (exit 2 from the spy)",
+             ("no command" in done.get("no_command", ""), done["probes"], done["wrote"], (nocmd_dir / "work" / "probes").exists(), done.get("window_record", {}).get("exit")),
+             (True, [], [], False, 2))
     # edges 3, 7: the tool failed or was killed - a named row with its text cut at 400, never a record, never masked
     folder = project / "qa-factory" / "artifacts" / "DRY-1" / "work" / "probes"
     shutil.rmtree(folder)
@@ -1517,7 +1516,7 @@ def selftest_n2(tmp: Path) -> None:
              ([], ["probe_by_code.py exit 2: refused; the tool left work/probes/test_the_case.json"], True))
     shutil.rmtree(folder)
     done = critic_branch(project, task_dir, kit, runner, "C5", run=lambda p, sc, a, **kw: (-9, "probe_by_code.py did not finish within 120 s"))
-    check_eq("N2h: probe timeout (exit -9) -> a journal line says it did not finish, no record", (done["wrote"], "did not finish" in json.dumps(done["live_only"]), folder.exists()), ([], True, False))
+    check_eq("N2h: probe timeout (exit -9) -> a journal line says it did not finish, no record", (done["wrote"], "did not finish" in json.dumps(probe_part(done)), folder.exists()), ([], True, False))
     killed = run_script(project, "probe_by_code.py", ["--task", "DRY-1"], timeout=0.01)
     check_eq("N2h (F8): the one runner kills a script that outlives its timeout: exit -9 and the text names the timeout", (killed[0], "within 0.01 s" in killed[1]), (-9, True))
     seen_kwargs = {}
@@ -1544,7 +1543,7 @@ def selftest_n2(tmp: Path) -> None:
     (nosel_dir / "work" / "automation-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     done = critic_branch(nosel_project, nosel_dir, kit, runner, "C5", run=never)
     check_eq("N2h (c): a manifest row with no selector -> `live_only` `no selector in the manifest row`, no probe call, no record",
-             ([x["why"] for x in probe_part(done)], done["probes"], done["wrote"]), (["no selector in the manifest row"], [], []))
+             ([x["why"] for x in probe_part(done)], done["probes"], done["wrote"], done.get("window_record", {}).get("exit")), (["no selector in the manifest row"], [], [], 2))
     # the same through the stub as a process: the real tool runs in the world (this bare world opens no dispatch, so it refuses: rc!=0), the row names it, no record
     code, text = form(project, task_dir, "S5", "qa-code-critic", "C5")
     check("N2h: handoff_init made the S5 critic form", code == 0, text)
@@ -1624,8 +1623,27 @@ def selftest_n2(tmp: Path) -> None:
     seen_window = probed.get("window_record") or {}
     check_eq("N2h-v: through the process window_record.py ran on the world and its answer is a row (exit and text; the file is in wrote only on exit 0/1)",
              (rc, isinstance(seen_window.get("exit"), int), bool(seen_window.get("text")),
-              ("work/windows/C5.json" in probed.get("wrote", [])) == (seen_window.get("exit") in (0, 1) and (task_dir / "work" / "windows" / "C5.json").is_file())),
-             (0, True, True, True))
+              ("work/windows/C5.json" in probed.get("wrote", [])) == (seen_window.get("exit") in (0, 1) and (task_dir / "work" / "windows" / "C5.json").is_file()),
+              [x for x in probed.get("live_only", []) if "manifest_put.py (story fragment" in json.dumps(x)]),
+             (0, True, True, True, []))
+    # F5: one runner, one error mapping - a launch that raises OSError/ValueError is exit 127 and a text for each of the three scripts; `never`'s own raise is not swallowed (E2)
+    real_runner = harness.run_script
+
+    def cannot_launch(name, *a, **kw):
+        raise OSError("no such interpreter")
+    harness.run_script = cannot_launch
+    try:
+        mapped = [run_script(project, sc, ["--task", "DRY-1"]) for sc in ("probe_by_code.py", "manifest_put.py", "window_record.py")]
+    finally:
+        harness.run_script = real_runner
+    check_eq("N2h-v (F5): run_script maps a failed launch the same for probe, manifest_put and window_record (exit 127 and the text, no raise)",
+             [(c, "could not be launched: OSError: no such interpreter" in t) for c, t in mapped], [(127, True)] * 3)
+    absent_project, absent_dir = world("nowindow")
+    shutil.rmtree(absent_dir / "work" / "windows", ignore_errors=True)
+    done = critic_branch(absent_project, absent_dir, kit, runner, "V5", run=lambda p, sc, a, **kw: (0, "ok") if sc == "window_record.py" else (2, "x"))
+    check_eq("N2h-v (F5): window_record exits 0 but the window file is absent -> a live_only row says so, nothing in wrote",
+             ([w for w in done["wrote"] if "windows" in w], [x["why"] for x in done["live_only"] if "window_record.py" in x["why"]]),
+             ([], ["window_record.py exit 0 but work/windows/V5.json does not exist: ok"]))
     # N2 (2)-(3): the conductor
     spec = NM.data()
     offerable = [mid for mid, mrow in NM.move_rows(spec).items() if NM.move_columns(mrow, strict=False)[1] and NM.move_columns(mrow, strict=False)[0] is None
