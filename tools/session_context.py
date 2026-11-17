@@ -201,7 +201,10 @@ SEGMENTS_LINE_MAX_REASON = 160
 
 # Boot-budget thresholds (bytes).
 # raised from 100000 by the owner's word 11.11.2026 after the boot diet (measured load 117229)
-BOOT_WARN_THRESHOLD = 108000
+# NAMED RAISE: BOOT_WARN_THRESHOLD 108000 -> 110000 (measured boot total 109956 at commit); cause: boot by topic S1:
+# the Contents table and topic headings (FG7-51); raised by the Lead 17.11.2026 on the owner's word about size limits
+# (17.11.2026: не в ущерб правилам; если не влезет — можно поднять)
+BOOT_WARN_THRESHOLD = 110000
 BOOT_BREACH_THRESHOLD = 120000
 BOOT_BUDGET_LIMIT = 120000
 
@@ -215,18 +218,21 @@ _ALWAYS_INCLUDE_BOOT_FILE = "CLAUDE.md"
 # by this port): a fixed WARN constant with >=15% headroom over a
 # measured baseline, re-derived by hand when it goes stale.
 #
-# Re-derived 2026-11-11 (t-013, CLAUDE.md rewritten as the project's own
-# text): CLAUDE.md was 41502 bytes AT THE TIME OF THIS MEASUREMENT.
+# Re-derived 2026-11-17 (boot by topic S1, FG7-51): CLAUDE.md was 50808 bytes AT THE TIME OF THIS MEASUREMENT.
 # WARN = ceil(measured * 1.15 / 100) * 100:
-# ceil(41502 * 1.15 / 100) * 100 = 47800 (margin over measured:
-# (47800 - 41502) / 41502 = ~15.18%, >= the 15% floor).
+# ceil(50808 * 1.15 / 100) * 100 = 58500 (margin over measured:
+# (58500 - 50808) / 50808 = ~15.14%, >= the 15% floor).
+# NAMED RAISE: CLAUDE_WARN 47800 -> 58500; cause: boot by topic S1: the Contents table and topic headings (FG7-51);
+# raised by the Lead 17.11.2026 on the owner's word about size limits (17.11.2026: не в ущерб правилам; если не
+# влезет — можно поднять).
+# Prior measurement (2026-11-11, t-013): CLAUDE.md 41502 bytes -> ceil(41502 * 1.15 / 100) * 100 = 47800.
 # Prior measurement (now stale, kept for history): 2026-08-25 (kit-v0.9.0
 # port), 48716 bytes -> CLAUDE_WARN = 56100.
 # RE-DERIVE AT ONBOARDING: recompute this constant as
 # ceil(os.path.getsize("CLAUDE.md") * 1.15 / 100) * 100 whenever it goes
 # stale (kit CLAUDE.md size drifted) -- lowering is always safe; raising
 # should keep the same >=15% margin.
-CLAUDE_WARN = 47800
+CLAUDE_WARN = 58500
 
 _WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
@@ -1379,7 +1385,7 @@ def boot_budget_lines(root: Path) -> list:
     """The summary line always (every boot-path file that exists plus the
     bytes of CLAUDE.md's `@path` imports, F6-27: the harness injects them
     into every session), then a top-3-by-size breakdown when the total
-    crosses the WARN (>108000) or BREACH (>120000) threshold (the imports
+    crosses the WARN (>110000) or BREACH (>120000) threshold (the imports
     under CLAUDE.md, at most IMPORT_ROWS_MAX rows), then one "BOOT IMPORT
     WARN:" line when an import was not measured."""
     root = Path(root)

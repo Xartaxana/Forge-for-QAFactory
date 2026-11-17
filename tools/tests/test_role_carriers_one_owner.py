@@ -95,6 +95,67 @@ POINTERS = [
     (TEAMWORK, "`PROJECT.md` «Командная работа» п. 3", "PROJECT.md", "3. **Зоны файлов пачек «в работе» не пересекаются** — правило: `docs/TEAMWORK.md` § 3"),
 ]
 
+# The cross-file Contents table of CLAUDE.md (one row per cell, T1-T33 of the boot-by-topic spec section 2) and the own-section
+# table of PROJECT.md: every cell must still name an existing heading / numbered item / file (FG7-52 later scans them by code).
+_TOC_CL = "CLAUDE.md"
+_RS = "docs/RUNBOOK.md"
+_PRJ = "PROJECT.md"
+_TW_HEAD = "## Командная работа (кучки и пачки)"
+TOC_POINTERS = [
+    (_TOC_CL, "| Tiers | CLAUDE.md § Tiers |", "CLAUDE.md", "## Tiers (see"),
+    (_TOC_CL, "CLAUDE.md § 1 +", "CLAUDE.md", "1. Recon → scout by default"),
+    (_TOC_CL, "+ CLAUDE.md § 2 +", "CLAUDE.md", "2. Implementation from a finished spec → builder"),
+    (_TOC_CL, "CLAUDE.md § Rule 2 · drafting → designer", "CLAUDE.md", "### Rule 2 · drafting → designer"),
+    (_TOC_CL, "| CLAUDE.md § 11 |", "CLAUDE.md", "11. DoD in every dispatch (DoD-in-every-dispatch rule)"),
+    (_TOC_CL, "| Witness; acceptance by witness | CLAUDE.md § 2 |", "CLAUDE.md", "2. Implementation from a finished spec → builder"),
+    (_TOC_CL, "| What a builder may run | plans/builder-rules.md § 7b |", RULES, RULES_7B),
+    (_TOC_CL, "CLAUDE.md § Rule 4 · witness scope and the BATCH CANON", "CLAUDE.md", "### Rule 4 · witness scope and the BATCH CANON"),
+    (_TOC_CL, "docs/RUNBOOK.md § 7. CI на GitHub и BATCH CANON", _RS, RUNBOOK_7),
+    (_TOC_CL, "| Which tests are written | docs/TESTING.md |", "docs/TESTING.md", "# Как фордж пишет тесты"),
+    (_TOC_CL, "| Critic gate | CLAUDE.md § 3 |", "CLAUDE.md", "3. critic — a MANDATORY acceptance gate"),
+    (_TOC_CL, "| Critic review content | docs/tasks/critic-diff-brief.md |", BRIEF, "# Standing brief for the critic gate on a builder diff"),
+    (_TOC_CL, "| Journal | CLAUDE.md § Routing log |", "CLAUDE.md", "## Routing log — logs/journal/<dev>.jsonl"),
+    (_TOC_CL, "| Six writers, queue, merge waves | PROJECT.md § Командная работа |", _PRJ, _TW_HEAD),
+    (_TOC_CL, "| Cost gates | CLAUDE.md § Rule 12 · Cost gates |", "CLAUDE.md", "### Rule 12 · Cost gates"),
+    (_TOC_CL, "| Session hygiene | CLAUDE.md § Command hygiene +", "CLAUDE.md", "## Command hygiene (permission hygiene)"),
+    (_TOC_CL, "+ PROJECT.md § Сессия форджа |", _PRJ, "## Сессия форджа"),
+    (_TOC_CL, "| Fix the class | CLAUDE.md § 9 |", "CLAUDE.md", "9. Fix the class, not the instance (fix-the-class-not-the-instance"),
+    (_TOC_CL, "| Mechanisms | CLAUDE.md § 10 |", "CLAUDE.md", "10. Four questions for every mechanism"),
+    (_TOC_CL, "+ docs/TEAMWORK.md |", TEAMWORK, "# Командная работа: механика, которую держит код"),
+    (_TOC_CL, "| «Бэклог»; findings | PROJECT.md § Бэклог и находки |", _PRJ, "## Бэклог и находки"),
+    (_TOC_CL, "| Owner's principles | docs/OWNER_PRINCIPLES.md |", "docs/OWNER_PRINCIPLES.md", "# Принципы владельца"),
+    (_TOC_CL, "| Package change acceptance | PROJECT.md § Как принимается изменение пакета |", _PRJ, "## Как принимается изменение пакета"),
+    (_TOC_CL, "PROJECT.md § Как разрабатывается новая идея владельца", _PRJ, "## Как разрабатывается новая идея владельца"),
+    (_TOC_CL, "| Release | docs/RUNBOOK.md § 4.1. Шаги релиза |", _RS, "### 4.1. Шаги релиза"),
+    (_TOC_CL, "| Language | PROJECT.md § Язык |", _PRJ, "## Язык"),
+    (_TOC_CL, "PROJECT.md § Что решать самому, что спрашивать у владельца", _PRJ, "## Что решать самому, что спрашивать у владельца"),
+    (_TOC_CL, "+ CLAUDE.md § 11a |", "CLAUDE.md", "11a. Question routing (question-routing rule)"),
+    (_TOC_CL, "PROJECT.md § Ссылки на файлы в ответах", _PRJ, "## Ссылки на файлы в ответах"),
+    (_TOC_CL, "| .claude/agents/designer.md § 7 |", ".claude/agents/designer.md", "7. READERS OF EVERY TOUCHED FILE"),
+    (_TOC_CL, "| Boot diet | .claude/skills/boot-diet/SKILL.md |", ".claude/skills/boot-diet/SKILL.md", "# boot-diet — reacting to a boot-budget breach"),
+    (_TOC_CL, "| How rule text for agents is written | .claude/skills/boot-diet/SKILL.md § Как пишутся правила для агентов |", ".claude/skills/boot-diet/SKILL.md", "## Как пишутся правила для агентов"),
+    (_TOC_CL, "| Session start/end | PROCESS/SESSION_PROTOCOL.md |", "PROCESS/SESSION_PROTOCOL.md", "# Session Protocol"),
+    (_TOC_CL, "CLAUDE.md § Role ≠ tier", "CLAUDE.md", "## Role ≠ tier"),
+    (_TOC_CL, "CLAUDE.md § Lead degradation", "CLAUDE.md", "## Lead degradation"),
+    (_TOC_CL, "| Dispatcher duties about workers' runs | PROJECT.md § Как принимается изменение пакета +", _PRJ, "## Как принимается изменение пакета"),
+    # PROJECT.md's own table (E21: the last row routes to CLAUDE.md, which now exists)
+    (_PRJ, "| Где что лежит |", _PRJ, "## Где что лежит"),
+    (_PRJ, "| Принципы владельца |", _PRJ, "## Принципы владельца"),
+    (_PRJ, "| Как принимается изменение пакета |", _PRJ, "## Как принимается изменение пакета"),
+    (_PRJ, "| Бэклог и находки |", _PRJ, "## Бэклог и находки"),
+    (_PRJ, "| Как разрабатывается новая идея владельца |", _PRJ, "## Как разрабатывается новая идея владельца"),
+    (_PRJ, "| Прогоны и эксперименты |", _PRJ, "## Прогоны и эксперименты"),
+    (_PRJ, "| Сессия форджа |", _PRJ, "## Сессия форджа"),
+    (_PRJ, "| Командная работа (кучки и пачки) |", _PRJ, _TW_HEAD),
+    (_PRJ, "| Релиз |", _PRJ, "## Релиз"),
+    (_PRJ, "| Как пишутся правила для агентов |", _PRJ, "## Как пишутся правила для агентов"),
+    (_PRJ, "| Язык |", _PRJ, "## Язык"),
+    (_PRJ, "| Что решать самому, что спрашивать у владельца |", _PRJ, "## Что решать самому, что спрашивать у владельца"),
+    (_PRJ, "| Ссылки на файлы в ответах |", _PRJ, "## Ссылки на файлы в ответах"),
+    (_PRJ, "| Все темы → `CLAUDE.md` § Contents |", "CLAUDE.md", "## Contents — topic → where to read"),
+]
+POINTERS = POINTERS + TOC_POINTERS
+
 
 def squash(text):
     return " ".join(text.split()).casefold()

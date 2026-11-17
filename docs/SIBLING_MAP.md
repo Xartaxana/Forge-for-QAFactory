@@ -488,7 +488,7 @@ hygiene; cost gates in rule 12, Cost gates), `delegation.config.yaml` (the model
 | `.claude/agents/judge.md` | judge | duties, `tools:`, verdict shape (3) | owner; the two prompt blocks are pinned verbatim copies of the code constants below |
 | `plans/builder-rules.md` | builder | verification scope (7b, 7, 7a), canon content (7b), report content (11), budget practice (16 а-б), worktree and commit (2, 17-19) | owner; hand-back → builder.md 7 (11); cost gates → CLAUDE.md rule 12, Cost gates (16 в) |
 | `docs/tasks/critic-diff-brief.md` | critic | the two layers' content, questions 1-12, verdict content | owner; hand-back → critic.md 16-17 |
-| `CLAUDE.md` | all | routing rules 1-13, journal, Role ≠ tier, degradation, command hygiene; cost gates (rule 12) | owner; critic questions → the brief (rule 3) |
+| `CLAUDE.md` | all | routing rules 1-13, journal, Role ≠ tier, degradation, command hygiene; cost gates (rule 12); the cross-file topic map (§ Contents, one row per topic T1-T33 of the boot-by-topic spec) | owner; critic questions → the brief (rule 3); every Contents cell is a POINTERS row of `tools/tests/test_role_carriers_one_owner.py` until FG7-52 |
 | `docs/CLAUDE_HOST_ADAPTATIONS_FULL.md` | Lead | the reason of the clauses in rule 3 (critic gate) and rule 12 (Cost gates); the clause of rule 4a in full | reason only → the brief, CLAUDE.md rule 12; rule 4a a trimmed ↔ full pair |
 | `PROJECT.md` | builder, critic, integrator, coordinator | package-change acceptance p. 1-6; «Командная работа» discipline | owner of p. 1, 3-6, of the owner's words in p. 2 and of its «Диспетчеру:» line; p. 2 otherwise holds pointers: scope → D-0056 + builder-rules 7b; CI job map → the `.github/workflows/` files; CI, canon, merge, local fallback → RUNBOOK §7; critic re-run → the brief; report → builder.md 7 + builder-rules 11; «Командная работа» п. 2, 3, 4, 8, 9 → `docs/TEAMWORK.md` (gated clauses), п. 13 → builder-rules 7b (keeps the dispatcher sentence) |
 | `docs/TEAMWORK.md` | coordinator, integrator | the gated clauses of «Командная работа» п. 2, 3, 4, 8, 9 and the check line | owner (openers byte-identical to the PROJECT.md items, which point here per item) |
@@ -550,7 +550,7 @@ hygiene; cost gates in rule 12, Cost gates), `delegation.config.yaml` (the model
 | `tools/escape_check.py` | judge | the prompt pin | detector |
 | `tools/install_parity_anchors.json` | all role files, CLAUDE.md, PROCESS | presence of rule text | detector (presence) |
 | `tools/test_handoff_rule_anchors.py` | builder, critic, designer, scout, judge | hand-back keys, pointer form | detector |
-| `tools/tests/test_role_carriers_one_owner.py` | all | one owner per key, pointers resolve | detector |
+| `tools/tests/test_role_carriers_one_owner.py` | all | one owner per key, pointers resolve, every cell of CLAUDE.md § Contents and PROJECT.md § Оглавление resolves (TOC_POINTERS) | detector |
 | `~/.claude/projects/<slug>/memory/` (MEMORY.md and its role-habit files) | Lead | coordinator habits | outside the repo: a line there points to its owner; the Lead fixes a restatement there |
 
 Closing rule: a change to an aspect edits its OWNER and, in the same commit, walks every row of this table that points to
