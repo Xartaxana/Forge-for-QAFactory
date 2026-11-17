@@ -2306,6 +2306,8 @@ REG_PRECONDITION_ROWS = (
     # event is committed, so the one row stays (red on a `kept` recorded only when `apply` returns normally)
     ("passed-by-word-after-commit-fails", ({"rows": "x"}, "it carries no `rows` list"), "", True, "after-commit-fails",
      "committed-then-raised", 1),
+    # RD1-31 (F-1): the derived-view refresh after the commit READS these rows (the dashboard), so the row is written BEFORE it
+    ("passed-by-word-row-before-the-refresh", ({"rows": "x"}, "it carries no `rows` list"), "", True, "refresh-sees-row", "recorded", 1),
     ("live", "live", "", False, None, "recorded"),
     ("malformed-first", ({"rows": "x"}, "it carries no `rows` list"), "", False, ("input_hash", None), "malformed"),
     ("malformed-first-empty", ({"rows": "x"}, "it carries no `rows` list"), "", False, ("input_hash", ""), "malformed"),
@@ -2324,6 +2326,8 @@ def test_c3_reg_precondition_one_stop_for_an_unreadable_registry():
         if how not in ("absent", "live"):
             gate_template._READ.append(how)
 
+    seen = []
+
     def attempt(c, key, edit=None):
         request = {"id": "S0-" + key, "stage": "S0", "role": "qa-worker", "scope": ["TC-1"], "input_hash": "h", "budget": {},
                    "known_paths": {}, "idempotency_key": key}
@@ -2331,6 +2335,10 @@ def test_c3_reg_precondition_one_stop_for_an_unreadable_registry():
             def stale():
                 raise DerivedViewStale("the derived views could not be refreshed")
             c.store._run_after_commit = stale
+        elif edit == "refresh-sees-row":      # what the refresh would read: the pass rows the file holds when it runs
+            pass_file = c.store.root / "state" / "passed-by-person.jsonl"
+            c.store._run_after_commit = lambda: seen.append(len(pass_file.read_text(encoding="utf-8").splitlines())
+                                                            if pass_file.exists() else 0)
         elif edit and edit[1] is None:
             del request[edit[0]]
         elif edit:
@@ -2367,6 +2375,8 @@ def test_c3_reg_precondition_one_stop_for_an_unreadable_registry():
                 assert len(c.store.read()) == before, (rid, "a malformed dispatch was recorded")
             else:
                 assert got is None and "S0-d1" in c.state()["dispatches"], (rid, repr(got))
+            if edit == "refresh-sees-row":
+                assert seen == [1], (rid, "the refresh saw this many pass rows (want 1, before it ran)", seen)
             pass_file = root / "state" / "passed-by-person.jsonl"
             rows = [json.loads(line) for line in pass_file.read_text(encoding="utf-8").splitlines()] if pass_file.exists() else []
             assert len(rows) == passes, (rid, "pass rows", rows)

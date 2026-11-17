@@ -339,6 +339,21 @@ def k4_look_scope():
                  [p for p in c._plan_review_problems(dict(record, scope=list(TRIO)), state, ".") if "the look scoped" in str(p[1])], [])
     finally:
         cleanup(root)
+    root = temp_dir("qa-fjc-look3-")
+    try:     # RD1-31 (F-4a): the look ordered in the person's own words is accepted through the apply door: one row, the words' decision
+        c, plans = three_case_story(root, "reduced", "full")
+        look = c.build_rework_request("S5", CRITIC, ["TC-3"], "look at the new case", purpose=CT.S5_PLAN, words_given=True)
+        c.apply("dispatch", look)
+        write_form(root, look["id"], "approved")
+        SP.stamp_review(root, look["id"])
+        check_eq("the narrow look in the person's words is accepted", refused(lambda: accept_it(c, root, look["id"])), "")
+        passed = root / "state" / "passed-by-person.jsonl"
+        rows = [json.loads(line) for line in passed.read_text(encoding="utf-8").splitlines()] if passed.exists() else []
+        check_eq("RD1-31 a person's-words narrow look: one row, stage S5, the plan-before-windows block, the words' decision",
+                 [(r["stage"], r["block"].startswith("S5 plan before windows: "), r["decision"]) for r in rows],
+                 [("S5", True, "the look is a rework ordered in the person's own words")])
+    finally:
+        cleanup(root)
 
 
 def main():

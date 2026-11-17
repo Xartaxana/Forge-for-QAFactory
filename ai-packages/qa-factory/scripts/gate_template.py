@@ -57,13 +57,13 @@ def registry_problem(*, registry=None) -> str:
         return f"it cannot be read ({type(exc).__name__})"
 
 
-REGISTRY_BLOCK = "gate registry unreadable"   # the block name of the dispatch stop: one constant, so the refusal, the waiver door and the generator cannot drift apart
+REGISTRY_BLOCK = "gate registry unreadable"   # the dispatch stop's block; the door text of tools/controller-blocks-gen.py:354 is a copy
 
 
 def registry_why(reason, tail) -> str:
     """THE sentence for "the gate registry cannot be read" (RD1-27, AR-16, P31): ONE head, `reason` is `registry_problem()`'s text,
     `tail` what the site adds: "the gate registry cannot be read (R): a factory defect, <tail>". The dispatch stop opens it with
-    `REGISTRY_BLOCK + ": "` (the prefix is matched by `tools/controller-blocks-gen.py` and pinned by tests)."""
+    `REGISTRY_BLOCK + ": "` (the dispatch stop's block; the door text of `tools/controller-blocks-gen.py:354` is a copy; pinned by tests)."""
     return f"the gate registry cannot be read ({reason}): a factory defect, {tail}"
 
 

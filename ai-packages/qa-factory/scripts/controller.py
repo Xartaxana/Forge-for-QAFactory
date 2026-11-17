@@ -2470,9 +2470,9 @@ class Controller:
     _passes = None   # [(stage, item)] the person's passes `validate` met, while `apply` holds one commit open; else None
 
     def _note_pass(self, stage, passed):
-        """RD1-31 (FR-4, P13, AR-24): a block that a person's word passed is KEPT, not dropped. Noted here, by the ONE road every
-        pass goes through (`_passed_by_person`), and recorded by `apply` only once the event is in, so an operation refused later
-        (by any other block) leaves no row. One row per passed block: the same block met twice in one operation is noted once."""
+        """RD1-31 (FR-4, P13, AR-24): a block that a person's word passed is KEPT, not dropped. `_note_pass` is the ONE note road: `_passed_by_person` calls it for a split word, the hand-built passes
+        (the person_words look, the window record's probe-gap and review words, `s5_precheck.word_passes`) call it directly. `apply`
+        records what was noted once the event is in, so an operation refused later (by any other block) leaves no row. One row per passed block: the same block met twice in one operation is noted once."""
         if self._passes is None:
             return
         for item in passed or ():
@@ -5234,11 +5234,16 @@ class Controller:
                 receipt = self.store.commit(EVENT_KIND.get(operation, operation), request, key, revision,
                                             lambda events, p: self.validate(operation, p, projection(events)),
                                             self.project)
+                # RD1-31. POSITION: right after the commit, BEFORE `_after_commit` and the derived-view refresh the block's exit runs
+                # (the dashboard reads these rows). INVARIANT: an operation refused (or never committed) leaves NO pass row; a
+                # committed one leaves exactly one row per block a person's word passed; no word at all writes nothing.
+                noted, self._passes = self._passes, None
+                self._record_noted_passes(request.get("id"), noted)
                 self._after_commit(operation, request, key=key, revision=revision)
         except StateConflict as exc:
-            if isinstance(exc, EventCommitted):
-                # B (RD1-31): the event is durable though a step after it failed (`ProjectionStale`, `DerivedViewStale`): the row
-                # exists iff the event is committed, not iff `apply` returned normally. `finally` has not run, the list is still here.
+            if isinstance(exc, EventCommitted) and self._passes:
+                # `ProjectionStale` raised INSIDE `commit`: the event is durable, the collector still open. (`DerivedViewStale` comes at
+                # block exit, after the rows were written.) The row exists iff the event is committed.
                 self._record_noted_passes(request.get("id"), self._passes)
             committed = self._replayed_with_other_scope(exc, operation, request, current) if operation == "dispatch" else None
             if committed is None:
@@ -5266,11 +5271,7 @@ class Controller:
                                        + self._other_scope_text(committed, request, respelled),
                                        key=exc.key, fields=exc.fields) from exc
         finally:
-            kept, self._passes = self._passes, outer_passes
-        if kept:
-            # RD1-31. POSITION: once the event is in. INVARIANT: an operation refused (or never committed) leaves NO pass row; a
-            # committed one leaves exactly one row per block a person's word passed; no word at all writes nothing.
-            self._record_noted_passes(request.get("id"), kept)
+            self._passes = outer_passes
         if expansions and isinstance(receipt, dict):
             # m-13: the receipt (the CLI's output, never the payload) lists the members written otherwise than spelt
             receipt = dict(receipt, scope_expansions=expansions)
@@ -5933,7 +5934,7 @@ class Controller:
                 # grow, a plan record and a story on the earlier form are accepted exactly as before; S5 does not close while a
                 # grown window's author or critic has not covered it.
                 self._raise_all(self._grown_close_problems(d, p, state))
-                review, _passed = ([], []) if s5_part_of(d) == "plan" else self._code_review_refusal(d, p)
+                review = [] if s5_part_of(d) == "plan" else self._code_review_refusal(d, p)
                 s5_window = d.get("stage") == "S5" and bool(p.get("stage_complete"))
                 if review and not s5_window:
                     # Outside the S5 completion branch the receipts are the only check that runs,
@@ -5996,7 +5997,7 @@ class Controller:
                     # record for the author's last dispatch, or a person's recorded word (P13).
                     from acceptance import stage_acceptance_refusal
                     # the pass of a `stage acceptance` block is noted by `_passed_by_person`, the `split` handed over (RD1-31)
-                    refusal, _passed = stage_acceptance_refusal(self._pipeline(), d, state, self._passed_by_person)
+                    refusal, _ = stage_acceptance_refusal(self._pipeline(), d, state, self._passed_by_person)
                     if refusal:
                         raise StateConflict(refusal)
                 if d["stage"] == "S5" and p.get("stage_complete"):
@@ -6018,7 +6019,7 @@ class Controller:
                     s6_gaps = self._s6_running_beside_problems(d, state)
                     blocking = []
                     if state.get("plan_contract_mode") == "new":
-                        blocking, _passed = self._passed_by_person("S6", self._s6_completion_problems(d, state))
+                        blocking, _ = self._passed_by_person("S6", self._s6_completion_problems(d, state))
                     if blocking:
                         s6_gaps.append((StateConflict,
                             "; ".join(blocking) + ". Accept this dispatch with `stage_complete: "
@@ -6573,14 +6574,13 @@ class Controller:
         return request
 
     def _code_review_refusal(self, d, p):
-        """`(problems, passed)`: the code critic's unreceipted window as a one-item problem list, or [] (not a critic,
-        or nothing blocks), and the receipts a person's recorded word passed - the caller records them once the accept stands
-        (RD1-31). A person's recorded word passes a receipt, as at every other check."""
+        """The code critic's unreceipted window as a one-item problem list, or [] (not a critic, or nothing blocks).
+        A person's recorded word passes a receipt, as at every other check."""
         if d.get("role") != "qa-code-critic":
-            return [], []
-        blocking, passed = self._passed_by_person(d.get("stage") or "S5", self._code_review_problems(p))
+            return []
+        blocking, _ = self._passed_by_person(d.get("stage") or "S5", self._code_review_problems(p))
         if not blocking:
-            return [], passed
+            return []
         # The marker is what a driver routes on: TP1-13797, 26.09 — this
         # refusal says in words that it is not the person's, and still reached
         # the conductor and then the person, because the table knew no such
@@ -6593,7 +6593,7 @@ class Controller:
                  "without them: `"
                  + person_words.door(f"waiver.py --task {self._ticket()} --stage "
                                      f"{d.get('stage') or 'S5'} --block \"not receipted\"")
-                 + "`.")], passed
+                 + "`.")]
 
     # --- SC1-14 B1b: the plan before the windows ---------------------------------------------------------------------------
     # The refusals below are collected (`_raise_all`) so a request meets every gap at once. A refusal a person's word can pass
@@ -7093,7 +7093,7 @@ class Controller:
                 self._note_pass("S5", [{"error": line, "by": "human",
                                         "decision": "the look is a rework ordered in the person's own words"}])
             else:
-                blocking, passed = self._passed_by_person("S5", [line])
+                blocking, _ = self._passed_by_person("S5", [line])
                 if blocking:
                     problems.append((StateConflict, blocking[0] + ". " + then + end + " If a person decides, the conductor records "
                                      "their words: `" + person_words.door(f"waiver.py --task {self._ticket()} --stage S5 --block "
@@ -7307,7 +7307,7 @@ class Controller:
         what = (f"{d.get('id')} would complete {stage} while {', '.join(str(o.get('id')) for o in running)} "
                 f"{'is' if len(running) == 1 else 'are'} still running"
                 + (f" (cases {', '.join(cases)})" if cases else ""))
-        blocking, passed = self._passed_by_person(stage, [f"{stage} {word}: {what}"])
+        blocking, _ = self._passed_by_person(stage, [f"{stage} {word}: {what}"])
         if not blocking:
             return None
         return blocking, cases
@@ -7415,7 +7415,7 @@ class Controller:
             # the proof (`acceptance.green_on_current_bytes`). No second critic.
             round_problems = self._tier3_call(self._mechanical_completion_problems,
                                               d, window, reviewer, reviewer_id)
-            blocking, passed = self._passed_by_person("S5", round_problems)
+            blocking, _ = self._passed_by_person("S5", round_problems)
             if blocking:
                 problems.append((
                     StateConflict,
