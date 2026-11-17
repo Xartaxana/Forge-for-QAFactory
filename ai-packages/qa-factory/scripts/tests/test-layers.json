@@ -3076,6 +3076,13 @@
     "tests/harness.py"
    ]
   },
+  "test_mutate_once.py": {
+   "layer": "table",
+   "why": "the probe runner: outcome table, adversarial inputs and the restore invariant, one parameterised table (forge test rules spec 5.3)",
+   "covers": [
+    "tests/mutate_once.py"
+   ]
+  },
   "test_needs_author.py": {
    "layer": "detector",
    "why": "FR-57 proof of refusal registry row(s) SS-needs-author",
