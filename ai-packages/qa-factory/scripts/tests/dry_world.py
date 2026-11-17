@@ -30,11 +30,14 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import harness  # noqa: E402
 import story_run_common as T  # noqa: E402
+import dry_stub  # noqa: E402
+import dry_exits  # noqa: E402
 
 STORIES = harness.FIXTURES / "stories"
 WALK = harness.FIXTURES / "dry-walk"
 TYPES_FILE = STORIES / "dry-types.json"
 STUB_PATH = HERE / "dry_stub.py"
+DRIVER_PATH = HERE / "dry_driver.py"      # the driver as the dry world runs it: story_run.main() behind the passing spy on the price key (F10 (a))
 RUN_LABEL = uuid.uuid4().hex          # the label of THIS process: a snapshot made by another process is not this run's (E16)
 PERSON_TOKEN_ENV = {"QA_JIRA_EMAIL": "reader@example.invalid", "QA_JIRA_API_TOKEN": "test-only-token"}
 TRACKER_KINDS = ("jira", "local")
@@ -219,6 +222,34 @@ def mr_diff(row: dict) -> str:
     return (folder / served[0]["file"]).read_bytes().decode("utf-8") if served else ""
 
 
+class ChangeError(ValueError):
+    """The change of a story world cannot be read: names the story and the key, or the path (AR-28: never an empty fill in its place)."""
+
+
+def change_text(control: dict, base=None) -> str:
+    """The change (the diff text) of a world, through ONE function: for a type world (`control["type"]`) what `mr_diff(type_row(type))` returns; for a story
+    world (`control["story"]`) the text of the file `story.json` names in `change.diff_file`, read as bytes (no line ending changes). A story with no `change`
+    key, or a `change` with no `diff_file`, is a `ChangeError` naming the story and the key; a file that is absent, unreadable or empty is a `ChangeError`
+    naming the path. A control that names neither (a bare task) holds no change: "" as before."""
+    if control.get("type"):
+        return mr_diff(type_row(control["type"]))
+    if not control.get("story"):
+        return ""
+    folder = Path(base or STORIES) / control["story"]
+    change = dry_stub.read_json(folder / "story.json").get("change")
+    name = change.get("diff_file") if isinstance(change, dict) else None
+    if not isinstance(name, str) or not name.strip():
+        raise ChangeError(f"story {control['story']!r}: {folder / 'story.json'} has no `change.diff_file`; expected the name of a diff file in the story folder")
+    path = folder / name
+    try:
+        text = path.read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ChangeError(f"story {control['story']!r}: the change file {path} cannot be read ({type(exc).__name__}); expected a unified diff") from None
+    if not text.strip():
+        raise ChangeError(f"story {control['story']!r}: the change file {path} is empty; expected a unified diff")
+    return text
+
+
 def tracker_server(row: dict) -> TrackerServer:
     folder = STORIES / row["input"]
     routes = json.loads((folder / row["tracker"]["routes"]).read_text(encoding="utf-8"))
@@ -227,15 +258,22 @@ def tracker_server(row: dict) -> TrackerServer:
 
 # ------------------------------------------------------------------------------------------------ the world
 class World:
-    def __init__(self, row: dict, root: Path, env: dict, server, snaps: Path):
+    def __init__(self, row: dict, root: Path, env: dict, server, snaps: Path, story: str = ""):
         self.row, self.root, self.env, self.server, self.snaps = row, Path(root), env, server, snaps
+        self.story = story          # a story world (`build_story_world`): the id of its folder under fixtures/stories; "" for a type world
         self.task = row["task"]
         self.task_root = self.root / "qa-factory" / "artifacts" / self.task
 
-    def control(self, stub: dict | None = None) -> None:
-        """The stub's own control file (the stub is a process: this file is how a row steers it)."""
-        (self.root / "dry-stub-control.json").write_text(json.dumps(
-            {"task": self.task, "type": self.row["id"], "stub": merge_stub(self.row.get("stub"), stub)}), encoding="utf-8")
+    def control(self, stub: dict | None = None, conductor: dict | None = None) -> None:
+        """The stub's own control file (the stub is a process: this file is how a row steers it). A `conductor` key of the row's `stub` (or the
+        `conductor` argument) is lifted out of the table and written as the control's TOP-LEVEL `conductor` - the key the conductor stub reads
+        (`dry_stub.conductor_verdict`); a row with neither writes the story's control unchanged (same bytes as before)."""
+        steer = {"story": self.story} if self.story else {"type": self.row["id"]}
+        stub = dict(stub or {})
+        lifted = stub.pop("conductor", None)
+        conductor = conductor if conductor is not None else lifted
+        body = {"task": self.task, **steer, "stub": merge_stub(self.row.get("stub"), stub), **({"conductor": conductor} if conductor is not None else {})}
+        (self.root / "dry-stub-control.json").write_text(json.dumps(body), encoding="utf-8")
 
     def close(self) -> None:
         if self.server is not None:
@@ -266,6 +304,32 @@ def build_world(row: dict) -> World:
     env.update(STORY_RUN_CLAUDE=str(STUB_PATH), STORY_RUN_CLASS="dry", DRY_STUB_CONTROL=str(root / "dry-stub-control.json"))
     env.pop("STUB_CONTROL", None)
     world = World(row, root, env, server, Path(tempfile.mkdtemp(prefix="qa-dry-snap-")))
+    world.control()
+    return world
+
+
+def build_story_world(story_id: str = "dry-1") -> World:
+    """The world of a synthetic STORY folder (`fixtures/stories/<id>/`, node N3): a fresh project whose ticket is the story's own file
+    (`ticket/<task>.md`, read by the file adapter `s0_project` installs: no tracker server), the runner row the kit names installed by
+    `dry_stub.install_runner` (the tiny project and the profile the automator stub's commands come from), `claude` = `dry_stub.py` and the
+    driver = `dry_driver.py`, `STORY_RUN_CLASS=dry`. The stub's control names the story (`story`), which is how the stub finds the kit. The
+    ticket file missing is a `TypesError` naming it (a world is never built from nothing). The world needs no `handoffs.required = False`: the
+    forms are the real ones (spec N3 item 2)."""
+    folder = STORIES / story_id
+    story = dry_stub.read_json(folder / "story.json")
+    task = story.get("task")
+    ticket = folder / "ticket" / f"{task}.md"
+    if not isinstance(task, str) or not ticket.is_file():
+        raise TypesError(f"{folder / 'story.json'}: `task` {task!r}; expected the key of a ticket file {ticket}")
+    kit = dry_stub.load_kit(story_id)
+    root, _task_root, env = T.s0_project(task, ticket=ticket.read_text(encoding="utf-8"))
+    dry_stub.install_runner(root, dry_stub.runner_row(kit["runner"], story_id))
+    env.update(STORY_RUN_CLAUDE=str(STUB_PATH), STORY_RUN_CLASS="dry", DRY_STUB_CONTROL=str(root / "dry-stub-control.json"))
+    env.pop("STUB_CONTROL", None)
+    # the story's own `stub` (role controls: the values of what a role's judgment writes, DATA of the story, like the type row's `stub`)
+    check_stub("story.json", story_id, story.get("stub"), what="story")
+    world = World({"id": story_id, "task": task, **({"stub": story["stub"]} if story.get("stub") else {})}, root, env, None,
+                  Path(tempfile.mkdtemp(prefix="qa-dry-snap-")), story_id)
     world.control()
     return world
 
@@ -312,7 +376,7 @@ def from_snapshot(world: World, name: str) -> World:
     (root / ".dry-snapshot.json").unlink()
     _rewrite(root, meta["from"], str(root))
     env = {k: v.replace(meta["from"], str(root)) if isinstance(v, str) else v for k, v in world.env.items()}
-    return World(world.row, root, env, None, world.snaps)
+    return World(world.row, root, env, None, world.snaps, world.story)
 
 
 # ------------------------------------------------------------------------------------------------ driving the real driver
@@ -322,8 +386,9 @@ class Run:
 
 
 def drive(world: World, *args, timeout: int = 900) -> Run:
-    """ONE driver process (`story_run.py --project <world>`, as `story_run_common.run_driver`), its lines stamped as they arrive."""
-    cmd = [sys.executable, "-B", str(harness.SCRIPTS / "story_run.py"), "--project", str(world.root), "--task", world.task, *map(str, args)]
+    """ONE driver process (`story_run.py --project <world>`, as `story_run_common.run_driver`, through `dry_driver.py`, which only records the
+    price key of each closed question), its lines stamped as they arrive."""
+    cmd = [sys.executable, "-B", str(DRIVER_PATH), "--project", str(world.root), "--task", world.task, *map(str, args)]
     env = dict(world.env, PYTHONDONTWRITEBYTECODE="1", PYTHONUNBUFFERED="1")
     started = time.monotonic()
     proc = subprocess.Popen(cmd, cwd=str(world.root), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -636,6 +701,721 @@ def spike(type_id=None, local_label: str = "") -> int:
         return 1 if reds else 0
     finally:
         world.close()
+
+
+# ------------------------------------------------------------------------------------------------ the main pass (node N3)
+# The driver door of the walker: the REAL driver (`dry_driver.py` -> `story_run.main()`) runs the whole story S0..S9 in a world of its
+# own, one process per turn, a person's answer between two turns; the roles and the conductor are `dry_stub.py`. Nothing here judges
+# meaning (P27, AR-29): it reads data - the pipeline, the question records, the stub's journal, `gate_preflight`'s JSON - and compares
+# them with what the story's walk rows and the ledger of known reds say.
+STAGES = tuple(f"S{n}" for n in range(10))
+DEFAULT_STORY = "dry-1"            # the type `default`: until node N3t writes the type table's own rows, `default` names this story folder
+TURN_CAP = 600                     # seconds one driver process may run (E6): over it, the row is red with the stage and the seconds
+MAX_TURNS = 40                     # driver processes of one pass: a pass that needs more is red, never endless
+KNOWN_RED_FILE = HERE / "fixtures" / "driver-exits" / "known_red.json"
+GATE_ASKS = {"gate_A": "A", "gate_B": "B"}       # the question kinds of the two gates -> the `--gate` of gate_preflight.py (C6)
+GATE_PREFLIGHT_CAP = 120
+SNAPSHOT_NAME = re.compile(r"^S\d$")
+NO_SCOREBOARD = "scoreboard: not wired (P1-v): run_counters.counters is absent"
+
+
+class MainPassError(ValueError):
+    """A carrier of the main pass that cannot be read: names the file and what was expected (E7, AR-28)."""
+
+
+def read_rows(path: Path, what: str) -> list:
+    """The rows of a JSONL carrier; an absent file is no rows (the caller says what absence means), a line that is not a JSON object is a
+    `MainPassError` naming the file and the line - unlike `jsonl`, which skips it: a row the walker cannot read is never a pass (E7)."""
+    if not path.is_file():
+        return []
+    rows = []
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            row = None
+        if not isinstance(row, dict):
+            raise MainPassError(f"{path}: line {number} is not a JSON object; expected {what}")
+        rows.append(row)
+    return rows
+
+
+def stage_statuses(world: World) -> dict:
+    stages = pipeline(world).get("stages") or {}
+    return {s: (stages.get(s) or {}).get("status", "absent") for s in STAGES}
+
+
+def walk_answers(story) -> dict:
+    """`{(stage, question kind): the person's words}` of the story's walk rows that name the driver door: a row `{"stage", "door": {"kind":
+    "driver"}, "answers": {<kind>: <words>}}`. These closed words are the ONLY answers the pass gives (A1-E3); a malformed row is a `StoryError`."""
+    import scenario_walk
+    out = {}
+    for entry in story.walk:
+        if (entry.get("door") or {}).get("kind") != "driver" or "answers" not in entry:
+            continue
+        answers = entry["answers"]
+        if not isinstance(answers, dict) or not all(isinstance(k, str) and isinstance(v, str) and v.strip() for k, v in answers.items()):
+            raise scenario_walk.StoryError(f"story.json: walk row {entry.get('stage')!r} `answers` is not a map of question kind -> non-empty words")
+        out.update({(str(entry.get("stage")), kind): words for kind, words in answers.items()})
+    return out
+
+
+def gate_ready(world: World, kind: str) -> tuple:
+    """`(ready, detail)` of the gate invariant C6: `gate_preflight.py --task <T> --gate <A|B>` on a COPY of the world, the JSON field `gate_ready` read
+    (never the text "can start"). `ready` is None, with the reason, when the command printed no JSON or the JSON holds no boolean there: unknown is
+    red naming the command, never a pass (FR-59)."""
+    gate = GATE_ASKS[kind]
+    name = f"gate-{gate}"
+    again = 1
+    while (world.snaps / world.row["id"] / name).exists():       # a gate shown AGAIN after an answer (FV1-8) is rehearsed on its own copy, never over the first one
+        again += 1
+        name = f"gate-{gate}-{again}"
+    snapshot(world, name)
+    copy = from_snapshot(world, name)
+    command = f"gate_preflight.py --task {world.task} --gate {gate}"
+    try:
+        proc = subprocess.run([sys.executable, "-B", str(harness.SCRIPTS / "gate_preflight.py"), "--task", world.task, "--gate", gate],
+                              cwd=str(copy.root), env=dict(copy.env, PYTHONDONTWRITEBYTECODE="1"), capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=GATE_PREFLIGHT_CAP)
+    except subprocess.TimeoutExpired:
+        return None, f"`{command}` did not finish in {GATE_PREFLIGHT_CAP} s"
+    finally:
+        harness.cleanup(copy.root)
+    try:
+        doc = json.loads(proc.stdout)
+    except ValueError:
+        doc = None
+    if not isinstance(doc, dict):
+        return None, f"`{command}` exit {proc.returncode} printed no JSON object; stderr: {dry_stub.cut(proc.stderr, 200)}; stdout: {dry_stub.cut(proc.stdout, 200)}"
+    ready = doc.get("gate_ready")
+    if not isinstance(ready, bool):
+        return None, f"`{command}` printed JSON with no boolean `gate_ready` (found {ready!r}); expected true or false"
+    return ready, (f"findings by class: {doc.get('by_class')}" if not ready else "")
+
+
+def loop_problem(asks: list) -> str:
+    """C5 over the asks of the pass in order (each `{"ask": the record the same-ask test reads, "author": hash of the author's last input, "form": hash of the
+    form}`): the third identical ask in a row when neither the author's input nor the form changed since the second is the loop of FV1-13/FV1-22 - "" when
+    there is none. The direction of error is dry_exits's own: two nearly equal asks merge into one (a false red), one ask is never counted as two."""
+    for i in range(2, len(asks)):
+        a, b, c = asks[i - 2], asks[i - 1], asks[i]
+        if dry_exits.same_ask(a["ask"], b["ask"]) and dry_exits.same_ask(b["ask"], c["ask"]) and (b["author"], b["form"]) == (c["author"], c["form"]):
+            return (f"the same question `{c['ask'].get('kind')}` at {c['ask'].get('stage')} was asked a third time with nothing new given to the author "
+                    f"(C5, the loop of FV1-13/FV1-22)")
+    return ""
+
+
+def author_hashes(world: World, dispatch: str) -> tuple:
+    """`(hash of the last prompt a role got, hash of the dispatch's form)`: the two things whose change makes a repeated ask legitimate (C5)."""
+    rows = [r for r in read_rows(world.task_root / "state" / "dry-stub.jsonl", "the stub's journal") if r.get("dispatch") and r.get("prompt_sha")]
+    form = world.task_root / "work" / "handoffs" / f"{dispatch}.yaml"
+    return (rows[-1]["prompt_sha"] if rows else "", dry_exits._file_hash(form) if form.is_file() else "")
+
+
+def scoreboard(world: World, line) -> None:
+    """Spec 3.5: `run_counters.counters(task_root)` after the pass and before the world is cleaned; its rows are printed, it writes nothing into the world
+    (the tree is hashed around the call). Absent function: the NOTE says so, never a pass (the temporal edge: P1-v writes it)."""
+    try:
+        import run_counters
+        counters = run_counters.counters
+    except (ImportError, AttributeError):
+        line("main/scoreboard", "note", NO_SCOREBOARD)
+        return
+    before = tree_hash(world.task_root)
+    try:
+        rows = counters(world.task_root)
+    except Exception as exc:       # a crash of the reader is a red line naming it, not a traceback
+        line("main/scoreboard", "fail", f"run_counters.counters raised {type(exc).__name__}: {dry_stub.cut(exc, 300)}")
+        return
+    if tree_hash(world.task_root) != before:
+        line("main/scoreboard", "fail", "run_counters.counters changed the world: it must write nothing")
+    for key, row in sorted(rows.items()) if isinstance(rows, dict) else []:
+        state = row.get("state") if isinstance(row, dict) else row
+        line("main/scoreboard", "note", f"{key}: {state}")
+
+
+def _details_text(world: World, limit: int):
+    """The head of the driver's own words about its last question (`state/driver-question-details.md`), or None when there is no such file."""
+    details = world.task_root / "state" / "driver-question-details.md"
+    return dry_stub.cut(details.read_text(encoding="utf-8", errors="replace"), limit) if details.is_file() else None
+
+
+def _turn_carriers(world: World, line, class_seen: bool) -> tuple:
+    """`(stop, class_seen, fingerprint, questions)` after one driver turn: the stub's journal (E18, the run class), the state fingerprint (C3) and the
+    driver's question records. A carrier that cannot be read, or a journal line with the wrong run class, is red and a non-empty `stop`."""
+    try:
+        stub = read_rows(world.task_root / "state" / "dry-stub.jsonl", "the stub's journal (one JSON object per line)")
+        if stub and not class_seen:
+            class_seen, problem = True, dry_stub.run_class_problem(stub)
+            if problem:
+                line("main/run-class", "fail", problem)
+                return problem, class_seen, None, None
+        fingerprint = dry_exits.state_fingerprint(world.task_root)
+        questions = read_rows(world.task_root / "state" / "driver-questions.jsonl", "the driver's question records")
+    except (MainPassError, dry_exits.StateUnreadable) as exc:
+        line("main/carrier", "fail", str(exc))
+        return f"a carrier cannot be read: {exc}", class_seen, None, None
+    return "", class_seen, fingerprint, questions
+
+
+def _answer_took(world: World, line, asks: list, unchanged: int, fingerprint, at_ask, turn: int) -> tuple:
+    """`(unchanged, stop)` after C3 for one answer: the count of answers in a row that left the state fingerprint as it was asked at (it restarts at 0 when
+    the state moved); the third in a row is a loop and a non-empty `stop`."""
+    if not (turn and at_ask is not None and fingerprint == at_ask):
+        return 0, ""
+    unchanged += 1
+    kind = asks[-1]["ask"].get("kind")
+    line(f"main/{kind}/C3", "fail", "the answer changed nothing: the state fingerprint is the one it was asked at (C3)")
+    if unchanged == 1:       # what the question said, once: the evidence of WHY the answer was not taken (N2d: gate_A x approve)
+        seen = _details_text(world, 2400)
+        line(f"main/{kind}/C3-details", "note", seen if seen is not None else "no details file")
+    if unchanged >= 3:       # the same answer, the same state, three times: the pass is a loop, not a walk (a run of 40 processes is 15 minutes of the same refusal)
+        return unchanged, f"the answer to {kind} changed nothing {unchanged} times running (C3)"
+    return unchanged, ""
+
+
+def _record_ask(world: World, q: dict) -> dict:
+    """The ask a question record makes: the record with the options the driver offered, and the hashes of the author's dispatch and its form (C5)."""
+    try:
+        offered = (json.loads((world.task_root / "state" / "driver-state.json").read_text(encoding="utf-8")).get("asked") or {}).get("offered") or []
+    except (OSError, ValueError):
+        offered = []
+    return _ask_of(world, q, offered)
+
+
+def drive_main(world: World, answers: dict, *, line, story_id: str = DEFAULT_STORY, prefix: str = "main", stop_after=None, drive_fn=None) -> dict:
+    """The turn loop of the main pass, ONE road for the pass and for the prefix an exits part needs (AR-15): one driver process per turn, the story's
+    own closed words between two turns, a snapshot on every closed stage, C3 after each answer, C5 over the asks, C6 at each gate, E18 before the first
+    stub step. `stop_after="S<n>"` ends the loop after the turn in which snapshot `S<n>` was made - at once when it already exists; `main_pass` never
+    passes it. `drive_fn` is the injectable `drive` (a fake in the table). Returns `{"state", "stop", "first_ref", "spans", "turns", "asks", "gates",
+    "class_seen"}`; a carrier it cannot read is a `MainPassError` the caller names."""
+    drive_fn = drive_fn or drive
+    done_turns, spans, first_ref, stop, asked, answer = 0, {}, "", "", 0, world.root / "answer.md"
+    asks, gates, at_ask, class_seen, unchanged = [], {}, None, False, 0
+    snaps = world.snaps / world.row["id"]
+    for turn in range(MAX_TURNS):
+        if stop_after and (snaps / stop_after).is_dir():
+            break
+        args = ["--max-boundaries", "60"] + (["--answer", str(answer)] if turn else [])
+        run = drive_fn(world, *args, timeout=TURN_CAP)
+        done_turns += 1
+        for name, secs in stage_seconds(run).items():
+            spans[name] = round(spans.get(name, 0.0) + secs, 1)
+        first_ref = first_ref or first_refusal(run.out)
+        state = stage_statuses(world)
+        for stage in STAGES:
+            if state[stage] == "done" and not (snaps / stage).is_dir():
+                snapshot(world, stage)
+        if run.rc == -9:
+            stop = f"over the cap: the driver was killed after {run.seconds:.0f} s (cap {TURN_CAP} s)"
+            break
+        if stop_after and (snaps / stop_after).is_dir():
+            break
+        stop, class_seen, fingerprint, questions = _turn_carriers(world, line, class_seen)
+        if stop:
+            break
+        for note in fingerprint.notes:
+            if turn == 0:
+                line("main/C3", "note", note)
+        unchanged, stop = _answer_took(world, line, asks, unchanged, fingerprint, at_ask, turn)
+        if stop:
+            break
+        if len(questions) <= asked:
+            stop = "" if state["S9"] == "done" else f"the driver ended (exit {run.rc}) with no new question and S9 not done"
+            break
+        asked, q = len(questions), questions[-1]
+        kind, stage = str(q.get("kind")), str(q.get("stage") or "")
+        asks.append(_record_ask(world, q))
+        at_ask = fingerprint
+        problem = loop_problem(asks)
+        if problem:
+            line(f"main/{kind}/C5", "fail", problem)
+            stop = problem
+            break
+        if kind in GATE_ASKS:
+            ready, why = gate_ready(world, kind)
+            gates[f"{prefix}/{kind}"] = ready is True
+            if ready is not True:
+                line(f"main/{kind}/C6", "fail", f"gate {GATE_ASKS[kind]} is asked while its rehearsal says gate_ready is not true: {why}"
+                     if ready is False else why)
+        if kind == "conductor":
+            words = _details_text(world, 6000)
+            stop = ("the road met the conductor: a state the driver has no move for; "
+                    + (f"its own words: {words}" if words is not None else "no details file"))
+            break
+        words = answers.get((stage, kind))
+        if words is None:
+            details = _details_text(world, 1600)
+            stop = (f"no answer for {kind} at {stage} in story {story_id} (A1-E3): the walk rows of story.json hold none"
+                    + (f"; the question's details: {details}" if details is not None else ""))
+            break
+        answer.write_bytes(words.encode("utf-8"))
+    else:
+        stop = f"{MAX_TURNS} driver processes without reaching S9"
+    return {"state": stage_statuses(world), "stop": stop, "first_ref": first_ref, "spans": spans, "turns": done_turns, "asks": asks, "gates": gates,
+            "class_seen": class_seen}
+
+
+def _ledger_lines(prefix: str, results: dict, line) -> tuple:
+    """`(ledger, red)` of the main pass: the ledger rows of this prefix, `known_red.reconcile` over the stages and gates reached, the pass lines, the
+    ledger's problems (red) and its known rows (notes); `red` is the first result that is red and has a ledger row."""
+    import known_red
+    try:
+        ledger = {k: v for k, v in known_red.load(KNOWN_RED_FILE).items() if k.startswith(prefix + "/")}
+        verdict = known_red.reconcile(results, ledger, ledger_path=str(KNOWN_RED_FILE))
+    except known_red.LedgerError as exc:
+        line("main/known_red", "fail", str(exc))
+        ledger, verdict = {}, None
+    for rid, ok in results.items():
+        if ok:
+            line(rid, "pass")
+    for problem in verdict.problems if verdict else ():
+        line("main/known_red", "fail", problem)
+    for known in verdict.known if verdict else ():
+        line("main/known_red", "note", known)
+    return ledger, next((k for k, ok in results.items() if not ok and k in ledger), None)
+
+
+def _stub_gap_lines(world: World, line) -> None:
+    """What the stub could not fill, per call: the stop's other half (notes)."""
+    for gap in read_rows(world.task_root / "state" / "dry-stub.jsonl", "the stub's journal"):
+        if gap.get("dispatch"):
+            line("main/stub-call", "note", f"{gap.get('dispatch')} n={gap.get('n')} stage={gap.get('stage') or '?'} resume={bool(gap.get('resume'))} wrote={len(gap.get('wrote') or [])} "
+                 f"live_only={len(gap.get('live_only') or [])}")
+        if gap.get("wrote"):
+            line("main/stub-wrote", "note", f"{gap.get('stage') or '?'} {gap.get('role') or ''} (window {gap.get('window') or '-'}): {dry_stub.cut(', '.join(map(str, gap['wrote'])), 300)}")
+        for item in gap.get("live_only") or []:
+            line("main/stub-live_only", "note", f"{gap.get('stage') or '?'} {gap.get('role') or ''}: {dry_stub.cut(item.get('output', ''), 80)}: {dry_stub.cut(item.get('why', ''), 400)}")
+        if (gap.get("fixed") or {}).get("exit"):
+            line("main/stub-fix", "note", f"{gap.get('stage') or '?'} {gap.get('role') or ''}: handoff_check --fix: {dry_stub.cut((gap['fixed']).get('text', ''), 500)}")
+
+
+def _snapshot_lines(world: World, line, red, ledger: dict) -> None:
+    """The snapshots the pass made, and for the stages it could not reach the rows that start there (notes); """
+    made = sorted(p.name for p in (world.snaps / world.row["id"]).glob("*") if SNAPSHOT_NAME.match(p.name))
+    line("main/snapshots", "note", f"made {', '.join(made) or 'none'}")
+    lacking = [s for s in STAGES if s not in made]
+    if lacking and red:
+        label_of = f"after:{ledger[red].node}"
+        line("main/after", "note", f"{label_of}: no snapshot for {', '.join(lacking)}")
+        try:
+            rows = dry_exits.load_walk_rows()
+        except dry_exits.ExitsUnreadable as exc:
+            line("main/after", "fail", str(exc))
+            rows = {}
+        for rid, row in sorted(rows.items()):
+            if str(row.get("start")) in lacking:
+                line(rid, "note", f"{label_of}: its start snapshot {row.get('start')} was not made")
+    elif lacking:
+        line("main/after", "note", f"no snapshot for {', '.join(lacking)} and no known_red row at the stop: rows starting there are not run")
+
+
+def _closing_lines(world: World, line, reached: list, class_seen: bool, total: float, done_turns: int, spans: dict) -> None:
+    """The time, the stub's journal, the price keys and the scoreboard of the pass (notes; a stub journal absent after a closed stage is red, E7)."""
+    line("main/time", "note", f"{total:.1f} s in {done_turns} driver process(es); seconds per stage {spans}; stages done {', '.join(reached)}")
+    stub = read_rows(world.task_root / "state" / "dry-stub.jsonl", "the stub's journal") if reached[1:] or class_seen else []
+    if len(reached) > 1 and not stub:
+        line("main/carrier", "fail", f"{world.task_root / 'state' / 'dry-stub.jsonl'}: absent although S{len(reached) - 1} closed; expected the stub's journal (E7)")
+    elif stub:
+        line("main/stub", "note", f"{sum(1 for r in stub if r.get('conductor'))} conductor call(s), {sum(1 for r in stub if r.get('dispatch'))} role call(s) "
+             f"(the journal's first line holds the run class {stub[0].get('run_class')!r})")
+    priced = sorted({r.get("key") for r in read_rows(world.task_root / "state" / "dry-priced.jsonl", "the price keys the wrapper recorded")})
+    line("main/priced", "note", f"price keys observed: {', '.join(map(str, priced)) or 'none'}")
+    scoreboard(world, line)
+
+
+def main_pass(story_id: str = DEFAULT_STORY, label: str = "default", ledger_path=None) -> list:
+    """The main pass of the dry story: `[scenario_walk.Result]`. S0..S9 through the real driver; the answers are the story's own rows; a snapshot on every
+    closed stage (4.3); C3 after each answer, C5 over the asks, C6 at each gate question, E18 before the first stub step. A stop before S9 is judged by
+    the ledger (`known_red.reconcile`): at a row with a finding id it is a NOTE and the stages after it are `after:<finding>`; any other stop is red."""
+    import scenario_walk
+    out, prefix = [], ("main" if label == "default" else f"main:{label}")
+
+    def line(name, kind, detail=""):
+        out.append(scenario_walk.Result(f"{story_id}/{name}", kind, detail))
+
+    try:
+        story = scenario_walk.load_story(story_id)
+        answers = walk_answers(story)
+        _types, gaps = load_types()
+    except (scenario_walk.StoryError, TypesError) as exc:
+        line("load", "fail", str(exc))
+        return out
+    for gap in gaps:
+        line(f"gap/{gap['id']}", "note", f"{gap['note']} - {gap['why']} (waits {gap.get('waits', '?')})")
+    world = build_story_world(story_id)
+    started = time.monotonic()
+    try:
+        got = drive_main(world, answers, line=line, story_id=story_id, prefix=prefix)
+        done_turns, spans, first_ref, stop, gates, class_seen = got["turns"], got["spans"], got["first_ref"], got["stop"], got["gates"], got["class_seen"]
+        state = got["state"]
+        stop_stage = next((s for s in STAGES if state[s] != "done"), None)        # the first stage not closed: the pass is red or ledgered THERE
+        results = {f"{prefix}/{s}": state[s] == "done" for s in STAGES[:STAGES.index(stop_stage) + 1 if stop_stage else len(STAGES)]}
+        results.update(gates)
+        ledger, red = _ledger_lines(prefix, results, line)
+        reached = [s for s in STAGES if state[s] == "done"]
+        if stop:
+            line("main/stop", "note", f"stopped at {stop_stage or 'the end'}: {stop}"
+                 + (f"; the driver's first refusal: {dry_stub.cut(first_ref, 300)}" if first_ref else ""))
+        _stub_gap_lines(world, line)
+        _snapshot_lines(world, line, red, ledger)
+        _closing_lines(world, line, reached, class_seen, time.monotonic() - started, done_turns, spans)
+    except MainPassError as exc:
+        line("main/carrier", "fail", str(exc))
+    finally:
+        world.close()
+    return out
+
+
+# ------------------------------------------------------------------------------------------------ the exit rows (node N4w)
+# The executor of ONE walk row (spec docs/tasks/specs/20261114-p1b-n4w-exit-walker-spec.md section 5): a COPY of a snapshot of this process, the row's
+# control, the seed, the answer, the turns after it; it COLLECTS data and the pure `dry_exits.judge_row` judges it (AR-29: nothing here reads meaning).
+ROW_CAP_EXITS = 240        # seconds of driver time one row may use, seed + answer + turns after it (F-W17 (a), E6); over it the row is red
+POST_TURNS = 4             # single-boundary turns after the answer (S-3): C5 needs a third ask, plus one turn of slack
+OP_ARGS = (("{task_root}", "task_root"), ("{task}", "task"))
+
+
+class Budget:
+    """The per-row cap: driver seconds (a `Run`'s own `seconds`) plus the seconds of an `op`. AT the cap the row still runs, BEYOND it does not."""
+
+    def __init__(self, cap):
+        self.cap, self.spent = cap, 0.0
+
+    def left(self) -> int:
+        return max(1, int(self.cap - self.spent))
+
+    def charge(self, seconds) -> bool:
+        self.spent += seconds
+        return self.spent > self.cap
+
+    def over(self, phase: str) -> str:
+        return f"over the cap: {self.spent:.0f} s (cap {self.cap} s) at {phase}"
+
+
+def answer_bytes(row: dict, story_dir) -> bytes:
+    """The bytes of the answer file a row writes (S-7): `words_file` - the file's raw bytes (BOM and CRLF kept), resolved INSIDE the story folder
+    (`dry_exits.resolve_words_file`, EW14); `token` and `words` - `token + "\\n" + words`; `token` only - `token + "\\n"`; `words` only - the words as
+    UTF-8; all three null - `b""` (legal only for the variant `empty`, the loader refuses it elsewhere)."""
+    answer = row.get("answer") or {}
+    token, words, name = answer.get("token"), answer.get("words"), answer.get("words_file")
+    if name is not None:
+        path, problem = dry_exits.resolve_words_file(story_dir, name)
+        if problem:
+            raise MainPassError(f"row {row.get('id')!r}: {problem}")
+        return path.read_bytes()
+    if token is not None and words is not None:
+        return f"{token}\n{words}".encode("utf-8")
+    if token is not None:
+        return f"{token}\n".encode("utf-8")
+    return words.encode("utf-8") if words is not None else b""
+
+
+def pending_ask(world: World):
+    """`driver-state.json`'s `asked` record (kind, stage, dispatch, offered, ...) when a question is pending, else None."""
+    try:
+        asked = json.loads((world.task_root / "state" / "driver-state.json").read_text(encoding="utf-8")).get("asked") or {}
+    except (OSError, ValueError):
+        return None
+    return asked if asked.get("kind") else None
+
+
+def _state_rows(world: World, name: str, what: str) -> list:
+    return read_rows(world.task_root / "state" / name, what)
+
+
+def counts(world: World) -> dict:
+    """How many rows each carrier of the row's facts holds NOW; a row's own rows are the ones beyond the count taken at its start."""
+    return {key: len(_state_rows(world, name, what)) for key, name, what in (
+        ("stub", "dry-stub.jsonl", "the stub's journal"), ("priced", "dry-priced.jsonl", "the price keys the wrapper recorded"),
+        ("routes", "dry-routes.jsonl", "the routes the wrapper recorded"), ("answers", "driver-answers.jsonl", "the driver's answer records"),
+        ("passed", "passed-by-person.jsonl", "the passes by the person's word"))}
+
+
+def row_facts(copy: World, before: dict, mid: dict) -> dict:
+    """The facts of a row that live in the copy's files (the rest the walker holds from its own turns): the answer records written after the answer
+    (`mid` = `counts` taken when the answer was written), the stub lines the row added since `before`, the conductor calls and passes after the
+    answer, the routes the wrapper recorded during the row."""
+    stub = _state_rows(copy, "dry-stub.jsonl", "the stub's journal")
+    return {"answer_records": _state_rows(copy, "driver-answers.jsonl", "the driver's answer records")[mid["answers"]:],
+            "stub_added": [{"run_class": r.get("run_class"), "conductor": bool(r.get("conductor"))} for r in stub[before["stub"]:]],
+            "conductor_calls": sum(1 for r in stub[mid["stub"]:] if r.get("conductor")),
+            "passed_lines": len(_state_rows(copy, "passed-by-person.jsonl", "the passes by the person's word")) - mid["passed"],
+            "routes_added": [str(r.get("route")) for r in _state_rows(copy, "dry-routes.jsonl", "the routes the wrapper recorded")[before["routes"]:]]}
+
+
+def _holds(copy: World, stage: str, question: str) -> bool:
+    """True when the copy ALREADY holds the question pending (EW12): the pending ask is at the stage and its kind, or the last priced key, is `question`."""
+    asked = pending_ask(copy)
+    if not asked or str(asked.get("stage") or "") != stage:
+        return False
+    priced = _state_rows(copy, "dry-priced.jsonl", "the price keys the wrapper recorded")
+    return asked.get("kind") == question or bool(priced and priced[-1].get("key") == question)
+
+
+def run_seed(copy: World, recipe, answers: dict, *, cap=ROW_CAP_EXITS, drive_fn=None, budget=None) -> tuple:
+    """`(reached, detail)`: the steps of a recipe in order, every turn bounded by the row's cap (EW22/EW23, F-W17). `drive_until`: reached with no driver
+    run when the copy already holds the question; else one driver process per turn, an intermediate question answered with the story's closed words
+    (`walk_answers`, the main pass's one source); an intermediate question with no words, the conductor, a driver exit with no new question or
+    `MAX_TURNS` is NOT reached and the detail names it (EW17, EW25). `op`: a script of the closed list, run in the copy with `STORY_RUN_CLASS=dry`,
+    exit != 0 is not reached with the stderr cut at 400."""
+    drive_fn = drive_fn or drive
+    budget = budget or Budget(cap)
+    for step in recipe or []:
+        if "op" in step:
+            script, *args = step["op"]
+            fill = {"{task_root}": str(copy.task_root), "{task}": copy.task}
+            args = [a.replace("{task_root}", fill["{task_root}"]).replace("{task}", fill["{task}"]) for a in args]
+            started = time.monotonic()
+            try:
+                proc = subprocess.run([sys.executable, "-B", str(harness.SCRIPTS / script), *args], cwd=str(copy.root),
+                                      env=dict(copy.env, PYTHONDONTWRITEBYTECODE="1", STORY_RUN_CLASS="dry"), capture_output=True, text=True,
+                                      encoding="utf-8", errors="replace", timeout=budget.left())
+            except subprocess.TimeoutExpired:
+                budget.spent = budget.cap + 1
+                return False, budget.over(f"op {script}")
+            if budget.charge(time.monotonic() - started):
+                return False, budget.over(f"op {script}")
+            if proc.returncode != 0:
+                return False, f"op {script} exit {proc.returncode}: {dry_stub.cut(proc.stderr or proc.stdout, 400)}"
+            continue
+        stage, question = step["drive_until"]["stage"], step["drive_until"]["question"]
+        for turn in range(MAX_TURNS):
+            if _holds(copy, stage, question):
+                break
+            asked, args = pending_ask(copy), ["--max-boundaries", "60"]
+            if asked:
+                kind, at = str(asked.get("kind")), str(asked.get("stage") or "")
+                if kind == "conductor":
+                    return False, f"met the conductor at {at}: a state the driver has no move for"
+                words = answers.get((at, kind))
+                if words is None:
+                    return False, f"met {kind} at {at} with no answer in story.json (A1-E3)"
+                (copy.root / "answer.md").write_bytes(words.encode("utf-8"))
+                args += ["--answer", str(copy.root / "answer.md")]
+            before = len(_state_rows(copy, "driver-questions.jsonl", "the driver's question records"))
+            run = drive_fn(copy, *args, timeout=budget.left())
+            if run.rc == -9 or budget.charge(run.seconds):
+                return False, budget.over(f"seed turn {turn + 1}")
+            if len(_state_rows(copy, "driver-questions.jsonl", "the driver's question records")) <= before:
+                return False, f"the driver exited ({run.rc}) with no new question before {question} at {stage}"
+        else:
+            return False, f"{MAX_TURNS} driver processes without reaching {question} at {stage} (MAX_TURNS)"
+    return True, ""
+
+
+def _ask_of(world: World, record: dict, offered, dispatch=None) -> dict:
+    """The ask of a question record (C5): the record with the options offered, and the hashes of the author's dispatch and its form."""
+    author, form = author_hashes(world, str((record.get("dispatch") if dispatch is None else dispatch) or ""))
+    return {"ask": dict(record, offered=list(offered or [])), "author": author, "form": form}
+
+
+def _rework_facts(ask: dict) -> dict:
+    """The facts C9 reads at a `stage_review_exhausted` ask: the options the driver offered and the role that authors the stage (stages.json)."""
+    stages = json.loads((harness.PLUGIN_ROOT / "references" / "stages.json").read_text(encoding="utf-8")).get("stages") or []
+    stage = str(ask.get("stage") or "")
+    return {"options": ask.get("options") or [], "author": next((str(s.get("role") or "") for s in stages if s.get("id") == stage), "")}
+
+
+def run_exit_row(world: World, row: dict, recipes: dict, answers: dict, story_dir, *, cap=ROW_CAP_EXITS, drive_fn=None, line=None) -> dict:
+    """The facts of ONE row (`judge_row` judges them): a copy of the start snapshot with its OWN `snaps` dir (a gate rehearsal copies the copy, never the
+    main snapshots, EW20), the row's control, the seed, the answer, then single-boundary turns until the fingerprint changed with a new ask, the driver
+    left with nothing new, a loop showed, or `POST_TURNS` ran out (EW24). The copy is removed with `harness.cleanup`; `close()` is never called on it."""
+    from driver_dialog import question_body_sha
+    drive_fn = drive_fn or drive
+    copy = from_snapshot(world, row["start"])
+    copy.snaps = Path(tempfile.mkdtemp(prefix="qa-dry-snap-"))
+    facts: dict = {"cap": cap, "loop": "", "post_turns": 0}
+    budget, checks = Budget(cap), list((row.get("expect") or {}).get("checks") or [])
+    try:
+        copy.control(row.get("stub"))
+        before = counts(copy)
+        recipe = recipes.get(row["seed"]) if row.get("seed") else []
+        reached, detail = run_seed(copy, recipe, answers, cap=cap, drive_fn=drive_fn, budget=budget)
+        facts["seed"] = {"reached": reached, "detail": detail}
+        if not reached:
+            if detail.startswith("over the cap"):
+                facts["over_cap"] = detail.rsplit(" at ", 1)[-1]
+            return facts
+        ask = pending_ask(copy)
+        facts["ask"] = dict(ask, offered=list(ask.get("offered") or [])) if ask else None
+        priced = _state_rows(copy, "dry-priced.jsonl", "the price keys the wrapper recorded")
+        facts["priced_at_ask"] = priced[-1] if priced else None
+        if not ask:
+            return facts
+        question = copy.task_root / "state" / "driver-question.md"
+        facts["ask_sha"] = question_body_sha(question.read_text(encoding="utf-8", errors="replace") if question.is_file() else "")
+        facts["fp_ask"] = dry_exits.state_fingerprint(copy.task_root).digest
+        questions = _state_rows(copy, "driver-questions.jsonl", "the driver's question records")
+        asks = [_ask_of(copy, dict(questions[-1] if questions else {}), ask.get("offered"), dispatch=str(ask.get("dispatch") or ""))]
+        gates, whys, outputs, fp_after, notes = [], [], [], None, []
+
+        def rehearse(kind):
+            if "C6" in checks and kind in GATE_ASKS:
+                ready, why = gate_ready(copy, kind)
+                gates.append({"kind": kind, "ready": ready, "detail": why})
+
+        rehearse(str(ask.get("kind")))
+        path = copy.root / "answer.md"
+        path.write_bytes(answer_bytes(row, story_dir))
+        mid, asked_count = counts(copy), len(questions)
+        for turn in range(POST_TURNS):
+            run = drive_fn(copy, "--answer", str(path), "--max-boundaries", "1", timeout=budget.left())
+            facts["post_turns"] = turn + 1
+            outputs.append(run.out)
+            if run.rc == -9 or budget.charge(run.seconds):
+                facts["over_cap"] = f"answer turn {turn + 1}"
+                break
+            fingerprint = dry_exits.state_fingerprint(copy.task_root)
+            fp_after, notes = fingerprint.digest, list(fingerprint.notes)
+            questions = _state_rows(copy, "driver-questions.jsonl", "the driver's question records")
+            now = pending_ask(copy)
+            if now and now.get("kind") == "conductor" and now.get("why"):
+                whys.append(str(now["why"]))
+            if len(questions) <= asked_count:
+                break
+            asked_count = len(questions)
+            asks.append(_ask_of(copy, questions[-1], (now or {}).get("offered")))
+            if now:
+                rehearse(str(now.get("kind")))
+            facts["loop"] = loop_problem(asks)
+            if facts["loop"] or fp_after != facts["fp_ask"]:
+                break
+        else:
+            facts["exhausted"] = True
+        text = "\n".join(outputs)
+        facts.update(fp_after=fp_after, fp_notes=notes, gates=gates, conductor_whys=whys, asked_after=pending_ask(copy), refusal_text=first_refusal(text),
+                     empty_refused="is empty" in text, **row_facts(copy, before, mid))
+        if "C9" in checks and ask.get("kind") == "conductor" and ask.get("why") == "stage_review_exhausted":
+            facts["rework"] = _rework_facts(ask)
+        if line:
+            scoreboard(copy, line)
+        return facts
+    finally:
+        harness.cleanup(copy.root)
+        shutil.rmtree(copy.snaps, ignore_errors=True)
+
+
+def snapshot_index(world: World) -> list:
+    """One line per snapshot made (item 6 (c)): its last closed stage, the question it waits at, the statuses of the stages - what N4 builders pick a start from."""
+    lines = []
+    for path in sorted(p for p in (world.snaps / world.row["id"]).glob("*") if p.is_dir() and not p.name.startswith("gate-")):
+        root = path / "qa-factory" / "artifacts" / world.task
+        try:
+            stages = (json.loads((root / "pipeline.json").read_text(encoding="utf-8")).get("stages") or {})
+        except (OSError, ValueError):
+            stages = {}
+        asked = {}
+        try:
+            asked = json.loads((root / "state" / "driver-state.json").read_text(encoding="utf-8")).get("asked") or {}
+        except (OSError, ValueError):
+            pass
+        state = {s: (stages.get(s) or {}).get("status", "absent") for s in STAGES}
+        closed = [s for s in STAGES if state[s] == "done"]
+        lines.append(f"{path.name}: last closed {closed[-1] if closed else 'none'}; waiting at {asked.get('kind') or 'no question'}"
+                     + (f" ({asked.get('stage')})" if asked.get("kind") else "") + f"; stages {', '.join(f'{s} {state[s]}' for s in STAGES if state[s] != 'absent')}")
+    return lines
+
+
+def _row_not_run(row: dict):
+    """The NOTE outcome of a row that does not run (an open owner question, `live_only`, a static `after:`), or None when the row runs."""
+    expect = row.get("expect") or {}
+    reach = str(row.get("reach"))
+    if expect.get("owner_question"):
+        return dry_exits.Outcome("note", f"owner question {expect['owner_question']} open", tag="owner_question")
+    if reach == "live_only":
+        return dry_exits.Outcome("note", f"live_only: {row.get('why_unreached')}", tag="live_only")
+    if reach.startswith("after:"):
+        return dry_exits.Outcome("note", f"{reach}: {row.get('why_unreached')}", tag="after", node=reach[len("after:"):])
+    return None
+
+
+def _run_judged_row(world: World, row: dict, recipes: dict, answers: dict, story_dir, universe, classer, drive_fn, say) -> object:
+    """The outcome of ONE row that runs: its facts (`run_exit_row`) judged by `dry_exits.judge_row`; the scoreboard of the row is said through
+    `say(tail, kind, text)`; a carrier the row cannot read is a FAIL naming it."""
+    import scenario_walk
+    section, subject, _variant = dry_exits._subject_of(row["id"])
+    board: list = []
+    try:
+        facts = run_exit_row(world, row, recipes, answers, story_dir, drive_fn=drive_fn, line=lambda n, k, d: board.append((k, d)))
+        notes = [d for k, d in board if k == "note"]
+        if notes:       # the scoreboard's rows are ONE note per row (21 counters a row would bury the outcome lines)
+            say("scoreboard", "note", "; ".join(notes))
+        for _k, d in [item for item in board if item[0] != "note"]:
+            say("scoreboard", "fail", d)
+        klass = classer(section, subject) if classer and "C4" in ((row.get("expect") or {}).get("checks") or []) else ""
+        return dry_exits.judge_row(row, facts, prices=universe.prices, class_of_subject=klass)
+    except (MainPassError, dry_exits.StateUnreadable, SnapshotError, scenario_walk.StoryError) as exc:
+        return dry_exits.Outcome("fail", f"{row['id']}: a carrier of the row cannot be read: {dry_stub.cut(exc, 300)}")
+
+
+def walk_exits(story_id: str, rows: list, recipes: dict, ledger_path, line, *, exits_label: str, story_dir=None, universe=None, classer=None,
+               drive_fn=None) -> list:
+    """The rows of ONE group, `[(row id, dry_exits.Outcome)]` in file order. Rows that do not run (`live_only`, a static `after:`, an owner question) get
+    their NOTE with no world. The rest: ONE story world, the main-pass PREFIX up to the latest `start` of the group (`drive_main(stop_after=)`, F-W5 (a)),
+    the snapshot index, a hash of every start snapshot, then each row on a copy (`run_exit_row`) judged by `dry_exits.judge_row`; a start snapshot the
+    prefix did not make is NOTE `after:<node>` when the prefix stop is a `main/S<n>` ledger row and red otherwise (I9); afterwards every start snapshot
+    is hashed again (EW21). `line(full name, kind, detail)` prints; the prefix's own lines are never PASS/FAIL (only a red of the prefix is printed)."""
+    import known_red
+    import scenario_walk
+    universe = universe or dry_exits.Universe.real()
+    name = lambda tail: f"{story_id}/{exits_label}/{tail}"      # noqa: E731
+    not_run = _row_not_run
+    todo = [row for row in rows if not_run(row) is None]
+    outcomes: list = []
+    if not todo:
+        return [(row["id"], not_run(row)) for row in rows]
+    story = scenario_walk.load_story(story_id)
+    answers = walk_answers(story)
+    world = build_story_world(story_id)
+    try:
+        starts = sorted({row["start"] for row in todo})
+        ordinal = [int(s[1:]) for s in starts if s != "fresh"]
+        snaps = world.snaps / world.row["id"]
+        if "fresh" in starts:
+            snapshot(world, "fresh")
+        got = {"state": stage_statuses(world), "stop": ""}
+        began = time.monotonic()
+        if ordinal:
+            kept: list = []
+            got = drive_main(world, answers, line=lambda n, k, d: kept.append((n, k, d)), story_id=story_id, prefix=exits_label, stop_after=f"S{max(ordinal)}",
+                             drive_fn=drive_fn)
+            for n, k, d in kept:
+                if k == "fail":
+                    line(name(f"prefix/{n}"), "fail", d)
+        closed = [s for s in STAGES if got["state"][s] == "done"]
+        made = sorted(p.name for p in snaps.glob("*") if p.is_dir())
+        line(name("prefix"), "note", f"reached {closed[-1] if closed else 'none'} in {time.monotonic() - began:.1f} s; snapshots {', '.join(made) or 'none'}"
+             + (f"; stopped: {dry_stub.cut(got['stop'], 200)}" if got.get("stop") else ""))
+        for text in snapshot_index(world):
+            line(name("snapshots"), "note", text)
+        hashes = {start: tree_hash(snaps / start) for start in starts if (snaps / start).is_dir()}
+        last: dict = {}
+        stop_stage = next((s for s in STAGES if got["state"][s] != "done"), None)
+        try:
+            main_ledger = {**known_red.load(KNOWN_RED_FILE), **known_red.load(ledger_path)}
+        except known_red.LedgerError:
+            main_ledger = {}
+        for row in rows:
+            rid = row["id"]
+            outcome = not_run(row)
+            if outcome is None and not (snaps / row["start"]).is_dir():
+                red = main_ledger.get(f"main/{stop_stage}") if stop_stage else None
+                outcome = (dry_exits.Outcome("note", f"after:{red.node}: its start snapshot {row['start']} was not made", tag="after", node=red.node) if red else
+                           dry_exits.Outcome("fail", f"start {row['start']} not made and the main pass stopped at {stop_stage or 'the end'} with no known_red row"))
+            if outcome is None:
+                outcome = _run_judged_row(world, row, recipes, answers, story_dir or STORIES / story_id, universe, classer, drive_fn,
+                                          lambda tail, kind, text: line(name(f"{rid}/{tail}"), kind, text))
+                last[row["start"]] = rid
+            outcomes.append((rid, outcome))
+        for start, before in hashes.items():
+            red = snapshot_red(last.get(start, "-"), before, snaps / start)
+            if red:
+                line(name("snapshots"), "fail", f"{red} (start {start}; the row that ran last on it is named)")
+    finally:
+        world.close()
+    return outcomes
 
 
 def main(argv: list) -> int:

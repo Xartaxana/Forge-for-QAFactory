@@ -72,7 +72,54 @@ def main() -> None:
     finally:
         F.cleanup_fixture(fx2)
 
+    world_list_rows()
     finish("test_form_selftest")
+
+
+def world_list_rows() -> None:
+    """The filler's `<instance>` token (form-fill-rules.json `world_list_tokens`): written once per file that exists in work/probes/, never made up."""
+    import json
+    import tempfile
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import form_filler as FF
+    contract = "s5-critic-to-automator"
+    records = lambda filled: [r.get("record") for r in (filled.data.get("probes") or {}).get("records", [])]
+    refused = lambda filled: [u.why for u in filled.unfillable if u.path.startswith("probes.records")]
+    none_text = "no probe record exists in work/probes/ and the contract declares no empty outcome for probes.records"
+    one_file = ["work/probes/i1.json"]
+    rows = {"no work/probes folder": (None, [], none_text),
+            "empty work/probes folder": ([], [], none_text),
+            "a file the glob does not match": (["notes.txt"], [], none_text),
+            "one file": (["i1.json"], one_file, ""),
+            "two files, name order": (["b-2.json", "a.1.json"], ["work/probes/a.1.json", "work/probes/b-2.json"], ""),
+            "a file that is no JSON, an odd stem used as is": (["x y.json", "z_9.json"], ["work/probes/x y.json", "work/probes/z_9.json"], "")}
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        ctx = FF.FillContext(dispatch_id="D1", task_root=str(root))
+        for label, (files, want, reason) in rows.items():
+            folder = root / "work" / "probes"
+            if folder.exists():
+                for old in folder.iterdir():
+                    old.unlink()
+            if files is not None:
+                folder.mkdir(parents=True, exist_ok=True)
+                for name in files:
+                    (folder / name).write_text("not json" if name == "x y.json" else json.dumps({"instance": name}), encoding="utf-8")
+            filled = FF.fill_form(contract, ctx)
+            check_eq(f"world list: {label}: the refusals at probes.records", refused(filled), [reason] if reason else [])
+            if want:
+                check_eq(f"world list: {label}: the records the form names", records(filled), want)
+        two = FF.fill_form(contract, ctx)
+        check_eq("world list: a row keeps its other fields filled as the one-row form (two rows, same instance text)",
+                 [r["instance"] for r in two.data["probes"]["records"]], ["filled instance", "filled instance"])
+        check("world list: the rest of the form is not touched by the rows",
+              {k: v for k, v in two.data.items() if k != "probes"} == {k: v for k, v in FF.fill_form(contract, FF.FillContext(dispatch_id="D1")).data.items() if k != "probes"})
+        check_eq("world list: no task_root in the context: unfillable naming the key",
+                 refused(FF.fill_form(contract, FF.FillContext(dispatch_id="D1"))),
+                 ["the contract's token <instance> reads the files under `work/probes` of the world, and the context has no key `task_root`"])
+        other = "s5-automator-to-critic"
+        check_eq("world list: another form's output is the same with or without a task_root (nothing of it changes)",
+                 FF.fill_form(other, FF.FillContext(dispatch_id="D1", task_root=str(root))).text, FF.fill_form(other, FF.FillContext(dispatch_id="D1")).text)
 
 
 if __name__ == "__main__":

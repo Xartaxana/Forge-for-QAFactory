@@ -112,6 +112,10 @@ TEST_TIMEOUTS = {
     # `story_step start` on its own copy of the world. 330 s on a loaded Windows box; full tier only.
     "test_scenario_cart_1.py": 1200,
     "test_scenario_local_1_arm_b.py": 1200,
+    # 14.11: P1-b N3, the dry story's main pass: the real driver, one process per turn, a snapshot per closed stage. The main pass stops at S5
+    # today: 138.0 s (canon 44000950573) / 210.8 s (44006084665) on CI, 304.8 s locally for the main pass alone; the ceiling holds the pass
+    # through S9. A ceiling, not a target.
+    "test_scenario_dry_1.py": 900,
     "test_scenario_local_1_0108.py": 1800,
     "test_red_sandbox_probe.py": 600,
     # 05.10: 345 checks split out of test_red_sandbox_probe.py (which ran 769 s as one file): 327 s alone on

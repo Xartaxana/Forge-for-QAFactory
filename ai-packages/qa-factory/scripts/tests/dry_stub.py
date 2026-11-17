@@ -36,8 +36,16 @@ COMMANDS = {"context_bundle.py": ["--manifest", "{task_root}/work/context-manife
 # "Source collection", the one writer of work/source-inventory.json is ticket_adapter.py). Only a step that decides nothing is here: recording the task is
 # a read by the tracker's own client; the judging of a mentioned ticket (`assess`) is the role's and stays with no step (E13).
 ROLE_STEPS = {"qa-scout": [("work/source-inventory.json", "ticket_adapter.py",
-                            ["collect", "{task}", "--relation", "task", "--output", "{task_root}/work/source-inventory.json", "--summary"])]}
-MOVE_LINE =re.compile(r"^- `(\w+)`(?: — token `([^`]+)`)?;")
+                            ["collect", "{task}", "--relation", "task", "--output", "{task_root}/work/source-inventory.json", "--summary"]),
+                           # skills/qa-story/phases/s1.md "Exit" step 2: `stage_done.py --task <TICKET> --set implementation_source=<diff|current-code|ungrounded>`;
+                           # the value is `diff` because the world holds a change (the step is skipped, named, when it holds none)
+                           ("pipeline.implementation_source", "stage_done.py", ["--task", "{task}", "--set", "implementation_source=diff"])]}
+# The commands a role runs AFTER it wrote its outputs (they read them): the S2 tester's step 5 (`sizing.py --task <TICKET>`, agents/qa-requirements-tester.md and
+# skills/qa-story/phases/s2.md "Exit" 1) and the recording of the size it printed (`stage_done.py --task <TICKET> --set size=<XS|S|M|L|XL|XXL>`, same text).
+# `{size}` is the `size` of the `work/sizing.json` the first step wrote: a value computed by code, never one of the stub's own.
+AFTER_STEPS = {("qa-requirements-tester", "S2"): [("work/sizing.json", "sizing.py", ["--task", "{task}"]),
+                                                   ("pipeline.size", "stage_done.py", ["--task", "{task}", "--set", "size={size}"])]}
+MOVE_LINE = re.compile(r"^- `(\w+)`(?: — token `([^`]+)`)?;")
 FORM_CONTRACT = re.compile(r"^contract:\s*(\S+)", re.M)
 FORM_STAGE = re.compile(r"^stage:\s*(\S+)", re.M)
 
@@ -60,17 +68,76 @@ def parse_moves(prompt: str) -> list:
     return moves
 
 
+STUB_ONLY = ("variant", "execute")        # keys of a row's `conductor` control the stub itself reads; they are never part of the verdict it prints
+
+
+def move_option(move: str, token: str) -> dict:
+    """One option of an `ask_person` answer for an open move, every line from the move's own row of conductor-actions.json (`says`, and the price lines
+    `factory` / `person` / `delivery` resolved by `no_move.price_row`, the one resolution): no text of the stub's own. A row that does not resolve is a
+    `KitError` naming the move."""
+    import hooklib
+    import no_move as NM
+    row = NM.move_rows().get(move)
+    if not row or not str(row.get("says") or "").strip():
+        raise KitError(f"references/conductor-actions.json: no move `{move}` with a `says`; the prompt offered it")
+    try:
+        priced = NM.price_row(NM.data(), (hooklib.load_ref_json(NM.VERDICTS_FILE) or {}).get("words") or {}, row, f"moves.{move}")
+    except NM.DataUnreadable as exc:
+        raise KitError(f"references/conductor-actions.json: the price row of `{move}` does not resolve ({exc})") from None
+    return {"token": token, "move": move, "says": str(row["says"]).strip(), "factory": priced["factory"], "person": priced["person"],
+            "story": {"delivery": str(row.get("delivery") or "")}}
+
+
 def conductor_verdict(prompt: str, control: dict) -> dict:
-    """The conductor stub, deterministic: the row's `conductor` control when it has one, else `ask_person` offering EVERY open move of the
-    prompt's own list, else `stop` naming that the prompt offered none."""
-    if control.get("conductor"):
-        return dict(control["conductor"])
+    """The conductor stub, deterministic. A row's `conductor` control that names an `action` other than `ask_person`, or carries its own `options`, is the
+    verdict as written (minus the keys the stub reads itself, `STUB_ONLY`). Otherwise `ask_person` offering EVERY open move of the prompt's own list, or
+    only those the row's `variant` names (a token, or a list of tokens; one the prompt does not offer is `stop` naming it, never an invented option),
+    each option priced from the move's row; `why_person`, `checked`, `question`, `did` come from the row, else from the defaults of RN1-9. No open move
+    in the prompt is `stop` naming that the prompt offered none."""
+    row = control.get("conductor") or {}
+    if row.get("options") or row.get("action") not in (None, "ask_person"):
+        return {k: v for k, v in row.items() if k not in STUB_ONLY}
+    if row.get("execute") and not row.get("action"):
+        return {"action": "continue", "did": f"stub: ran the move {row['execute'].get('move')}", "question": ""}
     moves = parse_moves(prompt)
     if not moves:
         return {"action": "stop", "did": "stub: the prompt lists no open move to offer", "question": ""}
-    return {"action": "ask_person", "did": "stub: offered every open move", "question": "Which of these should happen?",
-            "why_person": "access", "checked": "the refusal",
-            "options": [T.seam_option(token, move) for move, token in moves]}
+    wanted = row.get("variant")
+    if wanted is not None:
+        wanted = [wanted] if isinstance(wanted, str) else list(wanted)
+        absent = [w for w in wanted if w not in [token for _m, token in moves]]
+        if absent:
+            return {"action": "stop", "did": f"stub: the row's variant {absent} is not offered by the prompt (open: {[t for _m, t in moves]})", "question": ""}
+        moves = [(m, t) for m, t in moves if t in wanted]
+    return {"action": "ask_person", "did": row.get("did") or "stub: offered every open move",
+            "question": row.get("question") or "Which of these should happen?",
+            "why_person": row.get("why_person", DEFAULT_WHY), "checked": row.get("checked", DEFAULT_CHECKED),
+            "options": [move_option(move, token) for move, token in moves]}
+
+
+def conductor_execute(execute, project, task_dir, task: str, run=None) -> dict:
+    """The journal's account of the move a conductor row says to run (E3). `execute`: `{"move": <id>, "run": [[script, args...], ...]}` - exactly the
+    commands of the move (each script must be the one the move's own `run` text in conductor-actions.json starts with; `{task_root}` and `{task}` in an
+    argument are filled) - or `{"move": <id>, "executor": "conductor_judgment"}` for a move no command fills without judgment: nothing runs and the
+    row says so, so the case is judged by the later checks only, never counted as run (AR-29). A move or a script the data does not hold is `refused`."""
+    import no_move as NM
+    run = run or run_script
+    if not isinstance(execute, dict) or not execute.get("move"):
+        return {"refused": "`execute` names no move"}
+    move = str(execute["move"])
+    row = NM.move_rows().get(move)
+    if row is None:
+        return {"move": move, "refused": f"no move `{move}` in references/conductor-actions.json"}
+    if execute.get("executor") == "conductor_judgment":
+        return {"move": move, "executor": "conductor_judgment", "ran": []}
+    head = str(row.get("run") or "").split()[:1]
+    ran = []
+    for command in execute.get("run") or []:
+        if not isinstance(command, list) or not command or [command[0]] != head:
+            return {"move": move, "ran": ran, "refused": f"the command {command!r} is not the move's own (its `run` starts with {head})"}
+        code, text = run(project, command[0], [str(a).replace("{task_root}", str(task_dir)).replace("{task}", task) for a in command[1:]])
+        ran.append({"command": command, "exit": code, "text": cut(text)})
+    return {"move": move, "executor": "stub", "ran": ran}
 
 
 def source_key(item: dict) -> str:
@@ -95,6 +162,19 @@ def awaiting(sources: list) -> tuple:
     return unjudged, uncollected
 
 
+# The field of a form that names "each source the scout marked `relevant`" (handoffs/s2-tester-to-strategist.yaml `inputs_read`): the role writes the file it read
+# for that source, the inventory's `inspection_ref` (a task-relative path); the filler holds no rule for it. Keyed by contract: data, not a branch on a stage.
+FORM_SOURCE_PATH = {"s2-tester-to-strategist": "inputs_read[2].path"}
+
+
+def relevant_source_paths(inventory: Path) -> list:
+    """The task-relative path (`work/` + `inspection_ref`: the inventory's refs are relative to `work/`, measured on a collected ticket) of every source the
+    inventory marks `relevant` and whose file is on disk (a read of the inventory through its one reader)."""
+    sources, _why = read_sources(inventory)
+    refs = [f"work/{s['inspection_ref']}" for s in sources if s.get("relevance") == "relevant" and s.get("inspection_ref")]
+    return [r for r in refs if (inventory.parent.parent / r).is_file()]
+
+
 def pending_judgments(inventory: Path, skip=()) -> str:
     """"" when the inventory holds no source awaiting the scout (`awaiting`), else the live_only reason, naming each source: an unjudged mention is
     the role's judgment - a key the type's `stub.source_relevance` does not name gets no value from the stub (E13, AR-29) and the exit gate's own refusal
@@ -114,19 +194,337 @@ def pending_judgments(inventory: Path, skip=()) -> str:
     return "; ".join(parts)
 
 
-def run_script(project: Path, script: str, args: list) -> tuple:
+def run_script(project: Path, script: str, args: list, *, both: bool = False) -> tuple:
     """`(exit code, stderr or stdout)` of the ONE runner of a package script in the project, as the role runs it: `harness.run_script` (no bytecode, a
-    timeout). A script that outlives the timeout is exit -9 with that text, a failed command like any other (never a traceback)."""
+    timeout). `both` (a scoped run says why it refused on stdout; N2e): the text is stdout + stderr. A script that outlives the timeout is exit -9 with that
+    text, a failed command like any other (never a traceback)."""
     try:
         done = harness.run_script(script, *args, cwd=project)
     except subprocess.TimeoutExpired:
         return -9, f"{script} did not finish within its timeout"
-    return done.returncode, (done.stderr or done.stdout)
+    return done.returncode, ((done.stdout or "") + (done.stderr or "") if both else (done.stderr or done.stdout))
 
 
 def cut(text: str, limit: int = 400) -> str:
     """The head of a command's text on one line (a `live_only` carries it; the stub journal keeps the whole row)."""
-    return " ".join(text.split())[:limit]
+    return " ".join(str(text).split())[:limit]
+
+
+# ------------------------------------------------------------------------------------------------ the story kit and the runner table (node N2)
+STORIES = HERE / "fixtures" / "stories"
+ABSENT_JSON = {"$absent": True}        # in a row's `overrides`: the field is left out (`form_filler.ABSENT`, which JSON cannot carry)
+DEFAULT_WHY, DEFAULT_CHECKED = "access", "the refusal"       # RN1-9: a question names a class and what was read; a row that wants another says so
+CHANNELS = ("auto", "manual-agent", "manual-human")      # the case file's own `channel` words (the S4 exit gate's closed set): the kit names them, the filler writes them
+
+
+class Unfillable(Exception):
+    """An output or form the filler cannot fill: WHICH form or output, WHICH field and why. Never a text value, never a default: a role call that meets
+    it writes nothing for that output and the journal row says `live_only` with these words (E13)."""
+
+    def __init__(self, form: str, field: str, why: str):
+        super().__init__(f"{form}: cannot fill {field or 'the whole output'}: {why}")
+        self.form, self.field, self.why = form, field, why
+
+
+class KitError(ValueError):
+    """A story file (`story.json`, `kit.json`, a runner row) that cannot be used: the message names the file and what was expected (FR-1, FR-59)."""
+
+
+def read_json(path) -> dict:
+    """The JSON object at `path`, or a `KitError` naming the file: absent, empty, not JSON, or not an object. An unreadable file is a red line, never a skip."""
+    path = Path(path)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise KitError(f"{path}: cannot be read ({type(exc).__name__}); expected a JSON object") from None
+    if not text.strip():
+        raise KitError(f"{path}: the file is empty; expected a JSON object")
+    try:
+        found = json.loads(text)
+    except ValueError as exc:
+        raise KitError(f"{path}: not valid JSON ({exc}); expected a JSON object") from None
+    if not isinstance(found, dict):
+        raise KitError(f"{path}: holds {type(found).__name__}; expected a JSON object")
+    return found
+
+
+def plan_rows_problems(plan_rows, case_ids: list) -> list:
+    """What is wrong with a kit's `plan_rows` (case id -> `{"row": <plan row id>, "disposition": <word>}`), as problems for the kit reader: not an object, a case
+    the kit does not hold, a kit case with no entry (a present key covers EVERY case), a row id that is no `TS-n` or a disposition outside the product's own
+    closed set (`contract.TS_ID_RE`, `contract.DISPOSITIONS`: read here, never listed), two cases sharing one row id with different dispositions."""
+    import contract as CO
+    if not isinstance(plan_rows, dict):
+        return ["`plan_rows` is not an object (case id -> {row, disposition})"]
+    problems = []
+    if not plan_rows:
+        problems.append("`plan_rows` is empty: a present key covers every case (leave the key out for one row every case cites)")
+    for case in plan_rows:
+        if case not in case_ids:
+            problems.append(f"`plan_rows` names the case {case!r}, which `cases` does not hold")
+    for case in case_ids:
+        if plan_rows and case not in plan_rows:
+            problems.append(f"`plan_rows` has no entry for the case {case!r} (a present key covers every case)")
+    by_row = {}
+    for case, one in plan_rows.items():
+        if not isinstance(one, dict) or not isinstance(one.get("row"), str) or not CO.TS_ID_RE.match(one["row"]):
+            problems.append(f"`plan_rows[{case!r}].row` is not a plan row id of the form `TS-n`")
+        elif one.get("disposition") not in CO.DISPOSITIONS:
+            problems.append(f"`plan_rows[{case!r}].disposition` {one.get('disposition')!r} is not one of {list(CO.DISPOSITIONS)}")
+        else:
+            by_row.setdefault(one["row"], {}).setdefault(one["disposition"], []).append(case)
+    for row, words in by_row.items():
+        if len(words) > 1:
+            problems.append(f"`plan_rows` gives the plan row {row} more than one disposition ({', '.join(f'{w} for {c}' for w, c in words.items())}): one row, one disposition")
+    return problems
+
+
+def load_kit(story_id: str, base=None) -> dict:
+    """The kit of a story (`kit.json`: the task key, the requirement ids, the cases with their channel, the ids other forms issue, the runner row it
+    walks) checked against its `story.json` (same task key). The ONE reader of the kit: the filler's context is built from it and from nothing else."""
+    folder = Path(base or STORIES) / story_id
+    story, kit = read_json(folder / "story.json"), read_json(folder / "kit.json")
+    problems = []
+    if not isinstance(kit.get("key"), str) or not kit["key"].strip():
+        problems.append("`key` is not a non-empty text")
+    if story.get("task") != kit.get("key"):
+        problems.append(f"`key` {kit.get('key')!r} is not the `task` {story.get('task')!r} of story.json")
+    reqs = kit.get("requirements")
+    if not isinstance(reqs, list) or not reqs or not all(isinstance(r, str) and r.strip() for r in reqs):
+        problems.append("`requirements` is not a non-empty list of ids")
+    cases = kit.get("cases")
+    if not isinstance(cases, list) or not cases or not all(isinstance(c, dict) and isinstance(c.get("id"), str) and c["id"].strip()
+                                                           and c.get("channel") in CHANNELS for c in cases):
+        problems.append(f"`cases` is not a non-empty list of {{id, channel in {list(CHANNELS)}}}")
+    elif len({c["id"] for c in cases}) != len(cases):
+        problems.append("`cases` names one id twice")
+    if "plan_rows" in kit:
+        problems += plan_rows_problems(kit["plan_rows"], [c["id"] for c in cases] if isinstance(cases, list) and all(isinstance(c, dict) and "id" in c for c in cases) else [])
+    if not isinstance(kit.get("minted"), dict):
+        problems.append("`minted` is not an object (prefix -> the ids the world issues)")
+    if not isinstance(kit.get("runner"), str) or not kit["runner"].strip():
+        problems.append("`runner` is not the id of a row under runners/")
+    if problems:
+        raise KitError(f"{folder / 'kit.json'}: " + "; ".join(problems))
+    return kit
+
+
+REVIEWED_DISPATCH = re.compile(r"^Reviewed dispatch: .*?`path: work/handoffs/([^`/\s]+)\.yaml`", re.M)
+
+
+def author_dispatch_of(prompt: str) -> str:
+    """The id of the author's dispatch a reviewing role's prompt names (the brief's own line `Reviewed dispatch: ... `path: work/handoffs/<id>.yaml``,
+    `brief_pack.reviewed_dispatch_lines`): what the critic reads before its work. "" when the prompt names none (the filler's token stays unfillable)."""
+    found = REVIEWED_DISPATCH.search(prompt)
+    return found.group(1) if found else ""
+
+
+def world_cases_root(task_dir) -> str:
+    """The world's own case store as the product's reader (`contract.cases_root`: `config.cases_root`, else the story's `work/test-cases`) resolves it, as a
+    task-relative path when it lies under the task folder (the way a form names it), else as the reader returned it."""
+    import contract as CO
+    root = Path(CO.cases_root(Path(task_dir)))
+    try:
+        return root.resolve().relative_to(Path(task_dir).resolve()).as_posix()
+    except ValueError:
+        return str(root)
+
+
+def kit_context(kit: dict, dispatch: str = "", impl_diff: str = "", cases=None, author_dispatch: str = "", cases_root: str = "", task_root: str = ""):
+    """The `FillContext` of the kit for ONE call: its ids (`cases` narrows them, a test file is one per case), the call's dispatch id."""
+    import form_filler as FF
+    ids = [c["id"] for c in kit["cases"]] if cases is None else list(cases)
+    return FF.FillContext(task_key=kit["key"], dispatch_id=dispatch, requirements=list(kit["requirements"]), cases=ids,
+                          channels={c["id"]: c["channel"] for c in kit["cases"]}, plan_rows=dict(kit.get("plan_rows") or {}),
+                          minted={k: list(v) for k, v in kit["minted"].items()}, impl_diff=impl_diff, author_dispatch=author_dispatch, cases_root=cases_root, task_root=task_root)
+
+
+def runner_rows(story_id: str = "dry-1", base=None) -> list:
+    """The table of runners (F5): one row per folder `runners/<row>/runner.json` (`id` = the folder, `lang`, `profile` with its `profile_id` and `commands`).
+    An empty or absent `runners/` is a refusal naming the folder; so is a row folder with no `runner.json`."""
+    folder = Path(base or STORIES) / story_id / "runners"
+    dirs = sorted(d for d in folder.iterdir() if d.is_dir()) if folder.is_dir() else []
+    if not dirs:
+        raise KitError(f"{folder}: no runner row; expected runners/<row>/runner.json (the table of runners, F5)")
+    rows = []
+    for d in dirs:
+        row = read_json(d / "runner.json")
+        profile = row.get("profile")
+        if row.get("id") != d.name or not isinstance(row.get("lang"), str) or not row["lang"].strip() \
+                or not isinstance(profile, dict) or profile.get("profile_id") != row.get("profile_id") or not row.get("profile_id"):
+            raise KitError(f"{d / 'runner.json'}: expected `id` = {d.name!r}, a `lang`, and a `profile` whose `profile_id` is the row's `profile_id`")
+        rows.append(dict(row, dir=str(d)))
+    return rows
+
+
+def runner_row(row_id: str, story_id: str = "dry-1", base=None) -> dict:
+    rows = runner_rows(story_id, base)
+    found = [r for r in rows if r["id"] == row_id]
+    if not found:
+        raise KitError(f"{Path(base or STORIES) / story_id / 'runners'}: no runner row {row_id!r}; expected one of {[r['id'] for r in rows]}")
+    return found[0]
+
+
+def config_path(project) -> Path:
+    return Path(project) / "qa-factory" / "config.json"
+
+
+def install_runner(project, row: dict) -> None:
+    """Put a runner row into a world: the tiny project of the row (`<row>/project/`) beside the config, the row's profile into `config.profiles` (replacing
+    the one of the same id). The commands the automator stub runs are the ones the WORLD holds afterwards, read through `profile_contract`."""
+    src = Path(row["dir"]) / "project"
+    if src.is_dir():
+        shutil.copytree(src, project, dirs_exist_ok=True)
+    cfg = read_json(config_path(project))
+    cfg["profiles"] = [p for p in cfg.get("profiles") or [] if not (isinstance(p, dict) and p.get("profile_id") == row["profile_id"])] + [row["profile"]]
+    if isinstance(row.get("runtime_probe"), dict):     # the row's data: the probe the factory's own reader (`execution_request.registered_probe`) takes; absent = no entry, as before
+        cfg.setdefault("execution", {}).setdefault("runtime_probes", {})[row["profile_id"]] = row["runtime_probe"]
+    config_path(project).write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+
+
+def world_profile(project, profile_id: str):
+    """The profile row of the world's config with this id (the config's own `profiles`, read the way `config_contract._profile_slot` reads it), or None."""
+    rows = read_json(config_path(project)).get("profiles")
+    return next((p for p in rows if isinstance(p, dict) and str(p.get("profile_id")) == str(profile_id)), None) if isinstance(rows, list) else None
+
+
+def live_row(exc: Unfillable) -> dict:
+    """The `live_only` row of the journal for an `Unfillable`: the output or form, the field when there is one, the reason."""
+    return {"output": exc.form, **({"field": exc.field} if exc.field else {}), "why": exc.why[:240]}
+
+
+def decode_overrides(raw) -> dict:
+    """`{path: value | ABSENT}` of a row's overrides (`{path: value}`, a value `{"$absent": true}` meaning the field is left out)."""
+    import form_filler as FF
+    return {path: (FF.ABSENT if value == ABSENT_JSON else value) for path, value in (raw or {}).items()}
+
+
+def overrides_for(mine: dict, key: str, n: int) -> dict:
+    """The overrides of the row for form or output `key` on the `n`-th call of this dispatch (1-based): none from the call named by `repair_on_round` on
+    (the repair round fills clean). The row decides both; the stub holds no judgment of what to seed or when to repair."""
+    repair = mine.get("repair_on_round")
+    if isinstance(repair, int) and not isinstance(repair, bool) and n >= repair:
+        return {}
+    return decode_overrides((mine.get("overrides") or {}).get(key))
+
+
+def fill_output(output: str, ctx, overrides=None):
+    """The `FilledArtifact` of a role output, or `Unfillable` (the output, the field, why): an output code writes, one the filler has no kind for
+    (`not_covered`), one the tables cannot place, and a field no rule fills are all the same refusal - no text is ever put in their place (E13)."""
+    import form_filler as FF
+    try:
+        made = FF.fill_artifact(output, ctx, overrides=overrides)
+    except (FF.Unclassified, ValueError) as exc:
+        raise Unfillable(output, "", str(exc)) from None
+    if isinstance(made, FF.ByCode):
+        raise Unfillable(output, "", f"written by code ({made.writer}), not by the role")
+    if isinstance(made, FF.NotCovered):
+        raise Unfillable(output, "", f"no filler kind: {made.why}")
+    if made.unfillable:
+        first = made.unfillable[0]
+        raise Unfillable(output, first.path, first.why + (f" (and {len(made.unfillable) - 1} more)" if len(made.unfillable) > 1 else ""))
+    return made
+
+
+def fill_handover(contract: str, ctx, verdict=None, overrides=None):
+    """The `Filled` form of a contract, or `Unfillable` naming the contract and the first field no rule fills."""
+    import form_filler as FF
+    filled = FF.fill_form(contract, ctx, verdict=verdict, overrides=overrides)
+    if filled.unfillable:
+        first = filled.unfillable[0]
+        raise Unfillable(contract, first.path, first.why + (f" (and {len(filled.unfillable) - 1} more)" if len(filled.unfillable) > 1 else ""))
+    return filled
+
+
+def rel(project, path) -> str:
+    return str(Path(path).relative_to(project)).replace("\\", "/")
+
+
+def run_command(words: list, cwd, timeout: int = 120) -> tuple:
+    """`(exit code, text)` of ONE command of the profile as it stands (argv words, the project as cwd): a missing program is exit 127 and a command that
+    outlives the timeout is -9, each with its text - a failed command like any other, never a traceback."""
+    try:
+        done = subprocess.run(words, cwd=str(cwd), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
+                              env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"))
+    except FileNotFoundError:
+        return 127, f"{words[0]}: program not found"
+    except subprocess.TimeoutExpired:
+        return -9, f"{words[0]} did not finish within {timeout} s"
+    return done.returncode, (done.stdout + done.stderr)
+
+
+def _record(out: dict, code: int, text: str, output: str, why_head: str, case=None) -> None:
+    """The one account of a command that writes `output`: `wrote` on exit 0, else a `live_only` row (with the `case` when there is one) naming the command and its exit."""
+    if code == 0:
+        out["wrote"].append(output)
+        return
+    row = {"output": output}
+    if case is not None:
+        row["case"] = case
+    out["live_only"].append(dict(row, why=f"{why_head} exit {code}: {cut(text)}"))
+
+
+def automator_branch(project, task_dir, kit: dict, runner: dict, dispatch: str, run=run_script, manifest_overrides=None, fragments=None) -> dict:
+    """What the automator role does at S5, as the journal row's keys. The test file of each automated case is the `test_file:<lang>` of the runner row's
+    language, written by the filler; the command that runs the tests is the one the WORLD's profile holds (`profile_contract.profile_commands`, axis 30) -
+    nothing in this function reads the call's text; a profile with no command is `no_command` in the row and nothing is run. The manifest fragment of
+    each case is the filler's `manifest_row` (with the row's `overrides.manifest_row`, N2e; `tests[].profile_id` is the runner row's profile, derived, never typed),
+    merged by `manifest_put.py` (the one writer of the manifest). `fragments` (N2e): the story's own fragments of the role's judgment (`then_bindings`: which
+    assertion proves which Then), each merged the same way; a case with no row of `then_bindings` stays refused by `s5_precheck`, never filled by the stub. Then the role's
+    documented scoped run, `run_suite.py --mine <case>` (the run block the exit gate reads), once per written case (`ran_suite` in the row)."""
+    import form_filler as FF
+    import profile_contract as PC
+    out = {"wrote": [], "live_only": [], "ran": [], "ran_suite": []}
+    manifest_overrides = dict({"tests[].profile_id": runner["profile_id"]}, **(manifest_overrides or {}))
+    if fragments is not None and (not isinstance(fragments, list) or not all(isinstance(f, dict) and f for f in fragments)):
+        raise KitError("story `stub` `qa-automator@S5.manifest_fragments` must be a list of non-empty JSON objects (each one merged by manifest_put.py); got "
+                       + cut(json.dumps(fragments), 120))
+    cases = [c["id"] for c in kit["cases"] if c["channel"] == "auto"]
+    written, test_files = [], {}
+    for case in cases:
+        try:
+            made = fill_output(f"test_file:{runner['lang']}", kit_context(kit, dispatch, cases=[case]))
+            paths = [rel(project, p) for p in FF.write_outputs(task_dir, project, made)]
+            out["wrote"] += paths
+            test_files[case] = paths[0]
+            written.append(case)
+        except Unfillable as exc:
+            out["live_only"].append(dict(live_row(exc), case=case))
+    profile = world_profile(project, runner["profile_id"])
+    commands, problem = PC.profile_commands(profile)
+    name = runner.get("command") or "one_test"
+    spec = commands.get(name)
+    words, word_problem = PC.command_argv(spec)
+    if problem or word_problem or not words:
+        out["no_command"] = f"no command `{name}` in the profile {runner['profile_id']!r}: " + (problem or word_problem or "the profile holds none")
+        out["live_only"].append({"output": "the run of the tests", "why": out["no_command"]})
+    elif written:
+        code, text = run_command(words, Path(project) / str(spec.get("cwd") or "."))
+        out["ran"].append({"argv": words, "exit": code, "text": cut(text)})
+    for case in written:      # the role's documented tool reads the test file's marker and writes what only the product can: the case's CURRENT pin (`case_version_links`), the plan row, the obligation hash
+        code, text = run(project, "manifest_from_tests.py", ["--task", kit["key"], "--dispatch", dispatch, "--file", test_files[case]])
+        out["from_tests"] = out.get("from_tests", []) + [{"case": case, "exit": code, "text": cut(text)}]
+        _record(out, code, text, "work/automation-manifest.json", "manifest_from_tests.py", case)
+    for case in written:
+        try:
+            frag = task_dir / "state" / "dry-stub-fragments" / f"{dispatch}-{case}.json"
+            frag.parent.mkdir(parents=True, exist_ok=True)
+            frag.write_text(fill_output("manifest_row", kit_context(kit, dispatch, cases=[case]), manifest_overrides).files["work/automation-manifest.json"], encoding="utf-8")
+            code, text = run(project, "manifest_put.py", ["--task", kit["key"], "--fragment", str(frag)])
+            _record(out, code, text, "work/automation-manifest.json", "manifest_put.py", case)
+        except Unfillable as exc:
+            out["live_only"].append(dict(live_row(exc), case=case))
+    for at, fragment in enumerate(fragments or []):
+        frag = task_dir / "state" / "dry-stub-fragments" / f"{dispatch}-story-{at}.json"
+        frag.parent.mkdir(parents=True, exist_ok=True)
+        frag.write_text(json.dumps(fragment, indent=1), encoding="utf-8")
+        code, text = run(project, "manifest_put.py", ["--task", kit["key"], "--fragment", str(frag)])
+        _record(out, code, text, "work/automation-manifest.json", f"manifest_put.py (story fragment {at})")
+    for case in written:
+        code, text = run(project, "run_suite.py", ["--task", kit["key"], "--mine", case], both=True)
+        out["ran_suite"].append({"case": case, "exit": code, "text": cut(text)})
+        if code != 0:
+            out["live_only"].append({"output": "the scoped run (run_suite.py --mine)", "case": case, "why": f"exit {code}: {cut(text, 900)}"})
+    return out
 
 
 def judge_sources(inventory: Path, declared: dict, runner) -> tuple:
@@ -225,35 +623,140 @@ def calls_before(task_dir: Path, key: str) -> int:
     return len([r for r in rows if (r.get("dispatch") or r.get("conductor")) == key])
 
 
-def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Path) -> tuple:
-    """`(dispatch, result text, journal row)` of one role call; see the module text."""
-    import form_filler as FF
-    dispatch = re.search(r"Dispatch: (\S+)\.", prompt)
-    dispatch = dispatch.group(1) if dispatch else ""
-    row = {"role": role, "wrote": [], "live_only": []}
-    form = task_dir / "work" / "handoffs" / f"{dispatch}.yaml"
-    text = form.read_text(encoding="utf-8") if form.is_file() else ""
-    contract, stage = FORM_CONTRACT.search(text), FORM_STAGE.search(text)
-    stage = stage.group(1) if stage else ""
-    row["stage"] = stage
-    mine = (control.get("stub") or {}).get(role) or {}
-    task = control.get("task", "")
-    import dry_world as W
-    ctx = FF.FillContext(task_key=task, dispatch_id=dispatch, impl_diff=W.mr_diff(W.type_row(control.get("type"))) if control.get("type") else "")
+STUB_KEY = re.compile(r"[a-z][a-z0-9-]*(@S[0-9](#[0-9])?)?")      # `<role>`, `<role>@<stage>`, `<role>@<stage>#<window>`
+STUB_PLAIN_KEYS = ("source_relevance",)                              # keys of the table that are no role row
+WINDOW1_MARK = "Closed words of work/grounding.yaml, given here"    # the line only the S3 labelling brief carries (`brief_pack.s3_labelling_vocabulary_lines`)
+
+
+FROM_STORY_DATA = ("work/grounding.yaml",)                              # outputs a role writes whose content is the story's data (`apply_grounding`), never the filler's
+WINDOW_OUTPUTS = {("qa-test-strategist", "S3", "1"): FROM_STORY_DATA}    # skills/qa-story/phases/s3.md "Window 1": the role writes NO plan, only work/grounding.yaml
+
+
+def window_of(brief: str) -> str:
+    """"1" when the brief is the S3 labelling window's (the dispatch's own brief names the closed words of the grounding table), else "": the key of a
+    role row has a window part ONLY where (role, stage) cannot separate two dispatches (S3: window 1 labels the table, window 2 writes the plan)."""
+    return "1" if WINDOW1_MARK in brief else ""
+
+
+def stub_control(control: dict, role: str, stage: str, window: str = "") -> dict:
+    """The ONE reader of a role's row in the control's `stub`: `<role>@<stage>#<window>` over `<role>@<stage>` over `<role>` (the default for every stage of
+    a role). A key of the table that has none of these forms is a `KitError` naming it - a mistyped key must never be a silently absent row."""
+    table = control.get("stub") or {}
+    bad = [k for k in table if k not in STUB_PLAIN_KEYS and not (isinstance(k, str) and STUB_KEY.fullmatch(k))]
+    if bad:
+        raise KitError(f"the story's `stub` table has the key {bad[0]!r}; expected `<role>`, `<role>@<stage>` or `<role>@<stage>#<window>` (or one of {list(STUB_PLAIN_KEYS)})")
+    rows = [table.get(role), table.get(f"{role}@{stage}"), table.get(f"{role}@{stage}#{window}") if window else None]
+    return {k: v for row in rows for k, v in (row or {}).items()}
+
+
+def apply_grounding(task_dir: Path, data: dict, key: str) -> list:
+    """The role's window-1 work, as story data: label the rows of `work/grounding.yaml` and state its requirement lines. `data` = `{"rows": [{"file", "label",
+    "requirements", "reason"[, "question"]}], "requirements": [{"r", "state", "files"[, "where", "question"]}]}`; the table is read by its one reader
+    (`planning_contract.read_grounding`) and written by its one writer (`grounding_table.write_yaml`); a hunk is named by its FILE, its id is the table's own.
+    A row or line the data does not cover, a file the table does not hold, a table that cannot be read: `KitError` naming the key (never an empty product).
+    Returns the ids of the rows and lines it wrote."""
+    import grounding_table as GT
+    import planning_contract as PC
+    doc, problem = PC.read_grounding(task_dir)
+    if doc is None:
+        raise KitError(f"{key}: work/grounding.yaml cannot be read ({problem}); the driver's preparation should have written the table")
+    table = json.loads(json.dumps(doc.data))
+    files = {h["id"]: h["file"] for h in table.get("hunks") or [] if isinstance(h, dict) and h.get("id") and h.get("file")}
+    by_file = {}
+    for ident, name in files.items():
+        by_file.setdefault(name, []).append(ident)
+    declared = {r.get("file"): r for r in data.get("rows") or [] if isinstance(r, dict)}
+    wrote = []
+    for row in table.get("rows") or []:
+        named = {files.get(h) for h in (row.get("hunks") if isinstance(row.get("hunks"), list) else [row.get("hunks")])}
+        mine = [declared[f] for f in named if f in declared]
+        if len(mine) != 1:
+            raise KitError(f"{key}: `grounding.rows` covers {len(mine)} of the files of table row {row.get('id')} (files {sorted(map(str, named))}; declared {sorted(map(str, declared))}); expected exactly one")
+        row.update({k: v for k, v in mine[0].items() if k != "file"})
+        wrote.append(str(row.get("id")))
+    stated = {r.get("r"): r for r in data.get("requirements") or [] if isinstance(r, dict)}
+    for line in table.get("requirements") or []:
+        mine = stated.get(line.get("r"))
+        if mine is None:
+            raise KitError(f"{key}: `grounding.requirements` has no line for {line.get('r')}; the table holds it (declared {sorted(map(str, stated))})")
+        absent = [f for f in mine.get("files") or [] if f not in by_file]
+        if absent:
+            raise KitError(f"{key}: `grounding.requirements[{line.get('r')}].files` names {absent}, which the table's hunks do not hold (they hold {sorted(by_file)})")
+        line.update({k: v for k, v in mine.items() if k not in ("r", "files")}, hunks=[i for f in mine.get("files") or [] for i in by_file[f]])
+        wrote.append(str(line.get("r")))
+    areas = {a.get("id"): a for a in data.get("areas") or [] if isinstance(a, dict)}
+    for area in (table.get("blast_radius") or {}).get("areas") or []:       # the blast radius areas the role judges (`matters`, `why`, `regression`, ...), declared by area id
+        mine = areas.get(area.get("id"))
+        if mine is None:
+            raise KitError(f"{key}: `grounding.areas` has no entry for area {area.get('id')}; the table holds it (declared {sorted(map(str, areas))})")
+        area.update({k: v for k, v in mine.items() if k in GT.ROLE_AREA_FIELDS})
+        wrote.append(str(area.get("id")))
+    GT.write_yaml(GT.table_path(task_dir), table)
+    again, problem = PC.read_grounding(task_dir)         # what the stub wrote must read back through the one reader, or the role's product is a lie
+    if again is None:
+        raise KitError(f"{key}: the table the stub wrote is refused by its reader ({problem})")
+    return wrote
+
+
+def write_files(task_dir: Path, data, key: str) -> list:
+    """The role's own files that no filler row and no tool writes (the S4 case critic's `work/test-cases/critic-findings.md` with its `## Roll-call`,
+    `agents/qa-case-critic.md` "Tools"), as story data: `data` = `{"<path under work/>": "<the file's text>" | ["<line>", ...]}`. The text is the ROLE's word
+    (its verdict, its rows); every number derived from it (`review.rollcall`, the roll-call claim) stays code's, computed by `handoff_check --fix` from this file.
+    A path outside `work/` (or climbing out of it), a value that is not text or a list of lines, or an empty text: `KitError` naming the key. Returns the paths written."""
+    if not isinstance(data, dict) or not data:
+        raise KitError(f"{key}: `files` is {data!r}; expected an object of `<path under work/>` -> text (or a list of lines)")
+    wrote = []
+    for path, body in data.items():
+        text = "\n".join(body) if isinstance(body, list) and all(isinstance(x, str) for x in body) else body
+        parts = str(path).replace("\\", "/").split("/")
+        if parts[0] != "work" or len(parts) < 2 or any(p in ("", ".", "..") for p in parts):
+            raise KitError(f"{key}: `files` names {path!r}; expected a path under work/ with no `..`")
+        if not isinstance(text, str) or not text.strip():
+            raise KitError(f"{key}: `files[{path!r}]` is empty or not text; expected the file's text or a list of lines")
+        target = task_dir.joinpath(*parts)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((text.rstrip("\n") + "\n").encode("utf-8"))
+        wrote.append("/".join(parts))
+    return wrote
+
+
+def _fill_form(row: dict, form: Path, contract, ctx, mine: dict, n: int, dispatch: str, task_dir: Path) -> None:
+    """The role's handover form: filled by the story's overrides and the rules (`fill_handover`), written in place; what cannot be filled is a `live_only` row."""
     if not contract:
         row["live_only"].append({"output": f"work/handoffs/{dispatch}.yaml", "why": "no form with a `contract:` line at that path"})
-    else:
-        filled = FF.fill_form(contract.group(1), ctx, verdict=mine.get("verdict"))
-        if filled.unfillable:
-            first = filled.unfillable[0]
-            row["live_only"].append({"output": f"form {contract.group(1)}", "why": f"{first.path}: {first.why} (and {len(filled.unfillable) - 1} more)"})
-        else:
-            form.write_bytes(filled.text.encode("utf-8"))
-            row["wrote"].append(f"work/handoffs/{dispatch}.yaml")
-    for out, script, args in ROLE_STEPS.get(role, []) if stage == "S1" else []:
-        code, text = run_script(project, script, [a.format(task=task, task_root=str(task_dir)) for a in args])
-        (row["wrote"] if code == 0 else row["live_only"]).append(out if code == 0 else {"output": out, "why": f"{script} exit {code}: {cut(text)}"})
-    if stage == "S1" and role in ROLE_STEPS:
+        return
+    try:
+        over = overrides_for(mine, contract.group(1), n)
+        field = FORM_SOURCE_PATH.get(contract.group(1))
+        if field and field not in over:
+            kept = relevant_source_paths(task_dir / "work" / "source-inventory.json")
+            if len(kept) == 1:
+                over = dict(over, **{field: kept[0]})
+            else:        # the form has ONE row for "each source the scout marked relevant": none or several is the role's judgment, not the stub's
+                row["live_only"].append({"output": f"form {contract.group(1)}", "field": field,
+                                         "why": f"the inventory marks {len(kept)} source(s) relevant with a recorded file; the form's one row takes exactly one"})
+        filled = fill_handover(contract.group(1), ctx, mine.get("verdict"), over)
+        form.write_bytes(filled.text.encode("utf-8"))
+        row["wrote"].append(f"work/handoffs/{dispatch}.yaml")
+    except Unfillable as exc:
+        row["live_only"].append(dict(live_row(exc), output=f"form {contract.group(1)}"))
+
+
+def _step(row: dict, project: Path, out: str, script: str, argv: list) -> tuple:
+    """One command of a role's steps: `wrote` on exit 0, else a `live_only` row naming the script and its exit; `(code, text)`."""
+    code, text = run_script(project, script, argv)
+    _record(row, code, text, out, script)
+    return code, text
+
+
+def _s1_steps(row: dict, role: str, diff: str, project: Path, task: str, task_dir: Path, control: dict) -> None:
+    """The scout's S1 steps: the commands that build files code owns (ROLE_STEPS), then the declared source judgments."""
+    for out, script, args in ROLE_STEPS.get(role, []):
+        if script == "stage_done.py" and not diff:       # the step records a diff as the story's source: a world with no change has none to record (AR-28)
+            row["live_only"].append({"output": out, "why": "the world holds no change: `implementation_source=diff` is not recorded"})
+            continue
+        _step(row, project, out, script, [a.format(task=task, task_root=str(task_dir)) for a in args])
+    if role in ROLE_STEPS:
         inventory = task_dir / "work" / "source-inventory.json"
         ran, judged, failed = judge_sources(inventory, (control.get("stub") or {}).get("source_relevance") or {},
                                             lambda script, args: run_script(project, script, args))
@@ -262,21 +765,104 @@ def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Pa
         gap = pending_judgments(inventory, skip={f["key"] for f in failed if f.get("key")})
         if gap:
             row["live_only"].append({"output": "work/source-inventory.json", "why": gap})
+
+
+def _fill_outputs(row: dict, FF, role: str, stage: str, window: str, ctx, mine: dict, n: int, project: Path, task_dir: Path) -> None:
+    """The role's outputs by the plan of its kind: `fill` through the filler, `command:` through the script, anything else a refusal naming it."""
     for out, kind in role_plan(role, stage, FF):
+        if out in FROM_STORY_DATA or (WINDOW_OUTPUTS.get((role, stage, window)) is not None and out not in WINDOW_OUTPUTS[(role, stage, window)]):
+            continue       # written from the story's data (the table), or an output this window of the role does not write (window 1 writes no plan): never the filler's text
         if kind == "fill":
             try:
-                FF.write_outputs(task_dir, project, FF.fill_artifact(out, ctx).require())
+                FF.write_outputs(task_dir, project, fill_output(out, ctx, overrides_for(mine, out, n)))
                 row["wrote"].append(out)
                 for where, why in (FF._row_of(out).get("synthetic") or {}).items():       # a value the row declares synthetic is named, not passed as a fact
                     row.setdefault("synthetic", []).append({"output": out, "field": where, "why": why[:120]})
-            except (FF.NotFillable, FF.Unclassified, ValueError) as exc:
-                row["live_only"].append({"output": out, "why": str(exc)[:240]})
+            except (Unfillable, FF.NotFillable, ValueError) as exc:
+                row["live_only"].append(live_row(exc) if isinstance(exc, Unfillable) else {"output": out, "why": str(exc)[:240]})
         elif kind.startswith("command:"):
-            argv = [a.format(task_root=str(task_dir)) for a in COMMANDS[kind[8:]]]
-            code, text = run_script(project, kind[8:], argv)
-            (row["wrote"] if code == 0 else row["live_only"]).append(out if code == 0 else {"output": out, "why": f"{kind[8:]} exit {code}: {cut(text)}"})
+            _step(row, project, out, kind[8:], [a.format(task_root=str(task_dir)) for a in COMMANDS[kind[8:]]])
         else:
-            row["live_only"].append({"output": out, "why": kind[len("live_only:"):]})
+            row["live_only"].append(live_row(Unfillable(out, "", kind[len("live_only:"):])))        # no filler kind: the same refusal, no text in its place
+
+
+def _after_steps(row: dict, role: str, stage: str, project: Path, task: str, task_dir: Path) -> None:
+    """The steps that follow the role's outputs (AFTER_STEPS); the `size` the sizing step wrote is carried to the step that records it."""
+    size = ""
+    for out, script, args in AFTER_STEPS.get((role, stage), []):
+        if "size={size}" in args and not size:
+            row["live_only"].append({"output": out, "why": "work/sizing.json holds no `size` (the step before did not write it): the size is not recorded"})
+            continue
+        code, _text = _step(row, project, out, script, [a.format(task=task, size=size) for a in args])
+        if script == "sizing.py" and code == 0:
+            try:
+                size = str(json.loads((task_dir / "work" / "sizing.json").read_text(encoding="utf-8")).get("size") or "")
+            except (OSError, ValueError):
+                size = ""
+
+
+def fill_role(role: str, prompt: str, control: dict, project: Path, task_dir: Path, dispatch: str = "", n: int = 1) -> tuple:
+    """`(dispatch, result text, journal row)` of one role call; see the module text. `dispatch` names the call when the prompt does not (a repair resume);
+    `n` is the call's number within its dispatch (the row's `repair_on_round` reads it)."""
+    import form_filler as FF
+    found = re.search(r"Dispatch: (\S+)\.", prompt)
+    dispatch = found.group(1) if found else dispatch
+    row = {"role": role, "wrote": [], "live_only": []}
+    form = task_dir / "work" / "handoffs" / f"{dispatch}.yaml"
+    text = form.read_text(encoding="utf-8") if form.is_file() else ""
+    contract, stage = FORM_CONTRACT.search(text), FORM_STAGE.search(text)
+    named = re.match(r"(S\d)-", dispatch)       # a dispatch id is `<stage>-<role>-<n>`: the stage of a call that has no handover form (S3 window 1)
+    stage = stage.group(1) if stage else (named.group(1) if named else "")
+    row["stage"] = stage
+    brief = task_dir / "work" / "briefs" / f"{dispatch}.md"        # the role's brief: the file its prompt hands it (`brief_pack`), where the `Reviewed dispatch:` line is
+    brief_text = brief.read_text(encoding="utf-8", errors="replace") if brief.is_file() else ""
+    window = window_of(brief_text)
+    row["window"] = window
+    mine = stub_control(control, role, stage, window)
+    task = control.get("task", "")
+    import dry_world as W
+    try:
+        diff = W.change_text(control)         # the ONE road to the world's change, type or story (no second function)
+    except (W.ChangeError, KitError, W.TypesError) as exc:
+        diff = ""
+        row["live_only"].append({"output": "the world's change", "why": cut(str(exc), 240)})
+    kit = load_kit(control["story"]) if control.get("story") else None
+    author = author_dispatch_of(prompt) or author_dispatch_of(brief_text)
+    try:
+        store = world_cases_root(task_dir)
+    except (OSError, ValueError, KeyError, TypeError) as exc:       # the product's reader refused the world's config: the token stays unfillable and the row says why
+        store = ""
+        row["live_only"].append({"output": "the world's case store", "why": cut(f"contract.cases_root: {type(exc).__name__}: {exc}", 240)})
+    ctx = kit_context(kit, dispatch, diff, author_dispatch=author, cases_root=store, task_root=str(task_dir)) if kit else FF.FillContext(task_key=task, dispatch_id=dispatch, impl_diff=diff, author_dispatch=author, cases_root=store, task_root=str(task_dir))
+    _fill_form(row, form, contract, ctx, mine, n, dispatch, task_dir)
+    if kit and window == "1":        # S3 window 1: the role labels work/grounding.yaml (no handover form); the labels are the story's data, never the stub's
+        data = mine.get("grounding")
+        if not isinstance(data, dict) or not data:
+            raise KitError(f"story `stub` holds no `grounding` for `{role}@{stage}#{window}`; the labelling window's product is the story's data (rows, requirements)")
+        row["wrote"] += [f"work/grounding.yaml: {', '.join(apply_grounding(task_dir, data, f'{role}@{stage}#{window}'))}"]
+        row["live_only"] = [x for x in row["live_only"] if "no form with a `contract:` line" not in str(x.get("why"))]       # window 1 has no handover form: not a gap
+    if "files" in mine:       # the role's own files, as the story's data (before `--fix` below, which derives from them)
+        row["wrote"] += write_files(task_dir, mine["files"], f"{role}@{stage}")
+    if kit and role == "qa-automator" and stage == "S5":
+        done = automator_branch(project, task_dir, kit, runner_row(kit["runner"]), dispatch, manifest_overrides=overrides_for(mine, "manifest_row", n), fragments=mine.get("manifest_fragments"))
+        row["wrote"] += done["wrote"]
+        row["live_only"] += done["live_only"]
+        row["ran"] = done["ran"]
+        row["ran_suite"] = done["ran_suite"]
+        row["from_tests"] = done.get("from_tests", [])
+        if "no_command" in done:
+            row["no_command"] = done["no_command"]
+    if stage == "S1":
+        _s1_steps(row, role, diff, project, task, task_dir, control)
+    _fill_outputs(row, FF, role, stage, window, ctx, mine, n, project, task_dir)
+    _after_steps(row, role, stage, project, task, task_dir)
+    if f"work/handoffs/{dispatch}.yaml" in row["wrote"]:
+        # the first line of every form: "fill it, then: handoff_check.py --file <form> --task <T>"; `--fix` writes in what code derives (the form's own header
+        # names it: a version is the sha256 of the path the row names, never a value the role makes up). What it still refuses stays a live_only row.
+        code, text = run_script(project, "handoff_check.py", ["--file", str(form), "--task", task, "--fix"])
+        row["fixed"] = {"exit": code, "text": cut(text)}
+        if code != 0:
+            row["live_only"].append({"output": f"form {contract.group(1)}", "why": f"handoff_check.py --fix exit {code}: {cut(text, 240)}"})
     default = f"{role} {stage} {task} - the stub filled the handover form of {dispatch}; nothing else to say"
     return dispatch, mine.get("result_text") or default, row
 
@@ -293,23 +879,38 @@ def claude_main(argv: list) -> int:
     agent, resume = opt("--agent"), opt("--resume")
     role = agent.split(":")[-1]
     if resume or agent:
-        dispatch = re.search(r"Dispatch: (\S+)\.", prompt)
-        key = dispatch.group(1) if dispatch else (opt("--resume") or role)
+        found = re.search(r"Dispatch: (\S+)\.", prompt)
+        derived = re.fullmatch(r"stub-(.+)-\d+", resume)      # a resume names the session the stub answered before: `stub-<dispatch>-<n>`
+        key = found.group(1) if found else (derived.group(1) if derived else (resume or role))
         n = calls_before(task_dir, key) + 1
-        if resume:        # a repair resume: the stub has no judgment to repair with, so it answers as before and writes nothing
+        repair = (control.get("stub") or {}).get(role, {}).get("repair_on_round")
+        if resume and not (isinstance(repair, int) and not isinstance(repair, bool) and n >= repair):
+            # a repair resume before the row's repair round: the stub has no judgment to repair with, so it answers as before and writes nothing
             result, row, session = (control.get("stub") or {}).get(role, {}).get("result_text") or "", {"role": role, "resume": True, "wrote": [], "live_only": []}, resume
             dispatch_id = key
-        else:
-            dispatch_id, result, row = fill_role(role, prompt, control, project, task_dir)
-            session = f"stub-{dispatch_id}-{n}"
+        else:         # a call, or the repair resume the row's `repair_on_round` names: the forms are filled again, now without the row's overrides
+            try:
+                dispatch_id, result, row = fill_role(role, prompt, control, project, task_dir, dispatch=key, n=n)
+            except KitError as exc:         # story data the call needs is absent or wrong: loud, named, exit non-zero (never an empty product)
+                sys.stderr.write(f"dry_stub: {exc}\n")
+                journal(task_dir, {"ts": now(), "dispatch": key, "n": n, "role": role, "wrote": [], "failed": True,
+                                   "live_only": [{"output": "the call", "why": cut(str(exc), 900)}], "run_class": os.environ.get("STORY_RUN_CLASS", "")})
+                return 3
+            session = resume if resume else f"stub-{dispatch_id}-{n}"
+            row = dict(row, resume=True) if resume else row
         journal(task_dir, dict(row, ts=now(), dispatch=dispatch_id, n=n, prompt_sha=hashlib.sha256(
             prompt.replace(dispatch_id, "<dispatch>").encode("utf-8")).hexdigest(), run_class=os.environ.get("STORY_RUN_CLASS", "")))
     else:
         n = calls_before(task_dir, "conductor") + 1
+        execute = (control.get("conductor") or {}).get("execute")
+        done = conductor_execute(execute, project, task_dir, control.get("task", "")) if execute else None
         verdict = conductor_verdict(prompt, control)
+        if done and done.get("refused"):
+            verdict = {"action": "stop", "did": f"stub: {done['refused']}", "question": ""}
         result, session = "I looked.\n" + json.dumps(verdict), f"stub-conductor-{n}"
-        journal(task_dir, {"ts": now(), "conductor": "conductor", "n": n, "role": "", "wrote": [], "live_only": [], "action": verdict.get("action"),
-                           "prompt_sha": hashlib.sha256(prompt.encode("utf-8")).hexdigest(), "run_class": os.environ.get("STORY_RUN_CLASS", "")})
+        journal(task_dir, dict({"ts": now(), "conductor": "conductor", "n": n, "role": "", "wrote": [], "live_only": [], "action": verdict.get("action"),
+                                "prompt_sha": hashlib.sha256(prompt.encode("utf-8")).hexdigest(), "run_class": os.environ.get("STORY_RUN_CLASS", "")},
+                               **({"executed": done} if done else {})))
     ns: dict = {}
     exec(T.RECEIPT, ns)
     ns["write_receipt"](session, None)
@@ -534,8 +1135,11 @@ def selftest() -> int:
     # the conductor stub offers every open move the prompt lists, and stops when it lists none
     prompt = "x\n## Moves open here\n\nintro\n- `retry` — token `again`; option carries no \"args\"\n- `story_fact` — yours to run, never an option\n- `stop_here` — token `stop`; option carries no \"args\"\n\n## Other\n- `no` — token `no`;"
     check_eq("conductor: the open moves of the prompt, in order", parse_moves(prompt), [("retry", "again"), ("stop_here", "stop")])
-    verdict = conductor_verdict(prompt, {})
-    check_eq("conductor: ask_person with every open move as an option", (verdict["action"], [o["token"] for o in verdict["options"]]), ("ask_person", ["again", "stop"]))
+    import no_move as NM
+    real_prompt = NM.moves_section(NM.data(), ["approve_gate", "release_and_restart"], {})        # the prompt the driver prints, from the data
+    verdict = conductor_verdict(real_prompt, {})
+    check_eq("conductor: ask_person with every open move as an option", (verdict["action"], [o["move"] for o in verdict["options"]]),
+             ("ask_person", ["approve_gate", "release_and_restart"]))
     check_eq("conductor: no section, no move: stop", conductor_verdict("no section", {})["action"], "stop")
     # E18: the class the stub saw
     check("E18: dry as the first line passes", run_class_problem([{"first": True, "run_class": "dry"}]) == "")
@@ -562,9 +1166,469 @@ def selftest() -> int:
     check("E16: a snapshot the main pass never made is named missing", "not found" in got, got)
     check_eq("gate: the numbers of the spec", (W.gate_verdict(100, 10, 15), W.gate_verdict(200, 10, 15), W.gate_verdict(100, 30, 40), W.gate_verdict(301, 5, 5), W.gate_verdict(10, 5, 61)),
              ("continue", "narrow", "narrow", "stop", "stop"))
+    selftest_n2(tmp)
     shutil.rmtree(tmp, ignore_errors=True)
     finish("dry_stub --selftest")
     return 0
+
+
+def selftest_n2(tmp: Path) -> None:
+    """The rows of node N2: the story kit and the runner table, the role branch (S2 through the filler, `Unfillable`, overrides and the repair round),
+    the automator (the world's profile commands, the manifest fragment), the conductor (every open move, the row's variant, the move's command,
+    `conductor_judgment`), the journal and the receipt, and `dry_driver.py`. The calls go through the stub as a PROCESS, the way the driver runs it."""
+    import harness as H
+    import dry_driver
+    import form_filler as FF
+    import no_move as NM
+    import scenario_walk as SW
+    from harness import check, check_eq
+    kit = load_kit("dry-1")
+    story = SW.load_story("dry-1")
+    check_eq("N2 item 6: scenario_walk.load_story reads dry-1: id, task, synthetic, the nine stages", (story.id, story.task, [e["stage"] for e in story.walk]),
+             ("dry-1", "DRY-1", [f"S{n}" for n in range(1, 10)]))
+    check_eq("N2 item 6: the kit holds two requirements, one automated case and one manual case, and names the first runner row",
+             ([c["id"] for c in kit["cases"] if c["channel"] == "auto"], [c["id"] for c in kit["cases"] if c["channel"] == "manual-agent"], kit["requirements"],
+              [r["id"] for r in runner_rows()], kit["runner"]), (["TC-1"], ["TC-2"], ["R-1", "R-2"], ["python-pytest"], "python-pytest"))
+    # an unreadable story file is a red line naming the file; an empty runners folder is a refusal naming it
+    def broken(name, files):
+        folder = tmp / name
+        for rel_path, text in files.items():
+            (folder / rel_path).parent.mkdir(parents=True, exist_ok=True)
+            (folder / rel_path).write_text(text, encoding="utf-8")
+        return folder
+    good_story, good_kit = (STORIES / "dry-1" / "story.json").read_text(encoding="utf-8"), (STORIES / "dry-1" / "kit.json").read_text(encoding="utf-8")
+    for name, files, needle in (("n2-story-bad", {"s/story.json": "{nope", "s/kit.json": good_kit}, "story.json: not valid JSON"),
+                                ("n2-story-empty", {"s/story.json": "", "s/kit.json": good_kit}, "story.json: the file is empty"),
+                                ("n2-kit-missing", {"s/story.json": good_story}, "kit.json: cannot be read"),
+                                ("n2-kit-list", {"s/story.json": good_story, "s/kit.json": "[]"}, "kit.json: holds list"),
+                                ("n2-kit-other-task", {"s/story.json": good_story, "s/kit.json": good_kit.replace('"DRY-1"', '"DRY-2"')}, "is not the `task`"),
+                                ("n2-kit-no-case", {"s/story.json": good_story, "s/kit.json": good_kit.replace('"auto"', '"both"')}, "`cases` is not")):
+        try:
+            load_kit("s", broken(name, files))
+            got = "no refusal"
+        except KitError as exc:
+            got = str(exc)
+        check(f"N2 edge: {name} is red naming the file", needle in got and ("kit.json" in got or "story.json" in got), got)
+    for name, make in (("absent", lambda f: None), ("empty", lambda f: (f / "runners").mkdir(parents=True))):
+        folder = tmp / f"n2-runners-{name}"
+        make(folder / "s")
+        try:
+            runner_rows("s", folder)
+            got = "no refusal"
+        except KitError as exc:
+            got = str(exc)
+        check(f"N2 edge: a runners folder that is {name} is a refusal naming it", "no runner row" in got and "runners" in got, got)
+
+    def world(tag, commands=True):
+        project = H.temp_project(f"qa-dry-n2-{tag}-")
+        install_runner(project, runner_row(kit["runner"]))
+        if not commands:                      # a COPY of the profile without `commands`: the world's own config row, the packaged row stays as it is
+            cfg = read_json(config_path(project))
+            for profile in cfg["profiles"]:
+                profile.pop("commands", None)
+            config_path(project).write_text(json.dumps(cfg), encoding="utf-8")
+        task_dir = project / "qa-factory" / "artifacts" / "DRY-1"
+        (task_dir / "work").mkdir(parents=True)
+        return project, task_dir
+
+    def call(project, control, prompt, *argv, run_class="dry"):
+        control_file = project / "dry-stub-control.json"
+        control_file.write_text(json.dumps(control), encoding="utf-8")
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=str(project), DRY_STUB_CONTROL=str(control_file), PYTHONDONTWRITEBYTECODE="1")
+        env.pop("STORY_RUN_CLASS", None)
+        if run_class is not None:
+            env["STORY_RUN_CLASS"] = run_class
+        done = subprocess.run([sys.executable, "-B", str(Path(__file__).resolve()), *argv], input=prompt.encode("utf-8"), capture_output=True, env=env,
+                              cwd=str(project), timeout=300)
+        out = done.stdout.decode("utf-8", "replace").strip().splitlines()
+        return done.returncode, (json.loads(out[-1]) if out else {}), done.stderr.decode("utf-8", "replace")
+
+    def form(project, task_dir, stage, role, dispatch):
+        done = H.run_script("handoff_init.py", "--task", "DRY-1", "--stage", stage, "--role", role, "--dispatch", dispatch, "--task-root", str(task_dir), cwd=project)
+        return done.returncode, (done.stderr or done.stdout)[-300:]
+
+    def rows(task_dir):
+        path = task_dir / "state" / "dry-stub.jsonl"
+        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()] if path.is_file() else []
+
+    role_arg = ("-p", "--agent", "qa-factory:qa-requirements-tester")
+    control = {"task": "DRY-1", "story": "dry-1"}
+    # N2 (1), (3), (4), (5): the S2 role writes the register and the form through the filler; the same input gives the same bytes; the session id carries the dispatch
+    # and a counter per dispatch; the journal opens with the run class and every row carries it
+    saved = []
+    for tag in ("a", "b"):
+        project, task_dir = world(tag)
+        code, text = form(project, task_dir, "S2", "qa-requirements-tester", "D2")
+        check(f"N2 (1): handoff_init made the S2 form (world {tag})", code == 0, text)
+        prompt = f"Artifacts dir: {task_dir}\nDispatch: D2.\n"
+        template = (task_dir / "work" / "handoffs" / "D2.yaml").read_bytes()
+        rc, answer, err = call(project, control, prompt, *role_arg)
+        check_eq(f"N2 (1): the S2 call answers a result with the session `stub-D2-1` (world {tag})", (rc, answer.get("type"), answer.get("session_id")), (0, "result", "stub-D2-1"))
+        register = task_dir / "work" / "requirements-register.md"
+        handover = (task_dir / "work" / "handoffs" / "D2.yaml")
+        got = rows(task_dir)
+        left = FF.HINT.findall(handover.read_text(encoding="utf-8")) if handover.is_file() else ["no form"]
+        template_hints = FF.HINT.findall(template.decode("utf-8"))
+        # N2b: the S2 steps (`sizing.py`, `stage_done --set size=`, `handoff_check --fix`) and the source row of the form now run in this call; this bare world holds no
+        # inventory and no pipeline.json, so exactly those three are its live_only rows - the filler's own outputs have none
+        check_eq(f"N2 (1): the register and the form are written by the filler (the form has fewer hints than the template; the rest are code's fields); the only live_only rows are the bare world's missing inventory and pipeline (world {tag})",
+                 (register.is_file(), handover.is_file(), [(i["output"], i.get("field", "")) for i in got[1]["live_only"]], len(left) < len(template_hints)),
+                 (True, True, [("form s2-tester-to-strategist", "inputs_read[2].path"), ("pipeline.size", ""), ("form s2-tester-to-strategist", "")], True))
+        saved.append((register.read_bytes(), handover.read_bytes()))
+        if tag == "a":
+            rc, second, err = call(project, control, prompt, *role_arg)
+            rc3, other, err = call(project, control, f"Artifacts dir: {task_dir}\nDispatch: D3.\n", *role_arg)
+            check_eq("N2 (4): the counter is per dispatch: D2 again is 2, D3 starts at 1", (second.get("session_id"), other.get("session_id")), ("stub-D2-2", "stub-D3-1"))
+            check_eq("N2 (5): the first line of the journal is the run class the stub saw, and every row carries it",
+                     (got[0].get("run_class"), all(r.get("run_class") == "dry" for r in rows(task_dir))), ("dry", True))
+            check_eq("N2 (5): the journal sits at state/dry-stub.jsonl of the task", (task_dir / "state" / "dry-stub.jsonl").is_file(), True)
+            rc, _a, _e = call(project, control, f"Artifacts dir: {task_dir}\nDispatch: D4.\n", *role_arg, run_class=None)
+            check_eq("N2 (5) / E18: with no class in the environment the row says so (the walker turns it red)", rows(task_dir)[-1].get("run_class"), "")
+    check_eq("N2 (3): the same input gives the same bytes: register and form of two worlds are identical", saved[0], saved[1])
+    # N2 (1): an output with no filler kind is an `Unfillable` naming the form and the field, never a text; the row it leaves is live_only
+    ctx = kit_context(kit, "D9")
+    for output, form_needle, field_needle in (("work/s5-plan.json", "work/s5-plan.json", ""), ("test_file:typescript", "test_file:typescript", "marker")):
+        try:
+            fill_output(output, ctx)
+            got = ("no refusal", "")
+        except Unfillable as exc:
+            got = (exc.form, exc.field)
+        check(f"N2 (1): {output} raises Unfillable with the form {form_needle!r} and the field {field_needle!r}", got == (form_needle, field_needle), f"{got}")
+    try:
+        fill_handover("references/no-such-contract.md", ctx)
+        got = "no refusal"
+    except Unfillable as exc:
+        got = exc.form
+    except Exception as exc:               # noqa: BLE001 - the filler itself names a contract it cannot read in its own words
+        got = f"{type(exc).__name__}"
+    check("N2 (1): a contract the filler cannot place is not a text either (an Unfillable or the filler's own refusal)", got != "no refusal", got)
+    # overrides and the repair round come from the row
+    check_eq("N2 row: overrides apply before the repair round and not from it", (overrides_for({"overrides": {"f": {"a.b": 1}}, "repair_on_round": 2}, "f", 1),
+             overrides_for({"overrides": {"f": {"a.b": 1}}, "repair_on_round": 2}, "f", 2), overrides_for({"overrides": {"f": {"a.b": ABSENT_JSON}}}, "f", 5)),
+             ({"a.b": 1}, {}, {"a.b": FF.ABSENT}))
+    contract = FORM_CONTRACT.search(template.decode("utf-8")).group(1)
+    base_form = fill_handover(contract, kit_context(kit, "D2"))
+    key = next(f.path for f in base_form.fills if f.rule not in ("verdict", "override") and isinstance(f.value, str))        # a field the rules filled with a text
+    seeded = fill_handover(contract, kit_context(kit, "D2"), overrides=overrides_for({"overrides": {contract: {key: "seeded-by-the-row"}}, "repair_on_round": 2}, contract, 1))
+    repaired = fill_handover(contract, kit_context(kit, "D2"), overrides=overrides_for({"overrides": {contract: {key: "seeded-by-the-row"}}, "repair_on_round": 2}, contract, 2))
+    check_eq("N2 row: an override of the row reaches the filled form on round 1 and is gone on the repair round (bytes equal to the clean fill)",
+             ("seeded-by-the-row" in seeded.text, seeded.text != base_form.text, repaired.text == base_form.text), (True, True, True))
+    # N2 (2), (6): the automator, the world's profile
+    for tag, commands in (("auto", True), ("nocmd", False)):
+        project, task_dir = world(tag, commands)
+        code, text = form(project, task_dir, "S5", "qa-automator", "A5")
+        check(f"N2 (6): handoff_init made the S5 form (world {tag})", code == 0, text)
+        decoy = "Run `python -m pytest decoy-from-the-brief` to prove the case.\n"
+        rc, answer, err = call(project, control, f"Artifacts dir: {task_dir}\nDispatch: A5.\n{decoy}", "-p", "--agent", "qa-factory:qa-automator")
+        row = rows(task_dir)[1]
+        check_eq(f"N2 (2): the automator call answers `stub-A5-1` (world {tag})", (rc, answer.get("session_id")), (0, "stub-A5-1"))
+        if commands:
+            check_eq("N2 (2): the test file of the automated case is written by the filler and the command is the profile's own (exit 0, not the brief's)",
+                     ([r["argv"] for r in row.get("ran", [])], [r["exit"] for r in row.get("ran", [])], (project / "qa-factory" / "tests" / "TC-1_test.py").is_file(),
+                      "decoy" in json.dumps(row)), ([["python", "-B", "-m", "pytest", "-q", "-p", "no:cacheprovider", "."]], [0], True, False))
+            check("N2 (2): the manifest fragment of the case was merged by manifest_put.py (exit 0)", "work/automation-manifest.json" in row["wrote"], json.dumps(row)[:600])
+            check_eq("N2g: the role's own tool `manifest_from_tests.py` runs once per written test file (it writes the case's current pin, the plan row, the obligation hash), the journal names the case",
+                     [r["case"] for r in row.get("from_tests", [])], ["TC-1"])
+        else:
+            check("N2 (6): a profile without `commands` is `no command` in the journal, nothing is run, and the brief's command is not looked for",
+                  "no command" in row.get("no_command", "") and row.get("ran") == [] and "decoy" not in json.dumps(row.get("ran")), json.dumps(row)[:600])
+    # N2 (2)-(3): the conductor
+    spec = NM.data()
+    offerable = [mid for mid, mrow in NM.move_rows(spec).items() if NM.move_columns(mrow, strict=False)[1] and NM.move_columns(mrow, strict=False)[0] is None
+                 and str(mrow.get("token") or "") not in ("", "—")][:3]
+    prompt = NM.moves_section(spec, offerable, {}) + "\n\nSomething refused.\n"
+    project, task_dir = world("cond")
+    rc, answer, err = call(project, control, prompt)
+    verdict = json.loads(answer["result"].split("\n", 1)[1]) if answer else {}
+    words = (NM.hooklib.load_ref_json(NM.VERDICTS_FILE) or {}).get("words") or {}
+    options, rule_text = NM.validate_options(verdict, offerable, spec, lambda s: s.strip().lower(), words)
+    check_eq("N2 (2): the conductor answers `ask_person` offering every open move, session `stub-conductor-1`",
+             (answer.get("session_id"), verdict.get("action"), [o["move"] for o in verdict.get("options", [])]), ("stub-conductor-1", "ask_person", offerable))
+    check("N2 item 3: the answer passes no_move.validate_options", options is not None and len(options) == len(offerable), rule_text)
+    first = NM.move_rows(spec)[offerable[0]]
+    check_eq("N2 item 3: every line of an option is the move's own row, no text of the stub's", (verdict["options"][0]["says"], verdict["options"][0]["token"]),
+             (first["says"].strip(), first["token"]))
+    tokens = [o["token"] for o in verdict["options"]]
+    rc, answer, err = call(project, dict(control, conductor={"variant": tokens[-1], "why_person": "decision", "checked": "the gate card"}), prompt)
+    verdict = json.loads(answer["result"].split("\n", 1)[1])
+    check_eq("N2 item 3: the row's variant narrows the offer and its why_person / checked are the row's; the counter runs on",
+             (answer["session_id"], [o["token"] for o in verdict["options"]], verdict["why_person"], verdict["checked"]), ("stub-conductor-2", [tokens[-1]], "decision", "the gate card"))
+    rc, answer, err = call(project, dict(control, conductor={"variant": "no-such-token"}), prompt)
+    verdict = json.loads(answer["result"].split("\n", 1)[1])
+    check("N2 edge: a variant the prompt does not offer is a `stop` naming it, never an invented option", verdict["action"] == "stop" and "no-such-token" in verdict["did"], str(verdict))
+    # E3: the move's own command, and the move no command fills without judgment
+    ran = conductor_execute({"move": "rework_stage", "run": [["case_versions.py", "--all"]]}, project, task_dir, "DRY-1", run=lambda *a: (0, "never"))
+    check("E3: a command that is not the move's own is refused naming it and nothing runs", "is not the move's own" in ran.get("refused", "") and ran["ran"] == [], str(ran))
+    seen = []
+    ran = conductor_execute({"move": "rework_stage", "run": [["controller.py", "--task-root", "{task_root}", "--operation", "stage-scope"]]}, project, task_dir, "DRY-1",
+                            run=lambda p, s, a: (seen.append((s, a)) or (0, "ok")))
+    check_eq("E3: the move's own script runs with the row's arguments, `{task_root}` filled", seen, [("controller.py", ["--task-root", str(task_dir), "--operation", "stage-scope"])])
+    ran = conductor_execute({"move": "rework_stage", "executor": "conductor_judgment"}, project, task_dir, "DRY-1", run=lambda *a: (_ for _ in ()).throw(AssertionError("ran")))
+    check_eq("E3: a move that needs judgment is `executor: conductor_judgment`, nothing runs, never counted as run", (ran["executor"], ran["ran"]), ("conductor_judgment", []))
+    check("E3: a move the data does not hold is refused", "no move `nope`" in conductor_execute({"move": "nope"}, project, task_dir, "DRY-1").get("refused", ""))
+    rc, answer, err = call(project, dict(control, conductor={"execute": {"move": "rework_stage", "executor": "conductor_judgment"}}), prompt)
+    check_eq("E3: through the process: the journal row of the conductor carries `executed`, the answer is `continue`", (json.loads(answer["result"].split("\n", 1)[1])["action"],
+             rows(task_dir)[-1]["executed"]["executor"]), ("continue", "conductor_judgment"))
+    # E4: the counter is read from the journal, one file, so two dispatches never share an index (the stub never waits for anyone)
+    counted = rows_dir(tmp, "n2-count", [("D2", 2), ("D3", 1)])
+    check_eq("E4: the counters are per key in the journal (D2: 2 calls, D3: 1), never a shared index", (calls_before(counted, "D2"), calls_before(counted, "D3")), (2, 1))
+    # dry_driver.py: a spy that passes, and no attribute of the driver's class assigned (a grep over the owned files, with its positive control)
+    seen = []
+    spy = dry_driver.passing_spy(lambda key, options, *a, **k: (seen.append(key) or [{"token": None}]), tmp / "n2-priced" / "dry-priced.jsonl")
+    answered = spy("s1.gap", [{"answer": "go on"}, {"answer": "stop"}], {}, {})
+    check_eq("N2 item 5: the spy returns what the real function returned and records {key, answers}",
+             (answered, [json.loads(l) for l in (tmp / "n2-priced" / "dry-priced.jsonl").read_text(encoding="utf-8").splitlines()]),
+             ([{"token": None}], [{"key": "s1.gap", "answers": ["go on", "stop"]}]))
+    try:
+        dry_driver.passing_spy(lambda *a, **k: (_ for _ in ()).throw(ValueError("unreadable prices")), tmp / "n2-priced" / "never.jsonl")("k", [])
+        got = "no error"
+    except ValueError:
+        got = "raised"
+    check_eq("N2 item 5: a refusal of the real function passes through and nothing is recorded", (got, (tmp / "n2-priced" / "never.jsonl").exists()), ("raised", False))
+    check_eq("N2 item 5: the sink is the task's state folder of the call's own --project and --task",
+             dry_driver.sink_path(["--project", "P", "--task", "T", "--x"]), Path("P") / "qa-factory" / "artifacts" / "T" / "state" / "dry-priced.jsonl")
+    check("N2 edge: no --project or --task is None, the wrapper refuses naming them", dry_driver.sink_path(["--task", "T"]) is None)
+    pattern = re.compile(r"\bDri" + r"ver\.\w+\s*=[^=]")
+    owned = [Path(__file__).resolve(), Path(__file__).resolve().with_name("dry_driver.py")]
+    check("N2 item 5: positive control of the grep: the pattern finds an assignment to an attribute of the driver's class", pattern.search("Dri" + "ver.run = spy") is not None)
+    check("N2 item 5: positive control of the grep: it finds the assignment the wrapper does make (the one module attribute)",
+          re.search(r"\bno_move\.priced_options\s*=[^=]", owned[1].read_text(encoding="utf-8")) is not None)
+    check("N2 item 5: no owned file assigns an attribute of the driver's class", not [str(p) for p in owned if pattern.search(p.read_text(encoding="utf-8"))])
+    selftest_n2b(tmp, world, call, form, rows, control)
+    selftest_n2c(tmp)
+
+
+def selftest_n2b(tmp: Path, world, call, form, rows, control: dict) -> None:
+    """The rows of node N2b: the change of a world through ONE function (story file, type merge request, the edges), the scout's recording step and the
+    S2 steps in the tables, and the scout's call in the journal (the step ran, or is named as not run when the world holds no change)."""
+    import dry_world as W
+    from harness import check, check_eq
+    real = (STORIES / "dry-1" / "impl.diff").read_bytes().decode("utf-8")
+    check_eq("N2b item 1: a story world's change is the text of its diff file, byte for byte, and a unified diff of 2 files, 2 hunks",
+             (W.change_text({"story": "dry-1"}) == real, real.startswith("diff --git "), real.count("\ndiff --git ") + 1, real.count("\n@@ ")), (True, True, 2, 2))
+    check_eq("N2b item 1: a type world's change is what mr_diff returns for its row (byte-identical to before)",
+             W.change_text({"type": W.type_row()["id"]}) == W.mr_diff(W.type_row()), True)
+    check_eq("N2b item 1: a control that names neither a type nor a story holds no change", W.change_text({"task": "T-1"}), "")
+    story = (STORIES / "dry-1" / "story.json").read_text(encoding="utf-8")
+    base = tmp / "n2b"
+    for name, files, needle in (
+            ("a story with no `change` key", {"s/story.json": story.replace('"change": {"diff_file": "impl.diff"},', "")}, "no `change.diff_file`"),
+            ("a `change` with no file name", {"s/story.json": story.replace('"diff_file": "impl.diff"', '"x": 1')}, "no `change.diff_file`"),
+            ("a diff file that is absent", {"s/story.json": story}, "s" + os.sep + "impl.diff cannot be read"),
+            ("a diff file that is empty", {"s/story.json": story, "s/impl.diff": " \n"}, "impl.diff is empty")):
+        folder = base / name.replace(" ", "-").replace("`", "")
+        for rel_path, text in files.items():
+            (folder / rel_path).parent.mkdir(parents=True, exist_ok=True)
+            (folder / rel_path).write_text(text, encoding="utf-8")
+        try:
+            W.change_text({"story": "s"}, folder)
+            got = "no refusal"
+        except W.ChangeError as exc:
+            got = str(exc)
+        check(f"N2b edge: {name} is a red line naming the story and the key or the path", needle in got and "story 's'" in got, got)
+    steps = ROLE_STEPS["qa-scout"]
+    check_eq("N2b item 2: the scout's steps are the collection and then the recording of the source, the S1 exit text's own command",
+             [(o, s, a) for o, s, a in steps][1:], [("pipeline.implementation_source", "stage_done.py", ["--task", "{task}", "--set", "implementation_source=diff"])])
+    check_eq("N2b item 3: the S2 tester's steps are sizing.py then the recording of the size it computed",
+             [(o, s) for o, s, _a in AFTER_STEPS[("qa-requirements-tester", "S2")]], [("work/sizing.json", "sizing.py"), ("pipeline.size", "stage_done.py")])
+    check_eq("N2b: a brief's `Reviewed dispatch:` line gives the author's dispatch, none gives none",
+             (author_dispatch_of("x\nReviewed dispatch: the LAST `inputs_read` row naming a qa-requirements-tester dispatch must be `path: work/handoffs/S2-qa-requirements-tester-1.yaml` (other"),
+              author_dispatch_of("Reviewed dispatch: none yet - no accepted dispatch")), ("S2-qa-requirements-tester-1", ""))
+    # a world with a change runs the step (no pipeline.json in this bare project, so the command's own refusal is the row); a control with neither type nor
+    # story holds no change: the step is not run and the row says so (never `diff` recorded for a world that has none)
+    for tag, ctl, expect in (("with a change", control, "stage_done.py exit"), ("with no change", {"task": "DRY-1"}, "the world holds no change")):
+        project, task_dir = world(tag.replace(" ", "-"))
+        code, text = form(project, task_dir, "S1", "qa-scout", "S1D")
+        check(f"N2b: handoff_init made the S1 form ({tag})", code == 0, text)
+        rc, answer, err = call(project, ctl, f"Artifacts dir: {task_dir}\nDispatch: S1D.\n", "-p", "--agent", "qa-factory:qa-scout")
+        journal_row = rows(task_dir)[-1]
+        steps_text = json.dumps(journal_row.get("live_only", []) + journal_row.get("wrote", []))
+        check(f"N2b item 2/5: the scout's recording step is in the stub's journal ({tag})", rc == 0 and expect in steps_text and "implementation_source" in steps_text,
+              steps_text[:500] + err[-300:])
+
+
+def selftest_n2c(tmp: Path) -> None:
+    """The rows of node N2c: the one reader of the story's stub table (`stub_control`: the keys, the precedence, the unknown key), the story's data of the S2
+    stage critic, the window of an S3 call, and the window-1 product (`apply_grounding`: the table labelled from data, every gap named)."""
+    import grounding_table as GT
+    import planning_contract as PC
+    from harness import check, check_eq
+    table = {"qa-x": {"a": 1, "b": 1}, "qa-x@S2": {"b": 2}, "qa-x@S3#1": {"c": 3}}
+    check_eq("N2c item 5: `<role>@<stage>` wins over `<role>`, the role-only row is the default of every stage",
+             (stub_control({"stub": table}, "qa-x", "S2"), stub_control({"stub": table}, "qa-x", "S4"), stub_control({"stub": table}, "qa-y", "S2")),
+             ({"a": 1, "b": 2}, {"a": 1, "b": 1}, {}))
+    check_eq("N2c item 5: `<role>@<stage>#<window>` is read only for the window the call has",
+             (stub_control({"stub": table}, "qa-x", "S3", "1"), stub_control({"stub": table}, "qa-x", "S3", "")), ({"a": 1, "b": 1, "c": 3}, {"a": 1, "b": 1}))
+    for bad in ("qa-x@S33", "QA-X", "qa-x@", "qa-x S2", "qa-x@S3#", ""):
+        try:
+            stub_control({"stub": {bad: {"a": 1}}}, "qa-x", "S2")
+            got = "no error"
+        except KitError as exc:
+            got = str(exc)
+        check(f"N2c item 5: an unknown key {bad!r} is a KitError naming it, never a silent default", repr(bad) in got and "expected `<role>`" in got, got)
+    check_eq("N2c item 5: `source_relevance` is no role row and is accepted", stub_control({"stub": {"source_relevance": {}}}, "qa-x", "S2"), {})
+    story = read_json(STORIES / "dry-1" / "story.json")["stub"]
+    check_eq("N2c item 5: the story's `qa-case-critic@S2` row carries the S2 digest over the role's verdict `ok`",
+             (stub_control({"stub": story}, "qa-case-critic", "S2").get("verdict"), stub_control({"stub": story}, "qa-case-critic", "S2").get("result_text", "").splitlines()[0],
+              "result_text" in stub_control({"stub": story}, "qa-case-critic", "S7")),
+             ("ok", "qa-case-critic S2 DRY-1 · ok", False))
+    check_eq("N2c: window 1 is the call whose brief carries the labelling words, any other brief is no window",
+             (window_of("x\n" + WINDOW1_MARK + ": labels"), window_of("Reviewed dispatch: none"), window_of("")), ("1", "", ""))
+    # the window-1 product, on a hand-made table (two hunks of two files, two rows, two requirement lines)
+    folder = tmp / "n2c" / "T"
+    (folder / "work").mkdir(parents=True)
+    empty = {"schema_version": 1, "implementation_source": "diff", "register_sha256": "x",
+             "hunks": [{"id": "h1-1", "file": "a.py"}, {"id": "h2-1", "file": "b.py"}],
+             "rows": [GT.empty_row(1, ["h1-1"]), GT.empty_row(2, ["h2-1"])], "requirements": [GT.empty_line("R-1", ""), GT.empty_line("R-2", "")],
+             "blast_radius": {"index": {"state": "built"}, "areas": [{"id": "B-1", "matters": "", "why": "", "regression": ""}]}}
+    GT.write_yaml(folder / "work" / "grounding.yaml", empty)
+    data = {"rows": [{"file": "a.py", "label": "implements", "requirements": ["R-1"], "reason": "r1"}, {"file": "b.py", "label": "refactoring", "reason": "r2"}],
+            "requirements": [{"r": "R-1", "state": "implemented", "files": ["a.py"]}, {"r": "R-2", "state": "outside_diff", "files": [], "where": "elsewhere"}],
+            "areas": [{"id": "B-1", "matters": "no", "why": "w", "regression": "gap:none", "path_kind": "ignored: not a role field"}]}
+    wrote = apply_grounding(folder, data, "k")
+    doc, problem = PC.read_grounding(folder)
+    got = doc.data if doc is not None else {}
+    check_eq("N2c item 2: window 1 labels each row from the data by the FILE of its hunk, and states each requirement line with the table's own hunk ids",
+             (wrote, [(r["id"], r["label"], r["requirements"]) for r in got.get("rows", [])], [(r["r"], r["state"], r["hunks"]) for r in got.get("requirements", [])]),
+             (["G-1", "G-2", "R-1", "R-2", "B-1"], [("G-1", "implements", ["R-1"]), ("G-2", "refactoring", [])], [("R-1", "implemented", ["h1-1"]), ("R-2", "outside_diff", [])]))
+    check_eq("N2c item 2: an area gets the role's fields of the data (`matters`, `why`, `regression`) and nothing the code owns (`path_kind`)",
+             [(a["matters"], a["regression"], "path_kind" in a) for a in got.get("blast_radius", {}).get("areas", [])], [("no", "gap:none", False)])
+    for name, mutate, needle in (
+            ("a row whose file the data does not cover", lambda d: d["rows"].pop(), "covers 0 of the files of table row G-2"),
+            ("a requirement line the data does not state", lambda d: d["requirements"].pop(), "has no line for R-2"),
+            ("an area the data does not declare", lambda d: d["areas"].pop(), "has no entry for area B-1"),
+            ("a requirement naming a file the table does not hold", lambda d: d["requirements"][0].update(files=["zz.py"]), "which the table's hunks do not hold")):
+        GT.write_yaml(folder / "work" / "grounding.yaml", empty)
+        copy = json.loads(json.dumps(data))
+        mutate(copy)
+        try:
+            apply_grounding(folder, copy, "k")
+            got_text = "no error"
+        except KitError as exc:
+            got_text = str(exc)
+        check(f"N2c edge 6: {name} is a KitError naming the key", needle in got_text and got_text.startswith("k:"), got_text)
+    (folder / "work" / "grounding.yaml").unlink()
+    try:
+        apply_grounding(folder, data, "k")
+        got_text = "no error"
+    except KitError as exc:
+        got_text = str(exc)
+    check("N2c edge 6: an absent table is a KitError naming the key and the problem", got_text.startswith("k: work/grounding.yaml cannot be read"), got_text)
+    # N2d: the role's own files as story data (`write_files`)
+    out = tmp / "n2d" / "T"
+    out.mkdir(parents=True)
+    check_eq("N2d: `files` writes the text (a list of lines is joined, one final newline) under work/ and names the paths",
+             (write_files(out, {"work/a/x.md": ["# h", "", "row"], "work/b.md": "text\n\n"}, "k"), (out / "work" / "a" / "x.md").read_bytes(), (out / "work" / "b.md").read_bytes()),
+             (["work/a/x.md", "work/b.md"], b"# h\n\nrow\n", b"text\n"))
+    for name, bad, needle in (("a path outside work/", {"state/x.md": "t"}, "a path under work/"), ("a path climbing out", {"work/../x.md": "t"}, "a path under work/"),
+                              ("a bare `work`", {"work": "t"}, "a path under work/"), ("an empty text", {"work/x.md": "  "}, "empty or not text"),
+                              ("a non-text value", {"work/x.md": 3}, "empty or not text"), ("an empty object", {}, "expected an object")):
+        try:
+            write_files(out, bad, "k")
+            got_text = "no error"
+        except KitError as exc:
+            got_text = str(exc)
+        check(f"N2d: `files` with {name} is a KitError naming the key", needle in got_text and got_text.startswith("k:"), got_text)
+    import critic_rollcall as CR
+    story_files = stub_control({"stub": story}, "qa-case-critic", "S4")["files"]
+    rows = CR.parse_rollcall("\n".join(story_files["work/test-cases/critic-findings.md"]))
+    check_eq("N2d: the story's S4 critic file reads through the product's roll-call reader and derives `2 of 2 reviewed`",
+             ([(r["plan_row"], r["ids"], r["reviewed"], r["verdict"]) for r in rows], CR.derive(rows)["digest"]),
+             ([("TS-1", ["TC-1"], True, "approve"), ("TS-2", ["TC-2"], True, "approve")], "2 of 2 reviewed"))
+    # N2e: the automator's story fragments (`qa-automator@S5.manifest_fragments`) and its row of the story
+    for name, bad in (("a string", "x"), ("an empty object in the list", [{}]), ("a non-object in the list", [3]), ("an object, not a list", {"then_bindings": []})):
+        try:
+            automator_branch(None, None, {"key": "K", "cases": []}, {"profile_id": "p"}, "D", fragments=bad)
+            got_text = "no error"
+        except KitError as exc:
+            got_text = str(exc)
+        check(f"N2e: `manifest_fragments` as {name} is a KitError naming the key", "qa-automator@S5.manifest_fragments" in got_text, got_text)
+    mine = story["qa-automator@S5"]
+    check_eq("N2f: the story's S5 automator row: the path last, one fragment of `then_bindings`/`obligation_bindings`, no override (the filler writes no hash, edge 4)",
+             (mine["result_text"].splitlines()[-1], [sorted(f) for f in mine["manifest_fragments"]], mine.get("overrides")),
+             ("work/automation-manifest.json", [["obligation_bindings", "then_bindings"]], None))
+    import form_filler as FF
+    kit = load_kit("dry-1")
+    check_eq("N2f: the filler's case channel is the kit's: TC-1 auto, TC-2 manual-agent, a case the kit does not list auto (no kit: auto)",
+             (*(FF.replace(kit_context(kit), case_id=c).case_channel for c in ("TC-1", "TC-2", "TC-9")), FF.FillContext(case_id="TC-2").case_channel),
+             ("auto", "manual-agent", "auto", "auto"))
+    probe_world = harness.temp_project("qa-dry-n2f-")
+    install_runner(probe_world, runner_row(kit["runner"]))
+    import execution_request as ER
+    seen = ER.registered_probe(read_json(config_path(probe_world)), "dry-pytest")
+    check("N2f: the world's runtime probe row is one the factory's own reader takes (`registered_probe`): the plugin's runtime_probe.py for the profile",
+          bool(seen) and seen["argv"][1].endswith("runtime_probe.py") and "dry-pytest" in seen["argv"] and seen["cwd"] == ".", str(seen))
+    bare = {"id": "x", "profile_id": "p", "profile": {"profile_id": "p"}, "dir": str(probe_world / "none")}
+    install_runner(probe_world, bare)
+    check("N2f: a runner row with no `runtime_probe` writes no entry for its profile",
+          "p" not in (read_json(config_path(probe_world)).get("execution") or {}).get("runtime_probes", {}), "")
+    cased = FF.fill_artifact("work/test-cases/", kit_context(kit, cases=["TC-2"]))
+    check("N2f: the case file written for TC-2 says `channel: manual-agent`", "\nchannel: manual-agent\n" in next(iter(cased.files.values()), ""), str(cased.files)[:200])
+    # N2g: the kit's `plan_rows` - one plan row per distinct row id, each with its own disposition and obligation; a kit without the key writes today's bytes
+    import contract as CO
+    import hashlib
+    no_key = {k: v for k, v in kit.items() if k != "plan_rows"}
+    pinned = {"test-plan.md": "49928afd3387031bd0f6ea5d4eb29bb9804ce27afbe8c70f186e46dc7be2efdb", "work/test-plan.json": "8621f6849497919581d2c3bf97d3d9b5188919a73b7b6d9a0e0b7dbd4492e110",
+              "work/test-cases/general/TC-1.md": "ab11a0ffd878d525f1a1f2efe1feb834f8e89d4c3dc5fc6849b209b125675366",
+              "work/test-cases/general/TC-2.md": "f01ab495d47232cc95aff9bbb6546197eb1a1fe03e1d3bd09fbebf8a90525a87"}
+    plain = {}
+    for output in ("test-plan.md", "work/test-plan.json", "work/test-cases/"):
+        plain.update(fill_output(output, kit_context(no_key, "D1", cases=["TC-1", "TC-2"] if output.endswith("/") else None)).files)
+    check_eq("N2g edge 2: a kit with no `plan_rows` writes the bytes of before the key (sha256 of the plan, its rows and both case files): ONE row, every case cites it",
+             {p: hashlib.sha256(t.encode("utf-8")).hexdigest() for p, t in plain.items()}, pinned)
+    planned = {}
+    for output in ("test-plan.md", "work/test-plan.json", "work/test-cases/"):
+        planned.update(fill_output(output, kit_context(kit, "D1", cases=["TC-1", "TC-2"] if output.endswith("/") else None)).files)
+    plan_md_ids = [line.split("|")[1].strip() for line in planned["test-plan.md"].splitlines() if line.startswith("| TS-")]
+    plan_json = json.loads(planned["work/test-plan.json"])["rows"]
+    check_eq("N2g edge 1: test-plan.md and work/test-plan.json hold the same rows, one per distinct row id, in the kit's order",
+             (plan_md_ids, [r["id"] for r in plan_json]), (["TS-1", "TS-2"], ["TS-1", "TS-2"]))
+    check_eq("N2g edge 1: each row has the kit's disposition (md cell and json) and an obligation of its own, the delta entry and the instance following it",
+             ([r["disposition"] for r in plan_json], [r["coverage_obligations"][0]["obligation_id"] for r in plan_json], [r["coverage_delta"]["entries"][0]["obligation_id"] for r in plan_json],
+              [r["coverage_delta"]["planned_instance_ids"] for r in plan_json], [("`automate`" in line, "`manual-agent`" in line) for line in planned["test-plan.md"].splitlines() if line.startswith("| TS-")]),
+             (["automate", "manual-agent"], ["OB-1", "OB-2"], ["OB-1", "OB-2"], [["i1"], ["i2"]], [(True, False), (False, True)]))
+    check_eq("N2g edge 1: the plan's counts say two rows; a manual row carries a `rung_basis` and no `fit`, an automate row keeps `fit: new`",
+             (["rows_total: 2" in planned["test-plan.md"], "planned: 2" in planned["test-plan.md"]], [r.get("fit") for r in plan_json], [bool(r.get("rung_basis")) for r in plan_json]),
+             ([True, True], ["new", ""], [False, True]))
+    check_eq("N2g edge 1: each case file cites its own plan row", [re.search(r"^Plan row: (.+)$", planned[f"work/test-cases/general/{c}.md"], re.M).group(1) for c in ("TC-1", "TC-2")], ["TS-1", "TS-2"])
+    check("N2g edge 1: the plan rows pass the product's own plan validator (`planning_contract.validate_plan`)", not __import__("planning_contract").validate_plan(plan_json), str(__import__("planning_contract").validate_plan(plan_json))[:300])
+    words = list(CO.DISPOSITIONS)
+    good_story, good_kit = (STORIES / "dry-1" / "story.json").read_text(encoding="utf-8"), (STORIES / "dry-1" / "kit.json").read_text(encoding="utf-8")
+    cases_of = ["TC-1", "TC-2"]
+    good_rows = kit["plan_rows"]
+    for name, rows, needle in (("a word outside the product's set", {"TC-1": good_rows["TC-1"], "TC-2": {"row": "TS-2", "disposition": "maybe"}}, str(words)),
+                               ("a case the kit does not hold", dict(good_rows, **{"TC-9": {"row": "TS-9", "disposition": "automate"}}), "'TC-9'"),
+                               ("a kit case with no entry", {"TC-1": good_rows["TC-1"]}, "no entry for the case 'TC-2'"),
+                               ("one row id with two dispositions", {"TC-1": good_rows["TC-1"], "TC-2": {"row": "TS-1", "disposition": "manual-agent"}}, "more than one disposition"),
+                               ("a row id that is no TS-n", {"TC-1": {"row": "X-1", "disposition": "automate"}, "TC-2": good_rows["TC-2"]}, "`TS-n`"),
+                               ("an empty object", {}, "is empty"), ("not an object", ["TC-1"], "not an object")):
+        got = plan_rows_problems(rows, cases_of)
+        check(f"N2g edge 2: `plan_rows` with {name} is refused, naming it", any(needle in p for p in got), str(got))
+    check_eq("N2g edge 2: a row id shared by two cases with ONE disposition is legal (one row, two cases)",
+             plan_rows_problems({"TC-1": good_rows["TC-1"], "TC-2": dict(good_rows["TC-1"])}, cases_of), [])
+    shared = FF.fill_artifact("work/test-plan.json", FF.replace(kit_context(kit), plan_rows={"TC-1": good_rows["TC-1"], "TC-2": dict(good_rows["TC-1"])}))
+    check_eq("N2g edge 1: two cases sharing one row id make ONE plan row", [r["id"] for r in json.loads(next(iter(shared.files.values())))["rows"]], ["TS-1"])
+    held = tmp / "n2g-kit"
+    (held / "k").mkdir(parents=True)
+    (held / "k" / "story.json").write_text(good_story, encoding="utf-8")
+    (held / "k" / "kit.json").write_text(good_kit.replace('"disposition": "manual-agent"', '"disposition": "maybe"'), encoding="utf-8")
+    try:
+        load_kit("k", held)
+        got_text = "no refusal"
+    except KitError as exc:
+        got_text = str(exc)
+    check("N2g edge 1: the kit reader refuses a disposition outside the product's set, naming kit.json and the allowed words", "kit.json" in got_text and "manual-agent" in got_text and "maybe" in got_text, got_text)
+    skip_row = FF.fill_artifact("work/test-plan.json", FF.replace(kit_context(kit), plan_rows={"TC-1": good_rows["TC-1"], "TC-2": {"row": "TS-2", "disposition": "skip"}}))
+    check("N2g: a product disposition the rules hold no row shape for is an `Unfillable` naming it, nothing written for it", any("`skip`" in u.why for u in skip_row.unfillable), str(skip_row.unfillable)[:200])
+
+
+def rows_dir(tmp: Path, name: str, calls: list) -> Path:
+    """A task folder whose stub journal holds one row per call of `calls` (`[(key, how many)]`)."""
+    folder = tmp / name
+    (folder / "state").mkdir(parents=True, exist_ok=True)
+    (folder / "state" / "dry-stub.jsonl").write_text("\n".join([json.dumps({"first": True, "run_class": "dry"})] + [json.dumps({"dispatch": k, "n": i + 1})
+                                                      for k, count in calls for i in range(count)]) + "\n", encoding="utf-8")
+    return folder
 
 
 def main(argv: list) -> int:

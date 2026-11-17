@@ -11,6 +11,250 @@
   "check_coverage:*": {
    "reach": "unwalked",
    "why_unreached": "not walked yet: node N4:s6-s9 writes the rows of this group"
+  },
+  "first_look:put.input": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "first_look:put.inputs_current": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "first_look:put.null_reason": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "first_look:put.rows": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "first_look:put.rows.api": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "first_look:put.rows.auth": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "first_look:put.rows.list": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "first_look:put.rows.locator": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "first_look:put.rows.path": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "first_look:put.rows.row": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "first_look:put.walk_open": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "handoff_check:binding": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "handoff_check:investigation": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:external_writes.py --record": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:first_look.py put": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:first_look.py show": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:manual_capture.py app": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:manual_capture.py http": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:manual_capture.py ui": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:manual_evidence.py build": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:manual_evidence.py export": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:manual_evidence.py prepare": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:manual_evidence.py rejudge": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:manual_evidence.py validate": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:manual_evidence.py write-block": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:place_answers.py write": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:red_sandbox.py --diagnostic": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:reference_snapshot.py put": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:walk_session.py claim": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:walk_session.py done": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:walk_session.py final": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:walk_session.py item": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:walk_session.py look": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:walk_session.py open": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:walk_session.py status": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:walk_session.py step": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:walk_session.py verdict": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "run_suite:reparse": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_bug": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_bug_filing_header": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_bug_form": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_legacy_report_sections": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_phase_json.triage.json": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_ptr_readiness": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_report_blocks": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_report_coverage": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_report_forbidden": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_report_gate_b": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_report_human_text": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_report_ledger_and_readiness": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_report_left_with_you": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_report_sections": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_report_test_marks": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_report_traceability": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_result_rows": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_run_report_coverage": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_run_report_empty": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_run_report_head": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_run_report_v0": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_test_report": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_triage_v0": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
   }
  },
  "kinds_without_key": {
@@ -50,6 +294,68 @@
   "after": 0,
   "unwalked": 6,
   "hook_layer": 0,
-  "raised_by": []
+  "raised_by": [
+   "unwalked | joints/first_look:put.input | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/first_look:put.inputs_current | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/first_look:put.null_reason | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/first_look:put.rows | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/first_look:put.rows.api | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/first_look:put.rows.auth | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/first_look:put.rows.list | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/first_look:put.rows.locator | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/first_look:put.rows.path | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/first_look:put.rows.row | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/first_look:put.walk_open | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/handoff_check:binding | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/handoff_check:investigation | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:external_writes.py --record | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:first_look.py put | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:first_look.py show | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:manual_capture.py app | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:manual_capture.py http | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:manual_capture.py ui | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:manual_evidence.py build | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:manual_evidence.py export | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:manual_evidence.py prepare | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:manual_evidence.py rejudge | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:manual_evidence.py validate | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:manual_evidence.py write-block | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:place_answers.py write | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:red_sandbox.py --diagnostic | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:reference_snapshot.py put | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:walk_session.py claim | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:walk_session.py done | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:walk_session.py final | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:walk_session.py item | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:walk_session.py look | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:walk_session.py open | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:walk_session.py status | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:walk_session.py step | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:walk_session.py verdict | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/run_suite:reparse | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_bug | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_bug_filing_header | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_bug_form | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_legacy_report_sections | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_phase_json.triage.json | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_ptr_readiness | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_report_blocks | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_report_coverage | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_report_forbidden | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_report_gate_b | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_report_human_text | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_report_ledger_and_readiness | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_report_left_with_you | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_report_sections | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_report_test_marks | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_report_traceability | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_result_rows | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_run_report_coverage | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_run_report_empty | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_run_report_head | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_run_report_v0 | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_test_report | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_triage_v0 | L1c census catch-up, 2026-11-17"
+  ]
  }
 }

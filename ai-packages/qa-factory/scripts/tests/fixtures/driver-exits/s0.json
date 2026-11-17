@@ -3,38 +3,38 @@
  "group": "s0",
  "routes": {
   "executor": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s0 writes the rows of this group",
+   "reach": "live_only",
+   "why_unreached": "the refusal text comes from run_suite at S6, which the main pass does not reach (stops at S5, P1B-9); the dry world has no unavailable executor",
    "class_source": "route:executor"
   },
   "no_project": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s0 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "needs a world with no qa-factory/config.json; every dry world has one and a seed may not delete a file"
   },
   "readiness": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s0 writes the rows of this group",
+   "reach": "live_only",
+   "why_unreached": "asks only when a required capability is missing; the dry world's config carries every capability and a seed may not change the config",
    "class_source": "question:s0.readiness"
   },
   "s0_receipt": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s0 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "needs a stage closed with no accepted S0 receipt; the driver writes it in S0 by code, and a code move with no question pending cannot be observed by the walker"
   },
   "story_budget": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s0 writes the rows of this group",
+   "reach": "live_only",
+   "why_unreached": "printed when recorded spend passes a ceiling; the dry story records no cost and a seed may not write a ceiling",
    "class_source": "route:story_budget"
   },
   "uninitialized": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s0 writes the rows of this group"
+   "reach": "live_only",
+   "why_unreached": "needs a story_step call before the controller is initialized; the driver initializes it in its first turn, and a code move with no question pending cannot be observed by the walker"
   }
  },
  "joints": {},
  "kinds_without_key": {
   "halt": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s0 writes the rows of this group",
+   "reach": "seed",
+   "seed": "to-halt",
    "raised_at": [
     "driver_dispatch:resume_role",
     "driver_dispatch:run_role",
@@ -42,15 +42,15 @@
    ]
   },
   "package": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s0 writes the rows of this group",
+   "reach": "live_only",
+   "why_unreached": "needs a pipeline.json stamped with another run mode or differing hook roots; a fresh world has no pipeline and no allowed seed op restamps run_mode",
    "raised_at": [
     "driver_machine:take_package_answer"
    ]
   },
   "ticket_changed": {
-   "reach": "unwalked",
-   "why_unreached": "not walked yet: node N4:s0 writes the rows of this group",
+   "reach": "live_only",
+   "why_unreached": "needs the ticket in the tracker to differ from the story's snapshot; the dry ticket file never changes and the walker may not edit it",
    "raised_at": [
     "driver_s0:ticket_changed_person"
    ]
@@ -59,8 +59,25 @@
  "ratchet": {
   "live_only": 0,
   "after": 0,
-  "unwalked": 9,
+  "unwalked": 0,
   "hook_layer": 0,
-  "raised_by": []
+  "raised_by": [
+   "live_only | routes/executor | N4:s0 t-824: run_suite at S6 is past the main stop",
+   "live_only | routes/no_project | N4:s0 t-824: needs a world with no config",
+   "live_only | routes/readiness | N4:s0 t-824: needs a missing capability",
+   "live_only | routes/s0_receipt | N4:s0 t-824: code move, no question to observe",
+   "live_only | routes/story_budget | N4:s0 t-824: needs a spend over a ceiling",
+   "live_only | routes/uninitialized | N4:s0 t-824: code move, no question to observe",
+   "live_only | kinds_without_key/package | N4:s0 t-824: needs another run mode",
+   "live_only | kinds_without_key/ticket_changed | N4:s0 t-824: needs a changed ticket",
+   "live_only | walk/route:executor/free words | N4:s0 t-824: same reason as routes/executor",
+   "live_only | walk/route:no_project/code move | N4:s0 t-824: same reason as routes/no_project",
+   "live_only | walk/route:readiness/free words | N4:s0 t-824: same reason as routes/readiness",
+   "live_only | walk/route:s0_receipt/code move | N4:s0 t-824: same reason as routes/s0_receipt",
+   "live_only | walk/route:story_budget/free words | N4:s0 t-824: same reason as routes/story_budget",
+   "live_only | walk/route:uninitialized/code move | N4:s0 t-824: same reason as routes/uninitialized",
+   "live_only | walk/kind:package/free words | N4:s0 t-824: same reason as kinds_without_key/package",
+   "live_only | walk/kind:ticket_changed/free words | N4:s0 t-824: same reason as kinds_without_key/ticket_changed"
+  ]
  }
 }

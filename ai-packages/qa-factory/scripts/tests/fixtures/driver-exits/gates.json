@@ -88,6 +88,342 @@
   "exit_gate:text_end_after_handback": {
    "reach": "unwalked",
    "why_unreached": "not walked yet: node N4:gates writes the rows of this group"
+  },
+  "execution_request:active_dispatch": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "execution_request:case_entries": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "execution_request:mine_call": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "execution_request:no_test": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "execution_request:place_rows": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "execution_request:profile": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "execution_request:profile_command": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "execution_request:sandbox": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "execution_request:scope": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "execution_request:selector_args": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "execution_request:stand": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "execution_request:stand.probe": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "execution_request:stand.reference": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "execution_request:window_first": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "exit_gate:EG-digest-form": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "exit_gate:EG-text-end": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "exit_gate:adviser": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "guard_pre_tool:PT-artifact-rewrite": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "guard_pre_tool:PT-big-read": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "guard_pre_tool:PT-case-store": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "guard_pre_tool:PT-command-size": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "guard_pre_tool:PT-config-write": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "guard_pre_tool:PT-direct-test-run": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "guard_pre_tool:PT-external-writes": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "guard_pre_tool:PT-git-config": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "guard_pre_tool:PT-handoff-code-file": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "guard_pre_tool:PT-handoff-edit-pending": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "guard_pre_tool:PT-handoff-rewrite": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "guard_pre_tool:PT-handoff-values": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "guard_pre_tool:PT-human-word": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "guard_pre_tool:PT-logs": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "guard_pre_tool:PT-manifest-shrink": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "guard_pre_tool:PT-owner": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "guard_pre_tool:PT-patch-unchecked": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "guard_pre_tool:PT-plan-md-rewrite": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "guard_pre_tool:PT-plan-rewrite": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "guard_pre_tool:PT-plugin-read": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "guard_pre_tool:PT-stand-record-write": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "guard_pre_tool:PT-unparsed-event": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "guard_pre_tool:PT-walker-error": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "guard_pre_tool:PT-window-file": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "handoff_check:blocked_problem": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "handoff_check:claims": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "handoff_check:cli": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "handoff_check:field.blank": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "handoff_check:field.max_len": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "handoff_check:field.value": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "handoff_check:findings_tooling": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "handoff_check:null_outcome.failures": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "handoff_check:null_outcome.listing": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "handoff_check:null_outcome.names": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "handoff_check:null_outcome.repairs": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "handoff_check:null_outcome.report": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "handoff_check:null_outcome.verdict": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "handoff_check:required_rows": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "handoff_check:required_rows.null_word": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "handoff_check:required_rows.owed_by_verdict": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "handoff_check:tried": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "handoff_check:values_apply": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "handoff_check:values_file": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "host_adapter:HA-call-shape": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "host_adapter:HA-connector-orchestrator": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "host_adapter:HA-connector-unclassified": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "host_adapter:HA-exec-tty": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "host_adapter:HA-no-command-text": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "host_adapter:HA-role-nested-delegation": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "host_adapter:HA-role-read-only": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "host_adapter:HA-stdin-chars": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:artifact_producer.py publish": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:artifact_producer.py validate-batch": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:case_versions.py --pin": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "role_cli:execution_fingerprint.py": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "run_suite:begin": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "run_suite:phantom_story": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "run_suite:recover": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "stage_guard:SG-command.commit.manifest": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "stage_guard:SG-command.commit.pathspec": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "stage_guard:SG-command.delivery": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "stage_guard:SG-command.opaque": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "stage_guard:SG-command.request": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "stage_guard:SG-command.stash": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "stage_guard:SG-command.typed_runner": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "stage_guard:SG-walker-error": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
+  },
+  "validate_artifacts:check_remedy_rows": {
+   "reach": "unwalked",
+   "why_unreached": "not walked yet: joint added on main after N1 (census catch-up L1c); the group's walk node writes its rows"
   }
  },
  "kinds_without_key": {},
@@ -96,6 +432,91 @@
   "after": 0,
   "unwalked": 21,
   "hook_layer": 0,
-  "raised_by": []
+  "raised_by": [
+   "unwalked | joints/execution_request:active_dispatch | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/execution_request:case_entries | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/execution_request:mine_call | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/execution_request:no_test | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/execution_request:place_rows | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/execution_request:profile | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/execution_request:profile_command | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/execution_request:sandbox | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/execution_request:scope | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/execution_request:selector_args | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/execution_request:stand | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/execution_request:stand.probe | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/execution_request:stand.reference | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/execution_request:window_first | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/exit_gate:EG-digest-form | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/exit_gate:EG-text-end | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/exit_gate:adviser | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/guard_pre_tool:PT-artifact-rewrite | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/guard_pre_tool:PT-big-read | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/guard_pre_tool:PT-case-store | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/guard_pre_tool:PT-command-size | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/guard_pre_tool:PT-config-write | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/guard_pre_tool:PT-direct-test-run | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/guard_pre_tool:PT-external-writes | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/guard_pre_tool:PT-git-config | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/guard_pre_tool:PT-handoff-code-file | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/guard_pre_tool:PT-handoff-edit-pending | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/guard_pre_tool:PT-handoff-rewrite | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/guard_pre_tool:PT-handoff-values | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/guard_pre_tool:PT-human-word | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/guard_pre_tool:PT-logs | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/guard_pre_tool:PT-manifest-shrink | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/guard_pre_tool:PT-owner | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/guard_pre_tool:PT-patch-unchecked | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/guard_pre_tool:PT-plan-md-rewrite | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/guard_pre_tool:PT-plan-rewrite | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/guard_pre_tool:PT-plugin-read | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/guard_pre_tool:PT-stand-record-write | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/guard_pre_tool:PT-unparsed-event | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/guard_pre_tool:PT-walker-error | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/guard_pre_tool:PT-window-file | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/handoff_check:blocked_problem | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/handoff_check:claims | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/handoff_check:cli | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/handoff_check:field.blank | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/handoff_check:field.max_len | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/handoff_check:field.value | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/handoff_check:findings_tooling | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/handoff_check:null_outcome.failures | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/handoff_check:null_outcome.listing | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/handoff_check:null_outcome.names | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/handoff_check:null_outcome.repairs | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/handoff_check:null_outcome.report | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/handoff_check:null_outcome.verdict | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/handoff_check:required_rows | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/handoff_check:required_rows.null_word | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/handoff_check:required_rows.owed_by_verdict | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/handoff_check:tried | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/handoff_check:values_apply | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/handoff_check:values_file | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/host_adapter:HA-call-shape | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/host_adapter:HA-connector-orchestrator | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/host_adapter:HA-connector-unclassified | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/host_adapter:HA-exec-tty | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/host_adapter:HA-no-command-text | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/host_adapter:HA-role-nested-delegation | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/host_adapter:HA-role-read-only | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/host_adapter:HA-stdin-chars | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:artifact_producer.py publish | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:artifact_producer.py validate-batch | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:case_versions.py --pin | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/role_cli:execution_fingerprint.py | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/run_suite:begin | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/run_suite:phantom_story | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/run_suite:recover | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/stage_guard:SG-command.commit.manifest | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/stage_guard:SG-command.commit.pathspec | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/stage_guard:SG-command.delivery | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/stage_guard:SG-command.opaque | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/stage_guard:SG-command.request | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/stage_guard:SG-command.stash | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/stage_guard:SG-command.typed_runner | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/stage_guard:SG-walker-error | L1c census catch-up, 2026-11-17",
+   "unwalked | joints/validate_artifacts:check_remedy_rows | L1c census catch-up, 2026-11-17"
+  ]
  }
 }

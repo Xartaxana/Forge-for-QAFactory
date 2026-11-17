@@ -1,0 +1,23 @@
+# CI-1 lines of test_scenario_dry_1.py on pile/live-run-fvf/batch-3 (head 968e7e4f)
+# Source: ONE local run by the Lead in worktree fvf3, 17.11.2026 (rc=0, '=== scenario dry-1: 9/9 ok ==='). The CI canon run 44000950573 printed only 'PASS tests: scripts/tests/test_scenario_dry_1.py 138.0s': a passing file's lines are not in the CI artifact.
+PASS dry-1/census
+PASS dry-1/world/forms-required: positive control of the grep
+PASS dry-1/world/forms-required: no owned file relaxes `handoffs.required`
+NOTE dry-1/gap/mybooks-local-1: live_only - no raw tracker input for LOCAL-1 (waits §L F-A1-6)
+NOTE dry-1/gap/no-autotests: owner question OQ1 open - no type without automated tests (waits OQ1)
+PASS dry-1/main/S0
+PASS dry-1/main/S1
+PASS dry-1/main/S2
+PASS dry-1/main/S3
+PASS dry-1/main/S4
+PASS dry-1/main/gate_A
+NOTE dry-1/main/known_red: known red: main/S5 -> P1B-9
+NOTE dry-1/main/stop: stopped at S5: the road met the conductor: a state the driver has no move for; its own words: # The factory's own words — DRY-1, conductor at S5 This is what the check printed, in its own vocabulary. It is here because you may want it, not because it is the question. ``` exit gate for S5-qa-code-critic-1 (qa-code-critic, S5): 9 finding(s): - digest: your final message is not the handoff form. The orchestrator reads it whole on every later turn, so it is exactly: `<role> <stage> <window> · ok|concerns|halt|impossible / <id> · <state> · <reason ≤ 80 chars> (one line per item in scope) / <task-relative path>` — one row per test instance reviewed. What does not fit: the digest names no artifact path — the last line is the task-relative path of what you wrote, and it is where everything else went; TC-1 was in this dispatch's scope and has no line — one line per item, including the ones that went nowhere (`unresolved`, `impossible`). This is a repair, not a question for the person. - handover form S5-qa-code-critic-1.yaml - scope: no rows. One row per item in scope: the id, a state and a reason of at most 80 characters. a row of a list is written one line per key: `"scope[0].id": <value>`, the next row `"scope[1].id"` - handover form S5-qa-code-critic-1.yaml - header.verdict: not filled. one of vocabulary.header_verdicts One of: concerns, halt, impossible, ok - handover form S5-qa-code-critic-1.yaml - review.outcome: not filled. one of vocabulary.critic_verdicts One of: approved, approved_with_fixes, rejected, unverified - handover form S5-qa-code-critic-1.yaml - review.receipt_ref: not filled. work/windows/<this dispatch>.json, written by window_record.py - handover form S5-qa-code-critic-1.yaml - review.rounds_used: not filled. how many repair rounds this window has already had - handover form S5-qa-code-critic-1.yaml - probes.runtime_provenance: not filled. path of the runtime_provenance record this review probed against Code could not fill it: no run block of dispatch S5-qa-code-critic-1 under work/run-blocks/ carries a runtime_provenance record: this dispatch ran no test through run_suite, or its run was refused before it started; the record is written by runtime_probe.py when run_suite runs this dispatch's tests - handover form S5-qa-code-critic-1.yaml - probes.records[0].instance: not filled. instance id - handover form S5-qa-code-critic-1.yaml - probes.records[0].verdict: not filled. one of vocabulary.probe_verdicts - intended_failure|no_failure|wrong_location|not_executed|incomplete One of: incomplete, intended_failure, no_failure, not_executed, wrong_location ```; the driver's first refusal: resume S1-qa-scout-1: the person answered what the role stopped for
+NOTE dry-1/main/stub-live_only: S5 qa-automator: work/s5-plan.json: shape is the skeleton s5_plan.py --init writes; no contract template
+NOTE dry-1/main/stub-live_only: S5 qa-automator: work/s5-notes/: free notes, no contract shape
+NOTE dry-1/main/stub-live_only: S5 qa-code-critic: form s5-critic-to-automator: no probe record exists in work/probes/ and the contract declares no empty outcome for probes.records
+NOTE dry-1/main/snapshots: made S0, S1, S2, S3, S4
+NOTE dry-1/main/after: after:P1B-9: no snapshot for S5, S6, S7, S8, S9
+NOTE dry-1/main/time: 304.8 s in 4 driver process(es); seconds per stage {'start': 55.1, 'S1': 7.8, 'S2': 15.3, 'S3': 76.8, 'S4': 54.6, 'S5': 89.6}; stages done S0, S1, S2, S3, S4
+NOTE dry-1/main/stub: 1 conductor call(s), 10 role call(s) (the journal's first line holds the run class 'dry')
+NOTE dry-1/main/priced: price keys observed: s1.review, s6.stand_confirm

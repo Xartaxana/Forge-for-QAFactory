@@ -412,6 +412,7 @@
         "scripts/tests/state_census.py",
         "scripts/tests/test_state_portability.py",
         "scripts/tests/fixtures/env-fact*.json",
+        "scripts/tests/dry_driver.py",
         "scripts/tests/dry_exits.py",
         "scripts/tests/dry_stub.py",
         "scripts/tests/dry_world.py",
