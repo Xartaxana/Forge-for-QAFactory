@@ -48,8 +48,6 @@ from session_context import (
 # the Lead places it, the tests below that go through `sc` exercise the draft, the ones that import
 # names from `session_context` above exercise the live module.
 # K-WIRE: SESSION_CONTEXT_PATH names the candidate file the tests below judge instead of the live one (under_test).
-import compact_snapshot as _cs_live  # noqa: E402  (the live pair, bound before a candidate takes the module name)
-import session_context as _scm_live  # noqa: E402
 sc = load_under_test("SESSION_CONTEXT_PATH", "session_context")
 
 REQUESTS_SCHEMA = """
@@ -3288,8 +3286,8 @@ def test_td157_quarantine_line_real_function_no_records_no_line(tmp_path):
 
 # ---- A1 (fg-context-and-hygiene): the block after a compaction, identity by the header of the first line ----
 
-_cs_mod = _cs_live  # header_line / prefix only; the snapshot_identity patches below target sys.modules["compact_snapshot"] (the name _scm_live resolves lazily)
-_scm = _scm_live
+import compact_snapshot as _cs_mod  # the one module name (a candidate, when COMPACT_SNAPSHOT_PATH is set); patches below resolve it at call time
+_scm = sc
 
 _A1_NOW = datetime.datetime(2026, 11, 12, 13, 0, 0)
 _A1_DIR = "docs/tasks/compact-snapshots"
@@ -3348,7 +3346,7 @@ _A1_ROWS = [
      _A1_MISSING, [_A1_DOOR, "5 min old"], [_A1_FRESH], ["2026-11-12-1257-manual.md"]),
     ("unheaded_hand_written_newest", [("2026-11-12-1210-manual.md", None, 1), ("2026-11-12-1230-manual.md", "s1", 30)],
      None, "s1", "fn",
-     _A1_MISSING, [f"COMPACT NARRATIVE: {_A1_DIR}/2026-11-12-1210-manual.md (1 min old)", _A1_DOOR],
+     _A1_MISSING, [f"COMPACT NARRATIVE: newest has no session stamp ({_A1_DIR}/2026-11-12-1210-manual.md) -- check it is yours", _A1_DOOR],
      [_A1_FRESH], _A1_ABSENT),
     ("headed_suffix_2", [("2026-11-12-1259-manual-2.md", "s1", 1)], None, "s1", "fn",
      f"COMPACT SNAPSHOT: {_A1_DIR}/2026-11-12-1259-manual-2.md (1 {_A1_FRESH} manual)", [], ["MISSING"],
