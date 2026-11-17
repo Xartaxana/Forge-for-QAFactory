@@ -830,3 +830,18 @@ batch names (control: `check_witness`); `.githooks` names (control: `architectur
   hold each other (owner, 13.11.2026). Rows read: OH3-25, OF4-6, OF4-27, RC1-10 accepted; RC1-15, TQ1-29, OF4-15 waiting
   (П3, no worker in flight). Wave 1 launches.
 - Wave 1 now: C1, C2, C4, FL9. Pile rows of §5 are registered as one small-work batch at the stage boundary.
+
+## C4 result (t-961, 17.11.2026): the condition of F-O2 does not hold today
+
+The builder wrote the row and it was RED on real code (edge E1), so no row is committed; the report is
+`docs/tasks/handoffs/t-961-rules-debt-c4.md` on branch `worktree-agent-a72a37ff6d6ddc10a` (commit dd27d27e).
+Measured: for a suffix with no probe row (`.kt`), a non-pytest command and a junit-xml reporter,
+`red_sandbox.py --probe` answers `incomplete` ("assertion site of a junit-xml/python report is not read yet (B-337)")
+and publishes no receipt, so `proof_level.reached` has nothing to count; a pytest-named command cannot select a non-.py
+test (`node_ids` keeps .py ids only). Cause by the builder's reading (not re-verified by the Lead):
+`red_sandbox._frame_grammar` returns {} for a suffix with no row and `reporters.assertion_site` then gives `site_unread`.
+Also: the card said `probe_by_code` "writes a record" for a no-row suffix — it refuses (exit 2), pinned by
+`non_python_test_refused`; the card's sentence was wrong.
+Consequence: F-O2 (a) "no probe rows for other languages now" was taken on the condition that the role's probe road
+reaches acceptance. It does not. A fix node (designer first: where the site of a junit-xml report is read, B-337) is owed;
+the red row lands with that fix (red-before). The owner is told.
