@@ -1882,6 +1882,38 @@ def wiring_summary_line(root: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
+# WAITS line (bounded waits, K-WIRE) -- the reaper of tools/wait_reaper.py
+# ---------------------------------------------------------------------------
+
+
+def waits_lines(root: Path) -> list:
+    """The WAITS block as a list of 0 or 1 line: reports what the LAST run of this session recorded, THEN starts this session's
+    reaper (wait_reaper.launch, detached, never waits) -- the new run resets status.json, so the read comes first. One walk of
+    the session, one `repo_context`, at most 5 s per git call. `launch` answers a line (no session, not started) or None; that
+    line is the block. Otherwise the line of `wait_reaper.waits_line` -- silent at zero. Never raises: any failure is one
+    `WAITS: reaper not started (...)` line, ASCII, the reason at most 120 characters."""
+    try:
+        import wait_reaper
+        import session_proc
+        import worktree_sweep
+
+        walk = session_proc.session_process()
+        session, repo, line = walk[0], None, None
+        if session is not None:
+            try:
+                repo = worktree_sweep.repo_context(worktree_sweep.Git(timeout=5), root)
+                line = wait_reaper.waits_line(repo.common / wait_reaper.STATE_DIRNAME, session)
+            except Exception:  # noqa: BLE001 -- launch answers its own line for a repo it cannot read
+                repo, line = None, None
+        launched = wait_reaper.launch("session-start", root, walker=lambda: walk, repo=repo)
+        if launched:
+            return [launched]
+        return [line] if line else []
+    except Exception as e:  # noqa: BLE001 -- the boot must not fail on this block
+        return ["WAITS: reaper not started (%s)" % _ascii_sanitize("%s: %s" % (type(e).__name__, e), 120)]
+
+
+# ---------------------------------------------------------------------------
 # WORKTREES line (F6-38) -- the leak detector of tools/worktree_sweep.py
 # ---------------------------------------------------------------------------
 
@@ -2348,6 +2380,8 @@ def build_context_lines(
     worktrees = worktrees_line(root)
     if worktrees:
         lines.append(worktrees)
+    # bounded waits: also BEFORE the wiring line, so the cut takes the wiring line and not this detector
+    lines.extend(waits_lines(root))
     lines.append(wiring_summary_line(root))
 
     # F2 (release-gate v0.8.1): pass the ALREADY-BUILT lines so this call
@@ -2430,7 +2464,7 @@ def compact_snapshot_lines(root: Path, now: datetime.datetime = None, session_id
         record = Path(root) / COMPACT_SEEN_REL
         announced, problem = _read_announced(record)
         chosen = _compact_chosen(hooks, announced, sid, now)
-        lines = _compact_block(hooks, narratives, chosen, sid, now)
+        lines = _compact_block(hooks, narratives, chosen, sid, now, _session_proc_id())
         if problem:   # unreadable record: this compaction says MISSING; the record is rebuilt so the next one works
             lines.append(_compact_rebuild(record, hooks, problem))
         elif chosen is not None:
@@ -2455,7 +2489,8 @@ def _compact_unavailable(e: Exception, sid) -> list:
 
 
 def _compact_candidates(root: Path, cs):
-    """(hooks, narratives, failures) of the snapshot folder: (mtime, name, identity | None) per readable file; a file
+    """(hooks, narratives, failures) of the snapshot folder: (mtime, name, identity) per readable file (a narrative's
+    identity is its stamp or None); a file
     whose stat or header read fails is skipped and its error kept. README.md is never a candidate."""
     hooks, narratives, failures = [], [], []
     folder = root / _COMPACT_SNAPSHOT_DIR
@@ -2466,10 +2501,12 @@ def _compact_candidates(root: Path, cs):
             try:
                 mtime = p.stat().st_mtime
                 ident = cs.snapshot_identity(p)
+                stamp = cs.narrative_identity(p) if ident is None else None
             except (OSError, ValueError) as e:
                 failures.append(e)
                 continue
-            (narratives if ident is None else hooks).append((mtime, p.name, ident))
+            # a narrative's third field is its stamp ({"session_proc", "written"}) or None -- unstamped
+            (narratives if ident is None else hooks).append((mtime, p.name, stamp if ident is None else ident))
     return hooks, narratives, failures
 
 
@@ -2505,7 +2542,20 @@ def _compact_chosen(hooks: list, announced, sid, now: datetime.datetime):
     return max(eligible, key=lambda h: (h[0], h[1])) if eligible else None
 
 
-def _compact_block(hooks: list, narratives: list, chosen, sid, now: datetime.datetime) -> list:
+def _session_proc_id():
+    """This session's process as the narrative stamp writes it (compact_snapshot.session_proc_stamp, the one encoder), or None
+    when it cannot be told (no session, any failure) -- None never matches a stamp. Never raises."""
+    try:
+        import compact_snapshot as _cs
+        import session_proc
+
+        session, _reason = session_proc.session_process()
+        return None if session is None else _cs.session_proc_stamp(session)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _compact_block(hooks: list, narratives: list, chosen, sid, now: datetime.datetime, own_proc=None) -> list:
     rel = _COMPACT_SNAPSHOT_DIR.as_posix()
 
     def path_of(name):
@@ -2527,7 +2577,14 @@ def _compact_block(hooks: list, narratives: list, chosen, sid, now: datetime.dat
         n = max(narratives, key=lambda h: (h[0], h[1]))
         if chosen is None or n[0] > chosen[0]:
             nmin = int(max(0.0, now.timestamp() - n[0]) // 60)
-            lines.append(f"COMPACT NARRATIVE: {path_of(n[1])} ({nmin} min old)")
+            stamped = n[2]["session_proc"] if n[2] else None
+            # unstamped, an ODD stamp ("unknown": not another session's -- an unknown is no fact), or this session cannot be told
+            if stamped is None or stamped == "unknown" or own_proc is None:
+                lines.append(f"COMPACT NARRATIVE: newest has no session stamp ({path_of(n[1])}) -- check it is yours")
+            elif stamped != own_proc:                   # a well-formed stamp of another process
+                lines.append(f"COMPACT NARRATIVE: newest is another session's ({path_of(n[1])}) -- not your state")
+            else:
+                lines.append(f"COMPACT NARRATIVE: {path_of(n[1])} ({nmin} min old)")
     lines.append(_COMPACT_AFTER)
     return lines
 

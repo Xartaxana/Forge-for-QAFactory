@@ -106,8 +106,9 @@ You receive a spec and implement it. The coordinator writes the spec — not you
 9. Runs, cheaply. While working, run at most the changed module's test file, and not after every edit; the
    witness is CLAUDE.md rule 12's one run (Cost gates), of rule 4's scope, repeated once only if code changed after it
    (the owner, 30.09.2026). Run a test synchronously when you can; a polling wait
-   lasts no longer than the run itself and names the file it waits for and its end (a count or seconds); an unbounded polling
-   loop is forbidden, and a loop you leave running is named in your report (the rule: `docs/RUNBOOK.md` §9.8).
+   lasts no longer than the run itself.
+   A background wait names the file it waits for and its end (a count or seconds); the gate refuses an unbounded loop with the form to paste in
+   its refusal; a loop or process you leave running is named in your report (the rule: `docs/RUNBOOK.md` §9.8).
 10. Git. No git state change in a shared tree (`stash`, `add`, `commit`, `checkout`, `reset`, `restore`,
    `clean`, `pull`, `push`); `diff`, `log`, `show`, `status` are free; another worker's uncommitted edits are never touched. In
    your own worktree you commit your owns only — a plain `git add` / `git commit` from the worktree root (no `git -c

@@ -56,6 +56,7 @@ import os
 import re
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import NamedTuple
 
@@ -103,6 +104,8 @@ MSG_WAIT_POWERSHELL = (
     f"{MAX_WAIT_SECONDS} s in total -- or check once, or use the Monitor tool, and come back later."
 )
 MSG_ROLLBACK_NOT_CHECKED = "rollback not checked: {reason}"
+MSG_WAIT_NOT_CHECKED = "wait loops not checked ({exc_type})"
+EPOCH_MIN = 1_000_000_000   # a clock literal at or above this is an absolute epoch deadline, not a count of seconds
 MSG_FAIL_OPEN_TEMPLATE = "hygiene_gate: internal classifier error ({exc_type}), hygiene was NOT checked"
 
 # --- data rows (AR-1: variety is data, never a list in logic) ----------------------------------------------
@@ -125,7 +128,8 @@ SHELL_CAPABILITIES = {
 # statement-start words that make a loop a wait; compared lower-case for PowerShell, exactly for Bash).
 SHOWN_TARGET_CHARS = 40     # the directory a refusal shows is clipped to its tail, so a text stays <= 350
 # Statement starts: after these words the next word is a command again (t-098 F2).
-_START_WORD_RE = re.compile(r"\s*(?:then|do|else|elif|builtin|command|time|!)(?=\s|$)", re.IGNORECASE)
+_START_WORDS = ("then", "do", "else", "elif", "builtin", "command", "time", "!")     # the ONE list; G1's _BASH_CONT is built from it
+_START_WORD_RE = re.compile(r"\s*(?:" + "|".join(re.escape(w) for w in _START_WORDS) + r")(?=\s|$)", re.IGNORECASE)
 _CD_VERBS = frozenset({"cd", "chdir", "pushd", "popd", "set-location", "sl", "push-location", "pop-location"})
 _CD_RETURN_VERBS = frozenset({"cd", "chdir", "set-location", "sl"})
 _NULL_SINKS = frozenset({"/dev/null", "nul", "nul:", "$null"})
@@ -1416,7 +1420,7 @@ class _Walker:
 # =========================================================================
 _BASH_TOK_RE = re.compile(r"&&|\|\||[;|\n()]|&|[^\s;&|()<>]+|[<>]+")
 _PS_TOK_RE = re.compile(r"&&|\|\||[;|\n(){}]|&|[^\s;&|(){}]+")
-_BASH_CONT = frozenset({"then", "do", "else", "elif", "!", "time", "command", "builtin", "if", "while", "until"})
+_BASH_CONT = frozenset(_START_WORDS) | {"if", "while", "until"}     # the walker's start words plus the keywords that open a condition
 _BASH_LOOP_KW = frozenset({"while", "until", "for", "select"})
 _SLEEP_NUM_RE = re.compile(r"(\d+(?:\.\d+)?)([smhd]?)$")
 _SLEEP_UNIT = {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}
@@ -1442,6 +1446,8 @@ _UNKNOWN_LIST_CHARS = frozenset("$`*?[]{}()~\"'\\<>")
 def _wait_lex(masked: str, ps: bool) -> list:
     """Tokens (kind, text, position, at_statement_start); kind is `s` (a separator), `w` (a word) or `r` (a redirect)."""
     toks, ss, n = [], True, len(masked)
+    # a line continuation (PowerShell backtick-newline, Bash backslash-newline) is not a line end: blank, positions kept
+    masked = re.sub(r"`\r?\n" if ps else r"\\\r?\n", lambda c: " " * len(c.group(0)), masked)
     for m in (_PS_TOK_RE if ps else _BASH_TOK_RE).finditer(masked):
         t, p = m.group(0), m.start()
         if t == "&":
@@ -1485,42 +1491,88 @@ def _bash_loops(toks: list) -> list:
 
 def _ps_loops(toks: list) -> list:
     """Intervals of `while (c) {b}`, `for (...) {b}`, `foreach (...) {b}`, `do {b} while|until (c)` and `A..N | ForEach-Object
-    {b}`, from one bracket-matching pass (case-insensitive)."""
-    match, st = {}, []
+    {b}`, from one bracket-matching pass (case-insensitive). A line end between `)` and `{`, `do` and `{`, `}` and
+    `while`, or a loop keyword and its `(` never hides the keyword (the Allman form is the same loop). The exception is the
+    pipe form: `ForEach-Object` and its `{` take no line-end tolerance here (a bare line end after the pipe form is not a
+    loop); a backtick continuation is blanked by `_wait_lex`, so it is not a line end at all."""
+    match, back, st = {}, {}, []
     for k, (kind, t, _p, _s) in enumerate(toks):
         if kind == "s" and t in ("(", "{"):
             st.append(k)
         elif kind == "s" and t in (")", "}") and st:
             j = st.pop()
             if toks[j][1] == ("(" if t == ")" else "{"):
-                match[j] = k
+                match[j], back[k] = k, j
 
     def opens(k, ch):
         return k < len(toks) and toks[k][0] == "s" and toks[k][1] == ch and k in match
+
+    def nl(k):                                      # the first token at or after k that is not a line end
+        while k < len(toks) and toks[k][0] == "s" and toks[k][1] == "\n":
+            k += 1
+        return k
 
     loops = []
     for k, (kind, t, p, ss) in enumerate(toks):
         if kind != "w" or not ss:
             continue
         low = t.lower()
-        if low in ("while", "for", "foreach") and opens(k + 1, "("):
-            c = match[k + 1]
-            if opens(c + 1, "{"):
-                b = match[c + 1]
+        if low in ("while", "for", "foreach") and opens(nl(k + 1), "("):
+            q = nl(k + 1)
+            c = match[q]
+            o = nl(c + 1)
+            if opens(o, "{"):
+                b = match[o]
                 loops.append({"kw": low, "sense": "while" if low == "while" else None, "start": k, "end": b,
-                              "cond": (toks[k + 1][2] + 1, toks[c][2]), "body": (toks[c + 1][2] + 1, toks[b][2])})
-        elif low == "do" and opens(k + 1, "{"):
-            b = match[k + 1]
-            if b + 2 < len(toks) and toks[b + 1][0] == "w" and toks[b + 1][1].lower() in ("while", "until") \
-                    and opens(b + 2, "("):
-                c = match[b + 2]
-                loops.append({"kw": "do", "sense": toks[b + 1][1].lower(), "start": k, "end": c,
-                              "cond": (toks[b + 2][2] + 1, toks[c][2]), "body": (toks[k + 1][2] + 1, toks[b][2])})
-        elif low in ("foreach-object", "%", "foreach") and k >= 2 and toks[k - 1][1] == "|" and opens(k + 1, "{"):
-            b = match[k + 1]
-            loops.append({"kw": "pipe", "sense": None, "start": k - 2, "end": b, "cond": (toks[k - 2][2], toks[k - 1][2]),
-                          "body": (toks[k + 1][2] + 1, toks[b][2])})
+                              "cond": (toks[q][2] + 1, toks[c][2]), "body": (toks[o][2] + 1, toks[b][2])})
+        elif low == "do" and opens(nl(k + 1), "{"):
+            o = nl(k + 1)
+            b = match[o]
+            w = nl(b + 1)
+            if w + 1 < len(toks) and toks[w][0] == "w" and toks[w][1].lower() in ("while", "until") and opens(nl(w + 1), "("):
+                q = nl(w + 1)
+                c = match[q]
+                loops.append({"kw": "do", "sense": toks[w][1].lower(), "start": k, "end": c,
+                              "cond": (toks[q][2] + 1, toks[c][2]), "body": (toks[o][2] + 1, toks[b][2])})
+        elif low in ("foreach-object", "%", "foreach") and k >= 2 and toks[k - 1][1] == "|" and opens(k + 1, "{"):    # no nl(): a cmdlet argument cannot follow a line end
+            o = k + 1
+            b = match[o]
+            if toks[k - 2][1] == ")" and (k - 2) in back:       # `(1..1000) | ForEach-Object`: the list is the group
+                g = back[k - 2]
+                loops.append({"kw": "pipe", "sense": None, "start": g, "end": b, "cond": (toks[g][2] + 1, toks[k - 2][2]),
+                              "body": (toks[o][2] + 1, toks[b][2])})
+            else:
+                loops.append({"kw": "pipe", "sense": None, "start": k - 2, "end": b,
+                              "cond": (toks[k - 2][2], toks[k - 1][2]), "body": (toks[o][2] + 1, toks[b][2])})
     return loops
+
+
+_PS_REDIR_RE = re.compile(r"(?:\d|\*)?>{1,2}(?:&\d)?(.*)$")
+
+
+def _sleep_words(toks: list, k: int, ps: bool) -> list:
+    """The argument words of the sleep verb at token k, with every redirect's operator, target and fd digit left out (a target
+    is never a duration)."""
+    words, last, skip = [], None, False             # last = the end position of the previous word
+    for j in range(k + 1, len(toks)):
+        kind, t, p, _ss = toks[j]
+        if kind == "s":
+            break
+        if kind == "r":                             # bash: `2>f`, `>&2`; the digit just before it is the fd
+            if words and last == p and (words[-1].isdigit() or words[-1] == "&"):     # `&>f`, `&>>f`: the `&` is the operator's
+                words.pop()
+            skip = True
+            continue
+        if skip:
+            skip = t == "&"                         # `>&2`: the `&` is followed by the target word
+            continue
+        m = _PS_REDIR_RE.fullmatch(t) if ps else None
+        if m:                                       # PowerShell lexes `2>$null` as one word
+            skip = not m.group(1)
+            continue
+        words.append(t)
+        last = p + len(t)
+    return words
 
 
 def _sleep_seconds(toks: list, k: int, ps: bool):
@@ -1529,12 +1581,7 @@ def _sleep_seconds(toks: list, k: int, ps: bool):
         if k + 2 < len(toks) and toks[k + 1][1] == "(" and toks[k + 2][0] == "w" and toks[k + 2][1].isdigit():
             return int(toks[k + 2][1]) / 1000
         return None
-    words = []
-    for j in range(k + 1, len(toks)):
-        if toks[j][0] == "s":
-            break
-        if toks[j][0] == "w":
-            words.append(toks[j][1])
+    words = _sleep_words(toks, k, ps)
     total, i = 0.0, 0
     while i < len(words):
         w = words[i].lower() if ps else words[i]
@@ -1552,6 +1599,13 @@ def _sleep_seconds(toks: list, k: int, ps: bool):
     return total if words else None
 
 
+def _stepped(span: int, step):
+    """Iterations of a counted `for` whose variable spans `span` values and moves by `step` (None = 1): ceil(span / step);
+    a step of 0 never ends, so it is unknown (None)."""
+    k = 1 if step is None else int(step)
+    return None if k == 0 else max(0, -(-span // k))
+
+
 def _counted_count(f: dict, raw: str, ps: bool):
     """The literal iteration count of a `for`-type loop, else None (unknown: a glob, a substitution, a variable)."""
     text = raw[f["cond"][0]:f["cond"][1]].strip().rstrip(";").strip()
@@ -1560,13 +1614,18 @@ def _counted_count(f: dict, raw: str, ps: bool):
             m = re.fullmatch(r"(-?\d+)\.\.(-?\d+)", text)
             return abs(int(m.group(2)) - int(m.group(1))) + 1 if m else None
         if f["kw"] == "for":
-            m = re.match(r"\$(\w+)\s*=\s*(-?\d+)\s*;\s*\$\1\s+-(lt|le)\s+(\d+)\s*;", text, re.IGNORECASE)
-            return max(0, int(m.group(4)) - int(m.group(2)) + (1 if m.group(3).lower() == "le" else 0)) if m else None
+            m = re.fullmatch(r"\$(\w+)\s*=\s*(-?\d+)\s*;\s*\$\1\s+-(lt|le)\s+(\d+)\s*;"
+                             r"\s*(?:\$\1\s*\+\+|\+\+\s*\$\1|\$\1\s*\+=\s*(\d+)|\$\1\s*=\s*\$\1\s*\+\s*(\d+))", text, re.IGNORECASE)
+            return _stepped(int(m.group(4)) - int(m.group(2)) + (1 if m.group(3).lower() == "le" else 0),
+                            m.group(5) or m.group(6)) if m else None
         m = re.fullmatch(r"\$\w+\s+in\s+(-?\d+)\.\.(-?\d+)", text, re.IGNORECASE)
         return abs(int(m.group(2)) - int(m.group(1))) + 1 if m else None
-    m = re.fullmatch(r"\(\(\s*(\w+)\s*=\s*(-?\d+)\s*;\s*\1\s*(<=|<)\s*(\d+)\s*;[^;]*\)\)", text)
+    m = re.fullmatch(r"\(\(\s*(\w+)\s*=\s*(-?\d+)\s*;\s*\1\s*(<=|<)\s*(\d+)\s*;"
+                     r"\s*(?:\1\s*\+\+|\+\+\s*\1|\1\s*\+=\s*(\d+)|\1\s*=\s*\1\s*\+\s*(\d+))\s*\)\)", text)
     if m:
-        return max(0, int(m.group(4)) - int(m.group(2)) + (1 if m.group(3) == "<=" else 0))
+        return _stepped(int(m.group(4)) - int(m.group(2)) + (1 if m.group(3) == "<=" else 0), m.group(5) or m.group(6))
+    if re.match(r"\(\(\s*\w+\s*=", text):
+        return None                                 # a step that is not i++ or i+=K: unknown (a `for` is never refused as uncapped)
     m = re.match(r"\w+\s+in\s+(.*)$", text, re.DOTALL)
     if m is None:
         return None
@@ -1610,8 +1669,9 @@ def _cond_terms(f: dict, raw: str, masked: str, ps: bool):
     return terms, conns
 
 
-def _increments(f: dict, raw: str, var: str, ps: bool) -> bool:
-    body = raw[f["body"][0]:f["body"][1]]
+def _increments(f: dict, masked: str, var: str, ps: bool) -> bool:
+    """The loop body increments `var`, read on the MASKED text: quoted text never caps (it errs toward "not capped")."""
+    body = masked[f["body"][0]:f["body"][1]]
     v = re.escape(var)
     if ps:
         return re.search(rf"\${v}\s*\+\+|\+\+\s*\${v}|\${v}\s*\+=\s*\d+|\${v}\s*=\s*\${v}\s*\+\s*\d+", body,
@@ -1620,7 +1680,28 @@ def _increments(f: dict, raw: str, var: str, ps: bool) -> bool:
                      rf"|\blet\s+(?:{v}\+\+|\+\+{v}|{v}\+=\d+)", body) is not None
 
 
-def _term_cap(term: str, sense: str, f: dict, raw: str, ps: bool):
+def _now_epoch() -> float:
+    """The one clock read of G1 (an epoch deadline only); tests patch it."""
+    return time.time()
+
+
+def _local_utc_offset() -> int:
+    """Seconds the local wall clock is ahead of UTC (negative west of it); tests patch it."""
+    return int(time.localtime().tm_gmtoff or 0)
+
+
+def _deadline(literal, epoch_clock: bool, ps: bool = False):
+    """The budget of a clock test's literal: seconds as written, or, when the clock yields epoch seconds and the literal is an
+    absolute epoch (>= EPOCH_MIN), the literal minus now (a deadline already past is 0). Windows PowerShell 5.1 prints
+    `Get-Date -UFormat %s` as the LOCAL wall clock as epoch (measured), so on `ps` now is the epoch plus the local UTC offset.
+    Accepted residual (the Lead's option a): pwsh 7 prints UTC, so in UTC+ zones the base over-shoots by the offset and the
+    count is too low. None stays None (unknown)."""
+    if literal is not None and epoch_clock and literal >= EPOCH_MIN:
+        return max(0, literal - (int(_now_epoch()) + (_local_utc_offset() if ps else 0)))
+    return literal
+
+
+def _term_cap(term: str, sense: str, f: dict, masked: str, ps: bool):
     """('C3', N) for a counter test whose variable the body increments, ('C2', literal or None) for a clock test, else None.
     The comparator must match the loop's sense (a cap counts only when it can end the loop)."""
     ops = _SENSE_OPS[sense]
@@ -1628,20 +1709,22 @@ def _term_cap(term: str, sense: str, f: dict, raw: str, ps: bool):
         while term.startswith("(") and term.endswith(")"):
             term = term[1:-1].strip()
         m = _PS_COUNTER_RE.fullmatch(term)
-        if m and "-" + m.group(2).lower() in ops and _increments(f, raw, m.group(1), True):
+        if m and "-" + m.group(2).lower() in ops and _increments(f, masked, m.group(1), True):
             return "C3", int(m.group(3))
         if _PS_CLOCK_RE.search(term):
             c = _PS_CMP_RE.search(term)
             if c and "-" + c.group(1).lower() in ops:
-                return "C2", int(c.group(2)) if c.group(2) else None
+                lit = int(c.group(2)) if c.group(2) else None
+                return "C2", _deadline(lit, bool(re.search(r"-UFormat\s+%?s\b", term, re.IGNORECASE)), True)
         return None
     for rx in _B_CLOCK_RES:
         m = rx.fullmatch(term)
         if m and m.group(1) in ops:
-            return "C2", int(m.group(2)) if m.group(2).isdigit() else None
+            lit = int(m.group(2)) if m.group(2).isdigit() else None
+            return "C2", _deadline(lit, "date" in m.group(0) and rx is _B_CLOCK_RES[0])
     for rx in _B_COUNTER_RES:
         m = rx.fullmatch(term)
-        if m and m.group(2) in ops and m.group(1) != "SECONDS" and _increments(f, raw, m.group(1), False):
+        if m and m.group(2) in ops and m.group(1) != "SECONDS" and _increments(f, masked, m.group(1), False):
             return "C3", int(m.group(3))
     return None
 
@@ -1652,10 +1735,26 @@ def _loop_cap(f: dict, raw: str, masked: str, ps: bool):
     if not terms or any(c != proper for c in conns):
         return None
     for term in terms:
-        cap = _term_cap(term, f["sense"], f, raw, ps)
+        cap = _term_cap(term, f["sense"], f, masked, ps)
         if cap:
             return cap
     return None
+
+
+def _loop_budget(f: dict, raw: str, masked: str, ps: bool):
+    """(budget, refuse, cap) of a loop that holds a sleep: the literal budget in seconds (None = unknown: passes), whether the
+    loop is refused for having no cap, and the cap form found (C1 a list, C2 a clock, C3 a counter, C4 input, none)."""
+    if f["sense"] is None:                              # `for`-type: bounded by its list; refused only on a literal budget
+        n = _counted_count(f, raw, ps)
+        return (None if n is None or f["sleep"] is None else n * f["sleep"]), False, "C1"
+    if not ps and re.match(r"\s*read(?:\s|$)", raw[f["cond"][0]:f["cond"][1]]):
+        return None, False, "C1"                        # C4: bounded by its input, no wait
+    got = _loop_cap(f, raw, masked, ps)
+    if got is None:
+        return None, True, "none"
+    if got[0] == "C3":
+        return (None if f["sleep"] is None else got[1] * f["sleep"]), False, "C3"
+    return got[1], False, "C2"
 
 
 def _wait_loop_forms(command: str, tool_name: str = "Bash") -> list:
@@ -1677,24 +1776,10 @@ def _wait_loop_forms(command: str, tool_name: str = "Bash") -> list:
     forms, stack = [], []
 
     def finish(f):
-        budget, refuse, form_cap = 0, False, "C1"
+        budget = 0
         if f["has"]:
-            if f["sense"] is None:                      # `for`-type: bounded by its list; refused only on a literal budget
-                n = _counted_count(f, raw, ps)
-                budget = None if n is None or f["sleep"] is None else n * f["sleep"]
-            elif not ps and re.match(r"\s*read(?:\s|$)", raw[f["cond"][0]:f["cond"][1]]):
-                budget = None                           # C4: bounded by its input, no wait
-            else:
-                got = _loop_cap(f, raw, masked, ps)
-                if got is None:
-                    budget, refuse, form_cap = None, True, "none"
-                elif got[0] == "C3":
-                    form_cap, budget = "C3", None if f["sleep"] is None else got[1] * f["sleep"]
-                else:
-                    form_cap, budget = "C2", got[1]
-            if budget is not None and budget > MAX_WAIT_SECONDS:
-                refuse = True
-            if refuse:
+            budget, refuse, form_cap = _loop_budget(f, raw, masked, ps)
+            if refuse or (budget is not None and budget > MAX_WAIT_SECONDS):
                 forms.append({"shell": tool_name, "form": f["kw"], "cap": form_cap, "budget": budget,
                               "door": cap["wait_door"]})
         if stack:
@@ -1728,7 +1813,7 @@ def wait_loop_forms(command: str, tool_name: str = "Bash") -> list:
 
 
 def _collect_signals(command: str, tool_name: str = "Bash") -> dict:
-    """FORMS only, pure (no subprocess, no filesystem, no clock): permission_audit replays history through it.
+    """FORMS only, pure (no subprocess, no filesystem; the clock is read only for an epoch deadline literal): permission_audit replays history through it.
     `tool_name` picks the shell's capability row (quote rules, groups, arithmetic); Bash by default.
 
       - `cd`              list of {verb, target, bare_return, in_subshell}: every directory move found
@@ -1740,7 +1825,8 @@ def _collect_signals(command: str, tool_name: str = "Bash") -> dict:
       - `pyc_payload`     advisory "M"/"P"/"O"/"U", kept for measurement
       - `payload_uncertain` a python payload the gate cannot resolve
       - `wait_loops`      list of {shell, form, cap, budget, door}: wait loops the gate refuses (G1: no cap, or a literal
-                          budget over MAX_WAIT_SECONDS)"""
+                          budget over MAX_WAIT_SECONDS)
+      - `wait_loops_unchecked` only when the wait-loop classifier raised: the exception's type name (a visible note)"""
     sig = _Walker(command, tool_name).run()
     try:
         sig["pyc_payload"] = _classify_pyc_payload(command)
@@ -1748,8 +1834,9 @@ def _collect_signals(command: str, tool_name: str = "Bash") -> dict:
         sig["pyc_payload"] = "O"
     try:
         sig["wait_loops"] = _wait_loop_forms(command, tool_name)
-    except Exception:       # G1 never takes the three existing classes down with it; a grammar bug is a missed refusal
+    except Exception as exc:    # G1 never takes the three existing classes down with it; a grammar bug is a VISIBLE note
         sig["wait_loops"] = []
+        sig["wait_loops_unchecked"] = type(exc).__name__
     return sig
 
 
@@ -1869,6 +1956,8 @@ def _decide_command(tool_name: str, command: str, payload: dict):
     capability = SHELL_CAPABILITIES[tool_name]      # decide() lets only the two rows' tools through
     if any(not h["bare_return"] and not (h["in_subshell"] and capability["subshell_scopes_cwd"]) for h in sig["cd"]):
         deny.append(capability["cd_door"])
+    if sig.get("wait_loops_unchecked"):             # the wait-loop classifier raised: say so, never a silent pass
+        notes.append(MSG_WAIT_NOT_CHECKED.format(exc_type=sig["wait_loops_unchecked"]))
     if sig["wait_loops"]:                           # G1 comes AFTER the three classes: their first reason stays first
         deny.append(capability["wait_door"])
     if deny:

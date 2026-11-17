@@ -291,7 +291,7 @@ recognizer and B-405's delivery gate.
 The fix for a shell-indirection hole lives at the walker and the shell table, never per gate. A new gate that
 reads a command's words takes its segments from `hooklib.walk` (or `hooklib.command_segments`, its view), not from a private tokenizer; the two
 segmenters still standing (`guard_pre_tool._segments`, and `_request_path`'s `shlex`) are BACKLOG B-434, the holes that still pass are B-433.
-Queued (C1, F-C4, t-120): `tools/hygiene_gate.py` reads a command's words with its own masks and recognizers (a quote, heredoc and comment mask, a statement splitter, a tokenizer, the data rows `PAYLOAD_INTERPRETERS`, `INPLACE_EDITORS`, `ROLLBACK_SHAPES`) and not through `hooklib.walk`; its recognizers (cd verbs, redirects, in-place editors, python payloads, git rollback shapes) are new recognizers of this axis, and moving them onto the walker is queued, not done.
+Queued (C1, F-C4, t-120): `tools/hygiene_gate.py` reads a command's words with its own masks and recognizers (a quote, heredoc and comment mask, a statement splitter, a tokenizer, the data rows `PAYLOAD_INTERPRETERS`, `INPLACE_EDITORS`, `ROLLBACK_SHAPES`) and not through `hooklib.walk`; its recognizers (cd verbs, redirects, in-place editors, python payloads, git rollback shapes) are new recognizers of this axis, and moving them onto the walker is queued, not done. Wait loops (G1) live in `hygiene_gate.py`'s walker; the reaper reads them only through `wait_loop_forms`; the harness wrapper unwrap is the data row `wrapper_forms` of `tools/wait-reaper.json`, coded once.
 
 ## Axis 12 — carriers of the work plan: piles <-> the frozen backlog <-> the backlog pane (D-0036, F0-2/F0-3/F0-8, 08.10)
 

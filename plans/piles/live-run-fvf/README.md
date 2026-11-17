@@ -163,6 +163,7 @@ M 5–9, L 10–15 (больше — две пачки). Взятая пачка
 | `findings/20261117-p1b-pb-critic-probe-has-no-runtime-provenance.md` | находка, id — | у окна критика кода нет производителя записи среды выполнения: `window_runtime_record` читает только блоки запусков, `red_probe` блока не пишет; запасной источник — запрос пробы | `scripts/handoff_check.py`, `scripts/tests/test_handoff.py` | пачка 2, FV2-93 | да — подтвердить направление (запасной источник) | вердикт t-1070 (P-b); FV2-76, FV2-78; FR-11, FR-5, AR-22 |
 | `findings/20261117-p1b-conductor-refusal-cut-loses-the-persons-choice.md` | находка, id — | раздел `## The refusal` промпта дирижёра режется по 6000 знаков и теряет стоящие последними выбор человека и цены вариантов шлюза | `scripts/driver_conductor.py` | пачка 2, FV2-94 | нет | вердикт t-1077 (ключ 4(b)); FR-8, FR-9, AR-24 |
 | `findings/20261117-p1b-walker-post-answer-window-one-boundary.md` | находка, id — | ход ходока после ответа — одна граница драйвера: пять маршрутов и шесть стыков стоят `live_only` без нужды в живом прогоне | `scripts/tests/dry_world.py`, `scripts/tests/dry_exits.py` | пачка 2, FV2-95 | нет | вердикт t-1077 (F5); AR-25, AR-28 |
+| `findings/20261117-rounds-pustoy-pri-fix-result-fixed.md` | находка, id — | пустой `rounds` у S7-автоматора проходит рядом с `fix_result: fixed`: нет живого условия `sibling_in` | `scripts/null_outcomes.py`, `handoffs/s7-automator-to-analyst.yaml` | пачка 3, FV3-30 | нет | вердикт t-1219 R2; карточка FV3-19 r2 прил. A; AR-23, AR-28 |
 
 ## Входящие
 
