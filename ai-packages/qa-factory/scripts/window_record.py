@@ -302,6 +302,10 @@ def row_field_gaps(entry, cfg=None, plan=None, known=None) -> list:
     return gaps
 
 
+# S9: the person's road for a `review` gap. The word's head is the gap line itself (`review:<instance id>`, case-exact);
+# `review_gap_words` reads it. ONE door text (AR-13).
+REVIEW_GAP_RECORD = person_words.door("waiver.py --task <T> --stage S5 --block \"review:<instance id>\"")
+
 # The same table for `validate_window` gaps, whose vocabulary is its own.
 GAP_ORIGIN = {
     # HF2-4: a red test a manifest row explains is `contradicts_requirement` below; this gap is the red that NO row
@@ -312,12 +316,14 @@ GAP_ORIGIN = {
                               "of the manifest names it: the test went red against the requirement",
                               "accepted as unresolved: `story_step.py finish` derives the pair; S7 triages the red"),
     # The door of a review gap is the critic's `manifest_put.py` record - and for an instance the STAND blocked
-    # the word is `unverified` (a static review), which `build` says per instance in its own note. NO recorded
-    # word of a person passes this gap (the controller reads none for a window gap of this kind), so the door
-    # is never `waiver.py` (Q7 B', FR-57: that door is queued as debt, design/factory-rules-debt.md).
+    # the word is `unverified` (a static review), which `build` says per instance in its own note. S9 (FR-57): a
+    # person's recorded S5 word whose head is exactly `review:<instance id>` passes this gap's S5 STEP, read through
+    # `word_let_go` (`review_gap_words`, the one reader); delivery still reads no critic verdict (`review_gap`, `no`).
     "review": ("the manifest row's `critic_verdict` is not `approved`",
                ORIGIN["review"][1] + " (`unverified` for an instance the stand blocked; `approved` or `unverified` for "
-               "an instance the person runs)"),
+               "an instance the person runs); or, when the person accepts the test without the critic's verdict, the "
+               "orchestrator records their words with `" + REVIEW_GAP_RECORD + "` (the S5 step passes; delivery still "
+               "reads no critic verdict)"),
     "stale_review": ("the review is bound to bytes the manifest no longer carries",
                      "re-review the current bytes, or record the mechanical round"),
     "mechanical_green": ("the record claims a mechanical round and no green run of its author "
@@ -1239,51 +1245,123 @@ def _no_run_shape(item) -> bool:
             and item.get("evidence_refs") == [])
 
 
-def word_let_go(lines, window, index, lets_go=None) -> tuple:
+def _review_gap_head(instance_id: str) -> str:
+    """The head of a `review` gap line of one instance: `review:<iid>`. A line is that head alone (the controller's bare
+    gap) or the head, ` — ` and the explanation (`verdict`'s form). One definition for the matcher and the predicate."""
+    return "review:" + instance_id
+
+
+def review_gap_words(window, task_root) -> dict:
+    """`{instance id: {"words", "at"}}` - the instances of `window` whose `review` gap a person's recorded S5 word names
+    (S9, FR-57, AR-13: the ONE reader of a person's word on a review gap; every judge reads it through `word_let_go`).
+
+    The records are `contract.live_stage_overrides(pipeline, ("S5",))` of `task_root/pipeline.json` (revoked and empty words
+    out; never the window, a role writes that). A record is read only when its `match` is a string whose stripped form `m` is
+    not `*` and holds no `<placeholder>` (`waiver.PLACEHOLDER_RE`). An instance id `iid` (a non-empty string of
+    `window["instances"]`) is named when `m == "review:" + iid` or `m` starts with `"review:" + iid + " — "` (space, U+2014,
+    space: the form `verdict` writes). Case-exact, no whitespace folding. ONE record names at most ONE instance: an exact
+    equality wins, else the LONGEST matching id (F9-3). The latest record by file order wins for an instance.
+
+    INVARIANT: a word for one instance never lifts the review gap of another - not a prefix id, not a case variant, never
+    several at once; a word that names no instance exactly lifts nothing. It is not `waiver.split_overridden` (axis 26 n/a):
+    that one reads `*` as everything and asks whether the WORD is whole inside the LINE, and the controller's lines are bare.
+    NEVER raises: anything unreadable gives `{}`, an unknown is never a pass (AR-28, FR-59)."""
+    try:
+        if not isinstance(window, dict):
+            return {}
+        ids = []
+        for item in window.get("instances") or []:
+            iid = item.get("instance_id") if isinstance(item, dict) else None
+            if isinstance(iid, str) and iid and iid not in ids:
+                ids.append(iid)
+        if not ids:
+            return {}
+        from waiver import PLACEHOLDER_RE
+        pipeline = _load(Path(task_root) / "pipeline.json")
+        found: dict = {}
+        for entry in C.live_stage_overrides(pipeline, ("S5",)):
+            match = entry.get("match")
+            if not isinstance(match, str):
+                continue
+            m = match.strip()
+            if m == "*" or PLACEHOLDER_RE.search(m):
+                continue
+            named = [iid for iid in ids if m == _review_gap_head(iid) or m.startswith(_review_gap_head(iid) + " — ")]
+            if not named:
+                continue
+            exact = [iid for iid in named if m == _review_gap_head(iid)]
+            iid = exact[0] if exact else max(named, key=len)
+            found[iid] = {"words": " ".join(str(entry.get("decision") or "").split()), "at": str(entry.get("at") or "")}
+        return found
+    except Exception:
+        return {}
+
+
+def word_let_go(lines, window, index, lets_go=None, review_words=None) -> tuple:
     """`(kept, let_go)` - THE one predicate "is this S5 window line let go by a person's recorded word" (FV1-30b, AR-13, AR-15):
     `lines` are shape lines (`"<label>: <text>"`) and gap lines (`"<kind>:<iid>"`) in any mix, `window` the record they judge,
     `index` the LIVE `waiver.word_passed_index`, `lets_go` `{"not_run": <section>, "row_fields": <rows>}` (None reads the table
-    through `waiver.not_run_lets_go` and `waiver.row_fields`). Two rules, each for an instance the INDEX names:
-    - `not_run`: the window item has the no-run SHAPE (`_no_run_shape`) and the line is `"<iid>: <f> is missing"` for `f` in the
-      section's `shape_missing`, or `"<iid>: " + PROBE_MISSING_ERROR` when `shape_probe_missing` is true, or `"<kind>:<iid>"` for
-      `kind` in its `tier4_gaps`;
-    - `row_fields_unestablished`: `"<kind>:<iid>"` for `kind` in the `tier4_gaps` of a row (`pass` true) of a field in
-      `index.passed_fields(iid)`.
+    through `waiver.not_run_lets_go` and `waiver.row_fields`), `review_words` what `review_gap_words` returned. Three rules:
+    - `not_run` (for an instance the INDEX names): the window item has the no-run SHAPE (`_no_run_shape`) and the line is
+      `"<iid>: <f> is missing"` for `f` in the section's `shape_missing`, or `"<iid>: " + PROBE_MISSING_ERROR` when
+      `shape_probe_missing` is true, or `"<kind>:<iid>"` for `kind` in its `tier4_gaps`;
+    - `row_fields_unestablished` (for an instance the INDEX names): `"<kind>:<iid>"` for `kind` in the `tier4_gaps` of a row
+      (`pass` true) of a field in `index.passed_fields(iid)`;
+    - `review` (S9, for an instance in `review_words`): the line `"review:<iid>"` and any line that starts with
+      `"review:<iid> — "` (`verdict`'s form). `review_words=None` lets no review line go. This rule depends on `review_words`
+      alone: an `index` of None (or a table that cannot be read) lets the first two rules nothing and does NOT hide a word.
     Every other line is kept (the refusing direction). PURE; never raises - any exception, an `index` of None, a table that cannot
-    be read: `(list(lines), [])`, nothing let go (AR-28). Lines are matched by exact text built from the window's own instance ids,
+    be read: nothing of that rule is let go (AR-28). Lines are matched by exact text built from the window's own instance ids,
     never by taking a line apart."""
     try:
         lines = list(lines)
     except Exception:
         return [], []
     try:
-        if index is None or not isinstance(window, dict):
+        if not isinstance(window, dict):
             return lines, []
-        if lets_go is None:
-            import waiver
-            lets_go = {"not_run": waiver.not_run_lets_go()[0], "row_fields": waiver.row_fields()[0]}
-        section = lets_go.get("not_run") if isinstance(lets_go.get("not_run"), dict) else {}
-        rows = lets_go.get("row_fields") if isinstance(lets_go.get("row_fields"), dict) else {}
-
-        def names(value) -> list:
-            return [x for x in value if isinstance(x, str) and x] if isinstance(value, list) else []
-
         let: set = set()
-        for item in window.get("instances") or []:
-            iid = str(item.get("instance_id") or "") if isinstance(item, dict) else ""
-            if not iid:
-                continue
-            if section and _no_run_shape(item) and index.instance("not_run", iid):
-                let.update(f"{iid}: {f} is missing" for f in names(section.get("shape_missing")))
-                if section.get("shape_probe_missing") is True:
-                    let.add(f"{iid}: {C.PROBE_MISSING_ERROR}")
-                let.update(f"{kind}:{iid}" for kind in names(section.get("tier4_gaps")))
-            for field in index.passed_fields(iid):
-                row = rows.get(field)
-                if isinstance(row, dict) and row.get("pass") is True:
-                    let.update(f"{kind}:{iid}" for kind in names(row.get("tier4_gaps")))
-        kept = [line for line in lines if not (isinstance(line, str) and line in let)]
-        gone = [line for line in lines if isinstance(line, str) and line in let]
+        if index is not None:
+            try:
+                tables = lets_go
+                if tables is None:
+                    import waiver
+                    tables = {"not_run": waiver.not_run_lets_go()[0], "row_fields": waiver.row_fields()[0]}
+                section = tables.get("not_run") if isinstance(tables.get("not_run"), dict) else {}
+                rows = tables.get("row_fields") if isinstance(tables.get("row_fields"), dict) else {}
+
+                def names(value) -> list:
+                    return [x for x in value if isinstance(x, str) and x] if isinstance(value, list) else []
+
+                found: set = set()
+                for item in window.get("instances") or []:
+                    iid = str(item.get("instance_id") or "") if isinstance(item, dict) else ""
+                    if not iid:
+                        continue
+                    if section and _no_run_shape(item) and index.instance("not_run", iid):
+                        found.update(f"{iid}: {f} is missing" for f in names(section.get("shape_missing")))
+                        if section.get("shape_probe_missing") is True:
+                            found.add(f"{iid}: {C.PROBE_MISSING_ERROR}")
+                        found.update(f"{kind}:{iid}" for kind in names(section.get("tier4_gaps")))
+                    for field in index.passed_fields(iid):
+                        row = rows.get(field)
+                        if isinstance(row, dict) and row.get("pass") is True:
+                            found.update(f"{kind}:{iid}" for kind in names(row.get("tier4_gaps")))
+                let = found
+            except Exception:
+                let = set()
+        heads: list = []
+        if isinstance(review_words, dict) and review_words:
+            for item in window.get("instances") or []:
+                iid = item.get("instance_id") if isinstance(item, dict) else None
+                if isinstance(iid, str) and iid and iid in review_words:
+                    heads.append(_review_gap_head(iid))
+
+        def let_go(line) -> bool:
+            return isinstance(line, str) and (line in let or any(line == h or line.startswith(h + " — ") for h in heads))
+
+        kept = [line for line in lines if not let_go(line)]
+        gone = [line for line in lines if let_go(line)]
         return kept, gone
     except Exception:
         return lines, []
@@ -1305,7 +1383,7 @@ def word_kept(lines, window, task_root, dispatch_id) -> tuple:
         import s5_precheck
         scope = list((window or {}).get("scope_instances") or {}) or None
         index = s5_precheck.live_word_index(task_root, scope, dispatch_id)
-        return word_let_go(lines, window, index)
+        return word_let_go(lines, window, index, review_words=review_gap_words(window, task_root))
     except Exception:
         return lines, []
 
@@ -1734,6 +1812,8 @@ def _explain(line: str, notes: list) -> str:
 # the pair's own word (`s5_precheck.passed_by_word`; kinds `expectation_change*`, found through `owners` below), and
 # (HF1-14) a `probe_gap` line, which `build` writes ONLY when a word of the person names the instance, so the word
 # WAS read (`acceptance.probe_gap_named`). `probe_gap_unrecorded` is not here: no word names it.
+# A `review:<iid>` line is read through `word_let_go` (S9: `review_gap_words` names the instance a recorded word's head
+# is exactly; `verdict` adds that line to `read` by the same function), so it is not a kind of this tuple.
 # Every OTHER line of a window verdict is read by nothing a person's word reaches - the controller reads a word
 # for the critic's receipts and for a missing window record, never for a gap of the window - so a word recorded
 # against one is printed "recorded, not read by this window" (`_unread_words`). One name, so a reader added later
@@ -1857,6 +1937,7 @@ def verdict(task_root: Path, window: dict, notes: list, info: list | None = None
         lines.append(f"{exc} — the record always carries an explicit list, even an empty one")
     owners = dict(expectation_change_gaps(window))  # gap -> its kind, from the one function that made it
     read = set()          # the lines a person's recorded word is read for (S7 of t-299: `_unread_words` skips them)
+    review_named = review_gap_words(window, task_root)    # S9: the review gaps a person's word names (read by `word_let_go`)
     for gap in gaps:
         if gap in owners:
             # By the gap's own kind, never by a search of the line: a function named `test_review_x`
@@ -1888,7 +1969,7 @@ def verdict(task_root: Path, window: dict, notes: list, info: list | None = None
             line = line.replace("{why}", run_freshness_of(item)[1])
         lines.append(line)
         doors[line] = door
-        if kind in WORD_READ_KINDS:
+        if kind in WORD_READ_KINDS or (kind == "review" and identity in review_named):
             read.add(line)
     # What `acceptance.blocked_instances` turned down, said once each with its repair (t-219, E1/E2/E7): an
     # instance whose blocked_by_env row has no remedy (or a remedy that is not one), or whose row names no

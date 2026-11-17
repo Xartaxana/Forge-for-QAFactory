@@ -7517,9 +7517,15 @@ class Controller:
         # the reader the exit gate and the recording share). INVARIANT: only the kinds the table lists for a fact the index names
         # for that instance are let go (the `not_run` section on the no-run shape, a passed field's `tier4_gaps`); any other gap
         # and an instance not named still refuse. The refusal below and `passed_green` still read what is left / the whole `gaps`.
+        # S9 (FR-57): the person's word on a `review` gap joins the same predicate, through `review_gap_words` (the one reader of
+        # it, AR-13). INVARIANT: only a word whose head is exactly `review:<iid>` lets that one gap go; `*`, another instance's
+        # word and a typed `unresolved` pair never produce a pass line (`_let_go` below is what the person's word lifted).
+        review_words: dict = {}
+        _let_go: list = []
         if other_gaps:
-            from window_record import word_let_go
-            other_gaps, _let_go = word_let_go(other_gaps, window, self._s5_word_index(d))
+            from window_record import review_gap_words, word_let_go
+            review_words = review_gap_words(window, self.store.root)
+            other_gaps, _let_go = word_let_go(other_gaps, window, self._s5_word_index(d), review_words=review_words)
         if other_gaps and (not p.get("unresolved") or not p.get("reason")):
             problems.append((StateConflict, "unresolved window: " + ", ".join(other_gaps)))
         if gaps and p.get("passed_green"):
@@ -7532,6 +7538,14 @@ class Controller:
             self._record_person_pass("S5", d.get("id"), [
                 {"error": g, "decision": (named.get(g.partition(":")[2]) or {}).get("words", ""),
                  "by": "human"} for g in probe_gaps])
+        if not problems:
+            # One line per review gap a person's word lifted (FR-4), only after every refusal above ran and none fired (E10):
+            # the words whole and `word_at` (AR-24), the instance as the subject. A typed pair never gets a line here.
+            passed = [{"error": g, "decision": review_words[g[len("review:"):]]["words"],
+                       "at": review_words[g[len("review:"):]]["at"], "by": "human", "check": "review", "case": "",
+                       "tag": g[len("review:"):], "subjects": [{"instance_id": g[len("review:"):]}]}
+                      for g in _let_go if g.startswith("review:") and g[len("review:"):] in review_words]
+            self._record_person_pass("S5", d.get("id"), passed)
         return problems
 
     @staticmethod

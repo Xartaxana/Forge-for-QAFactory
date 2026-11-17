@@ -1648,6 +1648,12 @@ def a_word_nothing_reads_is_printed_and_changes_nothing():
         check_eq("a word for another stage says nothing", notes_for("review is missing", stage="S6"), [])
         check_eq("a word the person took back (revoked) says nothing", notes_for("review is missing", revoked=True), [])
         check_eq("a word with no decision is no word", notes_for("review is missing", "  "), [])
+        # S9 (item 4): a word whose head is exactly the review gap IS read, so it is not printed as unread; `*` and a case
+        # variant still are (the words themselves are `review_gap_words`' rows)
+        check_eq("S9: `review:test_a[x]` names the gap: read, no unread note", notes_for("review:test_a[x]"), [])
+        check_eq("S9: ... with the reason after the separator too",
+                 notes_for("review:test_a[x] — the manifest row carries no `critic_verdict`"), [])
+        check_eq("S9: `Review:test_a[x]` (a case variant) is not read: still one unread note", len(notes_for("Review:test_a[x]")), 1)
         blocked = notes_for("blocked_by_env", "the stand is the person's to fix")
         check_eq("a word for the stand-blocked gap is not read either: one note", len(blocked), 1)
         check_in("... with THAT gap's door: the finish derives the unresolved pair from the record", "derives the `unresolved` pair",
@@ -1854,6 +1860,25 @@ def fv1_30b_word_let_go_is_the_one_predicate():
     both = waiver.word_passed_index([run, refs])
     check_eq("both facts: each lets go its own kinds, the union", only(both, window(no_run))[1],
              shape + ["product:i", "evidence:i", "obligation_binding:i", "obligation_hash:i"])
+    # S9: the third rule, `review_words` (what `review_gap_words` returned); the expected lines come from the rule's own text
+    review_line = "review:i — the manifest row carries no `critic_verdict`"
+    rw = lambda *ids: {i: {"words": "go on", "at": "t"} for i in ids}  # noqa: E731
+    s9_lines = ["review:i", review_line, "stale_review:i", "review:i[neg]", "review:j"]
+    check_eq("S9: a word naming `i` lets `review:i` and its `verdict` form go; another kind, a parameter sibling and another "
+             "instance stay", WR.word_let_go(s9_lines, window(no_run), waiver.word_passed_index([run]), review_words=rw("i")),
+             (["stale_review:i", "review:i[neg]", "review:j"], ["review:i", review_line]))
+    check_eq("S9 (E9): an index of None hides no word: the review line goes, the not_run lines do not",
+             WR.word_let_go(["review:i", "product:i", probe_line], window(no_run), None, review_words=rw("i")),
+             (["product:i", probe_line], ["review:i"]))
+    check_eq("S9: review_words absent (the default): `review:i` is kept, as before",
+             WR.word_let_go(["review:i"], window(no_run), None), (["review:i"], []))
+    check_eq("S9: review_words that are no object or empty let nothing go",
+             [WR.word_let_go(["review:i"], window(no_run), None, review_words=bad)[1] for bad in ([], "i", ["i"], {})], [[]] * 4)
+    check_eq("S9 (U1 at the predicate): the word for `A b` lets `review:A b` go and keeps `review:A`",
+             WR.word_let_go(["review:A", "review:A b"], {"instances": [{"instance_id": "A"}, {"instance_id": "A b"}]}, None,
+                            review_words=rw("A b")), (["review:A"], ["review:A b"]))
+    check_eq("S9: a word for an instance the window does not hold lets nothing go",
+             WR.word_let_go(["review:i"], window(no_run), None, review_words=rw("zz"))[1], [])
     # never raises
     check_eq("lines that are no list: nothing, nothing", WR.word_let_go(None, window(no_run), index), ([], []))
     check_eq("a window that is no object", only(index, "x"), (everything, []))
@@ -1865,6 +1890,107 @@ def fv1_30b_word_let_go_is_the_one_predicate():
         def instance(self, *_a, **_k):
             raise RuntimeError("boom")
     check_eq("an index that raises: every line kept", only(Broken(), window(no_run)), (everything, []))
+
+
+def s9_review_gap_words():
+    """S9 (FR-57, critic t-1026 B6): `window_record.review_gap_words` over the instances a recorded S5 word names. One row per input
+    of E1-E6, E12 and U1-U4 of the card. The expected instances come from the card's rule (the word's head is EXACTLY
+    `review:<iid>`, or that and ` — `; case-exact; one record names one instance), never from the implementation."""
+    tail = "the manifest row carries no `critic_verdict`"
+    sep = " — "
+    toc_one = "@regression LOCAL-1_TC_002 out-of-stock book: button disabled, no POST /api/cart, no cart line"
+    toc_two = "@regression LOCAL-1_TC_002 success message differs for quantity 1 and 3, cart holds 4"
+
+    def win(*ids) -> dict:
+        return {"instances": [{"instance_id": n} for n in ids]}
+
+    def rec(match, **over) -> dict:
+        return {"stage": "S5", "match": match, "decision": "go on", "at": "t", **over}
+
+    def read(window, pipeline=None) -> dict:
+        """`pipeline`: None writes no file; bytes / str are written as they are; anything else as JSON."""
+        with tempfile.TemporaryDirectory(prefix="qa-s9-words-") as raw:
+            root = Path(raw)
+            if isinstance(pipeline, bytes):
+                (root / "pipeline.json").write_bytes(pipeline)
+            elif isinstance(pipeline, str):
+                (root / "pipeline.json").write_text(pipeline, encoding="utf-8")
+            elif pipeline is not None:
+                (root / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
+            return WR.review_gap_words(window, root)
+
+    def named(window, *matches) -> list:
+        return sorted(read(window, {"stage_overrides": [m if isinstance(m, dict) else rec(m) for m in matches]}))
+
+    rows = [
+        # U1: two instances, one named
+        ("U1: the head and reason of `A b` name only `A b`", ["A", "A b"], [f"review:A b{sep}{tail}"], ["A b"]),
+        ("U1: the head and reason of `A` name only `A`", ["A", "A b"], [f"review:A{sep}{tail}"], ["A"]),
+        ("U1: the bare head `review:A b` names only `A b`", ["A", "A b"], ["review:A b"], ["A b"]),
+        ("U1 (real data): the first TC_002 word names only its own instance", [toc_one, toc_two],
+         [f"review:{toc_one}{sep}{tail}"], [toc_one]),
+        # U2: a word naming none
+        *[(f"U2: `{m}` names none", ["A"], [m], []) for m in (
+            "Review:A", "REVIEW:A", "review: A", "review:A—x", "review:A -x", "review:A - x", "review:Ab", "review:Z", "A",
+            "TC-1", "sensitivity:A", tail, "review:", "review:A–x", f"review:A – {tail}")],
+        ("E4: `review:A` against instances that merely start with `A`", ["A b", "AB", "A.1", "A::x", "A[", "A@x", "A[neg]", "B"],
+         ["review:A"], []),
+        ("E4: `review:A` names exactly the instance `A` among them", ["A b", "AB", "A", "A[neg]"], ["review:A"], ["A"]),
+        ("E4/B6: `review:A b` against instance `A` names none", ["A"], ["review:A b"], []),
+        # U3: a word naming all or several
+        ("U3/E1: `*` names none", ["A", "A b"], ["*"], []),
+        ("U3: `review:*` names none (no instance is literally `*`)", ["A", "A b"], ["review:*"], []),
+        ("U3: a comma list in one record names none", ["A", "A b"], ["review:A, review:A b"], []),
+        ("U3: a semicolon list in one record names none", ["A", "A b"], ["review:A; review:A b"], []),
+        # U4: an id that holds the separator (F9-3 (a): exact equality first, else the longest)
+        ("U4: the exact id `A — x` wins over `A`", ["A", f"A{sep}x"], [f"review:A{sep}x"], [f"A{sep}x"]),
+        ("U4: both heads match: the longest id wins", ["A", f"A{sep}x"], [f"review:A{sep}x{sep}{tail}"], [f"A{sep}x"]),
+        ("U4: only `A` matches `review:A — y`", ["A", f"A{sep}x"], [f"review:A{sep}y"], ["A"]),
+        # E2, E3, E6: a record that is not a live S5 word
+        ("E2: a revoked record names none", ["A"], [rec("review:A", revoked_at="2026-11-17T10:00:00")], []),
+        ("E3: a word of another stage names none", ["A"], [rec("review:A", stage="S6")], []),
+        ("E3: a record with no stage names none", ["A"], [{"match": "review:A", "decision": "go on"}], []),
+        ("E6: a `<placeholder>` in the match names none", ["A"], [f"review:A{sep}<your words>"], []),
+        ("a record with no decision is no word", ["A"], [rec("review:A", decision="  ")], []),
+        # E12: outside input
+        ("E12 magnitude: a 10000-char match whose head names an instance is read", ["A"], [f"review:A{sep}" + "x" * 10000], ["A"]),
+        ("E12 magnitude: a 10000-char match whose head names none is not", ["A"], [f"review:Z{sep}" + "x" * 10000], []),
+        ("E12 encoding: a non-ASCII id is read exactly", ["Ünï ✓"], [f"review:Ünï ✓{sep}{tail}"],
+         ["Ünï ✓"]),
+        ("E12 encoding: a case variant of a non-ASCII id is not read", ["Ünï"], ["review:ünï"], []),
+        ("E12: leading and trailing whitespace is stripped", ["A"], [" \n review:A \t "], ["A"]),
+        ("E12: an empty match names none", ["A"], [""], []),
+        ("E12: a blank match names none", ["A"], ["   \n"], []),
+        ("E12: a match that is no string names none (None, a number, a list)", ["A"],
+         [rec(None), rec(5), rec(["review:A"])], []),
+        # E5: empty input
+        ("E5: a window with no instances", [], ["review:A"], []),
+        ("E5: items that are no objects, or carry no usable id, are skipped", ["", None], ["review:A", "review:"], []),
+    ]
+    for label, ids, matches, expected in rows:
+        window = win(*ids) if all(isinstance(i, str) for i in ids) else {"instances": [{"instance_id": i} for i in ids]}
+        check_eq(label, named(window, *matches), sorted(expected))
+    check_eq("E5: an item list holding non-objects, an empty id and `A`: only `A` is named",
+             named({"instances": ["x", {}, None, {"instance_id": ""}, {"instance_id": 7}, {"instance_id": "A"}]}, "review:A"), ["A"])
+    check_eq("E5: no `instances` key, a non-list `instances`, a window that is no object",
+             [named(w, "review:A") if isinstance(w, dict) else read(w, {"stage_overrides": [rec("review:A")]})
+              for w in ({}, {"instances": "A"}, None, "A", [])], [[], [], {}, {}, {}])
+    one = {"stage_overrides": [rec("review:A")]}
+    check_eq("E5: the pipeline.json absent", read(win("A")), {})
+    for label, body in (("not JSON", "{not json"), ("a list", "[]"), ("stage_overrides an object", {"stage_overrides": {}}),
+                        ("stage_overrides a string", {"stage_overrides": "review:A"}), ("empty stage_overrides", {"stage_overrides": []}),
+                        ("unreadable bytes", b"\xff\xfe\x00{"), ("entries that are no objects", {"stage_overrides": ["review:A", 5, None]})):
+        check_eq(f"E5: pipeline.json {label}: nothing", read(win("A"), body), {})
+    check_eq("control: the plain record IS read", sorted(read(win("A"), one)), ["A"])
+    # the words and the latest record: whole, whitespace folded, later file order wins, one record one instance
+    got = read(win("A", "A b"), {"stage_overrides": [
+        rec("review:A", decision="first", at="t1"), rec("review:A b", decision="  other \n words ", at="t2"),
+        rec(f"review:A{sep}{tail}", decision="  go   on\n\nI accept ", at="t3")]})
+    check_eq("the latest record by file order wins for an instance; the words are whitespace-folded whole; one record, one gap",
+             got, {"A b": {"words": "other words", "at": "t2"}, "A": {"words": "go on I accept", "at": "t3"}})
+    # item 5: the review gap's door names the person's road (FR-2, AR-9)
+    check_in("S9: the door of a review gap names the person's road, the block head `review:<instance id>`",
+             '--block "review:', WR._explain("review:x", []))
 
 
 def sensitivity_gaps(window: dict, task: Path) -> list:
@@ -2529,6 +2655,12 @@ def fv1_30b_n6_the_three_judges_read_the_one_survivor():
             s5_precheck.live_word_index = index_of([refs_word])
             check_eq("word_kept: a window that is no dict: every line kept", WR.word_kept(["obligation_binding:A"], None, tmp, "d1"),
                      (["obligation_binding:A"], []))
+            # S9: a recorded `review:A` word is read through word_kept (the three judges share it)
+            (tmp / "pipeline.json").write_text(json.dumps({"stage_overrides": [
+                {"stage": "S5", "match": "review:A", "decision": "go on", "at": "t"}]}), encoding="utf-8")
+            check_eq("S9: word_kept over [review:A] with a pipeline holding `review:A`: the line is let go",
+                     WR.word_kept(["review:A"], word, tmp, "d1"), ([], ["review:A"]))
+            (tmp / "pipeline.json").unlink()
         finally:
             s5_precheck.live_word_index = real_live_kept
 
@@ -2602,6 +2734,7 @@ def fv1_30b_n6_the_three_judges_read_the_one_survivor():
 def pure_group():
     fv1_30b_n6_the_three_judges_read_the_one_survivor()
     fv1_30b_word_let_go_is_the_one_predicate()
+    s9_review_gap_words()
     fv1_30b_the_window_carries_the_word_it_was_given()
     the_item_carries_the_identity_the_run_recorded()
     the_review_receipt_bytes_did_not_change_with_the_extraction()
