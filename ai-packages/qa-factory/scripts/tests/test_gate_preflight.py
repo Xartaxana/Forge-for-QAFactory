@@ -2743,209 +2743,6 @@ def test_the_executor_question_now_reaches_the_e2e_profile() -> None:
         cleanup(root)
 
 
-# --- §5: the page objects wait less than the stand takes to load a page ----------------------------
-
-def with_limits(load=110, wait=30, **extra):
-    """A config edit recording the 01.10 measurement of cmp2 and the page objects' wait."""
-    def edit(cfg):
-        measured = dict({"value": load, "route": "/workflows/<id>/edit",
-                         "command": "browser, signed in, a full load", "at": "2026-10-01"}, **extra)
-        if load is not None:
-            cfg["environments"][0]["measured"] = {"e2e_page_load_s": measured}
-        if wait is not None:
-            cfg["profiles"][1]["page_object_max_wait_s"] = wait
-    return edit
-
-
-def limit_cards(root) -> list:
-    return by_check(cmp2_run(root, steps=("s5_stand_limits",)), "e2e_stand_limit")
-
-
-def test_k5_a_page_that_loads_slower_than_the_page_objects_wait_is_one_card() -> None:
-    root = cmp2_story("qa-gate-k5-", config=with_limits(110, 30))
-    try:
-        result = cmp2_run(root)
-        cards = by_check(result, "e2e_stand_limit")
-        check_eq("K5: load 110 against wait 30 is exactly one card", len(cards), 1)
-        card = cards[0]
-        check_eq("it is the person's", card["class"], gate_preflight.PERSON_DECIDES)
-        check_eq("it lists the e2e cases", card["cases"], [cmp2_case_id(4), cmp2_case_id(8)])
-        check_not_in("the api cases are not on it", cmp2_case_id(10), card["message"])
-        for needle in ("110 s", "30 s", "/workflows/<id>/edit", "localhost", cmp2_case_id(4), cmp2_case_id(8)):
-            check_in(f"the message says {needle}", needle, card["message"])
-        # C7 + 0d C2: every option has an executor, named in the card (FR-9); the third door,
-        # accept-as-blocked, was dropped because nothing outside this file reads its block
-        check_in("(a) the handed door is a line the person writes - the word of the data file for `handed` (t-357)",
-                 f"to run it yourself, write `{card['id']}: run`", card["fix"])
-        check_eq("(a) and the block it passes travels as data, unprinted: the handed block, at S5, option handed",
-                 card["waives"], [{"block": "executor unavailable: e2e-ui", "stage": "S5", "option": "handed"}])
-        for banned in ("waiver.py", "--block", "--stage", "--decision", "executor unavailable"):
-            check_not_in(f"t-357: the card shows no {banned!r}", banned, card["fix"])
-        check_in("(a) names where the person runs them, with the stand that loads in time",
-                 "on another stand where the page loads in time", card["fix"])
-        check_in("(b) the gate-A answer form", "`<case id>: manual`", card["fix"])
-        check_in("the card says it offers two", "one of two", card["fix"])
-        check_not_in("C2: no option is a waiver on the stand limit - nothing reads that block (FR-9)",
-                     "e2e stand limit", json.dumps(card["waives"]))
-        check_not_in("nor a third answer of any wording", "(c)", card["fix"])
-        check_eq("the options travel machine-readable: the two doors that remain",
-                 [o["id"] for o in card["options"]], ["a", "b"])
-        check_eq("(a) is the handed_to_person action contract.py already reads",
-                 card["options"][0]["action"], "handed_to_person")
-        check("the message still opens with the block text an older waiver is matched against (FR-4)",
-              card["message"].startswith("e2e stand limit: e2e-ui"))
-        check_eq("an api profile is never carded", [f for f in cards if f.get("profile") == "api"], [])
-        check_eq("nothing about a measured limit is left as info when it is a card",
-                 [m for m in info_of(result, "e2e_stand_limit")], [])
-    finally:
-        cleanup(root)
-
-
-def test_k5_strict_greater_than_at_and_beyond_the_wait() -> None:
-    for load, expected in ((29, 0), (30, 0), (30.5, 1), (31, 1)):
-        root = cmp2_story("qa-gate-k5-edge-", config=with_limits(load, 30))
-        try:
-            check_eq(f"K5: load {load} against wait 30 -> {expected} card(s)", len(limit_cards(root)), expected)
-        finally:
-            cleanup(root)
-
-
-def test_k5_nothing_recorded_is_not_measured_and_never_a_card() -> None:
-    root = cmp2_story("qa-gate-k5-none-")
-    try:
-        result = cmp2_run(root, steps=("s5_stand_limits",))
-        check_eq("K5: no card", by_check(result, "e2e_stand_limit"), [])
-        notes = info_of(result, "e2e_stand_limit")
-        check_eq("K5: one info line", len(notes), 1)
-        check_in("it says not measured", "is not measured", notes[0])
-        check_in("and for which profile, on which stand", "`e2e-ui`: e2e page load on localhost", notes[0])
-    finally:
-        cleanup(root)
-    root = cmp2_story("qa-gate-k5-none-words-")
-    try:
-        notes = info_of(cmp2_run(root, steps=("s5_stand_limits",)), "e2e_stand_limit")
-        check_not_in("C3: the line says no field path (`measured`, `[]`)", "e2e_page_load_s", notes[0])
-        check_not_in("nor a bracket", "[]", notes[0])
-    finally:
-        cleanup(root)
-    for label, edit, needle in (
-            ("a wait recorded, no load", with_limits(None, 30), "page load is not recorded"),
-            ("a load recorded, no wait", with_limits(110, None), "wait is not recorded")):
-        root = cmp2_story("qa-gate-k5-half-", config=edit)
-        try:
-            result = cmp2_run(root, steps=("s5_stand_limits",))
-            check_eq(f"{label}: no card", by_check(result, "e2e_stand_limit"), [])
-            check_in(f"{label}: an info line says what is missing", needle,
-                     info_of(result, "e2e_stand_limit")[0])
-        finally:
-            cleanup(root)
-
-
-def test_k5_a_limit_that_cannot_be_read_is_one_defect_and_no_card() -> None:
-    bad = (("a string", "110"), ("zero", 0), ("a negative", -3), ("a bool", True), ("false", False),
-           ("a list", [110]), ("NaN", float("nan")))
-    for label, value in bad:
-        root = cmp2_story("qa-gate-k5-bad-", config=with_limits(value, 30))
-        try:
-            cards = limit_cards(root)
-            check_eq(f"{label} as the load: one finding", len(cards), 1)
-            check_eq(f"{label}: and it is the factory's, not a card", cards[0]["class"],
-                     gate_preflight.FACTORY_DEFECT)
-            check_in(f"{label}: it says so", "the recorded limit cannot be read", cards[0]["message"])
-        finally:
-            cleanup(root)
-    for label, wait in (("a bool", True), ("zero", 0), ("a string", "30")):
-        root = cmp2_story("qa-gate-k5-badwait-", config=with_limits(110, wait))
-        try:
-            cards = limit_cards(root)
-            check_eq(f"{label} as the wait: one defect", [c["class"] for c in cards],
-                     [gate_preflight.FACTORY_DEFECT])
-            check_in(f"{label}: saying which limit, in words", "the wait of the page objects",
-                     cards[0]["message"])
-            check_not_in(f"{label}: and no field path in the sentence (C3)", "page_object_max_wait_s",
-                         cards[0]["message"])
-            check_in(f"{label}: the field is in the fix, where the person is told where to write",
-                     "page_object_max_wait_s", cards[0]["fix"])
-        finally:
-            cleanup(root)
-
-
-def test_a_measurement_older_than_the_stand_is_not_a_measurement() -> None:
-    """C7: `at` before the stand's `verified` date (2026-09-18) describes another build."""
-    root = cmp2_story("qa-gate-k5-stale-", config=with_limits(110, 30, at="2026-09-17"))
-    try:
-        result = cmp2_run(root, steps=("s5_stand_limits",))
-        check_eq("no card", by_check(result, "e2e_stand_limit"), [])
-        check_in("the info line says why", "older than the stand's last verification",
-                 info_of(result, "e2e_stand_limit")[0])
-    finally:
-        cleanup(root)
-    for at, cards in (("2026-09-18", 1), ("2026-10-01T09:00:00", 1), ("no date at all", 1)):
-        root = cmp2_story("qa-gate-k5-fresh-", config=with_limits(110, 30, at=at))
-        try:
-            check_eq(f"`at` {at!r} is not older than the stand: the limit stands", len(limit_cards(root)), cards)
-        finally:
-            cleanup(root)
-
-
-def test_the_other_stand_is_named_only_when_its_own_load_fits() -> None:
-    def edit(load_elsewhere):
-        def apply(cfg):
-            with_limits(110, 30)(cfg)
-            cfg["environments"][1]["measured"] = {"e2e_page_load_s": {
-                "value": load_elsewhere, "route": "/", "command": "browser", "at": "2026-10-01"}}
-        return apply
-    for load, needle in ((30, "on preview"), (31, "on another stand where the page loads in time")):
-        root = cmp2_story("qa-gate-k5-other-", config=edit(load))
-        try:
-            check_in(f"another stand at {load} s -> {needle}", needle, limit_cards(root)[0]["fix"])
-        finally:
-            cleanup(root)
-
-
-def test_a_card_a_person_has_answered_is_closed_in_all_the_ways_it_can_still_be() -> None:
-    """The card offers two doors (C2). The block text of the third, dropped one is still honoured
-    when an older waiver file holds it: `add()` keeps passing it (FR-4), only the OPTION is gone."""
-    root = cmp2_story("qa-gate-k5-answers-", config=with_limits(110, 30))
-    task = root / "qa-factory" / "artifacts" / CMP2_TICKET
-    try:
-        check_eq("control: the card stands", len(limit_cards(root)), 1)
-        pipe = task / "pipeline.json"
-        original = pipe.read_text(encoding="utf-8")
-        for label, match in (("(a) the handed door", "executor unavailable: e2e-ui"),
-                             ("an older waiver on the dropped third door", "e2e stand limit: e2e-ui")):
-            data = json.loads(original)
-            data["stage_overrides"] = [{"stage": "S5", "match": match, "decision": "my word", "by": "human"}]
-            pipe.write_text(json.dumps(data), encoding="utf-8")
-            check_eq(f"{label}: not asked again", by_check(cmp2_run(root, steps=("s5_stand_limits",)), "e2e_stand_limit"), [])
-        pipe.write_text(original, encoding="utf-8")
-        # (b) `<case id>: manual` moves the rows off `automate`: nothing is left to run on the stand
-        plan = json.loads((task / "work" / "test-plan.json").read_text(encoding="utf-8"))
-        for row in plan["rows"]:
-            if row["id"] in ("TS-4", "TS-8"):
-                row["disposition"] = "manual-agent"
-        (task / "work" / "test-plan.json").write_text(json.dumps(plan), encoding="utf-8")
-        result = cmp2_run(root, steps=("s5_stand_limits",))
-        check_eq("(b) the cases moved to a check by an agent: no card", by_check(result, "e2e_stand_limit"), [])
-        check_eq("and no e2e rows, so nothing is said about a measurement either",
-                 info_of(result, "e2e_stand_limit"), [])
-    finally:
-        cleanup(root)
-
-
-def test_the_stand_limit_step_can_be_switched_off() -> None:
-    def edit(cfg):
-        with_limits(110, 30)(cfg)
-        cfg["gate_rehearsal"]["skip_stand_limits"] = True
-    root = cmp2_story("qa-gate-k5-off-", config=edit)
-    try:
-        result = cmp2_run(root, steps=("s5_stand_limits",))
-        check_eq("no card", by_check(result, "e2e_stand_limit"), [])
-        check_eq("and no line", info_of(result, "e2e_stand_limit"), [])
-    finally:
-        cleanup(root)
-
-
 def teach_stand(root: Path, stand: str, subject: str, words: str, wait_s=None) -> None:
     import project_knowledge as PK
     row, problem, _created = PK.record(root, key=PK.LESSONS_KEY, environment=stand, element=subject, state=PK.KNOWN, scope="stand",
@@ -3072,30 +2869,6 @@ def test_the_reporter_proves_a_profile_with_one_of_its_own_tests() -> None:
              gate_preflight.first_collected_node(COLLECT, "testproject1_test_harness/tests/u"), "")
     check_eq("no directory is the first node, as before", gate_preflight.first_collected_node(COLLECT),
              "testproject1_test_harness/tests/workflow/test_a_first.py::test_one")
-
-
-def test_the_reporter_skips_a_profile_whose_e2e_limit_card_is_open() -> None:
-    root = reporter_story("qa-gate-c5-skip-", with_limits(110, 30))
-    try:
-        use_project(root)
-        r = gate_preflight.Rehearsal(root / "qa-factory" / "artifacts" / CMP2_TICKET, "A")
-        r.collect_stdout = COLLECT
-        r.check_s5_reporter()
-        check_eq("only the api profile ran a test", launches_of(root),
-                 ["testproject1_test_harness/tests/workflow/test_a_first.py::test_one"])
-        check_in("and the skip is said, not silent (FR-41)", "`e2e-ui`: one test was not run",
-                 [row["message"] for row in r.info])
-    finally:
-        cleanup(root)
-    root = reporter_story("qa-gate-c5-fits-", with_limits(30, 30))
-    try:
-        use_project(root)
-        r = gate_preflight.Rehearsal(root / "qa-factory" / "artifacts" / CMP2_TICKET, "A")
-        r.collect_stdout = COLLECT
-        r.check_s5_reporter()
-        check_eq("a load that fits the wait is rehearsed", len(launches_of(root)), 2)
-    finally:
-        cleanup(root)
 
 
 # --- §3: the stand's runtime probe is derived and checked at the gate ---------------------------------
@@ -3530,10 +3303,9 @@ def test_the_users_of_the_profile_keying_are_the_ones_the_report_lists() -> None
 
 def test_the_cmp2_rehearsal_is_the_one_a_person_can_read() -> None:
     """The render of the whole story: the INFO block and the questions, as printed."""
-    root = cmp2_story("qa-gate-render-", config=lambda c: with_limits(110, 30)(c))
+    root = cmp2_story("qa-gate-render-")
     try:
         text = gate_preflight.render(cmp2_run(root))
-        check_in("the stand limit is a question of the gate", "e2e stand limit: e2e-ui", text)
         check_in("the info block counts what is not asked", "14 preconditions are not asked", text)
         check_not_in("no seeded reason leaks into the packet", "seeded by the case itself", text)
     finally:
@@ -3634,34 +3406,11 @@ def test_c1_the_none_card_opens_with_a_lead_that_survives_the_packets_cut() -> N
     check_in("it counts the rest and says what '…' means", "+2 more and … marks a line cut here", many[-1])
 
 
-def test_c2_the_stand_limit_card_offers_only_doors_that_have_an_executor() -> None:
-    """Option (c) `e2e stand limit: <profile>` was read by nothing outside gate_preflight.py (FR-9)."""
-    root = cmp2_story("qa-gate-c2-", config=with_limits(110, 30))
-    try:
-        card = limit_cards(root)[0]
-        check_not_in("no option names the waiver block of the stand limit", "e2e stand limit",
-                     card["fix"])
-        check_eq("two options remain", [o["id"] for o in card["options"]], ["a", "b"])
-        check_in("the handed door is still there, as a line the person writes (t-357)", f"write `{card['id']}: run`", card["fix"])
-        check_in("...and it still passes the handed block the driver reads", "executor unavailable: e2e-ui",
-                 [d["block"] for d in card["waives"]])
-        check_in("and the gate-A answer form", "<case id>: manual", card["fix"])
-        pipe = root / "qa-factory" / "artifacts" / CMP2_TICKET / "pipeline.json"
-        data = json.loads(pipe.read_text(encoding="utf-8"))
-        data["stage_overrides"] = [{"stage": "S5", "match": "e2e stand limit: e2e-ui",
-                                    "decision": "written down earlier", "by": "human"}]
-        pipe.write_text(json.dumps(data), encoding="utf-8")
-        check_eq("a waiver file that already holds the block still passes the card (FR-4)",
-                 limit_cards(root), [])
-    finally:
-        cleanup(root)
-
-
 # FR-6: a sentence a person reads has no flag, no field path, no script name. The scan has two halves:
 # the literals of every message the new checks write (static: nothing there may even be a `.py`), and
 # the messages those checks actually produce on the cmp2 story (runtime: what the values add).
 
-NEW_CHECK_FUNCTIONS = ("_e2e_limit", "check_s5_stand_limits", "_stand_limit_card", "check_stand_page_load", "check_s5_runtime_probe",
+NEW_CHECK_FUNCTIONS = ("check_stand_page_load", "check_s5_runtime_probe",
                        "_probe_derived", "_probe_card", "_probe_defect", "_derive_probe",
                        # t-683 D12: the sentences that moved out of `_derive_probe` stay under the same scan
                        "_probe_refused", "_probe_no_container", "_probe_no_candidates", "_probe_which_container",
@@ -3725,7 +3474,7 @@ def message_literals(source: str, functions=NEW_CHECK_FUNCTIONS) -> list:
                     targets.append(node.args[index] if len(node.args) > index else next(
                         (k.value for k in node.keywords if k.arg == "message"), None))
                 if isinstance(node.func, ast.Attribute) and node.func.attr == "append" \
-                        and fn.name in ("_e2e_limit", "not_asked_line"):
+                        and fn.name == "not_asked_line":
                     targets.extend(node.args)
                 targets.extend(k.value for k in node.keywords if k.arg in ("why", "what"))
             elif isinstance(node, ast.Assign) and any(
@@ -3767,15 +3516,6 @@ def scenario_messages() -> list:
         finally:
             cleanup(root)
 
-    def record(value):
-        return lambda cfg: (cfg["environments"][0].__setitem__("measured", {"e2e_page_load_s": value}),
-                            cfg["profiles"][1].__setitem__("page_object_max_wait_s", 30))
-    limits = ("s5_stand_limits",)
-    run("a page slower than the wait", limits, with_limits(110, 30))
-    run("nothing recorded", limits)
-    run("a limit that is not a number", limits, with_limits(True, True))
-    run("a measurement older than the stand", limits, with_limits(110, 30, at="2026-09-17"))
-    run("a record with no command and no date", limits, record({"value": 110}))
     probe = ("s5_runtime_probe",)
     mismatch = {"record": {"result": "mismatched", "comparisons": [
         {"file": "src/testproject1/a.py", "container_sha256": "aaa", "local_sha256": "bbb"}]}}
@@ -3819,7 +3559,7 @@ def test_c3_the_new_checks_speak_in_the_storys_words() -> None:
     source = (SCRIPTS / "gate_preflight.py").read_text(encoding="utf-8")
     literals = message_literals(source)
     check_eq("the scan reaches the messages of every new check that writes one literally",
-             sorted({"_e2e_limit", "check_s5_stand_limits", "_stand_limit_card", "check_stand_page_load", "_probe_card",
+             sorted({"check_stand_page_load", "_probe_card",
                      "_probe_defect", "_derive_probe", "_none_card", "none_card_lead",
                      "not_asked_line", "_stand_account", "check_s5_runtime_probe", "check_s5_credentials"}
                     - {fn for fn, _ in literals}), [])
@@ -4078,71 +3818,6 @@ def test_q1_a_profile_with_no_recorded_checkout_is_one_line_and_never_docker() -
                  "no checkout is recorded", by_profile["e2e-ui"])
         check_eq("one docker question, for the profile that has a checkout", stand.docker_calls, ["docker ps"])
         check_eq("no card for either, and nothing for e2e-ui at all", sorted(found), ["api"])
-    finally:
-        cleanup(root)
-
-
-def record_edit(record, wait=30):
-    def edit(cfg):
-        cfg["environments"][0]["measured"] = {"e2e_page_load_s": record}
-        if wait is not None:
-            cfg["profiles"][1]["page_object_max_wait_s"] = wait
-    return edit
-
-
-def test_q2_a_page_load_with_no_command_or_date_is_the_factorys_defect() -> None:
-    """A number nobody can trace is not a measurement (command hygiene 6b). The route is not required."""
-    full = {"value": 110, "route": "/workflows/<id>/edit", "command": "browser, signed in", "at": "2026-10-01"}
-    root = cmp2_story("qa-gate-q2-value-", config=record_edit({"value": 110}))
-    try:
-        found = limit_cards(root)
-        check_eq("a record with `value` only: one finding", len(found), 1)
-        check_eq("the factory's own", found[0]["class"], gate_preflight.FACTORY_DEFECT)
-        check_in("it says the record is incomplete, in words", "the recorded limit is incomplete", found[0]["message"])
-        check_in("the fix names the missing parts: `command`", "`command`", found[0]["fix"])
-        check_in("and `at`", "`at`", found[0]["fix"])
-        check_eq("the finding carries them as a field too", found[0].get("missing"), ["command", "at"])
-        check_not_in("the message does not (a field name is not a sentence)", "`command`", found[0]["message"])
-        check_not_in("nor the other", "`at`", found[0]["message"])
-        check_not_in("no card of the stand limit either", "cannot run here", found[0]["message"])
-        pipe = root / "qa-factory" / "artifacts" / CMP2_TICKET / "pipeline.json"
-        data = json.loads(pipe.read_text(encoding="utf-8"))
-        data["stage_overrides"] = [{"stage": "S5", "match": "the recorded limit is incomplete",
-                                    "decision": "I know", "by": "human"}]
-        pipe.write_text(json.dumps(data), encoding="utf-8")
-        check_eq("a person's word passes it (FR-4)", limit_cards(root), [])
-    finally:
-        cleanup(root)
-    for label, record, missing in (("no date", dict(full, at=None), ["at"]),
-                                   ("no command", {k: v for k, v in full.items() if k != "command"}, ["command"]),
-                                   ("a blank command", dict(full, command="   "), ["command"]),
-                                   ("a command that is not text", dict(full, command=7), ["command"])):
-        root = cmp2_story("qa-gate-q2-part-", config=record_edit(record))
-        try:
-            found = limit_cards(root)
-            check_eq(f"{label}: one defect naming only what is missing", [(f["class"], f.get("missing")) for f in found],
-                     [(gate_preflight.FACTORY_DEFECT, missing)])
-        finally:
-            cleanup(root)
-    root = cmp2_story("qa-gate-q2-full-", config=record_edit({k: v for k, v in full.items() if k != "route"}))
-    try:
-        found = limit_cards(root)
-        check_eq("a complete record without a `route` is accepted: the card of the stand limit", len(found), 1)
-        check_eq("and it is the person's", found[0]["class"], gate_preflight.PERSON_DECIDES)
-    finally:
-        cleanup(root)
-    for label, value in (("zero", 0), ("not a number", "110"), ("a bool", True)):
-        root = cmp2_story("qa-gate-q2-bad-", config=record_edit({"value": value}))
-        try:
-            found = limit_cards(root)
-            check_in(f"{label}: today's defect, `cannot be read`, wins over `incomplete`",
-                     "the recorded limit cannot be read", found[0]["message"])
-        finally:
-            cleanup(root)
-    root = cmp2_story("qa-gate-q2-nowait-", config=record_edit({"value": 110}, wait=None))
-    try:
-        check_eq("a value only and no wait recorded: still the defect, the record is what is wrong",
-                 [f.get("missing") for f in limit_cards(root)], [["command", "at"]])
     finally:
         cleanup(root)
 
@@ -6302,7 +5977,7 @@ def test_c3_j1_a_kept_reason_gets_one_more_try_then_none_until_something_changes
                  (len(fake.calls), len(_pl_registry(root)), later_id == pk_id, later["failed"]["attempts"]), (2, 1, True, 2))
         check_in("its note says it is kept and not tried again", "not tried again until something changes", info_of(result, "stand_page_load")[0])
         before = json.dumps(_pl_registry(root), sort_keys=True)
-        result = _pl_world(fake, root, steps=("stand_page_load", "s5_stand_limits"))
+        result = _pl_world(fake, root)
         check_eq("third start: no attempt, the row untouched, no finding",
                  (len(fake.calls), json.dumps(_pl_registry(root), sort_keys=True) == before, result["findings"]), (2, True, []))
         carried = [i for i in result["info"] if i.get("check") == "stand_page_load"]
@@ -6310,10 +5985,6 @@ def test_c3_j1_a_kept_reason_gets_one_more_try_then_none_until_something_changes
                  [(i["state"], i["cause"], i["why"], i["attempts"], i["door"]) for i in carried],
                  [("failed_kept", "unreachable", "boom", 2, "project_knowledge.py revoke")])
         check_in("and the sentence names the tries, the cause and who can change it", "on 2 tries", carried[0]["message"])
-        card = [i for i in result["info"] if i.get("check") == "e2e_stand_limit"]
-        check("the ONE e2e stand card carries the kept reason (D3)",
-              len(card) == 1 and "on 2 tries" in card[0]["message"] and card[0].get("kept_cause") == "unreachable"
-              and card[0].get("kept_attempts") == 2, card)
         # a person's word to retry: the revoke clears the reason, the next start tries again
         import project_knowledge as PK
         _, problem = PK.revoke(root, pk_id, "retry: the stand was down")
@@ -6515,16 +6186,7 @@ if __name__ == "__main__":
     test_f3a_an_e2e_row_is_keyed_to_the_profile_named_as_its_level()
     test_ep1_41f_a_device_level_is_keyed_by_the_fits_levels_of_its_surface()
     test_the_executor_question_now_reaches_the_e2e_profile()
-    test_k5_a_page_that_loads_slower_than_the_page_objects_wait_is_one_card()
-    test_k5_strict_greater_than_at_and_beyond_the_wait()
-    test_k5_nothing_recorded_is_not_measured_and_never_a_card()
-    test_k5_a_limit_that_cannot_be_read_is_one_defect_and_no_card()
-    test_a_measurement_older_than_the_stand_is_not_a_measurement()
-    test_the_other_stand_is_named_only_when_its_own_load_fits()
-    test_a_card_a_person_has_answered_is_closed_in_all_the_ways_it_can_still_be()
-    test_the_stand_limit_step_can_be_switched_off()
     test_the_reporter_proves_a_profile_with_one_of_its_own_tests()
-    test_the_reporter_skips_a_profile_whose_e2e_limit_card_is_open()
     test_k3_a_stand_that_matches_is_derived_and_shown_with_its_argv()
     test_k3_the_rehearsal_with_a_derived_probe_writes_nothing()
     test_k3_two_candidate_checkouts_without_a_profile_id_are_one_card()
@@ -6540,14 +6202,12 @@ if __name__ == "__main__":
     test_the_cmp2_rehearsal_is_the_one_a_person_can_read()
     # t-224 fix wave (t-218 section 0d)
     test_c1_the_none_card_opens_with_a_lead_that_survives_the_packets_cut()
-    test_c2_the_stand_limit_card_offers_only_doors_that_have_an_executor()
     test_c3_the_new_checks_speak_in_the_storys_words()
     test_c4_a_story_that_changes_nothing_in_the_checkout_is_one_line_and_never_docker()
     test_fb8_gate_a_only_non_runtime_asks_no_container()
     test_fb8_gate_a_config_absence_mismatch_and_not_shipped_line()
     test_c5_an_integration_out_of_scope_is_not_asked_even_when_a_case_cannot_be_read()
     test_q1_a_profile_with_no_recorded_checkout_is_one_line_and_never_docker()
-    test_q2_a_page_load_with_no_command_or_date_is_the_factorys_defect()
     test_d4_a_probe_that_prints_nothing_readable_is_the_factorys_defect_like_a_timeout()
     # t-256 (spec t-227 section 0d)
     test_t256_o6_the_none_card_prints_the_token_for_each_case_it_names()

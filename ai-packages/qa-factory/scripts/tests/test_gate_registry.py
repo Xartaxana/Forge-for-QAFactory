@@ -42,7 +42,7 @@ EXPECTED_IDS = [
     "witness_backstop", "equivalence_metric", "then_oracle",
     "exploratory_oracle",   # MR !10 W4 (t-1594): the exploratory findings oracle that accepts person_confirmed (F2(a)); unknown branch debt
     "stand_login_gate", "stand_check",
-    "s5_stand_limits", "reporter_rehearsal_identity", "environment_property_cover", "source_freshness",
+    "reporter_rehearsal_identity", "environment_property_cover", "source_freshness",
     "probe_verdict",      # B-373 (c) adds the probe verdict (t-531, integration batch 0.9)
     "finish_exit_gate",   # GW1-8 (t-1264): `story_step finish` re-runs the stage's exit gate; unknown branch refuse_with_door
     "branch_accounting",  # TQ1-20 / G2-11 (S6.01): the S2 exit detector of branch accounting; unknown branch refuse_with_door
@@ -62,9 +62,9 @@ EXPECTED_IDS = [
 # Merged (t-1083): both cards on one branch; 6 -> 4 debt rows.
 # C3-g (t-1157, AR-20): baseline_identity converted (B-281; the receipt's status word through the predicate); 4 -> 3 debt rows.
 # C3-h (RD1-11, t-1179, AR-20): stand_identity converted (B-257; no code, the probe's own result words); 3 -> 2 debt rows.
+# C3-j2, t-1269: s5_stand_limits deleted (owner, 17.11.2026); 2 -> 1 debt rows, 33 -> 32 rows in all, converted unchanged.
 EXPECTED_DEBT = {
-    "provenance_acceptance": "B-255",
-    "s5_stand_limits": "B-282"}
+    "provenance_acceptance": "B-255"}
 EXPECTED_EXEMPT = ["request_shape", "executor_present", "manual_evidence_shape", "witness_backstop",
                    "equivalence_metric", "source_freshness"]
 EXPECTED_CONVERTED = ["inputs_unchanged", "then_oracle", "stand_login_gate", "stand_check", "probe_verdict",
@@ -257,7 +257,7 @@ def part_live_registry() -> None:
     lines = p.stdout.splitlines()
     check_eq("K-T1.2 its first line", lines[0] if lines else "", "A26 gate registry: no violations")
     check_in("K-T1.2 the second header line states the blind spot", BLIND_STEM, lines[1] if len(lines) > 1 else "")
-    check_in("K-T1.2 it lists the debt, decided and not forgotten", "2 gate(s) left as debt:", p.stdout)
+    check_in("K-T1.2 it lists the debt, decided and not forgotten", "1 gate(s) left as debt:", p.stdout)
     check_in("K-T1.2 and the exempt gates", "6 gate(s) exempt:", p.stdout)
 
     code, out = cli("--sites")
@@ -338,7 +338,7 @@ def part_live_registry() -> None:
     data = json.loads(out)
     check_eq("K-T1.14 --json keys are findings, debt, exempt", sorted(data), ["debt", "exempt", "findings"])
     check_eq("K-T1.14 findings is empty", data["findings"], [])
-    check_eq("K-T1.14 debt lists the two rows left after C3-R, its fix round, C3-b1, C3-d, C3-b2, C3-g and C3-h", [d["id"] for d in data["debt"]], list(EXPECTED_DEBT))
+    check_eq("K-T1.14 debt lists the one row left after C3-R, its fix round, C3-b1, C3-d, C3-b2, C3-g, C3-h and C3-j2", [d["id"] for d in data["debt"]], list(EXPECTED_DEBT))
     check_eq("K-T1.14 a debt item has id, decides, debt_ref", sorted(data["debt"][0]), ["debt_ref", "decides", "id"])
     check_eq("K-T1.14 exempt lists the six", [d["id"] for d in data["exempt"]], EXPECTED_EXEMPT)
     check_eq("K-T1.14 an exempt item has id, decides, exempt_reason", sorted(data["exempt"][0]),
@@ -357,8 +357,9 @@ def part_live_registry() -> None:
     # merged (t-1083): converted 21 -> 23, debt 6 -> 4
     # C3-g (t-1157): baseline_identity converted, converted 23 -> 24, debt 4 -> 3
     # C3-h (t-1179): stand_identity converted, converted 24 -> 25, debt 3 -> 2
-    check_eq("K-T1.14 the registry file's rows split 25 converted / 2 debt / 6 exempt (C3-R converted six debt rows for good)",
-             {s: len(v) for s, v in raw.items()}, {"converted": 25, "debt": 2, "exempt": 6})
+    # C3-j2 (t-1269): s5_stand_limits deleted (owner, 17.11.2026), debt 2 -> 1, converted unchanged
+    check_eq("K-T1.14 the registry file's rows split 25 converted / 1 debt / 6 exempt (C3-R converted six debt rows for good)",
+             {s: len(v) for s, v in raw.items()}, {"converted": 25, "debt": 1, "exempt": 6})
     check_eq("K-T1.14 --json debt = the file's debt rows (id, decides, debt_ref), in order",
              data["debt"], [{"id": r["id"], "decides": r["decides"], "debt_ref": r["debt_ref"]} for r in raw["debt"]])
     check_eq("K-T1.14 --json exempt = the file's exempt rows (id, decides, exempt_reason), in order",
