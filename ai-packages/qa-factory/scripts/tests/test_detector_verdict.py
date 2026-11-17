@@ -1292,6 +1292,67 @@ T1RS_OLD: dict = {
 }
 
 
+def _t7c_row(obligations, **over) -> dict:
+    return {"id": "TS-1", "schema_version": 2, "coverage_obligations": obligations, **over}
+
+
+def _t7c_ob(**over) -> dict:
+    ob = {"obligation_id": "O-1", "behavior": "b", "observation_boundary": "api", "completion_condition": "done",
+          "requirement_refs": [{"ref": "R-1", "revision": "r"}], "applicable_scenarios": ["positive"],
+          "oracle_status": "resolved", "oracle_source_ref": "spec", "decision": "reuse", "execution_scope": "current_task",
+          "sufficiency_review": {"author_dispatch_id": "d", "input_hash": "h", "rationale": "r"},
+          "coverage_links": [{"candidate_id": "c", "assessment": "sufficient", "assessment_reason": "r",
+                              "assertion_refs": ["a"], "proves": ["b"], "does_not_prove": []}], "planned_check_refs": ["x"]}
+    ob.update(over)
+    return ob
+
+
+# the lists `validate_obligations` returned before it was sited: read from the pre-change `coverage_contract.py` by running the same
+# inputs over a byte copy of it (E-T7c-1: the function is also a projection filter, so the whole LIST is the old value)
+T7C_OLD: dict = {
+    "valid": [],
+    "version": ["TS-1: coverage schema version 2 required: the row key is exactly `schema_version`, written as the number 2 "
+                "(`schema_version: 2`) (this row has `coverage_schema_version`, which is not the key)"],
+    "no_behavior": ["O-1: missing behavior: behavior needs a non-empty sentence"],
+    "no_obligations": ["TS-1: coverage_obligations required"],
+    "oracle": ["O-1: oracle_status: not filled. One of: resolved | unresolved"],
+    "observation": ["O-1: observation_contract required by coverage contract revision"],
+    "two": ["O-1: missing behavior: behavior needs a non-empty sentence", "obligation IDs must be nonempty and unique",
+            "O-1: oracle_status: not filled. One of: resolved | unresolved"],
+}
+
+
+def tbw_t7c_sites() -> None:
+    """told-before-work T7c: `coverage_contract.validate_obligations` writes `coverage_contract:obligations` on every problem line it
+    makes and `coverage_contract:obligations.observation` on the lines of `validate_observation_contract`. One table, a row per
+    input: the returned list equals the OLD list (E-T7c-1, the same function is a projection filter: `==`, `json.dumps`, and the
+    valid row gives `[]`), each item is a `Record` with the row's id and the row's sentence."""
+    import coverage_contract as CC
+    import stage_joints as SJ
+
+    def sentence(rid):
+        return SJ.told_text(SJ.row_for(rid)[0])[0]
+    obligations, observation = "coverage_contract:obligations", "coverage_contract:obligations.observation"
+    inputs = {
+        "valid": ([_t7c_row([_t7c_ob()])], None),
+        "version": ([{"id": "TS-1", "coverage_schema_version": 2, "coverage_obligations": [_t7c_ob()]}], obligations),
+        "no_behavior": ([_t7c_row([_t7c_ob(behavior="")])], obligations),
+        "no_obligations": ([_t7c_row([])], obligations),
+        "oracle": ([_t7c_row([_t7c_ob(oracle_status="maybe")])], obligations),
+        "observation": ([_t7c_row([_t7c_ob()], coverage_contract_revision=CC.COVERAGE_CONTRACT_REVISION)], observation),
+        "two": ([_t7c_row([_t7c_ob(behavior=""), _t7c_ob(oracle_status="maybe")])], obligations),
+    }
+    for name, (rows, rid) in inputs.items():
+        got = CC.validate_obligations(rows, True)
+        check_eq(f"t7c {name}: the returned list is the old list (a projection filter sees the same value)",
+                 (got == T7C_OLD[name], json.dumps(got) == json.dumps(T7C_OLD[name]), isinstance(got, list)), (True, True, True))
+        check_eq(f"t7c {name}: every item is a Record of its row, with the row's sentence",
+                 [(isinstance(e, DV.Record), getattr(e, "check", None), getattr(e, "expected", None)) for e in got],
+                 [(True, rid, sentence(rid))] * len(got))
+    check_eq("t7c obligations: the row states a sentence the refusal prints (a row nobody can read gives the factory-defect text)",
+             (bool(sentence(obligations)), bool(sentence(observation))), (True, True))
+
+
 def main() -> None:
     unreadable_cases()
     one_of_cases()
@@ -1310,6 +1371,7 @@ def main() -> None:
     contract_static()
     contract_run()
     t1rs_sites()
+    tbw_t7c_sites()
     finish("test_detector_verdict")
 
 
