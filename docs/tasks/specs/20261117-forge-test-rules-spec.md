@@ -679,3 +679,17 @@ Needed beyond the manifest: none (the brief named the carriers; the four in-flig
   wider in meaning, the new file stays under 10 s, builds its world once, and holds one parameterised table; the
   critic judges the choice (question 5). The `keep` row stays as bookkeeping. O-2 (a new forge tool gets its own
   test file) is the same rule's instance, not an exception.
+
+## Lead decisions on plan critic t-949 (17.11.2026, Fable) — input of fix round t-956
+
+- **B1 → (a)**: the critic RUNS the probe itself, through the existing runner
+  `ai-packages/qa-factory/scripts/tests/mutate_once.py` (extended per F1: `--root`, a pytest form, a 60 s timeout, an
+  import/collection error is an invalid mutant, not a kill), by Bash only, never Write/Edit; byte-copy restore and
+  sha256 are the runner's. One clause is added to CLAUDE.md rule 3 (the bounded probe of the brief's «The two layers»
+  is the critic's own run) and one line to R11-h and to the `handoff_gate` docstring. Reason: the owner's word is «критик
+  проверяет несколько мутантов», and (b) costs a coordinator round trip per verdict. This overrides L-9 for that one
+  clause only; the rule-11 pointer of L-9 stays dropped.
+- **B2**: S-A is split as the critic states — S-A1 (TESTING.md texts, brief q5 and two-layers) does not wait; S-A2
+  (builder-rules 7b/7d, RUNBOOK, the PROJECT column) follows boot-by-topic S2. Order: S-A1 → {S-B + S-D in one wave,
+  S-C}; the window between S-A1 and S-A2 is the accepted TEMPORAL edge, named in the spec.
+- **F1–F14**: all fixed in this round, none queued. F14 (iv) is moot: O-3 is answered «ок», L-2 = True is final.
