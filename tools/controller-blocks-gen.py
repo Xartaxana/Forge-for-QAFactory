@@ -224,6 +224,9 @@ COMMAND = {
     "not due, so there is nothing to settle": "`--operation next` says what the story does now",
     "the request settles an order of": "build the call again; `--operation next` names the orders of the newest decision",
     "policy requires evidence for the no-implementation decision": "name the evidence for the decision",
+    # `_s5_code_only_problems` (StateConflict): its head is cut after "derived", the `validate` ValueError head after "empty",
+    # so this key is told apart by that word and must sit BEFORE the general one below (the lookup takes the first match).
+    "only over its own empty derived": "rework S3 or record dispositions, then S5 runs again; or S5 runs its author and critic for the cases that need tests",
     "code-only receipts are allowed only for S0, S6, S7 or S8": "a stage with a role is closed by that role, not by code",
     "code-only receipt requires evidence": "name the artifact code produced",
     "Gate A applicability carry requires a new source revision": "carry it onto the new revision, not the old one",

@@ -4272,7 +4272,11 @@ class Controller:
                   "instances": self.scope_instances(scope),
                   "windows": windows,
                   "unmapped_scope": [case for case in (state.get("scope") or [])
-                                     if str(case) not in mapping]}
+                                     if str(case) not in mapping],
+                  # U7 5b (M-e): `derived` is true as soon as ONE row names a disposition, so an approved case whose own row names none
+                  # falls into no group above and is in nobody's scope. Named here, beside `unmapped_scope`, so the S5 code close
+                  # (`stage_S5`, `_s5_code_only_problems`) never reads "empty scope" over a case nobody disposed (AR-28).
+                  "undisposed": sorted(case for case, row in mapping.items() if not dispositions.get(row))}
         if cut is not None:     # only an S5 on the plan form with a plan on disk or a written window (SC1-14 FJ-B); else the key is absent
             result["window_cut"] = cut
         if handed:
@@ -4283,6 +4287,35 @@ class Controller:
                     window["handed"] = True
                     window["handed_cases"] = marked
         return result
+
+    def _s5_code_only_problems(self, state) -> list:
+        """`[(StateConflict, text)]` unless THIS controller's own `stage_scope("S5")` says: derived, no automate case, no case without a
+        plan row, no case whose row names no disposition (U7 5b, AR-28; never the request's word). The only road by which a stage with a
+        role (S5) closes with no role having run, and it opens only over an S5 that has nothing to write. ERROR DIRECTION: toward the
+        refusal - a scope that cannot be read, a key the answer lacks, or a list that is not a list is "not empty", never a pass."""
+        try:
+            got = self.stage_scope("S5", state)
+        except Exception as exc:    # noqa: BLE001 - any failure to read the scope is a refusal with its reason, not a crash
+            got = {"derived": False, "reason": f"{type(exc).__name__}: {exc}"}
+        if not isinstance(got, dict):
+            got = {"derived": False, "reason": "the stage-scope answer is not an object"}
+        why = []
+        if got.get("derived") is not True:
+            why.append(f"the plan's dispositions could not be read ({got.get('reason') or 'no reason given'}); rework S3 or record "
+                       "dispositions, then S5 runs again")
+        else:
+            for key, words, door in (("scope", "are automate cases that need their tests written", "S5 runs its author and critic for them"),
+                                     ("unmapped_scope", "have no plan row", "rework S3 or record dispositions, then S5 runs again"),
+                                     ("undisposed", "have rows with no disposition", "rework S3 or record dispositions, then S5 runs again")):
+                held = got.get(key)
+                if not isinstance(held, list):
+                    why.append(f"the stage-scope answer has no `{key}` list; run the step again, and if it repeats, read `--operation stage-scope`")
+                elif held:
+                    why.append(f"cases {', '.join(map(str, held))} {words}; {door}")
+        if not why:
+            return []
+        return [(StateConflict, "code-only receipts are allowed only for S0, S6, S7 or S8, and for S5 only over its own empty derived "
+                                "plan scope: " + " - ".join(why))]
 
     @staticmethod
     def automation_half_refusal(problems) -> str:
@@ -6094,8 +6127,10 @@ class Controller:
             # already-initialized task had no way through at all (TP1-15045 review).
             # Its evidence is the pipeline.json S0 just wrote.
             problems = []   # K1 (C3-11): the request's three fields, then the story's three facts
-            if not self._among(stage, {"S0", "S6", "S7", "S8"}):
-                problems.append((ValueError, "code-only receipts are allowed only for S0, S6, S7 or S8"))
+            # U7 5b: S5 joins, but only over its OWN derived scope when that is empty (below, `_s5_code_only_problems`): no role runs for it.
+            if not self._among(stage, {"S0", "S5", "S6", "S7", "S8"}):
+                problems.append((ValueError, "code-only receipts are allowed only for S0, S6, S7 or S8, and for S5 only over its own empty "
+                                             "derived plan scope"))
             if not all(p.get(k) for k in ("id", "reason")):
                 problems.append((ValueError, "code-only receipt requires id and reason"))
             if not isinstance(p.get("evidence_refs"), list) or not p["evidence_refs"]:
@@ -6105,6 +6140,8 @@ class Controller:
             # stays pure), and a verdict that cannot be read keeps the row running (FR-59, AR-28)
             verdicts = self._close_verdicts(state, stage)
             problems += code_close_conflicts(state, stage, verdicts)
+            if stage == "S5":
+                problems += self._s5_code_only_problems(state)
             self._raise_all(problems)
             # B4: the close names exactly what it passes over. A verdict that flipped between `apply` (which wrote the names into the
             # request) and now would close over work no one named, so the request is sent again (the state moved).

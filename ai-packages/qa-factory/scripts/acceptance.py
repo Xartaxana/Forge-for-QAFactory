@@ -628,11 +628,26 @@ def pending_instances(manifest, items, scope=None, sides=None) -> dict:
 # places and never in two of them. ERROR DIRECTION: "" (witness owed) on any doubt; the forbidden error is excusing a run
 # that was owed (FR-59).
 
-def run_witness_excused(manifest) -> str:
+def _s5_closed_by_code(task_root) -> bool:
+    """Did S5 close on a code-only receipt (the controller's own record `stages.S5.code_only`, status `completed`)? Read as
+    `s7_pretriage.s6_closed_by_code` reads S6's: a controller that cannot be read says False - a doubt never excuses a witness."""
+    try:
+        from controller import Controller
+        stage = (Controller(Path(task_root)).state().get("stages") or {}).get("S5") or {}
+    except Exception:
+        return False
+    return isinstance(stage, dict) and stage.get("status") == "completed" and stage.get("code_only") is True
+
+
+def run_witness_excused(manifest, task_root=None) -> str:
     """`"handed"` when every test of the manifest belongs to a case the person took over (nothing in the session could launch a
     run: TP2-2536), `"pending"` when every test is named by `pending_instances` in its MANIFEST-ONLY mode (no story root
     here, so the reader's third condition is made by `s5_precheck` at the same S5 exit; the collect is owed instead,
-    `check_witness._collect_row_missing`), else `""`. One test that could run puts the whole manifest back under the rule."""
+    `check_witness._collect_row_missing`), `"nothing"` when the manifest holds exactly empty `tests` and `unresolved` lists AND
+    `task_root` (the story folder) is given AND the controller there holds S5 closed by its code-only receipt (U7 5b: the plan had
+    no automate case, so no role wrote a test and there is no run to witness), else `""`. One test that could run puts the whole
+    manifest back under the rule. `"nothing"` is bound to the receipt, never to `tests == []` alone: an empty manifest an automator
+    wrote itself, a stale receipt (S5 reworked, no longer `completed`) and an unreadable controller all read `""` (AR-28)."""
     if not isinstance(manifest, dict):
         return ""
     try:
@@ -644,6 +659,9 @@ def run_witness_excused(manifest) -> str:
         ids = [C.test_instance_id(t) for t in C.manifest_tests(manifest)]
         if ids and all(ids) and all(i in pending_instances(manifest, [{"instance_id": i} for i in ids]) for i in ids):
             return "pending"
+        if (task_root is not None and manifest.get("tests") == [] and manifest.get("unresolved", []) == []
+                and _s5_closed_by_code(task_root)):
+            return "nothing"
     except Exception:
         return ""
     return ""
