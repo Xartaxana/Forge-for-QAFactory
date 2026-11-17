@@ -30,16 +30,16 @@ SNAP_FLAGS = {"clean": (), "problems": (), "applied": ("--fix",), "pending": (),
 SNAP_ETALON = {
     "clean": {"text": (0, 2, "df93812707156e18b859b5601dbfefb7ab844e966d13a4a022c162c3eeb7f6d0"),
               "json": (0, 20, "052f5b4cc7f8ce7b3f8dc1155cdb3050cf3c284a82727d7a3885926158b6d0da")},
-    "problems": {"text": (1, 60, "d590f7744403ba4e42616894386fd9cc9ff7105e924a58c11488237aee865816"),
+    "problems": {"text": (1, 60, "a2ec16473e483dd022f463d036197d47ea713c75fc39c6b5c031200cf8c189b0"),
                  # SC2-38 F-2: each problem gained the key `code_fills` (one line each); re-recorded from the run's own text
-                 "json": (1, 184, "c66bc0d4fca65e55bcc2757abb4cead8256cb6b719e2465e67f53df40934854f")},
+                 "json": (1, 184, "0d1a8df3178ac2859b060415953787804c577e31ae76bdb318bce5c488a6df74")},
     "applied": {"text": (1, 63, "a3599c6b7eae2dcea3422f7b0f8a5a0d8fe273d6a6a1f059bbaaa9f8b50daa0b"),
                 "json": (1, 224, "4b60d733d11da4ed4f35daf758f0a34a7a4150e85d10df79aa9acc470db48d52")},
     "pending": {"text": (1, 63, "e0c585bd6ea0fcc7e3a165cb6d8423210e44ed890f6278b42a34c4447840dc94"),
                 "json": (1, 224, "3de579178f38b77e1ed3832afc391ea44e5f3831a48a1d377fc8d8988cdc91c7")},
     # re-recorded at the X7-7 integration (35 to 58 fields) and again at t-1946 (the form gained the `rows_owed_when` block, t-1936 F4; the json cell was already at this value on c75ec3789, the text cell moved with the block)
     "cut": {"text": (0, 2, "5792448a0e31ed43067261f8fcb76b4f631886f5207be92d03df5969bd806d53"),
-            "json": (0, 21, "c05e8c260567a8fa65aa560372b88db772a645369a0d398aeed5dacc2d3ceea7")},
+            "json": (0, 21, "825d5bda28373f5b0983348ce82a28c7ab96c5666360141c7e5d6ba5b516ad6d")},
 }
 
 
@@ -56,7 +56,9 @@ def _cut_form(art: Path) -> Path:
                         ("review.receipt_ref", "work/windows/x.json"), ("review.rounds_used", 0),
                         ("probes.runtime_provenance", "evidence/runtime-provenance-api.json"),
                         ("probes.records[0].instance", "test_one"),
-                        ("probes.records[0].verdict", "intended_failure")):
+                        ("probes.records[0].verdict", "intended_failure"),
+                        ("inputs_read[0].path", "work/handoffs/S5-qa-automator-1.yaml"),
+                        ("inputs_read[0].version", "manifest revision 1")):
         handoff.set_value(doc, path, value)
         doc = handoff.parse(doc.text())
     form.write_text(doc.text(), encoding="utf-8")

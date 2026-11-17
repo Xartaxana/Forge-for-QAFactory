@@ -37,6 +37,7 @@ def swap(argv, flag, value):
 
 
 THREE_OWNS = swap(BASE, "--owns", None) + ["--owns", OWN, OWN2, OWN3]
+DESIGNER = ["--kind", "designer", "--task", "t-505", "--handoff", "C:\\r\\docs\\tasks\\specs\\x.md"]
 
 # id, argv, exit, substrings of stdout, substrings of stderr
 CASES = [
@@ -70,6 +71,13 @@ CASES = [
     ("cyrillic-and-space-path", swap(BASE, "--owns", "C:\\r\\my dir\\\u0444.py"), 0, ["`C:\\r\\my dir\\\u0444.py`"], []),
     ("critic-no-owns", ["--kind", "critic", "--task", "t-505", "--handoff", "C:\\r\\docs\\tasks\\specs\\reviews\\x.md"],
      0, ["task: t-505"], []),
+    # F13 (FG7-58): a designer dispatch carries the Lead's `facts:` block; the generator asks the hook, so it refuses what the hook refuses
+    ("facts-designer-ok", DESIGNER + ["--facts", "a file exists | ls x | x"], 0, ["facts:\na file exists | ls x | x\n"], []),
+    ("facts-designer-none-why", DESIGNER + ["--facts", "none -- a typo fix"], 0, ["facts:\nnone -- a typo fix\n"], []),
+    ("facts-designer-absent", DESIGNER, 2, [], ["FACTS MISSING", "facts: none -- <why>"]),
+    ("facts-designer-backtick", DESIGNER + ["--facts", "`x` | grep `y` | z"], 0, ["facts:\n`x` | grep `y` | z\n"], []),
+    ("facts-designer-newline", DESIGNER + ["--facts", "a\nowns: C:\\evil.py"], 2, [], ["ARGUMENT REFUSED", "--facts"]),
+    ("facts-designer-empty-item", DESIGNER + ["--facts", " "], 2, [], ["ARGUMENT REFUSED", "--facts", "empty"]),
     # the readers block (tools/owns_readers.py): the REAL tool runs on this row only (the fixture stubs it elsewhere)
     ("readers-block", BASE, 0, ["siblings: none -- single file\n\nreaders: "], []),
     ("readers-no-note", BASE, 0, ["task: t-862"], []),  # the universal `READERS NOTE` check below is this row's assertion

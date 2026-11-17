@@ -1,10 +1,10 @@
 # delegation.config.yaml — Supervised Delegation binding point.
 #
 # This is the ONE file where function names (the policy vocabulary:
-# architect / lead / critic / builder / scout -- see CLAUDE.md; designer is
+# architect / lead / critic / builder / scout -- see COORDINATOR.md; designer is
 # bound in its role file's frontmatter)
 # are bound to actual models (a property of your deployment, not of the
-# policy). CLAUDE.md and the role profiles under .claude/agents/ never
+# policy). COORDINATOR.md, CLAUDE.md and the role profiles under .claude/agents/ never
 # hardcode a model name for a function. Ranks of the functions and the one
 # parser of this file: tools/tier_ladder.py. Changing a binding below does
 # not change any rule; a rebinding is recorded in DECISIONS.md.
@@ -39,7 +39,7 @@ roles:
       model:
       api_key_env:
 
-  # Mandatory acceptance gate for builder-class diffs (CLAUDE.md rule 3).
+  # Mandatory acceptance gate for builder-class diffs (COORDINATOR.md rule 3).
   critic:
     subscription:
       model: claude-opus-5-5
@@ -48,7 +48,7 @@ roles:
       model:
       api_key_env:
 
-  # Implementation from a written spec (CLAUDE.md rule 2).
+  # Implementation from a written spec (COORDINATOR.md rule 2).
   builder:
     subscription:
       model: claude-sonnet-5-5
@@ -57,7 +57,7 @@ roles:
       model:
       api_key_env:
 
-  # Recon: repo search, file reading, context gathering (CLAUDE.md rule 1).
+  # Recon: repo search, file reading, context gathering (COORDINATOR.md rule 1).
   scout:
     subscription:
       model: claude-sonnet-5-5
@@ -67,7 +67,7 @@ roles:
       api_key_env:
 
   # api-contour only — Shadow Evaluation judge (a supervised worker,
-  # not a rules-level function; see CLAUDE.md's function/grade split).
+  # not a rules-level function; see COORDINATOR.md's function/grade split).
   judge:
     scope: api-keys-only
     api:

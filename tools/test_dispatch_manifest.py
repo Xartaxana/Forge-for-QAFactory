@@ -119,7 +119,7 @@ def test_K6_unknown_skip_item_is_refused():
     assert msg == (
         "MANIFEST-SKIP REFUSED: 'manifest-skip: given, colour -- because' -- unknown item 'colour'. "
         "Expected: manifest-skip: <item>[, <item>] -- <reason>; items: given, owns, non-goals, "
-        "handoff, edges, dod, siblings, designer; the reason is not empty."
+        "handoff, edges, dod, siblings, designer, facts; the reason is not empty."
     )
 
 
@@ -1217,7 +1217,7 @@ def test_designer_threshold_counts():
 
 def test_module_constants_of_the_form_check():
     assert dm.DISPATCH_FORM_REFUSES is True
-    assert set(dm.ITEM_EXCLUDED_SECTIONS) == {"given", "owns", "non-goals", "handoff", "edges", "siblings", "designer"}
+    assert set(dm.ITEM_EXCLUDED_SECTIONS) == {"given", "owns", "non-goals", "handoff", "edges", "siblings", "designer", "facts"}
     assert "dod" not in dm.ITEM_EXCLUDED_SECTIONS
 
 
@@ -1265,10 +1265,46 @@ def test_the_siblings_door_names_the_none_with_reason_form():
     assert "siblings (bare none)" in msg and "'siblings: none -- <why>'" in msg
 
 
+# F5-r (FG7-58): the `<NAME>_PATH` copy loader of tools/conftest.py, loaded by its path (a conftest is not importable by name)
+def _conftest_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("forge_tools_conftest", TOOLS_DIR / "conftest.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@pytest.mark.parametrize("case", ["next-maps", "py-ignored", "missing-file-loud", "no-live-module-loud", "typo-loud",
+                                  "other-values-ignored"])
+def test_next_copy_loader(case, tmp_path):
+    cf = _conftest_module()
+    (tmp_path / "zz_live.py").write_text("X = 'live'\n")
+    (tmp_path / "zz_live.py.next").write_text("X = 'copy'\n")
+    (tmp_path / "zz_orphan.py.next").write_text("X = 'copy'\n")
+    if case == "next-maps":
+        got = cf.next_copy_map({"ZZ_LIVE_PATH": str(tmp_path / "zz_live.py.next"), "HOME": "x"}, tmp_path)
+        assert got == {"zz_live": str((tmp_path / "zz_live.py.next").resolve())}
+    elif case == "py-ignored":
+        assert cf.next_copy_map({"ZZ_LIVE_PATH": str(tmp_path / "zz_live.py")}, tmp_path) == {}
+    elif case == "missing-file-loud":
+        with pytest.raises(RuntimeError, match="ZZ_LIVE_PATH"):
+            cf.next_copy_map({"ZZ_LIVE_PATH": str(tmp_path / "gone.py.next")}, tmp_path)
+    elif case == "typo-loud":  # t-1202 fix 4's own example: `.py.nxt` must not silently test the live file
+        with pytest.raises(RuntimeError, match="ZZ_LIVE_PATH"):
+            cf.next_copy_map({"ZZ_LIVE_PATH": str(tmp_path / "zz_live.py.nxt")}, tmp_path)
+    elif case == "other-values-ignored":  # a PATH-like variable of the shell must never break the session
+        env = {"ORIGINAL_PATH": "/usr/bin:/c/x.py.bak", "ZZ_LIVE_PATH": "", "ZZ_OTHER_PATH": str(tmp_path / "other.py.nxt")}
+        assert cf.next_copy_map(env, tmp_path) == {}
+    else:
+        with pytest.raises(RuntimeError, match="ZZ_ORPHAN_PATH"):
+            cf.next_copy_map({"ZZ_ORPHAN_PATH": str(tmp_path / "zz_orphan.py.next")}, tmp_path)
+
+
 def test_templates_list_every_item_and_keep_their_first_sentence():
-    assert dm.ITEMS == ("given", "owns", "non-goals", "handoff", "edges", "dod", "siblings", "designer")
+    assert dm.ITEMS == ("given", "owns", "non-goals", "handoff", "edges", "dod", "siblings", "designer", "facts")
     for name in ("given:", "owns:", "non-goals:", "handoff:", "edges:", "DoD:", "siblings:", "designer:"):
         assert name in dm.INCOMPLETE_TEMPLATE, name
+    assert "facts" not in dm.INCOMPLETE_TEMPLATE  # F13: facts: is the designer kind's header, never the builder's form
     for item in dm.ITEMS:
         assert item in dm.SKIP_REFUSED_TEMPLATE, item
     assert "siblings and designer by eye" in dm.UNCHECKED_NOTE_TEMPLATE
@@ -1277,3 +1313,51 @@ def test_templates_list_every_item_and_keep_their_first_sentence():
     assert dm.SKIP_REFUSED_TEMPLATE.startswith("MANIFEST-SKIP REFUSED: '{line}' -- {why}. Expected:")
     assert dm.UNCHECKED_NOTE_TEMPLATE.startswith(
         "MANIFEST-UNCHECKED: this dispatch was not checked for completeness ({what}) -- it went out; check ")
+
+
+# FG7-63: the DoD-run check -- a builder's DoD names no canon-only whole run, no --witness-for, at most 3 test files.
+# ONE table; the class data is a stand-in (the real readers are owns_readers and selftest, judged by their own tests).
+_CLASS = {"slow": {"test_slow_a.py"}, "globs": ["test_canon_*.py"], "why": []}
+_UNREAD = {"slow": None, "globs": [], "why": ["slow_tests.json: boom"]}
+_PT = "python -m pytest {} -q"
+_SELFTEST = "python -B ai-packages/qa-factory/scripts/selftest.py"
+_FOUR = " ".join("tools/test_%s.py" % c for c in "abcd")
+_SKIP_RUN = "manifest-skip: dod-run -- it is the file under change"
+
+
+@pytest.mark.parametrize("cmd,extra,kind,cls,code,needle,note", [
+    (_PT.format("test_canon_x.py"), "", "builder", _CLASS, 2, "test_canon_x.py whole", ""),
+    (_PT.format("test_slow_a.py"), "", "builder", _CLASS, 2, "test_slow_a.py whole", ""),
+    (_PT.format("test_canon_x.py::test_one"), "", "builder", _CLASS, 0, "", ""),
+    (_PT.format("tools/test_slow_a.py"), "", "builder", _CLASS, 0, "", ""),
+    (_PT.format("test_slow_a.py;") + " echo ok", "", "builder", _CLASS, 2, "test_slow_a.py whole", ""),
+    (_PT.format("ai-packages/qa-factory/scripts/tests/"), "", "builder", _CLASS, 2, "package tests directory whole", ""),
+    (_PT.format("tools/"), "", "builder", _CLASS, 0, "", ""),
+    (_PT.format("test_a.py"), "", "builder", None, 0, "", "slow_tests.json"),  # None: the real reader on an empty package dir
+    ("python -m py_compile tools/test_canon_x.py", "", "builder", _CLASS, 0, "", ""),
+    ("python -B scripts/tests/scenario_walk.py --witness-for tools/a.py", "", "builder", _CLASS, 2, "contains --witness-for", ""),
+    (_PT.format("tools/test_a.py tools/test_b.py tools/test_c.py"), "", "builder", _CLASS, 0, "", ""),
+    (_PT.format(_FOUR), "", "builder", _CLASS, 2, "name 4 test files", ""),
+    (_SELFTEST, "", "builder", _CLASS, 2, "selftest.py (no --lang", ""),
+    (_SELFTEST + " --lang", "", "builder", _CLASS, 0, "", ""),
+    (_PT.format("test_canon_x.py"), _SKIP_RUN, "builder", _CLASS, 0, "", "without dod-run on purpose"),
+    (_PT.format("test_canon_x.py"), "manifest-skip: dod -- why", "builder", _CLASS, 2, "test_canon_x.py whole", ""),
+    (_PT.format("test_a.py"), "", "builder", _UNREAD, 0, "",
+     "canon class could not be read (slow_tests.json: boom): the DoD run was not checked"),
+    (_PT.format("test_a.py"), "", "builder", {**_CLASS, "no_list": True}, 0, "", "names no canon_only list"),
+    (_PT.format("tools/test_canon_x.py"), "", "general-purpose", _CLASS, 0, "", ""),
+])
+def test_dod_run_check(monkeypatch, tmp_path, cmd, extra, kind, cls, code, needle, note):
+    if cls is None:
+        monkeypatch.setattr(dm, "_PACKAGE", tmp_path)
+    else:
+        monkeypatch.setattr(dm, "_canon_class", lambda *a: cls)
+    got_code, msg, got_note = run(build(dod="DoD: `%s`" % cmd) + extra, kind)
+    assert got_code == code and needle in msg and note in got_note, (msg, got_note)
+    assert msg.startswith("DOD-RUN REFUSED") == (code == 2)
+
+
+def test_dod_run_check_comes_after_the_completeness_verdict(monkeypatch):
+    monkeypatch.setattr(dm, "_canon_class", lambda *a: _CLASS)
+    bad = build(dod="DoD: `%s`" % _PT.format("tools/test_canon_x.py"), siblings=None)
+    assert run(bad)[1] == run(build(siblings=None))[1] and "DISPATCH INCOMPLETE" in run(bad)[1]

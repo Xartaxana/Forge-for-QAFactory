@@ -844,7 +844,7 @@ class Refused(ValueError):
     orchestrator's operation - and is never a dead end (FR-1, FR-57). `str()` is both, for a role."""
 
     # F5(c) (B-15, FR-46): `walkable` is True ONLY for the factory's own preparation failures (a malformed plan row shape, a
-    # tool crash after the scope checks); then the case still goes to the manual agent as an unprepared walk. The default is
+    # tool crash after the scope checks, a surface the factory has no driver for); then the case still goes to the manual agent as an unprepared walk. The default is
     # False - every refusal the story owns (P20, gate A, an unpinned case, the scope) stays a refusal. `trace` is the last
     # lines of the traceback of a crash (C3), kept in the request file for the conductor.
     def __init__(self, reason, door, detail="", door_code="", walkable=False, trace=""):
@@ -1055,6 +1055,14 @@ def prepare_request(task, case, obligation_ids):
                       '; '.join(shape_errors) or "evidence_policy is not text for " + ", ".join(
                           str(o.get('obligation_id')) for o in bad), walkable=True)
     try:
+        # F1 (t-1292): a surface nobody drives (`hands: none`) is the factory's gap, not the story's: walked unprepared, so the
+        # agent role tries it by hand and `unprepared` can close it. Position: after every story-owned check and the shape
+        # refusal. ERROR DIRECTION: any doubt (no config, no profile, an unknown profile, a broken table) is the old road.
+        words = _nobody_words_of(task, rows, selected)
+        if words:
+            raise Refused(words, "the manual agent tries the case itself with what it can reach (the application's own "
+                          "interface, a shell) and records what it did and what it could not do, with no result; a driver "
+                          "for this surface is what lets the factory check the case", walkable=True)
         request = _request_tail(task, case, state, decision, obligation_ids, selected, obs, pins, case_fact, walk_door)
         request.update(_walk_fields(rows, obligation_ids))      # TR3-10 E: what the walk changes travels whole (AR-22, FR-49)
         return request
@@ -1063,6 +1071,25 @@ def prepare_request(task, case, obligation_ids):
     except Exception as exc:        # F5(c) item 4: a crash of OUR preparation is the factory's, not the story's
         raise Refused(f"the check of {case} could not be prepared: {type(exc).__name__}: "
                       f"{' '.join(str(exc).split())[:160]}", walk_door, walkable=True, trace=_trace_tail()) from exc
+
+
+def _nobody_words_of(task, rows, selected) -> str:
+    """The table's words when a plan row holding a selected obligation is on a surface nobody drives, else "". Config read as
+    planning does (`manual_capture.load_config(<task>)`); no config / broken table / any doubt gives "" (the old road)."""
+    ids = {o.get('obligation_id') for o in selected}
+    try:
+        import manual_capture
+        import surfaces
+        cfg = manual_capture.load_config(task)[0]
+        for row in rows:
+            profile = str(row.get('execution_profile_id') or '').strip()
+            if profile and any(o.get('obligation_id') in ids for o in row.get('coverage_obligations', [])):
+                words = surfaces.nobody_words(cfg, profile)
+                if words:
+                    return words
+    except ValueError:
+        pass
+    return ""
 
 
 def _request_tail(task, case, state, decision, obligation_ids, selected, obs, pins, case_fact, walk_door):
@@ -1185,7 +1212,7 @@ def prepare_to_file(task, case, obligation_ids) -> dict:
     except ValueError as exc:
         reason, door = refusal_words(exc, case)
         path.parent.mkdir(parents=True, exist_ok=True)
-        if getattr(exc, "walkable", False):        # F5(c): the factory's own failure - the case is walked unprepared
+        if getattr(exc, "walkable", False):        # F5(c): the factory's own failure or a surface it has no driver for - walked unprepared
             atomic_json(path, _unprepared_document(task, case, obligation_ids, exc, reason, door))
         else:
             atomic_json(path, {"refused": {"reason": reason, "door": door}})

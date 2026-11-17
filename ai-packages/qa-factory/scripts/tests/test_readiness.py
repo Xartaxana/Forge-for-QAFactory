@@ -834,7 +834,85 @@ def main() -> None:
     test_places_check()
     vcs_api_from_receipts()
     device_stand_environment()
+    surfaces_said_aloud()
+    in_process_default_said()
     finish("test_readiness")
+
+
+def surfaces_said_aloud() -> None:
+    """U7 r2 data seam: a config that declares no surface is said out loud (`undeclared`), an unreadable table is `unknown`, and a
+    web/API project is byte-identical (no key, the table not read). Expectations come from the requirement, not from the code."""
+    from unittest.mock import patch
+
+    import surfaces
+
+    reads: list = []
+    real_rows = surfaces.rows
+
+    def counting():
+        reads.append(1)
+        return real_rows()
+    broken = Path(temp_project("qa-factory-readiness-surfaces-")) / "no-such-table.json"
+
+    def profile(*caps):
+        return {"profiles": [{"profile_id": "p", "capabilities": list(caps)}]}
+    # (label, config): each is undeclared, carries words, and says nothing else
+    for label, cfg in (
+            ("no capability word, no surface", {"profiles": [{"profile_id": "p"}]}),
+            ("`profiles` absent (legacy config)", {"environments": []}),
+            ("an empty capabilities list", profile())):
+        got = surfaces.declared_surfaces(cfg)
+        check_eq(f"{label}: undeclared, the role's, with words", (sorted(got), got["undeclared"]["hands"], bool(got["undeclared"]["words"])),
+                 (["undeclared"], "role", True))
+    # a2D1 data seam: a surface the factory has no driver for is the agent role's first, in role-first words
+    for word, key in (("cli", "cli"), ("desktop", "desktop"), ("zzz", "zzz"), ("native", "native")):
+        entry = surfaces.declared_surfaces(profile(word))[key]
+        check_eq(f"{word}: the role's, and the words say the agent tries first", (entry["hands"], "agent tries" in entry["words"]), ("role", True))
+    # web + API: no key and the table is not read (the web road is unchanged by a byte)
+    with patch.object(surfaces, "rows", counting), patch.object(surfaces, "TABLE_PATH", broken):
+        for label, cfg in (("web+api", profile("web", "api")), ("web", {"environments": [], **profile("web")})):
+            reads.clear()
+            check_eq(f"{label}: no key", surfaces.declared_surfaces(cfg), {})
+            check_eq(f"{label}: the table was read 0 times", len(reads), 0)
+    # the readiness record: `surfaces` carries `undeclared` / `unknown`; the legacy keys of profiles stay absent
+    root = temp_project("qa-factory-readiness-surfaces-rec-")
+    use_project(root)
+    try:
+        cfg = json.loads((root / "qa-factory" / "config.json").read_text(encoding="utf-8"))
+        cfg.pop("profiles", None)
+        record = R.compute(cfg, root)
+        check_eq("record: a legacy config says `undeclared`", sorted(record.get("surfaces") or {}), ["undeclared"])
+        check("record: `profiles` and `profile_contract` stay absent", "profiles" not in record and "profile_contract" not in record)
+        with patch.object(surfaces, "TABLE_PATH", broken):
+            record = R.compute(cfg, root)
+        check_eq("record: an unreadable table is `unknown`", sorted(record.get("surfaces") or {}), ["unknown"])
+    finally:
+        cleanup(root)
+    cleanup(broken.parent)
+
+
+def in_process_default_said() -> None:
+    """U7 r3: a stand that SAYS it is in-process passes with today's note byte for byte; a URL-less stand that says nothing still
+    passes `ok` (FR-4: a note, no stronger status) but the note says the default was taken; a mixed list names only the URL-less one."""
+    root = Path(temp_project("qa-factory-readiness-inproc-"))
+    try:
+        def note(*stands):
+            got = R.check_environment({"environment": {}, "environments": list(stands)}, root)
+            return got["status"], got["note"]
+        base = "in-process environment(s), nothing to probe: "
+        said = "names no address and does not say it runs in-process: it was taken as in-process and nothing was probed here"
+        for label, stands, want in (
+                ("declared by kind -> unchanged", [{"name": "a", "kind": "in-process"}], (R.OK, base + "a")),
+                ("declared by `probe: none` -> unchanged", [{"name": "a", "probe": "none"}], (R.OK, base + "a")),
+                ("declared kind with an address -> unchanged", [{"name": "a", "kind": "in_process", "base_url": "http://x"}], (R.OK, base + "a")),
+                ("URL-less and silent -> ok + the default sentence", [{"name": "a"}], (R.OK, base + "a; stand a " + said)),
+                ("mixed -> the sentence names only the URL-less stand", [{"name": "a", "kind": "in-process"}, {"name": "b"}],
+                 (R.OK, base + "a, b; stand b " + said)),
+                ("two URL-less and silent -> the plural sentence", [{"name": "a"}, {"name": "b"}],
+                 (R.OK, base + "a, b; stands a, b name no address and do not say they run in-process: they were taken as in-process and nothing was probed here"))):
+            check_eq(label, note(*stands), want)
+    finally:
+        cleanup(root)
 
 
 def device_stand_environment() -> None:

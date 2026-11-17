@@ -1598,7 +1598,9 @@ def a_word_nothing_reads_is_printed_and_changes_nothing():
         check("K8: the review gap of a blocked instance names `unverified` and `manifest_put.py`",
               "`unverified`" in gap_line and "`manifest_put.py`" in gap_line, gap_line)
         check_not_in("K8: the blanket promise is gone", BLANKET, out0)
-        check_not_in("S10: ... and so is the waiver command it carried", "waiver.py --task", out0)
+        # RD1-29 F4 (the Lead's decision, 17.11.2026): the blanket PROMISE is gone, but every review door now ends with the person's own
+        # door (the S9 `review:<id>` word, FR-57), so the waiver command the line carries is the one real door, not the old promise
+        check_in("S10 (RD1-29 F4): ... the review line ends with the person's door", "waiver.py --task <T> --stage S5 --block", gap_line)
         check_in("K8: the last line is the honest one, still marked a repair of the role's own",
                  f"{REPAIR_MARKER}. Where a person's word passes a gap, the line above says how.", out0)
         check_not_in("no word was recorded: nothing is said to be unread", READ_NOTHING, out0)
@@ -2861,10 +2863,41 @@ def c3_d_review_word_through_the_registry():
         ]
         for kind, word, gap in rows:
             check_eq(f"C3-d {kind} / {'(no review key)' if word is absent else repr(word)}: review gap", gap_for(kind, word), gap)
+            # RD1-29 (E6): the note exists exactly when the gap does - one builder, the same consumer per kind as validate_window
+            said = "" if word is absent else word
+            check_eq(f"RD1-29 E6 {kind} / {said!r}: a review note exists iff the review gap does", WR.review_note("A", kind, said) is not None, gap)
         # E3: an unreadable registry never closes a review - every kind, every word the table closes above
         for kind, word, gap in rows:
             if not gap:
                 check_eq(f"C3-d E3 unreadable registry, {kind} / {word!r}: review gap", gap_for(kind, word, registry_readable=False), True)
+        # RD1-29 (AR-9, E2, E5): the door names the words its consumer accepts - read from the data, so the text cannot drift from it -
+        # and ends with the person's door (F4); an unreadable registry is told as that, not as a verdict on the word
+        consumers = {"stopped": "s5_window.static_review", "gapped": "s5_window.static_review", "handed": "s5_window.handed_review",
+                     "ran": "s5_window.review"}
+        backticked = lambda text: set(re.findall(r"`([a-z_]+)`", text)) & set(C.CRITIC_VERDICTS)  # noqa: E731
+        union = set()
+        for kind, consumer in consumers.items():
+            accepted = {w for w in C.CRITIC_VERDICTS if GT.acceptable(w, consumer)}
+            union |= accepted
+            note = WR.review_note("A", kind, "x; y")
+            what, _, door = note[2].partition("; ")
+            check_eq(f"RD1-29 E5 {kind}: the first `; ` is the builder's boundary (the record's `;` is shown as `,`)",
+                     what.startswith("the manifest row's `critic_verdict` is `x, y`"), True)
+            check_eq(f"RD1-29 {kind}: the door's backticked verdict words are the consumer's accepted words", backticked(door), accepted)
+            check_eq(f"RD1-29 F4 {kind}: the door ends with the person's door", WR.REVIEW_GAP_RECORD in door, True)
+            long_note = WR.review_note("A", kind, "z" * 10000)
+            check_eq(f"RD1-29 E5 {kind}: a 10000-character word is cut", len(long_note[2]) < 1000 and "zzz..." in long_note[2], True)
+            check_eq(f"RD1-29 E3 {kind}: a list and None do not raise and are not closing",
+                     [WR.review_note("A", kind, w) is not None for w in (["approved"], None, "")], [True] * 3)
+        check_eq("RD1-29: the person-less origin names the union of every kind's words", backticked(" ".join(WR.review_origin())), union)
+        saved = list(GT._READ)
+        try:
+            GT._READ[:] = [({"rows": "x"}, gate_registry.structural_error({"rows": "x"}))]
+            texts = [WR.review_note("A", kind, "approved")[2] for kind in consumers]
+        finally:
+            GT._READ[:] = saved
+        check_eq("RD1-29 E2: an unreadable registry gives the registry note for every kind",
+                 [("the review word of this instance cannot be judged; the gate registry cannot be read" in t) for t in texts], [True] * 4)
     finally:
         cleanup(root)
 

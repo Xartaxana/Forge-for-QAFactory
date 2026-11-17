@@ -2,6 +2,7 @@
 """sites: a part of test_no_move_seam.py, split by tools/test_split.py (TD-11c). The shared helpers are in no_move_seam_common."""
 import contextlib
 import io
+import json
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -608,8 +609,49 @@ def rd1_20_the_s8_summary_run_has_its_door() -> None:
     check_eq("no [NEW] site names it", [n for n in scan.news if "stage_S8" in n or "delivery_summary.py" in n], [])
 
 
+def u7_r9_s0_readiness_pays_no_conductor_turn() -> None:
+    """U7 stream 3 (r9, F-11 = a), a PIN of `Driver.s0_rest`: no row of `conductor-actions.json` settles a missing machine tool, credentials,
+    a tests folder or a config, so a required capability `missing` is the person's `s0.readiness` question and the conductor is called 0
+    times; a readiness exit that is a refusal (2) is the factory's own fault, a `gate_refusal`, and never a Person (AR-17, AR-25)."""
+    missing = json.dumps({"capabilities": {
+        "test_repo": {"status": "missing", "note": "tests_root /nope does not exist", "owner": "person"},
+        "vcs": {"status": "ok", "note": "git", "owner": "person"},
+        "config_schema": {"status": "ok", "note": "valid", "owner": "person"}}})
+    for label, code, out, want in (("missing test_repo -> the s0.readiness question, conductor calls 0", 1, missing, "person"),
+                                   ("exit 2 -> gate_refusal, no Person", 2, "usage error", "refusal")):
+        root, task_root, driver = rig()
+        try:
+            driver.boundary = "S0:readiness"
+            driver.s0_is_local = lambda: True
+            real_py = driver.py
+            driver.py = lambda script, *a, **k: (code, out) if script == "readiness.py" else real_py(script, *a, **k)
+            got = None
+            try:
+                driver.s0_rest(None, False, [], None, "", True, [])
+            except story_run.Person as person:
+                got = ("person", person)
+            except story_run.Refusal as refusal:
+                got = ("refusal", refusal)
+            check_eq(f"U7 r9 {label}: the road taken", got[0] if got else None, want)
+            check_eq(f"U7 r9 {label}: the conductor was called 0 times", len(driver.calls), 0)
+            if want == "person":
+                person = got[1]
+                check_eq(f"U7 r9 {label}: the block is `readiness`, the Person is S0's, taking retry / go on / stop",
+                         (driver.state.get("s0_block"), person.stage, sorted(driver.state["s0_ask"]["doors"])),
+                         ("readiness", "S0", ["go on", "retry", "stop"]))
+                check_in(f"U7 r9 {label}: the question is the s0.readiness text", "something required is missing", person.text)
+                check_in(f"U7 r9 {label}: and the report names the folder", "tests_root /nope does not exist", person.details)
+            else:
+                refusal = got[1]
+                check_eq(f"U7 r9 {label}: a gate_refusal (not a known refusal), naming the exit", (refusal.known, "readiness.py did not complete (exit 2)" in str(refusal)),
+                         (False, True))
+        finally:
+            harness.cleanup(root)
+
+
 def main() -> None:
     for scenario in (
+        u7_r9_s0_readiness_pays_no_conductor_turn,
         rd1_20_the_s8_summary_run_has_its_door,
         cc15_the_offers_of_a_stage_closed_by_code,
         k4_the_refusal_is_read_as_its_problems,

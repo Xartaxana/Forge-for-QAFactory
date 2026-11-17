@@ -6,6 +6,10 @@ directory listing): it returns or raises. Exit 2 = the dispatch does not go out
 (`message` says what is missing); exit 0 = it goes out, `note` (possibly "") is
 a visible remark for the coordinator.
 
+ONE EXCEPTION (FG7-63): a builder's DoD that names a test file makes `_dod_run_check` read the canon-only class through
+`_canon_class` (the working tree through the package selftest's canon_class, no git, no subprocess); every
+other path stays I/O-free, and a read failure is a note, never a refusal.
+
 THE CUT. `section_cut(prompt) -> DispatchCut` is the ONE md_regions scan per
 prompt and the one place the header grammar is applied: lines, offsets, a
 per-line `quoted` flag (dispatch_gate._is_quoted at the line start; an
@@ -90,8 +94,12 @@ KEY_GROUPS = (
     ("dod", "DoD", r"dod|witness|verification"),
     ("siblings", "siblings", r"siblings?|neighbou?rs"),
     ("designer", "designer", r"designer"),
+    ("facts", "facts", r"facts"),
 )
 ITEMS = tuple(k[0] for k in KEY_GROUPS)
+# `facts:` (F13) is a manifest item only for the kinds of FACTS_KINDS and is never part of the builder's expected form:
+# the texts that list the form read _FORM_GROUPS, the one tuple without it.
+_FORM_GROUPS = tuple(k for k in KEY_GROUPS if k[0] != "facts")
 _DISPLAY = {k[0]: k[1] for k in KEY_GROUPS}
 _GROUP_TO_ITEM = {"g%d" % i: k[0] for i, k in enumerate(KEY_GROUPS)}
 
@@ -101,7 +109,7 @@ _GROUP_TO_ITEM = {"g%d" % i: k[0] for i, k in enumerate(KEY_GROUPS)}
 DISPATCH_FORM_REFUSES = True
 # The manifest sections whose extent does not count numbered lines towards the designer threshold (F-E7: `dod`
 # is NOT in the set -- numbered acceptance criteria are spec items; `edges` is).
-ITEM_EXCLUDED_SECTIONS = ("given", "owns", "non-goals", "handoff", "edges", "siblings", "designer")
+ITEM_EXCLUDED_SECTIONS = ("given", "owns", "non-goals", "handoff", "edges", "siblings", "designer", "facts")
 DESIGNER_THRESHOLD = 3  # owned paths or numbered items: at or over it, a designer line is required
 
 # What each item's expected form says in the INCOMPLETE text (item -> text after the "name:"; "" = none).
@@ -123,12 +131,12 @@ _FORM_HINTS = {
 _FORM_ITEMS = ("siblings", "designer")
 # The two NEW keys whose header must be a bare declaration: only markup or a parenthetical between the key word
 # and the colon (t-113 F1); the six older keys keep the wide grammar of _HEADER_RE.
-_BARE_HEADER_ITEMS = ("siblings", "designer")
+_BARE_HEADER_ITEMS = ("siblings", "designer", "facts")
 
 
 def _expected_forms() -> str:
     parts = []
-    for item, display, _alt in KEY_GROUPS:
+    for item, display, _alt in _FORM_GROUPS:
         hint = _FORM_HINTS.get(item, "")
         parts.append("%s:%s" % (display, " " + hint if hint else ""))
     return ", ".join(parts)
@@ -151,7 +159,7 @@ SKIP_NOTE_TEMPLATE = (
 )
 UNCHECKED_NOTE_TEMPLATE = (
     "MANIFEST-UNCHECKED: this dispatch was not checked for completeness ({what}) -- it went "
-    "out; check " + ", ".join(k[1] for k in KEY_GROUPS[:-1]) + " and " + KEY_GROUPS[-1][1] + " by eye."
+    "out; check " + ", ".join(k[1] for k in _FORM_GROUPS[:-1]) + " and " + _FORM_GROUPS[-1][1] + " by eye."
 )
 DESIGNER_SKIP_NOTE_TEMPLATE = (
     "DESIGNER-SKIP: over the designer threshold; the hook writes dispatch_skipped(agent=designer) itself "
@@ -162,6 +170,11 @@ FORM_NOT_ENFORCED_NOTE_TEMPLATE = (
     "add the line(s) in the form the INCOMPLETE text names."
 )
 WHAT_DEGRADED = "quoted regions could not be read reliably"
+
+# Waivable through manifest-skip but no section of the form: `dod-run` waives the DoD-run check (FG7-63). Kept out of ITEMS so the
+# INCOMPLETE and SKIP_REFUSED texts stay byte for byte; `manifest-skip: dod` never waives it.
+EXTRA_SKIP_ITEMS = ("dod-run",)
+MAX_DOD_TEST_FILES = 3  # distinct test_*.py a builder's DoD may name (FG7-63, R3)
 
 HEADER_KEY_LIMIT = 160  # characters between the key and the colon
 
@@ -182,7 +195,7 @@ _TOKEN_STRIP = "`'\""
 # THE section-stop regex (owns_gate and dispatch_gate import it): the closed set
 # of manifest sections that ends an owns continuation line.
 SECTION_STOP_RE = re.compile(
-    r"^\s*(?:\*\*)?(given|дано|owns|non-goals|handoff|siblings?|neighbou?rs|designer)\b", re.IGNORECASE)
+    r"^\s*(?:\*\*)?(given|дано|owns|non-goals|handoff|siblings?|neighbou?rs|designer|facts)\b", re.IGNORECASE)
 _QUOTE_PREFIX_RE = re.compile(r"^(?: {0,3}>[ \t]?)+")
 # a header is a "bare declaration" when only a parenthetical / markup sits between key and colon
 _GAP_RE = re.compile(r"(?:[ \t]*\([^)]*\))?[ \t*_]*")
@@ -198,6 +211,9 @@ HANDOFF_DIRS = {
     "builder": "docs/tasks/handoffs",
     "scout": "docs/tasks/specs/reports",
 }
+# The dispatch kinds that must carry a `facts:` header (F13, COORDINATOR.md rule 2 drafting): read by the kind
+# (dispatch_gate.facts_check), never by a name in code (FR-13).
+FACTS_KINDS = ("designer",)
 
 
 class Section(NamedTuple):
@@ -268,7 +284,7 @@ def _parse_skip_line(line: str):
     items = []
     for raw in items_part.split(","):
         name = raw.strip().lower()
-        if name not in ITEMS:
+        if name not in ITEMS and name not in EXTRA_SKIP_ITEMS:
             return None, None, "unknown item '%s'" % raw.strip()
         items.append(name)
     if not reason.strip():
@@ -810,6 +826,30 @@ def _designer_state(cut: DispatchCut):
     return state, None
 
 
+def facts_state(cut):
+    """None when a `facts:` section passes; otherwise the label of what is missing ('no line', 'empty', 'bare none').
+    FORM only, over the extent of each section (header tail, then the unquoted lines up to the first blank line): any
+    non-empty line passes, except the no-facts answer, which passes only as `none -- <why>` with a word in the reason
+    (the same grammar as `siblings: none -- <why>`). Whether the facts are true or enough is never judged (P27)."""
+    secs = cut.sections["facts"]
+    if not secs:
+        return "no line"
+    state = "empty"
+    for sec in secs:
+        for _idx, text in _extent_lines(cut, sec):
+            body = re.sub(r"^[-*•][ \t]+", "", text.strip(_TAIL_JUNK)).strip(_TAIL_JUNK)
+            if not body:
+                continue
+            answer = _NONE_ANSWER_RE.match(body)
+            if answer is not None and _WORD_CHAR_RE.search(answer.group("reason")):
+                return None
+            if answer is not None or _BARE_NONE_RE.fullmatch(body):
+                state = "bare none"
+                continue
+            return None
+    return state
+
+
 def designer_skip_reason(cut):
     """The reason of a `designer: skip -- <reason>` line of `cut`, or None (offload B0): the ONE cut-based reader the
     DESIGNER-SKIP note (check_cut) and the dispatch-record hook both ask. None for no cut, a degraded cut, a dispatch
@@ -903,6 +943,100 @@ def _items_text(items, missing) -> str:
     return ", ".join("%s (%s)" % (_DISPLAY[i], missing[i]) for i in items)
 
 
+DOD_RUN_REFUSED_TEMPLATE = (
+    "DOD-RUN REFUSED (docs/TESTING.md, what to run for your change): {why}. Way on: name a narrow run (a pytest node id "
+    "file.py::name, or a call of the node's own test functions), or move the file to a report line 'not run locally: "
+    "<file>, canon judges'; to send it anyway on purpose, add a line: manifest-skip: dod-run -- <reason>."
+)
+CANON_UNREAD_NOTE_TEMPLATE = "DOD-RUN: canon class could not be read ({why}): the DoD run was not checked"
+CANON_NO_LIST_NOTE = "DOD-RUN: test-layers.json names no canon_only list: only the slow list was applied"
+_DOD_STRIP = _TOKEN_STRIP + ";,()&|<>"  # F3 of t-1280: punctuation glued to a token end must not hide a file name
+_TEST_PY_RE = re.compile(r"test_\w+\.py\Z")
+_PATH_SPLIT_RE = re.compile(r"[\\/]")
+
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_PACKAGE = _REPO_ROOT / "ai-packages" / "qa-factory"
+
+
+def _selftest():
+    """The package's selftest module, loaded by path like the other package modules (the tool lives outside the package)."""
+    _import_siblings()
+    import test_quarantine as tq
+    return tq._pkg_module(_REPO_ROOT, "selftest")
+
+
+def _canon_class() -> dict:
+    """The canon-only class as data (selftest.canon_class: {"slow", "globs", "no_list", "why"}; None = unreadable) of the
+    working tree (FG7-63). The package's one definition, shared with the witness command: no git, no subprocess (this runs in
+    a hook). Reached only when a DoD names a test file."""
+    try:
+        return _selftest().canon_class(_PACKAGE)
+    except Exception as exc:  # noqa: BLE001 - any failure of the reader is "could not be read", said in the note
+        return {"slow": None, "globs": None, "no_list": False,
+                "why": ["%s: %s" % (type(exc).__name__, " ".join(str(exc).split())[:120])]}
+
+
+def _dod_commands(cut: DispatchCut) -> list:
+    """The command texts of the DoD sections: an inline span of a command line, or a whole fenced line."""
+    out = []
+    for li in _command_lines(cut):
+        if any(s.header_line <= li <= s.last_line for s in cut.sections["dod"]):
+            line = cut.lines[li]
+            out += [line] if cut.quoted[li] else [m.group(2) for m in _INLINE_SPAN_RE.finditer(line) if _tokens_ok(m.group(2))]
+    return out
+
+
+def _dod_run_check(cut: DispatchCut, waiver):
+    """(refusal message | "", note | "") for a builder's DoD commands (FG7-63): R1 `--witness-for`; R2 a whole run of a
+    canon-only test file (or selftest.py with neither --lang nor --limits); R3 more than MAX_DOD_TEST_FILES distinct test
+    files. A `file.py::name` token and a py_compile command are not whole runs. A violation with a `manifest-skip: dod-run`
+    reason passes with the skip note; unreadable class data means no R2 and a note, but only when a test file is named.
+    R2 counts a token only when its path has no `tools` segment (the canon class is the package's: a forge tools test that
+    shares a name with a package file is not it), and refuses a token naming the package tests directory (t-1280 F2, F8)."""
+    flags, files, r2_files, selftest_whole, whole_dir = False, set(), set(), False, False
+    for cmd in _dod_commands(cut):
+        toks = [t.strip(_DOD_STRIP) for t in cmd.split()]
+        flags = flags or "--witness-for" in cmd
+        if "py_compile" in cmd:
+            continue
+        for tok in toks:
+            parts = _PATH_SPLIT_RE.split(tok.rstrip("/\\"))
+            base = parts[-1] if tok.endswith(".py") else ""
+            if _TEST_PY_RE.fullmatch(base):
+                files.add(base)
+                if "tools" not in parts[:-1]:
+                    r2_files.add(base)
+            elif base == "selftest.py" and not {"--lang", "--limits"} & set(toks):
+                selftest_whole = True
+            elif parts[-2:] == ["scripts", "tests"]:
+                whole_dir = True
+    canon, class_note = [], ""
+    if r2_files:
+        cls = _canon_class()
+        if cls["slow"] is None or cls["globs"] is None:
+            class_note = CANON_UNREAD_NOTE_TEMPLATE.format(why="; ".join(cls["why"]))
+        else:
+            canon = sorted(f for f in r2_files if _selftest().is_canon(f, cls))
+            class_note = CANON_NO_LIST_NOTE if cls.get("no_list") else ""
+    why = []
+    if flags:
+        why.append("a DoD command contains --witness-for, which prints a run list and is not a run")
+    if whole_dir:
+        why.append("a DoD command runs the package tests directory whole; the canon judges it, a builder never runs it locally")
+    if canon or selftest_whole:
+        named = canon + (["selftest.py (no --lang or --limits)"] if selftest_whole else [])
+        why.append("a DoD command runs the canon-only file(s) %s whole; the canon judges them, a builder never runs them locally"
+                   % ", ".join(named))
+    if len(files) > MAX_DOD_TEST_FILES:
+        why.append("the DoD commands name %d test files (%s), at most %d" % (len(files), ", ".join(sorted(files)), MAX_DOD_TEST_FILES))
+    if not why:
+        return "", class_note
+    if waiver is not None:
+        return "", SKIP_NOTE_TEMPLATE.format(items="dod-run", reason=waiver)
+    return DOD_RUN_REFUSED_TEMPLATE.format(why="; ".join(why)), ""
+
+
 def check_cut(cut, is_builder: bool):
     """The completeness check on a cut: (exit_code, message, note, checked).
     `checked` is True when the dispatch was evaluated as a builder / writing one
@@ -925,8 +1059,8 @@ def check_cut(cut, is_builder: bool):
 
     missing = {}
     for item in ITEMS:
-        if item in _FORM_ITEMS:
-            continue  # checked below by their own form readers
+        if item in _FORM_ITEMS or item == "facts":
+            continue  # checked below by their own form readers (facts: dispatch_gate.facts_check, by kind)
         secs = sections[item]
         if not secs:
             missing[item] = "no line"
@@ -945,11 +1079,14 @@ def check_cut(cut, is_builder: bool):
 
     waived = {}  # item -> reason of the first skip line naming it
     skip_notes = []
+    dod_run_waiver = None
     for li in cut.skips:
         items, reason, why = _parse_skip_line(cut.lines[li])
         if why is not None:
             message = SKIP_REFUSED_TEMPLATE.format(line=cut.lines[li].strip(), why=why)
             return 2, message, "", True
+        if "dod-run" in items and dod_run_waiver is None:
+            dod_run_waiver = reason
         newly = [i for i in ITEMS if i in items and i in missing and i not in waived]
         for i in newly:
             waived[i] = reason
@@ -968,6 +1105,12 @@ def check_cut(cut, is_builder: bool):
         skip_notes.append(FORM_NOT_ENFORCED_NOTE_TEMPLATE.format(items=_items_text(unenforced, missing)))
     if designer_skip_reason is not None:
         skip_notes.append(DESIGNER_SKIP_NOTE_TEMPLATE)
+    if is_builder:  # AFTER the completeness verdict: a dispatch refused above keeps its message (FG7-63)
+        dod_message, dod_note = _dod_run_check(cut, dod_run_waiver)
+        if dod_message:
+            return 2, dod_message, "", True
+        if dod_note:
+            skip_notes.append(dod_note)
     return 0, "", "\n".join(skip_notes), True
 
 
