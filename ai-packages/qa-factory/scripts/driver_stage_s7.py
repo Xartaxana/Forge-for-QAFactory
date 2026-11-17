@@ -3,6 +3,7 @@
 import hashlib
 import json
 import re
+import stage_close
 from driver_core import OpenWork, Person, Refusal, ReworkRefused, _now, _read_json, open_work_reason
 
 
@@ -762,28 +763,14 @@ class DriverStageS7:
 
     def close_by_code(self, stage: str, reason: str, evidence: list, *, finalize: bool, site: str = "", digest: str = "", role: str = "",
                       journal: bool = False, tail=(), fresh=None) -> bool:
-        """THE helper of "a stage closed by code after its post-role loop" (t-698 §18.5; S7's two closes and the close after its
-        repairs, and the three S6 closes, which pass `finalize=False` after their own `finalize_task` call and its own refusal text;
-        C2-8 marks every one with its `site`): `finalize_task` when `finalize` (BEFORE the receipt, so the receipt hashes what finalize
-        wrote), the `code_only` receipt (`close_receipt`), then the `stage_done` record (`record_close`). A stage the controller holds
-        `completed` already is NOT closed again (state is read first, never a refusal's words): no finalize, no second receipt. A
-        `stage_done` refused after a successful `code_only` is a Refusal whose retry repeats `record_close` - the write AND its tail.
-        `fresh`: a precondition checked after finalize, before the receipt; False records nothing and returns False."""
-        held = ((self.controller_state().get("stages") or {}).get(stage) or {}).get("status")
-        if held == "completed":
-            print(f"{stage}: the controller holds it completed already; no second receipt is written")
-            return True
-        if finalize:
-            code, out = self.py("finalize_task.py", str(self.task_root))
-            if code:
-                raise Refusal(f"{stage} close: finalize_task.py exit {code}: " + (out.splitlines()[-1] if out else ""))
-        if fresh is not None and not fresh():
-            return False
-        receipt = self.close_receipt(site, stage, reason, evidence)
-        self.file_passed_over(stage, receipt)
-        self.record_close(site, stage, "--status", "done", *(["--role", role] if role else []),
-                          "--digest", digest or reason, *([] if journal else ["--no-journal"]), tail=tail, receipt=receipt)
-        return True
+        """FV3-22: `stage_close.close_by_code` over this driver, the one body of "a stage closed by code" for both roads. Its docstring holds the
+        rule (finalize BEFORE the receipt, a completed stage is never closed again, a refused record's retry repeats the write AND its tail);
+        its `Refused` is this driver's Refusal."""
+        try:
+            return stage_close.close_by_code(self, stage, reason, evidence, finalize=finalize, site=site, digest=digest, role=role,
+                                             journal=journal, tail=tail, fresh=fresh)
+        except stage_close.Refused as exc:
+            raise Refusal(str(exc), title=exc.title) from None
 
     def s7_repair_test(self, row: dict, ident: str, tests: list, bound: bool, life: str) -> None:
         """The repair rounds of ONE failing test, until it is green, the count stops growing, or the repair limit is answered `debt`.

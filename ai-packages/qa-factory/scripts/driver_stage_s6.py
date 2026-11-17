@@ -9,8 +9,9 @@ import hooklib
 from driver_chains import ChainKind
 from controller import MANUAL_WINDOW_CASES, lane_keys, live_s6_scopes, manual_blocks, manual_done_cases, walk_lanes
 import project_decisions
+import stage_close
 import waiver
-from driver_core import BY_PERSON, CODE_CLOSE_SITES, GAP_PREFIX, InfraStop, OpenWork, Person, Refusal, ReworkRefused, _read_json, open_work_reason, seam_rank
+from driver_core import CODE_CLOSE_SITES, GAP_PREFIX, InfraStop, OpenWork, Person, Refusal, ReworkRefused, _read_json, open_work_reason, seam_rank
 from driver_dispatch import WALK_ACCOUNT_TRIGGERS
 
 
@@ -144,20 +145,16 @@ class DriverStageS6:
 
     # --- X7-6 / X7-6b / X7-6c: a stage accepted by its CONSUMER role - S6 by the failure analyst (who works in S7), S7 by the doc scribe (who works
     # in S8). ONE table and ONE helper set (t-1860 Q8): the two stages differ only in the data below, so every fix is made once. ------------
-    # `await_at`: the close sites where a missing record means AWAIT the consumer, not refuse (B1, t-1128): nothing is left to dispatch
-    # there, so no other road would ever ask the consumer (S7 keeps its own road `s7_await_scribe`).
+    # FV3-22: the DATA of the table (`await_at`, `awaits`, `who`, ...) is `stage_close.CONSUMER_ROUTES`, one definition for both roads (E-M9);
+    # the two callables only this class reads are added here.
     CONSUMER_ROUTES = {
-        "S6": {"consumer_stage": "S7", "author": "qa-runner", "who": "failure analyst", "what": "the runner's handoff",
-               "await_at": ("manual_close",),
-               "closes_when": lambda closes: closes is True,
-               "awaits": "the runner stopped; S6 awaits the acceptance of {consumer}, which judges the run report and the case records from its own form",
-               "rework_complete": lambda driver: driver.consumer_awaits("S6", True)},
-        "S7": {"consumer_stage": "S8", "author": "qa-failure-analyst", "who": "doc scribe", "what": "the analyst's handoff",
-               "await_at": (),
-               "closes_when": lambda closes: closes is None,
-               "awaits": "the failure analyst stopped; S7 awaits the acceptance of {consumer}, which judges the triage and the bug drafts from its own form",
-               # read AFTER the role wrote: repairs still owed keep S7 open
-               "rework_complete": lambda driver: (lambda digest: driver.consumer_awaits("S7", driver.s7_open_work()))},
+        "S6": dict(stage_close.CONSUMER_ROUTES["S6"],
+                   closes_when=lambda closes: closes is True,
+                   rework_complete=lambda driver: driver.consumer_awaits("S6", True)),
+        "S7": dict(stage_close.CONSUMER_ROUTES["S7"],
+                   closes_when=lambda closes: closes is None,
+                   # read AFTER the role wrote: repairs still owed keep S7 open
+                   rework_complete=lambda driver: (lambda digest: driver.consumer_awaits("S7", driver.s7_open_work()))),
     }
 
     def consumer_awaits(self, stage: str, closes):
@@ -171,15 +168,8 @@ class DriverStageS6:
         return closes
 
     def consumer_pending(self, stage: str) -> bool:
-        """True when `stage` has a consumer, is not completed, its author ran, and an `accept` record stands for the author's LAST dispatch of
-        the current life: the stage is owed its close (a restart between the consumer's record and the close lands here)."""
-        import acceptance
-        if not acceptance.consumer_of(stage):
-            return False
-        state = self.controller_state()
-        if ((state.get("stages") or {}).get(stage) or {}).get("status") == "completed":
-            return False
-        return acceptance.accepted_for(self.pipeline(), stage, acceptance.stage_author_dispatch(state, acceptance.stage_def_of(stage)))
+        """FV3-22: `stage_close.consumer_pending` over this driver (the one body, both roads)."""
+        return stage_close.consumer_pending(self, stage)
 
     def consumer_close_words(self, stage: str) -> tuple:
         """B-20 N4 (AR-27, FR-35): `(reason, digest)` of the close of a stage judged by its consumer, from the acceptance RECORD - never from a
@@ -201,7 +191,7 @@ class DriverStageS6:
             by_driver = acceptance.accepted_for(pipeline, stage, author, acceptor=acceptance.DRIVER_ACCEPTOR)
         except Exception:  # noqa: BLE001 - a record that cannot be read names nobody: the default words
             by_driver = False
-        if by_driver and quote.startswith(BY_PERSON):
+        if by_driver and quote.startswith(stage_close.BY_PERSON):
             return f"a person's word passed the acceptance of {route.get('what', 'the handoff')}", "accepted by a person's word"
         if by_driver and quote.startswith(GAP_PREFIX):      # POSITION: after the person's pass - a person's word is never read as a gap
             return f"accepted with a gap: {quote}", "accepted with a gap"
@@ -223,138 +213,32 @@ class DriverStageS6:
         return moved
 
     def accepted_at(self, author: str) -> str:
-        """When the dispatch `author` was last accepted, as `controller.stamp_utc` (the last `accept` event of the controller's store); `""`
-        when it cannot be read (no event, no store). The ONE reader of that time (B-20 F1): a word dated before it was said about work the
-        person had not yet seen."""
-        try:
-            from controller import Controller, stamp_utc
-            times = [e.get("created_at") for e in Controller(self.task_root).store.read()
-                     if e.get("type") == "accept" and (e.get("payload") or {}).get("id") == author]
-            return stamp_utc(times[-1]) if times else ""
-        except Exception:  # noqa: BLE001 - an acceptance time that cannot be read is the safe side: the word is not honoured
-            return ""
+        """FV3-22: `stage_close.accepted_at`, the ONE reader of when an author's dispatch was accepted."""
+        return stage_close.accepted_at(self.task_root, author)
 
     def consumer_person_pass(self, stage: str, author: str, answer: str = "") -> bool:
-        """P13 (M3 of t-1860): the person's word moves the factory. True when an `accept` record stands for `author` already, or when a
-        person's word passes the acceptance - `answer` (the words of a recorded `close` answer, given by the caller) or a live
-        `waiver.py --block` of the stage-acceptance phrase (`acceptance.STAGE_ACCEPTANCE_PHRASE`) of this stage (`waiver.split_overridden`, the one reader) - and then the pass is RECORDED
-        first: `stage_done.py --acceptance <the author's form> --acceptor driver --verdict accept --quote "by: person - <words>"`, the one
-        writer, so every reader of the record (the close sites, `awaits_acceptance`, `stage_done`) sees it. False: nothing passes it.
-        B-20 F1 (FR-4), at EVERY site: a live waiver is honoured only when its `at` is LATER than the acceptance of `author` (`accepted_at`);
-        a time that cannot be read is not honoured. `answer` is a fresh word (given by the caller this turn) and is exempt. A Refusal of the
-        recording carries the WHOLE pass as its `retry`, so the finding is filed after a retry too (P13)."""
-        import acceptance
-        if not author:
-            return False
-        if acceptance.accepted_for(self.pipeline(), stage, author):
-            return True
-        line = f"{acceptance.STAGE_ACCEPTANCE_PHRASE}: no accept record stands for {author}"
-        since = ""
-        if not " ".join(str(answer or "").split()):
-            since = self.accepted_at(author)
-            if not since:
-                return False
+        """FV3-22: `stage_close.consumer_person_pass` over this driver. A Refusal of the recording carries the WHOLE pass as its `retry`, so
+        the finding is filed after a retry too (P13)."""
         try:
-            heard = self.person_pass(stage, author, line, answer, since=since)
+            return stage_close.consumer_person_pass(self, stage, author, answer)
         except Refusal as refusal:
             refusal.retry = lambda: self.consumer_person_pass(stage, author, answer)
             raise
-        if not heard:
-            return False
-        # P13: a pass by the person's word is a finding, filed once per stage and author dispatch (the key makes a second write safe)
-        self.owe_row("project_decisions.py", "--root", str(self.project), "add-finding",
-                     "--essence", f"{stage} acceptance of {author} passed on the person's word: {str(heard.get('decision') or '')[:500]}",
-                     "--scope", "local-calibration", "--witness", f"{stage} person's word at {heard.get('at') or ''}",
-                     "--idempotency-key", f"stage-acceptance-pass:{self.task}:{stage}:{author}",
-                     what="the finding about the stage acceptance you passed", stage=stage)
-        return True
 
     def person_pass(self, stage: str, author: str, line: str, answer: str = "", since: str = "") -> dict:
-        """The body of the pass (F3, B-6): the person's word - `answer` (given by the caller) or a live `waiver.py --block` that passes `line`
-        (`waiver.split_overridden`, the ONE reader, AR-13) - is RECORDED as the driver accept of `author` for `stage` (the one writer,
-        `stage_done.py --acceptance`), and then True. `since` (non-empty): a waiver is honoured only when its `at` is LATER than `since` -
-        both read through `controller.stamp_utc`; an `at` or a `since` that cannot be read is not honoured (a word never accepts an author
-        dispatch the person never saw, FR-4). Returns the honoured entry (`{"decision": <words>, "at": <when or "">}`) once the pass is
-        recorded, `{}` when nothing passes: no `author` -> `{}`, no accept record without an author dispatch."""
-        import acceptance
-        if not author:
-            return {}
-
-        def stamp(value) -> str:
-            """One normal form for an `at` / `since`: `controller.stamp_utc` of the epoch second; `""` when it is no time (or has no zone)."""
-            from datetime import datetime
-            from controller import stamp_utc
-            if isinstance(value, str):
-                try:
-                    moment = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
-                    return stamp_utc(moment.timestamp()) if moment.tzinfo is not None else ""
-                except (ValueError, OverflowError, OSError):
-                    return ""
-            return "" if isinstance(value, bool) or value is None else stamp_utc(value)
-        words = " ".join(str(answer or "").split())
-        heard = {}
-        if not words:
-            import waiver
-            _blocking, passed = waiver.split_overridden([line], self.pipeline(), stage)
-            if passed and since and not (stamp(passed[0].get("at")) > stamp(since) > ""):
-                passed = []
-            heard = dict(passed[0]) if passed else {}
-            words = " ".join(str(heard.get("decision") or "").split())
-        if not words:
-            return {}
-        if getattr(self, "dry", False):      # B-20 F2: `--dry-run` runs nothing and writes nothing - the pass is only said
-            print(f"{stage}: dry run - a person's word would pass the acceptance of {author}; nothing is recorded")
-            return {}
-        self.py("stage_done.py", "--task", self.task, "--stage", stage, "--acceptance", f"work/handoffs/{author}.yaml",
-                "--acceptor", acceptance.DRIVER_ACCEPTOR, "--verdict", "accept", "--quote", f"{BY_PERSON} - " + words[:500], check=True,
-                expect=f"the person's pass recorded as the acceptance of {stage} for {author}")
-        print(f"{stage}: a person's word passes the acceptance of {author}; recorded as a driver accept (by: person)")
-        return {"decision": words, "at": heard.get("at") or ""}
+        """FV3-22: `stage_close.person_pass` over this driver (the body of the pass; the one writer is `stage_done.py --acceptance`)."""
+        return stage_close.person_pass(self, stage, author, line, answer, since=since)
 
     def consumer_need_record(self, stage: str, site: str) -> bool:
-        """The close sites of a stage with a consumer (S6: `s6_reentry`, `s6_reprobed_close`, `manual_close`; S7: `s7_close`): with an author that
-        ran, a close needs the `accept` record of the author's LAST dispatch - or a person's pass (`consumer_person_pass`, M3). A Refusal names
-        the missing record and the door (FR-1, FR-2); with no consumer, no author dispatch, or the stage completed already, nothing (False).
-        At a site the route's `await_at` lists (S6 `manual_close`), a missing record makes the stage AWAIT the consumer instead of refusing (B1):
-        the marker `pipeline.acceptance_awaits[stage] = author` is written only when `awaits_acceptance` (the one reader) would then name exactly
-        `author`, and only over a readable pipeline; otherwise today's Refusal. True = the stage awaits; nothing is closed. POSITION: after
-        the record and the person's pass (they always win), before the raise: a stage with a consumer is never closed without either."""
-        import acceptance
-        consumer = acceptance.consumer_of(stage)
-        if not consumer:
-            return False
-        state = self.controller_state()
-        if ((state.get("stages") or {}).get(stage) or {}).get("status") == "completed":
-            return False
-        author = acceptance.stage_author_dispatch(state, acceptance.stage_def_of(stage))
-        if not author or self.consumer_pending(stage) or self.consumer_person_pass(stage, author):
-            return False
-        route = self.CONSUMER_ROUTES.get(stage) or {}
-        if site in route.get("await_at", ()) and self.consumer_await(stage, author, state, route):
-            return True
-        raise Refusal(f"{stage} cannot be closed at {site}: no accept record of {consumer} stands for {author}. The consumer judges "
-                      f"{(self.CONSUMER_ROUTES.get(stage) or {}).get('what', 'the handoff')} from its own form (`stage_done.py --task {self.task} "
-                      f"--stage {stage} --acceptance work/handoffs/<{consumer} dispatch>.yaml`), or a person's word passes it (`waiver.py "
-                      f"--task {self.task} --stage {stage} --block \"{acceptance.STAGE_ACCEPTANCE_PHRASE}\"`).")
+        """FV3-22: `stage_close.need_record` over this driver (the consumer rule at a close site); its `Refused` is this driver's Refusal."""
+        try:
+            return stage_close.need_record(self, stage, site)
+        except stage_close.Refused as exc:
+            raise Refusal(str(exc), title=exc.title) from None
 
     def consumer_await(self, stage: str, author: str, state: dict, route: dict) -> bool:
-        """B1: the stage AWAITS the consumer - the marker `pipeline.acceptance_awaits[stage] = author` is written (once) only when
-        `awaits_acceptance` (the one reader) would then name exactly `author`, and only over a readable pipeline. False on an unreadable
-        pipeline or when the wait would not hold (the caller's Refusal stays the only raise)."""
-        import acceptance
-        pipeline = self.pipeline()
-        if not (isinstance(pipeline, dict) and pipeline):
-            return False
-        marks = pipeline.get("acceptance_awaits") if isinstance(pipeline.get("acceptance_awaits"), dict) else {}
-        marked = dict(pipeline, acceptance_awaits=dict(marks, **{stage: author}))
-        if acceptance.awaits_acceptance(state, stage, marked) != author:
-            return False
-        if acceptance.awaits_acceptance(state, stage, pipeline) != author:
-            from event_store import atomic_json
-            atomic_json(self.task_root / "pipeline.json", marked)
-        print(f"{stage}: nothing is left to dispatch; {stage} awaits the acceptance of {acceptance.consumer_of(stage)} for {author} "
-              f"(the {route.get('who', 'consumer')} is let in; its record closes {stage})")
-        return True
+        """FV3-22: delegate of `stage_close.mark_awaiting` (B1: the stage awaits its consumer; the marker is written once)."""
+        return stage_close.mark_awaiting(self, stage, author, state, route)
 
     def consumer_counts(self, stage: str, reviewed: str) -> tuple:
         """`(counted, cap)` of the author's repair rounds on the dispatch the consumer REVIEWED, as the controller counts them (`prepare` carries
@@ -520,9 +404,8 @@ class DriverStageS6:
                               f"`{{\"scope\": [...]}}`; got keys: {', '.join(sorted(map(str, got))) or 'none'}); the stage is not closed "
                               "over a scope nobody could read - run the step again, and if it repeats, read the controller's output")
         state = self.controller_state()
-        done = [d for d in (state.get("dispatches") or {}).values() if d.get("stage") == "S6" and d.get("status") == "accepted"]
-        auto_done = any(d.get("execution_kind") == "automation" or not d.get("execution_kind") for d in done)
         auto_scope, manual_scope = list(auto.get("scope") or []), list(manual.get("scope") or [])
+        auto_done = stage_close.s6_automation_settled(state, auto_scope)       # FV3-22: one predicate for both roads; no scope reads as settled, every use below is guarded by `auto_scope`
         if self.consumer_pending("S6") and not manual_scope and "s6_probe_after" not in self.state:
             # X7-6. POSITION: the consumer's `accept` record stands and nothing more is owed to S6 (no live check to prove again, no manual
             # half): S6 closes HERE, by the record - never by the runner's own finish. A mark `s6_probe_after` or a manual half left
@@ -1074,15 +957,10 @@ class DriverStageS6:
             held_reason = f"not checked yet: it waits for your answer to question {n}, asked before gate B"
             self.refuse_case(None, case, held_reason, "answer the question about this check that comes before gate B", "left_unchecked")
             refused = list(refused) + [(case, held_reason)]
-        reason = (f"the manual half of S6: {len(done)} case(s) checked by an agent by hand, {len(refused)} not checked"
-                  + (": " + ", ".join(case for case, _why in refused) if refused else ""))
-        code, out = self.py("finalize_task.py", str(self.task_root))
-        if code:
-            raise Refusal(f"S6 manual half: finalize_task.py exit {code}: " + (out.splitlines()[-1] if out else ""))
-        if self.consumer_need_record("S6", "manual_close"):         # X7-6 / B1: the consumer's record closes S6; with none, S6 awaits it
-            return
-        self.close_by_code("S6", reason, ["work/run-report.json"] + self.manual_request_paths([case for case, _ in refused]),
-                           finalize=False, site="s6.manual_close")
+        try:       # FV3-22: the reducer, the consumer step and the close are `stage_close.manual_half_close` (one body for both roads)
+            stage_close.manual_half_close(self, done, refused)
+        except stage_close.Refused as exc:
+            raise Refusal(str(exc), title=exc.title) from None
 
     # --- the stand's sign-in account, asked BEFORE a block with a screen case is dispatched (t-292) -----------------------
 
@@ -1975,23 +1853,5 @@ class DriverStageS6:
             raise
 
     def file_passed_over(self, stage: str, receipt) -> None:
-        """TR1-9 B4 (AR-27): the work a code close passed over (`stages[stage].passed_over`, written by the controller's `code_only`
-        receipt: `returned, never accepted`, `abandoned`, `stopped, never accepted`) is a FINDING, one per dispatch, idempotent by
-        (task, stage, dispatch). Position: right after the receipt, before the stage record, so a refused record cannot lose the name;
-        the report reads the same names from the stage entry (`report_facts._passed_over_gap`). An unreadable state files nothing here
-        and the stage entry still carries the names."""
-        state = self.controller_state()
-        stages = state.get("stages") if isinstance(state, dict) else None
-        entry = stages.get(stage) if isinstance(stages, dict) else None
-        rows = state.get("dispatches") if isinstance(state, dict) and isinstance(state.get("dispatches"), dict) else {}
-        named = entry.get("passed_over") if isinstance(entry, dict) else None
-        for item in named if isinstance(named, list) else []:
-            if not isinstance(item, dict) or not item.get("id"):
-                continue
-            ident = str(item["id"])
-            who = str((rows.get(ident) or {}).get("role") or "a role") if isinstance(rows.get(ident), dict) else "a role"
-            self.owe_row("project_decisions.py", "--root", str(self.project), "add-finding",
-                         "--essence", f"{stage} was closed by code over the work of {who} ({ident}): {item.get('label') or 'never accepted'}"[:500],
-                         "--scope", "local-calibration", "--witness", f"close receipt {receipt}",
-                         "--idempotency-key", f"close-passed-over:{self.task}:{stage}:{ident}",
-                         what="the finding about work a code close passed over", stage=stage)
+        """FV3-22: `stage_close.file_passed_over` over this driver (TR1-9 B4, AR-27: the work a code close passed over is a finding)."""
+        stage_close.file_passed_over(self, stage, receipt)

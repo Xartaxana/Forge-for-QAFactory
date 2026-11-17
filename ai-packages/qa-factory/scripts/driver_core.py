@@ -408,7 +408,6 @@ STUCK_REPEATS = 4        # the same `where` answer this many times in a row: the
 # The deferred record of a stage the code closed (`code_close_step`): at most this many idle turns before the person is asked.
 CODE_CLOSE_IDLE_CAP = 2
 
-BY_PERSON = "by: person"     # the quote prefix of a driver accept that a person's word made (`person_pass` writes it, `consumer_close_words` reads it)
 GAP_PREFIX = "gap:"          # the quote prefix of a driver accept that closes a consumer-judged stage WITH A GAP (`consumer_gap` writes it, `consumer_close_words` reads it)
 
 
