@@ -1105,8 +1105,8 @@ def _no_stand_refusal(task: str, state: dict, block: list) -> list:
     return ["story_step: refused - no case is checked by an agent by hand: no stand is confirmed for this story and the "
             "person said to go on", *lines,
             f"door: {no_stand_door}; or the person's word is taken back: "
-            + person_words.door(f"waiver.py --task {task} --revoke --stage {passing['stage']} --block \"{passing['match']}\" "
-                                f"--decision \"{' '.join(words.split()).replace(chr(34), chr(39))}\"")]
+            # the door appends `--words-file <file>` itself: a `--decision` here too made waiver refuse both (canon 44136543304)
+            + person_words.door(f"waiver.py --task {task} --revoke --stage {passing['stage']} --block \"{passing['match']}\"")]
 
 
 def _manual_block_door(task: str, given: list, state: dict, controller, spent=()) -> list:

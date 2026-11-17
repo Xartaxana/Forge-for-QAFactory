@@ -794,7 +794,10 @@ def fv3_21b_the_stand_word_on_the_skill_road():
             stage, match = world.get("stage", "S6"), world.get("match", "stand not confirmed")
             door_line = [ln for ln in text.splitlines() if "waiver.py" in ln][0].split("waiver.py", 1)[1]
             asked = []
-            with mock.patch.object(sys, "argv", ["waiver.py", *shlex.split(door_line)]),                     mock.patch.object(waiver, "run_revoke", lambda *a, **k: asked.append(a) or 0),                     mock.patch.object(waiver, "_noted", lambda rc, classed: rc), contextlib.suppress(SystemExit):
+            words_path = Path(root) / "revoke-words.txt"      # the door's `<file>` placeholder is the person's file: put it there
+            words_path.write_text(said, encoding="utf-8")
+            door_args = [str(words_path) if arg == "<file>" else arg for arg in shlex.split(door_line)]
+            with mock.patch.object(sys, "argv", ["waiver.py", *door_args]),                     mock.patch.object(waiver, "run_revoke", lambda *a, **k: asked.append(a) or 0),                     mock.patch.object(waiver, "_noted", lambda rc, classed: rc), contextlib.suppress(SystemExit):
                 waiver.main()
             check_eq(f"{name}: the revoke door goes through waiver's parser with the override's stage and match",
                      [a[1:4] for a in asked], [(stage, match, " ".join(world.get("decision", word).split()))])
