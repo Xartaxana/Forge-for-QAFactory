@@ -20,8 +20,27 @@ from pathlib import Path
 
 import pytest
 
-import hygiene_gate
-import permission_audit as pa
+def _gate_under_test():
+    """HYGIENE_GATE_PATH names a candidate gate not yet on its live path (loaded as `hygiene_gate`, so permission_audit's own
+    sibling import resolves to it); unset, the live tools/hygiene_gate.py. The environment read lives only in test modules."""
+    path = os.environ.get("HYGIENE_GATE_PATH")
+    if not path:
+        import hygiene_gate
+        return hygiene_gate
+    import importlib.util
+    path = Path(path).resolve()
+    loaded = sys.modules.get("hygiene_gate")
+    if loaded is not None and getattr(loaded, "__file__", None) and Path(loaded.__file__).resolve() == path:
+        return loaded
+    spec = importlib.util.spec_from_file_location("hygiene_gate", path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["hygiene_gate"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+hygiene_gate = _gate_under_test()
+import permission_audit as pa  # noqa: E402
 
 
 # --- matches_allow: prefix semantics ---
@@ -362,16 +381,19 @@ def test_check_transcripts_present_no_warn_when_populated(tmp_path, capsys):
     ("echo x > docs/a.md", []),                                         # point 4 removed: an ordinary write is no class
     ("echo '{}' >> logs/routing-log.jsonl", ["journal write"]),
     ("git checkout -- f.py", ["rollback shape"]),
+    ("until grep -q DONE f; do sleep 20; done", ["unbounded wait"]),
+    ("for i in $(seq 1 30); do test -f f && break; sleep 20; done", []),   # a capped wait is no class
+    ("cd x; until y; do sleep 1; done", ["cd", "unbounded wait"]),         # classes are independent
     ('python -c "exec(\'1\')"', []),
     ('python -c "print(1)"', []),
     ("grep x logs/journal/dev1.jsonl 2>/dev/null", []),
-], ids=["2to1-none", "cd", "set-location", "write", "journal", "rollback", "uncertain", "pure-payload", "read-journal"])
+], ids=["2to1-none", "cd", "set-location", "write", "journal", "rollback", "unbounded-wait", "capped-wait", "cd-and-wait", "uncertain", "pure-payload", "read-journal"])
 def test_classify_hygiene_one_row_per_label(command, expected):
     assert pa.classify_hygiene(command) == expected
 
 
-def test_the_three_labels_are_shapes_not_verdicts():
-    assert pa.HYGIENE_CLASS_LABELS == ["cd", "journal write", "rollback shape"]
+def test_the_labels_are_shapes_not_verdicts():
+    assert pa.HYGIENE_CLASS_LABELS == ["cd", "journal write", "rollback shape", "unbounded wait"]
 
 
 def test_audit_replay_of_a_rollback_shaped_command_performs_no_subprocess(monkeypatch):
@@ -589,6 +611,8 @@ def _gate_attribution(cmd: str) -> set[str]:
         labels.add("journal write")
     if signals["rollback_forms"]:
         labels.add("rollback shape")
+    if signals["wait_loops"]:
+        labels.add("unbounded wait")
     return labels
 
 
@@ -598,6 +622,7 @@ _GATE_ATTRIBUTION_MATRIX = [
     "Set-Location tools; python foo.py",
     'python -c "print(1)"',
     "git checkout -- f.py",
+    "until grep -q DONE f; do sleep 20; done",
     'python -c "exec(1)"',
     "echo '{}' >> logs/routing-log.jsonl",
     ('git add logs/routing-log.jsonl && git commit -m "add journal file" '
@@ -729,8 +754,8 @@ _BROKEN_TRANSCRIPTS = [("def broken(:\n", "SyntaxError"), ("raise RuntimeError('
 def _cli_copy(folder: Path, transcripts_source="real") -> Path:
     """permission_audit.py + hygiene_gate.py (+ transcripts.py) in `folder`."""
     tools = Path(__file__).resolve().parent
-    for name in ("permission_audit.py", "hygiene_gate.py"):
-        (folder / name).write_bytes((tools / name).read_bytes())
+    (folder / "permission_audit.py").write_bytes((tools / "permission_audit.py").read_bytes())
+    (folder / "hygiene_gate.py").write_bytes(Path(hygiene_gate.__file__).read_bytes())     # the module under test
     if transcripts_source == "real":
         (folder / "transcripts.py").write_bytes((tools / "transcripts.py").read_bytes())
     elif transcripts_source is not None:
