@@ -4078,7 +4078,8 @@
         {
           "roles": [
             "qa-case-designer",
-            "qa-requirements-tester"
+            "qa-requirements-tester",
+            "qa-test-strategist"
           ],
           "field": "the artifact the check judges (check_cell_counts)",
           "told": [
@@ -5391,6 +5392,7 @@
       "producers": [
         {
           "roles": [
+            "qa-case-critic",
             "qa-code-critic"
           ],
           "field": "the handover form of the dispatch",
