@@ -1198,6 +1198,7 @@ def a_draft_of_a_place_the_runner_never_ran() -> None:
     fresh = {"kind": "fresh_data_rerun", "evidence": "evidence/rerun.log", "attempt_id": "a2", "observed": "again"}
     other = [{"instance_id": "TC-9", "attempt_id": "a1", "status": "failed"}]         # the run held another case only
     held = lambda status: [{"instance_id": "TC-1", "attempt_id": "a1", "status": status}]   # noqa: E731
+    unread = [{"instance_id": "TC-1", "attempt_id": "a1", "status": "not_run", "reason_code": C.REPORT_UNREAD_CODE}]
     app_bug = [{"instance_id": "TC-1", "attempt_id": "a1", "case": "TC-1", "verdict": "APP_BUG"}]
     reproduced = (BR.REPRODUCED, ["walk"])
     unconfirmed = ("unconfirmed", [])
@@ -1205,6 +1206,10 @@ def a_draft_of_a_place_the_runner_never_ran() -> None:
         ("place-born walk lifts", "TC-8#obs1@a1", [walk], [], other, reproduced, None),
         ("instance is a current failure, no APP_BUG row", "TC-1@a1", [walk], [], held("failed"), unconfirmed, BR.R_NO_TRIAGE),
         ("current result passed", "TC-1@a1", [walk], app_bug, held("passed"), unconfirmed, BR.R_GREEN),
+        # U7 7b-A (N1): an unread target HAS a current row (`not_run`, coded) that is not red by construction: a walk is not refused for
+        # red-now, a non-walk entry still is
+        ("unread target: a walk entry is not refused for red-now", "TC-1@a1", [walk], app_bug, unread, reproduced, None),
+        ("unread target: a fresh_data_rerun entry is still refused", "TC-1@a1", [fresh], app_bug, unread, unconfirmed, BR.R_NOT_RED_NOW),
         ("non-walk entry only on a place-born draft", "TC-8#obs1@a1", [fresh], [], other, unconfirmed, BR.R_NO_TRIAGE),
         ("no triage_ref", None, [walk], [], other, unconfirmed, BR.R_NO_TRIAGE),
         ("spelling variant of a target is a target", "TC-1[chromium]@a1", [walk], [], held("failed"), unconfirmed, BR.R_NO_TRIAGE),
