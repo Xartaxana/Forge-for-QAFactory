@@ -53,6 +53,8 @@ scope:
 probes:
   # The stand the probes ran on: the record of this review's own probe run.
   runtime_provenance: <path of the runtime_provenance record this review probed against>
+  # No probe ran, or the window has no new or changed test: leave `records` as it stands (the empty list) and give each such
+  # instance its `unverified` row.
   records:
   - instance: <instance id>
     verdict: <one of vocabulary.probe_verdicts - intended_failure|no_failure|wrong_location|not_executed|incomplete>   # incomplete: the tool could not read the run (`cause: tooling`) or it owes your judgment (`cause: judgment`)

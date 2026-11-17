@@ -14,8 +14,9 @@ the factory requires and demands that each walked item has exactly one home:
   pending      a row of the same file - the declaration arrives at a NAMED node of t-305. The count only
                shrinks (the ratchet), so a new required item can never be born pending.
 
-What is walked is enumerated from the source, never copied: the index rows that carry a REQUIRED_LISTS list
-(14), the other rows, which must be setup/decision/report (4), every stage's `required_outputs` (16), the tool
+What is walked is enumerated from the source, never copied: the index rows that carry the item list `scope` (17), every
+carrier of the other REQUIRED_LISTS list `inputs_read` whatever its kind (15), the other rows, which must carry no item list
+(4), every stage's `required_outputs` (16), the tool
 fields the FR-11 walk selects (33), plus the conditional fields the data file names (11). The walk sizes are PINNED
 by the caller: a detector that walks nothing is green for the wrong reason (t-317 F4).
 
@@ -567,16 +568,18 @@ def audit(*, index=None, stages=None, fields=None, data=None, raw=None, reader=N
         not_lists = [n for n in handoff.REQUIRED_LISTS if n in sections and sections[n] != "list"]
         for name in not_lists:
             red(f"{contract}: `{name}` is a {sections[name]}, and a required item list is a list")
+        item_list = handoff.ITEM_LIST in lists or handoff.ITEM_LIST in not_lists
         if kind in SCOPE_KINDS:
-            if not lists and not not_lists:
-                red(f"{contract}: kind {kind} carries an item list, and the contract has no "
-                    f"{'/'.join(handoff.REQUIRED_LISTS)}")
+            if not item_list:
+                red(f"{contract}: kind {kind} carries an item list, and the contract has no `{handoff.ITEM_LIST}`")
             walked["scope"] += [f"{contract}:{n}" for n in lists]
         elif kind in NO_SCOPE_KINDS:
-            if lists or not_lists:
-                red(f"{contract}: kind {kind} has no item list, and the contract carries `{(lists + not_lists)[0]}`")
+            if item_list:
+                red(f"{contract}: kind {kind} has no item list, and the contract carries `{handoff.ITEM_LIST}`")
             else:
                 others.append(contract)
+            # the proof-of-reading list is required whatever the kind (F-r2-1): its carrier is walked and needs a home
+            walked["scope"] += [f"{contract}:{n}" for n in lists if n != handoff.ITEM_LIST]
         else:
             red(f"{contract}: kind {kind!r} is not one of {', '.join(SCOPE_KINDS + NO_SCOPE_KINDS)}")
     pin("scope contracts", len(walked["scope"]), "scope")
