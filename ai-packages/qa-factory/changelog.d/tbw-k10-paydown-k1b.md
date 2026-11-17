@@ -1,0 +1,9 @@
+- Execution-request and run-suite checks are told before the work only where every road a role uses refuses before any launch (`references/stage-joints.json`, key pages regenerated):
+  - `qa-automator`: the ten request-validation checks (`purpose` ... `instance_contracts`), `stand.reference` and `window_first` leave its key page for the index line (`import_test_receipt` prints every refused check; `run_suite` is proved). The five manifest checks it judges itself, `stand` and `begin` stay on the page.
+  - `qa-runner`: `selector_args` and `window_first` leave the page.
+  - `qa-failure-analyst`: `sandbox`, `place_rows`, `active_dispatch`, `case_entries`, `profile`, `profile_command`, `stand.probe`, `stand.reference`, `mine_call`, `scope`, `no_test`, `selector_args`, `window_first` and `run_suite:phantom_story` leave the page (`red_sandbox.py --diagnostic` refuses before its one launch). `stand` and `begin` stay.
+  - `qa-code-critic`: `run_suite:phantom_story` and `run_suite:recover` leave the page. Every `execution_request:*` check stays on its page because `probe_by_code.py` and `red_sandbox.py --probe` can print it after a launch began (a call is told before the work only when every site that prints it is a refusal before any launch).
+- Ratchets in `references/role-load.json`, set to the measure, down only:
+  - `process_ratchet_tokens`: `qa-automator` 24,116 -> 23,257; `qa-code-critic` 21,250 -> 21,146; `qa-runner` 16,919 -> 16,732; `qa-failure-analyst` 20,261 -> 18,905.
+  - `ratchet_tokens`: `qa-automator` 26,053 -> 24,824; `qa-failure-analyst` 22,442 -> 20,930.
+  - `native_headroom`: `qa-automator` 79,909 -> 76,472; `qa-code-critic` 73,134 -> 72,717 (no longer temporary; the residual 4,317 bytes over the headroom 68,400 is reported to the owner); `qa-test-strategist` 53,739 unchanged.
