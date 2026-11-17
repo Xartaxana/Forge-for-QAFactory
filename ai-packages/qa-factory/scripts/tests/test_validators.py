@@ -87,13 +87,39 @@ def restore(name: str) -> None:
     shutil.copy(GOOD / name, Q3 / name)
 
 
+def _sites_table(label: str, rows: list, allowed=()) -> None:
+    """The one assertion loop of the T7a site tables. A row is `(name, id tail, provoke, old text)`: `provoke(found)` breaks the
+    validator, `found[0]` is the OLD text byte for byte, and its Record carries `validate_artifacts:<tail>` and the sentence of that
+    id's row. `allowed` empty: every message the call returns carries that id (one function, one requirement). `allowed` a dict
+    `{name: ids}`: the first message carries the id and every message carries it or an id of that row's set (the one function that
+    calls the others)."""
+    import stage_joints as SJ
+    for name, tail, provoke, old in rows:
+        rid = f"validate_artifacts:{tail}"
+        found: list = []
+        provoke(found)
+        check(f"{label} {name}: the call refuses", bool(found), "no message")
+        if not found:
+            continue
+        check_eq(f"{label} {name}: the first message is the old text, byte for byte", str(found[0]), old)
+        if allowed:
+            check_eq(f"{label} {name}: the first message carries the id", getattr(found[0], "check", ""), rid)
+            check_eq(f"{label} {name}: every message carries an id of the allowed set",
+                     sorted({getattr(r, "check", "") for r in found} - {rid} - set(allowed.get(name, ()))), [])
+        else:
+            check_eq(f"{label} {name}: every message carries the id", sorted({getattr(r, "check", "") for r in found}), [rid])
+        row, why = SJ.row_for(rid)
+        told = SJ.told_text(row)[0] if row else ""
+        check(f"{label} {name}: its row states a sentence the refusal can print", bool(told), why)
+        check_eq(f"{label} {name}: the Record carries that sentence", getattr(found[0], "expected", ""), told)
+
+
 def tbw_t7a_a_sites() -> None:
     """told-before-work T7a-A: every refusal of the thirteen requirement-side and bug-side validators (`validate_artifacts.py`) is
     `refusal("validate_artifacts:<function>", <text>)` and its text is the one it always was. ONE table, a row per function: the
     function is called on a file or value that breaks it, the first message is a literal (the OLD file's output, byte for byte),
     its Record carries `check == <id>`, and the row of that id states the sentence the Record prints (`expected`). Every message
     the call returns carries the id (one function, one requirement)."""
-    import stage_joints as SJ
     scratch = ROOT / "scratch-t7a-a"
     nl = chr(10)
     dash = "—"
@@ -156,19 +182,7 @@ def tbw_t7a_a_sites() -> None:
          f"understanding.md: section '## Why this change' is missing {dash} the gate-A message is assembled from these sections in order"),
     ]
     try:
-        for name, provoke, old in rows:
-            rid = f"validate_artifacts:{name}"
-            found: list = []
-            provoke(found)
-            check(f"t7a-a {name}: the call refuses", bool(found), "no message")
-            if not found:
-                continue
-            check_eq(f"t7a-a {name}: the first message is the old text, byte for byte", str(found[0]), old)
-            check_eq(f"t7a-a {name}: every message carries the id", sorted({getattr(r, "check", "") for r in found}), [rid])
-            row, why = SJ.row_for(rid)
-            told = SJ.told_text(row)[0] if row else ""
-            check(f"t7a-a {name}: its row states a sentence the refusal can print", bool(told), why)
-            check_eq(f"t7a-a {name}: the Record carries that sentence", found[0].expected, told)
+        _sites_table("t7a-a", [(name, name, provoke, old) for name, provoke, old in rows])
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
 
@@ -180,7 +194,6 @@ def tbw_t7a_b_sites() -> None:
     literal (the OLD file's output, byte for byte), its Record carries `check == <id>`, and the row of that id states the sentence
     the Record prints (`expected`). Every message the call returns carries the id (one function, one requirement). The last row is
     the control: a phase-json file with NO row stays a bare string."""
-    import stage_joints as SJ
     scratch = ROOT / "scratch-t7a-b"
     nl = chr(10)
     dash = "—"
@@ -224,19 +237,7 @@ def tbw_t7a_b_sites() -> None:
          lambda e: V.check_phase_json(at("c/triage.json", "{}"), e), "triage.json: required key 'triage' is missing"),
     ]
     try:
-        for name, tail, provoke, old in rows:
-            rid = f"validate_artifacts:{tail}"
-            found: list = []
-            provoke(found)
-            check(f"t7a-b {name}: the call refuses", bool(found), "no message")
-            if not found:
-                continue
-            check_eq(f"t7a-b {name}: the first message is the old text, byte for byte", str(found[0]), old)
-            check_eq(f"t7a-b {name}: every message carries the id", sorted({getattr(r, "check", "") for r in found}), [rid])
-            row, why = SJ.row_for(rid)
-            told = SJ.told_text(row)[0] if row else ""
-            check(f"t7a-b {name}: its row states a sentence the refusal can print", bool(told), why)
-            check_eq(f"t7a-b {name}: the Record carries that sentence", found[0].expected, told)
+        _sites_table("t7a-b", rows)
         bare: list = []
         V.check_phase_json(at("c/automation-manifest.json", "{}"), bare)
         check_eq("t7a-b check_phase_json (no row for the file): the message stays a bare string, text unchanged",
@@ -253,7 +254,6 @@ def tbw_t7a_c_sites() -> None:
     message is a literal (the OLD file's output, byte for byte), its Record carries `check == <id>`, and the row of that id states the
     sentence the Record prints (`expected`). Every message the call returns carries a validator id: the function's own, or (for the
     one function that calls the others) one of the nineteen."""
-    import stage_joints as SJ
     names = ("check_run_report_empty check_run_report_head check_run_report_v0 check_result_rows check_run_report_coverage "
              "check_triage_v0 check_report_sections check_report_traceability check_report_left_with_you check_report_test_marks "
              "check_report_forbidden check_report_human_text check_report_gate_b check_report_blocks check_report_coverage "
@@ -268,7 +268,6 @@ def tbw_t7a_c_sites() -> None:
         write(root / "test-report.md", text)
         return root
     nl = chr(10)
-    dash = "—"
     run_json = Path("run-report.json")
     left = nl.join(["## Left with you", "", "- an item", ""])
 
@@ -347,21 +346,8 @@ def tbw_t7a_c_sites() -> None:
           'sections in this order'), ()),
     ]
     try:
-        for name, provoke, old, also in rows:
-            rid = f"validate_artifacts:{name}"
-            found: list = []
-            provoke(found)
-            check(f"t7a-c {name}: the call refuses", bool(found), "no message")
-            if not found:
-                continue
-            check_eq(f"t7a-c {name}: the first message is the old text, byte for byte", str(found[0]), old)
-            check_eq(f"t7a-c {name}: the first message carries the id", getattr(found[0], "check", ""), rid)
-            check_eq(f"t7a-c {name}: every message carries an id of the allowed set",
-                     sorted({getattr(r, "check", "") for r in found} - {rid} - set(also)), [])
-            row, why = SJ.row_for(rid)
-            told = SJ.told_text(row)[0] if row else ""
-            check(f"t7a-c {name}: its row states a sentence the refusal can print", bool(told), why)
-            check_eq(f"t7a-c {name}: the Record carries that sentence", getattr(found[0], "expected", ""), told)
+        _sites_table("t7a-c", [(name, name, provoke, old) for name, provoke, old, _also in rows],
+                     {name: also for name, _p, _o, also in rows if also})
     finally:
         for root in made:
             shutil.rmtree(root, ignore_errors=True)

@@ -1235,7 +1235,7 @@ def check(event: dict) -> int:
     try:
         return _check(event or {})
     except hooklib.WalkerError as e:
-        return deny(hooklib.WALKER_DOOR.format(reason=e))
+        return deny(DV.refusal("stage_guard:SG-walker-error", hooklib.WALKER_DOOR.format(reason=e)))
     except Exception as e:
         if LAST_DENIAL["message"]:
             return DENY

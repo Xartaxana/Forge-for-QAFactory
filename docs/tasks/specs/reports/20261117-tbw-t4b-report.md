@@ -43,7 +43,7 @@ Proof: F = proved fast in `tbw_t4b_sites` (run).
 | check_command (caller of rule_manifest) | committing test code: unresolved cases | stage_guard:SG-command.commit.manifest | commit manifest | F (helper stubbed: its body is not under test) |
 | check_command (caller of rule_stash) | takes everything / `--` without path / names qa-factory | stage_guard:SG-command.stash | stash | F (takes-everything text; the others same wrapper) |
 | check_command (caller of rule_delivery) | delivery form before gate B | stage_guard:SG-command.delivery | delivery | F |
-| rule_pathspec / rule_stash / rule_manifest / rule_delivery bodies | all their texts | no literal id inside (EC-2: other callers `dispatch_errors`, `repo_words.py`, tests) (code) | - | - |
+| rule_pathspec / rule_stash / rule_manifest / rule_delivery bodies | all their texts | no literal id inside (EC-2, corrected by critic t-1042 N-c: for `rule_delivery` the only non-test caller is `check_command`, so its id stands at that caller; the other helpers' other callers are `dispatch_errors`, `repo_words.py`, tests) (code) | - | - |
 | check | `WALKER_DOOR` deny | bare: row 31 is a pointer to PT-walker-error (spec); see question 1 (code) | control row: no `check:` line | F |
 | check_dispatch (9 sites), _check_exploration (5), check_resume (3), _unidentified_resume (1) | G-dispatch refusals | bare: no row, mech 5.3 "No row (E5)" SG-resume-*, SG-probe-*, SG-ambiguous-task, SG-explicit-no-story, SG-explore-*, SG-unreadable-pipeline, SG-role-stage-unset, SG-stage-rules, SG-manifest-unread (code, dispatch-time, conductor road) | - | - |
 
@@ -51,7 +51,7 @@ Proof: F = proved fast in `tbw_t4b_sites` (run).
 
 - (code) the four dispatch-time functions above and their helpers `dispatch_errors`, `rule_order`, `rule_gate_a`, `rule_awaiting_code`, `rule_tracker_route`, `rule_gate_ordered`
   (SG-stage-rules, SG-tracker-route, SG-manifest-delivery, SG-gate-ordered: G-dispatch, no row). Their census rows still list the 12 roles (see question 2).
-- (code) `rule_pathspec`, `rule_stash`, `rule_manifest`, `rule_delivery` bodies, bare inside (their other callers: dispatch gate, `repo_words.py`).
+- (code) `rule_pathspec`, `rule_stash`, `rule_manifest`, `rule_delivery` bodies, bare inside (other callers of `rule_pathspec`/`rule_stash`/`rule_manifest`: dispatch gate, `repo_words.py`; `rule_delivery` has `check_command` as its only non-test caller, N-c, the id stays at that caller).
 - (code) `check` walker deny (row 31 pointer).
 - (role) none found: every refusal a role's Bash call can meet from the stage guard has a row id.
 

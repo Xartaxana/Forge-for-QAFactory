@@ -22,7 +22,7 @@ No refusal text was touched; no other function of the file was touched.
 | check_context_manifest_v0 | 10 | `validate_artifacts:check_context_manifest_v0` | "check_context_manifest_v0" | F (10 identical) / W / N |
 | check_phase_json | 2 (broken JSON, required key missing) for `context-manifest.json` | `validate_artifacts:check_phase_json.context-manifest.json` | "check_phase_json.context-manifest.json" | F (3 + 1 identical) / W |
 | check_phase_json | same 2 sites for `triage.json` | `validate_artifacts:check_phase_json.triage.json` | "check_phase_json.triage.json" | F (1 identical) / W |
-| check_phase_json | same 2 sites for `automation-manifest.json`, `run-report.json` | E6 (code): code writer (`manifest_put`, `run_suite`), no row; stays a bare `str` | control row "no row for the file: stays a bare string" | F (2 + 1 identical) |
+| check_phase_json | same 2 sites for `automation-manifest.json`, `run-report.json` | E6 (role): met by qa-requirements-tester, qa-test-strategist, qa-automator and qa-runner (critic t-1042 F1/F2), no row; stays a bare `str` until node TBW-N1 | control row "no row for the file: stays a bare string" | F (2 + 1 identical) |
 | check_phase_json | calls `check_nfr_report`, `check_run_report_*`, `check_remedy_rows` | not mine / sited by their owners | - | - |
 
 Proof key: F = old-vs-new message lists compared (scratch script, see Witness 2), W = "the site writes this id" row (Record
@@ -36,7 +36,7 @@ The card text says "B -10" and the Lead decision says 46 at entry: matches (46 -
 I did not edit `told_ratchet.unsited` (stored value untouched) nor the K12 pin; the pin (46) is red until the integrator's commit.
 
 ## E6 list: the bare remainder of my functions
-- (code) `check_phase_json` for `automation-manifest.json`, `run-report.json`: code writer, no row.
+- (role) `check_phase_json` bare branches (the key branches for `automation-manifest.json`, `run-report.json`, and the broken-JSON branch of every JSON artifact): met by qa-requirements-tester, qa-test-strategist, qa-automator and qa-runner, no row; the rows, the sites and the true census roles come with node TBW-N1 (critic t-1042 F1/F2). The control row "no row for the file" pins the untold state and N1 must flip it.
 - (code) `_oracle_dated` (called by `check_plan_v0`, also by `check_case` and others): multi-caller helper outside my list, no own row; EC-2.
 - (code) `check_cell_counts` is sited by T7a-A; `check_nfr_report` and `check_run_report_*` are outside my list.
 - (role): none.

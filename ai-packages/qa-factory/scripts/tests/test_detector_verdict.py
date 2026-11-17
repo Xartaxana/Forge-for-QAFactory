@@ -2012,14 +2012,14 @@ def tbw_t4b_sites(sg=None, capture: bool = False):
     byte (the digest in `old`, captured by running the same rows over a byte copy of the file taken before the edit; EC-1), then the
     row's `  expected:` / `  door:` and `  check: <id>` last (EC-6); the code is DENY. Controls: a command nothing refuses prints nothing
     and allows (EC-5). `sg` is the module under test (the scratch capture of `old` passes the byte copy and `capture=True`: `{row: digest}`).
-    The walker's door (`SG-walker-error`) and every dispatch-time refusal stay bare: a refusal with no row prints no `check:` line."""
+    The walker's door (`SG-walker-error`) is the last row, driven through the real `check` with the walker raising; every dispatch-time refusal stays bare: a refusal with no row prints no `check:` line."""
     import contextlib
     import hashlib
     import io
     from unittest import mock
     import hooklib
     import stage_joints as SJ
-    from harness import use_project
+    from harness import reader_patched, use_project
     if sg is None:
         import stage_guard as sg
     old = {   # row -> sha256[:16] of the problem text the pre-change file printed (a byte copy of stage_guard.py, same rows)
@@ -2112,10 +2112,23 @@ def tbw_t4b_sites(sg=None, capture: bool = False):
         # EC-5: nothing refused, nothing printed
         for command in ("python run_suite.py --mine TC-012", f"python run_suite.py --request {inside}", "git stash push -u -- src/a.py"):
             check_eq(f"t4b control {command[:44]!r}: allowed, nothing printed", run(command), (sg.ALLOW, ""))
-        # no row, no id: the walker's door and a dispatch-time refusal print the text they always had, with no `check:` line
-        with contextlib.redirect_stderr(io.StringIO()) as buf:
-            sg.deny(hooklib.WALKER_DOOR.format(reason="boom"))
-        check_not_in("t4b the walker's door (no site of its own, row 31 points at PT-walker-error) names no check", "check:", buf.getvalue())
+        # the walker's door (`SG-walker-error`, F3 of the topic critic): the REAL `check` with the walker made to raise - a deny whose
+        # problem is `WALKER_DOOR` filled with the walker's own failure, then the row's lines from stage-joints.json, `check:` last
+        wid = "stage_guard:SG-walker-error"
+        wrow, wwhy = SJ.row_for(wid)
+        wexpected, wdoor = SJ.told_text(wrow) if wrow else ("", "")
+
+        def boom(self, *args, **kwargs):
+            raise IndexError("synthetic walker failure")
+        with reader_patched("_code", lambda real: boom):
+            with contextlib.redirect_stderr(io.StringIO()) as buf:
+                wcode = sg.check({"tool_name": "Bash", "cwd": str(root), "tool_input": {"command": "git commit -m x tests/t.py"}})
+        wtail = ("\n  expected: " + wexpected + ("\n  door: " + wdoor if wdoor else "") + "\n  check: " + wid + "\n")
+        wproblem = "STAGE GUARD: " + hooklib.WALKER_DOOR.format(reason="IndexError: synthetic walker failure")
+        check_eq(f"t4b the walker's door {wid}: the guard denies", wcode, sg.DENY)
+        check(f"t4b the walker's door {wid}: the row states a sentence", bool(wexpected), str(wwhy))
+        check(f"t4b the walker's door {wid}: the old problem text, then the row's lines, `check:` last",
+              buf.getvalue() == wproblem + wtail, buf.getvalue()[-300:])
         check_eq("t4b every id of the table is a row of stage-joints.json",
                  sorted({cid for _name, cid, _c, _s in rows if SJ.row_for(cid)[0] is None}), [])
     finally:

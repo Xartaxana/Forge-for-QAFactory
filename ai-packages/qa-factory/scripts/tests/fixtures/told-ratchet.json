@@ -2,7 +2,7 @@
  "schema_version": 1,
  "note": "T1c baselines of the told-before-work counters that need the census (FR-44); read only by test_stage_joints.py. rowless is dense (red above AND below it); untold and every unit's bare/tagged are ceilings.",
  "rowless": 3,
- "untold": 175,
+ "untold": 173,
  "units": {
   "artifact_producer.py::main": {
    "bare": 3,
@@ -585,14 +585,10 @@
    "tagged": 0
   },
   "stage_guard.py::check": {
-   "bare": 1,
+   "bare": 0,
    "tagged": 0
   },
   "stage_guard.py::check_command": {
-   "bare": 1,
-   "tagged": 0
-  },
-  "stage_guard.py::explain": {
    "bare": 1,
    "tagged": 0
   },
