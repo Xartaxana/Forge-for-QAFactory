@@ -2112,6 +2112,125 @@ def open_oracle_asserted_is_a_repair_with_a_door() -> None:
         cleanup(root)
 
 
+def open_oracle_door_is_chosen_by_the_binding_file() -> None:
+    """FL9 (RD1-22): door A's binding form is the `oracle_binding_forms` row of the kind of the test files; no row, no file or an
+    unreadable key gives `manifest_put.py --open-oracle` (the whole door, not only the first line); an unreadable key is one note;
+    the three sibling lines that named the marker choose by the same reader. One table, one row per case."""
+    import tempfile
+    marker = ('@pytest.mark.qa_unresolved(case="TC-500", then=[2], reason="expectation_unconfirmed", question="Q4", '
+              'observed=<what the test saw>)')
+    road = "manifest_put.py --task QA-500 --open-oracle TC-500#2 --question Q4"
+    root = Path(tempfile.mkdtemp(prefix="qa-s5-oa-forms-"))
+    try:
+        no_key = root / "no-key.json"
+        no_key.write_text("{}", encoding="utf-8")
+        empty = root / "empty.json"
+        empty.write_text('{"oracle_binding_forms": []}', encoding="utf-8")
+        bad = root / "bad.json"
+        bad.write_text("{not json", encoding="utf-8")
+        for label, test_files, detectors, marker_form, noted in (
+                (".py binding: the marker, today's text", ["tests/test_x.py"], None, True, False),
+                (".PY: suffix compared case-insensitively", ["tests/TEST_X.PY"], None, True, False),
+                (".cs binding: the manifest_put road", ["tests/XTests.cs"], None, False, False),
+                (".java binding: the manifest_put road", ["src/XTest.java"], None, False, False),
+                (".ts binding: the manifest_put road", ["tests/x.spec.ts"], None, False, False),
+                ("no binding file: the manifest_put road", [], None, False, False),
+                ("a file with no suffix: the manifest_put road", ["tests/Makefile"], None, False, False),
+                ("a .py and a .cs instance: the road both can use", ["tests/test_x.py", "tests/XTests.cs"], None, False, False),
+                ("no key in the file: the manifest_put road and a note", ["tests/test_x.py"], no_key, False, True),
+                ("an empty table: the manifest_put road and a note", ["tests/test_x.py"], empty, False, True),
+                ("an unreadable file: the manifest_put road and a note", ["tests/test_x.py"], bad, False, True)):
+            notes: list = []
+            fix = P._open_oracle_door("TC-500", 2, "Q4", "QA-500", True, test_files, detectors, notes)
+            check_eq(f"FL9 {label}: marker form", f"`{marker}`" in fix, marker_form)
+            check_eq(f"FL9 {label}: the whole door follows (the Python forms only on the marker road)",
+                     ("qa(then=[2])" in fix, "# oracle_unknown: Q4" in fix, "manifest_from_tests.py" in fix), (marker_form,) * 3)
+            check_eq(f"FL9 {label}: road, with the task filled in", road in fix, not marker_form)
+            check_in(f"FL9 {label}: the shared rest of door A", "no waiver passes this finding", fix)
+            check_not_in(f"FL9 {label}: no placeholder row to paste", "<what the test saw>" if not marker_form else "<T>", fix)
+            check_eq(f"FL9 {label}: a note exactly when the key is unusable, naming it",
+                     [("oracle_binding_forms" in n) for n in notes], [True] if noted else [])
+        check_in("door B is unchanged", "goes back to S4", P._open_oracle_door("TC-500", 2, "", "QA-500", False, ["tests/test_x.py"]))
+        # the ghost-row line names the task in its road (the raw `<T>` road is the class of F3)
+        ghost = {"tests": [{"instance_id": "t_x[a]", "case": "TC-1", "status": "green", "file": "a.py"}], "retracted_instances": ["t_x[a]"]}
+        fixes: list = []
+        P.check_bindings(ghost, "TC-1", "## Then\n1. a\n", [], [], fixes, "QA-9")
+        check_eq("FL9 class: the ghost line's road carries the task",
+                 [("--task QA-9 --fragment" in f["fix"], "<T>" in f["fix"]) for f in fixes if f["id"].endswith("ghost-t_x[a]")], [(True, False)])
+        # the siblings: the same reader decides the marker text of the three other lines
+        # N1: each site is DRIVEN with a .py and a .cs file; the marker words appear exactly on the .py row, the road words on the .cs one
+        import copy
+        import types
+
+        def partial_green(file: str) -> str:
+            manifest = {"tests": [{"case": "TC-500", "file": file, "marker": "TC-500", "instance_id": "TC-500::v", "status": "green"}],
+                        "unresolved": [{"case": "TC-500", "reason": "blocked_by_env", "partitions": ["P-warn"]}]}
+            out: list = []
+            P.check_manifest(manifest, ["TC-500"], out, store_root=Path("QA-500"))
+            return " ".join(f["fix"] for f in out if f["id"].endswith("partial-green"))
+
+        def malformed_remainder(file: str) -> str:
+            manifest = copy.deepcopy(_rt_manifest())
+            next(t for t in manifest["tests"] if t["instance_id"] == RT_IID3)["file"] = file
+            manifest["then_bindings"].append({"case": "TC-003", "then": 3, "instance_id": None, "status": "unresolved",
+                                              "reason": "handed_to_person"})
+            case_md = (RED_THEN_FIXTURE / "work" / "test-cases" / "integrations" / "TC-003.md").read_text(encoding="utf-8")
+            out: list = []
+            P.check_then_remainders(RED_THEN_FIXTURE, manifest, ["TC-003"], {"TC-003": case_md}, out, [])
+            return " ".join(f["fix"] for f in out if "shape-" in f["id"])
+
+        def shape_deviation(file: str) -> str:
+            said: list = []
+            stub = types.SimpleNamespace(declared=lambda *a: False, add=lambda case, msg, fix, tag: said.append(fix),
+                                         fix_dev=lambda *a: "", first="TC-1", task_root=Path("QA-500"), notes=[])
+            P._Window.c5(stub, {"shape": "a"}, "t1", "k", ["TC-1"], "w", [{"file": file, "shape": "b"}])
+            return " ".join(said)
+
+        for site, drive, marker_words, road_words in (
+                ("check_manifest partial-green", partial_green, "qa_unresolved(case=, then=[n]", "a `then_bindings` row with `case`"),
+                ("check_then_remainders shape", malformed_remainder, "rewrite the marker `qa_unresolved(", "rewrite the row (`case`"),
+                ("_Window.c5 shape", shape_deviation, "tag the test with the planned shape", "send the instance's `tests[]` row")):
+            for kind, file, has_marker in (("a .py file", "tests/test_x.py", True), ("a .cs file", "tests/XTests.cs", False)):
+                said = drive(file)
+                check_eq(f"FL9 sibling {site}, {kind}: marker words / road words",
+                         (marker_words in said, road_words in said), (has_marker, not has_marker))
+    finally:
+        import shutil
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def open_oracle_door_for_a_non_python_story_closes_the_gate() -> None:
+    """FL9 (RD1-22) F6 + F1 through `P.run`: a story whose asserting instance is a `.cs` file gets the manifest_put door from
+    `_binding_files` (the instance matched by any spelling it answers to), and applying that door's fragment takes the proof
+    row out of the manifest, so the gate goes silent with no covered row of Then 2 left."""
+    import manifest_put as MP
+    root = temp_project("qa-s5-oa-cs-")
+    try:
+        task = oa_story(root)
+        path = task / "work" / "automation-manifest.json"
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        for entry in manifest["tests"]:
+            entry["file"] = "tests/XTests.cs"
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        found = oa_fired(task)
+        check_eq("F6: one finding for Then 2 on a .cs instance", [_tag(f) for f in found], [f"{OA_TAG}-2"])
+        fix = found[0]["fix"] if found else ""
+        check_in("F6: the door is `--open-oracle`, the task filled in", "manifest_put.py --task QA-500 --open-oracle TC-500#2 --question Q4", fix)
+        check_not_in("F6: no Python marker on a .cs story", "qa(then=", fix)
+        merged, _ = MP.merge(manifest, MP.open_oracle_fragment("TC-500#2", "Q4"))
+        path.write_text(json.dumps(merged), encoding="utf-8")
+        check_eq("F1: after the door's call the gate is silent", [_tag(f) for f in oa_fired(task)], [])
+        check_eq("F1: ... and no covered row of Then 2 stands beside the open one",
+                 [(r["then"], r["status"]) for r in merged["then_bindings"] if r["then"] == 2], [(2, "unresolved")])
+        # F8: the same instance under an older spelling still finds its file
+        old = json.loads(json.dumps(manifest))
+        old["then_bindings"][-1]["instance_id"] = "TC-500::" + OA_INSTANCE
+        check_eq("F8: a row bound under the case-prefixed spelling finds the file",
+                 P._binding_files(old, P._asserting_rows(old, "TC-500")[2]), ["tests/XTests.cs"])
+    finally:
+        cleanup(root)
+
+
 def open_oracle_asserted_errs_toward_firing() -> None:
     """K-ADVERSARIAL: every input the resolver reads `open`/`invalid` fires; every sourced Then stays silent."""
     import question_register as QR
@@ -5113,6 +5232,8 @@ def main() -> None:
     the_open_oracle_gate_is_never_judged()
     the_phrase_list_is_gone()
     open_oracle_asserted_is_a_repair_with_a_door()
+    open_oracle_door_is_chosen_by_the_binding_file()
+    open_oracle_door_for_a_non_python_story_closes_the_gate()
     open_oracle_asserted_errs_toward_firing()
     no_word_passes_the_open_oracle_gate()
     a_test_written_to_the_owners_norm_is_not_refused()

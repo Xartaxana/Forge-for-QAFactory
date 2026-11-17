@@ -62,6 +62,7 @@ The acceptor reads each item against its witness and the `tried` table of your f
 - **Say how far you got.** Each statement of the cause is confirmed by a named run or code line, or marked not verified.
 - **One cause, one draft.** Merge only on a confirmed cause; a suspicion keeps separate drafts that name each other (`possibly_same_cause`). Each of the manifestations keeps its own evidence and its own red test.
 - **Repair the mechanism, never the expected value.** A fix that changes what is asserted goes back to triage as a new candidate. Reading code is evidence only when no run can speak, and only against an oracle settled before you read: a contradicting place in the code with no oracle is a suspicion, not a bug.
+- An unfixed flake is not verified, and quarantining it is the person's call at gate B, never yours.
 
 <!-- kind: process -->
 ## Tools
@@ -83,6 +84,7 @@ Optional (arguments: your brief's Commands card).
 <!-- gen:digest contract_slices.py -->
 - Digest: the common form (`common-rules.md`), one line per failing test triaged, then `work/triage.json`.
 <!-- /gen -->
+- NOT_EXECUTED is code's word, for a manual check that did not answer.
 
 <!-- kind: process -->
 ## When to ask

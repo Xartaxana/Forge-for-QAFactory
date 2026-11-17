@@ -102,7 +102,7 @@ import config_view  # noqa: E402  (`card_values`: the values of the config keys 
 import grammar  # noqa: E402  (`_fence`: a code fence as CommonMark reads it, so `_sections` sees the headings `grammar.heading_lines` sees)
 import stage_done  # noqa: E402  (`S3_REMARK_PREFIX`: the one head of the line `finish` keeps whatever follows it)
 from controller import (Controller, MANUAL_BLOCK_CASES, MANUAL_WINDOW_CASES, S5_PLAN, SCOPE_SHOWN,  # noqa: E402
-                        dispatch_can_close_stage, dispatch_life_key, lane_keys, manual_done_cases, record_purpose, s3_window_of, s5_part_of,
+                        dispatch_can_close_stage, dispatch_life_key, lane_keys, live_s6_scopes, manual_done_cases, record_purpose, s3_window_of, s5_part_of,
                         stop_after, validate_manual_runner_block,
                         walk_lanes, with_stop_after)
 from event_store import EventCommitted, IdempotencyKeyReused  # noqa: E402
@@ -1057,6 +1057,9 @@ def _manual_block_check(args, controller, state) -> tuple:
     except StateConflict as exc:        # the controller's own text, rendered by its own function (one renderer, K-S5)
         return None, ["story_step: refused - " + str(exc), *door(block)], 2
     import manual_evidence
+    no_stand = _no_stand_refusal(args.task, state, block)
+    if no_stand:
+        return None, no_stand, 2
     refused = {}
     for case in block:
         # (ids, why, unprepared): a case the FACTORY failed to prepare has `why` empty and stays IN the block (F5(c), the
@@ -1072,6 +1075,38 @@ def _manual_block_check(args, controller, state) -> tuple:
                       *[f"{case}: not checked by hand - {why}" for case, why in refused.items()],
                       *door([] if every else block, refused)], 2
     return block, [], 0
+
+
+def _no_stand_refusal(task: str, state: dict, block: list) -> list:
+    """FV3-21b (AR-13/15): the lines of the refusal of a manual block when the person's live word passed the stand block, with a refused
+    record written for every case of it; [] = today's road (no such word, or an S6 dispatch is live - the driver's own filter, E15, one
+    shared predicate `controller.live_s6_scopes`). A case an accepted manual block carried (`manual_done_cases`) is skipped: its
+    request is never overwritten (E6, P31). Prepare's own refusal keeps its record (AR-27)."""
+    import manual_evidence
+    passing = waiver.stand_passing_override(_read_pipeline(_task_root(task)))
+    words = passing.get("decision", "")
+    if not words or live_s6_scopes(state):
+        return []
+    reason, no_stand_door = manual_evidence.no_stand_refusal(words)
+    done = manual_done_cases(state)
+    if block and all(case in done for case in block):
+        return []                   # nothing is owed: every case is checked already (today's road)
+    lines = []
+    for case in block:
+        if case in done:
+            lines.append(f"{case}: checked already by an accepted block")
+            continue
+        why = manual_evidence.prepare_for_block(_task_root(task), case)[1]
+        if why:
+            lines.append(f"{case}: not checked by hand - {why}")
+        else:
+            manual_evidence.write_case_refusal(_task_root(task), case, reason, no_stand_door, "left_unchecked")
+            lines.append(f"{case}: not checked by hand - {reason}")
+    return ["story_step: refused - no case is checked by an agent by hand: no stand is confirmed for this story and the "
+            "person said to go on", *lines,
+            f"door: {no_stand_door}; or the person's word is taken back: "
+            # the door appends `--words-file <file>` itself: a `--decision` here too made waiver refuse both (canon 44136543304)
+            + person_words.door(f"waiver.py --task {task} --revoke --stage {passing['stage']} --block \"{passing['match']}\"")]
 
 
 def _manual_block_door(task: str, given: list, state: dict, controller, spent=()) -> list:

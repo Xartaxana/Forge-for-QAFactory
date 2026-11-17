@@ -461,6 +461,42 @@ def retire_story() -> dict:
             "then_bindings": [bound("TC-020", 1, OLD_I), bound("TC-020", 2, OLD_I), bound("TC-020", 1, OTHER_I)]}
 
 
+def fl9_open_oracle_door_claims_the_pair() -> None:
+    """RD1-22 F1: `--open-oracle <case>#<n>` takes EVERY row of the pair (case, Then) on every instance out, a unit's only row
+    included, and writes the unresolved row in the same call; a pair with no rows writes only that row; a bad pair is refused."""
+    unit_only = {"tests": [test_row(OLD_I)], "then_bindings": [bound("TC-020", 2, OLD_I)]}
+    rows = lambda m: [(r["then"], r["instance_id"], r.get("status", "covered")) for r in m["then_bindings"]]  # noqa: E731
+    for label, story, expect in (
+            ("two instances and a Then of another number", retire_story(),
+             [(1, OLD_I, "covered"), (1, OTHER_I, "covered"), (2, None, "unresolved")]),
+            ("the unit's only row", unit_only, [(2, None, "unresolved")]),
+            ("a pair with no rows", {"tests": [test_row(OLD_I)], "then_bindings": [bound("TC-020", 1, OLD_I)]},
+             [(1, OLD_I, "covered"), (2, None, "unresolved")])):
+        fragment = MP.open_oracle_fragment("TC-020#2", "Q4")
+        merged, _ = MP.merge(copy.deepcopy(story), fragment)
+        check_eq(f"FL9 F1 {label}: the pair's rows go, the unresolved row stands", rows(merged), expect)
+        check_eq(f"FL9 F1 {label}: no problem with the fragment", MP.claim_pair_problems(story, fragment), [])
+    check_eq("FL9 F1: the claim is not stored", "claim_then_pairs" in MP.merge(copy.deepcopy(unit_only), MP.open_oracle_fragment("TC-020#2", "Q4"))[0], False)
+    check_eq("FL9 F1: `run` prints the row taken out", MP.removed_then_lines(unit_only, MP.open_oracle_fragment("TC-020#2", "Q4")),
+             [f"TC-020 Then 2 on {OLD_I}"])
+    row = MP.open_oracle_fragment("TC-020#2", "Q4")["then_bindings"][0]
+    check_eq("FL9 F5: no `observed` unless given", ("observed" in row, MP.open_oracle_fragment("TC-020#2", "Q4", "403")["then_bindings"][0].get("observed")), (False, "403"))
+    for label, bad in (("an unknown case", "TC-999#2"), ("a Then of 0", "TC-020#0"), ("a Then that is no number", "TC-020#x"), ("no Then", "TC-020"), ("empty", "")):
+        fragment = MP.open_oracle_fragment(bad, "Q4")
+        said = MP.claim_pair_problems(unit_only, fragment) if fragment else ["spec refused by the flag"]
+        check_eq(f"FL9 F1 {label}: refused (the flag, or the pair check naming the door)", len(said), 1)
+        check_eq(f"FL9 F1 {label}: a pair the manifest does not know names the door", fragment is None or "--open-oracle" in said[0], True)
+    with Stand() as stand:
+        check_eq("FL9 F1 run: the story is sent", stand.put(unit_only)[0], 0)
+        code, _out, err = stand.put(MP.open_oracle_fragment("TC-999#2", "Q4"))
+        check_eq("FL9 F1 run: an unknown case is refused before the commit, naming the door", (code != 0, "--open-oracle" in err), (True, True))
+        code, out, _err = stand.put(MP.open_oracle_fragment("TC-020#2", "Q4"))
+        check_eq("FL9 F1 run: the claim commits", code, 0)
+        check_in("FL9 F1 run: ... and prints the proof row it took out", f"TC-020 Then 2 on {OLD_I}", out)
+        check_eq("FL9 F1 run: ... the projection holds the open row only",
+                 [(r["then"], r.get("status")) for r in stand.manifest()["then_bindings"]], [(2, "unresolved")])
+
+
 def hf3_2_b_k1_retraction_takes_the_rows() -> None:
     story = retire_story()
     rename = {"retracted_instances": [OLD_I], "tests": [test_row(NEW_I)]}
@@ -1573,6 +1609,7 @@ def main() -> None:
     fv1_19e_binding_currency()
     tq1_18_base_outcome()
     tq1_7_helpers()
+    fl9_open_oracle_door_claims_the_pair()
     hf3_2_b_k1_retraction_takes_the_rows()
     hf3_2_b_k4_a_spelling_a_row_still_wears()
     hf3_2_b_k8_aliases_of_a_dropped_row()
