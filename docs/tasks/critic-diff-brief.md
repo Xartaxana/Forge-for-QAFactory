@@ -8,17 +8,18 @@ and the critic role file's rule 18 point here (B-419).
 ## The two layers (CLAUDE.md rule 3, the two-layer review rule)
 
 - **Mechanical layer** — attached by the BUILDER to its handoff, verbatim, before the critic starts:
-  the DoD run tails (the scope: `plans/builder-rules.md` 7b); no mutation list (retired 10.11.2026, `docs/TESTING.md`); the ratchets
+  the DoD run tails (the scope: `plans/builder-rules.md` 7b); for a defect
+  item, the `red-before:` line (`docs/TESTING.md` «Тест может упасть»); no mutation list (retired 10.11.2026, `docs/TESTING.md`); the ratchets
   (`dup_ratchet --check`, `lint_ratchet --check`) are NOT in the builder's layer: their result is the `forge-check` job of the
   branch or MR pipeline (batch level, `plans/builder-rules.md` 7b/7c; D-0033 as refined by the Lead), which the critic reads, never
   re-runs; the old-vs-new counts where the spec asks for them. A layer not attached
   is returned to the dispatcher as a request, never executed by the critic.
 - **Verdict layer** — the critic's own zone: architecture, semantics, class-wide completeness, the
-  edges' error direction, the tests' killing power, and the two standing questions below. A cheap
+  edges' error direction, the tests' killing power, and the standing questions below. A cheap
   control re-run of what is attached (ONE small fast test file the verdict depends on, or one guard
   selftest) is legitimate; `test_story_step.py`, `test_story_run_*.py`, full `selftest.py`, docker,
-  ratchets and mutation runs are not — they are the batch canon's (D-0056);
-  re-deriving the mechanics by reading everything is not.
+  ratchets and quarantined files are not — they are the batch canon's (D-0056); a mutation suite is
+  nobody's (retired 10.11.2026); re-deriving the mechanics by reading everything is not.
 
 ## The standing questions (every diff gate, each with its own verdict line)
 
@@ -32,18 +33,35 @@ and the critic role file's rule 18 point here (B-419).
    comes back as a line the Lead writes into «Остатки» as is: `<what> | узел: <node id>` (a node row the Lead opens in an
    untaken batch, D-0044) or `<what> | перенос: <findings/<file> | пачка N> | обоснование: <why> | подтвердил: —`; a bare queue
    line is refused by `piles.py check` (д) (F6-30).
-5. **Tests** (`docs/TESTING.md`, the owner's word 10.11.2026): would the node's test catch the defect the node
-   exists for, through the door the factory uses — judged by READING it; is there a junction test when the node
-   changes a field, a refusal or a handoff form. Findings: a pin on role text, on the source of a script, on a
-   measured constant, a receipt per DoD key / edge / mutation, a negative control inside a test (the table
-   «не пишется» of `docs/TESTING.md`); more test lines than product lines (ratio and door: `docs/TESTING.md` «Бюджет / Объём») with no reason named — the
-   finding is the missing `tests-over:` line in the commit message; a subprocess per
-   check where one world per file would do. A missing pin is NOT a finding. The layers
-   (`ai-packages/qa-factory/scripts/tests/test-layers.json`, spec `docs/tasks/specs/td-15-scenarios-quarantine.md`): a new
-   test file in the package (`ai-packages/`) with no keep row (the exception: the new forge tools of the offload spec,
-   `docs/TESTING.md` «Бюджет / Файлы»), or a keep row whose layer/why does not hold — finding; an edit to a quarantined file without a
-   `quarantine-edit:` reason that holds — finding; a phase-2 move whose replacement does not catch the detector's class —
-   finding.
+5. **Tests** (`docs/TESTING.md`, the owner's words 10.11 and 17.11.2026), each sub-question answered:
+   (a) KILLING POWER: would the node's test catch the defect the node exists for, through the door the factory uses --
+   judged by reading it. For a defect item, the builder's `red-before:` line is read: a red at import or collection is
+   not a red.
+   (b) EXPECTED VALUE: every asserted value traces to the spec/DoD, a rule text, the owner's word, or the test's own input
+   by a rule the spec states (`docs/TESTING.md` «Откуда берётся ожидаемое значение»); a literal that matches only the
+   code's own output, with no such source, is a finding; a value the spec left silent and the builder picked, or a spec
+   clause "stays as now" that names no value or invariant, is a finding against the spec.
+   (c) NEW BEHAVIOUR HAS A ROW: each new behaviour reachable from OUTSIDE the unit -- through a door: a CLI argument or
+   exit, a hook's verdict, a gate's refusal or pass, a field or file another reader reads -- has a scenario, junction or
+   table row; a missing row is a finding. A new internal function, branch or helper that no door exposes on its own
+   needs no row (`docs/TESTING.md`: an internal boundary gets no test); it is covered through the door that reaches it.
+   (d) REWRITTEN OR DELETED TEST: the report names where its behaviour is still checked (file::row), or that the spec
+   removed the behaviour; neither is a finding.
+   (e) DUPLICATE: a new row that asserts what an existing row already asserts through the same door is a finding --
+   name the existing row with file:line.
+   (f) As before: a pin on role text, on the source of a script, on a measured constant, a receipt per DoD key / edge /
+   mutation, a negative control inside a test (the table «не пишется» of `docs/TESTING.md`); more test lines than
+   product lines (`docs/TESTING.md` «Бюджет / Объём») with no reason named -- the finding is the missing `tests-over:`
+   line; a subprocess per check where one world per file would do. A missing PIN -- on text, source, a constant, one per
+   DoD key -- is still NOT a finding: (c) asks for rows on behaviour at a door, never for pins or receipts.
+   (g) A NEW TEST FILE is judged by the goal of `docs/TESTING.md` «Бюджет / Файлы» (run time, upkeep, no file per
+   script instead of a story): a finding when the case fits an existing story, joint or table without taking that file
+   past its budget (10 s; a split part 60 s in CI) or giving it a door it does not already drive, or when the new file
+   runs over 10 s, builds its world more than once or holds more than one parameterised table (plus junction rows); a
+   package file with no keep row, or a keep row whose layer/why does not hold -- finding. The layers
+   (`ai-packages/qa-factory/scripts/tests/test-layers.json`, spec `docs/tasks/specs/td-15-scenarios-quarantine.md`): an
+   edit to a quarantined file without a `quarantine-edit:` reason that holds -- finding; a phase-2 move whose
+   replacement does not catch the detector's class -- finding.
 6. **DUPLICATION AND CONSISTENCY**: does the diff implement anything the repository already has a
    reader, writer, helper, data table, refusal text builder, tokenizer or path resolver for? For
    each such place: the existing one with file:line, and whether the diff should have reused it,

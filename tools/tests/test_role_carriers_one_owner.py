@@ -47,6 +47,9 @@ OWNER_KEYS = [
     ("routing:rule-9", "CLAUDE.md", "the rule against recurrence goes on the highest level that ties the siblings together"),
     ("cost:cap", "CLAUDE.md", "WARN 250K, STOP 400K"),
     ("cost:queue", "PROJECT.md", "в работе всегда шесть пишущих билдеров"),      # 63bbd5e: the full-queue text moved to PROJECT.md item 12; CLAUDE.md rule 12 points there
+    ("tests:oracle", "docs/TESTING.md", "тест, чьё ожидание переписано из того, что код напечатал, может только пройти"),
+    ("tests:line", "docs/TESTING.md", "Пункт без поведения (перенос текста, переименование) строки не получает"),
+    ("tests:files", "docs/TESTING.md", "Новый файл верен, когда случай не ложится ни в одну из них"),
 ]
 
 # (carrier, pointer text it must hold, target, anchor the target must still hold)
@@ -70,6 +73,7 @@ POINTERS = [
     ("SYSTEM_PROMPT.md", "CLAUDE.md rule 9", "CLAUDE.md", "9. Fix the class, not the instance (fix-the-class-not-the-instance"),
     ("docs/RUNBOOK.md", "`plans/builder-rules.md` п. 7b", RULES, RULES_7B),
     ("docs/RUNBOOK.md", "`CLAUDE.md` rule 12, Cost gates", "CLAUDE.md", COST),
+    ("docs/TESTING.md", "`docs/tasks/critic-diff-brief.md` «The two layers»", BRIEF, "## The two layers"),
     ("docs/TWO_VOCABULARIES.md", "`delegation.config.yaml`", "delegation.config.yaml", "scout:"),
 ]
 
