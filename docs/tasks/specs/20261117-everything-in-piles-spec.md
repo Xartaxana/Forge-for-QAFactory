@@ -1643,3 +1643,7 @@ F27 -> (a) a scoped address `§ <heading> § <id>` when the bare id is ambiguous
 FG7-52's pointer part (items 1-3); FG7-52 is narrowed to paths/ranges/gate numbers/SIBLING_MAP and runs after K. The
 amendment line belongs to the boot-by-topic spec (the brief's "architect spec" was the Lead's slip). Critic re-pass on
 §8.2 is owed; the topic is last in today's order (owner, 17.11).
+
+Amendment owed from the forge-test-rules spec (its F-D, Lead 17.11): in stream C (`:246-247`) and A2 (`:307-309`) the
+door text «verdict predates remarks» becomes field-generic: «verdict predates a required field (<name>)». To be applied
+by the next designer edit of this spec, before A2's dispatch.

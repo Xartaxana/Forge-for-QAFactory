@@ -1060,3 +1060,15 @@ Needed beyond the manifest: `scenario_walk.py`, `test-layers.json`, `architectur
 | F13 verdicts before the field | S-D's own refusal names the field-generic door; amendment line for everything-in-piles C/A2 named (fork F-D); M3 (d) depends on A2, stated | §5.2, §10.1, §12 |
 | F14 minors | (i) CLAUDE.md stays in S-B owns, scoped to the rule 3 clause and R11-h (B1 needs it), rule 11 pointer dropped; (ii) the O-2 placeholder gone — O-2 is an instance of the O-1 rule; (iii) TESTING names the check by title, no instruction text landed; (iv) closed by the owner's «ок» on O-3, L-2 final; (v) check (b) names check 13 (c)'s stream | §7.4, §4.1, §2.4, §5.1 item 6, §9 (b) |
 | O-1 owner's word | §4.1 rewritten: goal-based rule (run time, upkeep, file per script), the designer places the row, a new file when no existing file fits without getting slower or wider, under 10 s, one world, one table; critic judges (q5 (g)); keep = bookkeeping; O-2 an instance; exact texts for TESTING «Файлы», 7d, builder.md 4, designer.md 1; owner quoted; artifact sweep of TESTING | §4.1, §2.5, §3.1 (g) |
+
+## Lead decisions on forks F-A..F-D (17.11.2026, Fable; fix round t-956 accepted)
+
+F-A -> (a) the checker requires one green-control rerun without `mutate_once.py` when `mutants` is non-empty.
+F-B -> (a) no tree named = no probe, `mutants_none: "no tree named by the dispatch"`; the coordinator names the node's
+worktree on the critic dispatch's `given:` line; the critic never creates a worktree.
+F-C -> as recommended: whichever of S-C / spec-facts S2 is dispatched first goes first, the order line in both batch rows.
+F-D -> the amendment «verdict predates a required field (<name>)» is written into the everything-in-piles spec by its
+next edit (before A2's dispatch); recorded there by the Lead.
+Because B1 -> (a) changed the mechanism after the plan critic (the critic runs the probe itself; runner stream S-E), ONE
+targeted critic re-pass on the changed parts (§1.1, §3.2, §5.3, §7.1 S-E, the CLAUDE.md rule 3 clause and R11-h line) is
+taken before any stream is dispatched (PROJECT.md «новая идея» step 6: a re-pass when fixes change the architecture).
