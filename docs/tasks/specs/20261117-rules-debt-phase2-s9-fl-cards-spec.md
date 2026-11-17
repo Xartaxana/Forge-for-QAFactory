@@ -1028,3 +1028,17 @@ file); Grep `` `skip` `` over the package `*.md`; Grep of the skip brief texts o
 `glob: !worktrees/**` timed out inside the worktrees and was a miscall (the `!**/worktrees/**` form excluded them).
 One Grep with a brace glob mixing a path (`{controller.py,tests/fixtures/judgment-census.json}`) returned nothing and is
 counted as a miscall, not as an absence (the `_raise_all` facts above come from the direct-path Grep).
+
+## Lead decisions after the FL4 code critic (t-1059, 17.11.2026; made in the owner's absence)
+
+Verdict `docs/tasks/specs/reviews/t-1059-rules-debt-fl4-code.md`: needs work, B1 + F1-F5. All are fixed in ONE round under t-1050:
+
+- **B1.** `references/controller-api.md` goes back under its 12000-byte cap by merging the new sentence into the `--rows` one; the cap is not raised.
+- **F3 — the critic's proposal is taken.** The analyst's instruction moves from the charter to the conditional packet line (`Bug candidates of this
+  dispatch: ...`), written once as a constant beside `bug_candidates` and read by `story_step._packet_lines` and the `brief_pack` rework head (N1);
+  the charter line is dropped; the Lead's raise of `process_ratchet_tokens.qa-failure-analyst` (20261 -> 20306) is REVERTED. Card item 7's key moves
+  to the packet-line row.
+- **F4 — fixed here, owns widened.** `_grounding_candidates`: an existing path that is not a readable file is "the grounding table unreadable"; a
+  register with text and no `## Register` table is "the requirements register unreadable"; an unreadable mark vocabulary is unreadable too. None of
+  the three may print "not in this story".
+- **F1, F2, F5, N5** fixed as the verdict states. **N2, N3, N4** go to the pile as lines.
