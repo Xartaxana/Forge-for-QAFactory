@@ -183,6 +183,10 @@ def k2_blocked_and_the_cap():
         W.apply_stage_override(pipeline, "S5", WORD_ROUND, "one more round", W.now_iso())
         put(root, "pipeline.json", json.dumps(pipeline))
         check_eq("(2e): the person's word passes it", refused(lambda: c.apply("dispatch", again)), "")
+        # RD1-31 (E): a NON-registry block, passed by a word and COMMITTED through the helper road `_plan_refusal` (one row, the right stage)
+        rows = [json.loads(line) for line in (root / "state" / "passed-by-person.jsonl").read_text(encoding="utf-8").splitlines()]
+        check_eq("(2e): the committed dispatch leaves exactly one pass row, stage S5, naming the block",
+                 [(r["stage"], r["dispatch"], r["block"].startswith(f"S5 {WORD_ROUND}:")) for r in rows], [("S5", again["id"], True)])
         # the word `plan before windows` passes the window refusal; the word of another refusal does not
         check_in("M24: the word of the round cap does not pass the window refusal", "blocks the plan", window(c, root))
         W.apply_stage_override(pipeline, "S5", WORD_WINDOWS, "go on, the blocker goes into the window", W.now_iso())

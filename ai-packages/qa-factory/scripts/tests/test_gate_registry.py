@@ -1185,18 +1185,18 @@ def part_predicate() -> None:
     check("C3-0 registry-problem: a non-object registry has a reason", bool(GT.registry_problem(registry=[])))
     check_eq("C3-0 registry-problem: an in-memory registry that reads", GT.registry_problem(registry=reg(row("a"))), "")
     check_eq("C3-0 registry-problem: the live registry", GT.registry_problem(), "")
-    # RD1-27: the four sites of "the gate registry cannot be read" take ONE builder; each row = (site, built text, the text the site had)
+    # RD1-27: the builder reproduces the texts the four sites had (the texts the sites really produce are the site rows: test_run_freshness, test_proof_level, test_execution_request, test_controller_state); each row = (site, built text, expected text)
     import proof_level as PL
     for site, built, had in (
-            ("proof_level run", GT.registry_why("R", PL.WHY_RUN_REGISTRY),
+            ("proof_level run", GT.registry_why("R", PL.WHY_RUN_REGISTRY_TAIL),
              "the gate registry cannot be read (R): a factory defect, not a change of the test"),
-            ("proof_level receipt", GT.registry_why("R", PL.WHY_RECEIPT_REGISTRY),
+            ("proof_level receipt", GT.registry_why("R", PL.WHY_RECEIPT_REGISTRY_TAIL),
              "the gate registry cannot be read (R): a factory defect, the receipt was not judged"),
             ("execution_request _match", GT.registry_why("R", "the earlier run was not judged"),
              "the gate registry cannot be read (R): a factory defect, the earlier run was not judged"),
-            ("controller dispatch stop", GT.registry_why("R", "Owner: factory - T", stop=True),
-             "gate registry unreadable: the plugin's references/gate-registry.json cannot be read (R). Owner: factory - T")):
-        check_eq(f"RD1-27 {site}: one builder, the same bytes the site had", built, had)
+            ("controller dispatch stop", f"{GT.REGISTRY_BLOCK}: " + GT.registry_why("R", "Owner: factory - T"),
+             "gate registry unreadable: the gate registry cannot be read (R): a factory defect, Owner: factory - T")):
+        check_eq(f"RD1-27 {site}: the builder reproduces the site's text", built, had)
 
 
 def main() -> None:

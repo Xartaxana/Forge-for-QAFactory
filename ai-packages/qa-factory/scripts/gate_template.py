@@ -57,14 +57,13 @@ def registry_problem(*, registry=None) -> str:
         return f"it cannot be read ({type(exc).__name__})"
 
 
-def registry_why(reason, tail, *, stop=False) -> str:
-    """THE sentence for "the gate registry cannot be read" (RD1-27, AR-16, P31): `reason` is `registry_problem()`'s text, `tail` what the
-    site adds. Two forms of ONE fact, both carrying `cannot be read ({reason})`: the in-line reason of a site that judges a reuse
-    (`stop=False`: "the gate registry cannot be read (R): a factory defect, <tail>"), and the dispatch stop's opening (`stop=True`:
-    "gate registry unreadable: the plugin's references/gate-registry.json cannot be read (R). <tail>"; the prefix is matched by
-    `tools/controller-blocks-gen.py` and pinned by tests)."""
-    if stop:
-        return f"gate registry unreadable: the plugin's references/gate-registry.json cannot be read ({reason}). {tail}"
+REGISTRY_BLOCK = "gate registry unreadable"   # the block name of the dispatch stop: one constant, so the refusal, the waiver door and the generator cannot drift apart
+
+
+def registry_why(reason, tail) -> str:
+    """THE sentence for "the gate registry cannot be read" (RD1-27, AR-16, P31): ONE head, `reason` is `registry_problem()`'s text,
+    `tail` what the site adds: "the gate registry cannot be read (R): a factory defect, <tail>". The dispatch stop opens it with
+    `REGISTRY_BLOCK + ": "` (the prefix is matched by `tools/controller-blocks-gen.py` and pinned by tests)."""
     return f"the gate registry cannot be read ({reason}): a factory defect, {tail}"
 
 

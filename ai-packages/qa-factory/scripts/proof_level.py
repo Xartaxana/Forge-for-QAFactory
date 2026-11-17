@@ -943,8 +943,8 @@ WHY_RUN_NOT_COMPARED = ("the test has no per-test identity to compare: no run of
                         "or no story folder was given")
 # An unreadable gate registry refuses every reuse, and says so: it is a defect of the install, not a change of the
 # test (FR-41: an unknown is never reported as a fact).
-WHY_RUN_REGISTRY = "not a change of the test"            # the tail of `gate_template.registry_why` (the ONE builder, RD1-27)
-WHY_RECEIPT_REGISTRY = "the receipt was not judged"
+WHY_RUN_REGISTRY_TAIL = "not a change of the test"            # the tail of `gate_template.registry_why` (the ONE builder, RD1-27)
+WHY_RECEIPT_REGISTRY_TAIL = "the receipt was not judged"
 WHY_NO_RUN = "no run of this instance reached a result"
 RUN_SHA_KEYS = ("instance_content_sha", "instance_code_sha")
 
@@ -981,7 +981,7 @@ def _run_freshness(entry, run_row, task_root, now) -> tuple:
         return "fresh", ""
     problem = registry_problem()
     if problem:
-        return "stale", registry_why(problem, WHY_RUN_REGISTRY)
+        return "stale", registry_why(problem, WHY_RUN_REGISTRY_TAIL)
     attempt = shas.get("attempt_id")
     return "stale", WHY_RUN_CHANGED.format(run=f"run {attempt}" if attempt else "its run")
 
@@ -1638,7 +1638,7 @@ def _evaluate(variant: dict, task_root, instance_id: str, now=None, scope_ok: bo
         how = same_test(now, claims)
         if not acceptable(how, "test_identity.receipt_holds"):
             problem = registry_problem()
-            said = (registry_why(problem, WHY_RECEIPT_REGISTRY) if problem else
+            said = (registry_why(problem, WHY_RECEIPT_REGISTRY_TAIL) if problem else
                     f"its receipt is for other bytes (test_content_hash {receipt.get('test_content_hash')}, "
                     f"the test file now hashes {now['input_hash']}) and other code"
                     if claims["input_hash"] != now["input_hash"] else

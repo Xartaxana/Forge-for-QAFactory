@@ -14,7 +14,7 @@ from harness import mark_project, s5_window_form
 from story_run_common import accept_record
 import controller as controller_module
 from controller import Controller, validate_manual_runner_block
-from event_store import StateConflict, content_hash
+from event_store import DerivedViewStale, StateConflict, content_hash
 import hooklib
 import stage_done
 # The REAL reader of the combined refusal (C2-1), not a copy of its grammar.
@@ -2285,6 +2285,10 @@ REG_PRECONDITION_ROWS = (
     ("passed-by-word", ({"rows": "x"}, "it carries no `rows` list"), "", True, None, "recorded", 1),
     ("passed-by-word-other-block-refuses", ({"rows": "x"}, "it carries no `rows` list"), "scope expansion", True,
      ("scope", ["TC-9"]), "refused-other", 0),
+    # RD1-31 (B): the event is durable though a step AFTER it raises (`DerivedViewStale` is an `EventCommitted`): the row exists iff the
+    # event is committed, so the one row stays (red on a `kept` recorded only when `apply` returns normally)
+    ("passed-by-word-after-commit-fails", ({"rows": "x"}, "it carries no `rows` list"), "", True, "after-commit-fails",
+     "committed-then-raised", 1),
     ("live", "live", "", False, None, "recorded"),
     ("malformed-first", ({"rows": "x"}, "it carries no `rows` list"), "", False, ("input_hash", None), "malformed"),
     ("malformed-first-empty", ({"rows": "x"}, "it carries no `rows` list"), "", False, ("input_hash", ""), "malformed"),
@@ -2306,7 +2310,11 @@ def test_c3_reg_precondition_one_stop_for_an_unreadable_registry():
     def attempt(c, key, edit=None):
         request = {"id": "S0-" + key, "stage": "S0", "role": "qa-worker", "scope": ["TC-1"], "input_hash": "h", "budget": {},
                    "known_paths": {}, "idempotency_key": key}
-        if edit and edit[1] is None:
+        if edit == "after-commit-fails":      # the derived-view refresh after the commit fails: the event is in, the call raises
+            def stale():
+                raise DerivedViewStale("the derived views could not be refreshed")
+            c.store._run_after_commit = stale
+        elif edit and edit[1] is None:
             del request[edit[0]]
         elif edit:
             request[edit[0]] = edit[1]
@@ -2335,6 +2343,8 @@ def test_c3_reg_precondition_one_stop_for_an_unreadable_registry():
             elif outcome == "refused-other":
                 assert isinstance(got, StateConflict) and words in str(got), (rid, repr(got))
                 assert not c.state()["dispatches"] and len(c.store.read()) == before, (rid, "a dispatch was recorded")
+            elif outcome == "committed-then-raised":
+                assert isinstance(got, DerivedViewStale) and "S0-d1" in c.state()["dispatches"], (rid, repr(got))
             elif outcome == "malformed":
                 assert type(got) is ValueError and not str(got).startswith("gate registry unreadable"), (rid, repr(got))
                 assert len(c.store.read()) == before, (rid, "a malformed dispatch was recorded")
