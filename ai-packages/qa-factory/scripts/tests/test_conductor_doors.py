@@ -1174,6 +1174,40 @@ def test_refusal_cut_keeps_the_choice_and_prices() -> None:
             check_eq(f"FV2-94 {label}: the choice paragraph names the token", "The person chose `rework`" in section, True)
             if says_size > 6000:
                 check_eq(f"FV2-94 {label}: nothing of the factory's words is left", "~" in section, False)
+            if says_size > 6000:                    # the head outlived its call? a second call with the same text must be cut at 6000 exactly
+                del prompts[:]
+                driver.conductor_calls = {}
+                type(driver).conductor(driver, text)
+                again = prompts[0].split("## The refusal\n", 1)[1].split("\n\n## `story_step.py where`", 1)[0]
+                check_eq(f"FV2-94 {label}: a call that set no head is cut at 6000 exactly (the attribute was cleared)", len(again), 6000)
+        # F1: the retry text keeps `## Your options were refused` and the rule whole, with 9000 characters of details
+        state = {"why": "chosen", "kind": "gate_A", "stage": "S4", "text": "~" * 9000, "token": "rework", "move": "rework_stage", "says": "S" * 20,
+                 "lead": "THE LEAD"}
+        driver.no_move_facts = lambda st: dict(gate)
+        answers = [{"action": "continue", "did": "x", "options": [{"token": "rework", "move": "rework_stage"}]}, {"action": "continue", "did": "y"}]
+        del prompts[:]
+        driver.conductor_calls = {}
+        driver.conductor = lambda *a, **k: type(driver).conductor(driver, *a, **k)
+        driver.run_claude = lambda role, prompt, **k: prompts.append(prompt) or {"result": json.dumps(answers[len(prompts) - 1]), "session_id": "s", "total_cost_usd": 0, "num_turns": 1}
+        driver.no_move(state, None)
+        retry = prompts[1].split("## The refusal\n", 1)[1].split("\n\n## `story_step.py where`", 1)[0]
+        check_in("FV2-94 retry: the refused section is kept with 9000 characters of details", "## Your options were refused\n", retry)
+        check_in("FV2-94 retry: the list of args values is kept", '"args" from these values only', retry)
+        check_in("FV2-94 retry: the person's choice is kept", "## The person's choice\n", retry)
+        # F2: an unread gate answer: the notes and the reading stand before the question, whose tail alone is cut
+        sent = []
+        driver.unread = lambda kind, stage, dispatch, text, **k: sent.append(text)
+        driver.judged_reply = lambda q, w, k: "THE-READING"
+        driver.question_lines_note = "\n\nTOLD-ONCE-LINES"
+        driver._unread_kept_gate("gate_A", "S4", "", "Q" * 15000, "not the approval word", "\n\nSTAND-NOTE")
+        del prompts[:]
+        driver.conductor_calls = {}
+        type(driver).conductor(driver, sent[0])
+        gate_section = prompts[0].split("## The refusal\n", 1)[1].split("\n\n## `story_step.py where`", 1)[0]
+        for part in ("## The option the judge reads", "THE-READING", "TOLD-ONCE-LINES", "STAND-NOTE"):
+            check_in(f"FV2-94 unread gate, 15000-char question: {part!r} survives the cut", part, gate_section)
+        check_eq("FV2-94 unread gate: the question is what was cut", "Q" * 15000 in gate_section, False)
+
     finally:
         _harness.cleanup(root)
 

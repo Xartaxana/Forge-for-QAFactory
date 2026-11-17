@@ -863,13 +863,17 @@ def c16c_the_delivery_as_seam_questions() -> None:
             with contextlib.redirect_stdout(io.StringIO()):
                 driver.take_answer(answer_file)
             owed = [r for r in driver.state.get("owed_rows") or [] if r.get("script") == "log_append.py"]
+            # the row's note travels by a file (`--notes-file`, `answer_row`): the prefix and the words are in that file, not on the argv
+            args = owed[0]["args"] if len(owed) == 1 else []
+            note = Path(args[args.index("--notes-file") + 1]).read_text(encoding="utf-8") if "--notes-file" in args else ""
             check(f"C-F3 delivery `{words.splitlines()[0][:12]}`: the refused journal row is OWED, not lost",
-                  len(owed) == 1 and any(str(a).startswith(prefix) for a in owed[0]["args"]), str(driver.state.get("owed_rows")))
+                  len(owed) == 1 and note.startswith(prefix) and words.strip() in note, str(driver.state.get("owed_rows")))
             driver.state.pop("delivery_choice", None)
     finally:
         b272_cleanup(root)
     # the grep pin: none of the three promises is left in the driver's source; the positive control is the same call on a line that exists
-    source = (Path(story_run.__file__)).read_text(encoding="utf-8")
+    # `stage_S8` lives in driver_stage_s8s9.py since the driver split: the pin reads where the function is, with story_run.py beside it
+    source = "".join((Path(story_run.__file__).parent / name).read_text(encoding="utf-8") for name in ("story_run.py", "driver_stage_s8s9.py"))
     for needle in ("run the driver again", "will look at it", "--stage S8 --role qa-doc-scribe"):
         check(f"C16c grep pin: story_run.py holds none of `{needle}`", needle not in source)
     check("C16c grep pin, positive control (the same call finds a line that is there): `def stage_S8`", "def stage_S8" in source)
@@ -945,8 +949,9 @@ def f6_f8_the_mr_record_has_a_shape_and_a_bug_has_no_delivery_word() -> None:
         eq(f"F6 mr_record({value!r:.30})", story_run.mr_record(value), want)
     long_url = "https://x/" + "u" * 1991
     eq("F6: a 2001-character link is kept whole here (the cut at 2000 is the controller's, as today)", story_run.mr_record(long_url + "z"), long_url + "z")
-    source = Path(story_run.__file__).read_text(encoding="utf-8")
-    check("F8: story_run.py holds no `file a bug` promise", "file a bug" not in source)
+    # the gate B packet sentences live in driver_gates.py since the driver split
+    source = "".join((Path(story_run.__file__).parent / name).read_text(encoding="utf-8") for name in ("story_run.py", "driver_gates.py"))
+    check("F8: story_run.py and driver_gates.py hold no `file a bug` promise", "file a bug" not in source)
     check("F8 positive control (the same call finds a line that is there): `deliver with known gaps`", "deliver with known gaps" in source)
 
 
