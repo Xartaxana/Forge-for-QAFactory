@@ -660,3 +660,15 @@ Not read (by budget): `docs/TESTING.md` (rules taken from builder-rules 7b/7d an
 `20261114-tbw-fix-round-report.md`, wave0 part2/part3 bodies, the K10 r2 spec.
 Needed beyond the manifest: `slow_tests.json`, `scenario_walk.py`, `no_move.py`, `stage_joints.py`, `s5_precheck.py`,
 `wave0-rows.md`, `p1b-finish-spec.md`, `agents/` Glob.
+
+## Lead decisions on the forks (17.11.2026, Fable; draft accepted t-953)
+
+F-1 (a) the wave integrator moves `told_ratchet.unsited` and the K12 pin, one commit per merge wave. F-2 (b) one new
+function per node in `test_detector_verdict.py`. F-3 (b) three T7a nodes. F-4 (a), only if T9c item 0 measures red.
+F-5 (a) sub-id `execution_request:fingerprint.build`. F-6 (a) zero growth; growth = STOP naming role and bytes.
+F-7 (a) designer redraft of T1r-cards now. F-8 (a) new pile `told-before-work`, batch 1 (rows of §7 registered by one
+small-work batch at the stage boundary). F-9 (a) census merge order T4b -> T7f -> T9c -> T9a.
+Q-O1 (owner): asked; until her word the recommended answer holds — no growth of the page limits (same as F-6 (a)).
+Wave A launch: T6 and T7a-A now (four slots are held by rules-debt phase 2); T4a, T7b, T7c next as slots free; T5r
+after rules-debt FL9 merges (both edit `s5_precheck.py`, function-disjoint, queued to avoid a merge on a hot file).
+M9 and the §11 readers run are still owed by the Lead before T3b.
