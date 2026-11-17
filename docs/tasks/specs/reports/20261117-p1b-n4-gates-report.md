@@ -82,3 +82,40 @@ Axis 5: `route:handoff_form` and `joint:exit_gate:digest` both sit on the final-
 
 ## Needed beyond the manifest
 `dry_exits.py` (`judge_row`, `group_unwalked`, loaders), `dry_world.py` (`run_exit_row`, `run_seed`, `walk_exits`), `dry_stub.py` (control grammar), `dry_driver.py`, `driver_dispatch.py` (KNOWN_REFUSALS, `resume_reason`), `driver_machine.py` (`match_known`), `exit_gate.py` (`all_errors`), `detector_verdict.py` (`with_check`), `known_red.py` (`reconcile`), `test_scenario_dry_1.py`, `references/stages.json`.
+
+## Walker fix (t-1044, builder)
+
+Item 2 DONE, item 1 NOT DONE (returned as a question; no spy written, nothing wrapped).
+
+### Item 2 (joints, census-only like N4:s1-s4)
+Removed the 18 `joint:exit_gate:*` rows from `fixtures/stories/dry-1/exits/gates.json` (46 -> 28 rows) and the 18 `walk/joint:exit_gate:*` entries from `ratchet.raised_by` of `fixtures/driver-exits/gates.json` (139 -> 121). The six `joints/exit_gate:*` census entries keep `reach: live_only` with their why and keep their one `raised_by` entry each. No F-W3 / `group_unwalked` refusal arose.
+Witness (`( cd .../ai-packages/qa-factory && python -B scripts/tests/dry_exits.py --check )`, tail):
+```
+NUMBER ratchet (rows now / base): live_only 68/0, after 0/0, unwalked 264/37, hook_layer 77/77; raised_by 295
+NOTE ratchet live_only: raised 68 row(s) above the base 0, named in raised_by: [...68 entries, 6 `joints/exit_gate:*` census, no `walk/joint:*`...]
+dry_exits --check: 0 discrepancies
+```
+
+### Item 1: why nothing was wrapped (read, not run)
+There is no function that resolves the offered answers of a gate ASK; the ask itself carries none:
+- `driver_gates.py:288-322` `gate()` ends in `raise Person(f"gate_{gate}", head + body, ...)`: a plain Person (no `offered`, no `options`). `gate_text` (`driver_gates.py:106`) has no price/NM call (Grep `NM\.|priced|gate_option` over driver_gates.py: 0 hits; positive control, same filter: `def gate_text` found).
+- `driver_dialog.py:321` writes `offered` into `asked` only `if person.offered`, so the gate ask records no offered set.
+- The gate rows (`rework/approve/retry/stop`) are priced only by the SEAM fallback, after an answer the driver could not read: `driver_conductor.py:491-492` `fallback_person` -> `gate_fallback_question` (`:504`) -> `NM.priced_options("gate_A"|"gate_B", ...)` at `driver_conductor.py:523` (and `gate_prices` -> `priced_section("gate_A")` -> `driver_runner.py:1285`, the conductor prompt). Both already pass through `no_move.priced_options`, i.e. through the EXISTING spy of `dry_driver.py:73` (`NM` is the module, looked up at call time). A second spy on `gate_option_rows` / `gate_fallback_question` would record the same moment.
+- Consequence: a `gate_A` record exists in `dry-priced.jsonl` only AFTER the first answer is not read, and `dry_world.py:1243-1244` reads `priced[-1]` at the ask, before the answer. The K15/C2 reds are therefore not a lost record: at the ask nothing is priced, and for a row whose token is a seam token (`approve`, `retry`, `stop`, `rework`) the offered set exists only in the seam question that comes after the first (unread) answer. (Whether the tokens of these rows are taken at the plain gate ask by `take_answer` was not run.) The fix is not a spy in `dry_driver.py`; it is a design decision in the judge (what offered set a plain gate ask is judged against: the `question-prices.json` `gate_A` rows, or the record of the seam question that follows) -- "do not invent a second road in the judge" applies, so I stopped.
+- No file edited for item 1. Spy unit table: it exists, `dry_stub.py:1377-1389` (passing_spy / sink_path cases); no row added (no spy added).
+
+### Rows still red
+Unchanged from the first part of this report: `gate_A/{rework, approve, retry, stop, free words, empty}` FAIL on K15 / C2 (`FAIL ... gate_A/approve - C2: the token 'approve' was not offered at 'gate_A' (offered ['agree', 'flip']); K15: key not observed: expected gate_A, observed s1.review`). Not re-run this round: item 1 did not change the walker (the 11-minute part run was not started; negative control line is the one quoted above).
+
+### Diff
+`git -C <tree> diff --stat 6ca7829b..HEAD`: only the two fixture files and this report (see the commit); no production file.
+
+### FR walk
+A-F: test-layer data only, no package behavior or text a person reads changed. G: FR-30 ASCII only, no control byte; FR-13 variety stays in data rows; FR-59 an unknown stays red, never a pass. AR-20: every live_only raise keeps exactly one `raised_by` entry.
+
+### Analogs noticed (not fixed)
+- `gate_B` rows (6) and the key rows of gates inside groups s5, s6-s9 will meet the same plain-gate-ask situation (no price record at the ask).
+- Every census-only joint exit_gate row of other groups follows the same one-form rule; none touched.
+
+### Question (for the Lead)
+1) At a plain `gate_A`/`gate_B` ask the driver offers no answers and writes no price record; the options (`rework, approve, retry, stop`) appear only in the seam question after an unread answer (`driver_conductor.py:523`). Which is the intended judgment: (a) judge the six rows against the `gate_A` data rows of `question-prices.json` plus the driver's acceptance of the token (a judge change in `dry_exits.py` / `dry_world.py`: K15 key from the gate kind, C2 offered from the data rows), or (b) drive the ask to the seam question first (a `dry_world.py` row-runner change, non-goal now), or (c) keep the six rows `live_only`/walker finding? Recommendation: (a).
