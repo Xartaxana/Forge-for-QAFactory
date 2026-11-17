@@ -17,10 +17,11 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from harness import (SCRIPTS, check, check_eq, check_in, check_not_in, cleanup, finish, run_script,  # noqa: E402
                      mark_project, temp_dir, use_project)
+
+sys.path.insert(0, str(SCRIPTS))
 
 import acceptance  # noqa: E402
 import assertion_detectors as AD  # noqa: E402
