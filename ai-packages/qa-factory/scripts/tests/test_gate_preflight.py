@@ -3297,8 +3297,8 @@ def test_the_users_of_the_profile_keying_are_the_ones_the_report_lists() -> None
     check_eq("`s5_profiles` is called by controller (`_handed_cases`), by the rehearsal's own cache, by "
              "`stand_profiles` (t-300) and by story_step (`_hand_detail`, C2-3), and by no other script", sorted(users),
              ["controller.py", "gate_preflight.py", "gate_preflight.py", "story_step.py"])
-    check_eq("the rehearsal asks the cache in eight places: executor, toolchain, reporter, stand "
-             "limits, runtime probe, story ids, dependencies, stand page load (C3-j1, _page_load_due)", inside, 8)
+    check_eq("the rehearsal asks the cache in seven places: executor, toolchain, reporter, "
+             "runtime probe, story ids, dependencies, stand page load (C3-j1, _page_load_due; the stand-limits asker went with C3-j2)", inside, 7)
 
 
 def test_the_cmp2_rehearsal_is_the_one_a_person_can_read() -> None:
@@ -3569,15 +3569,15 @@ def test_c3_the_new_checks_speak_in_the_storys_words() -> None:
     for label, old, new in (
             ("a flag", "so I cannot check that it runs this story's code before ",
              "so I cannot check --container that it runs this story's code before "),
-            ("a field path", "the page load recorded for {stand_name}", "the page load recorded for {stand_name} (`environments[].measured`)"),
-            ("a script name", "does not say how or when it was measured", "does not say how or when it was measured (runtime_probe.py)")):
+            ("a field path", "the page load is not measured until one name is unique", "the page load is not measured until one name is unique (`environments[].measured`)"),
+            ("a script name", "the page load is not measured this time", "the page load is not measured this time (runtime_probe.py)")):
         scratch = source.replace(old, new, 1)
         check(f"control: the scratch copy really differs ({label})", scratch != source)
         check(f"control: the scan fails on {label} planted in a message", bool(scan_messages(scratch)))
     # RUNTIME: what the values add (a refusal, a route, a probe's own words)
     scenarios = scenario_messages()
     check("every scenario produced a message to scan", all(texts for _label, texts in scenarios))
-    check("and there are many of them", len(scenarios) >= 20)
+    check("and there are many of them (20 before C3-j2 deleted its five stand-limit scenarios)", len(scenarios) >= 15)
     for label, texts in scenarios:
         check_eq(f"RUNTIME ({label}): nothing a person would read is an instruction for a command line",
                  [(text[:60], message_offences(text)) for text in texts if message_offences(text)], [])
@@ -4586,6 +4586,7 @@ def test_w2_every_card_that_offers_a_word_contains_its_block() -> None:
     against - by the SOURCE (the message's text contains the block's text, values left as they are named)
     or by a RUN (the tripwire at the top of this file saw it, and `waiver.split_overridden` passed it).
     Run last: the record is what the whole file did."""
+    import contract
     import ast
     source = (SCRIPTS / "gate_preflight.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
@@ -4624,7 +4625,7 @@ def test_w2_every_card_that_offers_a_word_contains_its_block() -> None:
     check("the two proofs are both in use (the source one is not the only one)", proved_by_source > 5 and proved_by_run > 5)
     # RUNTIME: every card this file's runs produced, judged the way the waiver matcher judges it
     bad = [(line, message[:70], match) for line, rows in sorted(WAIVER_SEEN.items()) for message, match, stage in rows
-           if not match.startswith(gate_preflight.HANDED_MATCH_PREFIX)
+           if not match.startswith(contract.HANDED_MATCH_PREFIX)
            and not _passes(message, match, stage)]
     check_eq("RUNTIME: no card of any run in this file offers a word that does not pass it", bad, [])
     check("and the tripwire saw a good many of them (it is not recording nothing)",

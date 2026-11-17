@@ -76,7 +76,7 @@ from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from contract import HANDED_MATCH_PREFIX, STAND_GAP_MATCH_PREFIX, remedy_errors  # noqa: E402
+from contract import STAND_GAP_MATCH_PREFIX, remedy_errors  # noqa: E402
 # The onboarded project a story lives in, or None: found by its marker (`qa-factory/config.json`, the one
 # `hooklib.project_root` uses), never guessed - the ONE walk, shared with `case_stamp` and `sizing`.
 from critic_rollcall import project_root_of as _project_root  # noqa: E402

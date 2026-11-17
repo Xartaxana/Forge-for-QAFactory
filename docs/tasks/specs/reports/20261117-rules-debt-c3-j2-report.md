@@ -41,3 +41,11 @@ before: 151 items; after: 151 items; the sorted triple lists are byte-identical 
 - `test_manual_capture.py:193` row names the dead key `e2e_page_load_s` as a negative control: fine, but a later grep for the key will show it.
 - The reporter `timed_out` card (F-j-reporter) is the reachable successor: still open, Lead's node.
 - No config key added.
+
+## Canon fix (canon 44189082652)
+
+1. lint_ratchet `HANDED_MATCH_PREFIX` unused at `gate_preflight.py:79`: the re-export dropped from the import. Reality differed from the card: `test_gate_preflight.py:4627` read it as `gate_preflight.HANDED_MATCH_PREFIX`, so that test now reads `contract.HANDED_MATCH_PREFIX` (local `import contract`). Baseline not updated; `lint_ratchet --check`: 76 findings, 0 new, 0 stale.
+2. Cache-asker pin (`test_gate_preflight.py` ~3300): the removed asker is `check_s5_stand_limits` (deleted by the card's decision); the pin now names seven (executor, toolchain, reporter, runtime probe, story ids, dependencies, stand page load) and expects 7. Siblings: Grep `asks the cache` over the test tree hits only this one pin.
+3. The two FAILs on the scratch copy: cause was the test's anchor strings, deleted whole with j2 (`the page load recorded for {stand_name}` was never in the source after the rebase; `does not say how or when it was measured` went with the limit card). Anchors moved to live literals of `check_stand_page_load` ("...until one name is unique", "...is not measured this time"). A third FAIL, `and there are many of them`, was the scenario floor (>=20) after j2 removed five stand-limit scenarios: floor now 15.
+4. Changelog line 7 drops "and on the e2e stand card".
+Result: `test_gate_preflight.py` 1432/1432 ok.
