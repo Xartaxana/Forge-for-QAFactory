@@ -20,7 +20,7 @@ except ImportError:
 # P6 "next: lines": the single source of the dictionary is validate_artifacts.py —
 # only the import lives here (no duplication of the hint text).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from validate_artifacts import NEXT_STEPS, _story_root
+from validate_artifacts import NEXT_STEPS, _story_root, manifest_task_root
 from hooklib import project_root
 from detector_verdict import one_line  # noqa: E402 - a finding is one physical line in a detector's output
 import contract as C  # noqa: E402
@@ -85,11 +85,12 @@ def _witness_errors(value, short_msg: str) -> list:
 
 MISSING_FILE_MSG = 'the witness names a run_suite summary `{p}` but no such file exists — a witness is a file, not a retelling (FB-27)'
 
-def _excused(d: dict) -> str:
-    """`acceptance.run_witness_excused`, the ONE reader of "no run to witness" (B3); a failed import is "owed"."""
+def _excused(d: dict, task_root=None) -> str:
+    """`acceptance.run_witness_excused`, the ONE reader of "no run to witness" (B3); a failed import is "owed". `task_root` (the story
+    folder, `None` when the manifest path does not name one) is what lets it read S5's code-only receipt (outcome `nothing`, U7 5b)."""
     try:
         import acceptance
-        return acceptance.run_witness_excused(d)
+        return acceptance.run_witness_excused(d, task_root)
     except Exception:
         return ""
 
@@ -226,9 +227,9 @@ def readiness_check(d: dict, task_root=None) -> dict:
 
 
 RULES = {
-    "automation-manifest.json": lambda d: (
-        ([] if _excused(d) == "handed" else
-         _collect_row_missing(d) if _excused(d) == "pending" else
+    "automation-manifest.json": lambda d, task_root=None: (
+        ([] if (excused := _excused(d, task_root)) in ("handed", "nothing") else      # `nothing`: S5 closed by code over an empty plan (U7 5b)
+         _collect_row_missing(d) if excused == "pending" else
          _witness_errors(d.get("run_witness"), f'run_witness missing or shorter than {MIN_WITNESS_LEN} chars — the path to the run_suite summary (evidence/<label>-<ts>.json) with the exit code and the totals line is mandatory'))
         + [f"tests[{i}] without case/file/status" for i, t in enumerate(d.get("tests", []))
            if not (t.get("case") and t.get("file") and t.get("status"))]
@@ -325,6 +326,8 @@ def main() -> None:
             # the story root is where `work/` is held (an older layout keeps the file in the story folder itself)
             checked = readiness_check(data, _story_root(path))
             errors = checked["errors"]
+        elif path.name == "automation-manifest.json":
+            errors = rule(data, manifest_task_root(path))     # the story folder, or None: no root, no `nothing` excuse
         else:
             errors = rule(data)
     if errors:

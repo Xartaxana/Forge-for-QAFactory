@@ -1104,6 +1104,39 @@ def f5_unprepared_cases():
     finally:
         S.cleanup(t)
 
+    # --- U7 F1 (t-1292): a surface nobody drives is walked unprepared; every story-owned check still comes first -----------
+    import surfaces as SF
+    for label, words, bad_decision, walked, expect in (
+            ("a surface nobody drives", "no driver here.", None, True, "unprepared"),
+            ("position: a decision that is not manual-agent is refused first", "no driver here.", "new", False, "refused"),
+            ("old road: the table says nothing", "", None, False, None)):
+        t = S.make_task(manual=("ui",))
+        t.row("TS-7")["execution_profile_id"] = "cli"
+        if bad_decision:
+            t.row("TS-7")["coverage_obligations"][0]["decision"] = bad_decision
+        t.write_plan()
+        try:
+            with t.patched(), mock.patch.object(MC, "load_config", return_value=({}, t.task)), \
+                    mock.patch.object(SF, "nobody_words", return_value=words):
+                try:
+                    M.prepare_to_file(t.task, ui, ["OB-7"])
+                    got = (None, None)
+                except M.Refused as exc:
+                    got = (exc.walkable, exc.reason)
+                doc = json.loads(M.request_path(t.task, ui).read_text(encoding="utf-8"))
+                check_eq(f"U7 F1 ({label}): what request.json holds", next((k for k in ("unprepared", "refused") if k in doc), None), expect)
+                if walked:
+                    check_eq(f"U7 F1 ({label}): walkable, reason is the table's words", (got, doc["unprepared"]["reason"]),
+                             ((True, words), words))
+                    try:
+                        M.write_unprepared(t.task, ui, [], "not walked")
+                        closed = True
+                    except ValueError as exc:
+                        closed = "was prepared" not in str(exc)
+                    check("U7 F1: write_unprepared accepts the case (no `was prepared`)", closed)
+        finally:
+            S.cleanup(t)
+
     # --- the record: write_block, validate_manual_current, the reader ------------------------------------------------------
     t = _dict_policy_task()
     try:

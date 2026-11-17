@@ -22,6 +22,7 @@ from activity_capture import is_factory_activity
 import event_store  # noqa: E402  — the ONE temp-then-replace publisher (OH7-1)
 import adapter_forms as AF  # noqa: E402  — the project's ticket key form (B-405): which task name is a story
 import contract as C  # noqa: E402  — C.artifact resolves work/ or flat artifact paths
+import gate_template  # noqa: E402  — the ONE predicate the critic's review word approves through: row `critic_review`
 import runtime_paths as RP  # noqa: E402  — where the carried records and the readiness report live (t-232)
 import task_price as TP  # noqa: E402  — the ONE price of a task (t-137): every money surface of a story reads it
 from project_decisions import FINDING_SCOPES  # noqa: E402  — the ONE list of a finding's addressees (the writer's own)
@@ -884,7 +885,7 @@ def instance_basis(entry: dict, run_row, task_root=None, manifest=None) -> str:
     verdict = L.verdict_of(entry)
     try:
         words = PL.review_words(verdict)
-        if verdict not in ("approved", "approved_with_fixes"):
+        if not gate_template.acceptable(verdict, "critic_review.basis_dashboard"):
             return words
         if task_root:
             return words + " · " + L.proof_shown(entry, manifest, Path(task_root))[1]

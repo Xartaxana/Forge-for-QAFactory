@@ -53,7 +53,8 @@ GATE_TOP_LIMIT = 12                      # findings listed at the top of a gate 
 
 CHECK_WORDS = {"case_versions": "case versions", "gate_decision": "design review",
                "question_branches": "question branches", "unraised_questions": "questions not yet raised",
-               "s5_runtime_probe": "stand probe to register", "s5_reporter": "report kind to record"}
+               "s5_runtime_probe": "stand probe to register", "s5_reporter": "report kind to record",
+               "s5_executor": "launcher to install"}
 
 
 class DriverGates:
@@ -932,6 +933,13 @@ class DriverGates:
                 print(f"gate {gate} repair: the series has stopped, but {len(unread)} test report(s) the code could not read have not "
                       "had the helper's turn - handed to the conductor once")
                 return self.hand_to_conductor(gate, stage, "a test report the code could not read", unread, [], "", fixable)
+            # U7 5a: the same for a missing launcher the project names an install command for - the conductor's one turn per key; the
+            # person's card follows the next rehearsal (the record this call's `finally` writes makes the gate emit the card)
+            unturned = self.unturned_executors(fixable)
+            if unturned:
+                print(f"gate {gate} repair: the series has stopped, but {len(unturned)} missing launcher(s) have not had the "
+                      "conductor's turn - handed to the conductor once")
+                return self.hand_to_conductor(gate, stage, "a launcher the project can install", unturned, [], "", fixable)
             # C6: once a series has stopped, whatever its key set the gate is shown with the list (the bound
             # does not depend on `conductor_calls`, which lives in memory and is reset by a relaunch).
             print(f"gate {gate} repair: the series has stopped — the gate is shown with {len(fixable)} thing(s) "
@@ -1034,7 +1042,54 @@ class DriverGates:
             self.conductor_round(Refusal(self.conductor_text(gate, why, rest, tried)), stage)
         finally:
             self.close_reporter_bound(rest)       # B-416 N4: the bound is the CALL - it runs whatever the conductor did or raised
+            self.close_executor_bound(rest)       # U7 5a: the same bound for a missing launcher (one turn per profile|tool|digest)
         return {"ran": True, "top": ""}
+
+    def unturned_executors(self, fixable: list) -> list:
+        """The `s5_executor` findings of a list that the conductor has not had its turn for (U7 5a): the ones carrying the key's three
+        parts whose key is not in the turn record. A finding whose bound could not be recorded (`executor_handed`) is left to the top of
+        the gate, never handed again and again."""
+        import gate_preflight
+        stuck = set(self.state.get("executor_handed") or [])
+        out = []
+        for f in fixable:
+            if f.get("check") != "s5_executor" or not (f.get("profile") and f.get("tool") and f.get("install_digest")):
+                continue
+            key = gate_preflight.executor_turn_key(f["profile"], f["tool"], f["install_digest"])
+            if key not in stuck and not gate_preflight.executor_turn_had(self.task_root, key):
+                out.append(f)
+        return out
+
+    def close_executor_bound(self, findings: list) -> None:
+        """U7 5a: after the conductor's turn - whatever it did or raised - the key of every `s5_executor` finding it was handed is
+        appended to `<task root>/state/executor-turns.json` ({"turns": [{"key", "at"}]}; THIS method is the one writer, the one reader is
+        `gate_preflight.executor_turn_had`), so the NEXT rehearsal gives the person the card: one conductor call per key. A record
+        that cannot be written is printed and remembered (`executor_handed`): the finding is not handed again and stays at the top
+        of the gate. A record that already exists and cannot be read is left alone (it reads as "turn had"). Never raises."""
+        try:
+            import gate_preflight
+            keys = list(dict.fromkeys(gate_preflight.executor_turn_key(f["profile"], f["tool"], f["install_digest"])
+                                      for f in findings if f.get("check") == "s5_executor"
+                                      and f.get("profile") and f.get("tool") and f.get("install_digest")))
+            if not keys:
+                return
+            turns = gate_preflight.executor_turns(self.task_root)
+            if turns is None:
+                print("gate repair: the record of the conductor's launcher turns cannot be read - it reads as a turn had; the person is asked")
+                return
+            path = self.task_root / "state" / gate_preflight.EXECUTOR_TURNS_FILE
+            held = {t.get("key") for t in turns if isinstance(t, dict)}
+            fresh = [{"key": k, "at": _now()} for k in keys if k not in held]
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps({"turns": turns + fresh}, indent=2), encoding="utf-8")
+            except Exception as exc:
+                print(f"gate repair: the conductor's launcher turn could not be recorded ({type(exc).__name__}: "
+                      f"{' '.join(str(exc).split())[:120]}); the finding stays at the top of the gate")
+                self.state["executor_handed"] = list(dict.fromkeys(list(self.state.get("executor_handed") or []) + keys))
+                self.save_state()
+        except Exception as exc:
+            print(f"gate repair: the conductor's launcher turn could not be closed ({type(exc).__name__}: {' '.join(str(exc).split())[:120]})")
 
     def unadapted_reporters(self, fixable: list) -> list:
         """The `s5_reporter` findings of a list that have NO countable row of the helper's yet (B-416 N4): the test reports the conductor has

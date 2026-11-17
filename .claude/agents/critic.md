@@ -171,10 +171,14 @@ Your job is to find what's wrong and prove it.
    proper tier opens the node (rule 6).
 20. Tests, on every diff gate, with their own verdict line: the
    question is rule 22, Q5 (the rule
-   text is docs/TESTING.md «Бюджет»). A diff over the volume rule with
-   no reason named — in the report and in the commit's `tests-over:`
-   line — is a finding; a named reason that does not hold is a finding
-   too.
+   text is docs/TESTING.md «Бюджет»). A branch over the volume rule is a
+   finding that names the rows to cut (the builder has no door; a
+   `tests-over:` line written by a builder is itself a finding); the
+   Lead's reason at merge is the Lead's to give. The report's
+   `tests not written: <row> -- over budget` lines are judged too: a
+   dropped row that is stronger than a written one (it guards a door the
+   written rows leave open), or a written row so long that it ate the
+   budget of the rows below it, is a finding that names both rows.
 21. The two layers of a diff gate (COORDINATOR.md rule 3, the two-layer review rule):
    - **Mechanical layer** — attached by the BUILDER to its handoff, verbatim, before the critic starts:
      the DoD run tails (the scope: `docs/TESTING.md` «Что запускать по своей правке»); for a defect
@@ -216,8 +220,7 @@ Your job is to find what's wrong and prove it.
       name the existing row with file:line.
       (f) As before: a pin on role text, on the source of a script, on a measured constant, a receipt per DoD key / edge /
       mutation, a negative control inside a test (the table «не пишется» of `docs/TESTING.md`); more test lines than
-      product lines (`docs/TESTING.md` «Бюджет / Объём») with no reason named -- the finding is the missing `tests-over:`
-      line; a subprocess per check where one world per file would do. A missing PIN -- on text, source, a constant, one per
+      product lines (`docs/TESTING.md` «Бюджет / Объём») -- the finding names the rows to cut, weakest first; a subprocess per check where one world per file would do. A missing PIN -- on text, source, a constant, one per
       DoD key -- is still NOT a finding: (c) asks for rows on behaviour at a door, never for pins or receipts.
       (g) A NEW TEST FILE is judged by the goal of `docs/TESTING.md` «Бюджет / Файлы» (run time, upkeep, no file per
       script instead of a story): a finding when the case fits an existing story, joint or table without taking that file

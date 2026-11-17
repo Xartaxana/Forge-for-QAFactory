@@ -1,4 +1,4 @@
-# Spec U7 r4 - fix round t-1270: §2 site r4 (no-report half), §6 stream 7b, nodes 7c and E7 - DRAFT for Lead acceptance
+# Spec U7 r4 - fix round t-1270: §2 site r4 (no-report half), §6 stream 7b, nodes 7c and E7 - ACCEPTED with amendments for 7b-A, 7b-B, 7c (E7 waits)
 
 Replaces in r3 (`.claude/worktrees/arch-docs/docs/tasks/specs/20261117-u7-pass-without-stuck-spec-r3.md`, the copy with the block
 "After the plan critic t-1267 ...") ONLY: §2 r4 "Target, 7b" + its 7b edges/invariant/tests; §6 stream 7b; §6 node E7 stub; the
@@ -33,6 +33,73 @@ builders ran dozens of whole test files for over an hour, and every diff carried
   bound, not a quota: one parameterised row per BEHAVIOUR, variants as table entries of that row; an internal boundary gets no
   row (CLAUDE.md rule 11); `tests-over:` is a door for a named reason the critic can judge, and "the spec names these rows" is
   not such a reason.
+
+**ACCEPTED with amendments (Architect session, t-1270 accepted after plan re-review t-1272,
+`docs/tasks/specs/reviews/t-1272-u7-plan-r4-7b-7c.md`: accept with fixes for 7b-A, 7b-B, 7c; 0 blocking, 12 fixes).** No
+third critic pass: every fix is a text edit with no new fork, and the Lead takes them here. Node E7 (section 6) is NOT accepted
+by this block: it waits for its design over the scout digest `docs/tasks/specs/reports/t-1273-e7-trigger-site-digest.md`.
+**Where sections 0, 2, 4 or 5 below differ from this block, this block wins; a dispatch of 7b-A, 7b-B or 7c is cut from
+section 4/5 TOGETHER with this block.** The failure scenario of each item is in the verdict under the same id.
+
+Amendments (ids of verdict t-1272):
+- **N1 (7b-A).** F-r4-2 (a) is decided, so in the 7b-A dispatch: owns gain `scripts/bug_records.py` (`_walk_has_no_run` only)
+  and `scripts/tests/test_bug_records.py`; the non-goal "bug_records.py (fork F-r4-2)" is dropped. Behaviour: at
+  `bug_records.py::_walk_has_no_run` the admitted kinds are `("manual", "observation", "unread")`; the function's docstring and
+  the comment at its call site are restated, because the function now admits a target that HAS a current row (not red by
+  construction). Test: ONE added entry pair in the existing reproduction table of `test_bug_records.py` - a walk entry on an
+  unread target with APP_BUG gives no `R_NOT_RED_NOW`; a `fresh_data_rerun` entry on it is still refused.
+- **N2 (7b-A).** The shared key helper of `run_results` and `unread_case_reading` is the WHOLE key expression including the
+  area-alias drop (`contract.py::run_results`, the `area_of` block and the alias removal around it, not only the two key lines):
+  the bare alias of an area row never names another area's case. Test entry, added by 7b-B (its door is the plan row) in the `test_ledger.py` plan-row
+  table: red on `api/TC-4`, read on `web/TC-4` -> the web row is `not_executed:report_unread`.
+- **N3 (7b-A).** In `triage_failures` the unread loop builds its `names` from the same four keys the target reader uses
+  (`instance_id`, `test_instance_id`, `test_id`, `test`; non-empty, in that order) - never the first name alone.
+- **N4 (all three nodes).** The DoD lines "green in the four keep files" and every `scenario_walk.py --witness-for <owns>` line
+  in sections 4 and 5 are void. Each dispatch names its witness list below; a file on the slow list
+  (`scripts/slow_tests.json`) or of the canon-only class is never run whole - its rows are checked by a narrow call of the
+  changed test functions and the file is a report line "not run locally: <file>, canon judges".
+- **N5 (7b-A helper, read by 7b-B).** A case reads `"red"` when ANY coded reading is a failure verdict; `"unanswered"` only
+  when there is no red and some reading is `""`. (A red is never hidden behind an unanswered sibling.)
+- **N6 (7b-B, and 7c item 5).** POSITION in `ledger.py::plan_row_state`: the `"read"` -> `not_executed:report_unread` branch
+  sits immediately before the `skipped` branch, AFTER the unconfirmed-expectation branch. INVARIANT: no failure, flaky, partial,
+  error, unknown-word or unconfirmed-expectation word is hidden by `report_unread`. The same position holds for 7c's
+  `not_executed:unprepared_walk`. Test entry in the plan-row table: read + an unconfirmed Then ->
+  `not_verified:expectation_unconfirmed`.
+- **N7 (7b-A builds, 7b-B reads).** ONE pure private classifier `contract._reading_of(verdicts) -> "" | "read" | "red" |
+  "unanswered"` (rule of N5). `unread_case_reading` calls it per case, `check_delivery.unread_obligations` per obligation and
+  adds only its coverage guards (oracle closed, design sufficient, gap text) on top. No second wording of the rule.
+- **N8 (7b-B).** The road for `to_check` limitations: `C.bind_triage(C.triage_failures(facts["report"])[0],
+  facts["triage"])["matched"]` over keys of kind `unread`, mapped to cases by the existing
+  `check_delivery._failure_cases(key, failure, facts)` - no new matcher. Position note for 7b-A's `build_run_block` condition
+  (F1): for a `file` contract with zero report rows it REPLACES `_file_verdict`'s `id_not_in_report`; the only readers are
+  `run_history.py` (failed blocks) and the console count in `run_suite.py` - the builder confirms both by grep and reports.
+- **N9 (7c).** The walk twin of `excused` carries the same guards as `unread_obligations`: `oracle_open` is False AND the gap
+  text starts `not checked by hand: unprepared`. An unprepared walk with an open oracle stays `no` (`coverage red:` is kept).
+  Test entry in the 7c assess table: unprepared walk, oracle open -> `no`.
+- **N10 (7c).** The twin is named `unprepared_obligations(doc, report) -> frozenset`, beside `unread_obligations`; 7c's owns
+  parenthetical for `check_delivery.py` gains `assess` (the union into `excused` happens at that call site).
+- **F5 addendum (section 8).** `report_facts.EXECUTION_OUTCOME_STATES`: unchanged (`not_executed:report_unread` is
+  `after_checks` and gives no reason text there).
+- **F-r4-1 residual.** Section 7 gains a live row beside L6: a `reporter: none` run with a failing test and exit != 0 - today's
+  halt and the conductor; if a live run shows it, a node for option (b) is opened in U8.
+
+Test rows - the budget each dispatch states (K6 of t-1272; added test lines must not exceed added code lines):
+- 7b-A: 3 NEW parameterised rows (the `build_run_block` coding table in `test_s7_pretriage.py`; the driver row "S7 dispatches
+  the analyst over unread, no code close, the brief names unread" in `test_story_run_s7.py`; the reducer row in
+  `test_s7_null_outcome.py`) + about 7 entries in existing tables (7a predicate table, zero-row refusals, `multiple`, the two of N1).
+- 7b-B: 3-4 NEW rows (ledger test state; ledger plan-row state - or one row with a "level" column; the trace gap word in
+  `test_third_verdict.py`; the assess walk table in `test_check_delivery.py`) + about 17 entries.
+- 7c: 0 NEW rows + about 12 entries in the 7b-B tables.
+- NO own row (internal boundary or a duplicate of a driven door): `decide`, `brief`, "pretriage never closes",
+  `unread_readings`, `unread_case_reading`, `_reading_of`, `unread_obligations`, `coverage_reasons` direct,
+  `build_left_items` direct, `not_executed_findings` direct, `triage_reasons` direct, the temporal world "7b-B not merged".
+
+Witness lists (each file once, after all edits):
+- 7b-A: `test_s7_pretriage.py`, `test_triage_identity.py` whole; `test_s7_null_outcome.py` and
+  `test_bug_records.py` (slow list) and `test_story_run_s7.py` (canon-only) - narrow call of the changed functions only.
+- 7b-B: `test_ledger.py` whole; `test_third_verdict.py` and `test_check_delivery.py` (slow list) - narrow call only.
+- 7c: `test_ledger.py`, `test_manual_evidence.py`, `test_unprepared_outcome.py` whole; `test_third_verdict.py` and
+  `test_check_delivery.py` - narrow call only.
 
 ---------------------------------------------------------------------------------------------------------------------
 

@@ -2663,6 +2663,20 @@ def rollcall_the_claim_checks_the_ceiling_and_the_forms_n_of_m() -> None:
         check_eq("K-C6 ceiling: the same digest does not save it (the digest is right: 1 of 2)", got[0], False)
         got = _verify(ROLLCALL_CLAIM, _filled(S4C, {"review.outcome": "approved"}), task)
         check_eq("K-C6 ceiling: and it is false before the digest is even read", got[0], False)
+        # RD1-29 (E1, E2, E12): the approving words are the registry row `critic_review` (consumer `rollcall_claim`); `approved_with_fixes`
+        # over a partial ceiling is still false, and a registry that cannot be read is no verdict - never a skip into the digest comparison
+        got = _verify(ROLLCALL_CLAIM, _filled(S4C, {"review.outcome": "approved_with_fixes"}), task)
+        check_eq("K-C6 RD1-29: `approved_with_fixes` over a partial ceiling is false (kept)", got[0], False)
+        import gate_registry
+        import gate_template as GT
+        saved = list(GT._READ)
+        GT._READ[:] = [({"rows": "x"}, gate_registry.structural_error({"rows": "x"}))]
+        try:
+            got = _verify(ROLLCALL_CLAIM, _filled(S4C, {"review.outcome": "approved"}), task)
+            check_eq("K-C6 RD1-29 E2: an unreadable registry -> no verdict (None), not a skip", got[0], None)
+            check_in("K-C6 RD1-29 E2: ... the reason names the registry", "the gate registry cannot be read", got[1])
+        finally:
+            GT._READ[:] = saved
         task = _c_story(root, findings=both)
         got = _verify(ROLLCALL_CLAIM, _filled(S4C, {"review.outcome": "approved", "review.rollcall": "2 of 2 reviewed"}), task)
         check_eq("K-C6 match: the digest is what critic_rollcall computes - true", got[0], True)

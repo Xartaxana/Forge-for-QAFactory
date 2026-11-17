@@ -3146,6 +3146,26 @@ def test_hf310_a_changed_answer_reworks_from_the_last_answer_the_plan_was_asked_
         cleanup(root)
 
 
+def test_u7_a2d1_a_surface_nobody_drives_is_the_agents_first() -> None:
+    """a2D1: a `hands: none` profile is converted with the role-first line; an unknown profile, a broken table, web: as before."""
+    from unittest import mock
+    import surfaces
+    words = surfaces.rows()["surfaces"]["desktop"]["words"] + " What the agent cannot do is recorded `unprepared`"
+    cfg = {"profiles": [{"profile_id": "d", "capabilities": ["desktop"]}, {"profile_id": "w", "capabilities": ["web"]}]}
+    for label, profile, table, want in (("a `hands: none` profile", "d", surfaces.TABLE_PATH, True), ("an unknown profile", "ghost", surfaces.TABLE_PATH, False),
+                                        ("a broken table", "d", Path("no-such-table.json"), False), ("a web profile", "w", surfaces.TABLE_PATH, False)):
+        root, lines, rows = temp_dir(prefix="qa-u7-a2d1-"), [], [manual_row("R1", level="api", execution_profile_id=profile)]
+        try:
+            (root / "qa-factory" / "artifacts" / "T-1").mkdir(parents=True)
+            (root / "qa-factory" / "config.json").write_text(json.dumps(cfg), encoding="utf-8")
+            with mock.patch.object(PC, "_manual_cases_by_row", lambda r: ({}, "")), mock.patch.object(surfaces, "TABLE_PATH", table):
+                PC._manual_agent_pass(root / "qa-factory" / "artifacts" / "T-1", rows, "W", lambda rid: rid, lines)
+        finally:
+            cleanup(root)
+        check_eq(f"{label}: converted, role-first line {want}", (obligations_of({"R1": rows[0]}, "R1")["OB-R1"]["decision"],
+                 words in " ".join(lines), "stays as planned" in " ".join(lines)), ("manual-agent", want, False))
+
+
 def main() -> None:
     test_hf27_k2_k4_k6_k9_the_late_answer_patches_names_rework_and_the_rehearsal_agrees()
     test_hf310_a_changed_answer_reworks_from_the_last_answer_the_plan_was_asked_to_follow()
@@ -3212,6 +3232,7 @@ def main() -> None:
     test_t261_error_direction_toward_not_executable()
     test_t261_the_policy_table_is_data_and_both_worlds_are_tested()
     test_t261_c2_an_unconfirmed_expectation_is_never_made_executable()
+    test_u7_a2d1_a_surface_nobody_drives_is_the_agents_first()
     test_t261_the_plan_date_reaches_the_branch_checks_and_the_readiness_file_is_read_through_the_layout()
     test_t721_one_record_passes_the_finding_wherever_it_was_recorded()
     test_d1a_k_a3_the_not_applied_label_says_which_cause()
