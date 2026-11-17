@@ -43,6 +43,22 @@
      "   \"supposes\": \"the cart total ignores the quantity of a line and sums the prices only, as cart_total did before the diff: price 5 times 2 plus price 3 reads 8, not 13\",",
      "   \"actual\": \"8\"}",
      "]}"
+    ],
+    "work/test-code/critic-findings-<dispatch>.md": [
+     "# Critic findings, S5, <dispatch>, window TC-1",
+     "",
+     "Verdict: approve",
+     "",
+     "## Roll-call",
+     "",
+     "| instance | case | state | note |",
+     "|---|---|---|---|",
+     "| test_the_case | TC-1 | approved | the assertion at qa-factory/tests/TC-1_test.py:6 reads the cart total with a quantity; the probe that sums the prices only (8, not 13) turns it red, so the test is sensitive to the change under review |",
+     "",
+     "## Notes",
+     "",
+     "- No finding: the test proves the Then of TC-1 and not more than the requirement asks.",
+     "- TC-2 is a manual-agent case, outside this window; it has no test instance to review."
     ]
    }
   },

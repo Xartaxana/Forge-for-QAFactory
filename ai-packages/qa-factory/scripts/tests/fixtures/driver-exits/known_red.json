@@ -1,9 +1,10 @@
 {
  "_about": "The label ledger of the main pass of the dry walk (the `main/*` rows only; a group's rows are in known_red/<group>.json), read ONLY by scripts/tests/known_red.py (P1-a spec 3.6): `known_red` holds one row per walk-row id (`<key|route|joint|kind>/<variant>`) that is red today because of a defect of main - `{node, raised_by[, note]}` - and `pins.known_red` is the number of rows (equality, both directions). Empty until the walk nodes (N3, N4) measure their first red rows; a raise is named in raised_by of the row.",
  "known_red": {
-  "main/S5": {
+  "main/S6": {
    "node": "FV3-20",
-   "raised_by": "stub gap: Lead t-1076, 2026-11-17, measured on the P-b branch: the exit gate for S5-qa-code-critic-1 passes (review.receipt_ref since P-a t-1071, probes.runtime_provenance since P-b t-1076); stopped at S5: story_step finish S5-qa-code-critic-1 refused - the qa-code-critic window is not receipted: no findings file in the accepted evidence (the dry stub's critic writes no work/test-code/critic-findings-<dispatch>.md)"
+   "raised_by": "stub gap: Lead t-1088, 2026-11-17, measured: S5 closes now (the stub's qa-code-critic writes work/test-code/critic-findings-<dispatch>.md); the pass stops at S6: the road met the conductor: a state the driver has no move for; its own words: \"exit gate for S6-qa-runner-1 (qa-runner, S6): 21 finding(s): - digest: your final message is not the handoff form. ... the digest names no artifact path ... TC-1 was in this dispatch's scope and has no line\" and 20 more rows `handover form S6-qa-runner-1.yaml - <field>: not filled` (scope, inputs_read, header.verdict, run.*, superseded, claims.*, tried); the driver's first refusal: \"resume S1-qa-scout-1: the person answered what the role stopped for\"; classified stub gap (the filler): the stub journal row of S6-qa-runner-1 says live_only \"form s6-runner-to-analyst: a hint inside a value that no context token names and no `literal_text` row of form-fill-rules.json covers: the filler writes no value it cannot fill (E10)\" and \"work/evidence/manual/<case>/tried.md: no contract heading; the recorder's build reads it\"",
+   "note": "no node for the S6 runner stub exists in plans/piles/live-run-fvf/ by grep (FV3-20 kept as the stub node of the main pass); a new finding for it is owed"
   }
  },
  "pins": {
