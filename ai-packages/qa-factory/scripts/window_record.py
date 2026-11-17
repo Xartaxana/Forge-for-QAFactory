@@ -314,15 +314,17 @@ REVIEW_KIND_CLAUSE = {
     "stopped": ", and this instance was blocked by the stand",
     "gapped": ", and this instance's probe could not run here (a person's word or the factory names it)",
     "handed": ", and this instance is run by the person",
-    "ran": ", and this instance ran with its proof",
+    "ran": ", and this instance is closed by its own run and proof",
 }
-_STATIC_WORDS = "the verdict of such an instance is `unverified` (a static review)"
-REVIEW_KIND_WORDS = {
-    "stopped": _STATIC_WORDS,
-    "gapped": _STATIC_WORDS,
-    "handed": "the verdict of an instance the person runs is `approved` or `unverified` (a static review)",
-    "ran": "the verdict of an instance that ran with its proof is `approved`",
+# one per-kind table: the door text and `review_origin` are both built from it, so they cannot drift apart (critic t-1241 F4)
+REVIEW_KIND_OF = {
+    "stopped": ("an instance the stand blocked", "`unverified` (a static review)"),
+    "gapped": ("an instance whose probe could not run here", "`unverified` (a static review)"),
+    "handed": ("an instance the person runs", "`approved` or `unverified` (a static review)"),
+    "ran": ("an instance closed by its own run and proof", "`approved`"),
 }
+_STATIC_WORDS = "the verdict of " + REVIEW_KIND_OF["stopped"][0] + " is " + REVIEW_KIND_OF["stopped"][1]
+REVIEW_KIND_WORDS = {k: f"the verdict of {who} is {words}" for k, (who, words) in REVIEW_KIND_OF.items()}
 _REVIEW_CRITIC_DOOR = ": the critic records it through `manifest_put.py`"
 _REVIEW_PERSON_DOOR = ("; or, when the person accepts the test without the critic's verdict, the orchestrator records their words "
                        "with `" + REVIEW_GAP_RECORD + "` (the S5 step passes; delivery still reads no critic verdict)")
@@ -332,8 +334,8 @@ REVIEW_SHOWN_LIMIT = 60
 def review_origin() -> tuple:
     """`(what, door)` of a review gap for no particular instance: every kind's words in one sentence, then the person's door."""
     return ("the manifest row's `critic_verdict` does not close the review of its instance",
-            ORIGIN["review"][1] + " (`unverified` for an instance the stand blocked or whose probe could not run here; `approved` "
-            "or `unverified` for an instance the person runs; `approved` for one that ran with its proof)" + _REVIEW_PERSON_DOOR)
+            ORIGIN["review"][1] + " (" + "; ".join(f"{words} for {who}" for who, words in REVIEW_KIND_OF.values()) + ")"
+            + _REVIEW_PERSON_DOOR)
 
 
 def review_note(identity, kind, said):

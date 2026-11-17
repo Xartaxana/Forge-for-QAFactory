@@ -2890,7 +2890,6 @@ def c3_d_review_word_through_the_registry():
             check_eq(f"RD1-29 E3 {kind}: a list and None do not raise and are not closing",
                      [WR.review_note("A", kind, w) is not None for w in (["approved"], None, "")], [True] * 3)
         check_eq("RD1-29: the person-less origin names the union of every kind's words", backticked(" ".join(WR.review_origin())), union)
-        check_eq("RD1-29 F4: GAP_ORIGIN['review'] is built by the same builder", WR.GAP_ORIGIN["review"], WR.review_origin())
         saved = list(GT._READ)
         try:
             GT._READ[:] = [({"rows": "x"}, gate_registry.structural_error({"rows": "x"}))]

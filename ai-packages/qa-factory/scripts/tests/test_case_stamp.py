@@ -217,7 +217,7 @@ def instance_hold_keys() -> None:
     check_eq("RD1-29: the registry reads", why, None)
     by_id = {r["id"]: r for r in registry["rows"]}
     row_of, s5 = by_id["critic_review"], by_id["s5_window"]
-    words = list(C.CRITIC_VERDICTS) + ["Approved", " approved", "approved ", "", None, ["approved"], "аpproved", "approved;rejected",
+    words = list(C.CRITIC_VERDICTS) + ["Approved", " approved", "approved ", "", None, ["approved"], "\u0430pproved", "approved;rejected",
                                        "approved" * 1250]
     broken = {"rows": [r for r in registry["rows"] if r["id"] != "critic_review"]}
     lacking = {"rows": [dict(r, words=[w for w in r["words"] if w != "approved_with_fixes"]) if r["id"] == "critic_review" else r
@@ -226,8 +226,8 @@ def instance_hold_keys() -> None:
     for consumer in sorted(row_of["accepts"]):
         for word in words:
             want = word in ("approved", "approved_with_fixes")
-            check_eq(f"RD1-29: {consumer} takes {str(word)[:20]!r} -> {want}", GT.acceptable(word, consumer), want)
-            check_eq(f"RD1-29 E2/E10: {consumer} takes {str(word)[:20]!r} on an unreadable registry or without the row -> False",
+            check_eq(f"RD1-29: {consumer} takes {ascii(str(word)[:20])} -> {want}", GT.acceptable(word, consumer), want)
+            check_eq(f"RD1-29 E2/E10: {consumer} takes {ascii(str(word)[:20])} on an unreadable registry or without the row -> False",
                      [GT.acceptable(word, consumer, registry=reg) for reg in (unreadable, broken)], [False, False])
         check_eq(f"RD1-29: {consumer} with a registry lacking `approved_with_fixes` (the data drives it) -> False",
                  GT.acceptable("approved_with_fixes", consumer, registry=lacking), False)

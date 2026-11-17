@@ -3548,7 +3548,7 @@ def _r_verdict(facts: dict, previous: str) -> str:
     else:
         c = reqs["counts"]
         # the one reader of `counts["proven"]`: None is "the ledger could not say which tests count" (`_count_by_tests`)
-        proven = ("proven by tests: unknown — " + facts["unknown"].get("ledger", "the factory's record of the checks was not readable")
+        proven = ("proven by tests: unknown — " + facts["unknown"].get("tests", facts["unknown"].get("ledger", "the factory's record of the checks was not readable"))
                   if c["proven"] is None else f"{c['proven']} proven by tests")
         sentences.append(f"Of {_n(reqs['total'], 'requirement', 'requirements')}: {proven}, "
                          # a segment only when there is one (HF8-17, M-F): the same number split, never a smaller one
@@ -3567,7 +3567,7 @@ def _r_verdict(facts: dict, previous: str) -> str:
         sentences.append(f"A person must check {_n(len(cases['to_check']), 'case', 'cases')}; "
                          f"{_n(len(cases['partly']), 'case is', 'cases are')} closed only partly.")
     if tests is None:
-        sentences.append("Tests: unknown — " + facts["unknown"].get("ledger", "not readable") + ".")
+        sentences.append("Tests: unknown — " + facts["unknown"].get("tests", facts["unknown"].get("ledger", "not readable")) + ".")
     else:
         sentences.append(f"{_n(tests['count'], 'green test counts', 'green tests count')} as proven.")
         if tests["unverified"]:

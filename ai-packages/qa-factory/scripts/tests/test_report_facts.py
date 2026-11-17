@@ -438,6 +438,8 @@ def proven_rules() -> None:
             check_in("RD1-29 E2: ... the block says the gap is the factory's and names the registry",
                      "Unknown which tests are proven — a gap of the factory's tool, not of the product: the gate registry cannot be read",
                      RF.render(unread)["proven"])
+            check_in("RD1-29 F2: the verdict block names the registry, not the ledger, as the cause",
+                     "the gate registry cannot be read", RF.render(unread)["verdict"])
         finally:
             GT._READ[:] = saved
     finally:
