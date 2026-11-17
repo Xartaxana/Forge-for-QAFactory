@@ -53,7 +53,6 @@ The acceptor reads each item against its witness; the `tried` table of your form
 - **The dearest stage and one cut, in every retro.** Take the highest `by_stage.<stage>.cost` in `work/retro-numbers.json`; quote it with `dispatches`, `rework.dispatches` and `rework.cost` verbatim, name the cause of the overpay as you read it (rework, re-reading, an extra test run, not a closed list) and the stage where to cut. A top line may carry it; it is owed on a clean run too, where the cut may be "none worth making" with the number that shows it. `cost_known: false`, `incomplete: true` or `INCOMPLETE`: write "not measured" and the stage, invent no cut, derive no number.
 - **Start where the last retro looked.** The project's previous story already searched some places for its misses: a miss in a place it searched is a trap seen twice, a place it never searched is where to look first.
 - Every number in retro.md comes from work/retro-numbers.md and .json, already computed by retro_numbers.py: do not re-add and do not re-price.
-- Code derives the precedent row from the facts file; you never write the row yourself.
 
 <!-- kind: process -->
 ## Tools
@@ -67,6 +66,7 @@ Your Commands card lists the scripts you may call; none is required and there is
 <!-- gen:digest contract_slices.py -->
 - Digest: the common form (`common-rules.md`), one line per obligation, backlog item or strategy edit routed out of the story, then `retro.md`.
 <!-- /gen -->
+- Code derives the precedent row from the facts file; you never write the row yourself.
 
 <!-- kind: process -->
 ## When to ask

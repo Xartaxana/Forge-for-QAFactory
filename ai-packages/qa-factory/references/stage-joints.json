@@ -327,9 +327,7 @@
               "page": true
             }
           ],
-          "demands": [
-            "= the file name"
-          ]
+          "demands": []
         }
       ],
       "joint": null
@@ -4379,7 +4377,7 @@
       "stages": [
         "S8"
       ],
-      "requirement": "A bug filed from a draft of this run carries non-empty `cases` (from the draft's `case`/`cases`) and `requirements` (the R-n its `violates` names). A bug from a draft also names `cases` (or `cases: []` with `no_case_reason`).",
+      "requirement": "A bug filed from a draft of this run carries `requirements` (the R-n its `violates` names) and names `cases` (from the draft's `case`/`cases`), or `cases: []` with `no_case_reason`.",
       "door": "edit the file and the field the refusal line names",
       "when": [
         "always"
@@ -4877,7 +4875,7 @@
       "stages": [
         "S6"
       ],
-      "requirement": "The run report carries an `execution_status` from its list, computed from the run's own evidence, and `blocked` when `env_preflight` is blocked. A blocked `env_preflight` means `execution_status` is env_blocked - one field, one source. `execution_status` from passed|failed|env_blocked|not_executed|broken_run|timeout.",
+      "requirement": "The run report carries an `execution_status` from its list, computed from the run's own evidence. A blocked `env_preflight` means `execution_status` is env_blocked - one field, one source. `execution_status` from passed|failed|env_blocked|not_executed|broken_run|timeout.",
       "door": "edit the file and the field the refusal line names",
       "when": [
         "always"
@@ -4903,7 +4901,7 @@
       "stages": [
         "S6"
       ],
-      "requirement": "Every `results[]` row is an object naming one case or a test id, with a status from its list, a reason when skipped, and totals that agree with the rows. Every `results[]` row names ONE case, even when one test covers several, with a status from passed|failed|error|skipped|not_run, and a skip carries its reason.",
+      "requirement": "Every `results[]` row is an object with a status from passed|failed|error|skipped|not_run, a reason when skipped, and totals that agree with the rows. A row names ONE case, even when one test covers several, or carries only a `test_id`.",
       "door": "edit the file and the field the refusal line names",
       "when": [
         "always"

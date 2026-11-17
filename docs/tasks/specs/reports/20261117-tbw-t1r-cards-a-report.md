@@ -216,3 +216,29 @@ def main(argv):
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
 ```
+
+## Fix round (t-1214 attempt 2, after verdict t-1230)
+
+- F1: `stage-joints.json` row `exit_gate:case_identity` `producers[0].demands` is now `[]` (Lead exception to R-3, convention of the 262 page-told rows). `stage_joints.py --check` now prints ONE finding, the unsited one (11 vs 17, 6 ids + 11 first_look:put.*).
+- F2: the witness was re-run once after all edits (below); the earlier "1 finding" tail is superseded.
+- F3: three old sentences replaced so each row says one thing that matches its body.
+  - check_run_report_v0 now: "... computed from the run's own evidence. A blocked `env_preflight` means `execution_status` is env_blocked - one field, one source. ..." (pre-append sentence was: "... and `blocked` when `env_preflight` is blocked.").
+  - check_bug_filing_header now: "carries `requirements` (the R-n its `violates` names) and names `cases` (from the draft's `case`/`cases`), or `cases: []` with `no_case_reason`." (pre-append: "carries non-empty `cases` (from the draft's `case`/`cases`) and `requirements` (the R-n its `violates` names).").
+  - check_result_rows now: "Every `results[]` row is an object with a status from passed|failed|error|skipped|not_run, a reason when skipped, and totals that agree with the rows. A row names ONE case, even when one test covers several, or carries only a `test_id`." (pre-append: "naming one case or a test id, with a status from its list, a reason when skipped, and totals ...").
+- F5: commit names AR-10 AR-11 AR-20 AR-22 AR-29; raise lines per role (units are tokens, the role-load unit; bytes ~ 4x).
+- F6: 8 K lines moved from `## Techniques` (craft) to the end of `## Tools` (process): ts-2b ts-3a (strategist), cd-2k cd-3 (case-designer), ck-4a (code-critic), fa-1ak (failure-analyst), br-2k (bug-reporter), ra-3k (retro-analyst). `process_ratchet_tokens` set to the measure (slack 0): strategist 17899 -> 17954 (+55), case-designer 13895 -> 13944 (+49), code-critic 21747 -> 21784 (+37), failure-analyst 19489 -> 19507 (+18), bug-reporter 15705 -> 15734 (+29), retro-analyst 14620 -> 14642 (+22); runner 17278 -> 17247 (-31, LOWERED: F3 sentence shorter). `ratchet_tokens` totals unchanged or lower (runner 18887 -> 18856, bug-reporter 16625 -> 16614), no raise. No role over 100000 B (role_load totals max 25,699 tokens).
+- Finding for TBW1-16 (not mine, no test touched): `test_contract_slices` X1-7 "the designer's page carries the token the case identity gate demands - '= the file name'" is red since the M2 conversion (the token left the page with the "gate also reads" line); with demands `[]` the pin no longer judges anything real. Other reds there: T1rs/sited, marked-by-proof, entry-uniform (execution_request, TBW1-16/17).
+
+### Fix round witness (one run after all edits; tails verbatim)
+```
+contract_slices.py --write : slices: 44 declared, 0 rewritten   (after the move: wrote the changed slices first)
+contract_slices.py --check : slices: 44 declared, all present and fresh; 20 key pages; 12 charters carry a generated digest line
+stage_joints.py --check    : ... told counters: hand_cards 12, legacy_legs 0, unsited 17
+                             REJECT - 1 finding(s):
+                             - stage-joints: told_ratchet.unsited is 11 but 17 rows have no site in code (artifact_producer:validate, s5_precheck:sides.provisional, ...)
+role_rules.py --check      : role-rules: 457 rows, 546 carriers checked, 0 finding(s)
+selftest.py --limits --lang: PASS limits ... PASS limits: every mandatory role rule ... holds in its carrier ; === qa-factory selftest: 4/4 ok ===
+keep tests of the owns (scenario files printed for agents/slices not run: heavy, and no change of code):
+test_contract_slices 527/531 (reds: T1rs/sited, T1rs/marked-by-proof, T1rs/entry-uniform, X1-7) | test_detector_verdict 831/831 | test_selftest_slow_tests 124/124
+test_stage_joints 317/340 (23 reds, all from unsited 11 vs 17 or the row-count pin 273 vs 285 or K6/E1 demands, K12 caps: TBW1-16 pins) | test_audit_rules 375/375 | test_first_look_wiring 102/102 | test_role_load 186/186
+```

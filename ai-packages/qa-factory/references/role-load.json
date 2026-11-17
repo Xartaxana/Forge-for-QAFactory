@@ -24,16 +24,16 @@
   "process_ratchet_tokens": {
     "qa-scout": 15713,
     "qa-requirements-tester": 13538,
-    "qa-test-strategist": 17899,
-    "qa-case-designer": 13895,
+    "qa-test-strategist": 17954,
+    "qa-case-designer": 13944,
     "qa-case-critic": 19112,
     "qa-automator": 24109,
-    "qa-code-critic": 21747,
-    "qa-runner": 17278,
-    "qa-failure-analyst": 19489,
-    "qa-bug-reporter": 15705,
+    "qa-code-critic": 21784,
+    "qa-runner": 17247,
+    "qa-failure-analyst": 19507,
+    "qa-bug-reporter": 15734,
     "qa-doc-scribe": 19462,
-    "qa-retro-analyst": 14620
+    "qa-retro-analyst": 14642
   },
   "native_headroom": {
     "qa-automator": 79970,
