@@ -1234,7 +1234,7 @@ def _hook_copy(folder: Path, transcripts_source=None) -> Path:
     tools = Path(__file__).resolve().parent
     folder.mkdir(parents=True, exist_ok=True)
     for name in ("journal_echo.py", "tier_echo.py", "journal_validator.py", "journal_keys.py", "dev_config.py",
-                 "transcripts.py"):
+                 "tier_ladder.py", "transcripts.py"):
         (folder / name).write_bytes((tools / name).read_bytes())
     if transcripts_source is _ABSENT:
         (folder / "transcripts.py").unlink()

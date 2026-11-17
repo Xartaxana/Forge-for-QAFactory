@@ -1991,8 +1991,6 @@ def build_notes_len_segment(events: list, ascii_only: bool = False) -> str:
 #      hence a full pre-pass over new_lines (alongside base_lines) for
 #      critic delegations BEFORE the main trigger pass, see
 #      _collect_r3_events.
-#   S4 basis=="judge" (a leaf-class judge acceptance silences this
-#      layer unconditionally)
 #   S5 a bare `critic:t-NNN` token in notes (regex CRITIC_TOKEN_RE =
 #      `\bcritic:(t-\d{3,})\b`, a literal -- the same case-sensitive
 #      convention journal_validator's replaces_worker token uses --
@@ -2032,8 +2030,8 @@ def build_notes_len_segment(events: list, ascii_only: bool = False) -> str:
 # whitespace-only task_id does not enter the set, fix the class not
 # the instance); notes is None -> treated as empty (the S2/S5 regexes
 # simply don't match a non-string); basis absent -> the check falls
-# through S1/S4 to S2/S3/S5; basis=="queued-to-lead" -> does NOT
-# silence (equal to neither "critic" nor "judge"); agent != builder ->
+# through S1 to S2/S3/S5; basis=="queued-to-lead" -> does NOT
+# silence (not "critic"); agent != builder ->
 # outside the trigger, silent; a repeated accepted on one task_id ->
 # each line is checked independently (the shared critic_task_ids is
 # not consumed); a retro acceptance (notes contains "retroactive") ->
@@ -2172,7 +2170,7 @@ def _check_accepted_r3(obj: dict, critic_task_ids: set):
     collected). Split out as its own function by the same pattern
     _check_delegated_retry follows above for ESCALATION ECHO.
 
-    S5 is computed ONCE (s5_valid) BEFORE the S1/S4 branching -- used
+    S5 is computed ONCE (s5_valid) BEFORE the S1 branching -- used
     in BOTH branches (M1 -- one more independent silencer alongside
     S2/S3; M2 -- an alternative to a delegated record under the SAME
     task_id, literally per M2's text: "close with a critic:t-NNN token
@@ -2198,8 +2196,6 @@ def _check_accepted_r3(obj: dict, critic_task_ids: set):
             if m.group(1) in critic_task_ids:
                 s5_valid = True
                 break
-    if basis == "judge":
-        return None  # S4
     if basis == "critic":
         if task_id in critic_task_ids or s5_valid:
             return None  # S1 confirmed by delegation OR a valid S5

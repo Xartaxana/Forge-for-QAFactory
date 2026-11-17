@@ -1036,7 +1036,12 @@ _ROLE_TYPE_BUILTIN_HARNESS_TYPES = frozenset(
     {"general-purpose", "claude-code-guide", "explore", "plan", "statusline-setup"}
 )
 
-_FAMILY_NAMES = ("fable", "opus", "sonnet", "haiku")
+try:
+    from tools import tier_ladder  # package-style
+except ImportError:
+    import tier_ladder  # sibling-module fallback (the ladder home: a leaf, stdlib only, not a gate)
+
+_FAMILY_NAMES = tuple(reversed(tier_ladder.FAMILIES))  # strongest-first, as before; the order comes from the home
 # A non-greedy variant of LABEL_MODEL_PREFIX_RE's leading-token check,
 # local to this layer: LABEL_MODEL_PREFIX_RE itself (`^\S+[ :-]`,
 # greedy) is used unchanged by check 3 above and must not be touched;
@@ -1051,16 +1056,9 @@ _FRONTMATTER_MODEL_RE = re.compile(r"^model:\s*(\S+)", re.MULTILINE)
 
 
 def _model_family(model_id) -> str | None:
-    """The same substring heuristic used elsewhere in this tool set for
-    a bound model's tier family -- implemented locally (this layer
-    does not import any other gate module for it)."""
-    if not isinstance(model_id, str) or not model_id:
-        return None
-    low = model_id.lower()
-    for fam in _FAMILY_NAMES:
-        if fam in low:
-            return fam
-    return None
+    """A bound model's tier family, read through tier_ladder.family_of -- the
+    ladder home is a leaf (stdlib only), not a gate module."""
+    return tier_ladder.family_of(model_id)
 
 
 def label_model_family(description) -> str | None:

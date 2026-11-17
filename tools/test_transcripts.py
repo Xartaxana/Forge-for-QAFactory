@@ -1383,9 +1383,9 @@ def test_dispatch_gate_alone_in_a_folder_really_fails_to_import_the_module_and_s
         assert done.returncode == 0, done.stderr
         return json.loads(done.stdout)
 
-    missing, (cap_code, message, _note) = run(_alone(tmp_path / "a", "dispatch_gate.py"))
+    missing, (cap_code, message, _note) = run(_alone(tmp_path / "a", "dispatch_gate.py", "tier_ladder.py"))
     assert missing is True and cap_code == 2 and "tools/transcripts.py did not import" in message
-    present, (cap_code, message, _note) = run(_alone(tmp_path / "b", "dispatch_gate.py", "transcripts.py"))
+    present, (cap_code, message, _note) = run(_alone(tmp_path / "b", "dispatch_gate.py", "tier_ladder.py", "transcripts.py"))
     assert present is False and cap_code == 2 and "did not import" not in message  # control: the module is found
 
 

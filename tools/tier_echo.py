@@ -123,7 +123,12 @@ except ImportError:
 except Exception as _exc:  # present as a package but broken
     _TRANSCRIPTS_OFF_LINE = _transcripts_off_line(_exc)
 
-KNOWN_TIER_WORDS = ("haiku", "sonnet", "opus", "fable")
+try:
+    from tools import tier_ladder  # package-style
+except ImportError:
+    import tier_ladder  # sibling-module fallback (a leaf: stdlib only, no pyyaml on this hook's path; the ladder home)
+
+KNOWN_TIER_WORDS = tier_ladder.FAMILIES  # weakest -> strongest, the one home's order
 
 # Harness-internal stop-sequence transcript lines carry
 # model=="<synthetic>" -- not a real subagent turn, meaningless for the
