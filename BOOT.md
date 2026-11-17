@@ -2,9 +2,10 @@
 
 The repository is the only source of truth.
 
-Note: CLAUDE.md (the routing policy) auto-loads into every session on
-its own — that auto-load is NOT a boot. Full state recovery is this
-sequence, run on the operator's request ("restore context from
+Note: CLAUDE.md (the worker block: dispatch form, command hygiene, worker
+duties, language) auto-loads into every session on its own — that auto-load
+is NOT a boot. The coordinator's rules are named by the SessionStart line
+`COORDINATOR RULES:`. Full state recovery is this sequence, run on the operator's request ("restore context from
 BOOT.md" or equivalent).
 
 When starting a new session, read Layer A then Layer B:

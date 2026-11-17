@@ -456,10 +456,16 @@ def world_list(token: str, ctx: FillContext) -> tuple:
     return [p.stem for p in sorted((q for q in folder.glob(row["glob"]) if q.is_file()), key=lambda q: q.name)], ""
 
 
-def _spread_world_rows(text: str, items: list, ctx: FillContext, fills: list, unfillable: list) -> str:
+def _excused(contract: str, list_path: str) -> bool:
+    """May this list stay empty (AR-23)? True for every list path of the contract that crosses no list row and is not a required list
+    (`handoff.list_paths`, `handoff.REQUIRED_LISTS`): an untouched row there is the empty list, so no file is no reason to refuse."""
+    return list_path in set(handoff.list_paths(contract)) - set(handoff.REQUIRED_LISTS)
+
+
+def _spread_world_rows(text: str, items: list, ctx: FillContext, fills: list, unfillable: list, contract: str) -> str:
     """The form text with every list item that carries a world-list token written once per existing file (the token replaced by the file's stem).
-    No file: the item is `Unfillable` (no path is made up, and the contract's own `null_outcome` block keys whole sections, so it declares no empty
-    outcome for a nested list). A token in no list item has no single file to name: `Unfillable` too."""
+    No file: a list the contract lets stay empty (`_excused`) is left untouched; any other is `Unfillable` (no path is made up, and a required
+    list may not be empty). A token in no list item has no single file to name: `Unfillable` too."""
     tokens = rules()["world_list_tokens"]
     groups = {}
     for item in items:
@@ -478,8 +484,11 @@ def _spread_world_rows(text: str, items: list, ctx: FillContext, fills: list, un
         if names is None:
             unfillable.append(Unfillable(group[0].path, group[0].raw, why))
         elif not names:
-            unfillable.append(Unfillable(group[0].path, group[0].raw, f"no {tokens[found[0]]['what']} exists in {tokens[found[0]]['dir']}/ and the contract "
-                                                                      f"declares no empty outcome for {list_path}"))
+            if _excused(contract, list_path):
+                continue
+            reason = (f"`{list_path}` is a required list: it may not be empty" if list_path in handoff.REQUIRED_LISTS
+                      else f"the contract declares no empty outcome for {list_path}")
+            unfillable.append(Unfillable(group[0].path, group[0].raw, f"no {tokens[found[0]]['what']} exists in {tokens[found[0]]['dir']}/ and {reason}"))
         else:
             mine = [n for p, n in nodes.items() if p == row or p.startswith(row + ".") or p.startswith(row + "[")]
             spans.append((min(n.line for n in mine), max(n.end_line for n in mine), found[0], names, group))
@@ -653,7 +662,7 @@ def fill_form(contract: str, ctx: FillContext, *, verdict=None, variant: str = V
     spans = [(name, _section_span(doc.lines, name), name in dropped) for name in sorted(dropped | emptied)]
     for name, span, drop in sorted((s for s in spans if s[1]), key=lambda s: s[1][0], reverse=True):
         doc.lines[span[0]:span[1] + 1] = [] if drop else [f"{name}: []"]
-    text = _spread_world_rows(doc.text(), worlds, ctx, fills, unfillable) if worlds else doc.text()
+    text = _spread_world_rows(doc.text(), worlds, ctx, fills, unfillable, contract) if worlds else doc.text()
     return Filled(contract, word_text, variant, text, handoff.parse(text).data, fills, unfillable, left, literal, list(survey.kept))
 
 

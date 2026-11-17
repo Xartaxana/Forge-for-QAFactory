@@ -17,6 +17,13 @@
 # forward, it does not itself rewrite any file's current content.
 CLAUDE.md text eol=lf
 BOOT.md text eol=lf
+# t-1250 F6: the other files session_context.py sizes at boot (the BOOT.md list and the coordinator files);
+# a CRLF checkout adds a byte per line to the on-disk size the budget measures.
+COORDINATOR.md text eol=lf
+PROJECT.md text eol=lf
+SYSTEM_PROMPT.md text eol=lf
+DECISIONS.md text eol=lf
+CURRENT_CONTEXT.md text eol=lf
 tools/*.py text eol=lf
 .githooks/* text eol=lf
 # Generated file compared byte-for-byte by `tools/factory_rules_index.py --check`

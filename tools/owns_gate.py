@@ -2,7 +2,7 @@ r"""owns_gate.py -- a Claude Code PreToolUse hook on Task/Agent, WARN-ONLY
 (measure first, decide whether to block later). Mechanizes a machine
 check that a NEW writing dispatch's owns paths don't collide with the
 owns paths of currently LIVE dispatches -- one layer of protection
-against parallel-dispatch collisions (CLAUDE.md rule 4: "parallel
+against parallel-dispatch collisions (COORDINATOR.md rule 4: "parallel
 specs declare path ownership; the Lead checks overlap before
 launching" -- a manual check decays with the coordinator's memory,
 this is a machine backstop on top of it, not a replacement for it).

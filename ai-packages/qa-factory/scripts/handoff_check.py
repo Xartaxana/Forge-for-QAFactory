@@ -1218,16 +1218,30 @@ def _open_rows_from_contract(doc, contract: str, section: str, key: str, values:
     return True
 
 
-def _is_empty_section(doc, spec, section: str) -> bool:
-    """A list whose every row is still the contract's example: the role filled nothing."""
-    rows = doc.data.get(section)
-    if not isinstance(rows, list) or not rows:
+def _data_at(data, path: str):
+    """The value at the dotted `path` walked through maps (None when a step is not a map or the key is absent)."""
+    for segment in path.split("."):
+        data = data.get(segment) if isinstance(data, dict) else None
+    return data
+
+
+def _template_value_at(contract, path: str):
+    """The contract's own value at the dotted `path` (None when it cannot be read): the template `only_template` compares tokens with."""
+    try:
+        return _data_at(handoff.template(contract).data, path)
+    except Exception:                                  # noqa: BLE001 - no readable template: no token rule
+        return None
+
+
+def _is_empty_section(doc, spec, path: str, contract=None) -> bool:
+    """A list nobody filled (AR-23): absent, not a list, `[]`, or every leaf still the contract's example (`handoff.only_template`,
+    the one reader of an untouched row). `path` is dotted: the value is walked through maps, so a list nested in a map reads the same
+    as a top-level one. With `contract`, a leaf that still carries the contract's own `<...>` token counts as untouched too; with
+    none there is no token rule (recursion as `only_template`)."""
+    value = _data_at(doc.data, path)
+    if not isinstance(value, list) or not value:
         return True
-    for row in rows:
-        values = row.values() if isinstance(row, dict) else [row]
-        if any(not handoff.is_placeholder(v) for v in values):
-            return False
-    return True
+    return handoff.only_template(value, _template_value_at(contract, path) if contract else None)
 
 
 # ----------------------------------------------------------------- the null outcome (FR-23)
@@ -1634,14 +1648,14 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
                         derived.append({"field": f"{section}[]", "source": got[1]})
                         doc = handoff.parse(doc.text())
         for section, entry in nulled.items():
-            if not (NO.CONDITIONS[entry["condition"]].opens_rows and _is_empty_section(doc, spec, section)):
+            if not (NO.CONDITIONS[entry["condition"]].opens_rows and _is_empty_section(doc, spec, section, contract)):
                 continue
             # The null outcome (FR-23): code opens what the triage already says - one `not_for_repair` row per
             # triage row, with its verdict - and only when the triage is clean, so a repair the role forgot is
             # never papered over by rows that look like a finished handover.
             listed = str(entry["params"]["listed_in"])
             _problems, openable = (_investigation_view if investigating else _null_outcome_impl(entry))(doc, section, entry, contract, art)
-            if openable and _is_empty_section(doc, spec, listed):
+            if openable and _is_empty_section(doc, spec, listed, contract):
                 ids = [ident for ident, _verdict in openable]
                 also = {ident: {"verdict": verdict} for ident, verdict in openable}
                 if (_open_rows(doc, listed, "id", ids, also)
@@ -1653,10 +1667,8 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
                                             "source": NO.CONDITIONS[entry["condition"]].source})
                     doc = handoff.parse(doc.text())
     empty_sections = set()
-    for section, kind in handoff.sections(contract).items():
-        if kind != "list" or handoff.owned_by_contract(section):
-            continue
-        if _is_empty_section(doc, spec, section):
+    for section in handoff.list_paths(contract):
+        if _is_empty_section(doc, spec, section, contract):
             empty_sections.add(section)
             if section in handoff.REQUIRED_LISTS:
                 if section in nulled:
@@ -1665,8 +1677,8 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
                     continue
                 problems.append(Problem(
                     section, refusal("handoff_check:required_rows",
-                             "no rows. One row per item in scope: the id, a state and a reason "
-                             f"of at most 80 characters. {_row_sentence(row_form(spec, section, _template_nodes(contract), contract=contract)[1])}"),
+                             f"no rows. `{section}` is a required list and may not be empty. "
+                             f"{_row_sentence(row_form(spec, section, _template_nodes(contract), contract=contract)[1])}"),
                     "write the rows as index lines in the values file, then run this check again"))
     # F4 (AR-10, AR-28, AR-29): a verdict that sends the window back owes the sections the contract's `rows_owed_when`
     # lists; an empty one (nothing, or only the template row) is a presence gap returned to the role. Only the
@@ -1674,7 +1686,7 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
     verdict_word = str(doc.get("header.verdict") or "").strip()
     for section in sorted(handoff.rows_owed(contract, verdict_word)):
         rows = doc.data.get(section)
-        if not (_is_empty_section(doc, spec, section) or (isinstance(rows, list) and all(handoff.only_template(r) for r in rows))):
+        if not (_is_empty_section(doc, spec, section, contract) or (isinstance(rows, list) and all(handoff.only_template(r) for r in rows))):
             continue
         keys = row_form(spec, section, _template_nodes(contract), contract=contract)[1]             # this contract's own row paths: S2-S4 rows are not S5 rows
         cause = f"; cause is one of {', '.join(handoff.allowed('repair_causes'))}" if any(k.endswith(".cause") for k in keys) else ""
@@ -1684,14 +1696,14 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
                      f"is a row: {_row_sentence(keys)}{cause}"),
             f"write the rows as index lines in the values file ({', '.join(keys)}), then run this check again"))
     for section, entry in nulled.items():
-        if _is_empty_section(doc, spec, section):
+        if _is_empty_section(doc, spec, section, contract):
             continue
         # t-323 F1: a row that names several failures, or several rows for one failure, is refused on THIS path too -
         # the empty-section path says it in the condition's view; here a kept ambiguous TEST_BUG row beside a
         # non-empty repair list used to reach `s7_repairs` (the view says only that, for a non-empty section)
         problems += (_investigation_view if investigating else _null_outcome_impl(entry))(doc, section, entry, contract, art)[0]
     for section, entry in nulled.items():
-        if _is_empty_section(doc, spec, section):
+        if _is_empty_section(doc, spec, section, contract):
             continue
         # A word that SAYS the null (`none` in `header.window`) beside a section that lists rows says the opposite:
         # the automator would read the header and skip its window. The words, and what each one means, are the
@@ -1706,7 +1718,7 @@ def check(doc, contract: str, art: Artifacts, *, fix=False, task="", use_judge=T
                       f"`{said['word']}` belongs only to the empty `{section}` of the null outcome."),
                 f'--set {path}="{handoff.template(contract).get(path) or "<the value of the field>"}"'))
     for path, node in list(doc.nodes.items()):
-        if handoff.owned_by_contract(path) or path.split("[")[0].split(".")[0] in empty_sections:
+        if handoff.owned_by_contract(path) or any(path == p or path.startswith(p + "[") for p in empty_sections):
             continue
         generic = re.sub(r"\[\d+\]", "[]", path)
         field = spec.get(generic)
@@ -2391,13 +2403,13 @@ def _list_key(name: str) -> str:
 def row_form(spec: dict, name: str = "", nodes=None, contract="") -> tuple:
     """`(list name, paths of its row 0)`: the ONE hint of how a row of a list is written (HF8-7, AR-13/AR-15).
 
-    The list is `name` (indexes taken off) when it is a list of rows; else the first of `handoff.REQUIRED_LISTS` the
+    The list is `name` (indexes taken off) when it is a list of rows; else the item list (`handoff.ITEM_LIST`) the
     contract has; else the first by the spec's order. No list of rows -> `("", [])`. The contract decides which list
     and which fields (AR-1); code only shows the form of the line."""
     lists = _row_lists(spec, nodes, contract)
     key = _list_key(name)
     if key not in lists:
-        key = next((n for n in handoff.REQUIRED_LISTS if n in lists), next(iter(lists), ""))
+        key = handoff.ITEM_LIST if handoff.ITEM_LIST in lists else next(iter(lists), "")
     return (key, lists[key]) if key else ("", [])
 
 

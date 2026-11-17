@@ -76,7 +76,7 @@ if streams:
 # day one -- leave both at the epoch. If you are adopting the policy on
 # an EXISTING journal, set these to your own cutover moments: events
 # earlier than the cutoff are read manually, append-only, and excluded
-# from the field-completeness candidate count (see CLAUDE.md's "Routing
+# from the field-completeness candidate count (see COORDINATOR.md's "Routing
 # log" section and the weekly calibration protocol).
 DEFAULT_BY_SINCE = "1970-01-01T00:00:00"
 LEGACY_CUTOFF = "1970-01-01T00:00:00"
@@ -491,7 +491,7 @@ def _lifecycle(parsed_lines: List[ParsedLine], k, window_start: Optional[datetim
             last_status_k[k(d)] = ev
         elif ev == "decomposable":
             # Unclosed-tasks fix (a prior review finding), part (2): per the policy state machine
-            # (CLAUDE.md's journal mermaid diagram), decomposable CLOSES the dispatch (a return to the
+            # (COORDINATOR.md's journal mermaid diagram), decomposable CLOSES the dispatch (a return to the
             # coordinator under the same task_id) -- it does not stay "delegated" forever.
             last_status[tid] = "decomposable"
             last_status_k[k(d)] = "decomposable"
@@ -826,7 +826,7 @@ def render_text(report: Dict[str, Any]) -> str:
     return "\n".join(out)
 
 
-# FG7-21: the repeat marker of a dispatch_skipped (rule 8 of CLAUDE.md: from the SECOND self-execution of a class
+# FG7-21: the repeat marker of a dispatch_skipped (rule 8 of COORDINATOR.md: from the SECOND self-execution of a class
 # in a session the event is marked). A CLOSED token, matched as this exact lowercase literal in the whole notes;
 # the code never reads the wording of a reason (FR-12, P27) and never guesses the class: it prints the chains.
 REPEAT_MARKER = "repeat:"
