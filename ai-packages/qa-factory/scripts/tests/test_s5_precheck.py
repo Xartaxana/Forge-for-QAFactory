@@ -2151,6 +2151,12 @@ def open_oracle_door_is_chosen_by_the_binding_file() -> None:
             check_eq(f"FL9 {label}: a note exactly when the key is unusable, naming it",
                      [("oracle_binding_forms" in n) for n in notes], [True] if noted else [])
         check_in("door B is unchanged", "goes back to S4", P._open_oracle_door("TC-500", 2, "", "QA-500", False, ["tests/test_x.py"]))
+        # the ghost-row line names the task in its road (the raw `<T>` road is the class of F3)
+        ghost = {"tests": [{"instance_id": "t_x[a]", "case": "TC-1", "status": "green", "file": "a.py"}], "retracted_instances": ["t_x[a]"]}
+        fixes: list = []
+        P.check_bindings(ghost, "TC-1", "## Then\n1. a\n", [], [], fixes, "QA-9")
+        check_eq("FL9 class: the ghost line's road carries the task",
+                 [("--task QA-9 --fragment" in f["fix"], "<T>" in f["fix"]) for f in fixes if f["id"].endswith("ghost-t_x[a]")], [(True, False)])
         # the siblings: the same reader decides the marker text of the three other lines
         for label, files, said in (("a .py file keeps the marker text", ["a.py"], True), ("a .cs file gets the manifest_put road", ["A.cs"], False)):
             check_eq(f"FL9 sibling {label}", bool(P._marker_form(files)), said)

@@ -1259,7 +1259,7 @@ def bindings_of_case(manifest: dict, case: str, cfg: dict | None = None) -> list
 
 
 def check_bindings(manifest: dict, case: str, text: str, files: list, targets: list,
-                   findings: list) -> None:
+                   findings: list, task: str = "") -> None:
     clauses = then_clauses(text)
     if not clauses:
         return
@@ -1276,7 +1276,7 @@ def check_bindings(manifest: dict, case: str, text: str, files: list, targets: l
                 "bindings", case,
                 DV.refusal("s5_precheck:bindings", f"tests[] row {instance!r} is the ghost of an instance this manifest retracted: it carries no `covers` "
                 f"or `case_version_links`, proves no case, and makes that id look covered"),
-                f"retract it again with `{FRAGMENT_ROAD}` carrying "
+                f"retract it again with `{_road(task)}` carrying "
                 + json.dumps({"retracted_instances": [instance]}) + " (this also takes out the Then rows still bound "
                 "to it), or, to bring the test back, send its whole row with `covers` and `case_version_links`",
                 f"ghost-{instance}"))
@@ -2243,7 +2243,7 @@ def _sides_pending(ctx) -> None:
                 for s in (by_alias[n]["sides"] if isinstance(by_alias[n].get("sides"), dict) else {})):
             add(case, f"the `pending_implementation` row of {case or '-'} still stands, and every instance it names "
                 f"({', '.join(named)}) has run stamped real on every side its test names",
-                f"retract it so the runs decide: `{FRAGMENT_ROAD}` with `{{\"retracted_unresolved\": [\"{case}\"]}}` "
+                f"retract it so the runs decide: `{_road(ctx.task_root.name)}` with `{{\"retracted_unresolved\": [\"{case}\"]}}` "
                 "(a slice row is kept by design until the automator retracts it)", f"pending-row-leftover-{case}")
 
 
@@ -4558,7 +4558,7 @@ class _Window:
                              "bind it to an assertion of the planned test, " + self.fix_dev("remainder"), f"c13-remainder-{tid}-{case}-{number}")
                 continue
             self.add(case, f"Then {number} of {case} is planned in {where} and has no `then_bindings` row naming an instance of it with an `assertion_ref` (C2)",
-                     f"bind the Then to the planned test and its assertion line in the fragment ({FRAGMENT_ROAD}), or change the plan through a deviation row",
+                     f"bind the Then to the planned test and its assertion line in the fragment ({_road(self.task_root.name)}), or change the plan through a deviation row",
                      f"c2-{tid}-{case}-{number}")
 
     def c5(self, test: dict, tid: str, key: str, mine: list, where: str, matched: list) -> None:
@@ -4745,7 +4745,7 @@ def run(task_root, dispatch_id: str | None = None, scope: list | None = None, ju
         every_target += [(case, pyfile, name, node) for pyfile, name, node in targets]
         check_run_mapping(case, entries, targets, rows, findings, case in handed_cases, blocked, pending)
         if text:
-            check_bindings(manifest, case, text, files, targets, findings)
+            check_bindings(manifest, case, text, files, targets, findings, task_root.name)
             check_open_oracle_asserted(task_root, case, text, manifest, findings, notes, questions)
             check_smells(case, text, files, targets, advice, task_root, notes)
         # A value taken before an action and compared after it (TQ1-18): OUTSIDE `if text` - it reads the test's AST only, and an
