@@ -479,3 +479,5 @@ Lead debt for this session; F7 (a) the wait on TR4-17 is dropped (its batch is n
 node-id survivor, added by the Lead with the acceptance commit of the code; F9 the finding goes to onboarding-forge as a
 transfer line. critic on this plan: skipped -- every fork follows the recommendation, no field changes meaning (F1 adds a
 refusal the spec of FL1 already asks for); the code gets the topic critic. The builder starts after a writer slot frees.
+
+- Node id (Lead, 17.11.2026): the node opened for F4 is **RD1-35** in `plans/piles/rules-debt/batch-1-phase-2.md` (RD1-19b broke the id form `<initials><N>-<n>`, `tools/test_pile_cards_contents.py`; main canon 44161711037 red).
